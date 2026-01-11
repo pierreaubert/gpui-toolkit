@@ -1,0 +1,158 @@
+{
+  "module": "d3-interpolate",
+  "function": "interpolateColor",
+  "tolerance": 0.000001,
+  "generated_at": "2025-12-08T20:24:30.917Z",
+  "test_cases": [
+    {
+      "name": "rgb_red_blue",
+      "config": {
+        "a": "red",
+        "b": "blue",
+        "space": "rgb"
+      },
+      "inputs": [
+        0,
+        0.25,
+        0.5,
+        0.75,
+        1
+      ],
+      "outputs": [
+        "rgb(255, 0, 0)",
+        "rgb(191, 0, 64)",
+        "rgb(128, 0, 128)",
+        "rgb(64, 0, 191)",
+        "rgb(0, 0, 255)"
+      ]
+    },
+    {
+      "name": "hsl_red_blue",
+      "config": {
+        "a": "red",
+        "b": "blue",
+        "space": "hsl"
+      },
+      "inputs": [
+        0,
+        0.25,
+        0.5,
+        0.75,
+        1
+      ],
+      "outputs": [
+        "rgb(255, 0, 0)",
+        "rgb(255, 0, 128)",
+        "rgb(255, 0, 255)",
+        "rgb(128, 0, 255)",
+        "rgb(0, 0, 255)"
+      ]
+    },
+    {
+      "name": "hsl_long_red_blue",
+      "config": {
+        "a": "red",
+        "b": "blue",
+        "space": "hsl-long"
+      },
+      "inputs": [
+        0,
+        0.25,
+        0.5,
+        0.75,
+        1
+      ],
+      "outputs": [
+        "rgb(255, 0, 0)",
+        "rgb(255, 255, 0)",
+        "rgb(0, 255, 0)",
+        "rgb(0, 255, 255)",
+        "rgb(0, 0, 255)"
+      ]
+    },
+    {
+      "name": "lab_red_blue",
+      "config": {
+        "a": "red",
+        "b": "blue",
+        "space": "lab"
+      },
+      "inputs": [
+        0,
+        0.25,
+        0.5,
+        0.75,
+        1
+      ],
+      "outputs": [
+        "rgb(255, 0, 0)",
+        "rgb(227, 0, 79)",
+        "rgb(193, 0, 136)",
+        "rgb(145, 0, 194)",
+        "rgb(0, 0, 255)"
+      ]
+    },
+    {
+      "name": "hcl_red_blue",
+      "config": {
+        "a": "red",
+        "b": "blue",
+        "space": "hcl"
+      },
+      "inputs": [
+        0,
+        0.25,
+        0.5,
+        0.75,
+        1
+      ],
+      "outputs": [
+        "rgb(255, 0, 0)",
+        "rgb(255, 0, 72)",
+        "rgb(245, 0, 134)",
+        "rgb(187, 0, 200)",
+        "rgb(0, 0, 255)"
+      ]
+    },
+    {
+      "name": "cubehelix_red_blue",
+      "config": {
+        "a": "red",
+        "b": "blue",
+        "space": "cubehelix"
+      },
+      "inputs": [
+        0,
+        0.25,
+        0.5,
+        0.75,
+        1
+      ],
+      "outputs": [
+        "rgb(255, 0, 0)",
+        "rgb(255, 0, 94)",
+        "rgb(238, 0, 209)",
+        "rgb(125, 0, 255)",
+        "rgb(0, 0, 255)"
+      ]
+    },
+    {
+      "name": "rgb_hex",
+      "config": {
+        "a": "#ff0000",
+        "b": "#0000ff",
+        "space": "rgb"
+      },
+      "inputs": [
+        0,
+        0.5,
+        1
+      ],
+      "outputs": [
+        "rgb(255, 0, 0)",
+        "rgb(128, 0, 128)",
+        "rgb(0, 0, 255)"
+      ]
+    }
+  ]
+}

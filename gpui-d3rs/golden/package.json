@@ -1,0 +1,17 @@
+{
+  "name": "d3rs-golden-tests",
+  "version": "1.0.0",
+  "description": "Golden file generator for d3rs compatibility testing",
+  "main": "generate.js",
+  "scripts": {
+    "generate": "node generate.js",
+    "generate:scales": "node generate.js scales",
+    "generate:interpolate": "node generate.js interpolate",
+    "generate:array": "node generate.js array",
+    "generate:color": "node generate.js color",
+    "generate:shape": "node generate.js shape"
+  },
+  "dependencies": {
+    "d3": "^7.9.0"
+  }
+}

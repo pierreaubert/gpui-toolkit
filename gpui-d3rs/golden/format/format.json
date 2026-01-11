@@ -1,0 +1,301 @@
+{
+  "module": "d3-format",
+  "function": "format",
+  "tolerance": 0.000001,
+  "generated_at": "2025-12-08T20:24:30.926Z",
+  "test_cases": [
+    {
+      "name": "default",
+      "values": [
+        0,
+        1,
+        10,
+        100,
+        1000,
+        10000,
+        100000,
+        1000000
+      ],
+      "formatted": [
+        "0",
+        "1",
+        "10",
+        "100",
+        "1000",
+        "10000",
+        "100000",
+        "1000000"
+      ]
+    },
+    {
+      "name": "fixed_2",
+      "specifier": ".2f",
+      "values": [
+        0.123456,
+        1.23456,
+        12.3456,
+        123.456
+      ],
+      "formatted": [
+        "0.12",
+        "1.23",
+        "12.35",
+        "123.46"
+      ]
+    },
+    {
+      "name": "thousands",
+      "specifier": ",",
+      "values": [
+        1000,
+        10000,
+        100000,
+        1000000
+      ],
+      "formatted": [
+        "1,000",
+        "10,000",
+        "100,000",
+        "1,000,000"
+      ]
+    },
+    {
+      "name": "si_prefix",
+      "specifier": ".2s",
+      "values": [
+        0.001,
+        0.01,
+        0.1,
+        1,
+        10,
+        100,
+        1000,
+        1000000,
+        1000000000
+      ],
+      "formatted": [
+        "1.0m",
+        "10m",
+        "100m",
+        "1.0",
+        "10",
+        "100",
+        "1.0k",
+        "1.0M",
+        "1.0G"
+      ]
+    },
+    {
+      "name": "percentage",
+      "specifier": ".0%",
+      "values": [
+        0,
+        0.1,
+        0.25,
+        0.5,
+        0.75,
+        1,
+        1.5
+      ],
+      "formatted": [
+        "0%",
+        "10%",
+        "25%",
+        "50%",
+        "75%",
+        "100%",
+        "150%"
+      ]
+    },
+    {
+      "name": "percentage_decimal",
+      "specifier": ".1%",
+      "values": [
+        0.123,
+        0.456,
+        0.789
+      ],
+      "formatted": [
+        "12.3%",
+        "45.6%",
+        "78.9%"
+      ]
+    },
+    {
+      "name": "exponential",
+      "specifier": ".2e",
+      "values": [
+        0.00123,
+        0.0123,
+        0.123,
+        1.23,
+        12.3,
+        123,
+        1230,
+        12300
+      ],
+      "formatted": [
+        "1.23e-3",
+        "1.23e-2",
+        "1.23e-1",
+        "1.23e+0",
+        "1.23e+1",
+        "1.23e+2",
+        "1.23e+3",
+        "1.23e+4"
+      ]
+    },
+    {
+      "name": "binary",
+      "specifier": "b",
+      "values": [
+        0,
+        1,
+        2,
+        4,
+        8,
+        16,
+        255
+      ],
+      "formatted": [
+        "0",
+        "1",
+        "10",
+        "100",
+        "1000",
+        "10000",
+        "11111111"
+      ]
+    },
+    {
+      "name": "hexadecimal",
+      "specifier": "x",
+      "values": [
+        0,
+        10,
+        16,
+        255,
+        4096
+      ],
+      "formatted": [
+        "0",
+        "a",
+        "10",
+        "ff",
+        "1000"
+      ]
+    },
+    {
+      "name": "sign_always",
+      "specifier": "+",
+      "values": [
+        -100,
+        -10,
+        0,
+        10,
+        100
+      ],
+      "formatted": [
+        "−100",
+        "−10",
+        "+0",
+        "+10",
+        "+100"
+      ]
+    },
+    {
+      "name": "zero_padding",
+      "specifier": "06d",
+      "values": [
+        1,
+        10,
+        100,
+        1000
+      ],
+      "formatted": [
+        "000001",
+        "000010",
+        "000100",
+        "001000"
+      ]
+    },
+    {
+      "name": "currency",
+      "specifier": "$,.2f",
+      "values": [
+        1234.56,
+        12345.67,
+        123456.78
+      ],
+      "formatted": [
+        "$1,234.56",
+        "$12,345.67",
+        "$123,456.78"
+      ]
+    },
+    {
+      "name": "specifier_parsing",
+      "specifiers": [
+        {
+          "input": ".2f",
+          "fill": " ",
+          "align": ">",
+          "sign": "-",
+          "symbol": "",
+          "zero": false,
+          "comma": false,
+          "precision": 2,
+          "trim": false,
+          "type": "f"
+        },
+        {
+          "input": ",",
+          "fill": " ",
+          "align": ">",
+          "sign": "-",
+          "symbol": "",
+          "zero": false,
+          "comma": true,
+          "trim": false,
+          "type": ""
+        },
+        {
+          "input": ".2s",
+          "fill": " ",
+          "align": ">",
+          "sign": "-",
+          "symbol": "",
+          "zero": false,
+          "comma": false,
+          "precision": 2,
+          "trim": false,
+          "type": "s"
+        },
+        {
+          "input": "+.2f",
+          "fill": " ",
+          "align": ">",
+          "sign": "+",
+          "symbol": "",
+          "zero": false,
+          "comma": false,
+          "precision": 2,
+          "trim": false,
+          "type": "f"
+        },
+        {
+          "input": "06d",
+          "fill": " ",
+          "align": ">",
+          "sign": "-",
+          "symbol": "",
+          "zero": true,
+          "width": 6,
+          "comma": false,
+          "trim": false,
+          "type": "d"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,137 @@
+[package]
+name = "gpui-d3rs"
+version = "0.5.10"
+edition.workspace = true
+authors.workspace = true
+description = "D3.js-inspired plotting library for GPUI"
+license = "ISC"
+keywords = ["gpui", "plotting", "visualization", "d3", "charts"]
+categories = ["visualization", "gui"]
+
+[lib]
+name = "d3rs"
+
+[features]
+default = ["gpui", "gpu-2d"]
+gpui = ["dep:gpui", "dep:gpui-ui-kit"]
+spinorama = ["dep:autoeq", "dep:autoeq-cea2034", "dep:tokio", "dep:ndarray", "dep:reqwest", "dep:urlencoding", "gpui"]
+gpu-3d = ["dep:wgpu", "dep:bytemuck", "dep:glam", "dep:pollster", "dep:image", "gpui"]
+gpu-2d = ["dep:wgpu", "dep:bytemuck", "dep:glam", "dep:pollster", "dep:image", "dep:fontdue", "gpui"]
+
+[dependencies]
+gpui = { workspace = true, optional = true }
+gpui-ui-kit = { workspace = true, optional = true }
+regex = { workspace = true }
+delaunator = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+autoeq = { workspace = true, optional = true }
+autoeq-cea2034 = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true }
+ndarray = { workspace = true, optional = true }
+reqwest = { workspace = true, optional = true }
+urlencoding = { workspace = true, optional = true }
+# GPU-accelerated 3D surface rendering
+wgpu = { workspace = true, optional = true }
+bytemuck = { workspace = true, optional = true }
+glam = { workspace = true, optional = true }
+pollster = { workspace = true, optional = true }
+image = { workspace = true, optional = true }
+fontdue = { workspace = true, optional = true }
+
+[dev-dependencies]
+approx = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[[bin]]
+name = "d3rs-showcase"
+path = "bin/showcase/main.rs"
+required-features = ["gpui", "gpu-2d"]
+
+
+[[bin]]
+name = "d3rs-spinorama"
+path = "bin/spinorama_demo/main.rs"
+required-features = ["spinorama", "gpu-2d", "gpu-3d"]
+
+# Non-GPUI examples (can run without gpui feature)
+[[example]]
+name = "scale_demo"
+path = "examples/scale_demo.rs"
+
+[[example]]
+name = "array_demo"
+path = "examples/array_demo.rs"
+
+[[example]]
+name = "color_demo"
+path = "examples/color_demo.rs"
+
+[[example]]
+name = "contour_demo"
+path = "examples/contour_demo.rs"
+
+[[example]]
+name = "fetch_demo"
+path = "examples/fetch_demo.rs"
+
+[[example]]
+name = "interpolate_demo"
+path = "examples/interpolate_demo.rs"
+
+[[example]]
+name = "shape_demo"
+path = "examples/shape_demo.rs"
+
+[[example]]
+name = "delaunay_demo"
+path = "examples/delaunay_demo.rs"
+
+[[example]]
+name = "timer_demo"
+path = "examples/timer_demo.rs"
+
+[[example]]
+name = "geo_demo"
+path = "examples/geo_demo.rs"
+
+[[example]]
+name = "transition_demo"
+path = "examples/transition_demo.rs"
+
+[[example]]
+name = "surface3d_demo"
+path = "examples/surface3d_demo.rs"
+required-features = ["gpu-3d"]
+
+[[example]]
+name = "gpu2d_demo"
+path = "examples/gpu2d_demo.rs"
+required-features = ["gpu-2d"]
+
+[[example]]
+name = "gpu2d_shapes_demo"
+path = "examples/gpu2d_shapes_demo.rs"
+required-features = ["gpu-2d"]
+
+[[example]]
+name = "gpu2d_contour_demo"
+path = "examples/gpu2d_contour_demo.rs"
+required-features = ["gpu-2d"]
+
+[[example]]
+name = "hierarchy_demo"
+path = "examples/hierarchy_demo.rs"
+
+[[example]]
+name = "force_demo"
+path = "examples/force_demo.rs"
+
+[[example]]
+name = "chord_demo"
+path = "examples/chord_demo.rs"
+
+[[example]]
+name = "chromatic_demo"
+path = "examples/chromatic_demo.rs"

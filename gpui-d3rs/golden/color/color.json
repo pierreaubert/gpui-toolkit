@@ -1,0 +1,186 @@
+{
+  "module": "d3-color",
+  "function": "color",
+  "tolerance": 0.000001,
+  "generated_at": "2025-12-08T20:24:30.919Z",
+  "test_cases": [
+    {
+      "name": "parsing",
+      "colors": [
+        {
+          "input": "red",
+          "r": 255,
+          "g": 0,
+          "b": 0,
+          "opacity": 1,
+          "hex": "#ff0000",
+          "rgb": "rgb(255, 0, 0)"
+        },
+        {
+          "input": "green",
+          "r": 0,
+          "g": 128,
+          "b": 0,
+          "opacity": 1,
+          "hex": "#008000",
+          "rgb": "rgb(0, 128, 0)"
+        },
+        {
+          "input": "blue",
+          "r": 0,
+          "g": 0,
+          "b": 255,
+          "opacity": 1,
+          "hex": "#0000ff",
+          "rgb": "rgb(0, 0, 255)"
+        },
+        {
+          "input": "#ff0000",
+          "r": 255,
+          "g": 0,
+          "b": 0,
+          "opacity": 1,
+          "hex": "#ff0000",
+          "rgb": "rgb(255, 0, 0)"
+        },
+        {
+          "input": "#00ff00",
+          "r": 0,
+          "g": 255,
+          "b": 0,
+          "opacity": 1,
+          "hex": "#00ff00",
+          "rgb": "rgb(0, 255, 0)"
+        },
+        {
+          "input": "#0000ff",
+          "r": 0,
+          "g": 0,
+          "b": 255,
+          "opacity": 1,
+          "hex": "#0000ff",
+          "rgb": "rgb(0, 0, 255)"
+        },
+        {
+          "input": "rgb(255, 128, 0)",
+          "r": 255,
+          "g": 128,
+          "b": 0,
+          "opacity": 1,
+          "hex": "#ff8000",
+          "rgb": "rgb(255, 128, 0)"
+        },
+        {
+          "input": "rgba(100, 150, 200, 0.5)",
+          "r": 100,
+          "g": 150,
+          "b": 200,
+          "opacity": 0.5,
+          "hex": "#6496c8",
+          "rgb": "rgba(100, 150, 200, 0.5)"
+        }
+      ]
+    },
+    {
+      "name": "hsl_conversion",
+      "colors": [
+        {
+          "input": "red",
+          "h": 0,
+          "s": 1,
+          "l": 0.5
+        },
+        {
+          "input": "green",
+          "h": 120,
+          "s": 1,
+          "l": 0.25098039215686274
+        },
+        {
+          "input": "blue",
+          "h": 240,
+          "s": 1,
+          "l": 0.5
+        },
+        {
+          "input": "yellow",
+          "h": 60,
+          "s": 1,
+          "l": 0.5
+        },
+        {
+          "input": "cyan",
+          "h": 180,
+          "s": 1,
+          "l": 0.5
+        },
+        {
+          "input": "magenta",
+          "h": 300,
+          "s": 1,
+          "l": 0.5
+        }
+      ]
+    },
+    {
+      "name": "brighter_darker",
+      "base": "#4682b4",
+      "brighter_1": "#64baff",
+      "brighter_2": "#8fffff",
+      "darker_1": "#315b7e",
+      "darker_2": "#224058"
+    },
+    {
+      "name": "schemes",
+      "category10": [
+        "#1f77b4",
+        "#ff7f0e",
+        "#2ca02c",
+        "#d62728",
+        "#9467bd",
+        "#8c564b",
+        "#e377c2",
+        "#7f7f7f",
+        "#bcbd22",
+        "#17becf"
+      ],
+      "tableau10": [
+        "#4e79a7",
+        "#f28e2c",
+        "#e15759",
+        "#76b7b2",
+        "#59a14f",
+        "#edc949",
+        "#af7aa1",
+        "#ff9da7",
+        "#9c755f",
+        "#bab0ab"
+      ],
+      "paired": [
+        "#a6cee3",
+        "#1f78b4",
+        "#b2df8a",
+        "#33a02c",
+        "#fb9a99",
+        "#e31a1c",
+        "#fdbf6f",
+        "#ff7f00",
+        "#cab2d6",
+        "#6a3d9a",
+        "#ffff99",
+        "#b15928"
+      ],
+      "set1": [
+        "#e41a1c",
+        "#377eb8",
+        "#4daf4a",
+        "#984ea3",
+        "#ff7f00",
+        "#ffff33",
+        "#a65628",
+        "#f781bf",
+        "#999999"
+      ]
+    }
+  ]
+}

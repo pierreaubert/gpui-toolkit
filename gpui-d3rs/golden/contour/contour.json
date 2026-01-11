@@ -1,0 +1,125 @@
+{
+  "module": "d3-contour",
+  "function": "contour",
+  "tolerance": 0.000001,
+  "generated_at": "2025-12-08T20:24:30.924Z",
+  "test_cases": [
+    {
+      "name": "basic_density",
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          2,
+          0
+        ],
+        [
+          1,
+          2
+        ],
+        [
+          0,
+          2
+        ],
+        [
+          2,
+          2
+        ],
+        [
+          0.5,
+          0.5
+        ],
+        [
+          1.5,
+          0.5
+        ],
+        [
+          0.5,
+          1.5
+        ],
+        [
+          1.5,
+          1.5
+        ]
+      ],
+      "size": [
+        3,
+        3
+      ],
+      "bandwidth": 0.5,
+      "threshold_count": 5,
+      "contour_count": 3,
+      "values": [
+        0.2,
+        0.4,
+        0.6
+      ]
+    },
+    {
+      "name": "grid_contours",
+      "values": [
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "size": [
+        3,
+        3
+      ],
+      "thresholds": [
+        0.25,
+        0.5,
+        0.75
+      ],
+      "contour_count": 3,
+      "contours": [
+        {
+          "value": 0.25,
+          "coordinates_count": 1
+        },
+        {
+          "value": 0.5,
+          "coordinates_count": 1
+        },
+        {
+          "value": 0.75,
+          "coordinates_count": 1
+        }
+      ]
+    },
+    {
+      "name": "radial_gradient",
+      "size": [
+        10,
+        10
+      ],
+      "thresholds": [
+        0.1,
+        0.30000000000000004,
+        0.5,
+        0.7000000000000001,
+        0.9
+      ],
+      "contour_count": 5,
+      "values": [
+        0.1,
+        0.30000000000000004,
+        0.5,
+        0.7000000000000001,
+        0.9
+      ]
+    }
+  ]
+}

@@ -1,0 +1,71 @@
+# rust
+/target
+/target-static
+/coverage
+mutants.out
+
+# build
+/tools
+/dist
+/appimage-builder-*
+
+# generated data
+/data
+/data_cached
+/data_generated
+/*.csv
+/*.html
+/*.json
+/*.json.bz2
+/todos.md
+
+# node
+/node_modules
+/dist
+.sass-cache
+
+# docs
+.jekyll-cache
+.jekyll-metadata
+_site
+/README.html
+/README_files
+
+# MCP and Agents
+/.chunkhound
+autoeq_*.html
+autoeq_*.png
+bugs.md
+src/unused.rs
+/plans
+check_output_*.txt
+
+# Logs
+logs
+*.log
+/*.csv
+/*.wav
+
+
+# Editor directories and files
+/.vs
+/.vscode/*
+/.zed
+/.idea
+/.fleet
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+vendor
+TAGS
+ETAGS
+CTAGS
+*~
+.*~
+*#
+.#*
+.idea
+.qwen

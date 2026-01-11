@@ -1,0 +1,1 @@
+wget https://cdn.jsdelivr.net/npm/world-atlas@2/land-50m.json

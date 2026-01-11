@@ -1,0 +1,209 @@
+[workspace]
+members = [
+    "gpui-d3rs",
+    "gpui-px",
+    "gpui-themes",
+    "gpui-ui-kit",
+    "gpui-ui-kit/gpui-ui-kit-macros",
+]
+resolver = "3"
+
+[workspace.package]
+version = "0.5.10"
+authors = ["Pierre F. Aubert pierre@spinorama.org"]
+description = "Optimise the sound of your speakers or your headphones"
+edition = "2024"
+documentation = "https://docs.rs/gpui-toolkit"
+license = "ISC"
+repository = "https://github.com/pierreaubert/gpui-toolkit"
+
+[workspace.dependencies]
+
+# Serialization and data
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+serde_yaml = "0.9"
+
+# Async and networking
+# ideally we would use only threads or only tokio
+anyhow = { version = "1.0" }
+tokio = { version = "1", features = ["full"] }
+tokio-tungstenite = "0.21"
+signal-hook = "0.4"
+signal-hook-tokio = { version = "0.3", features = ["futures-v0_3"] }
+reqwest = { version = "0.13", features = ["json"] }
+urlencoding = "2.1"
+futures = "0.3"
+futures-util = "0.3"
+parking_lot = { version = "0.12", features = ["deadlock_detection"] }
+
+# CLI and system
+base64 = "0.22"
+byteorder = "1.5"
+chrono = { version = "0.4", features = ["serde"] }
+clap = { version = "4.5", features = ["derive"] }
+console_error_panic_hook = { version = "0.1" }
+csv = "1.4"
+ctrlc = "3.5"
+directories = "6"
+env = "1"
+env_logger = "0.11"
+getrandom = "0.2"
+libc = "0.2"
+log = "0.4"
+mimalloc = { version = "0.1" }
+notify = { version = "8.2" }
+num_cpus = "1.17"
+regex = "1.12"
+rfd = "0.16"
+rusqlite = { version = "0.38", features = ["bundled"] }
+rust-embed = "8"
+smol = "2.0"
+strsim = "0.11"
+tempfile = "3.23"
+thiserror = "2.0.17"
+criterion = "0.8.1"
+which = "8"
+walkdir = "2"
+
+# Optimization and math
+ndarray = { version = "0.17", default-features = false, features = ["rayon", "blas", "serde"] }
+ndarray-linalg = { version = "0.18" }
+rand = "0.9.2"
+netcdf = "0.11"
+num-complex = "0.4"
+num-traits = "0.2"
+rayon = "1.11"
+blas-src = {version="0.14"}
+rustfft = "6.4"
+realfft = "3.5"
+special = "0.11"  # Bessel, Hankel, Legendre functions
+spec_math = "0.1.6"
+
+math-iir-fir = { version = "0.3" }
+math-differential-evolution = { version = "0.3" }
+autoeq-env = { version = "0.3" }
+autoeq-cea2034 = { version = "0.3" }
+autoeq = { version = ">=0.3.9" }
+
+gpui-au = { path = "gpui-au" }  # macOS only
+gpui-d3rs = { path = "gpui-d3rs" }
+d3rs = { path = "gpui-d3rs", package = "gpui-d3rs", features = ["gpu-3d"] }  # alias for gpui-px
+gpui-px = { path = "gpui-px" }
+gpui-themes = { path = "gpui-themes" }
+gpui-ui-kit = { path = "gpui-ui-kit" }
+
+# GPUI framework, using HEAD (macros with _)
+gpui = { version="*", git = "https://github.com/zed-industries/zed.git" }
+gpui_macros = { version="*", git = "https://github.com/zed-industries/zed.git" }
+
+# System and low-level
+objc = "0.2"
+cocoa = "0.26"
+dirs = "6"
+sysinfo = "0.37"
+memory-stats = "1.2"
+crossbeam = "0.8"
+
+# Utilities
+approx = "0.5"
+proptest = "1.9"
+unicode-normalization = "0.1"
+toml = "0.8"
+uuid = { version = "1", features = ["v4", "serde"] }
+lazy_static = "1.4"
+bincode = { version = "2.0.1", features = ["serde"] }
+
+# Proc macro dependencies
+proc-macro2 = "1"
+quote = "1"
+syn = { version = "2", features = ["full", "parsing", "extra-traits"] }
+
+# Graphics and visualization
+wgpu = "25"
+bytemuck = { version = "1.14", features = ["derive"] }
+glam = "0.30"
+pollster = "0.4"
+image = "0.25"
+fontdue = "0.9"
+delaunator = "1.0"
+
+# GPU and macOS graphics
+metal = "0.33"
+core-graphics = "0.25"
+core-foundation = "0.10"
+core-foundation-sys = "0"
+coreaudio-sys = "0.2"
+
+# objc2 framework bindings (macOS)
+objc2 = "0.6"
+objc2-foundation = "0.3"
+objc2-core-foundation = "0.3"
+objc2-vision = "0.3"
+objc2-core-image = "0.3"
+objc2-core-video = "0.3"
+objc2-av-foundation = "0.3"
+objc2-core-media = "0.3"
+block2 = "0.6"
+dispatch = "0.2"
+
+# ffi
+cbindgen = "0.29"
+
+[workspace.lints.rust]
+ambiguous_negative_literals = "warn"
+missing_debug_implementations = "warn"
+redundant_imports = "warn"
+redundant_lifetimes = "warn"
+trivial_numeric_casts = "warn"
+unsafe_op_in_unsafe_fn = "warn"
+unused_lifetimes = "warn"
+
+[workspace.lints.clippy]
+cargo = { level = "warn", priority = -1 }
+complexity = { level = "warn", priority = -1 }
+correctness = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+perf = { level = "warn", priority = -1 }
+style = { level = "warn", priority = -1 }
+suspicious = { level = "warn", priority = -1 }
+# nursery = { level = "warn", priority = -1 }  # optional, might cause more false positives
+
+# These lints are from the `restriction` lint group and prevent specific
+# constructs being used in source code in order to drive up consistency,
+# quality, and brevity
+allow_attributes_without_reason = "warn"
+as_pointer_underscore = "warn"
+assertions_on_result_states = "warn"
+clone_on_ref_ptr = "warn"
+deref_by_slicing = "warn"
+disallowed_script_idents = "warn"
+empty_drop = "warn"
+empty_enum_variants_with_brackets = "warn"
+empty_structs_with_brackets = "warn"
+fn_to_numeric_cast_any = "warn"
+if_then_some_else_none = "warn"
+map_err_ignore = "warn"
+redundant_type_annotations = "warn"
+renamed_function_params = "warn"
+semicolon_outside_block = "warn"
+string_to_string = "warn"
+undocumented_unsafe_blocks = "warn"
+unnecessary_safety_comment = "warn"
+unnecessary_safety_doc = "warn"
+unneeded_field_pattern = "warn"
+unused_result_ok = "warn"
+
+# May cause issues with structured logging otherwise.
+literal_string_with_formatting_args = "allow"
+
+[profile.dev]
+opt-level = 1
+split-debuginfo= "packed"
+debug = 1
+codegen-units = 256
+
+[profile.release]
+lto = true
+codegen-units = 1
+panic = "unwind"  # Changed from "abort" to allow tests to run

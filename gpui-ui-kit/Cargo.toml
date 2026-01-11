@@ -1,0 +1,37 @@
+[package]
+name = "gpui-ui-kit"
+version = "0.5.10"
+authors.workspace = true
+edition.workspace = true
+description = "A reusable UI component library for GPUI applications"
+license = "ISC"
+repository.workspace = true
+
+[dependencies]
+# GPUI framework
+gpui = { workspace = true }
+
+# Serialization for Color type
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# UUID for node/connection IDs
+uuid = { workspace = true }
+
+# Proc macros for theme generation
+gpui-ui-kit-macros = { version = "0.5.10", path = "gpui-ui-kit-macros" }
+
+[dev-dependencies]
+gpui = { workspace = true, features = ["test-support"] }
+
+[lib]
+name = "gpui_ui_kit"
+path = "src/lib.rs"
+
+[[example]]
+name = "showcase"
+path = "examples/showcase.rs"
+
+[[example]]
+name = "workflow_debug"
+path = "examples/workflow_debug.rs"

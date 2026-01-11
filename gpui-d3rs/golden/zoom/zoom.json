@@ -1,0 +1,152 @@
+{
+  "module": "d3-zoom",
+  "function": "zoom",
+  "tolerance": 0.000001,
+  "generated_at": "2025-12-08T20:24:30.925Z",
+  "test_cases": [
+    {
+      "name": "identity",
+      "k": 1,
+      "x": 0,
+      "y": 0,
+      "string": "translate(0,0) scale(1)"
+    },
+    {
+      "name": "translate",
+      "k": 1,
+      "x": 100,
+      "y": 50,
+      "string": "translate(100,50) scale(1)"
+    },
+    {
+      "name": "scale",
+      "k": 2,
+      "x": 0,
+      "y": 0,
+      "string": "translate(0,0) scale(2)"
+    },
+    {
+      "name": "translate_then_scale",
+      "k": 2,
+      "x": 100,
+      "y": 50,
+      "string": "translate(100,50) scale(2)"
+    },
+    {
+      "name": "apply_to_point",
+      "transform": {
+        "k": 2,
+        "x": 100,
+        "y": 50
+      },
+      "input_point": [
+        10,
+        20
+      ],
+      "output_x": 120,
+      "output_y": 90
+    },
+    {
+      "name": "invert_point",
+      "transform": {
+        "k": 2,
+        "x": 100,
+        "y": 50
+      },
+      "input_point": [
+        120,
+        90
+      ],
+      "output_x": 10,
+      "output_y": 20
+    },
+    {
+      "name": "rescale_x",
+      "transform": {
+        "k": 2,
+        "x": 100,
+        "y": 0
+      },
+      "original_domain": [
+        0,
+        100
+      ],
+      "original_range": [
+        0,
+        500
+      ],
+      "rescaled_domain": [
+        -10,
+        40
+      ]
+    },
+    {
+      "name": "rescale_y",
+      "transform": {
+        "k": 2,
+        "x": 0,
+        "y": 50
+      },
+      "original_domain": [
+        0,
+        100
+      ],
+      "original_range": [
+        0,
+        500
+      ],
+      "rescaled_domain": [
+        -5,
+        45
+      ]
+    },
+    {
+      "name": "interpolate_zoom",
+      "start": [
+        0,
+        0,
+        100
+      ],
+      "end": [
+        100,
+        50,
+        50
+      ],
+      "inputs": [
+        0,
+        0.25,
+        0.5,
+        0.75,
+        1
+      ],
+      "outputs": [
+        [
+          -4.965068306494546e-15,
+          -2.482534153247273e-15,
+          100
+        ],
+        [
+          29.377692833889245,
+          14.688846416944623,
+          134.79716344638408
+        ],
+        [
+          66.66666666666666,
+          33.33333333333333,
+          126.92955176439847
+        ],
+        [
+          90.58005488599203,
+          45.29002744299601,
+          86.44530994102554
+        ],
+        [
+          100,
+          50,
+          49.99999999999999
+        ]
+      ],
+      "duration": 1781.390295332386
+    }
+  ]
+}

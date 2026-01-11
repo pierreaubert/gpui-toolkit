@@ -1,0 +1,93 @@
+{
+  "module": "d3-interpolate",
+  "function": "interpolateNumber",
+  "tolerance": 0.000001,
+  "generated_at": "2025-12-08T20:24:30.915Z",
+  "test_cases": [
+    {
+      "name": "basic",
+      "config": {
+        "a": 0,
+        "b": 100
+      },
+      "inputs": [
+        0,
+        0.25,
+        0.5,
+        0.75,
+        1
+      ],
+      "outputs": [
+        0,
+        25,
+        50,
+        75,
+        100
+      ]
+    },
+    {
+      "name": "negative_range",
+      "config": {
+        "a": -100,
+        "b": 100
+      },
+      "inputs": [
+        0,
+        0.25,
+        0.5,
+        0.75,
+        1
+      ],
+      "outputs": [
+        -100,
+        -50,
+        0,
+        50,
+        100
+      ]
+    },
+    {
+      "name": "extrapolation",
+      "config": {
+        "a": 0,
+        "b": 100
+      },
+      "inputs": [
+        -0.5,
+        0,
+        0.5,
+        1,
+        1.5
+      ],
+      "outputs": [
+        -50,
+        0,
+        50,
+        100,
+        150
+      ]
+    },
+    {
+      "name": "round",
+      "config": {
+        "a": 0,
+        "b": 100,
+        "round": true
+      },
+      "inputs": [
+        0,
+        0.25,
+        0.5,
+        0.75,
+        1
+      ],
+      "outputs": [
+        0,
+        25,
+        50,
+        75,
+        100
+      ]
+    }
+  ]
+}

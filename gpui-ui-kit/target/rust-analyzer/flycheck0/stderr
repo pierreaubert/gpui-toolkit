@@ -1,0 +1,347 @@
+   0.661716083s  INFO prepare_target{force=false package_id=gpui-d3rs v0.5.10 (/Users/pierre/src/sotf/gpui-d3rs) target="d3rs"}: cargo::core::compiler::fingerprint: dependency on `gpui_ui_kit` is newer than we are 1768142598.342830689s > 1768077436.363674696s "/Users/pierre/src/sotf/gpui-d3rs"
+   0.661996333s  INFO prepare_target{force=false package_id=gpui-d3rs v0.5.10 (/Users/pierre/src/sotf/gpui-d3rs) target="d3rs"}: cargo::core::compiler::fingerprint: fingerprint dirty for gpui-d3rs v0.5.10 (/Users/pierre/src/sotf/gpui-d3rs)/Check { test: false }/TargetInner { ..: lib_target("d3rs", ["lib"], "/Users/pierre/src/sotf/gpui-d3rs/src/lib.rs", Edition2024) }
+   0.662007167s  INFO prepare_target{force=false package_id=gpui-d3rs v0.5.10 (/Users/pierre/src/sotf/gpui-d3rs) target="d3rs"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDependency { name: "gpui_ui_kit", dep_mtime: FileTime { seconds: 1768142598, nanos: 342830689 }, max_mtime: FileTime { seconds: 1768077436, nanos: 363674696 } })
+   0.665277292s  INFO prepare_target{force=false package_id=gpui-d3rs v0.5.10 (/Users/pierre/src/sotf/gpui-d3rs) target="d3rs-showcase"}: cargo::core::compiler::fingerprint: fingerprint dirty for gpui-d3rs v0.5.10 (/Users/pierre/src/sotf/gpui-d3rs)/Check { test: false }/TargetInner { name: "d3rs-showcase", required_features: Some(["gpui", "gpu-2d"]), doc: true, ..: with_path("/Users/pierre/src/sotf/gpui-d3rs/bin/showcase/main.rs", Edition2024) }
+   0.665286500s  INFO prepare_target{force=false package_id=gpui-d3rs v0.5.10 (/Users/pierre/src/sotf/gpui-d3rs) target="d3rs-showcase"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDepFingerprint { name: "d3rs" })
+   0.666417292s  INFO prepare_target{force=false package_id=gpui-d3rs v0.5.10 (/Users/pierre/src/sotf/gpui-d3rs) target="d3rs-showcase"}: cargo::core::compiler::fingerprint: fingerprint dirty for gpui-d3rs v0.5.10 (/Users/pierre/src/sotf/gpui-d3rs)/Check { test: true }/TargetInner { name: "d3rs-showcase", required_features: Some(["gpui", "gpu-2d"]), doc: true, ..: with_path("/Users/pierre/src/sotf/gpui-d3rs/bin/showcase/main.rs", Edition2024) }
+   0.666422625s  INFO prepare_target{force=false package_id=gpui-d3rs v0.5.10 (/Users/pierre/src/sotf/gpui-d3rs) target="d3rs-showcase"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDepFingerprint { name: "d3rs" })
+   0.667470708s  INFO prepare_target{force=false package_id=gpui-d3rs v0.5.10 (/Users/pierre/src/sotf/gpui-d3rs) target="golden_tests"}: cargo::core::compiler::fingerprint: fingerprint dirty for gpui-d3rs v0.5.10 (/Users/pierre/src/sotf/gpui-d3rs)/Check { test: true }/TargetInner { kind: "test", name: "golden_tests", benched: false, ..: with_path("/Users/pierre/src/sotf/gpui-d3rs/tests/golden_tests.rs", Edition2024) }
+   0.667475375s  INFO prepare_target{force=false package_id=gpui-d3rs v0.5.10 (/Users/pierre/src/sotf/gpui-d3rs) target="golden_tests"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDepFingerprint { name: "d3rs" })
+   0.668731875s  INFO prepare_target{force=false package_id=gpui-d3rs v0.5.10 (/Users/pierre/src/sotf/gpui-d3rs) target="tests_golden"}: cargo::core::compiler::fingerprint: fingerprint dirty for gpui-d3rs v0.5.10 (/Users/pierre/src/sotf/gpui-d3rs)/Check { test: true }/TargetInner { kind: "test", name: "tests_golden", benched: false, ..: with_path("/Users/pierre/src/sotf/gpui-d3rs/tests/tests_golden.rs", Edition2024) }
+   0.668738875s  INFO prepare_target{force=false package_id=gpui-d3rs v0.5.10 (/Users/pierre/src/sotf/gpui-d3rs) target="tests_golden"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDepFingerprint { name: "d3rs" })
+   0.669677250s  INFO prepare_target{force=false package_id=gpui-d3rs v0.5.10 (/Users/pierre/src/sotf/gpui-d3rs) target="array_demo"}: cargo::core::compiler::fingerprint: fingerprint dirty for gpui-d3rs v0.5.10 (/Users/pierre/src/sotf/gpui-d3rs)/Check { test: false }/TargetInner { kind: "example", name: "array_demo", tested: false, benched: false, ..: with_path("/Users/pierre/src/sotf/gpui-d3rs/examples/array_demo.rs", Edition2024) }
+   0.669682292s  INFO prepare_target{force=false package_id=gpui-d3rs v0.5.10 (/Users/pierre/src/sotf/gpui-d3rs) target="array_demo"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDepFingerprint { name: "d3rs" })
+   0.670746875s  INFO prepare_target{force=false package_id=gpui-d3rs v0.5.10 (/Users/pierre/src/sotf/gpui-d3rs) target="chord_demo"}: cargo::core::compiler::fingerprint: fingerprint dirty for gpui-d3rs v0.5.10 (/Users/pierre/src/sotf/gpui-d3rs)/Check { test: false }/TargetInner { kind: "example", name: "chord_demo", tested: false, benched: false, ..: with_path("/Users/pierre/src/sotf/gpui-d3rs/examples/chord_demo.rs", Edition2024) }
+   0.670750292s  INFO prepare_target{force=false package_id=gpui-d3rs v0.5.10 (/Users/pierre/src/sotf/gpui-d3rs) target="chord_demo"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDepFingerprint { name: "d3rs" })
+   0.671702625s  INFO prepare_target{force=false package_id=gpui-d3rs v0.5.10 (/Users/pierre/src/sotf/gpui-d3rs) target="chromatic_demo"}: cargo::core::compiler::fingerprint: fingerprint dirty for gpui-d3rs v0.5.10 (/Users/pierre/src/sotf/gpui-d3rs)/Check { test: false }/TargetInner { kind: "example", name: "chromatic_demo", tested: false, benched: false, ..: with_path("/Users/pierre/src/sotf/gpui-d3rs/examples/chromatic_demo.rs", Edition2024) }
+   0.671705917s  INFO prepare_target{force=false package_id=gpui-d3rs v0.5.10 (/Users/pierre/src/sotf/gpui-d3rs) target="chromatic_demo"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDepFingerprint { name: "d3rs" })
+   0.672635583s  INFO prepare_target{force=false package_id=gpui-d3rs v0.5.10 (/Users/pierre/src/sotf/gpui-d3rs) target="color_demo"}: cargo::core::compiler::fingerprint: fingerprint dirty for gpui-d3rs v0.5.10 (/Users/pierre/src/sotf/gpui-d3rs)/Check { test: false }/TargetInner { kind: "example", name: "color_demo", tested: false, benched: false, ..: with_path("/Users/pierre/src/sotf/gpui-d3rs/examples/color_demo.rs", Edition2024) }
+   0.672639750s  INFO prepare_target{force=false package_id=gpui-d3rs v0.5.10 (/Users/pierre/src/sotf/gpui-d3rs) target="color_demo"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDepFingerprint { name: "d3rs" })
+   0.673816583s  INFO prepare_target{force=false package_id=gpui-d3rs v0.5.10 (/Users/pierre/src/sotf/gpui-d3rs) target="contour_demo"}: cargo::core::compiler::fingerprint: fingerprint dirty for gpui-d3rs v0.5.10 (/Users/pierre/src/sotf/gpui-d3rs)/Check { test: false }/TargetInner { kind: "example", name: "contour_demo", tested: false, benched: false, ..: with_path("/Users/pierre/src/sotf/gpui-d3rs/examples/contour_demo.rs", Edition2024) }
+   0.673822250s  INFO prepare_target{force=false package_id=gpui-d3rs v0.5.10 (/Users/pierre/src/sotf/gpui-d3rs) target="contour_demo"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDepFingerprint { name: "d3rs" })
+   0.674718125s  INFO prepare_target{force=false package_id=gpui-d3rs v0.5.10 (/Users/pierre/src/sotf/gpui-d3rs) target="delaunay_demo"}: cargo::core::compiler::fingerprint: fingerprint dirty for gpui-d3rs v0.5.10 (/Users/pierre/src/sotf/gpui-d3rs)/Check { test: false }/TargetInner { kind: "example", name: "delaunay_demo", tested: false, benched: false, ..: with_path("/Users/pierre/src/sotf/gpui-d3rs/examples/delaunay_demo.rs", Edition2024) }
+   0.674722125s  INFO prepare_target{force=false package_id=gpui-d3rs v0.5.10 (/Users/pierre/src/sotf/gpui-d3rs) target="delaunay_demo"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDepFingerprint { name: "d3rs" })
+   0.675876333s  INFO prepare_target{force=false package_id=gpui-d3rs v0.5.10 (/Users/pierre/src/sotf/gpui-d3rs) target="fetch_demo"}: cargo::core::compiler::fingerprint: fingerprint dirty for gpui-d3rs v0.5.10 (/Users/pierre/src/sotf/gpui-d3rs)/Check { test: false }/TargetInner { kind: "example", name: "fetch_demo", tested: false, benched: false, ..: with_path("/Users/pierre/src/sotf/gpui-d3rs/examples/fetch_demo.rs", Edition2024) }
+   0.675882125s  INFO prepare_target{force=false package_id=gpui-d3rs v0.5.10 (/Users/pierre/src/sotf/gpui-d3rs) target="fetch_demo"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDepFingerprint { name: "d3rs" })
+   0.676929458s  INFO prepare_target{force=false package_id=gpui-d3rs v0.5.10 (/Users/pierre/src/sotf/gpui-d3rs) target="force_demo"}: cargo::core::compiler::fingerprint: fingerprint dirty for gpui-d3rs v0.5.10 (/Users/pierre/src/sotf/gpui-d3rs)/Check { test: false }/TargetInner { kind: "example", name: "force_demo", tested: false, benched: false, ..: with_path("/Users/pierre/src/sotf/gpui-d3rs/examples/force_demo.rs", Edition2024) }
+   0.676936167s  INFO prepare_target{force=false package_id=gpui-d3rs v0.5.10 (/Users/pierre/src/sotf/gpui-d3rs) target="force_demo"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDepFingerprint { name: "d3rs" })
+   0.678043458s  INFO prepare_target{force=false package_id=gpui-d3rs v0.5.10 (/Users/pierre/src/sotf/gpui-d3rs) target="geo_demo"}: cargo::core::compiler::fingerprint: fingerprint dirty for gpui-d3rs v0.5.10 (/Users/pierre/src/sotf/gpui-d3rs)/Check { test: false }/TargetInner { kind: "example", name: "geo_demo", tested: false, benched: false, ..: with_path("/Users/pierre/src/sotf/gpui-d3rs/examples/geo_demo.rs", Edition2024) }
+   0.678047750s  INFO prepare_target{force=false package_id=gpui-d3rs v0.5.10 (/Users/pierre/src/sotf/gpui-d3rs) target="geo_demo"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDepFingerprint { name: "d3rs" })
+   0.679133042s  INFO prepare_target{force=false package_id=gpui-d3rs v0.5.10 (/Users/pierre/src/sotf/gpui-d3rs) target="gpu2d_contour_demo"}: cargo::core::compiler::fingerprint: fingerprint dirty for gpui-d3rs v0.5.10 (/Users/pierre/src/sotf/gpui-d3rs)/Check { test: false }/TargetInner { kind: "example", name: "gpu2d_contour_demo", required_features: Some(["gpu-2d"]), tested: false, benched: false, ..: with_path("/Users/pierre/src/sotf/gpui-d3rs/examples/gpu2d_contour_demo.rs", Edition2024) }
+   0.679137833s  INFO prepare_target{force=false package_id=gpui-d3rs v0.5.10 (/Users/pierre/src/sotf/gpui-d3rs) target="gpu2d_contour_demo"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDepFingerprint { name: "d3rs" })
+   0.680038917s  INFO prepare_target{force=false package_id=gpui-d3rs v0.5.10 (/Users/pierre/src/sotf/gpui-d3rs) target="gpu2d_demo"}: cargo::core::compiler::fingerprint: fingerprint dirty for gpui-d3rs v0.5.10 (/Users/pierre/src/sotf/gpui-d3rs)/Check { test: false }/TargetInner { kind: "example", name: "gpu2d_demo", required_features: Some(["gpu-2d"]), tested: false, benched: false, ..: with_path("/Users/pierre/src/sotf/gpui-d3rs/examples/gpu2d_demo.rs", Edition2024) }
+   0.680042875s  INFO prepare_target{force=false package_id=gpui-d3rs v0.5.10 (/Users/pierre/src/sotf/gpui-d3rs) target="gpu2d_demo"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDepFingerprint { name: "d3rs" })
+   0.680857125s  INFO prepare_target{force=false package_id=gpui-d3rs v0.5.10 (/Users/pierre/src/sotf/gpui-d3rs) target="gpu2d_shapes_demo"}: cargo::core::compiler::fingerprint: fingerprint dirty for gpui-d3rs v0.5.10 (/Users/pierre/src/sotf/gpui-d3rs)/Check { test: false }/TargetInner { kind: "example", name: "gpu2d_shapes_demo", required_features: Some(["gpu-2d"]), tested: false, benched: false, ..: with_path("/Users/pierre/src/sotf/gpui-d3rs/examples/gpu2d_shapes_demo.rs", Edition2024) }
+   0.680861083s  INFO prepare_target{force=false package_id=gpui-d3rs v0.5.10 (/Users/pierre/src/sotf/gpui-d3rs) target="gpu2d_shapes_demo"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDepFingerprint { name: "d3rs" })
+   0.681932875s  INFO prepare_target{force=false package_id=gpui-d3rs v0.5.10 (/Users/pierre/src/sotf/gpui-d3rs) target="hierarchy_demo"}: cargo::core::compiler::fingerprint: fingerprint dirty for gpui-d3rs v0.5.10 (/Users/pierre/src/sotf/gpui-d3rs)/Check { test: false }/TargetInner { kind: "example", name: "hierarchy_demo", tested: false, benched: false, ..: with_path("/Users/pierre/src/sotf/gpui-d3rs/examples/hierarchy_demo.rs", Edition2024) }
+   0.681942167s  INFO prepare_target{force=false package_id=gpui-d3rs v0.5.10 (/Users/pierre/src/sotf/gpui-d3rs) target="hierarchy_demo"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDepFingerprint { name: "d3rs" })
+   0.682971083s  INFO prepare_target{force=false package_id=gpui-d3rs v0.5.10 (/Users/pierre/src/sotf/gpui-d3rs) target="interpolate_demo"}: cargo::core::compiler::fingerprint: fingerprint dirty for gpui-d3rs v0.5.10 (/Users/pierre/src/sotf/gpui-d3rs)/Check { test: false }/TargetInner { kind: "example", name: "interpolate_demo", tested: false, benched: false, ..: with_path("/Users/pierre/src/sotf/gpui-d3rs/examples/interpolate_demo.rs", Edition2024) }
+   0.682975958s  INFO prepare_target{force=false package_id=gpui-d3rs v0.5.10 (/Users/pierre/src/sotf/gpui-d3rs) target="interpolate_demo"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDepFingerprint { name: "d3rs" })
+   0.683893292s  INFO prepare_target{force=false package_id=gpui-d3rs v0.5.10 (/Users/pierre/src/sotf/gpui-d3rs) target="quadtree_demo"}: cargo::core::compiler::fingerprint: fingerprint dirty for gpui-d3rs v0.5.10 (/Users/pierre/src/sotf/gpui-d3rs)/Check { test: false }/TargetInner { kind: "example", name: "quadtree_demo", tested: false, benched: false, ..: with_path("/Users/pierre/src/sotf/gpui-d3rs/examples/quadtree_demo.rs", Edition2024) }
+   0.683897833s  INFO prepare_target{force=false package_id=gpui-d3rs v0.5.10 (/Users/pierre/src/sotf/gpui-d3rs) target="quadtree_demo"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDepFingerprint { name: "d3rs" })
+   0.685028083s  INFO prepare_target{force=false package_id=gpui-d3rs v0.5.10 (/Users/pierre/src/sotf/gpui-d3rs) target="scale_demo"}: cargo::core::compiler::fingerprint: fingerprint dirty for gpui-d3rs v0.5.10 (/Users/pierre/src/sotf/gpui-d3rs)/Check { test: false }/TargetInner { kind: "example", name: "scale_demo", tested: false, benched: false, ..: with_path("/Users/pierre/src/sotf/gpui-d3rs/examples/scale_demo.rs", Edition2024) }
+   0.685032708s  INFO prepare_target{force=false package_id=gpui-d3rs v0.5.10 (/Users/pierre/src/sotf/gpui-d3rs) target="scale_demo"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDepFingerprint { name: "d3rs" })
+   0.686105500s  INFO prepare_target{force=false package_id=gpui-d3rs v0.5.10 (/Users/pierre/src/sotf/gpui-d3rs) target="shape_demo"}: cargo::core::compiler::fingerprint: fingerprint dirty for gpui-d3rs v0.5.10 (/Users/pierre/src/sotf/gpui-d3rs)/Check { test: false }/TargetInner { kind: "example", name: "shape_demo", tested: false, benched: false, ..: with_path("/Users/pierre/src/sotf/gpui-d3rs/examples/shape_demo.rs", Edition2024) }
+   0.686109792s  INFO prepare_target{force=false package_id=gpui-d3rs v0.5.10 (/Users/pierre/src/sotf/gpui-d3rs) target="shape_demo"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDepFingerprint { name: "d3rs" })
+   0.687612208s  INFO prepare_target{force=false package_id=gpui-d3rs v0.5.10 (/Users/pierre/src/sotf/gpui-d3rs) target="surface3d_demo"}: cargo::core::compiler::fingerprint: fingerprint dirty for gpui-d3rs v0.5.10 (/Users/pierre/src/sotf/gpui-d3rs)/Check { test: false }/TargetInner { kind: "example", name: "surface3d_demo", required_features: Some(["gpu-3d"]), tested: false, benched: false, ..: with_path("/Users/pierre/src/sotf/gpui-d3rs/examples/surface3d_demo.rs", Edition2024) }
+   0.687617042s  INFO prepare_target{force=false package_id=gpui-d3rs v0.5.10 (/Users/pierre/src/sotf/gpui-d3rs) target="surface3d_demo"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDepFingerprint { name: "d3rs" })
+   0.689998792s  INFO prepare_target{force=false package_id=gpui-d3rs v0.5.10 (/Users/pierre/src/sotf/gpui-d3rs) target="surface_demo"}: cargo::core::compiler::fingerprint: fingerprint dirty for gpui-d3rs v0.5.10 (/Users/pierre/src/sotf/gpui-d3rs)/Check { test: false }/TargetInner { kind: "example", name: "surface_demo", tested: false, benched: false, ..: with_path("/Users/pierre/src/sotf/gpui-d3rs/examples/surface_demo.rs", Edition2024) }
+   0.690005000s  INFO prepare_target{force=false package_id=gpui-d3rs v0.5.10 (/Users/pierre/src/sotf/gpui-d3rs) target="surface_demo"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDepFingerprint { name: "d3rs" })
+   0.691060750s  INFO prepare_target{force=false package_id=gpui-d3rs v0.5.10 (/Users/pierre/src/sotf/gpui-d3rs) target="surface_logscale_demo"}: cargo::core::compiler::fingerprint: fingerprint dirty for gpui-d3rs v0.5.10 (/Users/pierre/src/sotf/gpui-d3rs)/Check { test: false }/TargetInner { kind: "example", name: "surface_logscale_demo", tested: false, benched: false, ..: with_path("/Users/pierre/src/sotf/gpui-d3rs/examples/surface_logscale_demo.rs", Edition2024) }
+   0.691065958s  INFO prepare_target{force=false package_id=gpui-d3rs v0.5.10 (/Users/pierre/src/sotf/gpui-d3rs) target="surface_logscale_demo"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDepFingerprint { name: "d3rs" })
+   0.691920000s  INFO prepare_target{force=false package_id=gpui-d3rs v0.5.10 (/Users/pierre/src/sotf/gpui-d3rs) target="timer_demo"}: cargo::core::compiler::fingerprint: fingerprint dirty for gpui-d3rs v0.5.10 (/Users/pierre/src/sotf/gpui-d3rs)/Check { test: false }/TargetInner { kind: "example", name: "timer_demo", tested: false, benched: false, ..: with_path("/Users/pierre/src/sotf/gpui-d3rs/examples/timer_demo.rs", Edition2024) }
+   0.691924125s  INFO prepare_target{force=false package_id=gpui-d3rs v0.5.10 (/Users/pierre/src/sotf/gpui-d3rs) target="timer_demo"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDepFingerprint { name: "d3rs" })
+   0.693003958s  INFO prepare_target{force=false package_id=gpui-d3rs v0.5.10 (/Users/pierre/src/sotf/gpui-d3rs) target="transition_demo"}: cargo::core::compiler::fingerprint: fingerprint dirty for gpui-d3rs v0.5.10 (/Users/pierre/src/sotf/gpui-d3rs)/Check { test: false }/TargetInner { kind: "example", name: "transition_demo", tested: false, benched: false, ..: with_path("/Users/pierre/src/sotf/gpui-d3rs/examples/transition_demo.rs", Edition2024) }
+   0.693008875s  INFO prepare_target{force=false package_id=gpui-d3rs v0.5.10 (/Users/pierre/src/sotf/gpui-d3rs) target="transition_demo"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDepFingerprint { name: "d3rs" })
+   0.693860625s  INFO prepare_target{force=false package_id=gpui-px v0.5.10 (/Users/pierre/src/sotf/gpui-px) target="gpui_px"}: cargo::core::compiler::fingerprint: dependency on `gpui_ui_kit` is newer than we are 1768142598.342830689s > 1768137605.666293478s "/Users/pierre/src/sotf/gpui-px"
+   0.694152500s  INFO prepare_target{force=false package_id=gpui-px v0.5.10 (/Users/pierre/src/sotf/gpui-px) target="gpui_px"}: cargo::core::compiler::fingerprint: fingerprint dirty for gpui-px v0.5.10 (/Users/pierre/src/sotf/gpui-px)/Check { test: false }/TargetInner { name_inferred: true, ..: lib_target("gpui_px", ["lib"], "/Users/pierre/src/sotf/gpui-px/src/lib.rs", Edition2024) }
+   0.694157792s  INFO prepare_target{force=false package_id=gpui-px v0.5.10 (/Users/pierre/src/sotf/gpui-px) target="gpui_px"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDependency { name: "gpui_ui_kit", dep_mtime: FileTime { seconds: 1768142598, nanos: 342830689 }, max_mtime: FileTime { seconds: 1768137605, nanos: 666293478 } })
+   0.696188417s  INFO prepare_target{force=false package_id=gpui-px v0.5.10 (/Users/pierre/src/sotf/gpui-px) target="gpui_px"}: cargo::core::compiler::fingerprint: fingerprint dirty for gpui-px v0.5.10 (/Users/pierre/src/sotf/gpui-px)/Check { test: true }/TargetInner { name_inferred: true, ..: lib_target("gpui_px", ["lib"], "/Users/pierre/src/sotf/gpui-px/src/lib.rs", Edition2024) }
+   0.696193958s  INFO prepare_target{force=false package_id=gpui-px v0.5.10 (/Users/pierre/src/sotf/gpui-px) target="gpui_px"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDepFingerprint { name: "d3rs" })
+   0.696913625s  INFO prepare_target{force=false package_id=gpui-px v0.5.10 (/Users/pierre/src/sotf/gpui-px) target="px-showcase"}: cargo::core::compiler::fingerprint: fingerprint dirty for gpui-px v0.5.10 (/Users/pierre/src/sotf/gpui-px)/Check { test: false }/TargetInner { name: "px-showcase", doc: true, ..: with_path("/Users/pierre/src/sotf/gpui-px/bin/showcase.rs", Edition2024) }
+   0.696917208s  INFO prepare_target{force=false package_id=gpui-px v0.5.10 (/Users/pierre/src/sotf/gpui-px) target="px-showcase"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDepFingerprint { name: "gpui_px" })
+   0.697777458s  INFO prepare_target{force=false package_id=gpui-px v0.5.10 (/Users/pierre/src/sotf/gpui-px) target="px-showcase"}: cargo::core::compiler::fingerprint: fingerprint dirty for gpui-px v0.5.10 (/Users/pierre/src/sotf/gpui-px)/Check { test: true }/TargetInner { name: "px-showcase", doc: true, ..: with_path("/Users/pierre/src/sotf/gpui-px/bin/showcase.rs", Edition2024) }
+   0.697781625s  INFO prepare_target{force=false package_id=gpui-px v0.5.10 (/Users/pierre/src/sotf/gpui-px) target="px-showcase"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDepFingerprint { name: "gpui_px" })
+   0.698701625s  INFO prepare_target{force=false package_id=gpui-px v0.5.10 (/Users/pierre/src/sotf/gpui-px) target="bars_debug"}: cargo::core::compiler::fingerprint: fingerprint dirty for gpui-px v0.5.10 (/Users/pierre/src/sotf/gpui-px)/Check { test: false }/TargetInner { kind: "example", name: "bars_debug", tested: false, benched: false, ..: with_path("/Users/pierre/src/sotf/gpui-px/examples/bars_debug.rs", Edition2024) }
+   0.698705583s  INFO prepare_target{force=false package_id=gpui-px v0.5.10 (/Users/pierre/src/sotf/gpui-px) target="bars_debug"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDepFingerprint { name: "gpui_px" })
+   0.699365000s  INFO prepare_target{force=false package_id=gpui-px v0.5.10 (/Users/pierre/src/sotf/gpui-px) target="lines_debug"}: cargo::core::compiler::fingerprint: fingerprint dirty for gpui-px v0.5.10 (/Users/pierre/src/sotf/gpui-px)/Check { test: false }/TargetInner { kind: "example", name: "lines_debug", tested: false, benched: false, ..: with_path("/Users/pierre/src/sotf/gpui-px/examples/lines_debug.rs", Edition2024) }
+   0.699369042s  INFO prepare_target{force=false package_id=gpui-px v0.5.10 (/Users/pierre/src/sotf/gpui-px) target="lines_debug"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDepFingerprint { name: "gpui_px" })
+   0.700237750s  INFO prepare_target{force=false package_id=gpui-px v0.5.10 (/Users/pierre/src/sotf/gpui-px) target="logscale_demo"}: cargo::core::compiler::fingerprint: fingerprint dirty for gpui-px v0.5.10 (/Users/pierre/src/sotf/gpui-px)/Check { test: false }/TargetInner { kind: "example", name: "logscale_demo", required_features: Some(["gpui"]), tested: false, benched: false, ..: with_path("/Users/pierre/src/sotf/gpui-px/examples/logscale_demo.rs", Edition2024) }
+   0.700241000s  INFO prepare_target{force=false package_id=gpui-px v0.5.10 (/Users/pierre/src/sotf/gpui-px) target="logscale_demo"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDepFingerprint { name: "gpui_px" })
+   0.700998083s  INFO prepare_target{force=false package_id=gpui-px v0.5.10 (/Users/pierre/src/sotf/gpui-px) target="scatter_debug"}: cargo::core::compiler::fingerprint: fingerprint dirty for gpui-px v0.5.10 (/Users/pierre/src/sotf/gpui-px)/Check { test: false }/TargetInner { kind: "example", name: "scatter_debug", tested: false, benched: false, ..: with_path("/Users/pierre/src/sotf/gpui-px/examples/scatter_debug.rs", Edition2024) }
+   0.701001167s  INFO prepare_target{force=false package_id=gpui-px v0.5.10 (/Users/pierre/src/sotf/gpui-px) target="scatter_debug"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDepFingerprint { name: "gpui_px" })
+   0.705561625s  INFO prepare_target{force=false package_id=gpui-ui-kit v0.5.10 (/Users/pierre/src/sotf/gpui-ui-kit) target="integration_tests"}: cargo::core::compiler::fingerprint: dependency on `gpui_ui_kit` is newer than we are 1768142598.342830689s > 1768071207.501732635s "/Users/pierre/src/sotf/gpui-ui-kit"
+   0.705707833s  INFO prepare_target{force=false package_id=gpui-ui-kit v0.5.10 (/Users/pierre/src/sotf/gpui-ui-kit) target="integration_tests"}: cargo::core::compiler::fingerprint: fingerprint dirty for gpui-ui-kit v0.5.10 (/Users/pierre/src/sotf/gpui-ui-kit)/Check { test: true }/TargetInner { kind: "test", name: "integration_tests", benched: false, ..: with_path("/Users/pierre/src/sotf/gpui-ui-kit/tests/integration_tests.rs", Edition2024) }
+   0.705713417s  INFO prepare_target{force=false package_id=gpui-ui-kit v0.5.10 (/Users/pierre/src/sotf/gpui-ui-kit) target="integration_tests"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDependency { name: "gpui_ui_kit", dep_mtime: FileTime { seconds: 1768142598, nanos: 342830689 }, max_mtime: FileTime { seconds: 1768071207, nanos: 501732635 } })
+   0.740702417s  INFO prepare_target{force=false package_id=sotf-gpui v0.5.10 (/Users/pierre/src/sotf/sotf-audio-player/app-gpui) target="sotf_audio_player_gpui"}: cargo::core::compiler::fingerprint: fingerprint dirty for sotf-gpui v0.5.10 (/Users/pierre/src/sotf/sotf-audio-player/app-gpui)/Check { test: false }/TargetInner { tested: false, ..: lib_target("sotf_audio_player_gpui", ["lib"], "/Users/pierre/src/sotf/sotf-audio-player/app-gpui/lib.rs", Edition2024) }
+   0.740714875s  INFO prepare_target{force=false package_id=sotf-gpui v0.5.10 (/Users/pierre/src/sotf/sotf-audio-player/app-gpui) target="sotf_audio_player_gpui"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDepFingerprint { name: "gpui_px" })
+   0.743219875s  INFO prepare_target{force=false package_id=sotf-gpui v0.5.10 (/Users/pierre/src/sotf/sotf-audio-player/app-gpui) target="sotf_audio_player_gpui"}: cargo::core::compiler::fingerprint: fingerprint error for sotf-gpui v0.5.10 (/Users/pierre/src/sotf/sotf-audio-player/app-gpui)/Check { test: true }/TargetInner { tested: false, ..: lib_target("sotf_audio_player_gpui", ["lib"], "/Users/pierre/src/sotf/sotf-audio-player/app-gpui/lib.rs", Edition2024) }
+   0.743226958s  INFO prepare_target{force=false package_id=sotf-gpui v0.5.10 (/Users/pierre/src/sotf/sotf-audio-player/app-gpui) target="sotf_audio_player_gpui"}: cargo::core::compiler::fingerprint:     err: failed to read `/Users/pierre/src/sotf/target/debug/.fingerprint/sotf-gpui-6f74199ac28fe362/test-lib-sotf_audio_player_gpui`
+
+Caused by:
+    No such file or directory (os error 2)
+
+Stack backtrace:
+   0: std::backtrace::Backtrace::create
+   1: std::backtrace::Backtrace::capture
+   2: cargo_util::paths::read_bytes
+   3: cargo_util::paths::read
+   4: cargo::core::compiler::fingerprint::_compare_old_fingerprint
+   5: cargo::core::compiler::fingerprint::prepare_target
+   6: cargo::core::compiler::compile
+   7: <cargo::core::compiler::build_runner::BuildRunner>::compile
+   8: cargo::ops::cargo_compile::compile_ws
+   9: cargo::ops::cargo_compile::compile_with_exec
+  10: cargo::ops::cargo_compile::compile
+  11: cargo::commands::check::exec
+  12: <cargo::cli::Exec>::exec
+  13: cargo::main
+  14: std::sys::backtrace::__rust_begin_short_backtrace::<fn(), ()>
+  15: std::rt::lang_start::<()>::{closure#0}
+  16: std::rt::lang_start_internal
+  17: _main
+   0.748108083s  INFO prepare_target{force=false package_id=sotf-gpui v0.5.10 (/Users/pierre/src/sotf/sotf-audio-player/app-gpui) target="SotF"}: cargo::core::compiler::fingerprint: fingerprint dirty for sotf-gpui v0.5.10 (/Users/pierre/src/sotf/sotf-audio-player/app-gpui)/Check { test: false }/TargetInner { name: "SotF", doc: true, ..: with_path("/Users/pierre/src/sotf/sotf-audio-player/app-gpui/main.rs", Edition2024) }
+   0.748118250s  INFO prepare_target{force=false package_id=sotf-gpui v0.5.10 (/Users/pierre/src/sotf/sotf-audio-player/app-gpui) target="SotF"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDepFingerprint { name: "sotf_audio_player_gpui" })
+   0.750037708s  INFO prepare_target{force=false package_id=sotf-gpui v0.5.10 (/Users/pierre/src/sotf/sotf-audio-player/app-gpui) target="SotF"}: cargo::core::compiler::fingerprint: fingerprint dirty for sotf-gpui v0.5.10 (/Users/pierre/src/sotf/sotf-audio-player/app-gpui)/Check { test: true }/TargetInner { name: "SotF", doc: true, ..: with_path("/Users/pierre/src/sotf/sotf-audio-player/app-gpui/main.rs", Edition2024) }
+   0.750045542s  INFO prepare_target{force=false package_id=sotf-gpui v0.5.10 (/Users/pierre/src/sotf/sotf-audio-player/app-gpui) target="SotF"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDepFingerprint { name: "sotf_audio_player_gpui" })
+   0.751942292s  INFO prepare_target{force=false package_id=sotf-gpui v0.5.10 (/Users/pierre/src/sotf/sotf-audio-player/app-gpui) target="component_tests"}: cargo::core::compiler::fingerprint: fingerprint dirty for sotf-gpui v0.5.10 (/Users/pierre/src/sotf/sotf-audio-player/app-gpui)/Check { test: true }/TargetInner { kind: "test", name: "component_tests", benched: false, ..: with_path("/Users/pierre/src/sotf/sotf-audio-player/app-gpui/tests/component_tests.rs", Edition2024) }
+   0.751948667s  INFO prepare_target{force=false package_id=sotf-gpui v0.5.10 (/Users/pierre/src/sotf/sotf-audio-player/app-gpui) target="component_tests"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDepFingerprint { name: "sotf_audio_player_gpui" })
+   0.754031292s  INFO prepare_target{force=false package_id=sotf-gpui v0.5.10 (/Users/pierre/src/sotf/sotf-audio-player/app-gpui) target="config_tests"}: cargo::core::compiler::fingerprint: fingerprint dirty for sotf-gpui v0.5.10 (/Users/pierre/src/sotf/sotf-audio-player/app-gpui)/Check { test: true }/TargetInner { kind: "test", name: "config_tests", benched: false, ..: with_path("/Users/pierre/src/sotf/sotf-audio-player/app-gpui/tests/config_tests.rs", Edition2024) }
+   0.754040458s  INFO prepare_target{force=false package_id=sotf-gpui v0.5.10 (/Users/pierre/src/sotf/sotf-audio-player/app-gpui) target="config_tests"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDepFingerprint { name: "sotf_audio_player_gpui" })
+   0.756319000s  INFO prepare_target{force=false package_id=sotf-gpui v0.5.10 (/Users/pierre/src/sotf/sotf-audio-player/app-gpui) target="e2e"}: cargo::core::compiler::fingerprint: fingerprint dirty for sotf-gpui v0.5.10 (/Users/pierre/src/sotf/sotf-audio-player/app-gpui)/Check { test: true }/TargetInner { kind: "test", name: "e2e", benched: false, ..: with_path("/Users/pierre/src/sotf/sotf-audio-player/app-gpui/tests/e2e/mod.rs", Edition2024) }
+   0.756326333s  INFO prepare_target{force=false package_id=sotf-gpui v0.5.10 (/Users/pierre/src/sotf/sotf-audio-player/app-gpui) target="e2e"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDepFingerprint { name: "sotf_audio_player_gpui" })
+   0.758398542s  INFO prepare_target{force=false package_id=sotf-gpui v0.5.10 (/Users/pierre/src/sotf/sotf-audio-player/app-gpui) target="event_integration"}: cargo::core::compiler::fingerprint: fingerprint dirty for sotf-gpui v0.5.10 (/Users/pierre/src/sotf/sotf-audio-player/app-gpui)/Check { test: true }/TargetInner { kind: "test", name: "event_integration", benched: false, ..: with_path("/Users/pierre/src/sotf/sotf-audio-player/app-gpui/tests/event_integration/mod.rs", Edition2024) }
+   0.758404417s  INFO prepare_target{force=false package_id=sotf-gpui v0.5.10 (/Users/pierre/src/sotf/sotf-audio-player/app-gpui) target="event_integration"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDepFingerprint { name: "sotf_audio_player_gpui" })
+   0.760801458s  INFO prepare_target{force=false package_id=sotf-gpui v0.5.10 (/Users/pierre/src/sotf/sotf-audio-player/app-gpui) target="library_workflow_test"}: cargo::core::compiler::fingerprint: fingerprint dirty for sotf-gpui v0.5.10 (/Users/pierre/src/sotf/sotf-audio-player/app-gpui)/Check { test: true }/TargetInner { kind: "test", name: "library_workflow_test", benched: false, ..: with_path("/Users/pierre/src/sotf/sotf-audio-player/app-gpui/tests/library_workflow_test.rs", Edition2024) }
+   0.760811792s  INFO prepare_target{force=false package_id=sotf-gpui v0.5.10 (/Users/pierre/src/sotf/sotf-audio-player/app-gpui) target="library_workflow_test"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDepFingerprint { name: "sotf_audio_player_gpui" })
+   0.762788375s  INFO prepare_target{force=false package_id=sotf-gpui v0.5.10 (/Users/pierre/src/sotf/sotf-audio-player/app-gpui) target="lifecycle"}: cargo::core::compiler::fingerprint: fingerprint dirty for sotf-gpui v0.5.10 (/Users/pierre/src/sotf/sotf-audio-player/app-gpui)/Check { test: true }/TargetInner { kind: "test", name: "lifecycle", benched: false, ..: with_path("/Users/pierre/src/sotf/sotf-audio-player/app-gpui/tests/lifecycle/mod.rs", Edition2024) }
+   0.762795500s  INFO prepare_target{force=false package_id=sotf-gpui v0.5.10 (/Users/pierre/src/sotf/sotf-audio-player/app-gpui) target="lifecycle"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDepFingerprint { name: "sotf_audio_player_gpui" })
+   0.764679875s  INFO prepare_target{force=false package_id=sotf-gpui v0.5.10 (/Users/pierre/src/sotf/sotf-audio-player/app-gpui) target="manager_test"}: cargo::core::compiler::fingerprint: fingerprint dirty for sotf-gpui v0.5.10 (/Users/pierre/src/sotf/sotf-audio-player/app-gpui)/Check { test: true }/TargetInner { kind: "test", name: "manager_test", benched: false, ..: with_path("/Users/pierre/src/sotf/sotf-audio-player/app-gpui/tests/manager_test.rs", Edition2024) }
+   0.764687167s  INFO prepare_target{force=false package_id=sotf-gpui v0.5.10 (/Users/pierre/src/sotf/sotf-audio-player/app-gpui) target="manager_test"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDepFingerprint { name: "sotf_audio_player_gpui" })
+   0.766434167s  INFO prepare_target{force=false package_id=sotf-gpui v0.5.10 (/Users/pierre/src/sotf/sotf-audio-player/app-gpui) target="negative"}: cargo::core::compiler::fingerprint: fingerprint dirty for sotf-gpui v0.5.10 (/Users/pierre/src/sotf/sotf-audio-player/app-gpui)/Check { test: true }/TargetInner { kind: "test", name: "negative", benched: false, ..: with_path("/Users/pierre/src/sotf/sotf-audio-player/app-gpui/tests/negative/mod.rs", Edition2024) }
+   0.766440542s  INFO prepare_target{force=false package_id=sotf-gpui v0.5.10 (/Users/pierre/src/sotf/sotf-audio-player/app-gpui) target="negative"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDepFingerprint { name: "sotf_audio_player_gpui" })
+   0.768140958s  INFO prepare_target{force=false package_id=sotf-gpui v0.5.10 (/Users/pierre/src/sotf/sotf-audio-player/app-gpui) target="proptest_tests"}: cargo::core::compiler::fingerprint: fingerprint dirty for sotf-gpui v0.5.10 (/Users/pierre/src/sotf/sotf-audio-player/app-gpui)/Check { test: true }/TargetInner { kind: "test", name: "proptest_tests", benched: false, ..: with_path("/Users/pierre/src/sotf/sotf-audio-player/app-gpui/tests/proptest/mod.rs", Edition2024) }
+   0.768146625s  INFO prepare_target{force=false package_id=sotf-gpui v0.5.10 (/Users/pierre/src/sotf/sotf-audio-player/app-gpui) target="proptest_tests"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDepFingerprint { name: "sotf_audio_player_gpui" })
+   0.769992292s  INFO prepare_target{force=false package_id=sotf-gpui v0.5.10 (/Users/pierre/src/sotf/sotf-audio-player/app-gpui) target="state_machine"}: cargo::core::compiler::fingerprint: fingerprint dirty for sotf-gpui v0.5.10 (/Users/pierre/src/sotf/sotf-audio-player/app-gpui)/Check { test: true }/TargetInner { kind: "test", name: "state_machine", benched: false, ..: with_path("/Users/pierre/src/sotf/sotf-audio-player/app-gpui/tests/state_machine/mod.rs", Edition2024) }
+   0.769998625s  INFO prepare_target{force=false package_id=sotf-gpui v0.5.10 (/Users/pierre/src/sotf/sotf-audio-player/app-gpui) target="state_machine"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDepFingerprint { name: "sotf_audio_player_gpui" })
+   0.772014792s  INFO prepare_target{force=false package_id=sotf-gpui v0.5.10 (/Users/pierre/src/sotf/sotf-audio-player/app-gpui) target="types_tests"}: cargo::core::compiler::fingerprint: fingerprint dirty for sotf-gpui v0.5.10 (/Users/pierre/src/sotf/sotf-audio-player/app-gpui)/Check { test: true }/TargetInner { kind: "test", name: "types_tests", benched: false, ..: with_path("/Users/pierre/src/sotf/sotf-audio-player/app-gpui/tests/types_tests.rs", Edition2024) }
+   0.772022500s  INFO prepare_target{force=false package_id=sotf-gpui v0.5.10 (/Users/pierre/src/sotf/sotf-audio-player/app-gpui) target="types_tests"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDepFingerprint { name: "sotf_audio_player_gpui" })
+   0.783686250s  INFO prepare_target{force=false package_id=sotf-tui v0.5.10 (/Users/pierre/src/sotf/sotf-audio-player/app-tui) target="sotf_audio_player_tui"}: cargo::core::compiler::fingerprint: fingerprint error for sotf-tui v0.5.10 (/Users/pierre/src/sotf/sotf-audio-player/app-tui)/Check { test: false }/TargetInner { ..: lib_target("sotf_audio_player_tui", ["lib"], "/Users/pierre/src/sotf/sotf-audio-player/app-tui/lib.rs", Edition2024) }
+   0.783698667s  INFO prepare_target{force=false package_id=sotf-tui v0.5.10 (/Users/pierre/src/sotf/sotf-audio-player/app-tui) target="sotf_audio_player_tui"}: cargo::core::compiler::fingerprint:     err: failed to read `/Users/pierre/src/sotf/target/debug/.fingerprint/sotf-tui-610f19f107d021e7/lib-sotf_audio_player_tui`
+
+Caused by:
+    No such file or directory (os error 2)
+
+Stack backtrace:
+   0: std::backtrace::Backtrace::create
+   1: std::backtrace::Backtrace::capture
+   2: cargo_util::paths::read_bytes
+   3: cargo_util::paths::read
+   4: cargo::core::compiler::fingerprint::_compare_old_fingerprint
+   5: cargo::core::compiler::fingerprint::prepare_target
+   6: cargo::core::compiler::compile
+   7: <cargo::core::compiler::build_runner::BuildRunner>::compile
+   8: cargo::ops::cargo_compile::compile_ws
+   9: cargo::ops::cargo_compile::compile_with_exec
+  10: cargo::ops::cargo_compile::compile
+  11: cargo::commands::check::exec
+  12: <cargo::cli::Exec>::exec
+  13: cargo::main
+  14: std::sys::backtrace::__rust_begin_short_backtrace::<fn(), ()>
+  15: std::rt::lang_start::<()>::{closure#0}
+  16: std::rt::lang_start_internal
+  17: _main
+   0.787920708s  INFO prepare_target{force=false package_id=sotf-tui v0.5.10 (/Users/pierre/src/sotf/sotf-audio-player/app-tui) target="sotf_audio_player_tui"}: cargo::core::compiler::fingerprint: fingerprint error for sotf-tui v0.5.10 (/Users/pierre/src/sotf/sotf-audio-player/app-tui)/Check { test: true }/TargetInner { ..: lib_target("sotf_audio_player_tui", ["lib"], "/Users/pierre/src/sotf/sotf-audio-player/app-tui/lib.rs", Edition2024) }
+   0.787931167s  INFO prepare_target{force=false package_id=sotf-tui v0.5.10 (/Users/pierre/src/sotf/sotf-audio-player/app-tui) target="sotf_audio_player_tui"}: cargo::core::compiler::fingerprint:     err: failed to read `/Users/pierre/src/sotf/target/debug/.fingerprint/sotf-tui-4a4c9e8ebfee7c6b/test-lib-sotf_audio_player_tui`
+
+Caused by:
+    No such file or directory (os error 2)
+
+Stack backtrace:
+   0: std::backtrace::Backtrace::create
+   1: std::backtrace::Backtrace::capture
+   2: cargo_util::paths::read_bytes
+   3: cargo_util::paths::read
+   4: cargo::core::compiler::fingerprint::_compare_old_fingerprint
+   5: cargo::core::compiler::fingerprint::prepare_target
+   6: cargo::core::compiler::compile
+   7: <cargo::core::compiler::build_runner::BuildRunner>::compile
+   8: cargo::ops::cargo_compile::compile_ws
+   9: cargo::ops::cargo_compile::compile_with_exec
+  10: cargo::ops::cargo_compile::compile
+  11: cargo::commands::check::exec
+  12: <cargo::cli::Exec>::exec
+  13: cargo::main
+  14: std::sys::backtrace::__rust_begin_short_backtrace::<fn(), ()>
+  15: std::rt::lang_start::<()>::{closure#0}
+  16: std::rt::lang_start_internal
+  17: _main
+   0.789406208s  INFO prepare_target{force=false package_id=sotf-tui v0.5.10 (/Users/pierre/src/sotf/sotf-audio-player/app-tui) target="sotf-tui"}: cargo::core::compiler::fingerprint: fingerprint error for sotf-tui v0.5.10 (/Users/pierre/src/sotf/sotf-audio-player/app-tui)/Check { test: false }/TargetInner { name: "sotf-tui", doc: true, ..: with_path("/Users/pierre/src/sotf/sotf-audio-player/app-tui/main.rs", Edition2024) }
+   0.789411833s  INFO prepare_target{force=false package_id=sotf-tui v0.5.10 (/Users/pierre/src/sotf/sotf-audio-player/app-tui) target="sotf-tui"}: cargo::core::compiler::fingerprint:     err: failed to read `/Users/pierre/src/sotf/target/debug/.fingerprint/sotf-tui-9a05d343d07124bc/bin-sotf-tui`
+
+Caused by:
+    No such file or directory (os error 2)
+
+Stack backtrace:
+   0: std::backtrace::Backtrace::create
+   1: std::backtrace::Backtrace::capture
+   2: cargo_util::paths::read_bytes
+   3: cargo_util::paths::read
+   4: cargo::core::compiler::fingerprint::_compare_old_fingerprint
+   5: cargo::core::compiler::fingerprint::prepare_target
+   6: cargo::core::compiler::compile
+   7: <cargo::core::compiler::build_runner::BuildRunner>::compile
+   8: cargo::ops::cargo_compile::compile_ws
+   9: cargo::ops::cargo_compile::compile_with_exec
+  10: cargo::ops::cargo_compile::compile
+  11: cargo::commands::check::exec
+  12: <cargo::cli::Exec>::exec
+  13: cargo::main
+  14: std::sys::backtrace::__rust_begin_short_backtrace::<fn(), ()>
+  15: std::rt::lang_start::<()>::{closure#0}
+  16: std::rt::lang_start_internal
+  17: _main
+   0.790492125s  INFO prepare_target{force=false package_id=sotf-tui v0.5.10 (/Users/pierre/src/sotf/sotf-audio-player/app-tui) target="sotf-tui"}: cargo::core::compiler::fingerprint: fingerprint error for sotf-tui v0.5.10 (/Users/pierre/src/sotf/sotf-audio-player/app-tui)/Check { test: true }/TargetInner { name: "sotf-tui", doc: true, ..: with_path("/Users/pierre/src/sotf/sotf-audio-player/app-tui/main.rs", Edition2024) }
+   0.790496458s  INFO prepare_target{force=false package_id=sotf-tui v0.5.10 (/Users/pierre/src/sotf/sotf-audio-player/app-tui) target="sotf-tui"}: cargo::core::compiler::fingerprint:     err: failed to read `/Users/pierre/src/sotf/target/debug/.fingerprint/sotf-tui-45a83698ba8f4d20/test-bin-sotf-tui`
+
+Caused by:
+    No such file or directory (os error 2)
+
+Stack backtrace:
+   0: std::backtrace::Backtrace::create
+   1: std::backtrace::Backtrace::capture
+   2: cargo_util::paths::read_bytes
+   3: cargo_util::paths::read
+   4: cargo::core::compiler::fingerprint::_compare_old_fingerprint
+   5: cargo::core::compiler::fingerprint::prepare_target
+   6: cargo::core::compiler::compile
+   7: <cargo::core::compiler::build_runner::BuildRunner>::compile
+   8: cargo::ops::cargo_compile::compile_ws
+   9: cargo::ops::cargo_compile::compile_with_exec
+  10: cargo::ops::cargo_compile::compile
+  11: cargo::commands::check::exec
+  12: <cargo::cli::Exec>::exec
+  13: cargo::main
+  14: std::sys::backtrace::__rust_begin_short_backtrace::<fn(), ()>
+  15: std::rt::lang_start::<()>::{closure#0}
+  16: std::rt::lang_start_internal
+  17: _main
+    Checking gpui-d3rs v0.5.10 (/Users/pierre/src/sotf/gpui-d3rs)
+    Checking sotf-tui v0.5.10 (/Users/pierre/src/sotf/sotf-audio-player/app-tui)
+    Checking gpui-ui-kit v0.5.10 (/Users/pierre/src/sotf/gpui-ui-kit)
+    Checking gpui-px v0.5.10 (/Users/pierre/src/sotf/gpui-px)
+error: could not compile `sotf-tui` (lib) due to 5 previous errors
+warning: build failed, waiting for other jobs to finish...
+error: could not compile `sotf-tui` (lib test) due to 5 previous errors
+error: could not compile `gpui-ui-kit` (test "integration_tests") due to 1 previous error
+    Checking sotf-gpui v0.5.10 (/Users/pierre/src/sotf/sotf-audio-player/app-gpui)
+error: rustc interrupted by SIGBUS, printing backtrace
+
+0   librustc_driver-015fbde41a4573ae.dy 0x000000011085c84c _RNvNtCs6W923ASfSrl_17rustc_driver_impl14signal_handler17print_stack_trace + 140
+1   libsystem_platform.dylib            0x000000018c83f744 _sigtramp + 56
+2   libgpui_macros-abeede7e0bd872a5.dyl 0x00000001209f2318 _ZN81_$LT$core..str..iter..Chars$u20$as$u20$core..iter..traits..iterator..Iterator$GT$4next17h84e087b2e5832f10E + 16
+3   libgpui_macros-abeede7e0bd872a5.dyl 0x00000001209f2318 _ZN81_$LT$core..str..iter..Chars$u20$as$u20$core..iter..traits..iterator..Iterator$GT$4next17h84e087b2e5832f10E + 16
+4   libgpui_macros-abeede7e0bd872a5.dyl 0x0000000120a09e1c _ZN110_$LT$core..iter..adapters..enumerate..Enumerate$LT$I$GT$$u20$as$u20$core..iter..traits..iterator..Iterator$GT$4next17ha608c23329b196a8E + 20
+5   libgpui_macros-abeede7e0bd872a5.dyl 0x0000000120984d58 _ZN3syn5token7parsing10peek_punct17h5edb39d7ce1d157bE + 104
+6   libgpui_macros-abeede7e0bd872a5.dyl 0x00000001209eea2c _ZN55_$LT$syn..token..Pound$u20$as$u20$syn..token..Token$GT$4peek17h437197d5c6c132c4E + 28
+7   libgpui_macros-abeede7e0bd872a5.dyl 0x000000012099d7dc _ZN3syn5parse11ParseBuffer4peek17h687fd1c506513379E + 16
+8   libgpui_macros-abeede7e0bd872a5.dyl 0x0000000120976108 _ZN3syn4expr7parsing10expr_attrs17h6992cb17dd32706eE + 144
+9   libgpui_macros-abeede7e0bd872a5.dyl 0x000000012099d398 _ZN3syn5parse11ParseBuffer4call17h73fc312d719674baE + 12
+10  libgpui_macros-abeede7e0bd872a5.dyl 0x0000000120978158 _ZN3syn4expr7parsing10unary_expr17hb0c480ceeb6434a5E + 76
+11  libgpui_macros-abeede7e0bd872a5.dyl 0x000000012098002c _ZN3syn4expr7parsing32parse_with_earlier_boundary_rule17h002109e4b86149fdE + 1028
+12  libgpui_macros-abeede7e0bd872a5.dyl 0x000000012095b378 _ZN3syn4expr4Expr32parse_with_earlier_boundary_rule17h8a25db02fbfdebebE + 12
+13  libgpui_macros-abeede7e0bd872a5.dyl 0x0000000120983248 _ZN3syn4stmt7parsing9stmt_expr17h2c0f78e3c2d471b5E + 68
+14  libgpui_macros-abeede7e0bd872a5.dyl 0x0000000120982220 _ZN3syn4stmt7parsing10parse_stmt17h7c069f5710a6fdecE + 2312
+15  libgpui_macros-abeede7e0bd872a5.dyl 0x00000001209d5d7c _ZN3syn4stmt7parsing34_$LT$impl$u20$syn..stmt..Block$GT$12parse_within17h0a9aa71af92023eaE + 396
+16  libgpui_macros-abeede7e0bd872a5.dyl 0x000000012099d2f8 _ZN3syn5parse11ParseBuffer4call17h216707e0fc7b9896E + 12
+17  libgpui_macros-abeede7e0bd872a5.dyl 0x000000012095e6f8 _ZN3syn4expr7parsing68_$LT$impl$u20$syn..parse..Parse$u20$for$u20$syn..expr..ExprBlock$GT$5parse17h5dd4fc86d4dc7e08E + 684
+18  libgpui_macros-abeede7e0bd872a5.dyl 0x000000012099fd2c _ZN3syn5parse11ParseBuffer5parse17hf1092a44bc4aa161E + 12
+19  libgpui_macros-abeede7e0bd872a5.dyl 0x0000000120981848 _ZN3syn4expr7parsing9atom_expr17h053e5343b1e0be8bE + 1444
+20  libgpui_macros-abeede7e0bd872a5.dyl 0x000000012097b46c _ZN3syn4expr7parsing12trailer_expr17h924ae0aedf742582E + 80
+21  libgpui_macros-abeede7e0bd872a5.dyl 0x0000000120978368 _ZN3syn4expr7parsing10unary_expr17hb0c480ceeb6434a5E + 604
+22  libgpui_macros-abeede7e0bd872a5.dyl 0x000000012097b9d4 _ZN3syn4expr7parsing14ambiguous_expr17h6c74b342c0c1980bE + 44
+23  libgpui_macros-abeede7e0bd872a5.dyl 0x000000012097acf4 _ZN3syn4expr7parsing12expr_closure17h18f8586a7b517f22E + 1620
+24  libgpui_macros-abeede7e0bd872a5.dyl 0x00000001209813e8 _ZN3syn4expr7parsing9atom_expr17h053e5343b1e0be8bE + 324
+25  libgpui_macros-abeede7e0bd872a5.dyl 0x000000012097b46c _ZN3syn4expr7parsing12trailer_expr17h924ae0aedf742582E + 80
+26  libgpui_macros-abeede7e0bd872a5.dyl 0x0000000120978368 _ZN3syn4expr7parsing10unary_expr17hb0c480ceeb6434a5E + 604
+27  libgpui_macros-abeede7e0bd872a5.dyl 0x000000012097858c _ZN3syn4expr7parsing10unary_expr17hb0c480ceeb6434a5E + 1152
+28  libgpui_macros-abeede7e0bd872a5.dyl 0x000000012097b9d4 _ZN3syn4expr7parsing14ambiguous_expr17h6c74b342c0c1980bE + 44
+29  libgpui_macros-abeede7e0bd872a5.dyl 0x000000012095c614 _ZN3syn4expr7parsing63_$LT$impl$u20$syn..parse..Parse$u20$for$u20$syn..expr..Expr$GT$5parse17h1687518a301eb1a0E + 20
+30  libgpui_macros-abeede7e0bd872a5.dyl 0x00000001209f8058 _ZN3syn10punctuated23Punctuated$LT$T$C$P$GT$21parse_terminated_with17h69042d30eb78f56dE + 160
+31  libgpui_macros-abeede7e0bd872a5.dyl 0x000000012099d26c _ZN3syn5parse11ParseBuffer16parse_terminated17h51382313a3fc9351E + 12
+32  libgpui_macros-abeede7e0bd872a5.dyl 0x000000012097d908 _ZN3syn4expr7parsing14trailer_helper17hd198299a2555a737E + 5948
+33  libgpui_macros-abeede7e0bd872a5.dyl 0x000000012097b540 _ZN3syn4expr7parsing12trailer_expr17h924ae0aedf742582E + 292
+34  libgpui_macros-abeede7e0bd872a5.dyl 0x0000000120978368 _ZN3syn4expr7parsing10unary_expr17hb0c480ceeb6434a5E + 604
+35  libgpui_macros-abeede7e0bd872a5.dyl 0x000000012098002c _ZN3syn4expr7parsing32parse_with_earlier_boundary_rule17h002109e4b86149fdE + 1028
+36  libgpui_macros-abeede7e0bd872a5.dyl 0x000000012095b378 _ZN3syn4expr4Expr32parse_with_earlier_boundary_rule17h8a25db02fbfdebebE + 12
+37  libgpui_macros-abeede7e0bd872a5.dyl 0x0000000120983248 _ZN3syn4stmt7parsing9stmt_expr17h2c0f78e3c2d471b5E + 68
+38  libgpui_macros-abeede7e0bd872a5.dyl 0x0000000120982220 _ZN3syn4stmt7parsing10parse_stmt17h7c069f5710a6fdecE + 2312
+
+### cycle encountered after 39 frames with period 40
+0   libgpui_macros-abeede7e0bd872a5.dyl 0x00000001209d5d7c _ZN3syn4stmt7parsing34_$LT$impl$u20$syn..stmt..Block$GT$12parse_within17h0a9aa71af92023eaE + 396
+1   libgpui_macros-abeede7e0bd872a5.dyl 0x000000012099d2f8 _ZN3syn5parse11ParseBuffer4call17h216707e0fc7b9896E + 12
+2   libgpui_macros-abeede7e0bd872a5.dyl 0x00000001209cef04 _ZN3syn4item7parsing16parse_rest_of_fn17h2380b42dc847e86fE + 404
+3   libgpui_macros-abeede7e0bd872a5.dyl 0x00000001209d28d4 _ZN3syn4item7parsing18parse_rest_of_item17h210d4fff159ee472E + 12184
+4   libgpui_macros-abeede7e0bd872a5.dyl 0x0000000120981d98 _ZN3syn4stmt7parsing10parse_stmt17h7c069f5710a6fdecE + 1152
+5   libgpui_macros-abeede7e0bd872a5.dyl 0x00000001209d5d7c _ZN3syn4stmt7parsing34_$LT$impl$u20$syn..stmt..Block$GT$12parse_within17h0a9aa71af92023eaE + 396
+6   libgpui_macros-abeede7e0bd872a5.dyl 0x000000012099d2f8 _ZN3syn5parse11ParseBuffer4call17h216707e0fc7b9896E + 12
+7   libgpui_macros-abeede7e0bd872a5.dyl 0x00000001209cef04 _ZN3syn4item7parsing16parse_rest_of_fn17h2380b42dc847e86fE + 404
+8   libgpui_macros-abeede7e0bd872a5.dyl 0x00000001209d28d4 _ZN3syn4item7parsing18parse_rest_of_item17h210d4fff159ee472E + 12184
+9   libgpui_macros-abeede7e0bd872a5.dyl 0x0000000120981d98 _ZN3syn4stmt7parsing10parse_stmt17h7c069f5710a6fdecE + 1152
+10  libgpui_macros-abeede7e0bd872a5.dyl 0x00000001209d5d7c _ZN3syn4stmt7parsing34_$LT$impl$u20$syn..stmt..Block$GT$12parse_within17h0a9aa71af92023eaE + 396
+11  libgpui_macros-abeede7e0bd872a5.dyl 0x000000012099d2f8 _ZN3syn5parse11ParseBuffer4call17h216707e0fc7b9896E + 12
+12  libgpui_macros-abeede7e0bd872a5.dyl 0x00000001209cef04 _ZN3syn4item7parsing16parse_rest_of_fn17h2380b42dc847e86fE + 404
+13  libgpui_macros-abeede7e0bd872a5.dyl 0x00000001209d28d4 _ZN3syn4item7parsing18parse_rest_of_item17h210d4fff159ee472E + 12184
+14  libgpui_macros-abeede7e0bd872a5.dyl 0x0000000120981d98 _ZN3syn4stmt7parsing10parse_stmt17h7c069f5710a6fdecE + 1152
+15  libgpui_macros-abeede7e0bd872a5.dyl 0x00000001209d5d7c _ZN3syn4stmt7parsing34_$LT$impl$u20$syn..stmt..Block$GT$12parse_within17h0a9aa71af92023eaE + 396
+16  libgpui_macros-abeede7e0bd872a5.dyl 0x000000012099d2f8 _ZN3syn5parse11ParseBuffer4call17h216707e0fc7b9896E + 12
+17  libgpui_macros-abeede7e0bd872a5.dyl 0x00000001209cef04 _ZN3syn4item7parsing16parse_rest_of_fn17h2380b42dc847e86fE + 404
+18  libgpui_macros-abeede7e0bd872a5.dyl 0x00000001209d28d4 _ZN3syn4item7parsing18parse_rest_of_item17h210d4fff159ee472E + 12184
+19  libgpui_macros-abeede7e0bd872a5.dyl 0x0000000120981d98 _ZN3syn4stmt7parsing10parse_stmt17h7c069f5710a6fdecE + 1152
+20  libgpui_macros-abeede7e0bd872a5.dyl 0x00000001209d5d7c _ZN3syn4stmt7parsing34_$LT$impl$u20$syn..stmt..Block$GT$12parse_within17h0a9aa71af92023eaE + 396
+21  libgpui_macros-abeede7e0bd872a5.dyl 0x000000012099d2f8 _ZN3syn5parse11ParseBuffer4call17h216707e0fc7b9896E + 12
+22  libgpui_macros-abeede7e0bd872a5.dyl 0x00000001209cef04 _ZN3syn4item7parsing16parse_rest_of_fn17h2380b42dc847e86fE + 404
+23  libgpui_macros-abeede7e0bd872a5.dyl 0x00000001209d28d4 _ZN3syn4item7parsing18parse_rest_of_item17h210d4fff159ee472E + 12184
+24  libgpui_macros-abeede7e0bd872a5.dyl 0x0000000120981d98 _ZN3syn4stmt7parsing10parse_stmt17h7c069f5710a6fdecE + 1152
+25  libgpui_macros-abeede7e0bd872a5.dyl 0x00000001209d5d7c _ZN3syn4stmt7parsing34_$LT$impl$u20$syn..stmt..Block$GT$12parse_within17h0a9aa71af92023eaE + 396
+26  libgpui_macros-abeede7e0bd872a5.dyl 0x000000012099d2f8 _ZN3syn5parse11ParseBuffer4call17h216707e0fc7b9896E + 12
+27  libgpui_macros-abeede7e0bd872a5.dyl 0x00000001209cef04 _ZN3syn4item7parsing16parse_rest_of_fn17h2380b42dc847e86fE + 404
+28  libgpui_macros-abeede7e0bd872a5.dyl 0x00000001209d28d4 _ZN3syn4item7parsing18parse_rest_of_item17h210d4fff159ee472E + 12184
+29  libgpui_macros-abeede7e0bd872a5.dyl 0x0000000120981d98 _ZN3syn4stmt7parsing10parse_stmt17h7c069f5710a6fdecE + 1152
+30  libgpui_macros-abeede7e0bd872a5.dyl 0x00000001209d5d7c _ZN3syn4stmt7parsing34_$LT$impl$u20$syn..stmt..Block$GT$12parse_within17h0a9aa71af92023eaE + 396
+31  libgpui_macros-abeede7e0bd872a5.dyl 0x000000012099d2f8 _ZN3syn5parse11ParseBuffer4call17h216707e0fc7b9896E + 12
+32  libgpui_macros-abeede7e0bd872a5.dyl 0x00000001209cef04 _ZN3syn4item7parsing16parse_rest_of_fn17h2380b42dc847e86fE + 404
+33  libgpui_macros-abeede7e0bd872a5.dyl 0x00000001209d28d4 _ZN3syn4item7parsing18parse_rest_of_item17h210d4fff159ee472E + 12184
+34  libgpui_macros-abeede7e0bd872a5.dyl 0x0000000120981d98 _ZN3syn4stmt7parsing10parse_stmt17h7c069f5710a6fdecE + 1152
+35  libgpui_macros-abeede7e0bd872a5.dyl 0x00000001209d5d7c _ZN3syn4stmt7parsing34_$LT$impl$u20$syn..stmt..Block$GT$12parse_within17h0a9aa71af92023eaE + 396
+36  libgpui_macros-abeede7e0bd872a5.dyl 0x000000012099d2f8 _ZN3syn5parse11ParseBuffer4call17h216707e0fc7b9896E + 12
+37  libgpui_macros-abeede7e0bd872a5.dyl 0x00000001209cef04 _ZN3syn4item7parsing16parse_rest_of_fn17h2380b42dc847e86fE + 404
+38  libgpui_macros-abeede7e0bd872a5.dyl 0x00000001209d28d4 _ZN3syn4item7parsing18parse_rest_of_item17h210d4fff159ee472E + 12184
+39  libgpui_macros-abeede7e0bd872a5.dyl 0x0000000120981d98 _ZN3syn4stmt7parsing10parse_stmt17h7c069f5710a6fdecE + 1152
+### recursed 5 times
+
+0   libgpui_macros-abeede7e0bd872a5.dyl 0x00000001209d5d7c _ZN3syn4stmt7parsing34_$LT$impl$u20$syn..stmt..Block$GT$12parse_within17h0a9aa71af92023eaE + 396
+1   libgpui_macros-abeede7e0bd872a5.dyl 0x000000012099d2f8 _ZN3syn5parse11ParseBuffer4call17h216707e0fc7b9896E + 12
+2   libgpui_macros-abeede7e0bd872a5.dyl 0x00000001209cef04 _ZN3syn4item7parsing16parse_rest_of_fn17h2380b42dc847e86fE + 404
+3   libgpui_macros-abeede7e0bd872a5.dyl 0x00000001209d28d4 _ZN3syn4item7parsing18parse_rest_of_item17h210d4fff159ee472E + 12184
+4   libgpui_macros-abeede7e0bd872a5.dyl 0x0000000120981d98 _ZN3syn4stmt7parsing10parse_stmt17h7c069f5710a6fdecE + 1152
+5   libgpui_macros-abeede7e0bd872a5.dyl 0x00000001209d5d7c _ZN3syn4stmt7parsing34_$LT$impl$u20$syn..stmt..Block$GT$12parse_within17h0a9aa71af92023eaE + 396
+6   libgpui_macros-abeede7e0bd872a5.dyl 0x000000012099d2f8 _ZN3syn5parse11ParseBuffer4call17h216707e0fc7b9896E + 12
+7   libgpui_macros-abeede7e0bd872a5.dyl 0x00000001209cef04 _ZN3syn4item7parsing16parse_rest_of_fn17h2380b42dc847e86fE + 404
+8   libgpui_macros-abeede7e0bd872a5.dyl 0x00000001209d28d4 _ZN3syn4item7parsing18parse_rest_of_item17h210d4fff159ee472E + 12184
+9   libgpui_macros-abeede7e0bd872a5.dyl 0x0000000120981d98 _ZN3syn4stmt7parsing10parse_stmt17h7c069f5710a6fdecE + 1152
+10  libgpui_macros-abeede7e0bd872a5.dyl 0x00000001209d5d7c _ZN3syn4stmt7parsing34_$LT$impl$u20$syn..stmt..Block$GT$12parse_within17h0a9aa71af92023eaE + 396
+11  libgpui_macros-abeede7e0bd872a5.dyl 0x000000012099d2f8 _ZN3syn5parse11ParseBuffer4call17h216707e0fc7b9896E + 12
+12  libgpui_macros-abeede7e0bd872a5.dyl 0x00000001209cef04 _ZN3syn4item7parsing16parse_rest_of_fn17h2380b42dc847e86fE + 404
+13  libgpui_macros-abeede7e0bd872a5.dyl 0x00000001209d28d4 _ZN3syn4item7parsing18parse_rest_of_item17h210d4fff159ee472E + 12184
+14  libgpui_macros-abeede7e0bd872a5.dyl 0x0000000120981d98 _ZN3syn4stmt7parsing10parse_stmt17h7c069f5710a6fdecE + 1152
+15  libgpui_macros-abeede7e0bd872a5.dyl 0x00000001209d5d7c _ZN3syn4stmt7parsing34_$LT$impl$u20$syn..stmt..Block$GT$12parse_within17h0a9aa71af92023eaE + 396
+16  libgpui_macros-abeede7e0bd872a5.dyl 0x000000012099d2f8 _ZN3syn5parse11ParseBuffer4call17h216707e0fc7b9896E + 12
+
+note: maximum backtrace depth reached, frames may have been lost
+note: we would appreciate a report at https://github.com/rust-lang/rust
+note: backtrace dumped due to SIGBUS! resuming signal
+error: could not compile `sotf-gpui` (lib test)
+
+Caused by:
+  process didn't exit successfully: `/Users/pierre/.rustup/toolchains/1.92.0-aarch64-apple-darwin/bin/rustc --crate-name sotf_audio_player_gpui --edition=2024 sotf-audio-player/app-gpui/lib.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --emit=dep-info,metadata -C opt-level=1 -C embed-bitcode=no -C codegen-units=256 -C debuginfo=1 -C split-debuginfo=packed -C debug-assertions=on --test --cfg 'feature="default"' --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values("default", "hal", "sotf-hal"))' -C metadata=745a8ec40d7476c2 -C extra-filename=-6f74199ac28fe362 --out-dir /Users/pierre/src/sotf/target/debug/deps -C incremental=/Users/pierre/src/sotf/target/debug/incremental -L dependency=/Users/pierre/src/sotf/target/debug/deps --extern anyhow=/Users/pierre/src/sotf/target/debug/deps/libanyhow-bf3a6cad147cb4f4.rmeta --extern autoeq=/Users/pierre/src/sotf/target/debug/deps/libautoeq-fd1764ad84bd267c.rmeta --extern chrono=/Users/pierre/src/sotf/target/debug/deps/libchrono-924f6d1b9f84c995.rmeta --extern clap=/Users/pierre/src/sotf/target/debug/deps/libclap-64a5264155450551.rmeta --extern cpal=/Users/pierre/src/sotf/target/debug/deps/libcpal-29123e8b8f063f0f.rmeta --extern env_logger=/Users/pierre/src/sotf/target/debug/deps/libenv_logger-dcbb56c4041ff2ea.rmeta --extern gpui=/Users/pierre/src/sotf/target/debug/deps/libgpui-f8fd1d3453bd3f04.rmeta --extern d3rs=/Users/pierre/src/sotf/target/debug/deps/libd3rs-859b869ddeddabef.rmeta --extern gpui_px=/Users/pierre/src/sotf/target/debug/deps/libgpui_px-914b3dad0f455ed4.rmeta --extern gpui_ui_kit=/Users/pierre/src/sotf/target/debug/deps/libgpui_ui_kit-831b33ec2797d22e.rmeta --extern hound=/Users/pierre/src/sotf/target/debug/deps/libhound-a21a8badaa01f562.rmeta --extern id3=/Users/pierre/src/sotf/target/debug/deps/libid3-18454efc0a115235.rmeta --extern image=/Users/pierre/src/sotf/target/debug/deps/libimage-d158fc1a638a7bfa.rmeta --extern log=/Users/pierre/src/sotf/target/debug/deps/liblog-fd45662ecf4986bd.rmeta --extern math_audio_differential_evolution=/Users/pierre/src/sotf/target/debug/deps/libmath_audio_differential_evolution-76c1d2af3c2c8a1e.rmeta --extern math_audio_iir_fir=/Users/pierre/src/sotf/target/debug/deps/libmath_audio_iir_fir-7d7624c2a6aa3938.rmeta --extern metaflac=/Users/pierre/src/sotf/target/debug/deps/libmetaflac-0b72dd4444122d26.rmeta --extern mimalloc=/Users/pierre/src/sotf/target/debug/deps/libmimalloc-1c8bd13035fcf9a2.rmeta --extern ndarray=/Users/pierre/src/sotf/target/debug/deps/libndarray-a3c1c6600da5d280.rmeta --extern num_complex=/Users/pierre/src/sotf/target/debug/deps/libnum_complex-af04901b92b26f26.rmeta --extern parking_lot=/Users/pierre/src/sotf/target/debug/deps/libparking_lot-23898617f4219688.rmeta --extern proptest=/Users/pierre/src/sotf/target/debug/deps/libproptest-c712ad9c748e234c.rmeta --extern reqwest=/Users/pierre/src/sotf/target/debug/deps/libreqwest-270e0b6a124d0a61.rmeta --extern rfd=/Users/pierre/src/sotf/target/debug/deps/librfd-b23d9afd50eb11b3.rmeta --extern rust_embed=/Users/pierre/src/sotf/target/debug/deps/librust_embed-f905d2bc111f2f10.rmeta --extern serde=/Users/pierre/src/sotf/target/debug/deps/libserde-060da012c37494a0.rmeta --extern serde_json=/Users/pierre/src/sotf/target/debug/deps/libserde_json-1046e2fc0b5c123f.rmeta --extern smol=/Users/pierre/src/sotf/target/debug/deps/libsmol-99ec9fd63a311ba2.rmeta --extern sotf_audio=/Users/pierre/src/sotf/target/debug/deps/libsotf_audio-7219868d2fa2dd5c.rmeta --extern sotf_audio_player=/Users/pierre/src/sotf/target/debug/deps/libsotf_audio_player-2b5a4ab2dfc676c7.rmeta --extern sotf_plugins=/Users/pierre/src/sotf/target/debug/deps/libsotf_plugins-f4ec9aa5f9e56808.rmeta --extern strsim=/Users/pierre/src/sotf/target/debug/deps/libstrsim-45d9d54a1a2e429f.rmeta --extern symphonia=/Users/pierre/src/sotf/target/debug/deps/libsymphonia-2eb7dafaadf7f349.rmeta --extern symphonia_bundle_flac=/Users/pierre/src/sotf/target/debug/deps/libsymphonia_bundle_flac-66b810493196e78e.rmeta --extern symphonia_bundle_mp3=/Users/pierre/src/sotf/target/debug/deps/libsymphonia_bundle_mp3-cf8792f490a6f267.rmeta --extern symphonia_codec_aac=/Users/pierre/src/sotf/target/debug/deps/libsymphonia_codec_aac-b3314c35df39d6e6.rmeta --extern symphonia_core=/Users/pierre/src/sotf/target/debug/deps/libsymphonia_core-4c48504104528895.rmeta --extern symphonia_format_isomp4=/Users/pierre/src/sotf/target/debug/deps/libsymphonia_format_isomp4-bc0f2ec54f768e6b.rmeta --extern symphonia_format_ogg=/Users/pierre/src/sotf/target/debug/deps/libsymphonia_format_ogg-3cb0e0014bd9019a.rmeta --extern symphonia_format_riff=/Users/pierre/src/sotf/target/debug/deps/libsymphonia_format_riff-48c3ea925d81941a.rmeta --extern symphonia_metadata=/Users/pierre/src/sotf/target/debug/deps/libsymphonia_metadata-06ad98053cfd6942.rmeta --extern tempfile=/Users/pierre/src/sotf/target/debug/deps/libtempfile-036dac55fc7417c0.rmeta --extern thiserror=/Users/pierre/src/sotf/target/debug/deps/libthiserror-a4304dbab7f66ce0.rmeta --extern tokio=/Users/pierre/src/sotf/target/debug/deps/libtokio-43bf3839f9fff892.rmeta --extern urlencoding=/Users/pierre/src/sotf/target/debug/deps/liburlencoding-55023d5926ea3b2b.rmeta --extern walkdir=/Users/pierre/src/sotf/target/debug/deps/libwalkdir-17fc14530de8b5e2.rmeta -C target-cpu=native -C target-feature=+neon -C link-arg=-mmacosx-version-min=15.0 -C link-arg=-framework -C link-arg=Accelerate -C 'link-arg=-L /Applications/Xcode.app/Contents/Frameworks' -C 'link-arg=-L /opt/homebrew/Cellar/llvm/21.1.7/lib' -L native=/Users/pierre/src/sotf/target/debug/build/nlopt-411301407dc0613b/out/lib -L native=/Users/pierre/src/sotf/target/debug/build/nlopt-411301407dc0613b/out/lib64 -L native=/Users/pierre/src/sotf/target/debug/build/aws-lc-sys-e35fd8fbb405e903/out -L native=/Users/pierre/src/sotf/target/debug/build/libgit2-sys-775064562a20f707/out/build -L native=/Users/pierre/src/sotf/target/debug/build/psm-3e56394a64953a3a/out -L native=/Users/pierre/src/sotf/target/debug/build/libmimalloc-sys-f8a96303db1da11e/out -L native=/Users/pierre/src/sotf/target/debug/build/libsqlite3-sys-8f647f3a135f0235/out -L native=/Users/pierre/src/sotf/target/debug/build/bliss-audio-aubio-sys-3697cd2af7b22ca1/out -L native=/Users/pierre/src/sotf/target/debug/build/bliss-audio-aubio-sys-3697cd2af7b22ca1/out -L native=/Users/pierre/src/sotf/target/debug/build/bliss-audio-aubio-sys-3697cd2af7b22ca1/out -L native=/Users/pierre/src/sotf/target/debug/build/bliss-audio-aubio-sys-3697cd2af7b22ca1/out -L native=/Users/pierre/src/sotf/target/debug/build/bliss-audio-aubio-sys-3697cd2af7b22ca1/out -L native=/Users/pierre/src/sotf/target/debug/build/bliss-audio-aubio-sys-3697cd2af7b22ca1/out -L native=/Users/pierre/src/sotf/target/debug/build/bliss-audio-aubio-sys-3697cd2af7b22ca1/out -L native=/Users/pierre/src/sotf/target/debug/build/bliss-audio-aubio-sys-3697cd2af7b22ca1/out -L native=/Users/pierre/src/sotf/target/debug/build/bliss-audio-aubio-sys-3697cd2af7b22ca1/out -L native=/Users/pierre/src/sotf/target/debug/build/bliss-audio-aubio-sys-3697cd2af7b22ca1/out -L /Users/pierre/src/sotf/target/debug/build/bliss-audio-aubio-sys-3697cd2af7b22ca1/out -L /opt/homebrew/Cellar/netcdf/4.9.3_1/lib -L native=/opt/homebrew/opt/hdf5/lib -L native=/opt/homebrew/opt/hdf5/bin` (signal: 10, SIGBUS: access to undefined memory)

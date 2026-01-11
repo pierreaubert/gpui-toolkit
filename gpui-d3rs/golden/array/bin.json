@@ -1,0 +1,155 @@
+{
+  "module": "d3-array",
+  "function": "bin",
+  "tolerance": 0.000001,
+  "generated_at": "2025-12-08T20:24:30.918Z",
+  "test_cases": [
+    {
+      "name": "basic",
+      "data": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10
+      ],
+      "threshold_count": 5,
+      "bins": [
+        {
+          "x0": 0,
+          "x1": 2,
+          "length": 1,
+          "values": [
+            1
+          ]
+        },
+        {
+          "x0": 2,
+          "x1": 4,
+          "length": 2,
+          "values": [
+            2,
+            3
+          ]
+        },
+        {
+          "x0": 4,
+          "x1": 6,
+          "length": 2,
+          "values": [
+            4,
+            5
+          ]
+        },
+        {
+          "x0": 6,
+          "x1": 8,
+          "length": 2,
+          "values": [
+            6,
+            7
+          ]
+        },
+        {
+          "x0": 8,
+          "x1": 10,
+          "length": 2,
+          "values": [
+            8,
+            9
+          ]
+        },
+        {
+          "x0": 10,
+          "x1": 12,
+          "length": 1,
+          "values": [
+            10
+          ]
+        }
+      ]
+    },
+    {
+      "name": "custom_domain",
+      "data": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10
+      ],
+      "domain": [
+        0,
+        10
+      ],
+      "threshold_count": 10,
+      "bins": [
+        {
+          "x0": 0,
+          "x1": 1,
+          "length": 0
+        },
+        {
+          "x0": 1,
+          "x1": 2,
+          "length": 1
+        },
+        {
+          "x0": 2,
+          "x1": 3,
+          "length": 1
+        },
+        {
+          "x0": 3,
+          "x1": 4,
+          "length": 1
+        },
+        {
+          "x0": 4,
+          "x1": 5,
+          "length": 1
+        },
+        {
+          "x0": 5,
+          "x1": 6,
+          "length": 1
+        },
+        {
+          "x0": 6,
+          "x1": 7,
+          "length": 1
+        },
+        {
+          "x0": 7,
+          "x1": 8,
+          "length": 1
+        },
+        {
+          "x0": 8,
+          "x1": 9,
+          "length": 1
+        },
+        {
+          "x0": 9,
+          "x1": 10,
+          "length": 2
+        }
+      ]
+    },
+    {
+      "name": "sturges",
+      "data_length": 100,
+      "bin_count": 10
+    }
+  ]
+}

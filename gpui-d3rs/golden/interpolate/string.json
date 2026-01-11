@@ -1,0 +1,95 @@
+{
+  "module": "d3-interpolate",
+  "function": "interpolateString",
+  "tolerance": 0.000001,
+  "generated_at": "2025-12-08T20:24:30.917Z",
+  "test_cases": [
+    {
+      "name": "basic_px",
+      "a": "10px",
+      "b": "20px",
+      "inputs": [
+        0,
+        0.25,
+        0.5,
+        0.75,
+        1
+      ],
+      "outputs": [
+        "10px",
+        "12.5px",
+        "15px",
+        "17.5px",
+        "20px"
+      ]
+    },
+    {
+      "name": "translate",
+      "a": "translate(0, 0)",
+      "b": "translate(100, 50)",
+      "inputs": [
+        0,
+        0.5,
+        1
+      ],
+      "outputs": [
+        "translate(0, 0)",
+        "translate(50, 25)",
+        "translate(100, 50)"
+      ]
+    },
+    {
+      "name": "border",
+      "a": "1px solid #ff0000",
+      "b": "5px solid #0000ff",
+      "inputs": [
+        0,
+        0.5,
+        1
+      ],
+      "outputs": [
+        "1px solid #0000ff",
+        "3px solid #0000ff",
+        "5px solid #0000ff"
+      ]
+    },
+    {
+      "name": "decimal",
+      "a": "0.5em",
+      "b": "2.5em",
+      "inputs": [
+        0,
+        0.25,
+        0.5,
+        0.75,
+        1
+      ],
+      "outputs": [
+        "0.5em",
+        "1em",
+        "1.5em",
+        "2em",
+        "2.5em"
+      ]
+    },
+    {
+      "name": "rotate",
+      "a": "rotate(0deg)",
+      "b": "rotate(180deg)",
+      "inputs": [
+        0,
+        0.25,
+        0.5,
+        0.75,
+        1
+      ],
+      "outputs": [
+        "rotate(0deg)",
+        "rotate(45deg)",
+        "rotate(90deg)",
+        "rotate(135deg)",
+        "rotate(180deg)"
+      ]
+    }
+  ]
+}

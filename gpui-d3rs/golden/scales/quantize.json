@@ -1,0 +1,120 @@
+{
+  "module": "d3-scale",
+  "function": "scaleQuantize",
+  "tolerance": 0.000001,
+  "generated_at": "2025-12-08T20:24:30.915Z",
+  "test_cases": [
+    {
+      "name": "basic",
+      "config": {
+        "domain": [
+          0,
+          100
+        ],
+        "range": [
+          "a",
+          "b",
+          "c",
+          "d"
+        ]
+      },
+      "inputs": [
+        0,
+        12,
+        25,
+        37,
+        50,
+        62,
+        75,
+        87,
+        100
+      ],
+      "outputs": [
+        "a",
+        "a",
+        "b",
+        "b",
+        "c",
+        "c",
+        "d",
+        "d",
+        "d"
+      ],
+      "thresholds": [
+        25,
+        50,
+        75
+      ]
+    },
+    {
+      "name": "numeric_range",
+      "config": {
+        "domain": [
+          0,
+          1
+        ],
+        "range": [
+          0,
+          1,
+          2,
+          3,
+          4
+        ]
+      },
+      "inputs": [
+        0,
+        0.1,
+        0.2,
+        0.3,
+        0.4,
+        0.5,
+        0.6,
+        0.7,
+        0.8,
+        0.9,
+        1
+      ],
+      "outputs": [
+        0,
+        0,
+        1,
+        1,
+        2,
+        2,
+        3,
+        3,
+        4,
+        4,
+        4
+      ]
+    },
+    {
+      "name": "invert_extent",
+      "config": {
+        "domain": [
+          0,
+          100
+        ],
+        "range": [
+          "low",
+          "medium",
+          "high"
+        ]
+      },
+      "invert_extent": {
+        "low": [
+          0,
+          33.333333333333336
+        ],
+        "medium": [
+          33.333333333333336,
+          66.66666666666667
+        ],
+        "high": [
+          66.66666666666667,
+          100
+        ]
+      }
+    }
+  ]
+}

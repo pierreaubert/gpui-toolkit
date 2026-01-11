@@ -1,0 +1,36 @@
+[package]
+name = "gpui-px"
+version = "0.5.10"
+authors.workspace = true
+edition.workspace = true
+license = "ISC"
+repository.workspace = true
+description = "High-level Plotly Express-style charting API built on d3rs and GPUI"
+
+[features]
+default = ["gpui"]
+gpui = ["dep:gpui", "dep:gpui-ui-kit"]
+
+[dependencies]
+d3rs = { workspace = true }
+gpui = { workspace = true, optional = true }
+gpui-ui-kit = { workspace = true, optional = true }
+thiserror = { workspace = true }
+autoeq = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true }
+reqwest = { workspace = true, optional = true }
+urlencoding = { workspace = true, optional = true }
+
+[[bin]]
+name = "px-showcase"
+path = "bin/showcase.rs"
+
+[[bin]]
+name = "px-spinorama"
+path = "bin/spinorama_demo.rs"
+required-features = ["gpui", "autoeq", "tokio", "reqwest", "urlencoding"]
+
+[[example]]
+name = "logscale_demo"
+path = "examples/logscale_demo.rs"
+required-features = ["gpui"]

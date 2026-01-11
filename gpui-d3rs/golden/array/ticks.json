@@ -1,0 +1,97 @@
+{
+  "module": "d3-array",
+  "function": "ticks",
+  "tolerance": 0.000001,
+  "generated_at": "2025-12-08T20:24:30.918Z",
+  "test_cases": [
+    {
+      "name": "basic_0_100",
+      "start": 0,
+      "stop": 100,
+      "count": 10,
+      "ticks": [
+        0,
+        10,
+        20,
+        30,
+        40,
+        50,
+        60,
+        70,
+        80,
+        90,
+        100
+      ]
+    },
+    {
+      "name": "negative_range",
+      "start": -50,
+      "stop": 50,
+      "count": 10,
+      "ticks": [
+        -50,
+        -40,
+        -30,
+        -20,
+        -10,
+        0,
+        10,
+        20,
+        30,
+        40,
+        50
+      ]
+    },
+    {
+      "name": "small_range",
+      "start": 0,
+      "stop": 1,
+      "count": 5,
+      "ticks": [
+        0,
+        0.2,
+        0.4,
+        0.6,
+        0.8,
+        1
+      ]
+    },
+    {
+      "name": "large_range",
+      "start": 0,
+      "stop": 1000000,
+      "count": 5,
+      "ticks": [
+        0,
+        200000,
+        400000,
+        600000,
+        800000,
+        1000000
+      ]
+    },
+    {
+      "name": "nice",
+      "start": 0.123,
+      "stop": 0.987,
+      "count": 5,
+      "ticks": [
+        0.2,
+        0.4,
+        0.6,
+        0.8
+      ],
+      "nice": [
+        0,
+        1
+      ]
+    },
+    {
+      "name": "tick_step",
+      "start": 0,
+      "stop": 100,
+      "count": 10,
+      "tick_step": 10
+    }
+  ]
+}

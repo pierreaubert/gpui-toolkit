@@ -1,0 +1,278 @@
+{
+  "module": "d3-array",
+  "function": "transform",
+  "tolerance": 0.000001,
+  "generated_at": "2025-12-08T20:24:30.919Z",
+  "test_cases": [
+    {
+      "name": "shuffle",
+      "original": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10
+      ],
+      "shuffled_length": 10,
+      "shuffled_sorted": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10
+      ]
+    },
+    {
+      "name": "reverse",
+      "original": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "reversed": [
+        5,
+        4,
+        3,
+        2,
+        1
+      ]
+    },
+    {
+      "name": "sort_ascending",
+      "original": [
+        5,
+        2,
+        8,
+        1,
+        9,
+        3
+      ],
+      "sorted": [
+        1,
+        2,
+        3,
+        5,
+        8,
+        9
+      ]
+    },
+    {
+      "name": "sort_descending",
+      "original": [
+        5,
+        2,
+        8,
+        1,
+        9,
+        3
+      ],
+      "sorted": [
+        9,
+        8,
+        5,
+        3,
+        2,
+        1
+      ]
+    },
+    {
+      "name": "permute",
+      "original": [
+        "a",
+        "b",
+        "c",
+        "d",
+        "e"
+      ],
+      "keys": [
+        4,
+        0,
+        2
+      ],
+      "permuted": [
+        "e",
+        "a",
+        "c"
+      ]
+    },
+    {
+      "name": "zip",
+      "arrays": [
+        [
+          1,
+          2,
+          3
+        ],
+        [
+          4,
+          5,
+          6
+        ],
+        [
+          7,
+          8,
+          9
+        ]
+      ],
+      "zipped": [
+        [
+          1,
+          4,
+          7
+        ],
+        [
+          2,
+          5,
+          8
+        ],
+        [
+          3,
+          6,
+          9
+        ]
+      ]
+    },
+    {
+      "name": "transpose",
+      "original": [
+        [
+          1,
+          2,
+          3
+        ],
+        [
+          4,
+          5,
+          6
+        ]
+      ],
+      "transposed": [
+        [
+          1,
+          4
+        ],
+        [
+          2,
+          5
+        ],
+        [
+          3,
+          6
+        ]
+      ]
+    },
+    {
+      "name": "cross",
+      "a": [
+        1,
+        2
+      ],
+      "b": [
+        "x",
+        "y",
+        "z"
+      ],
+      "crossed": [
+        [
+          1,
+          "x"
+        ],
+        [
+          1,
+          "y"
+        ],
+        [
+          1,
+          "z"
+        ],
+        [
+          2,
+          "x"
+        ],
+        [
+          2,
+          "y"
+        ],
+        [
+          2,
+          "z"
+        ]
+      ]
+    },
+    {
+      "name": "pairs",
+      "original": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "pairs": [
+        [
+          1,
+          2
+        ],
+        [
+          2,
+          3
+        ],
+        [
+          3,
+          4
+        ],
+        [
+          4,
+          5
+        ]
+      ]
+    },
+    {
+      "name": "range_basic",
+      "stop": 5,
+      "result": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ]
+    },
+    {
+      "name": "range_start_stop",
+      "start": 1,
+      "stop": 5,
+      "result": [
+        1,
+        2,
+        3,
+        4
+      ]
+    },
+    {
+      "name": "range_step",
+      "start": 0,
+      "stop": 1,
+      "step": 0.2,
+      "result": [
+        0,
+        0.2,
+        0.4,
+        0.6000000000000001,
+        0.8
+      ]
+    }
+  ]
+}

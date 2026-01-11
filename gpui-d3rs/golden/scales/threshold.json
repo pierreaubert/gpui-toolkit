@@ -1,0 +1,78 @@
+{
+  "module": "d3-scale",
+  "function": "scaleThreshold",
+  "tolerance": 0.000001,
+  "generated_at": "2025-12-08T20:24:30.915Z",
+  "test_cases": [
+    {
+      "name": "basic",
+      "config": {
+        "domain": [
+          0,
+          1
+        ],
+        "range": [
+          "negative",
+          "zero",
+          "positive"
+        ]
+      },
+      "inputs": [
+        -1,
+        -0.5,
+        0,
+        0.5,
+        1,
+        2
+      ],
+      "outputs": [
+        "negative",
+        "negative",
+        "zero",
+        "zero",
+        "positive",
+        "positive"
+      ]
+    },
+    {
+      "name": "grades",
+      "config": {
+        "domain": [
+          10,
+          20,
+          30,
+          40
+        ],
+        "range": [
+          "F",
+          "D",
+          "C",
+          "B",
+          "A"
+        ]
+      },
+      "inputs": [
+        0,
+        10,
+        15,
+        20,
+        25,
+        30,
+        35,
+        40,
+        50
+      ],
+      "outputs": [
+        "F",
+        "D",
+        "D",
+        "C",
+        "C",
+        "B",
+        "B",
+        "A",
+        "A"
+      ]
+    }
+  ]
+}

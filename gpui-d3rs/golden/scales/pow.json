@@ -1,0 +1,122 @@
+{
+  "module": "d3-scale",
+  "function": "scalePow",
+  "tolerance": 0.000001,
+  "generated_at": "2025-12-08T20:24:30.915Z",
+  "test_cases": [
+    {
+      "name": "exponent_2",
+      "config": {
+        "domain": [
+          0,
+          10
+        ],
+        "range": [
+          0,
+          100
+        ],
+        "exponent": 2
+      },
+      "inputs": [
+        0,
+        1,
+        2,
+        3,
+        5,
+        10
+      ],
+      "outputs": [
+        0,
+        1,
+        4,
+        9,
+        25,
+        100
+      ]
+    },
+    {
+      "name": "sqrt",
+      "config": {
+        "domain": [
+          0,
+          100
+        ],
+        "range": [
+          0,
+          10
+        ],
+        "exponent": 0.5
+      },
+      "inputs": [
+        0,
+        1,
+        4,
+        9,
+        16,
+        25,
+        100
+      ],
+      "outputs": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        10
+      ]
+    },
+    {
+      "name": "exponent_3",
+      "config": {
+        "domain": [
+          0,
+          10
+        ],
+        "range": [
+          0,
+          1000
+        ],
+        "exponent": 3
+      },
+      "inputs": [
+        0,
+        1,
+        2,
+        5,
+        10
+      ],
+      "outputs": [
+        0,
+        1,
+        8,
+        125,
+        1000
+      ]
+    },
+    {
+      "name": "invert",
+      "config": {
+        "domain": [
+          0,
+          10
+        ],
+        "range": [
+          0,
+          100
+        ],
+        "exponent": 2
+      },
+      "invert_inputs": [
+        0,
+        25,
+        100
+      ],
+      "invert_outputs": [
+        0,
+        5,
+        10
+      ]
+    }
+  ]
+}

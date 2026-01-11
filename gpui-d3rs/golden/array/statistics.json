@@ -1,0 +1,117 @@
+{
+  "module": "d3-array",
+  "function": "statistics",
+  "tolerance": 0.000001,
+  "generated_at": "2025-12-08T20:24:30.918Z",
+  "test_cases": [
+    {
+      "name": "min_max_extent",
+      "data": [
+        3,
+        1,
+        4,
+        1,
+        5,
+        9,
+        2,
+        6,
+        5,
+        3,
+        5
+      ],
+      "min": 1,
+      "max": 9,
+      "extent": [
+        1,
+        9
+      ]
+    },
+    {
+      "name": "sum_mean_median",
+      "data": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10
+      ],
+      "sum": 55,
+      "mean": 5.5,
+      "median": 5.5
+    },
+    {
+      "name": "variance_deviation",
+      "data": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10
+      ],
+      "variance": 9.166666666666666,
+      "deviation": 3.0276503540974917
+    },
+    {
+      "name": "quantile",
+      "data": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10
+      ],
+      "q0": 1,
+      "q25": 3.25,
+      "q50": 5.5,
+      "q75": 7.75,
+      "q100": 10
+    },
+    {
+      "name": "cumsum",
+      "data": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "cumsum": [
+        1,
+        3,
+        6,
+        10,
+        15
+      ]
+    },
+    {
+      "name": "with_accessor",
+      "data": [
+        10,
+        20,
+        30
+      ],
+      "min": 10,
+      "max": 30,
+      "mean": 20
+    },
+    {
+      "name": "empty_array",
+      "data": []
+    }
+  ]
+}

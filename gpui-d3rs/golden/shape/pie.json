@@ -1,0 +1,152 @@
+{
+  "module": "d3-shape",
+  "function": "pie",
+  "tolerance": 0.000001,
+  "generated_at": "2025-12-08T20:24:30.920Z",
+  "test_cases": [
+    {
+      "name": "basic",
+      "data": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "arcs": [
+        {
+          "value": 1,
+          "startAngle": 5.654866776461628,
+          "endAngle": 6.283185307179586,
+          "padAngle": 0,
+          "index": 3
+        },
+        {
+          "value": 2,
+          "startAngle": 4.39822971502571,
+          "endAngle": 5.654866776461628,
+          "padAngle": 0,
+          "index": 2
+        },
+        {
+          "value": 3,
+          "startAngle": 2.5132741228718345,
+          "endAngle": 4.39822971502571,
+          "padAngle": 0,
+          "index": 1
+        },
+        {
+          "value": 4,
+          "startAngle": 0,
+          "endAngle": 2.5132741228718345,
+          "padAngle": 0,
+          "index": 0
+        }
+      ]
+    },
+    {
+      "name": "with_padding",
+      "data": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "padAngle": 0.05,
+      "arcs": [
+        {
+          "value": 1,
+          "startAngle": 5.624866776461627,
+          "endAngle": 6.283185307179585,
+          "padAngle": 0.05
+        },
+        {
+          "value": 2,
+          "startAngle": 4.35822971502571,
+          "endAngle": 5.624866776461627,
+          "padAngle": 0.05
+        },
+        {
+          "value": 3,
+          "startAngle": 2.4832741228718342,
+          "endAngle": 4.35822971502571,
+          "padAngle": 0.05
+        },
+        {
+          "value": 4,
+          "startAngle": 0,
+          "endAngle": 2.4832741228718342,
+          "padAngle": 0.05
+        }
+      ]
+    },
+    {
+      "name": "half_pie",
+      "data": [
+        1,
+        2,
+        3
+      ],
+      "startAngle": -1.5707963267948966,
+      "endAngle": 1.5707963267948966,
+      "arcs": [
+        {
+          "value": 1,
+          "startAngle": 1.0471975511965976,
+          "endAngle": 1.5707963267948966
+        },
+        {
+          "value": 2,
+          "startAngle": 0,
+          "endAngle": 1.0471975511965976
+        },
+        {
+          "value": 3,
+          "startAngle": -1.5707963267948966,
+          "endAngle": 0
+        }
+      ]
+    },
+    {
+      "name": "sorted_descending",
+      "data": [
+        3,
+        1,
+        4,
+        1,
+        5
+      ],
+      "arcs": [
+        {
+          "value": 3,
+          "index": 2,
+          "startAngle": 4.039190554615448,
+          "endAngle": 5.385587406153931
+        },
+        {
+          "value": 1,
+          "index": 3,
+          "startAngle": 5.385587406153931,
+          "endAngle": 5.834386356666759
+        },
+        {
+          "value": 4,
+          "index": 1,
+          "startAngle": 2.243994752564138,
+          "endAngle": 4.039190554615448
+        },
+        {
+          "value": 1,
+          "index": 4,
+          "startAngle": 5.834386356666759,
+          "endAngle": 6.283185307179586
+        },
+        {
+          "value": 5,
+          "index": 0,
+          "startAngle": 0,
+          "endAngle": 2.243994752564138
+        }
+      ]
+    }
+  ]
+}

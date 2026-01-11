@@ -1,0 +1,89 @@
+{
+  "module": "d3-brush",
+  "function": "brush",
+  "tolerance": 0.000001,
+  "generated_at": "2025-12-08T20:24:30.925Z",
+  "test_cases": [
+    {
+      "name": "brush_extent_2d",
+      "description": "2D brush selection bounds",
+      "selection": [
+        [
+          10,
+          20
+        ],
+        [
+          100,
+          80
+        ]
+      ],
+      "expected_x0": 10,
+      "expected_y0": 20,
+      "expected_x1": 100,
+      "expected_y1": 80,
+      "width": 90,
+      "height": 60
+    },
+    {
+      "name": "brush_extent_x",
+      "description": "1D horizontal brush",
+      "selection": [
+        10,
+        100
+      ],
+      "expected_x0": 10,
+      "expected_x1": 100,
+      "width": 90
+    },
+    {
+      "name": "brush_extent_y",
+      "description": "1D vertical brush",
+      "selection": [
+        20,
+        80
+      ],
+      "expected_y0": 20,
+      "expected_y1": 80,
+      "height": 60
+    },
+    {
+      "name": "brush_empty",
+      "description": "No selection (null)",
+      "selection": null
+    },
+    {
+      "name": "brush_clamped",
+      "description": "Selection clamped to extent",
+      "extent": [
+        [
+          0,
+          0
+        ],
+        [
+          200,
+          100
+        ]
+      ],
+      "input_selection": [
+        [
+          -10,
+          -10
+        ],
+        [
+          250,
+          150
+        ]
+      ],
+      "clamped_selection": [
+        [
+          0,
+          0
+        ],
+        [
+          200,
+          100
+        ]
+      ]
+    }
+  ]
+}
