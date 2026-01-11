@@ -552,9 +552,9 @@ impl RenderOnce for NumberInput {
 
         // Create unique child IDs based on parent ID
         let parent_id = format!("{:?}", self.id);
-        let dec_id = ElementId::Name(format!("{}-dec", parent_id).into());
-        let value_id = ElementId::Name(format!("{}-value", parent_id).into());
-        let inc_id = ElementId::Name(format!("{}-inc", parent_id).into());
+        let dec_id = ElementId::Name(SharedString::from(format!("{}-dec", parent_id)));
+        let value_id = ElementId::Name(SharedString::from(format!("{}-value", parent_id)));
+        let inc_id = ElementId::Name(SharedString::from(format!("{}-inc", parent_id)));
 
         // Wrap handler in Rc for sharing
         let on_change_rc = self.on_change.map(Rc::new);
@@ -697,7 +697,7 @@ impl RenderOnce for NumberInput {
                 MouseButton::Left,
                 move |event, window, cx| {
                     // Focus the input
-                    window.focus(&focus_handle_for_click, cx);
+                    window.focus(&focus_handle_for_click);
 
                     let mut state = edit_state_for_click.borrow_mut();
 

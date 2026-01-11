@@ -276,7 +276,7 @@ impl VolumeKnob {
     pub fn new() -> Self {
         let counter = VOLUME_KNOB_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         Self {
-            id: ElementId::Name(format!("volume-knob-{}", counter).into()),
+            id: ElementId::Name(SharedString::from(format!("volume-knob-{}", counter))),
             value: 0.0,
             label: "".into(),
             size: px(40.0),
@@ -442,7 +442,7 @@ impl RenderOnce for VolumeKnob {
             let focus_handle_click = focus_handle.clone();
             // Mouse down - focus for keyboard navigation
             container = container.on_mouse_down(MouseButton::Left, move |_event, window, cx| {
-                focus_handle_click.focus(window, cx);
+                focus_handle_click.focus(window);
             });
         }
 
@@ -480,7 +480,7 @@ impl RenderOnce for VolumeKnob {
                 } else if let Some(ref fh) = focus_handle_hover {
                     // Hover: Focus for keyboard navigation
                     if !fh.is_focused(window) {
-                        fh.focus(window, cx);
+                        fh.focus(window);
                     }
                 }
             });

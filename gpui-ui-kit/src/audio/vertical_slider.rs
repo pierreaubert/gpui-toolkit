@@ -777,7 +777,7 @@ impl RenderOnce for VerticalSlider {
             container = container.on_mouse_down(MouseButton::Left, move |event, window, cx| {
                 // Focus for keyboard navigation (focus follows click)
                 if let Some(ref fh) = focus_handle_container {
-                    fh.focus(window, cx);
+                    fh.focus(window);
                 }
 
                 if let Some(ref handler) = on_select_container {
@@ -823,7 +823,7 @@ impl RenderOnce for VerticalSlider {
                 // We use mouse_move because mouse_enter doesn't exist in GPUI
                 if let Some(ref fh) = focus_handle_hover {
                     if !fh.is_focused(window) && !event.pressed_button.is_some() {
-                        fh.focus(window, cx);
+                        fh.focus(window);
                     }
                 }
             });
@@ -887,7 +887,7 @@ impl RenderOnce for VerticalSlider {
         );
 
         // Track ID for click-to-position handling
-        let track_id: ElementId = format!("{}-track", element_id).into();
+        let track_id: ElementId = ElementId::Name(SharedString::from(format!("{}-track", element_id)));
 
         // Track with fill and thumb
         let mut track = div()
@@ -963,7 +963,7 @@ impl RenderOnce for VerticalSlider {
 
                 // Focus for keyboard navigation (focus follows click)
                 if let Some(ref fh) = focus_handle_track {
-                    fh.focus(window, cx);
+                    fh.focus(window);
                 }
 
                 // Select the slider (if handler provided)

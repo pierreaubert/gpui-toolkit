@@ -494,7 +494,7 @@ impl RenderOnce for Potentiometer {
             container = container.on_mouse_down(MouseButton::Left, move |event, window, cx| {
                 // Always focus for keyboard navigation
                 if let Some(ref fh) = focus_handle_click {
-                    fh.focus(window, cx);
+                    fh.focus(window);
                 }
 
                 // Handle Selection
@@ -570,7 +570,7 @@ impl RenderOnce for Potentiometer {
             container = container.on_mouse_move(move |event, window, cx| {
                 if let Some(ref fh) = focus_handle_hover {
                     if !fh.is_focused(window) && !event.pressed_button.is_some() {
-                        fh.focus(window, cx);
+                        fh.focus(window);
                     }
                 }
             });

@@ -1,7 +1,6 @@
 [package]
 name = "gpui-themes"
 version = "0.5.1"
-version.workspace = true
 authors.workspace = true
 edition.workspace = true
 description = "Theme editor and management for GPUI applications"
@@ -11,7 +10,7 @@ repository.workspace = true
 [dependencies]
 # GPUI framework
 gpui = { workspace = true }
-gpui_macros = { workspace = true }
+# gpui_macros = { workspace = true }
 
 # UI kit for components
 gpui-ui-kit = { workspace = true }

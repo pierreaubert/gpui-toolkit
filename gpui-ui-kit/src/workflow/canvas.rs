@@ -930,7 +930,7 @@ impl Render for WorkflowCanvas {
                 screen_node.width *= viewport.zoom;
                 screen_node.height *= viewport.zoom;
 
-                WorkflowNode::new(format!("node-{}", node.id), screen_node)
+                WorkflowNode::new(SharedString::from(format!("node-{}", node.id)), screen_node)
                     .selected(selected)
                     .dragging(dragging)
                     .theme(scaled_theme.clone())

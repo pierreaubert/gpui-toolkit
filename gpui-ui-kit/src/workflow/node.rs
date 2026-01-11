@@ -162,7 +162,7 @@ impl RenderOnce for WorkflowNode {
         let input_ports: Vec<_> = (0..self.data.input_count)
             .map(|i| {
                 Port::new(
-                    format!("port-in-{}-{}", node_id, i),
+                    SharedString::from(format!("port-in-{}-{}", node_id, i)),
                     PortDirection::Input,
                     i,
                 )
@@ -174,7 +174,7 @@ impl RenderOnce for WorkflowNode {
         let output_ports: Vec<_> = (0..self.data.output_count)
             .map(|i| {
                 Port::new(
-                    format!("port-out-{}-{}", node_id, i),
+                    SharedString::from(format!("port-out-{}-{}", node_id, i)),
                     PortDirection::Output,
                     i,
                 )

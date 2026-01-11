@@ -822,7 +822,7 @@ impl RenderOnce for Input {
         }
 
         // Create a unique ID for the input field
-        let field_id = ElementId::Name(format!("{:?}-field", self.id).into());
+        let field_id = ElementId::Name(SharedString::from(format!("{:?}-field", self.id)));
 
         // Input wrapper
         let mut input_wrapper = div()
@@ -891,7 +891,7 @@ impl RenderOnce for Input {
             input_wrapper =
                 input_wrapper.on_mouse_down(MouseButton::Left, move |event, window, cx| {
                     // Focus the input
-                    window.focus(&focus_handle_for_click, cx);
+                    window.focus(&focus_handle_for_click);
 
                     let mut state = edit_state_for_click.borrow_mut();
 

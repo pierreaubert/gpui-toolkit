@@ -223,7 +223,7 @@ fn start_animation_loop(entity: Entity<ShowcaseApp>, cx: &mut Context<ShowcaseAp
                 })
             });
 
-            if !should_continue {
+            if !should_continue.unwrap_or(false) {
                 break;
             }
         }
