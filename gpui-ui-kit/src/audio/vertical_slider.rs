@@ -818,7 +818,7 @@ impl RenderOnce for VerticalSlider {
 
             // Focus on mouse enter - keyboard follows hover like scroll wheel
             let focus_handle_hover = self.focus_handle.clone();
-            container = container.on_mouse_move(move |event, window, cx| {
+            container = container.on_mouse_move(move |event, window, _cx| {
                 // Only focus when mouse enters (not on every move)
                 // We use mouse_move because mouse_enter doesn't exist in GPUI
                 if let Some(ref fh) = focus_handle_hover {

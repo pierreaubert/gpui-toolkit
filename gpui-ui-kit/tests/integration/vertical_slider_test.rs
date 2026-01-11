@@ -502,6 +502,7 @@ async fn test_vertical_slider_with_custom_theme(cx: &mut TestAppContext) {
                 text_muted: gpui::rgba(0x888888ff),
                 text_on_accent: gpui::rgba(0xffffffff),
                 background_secondary: gpui::rgba(0x2a2a2aff),
+                peak_marker: gpui::rgba(0xff6b6bff),
             };
 
             div().child(

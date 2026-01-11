@@ -567,7 +567,7 @@ impl RenderOnce for Potentiometer {
 
             // Focus on mouse enter - keyboard follows hover like scroll wheel
             let focus_handle_hover = self.focus_handle.clone();
-            container = container.on_mouse_move(move |event, window, cx| {
+            container = container.on_mouse_move(move |event, window, _cx| {
                 if let Some(ref fh) = focus_handle_hover {
                     if !fh.is_focused(window) && !event.pressed_button.is_some() {
                         fh.focus(window);

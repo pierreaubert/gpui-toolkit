@@ -441,7 +441,7 @@ impl RenderOnce for VolumeKnob {
         if let Some(ref focus_handle) = self.focus_handle {
             let focus_handle_click = focus_handle.clone();
             // Mouse down - focus for keyboard navigation
-            container = container.on_mouse_down(MouseButton::Left, move |_event, window, cx| {
+            container = container.on_mouse_down(MouseButton::Left, move |_event, window, _cx| {
                 focus_handle_click.focus(window);
             });
         }
