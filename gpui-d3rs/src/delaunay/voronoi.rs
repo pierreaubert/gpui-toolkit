@@ -162,18 +162,18 @@ impl<'a> Voronoi<'a> {
 
     /// Renders the cell at index `i` to a path string (SVG path data format).
     pub fn render_cell_to_path(&self, i: usize) -> String {
-        if let Some(polygon) = self.cell_polygon(i) {
-            if polygon.len() >= 3 {
-                let (x0, y0) = polygon[0];
-                let mut path = format!("M{},{}", x0, y0);
+        if let Some(polygon) = self.cell_polygon(i)
+            && polygon.len() >= 3
+        {
+            let (x0, y0) = polygon[0];
+            let mut path = format!("M{},{}", x0, y0);
 
-                for &(x, y) in &polygon[1..polygon.len() - 1] {
-                    path.push_str(&format!("L{},{}", x, y));
-                }
-
-                path.push('Z');
-                return path;
+            for &(x, y) in &polygon[1..polygon.len() - 1] {
+                path.push_str(&format!("L{},{}", x, y));
             }
+
+            path.push('Z');
+            return path;
         }
         String::new()
     }
@@ -194,8 +194,8 @@ impl<'a> Voronoi<'a> {
 
         // Find an incoming edge for this point
         let mut start_edge = EMPTY;
-        for e in 0..triangles.len() {
-            if triangles[e] == i {
+        for (e, &triangle) in triangles.iter().enumerate() {
+            if triangle == i {
                 start_edge = e;
                 break;
             }

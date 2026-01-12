@@ -354,7 +354,7 @@ where
         // Draw points if enabled
         if show_points {
             for &(x_rel, y_rel) in &relative_points {
-                if x_rel >= 0.0 && x_rel <= 1.0 && y_rel >= 0.0 && y_rel <= 1.0 {
+                if (0.0..=1.0).contains(&x_rel) && (0.0..=1.0).contains(&y_rel) {
                     renderer.draw_circle(x_rel * width, y_rel * height, point_radius, point_color);
                 }
             }
@@ -637,12 +637,12 @@ where
             values
                 .iter()
                 .map(|&v| ((scale.scale(v) - range_min) / range_span) as f32)
-                .filter(|&p| p >= 0.0 && p <= 1.0)
+                .filter(|p| (0.0..=1.0).contains(p))
                 .collect()
         })
         .unwrap_or_default();
 
-    let orientation = config.orientation.clone();
+    let orientation = config.orientation;
     let tick_size = config.tick_size;
     let minor_tick_size = config.minor_tick_size;
     let tick_padding = config.tick_padding;

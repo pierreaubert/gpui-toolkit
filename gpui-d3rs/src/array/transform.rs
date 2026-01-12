@@ -129,9 +129,9 @@ where
 pub fn sort_by_desc<T, K, F>(data: &mut [T], key: F)
 where
     K: Ord,
-    F: Fn(&T) -> K,
+    F: Fn(&T) -> K + Copy,
 {
-    data.sort_by(|a, b| key(b).cmp(&key(a)));
+    data.sort_by_key(|item| std::cmp::Reverse(key(item)));
 }
 
 /// Randomly shuffles a slice using the Fisher-Yates algorithm.

@@ -41,7 +41,7 @@ impl ThemePreset {
         }
     }
 
-    fn to_theme(&self) -> EditorTheme {
+    fn to_theme(self) -> EditorTheme {
         match self {
             ThemePreset::Dark => EditorTheme::dark(),
             ThemePreset::Light => EditorTheme::light(),

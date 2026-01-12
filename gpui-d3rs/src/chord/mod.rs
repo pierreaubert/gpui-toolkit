@@ -77,9 +77,8 @@ impl ChordLayout {
         let mut group_values = vec![0.0; n];
         let mut total_value = 0.0;
 
-        for i in 0..n {
-            for j in 0..n {
-                let v = matrix[i][j];
+        for (i, row) in matrix.iter().enumerate().take(n) {
+            for v in row.iter().take(n) {
                 group_values[i] += v;
                 total_value += v;
             }

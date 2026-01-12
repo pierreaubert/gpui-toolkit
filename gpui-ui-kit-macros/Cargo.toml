@@ -1,6 +1,6 @@
 [package]
 name = "gpui-ui-kit-macros"
-version = "0.5.10"
+version = "0.6.0"
 edition.workspace = true
 description = "Proc macros for gpui-ui-kit"
 license = "ISC"

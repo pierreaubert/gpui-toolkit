@@ -742,33 +742,31 @@ impl Chart2DRenderer {
             }
 
             // Draw text (foreground layer)
-            if !self.text_batch.is_empty() {
-                if let (Some(pipeline), Some(atlas)) = (&self.text_pipeline, &self.text_atlas) {
-                    if let Some(bind_group) = atlas.bind_group() {
-                        let vertex_buffer =
-                            self.device
-                                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                                    label: Some("Text Vertex Buffer"),
-                                    contents: self.text_batch.vertex_bytes(),
-                                    usage: wgpu::BufferUsages::VERTEX,
-                                });
-                        let index_buffer =
-                            self.device
-                                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                                    label: Some("Text Index Buffer"),
-                                    contents: self.text_batch.index_bytes(),
-                                    usage: wgpu::BufferUsages::INDEX,
-                                });
+            if !self.text_batch.is_empty()
+                && let (Some(pipeline), Some(atlas)) = (&self.text_pipeline, &self.text_atlas)
+                && let Some(bind_group) = atlas.bind_group()
+            {
+                let vertex_buffer =
+                    self.device
+                        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                            label: Some("Text Vertex Buffer"),
+                            contents: self.text_batch.vertex_bytes(),
+                            usage: wgpu::BufferUsages::VERTEX,
+                        });
+                let index_buffer =
+                    self.device
+                        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                            label: Some("Text Index Buffer"),
+                            contents: self.text_batch.index_bytes(),
+                            usage: wgpu::BufferUsages::INDEX,
+                        });
 
-                        render_pass.set_pipeline(pipeline);
-                        render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
-                        render_pass.set_bind_group(1, bind_group, &[]);
-                        render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
-                        render_pass
-                            .set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-                        render_pass.draw_indexed(0..self.text_batch.indices.len() as u32, 0, 0..1);
-                    }
-                }
+                render_pass.set_pipeline(pipeline);
+                render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
+                render_pass.set_bind_group(1, bind_group, &[]);
+                render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+                render_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                render_pass.draw_indexed(0..self.text_batch.indices.len() as u32, 0, 0..1);
             }
         }
 
@@ -847,14 +845,14 @@ impl Chart2DRenderer {
         let atlas = TextAtlas::new(self.device.clone(), self.queue.clone(), font_data, 1024);
 
         // Create text pipeline if not already created
-        if self.text_pipeline.is_none() {
-            if let Some(layout) = atlas.bind_group_layout() {
-                self.text_pipeline = Some(Self::create_text_pipeline(
-                    &self.device,
-                    &self.uniform_bind_group_layout,
-                    layout,
-                ));
-            }
+        if self.text_pipeline.is_none()
+            && let Some(layout) = atlas.bind_group_layout()
+        {
+            self.text_pipeline = Some(Self::create_text_pipeline(
+                &self.device,
+                &self.uniform_bind_group_layout,
+                layout,
+            ));
         }
 
         self.text_atlas = Some(atlas);

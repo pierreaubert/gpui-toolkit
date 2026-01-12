@@ -214,7 +214,7 @@ fn tile_slice_dice(
     total: f64,
     depth: usize,
 ) -> Vec<(f64, f64, f64, f64)> {
-    if depth % 2 == 0 {
+    if depth.is_multiple_of(2) {
         tile_slice(children, x0, y0, x1, y1, total)
     } else {
         tile_dice(children, x0, y0, x1, y1, total)

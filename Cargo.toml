@@ -4,12 +4,12 @@ members = [
     "gpui-px",
     "gpui-themes",
     "gpui-ui-kit",
-    "gpui-ui-kit/gpui-ui-kit-macros",
+    "gpui-ui-kit-macros",
 ]
 resolver = "3"
 
 [workspace.package]
-version = "0.5.10"
+version = "0.6.0"
 authors = ["Pierre F. Aubert pierre@spinorama.org"]
 description = "Optimise the sound of your speakers or your headphones"
 edition = "2024"
@@ -22,67 +22,32 @@ repository = "https://github.com/pierreaubert/gpui-toolkit"
 # Serialization and data
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-serde_yaml = "0.9"
 
 # Async and networking
-# ideally we would use only threads or only tokio
-anyhow = { version = "1.0" }
 tokio = { version = "1", features = ["full"] }
-tokio-tungstenite = "0.21"
-signal-hook = "0.4"
-signal-hook-tokio = { version = "0.3", features = ["futures-v0_3"] }
 urlencoding = "2.1"
 reqwest = { version = "0.13", features = ["json"] }
 
 # CLI and system
-base64 = "0.22"
-byteorder = "1.5"
-chrono = { version = "0.4", features = ["serde"] }
-clap = { version = "4.5", features = ["derive"] }
-console_error_panic_hook = { version = "0.1" }
-csv = "1.4"
-ctrlc = "3.5"
 delaunator = "1.0"
-
-directories = "6"
-env = "1"
-env_logger = "0.11"
-getrandom = "0.2"
-libc = "0.2"
-log = "0.4"
-mimalloc = { version = "0.1" }
-notify = { version = "8.2" }
-num_cpus = "1.17"
 regex = "1.12"
-rfd = "0.16"
-smol = "2.0"
-strsim = "0.11"
-tempfile = "3.23"
 thiserror = "2.0.17"
-criterion = "0.8.1"
-which = "8"
-walkdir = "2"
 
 # Optimization and math
 ndarray = { version = "0.17", default-features = false, features = ["rayon", "blas", "serde"] }
-ndarray-linalg = { version = "0.18" }
-rand = "0.9.2"
-netcdf = "0.11"
-num-complex = "0.4"
-num-traits = "0.2"
-rayon = "1.11"
 autoeq = { version = ">=0.3.9" }
 autoeq-cea2034 = { version = "0.3" }
 
-gpui-d3rs = { path = "gpui-d3rs", version = "0.5.10" }
-d3rs = { path = "gpui-d3rs", package = "gpui-d3rs", version = "0.5.10", features = ["gpu-3d"] }  # alias for gpui-px
-gpui-px = { path = "gpui-px", version = "0.5.10" }
-gpui-themes = { path = "gpui-themes", version = "0.5.10" }
-gpui-ui-kit = { path = "gpui-ui-kit", version = "0.5.10" }
+gpui-d3rs = { path = "gpui-d3rs", version = "0.6" }
+gpui-px = { path = "gpui-px", version = "0.6" }
+gpui-themes = { path = "gpui-themes", version = "0.6" }
+gpui-ui-kit = { path = "gpui-ui-kit", version = "0.6" }
+gpui-ui-kit-macros = { path = "gpui-ui-kit-macros", version = "0.6" }
 
 # GPUI framework, using HEAD (macros with _)
-gpui = { version="0.2" }
-# gpui_macros = { version="0.2" }
+# gpui = { version="0.2.2" }
+gpui = { version="*", git = "https://github.com/zed-industries/zed.git" }
+gpui_macros = { version="*", git = "https://github.com/zed-industries/zed.git" }
 
 # Utilities
 approx = "0.5"

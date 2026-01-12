@@ -155,14 +155,14 @@ fn compute_grouped_layout(
 
     let mut result = Vec::with_capacity(n_series);
 
-    for i in 0..n_series {
+    for (i, row) in data.iter().enumerate().take(n_series) {
         let mut series_rects = Vec::with_capacity(m_samples);
 
-        for j in 0..m_samples {
+        for (j, &value) in row.iter().enumerate().take(m_samples) {
             let group_x = j as f64 * (group_width + padding);
             let x = group_x + i as f64 * bar_width;
 
-            let height = data[i][j] * y_scale;
+            let height = value * y_scale;
             let y = plot_height - height;
 
             series_rects.push((x, y, bar_width, height));
@@ -223,7 +223,7 @@ fn start_animation_loop(entity: Entity<ShowcaseApp>, cx: &mut Context<ShowcaseAp
                 })
             });
 
-            if !should_continue.unwrap_or(false) {
+            if !should_continue {
                 break;
             }
         }

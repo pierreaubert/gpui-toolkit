@@ -132,17 +132,17 @@ impl TreeLayout {
             n.children.clone()
         };
 
-        if let Some(children) = children_opt {
-            if !children.is_empty() {
-                let mut sum_x = 0.0;
-                for child in &children {
-                    sum_x += Self::position_internal_cluster(child.clone());
-                }
-
-                let mut n = node.borrow_mut();
-                n.x = sum_x / children.len() as f64;
-                return n.x;
+        if let Some(children) = children_opt
+            && !children.is_empty()
+        {
+            let mut sum_x = 0.0;
+            for child in &children {
+                sum_x += Self::position_internal_cluster(child.clone());
             }
+
+            let mut n = node.borrow_mut();
+            n.x = sum_x / children.len() as f64;
+            return n.x;
         }
 
         let n = node.borrow();

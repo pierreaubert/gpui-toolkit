@@ -172,19 +172,19 @@ impl Element for Chart2DElement {
         };
 
         // Paint the rendered image
-        if let Some(pixels) = pixels {
-            if let Some(rgba_image) = RgbaImage::from_raw(width, height, pixels) {
-                let frame = Frame::new(rgba_image);
-                let render_image = RenderImage::new(vec![frame]);
+        if let Some(pixels) = pixels
+            && let Some(rgba_image) = RgbaImage::from_raw(width, height, pixels)
+        {
+            let frame = Frame::new(rgba_image);
+            let render_image = RenderImage::new(vec![frame]);
 
-                let _ = window.paint_image(
-                    bounds,
-                    Corners::default(),
-                    Arc::new(render_image),
-                    0,
-                    false,
-                );
-            }
+            let _ = window.paint_image(
+                bounds,
+                Corners::default(),
+                Arc::new(render_image),
+                0,
+                false,
+            );
         }
     }
 }

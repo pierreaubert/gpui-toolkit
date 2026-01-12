@@ -230,7 +230,7 @@ impl ShowcaseApp {
             }
         }
 
-        let app = Self {
+        Self {
             current_section: DemoSection::default(),
             // Geo demo defaults
             geo_projection_type: GeoProjectionType::default(),
@@ -294,9 +294,7 @@ impl ShowcaseApp {
             snapshot_list: DemoSection::all(),
             snapshot_index: 0,
             snapshot_wait_frames: 3, // Wait 60 frames initially
-        };
-
-        app
+        }
     }
 
     fn render_sidebar(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -465,7 +463,7 @@ impl Render for ShowcaseApp {
                 // Try to get window ID via osascript (macOS specific) to capture only the window
                 // Process name usually matches binary name "d3rs-showcase"
                 let window_id = std::process::Command::new("osascript")
-                    .args(&["-e", "tell application \"System Events\" to get id of window 1 of (first process whose name contains \"showcase\")"])
+                    .args(["-e", "tell application \"System Events\" to get id of window 1 of (first process whose name contains \"showcase\")"])
                     .output()
                     .ok()
                     .and_then(|out| String::from_utf8(out.stdout).ok())

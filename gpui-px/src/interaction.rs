@@ -843,18 +843,18 @@ mod interactive_chart {
                 })
                 // Mouse move - pan if dragging
                 .on_mouse_move(move |event, window, _cx| {
-                    if state_for_move.config.enable_pan {
-                        if let Some((start_x, start_y)) = *drag_start_move.borrow() {
-                            let (x, y) = state_for_move.to_chart_coords(event.position);
-                            let dx = x - start_x;
-                            let dy = y - start_y;
-                            if dx.abs() > 1.0 || dy.abs() > 1.0 {
-                                state_for_move.apply_pan(dx, dy);
-                                // Update drag start to current position for continuous panning
-                                *drag_start_move.borrow_mut() = Some((x, y));
-                                // Trigger re-render
-                                window.refresh();
-                            }
+                    if state_for_move.config.enable_pan
+                        && let Some((start_x, start_y)) = *drag_start_move.borrow()
+                    {
+                        let (x, y) = state_for_move.to_chart_coords(event.position);
+                        let dx = x - start_x;
+                        let dy = y - start_y;
+                        if dx.abs() > 1.0 || dy.abs() > 1.0 {
+                            state_for_move.apply_pan(dx, dy);
+                            // Update drag start to current position for continuous panning
+                            *drag_start_move.borrow_mut() = Some((x, y));
+                            // Trigger re-render
+                            window.refresh();
                         }
                     }
                 })

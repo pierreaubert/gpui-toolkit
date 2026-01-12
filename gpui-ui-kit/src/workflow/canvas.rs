@@ -586,10 +586,10 @@ impl WorkflowCanvas {
         let hit_result = self.hit_tester.hit_test(canvas_pos, &self.state.graph);
 
         // If a node was double-clicked and we have a callback, call it
-        if let HitTestResult::Node(node_id) = hit_result {
-            if let Some(ref callback) = self.on_node_double_click {
-                callback(node_id, window, cx);
-            }
+        if let HitTestResult::Node(node_id) = hit_result
+            && let Some(ref callback) = self.on_node_double_click
+        {
+            callback(node_id, window, cx);
         }
     }
 

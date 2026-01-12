@@ -18,10 +18,11 @@ pub fn parse_svg_path(d: &str, bounds: Bounds<Pixels>) -> Option<Path<Pixels>> {
                     if let (Ok(x), Ok(y)) = (
                         tokens[idx + 1].parse::<f32>(),
                         tokens[idx + 2].parse::<f32>(),
-                    ) {
-                        if x.is_finite() && y.is_finite() {
-                            builder.move_to(bounds.origin + point(px(x), px(y)));
-                        }
+                    )
+                        && x.is_finite()
+                        && y.is_finite()
+                    {
+                        builder.move_to(bounds.origin + point(px(x), px(y)));
                     }
                     idx += 3;
                 } else {
@@ -33,10 +34,11 @@ pub fn parse_svg_path(d: &str, bounds: Bounds<Pixels>) -> Option<Path<Pixels>> {
                     if let (Ok(x), Ok(y)) = (
                         tokens[idx + 1].parse::<f32>(),
                         tokens[idx + 2].parse::<f32>(),
-                    ) {
-                        if x.is_finite() && y.is_finite() {
-                            builder.line_to(bounds.origin + point(px(x), px(y)));
-                        }
+                    )
+                        && x.is_finite()
+                        && y.is_finite()
+                    {
+                        builder.line_to(bounds.origin + point(px(x), px(y)));
                     }
                     idx += 3;
                 } else {

@@ -319,10 +319,10 @@ impl GroupedBarConfig {
 
     /// Get color for a series by index
     fn get_series_color(&self, index: usize) -> D3Color {
-        if let Some(ref colors) = self.series_colors {
-            if index < colors.len() {
-                return colors[index].clone();
-            }
+        if let Some(ref colors) = self.series_colors
+            && index < colors.len()
+        {
+            return colors[index];
         }
         self.color_scheme.color(index)
     }

@@ -276,8 +276,8 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                         // KDE curve using custom element
                                         .child(KdeCurveElement {
                                             points: Arc::new(density_points.clone()),
-                                            x_scale: x_scale.clone(),
-                                            y_scale: y_scale.clone(),
+                                            x_scale,
+                                            y_scale,
                                             color: D3Color::from_hex(0x4169e1),
                                             stroke_width: 2.5,
                                             plot_width,

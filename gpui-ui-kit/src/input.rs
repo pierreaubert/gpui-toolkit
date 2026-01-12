@@ -891,7 +891,7 @@ impl RenderOnce for Input {
             input_wrapper =
                 input_wrapper.on_mouse_down(MouseButton::Left, move |event, window, cx| {
                     // Focus the input
-                    window.focus(&focus_handle_for_click);
+                    window.focus(&focus_handle_for_click, cx);
 
                     let mut state = edit_state_for_click.borrow_mut();
 

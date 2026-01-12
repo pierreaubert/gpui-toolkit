@@ -240,7 +240,7 @@ impl Treemap {
         // Render rectangles
         let color_scheme = self
             .color_scheme
-            .unwrap_or_else(|| ColorScheme::tableau10());
+            .unwrap_or_else(ColorScheme::tableau10);
         let mut plot_content = div()
             .w(px(plot_width as f32))
             .h(px(plot_height as f32))
@@ -253,9 +253,9 @@ impl Treemap {
         for rect in &rects {
             let color = color_scheme.color(rect.category_index);
             let rgba = Rgba {
-                r: (color.r as f32) / 255.0,
-                g: (color.g as f32) / 255.0,
-                b: (color.b as f32) / 255.0,
+                r: color.r / 255.0,
+                g: color.g / 255.0,
+                b: color.b / 255.0,
                 a: 0.8,
             };
 
@@ -306,7 +306,7 @@ impl Treemap {
 
             // Add label if rectangle is large enough
             let rect_div = if rect.width() > 30.0 && rect.height() > 15.0 {
-                let font_size = (rect.height() * 0.2).min(12.0).max(8.0);
+                let font_size = (rect.height() * 0.2).clamp(8.0, 12.0);
 
                 // Calculate text color based on background luminance
                 // Using relative luminance formula: 0.2126*R + 0.7152*G + 0.0722*B
@@ -536,7 +536,7 @@ fn tile_slice_dice(
     total: f64,
     depth: usize,
 ) -> Vec<(f64, f64, f64, f64)> {
-    if depth % 2 == 0 {
+    if depth.is_multiple_of(2) {
         tile_slice(children, x0, y0, x1, y1, total)
     } else {
         tile_dice(children, x0, y0, x1, y1, total)

@@ -26,7 +26,7 @@ pub fn render(_app: &ShowcaseApp, _cx: &mut Context<ShowcaseApp>) -> Div {
     let n_years = years.end - years.start;
     let mut data: Vec<Vec<f64>> = Vec::new();
     for i in 0..n_years {
-        let year = 1973 + i as i32;
+        let year = 1973 + i;
         let y = i as f64;
 
         // Vinyl: peaked ~1978, declined until 2007, small revival after

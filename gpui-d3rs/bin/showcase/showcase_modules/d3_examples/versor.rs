@@ -132,18 +132,18 @@ pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                     }),
                 )
                 .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, _, _| {
-                    if this.is_dragging {
-                        if let Some(last_pos) = this.last_mouse_pos {
-                            let delta_x: f32 = (event.position.x - last_pos.x).into();
-                            let delta_y: f32 = (event.position.y - last_pos.y).into();
+                    if this.is_dragging
+                        && let Some(last_pos) = this.last_mouse_pos
+                    {
+                        let delta_x: f32 = (event.position.x - last_pos.x).into();
+                        let delta_y: f32 = (event.position.y - last_pos.y).into();
 
-                            // Tuned sensitivity
-                            this.geo_rotation_lon += delta_x as f64 * 0.5;
-                            this.geo_rotation_lat -= delta_y as f64 * 0.5;
-                            this.geo_rotation_lat = this.geo_rotation_lat.max(-90.0).min(90.0);
+                        // Tuned sensitivity
+                        this.geo_rotation_lon += delta_x as f64 * 0.5;
+                        this.geo_rotation_lat -= delta_y as f64 * 0.5;
+                        this.geo_rotation_lat = this.geo_rotation_lat.clamp(-90.0, 90.0);
 
-                            this.last_mouse_pos = Some(event.position);
-                        }
+                        this.last_mouse_pos = Some(event.position);
                     }
                 }))
                 .child(

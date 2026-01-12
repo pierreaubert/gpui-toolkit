@@ -695,9 +695,9 @@ impl RenderOnce for NumberInput {
 
             value_field = value_field.cursor_text().on_mouse_down(
                 MouseButton::Left,
-                move |event, window, _cx| {
+                move |event, window, cx| {
                     // Focus the input
-                    window.focus(&focus_handle_for_click);
+                    window.focus(&focus_handle_for_click, cx);
 
                     let mut state = edit_state_for_click.borrow_mut();
 

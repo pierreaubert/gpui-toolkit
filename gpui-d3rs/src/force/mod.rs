@@ -64,9 +64,10 @@ impl Default for Simulation {
 
 impl Simulation {
     pub fn new(nodes: Vec<Rc<RefCell<SimulationNode>>>) -> Self {
-        let mut sim = Self::default();
-        sim.nodes = nodes;
-        sim
+        Self {
+            nodes,
+            ..Default::default()
+        }
     }
 
     pub fn force(mut self, force: Box<dyn Force>) -> Self {
@@ -152,9 +153,15 @@ pub struct ForceManyBody {
     pub strength: f64,
 }
 
+impl Default for ForceManyBody {
+    fn default() -> Self {
+        Self { strength: -30.0 }
+    }
+}
+
 impl ForceManyBody {
     pub fn new() -> Self {
-        Self { strength: -30.0 }
+        Self::default()
     }
 }
 

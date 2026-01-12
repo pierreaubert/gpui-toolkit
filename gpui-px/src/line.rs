@@ -99,7 +99,7 @@ fn format_log_tick(value: f64) -> String {
     }
 
     // Format based on magnitude
-    let formatted = if abs_value >= 1_000_000.0 {
+    if abs_value >= 1_000_000.0 {
         // Millions: 1M, 2M, etc.
         let millions = value / 1_000_000.0;
         if millions.fract().abs() < 1e-10 {
@@ -125,9 +125,7 @@ fn format_log_tick(value: f64) -> String {
     } else {
         // Small values < 1
         format!("{:.2}", value)
-    };
-
-    formatted
+    }
 }
 
 /// Generate smart tick values for log scales to prevent label collision

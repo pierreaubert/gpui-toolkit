@@ -187,10 +187,9 @@ impl ContourGenerator {
 
                     if let Some(ring) =
                         self.trace_contour(values, threshold, i, j, edge, &mut visited)
+                        && ring.points.len() >= 3
                     {
-                        if ring.points.len() >= 3 {
-                            contour.add_ring(ring);
-                        }
+                        contour.add_ring(ring);
                     }
                 }
             }

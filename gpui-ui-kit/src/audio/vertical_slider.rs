@@ -777,7 +777,7 @@ impl RenderOnce for VerticalSlider {
             container = container.on_mouse_down(MouseButton::Left, move |event, window, cx| {
                 // Focus for keyboard navigation (focus follows click)
                 if let Some(ref fh) = focus_handle_container {
-                    fh.focus(window);
+                    fh.focus(window, cx);
                 }
 
                 if let Some(ref handler) = on_select_container {
@@ -818,13 +818,14 @@ impl RenderOnce for VerticalSlider {
 
             // Focus on mouse enter - keyboard follows hover like scroll wheel
             let focus_handle_hover = self.focus_handle.clone();
-            container = container.on_mouse_move(move |event, window, _cx| {
+            container = container.on_mouse_move(move |event, window, cx| {
                 // Only focus when mouse enters (not on every move)
                 // We use mouse_move because mouse_enter doesn't exist in GPUI
-                if let Some(ref fh) = focus_handle_hover {
-                    if !fh.is_focused(window) && !event.pressed_button.is_some() {
-                        fh.focus(window);
-                    }
+                if let Some(ref fh) = focus_handle_hover
+                    && !fh.is_focused(window)
+                    && event.pressed_button.is_none()
+                {
+                    fh.focus(window, cx);
                 }
             });
 
@@ -963,7 +964,7 @@ impl RenderOnce for VerticalSlider {
 
                 // Focus for keyboard navigation (focus follows click)
                 if let Some(ref fh) = focus_handle_track {
-                    fh.focus(window);
+                    fh.focus(window, cx);
                 }
 
                 // Select the slider (if handler provided)
@@ -995,14 +996,13 @@ impl RenderOnce for VerticalSlider {
                 let current_value_drag = current_value.clone();
                 let config_drag = interaction_config.clone();
                 track = track.on_mouse_move(move |event, window, cx| {
-                    if event.pressed_button == Some(MouseButton::Left) {
-                        if let Some(state) = get_drag_state(&drag_key_move) {
-                            let current_pos: f32 = event.position.y.into();
-                            if let Some(new_value) = handle_drag(current_pos, &state, &config_drag)
-                            {
-                                current_value_drag.set(new_value);
-                                handler_drag(new_value, window, cx);
-                            }
+                    if event.pressed_button == Some(MouseButton::Left)
+                        && let Some(state) = get_drag_state(&drag_key_move)
+                    {
+                        let current_pos: f32 = event.position.y.into();
+                        if let Some(new_value) = handle_drag(current_pos, &state, &config_drag) {
+                            current_value_drag.set(new_value);
+                            handler_drag(new_value, window, cx);
                         }
                     }
                 });

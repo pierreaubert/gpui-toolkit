@@ -13,6 +13,11 @@ A collection of libraries for building desktop applications with [GPUI](https://
 | [gpui-px](./gpui-px/) | Plotly Express-style high-level charting API | [![docs.rs](https://docs.rs/gpui-px/badge.svg)](https://docs.rs/gpui-px) |
 | [gpui-themes](./gpui-themes/) | Theming support for gpui-ui-kit | [![docs.rs](https://docs.rs/gpui-themes/badge.svg)](https://docs.rs/gpui-themes) |
 
+## Versions
+
+- Use v0.5 for maching stable GPUI 0.2.2.
+- Use v0.6 for matching head GPUI (not many differences today 12.01.2026)
+
 ## Overview
 
 ### gpui-ui-kit
@@ -53,9 +58,9 @@ Add the crates you need to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-gpui-ui-kit = "0.5"
-gpui-d3rs = "0.5"
-gpui-px = "0.5"
+gpui-ui-kit = "0.6"
+gpui-d3rs = "0.6"
+gpui-px = "0.6"
 gpui = "0.2"
 ```
 

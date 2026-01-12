@@ -494,7 +494,7 @@ impl RenderOnce for Potentiometer {
             container = container.on_mouse_down(MouseButton::Left, move |event, window, cx| {
                 // Always focus for keyboard navigation
                 if let Some(ref fh) = focus_handle_click {
-                    fh.focus(window);
+                    fh.focus(window, cx);
                 }
 
                 // Handle Selection
@@ -535,16 +535,16 @@ impl RenderOnce for Potentiometer {
                         if let Some(ref reset_handler) = reset_key {
                             reset_handler(window, cx);
                         }
-                    } else if let Some(ref handler) = handler_key {
-                        if let Some(new_value) = handle_keyboard(
+                    } else if let Some(ref handler) = handler_key
+                        && let Some(new_value) = handle_keyboard(
                             key,
                             &event.keystroke.modifiers,
                             current_value_key.get(),
                             &config_key,
-                        ) {
-                            current_value_key.set(new_value);
-                            handler(new_value, window, cx);
-                        }
+                        )
+                    {
+                        current_value_key.set(new_value);
+                        handler(new_value, window, cx);
                     }
                 });
             }
@@ -567,11 +567,12 @@ impl RenderOnce for Potentiometer {
 
             // Focus on mouse enter - keyboard follows hover like scroll wheel
             let focus_handle_hover = self.focus_handle.clone();
-            container = container.on_mouse_move(move |event, window, _cx| {
-                if let Some(ref fh) = focus_handle_hover {
-                    if !fh.is_focused(window) && !event.pressed_button.is_some() {
-                        fh.focus(window);
-                    }
+            container = container.on_mouse_move(move |event, window, cx| {
+                if let Some(ref fh) = focus_handle_hover
+                    && !fh.is_focused(window)
+                    && event.pressed_button.is_none()
+                {
+                    fh.focus(window, cx);
                 }
             });
         }

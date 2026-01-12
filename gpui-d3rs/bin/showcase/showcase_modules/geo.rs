@@ -184,12 +184,11 @@ pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                                  "M" => {
                                                      if i+1 < parts.len() {
                                                          let coords: Vec<&str> = parts[i+1].split(',').collect();
-                                                         if coords.len() == 2 {
-                                                             if let (Ok(x), Ok(y)) = (coords[0].parse::<f32>(), coords[1].parse::<f32>()) {
-                                                                 if x.is_finite() && y.is_finite() {
-                                                                     builder.move_to(bounds.origin + point(px(x), px(y)));
-                                                                 }
-                                                             }
+                                                         if coords.len() == 2
+                                                             && let (Ok(x), Ok(y)) = (coords[0].parse::<f32>(), coords[1].parse::<f32>())
+                                                             && x.is_finite() && y.is_finite()
+                                                         {
+                                                             builder.move_to(bounds.origin + point(px(x), px(y)));
                                                          }
                                                          i += 2;
                                                      } else { i += 1; }
@@ -197,12 +196,11 @@ pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                                  "L" => {
                                                      if i+1 < parts.len() {
                                                          let coords: Vec<&str> = parts[i+1].split(',').collect();
-                                                         if coords.len() == 2 {
-                                                             if let (Ok(x), Ok(y)) = (coords[0].parse::<f32>(), coords[1].parse::<f32>()) {
-                                                                 if x.is_finite() && y.is_finite() {
-                                                                     builder.line_to(bounds.origin + point(px(x), px(y)));
-                                                                 }
-                                                             }
+                                                         if coords.len() == 2
+                                                             && let (Ok(x), Ok(y)) = (coords[0].parse::<f32>(), coords[1].parse::<f32>())
+                                                             && x.is_finite() && y.is_finite()
+                                                         {
+                                                             builder.line_to(bounds.origin + point(px(x), px(y)));
                                                          }
                                                          i += 2;
                                                      } else { i += 1; }
@@ -245,12 +243,11 @@ pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                                  "M" => {
                                                      if i+1 < parts.len() {
                                                          let coords: Vec<&str> = parts[i+1].split(',').collect();
-                                                         if coords.len() == 2 {
-                                                             if let (Ok(x), Ok(y)) = (coords[0].parse::<f32>(), coords[1].parse::<f32>()) {
-                                                                 if x.is_finite() && y.is_finite() {
-                                                                     builder.move_to(bounds.origin + point(px(x), px(y)));
-                                                                 }
-                                                             }
+                                                         if coords.len() == 2
+                                                             && let (Ok(x), Ok(y)) = (coords[0].parse::<f32>(), coords[1].parse::<f32>())
+                                                             && x.is_finite() && y.is_finite()
+                                                         {
+                                                             builder.move_to(bounds.origin + point(px(x), px(y)));
                                                          }
                                                          i += 2;
                                                      } else { i += 1; }
@@ -258,12 +255,11 @@ pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                                  "L" => {
                                                      if i+1 < parts.len() {
                                                          let coords: Vec<&str> = parts[i+1].split(',').collect();
-                                                         if coords.len() == 2 {
-                                                             if let (Ok(x), Ok(y)) = (coords[0].parse::<f32>(), coords[1].parse::<f32>()) {
-                                                                 if x.is_finite() && y.is_finite() {
-                                                                     builder.line_to(bounds.origin + point(px(x), px(y)));
-                                                                 }
-                                                             }
+                                                         if coords.len() == 2
+                                                             && let (Ok(x), Ok(y)) = (coords[0].parse::<f32>(), coords[1].parse::<f32>())
+                                                             && x.is_finite() && y.is_finite()
+                                                         {
+                                                             builder.line_to(bounds.origin + point(px(x), px(y)));
                                                          }
                                                          i += 2;
                                                      } else { i += 1; }

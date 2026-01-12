@@ -22,7 +22,7 @@ pub fn render(_app: &ShowcaseApp, _cx: &mut Context<ShowcaseApp>) -> Div {
 
     let ribbon = RibbonGenerator::new(inner_radius);
 
-    let colors = vec![rgb(0x000000), rgb(0xffdd89), rgb(0x957244), rgb(0xf26223)];
+    let colors = [rgb(0x000000), rgb(0xffdd89), rgb(0x957244), rgb(0xf26223)];
 
     // Arcs
     use d3rs::shape::arc::{Arc, ArcDatum};
