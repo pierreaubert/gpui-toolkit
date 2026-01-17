@@ -13,6 +13,7 @@ use d3rs::color::D3Color;
 use d3rs::ease::ease_cubic_in_out;
 use gpui::prelude::FluentBuilder;
 use gpui::*;
+use smol::Timer;
 use std::time::Duration;
 
 /// Layout mode for bar chart

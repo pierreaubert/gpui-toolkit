@@ -101,10 +101,15 @@ impl HeatmapChart {
     }
 
     /// Set chart dimensions.
-    pub fn size(mut self, width: f32, height: f32) -> Self {
+    pub fn chart_size(mut self, width: f32, height: f32) -> Self {
         self.width = width;
         self.height = height;
         self
+    }
+
+    /// Set chart dimensions (alias for `chart_size`).
+    pub fn size(self, width: f32, height: f32) -> Self {
+        self.chart_size(width, height)
     }
 
     /// Set explicit X-axis range (for zoom support).

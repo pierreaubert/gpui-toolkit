@@ -25,6 +25,7 @@ serde_json = "1.0"
 
 # Async and networking
 tokio = { version = "1", features = ["full"] }
+smol = "2"
 urlencoding = "2.1"
 reqwest = { version = "0.13", features = ["json"] }
 
@@ -128,3 +129,4 @@ codegen-units = 256
 lto = true
 codegen-units = 1
 panic = "unwind"  # Changed from "abort" to allow tests to run
+
