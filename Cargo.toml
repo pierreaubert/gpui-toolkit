@@ -1,10 +1,10 @@
 [workspace]
 members = [
-    "gpui-d3rs",
-    "gpui-px",
-    "gpui-themes",
-    "gpui-ui-kit",
-    "gpui-ui-kit-macros",
+    "crates/gpui-d3rs",
+    "crates/gpui-px",
+    "crates/gpui-themes",
+    "crates/gpui-ui-kit",
+    "crates/gpui-ui-kit-macros",
 ]
 resolver = "3"
 
@@ -39,11 +39,11 @@ ndarray = { version = "0.17", default-features = false, features = ["rayon", "bl
 autoeq = { version = ">=0.3.9" }
 autoeq-cea2034 = { version = "0.3" }
 
-gpui-d3rs = { path = "gpui-d3rs", version = "0.6" }
-gpui-px = { path = "gpui-px", version = "0.6" }
-gpui-themes = { path = "gpui-themes", version = "0.6" }
-gpui-ui-kit = { path = "gpui-ui-kit", version = "0.6" }
-gpui-ui-kit-macros = { path = "gpui-ui-kit-macros", version = "0.6" }
+gpui-d3rs = { path = "crates/gpui-d3rs", version = "0.6" }
+gpui-px = { path = "crates/gpui-px", version = "0.6" }
+gpui-themes = { path = "crates/gpui-themes", version = "0.6" }
+gpui-ui-kit = { path = "crates/gpui-ui-kit", version = "0.6" }
+gpui-ui-kit-macros = { path = "crates/gpui-ui-kit-macros", version = "0.6" }
 
 # GPUI framework, using HEAD (macros with _)
 # gpui = { version="0.2.2" }
