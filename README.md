@@ -1,3 +1,6 @@
+# DEVELOPEMENT IS HAPPENING [HERE](https://github.com/pierreaubert/sotf) PLEASE JUMP THERE
+
+
 # gpui-toolkit
 
 A collection of libraries for building desktop applications with [GPUI](https://github.com/zed-industries/zed), the GPU-accelerated UI framework from the Zed editor.
