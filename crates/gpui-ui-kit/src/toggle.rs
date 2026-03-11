@@ -114,7 +114,7 @@ pub struct ToggleTheme {
     #[theme(default = 0x3a3a3aff, from = border)]
     pub border: Rgba,
     /// Text on accent background
-    #[theme(default = 0xffffffff, from = text_primary)]
+    #[theme(default = 0xffffffff, from = text_on_accent)]
     pub text_on_accent: Rgba,
     /// Muted text color
     #[theme(default = 0x888888ff, from = text_muted)]

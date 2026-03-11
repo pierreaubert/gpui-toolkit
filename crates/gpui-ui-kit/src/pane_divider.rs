@@ -88,29 +88,12 @@ pub struct PaneDividerTheme {
 /// # Drag Handling
 ///
 /// For resize drag support, the parent component must:
-/// 1. Listen to `on_drag_start` to know when dragging begins
-/// 2. Track mouse position globally (e.g., via window-level mouse_move)
-/// 3. Call `on_drag_end` when the mouse is released
+/// 1. Listen to `on_drag_start` to record which divider is being dragged and the start position
+/// 2. Handle `on_mouse_move` on a parent element that covers the full drag area
+/// 3. Handle `on_mouse_up` to clear drag state
 ///
-/// Example:
-/// ```ignore
-/// struct MyApp {
-///     left_width: f32,
-///     dragging_divider: bool,
-///     drag_start_x: f32,
-///     drag_start_width: f32,
-/// }
-///
-/// // In render:
-/// PaneDivider::vertical("divider", CollapseDirection::Left)
-///     .on_drag_start(cx.listener(|app, position, window, cx| {
-///         app.dragging_divider = true;
-///         app.drag_start_x = position;
-///         app.drag_start_width = app.left_width;
-///     }))
-///
-/// // Parent div should have on_mouse_move and on_mouse_up handlers
-/// ```
+/// The divider itself is too thin (6px) to reliably receive mouse move events during
+/// a drag, so the parent must handle tracking. See the `pane_divider_debug` example.
 pub struct PaneDivider {
     id: SharedString,
     /// The label shown when collapsed (e.g., "Sidebar", "Left Panel")
@@ -190,8 +173,8 @@ impl PaneDivider {
 
     /// Set callback for when drag starts
     ///
-    /// The callback receives the position (x for vertical dividers, y for horizontal).
-    /// The parent component should then track mouse movement globally.
+    /// The callback receives the mouse position (x for vertical dividers, y for horizontal).
+    /// The parent component should then track mouse movement on a covering element.
     pub fn on_drag_start(
         mut self,
         callback: impl Fn(f32, &mut Window, &mut App) + 'static,
@@ -233,7 +216,6 @@ impl PaneDivider {
     fn build_expanded(self, is_vertical: bool) -> Stateful<Div> {
         let theme = self.theme.clone();
         let id = self.id.clone();
-        let collapse_dir = self.collapse_direction;
         let on_toggle = self.on_toggle;
         let on_drag_start = self.on_drag_start;
 
@@ -244,7 +226,7 @@ impl PaneDivider {
         };
 
         // Arrow indicator
-        let arrow = collapse_dir.single_arrow();
+        let arrow = self.collapse_direction.single_arrow();
 
         let mut base = if is_vertical {
             // Vertical divider (between left/right panels)

@@ -131,6 +131,7 @@ impl Text {
         };
 
         let mut text = div()
+            .font_family(theme.font_family.clone())
             .text_color(text_color)
             .font_weight(self.weight.to_font_weight());
 
@@ -218,6 +219,7 @@ impl Heading {
     /// Build into element with explicit theme
     pub fn build_with_theme(self, theme: &Theme) -> Div {
         let mut heading = div()
+            .font_family(theme.font_family.clone())
             .font_weight(FontWeight::BOLD)
             .text_color(theme.text_primary);
 
@@ -282,18 +284,11 @@ impl Code {
 
     /// Build into element with explicit theme
     pub fn build_with_theme(self, theme: &Theme) -> Div {
-        // Code uses a slightly different color from accent
-        let code_text = match theme.variant {
-            crate::theme::ThemeVariant::Light => rgb(0xc7254e),
-            // Dark, Midnight, Forest, BlackAndWhite all use dark-style colors
-            crate::theme::ThemeVariant::Dark
-            | crate::theme::ThemeVariant::Midnight
-            | crate::theme::ThemeVariant::Forest
-            | crate::theme::ThemeVariant::BlackAndWhite => rgb(0xe06c75),
-        };
+        let code_text = code_text_color(theme);
 
         if self.inline {
             div()
+                .font_family(theme.font_family.clone())
                 .px_1()
                 .py(px(1.0))
                 .bg(theme.surface)
@@ -303,6 +298,7 @@ impl Code {
                 .child(self.content)
         } else {
             div()
+                .font_family(theme.font_family.clone())
                 .p_3()
                 .bg(theme.muted)
                 .rounded_md()
@@ -381,6 +377,7 @@ impl Link {
 
         let mut link = div()
             .id(self.id)
+            .font_family(theme.font_family.clone())
             .text_color(accent)
             .cursor_pointer()
             .hover(move |s| s.text_color(accent_hover));
@@ -420,4 +417,9 @@ impl RenderOnce for Link {
         let theme = self.theme.clone().unwrap_or_else(|| cx.theme());
         self.build_with_theme(&theme)
     }
+}
+
+/// Get the code text color for a given theme.
+pub fn code_text_color(theme: &Theme) -> Rgba {
+    theme.code_text
 }

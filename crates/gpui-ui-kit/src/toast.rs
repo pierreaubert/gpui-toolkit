@@ -2,7 +2,7 @@
 //!
 //! Provides non-blocking notifications that appear temporarily.
 
-use crate::theme::{Theme, ThemeExt, ThemeVariant};
+use crate::theme::{Theme, ThemeExt};
 use gpui::prelude::*;
 use gpui::{Component, *};
 
@@ -30,25 +30,13 @@ impl ToastVariant {
         }
     }
 
-    fn colors(&self, theme: &Theme) -> (Rgba, Rgba, Rgba) {
+    pub fn colors(&self, theme: &Theme) -> (Rgba, Rgba, Rgba) {
         // Returns (background, border, icon_color)
-        match theme.variant {
-            ThemeVariant::Light => match self {
-                ToastVariant::Info => (theme.surface, theme.info, theme.info),
-                ToastVariant::Success => (rgb(0xdcfce7), theme.success, theme.success),
-                ToastVariant::Warning => (rgb(0xfef3c7), theme.warning, theme.warning),
-                ToastVariant::Error => (rgb(0xfee2e2), theme.error, theme.error),
-            },
-            // Dark, Midnight, Forest, BlackAndWhite all use dark-style backgrounds
-            ThemeVariant::Dark
-            | ThemeVariant::Midnight
-            | ThemeVariant::Forest
-            | ThemeVariant::BlackAndWhite => match self {
-                ToastVariant::Info => (theme.surface, theme.info, theme.info),
-                ToastVariant::Success => (rgb(0x1a3a1a), theme.success, theme.success),
-                ToastVariant::Warning => (rgb(0x3a3a1a), theme.warning, theme.warning),
-                ToastVariant::Error => (rgb(0x3a1a1a), theme.error, theme.error),
-            },
+        match self {
+            ToastVariant::Info => (theme.surface, theme.info, theme.info),
+            ToastVariant::Success => (theme.alert_success_bg, theme.success, theme.success),
+            ToastVariant::Warning => (theme.alert_warning_bg, theme.warning, theme.warning),
+            ToastVariant::Error => (theme.alert_error_bg, theme.error, theme.error),
         }
     }
 }
@@ -203,7 +191,7 @@ impl Toast {
             let text_muted = theme.text_muted;
             let text_primary = theme.text_primary;
             if let Some(handler) = self.on_close {
-                let handler_ptr: *const dyn Fn(&mut Window, &mut App) = handler.as_ref();
+                let handler_rc = std::rc::Rc::new(handler);
                 toast = toast.child(
                     div()
                         .id((close_btn_id, "close"))
@@ -211,12 +199,11 @@ impl Toast {
                         .text_color(text_muted)
                         .cursor_pointer()
                         .hover(move |s| s.text_color(text_primary))
-                        .on_mouse_up(MouseButton::Left, move |_event, window, cx| unsafe {
-                            (*handler_ptr)(window, cx);
+                        .on_mouse_up(MouseButton::Left, move |_event, window, cx| {
+                            handler_rc(window, cx);
                         })
                         .child("x"),
                 );
-                std::mem::forget(handler);
             }
         }
 

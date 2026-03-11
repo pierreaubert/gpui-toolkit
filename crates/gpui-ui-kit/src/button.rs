@@ -64,7 +64,7 @@ pub struct ButtonTheme {
     #[theme(default = 0xcccccc, from = text_secondary)]
     pub text_secondary: Rgba,
     /// Text color for Primary variant buttons (on accent background)
-    #[theme(default = 0xffffff, from = text_primary)]
+    #[theme(default = 0xffffff, from = text_on_accent)]
     pub text_on_accent: Rgba,
     #[theme(default = 0xcc3333, from = error)]
     pub error: Rgba,
@@ -216,7 +216,7 @@ impl Button {
         }
     }
 
-    /// Build the button into a Stateful<Div> that can have additional handlers added
+    /// Build the button into a `Stateful<Div>` that can have additional handlers added
     /// Use this when you need to add a cx.listener() handler
     pub fn build(self) -> Stateful<Div> {
         let theme = self.theme.unwrap_or_default();
@@ -282,7 +282,10 @@ impl Button {
 
 impl RenderOnce for Button {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let theme = self.theme.unwrap_or_else(|| ButtonTheme::from(&cx.theme()));
+        let global_theme = cx.theme();
+        let theme = self
+            .theme
+            .unwrap_or_else(|| ButtonTheme::from(&global_theme));
         let (bg, bg_hover, text_color, border_color) =
             Self::compute_colors(self.variant, self.selected, &theme);
 
@@ -295,6 +298,7 @@ impl RenderOnce for Button {
 
         let mut el = div()
             .id(self.id)
+            .font_family(global_theme.font_family.clone())
             .flex()
             .items_center()
             .justify_center()

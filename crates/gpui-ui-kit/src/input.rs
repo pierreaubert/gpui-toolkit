@@ -90,6 +90,12 @@ thread_local! {
     static EDIT_STATES: RefCell<HashMap<ElementId, Rc<RefCell<EditState>>>> = RefCell::new(HashMap::new());
 }
 
+// Stores the window-x of the text area's left edge at mouse-down, per element ID.
+// Used to convert window-relative mouse positions to text-relative char positions.
+thread_local! {
+    static TEXT_ORIGINS: RefCell<HashMap<ElementId, f32>> = RefCell::new(HashMap::new());
+}
+
 /// Evict oldest entries if thread-local storage exceeds maximum size.
 /// This prevents unbounded memory growth when cleanup functions are not called.
 /// Returns the number of entries evicted from each map.
@@ -240,6 +246,8 @@ pub struct InputTheme {
 /// Input size variants
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum InputSize {
+    /// Extra small input
+    Xs,
     /// Small input
     Sm,
     /// Medium input (default)
@@ -252,7 +260,8 @@ pub enum InputSize {
 impl From<crate::ComponentSize> for InputSize {
     fn from(size: crate::ComponentSize) -> Self {
         match size {
-            crate::ComponentSize::Xs | crate::ComponentSize::Sm => Self::Sm,
+            crate::ComponentSize::Xs => Self::Xs,
+            crate::ComponentSize::Sm => Self::Sm,
             crate::ComponentSize::Md => Self::Md,
             crate::ComponentSize::Lg | crate::ComponentSize::Xl => Self::Lg,
         }
@@ -374,13 +383,15 @@ impl EditState {
 
     fn kill_to_end(&mut self) {
         let chars: Vec<char> = self.text.chars().collect();
-        self.text = chars[..self.cursor].iter().collect();
+        let cursor = self.cursor.min(chars.len());
+        self.text = chars[..cursor].iter().collect();
         self.clear_selection();
     }
 
     fn kill_to_start(&mut self) {
         let chars: Vec<char> = self.text.chars().collect();
-        self.text = chars[self.cursor..].iter().collect();
+        let cursor = self.cursor.min(chars.len());
+        self.text = chars[cursor..].iter().collect();
         self.cursor = 0;
         self.clear_selection();
     }
@@ -390,6 +401,7 @@ impl EditState {
             return;
         }
         let chars: Vec<char> = self.text.chars().collect();
+        self.cursor = self.cursor.min(chars.len());
         let mut new_pos = self.cursor;
         // Skip trailing spaces
         while new_pos > 0 && chars[new_pos - 1].is_whitespace() {
@@ -406,12 +418,104 @@ impl EditState {
         self.clear_selection();
     }
 
+    fn kill_word_forward(&mut self) {
+        let chars: Vec<char> = self.text.chars().collect();
+        let len = chars.len();
+        self.cursor = self.cursor.min(len);
+        let mut new_pos = self.cursor;
+        // Skip leading spaces
+        while new_pos < len && chars[new_pos].is_whitespace() {
+            new_pos += 1;
+        }
+        // Skip word characters
+        while new_pos < len && !chars[new_pos].is_whitespace() {
+            new_pos += 1;
+        }
+        let mut new_chars = chars[..self.cursor].to_vec();
+        new_chars.extend_from_slice(&chars[new_pos..]);
+        self.text = new_chars.into_iter().collect();
+        self.clear_selection();
+    }
+
+    fn word_start_backward(&self) -> usize {
+        let chars: Vec<char> = self.text.chars().collect();
+        let mut pos = self.cursor.min(chars.len());
+        while pos > 0 && chars[pos - 1].is_whitespace() {
+            pos -= 1;
+        }
+        while pos > 0 && !chars[pos - 1].is_whitespace() {
+            pos -= 1;
+        }
+        pos
+    }
+
+    fn word_end_forward(&self) -> usize {
+        let chars: Vec<char> = self.text.chars().collect();
+        let len = chars.len();
+        let mut pos = self.cursor.min(len);
+        while pos < len && chars[pos].is_whitespace() {
+            pos += 1;
+        }
+        while pos < len && !chars[pos].is_whitespace() {
+            pos += 1;
+        }
+        pos
+    }
+
+    fn move_word_backward(&mut self) {
+        self.cursor = self.word_start_backward();
+        self.clear_selection();
+    }
+
+    fn move_word_forward(&mut self) {
+        self.cursor = self.word_end_forward();
+        self.clear_selection();
+    }
+
+    fn extend_selection_to(&mut self, new_cursor: usize) {
+        if self.selection_anchor.is_none() {
+            self.selection_anchor = Some(self.cursor);
+        }
+        self.cursor = new_cursor;
+    }
+
+    fn extend_backward(&mut self) {
+        let new = if self.cursor > 0 { self.cursor - 1 } else { 0 };
+        self.extend_selection_to(new);
+    }
+
+    fn extend_forward(&mut self) {
+        let new = (self.cursor + 1).min(self.text.chars().count());
+        self.extend_selection_to(new);
+    }
+
+    fn extend_to_start(&mut self) {
+        self.extend_selection_to(0);
+    }
+
+    fn extend_to_end(&mut self) {
+        self.extend_selection_to(self.text.chars().count());
+    }
+
+    fn extend_word_backward(&mut self) {
+        let new = self.word_start_backward();
+        self.extend_selection_to(new);
+    }
+
+    fn extend_word_forward(&mut self) {
+        let new = self.word_end_forward();
+        self.extend_selection_to(new);
+    }
+
     /// Delete selected text, returning true if something was deleted
     fn delete_selection(&mut self) -> bool {
         if let Some((start, end)) = self.selection_range()
             && start != end
         {
             let chars: Vec<char> = self.text.chars().collect();
+            let len = chars.len();
+            let start = start.min(len);
+            let end = end.min(len);
             let mut new_chars = chars[..start].to_vec();
             new_chars.extend_from_slice(&chars[end..]);
             self.text = new_chars.into_iter().collect();
@@ -489,6 +593,7 @@ impl EditState {
     }
 
     /// Select word at the given position
+    #[allow(dead_code)]
     fn select_word_at(&mut self, pos: usize) {
         let text = &self.text;
         let len = text.chars().count();
@@ -719,7 +824,7 @@ impl Input {
     }
 
     /// Set edit end handler (called when user confirms or cancels edit)
-    /// The Option<String> is Some(value) if confirmed, None if cancelled
+    /// The `Option<String>` is `Some(value)` if confirmed, `None` if cancelled
     pub fn on_edit_end(
         mut self,
         handler: impl Fn(Option<String>, &mut Window, &mut App) + 'static,
@@ -744,6 +849,7 @@ impl RenderOnce for Input {
         let theme = InputTheme::from(&global_theme);
 
         let (py, _text_size_class) = match self.size {
+            InputSize::Xs => (px(2.0), "text_xs"),
             InputSize::Sm => (px(4.0), "text_xs"),
             InputSize::Md => (px(8.0), "text_sm"),
             InputSize::Lg => (px(12.0), "text_base"),
@@ -814,6 +920,7 @@ impl RenderOnce for Input {
         if let Some(label) = &self.label {
             container = container.child(
                 div()
+                    .font_family(global_theme.font_family.clone())
                     .text_sm()
                     .text_color(theme.label)
                     .font_weight(FontWeight::MEDIUM)
@@ -821,12 +928,17 @@ impl RenderOnce for Input {
             );
         }
 
-        // Create a unique ID for the input field
-        let field_id = ElementId::Name(SharedString::from(format!("{:?}-field", self.id)));
+        // Create a unique ID for the input field.
+        // Use a static suffix string to avoid a format! allocation on every render.
+        let field_id = ElementId::Name({
+            let base = format!("{:?}", self.id);
+            SharedString::from(base + "-field")
+        });
 
         // Input wrapper
         let mut input_wrapper = div()
             .id(self.id.clone())
+            .font_family(global_theme.font_family.clone())
             .track_focus(&focus_handle)
             .flex()
             .items_center()
@@ -879,7 +991,7 @@ impl RenderOnce for Input {
         let on_text_change_rc = self.on_text_change.map(Rc::new);
 
         // Add click handler - focus and start editing
-        // Double-click selects word
+        // Double-click selects all text
         // Single click positions cursor, drag selects text
         if !disabled && !readonly {
             let focus_handle_for_click = focus_handle.clone();
@@ -887,6 +999,7 @@ impl RenderOnce for Input {
             let value_for_click = current_value.to_string();
             let on_edit_start_click = on_edit_start_rc.clone();
             let edit_text_for_click = edit_text.clone();
+            let id_for_click = self.id.clone();
 
             input_wrapper =
                 input_wrapper.on_mouse_down(MouseButton::Left, move |event, window, cx| {
@@ -895,46 +1008,63 @@ impl RenderOnce for Input {
 
                     let mut state = edit_state_for_click.borrow_mut();
 
-                    // Calculate cursor position from click
-                    // Use a simple heuristic: assume monospace ~8px per character
-                    // TODO: Replace with proper text layout measurement when available in GPUI
-                    let text_len = edit_text_for_click.chars().count();
-                    let char_width = 8.0_f32; // Approximate width per character
-                    let click_x: f32 = event.position.x.into();
-                    let char_pos = ((click_x / char_width).round() as usize).min(text_len);
+                    // Ensure editing state is initialised
+                    if !state.editing {
+                        *state = EditState::new(&value_for_click);
+                    }
 
-                    // Double-click: select word at cursor
+                    // Double-click: select all text
                     if event.click_count == 2 {
-                        if !state.editing {
-                            *state = EditState::new(&value_for_click);
-                        }
-                        state.select_word_at(char_pos);
+                        state.select_all();
                         drop(state);
                         window.refresh();
                         return;
                     }
 
-                    // Single click: start editing if not already, position cursor
-                    if !state.editing {
-                        *state = EditState::new(&value_for_click);
-                        state.cursor = char_pos;
-                        state.clear_selection();
-                        drop(state);
+                    // Calculate cursor position from click.
+                    // event.position is window-relative; we record the window-x of this
+                    // click alongside the char position so that on_mouse_move can compute
+                    // positions relative to the same origin.
+                    let text_len = edit_text_for_click.chars().count();
+                    let char_width = 8.0_f32;
+                    let click_x: f32 = event.position.x.into();
 
-                        // Call on_edit_start callback
-                        if let Some(ref handler) = on_edit_start_click {
+                    // Retrieve stored text origin (set by a previous click on this element).
+                    // On the very first click we have no stored origin, so we derive it:
+                    // origin = click_x - char_pos * char_width, clamped so origin >= 0.
+                    let stored_origin =
+                        TEXT_ORIGINS.with(|o| o.borrow().get(&id_for_click).copied());
+                    let char_pos_f = click_x / char_width;
+                    let origin = stored_origin.unwrap_or_else(|| {
+                        // Estimate: assume cursor lands at char_pos_f rounded
+                        let cp = char_pos_f.round().min(text_len as f32);
+                        (click_x - cp * char_width).max(0.0)
+                    });
+                    // Store the origin for future mouse-move events
+                    TEXT_ORIGINS.with(|o| {
+                        o.borrow_mut().insert(id_for_click.clone(), origin);
+                    });
+
+                    let char_pos =
+                        (((click_x - origin) / char_width).round() as usize).min(text_len);
+
+                    // Single click: position cursor and begin drag selection
+                    let was_editing = state.editing;
+                    state.editing = true;
+                    state.start_selection(char_pos);
+                    drop(state);
+
+                    if !was_editing
+                        && let Some(ref handler) = on_edit_start_click {
                             handler(window, cx);
                         }
-                    } else {
-                        state.start_selection(char_pos);
-                        drop(state);
-                    }
                     window.refresh();
                 });
 
             // Mouse move handler for drag selection
             let edit_state_for_move = edit_state.clone();
             let edit_text_for_move = edit_text.clone();
+            let id_for_move = self.id.clone();
 
             input_wrapper = input_wrapper.on_mouse_move(move |event, window, _cx| {
                 let mut state = edit_state_for_move.borrow_mut();
@@ -942,7 +1072,10 @@ impl RenderOnce for Input {
                     let text_len = edit_text_for_move.chars().count();
                     let char_width = 8.0_f32;
                     let move_x: f32 = event.position.x.into();
-                    let char_pos = ((move_x / char_width).round() as usize).min(text_len);
+                    let origin =
+                        TEXT_ORIGINS.with(|o| o.borrow().get(&id_for_move).copied().unwrap_or(0.0));
+                    let char_pos =
+                        (((move_x - origin) / char_width).round() as usize).min(text_len);
                     state.update_selection(char_pos);
                     drop(state);
                     window.refresh();
@@ -983,6 +1116,8 @@ impl RenderOnce for Input {
                 let key = event.keystroke.key.as_str();
                 let ctrl = event.keystroke.modifiers.control;
                 let cmd = event.keystroke.modifiers.platform;
+                let alt = event.keystroke.modifiers.alt;
+                let shift = event.keystroke.modifiers.shift;
 
                 let mut state = edit_state_for_key.borrow_mut();
                 if !state.editing {
@@ -992,7 +1127,8 @@ impl RenderOnce for Input {
                     state.selection_anchor = Some(0);
                 }
 
-                if cmd {
+                // cmd (macOS) or ctrl (Linux/Windows) clipboard + select-all
+                if cmd || (ctrl && matches!(key, "c" | "x" | "v" | "a")) {
                     match key {
                         "c" => {
                             if let Some(selected) = state.get_selected_text() {
@@ -1038,6 +1174,74 @@ impl RenderOnce for Input {
                     }
                 }
 
+                // cmd+left/right — line start/end (macOS); cmd+shift extends selection
+                if cmd && matches!(key, "left" | "right") {
+                    if shift {
+                        match key {
+                            "left" => state.extend_to_start(),
+                            "right" => state.extend_to_end(),
+                            _ => {}
+                        }
+                    } else {
+                        match key {
+                            "left" => state.move_to_start(),
+                            "right" => state.move_to_end(),
+                            _ => {}
+                        }
+                    }
+                    drop(state);
+                    window.refresh();
+                    return;
+                }
+
+                // alt+left/right — word jump; alt+shift extends selection
+                if alt && matches!(key, "left" | "right") {
+                    if shift {
+                        match key {
+                            "left" => state.extend_word_backward(),
+                            "right" => state.extend_word_forward(),
+                            _ => {}
+                        }
+                    } else {
+                        match key {
+                            "left" => state.move_word_backward(),
+                            "right" => state.move_word_forward(),
+                            _ => {}
+                        }
+                    }
+                    drop(state);
+                    window.refresh();
+                    return;
+                }
+
+                // alt+backspace / alt+d — kill word (Emacs M-DEL / M-d)
+                if alt {
+                    match key {
+                        "backspace" => {
+                            state.kill_word_backward();
+                            let text = state.text.clone();
+                            drop(state);
+                            if let Some(ref handler) = on_text_change_key {
+                                handler(text, window, cx);
+                            }
+                            window.refresh();
+                            return;
+                        }
+                        "d" => {
+                            state.kill_word_forward();
+                            let text = state.text.clone();
+                            drop(state);
+                            if let Some(ref handler) = on_text_change_key {
+                                handler(text, window, cx);
+                            }
+                            window.refresh();
+                            return;
+                        }
+                        _ => {}
+                    }
+                }
+
+                // Emacs ctrl bindings
                 if ctrl {
                     match key {
                         "a" => state.move_to_start(),
@@ -1049,6 +1253,29 @@ impl RenderOnce for Input {
                         "d" => state.do_delete(),
                         "f" => state.move_forward(),
                         "b" => state.move_backward(),
+                        // ctrl+left/right — word jump (non-Mac)
+                        "left" => {
+                            if shift {
+                                state.extend_word_backward();
+                            } else {
+                                state.move_word_backward();
+                            }
+                        }
+                        "right" => {
+                            if shift {
+                                state.extend_word_forward();
+                            } else {
+                                state.move_word_forward();
+                            }
+                        }
+                        // ctrl+y — yank (Emacs paste from clipboard)
+                        "y" => {
+                            if let Some(clipboard) = cx.read_from_clipboard()
+                                && let Some(paste_text) = clipboard.text()
+                            {
+                                state.insert_text(&paste_text);
+                            }
+                        }
                         _ => {}
                     }
                     let text = state.text.clone();
@@ -1102,22 +1329,38 @@ impl RenderOnce for Input {
                         window.refresh();
                     }
                     "left" => {
-                        state.move_backward();
+                        if shift {
+                            state.extend_backward();
+                        } else {
+                            state.move_backward();
+                        }
                         drop(state);
                         window.refresh();
                     }
                     "right" => {
-                        state.move_forward();
+                        if shift {
+                            state.extend_forward();
+                        } else {
+                            state.move_forward();
+                        }
                         drop(state);
                         window.refresh();
                     }
                     "home" => {
-                        state.move_to_start();
+                        if shift {
+                            state.extend_to_start();
+                        } else {
+                            state.move_to_start();
+                        }
                         drop(state);
                         window.refresh();
                     }
                     "end" => {
-                        state.move_to_end();
+                        if shift {
+                            state.extend_to_end();
+                        } else {
+                            state.move_to_end();
+                        }
                         drop(state);
                         window.refresh();
                     }
@@ -1159,6 +1402,7 @@ impl RenderOnce for Input {
 
         // Apply text size
         text_el = match self.size {
+            InputSize::Xs => text_el.text_xs(),
             InputSize::Sm => text_el.text_xs(),
             InputSize::Md => text_el.text_sm(),
             InputSize::Lg => text_el,
@@ -1176,6 +1420,12 @@ impl RenderOnce for Input {
         if editing {
             let chars: Vec<char> = display_text.chars().collect();
             let len = chars.len();
+
+            // Clamp cursor_pos and selection_anchor to valid bounds.
+            // This can happen when the external value changes while editing,
+            // causing a mismatch between internal state and displayed text length.
+            let cursor_pos = cursor_pos.min(len);
+            let selection_anchor = selection_anchor.map(|a| a.min(len));
 
             // Normalize selection range (if any)
             let (sel_start, sel_end) = if let Some(anchor) = selection_anchor {

@@ -242,7 +242,7 @@ fn main() {
             let fy = y as f64 / viz_size as f64;
             // Create a wave pattern
             let val = 0.5
-                + 0.3 * (fx * 6.28).sin() * (fy * 6.28).cos()
+                + 0.3 * (fx * std::f64::consts::TAU).sin() * (fy * std::f64::consts::TAU).cos()
                 + 0.2 * ((fx - 0.5).powi(2) + (fy - 0.5).powi(2)).sqrt() * -2.0;
             viz_grid[y * viz_size + x] = val.max(0.0).min(1.0);
         }

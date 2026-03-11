@@ -4,8 +4,8 @@
 //! Navigate through sections using the sidebar to see examples of each chart type.
 
 use gpui::*;
-use gpui_px::*;
 use gpui_px::interaction::{InteractiveChart, InteractiveChartConfig, InteractiveChartState};
+use gpui_px::*;
 use gpui_ui_kit::{MiniApp, MiniAppConfig};
 
 fn main() {

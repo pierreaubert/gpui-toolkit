@@ -26,6 +26,17 @@ use crate::scale::Scale;
 use crate::theme::ThemeExt;
 use gpui::prelude::*;
 use gpui::*;
+use std::cell::RefCell;
+use std::collections::HashMap;
+
+// Thread-local registry for focus handles, keyed by ElementId.
+// Allows VerticalSlider to auto-create a stable FocusHandle per element ID
+// without requiring callers to pass one explicitly. This ensures scroll wheel
+// and keyboard navigation work out of the box.
+thread_local! {
+    static VERTICAL_SLIDER_FOCUS_HANDLES: RefCell<HashMap<ElementId, FocusHandle>> =
+        RefCell::new(HashMap::new());
+}
 
 /// Scale type for vertical slider value mapping
 /// Re-exported from scale module for API consistency
@@ -65,7 +76,7 @@ pub struct VerticalSliderTheme {
     #[theme(default = 0x888888ff, from = text_muted)]
     pub text_muted: Rgba,
     /// Text on accent background
-    #[theme(default = 0xffffffff, from = text_primary)]
+    #[theme(default = 0xffffffff, from = text_on_accent)]
     pub text_on_accent: Rgba,
     /// Background secondary (for value badge)
     #[theme(default = 0x2a2a2aff, from = surface)]
@@ -718,10 +729,23 @@ impl RenderOnce for VerticalSlider {
             .border_color(border_color)
             .min_w(px(min_width));
 
+        // Get or create a stable FocusHandle for this slider.
+        // Prefer an externally-provided handle; fall back to the thread-local registry.
+        let focus_handle = self.focus_handle.clone().unwrap_or_else(|| {
+            VERTICAL_SLIDER_FOCUS_HANDLES.with(|handles| {
+                let mut handles = handles.borrow_mut();
+                handles
+                    .entry(element_id.clone())
+                    .or_insert_with(|| cx.focus_handle())
+                    .clone()
+            })
+        });
+        let focus_handle = Some(focus_handle);
+
         // Track focus on container for visual styling and keyboard events
         // Both track_focus (for focus observation) and focusable (for key events) are needed
-        if let Some(ref focus_handle) = self.focus_handle {
-            container = container.track_focus(focus_handle).focusable();
+        if let Some(ref fh) = focus_handle {
+            container = container.track_focus(fh).focusable();
         }
 
         // Add shadow when selected
@@ -772,7 +796,7 @@ impl RenderOnce for VerticalSlider {
             let on_select_container = on_select_rc.clone();
             let on_drag_start = self.on_drag_start;
             let current_value_container = current_value.clone();
-            let focus_handle_container = self.focus_handle.clone();
+            let focus_handle_container = focus_handle.clone();
 
             container = container.on_mouse_down(MouseButton::Left, move |event, window, cx| {
                 // Focus for keyboard navigation (focus follows click)
@@ -817,7 +841,7 @@ impl RenderOnce for VerticalSlider {
             }
 
             // Focus on mouse enter - keyboard follows hover like scroll wheel
-            let focus_handle_hover = self.focus_handle.clone();
+            let focus_handle_hover = focus_handle.clone();
             container = container.on_mouse_move(move |event, window, cx| {
                 // Only focus when mouse enters (not on every move)
                 // We use mouse_move because mouse_enter doesn't exist in GPUI
@@ -836,6 +860,7 @@ impl RenderOnce for VerticalSlider {
                 let current_value_key = current_value.clone();
                 let config_key = interaction_config.clone();
                 container = container.on_key_down(move |event, window, cx| {
+                    cx.stop_propagation();
                     let key = event.keystroke.key.as_str();
 
                     // Escape resets to default
@@ -888,7 +913,8 @@ impl RenderOnce for VerticalSlider {
         );
 
         // Track ID for click-to-position handling
-        let track_id: ElementId = ElementId::Name(SharedString::from(format!("{}-track", element_id)));
+        let track_id: ElementId =
+            ElementId::Name(SharedString::from(format!("{}-track", element_id)));
 
         // Track with fill and thumb
         let mut track = div()
@@ -958,7 +984,7 @@ impl RenderOnce for VerticalSlider {
             let on_select_track = on_select_rc.clone();
             let current_value_at_click = current_value.clone();
             let has_change_handler = on_change_rc.is_some();
-            let focus_handle_track = self.focus_handle.clone();
+            let focus_handle_track = focus_handle.clone();
             track = track.on_mouse_down(MouseButton::Left, move |event, window, cx| {
                 cx.stop_propagation();
 

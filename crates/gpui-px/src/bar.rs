@@ -73,6 +73,8 @@ pub struct BarChart {
     width: f32,
     height: f32,
     y_scale_type: ScaleType,
+    // Axis range overrides (for zoom support)
+    y_range: Option<[f64; 2]>,
     // Legend settings
     show_legend: bool,
     legend_position: LegendPosition,
@@ -138,6 +140,12 @@ impl BarChart {
     /// ```
     pub fn y_scale(mut self, scale: ScaleType) -> Self {
         self.y_scale_type = scale;
+        self
+    }
+
+    /// Set explicit Y-axis range (for zoom support).
+    pub fn y_range(mut self, min: f64, max: f64) -> Self {
+        self.y_range = Some([min, max]);
         self
     }
 
@@ -384,11 +392,16 @@ impl BarChart {
             .max(0.0);
 
         // Calculate y domain with padding - include all series
-        let mut all_values = self.values.clone();
-        for series in &self.series {
-            all_values.extend_from_slice(&series.values);
-        }
-        let (mut y_min, mut y_max) = extent_padded(&all_values, DEFAULT_PADDING_FRACTION);
+        // Use explicit y_range if set, otherwise calculate from data
+        let (mut y_min, mut y_max) = if let Some([min, max]) = self.y_range {
+            (min, max)
+        } else {
+            let mut all_values = self.values.clone();
+            for series in &self.series {
+                all_values.extend_from_slice(&series.values);
+            }
+            extent_padded(&all_values, DEFAULT_PADDING_FRACTION)
+        };
 
         // For linear scale, always include zero baseline for bar charts
         // For log scale, we can't include zero
@@ -747,6 +760,7 @@ pub fn bar<S: AsRef<str>>(categories: &[S], values: &[f64]) -> BarChart {
         width: DEFAULT_WIDTH,
         height: DEFAULT_HEIGHT,
         y_scale_type: ScaleType::Linear,
+        y_range: None,
         show_legend: false,
         legend_position: LegendPosition::default(),
         legend_position_explicit: false,
@@ -883,6 +897,14 @@ mod tests {
             .y_scale(ScaleType::Log)
             .color(0x2ca02c)
             .build();
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_bar_with_explicit_y_range() {
+        let categories = vec!["A", "B", "C"];
+        let values = vec![10.0, 25.0, 15.0];
+        let result = bar(&categories, &values).y_range(0.0, 50.0).build();
         assert!(result.is_ok());
     }
 }

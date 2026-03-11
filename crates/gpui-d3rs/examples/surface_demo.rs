@@ -96,7 +96,7 @@ fn main() {
     println!("\n=== Surface with Custom Color Mapping ===\n");
 
     println!("Surface: z = sin(x)*cos(y), color by x+y");
-    let custom = SurfaceData::from_function((-3.14, 3.14), (-3.14, 3.14), 15, |x, y| {
+    let custom = SurfaceData::from_function((-std::f64::consts::PI, std::f64::consts::PI), (-std::f64::consts::PI, std::f64::consts::PI), 15, |x, y| {
         let z = x.sin() * y.cos();
         let t = x + y; // Color by position, not height
         (z, t)

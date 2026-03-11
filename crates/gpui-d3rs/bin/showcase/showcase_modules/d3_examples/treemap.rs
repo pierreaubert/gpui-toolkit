@@ -1,7 +1,7 @@
 //! Treemap Visualization - D3.js Example Port
 //!
 //! This example demonstrates treemap layout for hierarchical data,
-//! ported from: https://observablehq.com/@d3/treemap/2
+//! ported from: <https://observablehq.com/@d3/treemap/2>
 //!
 //! The example shows:
 //! 1. Multiple tiling algorithms (Squarify, Binary, Slice, Dice, SliceDice)

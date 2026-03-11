@@ -1467,24 +1467,14 @@ impl SpinoramaApp {
                                 "X: Frequency ({:.0} Hz - {:.0} Hz, log scale)",
                                 freq_min, freq_max
                             )))
-                            .child(
-                                div()
-                                    .text_sm()
-                                    .text_color(rgb(0x666666))
-                                    .child(format!(
-                                        "Y: Angle ({:.0}° to {:.0}°)",
-                                        angle_min, angle_max
-                                    )),
-                            )
-                            .child(
-                                div()
-                                    .text_sm()
-                                    .text_color(rgb(0x666666))
-                                    .child(format!(
-                                        "SPL range: {:.1} dB to {:.1} dB",
-                                        spl_min, spl_max
-                                    )),
-                            )
+                            .child(div().text_sm().text_color(rgb(0x666666)).child(format!(
+                                "Y: Angle ({:.0}° to {:.0}°)",
+                                angle_min, angle_max
+                            )))
+                            .child(div().text_sm().text_color(rgb(0x666666)).child(format!(
+                                "SPL range: {:.1} dB to {:.1} dB",
+                                spl_min, spl_max
+                            )))
                             .child(
                                 div()
                                     .text_sm()

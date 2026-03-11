@@ -145,64 +145,16 @@ impl RenderOnce for FocusGroup {
             }
         };
 
-        // Add keyboard navigation handler
-        let focus_handle_for_key = focus_handle.clone();
-        container = container.on_key_down(move |event, window, cx| {
-            if !focus_handle_for_key.is_focused(window) {
-                return;
-            }
-
-            let key = event.keystroke.key.as_str();
-
-            match direction {
-                FocusDirection::Vertical => match key {
-                    "up" => {
-                        // Move focus up
-                        cx.stop_propagation();
-                        // In GPUI, we'd need to track focused child index
-                        // For now, we just prevent default
-                    }
-                    "down" => {
-                        cx.stop_propagation();
-                    }
-                    "home" => {
-                        cx.stop_propagation();
-                        // Focus first child
-                    }
-                    "end" => {
-                        cx.stop_propagation();
-                        // Focus last child
-                    }
-                    _ => {}
-                },
-                FocusDirection::Horizontal => match key {
-                    "left" => {
-                        cx.stop_propagation();
-                    }
-                    "right" => {
-                        cx.stop_propagation();
-                    }
-                    "home" => {
-                        cx.stop_propagation();
-                    }
-                    "end" => {
-                        cx.stop_propagation();
-                    }
-                    _ => {}
-                },
-                FocusDirection::Grid { columns } => {
-                    let _ = columns; // Used for calculating navigation
-                    let _ = wraparound;
-                    let _ = child_count;
-                    match key {
-                        "up" | "down" | "left" | "right" | "home" | "end" => {
-                            cx.stop_propagation();
-                        }
-                        _ => {}
-                    }
-                }
-            }
-        });
+        // NOTE: FocusGroup keyboard navigation is not implemented.
+        // GPUI does not expose a way to programmatically move focus to an
+        // arbitrary AnyElement child — children would need to expose their
+        // FocusHandles explicitly for this to work.
+        //
+        // The previous stub called cx.stop_propagation() for arrow keys without
+        // doing anything, which silently swallowed keyboard events. That has been
+        // removed. To implement focus navigation, callers should manage a list of
+        // FocusHandles and call window.focus() directly in their own key handlers.
+        let _ = (child_count, direction, wraparound);
 
         // Add children
         for child in self.children {

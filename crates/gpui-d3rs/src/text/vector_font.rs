@@ -1,7 +1,7 @@
 //! Hershey Simplex vector font for rendering rotatable text
 //!
 //! Based on the Hershey font developed by Dr. A. V. Hershey in 1967.
-//! Font data from https://paulbourke.net/dataformats/hershey/
+//! Font data from <https://paulbourke.net/dataformats/hershey/>
 //! Public domain - no usage restrictions.
 
 use gpui::prelude::*;
@@ -837,9 +837,7 @@ pub fn render_vector_text(text: &str, config: &VectorFontConfig) -> impl IntoEle
 
                         if x == -1 && y == -1 {
                             // Pen up - draw current path and start new one
-                            if has_path
-                                && let Ok(path) = builder.build()
-                            {
+                            if has_path && let Ok(path) = builder.build() {
                                 window.paint_path(path, config.color);
                             }
                             builder = PathBuilder::stroke(px(config.stroke_width));
@@ -871,9 +869,7 @@ pub fn render_vector_text(text: &str, config: &VectorFontConfig) -> impl IntoEle
                     }
 
                     // Draw remaining path
-                    if has_path
-                        && let Ok(path) = builder.build()
-                    {
+                    if has_path && let Ok(path) = builder.build() {
                         window.paint_path(path, config.color);
                     }
 
@@ -930,9 +926,7 @@ pub fn paint_vector_text_at(
 
                 if px_val_data == -1 && py_val_data == -1 {
                     // Pen up - draw current path and start new one
-                    if has_path
-                        && let Ok(path) = builder.build()
-                    {
+                    if has_path && let Ok(path) = builder.build() {
                         window.paint_path(path, color);
                     }
                     builder = PathBuilder::stroke(px(stroke_width));
@@ -962,9 +956,7 @@ pub fn paint_vector_text_at(
             }
 
             // Draw remaining path
-            if has_path
-                && let Ok(path) = builder.build()
-            {
+            if has_path && let Ok(path) = builder.build() {
                 window.paint_path(path, color);
             }
 

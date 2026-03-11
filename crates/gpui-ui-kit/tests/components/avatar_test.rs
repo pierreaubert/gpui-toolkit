@@ -66,3 +66,23 @@ fn test_avatar_group() {
 
     drop(group);
 }
+
+// -- New tests --
+
+#[test]
+fn test_avatar_default() {
+    let avatar = Avatar::new();
+    drop(avatar);
+}
+
+#[test]
+fn test_avatar_no_name() {
+    let avatar = Avatar::new().src("https://example.com/pic.png");
+    drop(avatar);
+}
+
+#[test]
+fn test_avatar_name_only_no_src() {
+    let avatar = Avatar::new().name("JD");
+    drop(avatar);
+}

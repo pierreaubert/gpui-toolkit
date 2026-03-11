@@ -1,7 +1,7 @@
 //! Kernel Density Estimation - D3.js Example Port
 //!
 //! This example demonstrates kernel density estimation with histogram overlay,
-//! ported from: https://observablehq.com/@d3/kernel-density-estimation
+//! ported from: <https://observablehq.com/@d3/kernel-density-estimation>
 //!
 //! The example shows both:
 //! 1. **High-level API**: Using d3rs shape primitives

@@ -58,9 +58,9 @@ impl<T> QuadPoint<T> {
 pub enum QuadNode<T> {
     /// Leaf node containing a point (and potentially coincident points via linked list)
     Leaf(QuadPoint<T>),
-    /// Internal node with four children: [NE, NW, SE, SW]
-    /// Children are stored as: [0]=NE (x>=mid, y<mid), [1]=NW (x<mid, y<mid),
-    ///                        [2]=SE (x>=mid, y>=mid), [3]=SW (x<mid, y>=mid)
+    /// Internal node with four children: \[NE, NW, SE, SW\]
+    /// Children are stored as: `[0]`=NE (x>=mid, y<mid), `[1]`=NW (x<mid, y<mid),
+    ///                        `[2]`=SE (x>=mid, y>=mid), `[3]`=SW (x<mid, y>=mid)
     Internal(Box<[Option<QuadNode<T>>; 4]>),
 }
 

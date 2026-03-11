@@ -165,13 +165,13 @@ mod tests {
                 d3rs::geo::GeoJsonGeometry::MultiPolygon(mp) => {
                     println!("Parsed MultiPolygon with {} polygons", mp.len());
                     assert!(
-                        mp.len() > 0,
+                        !mp.is_empty(),
                         "MultiPolygon should have at least one polygon"
                     );
                 }
                 d3rs::geo::GeoJsonGeometry::Polygon(p) => {
                     println!("Parsed Polygon with {} rings", p.len());
-                    assert!(p.len() > 0, "Polygon should have at least one ring");
+                    assert!(!p.is_empty(), "Polygon should have at least one ring");
                 }
                 _ => panic!("Unexpected geometry type"),
             }

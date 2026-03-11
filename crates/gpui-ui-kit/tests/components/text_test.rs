@@ -1,6 +1,6 @@
 //! Text/Typography component tests
 
-use gpui_ui_kit::text::{Code, Heading, Link, Text, TextSize, TextWeight};
+use gpui_ui_kit::text::{code_text_color, Code, Heading, Link, Text, TextSize, TextWeight};
 use gpui_ui_kit::theme::Theme;
 
 #[test]
@@ -48,4 +48,15 @@ fn test_link_component() {
         .on_click(|_window, _cx| {});
 
     drop(link);
+}
+
+#[test]
+fn test_code_uses_theme_code_text_color() {
+    let mut theme = Theme::dark();
+    theme.code_text = gpui::rgb(0xaabbcc);
+    assert_eq!(
+        code_text_color(&theme),
+        theme.code_text,
+        "Code text color should come from theme.code_text, not be hardcoded"
+    );
 }

@@ -21,6 +21,7 @@ use super::path::{Path, PathBuilder, Point};
 /// let path = area.generate(&data);
 /// assert!(!path.is_empty());
 /// ```
+#[allow(clippy::type_complexity)]
 pub struct Area<T> {
     x: Box<dyn Fn(&T) -> f64>,
     x0: Option<Box<dyn Fn(&T) -> f64>>,

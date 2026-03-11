@@ -12,6 +12,15 @@ use gpui_ui_kit::theme::ThemeExt;
 use gpui_ui_kit::wizard::StepStatus;
 use gpui_ui_kit::workflow::{WorkflowCanvas, WorkflowGraph};
 use gpui_ui_kit::*;
+use std::collections::HashSet;
+
+#[derive(Clone, Debug)]
+struct User {
+    id: usize,
+    name: String,
+    email: String,
+    role: String,
+}
 
 /// Section identifiers for navigation
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -33,6 +42,7 @@ pub enum ShowcaseSection {
     Toasts,
     Dialog,
     Menu,
+    Table,
     Tooltips,
     Potentiometer,
     Accordion,
@@ -59,6 +69,7 @@ impl ShowcaseSection {
             ShowcaseSection::Toasts,
             ShowcaseSection::Dialog,
             ShowcaseSection::Menu,
+            ShowcaseSection::Table,
             ShowcaseSection::Tooltips,
             ShowcaseSection::Potentiometer,
             ShowcaseSection::Accordion,
@@ -85,6 +96,7 @@ impl ShowcaseSection {
             ShowcaseSection::Toasts => "Toasts",
             ShowcaseSection::Dialog => "Dialog",
             ShowcaseSection::Menu => "Menu",
+            ShowcaseSection::Table => "Table",
             ShowcaseSection::Tooltips => "Tooltips",
             ShowcaseSection::Potentiometer => "Potentiometer",
             ShowcaseSection::Accordion => "Accordion",
@@ -111,6 +123,7 @@ impl ShowcaseSection {
             ShowcaseSection::Toasts => "🍞",
             ShowcaseSection::Dialog => "💬",
             ShowcaseSection::Menu => "📜",
+            ShowcaseSection::Table => "📊",
             ShowcaseSection::Tooltips => "💡",
             ShowcaseSection::Potentiometer => "🎛️",
             ShowcaseSection::Accordion => "🪗",
@@ -174,6 +187,11 @@ pub struct Showcase {
     // Workflow state
     workflow_canvas: Entity<WorkflowCanvas>,
     workflow_node_counter: usize,
+    // Table states
+    users: Vec<User>,
+    selected_users: HashSet<usize>,
+    sort_state: Option<SortState>,
+    pagination: PaginationState,
     // Pane divider states
     pane_left_collapsed: bool,
     pane_left_width: f32,
@@ -238,6 +256,48 @@ impl Showcase {
                 StepStatus::NotVisited,
                 StepStatus::NotVisited,
             ],
+            users: vec![
+                User {
+                    id: 1,
+                    name: "Alice Smith".into(),
+                    email: "alice@example.com".into(),
+                    role: "Admin".into(),
+                },
+                User {
+                    id: 2,
+                    name: "Bob Jones".into(),
+                    email: "bob@example.com".into(),
+                    role: "User".into(),
+                },
+                User {
+                    id: 3,
+                    name: "Charlie Brown".into(),
+                    email: "charlie@example.com".into(),
+                    role: "Editor".into(),
+                },
+                User {
+                    id: 4,
+                    name: "David Wilson".into(),
+                    email: "david@example.com".into(),
+                    role: "User".into(),
+                },
+                User {
+                    id: 5,
+                    name: "Eve Adams".into(),
+                    email: "eve@example.com".into(),
+                    role: "Admin".into(),
+                },
+            ],
+            selected_users: HashSet::new(),
+            sort_state: Some(SortState {
+                column_id: "name".into(),
+                direction: SortDirection::Ascending,
+            }),
+            pagination: PaginationState {
+                current_page: 0,
+                page_size: 5,
+                total_items: 5,
+            },
             workflow_canvas,
             workflow_node_counter: 0,
             pane_left_collapsed: false,
@@ -365,6 +425,7 @@ impl Render for Showcase {
             ShowcaseSection::Toasts => self.render_toasts_section(cx).into_any_element(),
             ShowcaseSection::Dialog => self.render_dialog_section(cx).into_any_element(),
             ShowcaseSection::Menu => self.render_menu_section(cx).into_any_element(),
+            ShowcaseSection::Table => self.render_table_section(cx).into_any_element(),
             ShowcaseSection::Tooltips => self.render_tooltip_section(cx).into_any_element(),
             ShowcaseSection::Potentiometer => {
                 self.render_potentiometer_section(cx).into_any_element()
@@ -541,6 +602,7 @@ include!("includes/render_menu.inc.rs");
 include!("includes/render_potentiometer.inc.rs");
 include!("includes/render_progress.inc.rs");
 include!("includes/render_spinners.inc.rs");
+include!("includes/render_table.inc.rs");
 include!("includes/render_tabs.inc.rs");
 include!("includes/render_text.inc.rs");
 include!("includes/render_toast.inc.rs");

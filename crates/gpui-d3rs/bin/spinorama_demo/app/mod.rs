@@ -1059,10 +1059,7 @@ impl SpinoramaApp {
             let log_max = x_max.ln();
             let log_range = log_max - log_min;
             let log_delta = -(dx as f64) * log_range / (chart_width as f64);
-            (
-                (log_min + log_delta).exp(),
-                (log_max + log_delta).exp(),
-            )
+            ((log_min + log_delta).exp(), (log_max + log_delta).exp())
         } else {
             let x_range = x_max - x_min;
             let domain_dx = -(dx as f64) * x_range / (chart_width as f64);

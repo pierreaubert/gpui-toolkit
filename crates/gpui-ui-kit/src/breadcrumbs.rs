@@ -109,6 +109,7 @@ impl Breadcrumbs {
         let mut container = div().flex().items_center().gap_2().text_sm();
 
         let last_idx = self.items.len().saturating_sub(1);
+        let on_click_rc = self.on_click.map(std::rc::Rc::new);
 
         for (idx, item) in self.items.iter().enumerate() {
             let is_last = idx == last_idx;
@@ -144,14 +145,12 @@ impl Breadcrumbs {
                     .hover(move |s| s.text_color(hover_color));
 
                 // Click handler
-                if let Some(ref handler) = self.on_click {
-                    let handler_ptr: *const dyn Fn(&SharedString, &mut Window, &mut App) =
-                        handler.as_ref();
+                if let Some(ref handler_rc) = on_click_rc {
+                    let handler = handler_rc.clone();
                     let id = item_id.clone();
-                    crumb =
-                        crumb.on_mouse_up(MouseButton::Left, move |_event, window, cx| unsafe {
-                            (*handler_ptr)(&id, window, cx);
-                        });
+                    crumb = crumb.on_mouse_up(MouseButton::Left, move |_event, window, cx| {
+                        handler(&id, window, cx);
+                    });
                 }
             }
 

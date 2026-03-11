@@ -2247,7 +2247,7 @@ async fn test_vertical_slider_percentage_arrow_keys_respect_bounds(cx: &mut Test
 
         let final_val = *value.borrow();
         assert!(
-            final_val >= 0.0 && final_val <= 100.0,
+            (0.0..=100.0).contains(&final_val),
             "Percentage value should stay between 0% and 100%, got {}",
             final_val
         );

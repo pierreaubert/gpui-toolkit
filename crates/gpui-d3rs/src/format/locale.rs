@@ -18,7 +18,7 @@ pub struct Locale {
     pub currency_prefix: Option<&'static str>,
     /// Currency symbol suffix
     pub currency_suffix: Option<&'static str>,
-    /// Grouping pattern (e.g., [3] for 1,234,567)
+    /// Grouping pattern (e.g., `[3]` for 1,234,567)
     pub grouping: &'static [usize],
     /// Numerals (for non-ASCII number systems)
     pub numerals: Option<&'static [&'static str]>,
@@ -311,6 +311,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::approx_constant)]
     fn test_format_fixed() {
         let spec = parse_specifier(".2f");
         assert_eq!(DEFAULT_LOCALE.format(&spec, 3.14159), "3.14");

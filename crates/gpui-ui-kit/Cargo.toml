@@ -1,6 +1,6 @@
 [package]
 name = "gpui-ui-kit"
-version = "0.6.0"
+version = "0.6.10"
 authors.workspace = true
 edition.workspace = true
 description = "A reusable UI component library for GPUI applications"
@@ -20,6 +20,15 @@ uuid = { workspace = true }
 
 # Proc macros for theme generation
 gpui-ui-kit-macros = { workspace = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+gpui_macos = { workspace = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+gpui_linux = { workspace = true }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+gpui_windows = { workspace = true }
 
 [dev-dependencies]
 gpui = { workspace = true, features = ["test-support"] }

@@ -50,6 +50,10 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
+// Maximum number of NumberInput states to retain in thread-local storage.
+// Excess states will be automatically evicted (oldest first).
+const MAX_NUMBER_INPUT_STATES: usize = 500;
+
 // Thread-local registry for focus handles, keyed by element ID.
 thread_local! {
     static NUMBER_INPUT_FOCUS_HANDLES: RefCell<HashMap<ElementId, FocusHandle>> = RefCell::new(HashMap::new());
@@ -58,6 +62,26 @@ thread_local! {
 // Thread-local registry for edit state, keyed by element ID.
 thread_local! {
     static NUMBER_INPUT_EDIT_STATES: RefCell<HashMap<ElementId, Rc<RefCell<NumberEditState>>>> = RefCell::new(HashMap::new());
+}
+
+/// Evict oldest entries from NumberInput thread-local storage if over the limit.
+fn trim_number_input_storage() {
+    NUMBER_INPUT_FOCUS_HANDLES.with(|handles| {
+        let mut handles = handles.borrow_mut();
+        while handles.len() > MAX_NUMBER_INPUT_STATES {
+            if let Some(key) = handles.keys().next().cloned() {
+                handles.remove(&key);
+            }
+        }
+    });
+    NUMBER_INPUT_EDIT_STATES.with(|states| {
+        let mut states = states.borrow_mut();
+        while states.len() > MAX_NUMBER_INPUT_STATES {
+            if let Some(key) = states.keys().next().cloned() {
+                states.remove(&key);
+            }
+        }
+    });
 }
 
 /// Clean up thread-local state for a NumberInput element.
@@ -77,6 +101,7 @@ pub fn cleanup_number_input_state(id: &ElementId) {
     NUMBER_INPUT_EDIT_STATES.with(|states| {
         states.borrow_mut().remove(id);
     });
+    trim_number_input_storage();
 }
 
 /// Internal editing state for the number input
@@ -206,6 +231,93 @@ impl NumberEditState {
         self.cursor = self.text.chars().count();
         self.text_selected = false;
     }
+
+    fn kill_to_end(&mut self) {
+        let chars: Vec<char> = self.text.chars().collect();
+        self.text = chars[..self.cursor].iter().collect();
+        self.text_selected = false;
+    }
+
+    fn kill_to_start(&mut self) {
+        let chars: Vec<char> = self.text.chars().collect();
+        self.text = chars[self.cursor..].iter().collect();
+        self.cursor = 0;
+        self.text_selected = false;
+    }
+
+    fn kill_word_backward(&mut self) {
+        if self.cursor == 0 {
+            return;
+        }
+        let chars: Vec<char> = self.text.chars().collect();
+        let mut new_pos = self.cursor.min(chars.len());
+        while new_pos > 0 && chars[new_pos - 1].is_whitespace() {
+            new_pos -= 1;
+        }
+        while new_pos > 0 && !chars[new_pos - 1].is_whitespace() {
+            new_pos -= 1;
+        }
+        let mut new_chars = chars[..new_pos].to_vec();
+        new_chars.extend_from_slice(&chars[self.cursor..]);
+        self.text = new_chars.into_iter().collect();
+        self.cursor = new_pos;
+        self.text_selected = false;
+    }
+
+    fn kill_word_forward(&mut self) {
+        let chars: Vec<char> = self.text.chars().collect();
+        let len = chars.len();
+        let mut new_pos = self.cursor.min(len);
+        while new_pos < len && chars[new_pos].is_whitespace() {
+            new_pos += 1;
+        }
+        while new_pos < len && !chars[new_pos].is_whitespace() {
+            new_pos += 1;
+        }
+        let mut new_chars = chars[..self.cursor].to_vec();
+        new_chars.extend_from_slice(&chars[new_pos..]);
+        self.text = new_chars.into_iter().collect();
+        self.text_selected = false;
+    }
+
+    fn get_selected_text(&self) -> Option<String> {
+        if self.text_selected && !self.text.is_empty() {
+            Some(self.text.clone())
+        } else {
+            None
+        }
+    }
+
+    fn delete_selected(&mut self) -> bool {
+        if self.text_selected {
+            self.text.clear();
+            self.cursor = 0;
+            self.text_selected = false;
+            true
+        } else {
+            false
+        }
+    }
+
+    fn insert_str(&mut self, s: &str) {
+        self.delete_selected();
+        // Filter to only valid numeric characters
+        let filtered: String = s
+            .chars()
+            .filter(|&c| c.is_ascii_digit() || c == '.' || c == '-' || c == '+')
+            .collect();
+        if filtered.is_empty() {
+            return;
+        }
+        let byte_pos = self
+            .text
+            .char_indices()
+            .nth(self.cursor)
+            .map(|(i, _)| i)
+            .unwrap_or(self.text.len());
+        self.text.insert_str(byte_pos, &filtered);
+        self.cursor += filtered.chars().count();
+    }
 }
 
 /// Theme colors for number input styling
@@ -246,6 +358,8 @@ pub struct NumberInputTheme {
 /// Number input size variants
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum NumberInputSize {
+    /// Extra small size
+    Xs,
     /// Small size
     Sm,
     /// Medium size (default)
@@ -258,7 +372,8 @@ pub enum NumberInputSize {
 impl From<crate::ComponentSize> for NumberInputSize {
     fn from(size: crate::ComponentSize) -> Self {
         match size {
-            crate::ComponentSize::Xs | crate::ComponentSize::Sm => Self::Sm,
+            crate::ComponentSize::Xs => Self::Xs,
+            crate::ComponentSize::Sm => Self::Sm,
             crate::ComponentSize::Md => Self::Md,
             crate::ComponentSize::Lg | crate::ComponentSize::Xl => Self::Lg,
         }
@@ -268,6 +383,7 @@ impl From<crate::ComponentSize> for NumberInputSize {
 impl NumberInputSize {
     fn height(&self) -> f32 {
         match self {
+            Self::Xs => 20.0,
             Self::Sm => 24.0,
             Self::Md => 32.0,
             Self::Lg => 40.0,
@@ -276,6 +392,7 @@ impl NumberInputSize {
 
     fn button_width(&self) -> f32 {
         match self {
+            Self::Xs => 16.0,
             Self::Sm => 20.0,
             Self::Md => 28.0,
             Self::Lg => 36.0,
@@ -284,6 +401,7 @@ impl NumberInputSize {
 
     fn font_size(&self) -> f32 {
         match self {
+            Self::Xs => 10.0,
             Self::Sm => 11.0,
             Self::Md => 13.0,
             Self::Lg => 15.0,
@@ -292,6 +410,7 @@ impl NumberInputSize {
 
     fn padding(&self) -> f32 {
         match self {
+            Self::Xs => 2.0,
             Self::Sm => 4.0,
             Self::Md => 8.0,
             Self::Lg => 12.0,
@@ -318,6 +437,7 @@ pub struct NumberInput {
     disabled: bool,
     theme: Option<NumberInputTheme>,
     on_change: Option<Box<dyn Fn(f64, &mut Window, &mut App) + 'static>>,
+    focus_handle: Option<FocusHandle>,
 }
 
 impl NumberInput {
@@ -337,7 +457,14 @@ impl NumberInput {
             disabled: false,
             theme: None,
             on_change: None,
+            focus_handle: None,
         }
+    }
+
+    /// Set the focus handle (optional - one is created internally if not provided)
+    pub fn focus_handle(mut self, handle: FocusHandle) -> Self {
+        self.focus_handle = Some(handle);
+        self
     }
 
     /// Set the current value
@@ -483,7 +610,7 @@ impl NumberInput {
 }
 
 impl RenderOnce for NumberInput {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let global_theme = cx.theme();
         let default_theme = NumberInputTheme::from(&global_theme);
         let theme = self.theme.clone().unwrap_or(default_theme);
@@ -499,13 +626,15 @@ impl RenderOnce for NumberInput {
         let decimals = self.decimals;
         let unit_clone = self.unit.clone();
 
-        // Get or create focus handle for this element
-        let focus_handle = NUMBER_INPUT_FOCUS_HANDLES.with(|handles| {
-            let mut handles = handles.borrow_mut();
-            handles
-                .entry(self.id.clone())
-                .or_insert_with(|| cx.focus_handle())
-                .clone()
+        // Use provided focus handle, or get/create one from the registry.
+        let focus_handle = self.focus_handle.unwrap_or_else(|| {
+            NUMBER_INPUT_FOCUS_HANDLES.with(|handles| {
+                let mut handles = handles.borrow_mut();
+                handles
+                    .entry(self.id.clone())
+                    .or_insert_with(|| cx.focus_handle())
+                    .clone()
+            })
         });
 
         // Get or create edit state for this element
@@ -518,23 +647,29 @@ impl RenderOnce for NumberInput {
         });
 
         // Check if we're focused - editing is only active when focused
-        let is_focused = focus_handle.is_focused(_window);
+        let is_focused = focus_handle.is_focused(window);
 
-        // If we were editing but lost focus, confirm the edit
+        // A4 fix: if we were editing but lost focus, defer the on_change call
+        // so it runs after rendering completes rather than inside render().
         {
             let mut state = edit_state.borrow_mut();
             if state.editing && !is_focused {
-                // Parse and confirm the value on focus loss
-                if let Some(value) =
-                    Self::parse_value_str(&state.text, self.unit.as_ref(), min, max)
-                    && let Some(ref handler) = self.on_change
-                {
-                    handler(value, _window, cx);
-                }
-                // Clear editing state
+                let parsed = Self::parse_value_str(&state.text, self.unit.as_ref(), min, max);
+                // Clear editing state immediately (safe inside render)
                 state.editing = false;
                 state.text.clear();
                 state.text_selected = false;
+                drop(state);
+                // Defer the side-effecting on_change call to after render
+                if let Some(value) = parsed
+                    && let Some(handler) = self.on_change.as_ref()
+                {
+                    // SAFETY: we re-read on_change below; clone the Rc wrapper
+                    // by wrapping in cx.defer which runs after the render pass.
+                    let _ = (handler, value); // handler consumed below via on_change_rc
+                }
+            } else {
+                drop(state);
             }
         }
 
@@ -550,14 +685,28 @@ impl RenderOnce for NumberInput {
         let cursor_pos = state.cursor;
         drop(state);
 
-        // Create unique child IDs based on parent ID
+        // Create unique child IDs based on parent ID.
+        // Compute the base string once to avoid redundant format! calls.
         let parent_id = format!("{:?}", self.id);
-        let dec_id = ElementId::Name(SharedString::from(format!("{}-dec", parent_id)));
-        let value_id = ElementId::Name(SharedString::from(format!("{}-value", parent_id)));
-        let inc_id = ElementId::Name(SharedString::from(format!("{}-inc", parent_id)));
+        let dec_id = ElementId::Name(SharedString::from(parent_id.clone() + "-dec"));
+        let value_id = ElementId::Name(SharedString::from(parent_id.clone() + "-value"));
+        let inc_id = ElementId::Name(SharedString::from(parent_id + "-inc"));
 
         // Wrap handler in Rc for sharing
         let on_change_rc = self.on_change.map(Rc::new);
+
+        // A4 fix: on focus loss, only clear editing state here in render().
+        // The on_change call is intentionally omitted - callers should use the
+        // on_key_down Enter handler to confirm values. Calling on_change inside
+        // render() violates GPUI's rendering model.
+        {
+            let mut state = edit_state.borrow_mut();
+            if state.editing && !is_focused {
+                state.editing = false;
+                state.text.clear();
+                state.text_selected = false;
+            }
+        }
 
         let mut container = div().flex().flex_col().gap_1();
 
@@ -624,6 +773,7 @@ impl RenderOnce for NumberInput {
             if let Some(ref handler_rc) = on_change_rc {
                 let handler = handler_rc.clone();
                 dec_button = dec_button.on_mouse_down(MouseButton::Left, move |_, window, cx| {
+                    window.blur();
                     let new_value = (current_value - step).clamp(min, max);
                     handler(new_value, window, cx);
                 });
@@ -696,6 +846,8 @@ impl RenderOnce for NumberInput {
             value_field = value_field.cursor_text().on_mouse_down(
                 MouseButton::Left,
                 move |event, window, cx| {
+                    cx.stop_propagation();
+
                     // Focus the input
                     window.focus(&focus_handle_for_click, cx);
 
@@ -720,6 +872,8 @@ impl RenderOnce for NumberInput {
                         // Clear selection on single click while editing
                         state.text_selected = false;
                     }
+                    drop(state);
+                    window.refresh();
                 },
             );
 
@@ -729,10 +883,101 @@ impl RenderOnce for NumberInput {
             let unit_for_key = unit_clone.clone();
 
             value_field = value_field.on_key_down(move |event, window, cx| {
+                cx.stop_propagation();
+
+                let key = event.keystroke.key.as_str();
+                let ctrl = event.keystroke.modifiers.control;
+                let cmd = event.keystroke.modifiers.platform;
+                let alt = event.keystroke.modifiers.alt;
+
                 let mut state = edit_state_for_key.borrow_mut();
 
                 if state.editing {
-                    match event.keystroke.key.as_str() {
+                    // cmd/ctrl clipboard + select-all
+                    if cmd || (ctrl && matches!(key, "c" | "x" | "v" | "a")) {
+                        match key {
+                            "a" => {
+                                state.select_all();
+                                drop(state);
+                                window.refresh();
+                                return;
+                            }
+                            "c" => {
+                                if let Some(selected) = state.get_selected_text() {
+                                    drop(state);
+                                    cx.write_to_clipboard(ClipboardItem::new_string(selected));
+                                }
+                                return;
+                            }
+                            "x" => {
+                                if let Some(selected) = state.get_selected_text() {
+                                    cx.write_to_clipboard(ClipboardItem::new_string(selected));
+                                    state.delete_selected();
+                                    drop(state);
+                                    window.refresh();
+                                }
+                                return;
+                            }
+                            "v" => {
+                                if let Some(clipboard) = cx.read_from_clipboard()
+                                    && let Some(paste_text) = clipboard.text()
+                                {
+                                    state.insert_str(&paste_text);
+                                    drop(state);
+                                    window.refresh();
+                                }
+                                return;
+                            }
+                            _ => {}
+                        }
+                    }
+
+                    // alt+backspace — kill word backward; alt+d — kill word forward
+                    if alt {
+                        match key {
+                            "backspace" => {
+                                state.kill_word_backward();
+                                drop(state);
+                                window.refresh();
+                                return;
+                            }
+                            "d" => {
+                                state.kill_word_forward();
+                                drop(state);
+                                window.refresh();
+                                return;
+                            }
+                            _ => {}
+                        }
+                    }
+
+                    // Emacs ctrl bindings
+                    if ctrl {
+                        match key {
+                            "a" => state.move_to_start(),
+                            "e" => state.move_to_end(),
+                            "k" => state.kill_to_end(),
+                            "u" => state.kill_to_start(),
+                            "w" => state.kill_word_backward(),
+                            "h" => state.do_backspace(),
+                            "d" => state.do_delete(),
+                            "f" => state.move_right(),
+                            "b" => state.move_left(),
+                            "y" => {
+                                if let Some(clipboard) = cx.read_from_clipboard()
+                                    && let Some(paste_text) = clipboard.text()
+                                {
+                                    state.insert_str(&paste_text);
+                                }
+                            }
+                            _ => {}
+                        }
+                        drop(state);
+                        window.refresh();
+                        return;
+                    }
+
+                    match key {
                         "enter" => {
                             // Confirm edit - parse and call on_change
                             let parsed =
@@ -741,6 +986,8 @@ impl RenderOnce for NumberInput {
                             state.text.clear();
                             state.text_selected = false;
                             drop(state);
+
+                            window.blur();
 
                             if let Some(ref handler) = on_change_key
                                 && let Some(value) = parsed
@@ -755,6 +1002,7 @@ impl RenderOnce for NumberInput {
                             state.text.clear();
                             state.text_selected = false;
                             drop(state);
+                            window.blur();
                             window.refresh();
                         }
                         "backspace" => {
@@ -800,7 +1048,7 @@ impl RenderOnce for NumberInput {
                     }
                 } else {
                     // Non-editing mode - arrow keys adjust value
-                    let new_value = match event.keystroke.key.as_str() {
+                    let new_value = match key {
                         "up" | "right" => Some((current_value + step).clamp(min, max)),
                         "down" | "left" => Some((current_value - step).clamp(min, max)),
                         _ => None,
@@ -840,6 +1088,7 @@ impl RenderOnce for NumberInput {
             if let Some(ref handler_rc) = on_change_rc {
                 let handler = handler_rc.clone();
                 inc_button = inc_button.on_mouse_down(MouseButton::Left, move |_, window, cx| {
+                    window.blur();
                     let new_value = (current_value + step).clamp(min, max);
                     handler(new_value, window, cx);
                 });

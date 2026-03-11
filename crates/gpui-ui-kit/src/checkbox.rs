@@ -24,8 +24,8 @@ pub struct CheckboxTheme {
     /// Border when unchecked
     #[theme(default = 0x555555, from = border)]
     pub unchecked_border: Rgba,
-    /// Check mark color
-    #[theme(default = 0xffffff, from = text_primary)]
+    /// Check mark color (on accent background)
+    #[theme(default = 0xffffff, from = text_on_accent)]
     pub check_color: Rgba,
     /// Label color
     #[theme(default = 0xcccccc, from = text_secondary)]

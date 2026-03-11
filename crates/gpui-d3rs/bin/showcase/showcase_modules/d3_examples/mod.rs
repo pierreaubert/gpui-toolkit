@@ -5,7 +5,7 @@
 //! 1. Low-level API usage (direct scale/generator manipulation)
 //! 2. High-level API usage (ready-made render functions)
 //!
-//! Source examples from: https://observablehq.com/@d3
+//! Source examples from: <https://observablehq.com/@d3>
 
 pub mod choropleth;
 pub mod faithful_data;

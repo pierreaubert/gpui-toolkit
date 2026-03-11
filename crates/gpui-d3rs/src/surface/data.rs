@@ -473,9 +473,9 @@ impl SurfaceData {
         self.points.get(row).and_then(|r| r.get(col))
     }
 
-    /// Normalize the data to fit within a unit cube [0,1]^3
+    /// Normalize the data to fit within a unit cube \[0,1\]^3
     ///
-    /// The t values are normalized to [0,1] as well.
+    /// The t values are normalized to \[0,1\] as well.
     pub fn normalize(&self) -> Self {
         let x_scale = self.x_range.1 - self.x_range.0;
         let y_scale = self.y_range.1 - self.y_range.0;

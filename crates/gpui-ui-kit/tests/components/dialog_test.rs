@@ -33,3 +33,42 @@ fn test_dialog_sizes() {
         drop(dialog);
     }
 }
+
+#[test]
+fn test_dialog_content_with_factory() {
+    let dialog =
+        Dialog::new("test").content_with(|_theme| div().child("Themed content").into_any_element());
+    drop(dialog);
+}
+
+#[test]
+fn test_dialog_footer_with_factory() {
+    let dialog =
+        Dialog::new("test").footer_with(|_theme| div().child("Themed footer").into_any_element());
+    drop(dialog);
+}
+
+#[test]
+fn test_dialog_child_alias() {
+    let dialog = Dialog::new("test").child(div().child("Content via child()"));
+    drop(dialog);
+}
+
+#[test]
+fn test_dialog_close_on_backdrop() {
+    let dialog = Dialog::new("test")
+        .close_on_backdrop(true)
+        .on_close(|_window, _cx| {});
+    drop(dialog);
+
+    let dialog = Dialog::new("test").close_on_backdrop(false);
+    drop(dialog);
+}
+
+#[test]
+fn test_dialog_no_close_button() {
+    let dialog = Dialog::new("test")
+        .show_close_button(false)
+        .content(div().child("No close button"));
+    drop(dialog);
+}

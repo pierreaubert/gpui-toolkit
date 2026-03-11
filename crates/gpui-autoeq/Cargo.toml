@@ -1,0 +1,29 @@
+[package]
+name = "gpui-autoeq"
+version = "0.6.4"
+authors.workspace = true
+edition.workspace = true
+description = "AutoEQ parameter form component for GPUI applications"
+license = "ISC"
+repository.workspace = true
+
+[dependencies]
+# GPUI framework
+gpui = { workspace = true }
+
+# UI components
+gpui-ui-kit = { workspace = true }
+
+# Proc macros for theme generation
+gpui-ui-kit-macros = { workspace = true }
+
+[dev-dependencies]
+gpui = { workspace = true, features = ["test-support"] }
+
+[lib]
+name = "gpui_autoeq"
+path = "src/lib.rs"
+
+[[example]]
+name = "autoeq_form_debug"
+path = "examples/autoeq_form_debug.rs"

@@ -67,12 +67,12 @@ fn test_linear_scale_golden() {
 
         // Skip tests that require features not yet implemented
         if name == "nice_domain" {
-            test_linear_nice(&case);
+            test_linear_nice(case);
             continue;
         }
 
         if name.starts_with("ticks") {
-            test_linear_ticks(&case);
+            test_linear_ticks(case);
             continue;
         }
 
@@ -1760,8 +1760,7 @@ fn test_interpolate_color_golden() {
         // Helper to parse color strings - hex, rgb(), or named colors
         fn parse_color(s: &str) -> D3Color {
             let s = s.trim();
-            if s.starts_with('#') {
-                let hex_str = &s[1..];
+            if let Some(hex_str) = s.strip_prefix('#') {
                 let hex = u32::from_str_radix(hex_str, 16).expect("Invalid hex color");
                 D3Color::from_hex(hex)
             } else if s.starts_with("rgb(") {
@@ -1798,7 +1797,7 @@ fn test_interpolate_color_golden() {
         let expected: Vec<String> = serde_json::from_value(case["outputs"].clone()).unwrap();
 
         // Create interpolator
-        let interpolator = interpolate_rgb(a.clone(), b.clone());
+        let interpolator = interpolate_rgb(a, b);
 
         for (t, exp_str) in inputs.iter().zip(expected.iter()) {
             let actual = interpolator(*t);
@@ -2320,7 +2319,7 @@ fn test_time_golden() {
     assert!(!days.is_empty(), "day range should return non-empty vector");
     // Should return approximately 7 days (could be 6-8 depending on exact boundary handling)
     assert!(
-        days.len() >= 1 && days.len() <= 14,
+        !days.is_empty() && days.len() <= 14,
         "day range should return a reasonable number of entries, got {}",
         days.len()
     );

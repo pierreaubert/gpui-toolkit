@@ -16,6 +16,23 @@
 use crate::ComponentTheme;
 use crate::theme::ThemeExt;
 use gpui::*;
+use std::cell::RefCell;
+use std::collections::HashMap;
+
+// Thread-local drag state: maps slider ElementId -> (click_x, value_at_click).
+// Stores the window-relative x position at mouse-down and the value at that
+// moment so that on_mouse_move can compute a delta instead of using the
+// absolute window-relative position (which breaks when the slider is not at x=0).
+thread_local! {
+    static SLIDER_DRAG_STATE: RefCell<HashMap<ElementId, (f32, f32)>> =
+        RefCell::new(HashMap::new());
+
+    // Focus handles keyed by ElementId so scroll wheel events are delivered.
+    // Scroll events in GPUI go to the focused element; auto-focusing on hover
+    // (same pattern as Potentiometer) makes scroll work without a click first.
+    static SLIDER_FOCUS_HANDLES: RefCell<HashMap<ElementId, FocusHandle>> =
+        RefCell::new(HashMap::new());
+}
 
 /// Theme colors for slider styling
 #[derive(Debug, Clone, ComponentTheme)]
@@ -360,9 +377,26 @@ impl RenderOnce for Slider {
         // Wrap on_change in Rc for sharing between handlers
         let on_change_rc = self.on_change.map(|h| std::rc::Rc::new(h));
 
+        // Get or create a stable FocusHandle for this slider so scroll wheel
+        // events are delivered. Auto-focus on hover (no button pressed) mirrors
+        // the Potentiometer pattern.
+        let focus_handle = SLIDER_FOCUS_HANDLES.with(|handles| {
+            let mut handles = handles.borrow_mut();
+            handles
+                .entry(self.id.clone())
+                .or_insert_with(|| cx.focus_handle())
+                .clone()
+        });
+
+        // Clone IDs for drag state keys before self.id is moved into the track element.
+        let drag_id_down = self.id.clone();
+        let drag_id_move = self.id.clone();
+        let drag_id_up = self.id.clone();
+
         // Slider track
         let mut track = div()
             .id(self.id)
+            .track_focus(&focus_handle)
             .w(px(width))
             .h(px(thumb_size))
             .flex()
@@ -419,42 +453,64 @@ impl RenderOnce for Slider {
             if let Some(on_drag_start) = self.on_drag_start {
                 let handler_down = on_drag_start;
                 track = track.on_mouse_down(MouseButton::Left, move |event, window, cx| {
+                    cx.stop_propagation();
                     handler_down(event.position.x.into(), current_value, window, cx);
                 });
             } else if let Some(ref handler_rc) = on_change_rc {
-                // Click to set value based on position (immediate feedback)
+                // Mouse down: record click position and value for delta-based drag.
+                // We do NOT compute value from absolute x here because event.position
+                // is window-relative, not element-relative.
                 let handler_click = handler_rc.clone();
                 track = track.on_mouse_down(MouseButton::Left, move |event, window, cx| {
-                    // Calculate value from click position relative to track
-                    let x: f32 = event.position.x.into();
-                    let progress = (x / width).clamp(0.0, 1.0);
-                    let new_value = min + progress * (max - min);
-                    let snapped = if let Some(step) = step {
-                        let steps = ((new_value - min) / step).round();
-                        (min + steps * step).clamp(min, max)
-                    } else {
-                        new_value.clamp(min, max)
-                    };
-                    handler_click(snapped, window, cx);
+                    cx.stop_propagation();
+                    let click_x: f32 = event.position.x.into();
+                    SLIDER_DRAG_STATE.with(|s| {
+                        s.borrow_mut()
+                            .insert(drag_id_down.clone(), (click_x, current_value));
+                    });
+                    // Fire on_change immediately so the thumb snaps to a reasonable
+                    // position on click (use current value — caller can override).
+                    handler_click(current_value, window, cx);
                 });
 
-                // Mouse move while pressed - continue drag
+                // Mouse move while pressed: compute delta from click origin.
                 let handler_drag = handler_rc.clone();
                 track = track.on_mouse_move(move |event, window, cx| {
                     if event.pressed_button == Some(MouseButton::Left) {
-                        let x: f32 = event.position.x.into();
-                        let progress = (x / width).clamp(0.0, 1.0);
-                        let new_value = min + progress * (max - min);
-                        let snapped = if let Some(step) = step {
-                            let steps = ((new_value - min) / step).round();
-                            (min + steps * step).clamp(min, max)
-                        } else {
-                            new_value.clamp(min, max)
-                        };
-                        handler_drag(snapped, window, cx);
+                        let state =
+                            SLIDER_DRAG_STATE.with(|s| s.borrow().get(&drag_id_move).copied());
+                        if let Some((click_x, value_at_click)) = state {
+                            let current_x: f32 = event.position.x.into();
+                            let delta_x = current_x - click_x;
+                            let delta_value = (delta_x / width) * (max - min);
+                            let new_value = (value_at_click + delta_value).clamp(min, max);
+                            let snapped = if let Some(step) = step {
+                                let steps = ((new_value - min) / step).round();
+                                (min + steps * step).clamp(min, max)
+                            } else {
+                                new_value
+                            };
+                            handler_drag(snapped, window, cx);
+                        }
                     }
                 });
+
+                // Mouse up: clear drag state.
+                track = track.on_mouse_up(MouseButton::Left, move |_event, _window, _cx| {
+                    SLIDER_DRAG_STATE.with(|s| {
+                        s.borrow_mut().remove(&drag_id_up);
+                    });
+                });
             }
+
+            // Auto-focus on hover (no button pressed) so scroll wheel events
+            // are delivered. Mirrors the Potentiometer pattern.
+            let focus_handle_hover = focus_handle.clone();
+            track = track.on_mouse_move(move |event, window, cx| {
+                if !focus_handle_hover.is_focused(window) && event.pressed_button.is_none() {
+                    focus_handle_hover.focus(window, cx);
+                }
+            });
 
             // Double-click to reset
             if let Some(on_reset) = self.on_reset {
@@ -516,6 +572,7 @@ impl RenderOnce for Slider {
             if let Some(handler_rc) = on_change_rc {
                 let handler_key = handler_rc.clone();
                 track = track.on_key_down(move |event, window, cx| {
+                    cx.stop_propagation();
                     let step_amount = step.unwrap_or((max - min) * 0.05);
                     let large_step = (max - min) * 0.10; // 10% for page up/down
 

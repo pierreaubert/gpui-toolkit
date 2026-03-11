@@ -6,6 +6,7 @@
 //! - Collapsed/expanded states
 //! - Labels when collapsed
 //! - Double-click to toggle
+//! - Drag to resize panels
 
 use gpui::prelude::FluentBuilder;
 use gpui::*;
@@ -14,19 +15,33 @@ use gpui_ui_kit::pane_divider::{CollapseDirection, PaneDivider, PaneDividerTheme
 use gpui_ui_kit::theme::ThemeExt;
 use gpui_ui_kit::*;
 
+/// Which divider is currently being dragged
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum DragTarget {
+    Left,
+    Right,
+    Top,
+    Bottom,
+}
+
 /// Demo state
 pub struct PaneDividerDebug {
-    /// Left panel collapsed
     left_collapsed: bool,
-    /// Right panel collapsed
     right_collapsed: bool,
-    /// Top panel collapsed
     top_collapsed: bool,
-    /// Bottom panel collapsed
     bottom_collapsed: bool,
-    /// Entity reference
+    left_width: f32,
+    right_width: f32,
+    top_height: f32,
+    bottom_height: f32,
+    /// Active drag state: which divider, start mouse pos, panel size at drag start
+    drag: Option<(DragTarget, f32, f32)>,
     entity: Entity<Self>,
 }
+
+const DEFAULT_PANEL_SIZE: f32 = 150.0;
+const MIN_PANEL_SIZE: f32 = 50.0;
+const MAX_PANEL_SIZE: f32 = 400.0;
 
 impl PaneDividerDebug {
     fn new(cx: &mut Context<Self>) -> Self {
@@ -35,14 +50,34 @@ impl PaneDividerDebug {
             right_collapsed: false,
             top_collapsed: false,
             bottom_collapsed: false,
+            left_width: DEFAULT_PANEL_SIZE,
+            right_width: DEFAULT_PANEL_SIZE,
+            top_height: DEFAULT_PANEL_SIZE / 2.0,
+            bottom_height: DEFAULT_PANEL_SIZE / 2.0,
+            drag: None,
             entity: cx.entity().clone(),
         }
     }
 
-    /// Render a sample panel
-    fn render_panel(title: impl Into<SharedString>, bg: Rgba, theme: &Theme) -> impl IntoElement {
+    fn render_panel(title: impl Into<SharedString>, bg: Rgba, theme: &Theme) -> Div {
         div()
             .flex_1()
+            .flex()
+            .items_center()
+            .justify_center()
+            .min_w_0()
+            .min_h_0()
+            .bg(bg)
+            .child(
+                Text::new(title)
+                    .weight(TextWeight::Bold)
+                    .color(theme.text_primary),
+            )
+    }
+
+    fn render_sized_panel(title: impl Into<SharedString>, bg: Rgba, theme: &Theme) -> Div {
+        div()
+            .flex_shrink_0()
             .flex()
             .items_center()
             .justify_center()
@@ -53,6 +88,31 @@ impl PaneDividerDebug {
                     .color(theme.text_primary),
             )
     }
+
+    fn handle_drag_move(&mut self, position: Point<Pixels>) {
+        let Some((target, start_pos, start_size)) = self.drag else {
+            return;
+        };
+        match target {
+            DragTarget::Left => {
+                let delta: f32 = position.x.into();
+                self.left_width = (start_size + (delta - start_pos)).clamp(MIN_PANEL_SIZE, MAX_PANEL_SIZE);
+            }
+            DragTarget::Right => {
+                let delta: f32 = position.x.into();
+                // Dragging right = shrinking the right panel
+                self.right_width = (start_size - (delta - start_pos)).clamp(MIN_PANEL_SIZE, MAX_PANEL_SIZE);
+            }
+            DragTarget::Top => {
+                let delta: f32 = position.y.into();
+                self.top_height = (start_size + (delta - start_pos)).clamp(MIN_PANEL_SIZE, MAX_PANEL_SIZE);
+            }
+            DragTarget::Bottom => {
+                let delta: f32 = position.y.into();
+                self.bottom_height = (start_size - (delta - start_pos)).clamp(MIN_PANEL_SIZE, MAX_PANEL_SIZE);
+            }
+        }
+    }
 }
 
 impl Render for PaneDividerDebug {
@@ -60,7 +120,6 @@ impl Render for PaneDividerDebug {
         let entity = self.entity.clone();
         let theme = cx.theme();
 
-        // Custom theme for dividers
         let divider_theme = PaneDividerTheme {
             background: theme.surface,
             background_hover: theme.surface_hover,
@@ -70,7 +129,7 @@ impl Render for PaneDividerDebug {
             border: theme.border,
         };
 
-        div()
+        let mut root = div()
             .id("pane-divider-debug-root")
             .w_full()
             .h_full()
@@ -79,7 +138,23 @@ impl Render for PaneDividerDebug {
             .p_6()
             .flex()
             .flex_col()
-            .gap_6()
+            .gap_6();
+
+        // Mouse move/up on root for drag tracking (use cx.listener like app-gpui)
+        root = root.on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, _window, cx| {
+            if this.drag.is_some() {
+                this.handle_drag_move(event.position);
+                cx.notify();
+            }
+        }));
+        root = root.on_mouse_up(
+            MouseButton::Left,
+            cx.listener(|this, _: &MouseUpEvent, _window, _cx| {
+                this.drag = None;
+            }),
+        );
+
+        root
             // Header
             .child(
                 div()
@@ -88,11 +163,11 @@ impl Render for PaneDividerDebug {
                     .gap_1()
                     .child(Heading::h1("Pane Divider Component Debug"))
                     .child(
-                        Text::new("Double-click dividers to collapse/expand. Click collapsed divider to expand. Arrows show collapse direction.")
+                        Text::new("Drag dividers to resize panels. Double-click to collapse/expand. Click collapsed divider to expand.")
                             .muted(true),
                     ),
             )
-            // i18n Status Bar - demonstrates language switching works
+            // i18n Status Bar
             .child(
                 div()
                     .flex()
@@ -113,10 +188,11 @@ impl Render for PaneDividerDebug {
                     .p_3()
                     .bg(theme.surface)
                     .rounded_lg()
-                    .child(Text::new(format!("Left: {}", if self.left_collapsed { "Collapsed" } else { "Expanded" })).size(TextSize::Sm))
-                    .child(Text::new(format!("Right: {}", if self.right_collapsed { "Collapsed" } else { "Expanded" })).size(TextSize::Sm))
-                    .child(Text::new(format!("Top: {}", if self.top_collapsed { "Collapsed" } else { "Expanded" })).size(TextSize::Sm))
-                    .child(Text::new(format!("Bottom: {}", if self.bottom_collapsed { "Collapsed" } else { "Expanded" })).size(TextSize::Sm)),
+                    .child(Text::new(format!("Left: {} ({:.0}px)", if self.left_collapsed { "Collapsed" } else { "Expanded" }, self.left_width)).size(TextSize::Sm))
+                    .child(Text::new(format!("Right: {} ({:.0}px)", if self.right_collapsed { "Collapsed" } else { "Expanded" }, self.right_width)).size(TextSize::Sm))
+                    .child(Text::new(format!("Top: {} ({:.0}px)", if self.top_collapsed { "Collapsed" } else { "Expanded" }, self.top_height)).size(TextSize::Sm))
+                    .child(Text::new(format!("Bottom: {} ({:.0}px)", if self.bottom_collapsed { "Collapsed" } else { "Expanded" }, self.bottom_height)).size(TextSize::Sm))
+                    .child(Text::new(format!("Dragging: {}", if self.drag.is_some() { "Yes" } else { "No" })).size(TextSize::Sm).color(if self.drag.is_some() { theme.accent } else { theme.text_muted })),
             )
             // Vertical Dividers Demo
             .child(
@@ -143,9 +219,9 @@ impl Render for PaneDividerDebug {
                             .border_color(theme.border)
                             .rounded_md()
                             .overflow_hidden()
-                            // Left panel (or collapsed divider)
+                            // Left panel
                             .when(!self.left_collapsed, |d| {
-                                d.child(Self::render_panel("Left Panel", theme.muted, &theme))
+                                d.child(Self::render_sized_panel("Left Panel", theme.muted, &theme).w(px(self.left_width)).h_full())
                             })
                             // Left divider
                             .child(
@@ -158,6 +234,14 @@ impl Render for PaneDividerDebug {
                                         move |collapsed, _w, cx| {
                                             entity.update(cx, |this, _| {
                                                 this.left_collapsed = collapsed;
+                                            });
+                                        }
+                                    })
+                                    .on_drag_start({
+                                        let entity = entity.clone();
+                                        move |pos, _w, cx| {
+                                            entity.update(cx, |this, _| {
+                                                this.drag = Some((DragTarget::Left, pos, this.left_width));
                                             });
                                         }
                                     }),
@@ -177,11 +261,19 @@ impl Render for PaneDividerDebug {
                                                 this.right_collapsed = collapsed;
                                             });
                                         }
+                                    })
+                                    .on_drag_start({
+                                        let entity = entity.clone();
+                                        move |pos, _w, cx| {
+                                            entity.update(cx, |this, _| {
+                                                this.drag = Some((DragTarget::Right, pos, this.right_width));
+                                            });
+                                        }
                                     }),
                             )
-                            // Right panel (or collapsed divider)
+                            // Right panel
                             .when(!self.right_collapsed, |d| {
-                                d.child(Self::render_panel("Right Panel", theme.muted, &theme))
+                                d.child(Self::render_sized_panel("Right Panel", theme.muted, &theme).w(px(self.right_width)).h_full())
                             }),
                     ),
             )
@@ -211,11 +303,11 @@ impl Render for PaneDividerDebug {
                             .border_color(theme.border)
                             .rounded_md()
                             .overflow_hidden()
-                            // Top panel (or collapsed divider)
+                            // Top panel
                             .when(!self.top_collapsed, |d| {
-                                d.child(Self::render_panel("Top Panel", theme.muted, &theme))
+                                d.child(Self::render_sized_panel("Top Panel", theme.muted, &theme).h(px(self.top_height)).w_full())
                             })
-                            // Top divider (collapses up)
+                            // Top divider
                             .child(
                                 PaneDivider::horizontal("top-divider", CollapseDirection::Up)
                                     .label("Top")
@@ -228,11 +320,19 @@ impl Render for PaneDividerDebug {
                                                 this.top_collapsed = collapsed;
                                             });
                                         }
+                                    })
+                                    .on_drag_start({
+                                        let entity = entity.clone();
+                                        move |pos, _w, cx| {
+                                            entity.update(cx, |this, _| {
+                                                this.drag = Some((DragTarget::Top, pos, this.top_height));
+                                            });
+                                        }
                                     }),
                             )
                             // Middle panel
                             .child(Self::render_panel("Middle Panel", theme.background, &theme))
-                            // Bottom divider (collapses down)
+                            // Bottom divider
                             .child(
                                 PaneDivider::horizontal("bottom-divider", CollapseDirection::Down)
                                     .label("Bottom")
@@ -245,11 +345,19 @@ impl Render for PaneDividerDebug {
                                                 this.bottom_collapsed = collapsed;
                                             });
                                         }
+                                    })
+                                    .on_drag_start({
+                                        let entity = entity.clone();
+                                        move |pos, _w, cx| {
+                                            entity.update(cx, |this, _| {
+                                                this.drag = Some((DragTarget::Bottom, pos, this.bottom_height));
+                                            });
+                                        }
                                     }),
                             )
-                            // Bottom panel (or collapsed divider)
+                            // Bottom panel
                             .when(!self.bottom_collapsed, |d| {
-                                d.child(Self::render_panel("Bottom Panel", theme.muted, &theme))
+                                d.child(Self::render_sized_panel("Bottom Panel", theme.muted, &theme).h(px(self.bottom_height)).w_full())
                             }),
                     ),
             )
@@ -269,6 +377,10 @@ impl Render for PaneDividerDebug {
                                         this.right_collapsed = false;
                                         this.top_collapsed = false;
                                         this.bottom_collapsed = false;
+                                        this.left_width = DEFAULT_PANEL_SIZE;
+                                        this.right_width = DEFAULT_PANEL_SIZE;
+                                        this.top_height = DEFAULT_PANEL_SIZE / 2.0;
+                                        this.bottom_height = DEFAULT_PANEL_SIZE / 2.0;
                                     });
                                 }
                             }),
@@ -302,10 +414,10 @@ impl Render for PaneDividerDebug {
                         VStack::new()
                             .spacing(StackSpacing::Sm)
                             .child(Text::new("Instructions:").weight(TextWeight::Bold))
+                            .child(Text::new("- Drag a divider to resize adjacent panels").size(TextSize::Sm))
                             .child(Text::new("- Double-click a divider to collapse the adjacent panel").size(TextSize::Sm))
                             .child(Text::new("- Click a collapsed divider to expand it").size(TextSize::Sm))
-                            .child(Text::new("- Arrows indicate the collapse direction").size(TextSize::Sm))
-                            .child(Text::new("- Collapsed dividers show vertical text labels").size(TextSize::Sm)),
+                            .child(Text::new("- Panels clamp between 50px and 400px").size(TextSize::Sm)),
                     ),
             )
     }

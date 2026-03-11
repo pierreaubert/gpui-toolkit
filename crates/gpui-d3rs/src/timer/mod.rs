@@ -737,7 +737,7 @@ mod tests {
         for i in 1..recorded.len() {
             let diff = recorded[i] - recorded[i - 1];
             assert!(
-                diff >= 20.0 && diff <= 50.0,
+                (20.0..=50.0).contains(&diff),
                 "Interval {} was {} ms, expected ~30ms",
                 i,
                 diff

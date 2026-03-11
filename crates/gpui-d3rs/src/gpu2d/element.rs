@@ -178,13 +178,8 @@ impl Element for Chart2DElement {
             let frame = Frame::new(rgba_image);
             let render_image = RenderImage::new(vec![frame]);
 
-            let _ = window.paint_image(
-                bounds,
-                Corners::default(),
-                Arc::new(render_image),
-                0,
-                false,
-            );
+            let _ =
+                window.paint_image(bounds, Corners::default(), Arc::new(render_image), 0, false);
         }
     }
 }

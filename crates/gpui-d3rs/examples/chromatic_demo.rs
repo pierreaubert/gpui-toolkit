@@ -76,7 +76,7 @@ impl Render for ChromaticDemo {
 }
 
 fn main() {
-    Application::new().run(|cx: &mut App| {
+    Application::with_platform(std::rc::Rc::new(gpui_macos::MacPlatform::new(false))).run(|cx: &mut App| {
         cx.open_window(
             WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(Bounds::centered(

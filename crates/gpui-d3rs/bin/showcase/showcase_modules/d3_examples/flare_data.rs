@@ -4,8 +4,8 @@
 //! with byte sizes for each component.
 //!
 //! # Data Source
-//! - Original: Flare visualization toolkit (http://flare.prefuse.org/)
-//! - D3 version: https://github.com/d3/d3-hierarchy/blob/main/test/data/flare.json
+//! - Original: Flare visualization toolkit (<http://flare.prefuse.org/>)
+//! - D3 version: <https://github.com/d3/d3-hierarchy/blob/main/test/data/flare.json>
 //!
 //! # License
 //! The Flare library is licensed under the BSD license.

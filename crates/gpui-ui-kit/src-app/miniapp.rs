@@ -29,6 +29,22 @@
 use crate::i18n::{I18nState, Language};
 use crate::theme::{ThemeState, ThemeVariant};
 use gpui::*;
+use std::rc::Rc;
+
+fn current_platform() -> Rc<dyn gpui::Platform> {
+    #[cfg(target_os = "macos")]
+    {
+        Rc::new(gpui_macos::MacPlatform::new(false))
+    }
+    #[cfg(target_os = "linux")]
+    {
+        gpui_linux::current_platform(false)
+    }
+    #[cfg(target_os = "windows")]
+    {
+        Rc::new(gpui_windows::WindowsPlatform::new(false).expect("failed to create Windows platform"))
+    }
+}
 
 /// Configuration for a MiniApp instance
 #[derive(Clone)]
@@ -199,199 +215,205 @@ impl MiniApp {
     {
         let config_clone = config.clone();
 
-        Application::new().run(move |cx: &mut App| {
-            // Initialize theme state if enabled
-            if config_clone.with_theme {
-                cx.set_global(ThemeState::with_variant(config_clone.initial_theme));
-            }
+        gpui::Application::with_platform(current_platform())
+            .run(move |cx: &mut App| {
+                // Initialize theme state if enabled
+                if config_clone.with_theme {
+                    cx.set_global(ThemeState::with_variant(config_clone.initial_theme));
+                }
 
-            // Initialize i18n state if enabled
-            if config_clone.with_i18n {
-                let mut i18n = I18nState::new();
-                i18n.set_language(config_clone.initial_language);
-                cx.set_global(i18n);
-            }
+                // Initialize i18n state if enabled
+                if config_clone.with_i18n {
+                    let mut i18n = I18nState::new();
+                    i18n.set_language(config_clone.initial_language);
+                    cx.set_global(i18n);
+                }
 
-            // Register quit action
-            cx.on_action::<Quit>(|_action, cx| {
-                cx.quit();
+                // Register quit action
+                cx.on_action::<Quit>(|_action, cx| {
+                    cx.quit();
+                });
+
+                // Register theme actions if enabled
+                if config_clone.with_theme {
+                    cx.on_action::<ToggleTheme>(|_action, cx| {
+                        cx.update_global::<ThemeState, _>(|state, _cx| {
+                            state.toggle();
+                        });
+                        cx.refresh_windows();
+                    });
+
+                    cx.on_action::<SetThemeDark>(|_action, cx| {
+                        cx.update_global::<ThemeState, _>(|state, _cx| {
+                            state.set_variant(ThemeVariant::Dark);
+                        });
+                        cx.refresh_windows();
+                    });
+
+                    cx.on_action::<SetThemeLight>(|_action, cx| {
+                        cx.update_global::<ThemeState, _>(|state, _cx| {
+                            state.set_variant(ThemeVariant::Light);
+                        });
+                        cx.refresh_windows();
+                    });
+
+                    cx.on_action::<SetThemeMidnight>(|_action, cx| {
+                        cx.update_global::<ThemeState, _>(|state, _cx| {
+                            state.set_variant(ThemeVariant::Midnight);
+                        });
+                        cx.refresh_windows();
+                    });
+
+                    cx.on_action::<SetThemeForest>(|_action, cx| {
+                        cx.update_global::<ThemeState, _>(|state, _cx| {
+                            state.set_variant(ThemeVariant::Forest);
+                        });
+                        cx.refresh_windows();
+                    });
+
+                    cx.on_action::<SetThemeBlackAndWhite>(|_action, cx| {
+                        cx.update_global::<ThemeState, _>(|state, _cx| {
+                            state.set_variant(ThemeVariant::BlackAndWhite);
+                        });
+                        cx.refresh_windows();
+                    });
+                }
+
+                // Register language actions if enabled
+                if config_clone.with_i18n {
+                    let config_for_lang = config_clone.clone();
+                    cx.on_action::<SetLanguageEnglish>(move |_action, cx| {
+                        cx.update_global::<I18nState, _>(|state, _cx| {
+                            state.set_language(Language::English);
+                        });
+                        let current_language = cx
+                            .try_global::<I18nState>()
+                            .map(|state| state.language)
+                            .unwrap_or(Language::English);
+                        let menus =
+                            Self::build_menus_with_language(&config_for_lang, current_language);
+                        cx.set_menus(menus);
+                        cx.refresh_windows();
+                    });
+
+                    let config_for_lang = config_clone.clone();
+                    cx.on_action::<SetLanguageFrench>(move |_action, cx| {
+                        cx.update_global::<I18nState, _>(|state, _cx| {
+                            state.set_language(Language::French);
+                        });
+                        let current_language = cx
+                            .try_global::<I18nState>()
+                            .map(|state| state.language)
+                            .unwrap_or(Language::English);
+                        let menus =
+                            Self::build_menus_with_language(&config_for_lang, current_language);
+                        cx.set_menus(menus);
+                        cx.refresh_windows();
+                    });
+
+                    let config_for_lang = config_clone.clone();
+                    cx.on_action::<SetLanguageGerman>(move |_action, cx| {
+                        cx.update_global::<I18nState, _>(|state, _cx| {
+                            state.set_language(Language::German);
+                        });
+                        let current_language = cx
+                            .try_global::<I18nState>()
+                            .map(|state| state.language)
+                            .unwrap_or(Language::English);
+                        let menus =
+                            Self::build_menus_with_language(&config_for_lang, current_language);
+                        cx.set_menus(menus);
+                        cx.refresh_windows();
+                    });
+
+                    let config_for_lang = config_clone.clone();
+                    cx.on_action::<SetLanguageSpanish>(move |_action, cx| {
+                        cx.update_global::<I18nState, _>(|state, _cx| {
+                            state.set_language(Language::Spanish);
+                        });
+                        let current_language = cx
+                            .try_global::<I18nState>()
+                            .map(|state| state.language)
+                            .unwrap_or(Language::English);
+                        let menus =
+                            Self::build_menus_with_language(&config_for_lang, current_language);
+                        cx.set_menus(menus);
+                        cx.refresh_windows();
+                    });
+
+                    let config_for_lang = config_clone.clone();
+                    cx.on_action::<SetLanguageJapanese>(move |_action, cx| {
+                        cx.update_global::<I18nState, _>(|state, _cx| {
+                            state.set_language(Language::Japanese);
+                        });
+                        let current_language = cx
+                            .try_global::<I18nState>()
+                            .map(|state| state.language)
+                            .unwrap_or(Language::English);
+                        let menus =
+                            Self::build_menus_with_language(&config_for_lang, current_language);
+                        cx.set_menus(menus);
+                        cx.refresh_windows();
+                    });
+                }
+
+                // Build menu bar
+                let current_language = cx
+                    .try_global::<I18nState>()
+                    .map(|state| state.language)
+                    .unwrap_or(config_clone.initial_language);
+                let menus = Self::build_menus_with_language(&config_clone, current_language);
+                cx.set_menus(menus);
+
+                // Bind keyboard shortcuts
+                cx.bind_keys([KeyBinding::new("cmd-q", Quit, None)]);
+
+                if config_clone.with_theme {
+                    cx.bind_keys([KeyBinding::new("cmd-t", ToggleTheme, None)]);
+                }
+
+                // Create window
+                let bounds = Bounds::centered(
+                    None,
+                    size(px(config_clone.width), px(config_clone.height)),
+                    cx,
+                );
+
+                if config_clone.scrollable {
+                    cx.open_window(
+                        WindowOptions {
+                            window_bounds: Some(WindowBounds::Windowed(bounds)),
+                            titlebar: Some(TitlebarOptions {
+                                title: Some(config_clone.title.clone()),
+                                ..Default::default()
+                            }),
+                            ..Default::default()
+                        },
+                        move |_, cx| {
+                            let inner_view = build_view(cx);
+                            cx.new(|_| ScrollableWrapper {
+                                inner: inner_view.into(),
+                            })
+                        },
+                    )
+                    .unwrap();
+                } else {
+                    cx.open_window(
+                        WindowOptions {
+                            window_bounds: Some(WindowBounds::Windowed(bounds)),
+                            titlebar: Some(TitlebarOptions {
+                                title: Some(config_clone.title.clone()),
+                                ..Default::default()
+                            }),
+                            ..Default::default()
+                        },
+                        |_, cx| build_view(cx),
+                    )
+                    .unwrap();
+                }
+
+                cx.activate(true);
             });
-
-            // Register theme actions if enabled
-            if config_clone.with_theme {
-                cx.on_action::<ToggleTheme>(|_action, cx| {
-                    cx.update_global::<ThemeState, _>(|state, _cx| {
-                        state.toggle();
-                    });
-                    cx.refresh_windows();
-                });
-
-                cx.on_action::<SetThemeDark>(|_action, cx| {
-                    cx.update_global::<ThemeState, _>(|state, _cx| {
-                        state.set_variant(ThemeVariant::Dark);
-                    });
-                    cx.refresh_windows();
-                });
-
-                cx.on_action::<SetThemeLight>(|_action, cx| {
-                    cx.update_global::<ThemeState, _>(|state, _cx| {
-                        state.set_variant(ThemeVariant::Light);
-                    });
-                    cx.refresh_windows();
-                });
-
-                cx.on_action::<SetThemeMidnight>(|_action, cx| {
-                    cx.update_global::<ThemeState, _>(|state, _cx| {
-                        state.set_variant(ThemeVariant::Midnight);
-                    });
-                    cx.refresh_windows();
-                });
-
-                cx.on_action::<SetThemeForest>(|_action, cx| {
-                    cx.update_global::<ThemeState, _>(|state, _cx| {
-                        state.set_variant(ThemeVariant::Forest);
-                    });
-                    cx.refresh_windows();
-                });
-
-                cx.on_action::<SetThemeBlackAndWhite>(|_action, cx| {
-                    cx.update_global::<ThemeState, _>(|state, _cx| {
-                        state.set_variant(ThemeVariant::BlackAndWhite);
-                    });
-                    cx.refresh_windows();
-                });
-            }
-
-            // Register language actions if enabled
-            if config_clone.with_i18n {
-                let config_for_lang = config_clone.clone();
-                cx.on_action::<SetLanguageEnglish>(move |_action, cx| {
-                    cx.update_global::<I18nState, _>(|state, _cx| {
-                        state.set_language(Language::English);
-                    });
-                    let current_language = cx
-                        .try_global::<I18nState>()
-                        .map(|state| state.language)
-                        .unwrap_or(Language::English);
-                    let menus = Self::build_menus_with_language(&config_for_lang, current_language);
-                    cx.set_menus(menus);
-                    cx.refresh_windows();
-                });
-
-                let config_for_lang = config_clone.clone();
-                cx.on_action::<SetLanguageFrench>(move |_action, cx| {
-                    cx.update_global::<I18nState, _>(|state, _cx| {
-                        state.set_language(Language::French);
-                    });
-                    let current_language = cx
-                        .try_global::<I18nState>()
-                        .map(|state| state.language)
-                        .unwrap_or(Language::English);
-                    let menus = Self::build_menus_with_language(&config_for_lang, current_language);
-                    cx.set_menus(menus);
-                    cx.refresh_windows();
-                });
-
-                let config_for_lang = config_clone.clone();
-                cx.on_action::<SetLanguageGerman>(move |_action, cx| {
-                    cx.update_global::<I18nState, _>(|state, _cx| {
-                        state.set_language(Language::German);
-                    });
-                    let current_language = cx
-                        .try_global::<I18nState>()
-                        .map(|state| state.language)
-                        .unwrap_or(Language::English);
-                    let menus = Self::build_menus_with_language(&config_for_lang, current_language);
-                    cx.set_menus(menus);
-                    cx.refresh_windows();
-                });
-
-                let config_for_lang = config_clone.clone();
-                cx.on_action::<SetLanguageSpanish>(move |_action, cx| {
-                    cx.update_global::<I18nState, _>(|state, _cx| {
-                        state.set_language(Language::Spanish);
-                    });
-                    let current_language = cx
-                        .try_global::<I18nState>()
-                        .map(|state| state.language)
-                        .unwrap_or(Language::English);
-                    let menus = Self::build_menus_with_language(&config_for_lang, current_language);
-                    cx.set_menus(menus);
-                    cx.refresh_windows();
-                });
-
-                let config_for_lang = config_clone.clone();
-                cx.on_action::<SetLanguageJapanese>(move |_action, cx| {
-                    cx.update_global::<I18nState, _>(|state, _cx| {
-                        state.set_language(Language::Japanese);
-                    });
-                    let current_language = cx
-                        .try_global::<I18nState>()
-                        .map(|state| state.language)
-                        .unwrap_or(Language::English);
-                    let menus = Self::build_menus_with_language(&config_for_lang, current_language);
-                    cx.set_menus(menus);
-                    cx.refresh_windows();
-                });
-            }
-
-            // Build menu bar
-            let current_language = cx
-                .try_global::<I18nState>()
-                .map(|state| state.language)
-                .unwrap_or(config_clone.initial_language);
-            let menus = Self::build_menus_with_language(&config_clone, current_language);
-            cx.set_menus(menus);
-
-            // Bind keyboard shortcuts
-            cx.bind_keys([KeyBinding::new("cmd-q", Quit, None)]);
-
-            if config_clone.with_theme {
-                cx.bind_keys([KeyBinding::new("cmd-t", ToggleTheme, None)]);
-            }
-
-            // Create window
-            let bounds = Bounds::centered(
-                None,
-                size(px(config_clone.width), px(config_clone.height)),
-                cx,
-            );
-
-            if config_clone.scrollable {
-                cx.open_window(
-                    WindowOptions {
-                        window_bounds: Some(WindowBounds::Windowed(bounds)),
-                        titlebar: Some(TitlebarOptions {
-                            title: Some(config_clone.title.clone()),
-                            ..Default::default()
-                        }),
-                        ..Default::default()
-                    },
-                    move |_, cx| {
-                        let inner_view = build_view(cx);
-                        cx.new(|_| ScrollableWrapper {
-                            inner: inner_view.into(),
-                        })
-                    },
-                )
-                .unwrap();
-            } else {
-                cx.open_window(
-                    WindowOptions {
-                        window_bounds: Some(WindowBounds::Windowed(bounds)),
-                        titlebar: Some(TitlebarOptions {
-                            title: Some(config_clone.title.clone()),
-                            ..Default::default()
-                        }),
-                        ..Default::default()
-                    },
-                    |_, cx| build_view(cx),
-                )
-                .unwrap();
-            }
-
-            cx.activate(true);
-        });
     }
 
     /// Build the menu bar based on configuration and current language

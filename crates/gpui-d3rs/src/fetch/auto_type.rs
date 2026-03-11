@@ -189,6 +189,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::approx_constant)]
     fn test_auto_type_float() {
         assert_eq!(auto_type("3.14"), AutoTyped::Float(3.14));
         assert_eq!(auto_type("-0.5"), AutoTyped::Float(-0.5));
@@ -239,6 +240,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::approx_constant)]
     fn test_auto_typed_as_methods() {
         assert_eq!(AutoTyped::Integer(42).as_f64(), Some(42.0));
         assert_eq!(AutoTyped::Float(3.14).as_i64(), Some(3));

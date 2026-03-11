@@ -750,7 +750,10 @@ mod interactive_chart {
                 let log_max = x_max.log10();
                 let log_range = log_max - log_min;
                 let log_delta = -(dx as f64 / plot_width as f64) * log_range;
-                (10_f64.powf(log_min + log_delta), 10_f64.powf(log_max + log_delta))
+                (
+                    10_f64.powf(log_min + log_delta),
+                    10_f64.powf(log_max + log_delta),
+                )
             } else {
                 let delta = -(dx as f64 / plot_width as f64) * x_range;
                 (x_min + delta, x_max + delta)
@@ -761,7 +764,10 @@ mod interactive_chart {
                 let log_max = y_max.log10();
                 let log_range = log_max - log_min;
                 let log_delta = (dy as f64 / plot_height as f64) * log_range;
-                (10_f64.powf(log_min + log_delta), 10_f64.powf(log_max + log_delta))
+                (
+                    10_f64.powf(log_min + log_delta),
+                    10_f64.powf(log_max + log_delta),
+                )
             } else {
                 // Y is inverted (screen coords vs domain coords)
                 let delta = (dy as f64 / plot_height as f64) * y_range;
@@ -1137,7 +1143,10 @@ mod tests {
             let state = InteractiveChartState::new(0.0, 100.0, 0.0, 100.0);
 
             // Zoom in
-            state.interaction.borrow_mut().zoom_to(25.0, 75.0, 25.0, 75.0);
+            state
+                .interaction
+                .borrow_mut()
+                .zoom_to(25.0, 75.0, 25.0, 75.0);
             assert!(state.is_zoomed());
 
             // Reset

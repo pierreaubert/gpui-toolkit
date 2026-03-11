@@ -26,6 +26,7 @@ impl<T> Bin<T> {
 }
 
 /// Configuration for generating bins/histograms.
+#[allow(clippy::type_complexity)]
 pub struct BinGenerator<T> {
     value: Option<Box<dyn Fn(&T) -> f64 + Send + Sync>>,
     domain: Option<(f64, f64)>,

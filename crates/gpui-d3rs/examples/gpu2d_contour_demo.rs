@@ -221,7 +221,7 @@ impl Render for DemoView {
 }
 
 fn main() {
-    Application::new().run(|cx: &mut App| {
+    Application::with_platform(std::rc::Rc::new(gpui_macos::MacPlatform::new(false))).run(|cx: &mut App| {
         let bounds = Bounds::centered(None, size(px(900.0), px(550.0)), cx);
         cx.open_window(
             WindowOptions {

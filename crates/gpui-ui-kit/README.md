@@ -16,7 +16,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-gpui-ui-kit = { version = "0.1.17", git="https://github.com/pierreaubert/sotf/gpui-ui-kit" }
+gpui-ui-kit = { version = "0.6.10", git="https://github.com/pierreaubert/sotf/tree/master/crates/gpui-toolkit/gpui-ui-kit" }
 ```
 
 ## Components
@@ -55,6 +55,7 @@ gpui-ui-kit = { version = "0.1.17", git="https://github.com/pierreaubert/sotf/gp
 | `Progress` / `CircularProgress` | Progress bars and circular indicators |
 | `Spinner` / `LoadingDots` | Loading indicators |
 | `Avatar` / `AvatarGroup` | User avatars with status indicators |
+| `Table` | Data table with sorting, selection, and pagination |
 | `Text` / `Heading` / `Code` / `Link` | Typography components |
 
 ### Feedback
@@ -372,6 +373,25 @@ AvatarGroup::new()
     .max_visible(3)
 ```
 
+### Table
+
+```rust
+use gpui_ui_kit::table::{Table, Column, SortDirection, SortState, SelectionMode};
+
+let table = Table::new("my-table", vec![item1, item2])
+    .column(Column::new("id", "ID").width(px(50.0)).cell_render(|item, _, _, _| item.id.to_string()))
+    .column(Column::new("name", "Name").cell_render(|item, _, _, _| item.name.clone()))
+    .sort(SortState { column_id: "name".into(), direction: SortDirection::Ascending })
+    .on_sort(|state, window, cx| {
+        // Handle sort change
+    })
+    .selection_mode(SelectionMode::Single)
+    .on_selection_change(|indices, window, cx| {
+        // Handle selection change
+    })
+    .show_footer(true);
+```
+
 ### Tooltip
 
 ```rust
@@ -537,6 +557,42 @@ Component::new(required_args)
     .another_setting(value)
     // Either render directly or build for additional handlers
 ```
+
+### FormField Macro (Procedural)
+
+Use the `FormField` derive macro to generate builder boilerplate for custom form components:
+
+```rust
+use gpui_ui_kit::FormField;
+
+#[derive(FormField)]
+pub struct MyCustomInput {
+    #[field(required)]
+    id: ElementId,
+
+    #[field(optional, into)]
+    value: Option<SharedString>,
+
+    #[field(optional, into)]
+    label: Option<SharedString>,
+
+    disabled: bool,
+}
+
+// Generated API:
+let input = MyCustomInput::new("my-id")
+    .value("Hello")
+    .label("Name")
+    .disabled(true);
+```
+
+**Macro Attributes:**
+- `#[field(required)]` - Required in constructor
+- `#[field(optional)]` - Optional field, wraps in `Some()`
+- `#[field(into)]` - Accepts `impl Into<T>` for the setter
+- `#[field(builder = false)]` - Skip builder method
+- `#[field(default = "expr")]` - Custom default value
+- `#[field(skip)]` - Skip field entirely
 
 ### Event Handlers
 

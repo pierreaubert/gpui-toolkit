@@ -1,7 +1,7 @@
 //! Volcano Contours - D3.js Example Port
 //!
 //! This example demonstrates filled contour rendering of volcanic terrain,
-//! ported from: https://observablehq.com/@d3/volcano-contours/2
+//! ported from: <https://observablehq.com/@d3/volcano-contours/2>
 //!
 //! The example shows both:
 //! 1. **Low-level API**: Direct use of ContourGenerator, scales, and manual rendering

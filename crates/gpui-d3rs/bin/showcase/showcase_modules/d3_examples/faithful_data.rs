@@ -5,8 +5,8 @@
 //!
 //! # Data Source
 //! - Original source: Härdle, W. (1991) "Smoothing Techniques with Implementation in S"
-//! - R datasets package: https://stat.ethz.ch/R-manual/R-devel/library/datasets/html/faithful.html
-//! - JSON version: https://gist.github.com/curran/4b59d1046d9e66f2787780ad51a1cd87
+//! - R datasets package: <https://stat.ethz.ch/R-manual/R-devel/library/datasets/html/faithful.html>
+//! - JSON version: <https://gist.github.com/curran/4b59d1046d9e66f2787780ad51a1cd87>
 //!
 //! # License
 //! The underlying observational data is in the public domain (factual measurements

@@ -4,7 +4,7 @@
 //! Maungawhau (Mt. Eden) volcano dataset.
 //!
 //! Original data source: R's built-in `volcano` dataset
-//! Reference: https://observablehq.com/@d3/volcano-contours
+//! Reference: <https://observablehq.com/@d3/volcano-contours>
 //!
 //! Dimensions: 87 rows x 61 columns (5307 total values)
 //! Elevation range: ~94m to ~195m

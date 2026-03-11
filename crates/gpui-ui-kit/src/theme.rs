@@ -4,7 +4,7 @@
 //!
 //! # Color Token Integration
 //!
-//! The theme system integrates with [`ColorToken`](crate::color_tokens::ColorToken)
+//! The theme system integrates with [`ColorToken`]
 //! for automatic generation of hover, active, muted, and subtle color variants:
 //!
 //! ```ignore
@@ -38,6 +38,8 @@ pub enum ThemeVariant {
     Forest,
     /// Black & White theme (monochrome high contrast)
     BlackAndWhite,
+    /// Onyx theme (near-black with warm amber/gold accent)
+    Onyx,
 }
 
 impl ThemeVariant {
@@ -49,6 +51,7 @@ impl ThemeVariant {
             ThemeVariant::Midnight,
             ThemeVariant::Forest,
             ThemeVariant::BlackAndWhite,
+            ThemeVariant::Onyx,
         ]
     }
 
@@ -60,6 +63,7 @@ impl ThemeVariant {
             ThemeVariant::Midnight => "Midnight",
             ThemeVariant::Forest => "Forest",
             ThemeVariant::BlackAndWhite => "Black & White",
+            ThemeVariant::Onyx => "Onyx",
         }
     }
 
@@ -70,7 +74,8 @@ impl ThemeVariant {
             ThemeVariant::Light => ThemeVariant::Midnight,
             ThemeVariant::Midnight => ThemeVariant::Forest,
             ThemeVariant::Forest => ThemeVariant::BlackAndWhite,
-            ThemeVariant::BlackAndWhite => ThemeVariant::Dark,
+            ThemeVariant::BlackAndWhite => ThemeVariant::Onyx,
+            ThemeVariant::Onyx => ThemeVariant::Dark,
         }
     }
 }
@@ -102,6 +107,10 @@ pub struct Theme {
     pub text_secondary: Rgba,
     /// Disabled text color
     pub text_muted: Rgba,
+    /// Text color for content on accent-colored backgrounds
+    pub text_on_accent: Rgba,
+    /// Icon color for content on accent-colored backgrounds
+    pub icon_on_accent: Rgba,
 
     // Accent colors
     /// Primary accent color
@@ -127,6 +136,10 @@ pub struct Theme {
     /// Border on hover/focus
     pub border_hover: Rgba,
 
+    // Typography
+    /// Default font family
+    pub font_family: SharedString,
+
     // Badge colors
     /// Badge primary background
     pub badge_primary_bg: Rgba,
@@ -148,6 +161,20 @@ pub struct Theme {
     pub badge_info_bg: Rgba,
     /// Badge info text
     pub badge_info_text: Rgba,
+
+    // Alert/Toast variant background colors
+    /// Alert info background
+    pub alert_info_bg: Rgba,
+    /// Alert success background
+    pub alert_success_bg: Rgba,
+    /// Alert warning background
+    pub alert_warning_bg: Rgba,
+    /// Alert error background
+    pub alert_error_bg: Rgba,
+
+    // Code text color
+    /// Code/monospace text color
+    pub code_text: Rgba,
 }
 
 impl Theme {
@@ -166,6 +193,8 @@ impl Theme {
             text_primary: rgb(0xffffff),
             text_secondary: rgb(0xcccccc),
             text_muted: rgb(0x888888),
+            text_on_accent: rgb(0xffffff),
+            icon_on_accent: rgb(0x1e1e1e),
             // Accent
             accent: rgb(0x007acc),
             accent_hover: rgb(0x0098ff),
@@ -178,6 +207,8 @@ impl Theme {
             // Border
             border: rgb(0x3a3a3a),
             border_hover: rgb(0x555555),
+            // Typography
+            font_family: ".SystemUI".into(),
             // Badge colors (dark theme)
             badge_primary_bg: rgb(0x1a4a7a),
             badge_primary_text: rgb(0x7cc4ff),
@@ -189,6 +220,13 @@ impl Theme {
             badge_error_text: rgb(0xcc7c7c),
             badge_info_bg: rgb(0x1a3a3a),
             badge_info_text: rgb(0x7ccccc),
+            // Alert backgrounds
+            alert_info_bg: rgb(0x1a2a3a),
+            alert_success_bg: rgb(0x1a3a1a),
+            alert_warning_bg: rgb(0x3a3a1a),
+            alert_error_bg: rgb(0x3a1a1a),
+            // Code text
+            code_text: rgb(0xe06c75),
         }
     }
 
@@ -207,6 +245,8 @@ impl Theme {
             text_primary: rgb(0x1a1a1a),
             text_secondary: rgb(0x4a4a4a),
             text_muted: rgb(0x888888),
+            text_on_accent: rgb(0xffffff),
+            icon_on_accent: rgb(0x1a1a1a),
             // Accent
             accent: rgb(0x0066cc),
             accent_hover: rgb(0x0055aa),
@@ -219,6 +259,8 @@ impl Theme {
             // Border
             border: rgb(0xd4d4d4),
             border_hover: rgb(0xaaaaaa),
+            // Typography
+            font_family: ".SystemUI".into(),
             // Badge colors (light theme)
             badge_primary_bg: rgb(0xdbeafe),
             badge_primary_text: rgb(0x1d4ed8),
@@ -230,6 +272,13 @@ impl Theme {
             badge_error_text: rgb(0xdc2626),
             badge_info_bg: rgb(0xe0f2fe),
             badge_info_text: rgb(0x0284c7),
+            // Alert backgrounds
+            alert_info_bg: rgb(0xe0f2fe),
+            alert_success_bg: rgb(0xdcfce7),
+            alert_warning_bg: rgb(0xfef3c7),
+            alert_error_bg: rgb(0xfee2e2),
+            // Code text
+            code_text: rgb(0xc7254e),
         }
     }
 
@@ -248,6 +297,8 @@ impl Theme {
             text_primary: rgb(0xc9d1d9),
             text_secondary: rgb(0x8b949e),
             text_muted: rgb(0x6e7681),
+            text_on_accent: rgb(0xffffff),
+            icon_on_accent: rgb(0x0d1117),
             // Accent
             accent: rgb(0x58a6ff),
             accent_hover: rgb(0x79b8ff),
@@ -260,6 +311,8 @@ impl Theme {
             // Border
             border: rgb(0x30363d),
             border_hover: rgb(0x484f58),
+            // Typography
+            font_family: ".SystemUI".into(),
             // Badge colors (dark variant)
             badge_primary_bg: rgb(0x1a4a7a),
             badge_primary_text: rgb(0x7cc4ff),
@@ -271,6 +324,11 @@ impl Theme {
             badge_error_text: rgb(0xcc7c7c),
             badge_info_bg: rgb(0x1a3a3a),
             badge_info_text: rgb(0x7ccccc),
+            alert_info_bg: rgb(0x1a2a3a),
+            alert_success_bg: rgb(0x1a3a1a),
+            alert_warning_bg: rgb(0x3a3a1a),
+            alert_error_bg: rgb(0x3a1a1a),
+            code_text: rgb(0xe06c75),
         }
     }
 
@@ -289,6 +347,8 @@ impl Theme {
             text_primary: rgb(0xd4e4d1),
             text_secondary: rgb(0xa8c4a2),
             text_muted: rgb(0x7a9a73),
+            text_on_accent: rgb(0xffffff),
+            icon_on_accent: rgb(0x1a2418),
             // Accent
             accent: rgb(0x6abf69),
             accent_hover: rgb(0x7dd07c),
@@ -301,6 +361,8 @@ impl Theme {
             // Border
             border: rgb(0x3a4a35),
             border_hover: rgb(0x556b50),
+            // Typography
+            font_family: ".SystemUI".into(),
             // Badge colors (dark variant)
             badge_primary_bg: rgb(0x1a4a7a),
             badge_primary_text: rgb(0x7cc4ff),
@@ -312,6 +374,11 @@ impl Theme {
             badge_error_text: rgb(0xcc7c7c),
             badge_info_bg: rgb(0x1a3a3a),
             badge_info_text: rgb(0x7ccccc),
+            alert_info_bg: rgb(0x1a2a3a),
+            alert_success_bg: rgb(0x1a3a1a),
+            alert_warning_bg: rgb(0x3a3a1a),
+            alert_error_bg: rgb(0x3a1a1a),
+            code_text: rgb(0xe06c75),
         }
     }
 
@@ -330,6 +397,8 @@ impl Theme {
             text_primary: rgb(0xffffff),
             text_secondary: rgb(0x888888),
             text_muted: rgb(0x555555),
+            text_on_accent: rgb(0x000000),
+            icon_on_accent: rgb(0x000000),
             // Accent (black background with white border for buttons)
             accent: rgb(0x000000),
             accent_hover: rgb(0x222222),
@@ -342,6 +411,8 @@ impl Theme {
             // Border (white for high contrast)
             border: rgb(0xffffff),
             border_hover: rgb(0xcccccc),
+            // Typography
+            font_family: "B612".into(),
             // Badge colors (dark variant)
             badge_primary_bg: rgb(0x1a4a7a),
             badge_primary_text: rgb(0x7cc4ff),
@@ -353,6 +424,61 @@ impl Theme {
             badge_error_text: rgb(0xcc7c7c),
             badge_info_bg: rgb(0x1a3a3a),
             badge_info_text: rgb(0x7ccccc),
+            alert_info_bg: rgb(0x1a2a3a),
+            alert_success_bg: rgb(0x1a3a1a),
+            alert_warning_bg: rgb(0x3a3a1a),
+            alert_error_bg: rgb(0x3a1a1a),
+            code_text: rgb(0xe06c75),
+        }
+    }
+
+    /// Onyx theme (near-black with warm amber/gold accent)
+    pub fn onyx() -> Self {
+        Self {
+            variant: ThemeVariant::Onyx,
+            // Backgrounds
+            background: rgb(0x0c0c0e),
+            surface: rgb(0x1a1a1e),
+            surface_hover: rgb(0x242428),
+            muted: rgb(0x111114),
+            transparent: rgba(0x00000000),
+            overlay_bg: rgba(0x000000a6),
+            // Text
+            text_primary: rgb(0xfafaf9),
+            text_secondary: rgb(0xd6d3d1),
+            text_muted: rgb(0xa8a29e),
+            text_on_accent: rgb(0x0c0c0e),
+            icon_on_accent: rgb(0x0c0c0e),
+            // Accent (amber/gold)
+            accent: rgb(0xf59e0b),
+            accent_hover: rgb(0xfbbf24),
+            accent_muted: rgba(0x78350f33),
+            // Semantic
+            success: rgb(0x4ade80),
+            warning: rgb(0xfb923c),
+            error: rgb(0xef4444),
+            info: rgb(0x38bdf8),
+            // Border
+            border: rgb(0x2a2a2e),
+            border_hover: rgb(0xf59e0b),
+            // Typography
+            font_family: "B612".into(),
+            // Badge colors
+            badge_primary_bg: rgb(0x451a03),
+            badge_primary_text: rgb(0xfbbf24),
+            badge_success_bg: rgb(0x14532d),
+            badge_success_text: rgb(0x4ade80),
+            badge_warning_bg: rgb(0x451a03),
+            badge_warning_text: rgb(0xfb923c),
+            badge_error_bg: rgb(0x450a0a),
+            badge_error_text: rgb(0xef4444),
+            badge_info_bg: rgb(0x0c2d48),
+            badge_info_text: rgb(0x38bdf8),
+            alert_info_bg: rgb(0x1a1a2a),
+            alert_success_bg: rgb(0x14532d),
+            alert_warning_bg: rgb(0x451a03),
+            alert_error_bg: rgb(0x450a0a),
+            code_text: rgb(0xe06c75),
         }
     }
 
@@ -364,6 +490,7 @@ impl Theme {
             ThemeVariant::Midnight => Self::midnight(),
             ThemeVariant::Forest => Self::forest(),
             ThemeVariant::BlackAndWhite => Self::black_and_white(),
+            ThemeVariant::Onyx => Self::onyx(),
         }
     }
 

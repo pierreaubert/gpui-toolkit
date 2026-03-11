@@ -9,7 +9,7 @@ fn test_spinner_configuration() {
         .color(gpui::rgb(0xFFFFFF))
         .label("Loading...");
 
-    drop(spinner);
+    let _ = spinner;
 }
 
 #[test]
@@ -18,5 +18,39 @@ fn test_loading_dots() {
         .size(SpinnerSize::Sm)
         .color(gpui::rgb(0xCCCCCC));
 
-    drop(dots);
+    let _ = dots;
+}
+
+// -- New tests --
+
+#[test]
+fn test_spinner_all_sizes() {
+    let sizes = [SpinnerSize::Sm, SpinnerSize::Md, SpinnerSize::Lg];
+
+    for size in sizes {
+        let spinner = Spinner::new().size(size);
+        let _ = spinner;
+    }
+}
+
+#[test]
+fn test_spinner_default() {
+    let spinner = Spinner::new();
+    let _ = spinner;
+}
+
+#[test]
+fn test_spinner_no_label() {
+    let spinner = Spinner::new().size(SpinnerSize::Md);
+    let _ = spinner;
+}
+
+#[test]
+fn test_loading_dots_all_sizes() {
+    let sizes = [SpinnerSize::Sm, SpinnerSize::Md, SpinnerSize::Lg];
+
+    for size in sizes {
+        let dots = LoadingDots::new().size(size);
+        let _ = dots;
+    }
 }

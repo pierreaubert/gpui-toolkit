@@ -368,7 +368,7 @@ mod tests {
         let uniform = RandomUniform::with_seed(0.0, 100.0, 12345);
         for _ in 0..1000 {
             let v = uniform.sample();
-            assert!(v >= 0.0 && v < 100.0);
+            assert!((0.0..100.0).contains(&v));
         }
     }
 
@@ -448,7 +448,7 @@ mod tests {
         let samples: Vec<f64> = (0..1000).map(|_| ih.sample()).collect();
 
         // Values should be in [0, n]
-        assert!(samples.iter().all(|&x| x >= 0.0 && x <= 12.0));
+        assert!(samples.iter().all(|&x| (0.0..=12.0).contains(&x)));
 
         // Mean should be close to n/2 = 6
         let mean: f64 = samples.iter().sum::<f64>() / samples.len() as f64;
@@ -461,7 +461,7 @@ mod tests {
         let samples: Vec<f64> = (0..1000).map(|_| bates.sample()).collect();
 
         // Values should be in [0, 1]
-        assert!(samples.iter().all(|&x| x >= 0.0 && x <= 1.0));
+        assert!(samples.iter().all(|&x| (0.0..=1.0).contains(&x)));
 
         // Mean should be close to 0.5
         let mean: f64 = samples.iter().sum::<f64>() / samples.len() as f64;

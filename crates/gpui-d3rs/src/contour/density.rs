@@ -336,8 +336,8 @@ mod tests {
 
         let max_x = max_idx % 10;
         let max_y = max_idx / 10;
-        assert!(max_x >= 3 && max_x <= 6);
-        assert!(max_y >= 3 && max_y <= 6);
+        assert!((3..=6).contains(&max_x));
+        assert!((3..=6).contains(&max_y));
     }
 
     #[test]

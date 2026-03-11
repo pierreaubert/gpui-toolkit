@@ -776,6 +776,39 @@ impl Divider {
         }
     }
 
+    /// Get the resolved color for this divider given a theme.
+    /// Returns the explicit color if set, otherwise theme.border.
+    pub fn resolve_color(&self, theme: &crate::theme::Theme) -> Rgba {
+        self.color.unwrap_or(theme.border)
+    }
+
+    /// Build into a stateful element using theme defaults
+    pub fn build_with_theme(self, theme: &crate::theme::Theme) -> Stateful<Div> {
+        let color = self.color.unwrap_or(theme.border);
+        let id = self.id.unwrap_or_else(|| SharedString::from("divider"));
+
+        let base = if self.vertical {
+            let thickness = self.thickness.unwrap_or(px(1.0));
+            div().id(id).w(thickness).h_full().bg(color)
+        } else {
+            let thickness = self.thickness.unwrap_or(px(1.0));
+            div().id(id).h(thickness).w_full().bg(color)
+        };
+
+        if self.interactive {
+            let hover_color = self.hover_color.unwrap_or(theme.accent);
+            let cursor = if self.vertical {
+                gpui::CursorStyle::ResizeLeftRight
+            } else {
+                gpui::CursorStyle::ResizeUpDown
+            };
+            base.cursor(cursor)
+                .hover(move |style| style.bg(hover_color))
+        } else {
+            base
+        }
+    }
+
     /// Build into a non-stateful element (for simple visual dividers)
     pub fn build_simple(self) -> Div {
         let color = self.color.unwrap_or(rgb(0x3a3a3a));
@@ -797,9 +830,16 @@ impl Default for Divider {
 }
 
 impl IntoElement for Divider {
-    type Element = Stateful<Div>;
+    type Element = gpui::Component<Self>;
 
     fn into_element(self) -> Self::Element {
-        self.build()
+        gpui::Component::new(self)
+    }
+}
+
+impl RenderOnce for Divider {
+    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let theme = crate::theme::ThemeExt::theme(cx);
+        self.build_with_theme(&theme)
     }
 }

@@ -565,8 +565,8 @@ mod tests {
 
         // All clipped points should be within bounds
         for &(x, y) in &clipped {
-            assert!(x >= 0.0 && x <= 1.0);
-            assert!(y >= 0.0 && y <= 1.0);
+            assert!((0.0..=1.0).contains(&x));
+            assert!((0.0..=1.0).contains(&y));
         }
     }
 

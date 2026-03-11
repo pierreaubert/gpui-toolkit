@@ -1,6 +1,6 @@
 [package]
 name = "gpui-themes"
-version = "0.6.0"
+version = "0.6.1"
 authors.workspace = true
 edition.workspace = true
 description = "Theme editor and management for GPUI applications"

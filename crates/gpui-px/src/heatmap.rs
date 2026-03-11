@@ -8,9 +8,13 @@ use crate::{
     validate_monotonic, validate_positive,
 };
 use d3rs::axis::{AxisConfig, DefaultAxisTheme, render_axis};
+#[cfg(feature = "gpu-2d")]
+use d3rs::gpu2d::render_heatmap;
 use d3rs::grid::{GridConfig, render_grid};
 use d3rs::scale::{LinearScale, LogScale};
-use d3rs::shape::{ContourConfig, HeatmapData, render_heatmap};
+#[cfg(not(feature = "gpu-2d"))]
+use d3rs::shape::render_heatmap;
+use d3rs::shape::{ContourConfig, HeatmapData};
 use d3rs::text::{VectorFontConfig, render_vector_text};
 use gpui::prelude::*;
 use gpui::{AnyElement, IntoElement, div, hsla, px, rgb};
@@ -251,17 +255,17 @@ impl HeatmapChart {
                                         plot_height as f32,
                                         &theme,
                                     ))
-                                    .child(
-                                        div().absolute().inset_0().size_full().child(
-                                            render_heatmap(
-                                                heatmap_data,
-                                                &x_scale,
-                                                &y_scale,
-                                                &config,
-                                            )
-                                            .height(px(plot_height as f32)),
-                                        ),
-                                    ),
+                                    .child(div().absolute().inset_0().size_full().child({
+                                        let el = render_heatmap(
+                                            heatmap_data,
+                                            &x_scale,
+                                            &y_scale,
+                                            &config,
+                                        );
+                                        #[cfg(not(feature = "gpu-2d"))]
+                                        let el = el.height(px(plot_height as f32));
+                                        el
+                                    })),
                             )
                             .child(render_axis(
                                 &x_scale,
@@ -307,17 +311,17 @@ impl HeatmapChart {
                                         plot_height as f32,
                                         &theme,
                                     ))
-                                    .child(
-                                        div().absolute().inset_0().size_full().child(
-                                            render_heatmap(
-                                                heatmap_data,
-                                                &x_scale,
-                                                &y_scale,
-                                                &config,
-                                            )
-                                            .height(px(plot_height as f32)),
-                                        ),
-                                    ),
+                                    .child(div().absolute().inset_0().size_full().child({
+                                        let el = render_heatmap(
+                                            heatmap_data,
+                                            &x_scale,
+                                            &y_scale,
+                                            &config,
+                                        );
+                                        #[cfg(not(feature = "gpu-2d"))]
+                                        let el = el.height(px(plot_height as f32));
+                                        el
+                                    })),
                             )
                             .child(render_axis(
                                 &x_scale,
@@ -363,17 +367,17 @@ impl HeatmapChart {
                                         plot_height as f32,
                                         &theme,
                                     ))
-                                    .child(
-                                        div().absolute().inset_0().size_full().child(
-                                            render_heatmap(
-                                                heatmap_data,
-                                                &x_scale,
-                                                &y_scale,
-                                                &config,
-                                            )
-                                            .height(px(plot_height as f32)),
-                                        ),
-                                    ),
+                                    .child(div().absolute().inset_0().size_full().child({
+                                        let el = render_heatmap(
+                                            heatmap_data,
+                                            &x_scale,
+                                            &y_scale,
+                                            &config,
+                                        );
+                                        #[cfg(not(feature = "gpu-2d"))]
+                                        let el = el.height(px(plot_height as f32));
+                                        el
+                                    })),
                             )
                             .child(render_axis(
                                 &x_scale,
@@ -419,17 +423,17 @@ impl HeatmapChart {
                                         plot_height as f32,
                                         &theme,
                                     ))
-                                    .child(
-                                        div().absolute().inset_0().size_full().child(
-                                            render_heatmap(
-                                                heatmap_data,
-                                                &x_scale,
-                                                &y_scale,
-                                                &config,
-                                            )
-                                            .height(px(plot_height as f32)),
-                                        ),
-                                    ),
+                                    .child(div().absolute().inset_0().size_full().child({
+                                        let el = render_heatmap(
+                                            heatmap_data,
+                                            &x_scale,
+                                            &y_scale,
+                                            &config,
+                                        );
+                                        #[cfg(not(feature = "gpu-2d"))]
+                                        let el = el.height(px(plot_height as f32));
+                                        el
+                                    })),
                             )
                             .child(render_axis(
                                 &x_scale,

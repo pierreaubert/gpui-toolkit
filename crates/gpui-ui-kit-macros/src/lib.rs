@@ -76,7 +76,7 @@ use syn::{Data, DeriveInput, Expr, Fields, Lit, Meta, Token, parse_macro_input};
 ///
 /// **Backgrounds:** `background`, `surface`, `surface_hover`, `muted`, `transparent`, `overlay_bg`
 ///
-/// **Text:** `text_primary`, `text_secondary`, `text_muted`
+/// **Text:** `text_primary`, `text_secondary`, `text_muted`, `text_on_accent`, `icon_on_accent`
 ///
 /// **Accent:** `accent`, `accent_hover`, `accent_muted`
 ///

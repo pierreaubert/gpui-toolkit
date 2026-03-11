@@ -267,8 +267,8 @@ mod tests {
         // All coordinates should be within extent
         for line in &lines {
             for &(lon, lat) in line {
-                assert!(lon >= -90.0 - EPSILON && lon <= 90.0 + EPSILON);
-                assert!(lat >= -45.0 - EPSILON && lat <= 45.0 + EPSILON);
+                assert!((-90.0 - EPSILON..=90.0 + EPSILON).contains(&lon));
+                assert!((-45.0 - EPSILON..=45.0 + EPSILON).contains(&lat));
             }
         }
     }

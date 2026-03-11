@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "crates/gpui-autoeq",
     "crates/gpui-d3rs",
     "crates/gpui-px",
     "crates/gpui-themes",
@@ -9,7 +10,7 @@ members = [
 resolver = "3"
 
 [workspace.package]
-version = "0.6.0"
+version = "0.6.10"
 authors = ["Pierre F. Aubert pierre@spinorama.org"]
 description = "Optimise the sound of your speakers or your headphones"
 edition = "2024"
@@ -36,19 +37,22 @@ thiserror = "2.0.17"
 
 # Optimization and math
 ndarray = { version = "0.17", default-features = false, features = ["rayon", "blas", "serde"] }
-autoeq = { version = ">=0.3.9" }
-autoeq-cea2034 = { version = "0.3" }
+autoeq = { version = ">=0.4" }
+autoeq-cea2034 = { version = "0.4" }
 
 gpui-d3rs = { path = "crates/gpui-d3rs", version = "0.6" }
 gpui-px = { path = "crates/gpui-px", version = "0.6" }
 gpui-themes = { path = "crates/gpui-themes", version = "0.6" }
 gpui-ui-kit = { path = "crates/gpui-ui-kit", version = "0.6" }
+gpui-autoeq = { path = "crates/gpui-autoeq", version = "0.6" }
 gpui-ui-kit-macros = { path = "crates/gpui-ui-kit-macros", version = "0.6" }
 
-# GPUI framework, using HEAD (macros with _)
-# gpui = { version="0.2.2" }
-gpui = { version="*", git = "https://github.com/zed-industries/zed.git" }
-gpui_macros = { version="*", git = "https://github.com/zed-industries/zed.git" }
+# GPUI framework, pinned to specific rev
+gpui = { version="*", git = "https://github.com/zed-industries/zed.git", rev = "450c66ce6e24ec10111fc8dd75711663b2e01b5e" }
+gpui_macros = { version="*", git = "https://github.com/zed-industries/zed.git", rev = "450c66ce6e24ec10111fc8dd75711663b2e01b5e" }
+gpui_macos = { version="*", git = "https://github.com/zed-industries/zed.git", rev = "450c66ce6e24ec10111fc8dd75711663b2e01b5e", features = ["font-kit"] }
+gpui_linux = { version="*", git = "https://github.com/zed-industries/zed.git", rev = "450c66ce6e24ec10111fc8dd75711663b2e01b5e" }
+gpui_windows = { version="*", git = "https://github.com/zed-industries/zed.git", rev = "450c66ce6e24ec10111fc8dd75711663b2e01b5e" }
 
 # Utilities
 approx = "0.5"
@@ -124,6 +128,10 @@ opt-level = 1
 split-debuginfo= "packed"
 debug = 1
 codegen-units = 256
+
+# Fix: git font-kit rev has broken core-text imports; use crates.io version
+[patch."https://github.com/zed-industries/font-kit"]
+zed-font-kit = "0.14.1-zed"
 
 [profile.release]
 lto = true

@@ -46,8 +46,8 @@ pub struct WizardTheme {
     /// Background color for error step
     #[theme(default = 0xef4444ff, from = error)]
     pub step_error_bg: Rgba,
-    /// Text color for step numbers
-    #[theme(default = 0xffffffff, from = text_primary)]
+    /// Text color for step numbers (on accent/success/error backgrounds)
+    #[theme(default = 0xffffffff, from = text_on_accent)]
     pub step_text: Rgba,
     /// Text color for step labels
     #[theme(default = 0x888888ff, from = text_muted)]
@@ -155,17 +155,17 @@ pub struct Wizard {
     /// Custom label for the cancel button
     cancel_label: Option<SharedString>,
     /// Callback when step changes
-    on_step_change: Option<Box<dyn Fn(usize, &mut Window, &mut App) + 'static>>,
+    on_step_change: Option<std::rc::Rc<dyn Fn(usize, &mut Window, &mut App) + 'static>>,
     /// Callback when validation is needed before advancing
     on_validate: Option<Box<dyn Fn(usize) -> bool + 'static>>,
     /// Callback when finish is clicked (last step)
-    on_finish: Option<Box<dyn Fn(&mut Window, &mut App) + 'static>>,
+    on_finish: Option<std::rc::Rc<dyn Fn(&mut Window, &mut App) + 'static>>,
     /// Callback when cancel is clicked
-    on_cancel: Option<Box<dyn Fn(&mut Window, &mut App) + 'static>>,
+    on_cancel: Option<std::rc::Rc<dyn Fn(&mut Window, &mut App) + 'static>>,
     /// Callback when back is clicked
-    on_back: Option<Box<dyn Fn(usize, &mut Window, &mut App) + 'static>>,
+    on_back: Option<std::rc::Rc<dyn Fn(usize, &mut Window, &mut App) + 'static>>,
     /// Callback when next is clicked
-    on_next: Option<Box<dyn Fn(usize, &mut Window, &mut App) + 'static>>,
+    on_next: Option<std::rc::Rc<dyn Fn(usize, &mut Window, &mut App) + 'static>>,
 }
 
 impl Wizard {
@@ -283,7 +283,7 @@ impl Wizard {
         mut self,
         handler: impl Fn(usize, &mut Window, &mut App) + 'static,
     ) -> Self {
-        self.on_step_change = Some(Box::new(handler));
+        self.on_step_change = Some(std::rc::Rc::new(handler));
         self
     }
 
@@ -295,25 +295,25 @@ impl Wizard {
 
     /// Set finish handler
     pub fn on_finish(mut self, handler: impl Fn(&mut Window, &mut App) + 'static) -> Self {
-        self.on_finish = Some(Box::new(handler));
+        self.on_finish = Some(std::rc::Rc::new(handler));
         self
     }
 
     /// Set cancel handler
     pub fn on_cancel(mut self, handler: impl Fn(&mut Window, &mut App) + 'static) -> Self {
-        self.on_cancel = Some(Box::new(handler));
+        self.on_cancel = Some(std::rc::Rc::new(handler));
         self
     }
 
     /// Set back button handler
     pub fn on_back(mut self, handler: impl Fn(usize, &mut Window, &mut App) + 'static) -> Self {
-        self.on_back = Some(Box::new(handler));
+        self.on_back = Some(std::rc::Rc::new(handler));
         self
     }
 
     /// Set next button handler
     pub fn on_next(mut self, handler: impl Fn(usize, &mut Window, &mut App) + 'static) -> Self {
-        self.on_next = Some(Box::new(handler));
+        self.on_next = Some(std::rc::Rc::new(handler));
         self
     }
 
@@ -445,18 +445,15 @@ impl Wizard {
         let mut buttons = div().flex().items_center().gap_3();
 
         // Cancel button (if shown and we have a handler)
-        if self.show_cancel && self.on_cancel.is_some() {
-            let on_cancel: Option<*const dyn Fn(&mut Window, &mut App)> =
-                self.on_cancel.as_ref().map(|f| f.as_ref() as *const _);
-
+        if self.show_cancel {
             let mut cancel_btn = Button::new("wizard-cancel", cancel_label)
                 .variant(ButtonVariant::Ghost)
                 .size(ButtonSize::Md)
                 .disabled(self.is_busy);
 
-            if let Some(handler_ptr) = on_cancel {
-                cancel_btn = cancel_btn.on_click(move |window, cx| unsafe {
-                    (*handler_ptr)(window, cx);
+            if let Some(handler) = self.on_cancel.clone() {
+                cancel_btn = cancel_btn.on_click(move |window, cx| {
+                    handler(window, cx);
                 });
             }
 
@@ -467,8 +464,6 @@ impl Wizard {
         buttons = buttons.child(div().flex_1());
 
         // Back button
-        let on_back: Option<*const dyn Fn(usize, &mut Window, &mut App)> =
-            self.on_back.as_ref().map(|f| f.as_ref() as *const _);
         let current_step = self.current_step;
 
         let mut back_btn = Button::new("wizard-back", back_label)
@@ -476,34 +471,29 @@ impl Wizard {
             .size(ButtonSize::Md)
             .disabled(self.is_busy);
 
-        if let Some(handler_ptr) = on_back {
-            back_btn = back_btn.on_click(move |window, cx| unsafe {
-                (*handler_ptr)(current_step, window, cx);
+        if let Some(handler) = self.on_back.clone() {
+            back_btn = back_btn.on_click(move |window, cx| {
+                handler(current_step, window, cx);
             });
         }
 
         buttons = buttons.child(back_btn);
 
         // Next/Finish button
-        let on_next: Option<*const dyn Fn(usize, &mut Window, &mut App)> =
-            self.on_next.as_ref().map(|f| f.as_ref() as *const _);
-        let on_finish: Option<*const dyn Fn(&mut Window, &mut App)> =
-            self.on_finish.as_ref().map(|f| f.as_ref() as *const _);
-
         let mut next_btn = Button::new("wizard-next", next_label)
             .variant(ButtonVariant::Primary)
             .size(ButtonSize::Md)
             .disabled(self.is_busy);
 
         if is_last_step {
-            if let Some(handler_ptr) = on_finish {
-                next_btn = next_btn.on_click(move |window, cx| unsafe {
-                    (*handler_ptr)(window, cx);
+            if let Some(handler) = self.on_finish.clone() {
+                next_btn = next_btn.on_click(move |window, cx| {
+                    handler(window, cx);
                 });
             }
-        } else if let Some(handler_ptr) = on_next {
-            next_btn = next_btn.on_click(move |window, cx| unsafe {
-                (*handler_ptr)(current_step, window, cx);
+        } else if let Some(handler) = self.on_next.clone() {
+            next_btn = next_btn.on_click(move |window, cx| {
+                handler(current_step, window, cx);
             });
         }
 
@@ -787,10 +777,10 @@ pub struct WizardNavigation {
     cancel_label: Option<SharedString>,
     back_disabled: bool,
     next_disabled: bool,
-    on_back: Option<Box<dyn Fn(usize, &mut Window, &mut App) + 'static>>,
-    on_next: Option<Box<dyn Fn(usize, &mut Window, &mut App) + 'static>>,
-    on_finish: Option<Box<dyn Fn(&mut Window, &mut App) + 'static>>,
-    on_cancel: Option<Box<dyn Fn(&mut Window, &mut App) + 'static>>,
+    on_back: Option<std::rc::Rc<dyn Fn(usize, &mut Window, &mut App) + 'static>>,
+    on_next: Option<std::rc::Rc<dyn Fn(usize, &mut Window, &mut App) + 'static>>,
+    on_finish: Option<std::rc::Rc<dyn Fn(&mut Window, &mut App) + 'static>>,
+    on_cancel: Option<std::rc::Rc<dyn Fn(&mut Window, &mut App) + 'static>>,
     theme: Option<WizardTheme>,
 }
 
@@ -880,25 +870,25 @@ impl WizardNavigation {
 
     /// Set back handler
     pub fn on_back(mut self, handler: impl Fn(usize, &mut Window, &mut App) + 'static) -> Self {
-        self.on_back = Some(Box::new(handler));
+        self.on_back = Some(std::rc::Rc::new(handler));
         self
     }
 
     /// Set next handler
     pub fn on_next(mut self, handler: impl Fn(usize, &mut Window, &mut App) + 'static) -> Self {
-        self.on_next = Some(Box::new(handler));
+        self.on_next = Some(std::rc::Rc::new(handler));
         self
     }
 
     /// Set finish handler
     pub fn on_finish(mut self, handler: impl Fn(&mut Window, &mut App) + 'static) -> Self {
-        self.on_finish = Some(Box::new(handler));
+        self.on_finish = Some(std::rc::Rc::new(handler));
         self
     }
 
     /// Set cancel handler
     pub fn on_cancel(mut self, handler: impl Fn(&mut Window, &mut App) + 'static) -> Self {
-        self.on_cancel = Some(Box::new(handler));
+        self.on_cancel = Some(std::rc::Rc::new(handler));
         self
     }
 
@@ -956,17 +946,14 @@ impl WizardNavigation {
 
         // Cancel button
         if self.show_cancel {
-            let on_cancel: Option<*const dyn Fn(&mut Window, &mut App)> =
-                self.on_cancel.as_ref().map(|f| f.as_ref() as *const _);
-
             let mut cancel_btn = Button::new("wizard-nav-cancel", cancel_label)
                 .variant(ButtonVariant::Ghost)
                 .size(ButtonSize::Md)
                 .disabled(self.is_busy);
 
-            if let Some(handler_ptr) = on_cancel {
-                cancel_btn = cancel_btn.on_click(move |window, cx| unsafe {
-                    (*handler_ptr)(window, cx);
+            if let Some(handler) = self.on_cancel.clone() {
+                cancel_btn = cancel_btn.on_click(move |window, cx| {
+                    handler(window, cx);
                 });
             }
 
@@ -977,8 +964,6 @@ impl WizardNavigation {
         buttons = buttons.child(div().flex_1());
 
         // Back button
-        let on_back: Option<*const dyn Fn(usize, &mut Window, &mut App)> =
-            self.on_back.as_ref().map(|f| f.as_ref() as *const _);
         let current_step = self.current_step;
 
         let mut back_btn = Button::new("wizard-nav-back", back_label)
@@ -986,34 +971,29 @@ impl WizardNavigation {
             .size(ButtonSize::Md)
             .disabled(self.is_busy || self.back_disabled);
 
-        if let Some(handler_ptr) = on_back {
-            back_btn = back_btn.on_click(move |window, cx| unsafe {
-                (*handler_ptr)(current_step, window, cx);
+        if let Some(handler) = self.on_back.clone() {
+            back_btn = back_btn.on_click(move |window, cx| {
+                handler(current_step, window, cx);
             });
         }
 
         buttons = buttons.child(back_btn);
 
         // Next/Finish button
-        let on_next: Option<*const dyn Fn(usize, &mut Window, &mut App)> =
-            self.on_next.as_ref().map(|f| f.as_ref() as *const _);
-        let on_finish: Option<*const dyn Fn(&mut Window, &mut App)> =
-            self.on_finish.as_ref().map(|f| f.as_ref() as *const _);
-
         let mut next_btn = Button::new("wizard-nav-next", next_label)
             .variant(ButtonVariant::Primary)
             .size(ButtonSize::Md)
             .disabled(self.is_busy || self.next_disabled);
 
         if is_last_step {
-            if let Some(handler_ptr) = on_finish {
-                next_btn = next_btn.on_click(move |window, cx| unsafe {
-                    (*handler_ptr)(window, cx);
+            if let Some(handler) = self.on_finish.clone() {
+                next_btn = next_btn.on_click(move |window, cx| {
+                    handler(window, cx);
                 });
             }
-        } else if let Some(handler_ptr) = on_next {
-            next_btn = next_btn.on_click(move |window, cx| unsafe {
-                (*handler_ptr)(current_step, window, cx);
+        } else if let Some(handler) = self.on_next.clone() {
+            next_btn = next_btn.on_click(move |window, cx| {
+                handler(current_step, window, cx);
             });
         }
 

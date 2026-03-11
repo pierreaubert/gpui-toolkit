@@ -57,7 +57,7 @@ pub struct PotentiometerTheme {
     #[theme(default = 0x888888ff, from = text_muted)]
     pub text_muted: Rgba,
     /// Text on accent background
-    #[theme(default = 0xffffffff, from = text_primary)]
+    #[theme(default = 0xffffffff, from = text_on_accent)]
     pub text_on_accent: Rgba,
     /// Background secondary (for value badge)
     #[theme(default = 0x2a2a2aff, from = surface)]
@@ -67,6 +67,8 @@ pub struct PotentiometerTheme {
 /// Potentiometer size variants
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PotentiometerSize {
+    /// Extra compact size
+    Xs,
     /// Compact size
     Sm,
     /// Default size
@@ -79,7 +81,8 @@ pub enum PotentiometerSize {
 impl From<crate::ComponentSize> for PotentiometerSize {
     fn from(size: crate::ComponentSize) -> Self {
         match size {
-            crate::ComponentSize::Xs | crate::ComponentSize::Sm => Self::Sm,
+            crate::ComponentSize::Xs => Self::Xs,
+            crate::ComponentSize::Sm => Self::Sm,
             crate::ComponentSize::Md => Self::Md,
             crate::ComponentSize::Lg | crate::ComponentSize::Xl => Self::Lg,
         }
@@ -93,6 +96,7 @@ pub type PotentiometerScale = Scale;
 impl PotentiometerSize {
     fn knob_size(&self) -> f32 {
         match self {
+            Self::Xs => 30.0,
             Self::Sm => 40.0,
             Self::Md => 60.0,
             Self::Lg => 80.0,
@@ -101,6 +105,7 @@ impl PotentiometerSize {
 
     fn indicator_radius(&self) -> f32 {
         match self {
+            Self::Xs => 10.0,
             Self::Sm => 14.0,
             Self::Md => 20.0,
             Self::Lg => 26.0,
@@ -109,6 +114,7 @@ impl PotentiometerSize {
 
     fn min_width(&self) -> f32 {
         match self {
+            Self::Xs => 65.0,
             Self::Sm => 80.0,
             Self::Md => 100.0,
             Self::Lg => 120.0,
@@ -372,6 +378,13 @@ impl RenderOnce for Potentiometer {
         let center = knob_size / 2.0;
         // Make indicator larger for Lg size to be more visible
         let indicator_size = match self.size {
+            PotentiometerSize::Xs => {
+                if selected {
+                    5.0
+                } else {
+                    3.0
+                }
+            }
             PotentiometerSize::Sm => {
                 if selected {
                     6.0
@@ -492,6 +505,7 @@ impl RenderOnce for Potentiometer {
             let focus_handle_click = self.focus_handle.clone();
 
             container = container.on_mouse_down(MouseButton::Left, move |event, window, cx| {
+                cx.stop_propagation();
                 // Always focus for keyboard navigation
                 if let Some(ref fh) = focus_handle_click {
                     fh.focus(window, cx);
@@ -530,6 +544,7 @@ impl RenderOnce for Potentiometer {
                 let current_value_key = current_value.clone();
                 let config_key = interaction_config.clone();
                 container = container.on_key_down(move |event, window, cx| {
+                    cx.stop_propagation();
                     let key = event.keystroke.key.as_str();
                     if key == "escape" {
                         if let Some(ref reset_handler) = reset_key {
@@ -809,6 +824,7 @@ impl RenderOnce for Potentiometer {
 
         // Increase font size for large potentiometer
         value_display = match self.size {
+            PotentiometerSize::Xs => value_display.text_xs(),
             PotentiometerSize::Sm => value_display.text_xs(),
             PotentiometerSize::Md => value_display.text_xs(),
             PotentiometerSize::Lg => value_display.text_sm(),

@@ -87,6 +87,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[allow(clippy::approx_constant)]
     fn test_format_basic() {
         assert_eq!(format("d")(42.0), "42");
         assert_eq!(format("f")(3.14), "3.140000");

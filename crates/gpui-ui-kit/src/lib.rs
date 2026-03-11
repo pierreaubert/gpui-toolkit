@@ -34,7 +34,6 @@ pub mod scale;
 pub mod size;
 
 // Form components
-pub mod autoeq;
 pub mod checkbox;
 pub mod color;
 pub mod color_picker;
@@ -52,6 +51,7 @@ pub mod avatar;
 pub mod badge;
 pub mod progress;
 pub mod spinner;
+pub mod table;
 pub mod text;
 
 // Feedback
@@ -105,11 +105,6 @@ pub use audio::vertical_slider::{
     VerticalSlider, VerticalSliderScale, VerticalSliderSize, VerticalSliderTheme,
 };
 pub use audio::volume_knob::{VolumeKnob, VolumeKnobTheme};
-pub use autoeq::{
-    ALGORITHM_OPTIONS, AutoEqConfig, AutoEqForm, AutoEqFormTheme, AutoEqFormUiState,
-    DE_STRATEGY_OPTIONS, HEADPHONE_TARGET_CURVE_OPTIONS, LOCAL_ALGO_OPTIONS, OptimizationType,
-    PEQ_MODEL_OPTIONS, ParamLimits, SPEAKER_TARGET_CURVE_OPTIONS, SPINORAMA_CURVE_OPTIONS,
-};
 pub use checkbox::{Checkbox, CheckboxSize};
 pub use color::Color;
 pub use color_picker::{ColorPickerMode, ColorPickerView};
@@ -129,6 +124,9 @@ pub use avatar::{Avatar, AvatarGroup, AvatarShape, AvatarSize, AvatarStatus};
 pub use badge::{Badge, BadgeDot, BadgeSize, BadgeVariant};
 pub use progress::{CircularProgress, Progress, ProgressSize, ProgressVariant};
 pub use spinner::{LoadingDots, Spinner, SpinnerSize};
+pub use table::{
+    Column, PaginationState, SelectionMode, SortDirection, SortState, Table, TableTheme,
+};
 pub use text::{Code, Heading, Link, Text, TextSize, TextWeight};
 
 // Feedback

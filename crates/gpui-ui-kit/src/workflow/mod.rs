@@ -19,6 +19,7 @@ mod state;
 mod theme;
 
 #[cfg(test)]
+#[allow(clippy::field_reassign_with_default)]
 mod tests;
 
 // Re-export main types

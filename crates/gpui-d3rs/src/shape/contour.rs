@@ -495,7 +495,7 @@ pub fn heat_color_scale() -> impl Fn(f64) -> D3Color + Send + Sync {
 ///
 /// Turbo is designed to be perceptually uniform while covering a wide
 /// range of hues. It's an improvement over jet/rainbow colormaps.
-/// Reference: https://ai.googleblog.com/2019/08/turbo-improved-rainbow-colormap-for.html
+/// Reference: <https://ai.googleblog.com/2019/08/turbo-improved-rainbow-colormap-for.html>
 pub fn turbo_color_scale() -> impl Fn(f64) -> D3Color + Send + Sync {
     move |t: f64| {
         let t = t.clamp(0.0, 1.0);

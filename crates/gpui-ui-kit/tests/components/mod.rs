@@ -26,6 +26,7 @@ mod badge_test;
 mod card_test;
 mod dialog_test;
 mod icon_button_test;
+mod table_test;
 
 // Navigation Components
 mod breadcrumbs_test;
@@ -35,6 +36,18 @@ mod tabs_test;
 
 // Layout Components
 mod pane_divider_test;
+mod stack_test;
+
+// Audio Components
+mod potentiometer_test;
+mod vertical_slider_test;
+mod volume_knob_test;
+
+// Color Components
+mod color_picker_test;
+
+// Wizard
+mod wizard_test;
 
 // Feedback Components
 mod progress_test;

@@ -161,6 +161,7 @@ fn interpolate_colors(colors: &[D3Color], t: f64) -> D3Color {
 
 /// Configuration for surface rendering
 #[derive(Clone)]
+#[allow(clippy::type_complexity)]
 pub struct SurfaceConfig {
     /// Projection type
     pub projection_type: ProjectionType,

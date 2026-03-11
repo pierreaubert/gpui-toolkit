@@ -1,7 +1,7 @@
 //! Stacked to Grouped Bars - D3.js Example Port
 //!
 //! This example demonstrates animated transitions between stacked and grouped bar charts,
-//! ported from: https://observablehq.com/@d3/stacked-to-grouped-bars
+//! ported from: <https://observablehq.com/@d3/stacked-to-grouped-bars>
 //!
 //! Features:
 //! - Smooth animated transitions between layouts
@@ -41,7 +41,7 @@ impl BarLayout {
 }
 
 /// Sample data for the bar chart
-/// Returns (n_series, m_samples, data) where data[series][sample] = value
+/// Returns (n_series, m_samples, data) where `data[series][sample]` = value
 pub fn generate_sample_data(n_series: usize, m_samples: usize) -> Vec<Vec<f64>> {
     let mut data = Vec::with_capacity(n_series);
 

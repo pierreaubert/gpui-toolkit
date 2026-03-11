@@ -8,6 +8,7 @@ mod button_set_test;
 mod button_test;
 mod checkbox_test;
 mod color_picker_test;
+#[allow(clippy::arc_with_non_send_sync)]
 mod input_test;
 mod number_input_test;
 mod select_test;
@@ -30,6 +31,7 @@ mod tabs_test;
 mod wizard_test;
 
 // Component integration tests - Layout Components
+mod pane_divider_drag_test;
 mod pane_divider_test;
 mod stack_test;
 

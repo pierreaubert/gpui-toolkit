@@ -39,7 +39,7 @@ pub struct IconButtonTheme {
     #[theme(default = 0xccccccff, from = text_secondary)]
     pub text: Rgba,
     /// Text color when selected or on accent background
-    #[theme(default = 0xffffffff, from = text_primary)]
+    #[theme(default = 0xffffffff, from = text_on_accent)]
     pub text_on_accent: Rgba,
     /// Border color for outline variant
     #[theme(default = 0x555555ff, from = border)]
@@ -266,12 +266,17 @@ impl IconButton {
     }
 
     /// Build into element with theme
-    pub fn build_with_theme(self, icon_theme: &IconButtonTheme) -> Stateful<Div> {
+    pub fn build_with_theme(
+        self,
+        global_theme: &crate::theme::Theme,
+        icon_theme: &IconButtonTheme,
+    ) -> Stateful<Div> {
         let size = self.size.size();
         let (bg, bg_hover, text_color, border) = self.compute_colors(icon_theme);
 
         let mut el = div()
             .id(self.id)
+            .font_family(global_theme.font_family.clone())
             .flex()
             .items_center()
             .justify_center()
@@ -321,7 +326,7 @@ impl RenderOnce for IconButton {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let global_theme = cx.theme();
         let icon_theme = IconButtonTheme::from(&global_theme);
-        self.build_with_theme(&icon_theme)
+        self.build_with_theme(&global_theme, &icon_theme)
     }
 }
 

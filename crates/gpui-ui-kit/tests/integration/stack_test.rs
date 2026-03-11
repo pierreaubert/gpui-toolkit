@@ -287,7 +287,7 @@ async fn test_vstack_children_method(cx: &mut TestAppContext) {
 
     impl Render for ChildrenView {
         fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
-            let items = vec!["A", "B", "C", "D"];
+            let items = ["A", "B", "C", "D"];
             VStack::new().children(items.iter().map(|item| div().child(*item)))
         }
     }

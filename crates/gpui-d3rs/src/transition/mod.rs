@@ -30,7 +30,7 @@ use crate::ease::ease_linear;
 use crate::timer::now;
 use std::sync::Arc;
 
-/// Easing function type: takes t in [0,1], returns eased value
+/// Easing function type: takes t in \[0,1\], returns eased value
 pub type EaseFn = fn(f64) -> f64;
 
 /// Lifecycle callback types

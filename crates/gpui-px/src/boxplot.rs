@@ -405,6 +405,7 @@ impl BoxPlotChart {
         let outlier_color = D3Color::from_hex(self.outlier_color).to_rgba();
 
         // Render all boxes
+        #[allow(clippy::vec_init_then_push)]
         let box_elements: Vec<AnyElement> = boxes
             .iter()
             .flat_map(|stats| {

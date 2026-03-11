@@ -38,8 +38,8 @@ pub struct ButtonSetTheme {
     /// Text color for unselected buttons
     #[theme(default = 0xccccccff, from = text_secondary)]
     pub text_color: Rgba,
-    /// Text color for selected button
-    #[theme(default = 0xffffffff, from = text_primary)]
+    /// Text color for selected button (on accent background)
+    #[theme(default = 0xffffffff, from = text_on_accent)]
     pub text_color_selected: Rgba,
     /// Border color
     #[theme(default = 0x555555ff, from = border)]

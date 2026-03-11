@@ -83,6 +83,7 @@ impl Delaunay {
     /// let points = vec![(0.0, 0.0), (1.0, 0.0), (0.5, 1.0)];
     /// let delaunay = Delaunay::from_iter(points.into_iter());
     /// ```
+    #[allow(clippy::should_implement_trait)]
     pub fn from_iter<I: IntoIterator<Item = (f64, f64)>>(iter: I) -> Self {
         let points: Vec<(f64, f64)> = iter.into_iter().collect();
         Self::new(&points)
