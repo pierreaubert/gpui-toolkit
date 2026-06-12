@@ -108,7 +108,7 @@ impl Showcase {
         let y = 100.0 + (id as f32 * 20.0) % 300.0;
         
         let node = WorkflowNodeData::new(
-            &format!("Node {}", id), 
+            format!("Node {}", id), 
             Position::new(x, y)
         )
         .with_ports(1, 1)

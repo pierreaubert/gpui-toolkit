@@ -1,14 +1,24 @@
+//! Horizon Chart — Observable example (Realtime)
+//!
+//! Renders multi-band horizon chart from realtime data using
+//! d3rs LinearScale, PathBuilder, SequentialScheme, and d3rs_path_to_gpui_simple.
+//!
+//! Source: <https://observablehq.com/@d3/horizon-chart>
+
 use crate::ShowcaseApp;
+use d3rs::color::SequentialScheme;
 use d3rs::scale::{LinearScale, Scale};
+use d3rs::shape::path::PathBuilder as D3PathBuilder;
 use gpui::prelude::*;
 use gpui::*;
+use gpui_ui_kit::theme::ThemeExt;
 
-pub fn render(app: &ShowcaseApp, _cx: &mut Context<ShowcaseApp>) -> Div {
-    let width = 800.0;
-    let height = 100.0; // Height per band
+pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
+    let ui_theme = cx.theme();
+    let width = app.content_width as f64;
+    let height = 100.0;
     let bands = 4;
 
-    // Use realtime data from app state
     let data = &app.horizon_data;
 
     let min_val = -30.0;
@@ -21,41 +31,38 @@ pub fn render(app: &ShowcaseApp, _cx: &mut Context<ShowcaseApp>) -> Div {
     let range = max_val - min_val;
     let step = range / bands as f64;
 
-    let y_scale = LinearScale::new()
-        .domain(0.0, step) // Map one band height
-        .range(height, 0.0); // Upwards
+    let y_scale = LinearScale::new().domain(0.0, step).range(height, 0.0);
 
-    let colors = [rgb(0xeff3ff), rgb(0xbdd7e7), rgb(0x6baed6), rgb(0x2171b5)];
+    // Use d3rs sequential color scheme (blues)
+    let scheme = SequentialScheme::blues();
 
-    // Generate path strings
-    let mut band_paths = Vec::new();
+    // Generate paths using d3rs PathBuilder
+    let mut d3_paths: Vec<d3rs::shape::path::Path> = Vec::new();
+    let mut all_colors: Vec<Hsla> = Vec::new();
+
+    let y0 = y_scale.scale(0.0);
+
     for b in 0..bands {
-        let band_idx = b;
-        let mut path_d = String::new();
-        let y0 = y_scale.scale(0.0);
-        path_d.push_str(&format!("M {} {}", x_scale.scale(0.0), y0));
+        let mut builder = D3PathBuilder::new().move_to(x_scale.scale(0.0), y0);
 
         for (i, &v) in data.iter().enumerate() {
             let val_abs = v.abs();
-            let remainder = val_abs - (band_idx as f64 * step);
+            let remainder = val_abs - (b as f64 * step);
             let y = if remainder < 0.0 {
                 0.0
             } else {
                 remainder.min(step)
             };
-            path_d.push_str(&format!(
-                " L {} {}",
-                x_scale.scale(i as f64),
-                y_scale.scale(y)
-            ));
+            builder = builder.line_to(x_scale.scale(i as f64), y_scale.scale(y));
         }
-        path_d.push_str(&format!(
-            " L {} {}",
-            x_scale.scale((data.len() - 1) as f64),
-            y0
-        ));
-        path_d.push_str(" Z");
-        band_paths.push(path_d);
+
+        builder = builder.line_to(x_scale.scale((data.len() - 1) as f64), y0);
+        builder = builder.close_path();
+        d3_paths.push(builder.build());
+
+        // Color: darker for higher bands (t from 0.3 to 0.9)
+        let t = 0.3 + (b as f64 + 1.0) / bands as f64 * 0.6;
+        all_colors.push(scheme.get(t).to_rgba().into());
     }
 
     div()
@@ -74,24 +81,28 @@ pub fn render(app: &ShowcaseApp, _cx: &mut Context<ShowcaseApp>) -> Div {
             div()
                 .w(px(width as f32))
                 .h(px(height as f32))
-                .bg(rgb(0xffffff))
+                .bg(ui_theme.surface)
                 .relative()
                 .overflow_hidden()
-                .child(canvas(
-                    move |bounds, _, _| {
-                        let parsed: Vec<_> = band_paths
-                            .iter()
-                            .map(|d| super::path_utils::parse_svg_path(d, bounds))
-                            .collect();
-                        parsed
-                    },
-                    move |_bounds, paths, window, _| {
-                        for (i, path_opt) in paths.into_iter().enumerate() {
-                            if let Some(path) = path_opt {
-                                window.paint_path(path, colors[i % colors.len()]);
+                .child(
+                    canvas(
+                        move |bounds, _, _| {
+                            d3_paths
+                                .iter()
+                                .map(|p| {
+                                    super::path_utils::d3rs_path_to_gpui_simple(p, bounds, 0.0, 0.0)
+                                })
+                                .collect::<Vec<_>>()
+                        },
+                        move |_bounds, paths, window, _| {
+                            for (i, path_opt) in paths.into_iter().enumerate() {
+                                if let Some(path) = path_opt {
+                                    window.paint_path(path, all_colors[i]);
+                                }
                             }
-                        }
-                    },
-                )),
+                        },
+                    )
+                    .size_full(),
+                ),
         )
 }

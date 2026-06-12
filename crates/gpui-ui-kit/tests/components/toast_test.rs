@@ -104,11 +104,20 @@ fn test_toast_uses_theme_colors_not_hardcoded() {
     theme.alert_error_bg = rgb(0x654321);
 
     let (bg, _, _) = ToastVariant::Success.colors(&theme);
-    assert_eq!(bg, theme.alert_success_bg, "Success bg should use theme.alert_success_bg");
+    assert_eq!(
+        bg, theme.alert_success_bg,
+        "Success bg should use theme.alert_success_bg"
+    );
 
     let (bg, _, _) = ToastVariant::Warning.colors(&theme);
-    assert_eq!(bg, theme.alert_warning_bg, "Warning bg should use theme.alert_warning_bg");
+    assert_eq!(
+        bg, theme.alert_warning_bg,
+        "Warning bg should use theme.alert_warning_bg"
+    );
 
     let (bg, _, _) = ToastVariant::Error.colors(&theme);
-    assert_eq!(bg, theme.alert_error_bg, "Error bg should use theme.alert_error_bg");
+    assert_eq!(
+        bg, theme.alert_error_bg,
+        "Error bg should use theme.alert_error_bg"
+    );
 }

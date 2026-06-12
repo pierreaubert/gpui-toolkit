@@ -1,0 +1,53 @@
+[package]
+name = "gpui-python-runtime"
+version = "0.7.1"
+authors.workspace = true
+edition.workspace = true
+keywords.workspace = true
+categories.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Retained scene specifications for the GPUI Python wrapper"
+readme = "README.md"
+
+[features]
+default = []
+autoeq = ["gpui-px?/autoeq"]
+camera = []
+gpui = [
+    "dep:gpui",
+    "dep:gpui-d3rs",
+    "dep:glam",
+    "gpui-d3rs/gpu-3d",
+]
+gpu-2d = ["gpui-d3rs?/gpu-2d", "gpui-px?/gpu-2d"]
+gpu-3d = ["gpui-d3rs?/gpu-3d", "gpui-px?/gpu-3d"]
+reqwest = ["gpui-px?/reqwest"]
+showcase = [
+    "gpui",
+    "dep:gpui-design",
+    "dep:gpui-miniapp",
+    "dep:gpui-px",
+    "dep:gpui-ui-kit",
+    "gpui-px/gpui",
+]
+spinorama = ["gpui-px?/spinorama"]
+tokio = ["gpui-px?/tokio"]
+urlencoding = ["gpui-px?/urlencoding"]
+
+[dependencies]
+gpui = { workspace = true, optional = true }
+gpui-d3rs = { workspace = true, optional = true }
+gpui-design = { workspace = true, optional = true }
+gpui-miniapp = { workspace = true, optional = true }
+gpui-px = { workspace = true, default-features = false, optional = true }
+gpui-ui-kit = { workspace = true, optional = true }
+glam = { workspace = true, optional = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+[[bin]]
+name = "gpui-python-showcase"
+path = "bin/showcase.rs"
+required-features = ["showcase"]

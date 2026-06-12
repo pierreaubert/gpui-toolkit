@@ -1,0 +1,70 @@
+{
+  "module": "d3-scale-chromatic",
+  "function": "sequential",
+  "tolerance": 0.001,
+  "test_cases": [
+    {
+      "name": "blues",
+      "scheme": "Blues",
+      "t_values": [0.0, 0.25, 0.5, 0.75, 1.0],
+      "sample_count": 5,
+      "check_monotonic": false
+    },
+    {
+      "name": "greens",
+      "scheme": "Greens",
+      "t_values": [0.0, 0.5, 1.0],
+      "sample_count": 3,
+      "check_monotonic": false
+    },
+    {
+      "name": "reds",
+      "scheme": "Reds",
+      "t_values": [0.0, 0.5, 1.0],
+      "sample_count": 3,
+      "check_monotonic": false
+    },
+    {
+      "name": "viridis",
+      "scheme": "Viridis",
+      "t_values": [0.0, 0.25, 0.5, 0.75, 1.0],
+      "sample_count": 5,
+      "check_monotonic": false
+    },
+    {
+      "name": "magma",
+      "scheme": "Magma",
+      "t_values": [0.0, 0.5, 1.0],
+      "sample_count": 3,
+      "check_monotonic": false
+    },
+    {
+      "name": "inferno",
+      "scheme": "Inferno",
+      "t_values": [0.0, 0.5, 1.0],
+      "sample_count": 3,
+      "check_monotonic": false
+    },
+    {
+      "name": "plasma",
+      "scheme": "Plasma",
+      "t_values": [0.0, 0.5, 1.0],
+      "sample_count": 3,
+      "check_monotonic": false
+    },
+    {
+      "name": "turbo",
+      "scheme": "Turbo",
+      "t_values": [0.0, 0.5, 1.0],
+      "sample_count": 3,
+      "check_monotonic": false
+    },
+    {
+      "name": "cubehelix",
+      "scheme": "Cubehelix",
+      "t_values": [0.0, 0.5, 1.0],
+      "sample_count": 3,
+      "check_monotonic": false
+    }
+  ]
+}

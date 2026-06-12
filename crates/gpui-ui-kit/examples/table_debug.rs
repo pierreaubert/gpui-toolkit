@@ -1,7 +1,8 @@
 use gpui::prelude::*;
 use gpui::*;
+use gpui_miniapp::{MiniApp, MiniAppConfig};
 use gpui_ui_kit::table::{Column, PaginationState, SelectionMode, SortDirection, SortState, Table};
-use gpui_ui_kit::{HStack, MiniApp, MiniAppConfig, StackSpacing, Text, ThemeExt, VStack};
+use gpui_ui_kit::{HStack, StackSpacing, Text, ThemeExt, VStack};
 use std::collections::HashSet;
 
 #[derive(Clone, Debug)]
@@ -169,6 +170,6 @@ impl Render for TableDebug {
 
 fn main() {
     MiniApp::run(MiniAppConfig::new("Table Debug"), |cx| {
-        cx.new(|cx| TableDebug::new(cx))
+        cx.new(TableDebug::new)
     });
 }

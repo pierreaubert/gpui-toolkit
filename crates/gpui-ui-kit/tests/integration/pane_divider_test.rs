@@ -8,7 +8,8 @@
 //! - Different collapse directions
 
 use gpui::{
-    Context, Modifiers, MouseButton, TestAppContext, VisualTestContext, Window, div, prelude::*,
+    Context, IntoElement, Modifiers, MouseButton, ParentElement, Render, Styled, TestAppContext,
+    VisualTestContext, Window, div,
 };
 use gpui_ui_kit::pane_divider::{CollapseDirection, PaneDivider};
 use std::cell::RefCell;
@@ -333,6 +334,8 @@ async fn test_pane_divider_with_custom_theme(cx: &mut TestAppContext) {
                 foreground: gpui::rgb(0xffffff),
                 foreground_hover: gpui::rgb(0xffff00),
                 border: gpui::rgb(0x0055aa),
+                tint: gpui::rgba(0x88c8ffff),
+                tint_hover: gpui::rgba(0xffffffff),
             };
 
             div().flex().h(gpui::px(100.0)).child(

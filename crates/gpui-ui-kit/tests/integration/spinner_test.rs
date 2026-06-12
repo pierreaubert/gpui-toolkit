@@ -6,7 +6,7 @@
 //! - With label
 //! - LoadingDots variants
 
-use gpui::{Context, TestAppContext, Window, div, prelude::*, rgb};
+use gpui::{Context, IntoElement, ParentElement, Render, Styled, TestAppContext, Window, div, rgb};
 use gpui_ui_kit::spinner::{LoadingDots, Spinner, SpinnerSize};
 
 // ============================================================================

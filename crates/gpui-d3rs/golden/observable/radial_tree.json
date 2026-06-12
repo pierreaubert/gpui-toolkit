@@ -1,0 +1,762 @@
+{
+  "source": "https://observablehq.com/@d3/radial-tree/2",
+  "module": "d3-hierarchy",
+  "function": "radial_tree",
+  "tolerance": 0.000001,
+  "generated_at": "2026-03-15T20:35:37.307Z",
+  "test_cases": [
+    {
+      "name": "radial_tree",
+      "description": "Radial tree layout of Flare hierarchy",
+      "layout": {
+        "width": 928,
+        "height": 928,
+        "radius": 404
+      },
+      "node_count": 41,
+      "leaf_count": 30,
+      "tree_nodes": [
+        {
+          "name": "flare",
+          "depth": 0,
+          "x": 3.259402,
+          "y": 0,
+          "is_leaf": false,
+          "px": 464,
+          "py": 464
+        },
+        {
+          "name": "util",
+          "depth": 1,
+          "x": 0.392699,
+          "y": 202,
+          "is_leaf": false,
+          "px": 541.3,
+          "py": 277.38
+        },
+        {
+          "name": "vis",
+          "depth": 1,
+          "x": 1.178097,
+          "y": 202,
+          "is_leaf": false,
+          "px": 650.62,
+          "py": 386.7
+        },
+        {
+          "name": "analytics",
+          "depth": 1,
+          "x": 1.884956,
+          "y": 202,
+          "is_leaf": false,
+          "px": 656.11,
+          "py": 526.42
+        },
+        {
+          "name": "animate",
+          "depth": 1,
+          "x": 2.513274,
+          "y": 202,
+          "is_leaf": false,
+          "px": 582.73,
+          "py": 627.42
+        },
+        {
+          "name": "data",
+          "depth": 1,
+          "x": 3.141593,
+          "y": 202,
+          "is_leaf": false,
+          "px": 464,
+          "py": 666
+        },
+        {
+          "name": "display",
+          "depth": 1,
+          "x": 3.769911,
+          "y": 202,
+          "is_leaf": false,
+          "px": 345.27,
+          "py": 627.42
+        },
+        {
+          "name": "physics",
+          "depth": 1,
+          "x": 4.39823,
+          "y": 202,
+          "is_leaf": false,
+          "px": 271.89,
+          "py": 526.42
+        },
+        {
+          "name": "query",
+          "depth": 1,
+          "x": 5.026548,
+          "y": 202,
+          "is_leaf": false,
+          "px": 271.89,
+          "py": 401.58
+        },
+        {
+          "name": "scale",
+          "depth": 1,
+          "x": 5.654867,
+          "y": 202,
+          "is_leaf": false,
+          "px": 345.27,
+          "py": 300.58
+        },
+        {
+          "name": "flex",
+          "depth": 1,
+          "x": 6.126106,
+          "y": 202,
+          "is_leaf": false,
+          "px": 432.4,
+          "py": 264.49
+        },
+        {
+          "name": "Arrays",
+          "depth": 2,
+          "x": 0.15708,
+          "y": 404,
+          "is_leaf": true,
+          "px": 527.2,
+          "py": 64.97
+        },
+        {
+          "name": "Dates",
+          "depth": 2,
+          "x": 0.314159,
+          "y": 404,
+          "is_leaf": true,
+          "px": 588.84,
+          "py": 79.77
+        },
+        {
+          "name": "Maths",
+          "depth": 2,
+          "x": 0.471239,
+          "y": 404,
+          "is_leaf": true,
+          "px": 647.41,
+          "py": 104.03
+        },
+        {
+          "name": "Sort",
+          "depth": 2,
+          "x": 0.628319,
+          "y": 404,
+          "is_leaf": true,
+          "px": 701.47,
+          "py": 137.16
+        },
+        {
+          "name": "axis",
+          "depth": 2,
+          "x": 0.942478,
+          "y": 404,
+          "is_leaf": true,
+          "px": 790.84,
+          "py": 226.53
+        },
+        {
+          "name": "controls",
+          "depth": 2,
+          "x": 1.099557,
+          "y": 404,
+          "is_leaf": true,
+          "px": 823.97,
+          "py": 280.59
+        },
+        {
+          "name": "data",
+          "depth": 2,
+          "x": 1.256637,
+          "y": 404,
+          "is_leaf": true,
+          "px": 848.23,
+          "py": 339.16
+        },
+        {
+          "name": "legend",
+          "depth": 2,
+          "x": 1.413717,
+          "y": 404,
+          "is_leaf": true,
+          "px": 863.03,
+          "py": 400.8
+        },
+        {
+          "name": "cluster",
+          "depth": 2,
+          "x": 1.727876,
+          "y": 404,
+          "is_leaf": true,
+          "px": 863.03,
+          "py": 527.2
+        },
+        {
+          "name": "graph",
+          "depth": 2,
+          "x": 1.884956,
+          "y": 404,
+          "is_leaf": true,
+          "px": 848.23,
+          "py": 588.84
+        },
+        {
+          "name": "optimization",
+          "depth": 2,
+          "x": 2.042035,
+          "y": 404,
+          "is_leaf": true,
+          "px": 823.97,
+          "py": 647.41
+        },
+        {
+          "name": "Easing",
+          "depth": 2,
+          "x": 2.356194,
+          "y": 404,
+          "is_leaf": true,
+          "px": 749.67,
+          "py": 749.67
+        },
+        {
+          "name": "FunctionSequence",
+          "depth": 2,
+          "x": 2.513274,
+          "y": 404,
+          "is_leaf": true,
+          "px": 701.47,
+          "py": 790.84
+        },
+        {
+          "name": "Tween",
+          "depth": 2,
+          "x": 2.670354,
+          "y": 404,
+          "is_leaf": true,
+          "px": 647.41,
+          "py": 823.97
+        },
+        {
+          "name": "converters",
+          "depth": 2,
+          "x": 2.984513,
+          "y": 404,
+          "is_leaf": true,
+          "px": 527.2,
+          "py": 863.03
+        },
+        {
+          "name": "DataField",
+          "depth": 2,
+          "x": 3.141593,
+          "y": 404,
+          "is_leaf": true,
+          "px": 464,
+          "py": 868
+        },
+        {
+          "name": "DataSchema",
+          "depth": 2,
+          "x": 3.298672,
+          "y": 404,
+          "is_leaf": true,
+          "px": 400.8,
+          "py": 863.03
+        },
+        {
+          "name": "DirtySprite",
+          "depth": 2,
+          "x": 3.612832,
+          "y": 404,
+          "is_leaf": true,
+          "px": 280.59,
+          "py": 823.97
+        },
+        {
+          "name": "LineSprite",
+          "depth": 2,
+          "x": 3.769911,
+          "y": 404,
+          "is_leaf": true,
+          "px": 226.53,
+          "py": 790.84
+        },
+        {
+          "name": "TextSprite",
+          "depth": 2,
+          "x": 3.926991,
+          "y": 404,
+          "is_leaf": true,
+          "px": 178.33,
+          "py": 749.67
+        },
+        {
+          "name": "DragForce",
+          "depth": 2,
+          "x": 4.24115,
+          "y": 404,
+          "is_leaf": true,
+          "px": 104.03,
+          "py": 647.41
+        },
+        {
+          "name": "GravityForce",
+          "depth": 2,
+          "x": 4.39823,
+          "y": 404,
+          "is_leaf": true,
+          "px": 79.77,
+          "py": 588.84
+        },
+        {
+          "name": "Spring",
+          "depth": 2,
+          "x": 4.555309,
+          "y": 404,
+          "is_leaf": true,
+          "px": 64.97,
+          "py": 527.2
+        },
+        {
+          "name": "AggregateExpr",
+          "depth": 2,
+          "x": 4.869469,
+          "y": 404,
+          "is_leaf": true,
+          "px": 64.97,
+          "py": 400.8
+        },
+        {
+          "name": "Expression",
+          "depth": 2,
+          "x": 5.026548,
+          "y": 404,
+          "is_leaf": true,
+          "px": 79.77,
+          "py": 339.16
+        },
+        {
+          "name": "Query",
+          "depth": 2,
+          "x": 5.183628,
+          "y": 404,
+          "is_leaf": true,
+          "px": 104.03,
+          "py": 280.59
+        },
+        {
+          "name": "LinearScale",
+          "depth": 2,
+          "x": 5.497787,
+          "y": 404,
+          "is_leaf": true,
+          "px": 178.33,
+          "py": 178.33
+        },
+        {
+          "name": "LogScale",
+          "depth": 2,
+          "x": 5.654867,
+          "y": 404,
+          "is_leaf": true,
+          "px": 226.53,
+          "py": 137.16
+        },
+        {
+          "name": "OrdinalScale",
+          "depth": 2,
+          "x": 5.811946,
+          "y": 404,
+          "is_leaf": true,
+          "px": 280.59,
+          "py": 104.03
+        },
+        {
+          "name": "FlareVis",
+          "depth": 2,
+          "x": 6.126106,
+          "y": 404,
+          "is_leaf": true,
+          "px": 400.8,
+          "py": 64.97
+        }
+      ],
+      "cluster_nodes": [
+        {
+          "name": "flare",
+          "depth": 0,
+          "x": 3.408628,
+          "y": 0,
+          "is_leaf": false,
+          "px": 464,
+          "py": 464
+        },
+        {
+          "name": "util",
+          "depth": 1,
+          "x": 0.392699,
+          "y": 202,
+          "is_leaf": false,
+          "px": 541.3,
+          "py": 277.38
+        },
+        {
+          "name": "vis",
+          "depth": 1,
+          "x": 1.178097,
+          "y": 202,
+          "is_leaf": false,
+          "px": 650.62,
+          "py": 386.7
+        },
+        {
+          "name": "analytics",
+          "depth": 1,
+          "x": 1.884956,
+          "y": 202,
+          "is_leaf": false,
+          "px": 656.11,
+          "py": 526.42
+        },
+        {
+          "name": "animate",
+          "depth": 1,
+          "x": 2.513274,
+          "y": 202,
+          "is_leaf": false,
+          "px": 582.73,
+          "py": 627.42
+        },
+        {
+          "name": "data",
+          "depth": 1,
+          "x": 3.141593,
+          "y": 202,
+          "is_leaf": false,
+          "px": 464,
+          "py": 666
+        },
+        {
+          "name": "display",
+          "depth": 1,
+          "x": 3.769911,
+          "y": 202,
+          "is_leaf": false,
+          "px": 345.27,
+          "py": 627.42
+        },
+        {
+          "name": "physics",
+          "depth": 1,
+          "x": 4.39823,
+          "y": 202,
+          "is_leaf": false,
+          "px": 271.89,
+          "py": 526.42
+        },
+        {
+          "name": "query",
+          "depth": 1,
+          "x": 5.026548,
+          "y": 202,
+          "is_leaf": false,
+          "px": 271.89,
+          "py": 401.58
+        },
+        {
+          "name": "scale",
+          "depth": 1,
+          "x": 5.654867,
+          "y": 202,
+          "is_leaf": false,
+          "px": 345.27,
+          "py": 300.58
+        },
+        {
+          "name": "flex",
+          "depth": 1,
+          "x": 6.126106,
+          "y": 202,
+          "is_leaf": false,
+          "px": 432.4,
+          "py": 264.49
+        },
+        {
+          "name": "Arrays",
+          "depth": 2,
+          "x": 0.15708,
+          "y": 404,
+          "is_leaf": true,
+          "px": 527.2,
+          "py": 64.97
+        },
+        {
+          "name": "Dates",
+          "depth": 2,
+          "x": 0.314159,
+          "y": 404,
+          "is_leaf": true,
+          "px": 588.84,
+          "py": 79.77
+        },
+        {
+          "name": "Maths",
+          "depth": 2,
+          "x": 0.471239,
+          "y": 404,
+          "is_leaf": true,
+          "px": 647.41,
+          "py": 104.03
+        },
+        {
+          "name": "Sort",
+          "depth": 2,
+          "x": 0.628319,
+          "y": 404,
+          "is_leaf": true,
+          "px": 701.47,
+          "py": 137.16
+        },
+        {
+          "name": "axis",
+          "depth": 2,
+          "x": 0.942478,
+          "y": 404,
+          "is_leaf": true,
+          "px": 790.84,
+          "py": 226.53
+        },
+        {
+          "name": "controls",
+          "depth": 2,
+          "x": 1.099557,
+          "y": 404,
+          "is_leaf": true,
+          "px": 823.97,
+          "py": 280.59
+        },
+        {
+          "name": "data",
+          "depth": 2,
+          "x": 1.256637,
+          "y": 404,
+          "is_leaf": true,
+          "px": 848.23,
+          "py": 339.16
+        },
+        {
+          "name": "legend",
+          "depth": 2,
+          "x": 1.413717,
+          "y": 404,
+          "is_leaf": true,
+          "px": 863.03,
+          "py": 400.8
+        },
+        {
+          "name": "cluster",
+          "depth": 2,
+          "x": 1.727876,
+          "y": 404,
+          "is_leaf": true,
+          "px": 863.03,
+          "py": 527.2
+        },
+        {
+          "name": "graph",
+          "depth": 2,
+          "x": 1.884956,
+          "y": 404,
+          "is_leaf": true,
+          "px": 848.23,
+          "py": 588.84
+        },
+        {
+          "name": "optimization",
+          "depth": 2,
+          "x": 2.042035,
+          "y": 404,
+          "is_leaf": true,
+          "px": 823.97,
+          "py": 647.41
+        },
+        {
+          "name": "Easing",
+          "depth": 2,
+          "x": 2.356194,
+          "y": 404,
+          "is_leaf": true,
+          "px": 749.67,
+          "py": 749.67
+        },
+        {
+          "name": "FunctionSequence",
+          "depth": 2,
+          "x": 2.513274,
+          "y": 404,
+          "is_leaf": true,
+          "px": 701.47,
+          "py": 790.84
+        },
+        {
+          "name": "Tween",
+          "depth": 2,
+          "x": 2.670354,
+          "y": 404,
+          "is_leaf": true,
+          "px": 647.41,
+          "py": 823.97
+        },
+        {
+          "name": "converters",
+          "depth": 2,
+          "x": 2.984513,
+          "y": 404,
+          "is_leaf": true,
+          "px": 527.2,
+          "py": 863.03
+        },
+        {
+          "name": "DataField",
+          "depth": 2,
+          "x": 3.141593,
+          "y": 404,
+          "is_leaf": true,
+          "px": 464,
+          "py": 868
+        },
+        {
+          "name": "DataSchema",
+          "depth": 2,
+          "x": 3.298672,
+          "y": 404,
+          "is_leaf": true,
+          "px": 400.8,
+          "py": 863.03
+        },
+        {
+          "name": "DirtySprite",
+          "depth": 2,
+          "x": 3.612832,
+          "y": 404,
+          "is_leaf": true,
+          "px": 280.59,
+          "py": 823.97
+        },
+        {
+          "name": "LineSprite",
+          "depth": 2,
+          "x": 3.769911,
+          "y": 404,
+          "is_leaf": true,
+          "px": 226.53,
+          "py": 790.84
+        },
+        {
+          "name": "TextSprite",
+          "depth": 2,
+          "x": 3.926991,
+          "y": 404,
+          "is_leaf": true,
+          "px": 178.33,
+          "py": 749.67
+        },
+        {
+          "name": "DragForce",
+          "depth": 2,
+          "x": 4.24115,
+          "y": 404,
+          "is_leaf": true,
+          "px": 104.03,
+          "py": 647.41
+        },
+        {
+          "name": "GravityForce",
+          "depth": 2,
+          "x": 4.39823,
+          "y": 404,
+          "is_leaf": true,
+          "px": 79.77,
+          "py": 588.84
+        },
+        {
+          "name": "Spring",
+          "depth": 2,
+          "x": 4.555309,
+          "y": 404,
+          "is_leaf": true,
+          "px": 64.97,
+          "py": 527.2
+        },
+        {
+          "name": "AggregateExpr",
+          "depth": 2,
+          "x": 4.869469,
+          "y": 404,
+          "is_leaf": true,
+          "px": 64.97,
+          "py": 400.8
+        },
+        {
+          "name": "Expression",
+          "depth": 2,
+          "x": 5.026548,
+          "y": 404,
+          "is_leaf": true,
+          "px": 79.77,
+          "py": 339.16
+        },
+        {
+          "name": "Query",
+          "depth": 2,
+          "x": 5.183628,
+          "y": 404,
+          "is_leaf": true,
+          "px": 104.03,
+          "py": 280.59
+        },
+        {
+          "name": "LinearScale",
+          "depth": 2,
+          "x": 5.497787,
+          "y": 404,
+          "is_leaf": true,
+          "px": 178.33,
+          "py": 178.33
+        },
+        {
+          "name": "LogScale",
+          "depth": 2,
+          "x": 5.654867,
+          "y": 404,
+          "is_leaf": true,
+          "px": 226.53,
+          "py": 137.16
+        },
+        {
+          "name": "OrdinalScale",
+          "depth": 2,
+          "x": 5.811946,
+          "y": 404,
+          "is_leaf": true,
+          "px": 280.59,
+          "py": 104.03
+        },
+        {
+          "name": "FlareVis",
+          "depth": 2,
+          "x": 6.126106,
+          "y": 404,
+          "is_leaf": true,
+          "px": 400.8,
+          "py": 64.97
+        }
+      ]
+    }
+  ]
+}

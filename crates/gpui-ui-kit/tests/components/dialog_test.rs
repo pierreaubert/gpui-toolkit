@@ -1,7 +1,7 @@
 //! Dialog component tests
 
 use gpui::div;
-use gpui::prelude::*;
+use gpui::prelude::{IntoElement, ParentElement};
 use gpui_ui_kit::dialog::{Dialog, DialogSize};
 
 #[test]

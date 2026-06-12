@@ -1,21 +1,28 @@
 use crate::ShowcaseApp;
 use d3rs::chord::{ChordLayout, RibbonGenerator};
 use gpui::*;
+use gpui_ui_kit::theme::ThemeExt;
 use std::f64::consts::PI;
 
-pub fn render(_app: &ShowcaseApp, _cx: &mut Context<ShowcaseApp>) -> Div {
+pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
+    let ui_theme = cx.theme();
     let matrix = vec![
         vec![11975.0, 5871.0, 8916.0, 2868.0],
         vec![1951.0, 10048.0, 2060.0, 6171.0],
         vec![8010.0, 16145.0, 8090.0, 8045.0],
         vec![1013.0, 990.0, 940.0, 6907.0],
     ];
+    let names = ["Black", "Blond", "Brown", "Red"];
 
-    let layout = ChordLayout::new().pad_angle(0.05);
+    let layout = ChordLayout::new()
+        .pad_angle(0.05)
+        .sort_subgroups(|a, b| b.partial_cmp(&a).unwrap_or(std::cmp::Ordering::Equal));
     let chords = layout.compute(&matrix);
 
-    let outer_radius = 200.0;
-    let inner_radius = 180.0;
+    let outer_radius = 180.0;
+    let inner_radius = 160.0;
+    let tick_radius = outer_radius + 4.0;
+    let label_radius = outer_radius + 18.0;
 
     let width = 600.0;
     let height = 600.0;
@@ -24,11 +31,21 @@ pub fn render(_app: &ShowcaseApp, _cx: &mut Context<ShowcaseApp>) -> Div {
 
     let colors = [rgb(0x000000), rgb(0xffdd89), rgb(0x957244), rgb(0xf26223)];
 
-    // Arcs
     use d3rs::shape::arc::{Arc, ArcDatum};
     let arc_gen = Arc::new();
 
-    // Canvas rendering
+    // Pre-compute label positions for absolute-positioned divs
+    let label_positions: Vec<(&str, f64, f64)> = chords
+        .groups
+        .iter()
+        .map(|g| {
+            let mid = (g.start_angle + g.end_angle) / 2.0 - PI / 2.0;
+            let lx = width / 2.0 + label_radius * mid.cos();
+            let ly = height / 2.0 + label_radius * mid.sin();
+            (names[g.index % names.len()], lx, ly)
+        })
+        .collect();
+
     div()
         .flex()
         .flex_col()
@@ -37,15 +54,36 @@ pub fn render(_app: &ShowcaseApp, _cx: &mut Context<ShowcaseApp>) -> Div {
             div()
                 .text_xl()
                 .font_weight(FontWeight::BOLD)
-                .child("Chord Diagram (Canvas)"),
+                .child("Chord Diagram"),
+        )
+        .child(
+            div()
+                .text_xs()
+                .child("Hair color preferences — with ticks and group labels"),
+        )
+        .child(
+            // Legend
+            div()
+                .flex()
+                .gap_4()
+                .children(names.iter().enumerate().map(|(i, name)| {
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap_1()
+                        .child(div().size_3().bg(colors[i % colors.len()]))
+                        .child(div().text_xs().child(*name))
+                })),
         )
         .child(
             div()
                 .w(px(width as f32))
                 .h(px(height as f32))
-                .bg(rgb(0xffffff))
+                .bg(ui_theme.surface)
                 .border_1()
-                .border_color(rgb(0xcccccc))
+                .border_color(ui_theme.border)
+                .relative()
+                // Canvas for arcs, ticks, and ribbons
                 .child(
                     canvas(
                         |_bounds, _window, _cx| {},
@@ -62,7 +100,6 @@ pub fn render(_app: &ShowcaseApp, _cx: &mut Context<ShowcaseApp>) -> Div {
                                     }
 
                                     let mut builder = gpui::PathBuilder::fill();
-
                                     let start =
                                         point(px(points[0].x as f32), px(points[0].y as f32))
                                             + center;
@@ -73,21 +110,18 @@ pub fn render(_app: &ShowcaseApp, _cx: &mut Context<ShowcaseApp>) -> Div {
                                     }
                                     builder.close();
 
-                                    match builder.build() {
-                                        Ok(path) => {
-                                            let final_color = gpui::Rgba {
-                                                r: color.r,
-                                                g: color.g,
-                                                b: color.b,
-                                                a: opacity,
-                                            };
-                                            window.paint_path(path, final_color);
-                                        }
-                                        Err(e) => println!("ERROR: Failed to build path: {:?}", e),
+                                    if let Ok(path) = builder.build() {
+                                        let final_color = gpui::Rgba {
+                                            r: color.r,
+                                            g: color.g,
+                                            b: color.b,
+                                            a: opacity,
+                                        };
+                                        window.paint_path(path, final_color);
                                     }
                                 };
 
-                            // Arcs
+                            // Draw group arcs
                             for group in &chords.groups {
                                 let datum = ArcDatum::new()
                                     .inner_radius(inner_radius)
@@ -100,7 +134,42 @@ pub fn render(_app: &ShowcaseApp, _cx: &mut Context<ShowcaseApp>) -> Div {
                                 paint_d3_path(d3_path, color, 1.0, window);
                             }
 
-                            // Ribbons
+                            // Draw tick marks along each group arc
+                            for group in &chords.groups {
+                                let arc_span = group.end_angle - group.start_angle;
+                                let n_ticks = ((arc_span * 30.0) as usize).max(2);
+                                for t in 0..=n_ticks {
+                                    let frac = t as f64 / n_ticks as f64;
+                                    let angle = group.start_angle + arc_span * frac - PI / 2.0;
+                                    let x1 = outer_radius * angle.cos();
+                                    let y1 = outer_radius * angle.sin();
+                                    let x2 = tick_radius * angle.cos();
+                                    let y2 = tick_radius * angle.sin();
+
+                                    // Tick as a thin line
+                                    let nx = -angle.sin() * 0.5;
+                                    let ny = angle.cos() * 0.5;
+                                    let mut builder = gpui::PathBuilder::fill();
+                                    builder.move_to(
+                                        center + point(px((x1 + nx) as f32), px((y1 + ny) as f32)),
+                                    );
+                                    builder.line_to(
+                                        center + point(px((x2 + nx) as f32), px((y2 + ny) as f32)),
+                                    );
+                                    builder.line_to(
+                                        center + point(px((x2 - nx) as f32), px((y2 - ny) as f32)),
+                                    );
+                                    builder.line_to(
+                                        center + point(px((x1 - nx) as f32), px((y1 - ny) as f32)),
+                                    );
+                                    builder.close();
+                                    if let Ok(path) = builder.build() {
+                                        window.paint_path(path, rgb(0x444444));
+                                    }
+                                }
+                            }
+
+                            // Draw chord ribbons
                             for chord in &chords.chords {
                                 let d3_path = ribbon.generate_path(chord);
                                 let color = colors[chord.target.index % colors.len()];
@@ -109,6 +178,22 @@ pub fn render(_app: &ShowcaseApp, _cx: &mut Context<ShowcaseApp>) -> Div {
                         },
                     )
                     .size_full(),
-                ),
+                )
+                // Group name labels as positioned divs outside the arcs
+                .children(label_positions.iter().map(|(name, lx, ly)| {
+                    div()
+                        .absolute()
+                        .left(px((*lx - 20.0) as f32))
+                        .top(px((*ly - 7.0) as f32))
+                        .w(px(40.0))
+                        .flex()
+                        .justify_center()
+                        .child(
+                            div()
+                                .text_xs()
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .child(*name),
+                        )
+                })),
         )
 }

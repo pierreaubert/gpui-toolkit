@@ -3,6 +3,8 @@
 #[cfg(feature = "gpui")]
 use gpui::Rgba;
 
+use crate::color::hcl::{Hcl, Lab};
+
 /// RGB color with alpha channel and interpolation support
 ///
 /// # Example
@@ -338,6 +340,79 @@ impl D3Color {
             hue_to_rgb(p, q, h),
             hue_to_rgb(p, q, h - 1.0 / 3.0),
         )
+    }
+
+    /// Convert to LAB color space
+    ///
+    /// Returns a Lab struct representing the CIELAB color space.
+    /// LAB is a perceptually uniform color space designed to
+    /// approximate human vision.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use d3rs::color::D3Color;
+    ///
+    /// let color = D3Color::rgb(255, 0, 0);
+    /// let lab = color.to_lab();
+    /// // LAB has L (lightness), a (green-red), b (blue-yellow)
+    /// ```
+    pub fn to_lab(&self) -> Lab {
+        Lab::from_rgb(self)
+    }
+
+    /// Create a color from LAB color space
+    ///
+    /// # Arguments
+    /// * `l` - Lightness [0, 100]
+    /// * `a` - Green-Red axis
+    /// * `b` - Blue-Yellow axis
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use d3rs::color::D3Color;
+    ///
+    /// let color = D3Color::from_lab(50.0, 30.0, -20.0);
+    /// ```
+    pub fn from_lab(l: f64, a: f64, b: f64) -> D3Color {
+        Lab::new(l, a, b).to_rgb()
+    }
+
+    /// Convert to HCL color space
+    ///
+    /// Returns an Hcl struct representing the HCL (Hue-Chroma-Luminance)
+    /// color space. HCL is a cylindrical transformation of LAB that
+    /// is perceptually uniform and ideal for data visualization.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use d3rs::color::D3Color;
+    ///
+    /// let color = D3Color::rgb(255, 0, 0);
+    /// let hcl = color.to_hcl();
+    /// ```
+    pub fn to_hcl(&self) -> Hcl {
+        Hcl::from_rgb(self)
+    }
+
+    /// Create a color from HCL color space
+    ///
+    /// # Arguments
+    /// * `h` - Hue in degrees [0, 360)
+    /// * `c` - Chroma (color intensity)
+    /// * `l` - Luminance [0, 100]
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use d3rs::color::D3Color;
+    ///
+    /// let color = D3Color::from_hcl(0.0, 80.0, 50.0);
+    /// ```
+    pub fn from_hcl(h: f64, c: f64, l: f64) -> D3Color {
+        Hcl::new(h, c, l).to_rgb()
     }
 }
 

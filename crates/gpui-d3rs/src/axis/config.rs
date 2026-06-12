@@ -89,6 +89,30 @@ impl AxisConfig {
         }
     }
 
+    /// Create an axis configuration from design-system typography and spacing defaults.
+    #[cfg(feature = "gpui")]
+    pub fn from_design(design: &gpui_design::DesignSystem) -> Self {
+        Self {
+            tick_padding: design.spacing.grid_unit,
+            label_font_size: design.typography.small_size,
+            domain_line_width: design.interaction.border_width.max(1.0),
+            title_font_size: design.typography.base_size,
+            title_padding: design.spacing.control_gap,
+            ..Default::default()
+        }
+    }
+
+    /// Apply design-system typography and spacing defaults.
+    #[cfg(feature = "gpui")]
+    pub fn with_design(mut self, design: &gpui_design::DesignSystem) -> Self {
+        self.tick_padding = design.spacing.grid_unit;
+        self.label_font_size = design.typography.small_size;
+        self.domain_line_width = design.interaction.border_width.max(1.0);
+        self.title_font_size = design.typography.base_size;
+        self.title_padding = design.spacing.control_gap;
+        self
+    }
+
     /// Create a top-oriented axis
     pub fn top() -> Self {
         Self {

@@ -2,7 +2,7 @@
   "module": "d3-scale",
   "function": "scaleLinear",
   "tolerance": 0.000001,
-  "generated_at": "2025-12-08T20:24:30.914Z",
+  "generated_at": "2026-03-15T09:23:04.905Z",
   "test_cases": [
     {
       "name": "basic_domain_range",

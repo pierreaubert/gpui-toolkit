@@ -1,0 +1,35 @@
+[package]
+name = "gpui-audio-kit"
+version = "0.7.2"
+authors.workspace = true
+edition.workspace = true
+keywords.workspace = true
+categories.workspace = true
+description = "Audio-focused GPUI components for plugin and playback interfaces"
+license.workspace = true
+repository.workspace = true
+
+[features]
+default = []
+autoeq = []
+camera = []
+gpu-2d = []
+gpu-3d = []
+reqwest = []
+showcase = []
+spinorama = []
+tokio = []
+urlencoding = []
+
+[dependencies]
+gpui = { workspace = true }
+gpui-design = { workspace = true, features = ["gpui"] }
+gpui-ui-kit = { workspace = true }
+
+[dev-dependencies]
+gpui = { workspace = true, features = ["test-support"] }
+gpui-miniapp = { workspace = true }
+
+[lib]
+name = "gpui_audio_kit"
+path = "src/lib.rs"

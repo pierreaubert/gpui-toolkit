@@ -1,0 +1,32 @@
+[package]
+name = "gpui-ui-kit-ios-showcase"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+name = "showcase_ios"
+crate-type = ["staticlib", "cdylib"]
+
+[features]
+default = []
+autoeq = []
+camera = []
+gpu-2d = []
+gpu-3d = []
+hot-reload = []
+reqwest = []
+showcase = []
+spinorama = []
+tokio = []
+urlencoding = []
+
+[dependencies]
+gpui = { workspace = true }
+gpui-ios = { workspace = true }
+gpui-ui-kit = { workspace = true }
+log = { workspace = true }
+
+# Apple-only logging (oslog wraps os/log.h, only available on Apple platforms)
+[target.'cfg(any(target_os = "ios", target_os = "tvos", target_os = "macos"))'.dependencies]
+oslog = { workspace = true }

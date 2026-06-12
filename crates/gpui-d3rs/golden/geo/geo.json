@@ -2,7 +2,7 @@
   "module": "d3-geo",
   "function": "geo",
   "tolerance": 0.000001,
-  "generated_at": "2025-12-08T20:24:30.930Z",
+  "generated_at": "2026-03-15T09:23:04.922Z",
   "test_cases": [
     {
       "name": "mercator_default",

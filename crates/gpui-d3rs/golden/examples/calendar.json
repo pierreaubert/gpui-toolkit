@@ -1,0 +1,21 @@
+{
+  "module": "d3",
+  "function": "calendar",
+  "tolerance": 0.000001,
+  "generated_at": "2026-03-15T10:25:03.280Z",
+  "test_cases": [
+    {
+      "name": "calendar_cell_size",
+      "cell_size": 10,
+      "year": 2024
+    },
+    {
+      "name": "calendar_2024",
+      "year": 2024,
+      "start_date": "2023-12-31T23:00:00.000Z",
+      "end_date": "2024-12-30T23:00:00.000Z",
+      "first_sunday": "2024-01-06T23:00:00.000Z",
+      "total_days": 366
+    }
+  ]
+}

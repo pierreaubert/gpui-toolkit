@@ -1,11 +1,53 @@
-use d3rs::axis::{AxisConfig, DefaultAxisTheme, render_axis};
+use d3rs::axis::{AxisConfig, render_axis};
 use d3rs::grid::{GridConfig, render_grid};
 use d3rs::prelude::*;
 use d3rs::shape::{CurveType, LineConfig, render_line};
 use gpui::prelude::FluentBuilder;
-use gpui::*;
+use gpui::{Div, ParentElement, Styled, div, px};
+use gpui_ui_kit::theme::Theme;
 
 use super::types::{BrushOverlay, PlotCurve, SecondaryAxisConfig};
+use super::utils::ChartTheme;
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FreqSplPlotMargins {
+    pub left_axis_width: f32,
+    pub right_axis_width: f32,
+}
+
+fn freq_spl_plot_axis_sizes(chart_width: f32) -> (f32, f32, f32) {
+    let scale = (chart_width / 800.0).clamp(0.7, 1.2);
+    let label_size = (10.0 * scale).round();
+    let title_size = (12.0 * scale).round();
+    let tick_size = (6.0 * scale).round().max(4.0);
+
+    (label_size, title_size, tick_size)
+}
+
+pub fn freq_spl_plot_margins(chart_width: f32, has_secondary_axis: bool) -> FreqSplPlotMargins {
+    let (label_size, title_size, tick_size) = freq_spl_plot_axis_sizes(chart_width);
+    let left_axis_width = AxisConfig::left()
+        .with_title("SPL (dB)")
+        .with_label_font_size(label_size)
+        .with_title_font_size(title_size)
+        .with_tick_size(tick_size)
+        .total_size();
+    let right_axis_width = if has_secondary_axis {
+        AxisConfig::right()
+            .with_title("DI (dB)")
+            .with_label_font_size(label_size)
+            .with_title_font_size(title_size)
+            .with_tick_size(tick_size)
+            .total_size()
+    } else {
+        0.0
+    };
+
+    FreqSplPlotMargins {
+        left_axis_width,
+        right_axis_width,
+    }
+}
 
 /// Renders a reusable frequency/SPL plot with optional secondary Y-axis
 ///
@@ -19,8 +61,14 @@ pub fn render_freq_spl_plot(
     chart_width: f32,
     chart_height: f32,
     brush_overlay: Option<BrushOverlay>,
+    ui_theme: &Theme,
 ) -> Div {
-    let theme = DefaultAxisTheme;
+    let theme = ChartTheme::from_theme(ui_theme);
+
+    // Scale font sizes relative to a 800px reference width, clamped to [8, 14] range
+    let scale = (chart_width / 800.0).clamp(0.7, 1.2);
+    let (label_size, title_size, tick_size) = freq_spl_plot_axis_sizes(chart_width);
+    let margins = freq_spl_plot_margins(chart_width, secondary_axis.is_some());
 
     // Create log frequency scale with zoom support
     let freq_scale = LogScale::new()
@@ -85,6 +133,13 @@ pub fn render_freq_spl_plot(
     let primary_curves: Vec<&PlotCurve> = curves.iter().filter(|c| !c.use_secondary_axis).collect();
     let secondary_curves: Vec<&PlotCurve> =
         curves.iter().filter(|c| c.use_secondary_axis).collect();
+    let left_axis_config = AxisConfig::left()
+        .with_tick_values(spl_ticks)
+        .with_formatter(|v| format!("{:.0}", v))
+        .with_title("SPL (dB)")
+        .with_label_font_size(label_size)
+        .with_title_font_size(title_size)
+        .with_tick_size(tick_size);
 
     div()
         .flex()
@@ -96,10 +151,7 @@ pub fn render_freq_spl_plot(
                 // Left Y-axis (SPL)
                 .child(render_axis(
                     &spl_scale,
-                    &AxisConfig::left()
-                        .with_tick_values(spl_ticks)
-                        .with_formatter(|v| format!("{:.0}", v))
-                        .with_title("SPL (dB)"),
+                    &left_axis_config,
                     chart_height,
                     &theme,
                 ))
@@ -109,7 +161,7 @@ pub fn render_freq_spl_plot(
                         .w(px(chart_width))
                         .h(px(chart_height))
                         .relative()
-                        .bg(rgb(0xf8f8f8))
+                        .bg(ui_theme.surface)
                         .child(render_grid(
                             &freq_scale,
                             &spl_scale,
@@ -124,14 +176,18 @@ pub fn render_freq_spl_plot(
                             if curve.points.is_empty() {
                                 return None;
                             }
+                            let mut line_config = LineConfig::new()
+                                .stroke_color(curve.color)
+                                .stroke_width(curve.stroke_width)
+                                .curve(CurveType::Linear);
+                            if let Some(dash_array) = curve.dash_array.clone() {
+                                line_config = line_config.dash_array(dash_array);
+                            }
                             Some(render_line(
                                 &freq_scale,
                                 &spl_scale,
                                 &curve.points,
-                                &LineConfig::new()
-                                    .stroke_color(curve.color)
-                                    .stroke_width(curve.stroke_width)
-                                    .curve(CurveType::Linear),
+                                &line_config,
                             ))
                         }))
                         // Render secondary axis curves
@@ -140,14 +196,18 @@ pub fn render_freq_spl_plot(
                             if curve.points.is_empty() {
                                 return None;
                             }
+                            let mut line_config = LineConfig::new()
+                                .stroke_color(curve.color)
+                                .stroke_width(curve.stroke_width)
+                                .curve(CurveType::Linear);
+                            if let Some(dash_array) = curve.dash_array.clone() {
+                                line_config = line_config.dash_array(dash_array);
+                            }
                             Some(render_line(
                                 &freq_scale,
                                 sec_scale,
                                 &curve.points,
-                                &LineConfig::new()
-                                    .stroke_color(curve.color)
-                                    .stroke_width(curve.stroke_width)
-                                    .curve(CurveType::Linear),
+                                &line_config,
                             ))
                         }))
                         // Brush selection overlay (when dragging)
@@ -160,9 +220,9 @@ pub fn render_freq_spl_plot(
                                     .top(px(sel.y0 as f32))
                                     .w(px(sel.width() as f32))
                                     .h(px(sel.height() as f32))
-                                    .bg(rgba(0x6496c850)) // Semi-transparent blue
+                                    .bg(ui_theme.accent_muted)
                                     .border_1()
-                                    .border_color(rgb(0x4682b4)), // Steel blue
+                                    .border_color(ui_theme.accent),
                             )
                         }),
                 )
@@ -177,7 +237,10 @@ pub fn render_freq_spl_plot(
                     let axis_config = AxisConfig::right()
                         .with_tick_values(cfg.tick_values)
                         .with_formatter(|v| format!("{:.0}", v))
-                        .with_title(cfg.title);
+                        .with_title(cfg.title)
+                        .with_label_font_size(label_size)
+                        .with_title_font_size(title_size)
+                        .with_tick_size(tick_size);
                     el.child(render_axis(&sec_scale, &axis_config, chart_height, &theme))
                 }),
         )
@@ -185,16 +248,13 @@ pub fn render_freq_spl_plot(
         .child(
             div()
                 .flex()
-                .child(
-                    // Spacer for left axis
-                    div().w(px(80.0)),
-                )
+                .child(div().flex_none().w(px(margins.left_axis_width)))
                 .child(render_axis(
                     &freq_scale,
                     &AxisConfig::bottom()
                         .with_tick_values(major_freq_ticks)
                         .with_minor_tick_values(minor_freq_ticks)
-                        .with_minor_tick_size(3.0)
+                        .with_minor_tick_size((3.0 * scale).max(2.0))
                         .with_formatter(|f| {
                             if f >= 1000.0 {
                                 format!("{:.0}k", f / 1000.0)
@@ -202,9 +262,43 @@ pub fn render_freq_spl_plot(
                                 format!("{:.0}", f)
                             }
                         })
-                        .with_title("Frequency (Hz)"),
+                        .with_title("Frequency (Hz)")
+                        .with_label_font_size(label_size)
+                        .with_title_font_size(title_size)
+                        .with_tick_size(tick_size),
                     chart_width,
                     &theme,
-                )),
+                ))
+                .when(margins.right_axis_width > 0.0, |el| {
+                    el.child(div().flex_none().w(px(margins.right_axis_width)))
+                }),
         )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn freq_spl_plot_margins_track_axis_config() {
+        let without_secondary = freq_spl_plot_margins(800.0, false);
+        let with_secondary = freq_spl_plot_margins(800.0, true);
+
+        assert!(without_secondary.left_axis_width > 0.0);
+        assert_eq!(without_secondary.right_axis_width, 0.0);
+        assert_eq!(
+            with_secondary.left_axis_width,
+            without_secondary.left_axis_width
+        );
+        assert!(with_secondary.right_axis_width > 0.0);
+    }
+
+    #[test]
+    fn freq_spl_plot_margins_scale_with_chart_width() {
+        let narrow = freq_spl_plot_margins(400.0, true);
+        let wide = freq_spl_plot_margins(1200.0, true);
+
+        assert!(wide.left_axis_width > narrow.left_axis_width);
+        assert!(wide.right_axis_width > narrow.right_axis_width);
+    }
 }

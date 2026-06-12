@@ -143,8 +143,8 @@ impl HitTester {
         let node_screen_height = node.height * zoom;
 
         // Content area height (scaled node height minus fixed header)
-        let content_height = node_screen_height - header_height - 2.0 * border;
-        let available = content_height - 2.0 * padding;
+        let content_height = (node_screen_height - header_height - 2.0 * border).max(0.0);
+        let available = (content_height - 2.0 * padding).max(0.0);
 
         let y = if count == 0 {
             node_screen_y + node_screen_height / 2.0
@@ -307,7 +307,8 @@ fn point_to_segment_distance(point: &Position, seg_start: &Position, seg_end: &P
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::super::{Position, ViewportState, WorkflowGraph, WorkflowNodeData};
+    use super::{HitTestResult, HitTester};
 
     fn create_test_graph() -> WorkflowGraph {
         let mut graph = WorkflowGraph::new();
@@ -361,5 +362,36 @@ mod tests {
         // Select only the first node
         let nodes = tester.nodes_in_rect(50.0, 50.0, 200.0, 200.0, &graph);
         assert_eq!(nodes.len(), 1);
+    }
+
+    #[test]
+    fn test_hit_test_with_viewport_zoom() {
+        let graph = create_test_graph();
+        let tester = HitTester::new();
+
+        // With default viewport (zoom=1), node at (100,100) is hit at screen (150,130)
+        let result = tester.hit_test_with_viewport(
+            Position::new(150.0, 130.0),
+            &graph,
+            &ViewportState::default(),
+        );
+        assert!(matches!(result, HitTestResult::Node(_)));
+
+        // With zoom=2, the same node occupies 2x the screen space.
+        // Node screen position becomes (200, 200) with size (360, 200).
+        // Screen point (150, 130) should now miss.
+        let zoomed_viewport = ViewportState {
+            zoom: 2.0,
+            offset: Position::new(0.0, 0.0),
+            size: (800.0, 600.0),
+        };
+        let result =
+            tester.hit_test_with_viewport(Position::new(150.0, 130.0), &graph, &zoomed_viewport);
+        assert_eq!(result, HitTestResult::Canvas);
+
+        // Screen point (300, 250) should hit the zoomed node
+        let result =
+            tester.hit_test_with_viewport(Position::new(300.0, 250.0), &graph, &zoomed_viewport);
+        assert!(matches!(result, HitTestResult::Node(_)));
     }
 }

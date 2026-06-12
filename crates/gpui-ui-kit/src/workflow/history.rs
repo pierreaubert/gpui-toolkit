@@ -131,6 +131,40 @@ impl Command for RemoveConnectionCommand {
     }
 }
 
+/// Command to change a node's port counts (for bulk-connect port growth)
+#[derive(Debug, Clone)]
+pub struct ChangePortCountsCommand {
+    pub node_id: NodeId,
+    pub old_input_count: usize,
+    pub new_input_count: usize,
+    pub old_output_count: usize,
+    pub new_output_count: usize,
+    pub old_height: f32,
+    pub new_height: f32,
+}
+
+impl Command for ChangePortCountsCommand {
+    fn execute(&self, graph: &mut WorkflowGraph) {
+        if let Some(node) = graph.nodes.get_mut(&self.node_id) {
+            node.input_count = self.new_input_count;
+            node.output_count = self.new_output_count;
+            node.height = self.new_height;
+        }
+    }
+
+    fn undo(&self, graph: &mut WorkflowGraph) {
+        if let Some(node) = graph.nodes.get_mut(&self.node_id) {
+            node.input_count = self.old_input_count;
+            node.output_count = self.old_output_count;
+            node.height = self.old_height;
+        }
+    }
+
+    fn description(&self) -> &str {
+        "Change port counts"
+    }
+}
+
 /// A composite command that groups multiple commands together
 #[derive(Debug)]
 #[allow(dead_code)]
@@ -272,7 +306,8 @@ impl HistoryManager {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::super::{Position, WorkflowGraph, WorkflowNodeData};
+    use super::{AddNodeCommand, CompositeCommand, HistoryManager, MoveNodesCommand};
 
     #[test]
     fn test_add_node_undo_redo() {

@@ -1,0 +1,201 @@
+{
+  "source": "https://observablehq.com/@d3/box-plot",
+  "module": "d3-array",
+  "function": "box_plot",
+  "tolerance": 0.000001,
+  "generated_at": "2026-03-15T12:44:22.013Z",
+  "test_cases": [
+    {
+      "name": "box_plot",
+      "description": "Box plot with quartiles, whiskers, and outliers",
+      "layout": {
+        "width": 928,
+        "height": 500,
+        "marginTop": 20,
+        "marginRight": 20,
+        "marginBottom": 30,
+        "marginLeft": 40
+      },
+      "data_count": 250,
+      "groups": [
+        {
+          "group": "A",
+          "count": 50,
+          "min": 0,
+          "max": 24.98,
+          "q1": 16.1,
+          "median": 19.355,
+          "q3": 23.605,
+          "iqr": 7.505,
+          "whisker_low": 4.8425,
+          "whisker_high": 24.98,
+          "outliers": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "group": "B",
+          "count": 50,
+          "min": 3,
+          "max": 67,
+          "q1": 29.1475,
+          "median": 35.315,
+          "q3": 40.7675,
+          "iqr": 11.62,
+          "whisker_low": 11.7175,
+          "whisker_high": 58.1975,
+          "outliers": [
+            3,
+            3,
+            67
+          ]
+        },
+        {
+          "group": "C",
+          "count": 50,
+          "min": 6,
+          "max": 94,
+          "q1": 41.785,
+          "median": 50.08,
+          "q3": 57.8775,
+          "iqr": 16.0925,
+          "whisker_low": 17.64625,
+          "whisker_high": 82.01625,
+          "outliers": [
+            6,
+            6,
+            94
+          ]
+        },
+        {
+          "group": "D",
+          "count": 50,
+          "min": 9,
+          "max": 121,
+          "q1": 55.38,
+          "median": 66.375,
+          "q3": 75.51,
+          "iqr": 20.13,
+          "whisker_low": 25.185,
+          "whisker_high": 105.705,
+          "outliers": [
+            9,
+            121,
+            121
+          ]
+        },
+        {
+          "group": "E",
+          "count": 50,
+          "min": 12,
+          "max": 148,
+          "q1": 67.81,
+          "median": 80.12,
+          "q3": 93.215,
+          "iqr": 25.405,
+          "whisker_low": 29.7025,
+          "whisker_high": 131.3225,
+          "outliers": [
+            12,
+            148,
+            148
+          ]
+        }
+      ],
+      "x_scale": {
+        "type": "band",
+        "domain": [
+          "A",
+          "B",
+          "C",
+          "D",
+          "E"
+        ],
+        "range": [
+          40,
+          908
+        ],
+        "padding": 0.4,
+        "bandwidth": 113.217391,
+        "step": 188.695652,
+        "positions": [
+          {
+            "group": "A",
+            "position": 40
+          },
+          {
+            "group": "B",
+            "position": 228.695652
+          },
+          {
+            "group": "C",
+            "position": 417.391304
+          },
+          {
+            "group": "D",
+            "position": 606.086957
+          },
+          {
+            "group": "E",
+            "position": 794.782609
+          }
+        ]
+      },
+      "y_scale": {
+        "type": "linear",
+        "domain": [
+          0,
+          160
+        ],
+        "range": [
+          470,
+          20
+        ],
+        "samples": [
+          {
+            "group": "A",
+            "q1_y": 424.71875,
+            "median_y": 415.564063,
+            "q3_y": 403.610938,
+            "whisker_low_y": 456.380469,
+            "whisker_high_y": 399.74375
+          },
+          {
+            "group": "B",
+            "q1_y": 388.022656,
+            "median_y": 370.676563,
+            "q3_y": 355.341406,
+            "whisker_low_y": 437.044531,
+            "whisker_high_y": 306.319531
+          },
+          {
+            "group": "C",
+            "q1_y": 352.479688,
+            "median_y": 329.15,
+            "q3_y": 307.219531,
+            "whisker_low_y": 420.369922,
+            "whisker_high_y": 239.329297
+          },
+          {
+            "group": "D",
+            "q1_y": 314.24375,
+            "median_y": 283.320313,
+            "q3_y": 257.628125,
+            "whisker_low_y": 399.167188,
+            "whisker_high_y": 172.704688
+          },
+          {
+            "group": "E",
+            "q1_y": 279.284375,
+            "median_y": 244.6625,
+            "q3_y": 207.832813,
+            "whisker_low_y": 386.461719,
+            "whisker_high_y": 100.655469
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -1,8 +1,10 @@
 use crate::ShowcaseApp;
 use d3rs::gpu2d::Chart2DElement;
 use gpui::*;
+use gpui_ui_kit::theme::ThemeExt;
 
 pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
+    let ui_theme = cx.theme();
     if app.force_running {
         for _ in 0..5 {
             app.force_simulation.tick();
@@ -38,16 +40,17 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
         .child(
             div()
                 .text_sm()
-                .text_color(rgb(0x666666))
                 .child("Nodes repel each other and are attracted to the center."),
         )
-        .child(
+        .child({
+            let width = app.content_width;
+            let height = (width * 0.75).min(app.content_height * 0.8);
             div()
-                .w(px(800.0))
-                .h(px(600.0))
-                .bg(rgb(0xf0f0f0))
+                .w(px(width))
+                .h(px(height))
+                .bg(ui_theme.surface)
                 .border_1()
-                .border_color(rgb(0xcccccc))
+                .border_color(ui_theme.border)
                 .overflow_hidden()
                 .child(
                     Chart2DElement::new(move |renderer, _bounds| {
@@ -56,6 +59,6 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                         }
                     })
                     .background_color([0.94, 0.94, 0.94, 1.0]),
-                ),
-        )
+                )
+        })
 }

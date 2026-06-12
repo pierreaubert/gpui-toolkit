@@ -1,0 +1,517 @@
+{
+  "source": "https://observablehq.com/@d3/zoomable-circle-packing",
+  "module": "d3-hierarchy",
+  "function": "circle_packing",
+  "tolerance": 0.000001,
+  "generated_at": "2026-03-15T12:44:22.011Z",
+  "test_cases": [
+    {
+      "name": "circle_packing",
+      "description": "Zoomable circle packing layout from Observable",
+      "layout": {
+        "width": 928,
+        "height": 928,
+        "padding": 3
+      },
+      "node_count": 41,
+      "leaf_count": 30,
+      "root_value": 123952,
+      "nodes": [
+        {
+          "name": "root",
+          "depth": 0,
+          "height": 3,
+          "value": 123952,
+          "x": 464,
+          "y": 464,
+          "r": 464,
+          "is_leaf": false,
+          "child_count": 5
+        },
+        {
+          "name": "animate",
+          "depth": 1,
+          "height": 2,
+          "value": 34288,
+          "x": 195.086601,
+          "y": 392.587439,
+          "r": 182.962653,
+          "is_leaf": false,
+          "child_count": 5
+        },
+        {
+          "name": "analytics",
+          "depth": 1,
+          "height": 2,
+          "value": 30803,
+          "x": 600.13494,
+          "y": 392.587439,
+          "r": 219.282359,
+          "is_leaf": false,
+          "child_count": 3
+        },
+        {
+          "name": "display",
+          "depth": 1,
+          "height": 1,
+          "value": 24254,
+          "x": 366.334776,
+          "y": 675.424021,
+          "r": 144.873506,
+          "is_leaf": false,
+          "child_count": 4
+        },
+        {
+          "name": "query",
+          "depth": 1,
+          "height": 1,
+          "value": 20126,
+          "x": 368.397583,
+          "y": 138.417721,
+          "r": 121.86845,
+          "is_leaf": false,
+          "child_count": 7
+        },
+        {
+          "name": "data",
+          "depth": 1,
+          "height": 2,
+          "value": 14481,
+          "x": 637.0377,
+          "y": 744.424819,
+          "r": 131.681689,
+          "is_leaf": false,
+          "child_count": 4
+        },
+        {
+          "name": "Easing",
+          "depth": 2,
+          "height": 0,
+          "value": 17010,
+          "x": 112.684577,
+          "y": 368.884992,
+          "r": 94.416107,
+          "is_leaf": true,
+          "child_count": 0
+        },
+        {
+          "name": "FunctionSequence",
+          "depth": 2,
+          "height": 0,
+          "value": 5842,
+          "x": 265.2358,
+          "y": 368.884992,
+          "r": 55.331789,
+          "is_leaf": true,
+          "child_count": 0
+        },
+        {
+          "name": "interpolate",
+          "depth": 2,
+          "height": 1,
+          "value": 5811,
+          "x": 227.588731,
+          "y": 494.599115,
+          "r": 73.094997,
+          "is_leaf": false,
+          "child_count": 3
+        },
+        {
+          "name": "Parallel",
+          "depth": 2,
+          "height": 0,
+          "value": 5176,
+          "x": 222.205211,
+          "y": 267.414449,
+          "r": 52.082409,
+          "is_leaf": true,
+          "child_count": 0
+        },
+        {
+          "name": "Pause",
+          "depth": 2,
+          "height": 0,
+          "value": 449,
+          "x": 152.091784,
+          "y": 263.44955,
+          "r": 15.339708,
+          "is_leaf": true,
+          "child_count": 0
+        },
+        {
+          "name": "cluster",
+          "depth": 2,
+          "height": 1,
+          "value": 14464,
+          "x": 496.689145,
+          "y": 392.587439,
+          "r": 113.033237,
+          "is_leaf": false,
+          "child_count": 3
+        },
+        {
+          "name": "graph",
+          "depth": 2,
+          "height": 1,
+          "value": 9265,
+          "x": 714.56984,
+          "y": 392.587439,
+          "r": 102.044132,
+          "is_leaf": false,
+          "child_count": 2
+        },
+        {
+          "name": "optimization",
+          "depth": 2,
+          "height": 1,
+          "value": 7074,
+          "x": 614.407061,
+          "y": 528.132604,
+          "r": 63.690591,
+          "is_leaf": false,
+          "child_count": 1
+        },
+        {
+          "name": "TextSprite",
+          "depth": 2,
+          "height": 0,
+          "value": 10066,
+          "x": 296.895659,
+          "y": 675.424021,
+          "r": 72.631062,
+          "is_leaf": true,
+          "child_count": 0
+        },
+        {
+          "name": "DirtySprite",
+          "depth": 2,
+          "height": 0,
+          "value": 8833,
+          "x": 440.367501,
+          "y": 675.424021,
+          "r": 68.037453,
+          "is_leaf": true,
+          "child_count": 0
+        },
+        {
+          "name": "RectSprite",
+          "depth": 2,
+          "height": 0,
+          "value": 3623,
+          "x": 372.368395,
+          "y": 767.439665,
+          "r": 43.574067,
+          "is_leaf": true,
+          "child_count": 0
+        },
+        {
+          "name": "LineSprite",
+          "depth": 2,
+          "height": 0,
+          "value": 1732,
+          "x": 371.93788,
+          "y": 601.180856,
+          "r": 30.127832,
+          "is_leaf": true,
+          "child_count": 0
+        },
+        {
+          "name": "Query",
+          "depth": 2,
+          "height": 0,
+          "value": 13896,
+          "x": 335.338007,
+          "y": 145.098388,
+          "r": 85.337288,
+          "is_leaf": true,
+          "child_count": 0
+        },
+        {
+          "name": "AggregateExpression",
+          "depth": 2,
+          "height": 0,
+          "value": 1616,
+          "x": 452.580071,
+          "y": 145.098388,
+          "r": 29.101449,
+          "is_leaf": true,
+          "child_count": 0
+        },
+        {
+          "name": "Variable",
+          "depth": 2,
+          "height": 0,
+          "value": 1124,
+          "x": 434.390718,
+          "y": 198.247224,
+          "r": 24.270409,
+          "is_leaf": true,
+          "child_count": 0
+        },
+        {
+          "name": "And",
+          "depth": 2,
+          "height": 0,
+          "value": 1027,
+          "x": 433.877064,
+          "y": 93.265176,
+          "r": 23.199528,
+          "is_leaf": true,
+          "child_count": 0
+        },
+        {
+          "name": "Average",
+          "depth": 2,
+          "height": 0,
+          "value": 891,
+          "x": 401.991347,
+          "y": 57.907278,
+          "r": 21.608906,
+          "is_leaf": true,
+          "child_count": 0
+        },
+        {
+          "name": "Sum",
+          "depth": 2,
+          "height": 0,
+          "value": 791,
+          "x": 400.736726,
+          "y": 231.674573,
+          "r": 20.360206,
+          "is_leaf": true,
+          "child_count": 0
+        },
+        {
+          "name": "Count",
+          "depth": 2,
+          "height": 0,
+          "value": 781,
+          "x": 361.163435,
+          "y": 39.848802,
+          "r": 20.231098,
+          "is_leaf": true,
+          "child_count": 0
+        },
+        {
+          "name": "converters",
+          "depth": 2,
+          "height": 1,
+          "value": 7235,
+          "x": 593.911287,
+          "y": 744.424819,
+          "r": 85.751948,
+          "is_leaf": false,
+          "child_count": 3
+        },
+        {
+          "name": "DataUtil",
+          "depth": 2,
+          "height": 0,
+          "value": 3322,
+          "x": 724.191312,
+          "y": 744.424819,
+          "r": 41.72475,
+          "is_leaf": true,
+          "child_count": 0
+        },
+        {
+          "name": "DataSchema",
+          "depth": 2,
+          "height": 0,
+          "value": 2165,
+          "x": 692.921826,
+          "y": 816.114001,
+          "r": 33.68394,
+          "is_leaf": true,
+          "child_count": 0
+        },
+        {
+          "name": "DataField",
+          "depth": 2,
+          "height": 0,
+          "value": 1759,
+          "x": 691.799117,
+          "y": 676.90273,
+          "r": 30.361754,
+          "is_leaf": true,
+          "child_count": 0
+        },
+        {
+          "name": "ColorInterpolator",
+          "depth": 3,
+          "height": 0,
+          "value": 2047,
+          "x": 193.979706,
+          "y": 477.878615,
+          "r": 32.753133,
+          "is_leaf": true,
+          "child_count": 0
+        },
+        {
+          "name": "ArrayInterpolator",
+          "depth": 3,
+          "height": 0,
+          "value": 1983,
+          "x": 261.773216,
+          "y": 477.878615,
+          "r": 32.23705,
+          "is_leaf": true,
+          "child_count": 0
+        },
+        {
+          "name": "NumberInterpolator",
+          "depth": 3,
+          "height": 0,
+          "value": 1781,
+          "x": 228.377745,
+          "y": 534.331919,
+          "r": 30.551033,
+          "is_leaf": true,
+          "child_count": 0
+        },
+        {
+          "name": "HierarchicalCluster",
+          "depth": 3,
+          "height": 0,
+          "value": 6714,
+          "x": 450.385726,
+          "y": 371.420425,
+          "r": 59.317741,
+          "is_leaf": true,
+          "child_count": 0
+        },
+        {
+          "name": "AgglomerativeCluster",
+          "depth": 3,
+          "height": 0,
+          "value": 3938,
+          "x": 557.935649,
+          "y": 371.420425,
+          "r": 45.428855,
+          "is_leaf": true,
+          "child_count": 0
+        },
+        {
+          "name": "CommunityStructure",
+          "depth": 3,
+          "height": 0,
+          "value": 3812,
+          "x": 517.058158,
+          "y": 454.875267,
+          "r": 44.696177,
+          "is_leaf": true,
+          "child_count": 0
+        },
+        {
+          "name": "LinkDistance",
+          "depth": 3,
+          "height": 0,
+          "value": 5731,
+          "x": 670.132642,
+          "y": 392.587439,
+          "r": 54.803606,
+          "is_leaf": true,
+          "child_count": 0
+        },
+        {
+          "name": "BetweennessCentrality",
+          "depth": 3,
+          "height": 0,
+          "value": 3534,
+          "x": 770.77511,
+          "y": 392.587439,
+          "r": 43.035535,
+          "is_leaf": true,
+          "child_count": 0
+        },
+        {
+          "name": "AspectRatioLayout",
+          "depth": 3,
+          "height": 0,
+          "value": 7074,
+          "x": 614.407061,
+          "y": 528.132604,
+          "r": 60.887264,
+          "is_leaf": true,
+          "child_count": 0
+        },
+        {
+          "name": "DelimitedTextConverter",
+          "depth": 3,
+          "height": 0,
+          "value": 4294,
+          "x": 558.400511,
+          "y": 744.424819,
+          "r": 47.437845,
+          "is_leaf": true,
+          "child_count": 0
+        },
+        {
+          "name": "JSONConverter",
+          "depth": 3,
+          "height": 0,
+          "value": 2220,
+          "x": 642.750795,
+          "y": 744.424819,
+          "r": 34.109113,
+          "is_leaf": true,
+          "child_count": 0
+        },
+        {
+          "name": "Converters",
+          "depth": 3,
+          "height": 0,
+          "value": 721,
+          "x": 610.5331,
+          "y": 790.657302,
+          "r": 19.438447,
+          "is_leaf": true,
+          "child_count": 0
+        }
+      ],
+      "depth_colors": [
+        {
+          "depth": 0,
+          "color": "rgb(163, 245, 207)"
+        },
+        {
+          "depth": 1,
+          "color": "rgb(116, 215, 202)"
+        },
+        {
+          "depth": 2,
+          "color": "rgb(81, 183, 196)"
+        },
+        {
+          "depth": 3,
+          "color": "rgb(66, 150, 183)"
+        },
+        {
+          "depth": 4,
+          "color": "rgb(67, 117, 162)"
+        },
+        {
+          "depth": 5,
+          "color": "rgb(71, 84, 133)"
+        }
+      ],
+      "zoom_test": {
+        "from": [
+          464,
+          464,
+          928.0000000000001
+        ],
+        "to": [
+          195.0866007899064,
+          392.5874389885006,
+          365.92530533568623
+        ],
+        "midpoint": [
+          271.135981,
+          412.783089,
+          634.338139
+        ]
+      }
+    }
+  ]
+}

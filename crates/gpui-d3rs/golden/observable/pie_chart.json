@@ -1,0 +1,133 @@
+{
+  "source": "https://observablehq.com/@d3/pie-chart",
+  "module": "d3-shape",
+  "function": "pie_chart",
+  "tolerance": 0.000001,
+  "generated_at": "2026-03-15T12:44:22.032Z",
+  "test_cases": [
+    {
+      "name": "pie_chart",
+      "description": "Pie chart with spectral color scheme",
+      "layout": {
+        "width": 928,
+        "height": 500,
+        "radius": 250
+      },
+      "data": [
+        {
+          "name": "Residential",
+          "value": 48.5
+        },
+        {
+          "name": "Commercial",
+          "value": 18.6
+        },
+        {
+          "name": "Industrial",
+          "value": 13.1
+        },
+        {
+          "name": "Transportation",
+          "value": 11.3
+        },
+        {
+          "name": "Other",
+          "value": 8.5
+        }
+      ],
+      "slices": [
+        {
+          "name": "Residential",
+          "value": 48.5,
+          "index": 0,
+          "startAngle": 0,
+          "endAngle": 3.047345,
+          "padAngle": 0,
+          "arc_path": "M0,-249A249,249,0,0,1,23.433,247.895L0,0Z",
+          "label_position": [
+            166.481646,
+            -7.851075
+          ],
+          "centroid": [
+            124.361789,
+            -5.864753
+          ],
+          "color": "rgb(66, 136, 181)"
+        },
+        {
+          "name": "Commercial",
+          "value": 18.6,
+          "index": 1,
+          "startAngle": 3.047345,
+          "endAngle": 4.216017,
+          "padAngle": 0,
+          "arc_path": "M23.433,247.895A249,249,0,0,1,-218.95,118.583L0,0Z",
+          "label_position": [
+            -78.450655,
+            147.048538
+          ],
+          "centroid": [
+            -58.60264,
+            109.845258
+          ],
+          "color": "rgb(169, 220, 162)"
+        },
+        {
+          "name": "Industrial",
+          "value": 13.1,
+          "index": 2,
+          "startAngle": 4.216017,
+          "endAngle": 5.039115,
+          "padAngle": 0,
+          "arc_path": "M-218.95,118.583A249,249,0,0,1,-235.827,-79.915L0,0Z",
+          "label_position": [
+            -166.067448,
+            14.12022
+          ],
+          "centroid": [
+            -124.052383,
+            10.547805
+          ],
+          "color": "rgb(251, 248, 176)"
+        },
+        {
+          "name": "Transportation",
+          "value": 11.3,
+          "index": 3,
+          "startAngle": 5.039115,
+          "endAngle": 5.749115,
+          "padAngle": 0,
+          "arc_path": "M-235.827,-79.915A249,249,0,0,1,-126.751,-214.325L0,0Z",
+          "label_position": [
+            -129.414419,
+            -105.022312
+          ],
+          "centroid": [
+            -96.672571,
+            -78.451667
+          ],
+          "color": "rgb(252, 172, 99)"
+        },
+        {
+          "name": "Other",
+          "value": 8.5,
+          "index": 4,
+          "startAngle": 5.749115,
+          "endAngle": 6.283185,
+          "padAngle": 0,
+          "arc_path": "M-126.751,-214.325A249,249,0,0,1,0,-249L0,0Z",
+          "label_position": [
+            -43.978842,
+            -160.75957
+          ],
+          "centroid": [
+            -32.852195,
+            -120.087399
+          ],
+          "color": "rgb(209, 60, 75)"
+        }
+      ],
+      "total_value": 99.99999999999999
+    }
+  ]
+}

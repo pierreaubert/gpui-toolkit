@@ -1,0 +1,51 @@
+{
+  "module": "d3-drag",
+  "function": "drag",
+  "tolerance": 0.000001,
+  "generated_at": "2026-03-15T10:24:26.939Z",
+  "test_cases": [
+    {
+      "name": "drag_creation",
+      "container": "function",
+      "touchable": "function",
+      "subject": "function"
+    },
+    {
+      "name": "drag_start",
+      "initial": {
+        "x": 10,
+        "y": 20
+      },
+      "after_start": {
+        "fx": 10,
+        "fy": 20
+      }
+    },
+    {
+      "name": "drag_drag",
+      "position": {
+        "x": 25,
+        "y": 35
+      },
+      "result": {
+        "fx": 25,
+        "fy": 35
+      }
+    },
+    {
+      "name": "drag_end",
+      "after_end": {
+        "fx": null,
+        "fy": null
+      }
+    },
+    {
+      "name": "drag_filter",
+      "filter": "function"
+    },
+    {
+      "name": "drag_click_distance",
+      "distance": 5
+    }
+  ]
+}

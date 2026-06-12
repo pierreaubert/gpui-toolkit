@@ -3,11 +3,19 @@ use d3rs::color::ColorScheme;
 use d3rs::grid::{GridConfig, render_grid};
 use d3rs::prelude::*;
 use gpui::*;
+use gpui_ui_kit::theme::ThemeExt;
 
-pub fn render(_app: &ShowcaseApp) -> Div {
+pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
+    let ui_theme = cx.theme();
     let theme = DefaultAxisTheme;
-    let x_scale = LinearScale::new().domain(0.0, 100.0).range(0.0, 500.0);
-    let y_scale = LinearScale::new().domain(0.0, 100.0).range(0.0, 250.0);
+    let width = app.content_width * 0.7;
+    let height = (width * 0.5).min(app.content_height * 0.4);
+    let x_scale = LinearScale::new()
+        .domain(0.0, 100.0)
+        .range(0.0, width as f64);
+    let y_scale = LinearScale::new()
+        .domain(0.0, 100.0)
+        .range(0.0, height as f64);
     let scheme = ColorScheme::category10();
 
     let data = vec![
@@ -63,7 +71,7 @@ pub fn render(_app: &ShowcaseApp) -> Div {
                         .child(render_axis(
                             &y_scale,
                             &AxisConfig::left().with_ticks(5),
-                            250.0,
+                            height,
                             &theme,
                         ))
                         .child(
@@ -72,18 +80,18 @@ pub fn render(_app: &ShowcaseApp) -> Div {
                                 .flex_col()
                                 .child(
                                     div()
-                                        .w(px(500.0))
-                                        .h(px(250.0))
+                                        .w(px(width))
+                                        .h(px(height))
                                         .relative()
-                                        .bg(rgb(0xf8f8f8))
+                                        .bg(ui_theme.surface)
                                         .border_1()
-                                        .border_color(rgb(0xcccccc))
+                                        .border_color(ui_theme.border)
                                         .child(render_grid(
                                             &x_scale,
                                             &y_scale,
                                             &GridConfig::dots_only(),
-                                            500.0,
-                                            250.0,
+                                            width,
+                                            height,
                                             &theme,
                                         ))
                                         .child(render_line(
@@ -100,7 +108,7 @@ pub fn render(_app: &ShowcaseApp) -> Div {
                                 .child(render_axis(
                                     &x_scale,
                                     &AxisConfig::bottom().with_ticks(5),
-                                    500.0,
+                                    width,
                                     &theme,
                                 )),
                         ),
@@ -124,7 +132,7 @@ pub fn render(_app: &ShowcaseApp) -> Div {
                         .child(render_axis(
                             &y_scale,
                             &AxisConfig::left().with_ticks(5),
-                            250.0,
+                            height,
                             &theme,
                         ))
                         .child(
@@ -133,18 +141,18 @@ pub fn render(_app: &ShowcaseApp) -> Div {
                                 .flex_col()
                                 .child(
                                     div()
-                                        .w(px(500.0))
-                                        .h(px(250.0))
+                                        .w(px(width))
+                                        .h(px(height))
                                         .relative()
-                                        .bg(rgb(0xf8f8f8))
+                                        .bg(ui_theme.surface)
                                         .border_1()
-                                        .border_color(rgb(0xcccccc))
+                                        .border_color(ui_theme.border)
                                         .child(render_grid(
                                             &x_scale,
                                             &y_scale,
                                             &GridConfig::lines_only().with_line_opacity(0.2),
-                                            500.0,
-                                            250.0,
+                                            width,
+                                            height,
                                             &theme,
                                         ))
                                         .child(render_line(
@@ -171,7 +179,7 @@ pub fn render(_app: &ShowcaseApp) -> Div {
                                 .child(render_axis(
                                     &x_scale,
                                     &AxisConfig::bottom().with_ticks(5),
-                                    500.0,
+                                    width,
                                     &theme,
                                 )),
                         ),

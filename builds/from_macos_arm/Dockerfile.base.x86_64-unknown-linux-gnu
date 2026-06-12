@@ -1,0 +1,55 @@
+FROM --platform=linux/amd64 ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=Etc/UTC
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    ca-certificates \
+    curl \
+    git \
+    build-essential \
+    gcc \
+    g++ \
+    pkg-config \
+    cmake \
+    ninja-build \
+    perl \
+    clang \
+    libclang-dev \
+    libssl-dev \
+    libsqlite3-dev \
+    libglib2.0-dev \
+    libxkbcommon-dev \
+    libxkbcommon-x11-dev \
+    libgtk-3-dev \
+    libwebkit2gtk-4.1-dev \
+    libayatana-appindicator3-dev \
+    librsvg2-dev \
+    libasound2-dev \
+    libudev-dev \
+    libv4l-dev \
+    libfontconfig1-dev \
+    libx11-dev \
+    libxcb1-dev \
+    libxcb-render0-dev \
+    libxcb-shape0-dev \
+    libxcb-xfixes0-dev \
+    libxi-dev \
+    libxcursor-dev \
+    libxrandr-dev \
+    libopenblas-dev \
+    gfortran \
+    patchelf \
+    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
+    sh -s -- -y --default-toolchain stable --profile minimal
+
+ENV PATH="/root/.cargo/bin:${PATH}"
+
+RUN rustup target add x86_64-unknown-linux-gnu && \
+    cargo install just --locked && \
+    rm -rf /root/.cargo/registry /root/.cargo/git
+
+WORKDIR /project

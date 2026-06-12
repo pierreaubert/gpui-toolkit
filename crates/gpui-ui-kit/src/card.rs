@@ -25,8 +25,8 @@
 //! ```
 
 use crate::theme::{Theme, ThemeExt};
-use gpui::prelude::*;
-use gpui::*;
+use gpui::prelude::{IntoElement, ParentElement, RenderOnce, Styled};
+use gpui::{AnyElement, App, Div, Rgba, Window, div};
 
 /// Factory function type for creating elements with theme access
 pub type SlotFactory = Box<dyn FnOnce(&Theme) -> AnyElement>;

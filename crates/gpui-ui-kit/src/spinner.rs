@@ -3,8 +3,8 @@
 //! Loading indicators and spinners.
 
 use crate::theme::{Theme, ThemeExt};
-use gpui::prelude::*;
-use gpui::*;
+use gpui::prelude::{IntoElement, ParentElement, RenderOnce, Styled};
+use gpui::{App, Div, Pixels, Rgba, SharedString, Window, div, px};
 
 /// Spinner size
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

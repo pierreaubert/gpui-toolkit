@@ -5,7 +5,7 @@
 //! - Custom delay
 //! - WithTooltip wrapper
 
-use gpui::{Context, TestAppContext, Window, div, prelude::*};
+use gpui::{Context, IntoElement, ParentElement, Render, Styled, TestAppContext, Window, div};
 use gpui_ui_kit::tooltip::{Tooltip, TooltipPlacement, WithTooltip};
 
 // ============================================================================

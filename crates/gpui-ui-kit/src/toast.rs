@@ -2,9 +2,13 @@
 //!
 //! Provides non-blocking notifications that appear temporarily.
 
+use crate::accessibility::{AccessibilityExt, AccessibilityNode, AriaLive, AriaProps, AriaRole};
 use crate::theme::{Theme, ThemeExt};
-use gpui::prelude::*;
-use gpui::{Component, *};
+use gpui::prelude::{InteractiveElement, IntoElement, ParentElement, RenderOnce, Styled};
+use gpui::{
+    App, Component, Div, ElementId, FontWeight, MouseButton, Rgba, SharedString, Stateful, Window,
+    div, px,
+};
 
 /// Toast visual variant
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -69,6 +73,8 @@ pub struct Toast {
     on_close: Option<Box<dyn Fn(&mut Window, &mut App) + 'static>>,
     /// Duration in seconds before auto-dismiss (None = no auto-dismiss, default = 5.0)
     duration_secs: Option<f32>,
+    aria_label: Option<SharedString>,
+    aria_role: Option<AriaRole>,
 }
 
 impl Toast {
@@ -85,6 +91,8 @@ impl Toast {
             closeable: true,
             on_close: None,
             duration_secs: Some(Self::DEFAULT_DURATION_SECS),
+            aria_label: None,
+            aria_role: None,
         }
     }
 
@@ -109,6 +117,18 @@ impl Toast {
     /// Set the close handler
     pub fn on_close(mut self, handler: impl Fn(&mut Window, &mut App) + 'static) -> Self {
         self.on_close = Some(Box::new(handler));
+        self
+    }
+
+    /// Set an explicit ARIA label (overrides the toast's message)
+    pub fn aria_label(mut self, label: impl Into<SharedString>) -> Self {
+        self.aria_label = Some(label.into());
+        self
+    }
+
+    /// Override the default ARIA role (Status)
+    pub fn aria_role(mut self, role: AriaRole) -> Self {
+        self.aria_role = Some(role);
         self
     }
 
@@ -221,6 +241,21 @@ impl IntoElement for Toast {
 
 impl RenderOnce for Toast {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let effective_label = self
+            .aria_label
+            .clone()
+            .unwrap_or_else(|| self.message.clone());
+        let (default_role, live) = match self.variant {
+            ToastVariant::Error => (AriaRole::Alert, AriaLive::Assertive),
+            ToastVariant::Warning => (AriaRole::Alert, AriaLive::Polite),
+            _ => (AriaRole::Status, AriaLive::Polite),
+        };
+        cx.register_accessible(AccessibilityNode {
+            element_id: self.id.clone(),
+            label: effective_label,
+            props: AriaProps::with_role(self.aria_role.unwrap_or(default_role)).live(live),
+        });
+
         let theme = cx.theme();
         self.build_with_theme(&theme)
     }

@@ -1,0 +1,115 @@
+{
+  "module": "d3",
+  "function": "parallelCoordinates",
+  "tolerance": 0.000001,
+  "generated_at": "2026-03-15T10:25:03.282Z",
+  "test_cases": [
+    {
+      "name": "parallel_coords_dimensions",
+      "dimensions": [
+        "mpg",
+        "cylinders",
+        "displacement",
+        "weight",
+        "acceleration"
+      ],
+      "row_count": 6
+    },
+    {
+      "name": "parallel_coords_scales",
+      "scales": {
+        "mpg": {
+          "extent": [
+            18,
+            35
+          ],
+          "domain": [
+            18,
+            35
+          ]
+        },
+        "cylinders": {
+          "extent": [
+            4,
+            8
+          ],
+          "domain": [
+            4,
+            8
+          ]
+        },
+        "displacement": {
+          "extent": [
+            79,
+            307
+          ],
+          "domain": [
+            79,
+            307
+          ]
+        },
+        "weight": {
+          "extent": [
+            1900,
+            3500
+          ],
+          "domain": [
+            1900,
+            3500
+          ]
+        },
+        "acceleration": {
+          "extent": [
+            11,
+            15
+          ],
+          "domain": [
+            11,
+            15
+          ]
+        }
+      }
+    },
+    {
+      "name": "parallel_coords_paths",
+      "paths": [
+        {
+          "name": "Toyota",
+          "point_count": 5,
+          "first_point": [
+            0,
+            23
+          ],
+          "last_point": [
+            100,
+            12
+          ]
+        },
+        {
+          "name": "Honda",
+          "point_count": 5,
+          "first_point": [
+            0,
+            18
+          ],
+          "last_point": [
+            100,
+            11
+          ]
+        },
+        {
+          "name": "Ford",
+          "point_count": 5,
+          "first_point": [
+            0,
+            33
+          ],
+          "last_point": [
+            100,
+            14
+          ]
+        }
+      ]
+    }
+  ]
+}

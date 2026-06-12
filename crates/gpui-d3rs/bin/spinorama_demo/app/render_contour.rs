@@ -1,5 +1,8 @@
 impl SpinoramaApp {
     fn render_contour_plot(&mut self, cx: &mut Context<Self>) -> Div {
+        let theme = cx.theme();
+        let ds = cx.design();
+        let s = self.font_scale();
         let has_contour_data = self.contour_data.is_some();
         let has_directivity_data = self
             .directivity_data
@@ -9,8 +12,8 @@ impl SpinoramaApp {
         if !has_contour_data && !has_directivity_data {
             return div().flex().items_center().justify_center().h_full().child(
                 div()
-                    .text_base()
-                    .text_color(rgb(0x666666))
+                    .text_size(px(ds.typography.base_size * s))
+                    .text_color(theme.text_secondary)
                     .child("No contour data available for this speaker."),
             );
         }
@@ -44,22 +47,26 @@ impl SpinoramaApp {
             "SPL Horizontal Contour (Full 360°)",
             spl_mode,
             colormap,
+            &ds,
+            &theme,
         );
         let directivity_contour = self.render_contour_from_directivity(
             "Directivity Contour (SPL Horizontal)",
             directivity_mode,
             colormap,
+            &ds,
+            &theme,
         );
 
         div()
             .flex()
             .flex_col()
-            .gap_8()
+            .gap(px(ds.spacing.section_gap * 2.0))
             .child(
                 div()
-                    .text_2xl()
+                    .text_size(px(ds.typography.large_size * s))
                     .font_weight(FontWeight::BOLD)
-                    .text_color(rgb(0x333333))
+                    .text_color(theme.text_primary)
                     .child(format!("Horizontal Contour Plots - {}", speaker_name)),
             )
             // SPL Horizontal Contour (new format, -180 to +180) with toggle
@@ -68,7 +75,7 @@ impl SpinoramaApp {
                     div()
                         .flex()
                         .flex_col()
-                        .gap_2()
+                        .gap(px(ds.spacing.control_gap))
                         .child(spl_toggle)
                         .child(contour_div),
                 )
@@ -79,11 +86,10 @@ impl SpinoramaApp {
                     div()
                         .flex()
                         .flex_col()
-                        .gap_2()
+                        .gap(px(ds.spacing.control_gap))
                         .child(directivity_toggle)
                         .child(contour_div),
                 )
             })
     }
 }
-

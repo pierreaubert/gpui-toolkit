@@ -1,0 +1,106 @@
+# gpui-design
+
+Platform-adaptive design system for GPUI applications.
+
+Defines shape, spacing, interaction, and animation rules that vary per platform while the Theme system handles colors independently. The two layers are independently combinable: any color theme works with any design system.
+
+## Presets
+
+| Preset | Platform | Key traits |
+|--------|----------|------------|
+| `DesignSystem::neutral()` | Cross-platform default | Matches existing hardcoded values |
+| `DesignSystem::apple_hig()` | macOS / iOS | Continuous corners, 44px touch targets, spring animations |
+| `DesignSystem::material3()` | Android / ChromeOS | 48px touch targets, card separators, Roboto |
+| `DesignSystem::fluent()` | Windows 10/11 | Compact spacing, pill toggles, Segoe UI Variable |
+| `DesignSystem::platform_default()` | Auto-detect | Selects based on `target_os` |
+
+## Usage
+
+```rust
+use gpui_design::{DesignSystem, DesignLanguage};
+
+let ds = DesignSystem::platform_default();
+
+// Spacing
+let padding = ds.spacing.card_padding;      // 12px (Neutral), 16px (Apple)
+let gap     = ds.spacing.control_gap;        // 8px
+
+// Corners
+let radius  = ds.corners.md;                 // 8px (Neutral), 10px (Apple)
+
+// Typography
+let size    = ds.typography.base_size;        // 14px (Neutral), 15px (Apple)
+
+// Animation
+let dur     = ds.animation.duration_ms;       // 200ms (Neutral), 350ms (Apple)
+let spring  = ds.animation.prefer_spring;     // false (Neutral), true (Apple)
+```
+
+## GPUI Integration
+
+Enable the `gpui` feature for `DesignSystemState` global and `DesignExt` trait:
+
+```toml
+gpui-design = { version = "0.6", features = ["gpui"] }
+```
+
+```rust
+use gpui_design::DesignExt;
+
+// In any Render impl:
+fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    let ds = cx.design(); // returns DesignSystem::platform_default() if no global set
+
+    div()
+        .p(px(ds.spacing.card_padding))
+        .rounded(px(ds.corners.md))
+        .text_size(px(ds.typography.base_size))
+}
+```
+
+`MiniApp` (from `gpui-ui-kit`) automatically sets the `DesignSystemState` global on startup.
+
+## Design System vs Theme
+
+| Concern | Layer | Crate |
+|---------|-------|-------|
+| Colors, accents, backgrounds | **Theme** | `gpui-ui-kit` (`cx.theme()`) |
+| Spacing, corners, touch targets | **Design System** | `gpui-design` (`cx.design()`) |
+| Animation timing, spring physics | **Design System** | `gpui-design` |
+| Typography sizes, font family | **Design System** | `gpui-design` |
+| Shadow/elevation model | **Design System** | `gpui-design` |
+
+## Conformance Gate
+
+`DesignConformanceMatrix::all_presets()` validates every built-in preset in
+standard and reduced-motion modes. It checks touch-target rules, typography
+ordering, spacing/radius sanity, motion duration ordering, reduced-motion
+collapse, audio-control geometry, and token export coverage.
+
+```rust
+use gpui_design::DesignConformanceMatrix;
+
+let matrix = DesignConformanceMatrix::all_presets();
+assert!(matrix.passed(), "{}", matrix.to_markdown_table());
+```
+
+`DesignTokenExport::for_all_presets()` returns a serializable Style
+Dictionary-friendly export for tooling and future Figma integration.
+
+## Sub-structs
+
+- `CornerRadii` — sm/md/lg/xl radius + continuous vs circular style
+- `SpacingRules` — grid unit, control padding, gaps, card padding
+- `InteractionRules` — min touch target, border/focus ring widths
+- `ElevationRules` — shadow blur/opacity per elevation level
+- `AnimationRules` — duration tiers, spring stiffness/damping
+- `TypographyRules` — font family, base/small/large sizes, dynamic sizing
+- `LayoutThresholds` — breakpoints for layout solver adaptations
+- `AudioControlRules` — knob arc geometry, slider track widths
+
+## Testing
+
+```bash
+cargo test -p gpui-design --lib
+cargo check -p gpui-design --features gpui
+```

@@ -1,0 +1,261 @@
+{
+  "source": "https://observablehq.com/@d3/voronoi-labels",
+  "module": "d3-delaunay",
+  "function": "voronoi_labels",
+  "tolerance": 0.000001,
+  "generated_at": "2026-03-16T22:19:07.904Z",
+  "test_cases": [
+    {
+      "name": "voronoi_labels",
+      "description": "Scatter plot with Voronoi-based label placement",
+      "layout": {
+        "width": 928,
+        "height": 600
+      },
+      "point_count": 200,
+      "label_count": 26,
+      "cells": [
+        {
+          "index": 0,
+          "x": 539.388768,
+          "y": 392.003135,
+          "area": 772.397574,
+          "show_label": false,
+          "centroid": [
+            537.169892,
+            393.500816
+          ],
+          "label_anchor": "left"
+        },
+        {
+          "index": 1,
+          "x": 446.31041,
+          "y": 292.813249,
+          "area": 426.758479,
+          "show_label": false,
+          "centroid": [
+            446.777282,
+            295.697735
+          ],
+          "label_anchor": "bottom"
+        },
+        {
+          "index": 2,
+          "x": 365.704152,
+          "y": 279.642721,
+          "area": 224.786681,
+          "show_label": false,
+          "centroid": [
+            370.299503,
+            278.165674
+          ],
+          "label_anchor": "right"
+        },
+        {
+          "index": 3,
+          "x": 491.203172,
+          "y": 326.624835,
+          "area": 284.557735,
+          "show_label": false,
+          "centroid": [
+            491.511868,
+            323.36381
+          ],
+          "label_anchor": "left"
+        },
+        {
+          "index": 4,
+          "x": 504.047788,
+          "y": 276.826291,
+          "area": 671.591375,
+          "show_label": false,
+          "centroid": [
+            500.24989,
+            270.020946
+          ],
+          "label_anchor": "left"
+        },
+        {
+          "index": 5,
+          "x": 314.561342,
+          "y": 309.744318,
+          "area": 1053.92349,
+          "show_label": false,
+          "centroid": [
+            302.252774,
+            297.999526
+          ],
+          "label_anchor": "left"
+        },
+        {
+          "index": 6,
+          "x": 522.369766,
+          "y": 179.057098,
+          "area": 1286.544851,
+          "show_label": false,
+          "centroid": [
+            524.513541,
+            191.328634
+          ],
+          "label_anchor": "bottom"
+        },
+        {
+          "index": 7,
+          "x": 411.032273,
+          "y": 451.89396,
+          "area": 471.401476,
+          "show_label": false,
+          "centroid": [
+            409.762767,
+            441.06459
+          ],
+          "label_anchor": "left"
+        },
+        {
+          "index": 8,
+          "x": 553.868339,
+          "y": 225.97899,
+          "area": 1056.709006,
+          "show_label": false,
+          "centroid": [
+            550.811139,
+            219.946657
+          ],
+          "label_anchor": "left"
+        },
+        {
+          "index": 9,
+          "x": 396.207749,
+          "y": 340.613257,
+          "area": 204.921328,
+          "show_label": false,
+          "centroid": [
+            395.830324,
+            342.071505
+          ],
+          "label_anchor": "bottom"
+        },
+        {
+          "index": 10,
+          "x": 511.247839,
+          "y": 297.038489,
+          "area": 369.284517,
+          "show_label": false,
+          "centroid": [
+            517.3281,
+            300.477401
+          ],
+          "label_anchor": "right"
+        },
+        {
+          "index": 11,
+          "x": 476.303801,
+          "y": 343.583434,
+          "area": 303.549023,
+          "show_label": false,
+          "centroid": [
+            473.154134,
+            340.038523
+          ],
+          "label_anchor": "left"
+        },
+        {
+          "index": 12,
+          "x": 413.730069,
+          "y": 402.862922,
+          "area": 475.660142,
+          "show_label": false,
+          "centroid": [
+            408.975544,
+            411.377576
+          ],
+          "label_anchor": "bottom"
+        },
+        {
+          "index": 13,
+          "x": 415.967875,
+          "y": 310.198484,
+          "area": 111.22475,
+          "show_label": false,
+          "centroid": [
+            421.371235,
+            311.806277
+          ],
+          "label_anchor": "right"
+        },
+        {
+          "index": 14,
+          "x": 502.050696,
+          "y": 291.417228,
+          "area": 142.866083,
+          "show_label": false,
+          "centroid": [
+            497.453275,
+            287.842509
+          ],
+          "label_anchor": "left"
+        },
+        {
+          "index": 15,
+          "x": 562.556421,
+          "y": 343.437499,
+          "area": 339.014274,
+          "show_label": false,
+          "centroid": [
+            562.361559,
+            343.181144
+          ],
+          "label_anchor": "left"
+        },
+        {
+          "index": 16,
+          "x": 438.727336,
+          "y": 198.477663,
+          "area": 245.237187,
+          "show_label": false,
+          "centroid": [
+            435.35516,
+            199.86467
+          ],
+          "label_anchor": "left"
+        },
+        {
+          "index": 17,
+          "x": 425.723894,
+          "y": 284.055599,
+          "area": 39.305611,
+          "show_label": false,
+          "centroid": [
+            426.242511,
+            284.243006
+          ],
+          "label_anchor": "right"
+        },
+        {
+          "index": 18,
+          "x": 482.059693,
+          "y": 356.87817,
+          "area": 109.269254,
+          "show_label": false,
+          "centroid": [
+            483.231091,
+            357.519238
+          ],
+          "label_anchor": "right"
+        },
+        {
+          "index": 19,
+          "x": 558.200405,
+          "y": 307.869475,
+          "area": 933.062443,
+          "show_label": false,
+          "centroid": [
+            565.704102,
+            306.201295
+          ],
+          "label_anchor": "right"
+        }
+      ]
+    }
+  ]
+}

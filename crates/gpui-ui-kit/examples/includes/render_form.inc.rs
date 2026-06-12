@@ -6,7 +6,6 @@ impl Showcase {
         toggle_lg: bool,
         checkbox_checked: bool,
         slider_value: f32,
-        vertical_slider_value: f64,
         number_value: f64,
         number_freq: f64,
         number_db: f64,
@@ -246,67 +245,6 @@ impl Showcase {
                                     .label("Disabled")
                                     .size(NumberInputSize::Md)
                                     .width(100.0),
-                            ),
-                    ),
-            )
-            // Vertical Slider
-            .child(
-                VStack::new()
-                    .spacing(StackSpacing::Sm)
-                    .child(Text::new("Vertical Slider").weight(TextWeight::Medium))
-                    .child(
-                        HStack::new()
-                            .spacing(StackSpacing::Xl)
-                            .align(StackAlign::End)
-                            .child(
-                                VerticalSlider::new("vslider-sm")
-                                    .value(vertical_slider_value)
-                                    .min(0.0)
-                                    .max(1.0)
-                                    .label("Vol")
-                                    .unit("%")
-                                    .size(VerticalSliderSize::Sm)
-                                    .on_change({
-                                        let entity = entity.clone();
-                                        move |value, _window, cx| {
-                                            entity.update(cx, |showcase, _cx| {
-                                                showcase.vertical_slider_value = value;
-                                            });
-                                        }
-                                    }),
-                            )
-                            .child(
-                                VerticalSlider::new("vslider-md")
-                                    .value(vertical_slider_value)
-                                    .min(-12.0)
-                                    .max(12.0)
-                                    .label("Gain")
-                                    .unit("dB")
-                                    .size(VerticalSliderSize::Md)
-                                    .on_change({
-                                        let entity = entity.clone();
-                                        move |value, _window, cx| {
-                                            entity.update(cx, |showcase, _cx| {
-                                                showcase.vertical_slider_value = value;
-                                            });
-                                        }
-                                    }),
-                            )
-                            .child(
-                                VerticalSlider::new("vslider-lg")
-                                    .value(vertical_slider_value)
-                                    .min(0.0)
-                                    .max(100.0)
-                                    .label("Level")
-                                    .size(VerticalSliderSize::Lg)
-                                    .on_change({
-                                        let entity = entity.clone();
-                                        move |value, _window, cx| {
-                                            entity.update(cx, |showcase, _| {
-                                                showcase.vertical_slider_value = value;
-                                            });
-                                        }
-                                    }),
                             ),
                     ),
             )
@@ -634,21 +572,6 @@ impl Showcase {
                                             .muted(true),
                                     ),
                             )
-                            .child(
-                                VStack::new()
-                                    .spacing(StackSpacing::Xs)
-                                    .child(Text::new("Potentiometer").weight(TextWeight::Medium))
-                                    .child(
-                                        Text::new("• ↑↓/←→: Adjust value")
-                                            .size(TextSize::Xs)
-                                            .muted(true),
-                                    )
-                                    .child(
-                                        Text::new("• Esc: Reset to default")
-                                            .size(TextSize::Xs)
-                                            .muted(true),
-                                    ),
-                            ),
                     ),
             )
     }

@@ -8,6 +8,7 @@
 //! - Custom themes
 
 use gpui::*;
+use gpui_miniapp::{MiniApp, MiniAppConfig};
 use gpui_ui_kit::accordion::{Accordion, AccordionItem, AccordionMode, AccordionOrientation};
 use gpui_ui_kit::i18n::{I18nExt, TranslationKey};
 use gpui_ui_kit::theme::ThemeExt;
@@ -70,11 +71,9 @@ impl AccordionDebug {
     /// Toggle side item
     fn toggle_side(&mut self, id: &SharedString, expanded: bool) {
         if expanded {
-            if !self.side_expanded.contains(id) {
-                self.side_expanded.push(id.clone());
-            }
+            self.side_expanded = vec![id.clone()];
         } else {
-            self.side_expanded.retain(|x| x != id);
+            self.side_expanded.clear();
         }
     }
 
@@ -226,6 +225,16 @@ impl Render for AccordionDebug {
                                         &theme,
                                     )),
                             )
+                            .item(
+                                AccordionItem::new(
+                                    "multi-4",
+                                    "A deliberately long accordion title that wraps across multiple lines while every item keeps the same width",
+                                )
+                                .content(Self::sample_content(
+                                    "Long headers should wrap inside the available row instead of widening individual accordion items.",
+                                    &theme,
+                                )),
+                            )
                             .on_change({
                                 let entity = entity.clone();
                                 move |id, expanded, _window, cx| {
@@ -311,7 +320,7 @@ impl Render for AccordionDebug {
                         div().h(px(200.0)).child({
                             let expanded = self.side_expanded.clone();
                             Accordion::new()
-                                .mode(AccordionMode::Multiple)
+                                .mode(AccordionMode::Single)
                                 .orientation(AccordionOrientation::Side)
                                 .expanded(expanded)
                                 .item(

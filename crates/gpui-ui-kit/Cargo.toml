@@ -1,15 +1,20 @@
 [package]
 name = "gpui-ui-kit"
-version = "0.6.10"
+version = "0.7.25"
 authors.workspace = true
 edition.workspace = true
+keywords.workspace = true
+categories.workspace = true
 description = "A reusable UI component library for GPUI applications"
-license = "ISC"
+license.workspace = true
 repository.workspace = true
+autoexamples = false
 
 [dependencies]
 # GPUI framework
 gpui = { workspace = true }
+gpui-builder = { workspace = true }
+gpui-design = { workspace = true, features = ["gpui"] }
 
 # Serialization for Color type
 serde = { workspace = true }
@@ -18,29 +23,195 @@ serde_json = { workspace = true }
 # UUID for node/connection IDs
 uuid = { workspace = true }
 
+# QR code generation
+qrcode = { workspace = true }
+
+# Async timer for animated components
+smol = { workspace = true }
+
 # Proc macros for theme generation
 gpui-ui-kit-macros = { workspace = true }
 
-[target.'cfg(target_os = "macos")'.dependencies]
-gpui_macos = { workspace = true }
+# Platform backends (gpui_macos, gpui_linux, gpui_windows, gpui-ios) are NOT
+# declared here. They live only in zed-industries/zed's git tree (or, for
+# gpui-ios, the local workspace) with no crates.io release, so depending on
+# them would make this crate unpublishable. Application shells live in the
+# sibling `gpui-miniapp` crate (publish = false).
 
-[target.'cfg(target_os = "linux")'.dependencies]
-gpui_linux = { workspace = true }
+[features]
+default = []
+autoeq = []
+# `camera` enables the optional `nokhwa` dependency used by the qr_debug
+# example. Off by default to keep the camera-capture stack out of normal
+# builds; enable with `cargo run --example qr_debug --features camera`.
+camera = ["dep:nokhwa"]
+gpu-2d = []
+gpu-3d = []
+reqwest = []
+showcase = []
+spinorama = []
+tokio = []
+urlencoding = []
 
-[target.'cfg(target_os = "windows")'.dependencies]
-gpui_windows = { workspace = true }
+[target.'cfg(not(any(target_os = "ios", target_os = "tvos")))'.dependencies]
+nokhwa = { workspace = true, features = ["input-native"], optional = true }
 
 [dev-dependencies]
 gpui = { workspace = true, features = ["test-support"] }
+rqrr = { workspace = true }
+# Examples in `examples/` use the MiniApp shell, which lives in a workspace-
+# only crate (it transitively pulls in non-publishable platform backends).
+gpui-miniapp = { workspace = true }
+
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+block2 = { workspace = true }
+objc = { workspace = true }
 
 [lib]
 name = "gpui_ui_kit"
 path = "src/lib.rs"
 
 [[example]]
+name = "accordion_debug"
+
+[[example]]
+name = "alert_debug"
+
+[[example]]
+name = "avatar_debug"
+
+[[example]]
+name = "badge_debug"
+
+[[example]]
+name = "breadcrumbs_debug"
+
+[[example]]
+name = "button_debug"
+
+[[example]]
+name = "button_set_debug"
+
+[[example]]
+name = "card_debug"
+
+[[example]]
+name = "checkbox_debug"
+
+[[example]]
+name = "command_palette_debug"
+
+[[example]]
+name = "confirm_dialog_debug"
+
+[[example]]
+name = "context_menu_debug"
+
+[[example]]
+name = "dialog_debug"
+
+[[example]]
+name = "drag_list_debug"
+
+[[example]]
+name = "empty_state_debug"
+
+[[example]]
+name = "image_view_debug"
+
+[[example]]
+name = "input_debug"
+
+[[example]]
+name = "keyboard_shortcut_label_debug"
+
+[[example]]
+name = "loading_overlay_debug"
+
+[[example]]
+name = "menu_debug"
+
+[[example]]
+name = "notification_debug"
+
+[[example]]
+name = "number_input_debug"
+
+[[example]]
+name = "pane_divider_debug"
+
+[[example]]
+name = "popover_debug"
+
+[[example]]
+name = "progress_debug"
+
+[[example]]
+name = "qr_debug"
+required-features = ["camera"]
+
+[[example]]
+name = "search_bar_debug"
+
+[[example]]
+name = "select_debug"
+
+[[example]]
+name = "settings_form_debug"
+
+[[example]]
 name = "showcase"
-path = "examples/showcase.rs"
+
+[[example]]
+name = "sidebar_debug"
+
+[[example]]
+name = "slider_debug"
+
+[[example]]
+name = "spinner_debug"
+
+[[example]]
+name = "split_pane_debug"
+
+[[example]]
+name = "stack_debug"
+
+[[example]]
+name = "status_bar_debug"
+
+[[example]]
+name = "step_indicator_debug"
+
+[[example]]
+name = "table_debug"
+
+[[example]]
+name = "tabs_debug"
+
+[[example]]
+name = "tag_debug"
+
+[[example]]
+name = "text_debug"
+
+[[example]]
+name = "toast_debug"
+
+[[example]]
+name = "toggle_debug"
+
+[[example]]
+name = "toolbar_debug"
+
+[[example]]
+name = "tooltip_debug"
+
+[[example]]
+name = "tree_view_debug"
+
+[[example]]
+name = "wizard_debug"
 
 [[example]]
 name = "workflow_debug"
-path = "examples/workflow_debug.rs"

@@ -1,0 +1,161 @@
+{
+  "module": "d3-chord",
+  "function": "chord",
+  "tolerance": 0.000001,
+  "generated_at": "2026-03-15T10:24:26.937Z",
+  "test_cases": [
+    {
+      "name": "chord_basic",
+      "matrix_size": 6,
+      "pad_angle": 0.05,
+      "groups": [
+        {
+          "name": "A",
+          "value": 26,
+          "start_angle": 0,
+          "end_angle": 0.937
+        },
+        {
+          "name": "B",
+          "value": 25,
+          "start_angle": 0.987,
+          "end_angle": 1.888
+        },
+        {
+          "name": "C",
+          "value": 28,
+          "start_angle": 1.938,
+          "end_angle": 2.947
+        },
+        {
+          "name": "D",
+          "value": 27,
+          "start_angle": 2.997,
+          "end_angle": 3.971
+        },
+        {
+          "name": "E",
+          "value": 29,
+          "start_angle": 4.021,
+          "end_angle": 5.066
+        },
+        {
+          "name": "F",
+          "value": 31,
+          "start_angle": 5.116,
+          "end_angle": 6.233
+        }
+      ],
+      "pairs": [
+        {
+          "source": {
+            "index": 0,
+            "start_angle": 0.469,
+            "end_angle": 0.649
+          },
+          "target": {
+            "index": 1,
+            "start_angle": 1.203,
+            "end_angle": 1.384
+          }
+        },
+        {
+          "source": {
+            "index": 0,
+            "start_angle": 0.252,
+            "end_angle": 0.469
+          },
+          "target": {
+            "index": 2,
+            "start_angle": 2.479,
+            "end_angle": 2.695
+          }
+        },
+        {
+          "source": {
+            "index": 0,
+            "start_angle": 0.649,
+            "end_angle": 0.793
+          },
+          "target": {
+            "index": 3,
+            "start_angle": 3.682,
+            "end_angle": 3.826
+          }
+        },
+        {
+          "source": {
+            "index": 0,
+            "start_angle": 0,
+            "end_angle": 0.252
+          },
+          "target": {
+            "index": 4,
+            "start_angle": 4.345,
+            "end_angle": 4.597
+          }
+        },
+        {
+          "source": {
+            "index": 0,
+            "start_angle": 0.793,
+            "end_angle": 0.937
+          },
+          "target": {
+            "index": 5,
+            "start_angle": 6.089,
+            "end_angle": 6.233
+          }
+        },
+        {
+          "source": {
+            "index": 1,
+            "start_angle": 1.384,
+            "end_angle": 1.564
+          },
+          "target": {
+            "index": 2,
+            "start_angle": 2.695,
+            "end_angle": 2.875
+          }
+        }
+      ]
+    },
+    {
+      "name": "chord_no_sort",
+      "pad_angle": 0.1,
+      "groups": [
+        {
+          "value": 26,
+          "start_angle": 0,
+          "end_angle": 0.89
+        },
+        {
+          "value": 25,
+          "start_angle": 0.99,
+          "end_angle": 1.846
+        },
+        {
+          "value": 28,
+          "start_angle": 1.946,
+          "end_angle": 2.905
+        },
+        {
+          "value": 27,
+          "start_angle": 3.005,
+          "end_angle": 3.929
+        },
+        {
+          "value": 29,
+          "start_angle": 4.029,
+          "end_angle": 5.022
+        },
+        {
+          "value": 31,
+          "start_angle": 5.122,
+          "end_angle": 6.183
+        }
+      ]
+    }
+  ]
+}

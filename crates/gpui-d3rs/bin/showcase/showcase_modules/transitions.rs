@@ -3,8 +3,10 @@ use d3rs::ease::{
     ease_exp_in_out, ease_linear, ease_quad_in_out, ease_sin_in_out,
 };
 use gpui::*;
+use gpui_ui_kit::theme::ThemeExt;
 
-pub fn render(_app: &ShowcaseApp) -> Div {
+pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
+    let ui_theme = cx.theme();
     div()
         .flex()
         .flex_col()
@@ -18,7 +20,6 @@ pub fn render(_app: &ShowcaseApp) -> Div {
         .child(
             div()
                 .text_base()
-                .text_color(rgb(0x666666))
                 .max_w(px(700.0))
                 .child("The d3-transition module provides easing functions for smooth animations. Each curve shows how the easing transforms time (0→1) into progress."),
         )
@@ -28,10 +29,18 @@ pub fn render(_app: &ShowcaseApp) -> Div {
                 .flex()
                 .flex_wrap()
                 .gap_4()
-                .child(render_easing_card("Linear", ease_linear))
-                .child(render_easing_card("Quad In-Out", ease_quad_in_out))
-                .child(render_easing_card("Cubic In-Out", ease_cubic_in_out))
-                .child(render_easing_card("Sin In-Out", ease_sin_in_out)),
+                .child(render_easing_card("Linear", ease_linear, &ui_theme))
+                .child(render_easing_card(
+                    "Quad In-Out",
+                    ease_quad_in_out,
+                    &ui_theme,
+                ))
+                .child(render_easing_card(
+                    "Cubic In-Out",
+                    ease_cubic_in_out,
+                    &ui_theme,
+                ))
+                .child(render_easing_card("Sin In-Out", ease_sin_in_out, &ui_theme)),
         )
         // Row 2: Advanced easings
         .child(
@@ -39,10 +48,18 @@ pub fn render(_app: &ShowcaseApp) -> Div {
                 .flex()
                 .flex_wrap()
                 .gap_4()
-                .child(render_easing_card("Exp In-Out", ease_exp_in_out))
-                .child(render_easing_card("Circle In-Out", ease_circle_in_out))
-                .child(render_easing_card("Back In-Out", ease_back_in_out))
-                .child(render_easing_card("Bounce Out", ease_bounce_out)),
+                .child(render_easing_card("Exp In-Out", ease_exp_in_out, &ui_theme))
+                .child(render_easing_card(
+                    "Circle In-Out",
+                    ease_circle_in_out,
+                    &ui_theme,
+                ))
+                .child(render_easing_card(
+                    "Back In-Out",
+                    ease_back_in_out,
+                    &ui_theme,
+                ))
+                .child(render_easing_card("Bounce Out", ease_bounce_out, &ui_theme)),
         )
         // Row 3: Special easings
         .child(
@@ -50,7 +67,7 @@ pub fn render(_app: &ShowcaseApp) -> Div {
                 .flex()
                 .flex_wrap()
                 .gap_4()
-                .child(render_easing_card("Elastic Out", ease_elastic_out)),
+                .child(render_easing_card("Elastic Out", ease_elastic_out, &ui_theme)),
         )
         // Motion comparison
         .child(
@@ -68,15 +85,34 @@ pub fn render(_app: &ShowcaseApp) -> Div {
                 .child(
                     div()
                         .text_sm()
-                        .text_color(rgb(0x666666))
                         .child("Progress bars showing 50% completion with different easings:"),
                 )
-                .child(render_progress_row("Linear", ease_linear(0.5)))
-                .child(render_progress_row("Cubic In-Out", ease_cubic_in_out(0.5)))
-                .child(render_progress_row("Exp In-Out", ease_exp_in_out(0.5)))
-                .child(render_progress_row("Back In-Out", ease_back_in_out(0.5)))
-                .child(render_progress_row("Bounce Out", ease_bounce_out(0.5)))
-                .child(render_progress_row("Elastic Out", ease_elastic_out(0.5))),
+                .child(render_progress_row("Linear", ease_linear(0.5), &ui_theme))
+                .child(render_progress_row(
+                    "Cubic In-Out",
+                    ease_cubic_in_out(0.5),
+                    &ui_theme,
+                ))
+                .child(render_progress_row(
+                    "Exp In-Out",
+                    ease_exp_in_out(0.5),
+                    &ui_theme,
+                ))
+                .child(render_progress_row(
+                    "Back In-Out",
+                    ease_back_in_out(0.5),
+                    &ui_theme,
+                ))
+                .child(render_progress_row(
+                    "Bounce Out",
+                    ease_bounce_out(0.5),
+                    &ui_theme,
+                ))
+                .child(render_progress_row(
+                    "Elastic Out",
+                    ease_elastic_out(0.5),
+                    &ui_theme,
+                )),
         )
         // Code example
         .child(
@@ -86,7 +122,7 @@ pub fn render(_app: &ShowcaseApp) -> Div {
                 .gap_3()
                 .mt_4()
                 .p_6()
-                .bg(rgb(0xf5f5f5))
+                .bg(ui_theme.surface)
                 .rounded_lg()
                 .child(
                     div()
@@ -99,7 +135,7 @@ pub fn render(_app: &ShowcaseApp) -> Div {
                         .font_family("monospace")
                         .text_sm()
                         .p_4()
-                        .bg(rgb(0xffffff))
+                        .bg(ui_theme.surface)
                         .rounded_md()
                         .child(
                             "use d3rs::transition::Transition;\n\
@@ -116,7 +152,11 @@ pub fn render(_app: &ShowcaseApp) -> Div {
 }
 
 /// Render an easing curve visualization
-fn render_easing_card(name: &'static str, ease_fn: fn(f64) -> f64) -> Div {
+fn render_easing_card(
+    name: &'static str,
+    ease_fn: fn(f64) -> f64,
+    ui_theme: &gpui_ui_kit::theme::Theme,
+) -> Div {
     let width = 140.0_f32;
     let height = 100.0_f32;
     let padding = 10.0_f32;
@@ -145,9 +185,9 @@ fn render_easing_card(name: &'static str, ease_fn: fn(f64) -> f64) -> Div {
                 .w(px(width))
                 .h(px(height))
                 .relative()
-                .bg(rgb(0xf8f8f8))
+                .bg(ui_theme.surface)
                 .border_1()
-                .border_color(rgb(0xe0e0e0))
+                .border_color(ui_theme.border)
                 .rounded_md()
                 // Background grid
                 .child(
@@ -157,7 +197,7 @@ fn render_easing_card(name: &'static str, ease_fn: fn(f64) -> f64) -> Div {
                         .bottom(px(padding))
                         .w(px(width - 2.0 * padding))
                         .h_px()
-                        .bg(rgb(0xdddddd)),
+                        .bg(ui_theme.border),
                 )
                 .child(
                     div()
@@ -166,7 +206,7 @@ fn render_easing_card(name: &'static str, ease_fn: fn(f64) -> f64) -> Div {
                         .bottom(px(padding))
                         .w_px()
                         .h(px(height - 2.0 * padding))
-                        .bg(rgb(0xdddddd)),
+                        .bg(ui_theme.border),
                 )
                 // Draw the curve as a series of points
                 .children(points.iter().map(|(t, eased)| {
@@ -183,13 +223,17 @@ fn render_easing_card(name: &'static str, ease_fn: fn(f64) -> f64) -> Div {
                         .w(px(3.0))
                         .h(px(3.0))
                         .rounded_full()
-                        .bg(rgb(0x007acc))
+                        .bg(ui_theme.accent)
                 })),
         )
 }
 
 /// Render a progress bar comparing easing at a given point
-fn render_progress_row(name: &'static str, progress: f64) -> Div {
+fn render_progress_row(
+    name: &'static str,
+    progress: f64,
+    ui_theme: &gpui_ui_kit::theme::Theme,
+) -> Div {
     let width = 300.0_f32;
     let bar_width = (progress as f32 * width).clamp(0.0, width);
 
@@ -197,18 +241,12 @@ fn render_progress_row(name: &'static str, progress: f64) -> Div {
         .flex()
         .items_center()
         .gap_4()
-        .child(
-            div()
-                .w(px(120.0))
-                .text_sm()
-                .text_color(rgb(0x333333))
-                .child(name),
-        )
+        .child(div().w(px(120.0)).text_sm().child(name))
         .child(
             div()
                 .w(px(width))
                 .h(px(20.0))
-                .bg(rgb(0xe8e8e8))
+                .bg(ui_theme.surface)
                 .rounded(px(4.0))
                 .relative()
                 .child(
@@ -218,16 +256,11 @@ fn render_progress_row(name: &'static str, progress: f64) -> Div {
                         .top_0()
                         .h_full()
                         .w(px(bar_width))
-                        .bg(rgb(0x007acc))
+                        .bg(ui_theme.accent)
                         .rounded(px(4.0)),
                 ),
         )
-        .child(
-            div()
-                .text_sm()
-                .text_color(rgb(0x666666))
-                .child(format!("{:.0}%", progress * 100.0)),
-        )
+        .child(div().text_sm().child(format!("{:.0}%", progress * 100.0)))
 }
 
 use super::ShowcaseApp;

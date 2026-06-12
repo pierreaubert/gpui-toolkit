@@ -16,7 +16,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-gpui-ui-kit = { version = "0.6.10", git="https://github.com/pierreaubert/sotf/tree/master/crates/gpui-toolkit/gpui-ui-kit" }
+gpui-ui-kit = { version = "0.6.12", git="https://github.com/pierreaubert/sotf/tree/master/crates/gpui-toolkit/gpui-ui-kit" }
 ```
 
 ## Components
@@ -30,6 +30,9 @@ gpui-ui-kit = { version = "0.6.10", git="https://github.com/pierreaubert/sotf/tr
 | `Card` | Container with optional header, content, and footer sections |
 | `Dialog` | Modal dialog with backdrop, title, and customizable size |
 | `Menu` / `MenuBar` | Navigation menus and menu bars |
+| `ContextMenu` | Right-click context menu with positioned backdrop and click-outside dismiss |
+| `Popover` | Floating panel with 8 placement options, backdrop dismiss, and theme factory |
+| `ConfirmDialog` | Confirmation prompt with Default/Destructive/Warning variants |
 | `Tabs` | Tabbed navigation with Underline, Enclosed, and Pills variants |
 | `Toast` / `ToastContainer` | Notification toasts with positioning |
 
@@ -56,6 +59,9 @@ gpui-ui-kit = { version = "0.6.10", git="https://github.com/pierreaubert/sotf/tr
 | `Spinner` / `LoadingDots` | Loading indicators |
 | `Avatar` / `AvatarGroup` | User avatars with status indicators |
 | `Table` | Data table with sorting, selection, and pagination |
+| `QrCode` | QR code display with custom size, foreground, and background colors |
+| `KeyboardShortcutLabel` | Renders keyboard shortcuts as styled key caps (e.g., `⌘+K`) |
+| `EmptyState` | Placeholder for empty lists/containers with icon, title, description, and action |
 | `Text` / `Heading` / `Code` / `Link` | Typography components |
 
 ### Feedback
@@ -63,6 +69,7 @@ gpui-ui-kit = { version = "0.6.10", git="https://github.com/pierreaubert/sotf/tr
 | Component | Description |
 |-----------|-------------|
 | `Alert` / `InlineAlert` | Contextual feedback messages (Info, Success, Warning, Error) |
+| `SearchBar` | Search input with icon, clear button, and size variants |
 | `Tooltip` | Hover tooltips with placement options |
 
 ### Layout
@@ -73,16 +80,42 @@ gpui-ui-kit = { version = "0.6.10", git="https://github.com/pierreaubert/sotf/tr
 | `Spacer` | Flexible spacer element |
 | `Divider` | Horizontal/vertical dividers with optional interactivity |
 | `PaneDivider` | Resizable pane divider for split views |
+| `Sidebar` | Collapsible side panel with left/right positioning, header, footer, and scrollable content |
+| `StatusBar` | Horizontal bar with left/center/right sections for top or bottom of window |
 | `Accordion` | Collapsible content panels |
 | `Breadcrumbs` | Navigation breadcrumbs |
 
 ### Audio Controls
 
-| Component | Description |
-|-----------|-------------|
-| `Potentiometer` | Rotary knob control with customizable range and visual feedback |
-| `VerticalSlider` | Vertical slider with ticks and value display |
-| `VolumeKnob` | Specialized volume control with mute state and dB display |
+Audio-specific controls and visualizations live in the sibling
+`gpui-audio-kit` crate. Import `Potentiometer`, `VerticalSlider`,
+`VolumeKnob`, `AudioDesignTokens`, meters, spectrum elements, and audio scale
+helpers from `gpui_audio_kit`.
+
+### Accessibility
+
+All components support ARIA roles and labels via the `accessibility` module. Since GPUI has no native accessibility support, this stores semantic metadata in a runtime `AccessibilityTree` for tests, dev tools, and future screen reader bridges.
+
+```rust
+use gpui_ui_kit::{Button, AriaRole};
+
+// Icon-only button with accessible name
+Button::new("save-btn", "💾")
+    .aria_label("Save document")
+
+// Override default role
+Button::new("link-btn", "Visit website")
+    .aria_role(AriaRole::Link)
+
+// All components auto-register with sensible defaults:
+// Button -> AriaRole::Button
+// Checkbox -> AriaRole::Checkbox
+// Toggle -> AriaRole::Switch
+// Slider -> AriaRole::Slider (with value_range)
+// Select -> AriaRole::Combobox
+// Dialog -> AriaRole::Dialog
+// Toast -> AriaRole::Status (or Alert for errors)
+```
 
 ## Usage Examples
 
@@ -254,6 +287,115 @@ Dialog::new("confirm-dialog")
     })
 ```
 
+### ContextMenu
+
+```rust
+use gpui_ui_kit::{ContextMenu, MenuItem};
+
+ContextMenu::new("file-context-menu", vec![
+    MenuItem::new("cut", "Cut").with_shortcut("⌘X"),
+    MenuItem::new("copy", "Copy").with_shortcut("⌘C"),
+    MenuItem::separator(),
+    MenuItem::new("paste", "Paste").with_shortcut("⌘V"),
+    MenuItem::new("delete", "Delete").danger(),
+])
+    .position(mouse_position)
+    .on_select(|id, window, cx| {
+        println!("Selected: {}", id);
+    })
+    .on_close(|window, cx| {
+        // Dismiss context menu
+    })
+```
+
+### Popover
+
+```rust
+use gpui_ui_kit::{Popover, PopoverPlacement};
+
+Popover::new("device-picker")
+    .placement(PopoverPlacement::BottomStart)
+    .width(px(240.0))
+    .content(div().child("Popover content"))
+    .on_close(|window, cx| {
+        // Dismiss popover
+    })
+```
+
+### ConfirmDialog
+
+```rust
+use gpui_ui_kit::{ConfirmDialog, ConfirmDialogVariant};
+
+ConfirmDialog::new("delete-confirm")
+    .title("Delete Album")
+    .message("Are you sure? This cannot be undone.")
+    .variant(ConfirmDialogVariant::Destructive)
+    .confirm_label("Delete")
+    .on_confirm(|window, cx| { /* delete */ })
+    .on_cancel(|window, cx| { /* dismiss */ })
+```
+
+### Sidebar
+
+```rust
+use gpui_ui_kit::{Sidebar, SidebarSide};
+
+Sidebar::new("nav-sidebar")
+    .side(SidebarSide::Left)
+    .width(px(260.0))
+    .collapsed(false)
+    .header(div().child("Navigation"))
+    .content(div().child("Sidebar content"))
+    .footer(div().child("Footer"))
+```
+
+### StatusBar
+
+```rust
+use gpui_ui_kit::{StatusBar, StatusBarPosition};
+
+StatusBar::new("footer")
+    .position(StatusBarPosition::Bottom)
+    .left(div().child("Playing: Track 1"))
+    .center(div().child("00:00 / 03:45"))
+    .right(div().child("Vol: 80%"))
+```
+
+### SearchBar
+
+```rust
+use gpui_ui_kit::{SearchBar, SearchBarSize};
+
+SearchBar::new("library-search")
+    .placeholder("Search albums...")
+    .value(current_query)
+    .size(SearchBarSize::Md)
+    .on_change(|query, window, cx| {
+        // Filter results
+    })
+```
+
+### KeyboardShortcutLabel
+
+```rust
+use gpui_ui_kit::{KeyboardShortcutLabel, KeyboardShortcutSize};
+
+KeyboardShortcutLabel::new("⌘+K")
+KeyboardShortcutLabel::new("Ctrl+Shift+P").size(KeyboardShortcutSize::Lg)
+```
+
+### EmptyState
+
+```rust
+use gpui_ui_kit::EmptyState;
+
+EmptyState::new("No albums found")
+    .description("Try adjusting your search filters")
+    .icon("♪")
+    .action(Button::new("clear", "Clear Filters"))
+```
+
 ### Alert
 
 ```rust
@@ -311,6 +453,25 @@ CircularProgress::new(60.0)
     .size(px(64.0))
     .variant(ProgressVariant::Default)
     .show_label(true)
+```
+
+### QR Code
+
+```rust
+use gpui_ui_kit::QrCode;
+
+// Basic QR code
+QrCode::new("https://example.com")
+
+// Custom size
+QrCode::new("https://example.com")
+    .size(px(300.0))
+
+// Custom colors
+QrCode::new("https://example.com")
+    .size(px(200.0))
+    .fg(rgba(0x1a1a1aFF))
+    .bg(rgba(0xFFFFFFFF))
 ```
 
 ### Checkbox and Toggle
@@ -435,63 +596,6 @@ ButtonSet::new("view-mode")
     .size(ButtonSetSize::Md)
     .on_change(|value, window, cx| {
         println!("View mode: {}", value);
-    })
-```
-
-### Potentiometer
-
-```rust
-use gpui_ui_kit::{Potentiometer, PotentiometerSize};
-
-// Basic rotary knob
-Potentiometer::new("volume")
-    .value(0.75)
-    .min(0.0)
-    .max(1.0)
-    .size(PotentiometerSize::Md)
-    .on_change(|value, window, cx| {
-        println!("Volume: {:.0}%", value * 100.0);
-    })
-
-// With label and units
-Potentiometer::new("pan")
-    .label("Pan")
-    .value(0.0)
-    .min(-1.0)
-    .max(1.0)
-    .unit("L/R")
-```
-
-### VerticalSlider
-
-```rust
-use gpui_ui_kit::{VerticalSlider, VerticalSliderSize};
-
-VerticalSlider::new("fader")
-    .value(0.0)
-    .min(-60.0)
-    .max(12.0)
-    .height(200.0)
-    .show_ticks(true)
-    .on_change(|value, window, cx| {
-        println!("Level: {:.1} dB", value);
-    })
-```
-
-### VolumeKnob
-
-```rust
-use gpui_ui_kit::{VolumeKnob, VolumeKnobSize};
-
-VolumeKnob::new("master-volume")
-    .value(0.8)
-    .muted(false)
-    .size(VolumeKnobSize::Lg)
-    .on_change(|value, window, cx| {
-        println!("Volume: {:.0}%", value * 100.0);
-    })
-    .on_mute_toggle(|muted, window, cx| {
-        println!("Muted: {}", muted);
     })
 ```
 
@@ -695,11 +799,436 @@ A showcase is provided that demonstrate the capabilities of the library. Here ar
 | ![Alerts](./docs/images/7.png) | ![2](./docs/images/8.png) |
 | Tabs | Layouts |
 | ![Tabs](./docs/images/9.png) | ![Layouts](./docs/images/10.png) |
-| Menus | Potentiometers |
-| ![Menus](./docs/images/11.png) | ![Potentiometers](./docs/images/12.png) |
+| Menus |  |
+| ![Menus](./docs/images/11.png) |  |
 | Wizard | Workflow |
 | ![Wizard](./docs/images/14.png) | ![Workflow](./docs/images/15.png) |
 
+
+## Adding a New Component
+
+This section is a step-by-step checklist for adding a new component to gpui-ui-kit. Follow every step to ensure consistency with the existing library.
+
+### Checklist
+
+- [ ] **1. Create the component source** (`src/<component>.rs`)
+- [ ] **2. Register the module** in `src/lib.rs`
+- [ ] **3. Add i18n translation keys** in `src/i18n.rs`
+- [ ] **4. Write unit tests** in `tests/components/<component>_test.rs`
+- [ ] **5. Write integration tests** in `tests/integration/<component>_test.rs`
+- [ ] **6. Add a debug example** in `examples/<component>_debug.rs`
+- [ ] **7. Add a showcase section** in `examples/includes/render_<component>.inc.rs`
+- [ ] **8. Register in the showcase** in `examples/showcase.rs`
+- [ ] **9. Update documentation** (this README + component tables)
+- [ ] **10. Verify** everything compiles and all tests pass
+
+### Step 1: Create the Component Source
+
+Create `src/<component>.rs`. Follow these conventions:
+
+- Use the **builder pattern** with setter methods returning `Self`
+- Use the `FormField` derive macro for form components to reduce boilerplate
+- Use `IntoElement` for rendering (implement `RenderOnce` or `Render`)
+- Support optional `ComponentTheme` for per-instance theme overrides
+- Keep event handler closures as `Option<Box<dyn Fn(...)>>`
+
+```rust
+// src/my_widget.rs
+use gpui::*;
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum MyWidgetVariant {
+    #[default]
+    Default,
+    Primary,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum MyWidgetSize {
+    Sm,
+    #[default]
+    Md,
+    Lg,
+}
+
+pub struct MyWidget {
+    id: ElementId,
+    label: SharedString,
+    variant: MyWidgetVariant,
+    size: MyWidgetSize,
+    disabled: bool,
+    on_click: Option<Box<dyn Fn(&mut Window, &mut App) + 'static>>,
+}
+
+impl MyWidget {
+    pub fn new(id: impl Into<ElementId>, label: impl Into<SharedString>) -> Self {
+        Self {
+            id: id.into(),
+            label: label.into(),
+            variant: MyWidgetVariant::Default,
+            size: MyWidgetSize::Md,
+            disabled: false,
+            on_click: None,
+        }
+    }
+
+    pub fn variant(mut self, variant: MyWidgetVariant) -> Self {
+        self.variant = variant;
+        self
+    }
+
+    pub fn size(mut self, size: MyWidgetSize) -> Self {
+        self.size = size;
+        self
+    }
+
+    pub fn disabled(mut self, disabled: bool) -> Self {
+        self.disabled = disabled;
+        self
+    }
+
+    pub fn on_click(mut self, handler: impl Fn(&mut Window, &mut App) + 'static) -> Self {
+        self.on_click = Some(Box::new(handler));
+        self
+    }
+}
+
+impl RenderOnce for MyWidget {
+    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let theme = cx.theme();
+        // ... render using theme colors
+        div().id(self.id).child(self.label.clone())
+    }
+}
+
+impl IntoElement for MyWidget {
+    type Element = <Self as RenderOnce>::Element;
+
+    fn into_element(self) -> Self::Element {
+        self.into_any_element()
+    }
+}
+```
+
+### Step 2: Register the Module
+
+Add the module and re-exports in `src/lib.rs`:
+
+```rust
+// In the appropriate section of src/lib.rs:
+pub mod my_widget;
+
+// Re-export commonly used types:
+pub use my_widget::{MyWidget, MyWidgetSize, MyWidgetVariant};
+```
+
+### Step 3: Add i18n Translation Keys
+
+In `src/i18n.rs`:
+
+1. Add a `TranslationKey` variant for the showcase section title:
+   ```rust
+   // In the TranslationKey enum, under "Section titles":
+   SectionMyWidget,
+   ```
+
+2. Add translations in **all 5 language functions** (`add_english`, `add_french`, `add_german`, `add_spanish`, `add_japanese`):
+   ```rust
+   // In add_english():
+   t.insert(TranslationKey::SectionMyWidget, "My Widget");
+   // In add_french():
+   t.insert(TranslationKey::SectionMyWidget, "Mon Widget");
+   // In add_german():
+   t.insert(TranslationKey::SectionMyWidget, "Mein Widget");
+   // In add_spanish():
+   t.insert(TranslationKey::SectionMyWidget, "Mi Widget");
+   // In add_japanese():
+   t.insert(TranslationKey::SectionMyWidget, "マイウィジェット");
+   ```
+
+3. Add any component-specific label keys the same way (e.g., `LabelMyWidgetEnabled`).
+
+### Step 4: Write Unit Tests
+
+Create `tests/components/my_widget_test.rs`:
+
+```rust
+//! MyWidget component tests
+
+use gpui_ui_kit::my_widget::{MyWidget, MyWidgetSize, MyWidgetVariant};
+
+#[test]
+fn test_my_widget_creation() {
+    let widget = MyWidget::new("test", "Label");
+    let _ = widget;
+}
+
+#[test]
+fn test_my_widget_variants() {
+    let variants = [MyWidgetVariant::Default, MyWidgetVariant::Primary];
+    for variant in &variants {
+        let widget = MyWidget::new("test", "Label").variant(*variant);
+        let _ = widget;
+    }
+}
+
+#[test]
+fn test_my_widget_sizes() {
+    let sizes = [MyWidgetSize::Sm, MyWidgetSize::Md, MyWidgetSize::Lg];
+    for size in &sizes {
+        let widget = MyWidget::new("test", "Label").size(*size);
+        let _ = widget;
+    }
+}
+
+#[test]
+fn test_my_widget_disabled() {
+    let widget = MyWidget::new("test", "Label").disabled(true);
+    let _ = widget;
+}
+
+#[test]
+fn test_my_widget_with_click_handler() {
+    let widget = MyWidget::new("test", "Label")
+        .on_click(|_window, _cx| {});
+    let _ = widget;
+}
+
+#[test]
+fn test_my_widget_full_configuration() {
+    let widget = MyWidget::new("test", "Label")
+        .variant(MyWidgetVariant::Primary)
+        .size(MyWidgetSize::Lg)
+        .disabled(false)
+        .on_click(|_window, _cx| {});
+    let _ = widget;
+}
+```
+
+Register in `tests/components/mod.rs`:
+```rust
+mod my_widget_test;
+```
+
+### Step 5: Write Integration Tests
+
+Create `tests/integration/my_widget_test.rs`:
+
+```rust
+//! Integration tests for MyWidget component
+
+use gpui::{Context, TestAppContext, Window, div, prelude::*};
+use gpui_ui_kit::my_widget::{MyWidget, MyWidgetSize, MyWidgetVariant};
+
+struct MyWidgetTestView;
+
+impl Render for MyWidgetTestView {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        div().child(MyWidget::new("test", "Hello"))
+    }
+}
+
+#[gpui::test]
+async fn test_my_widget_renders(cx: &mut TestAppContext) {
+    let _window = cx.add_window(|_window, _cx| MyWidgetTestView);
+}
+
+#[gpui::test]
+async fn test_my_widget_all_variants(cx: &mut TestAppContext) {
+    struct AllVariantsView;
+
+    impl Render for AllVariantsView {
+        fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+            div()
+                .child(MyWidget::new("a", "Default").variant(MyWidgetVariant::Default))
+                .child(MyWidget::new("b", "Primary").variant(MyWidgetVariant::Primary))
+        }
+    }
+
+    let _window = cx.add_window(|_window, _cx| AllVariantsView);
+}
+
+#[gpui::test]
+async fn test_my_widget_all_sizes(cx: &mut TestAppContext) {
+    struct AllSizesView;
+
+    impl Render for AllSizesView {
+        fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+            div()
+                .child(MyWidget::new("a", "Sm").size(MyWidgetSize::Sm))
+                .child(MyWidget::new("b", "Md").size(MyWidgetSize::Md))
+                .child(MyWidget::new("c", "Lg").size(MyWidgetSize::Lg))
+        }
+    }
+
+    let _window = cx.add_window(|_window, _cx| AllSizesView);
+}
+
+#[gpui::test]
+async fn test_my_widget_disabled(cx: &mut TestAppContext) {
+    struct DisabledView;
+
+    impl Render for DisabledView {
+        fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+            div().child(MyWidget::new("test", "Disabled").disabled(true))
+        }
+    }
+
+    let _window = cx.add_window(|_window, _cx| DisabledView);
+}
+```
+
+Register in `tests/integration/mod.rs`:
+```rust
+mod my_widget_test;
+```
+
+### Step 6: Add a Debug Example
+
+Create `examples/my_widget_debug.rs` for standalone testing:
+
+```rust
+use gpui::*;
+use gpui_ui_kit::my_widget::{MyWidget, MyWidgetVariant};
+use gpui_ui_kit::theme::ThemeExt;
+use gpui_ui_kit::*;
+
+struct MyWidgetDebugView;
+
+impl Render for MyWidgetDebugView {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = cx.theme();
+        div()
+            .size_full()
+            .bg(theme.bg)
+            .p_8()
+            .flex()
+            .flex_col()
+            .gap_4()
+            .child(MyWidget::new("default", "Default"))
+            .child(MyWidget::new("primary", "Primary").variant(MyWidgetVariant::Primary))
+            .child(MyWidget::new("disabled", "Disabled").disabled(true))
+    }
+}
+
+fn main() {
+    Application::new().run(|cx| {
+        cx.open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
+                    None, size(px(400.0), px(300.0)), cx,
+                ))),
+                ..Default::default()
+            },
+            |_window, _cx| MyWidgetDebugView,
+        )
+        .unwrap();
+    });
+}
+```
+
+Register in `Cargo.toml` under `[[example]]`:
+```toml
+[[example]]
+name = "my_widget_debug"
+```
+
+### Step 7: Add a Showcase Section
+
+Create `examples/includes/render_my_widget.inc.rs`:
+
+```rust
+impl Showcase {
+    fn render_my_widget_section(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let section_title = cx.t(TranslationKey::SectionMyWidget);
+
+        VStack::new()
+            .spacing(StackSpacing::Lg)
+            .child(self.section_header(section_title))
+            .child(
+                HStack::new()
+                    .spacing(StackSpacing::Md)
+                    .child(MyWidget::new("default", "Default").variant(MyWidgetVariant::Default))
+                    .child(MyWidget::new("primary", "Primary").variant(MyWidgetVariant::Primary)),
+            )
+            .child(
+                HStack::new()
+                    .spacing(StackSpacing::Md)
+                    .child(MyWidget::new("sm", "Small").size(MyWidgetSize::Sm))
+                    .child(MyWidget::new("md", "Medium").size(MyWidgetSize::Md))
+                    .child(MyWidget::new("lg", "Large").size(MyWidgetSize::Lg)),
+            )
+    }
+}
+```
+
+### Step 8: Register in the Showcase
+
+In `examples/showcase.rs`:
+
+1. Add variant to `ShowcaseSection` enum:
+   ```rust
+   pub enum ShowcaseSection {
+       // ... existing variants
+       MyWidget,
+   }
+   ```
+
+2. Add to `ShowcaseSection::all()`:
+   ```rust
+   ShowcaseSection::MyWidget,
+   ```
+
+3. Add the `include!` for the render file:
+   ```rust
+   include!("includes/render_my_widget.inc.rs");
+   ```
+
+4. Add the navigation entry with icon and translation key.
+
+5. Add the match arm in the `render_content` method:
+   ```rust
+   ShowcaseSection::MyWidget => self.render_my_widget_section(cx).into_any_element(),
+   ```
+
+### Step 9: Update Documentation
+
+1. Add the component to the appropriate table in **this README** (Core/Form/Data Display/etc.)
+2. Add a **Usage Example** code block showing the API
+3. Update the **Test Coverage** numbers
+
+### Step 10: Verify
+
+```bash
+# Check compilation
+cargo check -p gpui-ui-kit --all-targets
+
+# Run clippy
+cargo clippy -p gpui-ui-kit --all-targets
+
+# Run all tests
+cargo test -p gpui-ui-kit --lib --tests
+
+# Run the showcase to visually verify
+cargo run --example showcase -p gpui-ui-kit --release
+
+# Format
+cargo fmt -p gpui-ui-kit
+```
+
+### File Summary
+
+| What | Where |
+|------|-------|
+| Component source | `src/<component>.rs` |
+| Module registration | `src/lib.rs` |
+| Translation keys | `src/i18n.rs` (all 5 languages) |
+| Unit tests | `tests/components/<component>_test.rs` + `tests/components/mod.rs` |
+| Integration tests | `tests/integration/<component>_test.rs` + `tests/integration/mod.rs` |
+| Debug example | `examples/<component>_debug.rs` + `Cargo.toml` |
+| Showcase section | `examples/includes/render_<component>.inc.rs` |
+| Showcase registration | `examples/showcase.rs` (enum + all() + include + render match) |
+| README entry | Component table + usage example |
 
 ## License
 

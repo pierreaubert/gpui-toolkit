@@ -12,7 +12,7 @@
 //! use d3rs::fetch::{parse_csv, parse_tsv, CsvOptions};
 //!
 //! let csv_data = "name,value\nalice,10\nbob,20";
-//! let rows = parse_csv(csv_data);
+//! let rows = parse_csv(csv_data).unwrap();
 //! assert_eq!(rows.len(), 2);
 //! assert_eq!(rows[0].get("name"), Some(&"alice".to_string()));
 //! ```
@@ -23,7 +23,12 @@ mod dsv;
 
 pub use auto_type::{AutoTyped, auto_type, auto_type_row, auto_type_rows};
 pub use csv::{
-    CsvOptions, format_csv, format_tsv, parse_csv, parse_csv_with_options, parse_tsv,
-    parse_tsv_with_options,
+    CsvOptions, format_csv, format_tsv, parse_csv, parse_csv_lossy, parse_csv_lossy_with_options,
+    parse_csv_with_options, parse_tsv, parse_tsv_lossy, parse_tsv_lossy_with_options,
+    parse_tsv_with_options, try_parse_csv, try_parse_csv_with_options, try_parse_tsv,
+    try_parse_tsv_with_options,
 };
-pub use dsv::{DsvParser, DsvRow, parse_dsv};
+pub use dsv::{
+    ColumnPolicy, DsvParseError, DsvParseErrorKind, DsvParser, DsvResult, DsvRow, parse_dsv,
+    parse_dsv_lossy, try_parse_dsv,
+};

@@ -200,7 +200,7 @@ impl Default for Color {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::Color;
 
     #[test]
     fn test_color_hex_conversion() {

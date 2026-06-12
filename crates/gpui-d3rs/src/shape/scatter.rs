@@ -38,6 +38,24 @@ impl ScatterConfig {
         Self::default()
     }
 
+    /// Create a scatter configuration from design-system spacing and interaction defaults.
+    #[cfg(feature = "gpui")]
+    pub fn from_design(design: &gpui_design::DesignSystem) -> Self {
+        Self {
+            point_radius: (design.spacing.grid_unit * 0.75).max(3.0),
+            stroke_width: design.interaction.border_width.max(1.0),
+            ..Self::default()
+        }
+    }
+
+    /// Apply design-system spacing and interaction defaults.
+    #[cfg(feature = "gpui")]
+    pub fn with_design(mut self, design: &gpui_design::DesignSystem) -> Self {
+        self.point_radius = (design.spacing.grid_unit * 0.75).max(3.0);
+        self.stroke_width = design.interaction.border_width.max(1.0);
+        self
+    }
+
     /// Set the fill color
     pub fn fill_color(mut self, color: D3Color) -> Self {
         self.fill_color = color;

@@ -120,6 +120,10 @@ impl<R: Clone> Scale<f64, R> for ThresholdScale<R> {
             panic!("ThresholdScale requires at least one range value");
         }
 
+        if value.is_nan() {
+            panic!("ThresholdScale cannot scale NaN values");
+        }
+
         // Find which bucket the value falls into
         let index = self
             .thresholds
@@ -230,5 +234,12 @@ mod tests {
         assert_eq!(scale.scale(-1.0), "negative");
         assert_eq!(scale.scale(0.0), "positive");
         assert_eq!(scale.scale(1.0), "positive");
+    }
+
+    #[test]
+    #[should_panic(expected = "ThresholdScale cannot scale NaN values")]
+    fn test_threshold_scale_nan_panics() {
+        let scale = ThresholdScale::with_range(vec!["a", "b"]).domain(vec![0.0]);
+        scale.scale(f64::NAN);
     }
 }

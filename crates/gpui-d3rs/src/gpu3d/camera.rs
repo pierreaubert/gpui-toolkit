@@ -73,7 +73,10 @@ impl Camera3D {
 
     /// Get projection matrix
     pub fn projection_matrix(&self) -> Mat4 {
-        Mat4::perspective_rh(self.fov, self.aspect, self.near, self.far)
+        let aspect = self.aspect.max(1e-6);
+        let near = self.near.max(1e-6);
+        let far = self.far.max(near + 1e-6);
+        Mat4::perspective_rh(self.fov, aspect, near, far)
     }
 
     /// Get combined view-projection matrix
@@ -83,39 +86,50 @@ impl Camera3D {
 
     /// Get the direction the camera is looking
     pub fn forward(&self) -> Vec3 {
-        (self.target - self.position).normalize()
+        let dir = self.target - self.position;
+        if dir.length_squared() < 1e-12 {
+            return Vec3::NEG_Z;
+        }
+        dir.normalize()
     }
 
     /// Get the right vector
     pub fn right(&self) -> Vec3 {
-        self.forward().cross(self.up).normalize()
+        let fwd = self.forward();
+        let right = fwd.cross(self.up);
+        if right.length_squared() < 1e-12 {
+            return Vec3::X;
+        }
+        right.normalize()
+    }
+
+    /// Get camera-facing billboard plane axes in world space.
+    pub fn billboard_axes(&self) -> (Vec3, Vec3) {
+        let right = self.right();
+        let up = right.cross(self.forward());
+        if up.length_squared() < 1e-12 {
+            return (right, self.up.normalize_or_zero());
+        }
+        (right, up.normalize())
     }
 
     /// Project a world point to screen coordinates (0..width, 0..height)
     /// Returns None if the point is behind the camera
     pub fn project_to_screen(&self, world_pos: Vec3, width: f32, height: f32) -> Option<Vec3> {
         let view_proj = self.view_projection_matrix();
-        let clip_pos = view_proj.project_point3(world_pos);
+        let clip_pos = view_proj * world_pos.extend(1.0);
+        if clip_pos.w <= 1e-6 {
+            return None;
+        }
 
-        // Check if point is in front of camera (z < 1.0 in NDC for wgpu/glam perspective?)
-        // glam::Mat4::project_point3 returns normalized device coordinates.
-        // For standard perspective, z should be in [0, 1] or [-1, 1] depending on API.
-        // glam uses OpenGL convention [-1, 1] by default or 0..1?
-        // Mat4::perspective_rh creates a matrix for 0..1 depth range (wgpu default).
-        // So valid z is 0..1.
+        let ndc = clip_pos.truncate() / clip_pos.w;
+        if !(0.0..=1.0).contains(&ndc.z) {
+            return None;
+        }
 
-        // However, we also need to check w component if we did manual multiplication.
-        // project_point3 does the division by w.
-        // If w was negative (behind camera), the point might be projected incorrectly?
-        // glam handles this?
-        // Let's assume it works for points in front.
-
-        // Map NDC [-1, 1] x [-1, 1] to screen [0, width] x [0, height]
-        // Y is flipped in screen coords (0 is top) vs NDC (1 is top).
-
-        let x = (clip_pos.x + 1.0) * 0.5 * width;
-        let y = (1.0 - clip_pos.y) * 0.5 * height;
-        let z = clip_pos.z;
+        let x = (ndc.x + 1.0) * 0.5 * width;
+        let y = (1.0 - ndc.y) * 0.5 * height;
+        let z = ndc.z;
 
         Some(Vec3::new(x, y, z))
     }
@@ -311,5 +325,27 @@ mod tests {
 
         controls.rotate(0.0, -2000.0);
         assert!(controls.elevation >= controls.min_elevation);
+    }
+
+    #[test]
+    fn test_camera_zero_aspect_and_position() {
+        // Zero aspect ratio used to produce NaN in projection matrix
+        let mut camera = Camera3D::default();
+        camera.aspect = 0.0;
+        let proj = camera.projection_matrix();
+        assert!(
+            !proj.to_cols_array().iter().any(|x| x.is_nan()),
+            "projection with zero aspect should not be NaN"
+        );
+
+        // Position equal to target used to produce zero-length forward vector
+        camera.position = Vec3::new(1.0, 1.0, 1.0);
+        camera.target = Vec3::new(1.0, 1.0, 1.0);
+        let fwd = camera.forward();
+        assert!(
+            fwd.is_finite(),
+            "forward with position==target should be finite"
+        );
+        assert!(fwd.length() > 0.0, "forward should not be zero vector");
     }
 }

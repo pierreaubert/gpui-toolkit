@@ -1,9 +1,12 @@
 impl SpinoramaApp {
 fn render_cea2034_plot(&mut self, cx: &mut Context<Self>) -> Div {
+    let theme = cx.theme();
+    let ds = cx.design();
+    let s = self.font_scale();
     let colors = cea2034_colors();
 
-    let chart_width = 800.0;
-    let chart_height = 400.0;
+    let chart_width = self.content_width;
+    let chart_height = (chart_width * 0.5).min(self.content_height * 0.6);
 
     // Separate DI curves from SPL curves
     let spl_curve_names = [
@@ -17,6 +20,7 @@ fn render_cea2034_plot(&mut self, cx: &mut Context<Self>) -> Div {
     // Build PlotCurve list for SPL curves (primary axis)
     let mut plot_curves: Vec<PlotCurve> = spl_curve_names
         .iter()
+        .filter(|&&name| !self.hidden_cea2034_curves.contains(name))
         .filter_map(|&name| {
             let curve = self.cea2034_curves.get(name)?;
             let color = colors
@@ -40,6 +44,7 @@ fn render_cea2034_plot(&mut self, cx: &mut Context<Self>) -> Div {
     // Add DI curves (secondary axis)
     let di_curves: Vec<PlotCurve> = di_curve_names
         .iter()
+        .filter(|&&name| !self.hidden_cea2034_curves.contains(name))
         .filter_map(|&name| {
             let curve = self.cea2034_curves.get(name)?;
             let color = colors
@@ -80,6 +85,7 @@ fn render_cea2034_plot(&mut self, cx: &mut Context<Self>) -> Div {
         self.freq_spl_brush
             .current_selection()
             .map(|sel| BrushOverlay { selection: sel }),
+        &theme,
     );
 
     // Wrap with interactive handlers
@@ -94,12 +100,12 @@ fn render_cea2034_plot(&mut self, cx: &mut Context<Self>) -> Div {
     div()
         .flex()
         .flex_col()
-        .gap_6()
+        .gap(px(ds.spacing.section_gap * 1.5))
         .child(
             div()
-                .text_2xl()
+                .text_size(px(ds.typography.large_size * s))
                 .font_weight(FontWeight::BOLD)
-                .text_color(rgb(0x333333))
+                .text_color(theme.text_primary)
                 .child(format!(
                     "CEA2034 - {}",
                     self.selected_speaker.as_deref().unwrap_or("Unknown")
@@ -110,12 +116,11 @@ fn render_cea2034_plot(&mut self, cx: &mut Context<Self>) -> Div {
         .when(self.freq_spl_zoom.is_zoomed(), |el| {
             el.child(
                 div()
-                    .text_sm()
-                    .text_color(rgb(0x666666))
+                    .text_size(px(ds.typography.small_size * s))
+                    .text_color(theme.text_secondary)
                     .child("Zoomed (double-click to reset)"),
             )
         })
-        .child(self.render_legend(&colors))
+        .child(self.render_legend(&colors, &ds, &theme, cx))
 }
 }
-

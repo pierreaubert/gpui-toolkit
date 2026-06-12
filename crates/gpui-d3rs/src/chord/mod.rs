@@ -49,6 +49,7 @@ impl Default for ChordLayout {
     }
 }
 
+#[derive(Debug)]
 pub struct ChordResult {
     pub chords: Vec<Chord>,
     pub groups: Vec<ChordGroup>,
@@ -61,6 +62,16 @@ impl ChordLayout {
 
     pub fn pad_angle(mut self, angle: f64) -> Self {
         self.pad_angle = angle;
+        self
+    }
+
+    pub fn sort_subgroups(mut self, f: fn(f64, f64) -> std::cmp::Ordering) -> Self {
+        self.sort_subgroups = Some(f);
+        self
+    }
+
+    pub fn sort_chords(mut self, f: fn(f64, f64) -> std::cmp::Ordering) -> Self {
+        self.sort_chords = Some(f);
         self
     }
 
@@ -108,59 +119,72 @@ impl ChordLayout {
             current_angle = end_angle + self.pad_angle;
         }
 
-        // 3. Compute Chords
-        let mut chords = Vec::new();
+        // 3. Determine subgroup ordering per group
+        // For each group i, build the order of target indices j
+        let subgroup_orders: Vec<Vec<usize>> = (0..n)
+            .map(|i| {
+                let mut indices: Vec<usize> = (0..n).collect();
+                if let Some(cmp_fn) = self.sort_subgroups {
+                    indices.sort_by(|&a, &b| cmp_fn(matrix[i][a], matrix[i][b]));
+                }
+                indices
+            })
+            .collect();
 
-        // Subgroup angles tracking
+        // 4. Pre-compute subgroup angles using the (possibly sorted) ordering
+        // subgroup_angles[i][j] = (start_angle, end_angle) for the subgroup of group i targeting j
+        let mut subgroup_angles: Vec<Vec<(f64, f64)>> = vec![vec![(0.0, 0.0); n]; n];
         let mut group_angular_positions = groups.iter().map(|g| g.start_angle).collect::<Vec<_>>();
 
         for i in 0..n {
-            for j in 0..n {
-                // Only create chords for i -> j if i < j (undirected visual) OR create both if directed flows needed.
-                // d3-chord typically creates directed ribbons.
-                // But typically we visualize the flow i->j combined with j->i
-                // For simplicity here, we generate directed chords for all non-zero i->j
+            for &j in &subgroup_orders[i] {
+                let value = matrix[i][j];
+                let start = group_angular_positions[i];
+                let end = start + value * transform_k;
+                subgroup_angles[i][j] = (start, end);
+                group_angular_positions[i] = end;
+            }
+        }
 
-                // Usually d3 pairs (i,j) and (j,i) into a SINGLE chord object with source=i->j and target=j->i
-                // To do this, we iterate i from 0..n, j from i..n
+        // 5. Build chords by pairing (i,j) with j >= i
+        let mut chords = Vec::new();
 
-                // Let's implement the standard pairing
-                if j >= i {
-                    let v_ij = matrix[i][j];
-                    let v_ji = matrix[j][i];
+        for i in 0..n {
+            for j in i..n {
+                let v_ij = matrix[i][j];
+                let v_ji = matrix[j][i];
 
-                    if v_ij > 0.0 || v_ji > 0.0 {
-                        // Source (i)
-                        let start_i = group_angular_positions[i];
-                        let end_i = start_i + v_ij * transform_k;
-                        group_angular_positions[i] = end_i; // Advance
+                if v_ij > 0.0 || v_ji > 0.0 {
+                    let (start_i, end_i) = subgroup_angles[i][j];
+                    let (start_j, end_j) = subgroup_angles[j][i];
 
-                        // Target (j)
-                        let start_j = group_angular_positions[j];
-                        let end_j = start_j + v_ji * transform_k;
-                        group_angular_positions[j] = end_j; // Advance
+                    let source = ChordSubgroup {
+                        index: i,
+                        start_angle: start_i,
+                        end_angle: end_i,
+                        value: v_ij,
+                    };
 
-                        let source = ChordSubgroup {
-                            index: i,
-                            start_angle: start_i,
-                            end_angle: end_i,
-                            value: v_ij,
-                        };
+                    let target = ChordSubgroup {
+                        index: j,
+                        start_angle: start_j,
+                        end_angle: end_j,
+                        value: v_ji,
+                    };
 
-                        let target = ChordSubgroup {
-                            index: j,
-                            start_angle: start_j,
-                            end_angle: end_j,
-                            value: v_ji,
-                        };
-
-                        chords.push(Chord { source, target });
-                    }
+                    chords.push(Chord { source, target });
                 }
             }
         }
 
-        // TODO: Apply sort_chords
+        // 6. Apply sort_chords if present
+        if let Some(cmp_fn) = self.sort_chords {
+            chords.sort_by(|a, b| {
+                let sum_a = a.source.value + a.target.value;
+                let sum_b = b.source.value + b.target.value;
+                cmp_fn(sum_a, sum_b)
+            });
+        }
 
         ChordResult { chords, groups }
     }

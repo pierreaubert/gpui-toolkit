@@ -1,21 +1,33 @@
 [package]
 name = "gpui-px"
-version = "0.6.0"
+version = "0.7.5"
 authors.workspace = true
 edition.workspace = true
-license = "ISC"
+keywords.workspace = true
+categories.workspace = true
+license.workspace = true
 repository.workspace = true
 description = "High-level Plotly Express-style charting API built on d3rs and GPUI"
 
 [features]
 default = ["gpui", "gpu-2d"]
-gpui = ["dep:gpui", "dep:gpui-ui-kit"]
+autoeq = ["dep:autoeq"]
+camera = []
+gpui = ["dep:gpui", "dep:gpui-ui-kit", "dep:gpui-miniapp", "dep:gpui-builder", "dep:gpui-design", "gpui-design/gpui", "gpui-d3rs/gpui"]
 gpu-3d = ["gpui-d3rs/gpu-3d"]
 gpu-2d = ["gpui-d3rs/gpu-2d"]
+reqwest = ["dep:reqwest"]
+showcase = []
+spinorama = ["autoeq", "tokio", "reqwest", "urlencoding", "gpu-3d"]
+tokio = ["dep:tokio"]
+urlencoding = ["dep:urlencoding"]
 
 [dependencies]
 gpui = { workspace = true, optional = true }
 gpui-ui-kit = { workspace = true, optional = true }
+gpui-miniapp = { workspace = true, optional = true }
+gpui-builder = { workspace = true, optional = true }
+gpui-design = { workspace = true, optional = true }
 gpui-d3rs = { workspace = true }
 thiserror = { workspace = true }
 autoeq = { workspace = true, optional = true }

@@ -2,9 +2,13 @@
 //!
 //! Contextual feedback messages.
 
+use crate::accessibility::{AccessibilityExt, AccessibilityNode, AriaProps, AriaRole};
 use crate::theme::{Theme, ThemeExt};
-use gpui::prelude::*;
-use gpui::{Component, *};
+use gpui::prelude::{InteractiveElement, IntoElement, ParentElement, RenderOnce, Styled};
+use gpui::{
+    App, Component, Div, ElementId, FontWeight, MouseButton, Rgba, SharedString, Stateful, Window,
+    div,
+};
 
 /// Alert variant
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -50,6 +54,8 @@ pub struct Alert {
     closeable: bool,
     icon: Option<SharedString>,
     on_close: Option<Box<dyn Fn(&mut Window, &mut App) + 'static>>,
+    aria_label: Option<SharedString>,
+    aria_role: Option<AriaRole>,
 }
 
 impl Alert {
@@ -63,6 +69,8 @@ impl Alert {
             closeable: false,
             icon: None,
             on_close: None,
+            aria_label: None,
+            aria_role: None,
         }
     }
 
@@ -93,6 +101,18 @@ impl Alert {
     /// Set close handler
     pub fn on_close(mut self, handler: impl Fn(&mut Window, &mut App) + 'static) -> Self {
         self.on_close = Some(Box::new(handler));
+        self
+    }
+
+    /// Set an explicit ARIA label (overrides the alert's title/message)
+    pub fn aria_label(mut self, label: impl Into<SharedString>) -> Self {
+        self.aria_label = Some(label.into());
+        self
+    }
+
+    /// Override the default ARIA role (Alert)
+    pub fn aria_role(mut self, role: AriaRole) -> Self {
+        self.aria_role = Some(role);
         self
     }
 
@@ -176,6 +196,19 @@ impl IntoElement for Alert {
 
 impl RenderOnce for Alert {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+        // Register in accessibility tree
+        let effective_label = self
+            .aria_label
+            .clone()
+            .or_else(|| self.title.clone())
+            .or_else(|| Some(self.message.clone()))
+            .unwrap_or_default();
+        cx.register_accessible(AccessibilityNode {
+            element_id: self.id.clone(),
+            label: effective_label,
+            props: AriaProps::with_role(self.aria_role.unwrap_or(AriaRole::Alert)),
+        });
+
         let theme = cx.theme();
         self.build_with_theme(&theme)
     }

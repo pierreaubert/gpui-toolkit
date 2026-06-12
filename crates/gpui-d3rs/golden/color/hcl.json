@@ -1,0 +1,90 @@
+{
+  "module": "d3-color",
+  "function": "hcl",
+  "tolerance": 0.01,
+  "test_cases": [
+    {
+      "name": "rgb_to_lab",
+      "rgb": [255, 0, 0],
+      "expected_lab": {"l": 53.24, "a": 80.09, "b": 67.20}
+    },
+    {
+      "name": "rgb_to_lab_green",
+      "rgb": [0, 255, 0],
+      "expected_lab": {"l": 87.73, "a": -86.18, "b": 83.18}
+    },
+    {
+      "name": "rgb_to_lab_blue",
+      "rgb": [0, 0, 255],
+      "expected_lab": {"l": 32.30, "a": 79.19, "b": -107.86}
+    },
+    {
+      "name": "rgb_to_lab_white",
+      "rgb": [255, 255, 255],
+      "expected_lab": {"l": 100.0, "a": 0.0, "b": 0.0}
+    },
+    {
+      "name": "rgb_to_lab_black",
+      "rgb": [0, 0, 0],
+      "expected_lab": {"l": 0.0, "a": 0.0, "b": 0.0}
+    },
+    {
+      "name": "lab_roundtrip",
+      "rgb": [128, 64, 192],
+      "tolerance": 0.02
+    },
+    {
+      "name": "rgb_to_hcl",
+      "rgb": [255, 0, 0],
+      "expected_hcl": {"h": 40.0, "c": 104.0, "l": 54.0}
+    },
+    {
+      "name": "rgb_to_hcl_blue",
+      "rgb": [0, 0, 255],
+      "expected_hcl": {"h": 306.0, "c": 131.0, "l": 29.0}
+    },
+    {
+      "name": "hcl_lab_conversion",
+      "hcl": {"h": 180.0, "c": 50.0, "l": 60.0},
+      "expected_lab": {"l": 60.0, "a": 0.0, "b": 50.0}
+    },
+    {
+      "name": "hcl_roundtrip",
+      "rgb": [128, 64, 192],
+      "tolerance": 0.02
+    },
+    {
+      "name": "hcl_interpolation",
+      "color1": {"rgb": [255, 0, 0]},
+      "color2": {"rgb": [0, 0, 255]},
+      "t_values": [0.0, 0.25, 0.5, 0.75, 1.0]
+    },
+    {
+      "name": "hcl_hue_wrapping",
+      "color1": {"hcl": {"h": 350.0, "c": 50.0, "l": 50.0}},
+      "color2": {"hcl": {"h": 10.0, "c": 50.0, "l": 50.0}},
+      "mid_hue_range": [0, 360]
+    },
+    {
+      "name": "lab_delta_e",
+      "color1": {"lab": {"l": 50.0, "a": 0.0, "b": 0.0}},
+      "color2": {"lab": {"l": 55.0, "a": 0.0, "b": 0.0}},
+      "expected_delta_e": 5.0
+    },
+    {
+      "name": "lab_chroma",
+      "lab": {"l": 50.0, "a": 30.0, "b": 40.0},
+      "expected_chroma": 50.0
+    },
+    {
+      "name": "gray_colors",
+      "rgb_values": [[0, 0, 0], [64, 64, 64], [128, 128, 128], [192, 192, 192], [255, 255, 255]],
+      "expected_l_range": [0, 25, 50, 75, 100]
+    },
+    {
+      "name": "primary_colors",
+      "rgb_values": [[255, 0, 0], [0, 255, 0], [0, 0, 255]],
+      "min_luminance": 25
+    }
+  ]
+}

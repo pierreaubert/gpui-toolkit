@@ -1,8 +1,8 @@
 //! Port component for workflow nodes
 
 use super::theme::WorkflowTheme;
-use gpui::prelude::*;
-use gpui::*;
+use gpui::prelude::{InteractiveElement, IntoElement, RenderOnce, Styled};
+use gpui::{App, ElementId, MouseButton, Rgba, Window, div, px};
 
 /// Port direction
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -123,12 +123,14 @@ impl RenderOnce for Port {
 
         if let Some(handler) = on_mouse_down {
             result = result.on_mouse_down(MouseButton::Left, move |_event, window, cx| {
+                cx.stop_propagation();
                 handler(direction, index, window, cx);
             });
         }
 
         if let Some(handler) = on_mouse_up {
             result = result.on_mouse_up(MouseButton::Left, move |_event, window, cx| {
+                cx.stop_propagation();
                 handler(direction, index, window, cx);
             });
         }

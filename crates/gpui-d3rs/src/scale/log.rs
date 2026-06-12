@@ -28,6 +28,7 @@ pub struct LogScale {
     range_min: f64,
     range_max: f64,
     base: f64,
+    clamped: bool,
 }
 
 impl Default for LogScale {
@@ -53,6 +54,7 @@ impl LogScale {
             range_min: 0.0,
             range_max: 1.0,
             base: 10.0,
+            clamped: true, // Default to clamping like D3.js
         }
     }
 
@@ -132,13 +134,51 @@ impl LogScale {
     pub fn range_normalized(self, max: f64) -> Self {
         self.range(0.0, max)
     }
+
+    /// Enable or disable clamping
+    ///
+    /// When enabled (default), values outside the domain are clamped to the domain extent.
+    /// When disabled, extrapolation occurs for out-of-domain values.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use d3rs::scale::{LogScale, Scale};
+    ///
+    /// let scale = LogScale::new()
+    ///     .domain(1.0, 100.0)
+    ///     .range(0.0, 1.0)
+    ///     .clamp(false);
+    ///
+    /// // Values outside domain should extrapolate (return negative or > 1.0)
+    /// assert!(scale.scale(0.1) < 0.0); // Extrapolates below 0
+    /// assert!(scale.scale(1000.0) > 1.0); // Extrapolates above 1
+    /// ```
+    pub fn clamp(mut self, enabled: bool) -> Self {
+        self.clamped = enabled;
+        self
+    }
+
+    /// Check if clamping is enabled
+    pub fn is_clamped(&self) -> bool {
+        self.clamped
+    }
 }
 
 impl Scale<f64, f64> for LogScale {
     fn scale(&self, value: f64) -> f64 {
         let log_min = self.domain_min.log(self.base);
         let log_max = self.domain_max.log(self.base);
-        let log_val = value.clamp(self.domain_min, self.domain_max).log(self.base);
+
+        let value = if self.clamped {
+            value.clamp(
+                self.domain_min.min(self.domain_max),
+                self.domain_min.max(self.domain_max),
+            )
+        } else {
+            value
+        };
+        let log_val = value.log(self.base);
 
         let t = (log_val - log_min) / (log_max - log_min);
         self.range_min + t * (self.range_max - self.range_min)
@@ -147,6 +187,15 @@ impl Scale<f64, f64> for LogScale {
     fn invert(&self, value: f64) -> Option<f64> {
         let log_min = self.domain_min.log(self.base);
         let log_max = self.domain_max.log(self.base);
+
+        let value = if self.clamped {
+            value.clamp(
+                self.range_min.min(self.range_max),
+                self.range_min.max(self.range_max),
+            )
+        } else {
+            value
+        };
 
         let t = (value - self.range_min) / (self.range_max - self.range_min);
         let log_val = log_min + t * (log_max - log_min);
@@ -265,5 +314,37 @@ mod tests {
     #[cfg(debug_assertions)]
     fn test_log_scale_negative_domain() {
         LogScale::new().domain(-10.0, 10.0);
+    }
+
+    #[test]
+    fn test_log_scale_clamp_disabled() {
+        let scale = LogScale::new()
+            .domain(10.0, 100.0)
+            .range(0.0, 1.0)
+            .clamp(false);
+
+        // Default clamping is enabled
+        let clamped_scale = LogScale::new().domain(10.0, 100.0).range(0.0, 1.0);
+        assert!(clamped_scale.is_clamped());
+
+        // With clamping disabled, extrapolation should work
+        assert!(!scale.is_clamped());
+        // Below domain: extrapolate below 0
+        assert!(scale.scale(1.0) < 0.0);
+        // Above domain: extrapolate above 1
+        assert!(scale.scale(1000.0) > 1.0);
+    }
+
+    #[test]
+    fn test_log_scale_clamp_explicit() {
+        // Explicitly enable clamping (default)
+        let scale = LogScale::new()
+            .domain(10.0, 100.0)
+            .range(0.0, 1.0)
+            .clamp(true);
+
+        assert!(scale.is_clamped());
+        assert_relative_eq!(scale.scale(5.0), 0.0, epsilon = 1e-10);
+        assert_relative_eq!(scale.scale(200.0), 1.0, epsilon = 1e-10);
     }
 }

@@ -44,6 +44,7 @@
 
 pub mod arc;
 pub mod area;
+pub(crate) mod contour_smoothing;
 pub mod curve;
 pub mod link;
 pub mod path;
@@ -52,29 +53,29 @@ pub mod radial;
 pub mod stack;
 pub mod symbol;
 
-#[cfg(feature = "gpui")]
+#[cfg(all(feature = "gpui", not(test)))]
 mod bar;
-#[cfg(feature = "gpui")]
+#[cfg(all(feature = "gpui", not(test)))]
 pub mod contour;
-#[cfg(feature = "gpui")]
+#[cfg(all(feature = "gpui", not(test)))]
 mod line;
-#[cfg(feature = "gpui")]
+#[cfg(all(feature = "gpui", not(test)))]
 mod scatter;
 
 // Re-export existing chart rendering functions (GPUI only)
-#[cfg(feature = "gpui")]
+#[cfg(all(feature = "gpui", not(test)))]
 pub use bar::{
     BarConfig, BarDatum, GroupedBarConfig, GroupedBarDatum, GroupedBarMeta, analyze_grouped_data,
     render_bars, render_grouped_bars,
 };
-#[cfg(feature = "gpui")]
+#[cfg(all(feature = "gpui", not(test)))]
 pub use contour::{
     ContourBandElement, ContourConfig, ContourElement, HeatmapData, HeatmapElement,
     heat_color_scale, render_contour, render_contour_bands, render_heatmap, viridis_color_scale,
 };
-#[cfg(feature = "gpui")]
-pub use line::{CurveType, LineConfig, LinePoint, render_line};
-#[cfg(feature = "gpui")]
+#[cfg(all(feature = "gpui", not(test)))]
+pub use line::{CurveType, LineConfig, LinePoint, StrokeDashArray, render_line};
+#[cfg(all(feature = "gpui", not(test)))]
 pub use scatter::{ScatterConfig, ScatterPoint, render_scatter};
 
 // Re-export new shape utilities (no GPUI dependency)

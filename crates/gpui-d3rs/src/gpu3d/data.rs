@@ -121,6 +121,14 @@ impl SurfaceData {
     where
         F: Fn(f64, f64) -> f64,
     {
+        if x_steps < 2 || y_steps < 2 {
+            return Self::from_grid(
+                vec![x_range.0, x_range.1],
+                vec![y_range.0, y_range.1],
+                vec![vec![0.0; x_steps.max(1)]; y_steps.max(1)],
+            );
+        }
+
         let x_values: Vec<f64> = (0..x_steps)
             .map(|i| x_range.0 + (x_range.1 - x_range.0) * (i as f64) / (x_steps - 1) as f64)
             .collect();
@@ -262,10 +270,17 @@ impl SurfaceData {
         }
 
         if self.x_log {
-            let log_min = self.x_min.ln();
-            let log_max = self.x_max.ln();
-            let log_x = x.ln();
-            (2.0 * (log_x - log_min) / (log_max - log_min) - 1.0) as f32
+            let min_val = if self.x_min <= 0.0 { 1e-10 } else { self.x_min };
+            let max_val = if self.x_max <= 0.0 { 1e-10 } else { self.x_max };
+            let x_val = if x <= 0.0 { min_val } else { x };
+            let log_min = min_val.ln();
+            let log_max = max_val.ln();
+            let log_x = x_val.ln();
+            if (log_max - log_min).abs() < 1e-10 {
+                0.0
+            } else {
+                (2.0 * (log_x - log_min) / (log_max - log_min) - 1.0) as f32
+            }
         } else {
             (2.0 * (x - self.x_min) / (self.x_max - self.x_min) - 1.0) as f32
         }
@@ -278,10 +293,17 @@ impl SurfaceData {
         }
 
         if self.y_log {
-            let log_min = self.y_min.ln();
-            let log_max = self.y_max.ln();
-            let log_y = y.ln();
-            (2.0 * (log_y - log_min) / (log_max - log_min) - 1.0) as f32
+            let min_val = if self.y_min <= 0.0 { 1e-10 } else { self.y_min };
+            let max_val = if self.y_max <= 0.0 { 1e-10 } else { self.y_max };
+            let y_val = if y <= 0.0 { min_val } else { y };
+            let log_min = min_val.ln();
+            let log_max = max_val.ln();
+            let log_y = y_val.ln();
+            if (log_max - log_min).abs() < 1e-10 {
+                0.0
+            } else {
+                (2.0 * (log_y - log_min) / (log_max - log_min) - 1.0) as f32
+            }
         } else {
             (2.0 * (y - self.y_min) / (self.y_max - self.y_min) - 1.0) as f32
         }
@@ -369,5 +391,37 @@ mod tests {
         assert!((data.normalize_z(10.0) - 0.0).abs() < 0.01);
         assert!((data.normalize_z(1000.0) - 1.0).abs() < 0.01);
         assert!((data.normalize_z(100.0) - 0.5).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_from_function_single_step_does_not_panic() {
+        // x_steps == 1 or y_steps == 1 used to divide by zero
+        let data = SurfaceData::from_function((0.0, 10.0), (0.0, 10.0), 1, 5, |_, _| 1.0);
+        assert_eq!(data.x_count(), 1);
+        assert_eq!(data.y_count(), 5);
+
+        let data = SurfaceData::from_function((0.0, 10.0), (0.0, 10.0), 5, 1, |_, _| 1.0);
+        assert_eq!(data.x_count(), 5);
+        assert_eq!(data.y_count(), 1);
+    }
+
+    #[test]
+    fn test_normalize_log_with_non_positive_domain() {
+        // Log scale with non-positive domain should not produce NaN
+        let data = SurfaceData::from_function((-10.0, 10.0), (-10.0, 10.0), 3, 3, |_, _| 0.0)
+            .with_log_x(true)
+            .with_log_y(true);
+
+        let nx = data.normalize_x(0.0);
+        assert!(
+            nx.is_finite(),
+            "normalize_x with log and non-positive domain should be finite, got {nx}"
+        );
+
+        let ny = data.normalize_y(0.0);
+        assert!(
+            ny.is_finite(),
+            "normalize_y with log and non-positive domain should be finite, got {ny}"
+        );
     }
 }

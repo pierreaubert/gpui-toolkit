@@ -6,11 +6,6 @@
  *
  * Usage:
  *   node generate.js           # Generate all golden files
- *   node generate.js scales    # Generate only scale tests
- *   node generate.js interpolate
- *   node generate.js array
- *   node generate.js color
- *   node generate.js shape
  */
 
 const d3 = require('d3');

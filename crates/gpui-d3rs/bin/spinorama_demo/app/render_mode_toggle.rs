@@ -7,6 +7,9 @@ impl SpinoramaApp {
         on_click: T,
         cx: &mut Context<Self>,
     ) -> impl IntoElement + use<T> {
+        let theme = cx.theme();
+        let ds = cx.design();
+        let s = self.font_scale();
         let entity = cx.entity().clone();
         let entity_for_colormap = cx.entity().clone();
         let colormap = self.contour_colormap;
@@ -15,29 +18,29 @@ impl SpinoramaApp {
             .id(id)
             .flex()
             .items_center()
-            .gap_4()
+            .gap(px(ds.spacing.section_gap))
             .child(
                 div()
                     .flex()
                     .items_center()
-                    .gap_2()
-                    .child(div().text_sm().text_color(rgb(0x666666)).child("Render:"))
+                    .gap(px(ds.spacing.control_gap))
+                    .child(div().text_size(px(ds.typography.small_size * s)).text_color(theme.text_secondary).child("Render:"))
                     .child(
                         div()
                             .id(ElementId::Name(format!("{}-btn", id).into()))
                             .flex()
                             .items_center()
-                            .px_3()
-                            .py_1()
-                            .bg(rgb(0xe0e0e0))
+                            .px(px(ds.spacing.control_padding_x))
+                            .py(px(ds.spacing.control_padding_y * 0.5))
+                            .bg(theme.muted)
                             .border_1()
-                            .border_color(rgb(0xcccccc))
-                            .rounded_md()
+                            .border_color(theme.text_secondary)
+                            .rounded(px(ds.corners.md))
                             .cursor_pointer()
-                            .text_sm()
+                            .text_size(px(ds.typography.small_size * s))
                             .font_weight(FontWeight::MEDIUM)
-                            .text_color(rgb(0x333333))
-                            .hover(|s| s.bg(rgb(0xd0d0d0)))
+                            .text_color(theme.text_primary)
+                            .hover(|s| s.bg(theme.surface_hover))
                             .child(mode.label())
                             .on_mouse_down(MouseButton::Left, move |_, _window, cx| {
                                 entity.update(cx, |this, cx| {
@@ -51,24 +54,24 @@ impl SpinoramaApp {
                 div()
                     .flex()
                     .items_center()
-                    .gap_2()
-                    .child(div().text_sm().text_color(rgb(0x666666)).child("Colormap:"))
+                    .gap(px(ds.spacing.control_gap))
+                    .child(div().text_size(px(ds.typography.small_size * s)).text_color(theme.text_secondary).child("Colormap:"))
                     .child(
                         div()
                             .id(ElementId::Name(format!("{}-colormap-btn", id).into()))
                             .flex()
                             .items_center()
-                            .px_3()
-                            .py_1()
-                            .bg(rgb(0xe0e0e0))
+                            .px(px(ds.spacing.control_padding_x))
+                            .py(px(ds.spacing.control_padding_y * 0.5))
+                            .bg(theme.muted)
                             .border_1()
-                            .border_color(rgb(0xcccccc))
-                            .rounded_md()
+                            .border_color(theme.text_secondary)
+                            .rounded(px(ds.corners.md))
                             .cursor_pointer()
-                            .text_sm()
+                            .text_size(px(ds.typography.small_size * s))
                             .font_weight(FontWeight::MEDIUM)
-                            .text_color(rgb(0x333333))
-                            .hover(|s| s.bg(rgb(0xd0d0d0)))
+                            .text_color(theme.text_primary)
+                            .hover(|s| s.bg(theme.surface_hover))
                             .child(colormap.label())
                             .on_mouse_down(MouseButton::Left, move |_, _window, cx| {
                                 entity_for_colormap.update(cx, |this, cx| {
@@ -80,4 +83,3 @@ impl SpinoramaApp {
             )
     }
 }
-

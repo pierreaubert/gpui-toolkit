@@ -87,9 +87,116 @@ pub fn connection_path(from: Position, to: Position, tolerance: f32) -> Vec<Posi
     flatten_cubic_bezier(p0, p1, p2, p3, tolerance)
 }
 
+/// Rectangle representing a node bounding box used as a routing obstacle.
+#[derive(Clone, Debug)]
+pub struct ObstacleRect {
+    pub x: f32,
+    pub y: f32,
+    pub w: f32,
+    pub h: f32,
+}
+
+impl ObstacleRect {
+    pub fn new(x: f32, y: f32, w: f32, h: f32) -> Self {
+        Self { x, y, w, h }
+    }
+
+    fn right(&self) -> f32 {
+        self.x + self.w
+    }
+
+    fn bottom(&self) -> f32 {
+        self.y + self.h
+    }
+
+    fn contains(&self, p: &Position) -> bool {
+        p.x > self.x && p.x < self.right() && p.y > self.y && p.y < self.bottom()
+    }
+}
+
+/// Check whether any sampled point of a polyline falls inside a rect.
+fn path_hits_rect(path: &[Position], rect: &ObstacleRect) -> bool {
+    path.iter().any(|p| rect.contains(p))
+}
+
+/// Generate a connection path that detours around obstacle nodes.
+///
+/// Falls back to the direct horizontal bezier when no obstacle is in the way.
+/// The algorithm routes above or below the combined bounding box of all
+/// blocking obstacles using three segments: a bezier into the detour altitude,
+/// a straight horizontal segment past the obstacles, and a bezier back to the
+/// target port.
+pub fn connection_path_avoiding(
+    from: Position,
+    to: Position,
+    obstacles: &[ObstacleRect],
+    margin: f32,
+    tolerance: f32,
+) -> Vec<Position> {
+    if obstacles.is_empty() {
+        return connection_path(from, to, tolerance);
+    }
+
+    // Try the direct path and check for collisions
+    let direct = connection_path(from, to, tolerance);
+    let blocking: Vec<&ObstacleRect> = obstacles
+        .iter()
+        .filter(|o| path_hits_rect(&direct, o))
+        .collect();
+
+    if blocking.is_empty() {
+        return direct;
+    }
+
+    // Combined bounding box of all blocking obstacles
+    let obs_top = blocking.iter().map(|o| o.y).fold(f32::MAX, f32::min);
+    let obs_bottom = blocking.iter().map(|o| o.bottom()).fold(f32::MIN, f32::max);
+    let obs_left = blocking.iter().map(|o| o.x).fold(f32::MAX, f32::min);
+    let obs_right = blocking.iter().map(|o| o.right()).fold(f32::MIN, f32::max);
+
+    // Pick the closer side (above or below)
+    let avg_y = (from.y + to.y) * 0.5;
+    let above_y = obs_top - margin;
+    let below_y = obs_bottom + margin;
+    let route_y = if (avg_y - above_y).abs() <= (avg_y - below_y).abs() {
+        above_y
+    } else {
+        below_y
+    };
+
+    // Waypoint X: enter before first obstacle, exit after last
+    let enter_x = (obs_left - margin).max(from.x);
+    let exit_x = (obs_right + margin).min(to.x);
+
+    // Degenerate case — fall back to direct path
+    if enter_x >= exit_x {
+        return direct;
+    }
+
+    let wp1 = Position::new(enter_x, route_y);
+    let wp2 = Position::new(exit_x, route_y);
+
+    // Segment 1: from → wp1 (horizontal bezier curving to detour altitude)
+    let mut path = connection_path(from, wp1, tolerance);
+
+    // Segment 2: straight horizontal at route_y
+    if (exit_x - enter_x).abs() > 1.0 {
+        path.push(wp2);
+    }
+
+    // Segment 3: wp2 → to (horizontal bezier curving back to target)
+    let seg_end = connection_path(wp2, to, tolerance);
+    if seg_end.len() > 1 {
+        path.extend_from_slice(&seg_end[1..]); // skip duplicate point
+    }
+
+    path
+}
+
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::super::Position;
+    use super::{connection_path, flatten_cubic_bezier, horizontal_bezier};
 
     #[test]
     fn test_flatten_straight_line() {

@@ -1,11 +1,14 @@
 impl SpinoramaApp {
     /// Render 3D surface plot - SPL as a function of frequency and angle
     fn render_surface_3d_plot(&mut self, cx: &mut Context<Self>) -> Div {
+        let theme = cx.theme();
+        let ds = cx.design();
+        let s = self.font_scale();
         let Some(ref contour_data) = self.contour_data else {
             return div().flex().items_center().justify_center().h_full().child(
                 div()
-                    .text_base()
-                    .text_color(rgb(0x666666))
+                    .text_size(px(ds.typography.base_size * s))
+                    .text_color(theme.text_secondary)
                     .child("No contour data available for this speaker."),
             );
         };
@@ -55,16 +58,17 @@ impl SpinoramaApp {
             Colormap::Coolwarm => Surface3DColormap::CoolWarm,
         };
 
+        let bg = theme.surface;
         let config = Surface3DConfig::new()
             .colormap(colormap)
             .wireframe(self.surface_wireframe)
-            .background_color(1.0, 1.0, 1.0) // White background
+            .background_color(bg.r, bg.g, bg.b)
             .opacity(self.surface_opacity)
             .isolines(self.surface_isolines)
             .show_grid(self.surface_show_grid)
             .plot_type(SurfacePlotType::Cartesian) // Set plot type
             .camera_position(
-                3.5,
+                5.0,
                 self.surface_rotation_azimuth,
                 self.surface_rotation_elevation,
             );
@@ -86,19 +90,19 @@ impl SpinoramaApp {
         let colormap_selector = div()
             .flex()
             .flex_row()
-            .gap_2()
+            .gap(px(ds.spacing.control_gap))
             .children(colormaps.iter().map(|&(cm, label)| {
                 div()
                     .id(ElementId::Name(format!("cmap-{}", label).into()))
-                    .px_3()
-                    .py_1()
-                    .rounded(px(4.0))
+                    .px(px(ds.spacing.control_padding_x))
+                    .py(px(ds.spacing.control_padding_y * 0.5))
+                    .rounded(px(ds.corners.sm))
                     .cursor_pointer()
                     .when(self.contour_colormap == cm, |el| {
-                        el.bg(rgb(0x3b82f6)).text_color(rgb(0xffffff))
+                        el.bg(theme.accent).text_color(theme.text_on_accent)
                     })
                     .when(self.contour_colormap != cm, |el| {
-                        el.bg(rgb(0xe5e7eb)).text_color(rgb(0x666666))
+                        el.bg(theme.muted).text_color(theme.text_secondary)
                     })
                     .child(label)
                     .on_click(cx.listener(move |this, _, _window, cx| {
@@ -110,15 +114,15 @@ impl SpinoramaApp {
         // Wireframe toggle
         let wireframe_toggle = div()
             .id("surface-wireframe-toggle")
-            .px_3()
-            .py_1()
-            .rounded(px(4.0))
+            .px(px(ds.spacing.control_padding_x))
+            .py(px(ds.spacing.control_padding_y * 0.5))
+            .rounded(px(ds.corners.sm))
             .cursor_pointer()
             .when(self.surface_wireframe, |el| {
-                el.bg(rgb(0x3b82f6)).text_color(rgb(0xffffff))
+                el.bg(theme.accent).text_color(theme.text_on_accent)
             })
             .when(!self.surface_wireframe, |el| {
-                el.bg(rgb(0xe5e7eb)).text_color(rgb(0x666666))
+                el.bg(theme.muted).text_color(theme.text_secondary)
             })
             .child("Wireframe")
             .on_click(cx.listener(|this, _, _window, cx| {
@@ -129,20 +133,20 @@ impl SpinoramaApp {
         // Isolines toggle
         let isolines_toggle = div()
             .id("surface-isolines-toggle-3d")
-            .px_3()
-            .py_1()
-            .rounded(px(4.0))
+            .px(px(ds.spacing.control_padding_x))
+            .py(px(ds.spacing.control_padding_y * 0.5))
+            .rounded(px(ds.corners.sm))
             .cursor_pointer()
-            .text_sm()
+            .text_size(px(ds.typography.small_size * s))
             .bg(if self.surface_isolines {
-                rgb(0x3b82f6)
+                theme.accent
             } else {
-                rgb(0xe5e7eb)
+                theme.muted
             })
             .text_color(if self.surface_isolines {
-                rgb(0xffffff)
+                theme.text_on_accent
             } else {
-                rgb(0x666666)
+                theme.text_secondary
             })
             .child("Isolines")
             .on_click(cx.listener(|this, _, _window, cx| {
@@ -153,20 +157,20 @@ impl SpinoramaApp {
         // Grid toggle
         let grid_toggle = div()
             .id("surface-grid-toggle-3d")
-            .px_3()
-            .py_1()
-            .rounded(px(4.0))
+            .px(px(ds.spacing.control_padding_x))
+            .py(px(ds.spacing.control_padding_y * 0.5))
+            .rounded(px(ds.corners.sm))
             .cursor_pointer()
-            .text_sm()
+            .text_size(px(ds.typography.small_size * s))
             .bg(if self.surface_show_grid {
-                rgb(0x3b82f6)
+                theme.accent
             } else {
-                rgb(0xe5e7eb)
+                theme.muted
             })
             .text_color(if self.surface_show_grid {
-                rgb(0xffffff)
+                theme.text_on_accent
             } else {
-                rgb(0x666666)
+                theme.text_secondary
             })
             .child("Grid")
             .on_click(cx.listener(|this, _, _window, cx| {
@@ -191,12 +195,12 @@ impl SpinoramaApp {
                 });
             });
 
-        // Interactive container for the 3D view
+        // Interactive container for the 3D view — fills remaining space
         let surface_view = div()
             .id("surface-3d-view")
-            .w(px(800.0)) // Square view
-            .h(px(800.0))
-            .bg(rgb(0x1a1a1a)) // Dark background to match 3D scene default
+            .flex_1()
+            .w_full()
+            .bg(theme.surface)
             .child(surface_element)
             .on_mouse_down(
                 MouseButton::Left,
@@ -250,14 +254,15 @@ impl SpinoramaApp {
             }));
 
         div()
+            .size_full()
             .flex()
             .flex_col()
-            .gap_6()
+            .gap(px(ds.spacing.control_gap))
             .child(
                 div()
-                    .text_2xl()
+                    .text_size(px(ds.typography.large_size * s))
                     .font_weight(FontWeight::BOLD)
-                    .text_color(rgb(0x333333))
+                    .text_color(theme.text_primary)
                     .child(format!(
                         "3D Surface - {}",
                         self.selected_speaker.as_deref().unwrap_or("Unknown")
@@ -268,22 +273,16 @@ impl SpinoramaApp {
                     .flex()
                     .flex_row()
                     .flex_wrap()
-                    .gap_4()
+                    .gap(px(ds.spacing.section_gap))
                     .items_center()
-                    .child(div().text_sm().text_color(rgb(0x666666)).child("Colormap:"))
+                    .child(div().text_size(px(ds.typography.small_size * s)).text_color(theme.text_secondary).child("Colormap:"))
                     .child(colormap_selector)
                     .child(wireframe_toggle)
                     .child(isolines_toggle)
                     .child(grid_toggle)
                     .child(opacity_slider),
             )
-            .child(
-                div()
-                    .flex()
-                    .justify_center()
-                    .child(surface_view),
-            )
+            .child(surface_view)
 
     }
 }
-

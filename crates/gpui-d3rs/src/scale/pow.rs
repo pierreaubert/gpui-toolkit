@@ -156,9 +156,13 @@ impl Scale<f64, f64> for PowScale {
 
         let pow_min = self.pow(self.domain_min);
         let pow_max = self.pow(self.domain_max);
+        let pow_span = pow_max - pow_min;
+        if pow_span == 0.0 {
+            return (self.range_min + self.range_max) / 2.0;
+        }
         let pow_value = self.pow(value);
 
-        let t = (pow_value - pow_min) / (pow_max - pow_min);
+        let t = (pow_value - pow_min) / pow_span;
         self.range_min + t * (self.range_max - self.range_min)
     }
 
@@ -172,7 +176,12 @@ impl Scale<f64, f64> for PowScale {
             value
         };
 
-        let t = (value - self.range_min) / (self.range_max - self.range_min);
+        let range_span = self.range_max - self.range_min;
+        if range_span == 0.0 {
+            return Some((self.domain_min + self.domain_max) / 2.0);
+        }
+
+        let t = (value - self.range_min) / range_span;
         let pow_min = self.pow(self.domain_min);
         let pow_max = self.pow(self.domain_max);
         let pow_value = pow_min + t * (pow_max - pow_min);
@@ -292,6 +301,16 @@ mod tests {
 
         assert_relative_eq!(scale.scale(25.0), 5.0);
         assert_relative_eq!(scale.exponent_value(), 0.5);
+    }
+
+    #[test]
+    fn test_pow_scale_flat_domain() {
+        let scale = PowScale::new()
+            .domain(5.0, 5.0)
+            .range(0.0, 100.0)
+            .exponent(0.5);
+        assert_relative_eq!(scale.scale(5.0), 50.0);
+        assert_relative_eq!(scale.invert(50.0).unwrap(), 5.0);
     }
 
     #[test]

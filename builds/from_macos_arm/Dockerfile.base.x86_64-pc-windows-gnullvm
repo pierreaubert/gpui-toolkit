@@ -1,0 +1,50 @@
+FROM --platform=linux/amd64 ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=Etc/UTC
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    ca-certificates \
+    curl \
+    git \
+    build-essential \
+    gcc \
+    g++ \
+    pkg-config \
+    cmake \
+    ninja-build \
+    perl \
+    zip \
+    xz-utils \
+    openssl \
+    libssl-dev \
+    mingw-w64 \
+    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
+    sh -s -- -y --default-toolchain stable --profile minimal
+
+ENV PATH="/root/.cargo/bin:${PATH}"
+
+RUN rustup target add x86_64-pc-windows-gnullvm && \
+    cargo install just --locked && \
+    rm -rf /root/.cargo/registry /root/.cargo/git
+
+ARG LLVM_MINGW_VERSION=20260421
+ARG LLVM_MINGW_CRT=ucrt
+ARG LLVM_MINGW_UBUNTU=22.04
+ARG LLVM_MINGW_HOST=x86_64
+
+RUN curl -fsSL "https://github.com/mstorsjo/llvm-mingw/releases/download/${LLVM_MINGW_VERSION}/llvm-mingw-${LLVM_MINGW_VERSION}-${LLVM_MINGW_CRT}-ubuntu-${LLVM_MINGW_UBUNTU}-${LLVM_MINGW_HOST}.tar.xz" | \
+    tar -xJ -C /opt && \
+    mv "/opt/llvm-mingw-${LLVM_MINGW_VERSION}-${LLVM_MINGW_CRT}-ubuntu-${LLVM_MINGW_UBUNTU}-${LLVM_MINGW_HOST}" /opt/llvm-mingw
+
+ENV PATH="/opt/llvm-mingw/bin:${PATH}"
+ENV CC_x86_64_pc_windows_gnullvm=x86_64-w64-mingw32-clang
+ENV CXX_x86_64_pc_windows_gnullvm=x86_64-w64-mingw32-clang++
+ENV AR_x86_64_pc_windows_gnullvm=x86_64-w64-mingw32-ar
+ENV CARGO_TARGET_X86_64_PC_WINDOWS_GNULLVM_LINKER=x86_64-w64-mingw32-clang
+ENV CARGO_TARGET_X86_64_PC_WINDOWS_GNULLVM_AR=x86_64-w64-mingw32-ar
+
+WORKDIR /project

@@ -10,6 +10,7 @@
 
 use gpui::prelude::FluentBuilder;
 use gpui::*;
+use gpui_miniapp::{MiniApp, MiniAppConfig};
 use gpui_ui_kit::i18n::{I18nExt, TranslationKey};
 use gpui_ui_kit::pane_divider::{CollapseDirection, PaneDivider, PaneDividerTheme};
 use gpui_ui_kit::theme::ThemeExt;
@@ -96,20 +97,24 @@ impl PaneDividerDebug {
         match target {
             DragTarget::Left => {
                 let delta: f32 = position.x.into();
-                self.left_width = (start_size + (delta - start_pos)).clamp(MIN_PANEL_SIZE, MAX_PANEL_SIZE);
+                self.left_width =
+                    (start_size + (delta - start_pos)).clamp(MIN_PANEL_SIZE, MAX_PANEL_SIZE);
             }
             DragTarget::Right => {
                 let delta: f32 = position.x.into();
                 // Dragging right = shrinking the right panel
-                self.right_width = (start_size - (delta - start_pos)).clamp(MIN_PANEL_SIZE, MAX_PANEL_SIZE);
+                self.right_width =
+                    (start_size - (delta - start_pos)).clamp(MIN_PANEL_SIZE, MAX_PANEL_SIZE);
             }
             DragTarget::Top => {
                 let delta: f32 = position.y.into();
-                self.top_height = (start_size + (delta - start_pos)).clamp(MIN_PANEL_SIZE, MAX_PANEL_SIZE);
+                self.top_height =
+                    (start_size + (delta - start_pos)).clamp(MIN_PANEL_SIZE, MAX_PANEL_SIZE);
             }
             DragTarget::Bottom => {
                 let delta: f32 = position.y.into();
-                self.bottom_height = (start_size - (delta - start_pos)).clamp(MIN_PANEL_SIZE, MAX_PANEL_SIZE);
+                self.bottom_height =
+                    (start_size - (delta - start_pos)).clamp(MIN_PANEL_SIZE, MAX_PANEL_SIZE);
             }
         }
     }
@@ -127,6 +132,11 @@ impl Render for PaneDividerDebug {
             foreground: theme.text_muted,
             foreground_hover: theme.text_primary,
             border: theme.border,
+            tint: Rgba {
+                a: 0.42,
+                ..theme.accent
+            },
+            tint_hover: theme.accent,
         };
 
         let mut root = div()

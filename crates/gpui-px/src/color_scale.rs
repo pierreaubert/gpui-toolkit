@@ -76,6 +76,12 @@ impl ColorScale {
 
 // Helper function to interpolate between colors in a palette
 fn interpolate_palette(t: f64, colors: &[D3Color]) -> D3Color {
+    if colors.len() < 2 {
+        return colors
+            .first()
+            .cloned()
+            .unwrap_or(D3Color::from_hex(0x000000));
+    }
     let idx = (t * (colors.len() - 1) as f64) as usize;
     let idx = idx.min(colors.len() - 2);
     let local_t = (t * (colors.len() - 1) as f64) - idx as f64;
@@ -268,5 +274,22 @@ mod tests {
         assert_eq!(format!("{:?}", ColorScale::Heat), "ColorScale::Heat");
         let custom = ColorScale::custom(|_| D3Color::from_hex(0x000000));
         assert_eq!(format!("{:?}", custom), "ColorScale::Custom(...)");
+    }
+
+    #[test]
+    fn test_interpolate_palette_single_color() {
+        let colors = vec![D3Color::from_hex(0xff0000)];
+        let result = interpolate_palette(0.5, &colors);
+        assert_eq!(result.r, 1.0);
+        assert_eq!(result.g, 0.0);
+        assert_eq!(result.b, 0.0);
+    }
+
+    #[test]
+    fn test_interpolate_palette_two_colors() {
+        let colors = vec![D3Color::from_hex(0x000000), D3Color::from_hex(0xffffff)];
+        let result = interpolate_palette(0.5, &colors);
+        // Midpoint should be gray-ish
+        assert!(result.r > 0.4 && result.r < 0.6);
     }
 }

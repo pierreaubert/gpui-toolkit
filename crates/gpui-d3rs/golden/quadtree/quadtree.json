@@ -2,7 +2,7 @@
   "module": "d3-quadtree",
   "function": "quadtree",
   "tolerance": 0.000001,
-  "generated_at": "2025-12-08T20:24:30.922Z",
+  "generated_at": "2026-03-15T09:23:04.914Z",
   "test_cases": [
     {
       "name": "basic_add",

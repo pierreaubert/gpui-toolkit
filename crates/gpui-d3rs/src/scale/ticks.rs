@@ -76,7 +76,7 @@ pub fn nice_number(range: f64, round: bool) -> f64 {
 ///
 /// Generates ticks at powers of the base, with optional subdivisions.
 pub fn generate_log_ticks(min: f64, max: f64, base: f64, subdivisions: bool) -> Vec<f64> {
-    if min <= 0.0 || max <= 0.0 {
+    if min <= 0.0 || max <= 0.0 || !base.is_finite() || base <= 1.0 {
         return vec![];
     }
 
@@ -95,7 +95,7 @@ pub fn generate_log_ticks(min: f64, max: f64, base: f64, subdivisions: bool) -> 
 
         // Add subdivisions (e.g., 20, 30, ..., 90 for base 10)
         if subdivisions && exp < log_max {
-            for i in 2..base as i32 {
+            for i in 2..base.ceil() as i32 {
                 let sub_tick = tick * i as f64;
                 if sub_tick >= min && sub_tick <= max {
                     ticks.push(sub_tick);
@@ -213,5 +213,17 @@ mod tests {
         assert!(ticks.iter().any(|&t| (t - 100.0).abs() < 1e-6));
         assert!(ticks.iter().any(|&t| (t - 1000.0).abs() < 1e-6));
         assert!(ticks.iter().any(|&t| (t - 10000.0).abs() < 1e-6));
+    }
+
+    #[test]
+    fn test_generate_log_ticks_non_integer_base_subdivisions() {
+        let ticks = generate_log_ticks(1.0, 50.0, 3.5, true);
+
+        assert!(ticks.contains(&1.0));
+        assert!(ticks.contains(&3.5));
+        assert!(ticks.contains(&2.0));
+        assert!(ticks.contains(&3.0));
+        assert!(ticks.contains(&7.0));
+        assert!(ticks.contains(&10.5));
     }
 }

@@ -1,0 +1,38 @@
+[package]
+name = "gpui-scaffolder"
+version = "0.7.0"
+authors.workspace = true
+edition.workspace = true
+keywords.workspace = true
+categories.workspace = true
+description = "Create standalone GPUI mini-app projects backed by gpui-miniapp"
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[features]
+default = []
+autoeq = []
+camera = []
+gpu-2d = []
+gpu-3d = []
+reqwest = []
+showcase = []
+spinorama = []
+tokio = []
+urlencoding = []
+
+[dependencies]
+anyhow = { workspace = true }
+clap = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[lib]
+name = "gpui_scaffolder"
+path = "src/lib.rs"
+
+[[bin]]
+name = "gpui-scaffolder"
+path = "src/main.rs"

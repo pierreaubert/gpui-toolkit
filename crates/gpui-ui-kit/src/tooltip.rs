@@ -2,9 +2,10 @@
 //!
 //! Contextual information displayed on hover.
 
+use crate::accessibility::{AccessibilityExt, AccessibilityNode, AriaProps, AriaRole};
 use crate::theme::{Theme, ThemeExt};
-use gpui::prelude::*;
-use gpui::*;
+use gpui::prelude::{IntoElement, ParentElement, RenderOnce, Styled};
+use gpui::{AnyElement, App, Div, ElementId, SharedString, Window, div, px};
 
 /// Tooltip placement
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -26,6 +27,8 @@ pub struct Tooltip {
     content: SharedString,
     placement: TooltipPlacement,
     delay_ms: u32,
+    aria_label: Option<SharedString>,
+    aria_role: Option<AriaRole>,
 }
 
 impl Tooltip {
@@ -35,12 +38,26 @@ impl Tooltip {
             content: content.into(),
             placement: TooltipPlacement::default(),
             delay_ms: 200,
+            aria_label: None,
+            aria_role: None,
         }
     }
 
     /// Set placement
     pub fn placement(mut self, placement: TooltipPlacement) -> Self {
         self.placement = placement;
+        self
+    }
+
+    /// Set an explicit ARIA label (overrides content as fallback)
+    pub fn aria_label(mut self, label: impl Into<SharedString>) -> Self {
+        self.aria_label = Some(label.into());
+        self
+    }
+
+    /// Override the default ARIA role (Tooltip)
+    pub fn aria_role(mut self, role: AriaRole) -> Self {
+        self.aria_role = Some(role);
         self
     }
 
@@ -87,6 +104,16 @@ impl Tooltip {
 
 impl RenderOnce for Tooltip {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+        // Register in accessibility tree
+        cx.register_accessible(AccessibilityNode {
+            element_id: ElementId::Name("tooltip".into()),
+            label: self
+                .aria_label
+                .clone()
+                .unwrap_or_else(|| self.content.clone()),
+            props: AriaProps::with_role(self.aria_role.unwrap_or(AriaRole::Tooltip)),
+        });
+
         let theme = cx.theme();
         self.build_with_theme(&theme)
     }

@@ -1,0 +1,64 @@
+[package]
+name = "gpui-ios"
+version = "0.7.5"
+edition = "2024"
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+description = "iOS platform backend for GPUI (vendored from gpui-mobile)"
+license.workspace = true
+# Not publishable: depends on `gpui_wgpu`, which is an internal Zed sub-crate
+# only available via the zed-industries/zed git repo (no crates.io release).
+# `cargo publish` fails with "no matching package named gpui_wgpu found" until
+# Zed publishes that crate to crates.io.
+publish = false
+
+[lib]
+crate-type = ["rlib"]
+
+[features]
+default = []
+autoeq = []
+camera = []
+gpu-2d = []
+gpu-3d = []
+reqwest = []
+showcase = []
+spinorama = []
+tokio = []
+urlencoding = []
+
+[dependencies]
+anyhow = { workspace = true }
+log = { workspace = true, features = ["kv_unstable_serde", "serde"] }
+parking_lot = { workspace = true }
+futures = { workspace = true }
+raw-window-handle = { workspace = true }
+
+# GPUI core (from workspace — same Zed rev as desktop)
+gpui = { workspace = true }
+
+# wgpu renderer from Zed (Metal backend on iOS)
+gpui_wgpu = { workspace = true }
+wgpu = { workspace = true }
+
+# Text / font stack
+pathfinder_geometry = { workspace = true }
+smallvec = { workspace = true, features = ["union", "const_new"] }
+
+# UUID for display identification
+uuid = { workspace = true, features = ["v5"] }
+
+# Apple-only deps (Objective-C runtime, Apple frameworks, font-kit)
+[target.'cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos"))'.dependencies]
+objc = { workspace = true }
+core-foundation = { workspace = true }
+# Must match font-kit's core-graphics version (0.24) for type compatibility
+core-graphics = { workspace = true }
+core-text = { workspace = true }
+block2 = { workspace = true }
+# font-kit (same pin as gpui upstream)
+font-kit = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

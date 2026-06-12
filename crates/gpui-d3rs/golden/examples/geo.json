@@ -1,0 +1,124 @@
+{
+  "module": "d3-geo",
+  "function": "geo",
+  "tolerance": 0.000001,
+  "generated_at": "2026-03-15T10:24:26.938Z",
+  "test_cases": [
+    {
+      "name": "geo_point",
+      "coordinates": [
+        -122.4194,
+        37.7749
+      ],
+      "mercator": [
+        153.20821277777782,
+        140.9466201895808
+      ],
+      "equirectangular": [
+        153.88744544903716,
+        149.37159357988057
+      ],
+      "orthographic": [
+        313.52533200614073,
+        97.16606902102865
+      ]
+    },
+    {
+      "name": "geo_line",
+      "type": "LineString",
+      "coordinates": [
+        [
+          -122.4194,
+          37.7749
+        ],
+        [
+          0.1278,
+          51.5074
+        ]
+      ],
+      "length": 1.3543428554605788,
+      "bounds": [
+        [
+          -122.4194,
+          37.7749
+        ],
+        [
+          0.1278,
+          64.87377545766526
+        ]
+      ],
+      "centroid": [
+        -73.3874324857874,
+        63.52624607381521
+      ]
+    },
+    {
+      "name": "geo_polygon",
+      "type": "Polygon",
+      "area": 2.1665509690330445e-7,
+      "bounds": [
+        [
+          -122.4194,
+          37.7749
+        ],
+        [
+          -122.3894,
+          37.80490095094704
+        ]
+      ],
+      "centroid": [
+        -122.40439998351138,
+        37.789899932871315
+      ]
+    },
+    {
+      "name": "geo_projection",
+      "projection": "mercator",
+      "scale": 100,
+      "translate": [
+        50,
+        50
+      ],
+      "forward": [
+        -163.6621598315946,
+        -21.300998306253973
+      ],
+      "invert": [
+        0,
+        0
+      ]
+    },
+    {
+      "name": "geo_stereographic",
+      "projection": "stereographic",
+      "forward": [
+        -65.79003705667338,
+        -56.302338637040705
+      ],
+      "invert": [
+        0,
+        0
+      ]
+    },
+    {
+      "name": "geo_albers",
+      "projection": "albers",
+      "parallels": [
+        29.5,
+        45.5
+      ],
+      "rotation": [
+        -96,
+        0
+      ],
+      "center": [
+        0,
+        38
+      ],
+      "forward": [
+        50,
+        49.99999999999999
+      ]
+    }
+  ]
+}

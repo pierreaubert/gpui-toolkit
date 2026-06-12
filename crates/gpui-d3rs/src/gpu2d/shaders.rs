@@ -27,30 +27,41 @@ pub fn line_shader() -> String {
         r#"
 {common}
 
-struct LineVertex {{
-    @location(0) position: vec2<f32>,
-    @location(1) normal: vec2<f32>,
-    @location(2) color: vec4<f32>,
-}}
+    struct LineVertex {{
+        @location(0) position: vec2<f32>,
+        @location(1) local: vec2<f32>,
+        @location(2) color: vec4<f32>,
+        @location(3) half_width: f32,
+        @location(4) half_length: f32,
+    }}
 
-struct LineOutput {{
-    @builtin(position) position: vec4<f32>,
-    @location(0) color: vec4<f32>,
-}}
+    struct LineOutput {{
+        @builtin(position) position: vec4<f32>,
+        @location(0) color: vec4<f32>,
+        @location(1) local: vec2<f32>,
+        @location(2) half_width: f32,
+        @location(3) half_length: f32,
+    }}
 
-@vertex
-fn vs_line(in: LineVertex) -> LineOutput {{
-    let expanded = in.position + in.normal;
-    var out: LineOutput;
-    out.position = vec4<f32>(pixel_to_ndc(expanded), 0.0, 1.0);
-    out.color = in.color;
-    return out;
-}}
+    @vertex
+    fn vs_line(in: LineVertex) -> LineOutput {{
+        var out: LineOutput;
+        out.position = vec4<f32>(pixel_to_ndc(in.position), 0.0, 1.0);
+        out.color = in.color;
+        out.local = in.local;
+        out.half_width = in.half_width;
+        out.half_length = in.half_length;
+        return out;
+    }}
 
-@fragment
-fn fs_line(in: LineOutput) -> @location(0) vec4<f32> {{
-    return in.color;
-}}
+    @fragment
+    fn fs_line(in: LineOutput) -> @location(0) vec4<f32> {{
+        let outside_x = max(abs(in.local.x) - in.half_length, 0.0);
+        let dist = length(vec2<f32>(outside_x, in.local.y)) - in.half_width;
+        let feather = max(fwidth(dist), 1.0);
+        let alpha = 1.0 - smoothstep(0.0, feather, dist);
+        return vec4<f32>(in.color.rgb, in.color.a * alpha);
+    }}
 "#,
         common = common_shader()
     )

@@ -1,0 +1,151 @@
+{
+  "module": "d3-sankey",
+  "function": "sankey",
+  "tolerance": 0.000001,
+  "generated_at": "2026-03-15T10:25:03.275Z",
+  "test_cases": [
+    {
+      "name": "basic_sankey",
+      "node_width": 15,
+      "node_padding": 10,
+      "extent": [
+        [
+          1,
+          1
+        ],
+        [
+          100,
+          100
+        ]
+      ],
+      "nodes": [
+        {
+          "name": "Agricultural 'Waste'",
+          "x0": 1,
+          "x1": 16,
+          "y0": 1,
+          "y1": 70.498,
+          "value": 124.729
+        },
+        {
+          "name": "Bio-conversion",
+          "x0": 43,
+          "x1": 58,
+          "y0": 3.574,
+          "y1": 92.574,
+          "value": 159.72899999999998
+        },
+        {
+          "name": "Livestock",
+          "x0": 1,
+          "x1": 16,
+          "y0": 80.498,
+          "y1": 100,
+          "value": 35
+        },
+        {
+          "name": "Land",
+          "x0": 85,
+          "x1": 100,
+          "y0": 1,
+          "y1": 4.343,
+          "value": 6
+        },
+        {
+          "name": "Solar",
+          "x0": 85,
+          "x1": 100,
+          "y0": 14.343,
+          "y1": 25.487,
+          "value": 20
+        },
+        {
+          "name": "Imports",
+          "x0": 85,
+          "x1": 100,
+          "y0": 35.487,
+          "y1": 80.7,
+          "value": 81.144
+        }
+      ],
+      "links": [
+        {
+          "source": "Agricultural 'Waste'",
+          "target": "Bio-conversion",
+          "value": 124.729,
+          "y0": 35.749,
+          "y1": 38.323
+        },
+        {
+          "source": "Livestock",
+          "target": "Bio-conversion",
+          "value": 35,
+          "y0": 90.249,
+          "y1": 82.823
+        },
+        {
+          "source": "Bio-conversion",
+          "target": "Land",
+          "value": 6,
+          "y0": 5.246,
+          "y1": 2.672
+        }
+      ]
+    },
+    {
+      "name": "sankey_simple",
+      "node_count": 4,
+      "link_count": 3,
+      "nodes": [
+        {
+          "index": 0,
+          "name": "A",
+          "x0": 0,
+          "y0": 0,
+          "y1": 34.667
+        },
+        {
+          "index": 1,
+          "name": "B",
+          "x0": 0,
+          "y0": 42.667,
+          "y1": 60
+        },
+        {
+          "index": 2,
+          "name": "C",
+          "x0": 28,
+          "y0": 2.64,
+          "y1": 54.64
+        },
+        {
+          "index": 3,
+          "name": "D",
+          "x0": 56,
+          "y0": 2.614,
+          "y1": 54.614
+        }
+      ],
+      "links": [
+        {
+          "source": 0,
+          "target": 2,
+          "value": 10,
+          "width": 34.667
+        },
+        {
+          "source": 1,
+          "target": 2,
+          "value": 5,
+          "width": 17.333
+        },
+        {
+          "source": 2,
+          "target": 3,
+          "value": 15,
+          "width": 52
+        }
+      ]
+    }
+  ]
+}

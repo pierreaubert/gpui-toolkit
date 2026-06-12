@@ -1,8 +1,10 @@
 use d3rs::axis::{AxisConfig, DefaultAxisTheme, render_axis};
 use d3rs::prelude::*;
 use gpui::*;
+use gpui_ui_kit::theme::ThemeExt;
 
-pub fn render(_app: &ShowcaseApp) -> Div {
+pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
+    let ui_theme = cx.theme();
     let theme = DefaultAxisTheme;
     let x_scale = LinearScale::new().domain(0.0, 100.0).range(0.0, 400.0);
     let freq_scale = LogScale::new().domain(20.0, 20000.0).range(0.0, 400.0);
@@ -94,7 +96,7 @@ pub fn render(_app: &ShowcaseApp) -> Div {
                             div()
                                 .w(px(150.0))
                                 .h(px(200.0))
-                                .bg(rgb(0xf0f0f0))
+                                .bg(ui_theme.surface)
                                 .rounded_md(),
                         )
                         .child(render_axis(

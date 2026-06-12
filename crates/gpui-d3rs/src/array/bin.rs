@@ -159,6 +159,15 @@ impl<T: Clone> BinGenerator<T> {
         // Determine thresholds
         let thresholds = self.compute_thresholds(&values, min, max);
 
+        if thresholds.len() < 2 {
+            // Not enough thresholds to form bins; return single bin
+            return vec![Bin {
+                x0: min,
+                x1: max,
+                values: data.to_vec(),
+            }];
+        }
+
         // Create bins
         let mut bins: Vec<Bin<T>> = Vec::with_capacity(thresholds.len() - 1);
         for i in 0..thresholds.len() - 1 {
@@ -227,6 +236,9 @@ impl<T: Clone> BinGenerator<T> {
 
     fn find_bin_index(&self, thresholds: &[f64], value: f64) -> usize {
         // Binary search for the appropriate bin
+        if thresholds.len() < 2 {
+            return 0;
+        }
         let mut lo = 0;
         let mut hi = thresholds.len() - 1;
         while lo < hi {
@@ -300,6 +312,10 @@ pub fn nice_bin_edges(min: f64, max: f64, count: usize) -> Vec<f64> {
     };
     let step = nice_fraction * 10_f64.powf(exp);
 
+    if step == 0.0 || !step.is_finite() || step.is_subnormal() {
+        return vec![min, max];
+    }
+
     // Compute nice bounds
     let nice_min = (min / step).floor() * step;
     let nice_max = (max / step).ceil() * step;
@@ -361,5 +377,23 @@ mod tests {
         assert_eq!(threshold_sturges(10), 5);
         assert_eq!(threshold_sturges(100), 8);
         assert_eq!(threshold_sturges(1000), 11);
+    }
+
+    #[test]
+    fn test_nice_bin_edges_zero_step_guard() {
+        // Very small range can cause step to underflow to 0.0
+        let edges = nice_bin_edges(0.0, 1e-320, 10);
+        assert_eq!(edges.len(), 2);
+        assert_eq!(edges[0], 0.0);
+        assert_eq!(edges[1], 1e-320);
+    }
+
+    #[test]
+    fn test_bin_zero_thresholds() {
+        // Zero thresholds should return a single bin instead of panicking
+        let data = vec![1.0, 2.0, 3.0];
+        let bins = BinGenerator::new().thresholds_count(0).generate(&data);
+        assert_eq!(bins.len(), 1);
+        assert_eq!(bins[0].values.len(), 3);
     }
 }

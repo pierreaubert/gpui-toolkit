@@ -6,6 +6,7 @@ use d3rs::geo::{
 };
 use gpui::prelude::*;
 use gpui::*;
+use gpui_ui_kit::theme::ThemeExt;
 
 pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
     let width = 600.0f32;
@@ -15,6 +16,7 @@ pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
     let rotation = [app.geo_rotation_lon, app.geo_rotation_lat];
     let use_large_data = app.use_large_data;
     let current_projection = app.geo_projection_type;
+    let theme = cx.theme();
 
     div()
         .flex()
@@ -41,14 +43,19 @@ pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                         .children(GeoProjectionType::all().into_iter().map(|proj_type| {
                             let is_selected = proj_type == current_projection;
                             let bg = if is_selected {
-                                rgb(0x007acc)
+                                theme.accent
                             } else {
-                                rgb(0xe8e8e8)
+                                theme.surface_hover
                             };
                             let text_color = if is_selected {
-                                rgb(0xffffff)
+                                theme.text_on_accent
                             } else {
-                                rgb(0x333333)
+                                theme.text_primary
+                            };
+                            let hover_bg = if is_selected {
+                                theme.accent
+                            } else {
+                                theme.muted
                             };
 
                             div()
@@ -60,13 +67,7 @@ pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                 .rounded_md()
                                 .cursor_pointer()
                                 .bg(bg)
-                                .hover(|s| {
-                                    s.bg(if is_selected {
-                                        rgb(0x007acc)
-                                    } else {
-                                        rgb(0xd0d0d0)
-                                    })
-                                })
+                                .hover(move |s| s.bg(hover_bg))
                                 .text_color(text_color)
                                 .text_xs()
                                 .child(proj_type.label())
@@ -89,14 +90,14 @@ pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                 .rounded_md()
                                 .cursor_pointer()
                                 .bg(if use_large_data {
-                                    rgb(0x448844)
+                                    theme.success
                                 } else {
-                                    rgb(0xe8e8e8)
+                                    theme.surface_hover
                                 })
                                 .text_color(if use_large_data {
-                                    rgb(0xffffff)
+                                    theme.text_on_accent
                                 } else {
-                                    rgb(0x333333)
+                                    theme.text_primary
                                 })
                                 .text_xs()
                                 .child(if use_large_data {
@@ -114,7 +115,8 @@ pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
             div()
                 .w(px(width))
                 .h(px(height))
-                .bg(rgb(0xf0f0f0))
+                .bg(theme.surface)
+                .overflow_hidden()
                 .relative()
                 // Mouse event listeners
                 .on_mouse_down(

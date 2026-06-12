@@ -1,0 +1,41 @@
+name: GPUIShowcase
+options:
+  bundleIdPrefix: org.spinorama
+  deploymentTarget:
+    iOS: "15.0"
+  xcodeVersion: "15.0"
+
+settings:
+  base:
+    SWIFT_OBJC_BRIDGING_HEADER: ShowcaseApp/BridgingHeader.h
+    # Only build for arm64 (our Rust lib is arm64-only)
+    EXCLUDED_ARCHS[sdk=iphonesimulator*]: x86_64
+
+targets:
+  GPUIShowcase:
+    type: application
+    platform: iOS
+    sources:
+      - ShowcaseApp
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.spinorama.gpui-showcase
+        INFOPLIST_FILE: ShowcaseApp/Info.plist
+        SWIFT_VERSION: "5.10"
+        LIBRARY_SEARCH_PATHS:
+          - "$(PROJECT_DIR)/lib"
+        ENABLE_USER_SCRIPT_SANDBOXING: false
+        DEAD_CODE_STRIPPING: false
+        OTHER_LDFLAGS:
+          - "-L$(PROJECT_DIR)/lib"
+          - "-force_load"
+          - "$(PROJECT_DIR)/lib/libshowcase_ios.a"
+          - "-framework Metal"
+          - "-framework MetalKit"
+          - "-framework QuartzCore"
+          - "-framework CoreText"
+          - "-framework CoreGraphics"
+          - "-framework CoreFoundation"
+          - "-framework UIKit"
+          - "-framework Foundation"
+          - "-lc++"

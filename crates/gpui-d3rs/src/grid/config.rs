@@ -56,6 +56,24 @@ impl GridConfig {
         Self::default()
     }
 
+    /// Create a grid configuration from design-system interaction defaults.
+    #[cfg(feature = "gpui")]
+    pub fn from_design(design: &gpui_design::DesignSystem) -> Self {
+        Self {
+            line_width: design.interaction.border_width.max(1.0),
+            dot_radius: (design.spacing.grid_unit * 0.5).max(1.0),
+            ..Default::default()
+        }
+    }
+
+    /// Apply design-system interaction defaults.
+    #[cfg(feature = "gpui")]
+    pub fn with_design(mut self, design: &gpui_design::DesignSystem) -> Self {
+        self.line_width = design.interaction.border_width.max(1.0);
+        self.dot_radius = (design.spacing.grid_unit * 0.5).max(1.0);
+        self
+    }
+
     /// Create a grid with only dots (no lines)
     ///
     /// # Example

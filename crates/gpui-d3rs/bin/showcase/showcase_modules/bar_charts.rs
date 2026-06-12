@@ -4,11 +4,17 @@ use d3rs::grid::{GridConfig, render_grid};
 use d3rs::prelude::*;
 use d3rs::shape::{GroupedBarConfig, GroupedBarDatum, analyze_grouped_data, render_grouped_bars};
 use gpui::*;
+use gpui_ui_kit::theme::ThemeExt;
 
-pub fn render(_app: &ShowcaseApp) -> Div {
+pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
+    let ui_theme = cx.theme();
     let theme = DefaultAxisTheme;
-    let x_scale = LinearScale::new().domain(0.0, 6.0).range(0.0, 500.0);
-    let y_scale = LinearScale::new().domain(0.0, 100.0).range(0.0, 250.0);
+    let width = app.content_width * 0.7;
+    let height = (width * 0.5).min(app.content_height * 0.4);
+    let x_scale = LinearScale::new().domain(0.0, 6.0).range(0.0, width as f64);
+    let y_scale = LinearScale::new()
+        .domain(0.0, 100.0)
+        .range(0.0, height as f64);
     let scheme = ColorScheme::category10();
 
     let data = vec![
@@ -27,8 +33,10 @@ pub fn render(_app: &ShowcaseApp) -> Div {
         BarDatum::new("D", -25.0),
         BarDatum::new("E", 60.0),
     ];
-    let mixed_y_scale = LinearScale::new().domain(-30.0, 70.0).range(0.0, 250.0);
-    let mixed_x_scale = LinearScale::new().domain(0.0, 5.0).range(0.0, 500.0);
+    let mixed_y_scale = LinearScale::new()
+        .domain(-30.0, 70.0)
+        .range(0.0, height as f64);
+    let mixed_x_scale = LinearScale::new().domain(0.0, 5.0).range(0.0, width as f64);
 
     // Grouped bar data - quarterly sales by product
     let grouped_data = vec![
@@ -48,7 +56,7 @@ pub fn render(_app: &ShowcaseApp) -> Div {
     let grouped_meta = analyze_grouped_data(&grouped_data);
     let grouped_y_scale = LinearScale::new()
         .domain(0.0, grouped_meta.max_value * 1.1)
-        .range(0.0, 250.0);
+        .range(0.0, height as f64);
 
     div()
         .flex()
@@ -78,7 +86,7 @@ pub fn render(_app: &ShowcaseApp) -> Div {
                         .child(render_axis(
                             &y_scale,
                             &AxisConfig::left().with_ticks(5),
-                            250.0,
+                            height,
                             &theme,
                         ))
                         .child(
@@ -87,26 +95,26 @@ pub fn render(_app: &ShowcaseApp) -> Div {
                                 .flex_col()
                                 .child(
                                     div()
-                                        .w(px(500.0))
-                                        .h(px(250.0))
+                                        .w(px(width))
+                                        .h(px(height))
                                         .relative()
-                                        .bg(rgb(0xf8f8f8))
+                                        .bg(ui_theme.surface)
                                         .border_1()
-                                        .border_color(rgb(0xcccccc))
+                                        .border_color(ui_theme.border)
                                         .child(render_grid(
                                             &x_scale,
                                             &y_scale,
                                             &GridConfig::lines_only().with_line_opacity(0.2),
-                                            500.0,
-                                            250.0,
+                                            width,
+                                            height,
                                             &theme,
                                         ))
                                         .child(render_bars(
                                             &x_scale,
                                             &y_scale,
                                             &data,
-                                            500.0,
-                                            250.0,
+                                            width,
+                                            height,
                                             &BarConfig::new()
                                                 .fill_color(scheme.color(0))
                                                 .opacity(0.85),
@@ -115,7 +123,7 @@ pub fn render(_app: &ShowcaseApp) -> Div {
                                 .child(render_axis(
                                     &x_scale,
                                     &AxisConfig::bottom().with_ticks(6),
-                                    500.0,
+                                    width,
                                     &theme,
                                 )),
                         ),
@@ -145,7 +153,7 @@ pub fn render(_app: &ShowcaseApp) -> Div {
                                     format!("{:.0}", v)
                                 }
                             }),
-                            250.0,
+                            height,
                             &theme,
                         ))
                         .child(
@@ -154,26 +162,26 @@ pub fn render(_app: &ShowcaseApp) -> Div {
                                 .flex_col()
                                 .child(
                                     div()
-                                        .w(px(500.0))
-                                        .h(px(250.0))
+                                        .w(px(width))
+                                        .h(px(height))
                                         .relative()
-                                        .bg(rgb(0xf8f8f8))
+                                        .bg(ui_theme.surface)
                                         .border_1()
-                                        .border_color(rgb(0xcccccc))
+                                        .border_color(ui_theme.border)
                                         .child(render_grid(
                                             &mixed_x_scale,
                                             &mixed_y_scale,
                                             &GridConfig::with_lines(),
-                                            500.0,
-                                            250.0,
+                                            width,
+                                            height,
                                             &theme,
                                         ))
                                         .child(render_bars(
                                             &mixed_x_scale,
                                             &mixed_y_scale,
                                             &mixed_data,
-                                            500.0,
-                                            250.0,
+                                            width,
+                                            height,
                                             &BarConfig::new()
                                                 .fill_color(scheme.color(2))
                                                 .bar_gap(4.0),
@@ -182,7 +190,7 @@ pub fn render(_app: &ShowcaseApp) -> Div {
                                 .child(render_axis(
                                     &mixed_x_scale,
                                     &AxisConfig::bottom().with_ticks(5),
-                                    500.0,
+                                    width,
                                     &theme,
                                 )),
                         ),
@@ -206,7 +214,7 @@ pub fn render(_app: &ShowcaseApp) -> Div {
                         .child(render_axis(
                             &grouped_y_scale,
                             &AxisConfig::left().with_ticks(6),
-                            250.0,
+                            height,
                             &theme,
                         ))
                         .child(
@@ -215,18 +223,18 @@ pub fn render(_app: &ShowcaseApp) -> Div {
                                 .flex_col()
                                 .child(
                                     div()
-                                        .w(px(500.0))
-                                        .h(px(250.0))
+                                        .w(px(width))
+                                        .h(px(height))
                                         .relative()
-                                        .bg(rgb(0xf8f8f8))
+                                        .bg(ui_theme.surface)
                                         .border_1()
-                                        .border_color(rgb(0xcccccc))
+                                        .border_color(ui_theme.border)
                                         .child(render_grouped_bars(
                                             &grouped_y_scale,
                                             &grouped_data,
                                             &grouped_meta,
-                                            500.0,
-                                            250.0,
+                                            width,
+                                            height,
                                             &GroupedBarConfig::new()
                                                 .color_scheme(scheme.clone())
                                                 .group_gap(16.0)
@@ -248,12 +256,7 @@ pub fn render(_app: &ShowcaseApp) -> Div {
                                                     .rounded(px(2.0))
                                                     .bg(scheme.color(i).to_rgba()),
                                             )
-                                            .child(
-                                                div()
-                                                    .text_xs()
-                                                    .text_color(rgb(0x666666))
-                                                    .child(name.clone()),
-                                            )
+                                            .child(div().text_xs().child(name.clone()))
                                     }),
                                 )),
                         ),

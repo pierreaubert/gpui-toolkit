@@ -5,6 +5,7 @@ use super::renderer::Chart2DRenderer;
 use gpui::*;
 use image::{Frame, RgbaImage};
 use std::cell::RefCell;
+use std::mem::ManuallyDrop;
 use std::panic;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -13,8 +14,14 @@ use std::sync::Arc;
 pub type DrawFn = Box<dyn Fn(&mut Chart2DRenderer, Bounds<Pixels>)>;
 
 /// GPUI Element for GPU-accelerated 2D chart rendering
+///
+/// The renderer is wrapped in `ManuallyDrop` to prevent TLS access-after-destruction
+/// crashes. When GPUI's thread-local element Arena is cleaned up during thread exit,
+/// elements are dropped — but wgpu's internal TLS may already be destroyed at that point.
+/// Since the renderer holds GPU resources (buffers, pipelines) that reference the global
+/// `Gpu2DContext` static via `Arc`, they are cleaned up when the static is dropped instead.
 pub struct Chart2DElement {
-    renderer: Rc<RefCell<Chart2DRenderer>>,
+    renderer: ManuallyDrop<Rc<RefCell<Chart2DRenderer>>>,
     draw_fn: DrawFn,
     background_color: Color4,
     absolute: bool,
@@ -30,7 +37,7 @@ impl Chart2DElement {
         F: Fn(&mut Chart2DRenderer, Bounds<Pixels>) + 'static,
     {
         Self {
-            renderer: Rc::new(RefCell::new(Chart2DRenderer::new())),
+            renderer: ManuallyDrop::new(Rc::new(RefCell::new(Chart2DRenderer::new()))),
             draw_fn: Box::new(draw_fn),
             background_color: [1.0, 1.0, 1.0, 1.0], // White background
             absolute: false,
@@ -43,7 +50,7 @@ impl Chart2DElement {
         F: Fn(&mut Chart2DRenderer, Bounds<Pixels>) + 'static,
     {
         Self {
-            renderer,
+            renderer: ManuallyDrop::new(renderer),
             draw_fn: Box::new(draw_fn),
             background_color: [1.0, 1.0, 1.0, 1.0],
             absolute: false,

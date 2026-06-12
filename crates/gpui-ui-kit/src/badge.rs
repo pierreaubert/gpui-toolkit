@@ -3,8 +3,8 @@
 //! Small status indicators and labels.
 
 use crate::theme::{Theme, ThemeExt};
-use gpui::prelude::*;
-use gpui::*;
+use gpui::prelude::{IntoElement, ParentElement, RenderOnce, Styled};
+use gpui::{App, Div, Pixels, Rgba, SharedString, Window, div, px};
 
 /// Badge variant
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

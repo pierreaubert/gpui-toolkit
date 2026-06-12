@@ -218,7 +218,7 @@ pub fn log_ticks(min: f64, max: f64, base: f64, subdivisions: bool) -> Vec<f64> 
 
         // Add subdivisions (e.g., 20, 30, ..., 90 for base 10)
         if subdivisions && exp < log_max {
-            for i in 2..base as i32 {
+            for i in 2..base.ceil() as i32 {
                 let sub_tick = tick * i as f64;
                 if sub_tick >= min && sub_tick <= max {
                     ticks.push(sub_tick);
@@ -320,5 +320,18 @@ mod tests {
     fn test_ticks_reverse() {
         let t = ticks(100.0, 0.0, 5);
         assert!(t[0] >= t[1]); // Descending order
+    }
+
+    #[test]
+    fn test_log_ticks_non_integer_base() {
+        // Base 3.5 should use ceil(3.5) = 4 for subdivision count
+        let t = log_ticks(1.0, 50.0, 3.5, true);
+        assert!(t.contains(&1.0));
+        assert!(t.contains(&3.5));
+        // Should include subdivisions: 1*2=2, 1*3=3, 3.5*2=7, 3.5*3=10.5
+        assert!(t.contains(&2.0));
+        assert!(t.contains(&3.0));
+        assert!(t.contains(&7.0));
+        assert!(t.contains(&10.5));
     }
 }

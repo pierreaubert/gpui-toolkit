@@ -1,57 +1,144 @@
+//! Histogram — Observable example
+//!
+//! Loads diamonds.csv and bins the carat column into a histogram.
+//! Uses d3rs LinearScale, PathBuilder, ColorScheme, and d3rs_path_to_gpui_simple.
+//!
+//! Source: <https://observablehq.com/@d3/histogram>
+
 use crate::ShowcaseApp;
+use d3rs::color::ColorScheme;
 use d3rs::scale::{LinearScale, Scale};
+use d3rs::shape::path::PathBuilder as D3PathBuilder;
 use gpui::prelude::*;
 use gpui::*;
+use gpui_ui_kit::theme::ThemeExt;
 
-pub fn render(_app: &ShowcaseApp, _cx: &mut Context<ShowcaseApp>) -> Div {
-    let width = 600.0;
+const DIAMONDS_CSV: &str = include_str!("../../data/diamonds.csv");
+
+pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
+    let ui_theme = cx.theme();
+    let width = 640.0;
     let height = 400.0;
-    let margin_left = 60.0;
+    let margin_left = 50.0;
     let margin_right = 20.0;
     let margin_top = 20.0;
-    let margin_bottom = 50.0;
-
-    // Generate random data binned
-    // In a real app we'd use random generator, here fixed mock
-    let data = vec![
-        1.0, 2.0, 2.5, 3.0, 3.5, 3.5, 4.0, 4.0, 4.0, 5.0, 5.5, 6.0, 9.0,
-    ];
-
-    // Binning
-    let min_val = data.iter().fold(f64::INFINITY, |a, &b| a.min(b));
-    let max_val = data.iter().fold(f64::NEG_INFINITY, |a, &b| a.max(b));
-    let bin_count = 10;
-
-    // Manual binning logic:
-    let mut bins = vec![0usize; bin_count];
-    let step = (max_val - min_val) / bin_count as f64;
-    for &d in &data {
-        let idx = ((d - min_val) / step).floor() as usize;
-        if idx < bin_count {
-            bins[idx] += 1;
-        } else if idx == bin_count {
-            // Handle max value edge case
-            bins[idx - 1] += 1;
-        }
-    }
-
-    // Scales
+    let margin_bottom = 40.0;
     let chart_width = width - margin_left - margin_right;
     let chart_height = height - margin_top - margin_bottom;
 
-    let x_scale = LinearScale::new()
-        .domain(min_val, max_val)
-        .range(0.0, chart_width);
+    // Parse diamonds.csv: extract carat column (first numeric column)
+    let carats: Vec<f64> = DIAMONDS_CSV
+        .lines()
+        .skip(1)
+        .filter_map(|line| {
+            let cols: Vec<&str> = line.split(',').collect();
+            // carat is the first column
+            cols.first()?.parse::<f64>().ok()
+        })
+        .collect();
+
+    let min_val = carats.iter().fold(f64::INFINITY, |a, &b| a.min(b));
+    let max_val = carats.iter().fold(f64::NEG_INFINITY, |a, &b| a.max(b));
+
+    // Bin the data
+    let bin_count = 40;
+    let step = (max_val - min_val) / bin_count as f64;
+    let mut bins = vec![0usize; bin_count];
+    for &c in &carats {
+        let idx = ((c - min_val) / step).floor() as usize;
+        let idx = idx.min(bin_count - 1);
+        bins[idx] += 1;
+    }
 
     let max_bin = *bins.iter().max().unwrap_or(&0) as f64;
+
+    let x_scale = LinearScale::new()
+        .domain(min_val, max_val)
+        .range(margin_left, margin_left + chart_width);
+
     let y_scale = LinearScale::new()
         .domain(0.0, max_bin)
-        .range(chart_height, 0.0);
+        .range(margin_top + chart_height, margin_top);
 
+    let scheme = ColorScheme::tableau10();
+    let bar_color: Hsla = scheme.color(0).to_rgba().into();
     let bar_width = chart_width / bin_count as f64 - 1.0;
 
-    // Y-axis tick values (0 to max_bin, integer steps)
-    let y_ticks: Vec<usize> = (0..=max_bin as usize).collect();
+    // Build bar paths
+    let mut d3_paths: Vec<d3rs::shape::path::Path> = Vec::new();
+    let mut all_colors: Vec<Hsla> = Vec::new();
+
+    for (i, &count) in bins.iter().enumerate() {
+        let x0 = x_scale.scale(min_val + i as f64 * step);
+        let y0 = y_scale.scale(count as f64);
+        let y_base = y_scale.scale(0.0);
+
+        let path = D3PathBuilder::new()
+            .move_to(x0, y0)
+            .line_to(x0 + bar_width, y0)
+            .line_to(x0 + bar_width, y_base)
+            .line_to(x0, y_base)
+            .close_path()
+            .build();
+        d3_paths.push(path);
+        all_colors.push(bar_color);
+    }
+
+    // Axis paths — use thin closed rectangles to avoid fill-triangle artifacts
+    let axis_w = 1.0; // axis line thickness
+    // Y-axis line (vertical)
+    d3_paths.push(
+        D3PathBuilder::new()
+            .move_to(margin_left, margin_top)
+            .line_to(margin_left + axis_w, margin_top)
+            .line_to(margin_left + axis_w, margin_top + chart_height)
+            .line_to(margin_left, margin_top + chart_height)
+            .close_path()
+            .build(),
+    );
+    all_colors.push(hsla(0.0, 0.0, 0.2, 1.0));
+    // X-axis line (horizontal)
+    d3_paths.push(
+        D3PathBuilder::new()
+            .move_to(margin_left, margin_top + chart_height)
+            .line_to(margin_left + chart_width, margin_top + chart_height)
+            .line_to(
+                margin_left + chart_width,
+                margin_top + chart_height + axis_w,
+            )
+            .line_to(margin_left, margin_top + chart_height + axis_w)
+            .close_path()
+            .build(),
+    );
+    all_colors.push(hsla(0.0, 0.0, 0.2, 1.0));
+
+    // Y grid lines
+    let y_tick_step = (max_bin / 5.0).ceil().max(1.0);
+    let y_ticks: Vec<f64> = (0..)
+        .map(|i| i as f64 * y_tick_step)
+        .take_while(|&v| v <= max_bin)
+        .collect();
+
+    for &tick_val in &y_ticks {
+        let y = y_scale.scale(tick_val);
+        d3_paths.push(
+            D3PathBuilder::new()
+                .move_to(margin_left, y)
+                .line_to(margin_left + chart_width, y)
+                .line_to(margin_left + chart_width, y + 0.5)
+                .line_to(margin_left, y + 0.5)
+                .close_path()
+                .build(),
+        );
+        all_colors.push(hsla(0.0, 0.0, 0.85, 1.0));
+    }
+
+    // X tick values
+    let x_tick_step = ((max_val - min_val) / 8.0 * 10.0).round() / 10.0;
+    let x_ticks: Vec<f64> = (0..)
+        .map(|i| min_val + i as f64 * x_tick_step)
+        .take_while(|&v| v <= max_val + 0.01)
+        .collect();
 
     div()
         .flex()
@@ -62,121 +149,69 @@ pub fn render(_app: &ShowcaseApp, _cx: &mut Context<ShowcaseApp>) -> Div {
             div()
                 .text_lg()
                 .font_weight(FontWeight::BOLD)
-                .mb_4()
-                .child("Histogram"),
+                .mb_2()
+                .child("Histogram — Diamond Carat Distribution"),
         )
+        .child(div().text_xs().mb_2().child(format!(
+            "Source: observablehq.com/@d3/histogram — {} diamonds from diamonds.csv",
+            carats.len()
+        )))
         .child(
             div()
                 .w(px(width as f32))
                 .h(px(height as f32))
-                .bg(rgb(0xffffff))
+                .bg(ui_theme.surface)
                 .border_1()
-                .border_color(rgb(0xcccccc))
+                .border_color(ui_theme.border)
                 .relative()
-                // Y-axis label
                 .child(
-                    div()
-                        .absolute()
-                        .left(px(5.0))
-                        .top(px((margin_top + chart_height / 2.0 - 40.0) as f32))
-                        .text_xs()
-                        .text_color(rgb(0x666666))
-                        .child("Count"),
+                    canvas(
+                        move |bounds, _, _| {
+                            d3_paths
+                                .iter()
+                                .map(|p| {
+                                    super::path_utils::d3rs_path_to_gpui_simple(p, bounds, 0.0, 0.0)
+                                })
+                                .collect::<Vec<_>>()
+                        },
+                        move |_bounds, paths, window, _| {
+                            for (i, path_opt) in paths.into_iter().enumerate() {
+                                if let Some(path) = path_opt {
+                                    window.paint_path(path, all_colors[i]);
+                                }
+                            }
+                        },
+                    )
+                    .size_full(),
                 )
-                // Y-axis ticks and labels
-                .children(y_ticks.iter().map(|&count| {
-                    let y = y_scale.scale(count as f64);
+                // Y-axis labels
+                .children(y_ticks.iter().map(|&tick_val| {
+                    let y = y_scale.scale(tick_val);
                     div()
                         .absolute()
-                        .left(px((margin_left - 30.0) as f32))
-                        .top(px((margin_top + y - 6.0) as f32))
-                        .w(px(25.0))
-                        .text_xs()
-                        .text_color(rgb(0x333333))
-                        .flex()
-                        .justify_end()
-                        .child(format!("{}", count))
+                        .right(px((width - margin_left + 5.0) as f32))
+                        .top(px((y - 6.0) as f32))
+                        .text_size(px(9.0))
+                        .child(format!("{:.0}", tick_val))
                 }))
-                // Y-axis tick marks
-                .children(y_ticks.iter().map(|&count| {
-                    let y = y_scale.scale(count as f64);
+                // X-axis labels
+                .children(x_ticks.iter().map(|&tick_val| {
+                    let x = x_scale.scale(tick_val);
                     div()
                         .absolute()
-                        .left(px((margin_left - 5.0) as f32))
-                        .top(px((margin_top + y) as f32))
-                        .w(px(5.0))
-                        .h(px(1.0))
-                        .bg(rgb(0x000000))
-                }))
-                // Y-axis line
-                .child(
-                    div()
-                        .absolute()
-                        .left(px(margin_left as f32))
-                        .top(px(margin_top as f32))
-                        .w(px(1.0))
-                        .h(px(chart_height as f32))
-                        .bg(rgb(0x000000)),
-                )
-                // X-axis line
-                .child(
-                    div()
-                        .absolute()
-                        .left(px(margin_left as f32))
-                        .top(px((margin_top + chart_height) as f32))
-                        .w(px(chart_width as f32))
-                        .h(px(1.0))
-                        .bg(rgb(0x000000)),
-                )
-                // Bars
-                .children((0..bin_count).map(|i| {
-                    let count = bins[i] as f64;
-                    let x0 = x_scale.scale(min_val + i as f64 * step);
-                    let y0 = y_scale.scale(count);
-                    let h = chart_height - y0;
-
-                    div()
-                        .absolute()
-                        .left(px((margin_left + x0) as f32))
-                        .top(px((margin_top + y0) as f32))
-                        .w(px(bar_width as f32))
-                        .h(px(h as f32))
-                        .bg(rgb(0x4682b4))
-                }))
-                // X-axis ticks and labels (bin boundaries)
-                .children((0..=bin_count).map(|i| {
-                    let val = min_val + i as f64 * step;
-                    let x = x_scale.scale(val);
-
-                    div()
-                        .absolute()
-                        .left(px((margin_left + x - 12.0) as f32))
-                        .top(px((margin_top + chart_height) as f32))
-                        .w(px(24.0))
-                        .flex()
-                        .flex_col()
-                        .items_center()
-                        .child(
-                            // Tick mark
-                            div().w(px(1.0)).h(px(5.0)).bg(rgb(0x000000)),
-                        )
-                        .child(
-                            // Label
-                            div()
-                                .text_xs()
-                                .text_color(rgb(0x333333))
-                                .child(format!("{:.1}", val)),
-                        )
+                        .left(px((x - 10.0) as f32))
+                        .top(px((margin_top + chart_height + 5.0) as f32))
+                        .text_size(px(9.0))
+                        .child(format!("{tick_val:.1}"))
                 }))
                 // X-axis label
                 .child(
                     div()
                         .absolute()
-                        .left(px((margin_left + chart_width / 2.0 - 20.0) as f32))
-                        .top(px((height - 15.0) as f32))
-                        .text_xs()
-                        .text_color(rgb(0x666666))
-                        .child("Value"),
+                        .left(px((margin_left + chart_width / 2.0 - 15.0) as f32))
+                        .top(px((height - 12.0) as f32))
+                        .text_size(px(10.0))
+                        .child("Carat"),
                 ),
         )
 }

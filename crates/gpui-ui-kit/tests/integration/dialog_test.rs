@@ -9,7 +9,7 @@
 //! - Backdrop click behavior
 //! - Theme customization
 
-use gpui::{Context, TestAppContext, Window, div, prelude::*};
+use gpui::{Context, IntoElement, ParentElement, Render, Styled, TestAppContext, Window, div};
 use gpui_ui_kit::dialog::{Dialog, DialogSize, DialogTheme};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};

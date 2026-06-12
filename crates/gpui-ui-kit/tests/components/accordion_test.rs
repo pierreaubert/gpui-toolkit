@@ -48,9 +48,27 @@ fn test_accordion_item_creation() {
     let item = AccordionItem::new("id", "Title");
     let expected_id: SharedString = "id".into();
     assert_eq!(item.id(), &expected_id);
+    assert_eq!(item.title(), &SharedString::from("Title"));
+    assert_eq!(item.trailing_text(), None);
 
     let item_with_content = AccordionItem::new("id", "Title").content("Content text");
     assert_eq!(item_with_content.id(), &expected_id);
+}
+
+#[test]
+fn test_accordion_item_trailing_metadata() {
+    let item = AccordionItem::new(
+        "album",
+        "Beethoven: Symphony No. 6, Pastoral & Piano Sonata No. 17, Tempest",
+    )
+    .trailing("Track 1/8")
+    .content("Album details");
+
+    assert_eq!(
+        item.title(),
+        &SharedString::from("Beethoven: Symphony No. 6, Pastoral & Piano Sonata No. 17, Tempest")
+    );
+    assert_eq!(item.trailing_text(), Some(&SharedString::from("Track 1/8")));
 }
 
 // Interaction tests

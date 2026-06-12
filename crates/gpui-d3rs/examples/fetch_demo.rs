@@ -11,7 +11,7 @@ use d3rs::fetch::{
     parse_tsv,
 };
 
-fn main() {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== d3-fetch Demonstration ===\n");
 
     // ========================================
@@ -29,7 +29,7 @@ Eve,22,88.0,true"#;
     println!("Input CSV:");
     println!("{}\n", csv_data);
 
-    let rows = parse_csv(csv_data);
+    let rows = parse_csv(csv_data)?;
     println!("Parsed {} rows:\n", rows.len());
 
     for (i, row) in rows.iter().enumerate() {
@@ -57,7 +57,7 @@ Gizmo\t9.99\t200";
     println!("Input TSV:");
     println!("{}\n", tsv_data);
 
-    let tsv_rows = parse_tsv(tsv_data);
+    let tsv_rows = parse_tsv(tsv_data)?;
     println!("Parsed {} rows:", tsv_rows.len());
     for row in &tsv_rows {
         println!(
@@ -81,7 +81,7 @@ Gizmo\t9.99\t200";
     println!("Input (pipe-delimited):");
     println!("{}\n", pipe_data);
 
-    let pipe_rows = parse_dsv(pipe_data, '|');
+    let pipe_rows = parse_dsv(pipe_data, '|')?;
     println!("Parsed {} rows:", pipe_rows.len());
     for row in &pipe_rows {
         println!(
@@ -105,7 +105,7 @@ Gizmo\t9.99\t200";
     println!("Input (with quoted fields):");
     println!("{}\n", quoted_csv);
 
-    let quoted_rows = parse_csv(quoted_csv);
+    let quoted_rows = parse_csv(quoted_csv)?;
     println!("Parsed {} rows:", quoted_rows.len());
     for row in &quoted_rows {
         println!(
@@ -231,7 +231,7 @@ Gizmo\t9.99\t200";
     println!("Input (messy whitespace):");
     println!("{}\n", messy_csv);
 
-    let cleaned = parser.parse(messy_csv);
+    let cleaned = parser.parse(messy_csv)?;
     println!("Parsed (trimmed):");
     for row in &cleaned {
         println!(
@@ -243,7 +243,7 @@ Gizmo\t9.99\t200";
 
     // Parse without headers (rows mode)
     let raw_data = "1,2,3\n4,5,6\n7,8,9";
-    let raw_rows = parser.parse_rows(raw_data);
+    let raw_rows = parser.parse_rows(raw_data)?;
     println!("\nRaw rows (no headers):");
     for (i, row) in raw_rows.iter().enumerate() {
         println!("  Row {}: {:?}", i, row);
@@ -261,7 +261,7 @@ Gizmo\t9.99\t200";
 2023-01-16,Gizmo,West,200,9.99,1998.00
 2023-01-17,Gadget,North,30,29.99,899.70"#;
 
-    let sales = parse_csv(sales_csv);
+    let sales = parse_csv(sales_csv)?;
 
     println!("Sales summary:");
 
@@ -296,4 +296,5 @@ Gizmo\t9.99\t200";
     println!("\n  Grand total: ${:.2}", grand_total);
 
     println!("\n=== End of d3-fetch Demo ===");
+    Ok(())
 }

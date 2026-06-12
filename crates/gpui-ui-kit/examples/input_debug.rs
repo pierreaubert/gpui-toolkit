@@ -10,6 +10,7 @@
 //! Parent components only need to provide callbacks for value changes.
 
 use gpui::*;
+use gpui_miniapp::{MiniApp, MiniAppConfig};
 use gpui_ui_kit::input::{Input, InputSize, InputVariant};
 use gpui_ui_kit::theme::ThemeExt;
 use gpui_ui_kit::*;

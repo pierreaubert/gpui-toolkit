@@ -5,8 +5,8 @@ use gpui::prelude::*;
 use gpui::*;
 
 pub fn render(app: &ShowcaseApp, _cx: &mut Context<ShowcaseApp>) -> Div {
-    let width = 800.0;
-    let height = 500.0;
+    let width = app.content_width as f64;
+    let height = (width * 0.625).min(app.content_height as f64 * 0.8);
 
     // Get world data
     let geometry = get_world_data(app.use_large_data);
@@ -37,7 +37,7 @@ pub fn render(app: &ShowcaseApp, _cx: &mut Context<ShowcaseApp>) -> Div {
     for (i, geo) in features.iter().enumerate() {
         let proj = Mercator::new()
             .scale(120.0)
-            .translate(width as f64 / 2.0, height as f64 / 2.0 + 50.0);
+            .translate(width / 2.0, height / 2.0 + 50.0);
         let path = GeoPath::new(proj);
         let d = path.render(geo);
         feature_paths.push((d, i));
@@ -57,9 +57,10 @@ pub fn render(app: &ShowcaseApp, _cx: &mut Context<ShowcaseApp>) -> Div {
         )
         .child(
             div()
-                .w(px(width))
-                .h(px(height))
+                .w(px(width as f32))
+                .h(px(height as f32))
                 .bg(rgb(0xaadaff)) // Ocean color
+                .overflow_hidden()
                 .relative()
                 .child(canvas(
                     move |bounds, _, _| {

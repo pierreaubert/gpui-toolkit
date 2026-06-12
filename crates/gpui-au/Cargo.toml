@@ -1,0 +1,57 @@
+[package]
+name = "gpui-au"
+version = "0.7.4"
+edition = "2024"
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+readme.workspace = true
+description = "macOS Audio Unit platform backend for GPUI — embeds GPUI rendering inside AUv3 ViewControllers"
+license.workspace = true
+
+[lib]
+crate-type = ["rlib"]
+
+[features]
+default = []
+autoeq = []
+camera = []
+gpu-2d = []
+gpu-3d = []
+reqwest = []
+showcase = []
+spinorama = []
+tokio = []
+urlencoding = []
+
+[dependencies]
+anyhow = { workspace = true }
+log = { workspace = true, features = ["kv_unstable_serde", "serde"] }
+parking_lot = { workspace = true }
+futures = { workspace = true }
+raw-window-handle = { workspace = true }
+
+# GPUI core
+gpui = { workspace = true }
+
+# wgpu renderer (Metal backend on macOS)
+gpui_wgpu = { workspace = true }
+wgpu = { workspace = true }
+
+# Text / font stack
+pathfinder_geometry = { workspace = true }
+smallvec = { workspace = true, features = ["union", "const_new"] }
+
+# UUID for display identification
+uuid = { workspace = true, features = ["v5"] }
+
+# Logging to stderr (visible in Console.app for AU extensions)
+env_logger = { workspace = true }
+
+# Apple-only deps (Objective-C runtime, Apple frameworks, font-kit)
+[target.'cfg(target_os = "macos")'.dependencies]
+objc = { workspace = true }
+core-foundation = { workspace = true }
+core-graphics = { workspace = true }
+core-text = { workspace = true }
+font-kit = { workspace = true }

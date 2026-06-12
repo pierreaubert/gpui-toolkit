@@ -4,7 +4,8 @@
 //! indeterminate state, labels, and custom theming using VisualTestContext.
 
 use gpui::{
-    Context, Modifiers, MouseButton, TestAppContext, VisualTestContext, Window, div, prelude::*,
+    Context, IntoElement, Modifiers, MouseButton, ParentElement, Render, Styled, TestAppContext,
+    VisualTestContext, Window, div,
 };
 use gpui_ui_kit::checkbox::{Checkbox, CheckboxSize};
 use std::cell::RefCell;

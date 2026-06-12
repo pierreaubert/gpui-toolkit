@@ -4,6 +4,28 @@
 
 use std::f64::consts::PI;
 
+/// Recoverable density-estimator configuration error.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DensityError {
+    pub message: String,
+}
+
+impl DensityError {
+    fn new(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+        }
+    }
+}
+
+impl std::fmt::Display for DensityError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for DensityError {}
+
 /// Gaussian kernel function.
 ///
 /// # Example
@@ -15,12 +37,18 @@ use std::f64::consts::PI;
 /// assert!((k - 0.3989422804014327).abs() < 0.0001);
 /// ```
 pub fn gaussian_kernel(x: f64, bandwidth: f64) -> f64 {
+    if !bandwidth.is_finite() || bandwidth <= 0.0 {
+        return 0.0;
+    }
     let t = x / bandwidth;
     (-(t * t) / 2.0).exp() / (bandwidth * (2.0 * PI).sqrt())
 }
 
 /// Epanechnikov kernel function.
 pub fn epanechnikov_kernel(x: f64, bandwidth: f64) -> f64 {
+    if !bandwidth.is_finite() || bandwidth <= 0.0 {
+        return 0.0;
+    }
     let t = x / bandwidth;
     if t.abs() <= 1.0 {
         0.75 * (1.0 - t * t) / bandwidth
@@ -130,11 +158,51 @@ impl DensityEstimator {
         self
     }
 
+    /// Validate grid, domain, and bandwidth settings.
+    pub fn validate(&self) -> Result<(), DensityError> {
+        if self.width == 0 || self.height == 0 {
+            return Err(DensityError::new(
+                "density grid dimensions must be non-zero",
+            ));
+        }
+        if !self.bandwidth.is_finite() || self.bandwidth <= 0.0 {
+            return Err(DensityError::new(
+                "density bandwidth must be finite and positive",
+            ));
+        }
+        if !(self.x0.is_finite()
+            && self.x1.is_finite()
+            && self.y0.is_finite()
+            && self.y1.is_finite())
+        {
+            return Err(DensityError::new("density domains must be finite"));
+        }
+        if self.x0 >= self.x1 || self.y0 >= self.y1 {
+            return Err(DensityError::new(
+                "density domains must have positive extent",
+            ));
+        }
+        Ok(())
+    }
+
+    /// Estimate density from a list of points, returning configuration errors.
+    pub fn try_estimate(&self, points: &[(f64, f64)]) -> Result<Vec<f64>, DensityError> {
+        self.validate()?;
+        Ok(self.estimate_validated(points))
+    }
+
     /// Estimate density from a list of (x, y) points.
     pub fn estimate(&self, points: &[(f64, f64)]) -> Vec<f64> {
+        match self.try_estimate(points) {
+            Ok(grid) => grid,
+            Err(_) => vec![0.0; self.width.saturating_mul(self.height)],
+        }
+    }
+
+    fn estimate_validated(&self, points: &[(f64, f64)]) -> Vec<f64> {
         let mut grid = vec![0.0; self.width * self.height];
 
-        if points.is_empty() {
+        if points.is_empty() || self.width <= 1 || self.height <= 1 {
             return grid;
         }
 
@@ -183,11 +251,27 @@ impl DensityEstimator {
         grid
     }
 
+    /// Estimate density with weighted points, returning configuration errors.
+    pub fn try_estimate_weighted(
+        &self,
+        points: &[(f64, f64, f64)],
+    ) -> Result<Vec<f64>, DensityError> {
+        self.validate()?;
+        Ok(self.estimate_weighted_validated(points))
+    }
+
     /// Estimate density with weighted points.
     pub fn estimate_weighted(&self, points: &[(f64, f64, f64)]) -> Vec<f64> {
+        match self.try_estimate_weighted(points) {
+            Ok(grid) => grid,
+            Err(_) => vec![0.0; self.width.saturating_mul(self.height)],
+        }
+    }
+
+    fn estimate_weighted_validated(&self, points: &[(f64, f64, f64)]) -> Vec<f64> {
         let mut grid = vec![0.0; self.width * self.height];
 
-        if points.is_empty() {
+        if points.is_empty() || self.width <= 1 || self.height <= 1 {
             return grid;
         }
 
@@ -271,11 +355,29 @@ pub fn density_2d(
     height: usize,
     bandwidth: f64,
 ) -> (Vec<f64>, usize, usize) {
+    try_density_2d(points, width, height, bandwidth)
+        .unwrap_or_else(|_| (vec![0.0; width.saturating_mul(height)], width, height))
+}
+
+/// Fallible 2D density estimation function with dimension/domain guards.
+pub fn try_density_2d(
+    points: &[(f64, f64)],
+    width: usize,
+    height: usize,
+    bandwidth: f64,
+) -> Result<(Vec<f64>, usize, usize), DensityError> {
+    if points.is_empty() {
+        return Ok((vec![0.0; width.saturating_mul(height)], width, height));
+    }
+
     // Determine extent from points
     let (mut x0, mut x1) = (f64::INFINITY, f64::NEG_INFINITY);
     let (mut y0, mut y1) = (f64::INFINITY, f64::NEG_INFINITY);
 
     for &(x, y) in points {
+        if !x.is_finite() || !y.is_finite() {
+            return Err(DensityError::new("density points must be finite"));
+        }
         x0 = x0.min(x);
         x1 = x1.max(x);
         y0 = y0.min(y);
@@ -289,13 +391,22 @@ pub fn density_2d(
     y0 -= padding;
     y1 += padding;
 
+    if x0 >= x1 {
+        x0 -= 0.5;
+        x1 += 0.5;
+    }
+    if y0 >= y1 {
+        y0 -= 0.5;
+        y1 += 0.5;
+    }
+
     let estimator = DensityEstimator::new()
         .size(width, height)
         .x(x0, x1)
         .y(y0, y1)
         .bandwidth(bandwidth);
 
-    (estimator.estimate(points), width, height)
+    Ok((estimator.try_estimate(points)?, width, height))
 }
 
 #[cfg(test)]
@@ -355,5 +466,28 @@ mod tests {
 
         let grid = estimator.estimate_weighted(&points);
         assert_eq!(grid.len(), 100);
+    }
+
+    #[test]
+    fn test_density_rejects_invalid_bandwidth() {
+        let estimator = DensityEstimator::new().bandwidth(0.0).size(10, 10);
+        assert!(estimator.try_estimate(&[(0.5, 0.5)]).is_err());
+        assert_eq!(estimator.estimate(&[(0.5, 0.5)]), vec![0.0; 100]);
+    }
+
+    #[test]
+    fn test_try_density_2d_handles_flat_domains() {
+        let (grid, width, height) = try_density_2d(&[(1.0, 1.0), (1.0, 1.0)], 8, 8, 0.2).unwrap();
+        assert_eq!(grid.len(), width * height);
+        assert!(grid.iter().all(|value| value.is_finite()));
+    }
+
+    #[test]
+    fn test_density_single_dimension() {
+        let points = vec![(0.5, 0.5)];
+        let estimator = DensityEstimator::new().bandwidth(0.2).size(1, 1);
+        let grid = estimator.estimate(&points);
+        assert_eq!(grid.len(), 1);
+        assert_eq!(grid[0], 0.0);
     }
 }

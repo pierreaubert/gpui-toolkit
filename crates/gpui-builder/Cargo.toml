@@ -1,0 +1,57 @@
+[package]
+name = "gpui-builder"
+version = "0.7.3"
+authors.workspace = true
+edition.workspace = true
+keywords.workspace = true
+categories.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Generic constraint-based layout solver for GPUI applications"
+
+[dependencies]
+gpui-design = { workspace = true, optional = true }
+gpui-pretext = { workspace = true }
+serde = { workspace = true }
+# GPUI deps are optional, enabled by the `gpui` feature for the showcase binary.
+gpui = { workspace = true, optional = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+gpui_macos = { workspace = true, optional = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+gpui_linux = { workspace = true, optional = true }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+gpui_windows = { workspace = true, optional = true }
+
+[target.'cfg(any(target_os = "ios", target_os = "tvos"))'.dependencies]
+gpui-ios = { workspace = true, optional = true }
+
+[features]
+default = []
+autoeq = []
+camera = []
+gpu-2d = []
+gpu-3d = []
+reqwest = []
+showcase = [
+    "dep:gpui",
+    "dep:gpui-design",
+    "gpui-design/gpui",
+    "dep:gpui_macos",
+    "dep:gpui_linux",
+    "dep:gpui_windows",
+    "dep:gpui-ios",
+]
+spinorama = []
+tokio = []
+urlencoding = []
+
+[[bin]]
+name = "layout-showcase"
+path = "src/bin/layout_showcase.rs"
+required-features = ["showcase"]
+
+[dev-dependencies]
+serde_json = { workspace = true }

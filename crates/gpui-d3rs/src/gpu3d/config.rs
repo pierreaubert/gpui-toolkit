@@ -174,6 +174,14 @@ pub struct Surface3DConfig {
     pub isolines: bool,
     /// Isoline step size (normalized 0-1)
     pub isoline_step: f32,
+    /// Isoline stroke width in screen pixels
+    pub isoline_width_px: f32,
+    /// Isoline opacity (0.0 - 1.0)
+    pub isoline_opacity: f32,
+    /// Isoline color (RGB)
+    pub isoline_color: [f32; 3],
+    /// Scalar-field upsample factor for projected isoline polylines
+    pub isoline_upsample_factor: usize,
     /// Plot type (Cartesian or Spherical)
     pub plot_type: SurfacePlotType,
     /// Show grid/bounding box
@@ -191,7 +199,7 @@ impl Default for Surface3DConfig {
             diffuse: 0.7,
             light_direction: Vec3::new(1.0, 1.0, 1.0),
             msaa_samples: 4,
-            camera_distance: 3.5,
+            camera_distance: 5.0,
             camera_azimuth: 45.0,
             camera_elevation: 30.0,
             show_axes: true,
@@ -199,6 +207,10 @@ impl Default for Surface3DConfig {
             opacity: 1.0,
             isolines: false,
             isoline_step: 0.05,
+            isoline_width_px: 1.25,
+            isoline_opacity: 0.8,
+            isoline_color: [0.0, 0.0, 0.0],
+            isoline_upsample_factor: 2,
             plot_type: SurfacePlotType::Cartesian,
             show_grid: true,
         }
@@ -209,6 +221,15 @@ impl Surface3DConfig {
     /// Create a new configuration with default settings
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Create a 3D surface configuration from design-system interaction defaults.
+    #[cfg(feature = "gpui")]
+    pub fn from_design(design: &gpui_design::DesignSystem) -> Self {
+        Self {
+            isoline_width_px: design.interaction.border_width.max(1.25),
+            ..Self::default()
+        }
     }
 
     /// Set the colormap
@@ -300,6 +321,30 @@ impl Surface3DConfig {
         self
     }
 
+    /// Set isoline width in screen pixels
+    pub fn isoline_width_px(mut self, width: f32) -> Self {
+        self.isoline_width_px = width.clamp(0.25, 16.0);
+        self
+    }
+
+    /// Set isoline opacity
+    pub fn isoline_opacity(mut self, opacity: f32) -> Self {
+        self.isoline_opacity = opacity.clamp(0.0, 1.0);
+        self
+    }
+
+    /// Set isoline color
+    pub fn isoline_color(mut self, r: f32, g: f32, b: f32) -> Self {
+        self.isoline_color = [r.clamp(0.0, 1.0), g.clamp(0.0, 1.0), b.clamp(0.0, 1.0)];
+        self
+    }
+
+    /// Set scalar-field upsample factor for projected isoline polylines
+    pub fn isoline_upsample_factor(mut self, factor: usize) -> Self {
+        self.isoline_upsample_factor = factor.clamp(1, 8);
+        self
+    }
+
     /// Set plot type
     pub fn plot_type(mut self, plot_type: SurfacePlotType) -> Self {
         self.plot_type = plot_type;
@@ -329,6 +374,7 @@ mod tests {
         assert!(!config.wireframe);
         assert!(config.ambient > 0.0);
         assert!(config.diffuse > 0.0);
+        assert!(config.isoline_width_px > 0.0);
     }
 
     #[test]
@@ -362,5 +408,19 @@ mod tests {
 
         let config = Surface3DConfig::new().msaa_samples(8);
         assert_eq!(config.msaa_samples, 8);
+    }
+
+    #[test]
+    fn test_isoline_controls_are_clamped() {
+        let config = Surface3DConfig::new()
+            .isoline_step(0.0)
+            .isoline_width_px(0.0)
+            .isoline_opacity(2.0)
+            .isoline_color(-1.0, 0.5, 2.0);
+
+        assert_eq!(config.isoline_step, 0.001);
+        assert_eq!(config.isoline_width_px, 0.25);
+        assert_eq!(config.isoline_opacity, 1.0);
+        assert_eq!(config.isoline_color, [0.0, 0.5, 1.0]);
     }
 }

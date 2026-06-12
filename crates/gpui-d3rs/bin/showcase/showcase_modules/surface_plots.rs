@@ -1,8 +1,12 @@
 use d3rs::prelude::*;
 use d3rs::surface::{ColorScaleType, SurfaceConfig, SurfaceData, render_surface};
 use gpui::*;
+use gpui_ui_kit::theme::ThemeExt;
 
-pub fn render(_app: &mut ShowcaseApp, _cx: &mut Context<ShowcaseApp>) -> Div {
+pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
+    let ui_theme = cx.theme();
+    let width = app.content_width;
+    let height = (width * 0.56).min(app.content_height * 0.6);
     // Logarithmic frequency response surface (20 Hz to 20 kHz)
     let freq_response = SurfaceData::from_z_function_logx(
         (20.0, 20000.0), // X: Frequency (logarithmic)
@@ -80,7 +84,6 @@ pub fn render(_app: &mut ShowcaseApp, _cx: &mut Context<ShowcaseApp>) -> Div {
         .child(
             div()
                 .text_sm()
-                .text_color(rgb(0x666666))
                 .child("Demonstrating logarithmic axis sampling for frequency domain visualizations"),
         )
         // First row: Frequency response (log X)
@@ -103,23 +106,21 @@ pub fn render(_app: &mut ShowcaseApp, _cx: &mut Context<ShowcaseApp>) -> Div {
                         .child(
                             div()
                                 .text_sm()
-                                .text_color(rgb(0x666666))
                                 .child("X-axis: 20 Hz → 20 kHz (logarithmic) | Y-axis: Time (linear)"),
                         )
                         .child(
                             div()
                                 .text_xs()
-                                .text_color(rgb(0x888888))
                                 .child("Shows frequency response with low and high frequency rolloffs"),
                         ),
                 )
                 .child(
                     div()
-                        .w(px(800.0))
-                        .h(px(450.0))
-                        .bg(rgb(0xf5f5f5))
+                        .w(px(width))
+                        .h(px(height))
+                        .bg(ui_theme.surface)
                         .border_1()
-                        .border_color(rgb(0xcccccc))
+                        .border_color(ui_theme.border)
                         .child(
                             render_surface(
                                 &freq_response,
@@ -132,8 +133,8 @@ pub fn render(_app: &mut ShowcaseApp, _cx: &mut Context<ShowcaseApp>) -> Div {
                                     .wireframe_opacity(0.3)
                                     .wireframe_color(D3Color::rgb(0, 0, 0))
                                     .scale(1.2),
-                                800.0,
-                                450.0,
+                                width,
+                                height,
                             ),
                         ),
                 )
@@ -142,7 +143,6 @@ pub fn render(_app: &mut ShowcaseApp, _cx: &mut Context<ShowcaseApp>) -> Div {
                         .flex()
                         .gap_4()
                         .text_xs()
-                        .text_color(rgb(0x666666))
                         .child("Method: SurfaceData::from_z_function_logx()")
                         .child("•")
                         .child("Color scale: Viridis (magnitude in dB)")
@@ -170,23 +170,21 @@ pub fn render(_app: &mut ShowcaseApp, _cx: &mut Context<ShowcaseApp>) -> Div {
                         .child(
                             div()
                                 .text_sm()
-                                .text_color(rgb(0x666666))
                                 .child("X-axis: 100 Hz → 10 kHz (log) | Y-axis: 100 Hz → 10 kHz (log)"),
                         )
                         .child(
                             div()
                                 .text_xs()
-                                .text_color(rgb(0x888888))
                                 .child("Interaction between two frequency components"),
                         ),
                 )
                 .child(
                     div()
-                        .w(px(800.0))
-                        .h(px(450.0))
-                        .bg(rgb(0xf5f5f5))
+                        .w(px(width))
+                        .h(px(height))
+                        .bg(ui_theme.surface)
                         .border_1()
-                        .border_color(rgb(0xcccccc))
+                        .border_color(ui_theme.border)
                         .child(
                             render_surface(
                                 &freq_2d,
@@ -199,8 +197,8 @@ pub fn render(_app: &mut ShowcaseApp, _cx: &mut Context<ShowcaseApp>) -> Div {
                                     .wireframe_opacity(0.2)
                                     .wireframe_color(D3Color::rgb(100, 100, 100))
                                     .scale(1.3),
-                                800.0,
-                                450.0,
+                                width,
+                                height,
                             ),
                         ),
                 )
@@ -209,7 +207,6 @@ pub fn render(_app: &mut ShowcaseApp, _cx: &mut Context<ShowcaseApp>) -> Div {
                         .flex()
                         .gap_4()
                         .text_xs()
-                        .text_color(rgb(0x666666))
                         .child("Method: SurfaceData::from_z_function_logxy()")
                         .child("•")
                         .child("Color scale: Heat (blue → white → red)")
@@ -237,23 +234,21 @@ pub fn render(_app: &mut ShowcaseApp, _cx: &mut Context<ShowcaseApp>) -> Div {
                         .child(
                             div()
                                 .text_sm()
-                                .text_color(rgb(0x666666))
                                 .child("X-axis: Time (linear) | Y-axis: 20 Hz → 20 kHz (logarithmic)"),
                         )
                         .child(
                             div()
                                 .text_xs()
-                                .text_color(rgb(0x888888))
                                 .child("Simulated spectrogram showing harmonic decay at 440 Hz (A4 note)"),
                         ),
                 )
                 .child(
                     div()
-                        .w(px(800.0))
-                        .h(px(450.0))
-                        .bg(rgb(0xf5f5f5))
+                        .w(px(width))
+                        .h(px(height))
+                        .bg(ui_theme.surface)
                         .border_1()
-                        .border_color(rgb(0xcccccc))
+                        .border_color(ui_theme.border)
                         .child(
                             render_surface(
                                 &spectral,
@@ -267,8 +262,8 @@ pub fn render(_app: &mut ShowcaseApp, _cx: &mut Context<ShowcaseApp>) -> Div {
                                     .ambient(0.5)
                                     .diffuse(0.5)
                                     .scale(1.4),
-                                800.0,
-                                450.0,
+                                width,
+                                height,
                             ),
                         ),
                 )
@@ -277,7 +272,6 @@ pub fn render(_app: &mut ShowcaseApp, _cx: &mut Context<ShowcaseApp>) -> Div {
                         .flex()
                         .gap_4()
                         .text_xs()
-                        .text_color(rgb(0x666666))
                         .child("Method: SurfaceData::from_z_function_logy()")
                         .child("•")
                         .child("Color scale: Spectral (rainbow)")
@@ -290,9 +284,9 @@ pub fn render(_app: &mut ShowcaseApp, _cx: &mut Context<ShowcaseApp>) -> Div {
             div()
                 .mt_6()
                 .p_4()
-                .bg(rgb(0xf0f8ff))
+                .bg(ui_theme.surface)
                 .border_1()
-                .border_color(rgb(0xb0d4f1))
+                .border_color(ui_theme.border)
                 .rounded_lg()
                 .flex()
                 .flex_col()
@@ -301,19 +295,16 @@ pub fn render(_app: &mut ShowcaseApp, _cx: &mut Context<ShowcaseApp>) -> Div {
                     div()
                         .text_sm()
                         .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(rgb(0x0066cc))
                         .child("About Logarithmic Scales"),
                 )
                 .child(
                     div()
                         .text_sm()
-                        .text_color(rgb(0x333333))
                         .child("Logarithmic axis sampling distributes points evenly in log space, making it ideal for visualizing data that spans multiple orders of magnitude, such as audio frequency responses (20 Hz to 20 kHz)."),
                 )
                 .child(
                     div()
                         .text_xs()
-                        .text_color(rgb(0x666666))
                         .mt_2()
                         .child("Available methods: from_function_logx(), from_function_logy(), from_function_logxy()"),
                 ),

@@ -81,25 +81,25 @@ impl Render for HierarchyDemo {
             let n = node.borrow();
 
             // Link to parent
-            if let Some(parent_weak) = &n.parent {
-                if let Some(parent_rc) = parent_weak.upgrade() {
-                    let p = parent_rc.borrow();
+            if let Some(parent_weak) = &n.parent
+                && let Some(parent_rc) = parent_weak.upgrade()
+            {
+                let p = parent_rc.borrow();
 
-                    // Draw link (simple SVG line)
-                    let x1 = n.x as f32 + 100.0;
-                    let y1 = n.y as f32 + 100.0;
-                    let x2 = p.x as f32 + 100.0;
-                    let y2 = p.y as f32 + 100.0;
+                // Draw link (simple SVG line)
+                let x1 = n.x as f32 + 100.0;
+                let y1 = n.y as f32 + 100.0;
+                let x2 = p.x as f32 + 100.0;
+                let y2 = p.y as f32 + 100.0;
 
-                    links.push(
-                        div().absolute().size_full().child(
-                            svg()
-                                .size_full()
-                                .path(format!("M {},{} L {},{}", x2, y2, x1, y1))
-                                .text_color(rgb(0x666666)),
-                        ),
-                    );
-                }
+                links.push(
+                    div().absolute().size_full().child(
+                        svg()
+                            .size_full()
+                            .path(format!("M {},{} L {},{}", x2, y2, x1, y1))
+                            .text_color(rgb(0x666666)),
+                    ),
+                );
             }
 
             // Node
@@ -128,14 +128,15 @@ impl Render for HierarchyDemo {
 }
 
 fn main() {
-    Application::with_platform(std::rc::Rc::new(gpui_macos::MacPlatform::new(false))).run(|cx: &mut App| {
+    let platform = gpui_miniapp::current_platform().expect("failed to initialize GPUI platform");
+    Application::with_platform(platform).run(|cx: &mut App| {
         let bounds = Bounds::centered(None, size(px(800.0), px(600.0)), cx);
         cx.open_window(
             WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
                 ..Default::default()
             },
-            |_, cx| cx.new(|cx| HierarchyDemo::new(cx)),
+            |_, cx| cx.new(HierarchyDemo::new),
         )
         .unwrap();
 

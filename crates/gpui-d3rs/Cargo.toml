@@ -1,7 +1,8 @@
 [package]
 name = "gpui-d3rs"
-version = "0.6.0"
+version = "0.7.2"
 edition.workspace = true
+repository.workspace = true
 authors.workspace = true
 description = "D3.js-inspired plotting library for GPUI"
 license = "ISC"
@@ -13,23 +14,31 @@ exclude = ["bin/"]
 name = "d3rs"
 
 [features]
-default = ["gpui", "gpu-2d"]
-gpui = ["dep:gpui", "dep:gpui-ui-kit", "dep:gpui_macos", "dep:smol"]
-spinorama = ["dep:autoeq", "dep:autoeq-cea2034", "dep:tokio", "dep:ndarray", "dep:reqwest", "dep:urlencoding", "gpui"]
-gpu-3d = ["dep:wgpu", "dep:bytemuck", "dep:glam", "dep:pollster", "dep:image", "gpui"]
-gpu-2d = ["dep:wgpu", "dep:bytemuck", "dep:glam", "dep:pollster", "dep:image", "dep:fontdue", "gpui"]
+default = ["gpui", "gpu-2d", "gpu-3d"]
+autoeq = ["dep:autoeq"]
+camera = []
+gpui = ["dep:gpui", "dep:gpui-ui-kit", "dep:gpui-miniapp", "dep:gpui-builder", "dep:gpui-design", "gpui-design/gpui", "dep:smol", "dep:fontdue", "dep:image"]
+reqwest = ["dep:reqwest"]
+showcase = []
+spinorama = ["dep:autoeq", "dep:tokio", "dep:ndarray", "dep:reqwest", "dep:urlencoding", "gpui"]
+tokio = ["dep:tokio"]
+gpu-3d = ["dep:wgpu", "dep:bytemuck", "dep:glam", "dep:pollster", "gpui"]
+gpu-2d = ["dep:wgpu", "dep:bytemuck", "dep:glam", "dep:pollster", "gpui"]
+urlencoding = ["dep:urlencoding"]
 
 [dependencies]
 gpui = { workspace = true, optional = true }
 smol = { workspace = true, optional = true }
 gpui-ui-kit = { workspace = true, optional = true }
-gpui_macos = { workspace = true, optional = true }
+gpui-miniapp = { workspace = true, optional = true }
+gpui-builder = { workspace = true, optional = true }
+gpui-design = { workspace = true, optional = true }
 regex = { workspace = true }
 delaunator = { workspace = true }
+math-delaunay = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 autoeq = { workspace = true, optional = true }
-autoeq-cea2034 = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true }
 ndarray = { workspace = true, optional = true }
 reqwest = { workspace = true, optional = true }
@@ -41,6 +50,10 @@ glam = { workspace = true, optional = true }
 pollster = { workspace = true, optional = true }
 image = { workspace = true, optional = true }
 fontdue = { workspace = true, optional = true }
+
+# Per-platform GPUI backends (gpui_macos, gpui_linux, gpui_windows) come in
+# transitively via the optional `gpui-miniapp` dep. Don't declare them here —
+# they aren't on crates.io and would block publication of any crate that does.
 
 [dev-dependencies]
 approx = { workspace = true }
@@ -88,10 +101,6 @@ name = "shape_demo"
 path = "examples/shape_demo.rs"
 
 [[example]]
-name = "delaunay_demo"
-path = "examples/delaunay_demo.rs"
-
-[[example]]
 name = "timer_demo"
 path = "examples/timer_demo.rs"
 
@@ -106,6 +115,11 @@ path = "examples/transition_demo.rs"
 [[example]]
 name = "surface3d_demo"
 path = "examples/surface3d_demo.rs"
+required-features = ["gpu-3d"]
+
+[[example]]
+name = "sphere_gallery_demo"
+path = "examples/sphere_gallery_demo.rs"
 required-features = ["gpu-3d"]
 
 [[example]]

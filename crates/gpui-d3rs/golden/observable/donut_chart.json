@@ -1,0 +1,151 @@
+{
+  "source": "https://observablehq.com/@d3/donut-chart",
+  "module": "d3-shape",
+  "function": "donut_chart",
+  "tolerance": 0.000001,
+  "generated_at": "2026-03-15T12:44:22.032Z",
+  "test_cases": [
+    {
+      "name": "donut_chart",
+      "description": "Donut chart with pad angle and spectral colors",
+      "layout": {
+        "width": 928,
+        "height": 500,
+        "radius": 250,
+        "innerRadius": 167.5
+      },
+      "pad_angle": 0.004,
+      "data": [
+        {
+          "name": "JavaScript",
+          "value": 67.7
+        },
+        {
+          "name": "Python",
+          "value": 44.1
+        },
+        {
+          "name": "TypeScript",
+          "value": 34.8
+        },
+        {
+          "name": "Java",
+          "value": 33.3
+        },
+        {
+          "name": "C#",
+          "value": 27.6
+        },
+        {
+          "name": "Rust",
+          "value": 13
+        },
+        {
+          "name": "Go",
+          "value": 11.2
+        }
+      ],
+      "slices": [
+        {
+          "name": "JavaScript",
+          "value": 67.7,
+          "index": 0,
+          "startAngle": 0,
+          "endAngle": 1.831691,
+          "padAngle": 0.004,
+          "arc_path": "M0.6,-248.999A249,249,0,0,1,240.728,63.648L161.986,42.626A167.5,167.5,0,0,0,0.6,-167.499Z",
+          "centroid": [
+            165.15848,
+            -126.849277
+          ],
+          "color": "rgb(66, 136, 181)"
+        },
+        {
+          "name": "Python",
+          "value": 44.1,
+          "index": 1,
+          "startAngle": 1.831691,
+          "endAngle": 3.026255,
+          "padAngle": 0.004,
+          "arc_path": "M240.418,64.808A249,249,0,0,1,29.252,247.276L19.872,166.317A167.5,167.5,0,0,0,161.676,43.785Z",
+          "centroid": [
+            136.15761,
+            157.572738
+          ],
+          "color": "rgb(126, 201, 166)"
+        },
+        {
+          "name": "TypeScript",
+          "value": 34.8,
+          "index": 2,
+          "startAngle": 3.026255,
+          "endAngle": 3.969748,
+          "padAngle": 0.004,
+          "arc_path": "M28.059,247.414A249,249,0,0,1,-183.028,168.824L-122.988,113.711A167.5,167.5,0,0,0,18.68,166.455Z",
+          "centroid": [
+            -72.660715,
+            195.162709
+          ],
+          "color": "rgb(209, 236, 158)"
+        },
+        {
+          "name": "Java",
+          "value": 33.3,
+          "index": 3,
+          "startAngle": 3.969748,
+          "endAngle": 4.872745,
+          "padAngle": 0.004,
+          "arc_path": "M-183.84,167.94A249,249,0,0,1,-245.901,-39.165L-165.446,-26.152A167.5,167.5,0,0,0,-123.8,112.827Z",
+          "centroid": [
+            -199.486119,
+            59.77751
+          ],
+          "color": "rgb(251, 248, 176)"
+        },
+        {
+          "name": "C#",
+          "value": 27.6,
+          "index": 4,
+          "startAngle": 4.872745,
+          "endAngle": 5.62186,
+          "padAngle": 0.004,
+          "arc_path": "M-245.709,-40.35A249,249,0,0,1,-153.4,-196.136L-103.345,-131.818A167.5,167.5,0,0,0,-165.254,-27.337Z",
+          "centroid": [
+            -179.160121,
+            -106.158907
+          ],
+          "color": "rgb(254, 206, 126)"
+        },
+        {
+          "name": "Rust",
+          "value": 13,
+          "index": 5,
+          "startAngle": 5.62186,
+          "endAngle": 5.97682,
+          "padAngle": 0.004,
+          "arc_path": "M-152.453,-196.874A249,249,0,0,1,-75.669,-237.224L-51.089,-159.518A167.5,167.5,0,0,0,-102.398,-132.555Z",
+          "centroid": [
+            -96.875111,
+            -184.345533
+          ],
+          "color": "rgb(246, 131, 79)"
+        },
+        {
+          "name": "Go",
+          "value": 11.2,
+          "index": 6,
+          "startAngle": 5.97682,
+          "endAngle": 6.283185,
+          "padAngle": 0.004,
+          "arc_path": "M-74.525,-237.586A249,249,0,0,1,-0.6,-248.999L-0.6,-167.499A167.5,167.5,0,0,0,-49.945,-159.881Z",
+          "centroid": [
+            -31.775693,
+            -205.811486
+          ],
+          "color": "rgb(209, 60, 75)"
+        }
+      ],
+      "total_value": 231.70000000000002
+    }
+  ]
+}

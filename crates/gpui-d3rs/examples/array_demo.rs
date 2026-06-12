@@ -208,7 +208,7 @@ fn main() {
 
     println!("\nHistogram (5 bins):");
     for bin in &bins {
-        let bar: String = std::iter::repeat('#').take(bin.values.len() * 2).collect();
+        let bar: String = std::iter::repeat_n('#', bin.values.len() * 2).collect();
         println!(
             "  [{:5.1}, {:5.1}): {} {}",
             bin.x0,

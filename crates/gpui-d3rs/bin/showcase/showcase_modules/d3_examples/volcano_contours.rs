@@ -17,6 +17,7 @@ use d3rs::shape::contour::{
 };
 use gpui::*;
 use gpui_ui_kit::Slider;
+use gpui_ui_kit::theme::ThemeExt;
 
 /// Color scale options for the visualization
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -43,6 +44,7 @@ impl VolcanoColorScale {
 }
 
 pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
+    let ui_theme = cx.theme();
     let entity = cx.entity().clone();
 
     // Get volcano data
@@ -68,7 +70,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
     let contours = generator.contours(&values, &thresholds);
 
     // Scales for positioning
-    let plot_width = 400.0;
+    let plot_width = (app.content_width as f64).min(app.content_height as f64 * 0.7);
     let plot_height = (VOLCANO_HEIGHT as f64 / VOLCANO_WIDTH as f64 * plot_width).round();
 
     let x_scale = LinearScale::new()
@@ -118,7 +120,6 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                 .child(
                     div()
                         .text_sm()
-                        .text_color(rgb(0x666666))
                         .child("Ported from Observable: d3/volcano-contours"),
                 ),
         )
@@ -154,21 +155,16 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                             div()
                                                 .px_2()
                                                 .py_1()
-                                                .bg(rgb(0x28a745))
+                                                .bg(ui_theme.success)
                                                 .rounded_md()
                                                 .text_xs()
-                                                .text_color(rgb(0xffffff))
                                                 .child("Recommended"),
                                         ),
                                 )
                                 .child(
-                                    div()
-                                        .text_xs()
-                                        .text_color(rgb(0x888888))
-                                        .font_family("monospace")
-                                        .child(
-                                            "render_contour(contours, &x_scale, &y_scale, &config)",
-                                        ),
+                                    div().text_xs().font_family("monospace").child(
+                                        "render_contour(contours, &x_scale, &y_scale, &config)",
+                                    ),
                                 )
                                 .child(
                                     div()
@@ -206,7 +202,6 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                 .child(
                                     div()
                                         .text_xs()
-                                        .text_color(rgb(0x888888))
                                         .font_family("monospace")
                                         .child("render_heatmap(data, &x_scale, &y_scale, &config)"),
                                 )
@@ -246,15 +241,14 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                 .flex_col()
                                 .gap_3()
                                 .p_4()
-                                .bg(rgb(0xf8f8f8))
+                                .bg(ui_theme.surface)
                                 .border_1()
-                                .border_color(rgb(0xe0e0e0))
+                                .border_color(ui_theme.border)
                                 .rounded_lg()
                                 .child(
                                     div()
                                         .text_lg()
                                         .font_weight(FontWeight::SEMIBOLD)
-                                        .text_color(rgb(0x333333))
                                         .child("Controls"),
                                 )
                                 // Number of contour levels
@@ -280,24 +274,18 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                         .flex()
                                         .items_center()
                                         .justify_between()
-                                        .child(
-                                            div()
-                                                .text_sm()
-                                                .text_color(rgb(0x555555))
-                                                .child("Color Scale"),
-                                        )
+                                        .child(div().text_sm().child("Color Scale"))
                                         .child({
                                             let entity = entity.clone();
                                             div()
                                                 .id("color-scale-toggle")
                                                 .px_3()
                                                 .py_1()
-                                                .bg(rgb(0x007acc))
-                                                .hover(|s| s.bg(rgb(0x005a9e)))
+                                                .bg(ui_theme.accent)
+                                                .hover(|s| s.bg(ui_theme.accent_hover))
                                                 .rounded_md()
                                                 .cursor_pointer()
                                                 .text_sm()
-                                                .text_color(rgb(0xffffff))
                                                 .child(color_scale_type.label())
                                                 .on_click(move |_, _window, cx| {
                                                     entity.update(cx, |this, _| {
@@ -313,12 +301,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                         .flex()
                                         .items_center()
                                         .justify_between()
-                                        .child(
-                                            div()
-                                                .text_sm()
-                                                .text_color(rgb(0x555555))
-                                                .child("Show Contour Lines"),
-                                        )
+                                        .child(div().text_sm().child("Show Contour Lines"))
                                         .child({
                                             let entity = entity.clone();
                                             let bg = if show_stroke {
@@ -335,7 +318,6 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                                 .rounded_md()
                                                 .cursor_pointer()
                                                 .text_sm()
-                                                .text_color(rgb(0xffffff))
                                                 .child(if show_stroke { "On" } else { "Off" })
                                                 .on_click(move |_, _window, cx| {
                                                     entity.update(cx, |this, _| {
@@ -353,34 +335,32 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                 .flex_col()
                                 .gap_1()
                                 .p_4()
-                                .bg(rgb(0xffffff))
+                                .bg(ui_theme.surface)
                                 .border_1()
-                                .border_color(rgb(0xe0e0e0))
+                                .border_color(ui_theme.border)
                                 .rounded_lg()
                                 .child(
                                     div()
                                         .text_xs()
                                         .font_weight(FontWeight::MEDIUM)
-                                        .text_color(rgb(0x888888))
                                         .child("DATA INFO"),
                                 )
-                                .child(div().text_sm().text_color(rgb(0x333333)).child(format!(
+                                .child(div().text_sm().child(format!(
                                     "Grid: {}x{} ({} points)",
                                     VOLCANO_WIDTH,
                                     VOLCANO_HEIGHT,
                                     VOLCANO_WIDTH * VOLCANO_HEIGHT
                                 )))
-                                .child(div().text_sm().text_color(rgb(0x333333)).child(format!(
+                                .child(div().text_sm().child(format!(
                                     "Elevation: {:.0}m - {:.0}m",
                                     min_elev, max_elev
                                 )))
                                 .child(
                                     div()
                                         .text_sm()
-                                        .text_color(rgb(0x333333))
                                         .child(format!("Contour levels: {}", num_thresholds)),
                                 )
-                                .child(div().text_sm().text_color(rgb(0x333333)).child(format!(
+                                .child(div().text_sm().child(format!(
                                     "Total contours: {}",
                                     contours.iter().map(|c| c.coordinates.len()).sum::<usize>()
                                 ))),
@@ -400,16 +380,10 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                     div()
                                         .text_xs()
                                         .font_weight(FontWeight::MEDIUM)
-                                        .text_color(rgb(0x888888))
                                         .child("LOW-LEVEL API USAGE"),
                                 )
-                                .child(
-                                    div()
-                                        .text_xs()
-                                        .font_family("monospace")
-                                        .text_color(rgb(0xd4d4d4))
-                                        .child(
-                                            r#"// 1. Generate data
+                                .child(div().text_xs().font_family("monospace").child(
+                                    r#"// 1. Generate data
 let values = generate_volcano_data();
 
 // 2. Create contour generator
@@ -428,8 +402,7 @@ let config = ContourConfig::new()
 
 // 5. Render
 render_contour(contours, &x_scale, &y_scale, &config)"#,
-                                        ),
-                                ),
+                                )),
                         ),
                 ),
         )
@@ -450,7 +423,6 @@ fn render_color_legend(scale_type: VolcanoColorScale, min_val: f64, max_val: f64
             div()
                 .text_sm()
                 .font_weight(FontWeight::MEDIUM)
-                .text_color(rgb(0x555555))
                 .child(format!("Color Legend ({} scale)", scale_type.label())),
         )
         .child(
@@ -458,12 +430,7 @@ fn render_color_legend(scale_type: VolcanoColorScale, min_val: f64, max_val: f64
                 .flex()
                 .items_center()
                 .gap_2()
-                .child(
-                    div()
-                        .text_xs()
-                        .text_color(rgb(0x666666))
-                        .child(format!("{:.0}m", min_val)),
-                )
+                .child(div().text_xs().child(format!("{:.0}m", min_val)))
                 .child(
                     div()
                         .flex()
@@ -488,11 +455,6 @@ fn render_color_legend(scale_type: VolcanoColorScale, min_val: f64, max_val: f64
                             ))
                         })),
                 )
-                .child(
-                    div()
-                        .text_xs()
-                        .text_color(rgb(0x666666))
-                        .child(format!("{:.0}m", max_val)),
-                ),
+                .child(div().text_xs().child(format!("{:.0}m", max_val))),
         )
 }

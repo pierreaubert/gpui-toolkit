@@ -1,0 +1,45 @@
+[package]
+name = "gpui-design-tools"
+version = "0.7.2"
+authors.workspace = true
+edition.workspace = true
+keywords.workspace = true
+categories.workspace = true
+description = "Design token and conformance tooling for gpui-toolkit"
+license.workspace = true
+repository.workspace = true
+
+[features]
+default = []
+autoeq = []
+camera = []
+gpu-2d = []
+gpu-3d = []
+reqwest = []
+showcase = []
+spinorama = []
+tokio = []
+urlencoding = []
+
+[dependencies]
+anyhow = { workspace = true }
+clap = { workspace = true }
+gpui-design = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[lib]
+name = "gpui_design_tools"
+path = "src/lib.rs"
+
+[[bin]]
+name = "gpui-export-design-tokens"
+path = "src/bin/gpui_export_design_tokens.rs"
+
+[[bin]]
+name = "gpui-import-design-tokens"
+path = "src/bin/gpui_import_design_tokens.rs"
+
+[[bin]]
+name = "gpui-validate-design-tokens"
+path = "src/bin/gpui_validate_design_tokens.rs"

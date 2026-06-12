@@ -16,6 +16,10 @@ pub use gpui_ui_kit::{ColorPickerMode, ColorPickerView};
 pub use editor::ThemeEditor;
 pub use showcase::ComponentShowcase;
 pub use theme::{
-    Color, ColorGroup, EQCurveColors, EditorTheme, GraphColors, MeterColors, PluginColors,
-    SpectrumColors,
+    AccentPalette, AccentSource, AccessibilityPalette, BuiltInThemePreset,
+    COMMUNITY_THEME_SCHEMA_VERSION, Color, ColorGroup, CommunityThemeBundle,
+    CommunityThemeManifest, EQCurveColors, EditorTheme, GraphColors, MeterColors, PluginColors,
+    SpectrumColors, ThemeAppearance, ThemeGallery, ThemeGalleryEntry, ThemeModePreference,
+    ThemeSchedule, ThemeTransition, ThemeTransitionEasing, TimeOfDay, TuiAnsiPalette,
+    TuiThemePreset,
 };

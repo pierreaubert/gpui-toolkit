@@ -7,8 +7,10 @@ use d3rs::shape::contour::{
 use gpui::prelude::FluentBuilder;
 use gpui::*;
 use gpui_ui_kit::Slider;
+use gpui_ui_kit::theme::ThemeExt;
 
 pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
+    let ui_theme = cx.theme();
     // Get entity handle for use in slider callbacks
     let entity = cx.entity().clone();
 
@@ -48,12 +50,14 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
     let contours = generator.contours(&values, &thresholds);
 
     // Scales for the Gaussian surface plot
+    let gaussian_width = app.content_width * 0.5;
+    let gaussian_height = (gaussian_width * 0.75).min(app.content_height * 0.4);
     let x_scale_gaussian = LinearScale::new()
         .domain(0.0, grid_size as f64)
-        .range(0.0, 400.0);
+        .range(0.0, gaussian_width as f64);
     let y_scale_gaussian = LinearScale::new()
         .domain(0.0, grid_size as f64)
-        .range(0.0, 300.0);
+        .range(0.0, gaussian_height as f64);
 
     // Config based on render mode
     let render_mode = app.contour_render_mode;
@@ -104,12 +108,13 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
     let density_contours = density_generator.contours(&density_grid, &density_thresholds);
 
     // Scales for the density plot
+    let density_size = (app.content_width * 0.4).min(app.content_height * 0.5);
     let x_scale_density = LinearScale::new()
         .domain(0.0, density_grid_size as f64)
-        .range(0.0, 300.0);
+        .range(0.0, density_size as f64);
     let y_scale_density = LinearScale::new()
         .domain(0.0, density_grid_size as f64)
-        .range(0.0, 300.0);
+        .range(0.0, density_size as f64);
 
     // Config with heat color scale
     let density_config = ContourConfig::new()
@@ -155,12 +160,11 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                         .id("render-mode-toggle")
                                         .px_3()
                                         .py_1()
-                                        .bg(rgb(0x007acc))
-                                        .hover(|s| s.bg(rgb(0x005a9e)))
+                                        .bg(ui_theme.accent)
+                                        .hover(|s| s.bg(ui_theme.accent_hover))
                                         .rounded_md()
                                         .cursor_pointer()
                                         .text_xs()
-                                        .text_color(rgb(0xffffff))
                                         .child("Toggle Mode")
                                         .on_click(move |_, _window, cx| {
                                             entity.update(cx, |this, _| {
@@ -170,23 +174,18 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                         })
                                 }),
                         )
+                        .child(div().text_sm().child(match render_mode {
+                            ContourRenderMode::Isoline => "Isoline: Contour lines only",
+                            ContourRenderMode::Surface => "Surface: Filled contour bands",
+                            ContourRenderMode::Heatmap => "Heatmap: Pixel-based rendering",
+                        }))
                         .child(
                             div()
-                                .text_sm()
-                                .text_color(rgb(0x666666))
-                                .child(match render_mode {
-                                    ContourRenderMode::Isoline => "Isoline: Contour lines only",
-                                    ContourRenderMode::Surface => "Surface: Filled contour bands",
-                                    ContourRenderMode::Heatmap => "Heatmap: Pixel-based rendering",
-                                }),
-                        )
-                        .child(
-                            div()
-                                .w(px(400.0))
-                                .h(px(300.0))
-                                .bg(rgb(0xf5f5f5))
+                                .w(px(gaussian_width))
+                                .h(px(gaussian_height))
+                                .bg(ui_theme.surface)
                                 .border_1()
-                                .border_color(rgb(0xcccccc))
+                                .border_color(ui_theme.border)
                                 .relative()
                                 .when(render_mode != ContourRenderMode::Heatmap, |this| {
                                     this.child(
@@ -196,7 +195,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                             &y_scale_gaussian,
                                             &gaussian_config,
                                         )
-                                        .height(px(300.0)),
+                                        .height(px(gaussian_height)),
                                     )
                                 })
                                 .when(render_mode == ContourRenderMode::Heatmap, |this| {
@@ -209,7 +208,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                             &y_scale_gaussian,
                                             &heatmap_config,
                                         )
-                                        .height(px(300.0)),
+                                        .height(px(gaussian_height)),
                                     )
                                 }),
                         )
@@ -219,7 +218,6 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                 .gap_2()
                                 .mt_2()
                                 .text_xs()
-                                .text_color(rgb(0x666666))
                                 .child("Viridis color scale: low → high"),
                         ),
                 )
@@ -235,16 +233,11 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                 .font_weight(FontWeight::SEMIBOLD)
                                 .child("Kernel Density Estimation"),
                         )
+                        .child(div().text_sm().child("Density contours from point data"))
                         .child(
                             div()
-                                .text_sm()
-                                .text_color(rgb(0x666666))
-                                .child("Density contours from point data"),
-                        )
-                        .child(
-                            div()
-                                .w(px(300.0))
-                                .h(px(300.0))
+                                .w(px(density_size))
+                                .h(px(density_size))
                                 .bg(rgb(0x1a1a1a))
                                 .border_1()
                                 .border_color(rgb(0x333333))
@@ -256,14 +249,14 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                         &y_scale_density,
                                         &density_config,
                                     )
-                                    .height(px(300.0)),
+                                    .height(px(density_size)),
                                 )
                                 // Overlay the original points
                                 .children(points.iter().map(|(x, y)| {
                                     div()
                                         .absolute()
-                                        .left(px((*x * 300.0 - 2.0) as f32))
-                                        .top(px(((1.0 - *y) * 300.0 - 2.0) as f32))
+                                        .left(px((*x * density_size as f64 - 2.0) as f32))
+                                        .top(px(((1.0 - *y) * density_size as f64 - 2.0) as f32))
                                         .w(px(4.0))
                                         .h(px(4.0))
                                         .rounded_full()
@@ -276,7 +269,6 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                 .gap_2()
                                 .mt_2()
                                 .text_xs()
-                                .text_color(rgb(0x666666))
                                 .child("Heat color scale with point overlay"),
                         ),
                 ),
@@ -289,15 +281,14 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                 .flex_col()
                 .gap_4()
                 .p_4()
-                .bg(rgb(0xf8f8f8))
+                .bg(ui_theme.surface)
                 .border_1()
-                .border_color(rgb(0xe0e0e0))
+                .border_color(ui_theme.border)
                 .rounded_lg()
                 .child(
                     div()
                         .text_lg()
                         .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(rgb(0x333333))
                         .child("Controls"),
                 )
                 // Gaussian Surface Controls
@@ -310,7 +301,6 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                             div()
                                 .text_sm()
                                 .font_weight(FontWeight::MEDIUM)
-                                .text_color(rgb(0x555555))
                                 .child("Gaussian Surface"),
                         )
                         .child({
@@ -421,7 +411,6 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                             div()
                                 .text_sm()
                                 .font_weight(FontWeight::MEDIUM)
-                                .text_color(rgb(0x555555))
                                 .child("Density Estimation"),
                         )
                         .child({
@@ -465,39 +454,27 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                         .gap_1()
                         .mt_4()
                         .p_3()
-                        .bg(rgb(0xffffff))
+                        .bg(ui_theme.surface)
                         .border_1()
-                        .border_color(rgb(0xe0e0e0))
+                        .border_color(ui_theme.border)
                         .rounded_md()
                         .child(
                             div()
                                 .text_xs()
                                 .font_weight(FontWeight::MEDIUM)
-                                .text_color(rgb(0x888888))
                                 .child("STATISTICS"),
                         )
                         .child(
                             div()
                                 .text_sm()
-                                .text_color(rgb(0x333333))
                                 .child(format!("Grid: {}x{}", grid_size, grid_size)),
                         )
-                        .child(
-                            div()
-                                .text_sm()
-                                .text_color(rgb(0x333333))
-                                .child(format!("Levels: {}", num_levels)),
-                        )
-                        .child(div().text_sm().text_color(rgb(0x333333)).child(format!(
+                        .child(div().text_sm().child(format!("Levels: {}", num_levels)))
+                        .child(div().text_sm().child(format!(
                             "Rings: {}",
                             contours.iter().map(|c| c.coordinates.len()).sum::<usize>()
                         )))
-                        .child(
-                            div()
-                                .text_sm()
-                                .text_color(rgb(0x333333))
-                                .child(format!("Points: {}", num_points)),
-                        ),
+                        .child(div().text_sm().child(format!("Points: {}", num_points))),
                 ),
         )
 }

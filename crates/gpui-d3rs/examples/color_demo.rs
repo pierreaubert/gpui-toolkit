@@ -213,7 +213,7 @@ fn main() {
     // ========================================
     println!("\n--- Using Colors for Data ---\n");
 
-    let categories = vec!["Apple", "Banana", "Cherry", "Date", "Elderberry"];
+    let categories = ["Apple", "Banana", "Cherry", "Date", "Elderberry"];
     let scheme = ColorScheme::category10();
     let colors = scheme.colors();
 

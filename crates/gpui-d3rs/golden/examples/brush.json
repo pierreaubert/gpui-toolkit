@@ -1,0 +1,51 @@
+{
+  "module": "d3-brush",
+  "function": "brush",
+  "tolerance": 0.000001,
+  "generated_at": "2026-03-15T10:24:26.939Z",
+  "test_cases": [
+    {
+      "name": "brush_basic",
+      "extent": [
+        [
+          0,
+          0
+        ],
+        [
+          100,
+          100
+        ]
+      ],
+      "created": true
+    },
+    {
+      "name": "brush_horizontal",
+      "extent": [
+        [
+          0,
+          0
+        ],
+        [
+          100,
+          20
+        ]
+      ],
+      "created": true
+    },
+    {
+      "name": "brush_boundaries",
+      "extent": [
+        [
+          0,
+          0
+        ],
+        [
+          100,
+          100
+        ]
+      ],
+      "handle_size": 6,
+      "created": true
+    }
+  ]
+}

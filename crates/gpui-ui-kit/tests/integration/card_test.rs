@@ -7,7 +7,7 @@
 //! - Custom border colors
 //! - Combined configurations
 
-use gpui::{Context, TestAppContext, Window, div, prelude::*, rgb};
+use gpui::{Context, IntoElement, ParentElement, Render, Styled, TestAppContext, Window, div, rgb};
 use gpui_ui_kit::card::Card;
 
 // ============================================================================

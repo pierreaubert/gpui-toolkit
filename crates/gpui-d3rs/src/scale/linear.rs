@@ -183,7 +183,11 @@ impl Scale<f64, f64> for LinearScale {
         } else {
             value
         };
-        let t = (value - self.domain_min) / (self.domain_max - self.domain_min);
+        let domain_span = self.domain_max - self.domain_min;
+        if domain_span == 0.0 {
+            return (self.range_min + self.range_max) / 2.0;
+        }
+        let t = (value - self.domain_min) / domain_span;
         self.range_min + t * (self.range_max - self.range_min)
     }
 
@@ -196,7 +200,11 @@ impl Scale<f64, f64> for LinearScale {
         } else {
             value
         };
-        let t = (value - self.range_min) / (self.range_max - self.range_min);
+        let range_span = self.range_max - self.range_min;
+        if range_span == 0.0 {
+            return Some((self.domain_min + self.domain_max) / 2.0);
+        }
+        let t = (value - self.range_min) / range_span;
         Some(self.domain_min + t * (self.domain_max - self.domain_min))
     }
 
@@ -333,6 +341,23 @@ mod tests {
         // Domain should be extended to nice values
         assert!(scale.domain_min() <= 1.0);
         assert!(scale.domain_max() >= 99.0);
+    }
+
+    #[test]
+    fn test_linear_scale_flat_domain() {
+        let scale = LinearScale::new().domain(5.0, 5.0).range(0.0, 100.0);
+        // Flat domain should return midpoint of range
+        assert_relative_eq!(scale.scale(5.0), 50.0);
+        assert_relative_eq!(scale.scale(10.0), 50.0);
+        assert_relative_eq!(scale.invert(50.0).unwrap(), 5.0);
+    }
+
+    #[test]
+    fn test_linear_scale_flat_range() {
+        let scale = LinearScale::new().domain(0.0, 100.0).range(50.0, 50.0);
+        // Flat range should return midpoint of domain on invert
+        assert_relative_eq!(scale.scale(50.0), 50.0);
+        assert_relative_eq!(scale.invert(50.0).unwrap(), 50.0);
     }
 
     #[test]

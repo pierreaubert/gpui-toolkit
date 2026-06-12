@@ -27,9 +27,15 @@
 //! ```
 
 use crate::ComponentTheme;
+use crate::accessibility::{AccessibilityExt, AccessibilityNode, AriaProps, AriaRole};
 use crate::theme::ThemeExt;
-use gpui::prelude::*;
-use gpui::*;
+use gpui::prelude::{
+    InteractiveElement, IntoElement, ParentElement, RenderOnce, StatefulInteractiveElement, Styled,
+};
+use gpui::{
+    AnyElement, App, Div, ElementId, FontWeight, MouseButton, Rems, Rgba, SharedString, Window,
+    div, px,
+};
 use std::rc::Rc;
 
 /// Factory function type for creating elements with dialog theme access
@@ -104,6 +110,8 @@ pub struct Dialog {
     show_close_button: bool,
     close_on_backdrop: bool,
     on_close: Option<Box<dyn Fn(&mut Window, &mut App) + 'static>>,
+    aria_label: Option<SharedString>,
+    aria_role: Option<AriaRole>,
 }
 
 impl Dialog {
@@ -120,6 +128,8 @@ impl Dialog {
             show_close_button: true,
             close_on_backdrop: true,
             on_close: None,
+            aria_label: None,
+            aria_role: None,
         }
     }
 
@@ -210,6 +220,18 @@ impl Dialog {
     /// Set the close handler
     pub fn on_close(mut self, handler: impl Fn(&mut Window, &mut App) + 'static) -> Self {
         self.on_close = Some(Box::new(handler));
+        self
+    }
+
+    /// Set an explicit ARIA label (overrides the dialog's title)
+    pub fn aria_label(mut self, label: impl Into<SharedString>) -> Self {
+        self.aria_label = Some(label.into());
+        self
+    }
+
+    /// Override the default ARIA role (Dialog)
+    pub fn aria_role(mut self, role: AriaRole) -> Self {
+        self.aria_role = Some(role);
         self
     }
 
@@ -342,6 +364,18 @@ impl Dialog {
 
 impl RenderOnce for Dialog {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+        // Register in accessibility tree
+        let effective_label = self
+            .aria_label
+            .clone()
+            .or_else(|| self.title.clone())
+            .unwrap_or_default();
+        cx.register_accessible(AccessibilityNode {
+            element_id: self.id.clone(),
+            label: effective_label,
+            props: AriaProps::with_role(self.aria_role.unwrap_or(AriaRole::Dialog)),
+        });
+
         let global_theme = cx.theme();
         let dialog_theme = DialogTheme::from(&global_theme);
         self.build_with_theme(&dialog_theme)

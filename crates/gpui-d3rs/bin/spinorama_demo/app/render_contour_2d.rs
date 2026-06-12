@@ -5,8 +5,10 @@ impl SpinoramaApp {
         title: &str,
         render_mode: ContourRenderMode,
         colormap: Colormap,
+        ds: &DesignSystem,
+        theme: &Theme,
     ) -> Option<Div> {
-        let theme = DefaultAxisTheme;
+        let axis_theme = ChartTheme::from_theme(theme);
 
         let contour_data = self.contour_data.as_ref()?;
 
@@ -107,8 +109,11 @@ impl SpinoramaApp {
             None
         };
 
-        let chart_width = 800.0;
-        let chart_height = 300.0;
+        let chart_width = self.content_width;
+        let chart_height = (chart_width * 0.375).min(self.content_height * 0.5);
+        let font_scale = (chart_width / 800.0).clamp(0.7, 1.2);
+        let label_sz = (10.0 * font_scale).round();
+        let title_sz = (12.0 * font_scale).round();
 
         // Create scales with data-driven ranges
         let freq_scale = LinearScale::new()
@@ -147,12 +152,12 @@ impl SpinoramaApp {
             div()
                 .flex()
                 .flex_col()
-                .gap_4()
+                .gap(px(ds.spacing.section_gap))
                 .child(
                     div()
-                        .text_lg()
+                        .text_size(px(ds.typography.large_size * font_scale))
                         .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(rgb(0x333333))
+                        .text_color(theme.text_primary)
                         .child(title.to_string()),
                 )
                 .child(
@@ -167,16 +172,18 @@ impl SpinoramaApp {
                                     &AxisConfig::left()
                                         .with_ticks(13)
                                         .with_formatter(|v| format!("{:.0}°", v))
-                                        .with_title("Angle"),
+                                        .with_title("Angle")
+                                        .with_label_font_size(label_sz)
+                                        .with_title_font_size(title_sz),
                                     chart_height,
-                                    &theme,
+                                    &axis_theme,
                                 ))
                                 .child(
                                     div()
                                         .w(px(chart_width))
                                         .h(px(chart_height))
                                         .relative()
-                                        .bg(rgb(0xf8f8f8))
+                                        .bg(theme.surface)
                                         // In Isoline mode, render grid first (underneath lines)
                                         .when(is_isoline, |el| {
                                             el.child(render_grid(
@@ -186,7 +193,7 @@ impl SpinoramaApp {
                                                     .with_vertical_values(freq_ticks.clone()),
                                                 chart_width,
                                                 chart_height,
-                                                &theme,
+                                                &axis_theme,
                                             ))
                                         })
                                         // Render contour bands (for Surface mode) - filled polygons
@@ -216,7 +223,7 @@ impl SpinoramaApp {
                                                     .with_vertical_values(freq_ticks.clone()),
                                                 chart_width,
                                                 chart_height,
-                                                &theme,
+                                                &axis_theme,
                                             ))
                                         })
                                         // Render contour lines (for Isoline mode)
@@ -231,7 +238,7 @@ impl SpinoramaApp {
                                 ),
                         )
                         .child(
-                            div().flex().child(div().w(px(80.0))).child(render_axis(
+                            div().flex().child(div().w(px((80.0 * font_scale).round()))).child(render_axis(
                                 &freq_scale,
                                 &AxisConfig::bottom()
                                     .with_tick_values(freq_ticks)
@@ -243,23 +250,25 @@ impl SpinoramaApp {
                                             format!("{:.0}", f)
                                         }
                                     })
-                                    .with_title("Frequency (Hz)"),
+                                    .with_title("Frequency (Hz)")
+                                    .with_label_font_size(label_sz)
+                                    .with_title_font_size(title_sz),
                                 chart_width,
-                                &theme,
+                                &axis_theme,
                             )),
                         ),
                 )
                 // Color legend
                 .child({
-                    let font_config = VectorFontConfig::horizontal(10.0, hsla(0.0, 0.0, 0.4, 1.0));
+                    let font_config = GlyphTextConfig::horizontal((10.0 * font_scale).round(), Hsla::from(theme.text_primary));
                     div()
                         .flex()
                         .items_center()
-                        .gap_4()
-                        .p_2()
-                        .bg(rgb(0xf5f5f5))
-                        .rounded_md()
-                        .child(render_vector_text(
+                        .gap(px(ds.spacing.section_gap))
+                        .py(px(ds.spacing.control_padding_y))
+                        .bg(theme.muted)
+                        .rounded(px(ds.corners.md))
+                        .child(render_glyph_text(
                             &format!("{:.0} dB", spl_min),
                             &font_config,
                         ))
@@ -276,7 +285,7 @@ impl SpinoramaApp {
                                 .h(px(15.0))
                                 .bg(rgb((r << 16) | (g << 8) | b))
                         }))
-                        .child(render_vector_text(
+                        .child(render_glyph_text(
                             &format!("{:.0} dB", spl_max),
                             &font_config,
                         ))
@@ -284,4 +293,3 @@ impl SpinoramaApp {
         )
     }
 }
-

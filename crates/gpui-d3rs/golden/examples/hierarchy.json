@@ -1,0 +1,338 @@
+{
+  "module": "d3-hierarchy",
+  "function": "hierarchy",
+  "tolerance": 0.000001,
+  "generated_at": "2026-03-15T10:24:26.936Z",
+  "test_cases": [
+    {
+      "name": "hierarchy_count",
+      "total_nodes": 11,
+      "leaf_count": 11
+    },
+    {
+      "name": "hierarchy_sum",
+      "root_value": 11,
+      "max_depth": 3,
+      "leaves": [
+        {
+          "data": "AgglomerativeCluster",
+          "value": 1,
+          "depth": 3
+        },
+        {
+          "data": "CommunityStructure",
+          "value": 1,
+          "depth": 3
+        },
+        {
+          "data": "BetweennessCentrality",
+          "value": 1,
+          "depth": 3
+        },
+        {
+          "data": "LinkDistance",
+          "value": 1,
+          "depth": 3
+        },
+        {
+          "data": "AspectRatioLayout",
+          "value": 1,
+          "depth": 3
+        },
+        {
+          "data": "ArrayInterpolator",
+          "value": 1,
+          "depth": 3
+        },
+        {
+          "data": "ColorInterpolator",
+          "value": 1,
+          "depth": 3
+        },
+        {
+          "data": "Transition",
+          "value": 1,
+          "depth": 3
+        },
+        {
+          "data": "ShapeTransition",
+          "value": 1,
+          "depth": 3
+        },
+        {
+          "data": "DataSchema",
+          "value": 1,
+          "depth": 2
+        },
+        {
+          "data": "DataList",
+          "value": 1,
+          "depth": 2
+        }
+      ]
+    },
+    {
+      "name": "treemap_layout",
+      "size": [
+        100,
+        100
+      ],
+      "padding": 1,
+      "leaves": [
+        {
+          "data": "AgglomerativeCluster",
+          "x0": 3,
+          "y0": 3,
+          "x1": 32.6,
+          "y1": 26.5,
+          "value": 1
+        },
+        {
+          "data": "CommunityStructure",
+          "x0": 33.6,
+          "y0": 3,
+          "x1": 63.2,
+          "y1": 26.5,
+          "value": 1
+        },
+        {
+          "data": "BetweennessCentrality",
+          "x0": 3,
+          "y0": 29.5,
+          "x1": 32.6,
+          "y1": 53,
+          "value": 1
+        },
+        {
+          "data": "LinkDistance",
+          "x0": 33.6,
+          "y0": 29.5,
+          "x1": 63.2,
+          "y1": 53,
+          "value": 1
+        },
+        {
+          "data": "AspectRatioLayout",
+          "x0": 66.2,
+          "y0": 3,
+          "x1": 79,
+          "y1": 53,
+          "value": 1
+        }
+      ]
+    },
+    {
+      "name": "treemap_with_padding",
+      "padding_inner": 2,
+      "padding_outer": 4,
+      "leaves": [
+        {
+          "data": "AgglomerativeCluster",
+          "x0": 12,
+          "y0": 12,
+          "x1": 33.564,
+          "y1": 24.111
+        },
+        {
+          "data": "CommunityStructure",
+          "x0": 35.564,
+          "y0": 12,
+          "x1": 57.127,
+          "y1": 24.111
+        },
+        {
+          "data": "BetweennessCentrality",
+          "x0": 12,
+          "y0": 34.111,
+          "x1": 33.564,
+          "y1": 46.222
+        }
+      ]
+    },
+    {
+      "name": "pack_layout",
+      "size": [
+        100,
+        100
+      ],
+      "padding": 2,
+      "leaves": [
+        {
+          "data": "AgglomerativeCluster",
+          "x": 8.627,
+          "y": 50,
+          "r": 4.401
+        },
+        {
+          "data": "CommunityStructure",
+          "x": 18.838,
+          "y": 50,
+          "r": 4.401
+        },
+        {
+          "data": "BetweennessCentrality",
+          "x": 31.866,
+          "y": 50,
+          "r": 4.401
+        },
+        {
+          "data": "LinkDistance",
+          "x": 42.077,
+          "y": 50,
+          "r": 4.401
+        },
+        {
+          "data": "AspectRatioLayout",
+          "x": 25.352,
+          "y": 63.922,
+          "r": 4.401
+        }
+      ]
+    },
+    {
+      "name": "partition_layout",
+      "leaves": [
+        {
+          "data": "AgglomerativeCluster",
+          "x0": 0,
+          "y0": 75,
+          "x1": 9.091,
+          "y1": 100
+        },
+        {
+          "data": "CommunityStructure",
+          "x0": 9.091,
+          "y0": 75,
+          "x1": 18.182,
+          "y1": 100
+        },
+        {
+          "data": "BetweennessCentrality",
+          "x0": 18.182,
+          "y0": 75,
+          "x1": 27.273,
+          "y1": 100
+        },
+        {
+          "data": "LinkDistance",
+          "x0": 27.273,
+          "y0": 75,
+          "x1": 36.364,
+          "y1": 100
+        },
+        {
+          "data": "AspectRatioLayout",
+          "x0": 36.364,
+          "y0": 75,
+          "x1": 45.455,
+          "y1": 100
+        }
+      ]
+    },
+    {
+      "name": "tree_layout",
+      "size": [
+        100,
+        80
+      ],
+      "nodes": [
+        {
+          "data": "flare",
+          "x": 58.333,
+          "y": 0,
+          "depth": 0
+        },
+        {
+          "data": "analytics",
+          "x": 25.758,
+          "y": 26.667,
+          "depth": 1
+        },
+        {
+          "data": "animate",
+          "x": 66.667,
+          "y": 26.667,
+          "depth": 1
+        },
+        {
+          "data": "data",
+          "x": 90.909,
+          "y": 26.667,
+          "depth": 1
+        },
+        {
+          "data": "cluster",
+          "x": 9.091,
+          "y": 53.333,
+          "depth": 2
+        },
+        {
+          "data": "graph",
+          "x": 27.273,
+          "y": 53.333,
+          "depth": 2
+        }
+      ]
+    },
+    {
+      "name": "cluster_layout",
+      "leaves": [
+        {
+          "data": "AgglomerativeCluster",
+          "x": 5.882,
+          "y": 80
+        },
+        {
+          "data": "CommunityStructure",
+          "x": 11.765,
+          "y": 80
+        },
+        {
+          "data": "BetweennessCentrality",
+          "x": 23.529,
+          "y": 80
+        },
+        {
+          "data": "LinkDistance",
+          "x": 29.412,
+          "y": 80
+        },
+        {
+          "data": "AspectRatioLayout",
+          "x": 41.176,
+          "y": 80
+        },
+        {
+          "data": "ArrayInterpolator",
+          "x": 52.941,
+          "y": 80
+        },
+        {
+          "data": "ColorInterpolator",
+          "x": 58.824,
+          "y": 80
+        },
+        {
+          "data": "Transition",
+          "x": 70.588,
+          "y": 80
+        },
+        {
+          "data": "ShapeTransition",
+          "x": 76.471,
+          "y": 80
+        },
+        {
+          "data": "DataSchema",
+          "x": 88.235,
+          "y": 80
+        },
+        {
+          "data": "DataList",
+          "x": 94.118,
+          "y": 80
+        }
+      ]
+    }
+  ]
+}

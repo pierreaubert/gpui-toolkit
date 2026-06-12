@@ -1,11 +1,25 @@
 [package]
 name = "gpui-ui-kit-macros"
-version = "0.6.0"
+version = "0.7.3"
 edition.workspace = true
+keywords.workspace = true
+categories.workspace = true
 description = "Proc macros for gpui-ui-kit"
-license = "ISC"
-repository = { workspace = true }
-authors = { workspace = true }
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[features]
+default = []
+autoeq = []
+camera = []
+gpu-2d = []
+gpu-3d = []
+reqwest = []
+showcase = []
+spinorama = []
+tokio = []
+urlencoding = []
 
 [lib]
 proc-macro = true

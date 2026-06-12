@@ -1,0 +1,30 @@
+[package]
+name = "gpui-keybinding"
+version = "0.7.2"
+authors.workspace = true
+edition.workspace = true
+description = "Reusable keybinding framework with Vim/Emacs/VSCode presets for GPUI applications"
+license.workspace = true
+repository.workspace = true
+keywords = ["gpui", "keybinding", "ui"]
+categories = ["gui"]
+
+[features]
+default = []
+autoeq = []
+camera = []
+gpu-2d = []
+gpu-3d = []
+reqwest = []
+showcase = []
+spinorama = []
+tokio = []
+urlencoding = []
+
+[dependencies]
+gpui = { workspace = true }
+serde = { workspace = true }
+
+[lib]
+name = "gpui_keybinding"
+path = "src/lib.rs"

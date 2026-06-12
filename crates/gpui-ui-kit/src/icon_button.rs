@@ -4,9 +4,46 @@
 //! Supports both text/emoji icons and custom child elements (like SVG icons).
 
 use crate::ComponentTheme;
+use crate::accessibility::{AccessibilityExt, AccessibilityNode, AriaProps, AriaRole, AriaState};
 use crate::theme::{ThemeExt, glow_shadow};
-use gpui::prelude::*;
-use gpui::*;
+use gpui::prelude::{
+    InteractiveElement, IntoElement, ParentElement, RenderOnce, StatefulInteractiveElement, Styled,
+};
+use gpui::{
+    AnyElement, App, ClickEvent, Div, ElementId, FocusHandle, KeyDownEvent, KeyboardClickEvent,
+    Pixels, Rems, Rgba, SharedString, Stateful, Window, div, px, rems,
+};
+use gpui_design::DesignSystem;
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::rc::Rc;
+use std::sync::Arc;
+
+// Thread-local FocusHandle registry for IconButton, mirroring the pattern
+// in `button.rs`. See its module-level comment for rationale; in short:
+// `RenderOnce` allocates a fresh handle every render, so we cache by id
+// here to keep IconButton Tab-reachable across re-renders.
+const MAX_ICON_BUTTON_FOCUS_HANDLES: usize = 1024;
+
+thread_local! {
+    static ICON_BUTTON_FOCUS_HANDLES: RefCell<HashMap<ElementId, FocusHandle>> =
+        RefCell::new(HashMap::new());
+}
+
+fn icon_button_focus_handle(id: &ElementId, cx: &mut App) -> FocusHandle {
+    ICON_BUTTON_FOCUS_HANDLES.with(|handles| {
+        let mut handles = handles.borrow_mut();
+        while handles.len() > MAX_ICON_BUTTON_FOCUS_HANDLES {
+            if let Some(key) = handles.keys().next().cloned() {
+                handles.remove(&key);
+            }
+        }
+        handles
+            .entry(id.clone())
+            .or_insert_with(|| cx.focus_handle())
+            .clone()
+    })
+}
 
 /// Theme colors for icon button styling
 #[derive(Debug, Clone, ComponentTheme)]
@@ -46,34 +83,48 @@ pub struct IconButtonTheme {
     pub border: Rgba,
 }
 
-/// IconButton size variants
+/// IconButton size variants. Sizes are returned as `Rems` so the click
+/// target scales with `window.set_rem_size` (font zoom). The `Sm`, `Md`,
+/// `Lg`, and `Xl` variants all meet the WCAG 2.5.8 24×24 minimum target
+/// size at 1× zoom; `Xs` (1.0 rem ≈ 16 px) is intentionally below the
+/// floor and reserved for dense chrome / chart-internal use where the
+/// WCAG target rule is informational at small viewports. Prefer `Sm`
+/// (or `Md`) anywhere a user can reasonably hit the button with a mouse
+/// or touch.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum IconButtonSize {
-    /// Extra small (16px)
+    /// Extra small (1.0 rem ≈ 16 px) — dense chrome / chart internals.
+    /// Below the WCAG 24×24 floor; do not use for primary controls.
     Xs,
-    /// Small (20px)
+    /// Small (1.5 rem ≈ 24 px) — meets the WCAG floor.
     Sm,
-    /// Medium (24px, default)
+    /// Medium (1.5 rem ≈ 24 px, default) — meets the WCAG floor.
     #[default]
     Md,
-    /// Large (32px)
+    /// Large (2.0 rem ≈ 32 px).
     Lg,
-    /// Extra large (48px)
+    /// Extra large (3.0 rem ≈ 48 px).
     Xl,
-    /// Custom size in pixels
+    /// Custom size, expressed in rems × 16 (i.e. logical px at 1× zoom).
     Custom(u32),
 }
 
 impl IconButtonSize {
-    /// Get the size in pixels
-    pub fn size(&self) -> Pixels {
+    /// Get the click-target size in rems. The default GPUI rem is 16 px,
+    /// so the table maps to 16 / 24 / 24 / 32 / 48 logical px at 1× zoom
+    /// and scales linearly with font zoom.
+    pub fn size(&self) -> Rems {
+        self.size_with_design(&DesignSystem::neutral())
+    }
+
+    fn size_with_design(&self, design: &DesignSystem) -> Rems {
         match self {
-            IconButtonSize::Xs => px(16.0),
-            IconButtonSize::Sm => px(20.0),
-            IconButtonSize::Md => px(24.0),
-            IconButtonSize::Lg => px(32.0),
-            IconButtonSize::Xl => px(48.0),
-            IconButtonSize::Custom(size) => px(*size as f32),
+            IconButtonSize::Xs => rems(design.interaction.min_touch_target * 0.5 / 16.0),
+            IconButtonSize::Sm => rems(design.interaction.min_touch_target * 0.75 / 16.0),
+            IconButtonSize::Md => rems(design.interaction.min_touch_target * 0.75 / 16.0),
+            IconButtonSize::Lg => rems(design.interaction.min_touch_target / 16.0),
+            IconButtonSize::Xl => rems(design.interaction.min_touch_target * 1.5 / 16.0),
+            IconButtonSize::Custom(size) => rems(*size as f32 / 16.0),
         }
     }
 }
@@ -134,7 +185,10 @@ pub struct IconButton {
     rounded_full: bool,
     padding: Option<Pixels>,
     theme: Option<IconButtonTheme>,
-    on_click: Option<Box<dyn Fn(&mut Window, &mut App) + 'static>>,
+    design: Option<Arc<DesignSystem>>,
+    on_click: Option<Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>>,
+    aria_label: Option<SharedString>,
+    aria_role: Option<AriaRole>,
 }
 
 impl IconButton {
@@ -150,7 +204,10 @@ impl IconButton {
             rounded_full: false,
             padding: None,
             theme: None,
+            design: None,
             on_click: None,
+            aria_label: None,
+            aria_role: None,
         }
     }
 
@@ -166,7 +223,10 @@ impl IconButton {
             rounded_full: false,
             padding: None,
             theme: None,
+            design: None,
             on_click: None,
+            aria_label: None,
+            aria_role: None,
         }
     }
 
@@ -194,9 +254,28 @@ impl IconButton {
         self
     }
 
-    /// Set click handler
+    /// Set the click handler that ignores the event payload.
+    ///
+    /// Use this when the handler doesn't need the `ClickEvent` itself.
+    /// For handlers that integrate with `cx.listener(...)`, see
+    /// [`Self::on_click_event`].
     pub fn on_click(mut self, handler: impl Fn(&mut Window, &mut App) + 'static) -> Self {
-        self.on_click = Some(Box::new(handler));
+        let handler = Rc::new(handler);
+        self.on_click = Some(Rc::new(move |_event: &ClickEvent, window, cx| {
+            handler(window, cx);
+        }));
+        self
+    }
+
+    /// Set the click handler with access to the `ClickEvent` payload.
+    /// Matches the signature `cx.listener(...)` produces, so call sites
+    /// that previously did `.build().on_click(cx.listener(...))` can drop
+    /// the `.build()` and call this directly.
+    pub fn on_click_event(
+        mut self,
+        handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.on_click = Some(Rc::new(handler));
         self
     }
 
@@ -215,6 +294,24 @@ impl IconButton {
     /// Set the button theme
     pub fn theme(mut self, theme: IconButtonTheme) -> Self {
         self.theme = Some(theme);
+        self
+    }
+
+    /// Override the design system used for sizing and radii defaults.
+    pub fn design(mut self, design: impl Into<Arc<DesignSystem>>) -> Self {
+        self.design = Some(design.into());
+        self
+    }
+
+    /// Set an explicit ARIA label (overrides the icon text)
+    pub fn aria_label(mut self, label: impl Into<SharedString>) -> Self {
+        self.aria_label = Some(label.into());
+        self
+    }
+
+    /// Override the default ARIA role (Button)
+    pub fn aria_role(mut self, role: AriaRole) -> Self {
+        self.aria_role = Some(role);
         self
     }
 
@@ -271,7 +368,21 @@ impl IconButton {
         global_theme: &crate::theme::Theme,
         icon_theme: &IconButtonTheme,
     ) -> Stateful<Div> {
-        let size = self.size.size();
+        let design = self
+            .design
+            .clone()
+            .unwrap_or_else(crate::design::neutral_design);
+        self.build_with_theme_and_design(global_theme, icon_theme, &design)
+    }
+
+    /// Build into element with theme and design-system sizing tokens.
+    pub fn build_with_theme_and_design(
+        self,
+        global_theme: &crate::theme::Theme,
+        icon_theme: &IconButtonTheme,
+        design: &DesignSystem,
+    ) -> Stateful<Div> {
+        let size = self.size.size_with_design(design);
         let (bg, bg_hover, text_color, border) = self.compute_colors(icon_theme);
 
         let mut el = div()
@@ -295,7 +406,7 @@ impl IconButton {
         if self.rounded_full {
             el = el.rounded_full();
         } else {
-            el = el.rounded_md();
+            el = el.rounded(px(design.corners.md));
         }
 
         if let Some(border_color) = border {
@@ -308,8 +419,8 @@ impl IconButton {
             el = el.hover(move |style| style.bg(bg_hover).shadow(glow_shadow(bg_hover)));
 
             if let Some(handler) = self.on_click {
-                el = el.on_mouse_up(MouseButton::Left, move |_event, window, cx| {
-                    handler(window, cx);
+                el = el.on_click(move |event: &ClickEvent, window, cx| {
+                    handler(event, window, cx);
                 });
             }
         }
@@ -324,9 +435,54 @@ impl IconButton {
 
 impl RenderOnce for IconButton {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+        // Register in accessibility tree
+        let fallback_label = match &self.content {
+            IconContent::Text(text) => text.clone(),
+            IconContent::Element(_) => SharedString::default(),
+        };
+        cx.register_accessible(AccessibilityNode {
+            element_id: self.id.clone(),
+            label: self.aria_label.clone().unwrap_or(fallback_label),
+            props: AriaProps::with_role(self.aria_role.unwrap_or(AriaRole::Button))
+                .maybe_state(self.disabled, AriaState::Disabled),
+        });
+
         let global_theme = cx.theme();
         let icon_theme = IconButtonTheme::from(&global_theme);
-        self.build_with_theme(&global_theme, &icon_theme)
+        // Capture pieces needed for keyboard activation before `self` is
+        // moved into `build_with_theme`. Same convention as button.rs:
+        // direct `build_with_theme` callers bypass focus registration just
+        // like they bypass accessibility registration today (per
+        // gpui-ui-kit/CLAUDE.md).
+        let focus_handle = icon_button_focus_handle(&self.id, cx);
+        let focus_ring_color = icon_theme.accent;
+        let disabled = self.disabled;
+        let on_click_for_kbd = self.on_click.clone();
+
+        let design = crate::design::resolve_design(self.design.clone(), cx);
+        let mut el = self
+            .build_with_theme_and_design(&global_theme, &icon_theme, &design)
+            .track_focus(&focus_handle)
+            // CSS `:focus-visible` analogue — only renders when reached via
+            // keyboard. Layered 2px accent border on top of the (optional)
+            // 1px outline-variant border.
+            .focus_visible(move |style| style.border_2().border_color(focus_ring_color));
+
+        // Keyboard activation — Enter and Space mirror the click handler
+        // with a synthesized `ClickEvent::Keyboard` payload. Required for
+        // WCAG 2.1.1 (Keyboard accessible).
+        if !disabled && let Some(handler) = on_click_for_kbd {
+            el = el.on_key_down(move |event: &KeyDownEvent, window, cx| {
+                let key = event.keystroke.key.as_str();
+                if key == "enter" || key == "space" {
+                    let click = ClickEvent::Keyboard(KeyboardClickEvent::default());
+                    handler(&click, window, cx);
+                    cx.stop_propagation();
+                }
+            });
+        }
+
+        el
     }
 }
 

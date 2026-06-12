@@ -1,120 +1,203 @@
-# DEVELOPMENT IS HAPPENING [HERE](https://github.com/pierreaubert/sotf) PLEASE JUMP THERE
-
-
 # gpui-toolkit
 
-A collection of libraries for building desktop applications with [GPUI](https://github.com/zed-industries/zed), the GPU-accelerated UI framework from the Zed editor.
+Libraries, examples, and tooling for building GPUI applications with native
+`div()`-based rendering, reusable components, charting primitives, design
+tokens, and Apple mobile backends.
 
 [![License](https://img.shields.io/crates/l/gpui-ui-kit)](LICENSE)
 
-## Crates
+## Workspace Crates
 
-| Crate | Description | Docs |
-|-------|-------------|------|
-| [gpui-ui-kit](./crates/gpui-ui-kit/) | Reusable UI components (buttons, inputs, dialogs, etc.) | [![docs.rs](https://docs.rs/gpui-ui-kit/badge.svg)](https://docs.rs/gpui-ui-kit) |
-| [gpui-ui-kit-macros](./crates/gpui-ui-kit-macros/) | Proc macros for theme generation | [![docs.rs](https://docs.rs/gpui-ui-kit-macros/badge.svg)](https://docs.rs/gpui-ui-kit-macros) |
-| [gpui-d3rs](./crates/gpui-d3rs/) | D3.js-inspired data visualization library | [![docs.rs](https://docs.rs/gpui-d3rs/badge.svg)](https://docs.rs/gpui-d3rs) |
-| [gpui-px](./crates/gpui-px/) | Plotly Express-style high-level charting API | [![docs.rs](https://docs.rs/gpui-px/badge.svg)](https://docs.rs/gpui-px) |
-| [gpui-themes](./crates/gpui-themes/) | Theming support for gpui-ui-kit | [![docs.rs](https://docs.rs/gpui-themes/badge.svg)](https://docs.rs/gpui-themes) |
-| [gpui-autoeq](./crates/gpui-autoeq/) | AutoEQ parameter form component | [![docs.rs](https://docs.rs/gpui-autoeq/badge.svg)](https://docs.rs/gpui-autoeq) |
+| Crate | Purpose |
+| --- | --- |
+| [gpui-au](./crates/gpui-au/) | macOS Audio Unit platform backend for embedding GPUI rendering inside AUv3 view controllers. |
+| [gpui-audio-kit](./crates/gpui-audio-kit/) | Audio-focused UI controls for plugin and playback interfaces, including knobs and vertical sliders. |
+| [gpui-builder](./crates/gpui-builder/) | Constraint-based layout solver with responsive display tiers, dividers, auto-axis behavior, and showcase examples. |
+| [gpui-component-lab](./crates/gpui-component-lab/) | Prop-driven component lab and responsive preview matrix for design-system conformance work. |
+| [gpui-d3rs](./crates/gpui-d3rs/) | D3.js-inspired visualization primitives: scales, shapes, colors, geo projections, force layouts, Delaunay/Voronoi, GPU 2D, and GPU 3D. |
+| [gpui-design](./crates/gpui-design/) | Platform-adaptive design system tokens for spacing, corners, typography, animation, and GPUI integration. |
+| [gpui-design-tools](./crates/gpui-design-tools/) | CLI tooling for exporting, importing, and validating design tokens and conformance reports. |
+| [gpui-ios](./crates/gpui-ios/) | iOS/tvOS platform backend for GPUI with Metal rendering, touch input, text input, accessibility, platform views, and hot reload hooks. |
+| [gpui-keybinding](./crates/gpui-keybinding/) | Reusable keybinding framework with editor-style preset support for GPUI applications. |
+| [gpui-miniapp](./crates/gpui-miniapp/) | Small application shell used by examples and showcases to select the right GPUI platform backend. |
+| [gpui-pretext](./crates/gpui-pretext/) | High-performance text measurement and multiline layout utilities. |
+| [gpui-px](./crates/gpui-px/) | Plotly Express-style charting API built on `gpui-d3rs` for scatter, line, bar, heatmap, contour, surface, pie, boxplot, and treemap views. |
+| [gpui-python-runtime](./crates/gpui-python-runtime/) | Retained scene specification runtime for a GPUI Python wrapper, with an optional showcase. |
+| [gpui-scaffolder](./crates/gpui-scaffolder/) | CLI for creating standalone GPUI mini-app projects backed by `gpui-miniapp`. |
+| [gpui-themes](./crates/gpui-themes/) | Theme editor and theme showcase infrastructure for GPUI applications. |
+| [gpui-ui-kit](./crates/gpui-ui-kit/) | Reusable UI component library: buttons, inputs, dialogs, menus, tabs, tables, QR, command palette, sidebar, wizard, workflow canvas, and more. |
+| [gpui-ui-kit-macros](./crates/gpui-ui-kit-macros/) | Procedural macros used by `gpui-ui-kit`, including builder and theme derivation helpers. |
+| [gpui-ui-kit-ios-showcase](./crates/gpui-ui-kit/ios/) | Static library and Swift host project for showing `gpui-ui-kit` on iOS, with tvOS Rust library build support. |
 
-## Versions
+## Related Assets
 
-- **v0.5.x**: Tracks the stable GPUI 0.2.2 release from crates.io.
-- **v0.6.x** (current): Tracks GPUI from Zed's main branch (pinned to rev [`450c66c`](https://github.com/zed-industries/zed/commit/450c66ce6e24ec10111fc8dd75711663b2e01b5e)).
+| Path | Purpose |
+| --- | --- |
+| [figma/](./crates/figma/) | Figma-to-GPUI design-system rules and Code Connect mappings. |
+| [MIGRATION.md](./MIGRATION.md) | Migration notes for moving toolkit code out of the larger SOTF workspace. |
+| [AGENTS.md](./AGENTS.md) | Short working guide for agents and contributors. |
 
-## Overview
+## GPUI Version
 
-### gpui-ui-kit
+This workspace is currently on the `0.7.x` GPUI toolkit line and pins GPUI
+packages to Zed `v1.0.0` through the root [Cargo.toml](./Cargo.toml).
 
-A comprehensive UI component library with 40+ components including:
-- **Core**: Button, Card, Dialog, Menu, Tabs, Toast
-- **Forms**: Input, NumberInput, Checkbox, Toggle, Select, Slider, ColorPicker
-- **Data Display**: Badge, Progress, Spinner, Avatar, Typography, Table
-- **Audio Controls**: Potentiometer, VerticalSlider, VolumeKnob
-- **Layout**: Stack, PaneDivider, Breadcrumbs
-- **Flows**: Wizard, Workflow
+The workspace uses local path dependencies for toolkit crates and git
+dependencies for GPUI platform crates from `zed-industries/zed`.
 
-See the [gpui-ui-kit README](./crates/gpui-ui-kit/README.md) for usage examples.
+## Common Commands
 
-### gpui-d3rs
+```bash
+# List tasks
+just --list
 
-A port of D3.js concepts to Rust with idiomatic builder patterns:
-- **Scales**: Linear, Log with automatic tick generation
-- **Shapes**: Lines, Bars, Areas, Arcs, Pies, Scatter plots
-- **Colors**: RGB/HSL, interpolation, categorical schemes
-- **Geographic**: Mercator, Orthographic projections
-- **Spatial**: QuadTree, Delaunay triangulation, Voronoi
-- **Animation**: Transitions, easing functions, timers
+# Check the workspace
+just check
 
-See the [gpui-d3rs README](./crates/gpui-d3rs/README.md) for the full feature list and examples.
+# Build all showcase-style demo targets
+just demo
 
-### gpui-px
+# Build maintained examples by crate family
+just examples
 
-High-level charting API inspired by Plotly Express:
-- 6 chart types: Scatter, Line, Bar, Heatmap, Contour, Isoline
-- Fluent builder API
-- Color scales: Viridis, Plasma, Inferno, Magma, Heat, Coolwarm
-- Logarithmic scale support
-
-See the [gpui-px README](./crates/gpui-px/README.md) for quick start examples.
-
-### gpui-autoeq
-
-AutoEQ parameter form component for building speaker/headphone EQ optimization interfaces.
-
-## Installation
-
-Since v0.6 tracks GPUI from git, add the crates via git dependency:
-
-```toml
-[dependencies]
-gpui-ui-kit = { git = "https://github.com/pierreaubert/gpui-toolkit.git", version = "0.6" }
-gpui-d3rs = { git = "https://github.com/pierreaubert/gpui-toolkit.git", version = "0.6" }
-gpui-px = { git = "https://github.com/pierreaubert/gpui-toolkit.git", version = "0.6" }
+# Run focused QA
+just qa-gpui-obvious
 ```
 
-For v0.5 (stable crates.io GPUI):
+If the pinned Rust toolchain is unavailable locally, use an installed toolchain
+explicitly:
 
-```toml
-[dependencies]
-gpui-ui-kit = "0.5"
-gpui-d3rs = "0.5"
-gpui-px = "0.5"
-gpui = "0.2"
+```bash
+cargo +stable check --workspace --all-targets
 ```
+
+## Scaffolding Mini Apps
+
+Use `gpui-scaffolder` to generate a small standalone GPUI app directory:
+
+```bash
+cargo run -p gpui-scaffolder -- my-app
+cd my-app
+cargo run
+```
+
+Generated projects also include a `just run` recipe:
+
+```bash
+just run
+```
+
+To create the app somewhere else, pass `--output-dir`:
+
+```bash
+cargo run -p gpui-scaffolder -- my-app --output-dir /tmp
+```
+
+## Demos
+
+The aggregate `just demo` builds:
+
+- `gpui-audio-kit` examples
+- `gpui-builder` layout showcase
+- `gpui-component-lab`
+- `gpui-d3rs` showcase and spinorama demo
+- `gpui-px` showcase and spinorama demo
+- `gpui-python-runtime` showcase
+- `gpui-themes` showcase
+- `gpui-ui-kit` showcase
+
+Individual recipes are available as `just demo-ui-kit`, `just demo-d3rs`,
+`just demo-px`, `just demo-builder`, `just demo-component-lab`,
+`just demo-audio-kit`, `just demo-python`, and `just demo-themes`.
+
+## Examples
+
+The aggregate `just examples` builds maintained example families:
+
+```bash
+just examples-audio-kit
+just examples-builder
+just examples-d3rs
+just examples-px
+just examples-ui-kit
+```
+
+For the QR camera example:
+
+```bash
+just run-qr-debug
+```
+
+On macOS this recipe creates a small `.app` bundle so the camera permission
+prompt has the right `Info.plist` metadata.
+
+## iOS
+
+The iOS showcase lives in [crates/gpui-ui-kit/ios](./crates/gpui-ui-kit/ios/).
+It builds the Rust static library and links it into the bundled Swift
+`GPUIShowcase.xcodeproj`.
+
+```bash
+# Rust static libraries
+just ios-rust-sim
+just ios-rust-device
+
+# Copy static libraries into the Xcode project
+just ios-build-rust-sim
+just ios-build-rust-device
+
+# Generate/update the Xcode project with XcodeGen
+just ios-xcodegen
+
+# Build the Swift host app
+just ios-sim
+just ios-device
+
+# Build simulator hot-reload dylib and manifest
+just ios-hot-reload
+```
+
+The `showcase-*` recipe names from the old SOTF workspace are also available,
+for example `just showcase-build-sim`.
+
+## tvOS
+
+tvOS is a Tier 3 Rust target, so the tvOS recipes use nightly with
+`-Zbuild-std`. Install the prerequisites first:
+
+```bash
+rustup toolchain install nightly
+rustup component add rust-src --toolchain nightly
+```
+
+Then build the showcase Rust static library for tvOS:
+
+```bash
+just tvos-rust-sim
+just tvos-rust-device
+just tvos-build-rust-sim
+just tvos-build-rust-device
+just tvos-sim
+just tvos-device
+```
+
+This repo currently ships an iOS Swift host project. The tvOS recipes produce
+the Rust library artifacts and copy them next to the mobile showcase assets.
 
 ## Quick Example
 
 ```rust
 use gpui::*;
-use gpui_ui_kit::{Button, ButtonVariant, Card};
+use gpui_ui_kit::{Button, ButtonVariant};
 use gpui_px::scatter;
 
-// UI Component
 let button = Button::new("submit", "Submit")
     .variant(ButtonVariant::Primary)
-    .on_click(|_, _| println!("Clicked!"));
+    .on_click(|_, _| println!("Clicked"));
 
-// Chart
 let chart = scatter(&x_data, &y_data)
     .title("My Data")
     .build()?;
-```
-
-## Showcases
-
-Each library includes interactive showcases:
-
-```bash
-# UI Kit showcase
-cargo run -p gpui-ui-kit --example showcase
-
-# D3rs showcase
-cargo run -p gpui-d3rs --bin d3rs-showcase --release
-
-# Px showcase
-cargo run -p gpui-px --bin gpui-px-showcase
 ```
 
 ## License

@@ -1,0 +1,74 @@
+{
+  "module": "d3-dispatch",
+  "function": "dispatch",
+  "tolerance": 0.000001,
+  "test_cases": [
+    {
+      "name": "basic_on",
+      "event_type": "update",
+      "listener_count_before": 0,
+      "listener_count_after": 1,
+      "dispatch_count": 1,
+      "data_type": "i32"
+    },
+    {
+      "name": "multiple_listeners",
+      "event_type": "click",
+      "listener_count": 3,
+      "dispatch_count": 3
+    },
+    {
+      "name": "different_types",
+      "events": ["start", "end", "update"],
+      "expected_types": ["start", "end", "update"]
+    },
+    {
+      "name": "once_listener",
+      "event_type": "init",
+      "dispatch_count_before": 1,
+      "dispatch_count_after": 0
+    },
+    {
+      "name": "off_listener",
+      "event_type": "test",
+      "listener_count_before": 1,
+      "listener_count_after": 0
+    },
+    {
+      "name": "off_all",
+      "event_type": "multi",
+      "listener_count_before": 3,
+      "listener_count_after": 0
+    },
+    {
+      "name": "has_listeners",
+      "event_types": ["present", "absent"],
+      "expected": [true, false]
+    },
+    {
+      "name": "listener_count",
+      "event_type": "counted",
+      "counts": [0, 1, 3, 2, 0]
+    },
+    {
+      "name": "event_types",
+      "add_events": ["a", "b", "a", "c"],
+      "expected_unique": 3
+    },
+    {
+      "name": "clear",
+      "listener_count_before": 5,
+      "listener_count_after": 0
+    },
+    {
+      "name": "typed_dispatch",
+      "event_type": "position",
+      "data": {"x": 100.0, "y": 200.0}
+    },
+    {
+      "name": "complex_data",
+      "event_type": "complex",
+      "data": {"name": "test", "value": 100, "coords": [1.0, 2.0]}
+    }
+  ]
+}

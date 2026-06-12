@@ -144,9 +144,13 @@ impl Scale<f64, f64> for SymlogScale {
 
         let log_min = self.symlog(self.domain_min);
         let log_max = self.symlog(self.domain_max);
+        let log_span = log_max - log_min;
+        if log_span == 0.0 {
+            return (self.range_min + self.range_max) / 2.0;
+        }
         let log_value = self.symlog(value);
 
-        let t = (log_value - log_min) / (log_max - log_min);
+        let t = (log_value - log_min) / log_span;
         self.range_min + t * (self.range_max - self.range_min)
     }
 
@@ -160,7 +164,12 @@ impl Scale<f64, f64> for SymlogScale {
             value
         };
 
-        let t = (value - self.range_min) / (self.range_max - self.range_min);
+        let range_span = self.range_max - self.range_min;
+        if range_span == 0.0 {
+            return Some((self.domain_min + self.domain_max) / 2.0);
+        }
+
+        let t = (value - self.range_min) / range_span;
         let log_min = self.symlog(self.domain_min);
         let log_max = self.symlog(self.domain_max);
         let log_value = log_min + t * (log_max - log_min);
@@ -242,6 +251,13 @@ mod tests {
         // Both should be small positive values, and relationship depends on normalization
         assert!(v1 > 0.0);
         assert!(v10 > 0.0);
+    }
+
+    #[test]
+    fn test_symlog_scale_flat_domain() {
+        let scale = SymlogScale::new().domain(5.0, 5.0).range(0.0, 100.0);
+        assert_relative_eq!(scale.scale(5.0), 50.0);
+        assert_relative_eq!(scale.invert(50.0).unwrap(), 5.0);
     }
 
     #[test]

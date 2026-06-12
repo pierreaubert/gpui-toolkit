@@ -133,7 +133,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-gpui-d3rs = "0.1"
+gpui-d3rs = "0.7"
 gpui = { version="0.2.2", git = "https://github.com/zed-industries/zed.git" }
 ```
 
@@ -478,4 +478,3 @@ at a U.S. National Park
 ---
 
 Made with love for data visualization in Rust.
-

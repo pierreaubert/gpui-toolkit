@@ -1,5 +1,5 @@
 use d3rs::color::D3Color;
-use d3rs::shape::LinePoint;
+use d3rs::shape::{LinePoint, StrokeDashArray};
 
 /// A single curve to be rendered on the frequency/SPL plot
 pub struct PlotCurve {
@@ -9,6 +9,8 @@ pub struct PlotCurve {
     pub color: D3Color,
     /// Stroke width
     pub stroke_width: f32,
+    /// Optional dash pattern for this curve
+    pub dash_array: Option<StrokeDashArray>,
     /// Whether this curve uses the secondary (right) Y-axis
     pub use_secondary_axis: bool,
 }
@@ -19,12 +21,18 @@ impl PlotCurve {
             points,
             color,
             stroke_width: 2.0,
+            dash_array: None,
             use_secondary_axis: false,
         }
     }
 
     pub fn stroke_width(mut self, width: f32) -> Self {
         self.stroke_width = width;
+        self
+    }
+
+    pub fn dash_array(mut self, pattern: StrokeDashArray) -> Self {
+        self.dash_array = Some(pattern);
         self
     }
 

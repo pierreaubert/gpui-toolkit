@@ -7,8 +7,13 @@
 //! - Drag to resize (via parent tracking mouse state)
 
 use crate::ComponentTheme;
-use gpui::prelude::*;
-use gpui::*;
+use gpui::prelude::{
+    InteractiveElement, IntoElement, ParentElement, StatefulInteractiveElement, Styled,
+};
+use gpui::{
+    App, CursorStyle, Div, Hsla, MouseButton, Pixels, Rgba, SharedString, Stateful,
+    TransformationMatrix, Window, canvas, div, px,
+};
 
 /// Direction the divider collapses toward
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -81,6 +86,12 @@ pub struct PaneDividerTheme {
     /// Border color
     #[theme(default = 0x3a3a3a, from = border)]
     pub border: Rgba,
+    /// Accent tint for the centered resize rail
+    #[theme(default = 0x007acc33, from = accent_muted)]
+    pub tint: Rgba,
+    /// Accent tint used while hovering or pressing the divider
+    #[theme(default = 0x007acc99, from = accent)]
+    pub tint_hover: Rgba,
 }
 
 /// Interactive pane divider with collapse support
@@ -92,7 +103,7 @@ pub struct PaneDividerTheme {
 /// 2. Handle `on_mouse_move` on a parent element that covers the full drag area
 /// 3. Handle `on_mouse_up` to clear drag state
 ///
-/// The divider itself is too thin (6px) to reliably receive mouse move events during
+/// The divider itself is too narrow to reliably receive mouse move events during
 /// a drag, so the parent must handle tracking. See the `pane_divider_debug` example.
 pub struct PaneDivider {
     id: SharedString,
@@ -129,8 +140,8 @@ impl PaneDivider {
             on_toggle: None,
             on_drag_start: None,
             theme: PaneDividerTheme::default(),
-            thickness: px(6.0),
-            collapsed_size: px(24.0),
+            thickness: px(10.0),
+            collapsed_size: px(26.0),
         }
     }
 
@@ -148,8 +159,8 @@ impl PaneDivider {
             on_toggle: None,
             on_drag_start: None,
             theme: PaneDividerTheme::default(),
-            thickness: px(6.0),
-            collapsed_size: px(24.0),
+            thickness: px(10.0),
+            collapsed_size: px(26.0),
         }
     }
 
@@ -218,6 +229,7 @@ impl PaneDivider {
         let id = self.id.clone();
         let on_toggle = self.on_toggle;
         let on_drag_start = self.on_drag_start;
+        let rail_color = theme.tint;
 
         let cursor = if is_vertical {
             CursorStyle::ResizeLeftRight
@@ -238,16 +250,14 @@ impl PaneDivider {
                 .flex_col()
                 .items_center()
                 .justify_center()
+                .gap(px(4.0))
                 .bg(theme.background)
+                .text_color(theme.foreground)
                 .border_x_1()
                 .border_color(theme.border)
                 .cursor(cursor)
-                .child(
-                    div()
-                        .text_color(theme.foreground)
-                        .text_size(px(10.0))
-                        .child(arrow),
-                )
+                .child(div().w(px(2.0)).h(px(32.0)).rounded(px(1.0)).bg(rail_color))
+                .child(div().text_size(px(10.0)).child(arrow))
         } else {
             // Horizontal divider (between top/bottom panels)
             div()
@@ -257,42 +267,52 @@ impl PaneDivider {
                 .flex()
                 .items_center()
                 .justify_center()
+                .gap(px(4.0))
                 .bg(theme.background)
+                .text_color(theme.foreground)
                 .border_y_1()
                 .border_color(theme.border)
                 .cursor(cursor)
-                .child(
-                    div()
-                        .text_color(theme.foreground)
-                        .text_size(px(10.0))
-                        .child(arrow),
-                )
+                .child(div().w(px(32.0)).h(px(2.0)).rounded(px(1.0)).bg(rail_color))
+                .child(div().text_size(px(10.0)).child(arrow))
         };
 
         // Hover styling
         let hover_bg = theme.background_hover;
         let hover_fg = theme.foreground_hover;
-        base = base.hover(move |style| style.bg(hover_bg).text_color(hover_fg));
+        let hover_tint = theme.tint_hover;
+        base = base
+            .hover(move |style| {
+                style
+                    .bg(hover_bg)
+                    .border_color(hover_tint)
+                    .text_color(hover_fg)
+            })
+            .active(move |style| {
+                style
+                    .bg(hover_bg)
+                    .border_color(hover_tint)
+                    .text_color(hover_fg)
+            });
 
-        // Mouse down handler: double-click toggles, single click starts drag
-        if on_toggle.is_some() || on_drag_start.is_some() {
-            base = base.on_mouse_down(MouseButton::Left, move |event, window, cx| {
-                if event.click_count == 2 {
-                    // Double-click: toggle collapse
-                    if let Some(ref toggle_cb) = on_toggle {
-                        toggle_cb(true, window, cx);
-                    }
-                } else if event.click_count == 1 {
-                    // Single click: start drag
-                    if let Some(ref drag_cb) = on_drag_start {
-                        let pos: f32 = if is_vertical {
-                            event.position.x.into()
-                        } else {
-                            event.position.y.into()
-                        };
-                        drag_cb(pos, window, cx);
-                    }
+        // Double-click toggle (uses on_click for correct click_count() method)
+        if let Some(toggle_cb) = on_toggle {
+            base = base.on_click(move |event, window, cx| {
+                if event.click_count() == 2 {
+                    toggle_cb(true, window, cx);
                 }
+            });
+        }
+
+        // Single click starts drag
+        if let Some(drag_cb) = on_drag_start {
+            base = base.on_mouse_down(MouseButton::Left, move |event, window, cx| {
+                let pos: f32 = if is_vertical {
+                    event.position.x.into()
+                } else {
+                    event.position.y.into()
+                };
+                drag_cb(pos, window, cx);
             });
         }
 
@@ -312,17 +332,11 @@ impl PaneDivider {
 
         let mut base = if is_vertical {
             // Collapsed vertical divider - becomes a narrow vertical bar with rotated text
-            let label_chars: Vec<char> = label.chars().collect();
-            let label_elements: Vec<AnyElement> = label_chars
-                .into_iter()
-                .map(|c| {
-                    div()
-                        .text_color(theme.foreground)
-                        .text_size(px(11.0))
-                        .child(c.to_string())
-                        .into_any_element()
-                })
-                .collect();
+            let label_text = label.to_string();
+            let label_canvas_height = collapsed_vertical_label_height(&label_text);
+            let label_svg = rotated_vertical_label_svg(&label_text);
+            let label_path = SharedString::from(format!("pane-divider-label:{label_text}"));
+            let label_color = theme.foreground;
 
             div()
                 .id(id)
@@ -344,15 +358,23 @@ impl PaneDivider {
                         .text_size(px(10.0))
                         .child(arrows),
                 )
-                // Vertical label (each char stacked)
+                // Vertical label
                 .child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .items_center()
-                        .gap(px(2.0))
-                        .py_2()
-                        .children(label_elements),
+                    canvas(
+                        move |_bounds, _window, _cx| label_svg,
+                        move |bounds, label_svg, window, cx| {
+                            let _ = window.paint_svg(
+                                bounds,
+                                label_path,
+                                Some(label_svg.as_bytes()),
+                                TransformationMatrix::unit(),
+                                Hsla::from(label_color),
+                                cx,
+                            );
+                        },
+                    )
+                    .w(px(18.0))
+                    .h(label_canvas_height),
                 )
                 // Bottom arrows
                 .child(
@@ -415,10 +437,52 @@ impl PaneDivider {
     }
 }
 
+fn collapsed_vertical_label_height(label: &str) -> Pixels {
+    px((label.chars().count() as f32 * 7.0 + 24.0).clamp(56.0, 160.0))
+}
+
+fn rotated_vertical_label_svg(label: &str) -> String {
+    let escaped = escape_svg_text(label);
+    format!(
+        r#"<svg xmlns="http://www.w3.org/2000/svg" width="18" height="120" viewBox="0 0 18 120">
+<text x="0" y="0" transform="translate(9 60) rotate(-90)" text-anchor="middle" dominant-baseline="middle" font-family="system-ui, -apple-system, BlinkMacSystemFont, sans-serif" font-size="11" font-weight="600" fill="black">{escaped}</text>
+</svg>"#
+    )
+}
+
+fn escape_svg_text(text: &str) -> String {
+    let mut escaped = String::with_capacity(text.len());
+    for ch in text.chars() {
+        match ch {
+            '&' => escaped.push_str("&amp;"),
+            '<' => escaped.push_str("&lt;"),
+            '>' => escaped.push_str("&gt;"),
+            '"' => escaped.push_str("&quot;"),
+            '\'' => escaped.push_str("&apos;"),
+            _ => escaped.push(ch),
+        }
+    }
+    escaped
+}
+
 impl IntoElement for PaneDivider {
     type Element = Stateful<Div>;
 
     fn into_element(self) -> Self::Element {
         self.build()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{CollapseDirection, PaneDivider};
+
+    #[test]
+    fn test_pane_divider_builds_with_handlers() {
+        // Smoke test: building with both toggle and drag handlers should not panic.
+        let _el = PaneDivider::vertical("test-divider", CollapseDirection::Left)
+            .on_toggle(|_collapsed, _window, _cx| {})
+            .on_drag_start(|_pos, _window, _cx| {})
+            .build();
     }
 }

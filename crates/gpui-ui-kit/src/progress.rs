@@ -2,9 +2,12 @@
 //!
 //! Progress bars and indicators.
 
+use crate::accessibility::{AccessibilityExt, AccessibilityNode, AriaProps, AriaRole};
 use crate::theme::{Theme, ThemeExt};
-use gpui::prelude::*;
-use gpui::*;
+use gpui::prelude::{IntoElement, ParentElement, RenderOnce, Styled};
+use gpui::{
+    App, Div, ElementId, FontWeight, Pixels, Rgba, SharedString, Window, div, px, relative,
+};
 
 /// Progress variant
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -76,6 +79,8 @@ pub struct Progress {
     show_label: bool,
     striped: bool,
     animated: bool,
+    aria_label: Option<SharedString>,
+    aria_role: Option<AriaRole>,
 }
 
 impl Progress {
@@ -90,6 +95,8 @@ impl Progress {
             show_label: false,
             striped: false,
             animated: false,
+            aria_label: None,
+            aria_role: None,
         }
     }
 
@@ -126,6 +133,18 @@ impl Progress {
     /// Enable animation
     pub fn animated(mut self, animated: bool) -> Self {
         self.animated = animated;
+        self
+    }
+
+    /// Set an explicit ARIA label
+    pub fn aria_label(mut self, label: impl Into<SharedString>) -> Self {
+        self.aria_label = Some(label.into());
+        self
+    }
+
+    /// Override the default ARIA role (Progressbar)
+    pub fn aria_role(mut self, role: AriaRole) -> Self {
+        self.aria_role = Some(role);
         self
     }
 
@@ -172,6 +191,14 @@ impl Progress {
 
 impl RenderOnce for Progress {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+        // Register in accessibility tree
+        cx.register_accessible(AccessibilityNode {
+            element_id: ElementId::Name("progress".into()),
+            label: self.aria_label.clone().unwrap_or_default(),
+            props: AriaProps::with_role(self.aria_role.unwrap_or(AriaRole::Progressbar))
+                .value_range(self.value as f64, 0.0, self.max as f64),
+        });
+
         let theme = cx.theme();
         self.build_with_theme(&theme)
     }

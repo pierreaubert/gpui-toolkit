@@ -1,0 +1,55 @@
+{
+  "module": "d3-zoom",
+  "function": "zoom",
+  "tolerance": 0.000001,
+  "generated_at": "2026-03-15T10:24:26.939Z",
+  "test_cases": [
+    {
+      "name": "zoom_identity",
+      "x": 0,
+      "y": 0,
+      "k": 1,
+      "toString": "translate(0,0) scale(1)"
+    },
+    {
+      "name": "zoom_transform",
+      "x": 10,
+      "y": 20,
+      "k": 1.5,
+      "apply": [
+        10,
+        20
+      ],
+      "applyX": 25,
+      "applyY": 50,
+      "invert": [
+        10,
+        20
+      ],
+      "invertX": 10,
+      "invertY": 20
+    },
+    {
+      "name": "zoom_configuration",
+      "scaleExtent": [
+        0.1,
+        10
+      ],
+      "translateExtent": [
+        [
+          0,
+          0
+        ],
+        [
+          100,
+          100
+        ]
+      ],
+      "filter": "default"
+    },
+    {
+      "name": "zoom_to_string",
+      "transform": "translate(10,20) scale(1.5)"
+    }
+  ]
+}

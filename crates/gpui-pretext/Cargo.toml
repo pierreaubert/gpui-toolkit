@@ -1,0 +1,25 @@
+[package]
+name = "gpui-pretext"
+version = "0.7.3"
+authors.workspace = true
+edition.workspace = true
+keywords.workspace = true
+categories.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "High-performance text measurement and multiline layout without DOM reflows — Rust port of chenglou/pretext"
+
+[features]
+default = []
+autoeq = []
+camera = []
+gpu-2d = []
+gpu-3d = []
+reqwest = []
+showcase = []
+spinorama = []
+tokio = []
+urlencoding = []
+
+[dependencies]
+unicode-segmentation = { workspace = true }

@@ -1,11 +1,25 @@
 [package]
 name = "gpui-themes"
-version = "0.6.1"
+version = "0.7.3"
 authors.workspace = true
 edition.workspace = true
 description = "Theme editor and management for GPUI applications"
 license.workspace = true
 repository.workspace = true
+keywords = ["gpui", "theme", "ui"]
+categories = ["gui"]
+
+[features]
+default = []
+autoeq = []
+camera = []
+gpu-2d = []
+gpu-3d = []
+reqwest = []
+showcase = []
+spinorama = []
+tokio = []
+urlencoding = []
 
 [dependencies]
 # GPUI framework
@@ -14,6 +28,9 @@ gpui = { workspace = true }
 
 # UI kit for components
 gpui-ui-kit = { workspace = true }
+gpui-design = { workspace = true, features = ["gpui"] }
+# Application shell — bundles platform-backend selection for the binaries.
+gpui-miniapp = { workspace = true }
 
 # Serialization for JSON export/import
 serde = { workspace = true }

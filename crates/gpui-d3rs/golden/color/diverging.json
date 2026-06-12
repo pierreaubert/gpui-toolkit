@@ -1,0 +1,49 @@
+{
+  "module": "d3-scale-chromatic",
+  "function": "diverging",
+  "tolerance": 0.001,
+  "test_cases": [
+    {
+      "name": "rd_bu",
+      "scheme": "RdBu",
+      "t_values": [0.0, 0.25, 0.5, 0.75, 1.0],
+      "sample_count": 5
+    },
+    {
+      "name": "rd_yl_bu",
+      "scheme": "RdYlBu",
+      "t_values": [0.0, 0.5, 1.0],
+      "sample_count": 3
+    },
+    {
+      "name": "rd_yl_gn",
+      "scheme": "RdYlGn",
+      "t_values": [0.0, 0.5, 1.0],
+      "sample_count": 3
+    },
+    {
+      "name": "pi_yg",
+      "scheme": "PiYG",
+      "t_values": [0.0, 0.5, 1.0],
+      "sample_count": 3
+    },
+    {
+      "name": "br_bg",
+      "scheme": "BrBG",
+      "t_values": [0.0, 0.5, 1.0],
+      "sample_count": 3
+    },
+    {
+      "name": "pu_or",
+      "scheme": "PuOr",
+      "t_values": [0.0, 0.5, 1.0],
+      "sample_count": 3
+    },
+    {
+      "name": "spectral",
+      "scheme": "Spectral",
+      "t_values": [0.0, 0.25, 0.5, 0.75, 1.0],
+      "sample_count": 5
+    }
+  ]
+}

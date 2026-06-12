@@ -1,6 +1,6 @@
 //! Tooltip component tests
 
-use gpui::prelude::*;
+use gpui::prelude::ParentElement;
 use gpui_ui_kit::tooltip::{Tooltip, TooltipPlacement, WithTooltip};
 
 #[test]

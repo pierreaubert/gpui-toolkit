@@ -1,10 +1,9 @@
-//! Vector font text rendering
-//!
-//! This module provides a simple stroke-based vector font that can be used
-//! to render text as paths, allowing for rotation and other transformations.
+//! Glyph text rendering helpers for chart labels.
 
-mod vector_font;
+mod glyph_text;
 
-pub use vector_font::{
-    VectorFontConfig, measure_text_width, paint_vector_text_at, render_vector_text,
+pub use glyph_text::{
+    GlyphTextConfig, GlyphTextMetrics, HorizontalTextAnchor, VerticalTextAnchor,
+    measure_glyph_text, measure_glyph_text_width, paint_chart_text_at, paint_glyph_text_at,
+    render_glyph_text, render_glyph_text_anchored,
 };

@@ -4,8 +4,11 @@ use super::port::{Port, PortDirection};
 use super::state::{NodeId, Position, WorkflowNodeData};
 use super::theme::WorkflowTheme;
 use crate::theme::ThemeExt;
-use gpui::prelude::*;
-use gpui::*;
+use gpui::prelude::{
+    FluentBuilder as _, InteractiveElement, IntoElement, ParentElement, RenderOnce,
+    StatefulInteractiveElement, Styled,
+};
+use gpui::{AnyElement, App, ElementId, FontWeight, MouseButton, SharedString, Window, div, px};
 
 /// Trait for custom node content rendering
 pub trait NodeContent: 'static {
@@ -242,7 +245,7 @@ impl RenderOnce for WorkflowNode {
             // Content area with ports
             .child({
                 // Calculate content height using adjusted values
-                let content_height = adjusted_height - header_height - 4.0;
+                let content_height = (adjusted_height - header_height - 4.0).max(0.0);
                 let padding = theme.node_content_padding;
                 let available = (content_height - 2.0 * padding).max(0.0);
 

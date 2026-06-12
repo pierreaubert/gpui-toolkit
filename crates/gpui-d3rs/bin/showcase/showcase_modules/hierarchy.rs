@@ -1,8 +1,10 @@
 use crate::ShowcaseApp;
 use d3rs::hierarchy::{HierarchyNode, TreeLayout};
 use gpui::*;
+use gpui_ui_kit::theme::ThemeExt;
 
-pub fn render(_app: &ShowcaseApp, _cx: &mut Context<ShowcaseApp>) -> Div {
+pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
+    let ui_theme = cx.theme();
     // Recreate hierarchy for stateless render
     // In a real app, this would be computed once and stored in app state
 
@@ -45,8 +47,8 @@ pub fn render(_app: &ShowcaseApp, _cx: &mut Context<ShowcaseApp>) -> Div {
 
     HierarchyNode::count(root.clone());
 
-    let width = 800.0;
-    let height = 600.0;
+    let width = app.content_width as f64;
+    let height = (width * 0.75).min(app.content_height as f64 * 0.8);
 
     // Layout
     TreeLayout::new()
@@ -157,7 +159,6 @@ pub fn render(_app: &ShowcaseApp, _cx: &mut Context<ShowcaseApp>) -> Div {
                 .items_center()
                 .justify_center()
                 .text_xs()
-                .text_color(rgb(0xffffff))
                 .child(n.data.clone()),
         );
     });
@@ -176,10 +177,10 @@ pub fn render(_app: &ShowcaseApp, _cx: &mut Context<ShowcaseApp>) -> Div {
             div()
                 .w(px(width as f32))
                 .h(px(height as f32))
-                .bg(rgb(0xf0f0f0))
+                .bg(ui_theme.surface)
                 .rounded_lg()
                 .border_1()
-                .border_color(rgb(0xcccccc))
+                .border_color(ui_theme.border)
                 .relative()
                 .children(links)
                 .children(nodes),

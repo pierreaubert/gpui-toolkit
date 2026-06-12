@@ -265,9 +265,20 @@ pub fn interpolate_basis_closed(values: &[f64]) -> impl Fn(f64) -> f64 + '_ {
 /// assert!((interp(0.5) - 10.0).abs() < 0.001);
 /// ```
 pub fn interpolate_exp(a: f64, b: f64) -> impl Fn(f64) -> f64 {
-    let log_a = a.ln();
-    let log_b = b.ln();
-    move |t| (log_a + (log_b - log_a) * t).exp()
+    let use_linear = a <= 0.0 || b <= 0.0 || !a.is_finite() || !b.is_finite();
+    let (log_a, log_b) = if use_linear {
+        (0.0, 0.0)
+    } else {
+        (a.ln(), b.ln())
+    };
+    move |t: f64| {
+        if use_linear {
+            // Fall back to linear interpolation for non-positive or non-finite inputs
+            a + (b - a) * t
+        } else {
+            (log_a + (log_b - log_a) * t).exp()
+        }
+    }
 }
 
 /// Discrete interpolation (step function).
@@ -373,6 +384,20 @@ mod tests {
         assert!((interp(0.0) - 1.0).abs() < 0.001);
         assert!((interp(1.0) - 100.0).abs() < 0.001);
         assert!((interp(0.5) - 10.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_interpolate_exp_non_positive() {
+        // Zero and negative inputs should fall back to linear interpolation
+        let interp_zero = interpolate_exp(0.0, 100.0);
+        assert_eq!(interp_zero(0.0), 0.0);
+        assert_eq!(interp_zero(0.5), 50.0);
+        assert_eq!(interp_zero(1.0), 100.0);
+
+        let interp_neg = interpolate_exp(-10.0, 10.0);
+        assert_eq!(interp_neg(0.0), -10.0);
+        assert_eq!(interp_neg(0.5), 0.0);
+        assert_eq!(interp_neg(1.0), 10.0);
     }
 
     #[test]

@@ -9,7 +9,8 @@
 //! - on_change callback
 
 use gpui::{
-    Context, Modifiers, MouseButton, TestAppContext, VisualTestContext, Window, div, prelude::*,
+    Context, IntoElement, Modifiers, MouseButton, ParentElement, Render, Styled, TestAppContext,
+    VisualTestContext, Window, div,
 };
 use gpui_ui_kit::accordion::{Accordion, AccordionItem, AccordionMode, AccordionOrientation};
 use std::cell::RefCell;
@@ -381,8 +382,11 @@ async fn test_accordion_with_custom_theme(cx: &mut TestAppContext) {
             let custom_theme = AccordionTheme {
                 header_bg: gpui::rgb(0x0066cc),
                 header_hover_bg: gpui::rgb(0x0077ee),
+                header_active_bg: gpui::rgba(0x0077ee55),
                 content_bg: gpui::rgb(0x001133),
                 border: gpui::rgb(0x0055aa),
+                accent_tint: gpui::rgba(0x00aaff55),
+                accent: gpui::rgb(0x00aaff),
                 title_color: gpui::rgb(0xffffff),
                 indicator_color: gpui::rgb(0xcccccc),
             };

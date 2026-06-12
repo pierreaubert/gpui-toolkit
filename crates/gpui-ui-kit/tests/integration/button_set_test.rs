@@ -8,7 +8,10 @@
 //! - Disabled entire button set
 //! - Theme customization
 
-use gpui::{Context, TestAppContext, VisualTestContext, Window, div, prelude::*};
+use gpui::{
+    Context, IntoElement, ParentElement, Render, Styled, TestAppContext, VisualTestContext, Window,
+    div,
+};
 use gpui_ui_kit::button_set::{ButtonSet, ButtonSetOption, ButtonSetSize, ButtonSetTheme};
 use std::cell::RefCell;
 use std::rc::Rc;

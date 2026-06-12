@@ -1,3 +1,8 @@
+#![allow(
+    clippy::too_many_arguments,
+    reason = "chart geometry APIs mirror plotting formulas and canvas-style primitives"
+)]
+
 //! # d3rs - D3.js-inspired plotting library for GPUI
 //!
 //! A Rust plotting library that brings D3.js concepts to GPUI using idiomatic Rust patterns.
@@ -29,13 +34,15 @@
 //! let output = scale.scale(50.0); // 250.0
 //! ```
 
-#![cfg_attr(feature = "gpui", recursion_limit = "512")]
+#![cfg_attr(feature = "gpui", recursion_limit = "1024")]
 
 pub mod array;
 pub mod brush;
 pub mod chord;
 pub mod color;
+pub mod dispatch;
 pub mod ease;
+pub mod examples;
 pub mod force;
 pub mod format;
 pub mod hierarchy;
@@ -57,18 +64,22 @@ pub mod fetch;
 pub mod geo;
 #[cfg(all(feature = "gpu-2d", not(test)))]
 pub mod gpu2d;
-#[cfg(feature = "gpu-3d")]
+#[cfg(all(feature = "gpu-3d", not(test)))]
 pub mod gpu3d;
 #[cfg(all(feature = "gpui", not(test)))]
 pub mod grid;
+pub mod hexbin;
 pub mod legend;
 pub mod polygon;
 pub mod quadtree;
 pub mod random;
+pub mod sankey;
 pub mod shape;
+#[cfg(all(feature = "gpu-3d", not(test)))]
+pub mod sphere_gallery;
 #[cfg(all(feature = "gpui", not(test)))]
 pub mod surface;
-#[cfg(feature = "gpui")]
+#[cfg(all(feature = "gpui", not(test)))]
 pub mod text;
 pub mod timer;
 pub mod transition;
@@ -84,8 +95,8 @@ pub mod prelude {
     #[cfg(all(feature = "gpui", not(test)))]
     pub use crate::shape::{
         BarConfig, BarDatum, CurveType, GroupedBarConfig, GroupedBarDatum, GroupedBarMeta,
-        LineConfig, LinePoint, ScatterConfig, ScatterPoint, analyze_grouped_data, render_bars,
-        render_grouped_bars, render_line, render_scatter,
+        LineConfig, LinePoint, ScatterConfig, ScatterPoint, StrokeDashArray, analyze_grouped_data,
+        render_bars, render_grouped_bars, render_line, render_scatter,
     };
     #[cfg(all(feature = "gpui", not(test)))]
     pub use crate::surface::{

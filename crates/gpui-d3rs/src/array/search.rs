@@ -158,7 +158,15 @@ impl<T, K: PartialOrd> Bisector<T, K> {
             return Some(&data[data.len() - 1]);
         }
         // Compare distances to decide which element is closer
-        Some(&data[i])
+        let left_val = (self.accessor)(&data[i - 1]);
+        let right_val = (self.accessor)(&data[i]);
+        let dist_left = x - left_val;
+        let dist_right = right_val - x;
+        if dist_left <= dist_right {
+            Some(&data[i - 1])
+        } else {
+            Some(&data[i])
+        }
     }
 }
 
@@ -294,5 +302,31 @@ mod tests {
         let data = vec![1, 2, 3, 5, 8, 13];
         assert_eq!(binary_search(&data, &5), Some(3));
         assert_eq!(binary_search(&data, &4), None);
+    }
+
+    #[test]
+    fn test_bisector_center_distance() {
+        #[derive(Debug)]
+        struct Item {
+            value: f64,
+        }
+
+        let bisector = Bisector::new(|item: &Item| item.value);
+        let data = vec![
+            Item { value: 1.0 },
+            Item { value: 3.0 },
+            Item { value: 5.0 },
+            Item { value: 7.0 },
+        ];
+
+        // 2.0 is closer to 1.0 (dist 1.0) than 3.0 (dist 1.0) — tie goes to left
+        assert_eq!(bisector.center(&data, 2.0).unwrap().value, 1.0);
+        // 2.1 is closer to 3.0 (dist 0.9) than 1.0 (dist 1.1)
+        assert_eq!(bisector.center(&data, 2.1).unwrap().value, 3.0);
+        // 4.0 is exactly in the middle — tie goes to left
+        assert_eq!(bisector.center(&data, 4.0).unwrap().value, 3.0);
+        // Out of bounds
+        assert_eq!(bisector.center(&data, 0.0).unwrap().value, 1.0);
+        assert_eq!(bisector.center(&data, 10.0).unwrap().value, 7.0);
     }
 }

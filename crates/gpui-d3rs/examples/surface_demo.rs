@@ -96,11 +96,16 @@ fn main() {
     println!("\n=== Surface with Custom Color Mapping ===\n");
 
     println!("Surface: z = sin(x)*cos(y), color by x+y");
-    let custom = SurfaceData::from_function((-std::f64::consts::PI, std::f64::consts::PI), (-std::f64::consts::PI, std::f64::consts::PI), 15, |x, y| {
-        let z = x.sin() * y.cos();
-        let t = x + y; // Color by position, not height
-        (z, t)
-    });
+    let custom = SurfaceData::from_function(
+        (-std::f64::consts::PI, std::f64::consts::PI),
+        (-std::f64::consts::PI, std::f64::consts::PI),
+        15,
+        |x, y| {
+            let z = x.sin() * y.cos();
+            let t = x + y; // Color by position, not height
+            (z, t)
+        },
+    );
     println!(
         "  Z range: ({:.3}, {:.3})",
         custom.z_range.0, custom.z_range.1

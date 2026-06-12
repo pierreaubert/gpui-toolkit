@@ -1,0 +1,298 @@
+{
+  "source": "https://observablehq.com/@d3/force-directed-graph",
+  "module": "d3-force",
+  "function": "force_directed",
+  "tolerance": 0.000001,
+  "generated_at": "2026-03-15T12:44:22.021Z",
+  "test_cases": [
+    {
+      "name": "force_directed_graph",
+      "description": "Force-directed graph layout from Observable",
+      "iterations": 300,
+      "node_count": 20,
+      "link_count": 20,
+      "forces": {
+        "link": {
+          "type": "forceLink",
+          "id": "d.id"
+        },
+        "charge": {
+          "type": "forceManyBody",
+          "strength": -30
+        },
+        "center": {
+          "type": "forceCenter",
+          "x": 0,
+          "y": 0
+        }
+      },
+      "nodes": [
+        {
+          "id": "Myriel",
+          "group": 1,
+          "x": -207.29589,
+          "y": -91.98988,
+          "vx": -0.003168,
+          "vy": -0.001287
+        },
+        {
+          "id": "Napoleon",
+          "group": 1,
+          "x": -219.527924,
+          "y": -62.232758,
+          "vx": -0.003175,
+          "vy": -0.001302
+        },
+        {
+          "id": "Labarre",
+          "group": 2,
+          "x": -45.040416,
+          "y": -13.711452,
+          "vx": 0.00053,
+          "vy": 0.001066
+        },
+        {
+          "id": "Valjean",
+          "group": 2,
+          "x": -21.851567,
+          "y": 14.597085,
+          "vx": 0.000617,
+          "vy": 0.001021
+        },
+        {
+          "id": "Marguerite",
+          "group": 3,
+          "x": -58.168671,
+          "y": 17.813392,
+          "vx": 0.000675,
+          "vy": 0.000898
+        },
+        {
+          "id": "Mme.deR",
+          "group": 2,
+          "x": -8.296403,
+          "y": -17.275463,
+          "vx": 0.000448,
+          "vy": 0.000919
+        },
+        {
+          "id": "Isabeau",
+          "group": 2,
+          "x": -51.334353,
+          "y": 35.113307,
+          "vx": 0.000353,
+          "vy": 0.000786
+        },
+        {
+          "id": "Gervais",
+          "group": 2,
+          "x": -55.539226,
+          "y": 0.344235,
+          "vx": 0.000662,
+          "vy": 0.000939
+        },
+        {
+          "id": "Tholomyes",
+          "group": 3,
+          "x": 85.4408,
+          "y": 0.738913,
+          "vx": 0.000265,
+          "vy": 0.000441
+        },
+        {
+          "id": "Listolier",
+          "group": 3,
+          "x": 94.760574,
+          "y": 33.855731,
+          "vx": 0.000515,
+          "vy": 0.00038
+        },
+        {
+          "id": "Fameuil",
+          "group": 3,
+          "x": 102.507103,
+          "y": -30.654134,
+          "vx": 0.000383,
+          "vy": 0.000463
+        },
+        {
+          "id": "Blacheville",
+          "group": 3,
+          "x": 121.281313,
+          "y": 2.309192,
+          "vx": 0.000268,
+          "vy": 0.000395
+        },
+        {
+          "id": "Favourite",
+          "group": 3,
+          "x": 80.351581,
+          "y": -33.44499,
+          "vx": 0.000737,
+          "vy": 0.000316
+        },
+        {
+          "id": "Dahlia",
+          "group": 3,
+          "x": 116.874319,
+          "y": -16.779922,
+          "vx": 0.000256,
+          "vy": 0.000421
+        },
+        {
+          "id": "Zephine",
+          "group": 3,
+          "x": 114.127573,
+          "y": 21.525628,
+          "vx": 0.000336,
+          "vy": 0.000341
+        },
+        {
+          "id": "Fantine",
+          "group": 3,
+          "x": 31.170317,
+          "y": 13.92518,
+          "vx": 0.000649,
+          "vy": 0.000683
+        },
+        {
+          "id": "Cosette",
+          "group": 4,
+          "x": 3.113589,
+          "y": 44.620316,
+          "vx": 0.000929,
+          "vy": 0.000892
+        },
+        {
+          "id": "Javert",
+          "group": 4,
+          "x": -33.772848,
+          "y": 54.113831,
+          "vx": 0.001056,
+          "vy": 0.001077
+        },
+        {
+          "id": "Fauchelevent",
+          "group": 5,
+          "x": -28.433931,
+          "y": -20.862114,
+          "vx": 0.000477,
+          "vy": 0.000997
+        },
+        {
+          "id": "Bamatabois",
+          "group": 5,
+          "x": -20.36228,
+          "y": 48.004376,
+          "vx": 0.000846,
+          "vy": 0.001029
+        }
+      ],
+      "links": [
+        {
+          "source": "Napoleon",
+          "target": "Myriel",
+          "value": 1
+        },
+        {
+          "source": "Labarre",
+          "target": "Valjean",
+          "value": 1
+        },
+        {
+          "source": "Mme.deR",
+          "target": "Valjean",
+          "value": 1
+        },
+        {
+          "source": "Isabeau",
+          "target": "Valjean",
+          "value": 1
+        },
+        {
+          "source": "Gervais",
+          "target": "Valjean",
+          "value": 1
+        },
+        {
+          "source": "Marguerite",
+          "target": "Valjean",
+          "value": 1
+        },
+        {
+          "source": "Tholomyes",
+          "target": "Fantine",
+          "value": 3
+        },
+        {
+          "source": "Listolier",
+          "target": "Tholomyes",
+          "value": 4
+        },
+        {
+          "source": "Fameuil",
+          "target": "Tholomyes",
+          "value": 4
+        },
+        {
+          "source": "Blacheville",
+          "target": "Tholomyes",
+          "value": 4
+        },
+        {
+          "source": "Favourite",
+          "target": "Tholomyes",
+          "value": 3
+        },
+        {
+          "source": "Dahlia",
+          "target": "Tholomyes",
+          "value": 3
+        },
+        {
+          "source": "Zephine",
+          "target": "Tholomyes",
+          "value": 3
+        },
+        {
+          "source": "Fantine",
+          "target": "Valjean",
+          "value": 5
+        },
+        {
+          "source": "Cosette",
+          "target": "Valjean",
+          "value": 4
+        },
+        {
+          "source": "Javert",
+          "target": "Valjean",
+          "value": 6
+        },
+        {
+          "source": "Fauchelevent",
+          "target": "Valjean",
+          "value": 2
+        },
+        {
+          "source": "Bamatabois",
+          "target": "Valjean",
+          "value": 1
+        },
+        {
+          "source": "Cosette",
+          "target": "Javert",
+          "value": 1
+        },
+        {
+          "source": "Cosette",
+          "target": "Fantine",
+          "value": 5
+        }
+      ],
+      "alpha": 0.001,
+      "alpha_min": 0.001,
+      "alpha_decay": 0.022763
+    }
+  ]
+}

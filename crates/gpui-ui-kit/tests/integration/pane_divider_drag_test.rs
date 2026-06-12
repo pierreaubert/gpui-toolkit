@@ -8,8 +8,8 @@
 //! - No-op when not dragging
 
 use gpui::{
-    Context, Modifiers, MouseButton, TestAppContext, VisualTestContext, Window, div, point,
-    prelude::*, px,
+    Context, InteractiveElement, IntoElement, Modifiers, MouseButton, ParentElement, Render,
+    Styled, TestAppContext, VisualTestContext, Window, div, point, px,
 };
 use gpui_ui_kit::pane_divider::{CollapseDirection, PaneDivider};
 use std::cell::RefCell;
@@ -58,7 +58,8 @@ impl Render for DragResizeTestView {
             if let Some((start_x, start_width)) = drag {
                 let current_x: f32 = event.position.x.into();
                 let delta = current_x - start_x;
-                *state_move.left_width.borrow_mut() = (start_width + delta).clamp(MIN_SIZE, MAX_SIZE);
+                *state_move.left_width.borrow_mut() =
+                    (start_width + delta).clamp(MIN_SIZE, MAX_SIZE);
             }
         });
 
@@ -74,13 +75,20 @@ impl Render for DragResizeTestView {
                 .bg(gpui::rgb(0x333333)),
         )
         .child(
-            PaneDivider::vertical("resize-divider", CollapseDirection::Left)
-                .on_drag_start(move |pos, _w, _cx| {
+            PaneDivider::vertical("resize-divider", CollapseDirection::Left).on_drag_start(
+                move |pos, _w, _cx| {
                     let width = *state.left_width.borrow();
                     *state.drag.borrow_mut() = Some((pos, width));
-                }),
+                },
+            ),
         )
-        .child(div().id("right-panel").flex_1().h_full().bg(gpui::rgb(0x444444)))
+        .child(
+            div()
+                .id("right-panel")
+                .flex_1()
+                .h_full()
+                .bg(gpui::rgb(0x444444)),
+        )
     }
 }
 
@@ -260,7 +268,10 @@ async fn test_mouse_up_ends_drag(cx: &mut TestAppContext) {
         // Mouse up
         cx.simulate_mouse_up(pos1, MouseButton::Left, Modifiers::default());
         cx.run_until_parked();
-        assert!(state_check.drag.borrow().is_none(), "Drag should end after mouse up");
+        assert!(
+            state_check.drag.borrow().is_none(),
+            "Drag should end after mouse up"
+        );
 
         // Further mouse move should NOT change width
         let pos2 = point(center.x + px(100.0), center.y);

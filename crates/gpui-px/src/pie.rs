@@ -2,14 +2,17 @@
 
 use crate::error::ChartError;
 use crate::{
-    DEFAULT_HEIGHT, DEFAULT_TITLE_FONT_SIZE, DEFAULT_WIDTH, TITLE_AREA_HEIGHT, validate_data_array,
+    ChartSize, DEFAULT_HEIGHT, DEFAULT_TITLE_FONT_SIZE, DEFAULT_WIDTH, TITLE_AREA_HEIGHT,
+    apply_chart_size, default_design, resolved_chart_dimensions, validate_data_array,
     validate_data_length, validate_dimensions,
 };
 use d3rs::color::D3Color;
 use d3rs::shape::{Arc, Pie};
-use d3rs::text::{VectorFontConfig, render_vector_text};
+use d3rs::text::{GlyphTextConfig, render_glyph_text};
 use gpui::prelude::*;
 use gpui::{IntoElement, PathBuilder, canvas, div, hsla, point, px};
+use gpui_design::DesignSystem;
+use std::sync::Arc as StdArc;
 
 /// Default color palette (Plotly)
 const DEFAULT_PALETTE: [u32; 10] = [
@@ -29,7 +32,9 @@ pub struct PieChart {
     colors: Option<Vec<u32>>,
     width: f32,
     height: f32,
+    chart_size: ChartSize,
     sort: bool,
+    design: Option<StdArc<DesignSystem>>,
 }
 
 impl PieChart {
@@ -74,17 +79,64 @@ impl PieChart {
     pub fn size(mut self, width: f32, height: f32) -> Self {
         self.width = width;
         self.height = height;
+        self.chart_size = ChartSize::fixed(width, height);
+        self
+    }
+
+    /// Fill the parent using the current minimum chart dimensions.
+    pub fn fill(mut self) -> Self {
+        self.chart_size = ChartSize::fill().min_size(self.width, self.height);
+        self
+    }
+
+    /// Set minimum dimensions for responsive fill sizing.
+    pub fn min_size(mut self, width: f32, height: f32) -> Self {
+        self.width = width;
+        self.height = height;
+        self.chart_size = self.chart_size.min_size(width, height);
+        self
+    }
+
+    /// Set preferred fill-layout aspect ratio.
+    pub fn aspect_ratio(mut self, ratio: f32) -> Self {
+        self.chart_size = self.chart_size.aspect_ratio(ratio);
+        self
+    }
+
+    /// Override the design system used for chart defaults.
+    pub fn design(mut self, design: impl Into<StdArc<DesignSystem>>) -> Self {
+        self.design = Some(design.into());
         self
     }
 
     /// Build and validate the chart, returning renderable element.
     pub fn build(self) -> Result<impl IntoElement, ChartError> {
+        let design = self.design.clone().unwrap_or_else(default_design);
+        let (layout_width, layout_height) = resolved_chart_dimensions(self.chart_size);
+
         // Validate inputs
         validate_data_array(&self.values, "values")?;
-        validate_dimensions(self.width, self.height)?;
+        validate_dimensions(layout_width, layout_height)?;
 
         if let Some(ref labels) = self.labels {
             validate_data_length(labels.len(), self.values.len(), "labels", "values")?;
+        }
+
+        // Reject negative values
+        if self.values.iter().any(|&v| v < 0.0) {
+            return Err(ChartError::InvalidData {
+                field: "values",
+                reason: "pie chart values must be non-negative",
+            });
+        }
+
+        // Ensure sum is strictly positive
+        let total: f64 = self.values.iter().sum();
+        if total <= 0.0 {
+            return Err(ChartError::InvalidData {
+                field: "values",
+                reason: "pie chart values must sum to a positive number",
+            });
         }
 
         // Calculate plot area
@@ -93,8 +145,8 @@ impl PieChart {
         } else {
             0.0
         };
-        let plot_height = self.height - title_height;
-        let plot_width = self.width;
+        let plot_height = layout_height - title_height;
+        let plot_width = layout_width;
 
         // Calculate radius
         let radius = (plot_width.min(plot_height) / 2.0) as f64 * 0.9; // 90% fit
@@ -111,8 +163,12 @@ impl PieChart {
         // Generate slices
         let slices = pie.generate(&self.values, |v| *v);
 
-        // Determine colors
-        let colors: Vec<u32> = match self.colors {
+        // Determine colors. An empty custom palette would make `cycle()`
+        // produce an empty iterator and the later `colors[i % colors.len()]`
+        // indexing would divide by zero. Treat an empty user palette like
+        // `None` and fall back to the default palette.
+        let custom_palette = self.colors.filter(|c| !c.is_empty());
+        let colors: Vec<u32> = match custom_palette {
             Some(c) => c.iter().cycle().take(slices.len()).copied().collect(),
             None => DEFAULT_PALETTE
                 .iter()
@@ -164,17 +220,17 @@ impl PieChart {
         );
 
         // Build container
-        let mut container = div()
-            .w(px(self.width))
-            .h(px(self.height))
+        let mut container = apply_chart_size(div(), self.chart_size)
             .relative()
             .flex()
             .flex_col();
 
         // Add title if present
         if let Some(title) = &self.title {
-            let font_config =
-                VectorFontConfig::horizontal(DEFAULT_TITLE_FONT_SIZE, hsla(0.0, 0.0, 0.2, 1.0));
+            let font_config = GlyphTextConfig::horizontal(
+                design.typography.large_size.max(DEFAULT_TITLE_FONT_SIZE),
+                hsla(0.0, 0.0, 0.2, 1.0),
+            );
             container = container.child(
                 div()
                     .w_full()
@@ -182,14 +238,14 @@ impl PieChart {
                     .flex()
                     .justify_center()
                     .items_center()
-                    .child(render_vector_text(title, &font_config)),
+                    .child(render_glyph_text(title, &font_config)),
             );
         }
 
         // Add plot area
         container = container.child(
             div()
-                .w(px(self.width))
+                .w(px(layout_width))
                 .h(px(plot_height))
                 .relative()
                 .child(render_element),
@@ -226,7 +282,9 @@ pub fn pie(values: &[f64]) -> PieChart {
         colors: None,
         width: DEFAULT_WIDTH,
         height: DEFAULT_HEIGHT,
+        chart_size: ChartSize::default(),
         sort: true,
+        design: None,
     }
 }
 
@@ -251,4 +309,50 @@ impl PieChart {
 /// ```
 pub fn donut(values: &[f64]) -> PieChart {
     pie(values).hole(0.5)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_pie_negative_values_rejected() {
+        let values = vec![10.0, -5.0, 30.0];
+        let result = pie(&values).build();
+        assert!(matches!(result, Err(ChartError::InvalidData { .. })));
+    }
+
+    #[test]
+    fn test_pie_all_zero_values_rejected() {
+        let values = vec![0.0, 0.0, 0.0];
+        let result = pie(&values).build();
+        assert!(matches!(result, Err(ChartError::InvalidData { .. })));
+    }
+
+    #[test]
+    fn test_pie_valid_values() {
+        let values = vec![10.0, 20.0, 30.0];
+        let result = pie(&values).build();
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_pie_responsive_size_defaults_and_fixed_opt_in() {
+        let values = vec![10.0, 20.0, 30.0];
+
+        crate::assert_default_chart_size(pie(&values).chart_size);
+        crate::assert_default_chart_size(donut(&values).chart_size);
+        crate::assert_fixed_chart_size(pie(&values).size(260.0, 260.0).chart_size, 260.0, 260.0);
+        crate::assert_fill_chart_size(
+            pie(&values)
+                .size(260.0, 260.0)
+                .fill()
+                .min_size(220.0, 220.0)
+                .aspect_ratio(1.0)
+                .chart_size,
+            220.0,
+            220.0,
+            Some(1.0),
+        );
+    }
 }

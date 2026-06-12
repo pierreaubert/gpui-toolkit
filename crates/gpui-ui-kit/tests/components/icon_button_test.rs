@@ -1,6 +1,6 @@
 //! IconButton component tests
 
-use gpui::prelude::*;
+use gpui::prelude::ParentElement;
 use gpui_ui_kit::ComponentSize;
 use gpui_ui_kit::icon_button::{IconButton, IconButtonSize, IconButtonTheme, IconButtonVariant};
 
@@ -35,12 +35,19 @@ fn test_icon_button_all_sizes() {
 
 #[test]
 fn test_icon_button_size_values() {
-    assert_eq!(IconButtonSize::Xs.size(), gpui::px(16.0));
-    assert_eq!(IconButtonSize::Sm.size(), gpui::px(20.0));
-    assert_eq!(IconButtonSize::Md.size(), gpui::px(24.0));
-    assert_eq!(IconButtonSize::Lg.size(), gpui::px(32.0));
-    assert_eq!(IconButtonSize::Xl.size(), gpui::px(48.0));
-    assert_eq!(IconButtonSize::Custom(40).size(), gpui::px(40.0));
+    // Sizes are in rems so the click target scales with window.set_rem_size
+    // (font zoom). Sm/Md/Lg/Xl all meet WCAG 2.5.8 24×24 at 1× zoom; Xs is
+    // intentionally below that floor for dense / chart-internal use.
+    // If you change the rem mapping, audit every IconButton call site in
+    // app-gpui — Sm and Md are visually identical at 1× zoom on purpose,
+    // so changes propagate to footer-transport, dialog-close, and other
+    // IconButton::Sm sites.
+    assert_eq!(IconButtonSize::Xs.size(), gpui::rems(1.0));
+    assert_eq!(IconButtonSize::Sm.size(), gpui::rems(1.5));
+    assert_eq!(IconButtonSize::Md.size(), gpui::rems(1.5));
+    assert_eq!(IconButtonSize::Lg.size(), gpui::rems(2.0));
+    assert_eq!(IconButtonSize::Xl.size(), gpui::rems(3.0));
+    assert_eq!(IconButtonSize::Custom(40).size(), gpui::rems(2.5));
 }
 
 #[test]

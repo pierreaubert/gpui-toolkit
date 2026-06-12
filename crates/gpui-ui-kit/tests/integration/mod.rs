@@ -26,6 +26,7 @@ mod icon_button_test;
 // Component integration tests - Navigation Components
 mod accordion_test;
 mod breadcrumbs_test;
+mod context_menu_test;
 mod menu_test;
 mod tabs_test;
 mod wizard_test;
@@ -33,19 +34,41 @@ mod wizard_test;
 // Component integration tests - Layout Components
 mod pane_divider_drag_test;
 mod pane_divider_test;
+mod sidebar_test;
 mod stack_test;
-
-// Component integration tests - Audio/Control Components
-mod potentiometer_test;
-mod vertical_slider_test;
-mod volume_knob_test;
+mod status_bar_test;
 
 // Component integration tests - Feedback Components
+mod confirm_dialog_test;
+mod empty_state_test;
 mod progress_test;
 mod spinner_test;
 mod text_test;
 mod toast_test;
 mod tooltip_test;
+
+// Component integration tests - Input Components
+mod keyboard_shortcut_label_test;
+mod popover_test;
+mod search_bar_test;
+
+// Component integration tests - Data Display
+mod qr_test;
+
+// Tier 2 integration tests
+mod image_view_test;
+mod loading_overlay_test;
+mod settings_form_test;
+mod split_pane_test;
+mod step_indicator_test;
+
+// Tier 3 integration tests
+mod command_palette_test;
+mod drag_list_test;
+mod notification_test;
+mod tag_test;
+mod toolbar_test;
+mod tree_view_test;
 
 #[cfg(test)]
 mod tests {

@@ -1,0 +1,11 @@
+target
+target-static
+dist
+.git
+.tokensave
+.DS_Store
+**/*~
+venv
+.venv
+.ruff_cache
+node_modules

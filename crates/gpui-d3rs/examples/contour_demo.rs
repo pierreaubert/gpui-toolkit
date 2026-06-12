@@ -195,7 +195,7 @@ fn main() {
     println!("Gaussian kernel values (bandwidth=1.0):");
     for x in [-2.0, -1.0, 0.0, 1.0, 2.0] {
         let k = gaussian_kernel(x, 1.0);
-        let bar: String = std::iter::repeat('#').take((k * 50.0) as usize).collect();
+        let bar: String = std::iter::repeat_n('#', (k * 50.0) as usize).collect();
         println!("  x={:5.1}: {:.4} {}", x, k, bar);
     }
 
@@ -244,7 +244,7 @@ fn main() {
             let val = 0.5
                 + 0.3 * (fx * std::f64::consts::TAU).sin() * (fy * std::f64::consts::TAU).cos()
                 + 0.2 * ((fx - 0.5).powi(2) + (fy - 0.5).powi(2)).sqrt() * -2.0;
-            viz_grid[y * viz_size + x] = val.max(0.0).min(1.0);
+            viz_grid[y * viz_size + x] = val.clamp(0.0, 1.0);
         }
     }
 

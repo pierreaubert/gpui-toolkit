@@ -1,0 +1,119 @@
+{
+  "source": "https://observablehq.com/@d3/versor-dragging",
+  "module": "d3-geo",
+  "function": "versor_dragging",
+  "tolerance": 0.000001,
+  "generated_at": "2026-03-15T12:44:22.012Z",
+  "test_cases": [
+    {
+      "name": "versor_dragging",
+      "description": "Quaternion-based globe rotation via versor drag",
+      "layout": {
+        "width": 928,
+        "height": 500
+      },
+      "projection_config": {
+        "scale": 250,
+        "translate": [
+          464,
+          250
+        ]
+      },
+      "drag": {
+        "start_geo": [
+          -122.4,
+          37.8
+        ],
+        "end_geo": [
+          139.7,
+          35.7
+        ],
+        "start_cartesian": [
+          -0.423386,
+          -0.66715,
+          0.612907
+        ],
+        "end_cartesian": [
+          -0.61935,
+          0.525247,
+          0.583541
+        ],
+        "quaternion": [
+          0.7967,
+          -0.446364,
+          -0.083181,
+          -0.398884
+        ],
+        "euler_rotation": [
+          -47.656991,
+          -29.250989,
+          -40.042843
+        ]
+      },
+      "before_rotation": [
+        {
+          "name": "San Francisco",
+          "x": 297.212514,
+          "y": 96.773237
+        },
+        {
+          "name": "New York",
+          "x": 281.808626,
+          "y": 86.975399
+        },
+        {
+          "name": "London",
+          "x": 463.728377,
+          "y": 54.347961
+        },
+        {
+          "name": "Tokyo",
+          "x": 595.311831,
+          "y": 104.114697
+        },
+        {
+          "name": "Sydney",
+          "x": 563.965367,
+          "y": 389.436277
+        },
+        {
+          "name": "Sao Paulo",
+          "x": 297.421845,
+          "y": 349.687267
+        }
+      ],
+      "after_rotation": [
+        {
+          "name": "San Francisco",
+          "x": 585.064783,
+          "y": 52.922987
+        },
+        {
+          "name": "New York",
+          "x": 463.271077,
+          "y": 0.102746
+        },
+        {
+          "name": "London",
+          "x": 452.73107,
+          "y": 84.331014
+        },
+        {
+          "name": "Tokyo",
+          "x": 703.49078,
+          "y": 280.381753
+        },
+        {
+          "name": "Sydney",
+          "x": 555.446635,
+          "y": 454.745497
+        },
+        {
+          "name": "Sao Paulo",
+          "x": 238.360495,
+          "y": 163.126245
+        }
+      ]
+    }
+  ]
+}
