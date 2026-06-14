@@ -80,8 +80,9 @@ impl Link {
 
     /// Build into element (uses default dark theme colors for backwards compatibility)
     pub fn build(self) -> Stateful<Div> {
-        let theme = self.theme.clone().unwrap_or_else(Theme::dark);
-        self.build_with_theme(&theme)
+        let mut this = self;
+        let theme = this.theme.take().unwrap_or_else(Theme::dark);
+        this.build_with_theme(&theme)
     }
 }
 
@@ -96,7 +97,10 @@ impl IntoElement for Link {
 impl RenderOnce for Link {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let mut this = self;
-        let theme = this.theme.take().unwrap_or_else(|| (*cx.theme()).clone());
-        this.build_with_theme(&theme)
+        let global_theme = cx.theme();
+        match this.theme.take() {
+            Some(ref theme) => this.build_with_theme(theme),
+            None => this.build_with_theme(global_theme.as_ref()),
+        }
     }
 }

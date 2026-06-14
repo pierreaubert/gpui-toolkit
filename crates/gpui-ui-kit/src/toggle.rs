@@ -119,12 +119,18 @@ impl Toggle {
 
     /// Build into element with theme
     pub fn build_with_theme(self, global_theme: &ToggleTheme) -> Stateful<Div> {
-        let theme = self.theme.clone().unwrap_or_else(|| global_theme.clone());
-        let style = self.style;
+        let mut this = self;
+        let style = this.style;
 
-        match style {
-            ToggleStyle::Sliding => self.build_sliding(&theme),
-            ToggleStyle::Segmented => self.build_segmented(&theme),
+        match this.theme.take() {
+            Some(ref theme) => match style {
+                ToggleStyle::Sliding => this.build_sliding(theme),
+                ToggleStyle::Segmented => this.build_segmented(theme),
+            },
+            None => match style {
+                ToggleStyle::Sliding => this.build_sliding(global_theme),
+                ToggleStyle::Segmented => this.build_segmented(global_theme),
+            },
         }
     }
 

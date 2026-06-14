@@ -254,8 +254,9 @@ impl Button {
             .design
             .clone()
             .unwrap_or_else(crate::design::neutral_design);
-        let theme = self.theme.clone().unwrap_or_default();
-        self.build_with_theme_and_design(&theme, &design)
+        let mut this = self;
+        let theme = this.theme.take().unwrap_or_default();
+        this.build_with_theme_and_design(&theme, &design)
     }
 
     /// Build with explicit theme and design defaults.

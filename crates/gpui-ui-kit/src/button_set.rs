@@ -295,12 +295,13 @@ impl ButtonSet {
 impl RenderOnce for ButtonSet {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let global_theme = cx.theme();
-        let theme = self
+        let mut this = self;
+        let theme = this
             .theme
-            .clone()
-            .unwrap_or_else(|| ButtonSetTheme::from(global_theme));
+            .take()
+            .unwrap_or_else(|| ButtonSetTheme::from(global_theme.as_ref()));
 
-        self.build(&theme)
+        this.build(&theme)
     }
 }
 
@@ -308,7 +309,8 @@ impl IntoElement for ButtonSet {
     type Element = Stateful<Div>;
 
     fn into_element(self) -> Self::Element {
-        let theme = self.theme.clone().unwrap_or_default();
-        self.build(&theme)
+        let mut this = self;
+        let theme = this.theme.take().unwrap_or_default();
+        this.build(&theme)
     }
 }

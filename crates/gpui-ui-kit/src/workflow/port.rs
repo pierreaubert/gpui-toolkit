@@ -93,26 +93,27 @@ impl Port {
 
 impl RenderOnce for Port {
     fn render(self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
-        let theme = self.theme.clone().unwrap_or_default();
-        let color = self.get_color(&theme);
+        let mut this = self;
+        let theme = this.theme.take().unwrap_or_default();
+        let color = this.get_color(&theme);
         let hover_color = theme.port_hover;
         let radius = theme.port_radius;
         let size = radius * 2.0;
 
-        let direction = self.direction;
-        let index = self.index;
+        let direction = this.direction;
+        let index = this.index;
 
-        let on_mouse_down = self.on_mouse_down;
-        let on_mouse_up = self.on_mouse_up;
+        let on_mouse_down = this.on_mouse_down;
+        let on_mouse_up = this.on_mouse_up;
 
-        let border_color = if self.connected {
+        let border_color = if this.connected {
             gpui::white()
         } else {
             gpui::transparent_black()
         };
 
         let mut result = div()
-            .id(self.id)
+            .id(this.id)
             .size(px(size))
             .rounded_full()
             .bg(color)
