@@ -1,3 +1,11 @@
+# 0.7.4
+
+## Features
+
+- Fixed Versor Mercator horizontal-streak regression: cylindrical projections
+  now clip geometries to a rectangular geographic extent before projecting,
+  preventing degenerate closing chords across the map.
+
 # 0.7.3
 
 ## Features

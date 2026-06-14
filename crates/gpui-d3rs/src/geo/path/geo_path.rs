@@ -84,6 +84,12 @@ impl<P: Projection> GeoPath<P> {
         if !self.projection.is_visible(lon, lat) {
             return;
         }
+
+        if let Some(((min_lon, min_lat), (max_lon, max_lat))) = self.projection.clip_extent() {
+            if lon < min_lon || lon > max_lon || lat < min_lat || lat > max_lat {
+                return;
+            }
+        }
         let (x, y) = self.projection.project(lon, lat);
         let r = self.config.point_radius;
         let d = self.config.digits;
@@ -135,6 +141,46 @@ impl<P: Projection> GeoPath<P> {
         }
 
         let d = self.config.digits;
+
+        // If the projection defines a rectangular clip extent, clip each segment
+        // to the rectangle before projecting. This avoids infinite coordinates at
+        // the poles and removes antimeridian closing chords for cylindrical
+        // projections such as Mercator.
+        if let Some(extent) = self.projection.clip_extent() {
+            let mut current_piece: Option<Vec<(f64, f64)>> = None;
+
+            for window in coords.windows(2) {
+                let s = window[0];
+                let e = window[1];
+
+                if let Some((cs, ce)) = clip_line_segment(s, e, extent) {
+                    match current_piece.as_mut() {
+                        Some(piece) => {
+                            let last = *piece.last().unwrap();
+                            if (last.0 - cs.0).abs() < 1e-9
+                                && (last.1 - cs.1).abs() < 1e-9
+                            {
+                                piece.push(ce);
+                            } else {
+                                self.render_line_piece(buf, d, piece);
+                                current_piece = Some(vec![cs, ce]);
+                            }
+                        }
+                        None => {
+                            current_piece = Some(vec![cs, ce]);
+                        }
+                    }
+                } else if let Some(piece) = current_piece.take() {
+                    self.render_line_piece(buf, d, &piece);
+                }
+            }
+
+            if let Some(piece) = current_piece.take() {
+                self.render_line_piece(buf, d, &piece);
+            }
+            return;
+        }
+
         let mut prev_lon: Option<f64> = None;
         let mut need_move = true;
 
@@ -156,6 +202,43 @@ impl<P: Projection> GeoPath<P> {
             }
 
             // Detect antimeridian crossing: if longitude jumps > 180 degrees
+            let crosses_antimeridian = if let Some(prev) = prev_lon {
+                (lon - prev).abs() > 180.0
+            } else {
+                false
+            };
+
+            if need_move || crosses_antimeridian {
+                write!(buf, "M{:.d$},{:.d$}", x, y, d = d).unwrap();
+                need_move = false;
+            } else {
+                write!(buf, "L{:.d$},{:.d$}", x, y, d = d).unwrap();
+            }
+
+            prev_lon = Some(lon);
+        }
+    }
+
+    /// Render an already-clipped piece of a line string.
+    fn render_line_piece(&self, buf: &mut String, d: usize, piece: &[(f64, f64)]) {
+        let mut prev_lon: Option<f64> = None;
+        let mut need_move = true;
+
+        for &(lon, lat) in piece {
+            if !self.projection.is_visible(lon, lat) {
+                prev_lon = None;
+                need_move = true;
+                continue;
+            }
+
+            let (x, y) = self.projection.project(lon, lat);
+
+            if !x.is_finite() || !y.is_finite() {
+                prev_lon = None;
+                need_move = true;
+                continue;
+            }
+
             let crosses_antimeridian = if let Some(prev) = prev_lon {
                 (lon - prev).abs() > 180.0
             } else {
@@ -207,16 +290,28 @@ impl<P: Projection> GeoPath<P> {
         }
 
         let d = self.config.digits;
+        let clip_extent = self.projection.clip_extent();
 
+        let mut clipped;
         for ring in rings {
             if ring.is_empty() {
                 continue;
             }
 
+            let ring_coords: &[(f64, f64)] = if let Some(extent) = clip_extent {
+                clipped = clip_polygon_to_rect(ring, extent);
+                if clipped.len() < 3 {
+                    continue;
+                }
+                &clipped
+            } else {
+                ring
+            };
+
             let mut prev_lon: Option<f64> = None;
             let mut ring_started = false;
 
-            for &(lon, lat) in ring.iter() {
+            for &(lon, lat) in ring_coords {
                 // Pre-clip: skip points outside the projection's clip angle
                 if !self.projection.is_visible(lon, lat) {
                     prev_lon = None;
@@ -239,7 +334,9 @@ impl<P: Projection> GeoPath<P> {
                     continue;
                 }
 
-                // Detect antimeridian crossing: if longitude jumps > 180 degrees
+                // Detect antimeridian crossing: if longitude jumps > 180 degrees.
+                // After rectangular clipping this should not happen, but keep the
+                // guard for projections without an extent.
                 let crosses_antimeridian = if let Some(prev) = prev_lon {
                     (lon - prev).abs() > 180.0
                 } else {
@@ -366,5 +463,133 @@ impl<P: Projection> GeoPath<P> {
                 Cow::Owned(polygons.iter().flatten().flatten().copied().collect())
             }
         }
+    }
+}
+
+
+/// Clip a line segment to a rectangle using Liang-Barsky.
+///
+/// Returns `Some((clipped_start, clipped_end))` if any part of the segment is
+/// inside the rectangle, or `None` if it is entirely outside.
+fn clip_line_segment(
+    s: (f64, f64),
+    e: (f64, f64),
+    ((min_lon, min_lat), (max_lon, max_lat)): ((f64, f64), (f64, f64)),
+) -> Option<((f64, f64), (f64, f64))> {
+    let dx = e.0 - s.0;
+    let dy = e.1 - s.1;
+
+    let p = [-dx, dx, -dy, dy];
+    let q = [
+        s.0 - min_lon,
+        max_lon - s.0,
+        s.1 - min_lat,
+        max_lat - s.1,
+    ];
+
+    let mut u1: f64 = 0.0;
+    let mut u2: f64 = 1.0;
+
+    for i in 0..4 {
+        if p[i] == 0.0 {
+            if q[i] < 0.0 {
+                return None;
+            }
+        } else {
+            let t = q[i] / p[i];
+            if p[i] < 0.0 {
+                u1 = u1.max(t);
+            } else {
+                u2 = u2.min(t);
+            }
+        }
+    }
+
+    if u1 > u2 {
+        return None;
+    }
+
+    Some((
+        (s.0 + u1 * dx, s.1 + u1 * dy),
+        (s.0 + u2 * dx, s.1 + u2 * dy),
+    ))
+}
+
+/// Clip a polygon ring to a rectangle using Sutherland-Hodgman.
+fn clip_polygon_to_rect(
+    ring: &[(f64, f64)],
+    extent: ((f64, f64), (f64, f64)),
+) -> Vec<(f64, f64)> {
+    let ((min_lon, min_lat), (max_lon, max_lat)) = extent;
+
+    let mut output: Vec<(f64, f64)> = ring.to_vec();
+    let edges: [(f64, bool, bool); 4] = [
+        (min_lon, true, false),  // left:   lon >= min_lon
+        (max_lon, false, false), // right:  lon <= max_lon
+        (min_lat, true, true),   // bottom: lat >= min_lat
+        (max_lat, false, true),  // top:    lat <= max_lat
+    ];
+
+    for (boundary, is_min, is_y) in edges {
+        let input = std::mem::take(&mut output);
+        if input.is_empty() {
+            return Vec::new();
+        }
+
+        let mut s = input[input.len() - 1];
+        for e in input {
+            let s_inside = rect_inside(s, boundary, is_min, is_y);
+            let e_inside = rect_inside(e, boundary, is_min, is_y);
+
+            match (s_inside, e_inside) {
+                (true, true) => {
+                    output.push(e);
+                }
+                (true, false) => {
+                    output.push(rect_intersection(s, e, boundary, is_y));
+                }
+                (false, true) => {
+                    output.push(rect_intersection(s, e, boundary, is_y));
+                    output.push(e);
+                }
+                (false, false) => {}
+            }
+            s = e;
+        }
+    }
+
+    // Remove a trailing duplicate of the first vertex so that the renderer can
+    // close the ring itself.
+    if output.len() > 1 && output[0] == output[output.len() - 1] {
+        output.pop();
+    }
+
+    output
+}
+
+fn rect_inside(p: (f64, f64), boundary: f64, is_min: bool, is_y: bool) -> bool {
+    let v = if is_y { p.1 } else { p.0 };
+    if is_min {
+        v >= boundary
+    } else {
+        v <= boundary
+    }
+}
+
+fn rect_intersection(s: (f64, f64), e: (f64, f64), boundary: f64, is_y: bool) -> (f64, f64) {
+    let (sv, ev) = if is_y { (s.1, e.1) } else { (s.0, e.0) };
+    let (so, eo) = if is_y { (s.0, e.0) } else { (s.1, e.1) };
+
+    let t = if (ev - sv).abs() < f64::EPSILON {
+        0.0
+    } else {
+        (boundary - sv) / (ev - sv)
+    };
+
+    let o = so + t * (eo - so);
+    if is_y {
+        (o, boundary)
+    } else {
+        (boundary, o)
     }
 }

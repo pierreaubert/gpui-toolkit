@@ -89,4 +89,14 @@ pub trait Projection: Clone {
     fn is_visible(&self, _lon: f64, _lat: f64) -> bool {
         true
     }
+
+    /// Optional rectangular clip extent in geographic coordinates.
+    ///
+    /// Points outside `((min_lon, min_lat), (max_lon, max_lat))` are clipped
+    /// before projection. Cylindrical projections such as Mercator and
+    /// Equirectangular use this to avoid infinite coordinates at the poles and
+    /// to draw clean edges at the antimeridian instead of closing chords.
+    fn clip_extent(&self) -> Option<((f64, f64), (f64, f64))> {
+        None
+    }
 }

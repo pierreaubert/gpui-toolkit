@@ -3,7 +3,7 @@
 use super::geo_path::GeoPath;
 use super::types::GeoJsonGeometry;
 
-use crate::geo::projection::Equirectangular;
+use crate::geo::projection::{Equirectangular, Mercator};
 
 #[test]
 fn test_geo_path_point() {
@@ -329,4 +329,46 @@ fn test_antimeridian_edge_cases() {
     let geometry2 = GeoJsonGeometry::LineString(vec![(-179.0, 0.0), (-180.0, 0.0), (179.0, 0.0)]);
     let svg2 = path.render(&geometry2);
     assert!(!svg2.is_empty(), "Should handle -180 boundary");
+}
+
+#[test]
+fn test_mercator_pole_clip() {
+    let proj = Mercator::new().scale(100.0).translate(300.0, 200.0);
+    let path = GeoPath::new(proj).digits(2);
+
+    // A polygon that touches the south pole and spans the antimeridian.
+    // This is a simplified Antarctica-like shape.
+    let geometry = GeoJsonGeometry::Polygon(vec![vec![
+        (-180.0, -90.0),
+        (180.0, -90.0),
+        (180.0, -60.0),
+        (90.0, -65.0),
+        (0.0, -70.0),
+        (-90.0, -65.0),
+        (-180.0, -60.0),
+        (-180.0, -90.0),
+    ]]);
+    let svg = path.render(&geometry);
+    eprintln!("Mercator pole clip SVG: {}", svg);
+    assert!(svg.starts_with('M'));
+    assert!(svg.ends_with('Z'));
+
+    // Regression: without clipping, the polar points produced a degenerate
+    // horizontal closing chord that filled the whole map as a green streak.
+    // After clipping the ring to the projection's valid extent, the polygon
+    // must span a real vertical range.
+    let ys: Vec<f64> = svg
+        .split(['M', 'L', 'Z'])
+        .filter_map(|token| {
+            let (_, y) = token.split_once(',')?;
+            y.parse().ok()
+        })
+        .collect();
+    assert!(ys.len() >= 4, "clipped polygon should have several vertices");
+    let span = ys.iter().copied().fold(f64::NEG_INFINITY, f64::max)
+        - ys.iter().copied().fold(f64::INFINITY, f64::min);
+    assert!(
+        span > 10.0,
+        "clipped Antarctica should span vertically; got span={span}, ys={ys:?}"
+    );
 }

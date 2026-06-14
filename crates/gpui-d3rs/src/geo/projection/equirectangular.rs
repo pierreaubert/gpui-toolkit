@@ -102,4 +102,8 @@ impl Projection for Equirectangular {
     fn set_rotate(&mut self, lambda: f64, phi: f64, gamma: f64) {
         self.config.rotate = (lambda, phi, gamma);
     }
+
+    fn clip_extent(&self) -> Option<((f64, f64), (f64, f64))> {
+        Some(((-180.0, -90.0), (180.0, 90.0)))
+    }
 }

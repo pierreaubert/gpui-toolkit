@@ -126,4 +126,10 @@ impl Projection for Mercator {
     fn set_rotate(&mut self, lambda: f64, phi: f64, gamma: f64) {
         self.config.rotate = (lambda, phi, gamma);
     }
+
+    fn clip_extent(&self) -> Option<((f64, f64), (f64, f64))> {
+        // Clip to the standard Web Mercator latitude limit so that the poles
+        // (where y tends to infinity) are never projected.
+        Some(((-180.0, -85.05112877980659), (180.0, 85.05112877980659)))
+    }
 }
