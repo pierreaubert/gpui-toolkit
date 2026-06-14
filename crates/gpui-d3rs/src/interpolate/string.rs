@@ -25,6 +25,8 @@ static NUMBER_RE: LazyLock<Regex> =
 /// assert_eq!(interp(1.0), "20px");
 /// ```
 pub fn interpolate_string(a: &str, b: &str) -> impl Fn(f64) -> String {
+    use std::fmt::Write;
+
     let a_numbers: Vec<f64> = NUMBER_RE
         .find_iter(a)
         .filter_map(|m| m.as_str().parse().ok())
@@ -35,8 +37,8 @@ pub fn interpolate_string(a: &str, b: &str) -> impl Fn(f64) -> String {
         .filter_map(|m| m.as_str().parse().ok())
         .collect();
 
-    // Get the parts between numbers from string b
-    let b_parts: Vec<String> = NUMBER_RE.split(b).map(|s| s.to_string()).collect();
+    // Get the parts between numbers from string b (borrowed slices, no copies).
+    let b_parts: Vec<&str> = NUMBER_RE.split(b).collect();
 
     move |t| {
         let mut result = String::new();
@@ -48,17 +50,25 @@ pub fn interpolate_string(a: &str, b: &str) -> impl Fn(f64) -> String {
                 let val = a_numbers[i] + (b_numbers[i] - a_numbers[i]) * t;
                 // Format with appropriate precision
                 if val.fract().abs() < 1e-10 {
-                    result.push_str(&format!("{}", val as i64));
+                    write!(result, "{}", val as i64).unwrap();
                 } else {
-                    result.push_str(
-                        format!("{:.6}", val)
-                            .trim_end_matches('0')
-                            .trim_end_matches('.'),
-                    );
+                    let start = result.len();
+                    write!(result, "{:.6}", val).unwrap();
+                    // Trim trailing zeros and a lone trailing decimal point in place.
+                    while result.ends_with('0') {
+                        result.pop();
+                    }
+                    if result.ends_with('.') {
+                        result.pop();
+                    }
+                    // If everything was trimmed, restore a single zero.
+                    if result.len() == start {
+                        result.push('0');
+                    }
                 }
             } else if i < b_numbers.len() {
                 // Use b's number directly if a doesn't have enough numbers
-                result.push_str(&format!("{}", b_numbers[i]));
+                write!(result, "{}", b_numbers[i]).unwrap();
             }
         }
 

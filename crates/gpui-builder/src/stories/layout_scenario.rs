@@ -45,11 +45,8 @@ impl<'a> LayoutScenario<'a> {
     }
 
     /// Build solver preferences for this scenario.
-    pub const fn preferences(&self) -> LayoutPreferences<'a> {
-        LayoutPreferences {
-            ratios: self.ratios,
-            collapsed: self.collapsed,
-        }
+    pub fn preferences(&self) -> LayoutPreferences<'a> {
+        LayoutPreferences::new(self.ratios, self.collapsed)
     }
 
     /// Return a stable preference summary.

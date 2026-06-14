@@ -20,6 +20,8 @@ use super::misc::prop_value_label;
 use super::misc::scalar_field_data;
 use super::misc::scatter_story_data;
 use super::misc::showcase_section_for_story_id;
+use super::misc::spectrum_axis_magnitudes;
+use super::misc::spectrum_magnitudes;
 use super::misc::surface_colormap;
 use super::misc::tab_variant;
 use super::misc::tag_variant;
@@ -128,6 +130,8 @@ pub struct ComponentLab {
     pub(super) stories_dir: PathBuf,
     pub(super) token_paths: Vec<PathBuf>,
     pub(super) entity: Entity<Self>,
+    pub(super) cached_matrix: ResponsivePreviewMatrix,
+    pub(super) sidebar_labels: BTreeMap<String, SharedString>,
 }
 
 impl ComponentLab {
@@ -157,6 +161,9 @@ impl ComponentLab {
         let last_live_modified =
             latest_story_or_token_modified(&config.stories_dir, &config.token_paths)
                 .unwrap_or(SystemTime::UNIX_EPOCH);
+        let cached_matrix =
+            ResponsivePreviewMatrix::for_story(&documents.get(&selected_story_id).unwrap().story);
+        let sidebar_labels = Self::build_sidebar_labels(&documents, &story_ids);
         let mut lab = Self {
             registry,
             renderers,
@@ -176,11 +183,35 @@ impl ComponentLab {
             stories_dir: config.stories_dir,
             token_paths: config.token_paths,
             entity: cx.entity().clone(),
+            cached_matrix,
+            sidebar_labels,
         };
         if lab.live_preview {
             lab.start_live_preview(cx);
         }
         lab
+    }
+
+    pub(super) fn build_sidebar_labels(
+        documents: &BTreeMap<String, StoryDocument>,
+        story_ids: &[String],
+    ) -> BTreeMap<String, SharedString> {
+        story_ids
+            .iter()
+            .filter_map(|story_id| {
+                documents.get(story_id).map(|doc| {
+                    let label =
+                        SharedString::new(format!("{} / {}", doc.story.crate_name, doc.story.title));
+                    (story_id.clone(), label)
+                })
+            })
+            .collect()
+    }
+
+    fn rebuild_derived_state(&mut self) {
+        self.cached_matrix =
+            ResponsivePreviewMatrix::for_story(&self.documents.get(&self.selected_story_id).unwrap().story);
+        self.sidebar_labels = Self::build_sidebar_labels(&self.documents, &self.story_ids);
     }
 
     pub(super) fn start_live_preview(&mut self, cx: &mut Context<Self>) {
@@ -233,6 +264,7 @@ impl ComponentLab {
         for doc in reload.story_documents {
             self.documents.insert(doc.story.id.clone(), doc);
         }
+        self.rebuild_derived_state();
 
         if selected_reloaded && let Some(document) = self.documents.get(&self.selected_story_id) {
             let state = InitialLabState::from_document(document);
@@ -257,39 +289,46 @@ impl ComponentLab {
         &self.selected_document().story
     }
 
-    pub(super) fn selected_viewport(&self) -> ViewportPreset {
+    pub(super) fn selected_viewport(&self) -> &ViewportPreset {
         self.selected_story()
             .viewports
             .iter()
             .find(|viewport| viewport.id == self.selected_viewport_id)
-            .cloned()
-            .or_else(|| self.selected_story().viewports.first().cloned())
-            .unwrap_or_else(|| ViewportPreset::new("desktop", "Desktop", 1280.0, 800.0))
+            .or_else(|| self.selected_story().viewports.first())
+            .unwrap_or_else(|| {
+                static FALLBACK: std::sync::OnceLock<ViewportPreset> =
+                    std::sync::OnceLock::new();
+                FALLBACK.get_or_init(|| ViewportPreset::new("desktop", "Desktop", 1280.0, 800.0))
+            })
     }
 
-    pub(super) fn selected_theme_preset(&self) -> ThemePreset {
+    pub(super) fn selected_theme_preset(&self) -> &ThemePreset {
         self.selected_story()
             .themes
             .iter()
             .find(|theme| theme.id == self.selected_theme_id)
-            .cloned()
-            .or_else(|| self.selected_story().themes.first().cloned())
-            .unwrap_or_else(|| ThemePreset::new("neutral", "Neutral", "neutral", false))
+            .or_else(|| self.selected_story().themes.first())
+            .unwrap_or_else(|| {
+                static FALLBACK: std::sync::OnceLock<ThemePreset> = std::sync::OnceLock::new();
+                FALLBACK.get_or_init(|| ThemePreset::new("neutral", "Neutral", "neutral", false))
+            })
     }
 
-    pub(super) fn selected_motion_preset(&self) -> MotionPreset {
+    pub(super) fn selected_motion_preset(&self) -> &MotionPreset {
         self.selected_story()
             .motions
             .iter()
             .find(|motion| motion.id == self.selected_motion_id)
-            .cloned()
-            .or_else(|| self.selected_story().motions.first().cloned())
-            .unwrap_or_else(|| MotionPreset::new("system", "System", false))
+            .or_else(|| self.selected_story().motions.first())
+            .unwrap_or_else(|| {
+                static FALLBACK: std::sync::OnceLock<MotionPreset> = std::sync::OnceLock::new();
+                FALLBACK.get_or_init(|| MotionPreset::new("system", "System", false))
+            })
     }
 
     pub(super) fn select_story(&mut self, story_id: String) {
-        if let Some(document) = self.documents.get(&story_id) {
-            let state = InitialLabState::from_document(document);
+        if self.documents.contains_key(&story_id) {
+            let state = InitialLabState::from_document(&self.documents[&story_id]);
             self.selected_story_id = story_id;
             self.selected_viewport_id = state.viewport_id;
             self.selected_theme_id = state.theme_id;
@@ -297,6 +336,7 @@ impl ComponentLab {
             self.matrix_mode = state.matrix_mode;
             self.layout_constraints = state.layout_constraints;
             self.save_status = None;
+            self.rebuild_derived_state();
         }
     }
 
@@ -308,18 +348,18 @@ impl ComponentLab {
         }
     }
 
-    pub(super) fn set_viewport(&mut self, viewport_id: String) {
-        self.selected_viewport_id = viewport_id;
+    pub(super) fn set_viewport(&mut self, viewport_id: impl Into<String>) {
+        self.selected_viewport_id = viewport_id.into();
         self.sync_layout_state();
     }
 
-    pub(super) fn set_theme(&mut self, theme_id: String) {
-        self.selected_theme_id = theme_id;
+    pub(super) fn set_theme(&mut self, theme_id: impl Into<String>) {
+        self.selected_theme_id = theme_id.into();
         self.sync_layout_state();
     }
 
-    pub(super) fn set_motion(&mut self, motion_id: String) {
-        self.selected_motion_id = motion_id;
+    pub(super) fn set_motion(&mut self, motion_id: impl Into<String>) {
+        self.selected_motion_id = motion_id.into();
         self.sync_layout_state();
     }
 
@@ -422,6 +462,7 @@ impl ComponentLab {
                 for doc in docs {
                     self.documents.insert(doc.story.id.clone(), doc);
                 }
+                self.rebuild_derived_state();
                 self.save_status = Some("Reloaded story JSON".into());
             }
             Err(err) => {
@@ -435,12 +476,13 @@ impl ComponentLab {
         let mut list = div().flex().flex_col().gap_1();
 
         for story_id in &self.story_ids {
-            let Some(story) = self.documents.get(story_id).map(|doc| &doc.story) else {
-                continue;
-            };
             let selected = *story_id == self.selected_story_id;
             let story_id_for_click = story_id.clone();
-            let label = format!("{} / {}", story.crate_name, story.title);
+            let label = self
+                .sidebar_labels
+                .get(story_id)
+                .cloned()
+                .unwrap_or_else(|| SharedString::new(story_id.clone()));
             let entity = self.entity.clone();
             list = list.child(
                 Button::new(lab_id(&["story", story_id]), label)
@@ -746,12 +788,15 @@ impl ComponentLab {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let theme = cx.theme();
-        let story_id = story.id.clone();
-        let prop_name = prop.name.clone();
+        let story_id = SharedString::new(story.id.clone());
+        let prop_name = SharedString::new(prop.name.clone());
+        let prop_label = SharedString::new(prop.label.clone());
         let entity = self.entity.clone();
 
         let control = match &prop.value {
             StoryPropValue::Bool(value) => {
+                let story_id = story_id.clone();
+                let prop_name = prop_name.clone();
                 Toggle::new(lab_id(&["prop-bool", &story.id, &prop.name]))
                     .checked(*value)
                     .label(if *value { "On" } else { "Off" })
@@ -759,12 +804,18 @@ impl ComponentLab {
                     .style(ToggleStyle::Sliding)
                     .on_change(move |checked, _window, cx| {
                         entity.update(cx, |this, _| {
-                            this.set_prop(&story_id, &prop_name, StoryPropValue::Bool(checked));
+                            this.set_prop(
+                                story_id.as_str(),
+                                prop_name.as_str(),
+                                StoryPropValue::Bool(checked),
+                            );
                         });
                     })
                     .into_any_element()
             }
             StoryPropValue::Number(value) => {
+                let story_id = story_id.clone();
+                let prop_name = prop_name.clone();
                 NumberInput::new(lab_id(&["prop-number", &story.id, &prop.name]))
                     .value(*value)
                     .step(number_step(&prop.name))
@@ -773,7 +824,11 @@ impl ComponentLab {
                     .size(NumberInputSize::Sm)
                     .on_change(move |number, _window, cx| {
                         entity.update(cx, |this, _| {
-                            this.set_prop(&story_id, &prop_name, StoryPropValue::Number(number));
+                            this.set_prop(
+                                story_id.as_str(),
+                                prop_name.as_str(),
+                                StoryPropValue::Number(number),
+                            );
                         });
                     })
                     .into_any_element()
@@ -781,18 +836,20 @@ impl ComponentLab {
             StoryPropValue::Text(value) | StoryPropValue::Color(value) => {
                 let current_value = value.clone();
                 let is_color = matches!(prop.value, StoryPropValue::Color(_));
+                let story_id = story_id.clone();
+                let prop_name = prop_name.clone();
                 Input::new(lab_id(&["prop-text", &story.id, &prop.name]))
                     .value(current_value)
                     .size(InputSize::Sm)
-                    .placeholder(prop.label.clone())
+                    .placeholder(prop_label)
                     .on_text_change(move |text, _window, cx| {
                         entity.update(cx, |this, _| {
                             let value = if is_color {
-                                StoryPropValue::Color(text)
+                                StoryPropValue::Color(SharedString::new(text))
                             } else {
-                                StoryPropValue::Text(text)
+                                StoryPropValue::Text(SharedString::new(text))
                             };
-                            this.set_prop(&story_id, &prop_name, value);
+                            this.set_prop(story_id.as_str(), prop_name.as_str(), value);
                         });
                     })
                     .into_any_element()
@@ -800,27 +857,23 @@ impl ComponentLab {
             StoryPropValue::Choice(value) => {
                 let mut row = div().flex().flex_wrap().gap_1();
                 for option in &prop.options {
-                    let option_for_click = option.clone();
-                    let story_id = story.id.clone();
-                    let prop_name = prop.name.clone();
+                    let option_label = SharedString::new(option.clone());
+                    let story_id = story_id.clone();
+                    let prop_name = prop_name.clone();
                     let entity = self.entity.clone();
                     row = row.child(
                         Button::new(
                             lab_id(&["prop-choice", &story.id, &prop.name, option]),
-                            option.clone(),
+                            option_label.clone(),
                         )
-                        .variant(if option == value {
-                            ButtonVariant::Primary
-                        } else {
-                            ButtonVariant::Ghost
-                        })
+                        .variant(if option == value { ButtonVariant::Primary } else { ButtonVariant::Ghost })
                         .size(ButtonSize::Xs)
                         .on_click(move |_window, cx| {
                             entity.update(cx, |this, _| {
                                 this.set_prop(
-                                    &story_id,
-                                    &prop_name,
-                                    StoryPropValue::Choice(option_for_click.clone()),
+                                    story_id.as_str(),
+                                    prop_name.as_str(),
+                                    StoryPropValue::Choice(option_label.clone()),
                                 );
                             });
                         }),
@@ -1207,7 +1260,7 @@ impl ComponentLab {
         let preview_design = design_for_theme_preset(&theme_preset);
         let constraints = self.layout_constraints;
         let (frame_width, frame_height) = constraints.frame_dimensions(&viewport);
-        let story_id = story.id.clone();
+        let scope = story.id.as_str();
 
         div()
             .size_full()
@@ -1265,7 +1318,7 @@ impl ComponentLab {
                         .p(px(constraints.padding))
                         .child(self.render_story_preview(
                             story,
-                            &story_id,
+                            scope,
                             true,
                             preview_design,
                             cx,
@@ -1279,7 +1332,7 @@ impl ComponentLab {
         let theme = cx.theme();
         let story = self.selected_story();
         let motion_preset = self.selected_motion_preset();
-        let matrix = ResponsivePreviewMatrix::for_story(story);
+        let matrix = &self.cached_matrix;
 
         let mut grid = div().flex().flex_wrap().gap_3().items_start();
         for (index, cell) in matrix.cells.iter().enumerate() {
@@ -2420,12 +2473,7 @@ impl ComponentLab {
     ) -> AnyElement {
         let theme = cx.theme();
         let bins = number_prop(story, "bins", 64.0).clamp(8.0, 128.0).round() as usize;
-        let magnitudes: Vec<f32> = (0..bins)
-            .map(|index| {
-                let t = index as f32 / bins.max(1) as f32;
-                -80.0 + (t * std::f32::consts::TAU).sin().abs() * 60.0
-            })
-            .collect();
+        let magnitudes = spectrum_magnitudes(bins);
 
         div()
             .w(px(360.0))
@@ -2454,12 +2502,7 @@ impl ComponentLab {
             ..SpectrumAxisTheme::default()
         };
         let db_axis_width = axis_theme.db_axis_width;
-        let magnitudes: Vec<f32> = (0..72)
-            .map(|index| {
-                let t = index as f32 / 71.0;
-                -86.0 + (t * std::f32::consts::TAU * 1.5).sin().abs() * 54.0
-            })
-            .collect();
+        let magnitudes = spectrum_axis_magnitudes();
 
         div()
             .w(px(460.0))

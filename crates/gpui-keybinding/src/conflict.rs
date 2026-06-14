@@ -20,18 +20,14 @@ pub struct KeyConflict {
 /// Operates on `DocumentedKeybinding` (which has the display key) rather than
 /// GPUI `KeyBinding` (which doesn't expose its key spec).
 pub fn detect_conflicts(bindings: &[DocumentedKeybinding]) -> Vec<KeyConflict> {
-    let mut groups: HashMap<String, Vec<String>> = HashMap::new();
+    let mut groups: HashMap<&str, Vec<&str>> = HashMap::new();
 
     for binding in bindings {
-        let conflict_key = binding
-            .raw_key_spec
-            .as_ref()
-            .unwrap_or(&binding.key)
-            .clone();
+        let conflict_key = binding.raw_key_spec.as_deref().unwrap_or(&binding.key);
         groups
             .entry(conflict_key)
             .or_default()
-            .push(binding.description.clone());
+            .push(&binding.description);
     }
 
     groups
@@ -39,8 +35,8 @@ pub fn detect_conflicts(bindings: &[DocumentedKeybinding]) -> Vec<KeyConflict> {
         .filter(|(_, descs)| descs.len() > 1)
         .map(|(key, descriptions)| KeyConflict {
             count: descriptions.len(),
-            key,
-            descriptions,
+            key: key.to_string(),
+            descriptions: descriptions.into_iter().map(str::to_string).collect(),
         })
         .collect()
 }

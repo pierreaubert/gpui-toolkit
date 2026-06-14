@@ -1,6 +1,6 @@
 //! Debug instrumentation hooks for Instruments and Metal capture.
 
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -19,7 +19,7 @@ pub enum IosSignpostCategory {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IosSignpostEvent {
     pub category: IosSignpostCategory,
-    pub name: String,
+    pub name: Arc<str>,
     pub unix_micros: u128,
 }
 
@@ -34,14 +34,16 @@ fn capture_label() -> &'static Mutex<Option<String>> {
     METAL_CAPTURE_ACTIVE.get_or_init(|| Mutex::new(None))
 }
 
-pub fn emit_signpost(category: IosSignpostCategory, name: impl Into<String>) {
-    let event = IosSignpostEvent {
+pub fn emit_signpost(category: IosSignpostCategory, name: impl Into<Arc<str>>) {
+    let name = name.into();
+    if log::log_enabled!(log::Level::Info) {
+        log::info!("GPUI iOS signpost {:?}: {}", category, name);
+    }
+    signposts().lock().unwrap().push(IosSignpostEvent {
         category,
-        name: name.into(),
+        name,
         unix_micros: now_unix_micros(),
-    };
-    log::info!("GPUI iOS signpost {:?}: {}", event.category, event.name);
-    signposts().lock().unwrap().push(event);
+    });
 }
 
 pub fn signpost_snapshot() -> Vec<IosSignpostEvent> {
@@ -92,11 +94,22 @@ mod tests {
         clear_signposts();
         emit_signpost(IosSignpostCategory::Frame, "request");
         assert_eq!(signpost_snapshot().len(), 1);
+        assert_eq!(signpost_snapshot()[0].name.as_ref(), "request");
 
         assert!(begin_metal_capture("unit-test"));
         assert!(!begin_metal_capture("second"));
         assert!(is_metal_capture_active());
         end_metal_capture();
         assert!(!is_metal_capture_active());
+    }
+
+    #[test]
+    fn signpost_event_uses_arc_name() {
+        clear_signposts();
+        let name: Arc<str> = Arc::from("gpu-frame");
+        emit_signpost(IosSignpostCategory::Draw, Arc::clone(&name));
+        let snapshot = signpost_snapshot();
+        assert_eq!(snapshot.len(), 1);
+        assert!(Arc::ptr_eq(&snapshot[0].name, &name));
     }
 }

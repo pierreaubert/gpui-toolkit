@@ -3,6 +3,7 @@
 //! The builder crate does not capture pixels itself; this module produces a
 //! stable manifest that screenshot runners can consume.
 
+use crate::util::format_number;
 use crate::{LayoutStoryCatalog, SolvedLayoutScenario};
 use serde::{Serialize, Serializer, ser::SerializeStruct};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
@@ -202,17 +203,6 @@ fn capture_id(story_id: &str, scenario_id: &str, color_scheme: VisualColorScheme
 
 fn output_path(story_id: &str, scenario_id: &str, color_scheme: VisualColorScheme) -> String {
     format!("{story_id}/{scenario_id}/{}.png", color_scheme.as_str())
-}
-
-fn format_number(value: f32) -> String {
-    let mut text = format!("{value:.2}");
-    while text.contains('.') && text.ends_with('0') {
-        text.pop();
-    }
-    if text.ends_with('.') {
-        text.pop();
-    }
-    text
 }
 
 #[cfg(test)]

@@ -109,8 +109,8 @@ impl ShowcaseApp {
         }
     }
 
-    pub(super) fn solve_layout(&self, w: f32, h: f32) -> SolvedNode {
-        let content_children: &[LayoutNode<'_>] = &[
+    pub(super) fn solve_layout(&self, w: f32, h: f32) -> SolvedNode<'static> {
+        const CONTENT_CHILDREN: [LayoutNode<'static>; 2] = [
             LayoutNode::Slot(SlotNode {
                 id: "sidebar",
                 sizing: Sizing::fractional(0.18, 120.0),
@@ -134,14 +134,11 @@ impl ShowcaseApp {
             axis: Axis::Horizontal,
             auto_axis: Some(1.0),
             sizing: Sizing::flex(0.0),
-            children: content_children,
+            children: &CONTENT_CHILDREN,
             divider_size: 0.0,
         });
 
-        let prefs = LayoutPreferences {
-            ratios: &[],
-            collapsed: &[],
-        };
+        let prefs = LayoutPreferences::new(&[], &[]);
 
         solve(&root, w, h, &prefs)
     }

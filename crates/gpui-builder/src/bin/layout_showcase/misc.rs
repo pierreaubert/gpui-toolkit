@@ -66,7 +66,7 @@ pub(super) fn panel_box(
         )
 }
 
-pub(super) fn size_label(node: &SolvedNode) -> String {
+pub(super) fn size_label(node: &SolvedNode<'_>) -> String {
     let tier = node
         .active_tier
         .as_deref()

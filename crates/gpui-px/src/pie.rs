@@ -163,51 +163,60 @@ impl PieChart {
         // Generate slices
         let slices = pie.generate(&self.values, |v| *v);
 
-        // Determine colors. An empty custom palette would make `cycle()`
-        // produce an empty iterator and the later `colors[i % colors.len()]`
-        // indexing would divide by zero. Treat an empty user palette like
-        // `None` and fall back to the default palette.
-        let custom_palette = self.colors.filter(|c| !c.is_empty());
-        let colors: Vec<u32> = match custom_palette {
-            Some(c) => c.iter().cycle().take(slices.len()).copied().collect(),
-            None => DEFAULT_PALETTE
-                .iter()
-                .cycle()
-                .take(slices.len())
-                .copied()
-                .collect(),
-        };
+        // Determine colors. Keep any custom palette as an owned
+        // `Option<Vec<u32>>` so it can be moved into the paint closure. The
+        // default palette is a `static` slice, so no allocation is needed when
+        // no custom colors are supplied. An empty custom palette is treated as
+        // `None` to avoid division by zero.
+        let custom_palette: Option<Vec<u32>> =
+            self.colors.filter(|c| !c.is_empty()).map(|c| c.to_vec());
 
-        // Create arc generator
-        let arc_gen = Arc::new();
+        // Pre-build flattened paths for every slice. The points are relative to
+        // the plot-area origin, with the pie centered at (plot_width/2,
+        // plot_height/2); bounds.origin is applied in the paint closure.
+        let center_x = plot_width as f64 / 2.0;
+        let center_y = plot_height as f64 / 2.0;
+        let arc_gen = Arc::new().center(center_x, center_y);
+        let slice_paths: Vec<Vec<gpui::Point<gpui::Pixels>>> = slices
+            .iter()
+            .map(|slice| {
+                arc_gen
+                    .generate(&slice.arc)
+                    .flatten(0.5)
+                    .into_iter()
+                    .map(|p| point(px(p.x as f32), px(p.y as f32)))
+                    .collect()
+            })
+            .collect();
 
         // Render function
         let render_element = canvas(
-            move |bounds, _, _| (slices, colors, arc_gen, bounds, plot_width, plot_height),
-            move |_, (slices, colors, arc_gen, bounds, plot_width, plot_height), window, _| {
+            move |bounds, _, _| (slice_paths, custom_palette, bounds),
+            move |_, (slice_paths, custom_palette, bounds), window, _| {
+                let palette: &[u32] = custom_palette.as_deref().unwrap_or(&DEFAULT_PALETTE);
                 let origin_x: f32 = bounds.origin.x.into();
                 let origin_y: f32 = bounds.origin.y.into();
-                let center_x = origin_x + plot_width / 2.0;
-                let center_y = origin_y + plot_height / 2.0;
 
-                let arc_gen = arc_gen.center(center_x as f64, center_y as f64);
-
-                for (i, slice) in slices.iter().enumerate() {
-                    let color = D3Color::from_hex(colors[i % colors.len()]);
-                    let fill_color = color.to_rgba();
-
-                    let path = arc_gen.generate(&slice.arc);
-                    let points = path.flatten(0.5);
-
-                    if points.is_empty() {
+                for (i, path_points) in slice_paths.iter().enumerate() {
+                    if path_points.is_empty() {
                         continue;
                     }
 
+                    let color = D3Color::from_hex(palette[i % palette.len()]);
+                    let fill_color = color.to_rgba();
+
                     let mut builder = PathBuilder::fill();
 
-                    builder.move_to(point(px(points[0].x as f32), px(points[0].y as f32)));
-                    for p in points.iter().skip(1) {
-                        builder.line_to(point(px(p.x as f32), px(p.y as f32)));
+                    let first = path_points[0];
+                    builder.move_to(point(
+                        px(origin_x + f32::from(first.x)),
+                        px(origin_y + f32::from(first.y)),
+                    ));
+                    for p in path_points.iter().skip(1) {
+                        builder.line_to(point(
+                            px(origin_x + f32::from(p.x)),
+                            px(origin_y + f32::from(p.y)),
+                        ));
                     }
 
                     builder.close();

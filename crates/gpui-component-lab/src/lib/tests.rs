@@ -16,9 +16,13 @@ use super::latest::latest_rust_source_modified;
 use super::responsive_preview_matrix::ResponsivePreviewMatrix;
 use super::story_document::StoryDocument;
 use super::story_renderer_kind::StoryRendererKind;
+use super::component_lab_conformance_finding::ComponentLabConformanceFinding;
+use super::component_lab_conformance_report::{
+    ComponentLabConformanceReport, ensure_component_lab_conformance_passed,
+};
 use super::types::StoryPropValue;
 use super::types::reload_live_preview_state;
-use gpui_design_tools::{DesignTokenFormat, export_design_tokens};
+use gpui_design_tools::{DesignTokenFormat, DesignTokenValidationReport, export_design_tokens};
 use std::collections::BTreeSet;
 use std::time::SystemTime;
 
@@ -298,4 +302,52 @@ fn latest_rust_source_modified_ignores_target_dirs() {
     std::fs::write(src_dir.join("lib.rs"), "pub fn real_source() {}").unwrap();
 
     assert!(latest_rust_source_modified(tmp.path()).unwrap() > SystemTime::UNIX_EPOCH);
+}
+
+#[test]
+fn conformance_report_to_markdown_is_allocation_efficient() {
+    let token_report = DesignTokenValidationReport {
+        passed: true,
+        findings: Vec::new(),
+        preset_count: 2,
+        token_count: 12,
+        conformance_markdown: "All tokens passed.".to_string(),
+    };
+    let finding = ComponentLabConformanceFinding::new(
+        "accessibility",
+        "missing-label",
+        Some("ui-kit.button"),
+        "Button needs a label",
+    );
+    let report = ComponentLabConformanceReport::new(3, &token_report, vec![finding]);
+    let markdown = report.to_markdown();
+    assert!(markdown.contains("stories: 3"));
+    assert!(markdown.contains("tokens: 12"));
+    assert!(markdown.contains("missing-label"));
+    assert!(markdown.contains("Button needs a label"));
+    assert!(!markdown.contains("No component-lab findings"));
+}
+
+#[test]
+fn ensure_conformance_passed_reports_failures() {
+    let token_report = DesignTokenValidationReport {
+        passed: true,
+        findings: Vec::new(),
+        preset_count: 1,
+        token_count: 5,
+        conformance_markdown: String::new(),
+    };
+    let finding = ComponentLabConformanceFinding::new(
+        "render",
+        "overflow",
+        Some("px.line"),
+        "Chart overflows mobile width",
+    );
+    let failing = ComponentLabConformanceReport::new(1, &token_report, vec![finding]);
+    assert!(!failing.passed());
+    assert!(ensure_component_lab_conformance_passed(&failing).is_err());
+
+    let passing = ComponentLabConformanceReport::new(1, &token_report, Vec::new());
+    assert!(passing.passed());
+    assert!(ensure_component_lab_conformance_passed(&passing).is_ok());
 }

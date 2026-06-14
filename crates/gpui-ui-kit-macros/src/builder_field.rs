@@ -60,49 +60,44 @@ impl<'a> BuilderField<'a> {
                         let Some(name) = nv.path.get_ident() else {
                             return Err(syn::Error::new(nv.path.span(), "expected identifier"));
                         };
-                        match name.to_string().as_str() {
-                            "builder" => {
-                                if let Expr::Lit(lit) = &nv.value
-                                    && let Lit::Bool(value) = &lit.lit
-                                {
-                                    generate_setter = value.value;
-                                } else {
-                                    return Err(syn::Error::new(
-                                        nv.value.span(),
-                                        "builder must be a boolean",
-                                    ));
-                                }
-                            }
-                            "default" => {
-                                if let Expr::Lit(lit) = &nv.value
-                                    && let Lit::Str(value) = &lit.lit
-                                {
-                                    default_expr = Some(value.parse()?);
-                                } else {
-                                    return Err(syn::Error::new(
-                                        nv.value.span(),
-                                        "default must be a string expression",
-                                    ));
-                                }
-                            }
-                            "rename" | "name" => {
-                                if let Expr::Lit(lit) = &nv.value
-                                    && let Lit::Str(value) = &lit.lit
-                                {
-                                    setter_name = Ident::new(&value.value(), value.span());
-                                } else {
-                                    return Err(syn::Error::new(
-                                        nv.value.span(),
-                                        "rename must be a string",
-                                    ));
-                                }
-                            }
-                            _ => {
+                        if name == "builder" {
+                            if let Expr::Lit(lit) = &nv.value
+                                && let Lit::Bool(value) = &lit.lit
+                            {
+                                generate_setter = value.value;
+                            } else {
                                 return Err(syn::Error::new(
-                                    name.span(),
-                                    "unknown builder field attribute",
+                                    nv.value.span(),
+                                    "builder must be a boolean",
                                 ));
                             }
+                        } else if name == "default" {
+                            if let Expr::Lit(lit) = &nv.value
+                                && let Lit::Str(value) = &lit.lit
+                            {
+                                default_expr = Some(value.parse()?);
+                            } else {
+                                return Err(syn::Error::new(
+                                    nv.value.span(),
+                                    "default must be a string expression",
+                                ));
+                            }
+                        } else if name == "rename" || name == "name" {
+                            if let Expr::Lit(lit) = &nv.value
+                                && let Lit::Str(value) = &lit.lit
+                            {
+                                setter_name = Ident::new(&value.value(), value.span());
+                            } else {
+                                return Err(syn::Error::new(
+                                    nv.value.span(),
+                                    "rename must be a string",
+                                ));
+                            }
+                        } else {
+                            return Err(syn::Error::new(
+                                name.span(),
+                                "unknown builder field attribute",
+                            ));
                         }
                     }
                     _ => {
@@ -203,5 +198,66 @@ impl<'a> BuilderField<'a> {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use syn::{Data, Fields};
+
+    fn extract_field(input: &syn::DeriveInput) -> &syn::Field {
+        match &input.data {
+            Data::Struct(data) => match &data.fields {
+                Fields::Named(fields) => fields.named.first().expect("expected a field"),
+                _ => panic!("expected named fields"),
+            },
+            _ => panic!("expected struct"),
+        }
+    }
+
+    #[test]
+    fn parse_required_optional_into_skip_default_rename() {
+        let src = r#"
+            #[field(required, into, default = "String::from(\"x\")", rename = "id_value")]
+            pub id: String
+        "#;
+        let wrapped = format!("struct __TestStruct {{ {src} }}");
+        let input: syn::DeriveInput = syn::parse_str(&wrapped).unwrap();
+        let field = extract_field(&input);
+        let f = BuilderField::parse(field).unwrap();
+        assert!(f.required);
+        assert!(f.into);
+        assert!(f.default_expr.is_some());
+        assert_eq!(f.setter_name.to_string(), "id_value");
+    }
+
+    #[test]
+    fn parse_skip_omits_setter() {
+        let src = r#"
+            #[field(skip, default = "99")]
+            pub ignored: usize
+        "#;
+        let wrapped = format!("struct __TestStruct {{ {src} }}");
+        let input: syn::DeriveInput = syn::parse_str(&wrapped).unwrap();
+        let field = extract_field(&input);
+        let f = BuilderField::parse(field).unwrap();
+        assert!(!f.generate_setter);
+    }
+
+    #[test]
+    fn parse_unknown_attribute_errors() {
+        let src = r#"
+            #[field(unknown)]
+            pub id: String
+        "#;
+        let wrapped = format!("struct __TestStruct {{ {src} }}");
+        let input: syn::DeriveInput = syn::parse_str(&wrapped).unwrap();
+        let field = extract_field(&input);
+        let err = match BuilderField::parse(field) {
+            Ok(_) => panic!("expected an error"),
+            Err(e) => e,
+        };
+        assert!(err.to_string().contains("unknown builder field attribute"));
     }
 }

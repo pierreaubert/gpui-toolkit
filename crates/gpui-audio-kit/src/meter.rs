@@ -118,6 +118,105 @@ pub fn render_horizontal_meter_bar(
     render_horizontal_meter_bar_with(label, ratio, bar_color, format!("{value:.1}"), theme)
 }
 
+/// Single-element gradient fill for horizontal meter bars.
+///
+/// Paints the gradient directly instead of creating a child `div` per strip,
+/// removing per-frame allocations for the gradient meter path.
+struct GradientMeterFillElement {
+    bar_color: Rgba,
+    strips: usize,
+}
+
+impl IntoElement for GradientMeterFillElement {
+    type Element = Self;
+    fn into_element(self) -> Self::Element {
+        self
+    }
+}
+
+impl Element for GradientMeterFillElement {
+    type RequestLayoutState = ();
+    type PrepaintState = ();
+
+    fn id(&self) -> Option<ElementId> {
+        None
+    }
+
+    fn source_location(&self) -> Option<&'static panic::Location<'static>> {
+        None
+    }
+
+    fn request_layout(
+        &mut self,
+        _id: Option<&GlobalElementId>,
+        _inspector_id: Option<&InspectorElementId>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> (LayoutId, Self::RequestLayoutState) {
+        let layout_id = window.request_layout(
+            Style {
+                size: Size {
+                    width: relative(1.0).into(),
+                    height: relative(1.0).into(),
+                },
+                ..Default::default()
+            },
+            [],
+            cx,
+        );
+        (layout_id, ())
+    }
+
+    fn prepaint(
+        &mut self,
+        _id: Option<&GlobalElementId>,
+        _inspector_id: Option<&InspectorElementId>,
+        _bounds: Bounds<Pixels>,
+        _request_layout: &mut Self::RequestLayoutState,
+        _window: &mut Window,
+        _cx: &mut App,
+    ) -> Self::PrepaintState {
+    }
+
+    fn paint(
+        &mut self,
+        _id: Option<&GlobalElementId>,
+        _inspector_id: Option<&InspectorElementId>,
+        bounds: Bounds<Pixels>,
+        _request_layout: &mut Self::RequestLayoutState,
+        _prepaint: &mut Self::PrepaintState,
+        window: &mut Window,
+        _cx: &mut App,
+    ) {
+        let width: f32 = bounds.size.width.into();
+        let height: f32 = bounds.size.height.into();
+        let strips = self.strips.max(1);
+        let strip_width = width / strips as f32;
+        for index in 0..strips {
+            let t = (index as f32 + 0.5) / strips as f32;
+            let alpha = 0.35 + 0.65 * t;
+            let strip_color = Rgba {
+                r: self.bar_color.r,
+                g: self.bar_color.g,
+                b: self.bar_color.b,
+                a: self.bar_color.a * alpha,
+            };
+            let x = bounds.origin.x + px(strip_width * index as f32);
+            window.paint_quad(PaintQuad {
+                bounds: Bounds {
+                    origin: point(x, bounds.origin.y),
+                    size: size(px(strip_width), px(height)),
+                },
+                corner_radii: Corners::default(),
+                background: strip_color.into(),
+                border_widths: Edges::default(),
+                border_color: Hsla::transparent_black(),
+                border_style: Default::default(),
+            });
+        }
+    }
+}
+
 /// Render a horizontal meter bar with explicit fill ratio, color, and value text.
 pub fn render_horizontal_meter_bar_with(
     label: impl Into<SharedString>,
@@ -127,24 +226,18 @@ pub fn render_horizontal_meter_bar_with(
     theme: HorizontalMeterTheme,
 ) -> impl IntoElement {
     let ratio = ratio.clamp(0.0, 1.0);
-    let mut fill = div().h_full().w(relative(ratio));
-    if theme.use_gradient {
-        fill = fill.flex();
-        let strips = 10usize;
-        for index in 0..strips {
-            let t = (index as f32 + 0.5) / strips as f32;
-            let alpha = 0.35 + 0.65 * t;
-            let strip_color = Rgba {
-                r: bar_color.r,
-                g: bar_color.g,
-                b: bar_color.b,
-                a: bar_color.a * alpha,
-            };
-            fill = fill.child(div().h_full().flex_1().bg(strip_color));
-        }
+    let fill: Div = if theme.use_gradient {
+        div()
+            .h_full()
+            .w(relative(ratio))
+            .flex()
+            .child(GradientMeterFillElement {
+                bar_color,
+                strips: 10,
+            })
     } else {
-        fill = fill.bg(bar_color);
-    }
+        div().h_full().w(relative(ratio)).bg(bar_color)
+    };
 
     div()
         .flex()
@@ -477,5 +570,12 @@ mod tests {
         let config = TickConfig::lufs();
         let _bar = render_horizontal_meter_bar("L", -18.0, &config, theme.clone());
         let _custom = render_horizontal_meter_bar_with("W", 0.72, theme.color_info, "72%", theme);
+    }
+
+    #[::core::prelude::v1::test]
+    fn gradient_meter_bar_is_constructible() {
+        let mut theme = HorizontalMeterTheme::default();
+        theme.use_gradient = true;
+        let _custom = render_horizontal_meter_bar_with("G", 0.5, theme.color_info, "50%", theme);
     }
 }

@@ -32,13 +32,13 @@ fn main() {
             .children
             .iter()
             .filter(|c| c.visible)
-            .map(|c| c.id.as_str())
+            .map(|c| c.id)
             .collect();
         let collapsed: Vec<&str> = solved
             .children
             .iter()
             .filter(|c| !c.visible)
-            .map(|c| c.id.as_str())
+            .map(|c| c.id)
             .collect();
 
         println!(
@@ -76,13 +76,13 @@ fn main() {
             .children
             .iter()
             .filter(|c| c.visible)
-            .map(|c| c.id.as_str())
+            .map(|c| c.id)
             .collect();
         let collapsed: Vec<&str> = solved
             .children
             .iter()
             .filter(|c| !c.visible)
-            .map(|c| c.id.as_str())
+            .map(|c| c.id)
             .collect();
 
         println!(

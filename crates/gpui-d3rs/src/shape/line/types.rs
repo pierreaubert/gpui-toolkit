@@ -38,6 +38,58 @@ pub enum StrokeDashArray {
     Custom(Vec<f32>),
 }
 
+/// Compute clipped line segments from relative points based on the curve type.
+fn compute_line_segments(
+    relative_points: &[(f32, f32)],
+    curve_type: CurveType,
+) -> Vec<(f32, f32, f32, f32)> {
+    if relative_points.len() < 2 {
+        return Vec::new();
+    }
+
+    match curve_type {
+        CurveType::Linear => {
+            let mut segments = Vec::with_capacity(relative_points.len() - 1);
+            for i in 1..relative_points.len() {
+                let (x0, y0) = relative_points[i - 1];
+                let (x1, y1) = relative_points[i];
+                if let Some(clipped) = clip_line_segment(x0, y0, x1, y1) {
+                    segments.push(clipped);
+                }
+            }
+            segments
+        }
+        CurveType::Step | CurveType::StepAfter => {
+            let mut segments = Vec::with_capacity((relative_points.len() - 1) * 2);
+            for i in 1..relative_points.len() {
+                let (x0, y0) = relative_points[i - 1];
+                let (x1, y1) = relative_points[i];
+                if let Some(clipped) = clip_line_segment(x0, y0, x1, y0) {
+                    segments.push(clipped);
+                }
+                if let Some(clipped) = clip_line_segment(x1, y0, x1, y1) {
+                    segments.push(clipped);
+                }
+            }
+            segments
+        }
+        CurveType::StepBefore => {
+            let mut segments = Vec::with_capacity((relative_points.len() - 1) * 2);
+            for i in 1..relative_points.len() {
+                let (x0, y0) = relative_points[i - 1];
+                let (x1, y1) = relative_points[i];
+                if let Some(clipped) = clip_line_segment(x0, y0, x0, y1) {
+                    segments.push(clipped);
+                }
+                if let Some(clipped) = clip_line_segment(x0, y1, x1, y1) {
+                    segments.push(clipped);
+                }
+            }
+            segments
+        }
+    }
+}
+
 /// Render a line chart using GPUI's PathBuilder for proper vector line rendering
 ///
 /// # Example
@@ -123,20 +175,31 @@ where
         StrokeDashArray::Custom(v) => v.clone(),
     });
 
+    // Pre-compute clipped segments once; they only depend on relative points.
+    let segments_to_draw = compute_line_segments(&relative_points, curve_type);
+
     canvas(
-        // Prepaint: pass through the relative points and bounds info
+        // Prepaint: pass through the relative points, pre-computed segments and bounds info
         move |bounds, _window, _cx| {
             let width: f32 = bounds.size.width.into();
             let height: f32 = bounds.size.height.into();
             let origin_x: f32 = bounds.origin.x.into();
             let origin_y: f32 = bounds.origin.y.into();
 
-            (relative_points.clone(), width, height, origin_x, origin_y)
+            (
+                relative_points.clone(),
+                segments_to_draw.clone(),
+                width,
+                height,
+                origin_x,
+                origin_y,
+            )
         },
         // Paint: draw clipped line segments
         move |_bounds,
-              (rel_points, width, height, origin_x, origin_y): (
+              (rel_points, segments_to_draw, width, height, origin_x, origin_y): (
             Vec<(f32, f32)>,
+            Vec<(f32, f32, f32, f32)>,
             f32,
             f32,
             f32,
@@ -144,54 +207,9 @@ where
         ),
               window,
               _cx| {
-            if rel_points.len() < 2 {
+            if segments_to_draw.is_empty() {
                 return;
             }
-
-            // Build segments to draw based on curve type, applying clipping
-            let segments_to_draw: Vec<(f32, f32, f32, f32)> = match curve_type {
-                CurveType::Linear => {
-                    let mut segments = Vec::new();
-                    for i in 1..rel_points.len() {
-                        let (x0, y0) = rel_points[i - 1];
-                        let (x1, y1) = rel_points[i];
-                        if let Some(clipped) = clip_line_segment(x0, y0, x1, y1) {
-                            segments.push(clipped);
-                        }
-                    }
-                    segments
-                }
-                CurveType::Step | CurveType::StepAfter => {
-                    let mut segments = Vec::new();
-                    for i in 1..rel_points.len() {
-                        let (x0, y0) = rel_points[i - 1];
-                        let (x1, y1) = rel_points[i];
-                        // Horizontal then vertical: (x0,y0) -> (x1,y0) -> (x1,y1)
-                        if let Some(clipped) = clip_line_segment(x0, y0, x1, y0) {
-                            segments.push(clipped);
-                        }
-                        if let Some(clipped) = clip_line_segment(x1, y0, x1, y1) {
-                            segments.push(clipped);
-                        }
-                    }
-                    segments
-                }
-                CurveType::StepBefore => {
-                    let mut segments = Vec::new();
-                    for i in 1..rel_points.len() {
-                        let (x0, y0) = rel_points[i - 1];
-                        let (x1, y1) = rel_points[i];
-                        // Vertical then horizontal: (x0,y0) -> (x0,y1) -> (x1,y1)
-                        if let Some(clipped) = clip_line_segment(x0, y0, x0, y1) {
-                            segments.push(clipped);
-                        }
-                        if let Some(clipped) = clip_line_segment(x0, y1, x1, y1) {
-                            segments.push(clipped);
-                        }
-                    }
-                    segments
-                }
-            };
 
             // Build continuous paths from clipped segments
             if !segments_to_draw.is_empty() {

@@ -36,6 +36,8 @@ use std::collections::HashMap;
 thread_local! {
     static VERTICAL_SLIDER_FOCUS_HANDLES: RefCell<HashMap<ElementId, FocusHandle>> =
         RefCell::new(HashMap::new());
+    static TICK_CACHE: RefCell<Option<((f64, f64, Scale, f32), Vec<TickMark>)>> =
+        RefCell::new(None);
 }
 
 /// Scale type for vertical slider value mapping
@@ -144,16 +146,16 @@ struct TickMark {
     normalized_pos: f64,
     /// Whether this is a major tick (gets a label)
     is_major: bool,
-    /// Optional label text
-    label: Option<String>,
+    /// Optional label text (SharedString avoids per-frame String clones)
+    label: Option<SharedString>,
 }
 
 /// Format a value with abbreviated suffix (1k, 10k, etc.)
-fn format_value_abbrev(value: f64) -> String {
+fn format_value_abbrev(value: f64) -> SharedString {
     let abs_value = value.abs();
     let sign = if value < 0.0 { "-" } else { "" };
 
-    if abs_value >= 10000.0 {
+    let s = if abs_value >= 10000.0 {
         // 10000 -> 10k, 20000 -> 20k
         format!("{}{}k", sign, (abs_value / 1000.0).round() as i32)
     } else if abs_value >= 1000.0 {
@@ -180,7 +182,8 @@ fn format_value_abbrev(value: f64) -> String {
         format!("{}{:.2}", sign, abs_value)
     } else {
         "0".to_string()
-    }
+    };
+    SharedString::from(s)
 }
 
 /// Find a nice step size for linear scale
@@ -400,11 +403,24 @@ fn calculate_log_ticks(min: f64, max: f64, track_height: f32) -> Vec<TickMark> {
 }
 
 /// Calculate tick marks based on scale type
+///
+/// Results are cached by `(min, max, scale, track_height)` so repeated renders
+/// with the same parameters do not re-allocate tick labels.
 fn calculate_ticks(min: f64, max: f64, scale: Scale, track_height: f32) -> Vec<TickMark> {
-    match scale {
+    let key = (min, max, scale, track_height);
+    if let Some((cached_key, ticks)) = TICK_CACHE.with(|c| c.borrow().clone()) {
+        if cached_key == key {
+            return ticks;
+        }
+    }
+
+    let ticks = match scale {
         Scale::Linear => calculate_linear_ticks(min, max, track_height),
         Scale::Logarithmic => calculate_log_ticks(min, max, track_height),
-    }
+    };
+
+    TICK_CACHE.with(|c| *c.borrow_mut() = Some((key, ticks.clone())));
+    ticks
 }
 
 /// A vertical slider component for audio plugin parameters
@@ -974,11 +990,11 @@ impl RenderOnce for VerticalSlider {
 
         // Track event handlers (if not disabled)
         if !disabled {
-            // Create a unique key for this slider's drag state (survives re-renders)
-            let drag_key = format!("{:?}", element_id);
-            let drag_key_down = drag_key.clone();
-            let drag_key_move = drag_key.clone();
-            let drag_key_up = drag_key.clone();
+            // Use the element ID directly as the drag state key to avoid
+            // formatting a string on every render.
+            let drag_key_down = element_id.clone();
+            let drag_key_move = element_id.clone();
+            let drag_key_up = element_id.clone();
 
             // Mouse down - focus, select, and start drag
             let on_select_track = on_select_rc.clone();
@@ -1159,5 +1175,27 @@ impl RenderOnce for VerticalSlider {
         }
 
         container
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Scale, calculate_ticks, format_value_abbrev};
+
+    #[test]
+    fn format_value_abbrev_uses_suffixes() {
+        assert_eq!(format_value_abbrev(0.0).as_ref(), "0");
+        assert_eq!(format_value_abbrev(1000.0).as_ref(), "1k");
+        assert_eq!(format_value_abbrev(2500.0).as_ref(), "2.5k");
+        assert_eq!(format_value_abbrev(15000.0).as_ref(), "15k");
+    }
+
+    #[test]
+    fn calculate_ticks_caches_linear_ticks() {
+        let ticks1 = calculate_ticks(0.0, 100.0, Scale::Linear, 120.0);
+        let ticks2 = calculate_ticks(0.0, 100.0, Scale::Linear, 120.0);
+        assert_eq!(ticks1.len(), ticks2.len());
+        assert!(ticks1.first().unwrap().label.is_some());
+        assert!(ticks1.last().unwrap().label.is_some());
     }
 }

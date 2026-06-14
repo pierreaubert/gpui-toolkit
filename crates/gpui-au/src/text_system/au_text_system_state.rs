@@ -38,7 +38,12 @@ use gpui::{
 use pathfinder_geometry::transform2d::Transform2F;
 use smallvec::SmallVec;
 use std::collections::HashMap;
-use std::{borrow::Cow, char, sync::Arc};
+use std::{borrow::Cow, cell::RefCell, char, sync::Arc};
+
+thread_local! {
+    /// Reusable bitmap scratch buffer for glyph rasterization.
+    static GLYPH_BITMAP_SCRATCH: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
+}
 
 pub(super) struct AuTextSystemState {
     pub(super) memory_source: MemSource,
@@ -46,8 +51,9 @@ pub(super) struct AuTextSystemState {
     pub(super) fonts: Vec<FontKitFont>,
     pub(super) font_selections: HashMap<Font, FontId>,
     pub(super) font_ids_by_postscript_name: HashMap<String, FontId>,
-    pub(super) font_ids_by_font_key: HashMap<FontKey, SmallVec<[FontId; 4]>>,
+    pub(super) font_ids_by_font_key: HashMap<Arc<FontKey>, SmallVec<[FontId; 4]>>,
     pub(super) postscript_names_by_font_id: HashMap<FontId, String>,
+    pub(super) is_emoji: Vec<bool>,
 }
 
 impl AuTextSystemState {
@@ -131,7 +137,10 @@ impl AuTextSystemState {
             }
             let font_id = FontId(self.fonts.len());
             font_ids.push(font_id);
-            if let Some(postscript_name) = font.postscript_name() {
+            let postscript_name = font.postscript_name();
+            let is_emoji = postscript_name.as_deref() == Some("AppleColorEmoji")
+                || postscript_name.as_deref() == Some(".AppleColorEmojiUI");
+            if let Some(postscript_name) = postscript_name {
                 self.font_ids_by_postscript_name
                     .insert(postscript_name.clone(), font_id);
                 self.postscript_names_by_font_id
@@ -142,6 +151,7 @@ impl AuTextSystemState {
                     font.full_name()
                 );
             }
+            self.is_emoji.push(is_emoji);
             self.fonts.push(font);
         }
         Ok(font_ids)
@@ -157,10 +167,13 @@ impl AuTextSystemState {
             *font_id
         } else {
             let font_id = FontId(self.fonts.len());
+            let is_emoji = postscript_name == "AppleColorEmoji"
+                || postscript_name == ".AppleColorEmojiUI";
             self.font_ids_by_postscript_name
                 .insert(postscript_name.clone(), font_id);
             self.postscript_names_by_font_id
                 .insert(font_id, postscript_name);
+            self.is_emoji.push(is_emoji);
             self.fonts
                 .push(font_kit::font::Font::from_core_graphics_font(
                     requested_font.copy_to_CGFont(),
@@ -170,11 +183,7 @@ impl AuTextSystemState {
     }
 
     pub(super) fn is_emoji(&self, font_id: FontId) -> bool {
-        self.postscript_names_by_font_id
-            .get(&font_id)
-            .is_some_and(|postscript_name| {
-                postscript_name == "AppleColorEmoji" || postscript_name == ".AppleColorEmojiUI"
-            })
+        self.is_emoji.get(font_id.0).copied().unwrap_or(false)
     }
 
     pub(super) fn raster_bounds(&self, params: &RenderGlyphParams) -> Result<Bounds<DevicePixels>> {
@@ -205,67 +214,76 @@ impl AuTextSystemState {
             bitmap_size.height += DevicePixels(1);
         }
         let bitmap_size = bitmap_size;
-        let mut bytes;
-        let cx;
-        if params.is_emoji {
-            bytes = vec![0; bitmap_size.width.0 as usize * 4 * bitmap_size.height.0 as usize];
-            cx = CGContext::create_bitmap_context(
-                Some(bytes.as_mut_ptr() as *mut _),
-                bitmap_size.width.0 as usize,
-                bitmap_size.height.0 as usize,
-                8,
-                bitmap_size.width.0 as usize * 4,
-                &CGColorSpace::create_device_rgb(),
-                kCGImageAlphaPremultipliedLast,
-            );
+        let needed = if params.is_emoji {
+            bitmap_size.width.0 as usize * 4 * bitmap_size.height.0 as usize
         } else {
-            bytes = vec![0; bitmap_size.width.0 as usize * bitmap_size.height.0 as usize];
-            cx = CGContext::create_bitmap_context(
-                Some(bytes.as_mut_ptr() as *mut _),
+            bitmap_size.width.0 as usize * bitmap_size.height.0 as usize
+        };
+        let mut bitmap = vec![0u8; needed];
+
+        GLYPH_BITMAP_SCRATCH.with(|scratch| {
+            let mut scratch = scratch.borrow_mut();
+            scratch.resize(needed, 0);
+            let (color_space, alpha_info, bytes_per_row) = if params.is_emoji {
+                (
+                    CGColorSpace::create_device_rgb(),
+                    kCGImageAlphaPremultipliedLast,
+                    bitmap_size.width.0 as usize * 4,
+                )
+            } else {
+                (
+                    CGColorSpace::create_device_gray(),
+                    kCGImageAlphaOnly,
+                    bitmap_size.width.0 as usize,
+                )
+            };
+            let cx = CGContext::create_bitmap_context(
+                Some(scratch.as_mut_ptr() as *mut _),
                 bitmap_size.width.0 as usize,
                 bitmap_size.height.0 as usize,
                 8,
-                bitmap_size.width.0 as usize,
-                &CGColorSpace::create_device_gray(),
-                kCGImageAlphaOnly,
+                bytes_per_row,
+                &color_space,
+                alpha_info,
             );
-        }
-        cx.translate(
-            -glyph_bounds.origin.x.0 as CGFloat,
-            (glyph_bounds.origin.y.0 + glyph_bounds.size.height.0) as CGFloat,
-        );
-        cx.scale(
-            params.scale_factor as CGFloat,
-            params.scale_factor as CGFloat,
-        );
-        let subpixel_shift = params
-            .subpixel_variant
-            .map(|v| v as f32 / SUBPIXEL_VARIANTS_X as f32);
-        cx.set_text_drawing_mode(CGTextDrawingMode::CGTextFill);
-        cx.set_gray_fill_color(0.0, 1.0);
-        cx.set_allows_antialiasing(true);
-        cx.set_should_antialias(true);
-        cx.set_allows_font_subpixel_positioning(true);
-        cx.set_should_subpixel_position_fonts(true);
-        cx.set_allows_font_subpixel_quantization(false);
-        cx.set_should_subpixel_quantize_fonts(false);
-        self.fonts[params.font_id.0]
-            .native_font()
-            .clone_with_font_size(f32::from(params.font_size) as CGFloat)
-            .draw_glyphs(
-                &[params.glyph_id.0 as CGGlyph],
-                &[CGPoint::new(
-                    (subpixel_shift.x / params.scale_factor) as CGFloat,
-                    (subpixel_shift.y / params.scale_factor) as CGFloat,
-                )],
-                cx,
+            cx.translate(
+                -glyph_bounds.origin.x.0 as CGFloat,
+                (glyph_bounds.origin.y.0 + glyph_bounds.size.height.0) as CGFloat,
             );
-        if params.is_emoji {
-            for pixel in bytes.chunks_exact_mut(4) {
-                gpui::swap_rgba_pa_to_bgra(pixel);
+            cx.scale(
+                params.scale_factor as CGFloat,
+                params.scale_factor as CGFloat,
+            );
+            let subpixel_shift = params
+                .subpixel_variant
+                .map(|v| v as f32 / SUBPIXEL_VARIANTS_X as f32);
+            cx.set_text_drawing_mode(CGTextDrawingMode::CGTextFill);
+            cx.set_gray_fill_color(0.0, 1.0);
+            cx.set_allows_antialiasing(true);
+            cx.set_should_antialias(true);
+            cx.set_allows_font_subpixel_positioning(true);
+            cx.set_should_subpixel_position_fonts(true);
+            cx.set_allows_font_subpixel_quantization(false);
+            cx.set_should_subpixel_quantize_fonts(false);
+            self.fonts[params.font_id.0]
+                .native_font()
+                .clone_with_font_size(f32::from(params.font_size) as CGFloat)
+                .draw_glyphs(
+                    &[params.glyph_id.0 as CGGlyph],
+                    &[CGPoint::new(
+                        (subpixel_shift.x / params.scale_factor) as CGFloat,
+                        (subpixel_shift.y / params.scale_factor) as CGFloat,
+                    )],
+                    cx,
+                );
+            if params.is_emoji {
+                for pixel in scratch.chunks_exact_mut(4) {
+                    gpui::swap_rgba_pa_to_bgra(pixel);
+                }
             }
-        }
-        Ok((bitmap_size, bytes))
+            bitmap.copy_from_slice(&scratch[..needed]);
+        });
+        Ok((bitmap_size, bitmap))
     }
 
     pub(super) fn layout_line(
@@ -293,7 +311,7 @@ impl AuTextSystemState {
                 let font_scale = font_size.as_f32() / font_metrics.units_per_em as f32;
                 max_ascent = max_ascent.max(font_metrics.ascent * font_scale);
                 max_descent = max_descent.max(-font_metrics.descent * font_scale);
-                let font_size = if break_ligature {
+                let run_font_size = if break_ligature {
                     px(font_size.as_f32().next_up())
                 } else {
                     font_size
@@ -302,7 +320,7 @@ impl AuTextSystemState {
                     string.set_attribute(
                         cf_range,
                         kCTFontAttributeName,
-                        &font.native_font().clone_with_font_size(font_size.into()),
+                        &font.native_font().clone_with_font_size(run_font_size.into()),
                     );
                 }
                 break_ligature = !break_ligature;
@@ -338,10 +356,7 @@ impl AuTextSystemState {
                 .zip(run.string_indices().iter())
             {
                 let glyph_utf16_ix = usize::try_from(glyph_utf16_ix).unwrap();
-                if ix_converter.utf16_ix > glyph_utf16_ix {
-                    ix_converter = StringIndexConverter::new(text);
-                }
-                ix_converter.advance_to_utf16_ix(glyph_utf16_ix);
+                ix_converter.rewind_to_utf16_ix(glyph_utf16_ix);
                 glyphs.push(ShapedGlyph {
                     id: GlyphId(glyph_id as u32),
                     position: point(position.x as f32, position.y as f32).map(px),
@@ -359,5 +374,102 @@ impl AuTextSystemState {
             descent: max_descent.into(),
             len: text.len(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use font_kit::source::SystemSource;
+    use gpui::{DevicePixels, FontRun, GlyphId, point, px, size};
+
+    fn empty_state() -> AuTextSystemState {
+        AuTextSystemState {
+            memory_source: MemSource::empty(),
+            system_source: SystemSource::new(),
+            fonts: Vec::new(),
+            font_selections: HashMap::default(),
+            font_ids_by_postscript_name: HashMap::default(),
+            font_ids_by_font_key: HashMap::default(),
+            postscript_names_by_font_id: HashMap::default(),
+            is_emoji: Vec::new(),
+        }
+    }
+
+    fn load_system_family(state: &mut AuTextSystemState, family: &str) -> Option<FontId> {
+        state
+            .load_family(family, &Default::default(), None)
+            .ok()
+            .and_then(|ids| ids.first().copied())
+    }
+
+    #[test]
+    fn test_is_emoji_caches_bool() {
+        let mut state = empty_state();
+        assert!(!state.is_emoji(FontId(0)));
+
+        if let Some(regular_id) = load_system_family(&mut state, "Helvetica") {
+            assert!(!state.is_emoji(regular_id));
+        }
+
+        if let Some(emoji_id) = load_system_family(&mut state, "AppleColorEmoji") {
+            assert!(state.is_emoji(emoji_id));
+        }
+    }
+
+    #[test]
+    fn test_rasterize_glyph_empty_bounds_errors() {
+        let state = empty_state();
+        let params = gpui::RenderGlyphParams {
+            font_id: FontId(0),
+            glyph_id: GlyphId(0),
+            font_size: px(12.0),
+            subpixel_variant: point(0, 0),
+            scale_factor: 1.0,
+            is_emoji: false,
+            subpixel_rendering: false,
+        };
+        let bounds = Bounds {
+            origin: point(DevicePixels(0), DevicePixels(0)),
+            size: size(DevicePixels(0), DevicePixels(0)),
+        };
+        assert!(state.rasterize_glyph(&params, bounds).is_err());
+    }
+
+    #[test]
+    fn test_layout_line_empty_text() {
+        let mut state = empty_state();
+        let layout = state.layout_line("", px(12.0), &[]);
+        assert_eq!(layout.width, px(0.0));
+        assert_eq!(layout.len, 0);
+    }
+
+    #[test]
+    fn test_layout_line_repeated_text_is_consistent() {
+        let mut state = empty_state();
+        let font_id = match load_system_family(&mut state, ".AppleSystemUIFont") {
+            Some(id) => id,
+            None => {
+                // System font may not be available in all test environments.
+                return;
+            }
+        };
+        let text = "hello";
+        let runs = [FontRun { font_id, len: text.len() }];
+        let layout1 = state.layout_line(text, px(12.0), &runs);
+        let layout2 = state.layout_line(text, px(12.0), &runs);
+        assert_eq!(layout1.width, layout2.width);
+        assert_eq!(layout1.len, layout2.len);
+    }
+
+    #[test]
+    fn test_string_index_converter_rewind() {
+        let mut converter = StringIndexConverter::new("aéb");
+        converter.advance_to_utf16_ix(2);
+        assert_eq!(converter.utf8_ix, 3);
+        assert_eq!(converter.utf16_ix, 2);
+        converter.rewind_to_utf16_ix(1);
+        assert_eq!(converter.utf8_ix, 1);
+        assert_eq!(converter.utf16_ix, 1);
     }
 }

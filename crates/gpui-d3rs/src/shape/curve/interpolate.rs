@@ -238,8 +238,8 @@ pub(super) fn interpolate_natural(points: &[Point]) -> Vec<Point> {
     let subdivisions = 16;
 
     // Solve tridiagonal system for second derivatives
-    let second_derivs_x = natural_spline_derivs(&points.iter().map(|p| p.x).collect::<Vec<_>>());
-    let second_derivs_y = natural_spline_derivs(&points.iter().map(|p| p.y).collect::<Vec<_>>());
+    let second_derivs_x = natural_spline_derivs(|i| points[i].x, points.len());
+    let second_derivs_y = natural_spline_derivs(|i| points[i].y, points.len());
 
     let mut result = Vec::with_capacity((n - 1) * subdivisions + 1);
     result.push(points[0]);
@@ -268,4 +268,38 @@ pub(super) fn interpolate_natural(points: &[Point]) -> Vec<Point> {
     }
 
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::shape::path::Point;
+
+    #[test]
+    fn test_interpolate_natural_preserves_endpoints() {
+        let points = vec![
+            Point::new(0.0, 0.0),
+            Point::new(1.0, 2.0),
+            Point::new(2.0, 1.0),
+            Point::new(3.0, 3.0),
+        ];
+        let result = interpolate_natural(&points);
+        assert!(!result.is_empty());
+        assert!((result[0].x - points[0].x).abs() < 1e-10);
+        assert!((result[0].y - points[0].y).abs() < 1e-10);
+        let last = result.last().unwrap();
+        assert!((last.x - points.last().unwrap().x).abs() < 1e-10);
+        assert!((last.y - points.last().unwrap().y).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_interpolate_natural_short_input() {
+        let points = vec![Point::new(0.0, 0.0), Point::new(1.0, 1.0)];
+        let result = interpolate_natural(&points);
+        // With two points the spline degenerates to a straight line but still
+        // emits the standard number of subdivisions.
+        assert_eq!(result.len(), 17);
+        assert!((result[0].x - points[0].x).abs() < 1e-10);
+        assert!((result.last().unwrap().x - points[1].x).abs() < 1e-10);
+    }
 }

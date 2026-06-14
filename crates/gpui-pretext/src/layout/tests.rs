@@ -3,10 +3,12 @@
 use super::layout;
 use super::layout_next_line;
 use super::layout_with_lines;
+use super::misc::build_line_text;
 use super::prepare_options::PrepareOptions;
 use super::prepare_options::prepare;
 use super::prepare_options::prepare_with_segments;
 use super::types::LayoutCursor;
+use crate::analysis::SegmentBreakKind;
 use crate::measurement::{EngineProfile, TextMeasure};
 
 /// Simple test measure: each character is 10px wide.
@@ -90,4 +92,18 @@ fn test_layout_next_line() {
     let line3 = layout_next_line(&prepared, line2.end, 80.0, &profile);
     assert!(line3.is_some());
     assert_eq!(line3.unwrap().text, "foo");
+}
+
+#[test]
+fn test_build_line_text_partial_graphemes() {
+    let segments = vec!["a你b".to_string()];
+    let kinds = vec![SegmentBreakKind::Text];
+
+    // Skip the first grapheme ("a"), take the second ("你").
+    let line = build_line_text(&segments, &kinds, 0, 1, 0, 2,);
+    assert_eq!(line, "你");
+
+    // Same start/end segment with skip and take.
+    let line2 = build_line_text(&segments, &kinds, 0, 1, 0, 1);
+    assert_eq!(line2, "");
 }

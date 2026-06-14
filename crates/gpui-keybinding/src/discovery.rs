@@ -17,6 +17,10 @@ pub struct CommandPaletteEntry {
     /// Category used for grouping and search.
     pub category: KeybindingCategory,
     search_index: String,
+    description_lower: String,
+    key_lower: String,
+    raw_lower: String,
+    category_lower: String,
 }
 
 impl CommandPaletteEntry {
@@ -37,6 +41,14 @@ impl CommandPaletteEntry {
             description: binding.description.clone(),
             category: binding.category.clone(),
             search_index,
+            description_lower: binding.description.to_ascii_lowercase(),
+            key_lower: binding.key.to_ascii_lowercase(),
+            raw_lower: binding
+                .raw_key_spec
+                .as_deref()
+                .unwrap_or_default()
+                .to_ascii_lowercase(),
+            category_lower: binding.category.name().to_ascii_lowercase(),
         }
     }
 
@@ -78,13 +90,13 @@ pub fn command_palette_entries(bindings: &[DocumentedKeybinding]) -> Vec<Command
 /// Empty queries return all entries in their existing order. Non-empty queries
 /// split on whitespace and require every token to match the precomputed search
 /// index.
-pub fn search_command_palette<'a>(
-    entries: &'a [CommandPaletteEntry],
+pub fn search_command_palette(
+    entries: &[CommandPaletteEntry],
     query: &str,
-) -> Vec<&'a CommandPaletteEntry> {
+) -> Vec<CommandPaletteEntry> {
     let normalized = query.trim().to_ascii_lowercase();
     if normalized.is_empty() {
-        return entries.iter().collect();
+        return entries.to_vec();
     }
 
     let tokens: Vec<&str> = normalized.split_whitespace().collect();
@@ -101,7 +113,7 @@ pub fn search_command_palette<'a>(
             .then_with(|| a.key.cmp(&b.key))
     });
 
-    matches.into_iter().map(|(_, entry)| entry).collect()
+    matches.into_iter().map(|(_, entry)| entry.clone()).collect()
 }
 
 /// Build which-key-style next-key hints for a chord prefix.
@@ -109,9 +121,12 @@ pub fn search_command_palette<'a>(
 /// `prefix` should use GPUI key-spec syntax such as `"ctrl-k"` or
 /// `"ctrl-k ctrl-s"`. Bindings without `raw_key_spec` are still considered,
 /// but matching is necessarily based on their display string.
-pub fn keybinding_hints(bindings: &[DocumentedKeybinding], prefix: &str) -> Vec<KeybindingHint> {
+pub fn keybinding_hints<'a>(
+    bindings: &'a [DocumentedKeybinding],
+    prefix: &str,
+) -> Vec<KeybindingHint> {
     let prefix_parts: Vec<&str> = prefix.split_whitespace().collect();
-    let mut hints: BTreeMap<String, KeybindingHint> = BTreeMap::new();
+    let mut hints: BTreeMap<&'a str, KeybindingHint> = BTreeMap::new();
 
     for binding in bindings {
         let spec = binding.raw_key_spec.as_deref().unwrap_or(&binding.key);
@@ -123,7 +138,7 @@ pub fn keybinding_hints(bindings: &[DocumentedKeybinding], prefix: &str) -> Vec<
         if parts.len() == prefix_parts.len() {
             if let Some(last) = parts.last() {
                 let entry = hints
-                    .entry((*last).to_string())
+                    .entry(*last)
                     .or_insert_with(|| hint_from_binding(last, binding, true, false));
                 entry.is_terminal = true;
                 entry.description = Some(binding.description.clone());
@@ -135,7 +150,7 @@ pub fn keybinding_hints(bindings: &[DocumentedKeybinding], prefix: &str) -> Vec<
         let next = parts[prefix_parts.len()];
         let completes_command = parts.len() == prefix_parts.len() + 1;
         let entry = hints
-            .entry(next.to_string())
+            .entry(next)
             .or_insert_with(|| hint_from_binding(next, binding, completes_command, false));
 
         if completes_command {
@@ -152,7 +167,7 @@ pub fn keybinding_hints(bindings: &[DocumentedKeybinding], prefix: &str) -> Vec<
 
 impl KeybindingRegistry {
     /// Get cached command-palette entries for a preset.
-    pub fn command_palette_entries(&self, preset: KeymapPreset) -> Vec<CommandPaletteEntry> {
+    pub fn command_palette_entries(&self, preset: KeymapPreset) -> std::rc::Rc<[CommandPaletteEntry]> {
         self.get_palette_entries(preset)
     }
 
@@ -164,9 +179,6 @@ impl KeybindingRegistry {
     ) -> Vec<CommandPaletteEntry> {
         let entries = self.get_palette_entries(preset);
         search_command_palette(&entries, query)
-            .into_iter()
-            .cloned()
-            .collect()
     }
 
     /// Build which-key-style next-key hints for a preset and chord prefix.
@@ -215,28 +227,19 @@ fn score_entry(entry: &CommandPaletteEntry, normalized: &str, tokens: &[&str]) -
         return None;
     }
 
-    let description = entry.description.to_ascii_lowercase();
-    let key = entry.key.to_ascii_lowercase();
-    let raw = entry
-        .raw_key_spec
-        .as_deref()
-        .unwrap_or_default()
-        .to_ascii_lowercase();
-    let category = entry.category.name().to_ascii_lowercase();
-
-    let rank = if description.starts_with(normalized) {
+    let rank = if entry.description_lower.starts_with(normalized) {
         0
-    } else if key.starts_with(normalized) {
+    } else if entry.key_lower.starts_with(normalized) {
         10
-    } else if raw.starts_with(normalized) {
+    } else if entry.raw_lower.starts_with(normalized) {
         20
-    } else if category.starts_with(normalized) {
+    } else if entry.category_lower.starts_with(normalized) {
         30
     } else {
         40
     };
 
-    Some(rank + description.len().min(1000))
+    Some(rank + entry.description_lower.len().min(1000))
 }
 
 fn sort_palette_entries(entries: &mut [CommandPaletteEntry]) {

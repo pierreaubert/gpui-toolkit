@@ -93,8 +93,10 @@ pub(super) fn catmull_rom_point(
 }
 
 /// Compute second derivatives for natural cubic spline.
-pub(super) fn natural_spline_derivs(values: &[f64]) -> Vec<f64> {
-    let n = values.len();
+///
+/// Accepts a length and a coordinate accessor so callers do not need to
+/// allocate a temporary `Vec<f64>` just to extract one coordinate.
+pub(super) fn natural_spline_derivs(values: impl Fn(usize) -> f64, n: usize) -> Vec<f64> {
     if n < 2 {
         return vec![0.0; n];
     }
@@ -107,7 +109,7 @@ pub(super) fn natural_spline_derivs(values: &[f64]) -> Vec<f64> {
         let sig = 0.5;
         let p = sig * y2[i - 1] + 2.0;
         y2[i] = (sig - 1.0) / p;
-        u[i] = (values[i + 1] - 2.0 * values[i] + values[i - 1]) * 6.0;
+        u[i] = (values(i + 1) - 2.0 * values(i) + values(i - 1)) * 6.0;
         u[i] = (u[i] - 0.5 * u[i - 1]) / p;
     }
 

@@ -21,18 +21,18 @@ pub(super) struct VisualTreeRow {
 }
 
 pub(super) fn collect_visual_tree_rows(
-    node: &SolvedNode,
+    node: &SolvedNode<'_>,
     depth: usize,
     rows: &mut Vec<VisualTreeRow>,
 ) {
     rows.push(VisualTreeRow {
-        id: node.id.clone(),
+        id: node.id.to_string(),
         depth,
         width: node.width,
         height: node.height,
         visible: node.visible,
         resolved_axis: node.resolved_axis,
-        active_tier: node.active_tier.clone(),
+        active_tier: node.active_tier.map(str::to_string),
     });
 
     for child in &node.children {

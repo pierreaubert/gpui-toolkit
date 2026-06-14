@@ -195,46 +195,65 @@ impl LayoutState {
 
     /// Build a solver-ready preference snapshot that borrows from this state.
     pub fn preferences(&self) -> LayoutPreferenceSnapshot<'_> {
-        let ratios: Vec<(&str, Axis, f32)> = self
-            .ratio_overrides
-            .iter()
-            .map(|entry| (entry.slot_id.as_str(), entry.axis, entry.ratio))
-            .collect();
-
-        let collapsed: Vec<(&str, bool)> = self
-            .collapsed
-            .iter()
-            .map(|entry| (entry.slot_id.as_str(), entry.collapsed))
-            .collect();
-
-        LayoutPreferenceSnapshot { ratios, collapsed }
+        LayoutPreferenceSnapshot { state: self }
     }
 }
 
 /// Borrowed preferences derived from [`LayoutState`].
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct LayoutPreferenceSnapshot<'a> {
-    ratios: Vec<(&'a str, Axis, f32)>,
-    collapsed: Vec<(&'a str, bool)>,
+    state: &'a LayoutState,
 }
 
 impl<'a> LayoutPreferenceSnapshot<'a> {
-    /// Borrow these preference slices as a solver input.
-    pub fn as_preferences(&'a self) -> LayoutPreferences<'a> {
+    /// Borrow these preferences as a solver input.
+    pub fn as_preferences(&self) -> LayoutPreferences<'a> {
         LayoutPreferences {
-            ratios: &self.ratios,
-            collapsed: &self.collapsed,
+            ratios: self
+                .state
+                .ratio_overrides
+                .iter()
+                .map(|entry| ((entry.slot_id.as_str(), entry.axis), entry.ratio))
+                .collect(),
+            collapsed: self
+                .state
+                .collapsed
+                .iter()
+                .map(|entry| (entry.slot_id.as_str(), entry.collapsed))
+                .collect(),
         }
     }
 
+    fn ratios_slice(&self) -> Vec<(&'a str, Axis, f32)> {
+        self.state
+            .ratio_overrides
+            .iter()
+            .map(|entry| (entry.slot_id.as_str(), entry.axis, entry.ratio))
+            .collect()
+    }
+
+    fn collapsed_slice(&self) -> Vec<(&'a str, bool)> {
+        self.state
+            .collapsed
+            .iter()
+            .map(|entry| (entry.slot_id.as_str(), entry.collapsed))
+            .collect()
+    }
+
     /// Access the ratio overrides represented in this snapshot.
-    pub fn ratios(&self) -> &[(&str, Axis, f32)] {
-        &self.ratios
+    ///
+    /// Note: this allocates a temporary vector. Prefer [`Self::as_preferences`]
+    /// for solver input to avoid repeated allocations.
+    pub fn ratios(&self) -> Vec<(&str, Axis, f32)> {
+        self.ratios_slice()
     }
 
     /// Access the explicit collapsed states represented in this snapshot.
-    pub fn collapsed(&self) -> &[(&str, bool)] {
-        &self.collapsed
+    ///
+    /// Note: this allocates a temporary vector. Prefer [`Self::as_preferences`]
+    /// for solver input to avoid repeated allocations.
+    pub fn collapsed(&self) -> Vec<(&str, bool)> {
+        self.collapsed_slice()
     }
 }
 
@@ -358,11 +377,15 @@ mod tests {
         let mut state = LayoutState::new();
         state.set_ratio("left", Axis::Horizontal, 0.5);
 
-        let solved = solve(&root, 1000.0, 600.0, &state.preferences().as_preferences());
+        let state_prefs = state.preferences();
+        let prefs = state_prefs.as_preferences();
+        let solved = solve(&root, 1000.0, 600.0, &prefs);
         assert_eq!(solved.find("left").unwrap().width, 500.0);
 
         state.set_collapsed("left", true);
-        let solved = solve(&root, 1000.0, 600.0, &state.preferences().as_preferences());
+        let state_prefs = state.preferences();
+        let prefs = state_prefs.as_preferences();
+        let solved = solve(&root, 1000.0, 600.0, &prefs);
         let left = solved.find("left").unwrap();
         assert!(!left.visible);
         assert_eq!(left.width, 0.0);

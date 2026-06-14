@@ -4,6 +4,39 @@ use crate::types::Axis;
 use gpui_pretext::{
     EngineProfile, PrepareOptions, layout, layout_with_lines, prepare, prepare_with_segments,
 };
+use std::collections::HashMap;
+
+/// Cache for `Sizing::Text` measurements within a single solve call.
+///
+/// Text layout is expensive; the same `(text, measure, cross_size, line_height, axis)`
+/// combination can appear multiple times in large trees, so memoize it.
+pub(super) struct TextSizeCache<'a> {
+    map: HashMap<(usize, &'a str, u32, u32, Axis), f32>,
+}
+
+impl<'a> TextSizeCache<'a> {
+    pub(super) fn new() -> Self {
+        Self {
+            map: HashMap::new(),
+        }
+    }
+
+    fn key(
+        measure_ptr: usize,
+        text: &'a str,
+        cross_size: f32,
+        line_height: f32,
+        axis: Axis,
+    ) -> (usize, &'a str, u32, u32, Axis) {
+        (
+            measure_ptr,
+            text,
+            cross_size.to_bits(),
+            line_height.to_bits(),
+            axis,
+        )
+    }
+}
 
 pub(super) struct TextSizeInput<'a> {
     pub(super) text: &'a str,
@@ -22,7 +55,22 @@ pub(super) struct TextSizeInput<'a> {
 ///   with `cross_size` (the container's width) as `max_width`.
 /// - In a **horizontal** container (main axis = width): returns the maximum
 ///   line width with no wrapping constraint.
-pub(super) fn compute_text_size(input: TextSizeInput<'_>) -> f32 {
+pub(super) fn compute_text_size<'a>(
+    input: TextSizeInput<'a>,
+    cache: &mut TextSizeCache<'a>,
+) -> f32 {
+    let measure_ptr = (input.measure as *const dyn gpui_pretext::TextMeasure) as *const () as usize;
+    let key = TextSizeCache::key(
+        measure_ptr,
+        input.text,
+        input.cross_size,
+        input.line_height,
+        input.axis,
+    );
+    if let Some(&size) = cache.map.get(&key) {
+        return size.max(input.min);
+    }
+
     let size = match input.axis {
         Axis::Vertical => {
             let prepared = prepare(input.text, input.measure, input.profile, input.options);
@@ -42,5 +90,6 @@ pub(super) fn compute_text_size(input: TextSizeInput<'_>) -> f32 {
             result.lines.iter().map(|l| l.width).fold(0.0_f64, f64::max) as f32
         }
     };
+    cache.map.insert(key, size);
     size.max(input.min)
 }

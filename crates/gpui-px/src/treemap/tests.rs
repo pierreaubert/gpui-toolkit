@@ -39,6 +39,18 @@ fn test_treemap_node_builder() {
 }
 
 #[test]
+fn test_treemap_total_value_cached() {
+    let root = TreemapNode::new("Root", 0.0)
+        .add_child(TreemapNode::new("A", 10.0))
+        .add_child(TreemapNode::new("B", 20.0));
+    // Multiple calls should return the same value and use the cache.
+    assert_eq!(root.total_value(), 30.0);
+    assert_eq!(root.total_value(), 30.0);
+    assert_eq!(root.children[0].total_value(), 10.0);
+    assert_eq!(root.children[0].total_value(), 10.0);
+}
+
+#[test]
 fn test_treemap_zero_value() {
     let root = TreemapNode::new("Empty", 0.0);
     let result = treemap(&root).build();
@@ -108,9 +120,7 @@ fn test_treemap_nested_hierarchy() {
 
 #[test]
 fn test_tile_slice() {
-    let node_a = TreemapNode::new("A", 30.0);
-    let node_b = TreemapNode::new("B", 70.0);
-    let nodes = vec![(&node_a, 30.0), (&node_b, 70.0)];
+    let nodes = vec![TreemapNode::new("A", 30.0), TreemapNode::new("B", 70.0)];
 
     let rects = tile_slice(&nodes, 0.0, 0.0, 100.0, 100.0, 100.0);
     assert_eq!(rects.len(), 2);
@@ -120,9 +130,7 @@ fn test_tile_slice() {
 
 #[test]
 fn test_tile_dice() {
-    let node_a = TreemapNode::new("A", 40.0);
-    let node_b = TreemapNode::new("B", 60.0);
-    let nodes = vec![(&node_a, 40.0), (&node_b, 60.0)];
+    let nodes = vec![TreemapNode::new("A", 40.0), TreemapNode::new("B", 60.0)];
 
     let rects = tile_dice(&nodes, 0.0, 0.0, 100.0, 100.0, 100.0);
     assert_eq!(rects.len(), 2);
@@ -181,10 +189,11 @@ fn test_treemap_all_zero_children() {
 
 #[test]
 fn test_tile_squarify_with_zero_value_children() {
-    let node_a = TreemapNode::new("A", 10.0);
-    let node_b = TreemapNode::new("B", 0.0);
-    let node_c = TreemapNode::new("C", 0.0);
-    let children = vec![(&node_a, 10.0), (&node_b, 0.0), (&node_c, 0.0)];
+    let children = vec![
+        TreemapNode::new("A", 10.0),
+        TreemapNode::new("B", 0.0),
+        TreemapNode::new("C", 0.0),
+    ];
 
     let rects = tile_squarify(&children, 0.0, 0.0, 100.0, 100.0, 10.0);
     // Should not panic and should return at least the non-zero child's rect

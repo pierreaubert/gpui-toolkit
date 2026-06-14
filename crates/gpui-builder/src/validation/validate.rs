@@ -2,13 +2,13 @@
 
 use super::layout_issue_severity::LayoutIssueSeverity;
 use super::layout_validation_report::LayoutValidationReport;
-use super::misc::format_number;
 use super::misc::is_non_negative;
 use super::misc::node_path;
 use super::push::push_invalid_sizing;
 use super::push::push_issue;
 use super::types::LayoutIssueKind;
 use super::types::ValidationState;
+use crate::util::format_number;
 use crate::{ContainerNode, DisplayTier, LayoutNode, Sizing, SlotNode};
 use std::collections::HashSet;
 

@@ -39,7 +39,33 @@ use gpui::{
 use pathfinder_geometry::transform2d::Transform2F;
 use smallvec::SmallVec;
 use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
 use std::{borrow::Cow, char, sync::Arc};
+
+#[derive(Clone, Debug)]
+pub(super) struct LayoutCacheKey {
+    text: Arc<str>,
+    font_size: Pixels,
+    runs: SmallVec<[FontRun; 2]>,
+}
+
+impl PartialEq for LayoutCacheKey {
+    fn eq(&self, other: &Self) -> bool {
+        self.text == other.text
+            && self.font_size.as_f32().to_bits() == other.font_size.as_f32().to_bits()
+            && self.runs == other.runs
+    }
+}
+
+impl Eq for LayoutCacheKey {}
+
+impl Hash for LayoutCacheKey {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.text.hash(state);
+        self.font_size.as_f32().to_bits().hash(state);
+        self.runs.hash(state);
+    }
+}
 
 pub(super) struct IosTextSystemState {
     pub(super) memory_source: MemSource,
@@ -47,8 +73,9 @@ pub(super) struct IosTextSystemState {
     pub(super) fonts: Vec<FontKitFont>,
     pub(super) font_selections: HashMap<Font, FontId>,
     pub(super) font_ids_by_postscript_name: HashMap<String, FontId>,
-    pub(super) font_ids_by_font_key: HashMap<FontKey, SmallVec<[FontId; 4]>>,
+    pub(super) font_ids_by_font_key: HashMap<FontKey, Arc<[FontId]>>,
     pub(super) postscript_names_by_font_id: HashMap<FontId, String>,
+    pub(super) layout_cache: HashMap<LayoutCacheKey, Arc<LineLayout>>,
 }
 
 impl IosTextSystemState {
@@ -77,8 +104,8 @@ impl IosTextSystemState {
         name: &str,
         features: &FontFeatures,
         fallbacks: Option<&FontFallbacks>,
-    ) -> Result<SmallVec<[FontId; 4]>> {
-        let mut font_ids = SmallVec::new();
+) -> Result<Arc<[FontId]>> {
+        let mut font_ids: SmallVec<[FontId; 4]> = SmallVec::new();
         // Map virtual font names to iOS equivalents.
         // gpui uses ".SystemUIFont", gpui-ui-kit theme uses ".SystemUI" — both
         // must resolve to the iOS system font (.AppleSystemUIFont = San Francisco).
@@ -145,7 +172,7 @@ impl IosTextSystemState {
             }
             self.fonts.push(font);
         }
-        Ok(font_ids)
+        Ok(Arc::from(font_ids.as_slice()))
     }
 
     pub(super) fn glyph_for_char(&self, font_id: FontId, ch: char) -> Option<GlyphId> {
@@ -154,7 +181,7 @@ impl IosTextSystemState {
 
     pub(super) fn id_for_native_font(&mut self, requested_font: CTFont) -> FontId {
         let postscript_name = requested_font.postscript_name();
-        if let Some(font_id) = self.font_ids_by_postscript_name.get(&postscript_name) {
+        if let Some(font_id) = self.font_ids_by_postscript_name.get(postscript_name.as_str()) {
             *font_id
         } else {
             let font_id = FontId(self.fonts.len());
@@ -275,6 +302,46 @@ impl IosTextSystemState {
         font_size: Pixels,
         font_runs: &[FontRun],
     ) -> LineLayout {
+        let key = LayoutCacheKey {
+            text: text.into(),
+            font_size,
+            runs: font_runs.iter().copied().collect(),
+        };
+        if let Some(cached) = self.layout_cache.get(&key) {
+            let cached = Arc::clone(cached);
+            return LineLayout {
+                font_size: cached.font_size,
+                width: cached.width,
+                ascent: cached.ascent,
+                descent: cached.descent,
+                runs: cached.runs.clone(),
+                len: cached.len,
+            };
+        }
+
+        let result = self.layout_line_uncached(text, font_size, font_runs);
+        self.layout_cache
+            .insert(key, Arc::new(Self::clone_layout(&result)));
+        result
+    }
+
+    fn clone_layout(layout: &LineLayout) -> LineLayout {
+        LineLayout {
+            font_size: layout.font_size,
+            width: layout.width,
+            ascent: layout.ascent,
+            descent: layout.descent,
+            runs: layout.runs.clone(),
+            len: layout.len,
+        }
+    }
+
+    fn layout_line_uncached(
+        &mut self,
+        text: &str,
+        font_size: Pixels,
+        font_runs: &[FontRun],
+    ) -> LineLayout {
         let mut string = CFMutableAttributedString::new();
         let mut max_ascent = 0.0f32;
         let mut max_descent = 0.0f32;
@@ -360,5 +427,77 @@ impl IosTextSystemState {
             descent: max_descent.into(),
             len: text.len(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gpui::{FontRun, px};
+
+    fn test_state() -> IosTextSystemState {
+        IosTextSystemState {
+            memory_source: MemSource::empty(),
+            system_source: SystemSource::new(),
+            fonts: Vec::new(),
+            font_selections: HashMap::default(),
+            font_ids_by_postscript_name: HashMap::default(),
+            font_ids_by_font_key: HashMap::default(),
+            postscript_names_by_font_id: HashMap::default(),
+            layout_cache: HashMap::default(),
+        }
+    }
+
+    #[test]
+    fn layout_line_reuses_cached_result() {
+        let mut state = test_state();
+        let font_ids = state
+            .load_family("Helvetica", &Default::default(), None)
+            .expect("Helvetica should be available on Apple targets");
+        assert!(!font_ids.is_empty(), "load_family should return at least one font");
+
+        let run = FontRun {
+            len: 5,
+            font_id: font_ids[0],
+        };
+        let layout1 = state.layout_line("Hello", px(16.0), &[run]);
+        assert_eq!(state.layout_cache.len(), 1);
+
+        let layout2 = state.layout_line("Hello", px(16.0), &[run]);
+        assert_eq!(state.layout_cache.len(), 1);
+        assert_eq!(layout1.width, layout2.width);
+        assert_eq!(layout1.runs.len(), layout2.runs.len());
+    }
+
+    #[test]
+    fn layout_line_caches_by_key() {
+        let mut state = test_state();
+        let font_ids = state
+            .load_family("Helvetica", &Default::default(), None)
+            .expect("Helvetica should be available");
+        let run = FontRun {
+            len: 5,
+            font_id: font_ids[0],
+        };
+
+        let _ = state.layout_line("Hello", px(16.0), &[run]);
+        let _ = state.layout_line("World", px(16.0), &[run]);
+        let _ = state.layout_line("Hello", px(24.0), &[run]);
+        assert_eq!(state.layout_cache.len(), 3);
+    }
+
+    #[test]
+    fn id_for_native_font_looks_up_existing_font() {
+        let mut state = test_state();
+        let font_ids = state
+            .load_family("Helvetica", &Default::default(), None)
+            .expect("Helvetica should be available");
+        let font_id = font_ids[0];
+
+        let ct_font = state.fonts[font_id.0]
+            .native_font()
+            .clone_with_font_size(16.0);
+        assert_eq!(state.id_for_native_font(ct_font), font_id);
+        assert_eq!(state.font_ids_by_postscript_name.len(), state.fonts.len());
     }
 }

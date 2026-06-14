@@ -3,12 +3,16 @@
 use super::layout_debug_report::LayoutDebugReport;
 use super::layout_debug_report::build_debug_report;
 use crate::types::{Axis, LayoutNode};
+use std::collections::HashMap;
 
 /// A resolved node in the layout tree.
+///
+/// Strings are borrowed from the source [`LayoutNode`] tree, so solving a
+/// declaration never allocates ids, collapse labels, or display-tier names.
 #[derive(Debug, Clone)]
-pub struct SolvedNode {
+pub struct SolvedNode<'a> {
     /// Matches the `id` from the source `LayoutNode`.
-    pub id: String,
+    pub id: &'a str,
     /// Resolved width in pixels.
     pub width: f32,
     /// Resolved height in pixels.
@@ -17,18 +21,18 @@ pub struct SolvedNode {
     pub visible: bool,
     /// Which display tier is active (for slots with `display_tiers`).
     /// `None` if no tier matches or node has no tiers.
-    pub active_tier: Option<String>,
+    pub active_tier: Option<&'a str>,
     /// Tab label if this slot was collapsed.
-    pub collapse_label: Option<String>,
+    pub collapse_label: Option<&'a str>,
     /// The resolved axis for this container (`None` for slots).
     pub resolved_axis: Option<Axis>,
     /// Resolved children (empty for slots, populated for containers).
-    pub children: Vec<SolvedNode>,
+    pub children: Vec<SolvedNode<'a>>,
 }
 
-impl SolvedNode {
+impl<'a> SolvedNode<'a> {
     /// Find a solved node by id (depth-first search).
-    pub fn find(&self, id: &str) -> Option<&SolvedNode> {
+    pub fn find(&self, id: &str) -> Option<&SolvedNode<'a>> {
         if self.id == id {
             return Some(self);
         }
@@ -38,6 +42,23 @@ impl SolvedNode {
             }
         }
         None
+    }
+
+    /// Build a flat id → node map for O(1) repeated lookups.
+    ///
+    /// This walks the tree once. Use it when you need to query many ids in a
+    /// single render or inspection pass.
+    pub fn as_map(&self) -> HashMap<&str, &SolvedNode<'a>> {
+        let mut map = HashMap::new();
+        self.collect_into_map(&mut map);
+        map
+    }
+
+    fn collect_into_map<'b>(&'b self, map: &mut HashMap<&'b str, &'b SolvedNode<'a>>) {
+        map.insert(self.id, self);
+        for child in &self.children {
+            child.collect_into_map(map);
+        }
     }
 
     /// Returns the size along the given axis.
@@ -55,11 +76,11 @@ impl SolvedNode {
         tabs
     }
 
-    pub(super) fn collect_collapsed<'a>(&'a self, tabs: &mut Vec<(&'a str, &'a str)>) {
+    pub(super) fn collect_collapsed<'b>(&'b self, tabs: &mut Vec<(&'b str, &'b str)>) {
         if !self.visible
-            && let Some(ref label) = self.collapse_label
+            && let Some(label) = self.collapse_label
         {
-            tabs.push((&self.id, label));
+            tabs.push((self.id, label));
         }
         for child in &self.children {
             child.collect_collapsed(tabs);
@@ -81,11 +102,11 @@ impl SolvedNode {
     /// When `source` mirrors the solved tree, each line includes the original
     /// sizing mode, collapsibility, and priority. If a solved node is missing
     /// from the source tree, the report still renders the solved node.
-    pub fn debug_report_with_source(&self, source: &LayoutNode<'_>) -> LayoutDebugReport {
+    pub fn debug_report_with_source(&self, source: &LayoutNode<'a>) -> LayoutDebugReport {
         build_debug_report(self, Some(source))
     }
 }
 
-pub(super) fn visibility_label(node: &SolvedNode) -> &'static str {
+pub(super) fn visibility_label(node: &SolvedNode<'_>) -> &'static str {
     if node.visible { "visible" } else { "collapsed" }
 }

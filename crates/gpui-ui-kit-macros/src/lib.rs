@@ -39,15 +39,15 @@ mod misc;
 
 #[proc_macro_derive(ComponentTheme, attributes(theme, theme_path, gpui_path))]
 pub fn derive_component_theme(input: TokenStream) -> TokenStream {
-    derive::derive_component_theme_impl(input)
+    derive::derive_component_theme_impl(input.into()).into()
 }
 
 #[proc_macro_derive(ComponentBuilder, attributes(field, builder))]
 pub fn derive_component_builder(input: TokenStream) -> TokenStream {
-    derive::derive_component_builder_impl(input)
+    derive::derive_component_builder_impl(input.into()).into()
 }
 
 #[proc_macro_derive(FormField, attributes(field, builder))]
 pub fn derive_form_field(input: TokenStream) -> TokenStream {
-    derive::derive_component_builder_impl(input)
+    derive::derive_component_builder_impl(input.into()).into()
 }

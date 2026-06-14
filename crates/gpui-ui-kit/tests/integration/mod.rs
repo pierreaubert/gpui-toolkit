@@ -37,6 +37,7 @@ mod pane_divider_test;
 mod sidebar_test;
 mod stack_test;
 mod status_bar_test;
+mod table_test;
 
 // Component integration tests - Feedback Components
 mod confirm_dialog_test;

@@ -36,16 +36,13 @@ impl LineStripSpec {
     }
 
     #[must_use]
-    pub fn to_segments(&self) -> Vec<LineSegmentSpec> {
-        self.points
-            .windows(2)
-            .map(|pair| LineSegmentSpec {
-                from: pair[0],
-                to: pair[1],
-                color: self.color,
-                width: self.width,
-            })
-            .collect()
+    pub fn to_segments(&self) -> impl Iterator<Item = LineSegmentSpec> + '_ {
+        self.points.windows(2).map(move |pair| LineSegmentSpec {
+            from: pair[0],
+            to: pair[1],
+            color: self.color,
+            width: self.width,
+        })
     }
 
     pub(crate) fn hash_into(&self, h: &mut impl Hasher) {

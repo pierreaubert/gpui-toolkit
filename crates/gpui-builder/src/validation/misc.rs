@@ -11,18 +11,3 @@ pub(super) fn node_path(parent_path: Option<&str>, id: &str) -> String {
         None => segment.to_string(),
     }
 }
-
-pub(super) fn format_number(value: f32) -> String {
-    if !value.is_finite() {
-        return value.to_string();
-    }
-
-    let mut text = format!("{value:.2}");
-    while text.contains('.') && text.ends_with('0') {
-        text.pop();
-    }
-    if text.ends_with('.') {
-        text.pop();
-    }
-    if text == "-0" { "0".to_string() } else { text }
-}

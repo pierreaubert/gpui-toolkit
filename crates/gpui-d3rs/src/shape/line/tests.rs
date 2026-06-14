@@ -48,3 +48,20 @@ fn test_line_flat_range() {
     };
     assert_eq!(y_rel, 0.5);
 }
+
+
+#[test]
+fn test_compute_line_segments_linear() {
+    use super::{compute_line_segments, CurveType};
+
+    let points = vec![(-0.2, 0.5), (0.5, 0.5), (1.2, 0.5)];
+    let segments = compute_line_segments(&points, CurveType::Linear);
+
+    // Points outside [0,1] should be clipped, leaving a single visible segment.
+    assert_eq!(segments.len(), 1);
+    let (x0, y0, x1, y1) = segments[0];
+    assert_eq!(y0, 0.5);
+    assert_eq!(y1, 0.5);
+    assert!(x0 >= 0.0);
+    assert!(x1 <= 1.0);
+}

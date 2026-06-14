@@ -16,21 +16,21 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 /// Drag state that persists across re-renders
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DragState {
     pub start_pos: f32,   // Starting position (y for vertical, x for horizontal)
     pub start_value: f64, // Value when drag started
 }
 
 thread_local! {
-    static DRAG_STATES: RefCell<HashMap<String, DragState>> = RefCell::new(HashMap::new());
+    static DRAG_STATES: RefCell<HashMap<ElementId, DragState>> = RefCell::new(HashMap::new());
 }
 
 /// Store drag state for an element (call on mouse_down)
-pub fn store_drag_state(element_key: &str, start_pos: f32, start_value: f64) {
+pub fn store_drag_state(element_key: ElementId, start_pos: f32, start_value: f64) {
     DRAG_STATES.with(|states| {
         states.borrow_mut().insert(
-            element_key.to_string(),
+            element_key,
             DragState {
                 start_pos,
                 start_value,
@@ -40,14 +40,14 @@ pub fn store_drag_state(element_key: &str, start_pos: f32, start_value: f64) {
 }
 
 /// Get drag state for an element (call on mouse_move)
-pub fn get_drag_state(element_key: &str) -> Option<DragState> {
+pub fn get_drag_state(element_key: &ElementId) -> Option<DragState> {
     DRAG_STATES.with(|states| states.borrow().get(element_key).copied())
 }
 
 /// Clear drag state for an element (call on mouse_up)
-pub fn clear_drag_state(element_key: &str) {
+pub fn clear_drag_state(element_key: ElementId) {
     DRAG_STATES.with(|states| {
-        states.borrow_mut().remove(element_key);
+        states.borrow_mut().remove(&element_key);
     });
 }
 
@@ -276,9 +276,12 @@ pub fn handle_drag(
 
 #[cfg(test)]
 mod tests {
-    use super::{InteractionConfig, ScrollDelta, handle_scroll};
+    use super::{
+        DragState, InteractionConfig, ScrollDelta, clear_drag_state, get_drag_state, handle_scroll,
+        store_drag_state,
+    };
     use crate::scale::Scale;
-    use gpui::{Modifiers, point, px};
+    use gpui::{ElementId, Modifiers, SharedString, point, px};
 
     #[test]
     fn test_horizontal_scroll_direction_consistent() {
@@ -290,5 +293,23 @@ mod tests {
             result.unwrap() > 50.0,
             "positive horizontal scroll should increase value"
         );
+    }
+
+    #[test]
+    fn test_drag_state_uses_element_id() {
+        let id = ElementId::Name(SharedString::from("drag-test"));
+        assert_eq!(get_drag_state(&id), None);
+
+        store_drag_state(id.clone(), 42.0, 0.5);
+        assert_eq!(
+            get_drag_state(&id),
+            Some(DragState {
+                start_pos: 42.0,
+                start_value: 0.5,
+            })
+        );
+
+        clear_drag_state(id.clone());
+        assert_eq!(get_drag_state(&id), None);
     }
 }

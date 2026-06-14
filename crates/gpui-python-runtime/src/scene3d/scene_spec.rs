@@ -47,11 +47,17 @@ impl SceneSpec {
     }
 
     pub(crate) fn fingerprints(&self) -> SceneFingerprints {
+        let child_fingerprints: Vec<(&str, SceneFingerprints)> = self
+            .children
+            .iter()
+            .map(|child| (child.id(), child.fingerprints()))
+            .collect();
+
         let mut geometry = DefaultHasher::new();
         self.id.hash(&mut geometry);
-        for child in &self.children {
-            child.id().hash(&mut geometry);
-            child.fingerprints().geometry.hash(&mut geometry);
+        for (id, fingerprints) in &child_fingerprints {
+            id.hash(&mut geometry);
+            fingerprints.geometry.hash(&mut geometry);
         }
 
         let mut material = DefaultHasher::new();
@@ -61,15 +67,15 @@ impl SceneSpec {
         if let Some(size) = &self.size {
             size.hash_into(&mut material);
         }
-        for child in &self.children {
-            child.fingerprints().material.hash(&mut material);
+        for (_, fingerprints) in &child_fingerprints {
+            fingerprints.material.hash(&mut material);
         }
 
         let mut camera = DefaultHasher::new();
         self.camera.hash_into(&mut camera);
         self.interactions.hash(&mut camera);
-        for child in &self.children {
-            child.fingerprints().camera.hash(&mut camera);
+        for (_, fingerprints) in &child_fingerprints {
+            fingerprints.camera.hash(&mut camera);
         }
 
         SceneFingerprints {

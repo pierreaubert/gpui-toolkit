@@ -4,7 +4,7 @@
 use crate::theme::{Color, ColorGroup, EditorTheme};
 
 /// Currently selected color field
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct ColorField {
     pub group: ColorGroup,
     pub name: &'static str,
@@ -29,8 +29,11 @@ impl ColorField {
 }
 
 /// All editable color fields
-pub fn all_color_fields() -> Vec<ColorField> {
-    vec![
+pub fn all_color_fields() -> &'static [ColorField] {
+    use std::sync::OnceLock;
+    static FIELDS: OnceLock<Vec<ColorField>> = OnceLock::new();
+    FIELDS.get_or_init(|| {
+        vec![
         // Base colors
         ColorField::new(
             ColorGroup::Base,
@@ -520,5 +523,5 @@ pub fn all_color_fields() -> Vec<ColorField> {
             |t| t.grid_color,
             |t, c| t.grid_color = c,
         ),
-    ]
+    ]})
 }

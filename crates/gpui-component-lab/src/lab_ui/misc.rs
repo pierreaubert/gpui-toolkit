@@ -3,6 +3,7 @@
 use crate::{
     LivePreviewTokenReload, StoryPropValue, ThemePreset, UI_KIT_EXPORTED_COMPONENT_STORY_IDS,
 };
+use gpui::SharedString;
 use gpui_px::{ColorScale, Colormap, TilingMethod, TreemapNode};
 use gpui_ui_kit::showcase::ShowcaseSection;
 use gpui_ui_kit::{
@@ -10,7 +11,10 @@ use gpui_ui_kit::{
     IconButtonVariant, NotificationVariant, ProgressVariant, TabVariant, TagVariant, ToastVariant,
 };
 use serde_json::Value;
-use std::sync::Arc;
+use std::borrow::Cow;
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex, OnceLock};
 
 pub(super) fn showcase_section_for_story_id(story_id: &str) -> Option<ShowcaseSection> {
     Some(match story_id {
@@ -139,7 +143,7 @@ pub(super) fn confirm_dialog_variant(value: &str) -> ConfirmDialogVariant {
     }
 }
 
-pub(super) fn scatter_story_data(count: usize) -> (Vec<f64>, Vec<f64>) {
+fn scatter_story_data_inner(count: usize) -> (Vec<f64>, Vec<f64>) {
     let mut x = Vec::with_capacity(count);
     let mut y = Vec::with_capacity(count);
     for index in 0..count {
@@ -151,7 +155,17 @@ pub(super) fn scatter_story_data(count: usize) -> (Vec<f64>, Vec<f64>) {
     (x, y)
 }
 
-pub(super) fn scalar_field_data(width: usize, height: usize) -> Vec<f64> {
+pub(super) fn scatter_story_data(count: usize) -> (Vec<f64>, Vec<f64>) {
+    static CACHE: OnceLock<Mutex<HashMap<usize, (Vec<f64>, Vec<f64>)>>> = OnceLock::new();
+    let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut guard = cache.lock().unwrap();
+    guard
+        .entry(count)
+        .or_insert_with(|| scatter_story_data_inner(count))
+        .clone()
+}
+
+fn scalar_field_data_inner(width: usize, height: usize) -> Vec<f64> {
     let mut z = Vec::with_capacity(width * height);
     for row in 0..height {
         let y = row as f64 / height.saturating_sub(1).max(1) as f64 * 4.0 - 2.0;
@@ -165,7 +179,17 @@ pub(super) fn scalar_field_data(width: usize, height: usize) -> Vec<f64> {
     z
 }
 
-pub(super) fn boxplot_story_data(groups: usize) -> (Vec<f64>, Vec<f64>) {
+pub(super) fn scalar_field_data(width: usize, height: usize) -> Vec<f64> {
+    static CACHE: OnceLock<Mutex<HashMap<(usize, usize), Vec<f64>>>> = OnceLock::new();
+    let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut guard = cache.lock().unwrap();
+    guard
+        .entry((width, height))
+        .or_insert_with(|| scalar_field_data_inner(width, height))
+        .clone()
+}
+
+fn boxplot_story_data_inner(groups: usize) -> (Vec<f64>, Vec<f64>) {
     let samples_per_group = 18usize;
     let mut x = Vec::with_capacity(groups * samples_per_group);
     let mut y = Vec::with_capacity(groups * samples_per_group);
@@ -183,7 +207,50 @@ pub(super) fn boxplot_story_data(groups: usize) -> (Vec<f64>, Vec<f64>) {
     (x, y)
 }
 
-pub(super) fn treemap_story_data() -> TreemapNode {
+pub(super) fn boxplot_story_data(groups: usize) -> (Vec<f64>, Vec<f64>) {
+    static CACHE: OnceLock<Mutex<HashMap<usize, (Vec<f64>, Vec<f64>)>>> = OnceLock::new();
+    let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut guard = cache.lock().unwrap();
+    guard
+        .entry(groups)
+        .or_insert_with(|| boxplot_story_data_inner(groups))
+        .clone()
+}
+
+fn spectrum_magnitudes_inner(bins: usize) -> Vec<f32> {
+    (0..bins)
+        .map(|index| {
+            let t = index as f32 / bins.max(1) as f32;
+            -80.0 + (t * std::f32::consts::TAU).sin().abs() * 60.0
+        })
+        .collect()
+}
+
+pub(super) fn spectrum_magnitudes(bins: usize) -> Vec<f32> {
+    static CACHE: OnceLock<Mutex<HashMap<usize, Vec<f32>>>> = OnceLock::new();
+    let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut guard = cache.lock().unwrap();
+    guard
+        .entry(bins)
+        .or_insert_with(|| spectrum_magnitudes_inner(bins))
+        .clone()
+}
+
+pub(super) fn spectrum_axis_magnitudes() -> Vec<f32> {
+    static CACHE: OnceLock<Vec<f32>> = OnceLock::new();
+    CACHE
+        .get_or_init(|| {
+            (0..72)
+                .map(|index| {
+                    let t = index as f32 / 71.0;
+                    -86.0 + (t * std::f32::consts::TAU * 1.5).sin().abs() * 54.0
+                })
+                .collect()
+        })
+        .clone()
+}
+
+fn treemap_story_data_inner() -> TreemapNode {
     TreemapNode::new("gpui-toolkit", 0.0)
         .add_child(
             TreemapNode::new("UI Kit", 0.0)
@@ -204,20 +271,56 @@ pub(super) fn treemap_story_data() -> TreemapNode {
         )
 }
 
-pub(super) fn lab_id(parts: &[&str]) -> String {
-    let mut id = String::from("lab");
-    for part in parts {
-        id.push('-');
-        id.push_str(&id_fragment(part));
-    }
-    id
+thread_local! {
+    static TREEMAP_CACHE: RefCell<Option<TreemapNode>> = RefCell::new(None);
 }
 
-pub(super) fn id_fragment(value: &str) -> String {
-    value
-        .chars()
-        .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '-' })
-        .collect()
+pub(super) fn treemap_story_data() -> TreemapNode {
+    TREEMAP_CACHE.with(|cache| {
+        if let Some(node) = cache.borrow().clone() {
+            return node;
+        }
+        let node = treemap_story_data_inner();
+        *cache.borrow_mut() = Some(node.clone());
+        node
+    })
+}
+
+thread_local! {
+    static LAB_ID_CACHE: RefCell<HashMap<String, SharedString>> = RefCell::new(HashMap::new());
+}
+
+pub(super) fn lab_id(parts: &[&str]) -> SharedString {
+    let mut key = String::with_capacity(parts.iter().map(|p| p.len()).sum::<usize>() + parts.len());
+    key.push_str("lab");
+    for part in parts {
+        key.push('-');
+        key.push_str(id_fragment(part).as_ref());
+    }
+    LAB_ID_CACHE.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        cache
+            .get(&key)
+            .cloned()
+            .unwrap_or_else(|| {
+                let shared = SharedString::new(key.clone());
+                cache.insert(key, shared.clone());
+                shared
+            })
+    })
+}
+
+pub(super) fn id_fragment(value: &str) -> Cow<'_, str> {
+    if value.chars().all(|ch| ch.is_ascii_alphanumeric()) {
+        Cow::Borrowed(value)
+    } else {
+        Cow::Owned(
+            value
+                .chars()
+                .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '-' })
+                .collect(),
+        )
+    }
 }
 
 pub(super) fn layout_string(layout: &Value, key: &str) -> Option<String> {
@@ -236,10 +339,10 @@ pub(super) fn clamp_f32(value: f64, min: f32, max: f32) -> f32 {
     }
 }
 
-pub(super) fn prop_value_label(value: &StoryPropValue) -> String {
+pub(super) fn prop_value_label(value: &StoryPropValue) -> SharedString {
     match value {
-        StoryPropValue::Bool(value) => value.to_string(),
-        StoryPropValue::Number(value) => format!("{value:.2}"),
+        StoryPropValue::Bool(value) => SharedString::new(value.to_string()),
+        StoryPropValue::Number(value) => SharedString::new(format!("{value:.2}")),
         StoryPropValue::Text(value)
         | StoryPropValue::Choice(value)
         | StoryPropValue::Color(value) => value.clone(),

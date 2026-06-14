@@ -71,8 +71,7 @@ pub(super) fn build_line_text(
             continue;
         }
         if i == start_seg && start_graph > 0 {
-            let graphemes: Vec<&str> = segments[i].graphemes(true).collect();
-            for g in graphemes.iter().skip(start_graph) {
+            for (_, g) in segments[i].grapheme_indices(true).skip(start_graph) {
                 text.push_str(g);
             }
         } else {
@@ -84,10 +83,13 @@ pub(super) fn build_line_text(
         if has_hyphen {
             text.push('-');
         }
-        let graphemes: Vec<&str> = segments[end_seg].graphemes(true).collect();
         let skip = if start_seg == end_seg { start_graph } else { 0 };
         let take_count = end_graph.saturating_sub(skip);
-        for g in graphemes.iter().skip(skip).take(take_count) {
+        for (_, g) in segments[end_seg]
+            .grapheme_indices(true)
+            .skip(skip)
+            .take(take_count)
+        {
             text.push_str(g);
         }
     } else if has_hyphen {

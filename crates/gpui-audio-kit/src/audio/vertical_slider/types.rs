@@ -63,5 +63,5 @@ pub(super) struct TickMark {
     /// Whether this is a major tick (gets a label)
     pub(super) is_major: bool,
     /// Optional label text
-    pub(super) label: Option<String>,
+    pub(super) label: Option<SharedString>,
 }

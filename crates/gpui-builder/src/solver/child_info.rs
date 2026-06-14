@@ -58,12 +58,18 @@ pub(super) fn allocate_main_axis(
 
     // Pass C: Priority-based collapse if minimums exceed remaining
     if total_minimums > space_after_fixed {
-        let mut collapsible_indices: Vec<usize> = children
+        let collapsible_count = children
             .iter()
-            .enumerate()
-            .filter(|(_, c)| !c.user_collapsed && c.node.collapsible())
-            .map(|(i, _)| i)
-            .collect();
+            .filter(|c| !c.user_collapsed && c.node.collapsible())
+            .count();
+        let mut collapsible_indices: Vec<usize> = Vec::with_capacity(collapsible_count);
+        collapsible_indices.extend(
+            children
+                .iter()
+                .enumerate()
+                .filter(|(_, c)| !c.user_collapsed && c.node.collapsible())
+                .map(|(i, _)| i),
+        );
 
         // Sort by priority ascending (lowest priority collapses first)
         collapsible_indices.sort_by(|&a, &b| {
@@ -176,7 +182,12 @@ pub(super) fn distribute_remaining(
     let flex_remaining = (distributable - used_by_fractional).max(0.0);
     if flex_total_weight > 0.0 {
         // First pass: compute proportional shares with min floor.
-        let mut flex_shares: Vec<(usize, f32)> = Vec::new();
+        let flex_count = children
+            .iter()
+            .filter(|c| !c.user_collapsed && !c.solver_collapsed)
+            .filter(|c| matches!(c.node.sizing(), Sizing::Flex { .. }))
+            .count();
+        let mut flex_shares: Vec<(usize, f32)> = Vec::with_capacity(flex_count);
         let mut total_flex = 0.0_f32;
         for (i, child) in children.iter().enumerate() {
             if child.user_collapsed || child.solver_collapsed {

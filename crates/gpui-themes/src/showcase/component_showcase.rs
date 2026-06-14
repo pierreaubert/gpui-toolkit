@@ -4,6 +4,7 @@
 use crate::theme::EditorTheme;
 use gpui::prelude::*;
 use gpui::*;
+use std::sync::Arc;
 use gpui_ui_kit::{
     Alert, AlertVariant, Badge, BadgeVariant, BreadcrumbItem, Breadcrumbs, Button, ButtonSize,
     ButtonVariant, Card, Code, EmptyState, HStack, Heading, KeyboardShortcutLabel,
@@ -13,16 +14,16 @@ use gpui_ui_kit::{
 
 /// Component showcase that displays all UI kit components
 pub struct ComponentShowcase {
-    pub(super) theme: EditorTheme,
+    pub(super) theme: Arc<EditorTheme>,
 }
 
 impl ComponentShowcase {
-    pub fn new(theme: EditorTheme) -> Self {
+    pub fn new(theme: Arc<EditorTheme>) -> Self {
         Self { theme }
     }
 
     /// Update the theme
-    pub fn set_theme(&mut self, theme: EditorTheme) {
+    pub fn set_theme(&mut self, theme: Arc<EditorTheme>) {
         self.theme = theme;
     }
 
@@ -331,6 +332,7 @@ impl ComponentShowcase {
 
     /// Render new Tier 1 components section
     pub(super) fn render_new_components(&self, _cx: &mut Context<Self>) -> impl IntoElement {
+        let border = self.theme.border.to_rgba();
         VStack::new()
             .spacing(StackSpacing::Md)
             .child(self.section_header("New Components"))
@@ -360,7 +362,7 @@ impl ComponentShowcase {
                     .child(
                         div()
                             .border_1()
-                            .border_color(self.theme.border.to_rgba())
+                            .border_color(border)
                             .rounded_lg()
                             .p_4()
                             .child(
@@ -401,7 +403,7 @@ impl ComponentShowcase {
                     .child(
                         div()
                             .border_1()
-                            .border_color(self.theme.border.to_rgba())
+                            .border_color(border)
                             .rounded_lg()
                             .overflow_hidden()
                             .child(
@@ -422,6 +424,7 @@ impl Render for ComponentShowcase {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let bg = self.theme.background.to_rgba();
         let surface = self.theme.surface.to_rgba();
+        let border = self.theme.border.to_rgba();
 
         div().size_full().bg(bg).p_4().child(
             div().max_w(px(1200.0)).mx_auto().child(
@@ -434,7 +437,7 @@ impl Render for ComponentShowcase {
                             .bg(surface)
                             .rounded_lg()
                             .border_1()
-                            .border_color(self.theme.border.to_rgba())
+                            .border_color(border)
                             .child(self.render_color_swatches(cx)),
                     )
                     // Two column layout for components
@@ -452,7 +455,7 @@ impl Render for ComponentShowcase {
                                                 .bg(surface)
                                                 .rounded_lg()
                                                 .border_1()
-                                                .border_color(self.theme.border.to_rgba())
+                                                .border_color(border)
                                                 .child(self.render_buttons(cx)),
                                         )
                                         .child(
@@ -461,7 +464,7 @@ impl Render for ComponentShowcase {
                                                 .bg(surface)
                                                 .rounded_lg()
                                                 .border_1()
-                                                .border_color(self.theme.border.to_rgba())
+                                                .border_color(border)
                                                 .child(self.render_text(cx)),
                                         )
                                         .child(
@@ -470,7 +473,7 @@ impl Render for ComponentShowcase {
                                                 .bg(surface)
                                                 .rounded_lg()
                                                 .border_1()
-                                                .border_color(self.theme.border.to_rgba())
+                                                .border_color(border)
                                                 .child(self.render_badges(cx)),
                                         )
                                         .child(
@@ -479,7 +482,7 @@ impl Render for ComponentShowcase {
                                                 .bg(surface)
                                                 .rounded_lg()
                                                 .border_1()
-                                                .border_color(self.theme.border.to_rgba())
+                                                .border_color(border)
                                                 .child(self.render_breadcrumbs(cx)),
                                         )
                                         .build(),
@@ -496,7 +499,7 @@ impl Render for ComponentShowcase {
                                                 .bg(surface)
                                                 .rounded_lg()
                                                 .border_1()
-                                                .border_color(self.theme.border.to_rgba())
+                                                .border_color(border)
                                                 .child(self.render_alerts(cx)),
                                         )
                                         .child(
@@ -505,7 +508,7 @@ impl Render for ComponentShowcase {
                                                 .bg(surface)
                                                 .rounded_lg()
                                                 .border_1()
-                                                .border_color(self.theme.border.to_rgba())
+                                                .border_color(border)
                                                 .child(self.render_cards(cx)),
                                         )
                                         .child(
@@ -514,7 +517,7 @@ impl Render for ComponentShowcase {
                                                 .bg(surface)
                                                 .rounded_lg()
                                                 .border_1()
-                                                .border_color(self.theme.border.to_rgba())
+                                                .border_color(border)
                                                 .child(self.render_new_components(cx)),
                                         )
                                         .build(),

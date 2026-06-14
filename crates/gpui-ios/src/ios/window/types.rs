@@ -8,7 +8,7 @@ use std::collections::HashMap;
 ///
 /// This distinguishes taps (short, stationary touches) from scroll gestures
 /// (finger drags). The same pattern is used on Android.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) enum TouchState {
     /// No active touch.
     Idle,
@@ -21,7 +21,107 @@ pub(super) enum TouchState {
     Dragging,
 }
 
+const MAX_TOUCHES: usize = 8;
+
+/// Small fixed-size map for active touches.
+///
+/// iOS supports at most a handful of simultaneous touches; a linear-scan
+/// array avoids the per-event heap traffic of a `HashMap`.
+#[derive(Clone, Debug)]
+pub(super) struct TouchStateMap {
+    entries: [Option<(usize, TouchState)>; MAX_TOUCHES],
+}
+
+impl Default for TouchStateMap {
+    fn default() -> Self {
+        Self {
+            entries: [None; MAX_TOUCHES],
+        }
+    }
+}
+
+impl TouchStateMap {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn get(&self, touch_id: usize) -> Option<TouchState> {
+        self.entries
+            .iter()
+            .flatten()
+            .find(|(id, _)| *id == touch_id)
+            .map(|(_, state)| *state)
+    }
+
+    pub fn insert(&mut self, touch_id: usize, state: TouchState) {
+        for entry in &mut self.entries {
+            if let Some((id, _)) = entry {
+                if *id == touch_id {
+                    *entry = Some((touch_id, state));
+                    return;
+                }
+            }
+        }
+        for entry in &mut self.entries {
+            if entry.is_none() {
+                *entry = Some((touch_id, state));
+                return;
+            }
+        }
+        // All slots full — overwrite the oldest (first) entry. This should be
+        // extremely rare on iOS, which supports at most ~5 simultaneous touches.
+        self.entries[0] = Some((touch_id, state));
+    }
+
+    pub fn remove(&mut self, touch_id: usize) -> Option<TouchState> {
+        for entry in &mut self.entries {
+            if let Some((id, _)) = entry {
+                if *id == touch_id {
+                    return entry.take().map(|(_, state)| state);
+                }
+            }
+        }
+        None
+    }
+}
+
 pub(super) struct FallbackAtlasState {
     pub(super) next_id: u32,
     pub(super) tiles: HashMap<AtlasKey, AtlasTile>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn touch_state_map_stores_and_removes_touches() {
+        let mut map = TouchStateMap::new();
+        assert_eq!(map.get(1), None);
+
+        map.insert(1, TouchState::Pending { start_x: 0.0, start_y: 0.0 });
+        assert!(matches!(map.get(1), Some(TouchState::Pending { .. })));
+
+        map.insert(1, TouchState::Dragging);
+        assert_eq!(map.get(1), Some(TouchState::Dragging));
+
+        let removed = map.remove(1);
+        assert_eq!(removed, Some(TouchState::Dragging));
+        assert_eq!(map.get(1), None);
+    }
+
+    #[test]
+    fn touch_state_map_overwrites_oldest_when_full() {
+        let mut map = TouchStateMap::new();
+        for i in 0..MAX_TOUCHES {
+            map.insert(i, TouchState::Dragging);
+        }
+        // Adding one more should evict the oldest slot (id 0).
+        map.insert(MAX_TOUCHES, TouchState::Pending { start_x: 1.0, start_y: 2.0 });
+        assert_eq!(map.get(0), None);
+        assert!(matches!(
+            map.get(MAX_TOUCHES),
+            Some(TouchState::Pending { start_x: 1.0, start_y: 2.0 })
+        ));
+    }
 }

@@ -2,11 +2,15 @@
 
 use super::camera_spec::CameraSpec;
 use super::color_rgba::ColorRgba;
+use super::line_segment_spec::LineSegmentSpec;
 use super::line_strip_spec::LineStripSpec;
+use super::lines_spec::LinesSpec;
 use super::material_spec::MaterialSpec;
 use super::mesh_spec::MeshSpec;
 use super::orbit_camera_spec::OrbitCameraSpec;
 use super::point3::Point3;
+use super::scene_node::SceneNode;
+use super::scene_spec::SceneSpec;
 use super::surface_spec::SurfaceSpec;
 use crate::error::Scene3DError;
 
@@ -100,7 +104,7 @@ fn line_strip_expands_to_segments() {
         width: 2.0,
     };
 
-    let segments = strip.to_segments();
+    let segments: Vec<_> = strip.to_segments().collect();
     assert_eq!(segments.len(), 2);
     assert_eq!(segments[0].from, strip.points[0]);
     assert_eq!(segments[1].to, strip.points[2]);
@@ -121,4 +125,83 @@ fn color_hex_parses_alpha() {
 
     assert!((color.r - 0x33 as f32 / 255.0).abs() < f32::EPSILON);
     assert!((color.a - 0x80 as f32 / 255.0).abs() < f32::EPSILON);
+}
+
+#[test]
+fn lines_flatten_mixed_segments_and_strips() {
+    let lines = LinesSpec {
+        id: "lines".to_string(),
+        segments: vec![LineSegmentSpec {
+            from: Point3::new(0.0, 0.0, 0.0),
+            to: Point3::new(1.0, 0.0, 0.0),
+            color: ColorRgba::from_rgb_u8(255, 0, 0),
+            width: 1.0,
+        }],
+        strips: vec![LineStripSpec {
+            id: "strip".to_string(),
+            points: vec![
+                Point3::new(2.0, 0.0, 0.0),
+                Point3::new(3.0, 0.0, 0.0),
+                Point3::new(4.0, 0.0, 0.0),
+            ],
+            color: ColorRgba::from_rgb_u8(0, 255, 0),
+            width: 2.0,
+        }],
+        ..LinesSpec::default()
+    };
+
+    let flattened = lines.flattened_segments();
+    assert_eq!(flattened.len(), 3);
+    assert_eq!(flattened[0].from, Point3::new(0.0, 0.0, 0.0));
+    assert_eq!(flattened[1].from, Point3::new(2.0, 0.0, 0.0));
+    assert_eq!(flattened[2].from, Point3::new(3.0, 0.0, 0.0));
+}
+
+#[test]
+fn scene_fingerprints_are_stable_for_unchanged_spec() {
+    let scene = SceneSpec {
+        id: "scene".to_string(),
+        camera: CameraSpec::Orbit(OrbitCameraSpec::new(3.5, 60.0, 25.0)),
+        children: vec![SceneNode::Surface(SurfaceSpec::from_flat(
+            "surface",
+            vec![1.0, 2.0, 3.0, 4.0],
+            2,
+            2,
+        ))],
+        interactions: vec![],
+        background: None,
+        size: None,
+    };
+
+    let first = scene.fingerprints();
+    let second = scene.fingerprints();
+
+    assert_eq!(first.geometry, second.geometry);
+    assert_eq!(first.material, second.material);
+    assert_eq!(first.camera, second.camera);
+}
+
+#[test]
+fn scene_fingerprints_differ_when_child_changes() {
+    let mut scene = SceneSpec {
+        id: "scene".to_string(),
+        camera: CameraSpec::default(),
+        children: vec![SceneNode::Surface(SurfaceSpec::from_flat(
+            "surface",
+            vec![1.0, 2.0, 3.0, 4.0],
+            2,
+            2,
+        ))],
+        interactions: vec![],
+        background: None,
+        size: None,
+    };
+
+    let original = scene.fingerprints();
+    if let SceneNode::Surface(surface) = &mut scene.children[0] {
+        surface.colormap = super::colormap_spec::ColormapSpec::Turbo;
+    }
+    let changed = scene.fingerprints();
+
+    assert_ne!(original.material, changed.material);
 }

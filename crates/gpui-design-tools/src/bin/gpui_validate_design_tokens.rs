@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::Parser;
 use gpui_design_tools::{
     DesignTokenFormat, ensure_passed, validate_current_design_tokens,
@@ -23,10 +23,13 @@ struct Args {
 fn main() -> Result<()> {
     let args = Args::parse();
     let format = DesignTokenFormat::parse(&args.format)?;
+
+    // Avoid building the markdown table when the CLI only needs JSON output.
+    let need_markdown = !args.json || args.report_markdown.is_some();
     let report = if let Some(input) = args.input.as_deref() {
-        validate_design_tokens_from_path(input, format)?
+        validate_design_tokens_from_path(input, format, need_markdown)?
     } else {
-        validate_current_design_tokens()?
+        validate_current_design_tokens(need_markdown)?
     };
 
     if args.json {
@@ -64,8 +67,8 @@ fn main() -> Result<()> {
 
 fn write_report(path: &std::path::Path, body: String) -> Result<()> {
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
+        std::fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
     }
-    std::fs::write(path, body)?;
+    std::fs::write(path, body).with_context(|| format!("write {}", path.display()))?;
     Ok(())
 }

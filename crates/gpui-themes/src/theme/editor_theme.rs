@@ -17,6 +17,7 @@ use super::types::SpectrumColors;
 use super::types::ThemeAppearance;
 pub use gpui_ui_kit::Color;
 use serde::{Deserialize, Serialize};
+use std::fmt::Write as _;
 
 /// Complete theme definition with all UI colors
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1176,11 +1177,16 @@ pub fn {}() -> EditorTheme {{
             color_to_rust(&self.graph_colors.secondary_line),
             color_to_rust(&self.graph_colors.directivity_er),
             color_to_rust(&self.graph_colors.directivity_sp),
-            self.band_colors
-                .iter()
-                .map(|c| format!("            {},", color_to_rust(c)))
-                .collect::<Vec<_>>()
-                .join("\n"),
+            {
+                let mut band_colors = String::with_capacity(self.band_colors.len() * 32);
+                for (i, c) in self.band_colors.iter().enumerate() {
+                    if i > 0 {
+                        band_colors.push('\n');
+                    }
+                    write!(&mut band_colors, "            {},", color_to_rust(c)).unwrap();
+                }
+                band_colors
+            },
             color_to_rust(&self.eq_curve_colors.background),
             color_to_rust(&self.eq_curve_colors.grid),
             color_to_rust(&self.eq_curve_colors.curve_boost),

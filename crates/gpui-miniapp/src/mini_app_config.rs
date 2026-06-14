@@ -5,7 +5,7 @@ use gpui_ui_kit::i18n::Language;
 use gpui_ui_kit::theme::ThemeVariant;
 
 /// Configuration for a MiniApp instance
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct MiniAppConfig {
     /// Window title
     pub title: SharedString,

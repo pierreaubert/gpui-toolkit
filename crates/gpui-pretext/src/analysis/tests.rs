@@ -4,23 +4,38 @@ use super::analysis_profile::analyze_text;
 use super::is::is_cjk;
 use super::normalize::normalize_whitespace_normal;
 use super::normalize::normalize_whitespace_pre_wrap;
+use super::split::split_segment_by_break_kind;
 use super::types::AnalysisProfile;
 use super::types::WhiteSpaceMode;
+use super::types::get_white_space_profile;
 
 #[test]
 fn test_normalize_normal() {
     assert_eq!(
-        normalize_whitespace_normal("  hello   world  "),
+        normalize_whitespace_normal("  hello   world  ").as_ref(),
         "hello world"
     );
-    assert_eq!(normalize_whitespace_normal("a\tb\nc"), "a b c");
-    assert_eq!(normalize_whitespace_normal("hello"), "hello");
+    assert_eq!(normalize_whitespace_normal("a\tb\nc").as_ref(), "a b c");
+    assert_eq!(normalize_whitespace_normal("hello").as_ref(), "hello");
 }
 
 #[test]
 fn test_normalize_pre_wrap() {
-    assert_eq!(normalize_whitespace_pre_wrap("a\r\nb"), "a\nb");
-    assert_eq!(normalize_whitespace_pre_wrap("a\rb"), "a\nb");
+    assert_eq!(normalize_whitespace_pre_wrap("a\r\nb").as_ref(), "a\nb");
+    assert_eq!(normalize_whitespace_pre_wrap("a\rb").as_ref(), "a\nb");
+}
+
+#[test]
+fn test_normalize_cow_borrowed_when_unchanged() {
+    // Inputs that require no transformation should be returned borrowed.
+    assert!(matches!(
+        normalize_whitespace_normal("hello"),
+        std::borrow::Cow::Borrowed(_)
+    ));
+    assert!(matches!(
+        normalize_whitespace_pre_wrap("hello"),
+        std::borrow::Cow::Borrowed(_)
+    ));
 }
 
 #[test]
@@ -55,4 +70,16 @@ fn test_analyze_pre_wrap_hard_breaks() {
     };
     let result = analyze_text("a\nb\nc", &profile, WhiteSpaceMode::PreWrap);
     assert!(result.chunks.len() >= 3);
+}
+
+#[test]
+fn test_split_segment_by_break_kind_returns_slices() {
+    let ws = get_white_space_profile(WhiteSpaceMode::Normal);
+    let pieces = split_segment_by_break_kind("a b", true, 10, &ws);
+    assert_eq!(pieces.len(), 3);
+    assert_eq!(pieces[0].text, "a");
+    assert_eq!(pieces[0].start, 10);
+    assert_eq!(pieces[1].text, " ");
+    assert_eq!(pieces[2].text, "b");
+    assert_eq!(pieces[2].start, 12);
 }

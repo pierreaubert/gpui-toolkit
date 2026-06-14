@@ -23,7 +23,7 @@ use super::register::register_accessibility_element_class;
 use super::register::register_metal_view_class;
 use super::register::register_text_input_view_class;
 use super::register::register_view_controller_class;
-use super::types::TouchState;
+use super::types::{TouchState, TouchStateMap};
 use crate::momentum::{MomentumScroller, VelocityTracker};
 use crate::native::{DynamicTypeCategory, IosSceneMetrics, SizeClass};
 use crate::platform_view::NativePlatformViewHost;
@@ -43,7 +43,7 @@ use parking_lot::Mutex;
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle, UiKitDisplayHandle, UiKitWindowHandle};
 use std::{
     cell::{Cell, RefCell},
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     ffi::c_void,
     ptr::{self, NonNull},
     rc::Rc,
@@ -96,7 +96,7 @@ pub(crate) struct IosWindow {
     pub(super) touch_pressed: Cell<bool>,
     /// Per-touch gesture state machine — distinguishes taps from scroll drags.
     /// Keyed by the UITouch pointer address.
-    pub(super) touch_states: RefCell<HashMap<usize, TouchState>>,
+    pub(super) touch_states: RefCell<TouchStateMap>,
     /// Velocity tracker — records recent touch samples during drag gestures
     /// so we can compute the release velocity when the finger lifts.
     pub(super) velocity_tracker: RefCell<VelocityTracker>,
@@ -110,6 +110,8 @@ pub(crate) struct IosWindow {
     /// `request_frame` callback) can acquire a mutable reference without
     /// conflicting with the outer `&self` borrow.
     pub(super) renderer: Mutex<Option<WgpuRenderer>>,
+    /// Reusable UIKit accessibility elements keyed by accessibility node id.
+    pub(super) accessibility_elements: RefCell<HashMap<String, *mut Object>>,
     /// Native UIKit/SwiftUI views overlaid with GPUI-managed bounds.
     pub(super) platform_view_host: NativePlatformViewHost,
 }
@@ -121,6 +123,15 @@ unsafe impl Sync for IosWindow {}
 impl Drop for IosWindow {
     fn drop(&mut self) {
         self.unregister_keyboard_observers();
+
+        // Release any accessibility elements we retained for reuse.
+        unsafe {
+            for element in self.accessibility_elements.borrow_mut().drain() {
+                if !element.1.is_null() {
+                    let _: () = msg_send![element.1, release];
+                }
+            }
+        }
 
         // Unregister from the global window list so lifecycle callbacks
         // don't dereference freed memory.
@@ -268,11 +279,12 @@ impl IosWindow {
                 mouse_position: Cell::new(Point::default()),
                 modifiers: Cell::new(Modifiers::default()),
                 touch_pressed: Cell::new(false),
-                touch_states: RefCell::new(HashMap::new()),
+                touch_states: RefCell::new(TouchStateMap::new()),
                 velocity_tracker: RefCell::new(VelocityTracker::new()),
                 momentum_scroller: RefCell::new(MomentumScroller::new()),
                 keyboard_observers: RefCell::new(Vec::new()),
                 renderer: Mutex::new(None),
+                accessibility_elements: RefCell::new(HashMap::new()),
                 platform_view_host: NativePlatformViewHost::new(view as *mut c_void),
             };
 
@@ -511,11 +523,12 @@ impl IosWindow {
         self.dispatch_pointer_sample(touch, logical_x, logical_y);
 
         let touch_id = touch as usize;
+        let mut callback = self.input_callback.borrow_mut();
         let mut states = self.touch_states.borrow_mut();
-        let mut ts = states.get(&touch_id).copied().unwrap_or(TouchState::Idle);
+        let mut ts = states.get(touch_id).unwrap_or(TouchState::Idle);
 
-        let emit = |input: PlatformInput| -> DispatchEventResult {
-            if let Some(callback) = self.input_callback.borrow_mut().as_mut() {
+        let mut emit = |input: PlatformInput| -> DispatchEventResult {
+            if let Some(callback) = callback.as_mut() {
                 callback(input)
             } else {
                 DispatchEventResult {
@@ -723,7 +736,7 @@ impl IosWindow {
                     }
                     TouchState::Idle => {}
                 }
-                states.remove(&touch_id);
+                states.remove(touch_id);
                 return;
             }
 
@@ -857,6 +870,7 @@ impl IosWindow {
             let _: () = msg_send![self.view, setIsAccessibilityElement: false];
 
             let Some(snapshot) = snapshot else {
+                self.clear_accessibility_elements();
                 let _: () = msg_send![
                     self.view,
                     setAccessibilityElements: std::ptr::null_mut::<Object>()
@@ -865,19 +879,28 @@ impl IosWindow {
             };
 
             let nodes = snapshot.flattened_nodes();
-            let elements: *mut Object =
-                msg_send![class!(NSMutableArray), arrayWithCapacity: nodes.len()];
             let element_class = register_accessibility_element_class();
+            let mut elements_map = self.accessibility_elements.borrow_mut();
+            let mut ordered_elements = Vec::with_capacity(nodes.len());
+            let mut reused_ids = HashSet::with_capacity(nodes.len());
 
             for node in nodes {
-                let element: *mut Object = msg_send![element_class, alloc];
-                let element: *mut Object = msg_send![
-                    element,
-                    initWithAccessibilityContainer: self.view
-                ];
-                if element.is_null() {
-                    continue;
-                }
+                reused_ids.insert(node.id.clone());
+
+                let element = if let Some(&element) = elements_map.get(&node.id) {
+                    element
+                } else {
+                    let element: *mut Object = msg_send![element_class, alloc];
+                    let element: *mut Object = msg_send![
+                        element,
+                        initWithAccessibilityContainer: self.view
+                    ];
+                    if element.is_null() {
+                        continue;
+                    }
+                    elements_map.insert(node.id.clone(), element);
+                    element
+                };
 
                 let id = super::super::ns_string_from_str(&node.id);
                 let _: () = msg_send![element, setAccessibilityIdentifier: id];
@@ -909,10 +932,27 @@ impl IosWindow {
 
                 let traits = accessibility_traits_for_node(node);
                 let _: () = msg_send![element, setAccessibilityTraits: traits];
-                let _: () = msg_send![elements, addObject: element];
-                let _: () = msg_send![element, release];
+                ordered_elements.push(element);
             }
 
+            // Release elements that are no longer present in the snapshot.
+            let stale_ids: Vec<String> = elements_map
+                .keys()
+                .filter(|id| !reused_ids.contains(id.as_str()))
+                .cloned()
+                .collect();
+            for id in stale_ids {
+                if let Some(element) = elements_map.remove(&id) {
+                    let _: () = msg_send![element, release];
+                }
+            }
+            drop(elements_map);
+
+            let elements: *mut Object =
+                msg_send![class!(NSMutableArray), arrayWithCapacity: ordered_elements.len()];
+            for element in ordered_elements.iter().copied() {
+                let _: () = msg_send![elements, addObject: element];
+            }
             let _: () = msg_send![self.view, setAccessibilityElements: elements];
 
             if element_count > 0 {
@@ -923,12 +963,22 @@ impl IosWindow {
                 );
             }
 
-            for announcement in snapshot.announcements {
-                let announcement = super::super::ns_string_from_str(&announcement);
+            for announcement in &snapshot.announcements {
+                let announcement = super::super::ns_string_from_str(announcement);
                 UIAccessibilityPostNotification(
                     UIAccessibilityAnnouncementNotification,
                     announcement,
                 );
+            }
+        }
+    }
+
+    fn clear_accessibility_elements(&self) {
+        unsafe {
+            for element in self.accessibility_elements.borrow_mut().drain() {
+                if !element.1.is_null() {
+                    let _: () = msg_send![element.1, release];
+                }
             }
         }
     }

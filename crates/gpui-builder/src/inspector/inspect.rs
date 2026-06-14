@@ -20,7 +20,7 @@ pub fn inspect_layout(root: &LayoutNode<'_>) -> LayoutInspection {
 }
 
 /// Inspect a solved layout tree.
-pub fn inspect_solved(root: &SolvedNode) -> SolvedInspection {
+pub fn inspect_solved(root: &SolvedNode<'_>) -> SolvedInspection {
     SolvedInspection {
         root: inspect_solved_node(root, None),
     }
@@ -67,8 +67,8 @@ fn inspect_layout_node(node: &LayoutNode<'_>, parent_path: Option<&str>) -> Layo
     }
 }
 
-fn inspect_solved_node(node: &SolvedNode, parent_path: Option<&str>) -> SolvedInspectionNode {
-    let path = node_path(parent_path, &node.id);
+fn inspect_solved_node(node: &SolvedNode<'_>, parent_path: Option<&str>) -> SolvedInspectionNode {
+    let path = node_path(parent_path, node.id);
     let children = node
         .children
         .iter()
@@ -76,12 +76,12 @@ fn inspect_solved_node(node: &SolvedNode, parent_path: Option<&str>) -> SolvedIn
         .collect();
     SolvedInspectionNode {
         path,
-        id: node.id.clone(),
+        id: node.id.to_string(),
         width: node.width,
         height: node.height,
         visible: node.visible,
-        active_tier: node.active_tier.clone(),
-        collapse_label: node.collapse_label.clone(),
+        active_tier: node.active_tier.map(str::to_string),
+        collapse_label: node.collapse_label.map(str::to_string),
         resolved_axis: node.resolved_axis,
         children,
     }

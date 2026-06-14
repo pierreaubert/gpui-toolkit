@@ -53,8 +53,16 @@ impl LinesSpec {
 
     #[must_use]
     pub fn flattened_segments(&self) -> Vec<LineSegmentSpec> {
-        let mut segments = self.segments.clone();
-        segments.extend(self.strips.iter().flat_map(LineStripSpec::to_segments));
+        let strip_segment_count: usize = self
+            .strips
+            .iter()
+            .map(|strip| strip.points.len().saturating_sub(1))
+            .sum();
+        let mut segments = Vec::with_capacity(self.segments.len() + strip_segment_count);
+        segments.extend_from_slice(&self.segments);
+        for strip in &self.strips {
+            segments.extend(strip.to_segments());
+        }
         segments
     }
 

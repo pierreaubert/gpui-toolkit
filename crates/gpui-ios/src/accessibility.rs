@@ -4,7 +4,7 @@
 //! component code publish a compact snapshot here. The iOS window bridge mirrors
 //! that snapshot into `UIAccessibilityElement`s attached to the Metal view.
 
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 
 type AccessibilityActionCallback =
     Box<dyn FnMut(&str, IosAccessibilityAction) -> bool + Send + 'static>;
@@ -185,11 +185,11 @@ impl IosAccessibilitySnapshot {
     }
 }
 
-static ACCESSIBILITY_SNAPSHOT: OnceLock<Mutex<Option<IosAccessibilitySnapshot>>> = OnceLock::new();
+static ACCESSIBILITY_SNAPSHOT: OnceLock<Mutex<Option<Arc<IosAccessibilitySnapshot>>>> = OnceLock::new();
 static ACCESSIBILITY_ACTION_CALLBACK: OnceLock<Mutex<Option<AccessibilityActionCallback>>> =
     OnceLock::new();
 
-fn snapshot_slot() -> &'static Mutex<Option<IosAccessibilitySnapshot>> {
+fn snapshot_slot() -> &'static Mutex<Option<Arc<IosAccessibilitySnapshot>>> {
     ACCESSIBILITY_SNAPSHOT.get_or_init(|| Mutex::new(None))
 }
 
@@ -199,7 +199,7 @@ fn action_callback_slot() -> &'static Mutex<Option<AccessibilityActionCallback>>
 
 pub fn set_accessibility_snapshot(snapshot: IosAccessibilitySnapshot) -> Result<(), String> {
     snapshot.validate()?;
-    *snapshot_slot().lock().unwrap() = Some(snapshot);
+    *snapshot_slot().lock().unwrap() = Some(Arc::new(snapshot));
 
     #[cfg(any(target_os = "ios", target_os = "tvos"))]
     crate::ios::ffi::gpui_ios_refresh_accessibility();
@@ -219,8 +219,8 @@ pub fn dispatch_accessibility_action(id: &str, action: IosAccessibilityAction) -
         .is_some_and(|callback| callback(id, action))
 }
 
-pub fn accessibility_snapshot() -> Option<IosAccessibilitySnapshot> {
-    snapshot_slot().lock().unwrap().clone()
+pub fn accessibility_snapshot() -> Option<Arc<IosAccessibilitySnapshot>> {
+    snapshot_slot().lock().unwrap().as_ref().map(Arc::clone)
 }
 
 pub fn clear_accessibility_snapshot() {
@@ -278,5 +278,29 @@ mod tests {
         ));
 
         set_accessibility_action_callback(None);
+    }
+
+    #[test]
+    fn snapshot_is_shared_via_arc() {
+        clear_accessibility_snapshot();
+        let snapshot = IosAccessibilitySnapshot::new(
+            IosAccessibilityNode::new("root", IosAccessibilityRole::Container).child(
+                IosAccessibilityNode::new("play", IosAccessibilityRole::Button)
+                    .label("Play")
+                    .frame(IosAccessibilityFrame {
+                        x: 0.0,
+                        y: 0.0,
+                        width: 44.0,
+                        height: 44.0,
+                    }),
+            ),
+        );
+        set_accessibility_snapshot(snapshot).unwrap();
+
+        let first = accessibility_snapshot().unwrap();
+        let second = accessibility_snapshot().unwrap();
+        assert!(Arc::ptr_eq(&first, &second));
+
+        clear_accessibility_snapshot();
     }
 }

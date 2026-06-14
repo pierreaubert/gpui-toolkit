@@ -394,11 +394,8 @@ impl RenderOnce for Input {
         }
 
         // Create a unique ID for the input field.
-        // Use a static suffix string to avoid a format! allocation on every render.
-        let field_id = ElementId::Name({
-            let base = format!("{:?}", self.id);
-            SharedString::from(base + "-field")
-        });
+        // Use a stable (id, "field") tuple to avoid a format! allocation on every render.
+        let field_id = ElementId::from((self.id.clone(), "field"));
 
         // Input wrapper
         let mut input_wrapper = div()
@@ -849,16 +846,14 @@ impl RenderOnce for Input {
                 input_wrapper.child(div().text_color(placeholder_color).child(icon.clone()));
         }
 
-        // Determine display text
-        let display_text = if editing {
-            edit_text
+        // Determine display text. Keep it as a `SharedString` when it comes from
+        // props so we don't allocate a new `String` on every render.
+        let display_text: SharedString = if editing {
+            edit_text.into()
         } else if current_value.is_empty() {
-            self.placeholder
-                .as_ref()
-                .map(|s| s.to_string())
-                .unwrap_or_default()
+            self.placeholder.clone().unwrap_or_default()
         } else {
-            current_value.to_string()
+            current_value.clone()
         };
 
         // Build the text element with partial selection support

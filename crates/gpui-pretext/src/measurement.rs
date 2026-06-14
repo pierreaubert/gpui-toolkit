@@ -3,6 +3,7 @@
 /// Instead of the browser's canvas `measureText()`, users provide a [`TextMeasure`]
 /// implementation backed by their text rendering system (e.g., GPUI, CoreText, etc.).
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -62,8 +63,8 @@ impl Default for EngineProfile {
 pub struct SegmentMetrics {
     pub width: f64,
     pub contains_cjk: bool,
-    pub grapheme_widths: Option<Vec<f64>>,
-    pub grapheme_prefix_widths: Option<Vec<f64>>,
+    pub grapheme_widths: Option<Arc<[f64]>>,
+    pub grapheme_prefix_widths: Option<Arc<[f64]>>,
 }
 
 // ---------------------------------------------------------------------------
@@ -72,7 +73,7 @@ pub struct SegmentMetrics {
 
 /// Caches segment widths and grapheme-level metrics during the prepare phase.
 pub struct MeasureCache {
-    cache: HashMap<String, SegmentMetrics>,
+    cache: HashMap<Arc<str>, SegmentMetrics>,
 }
 
 impl MeasureCache {
@@ -83,24 +84,25 @@ impl MeasureCache {
     }
 
     pub fn get_segment_metrics(&mut self, seg: &str, measure: &dyn TextMeasure) -> &SegmentMetrics {
-        if !self.cache.contains_key(seg) {
+        self.cache.entry(seg.into()).or_insert_with(|| {
             let width = measure.measure_width(seg);
             let contains_cjk = is_cjk(seg);
-            self.cache.insert(
-                seg.to_string(),
-                SegmentMetrics {
-                    width,
-                    contains_cjk,
-                    grapheme_widths: None,
-                    grapheme_prefix_widths: None,
-                },
-            );
-        }
+            SegmentMetrics {
+                width,
+                contains_cjk,
+                grapheme_widths: None,
+                grapheme_prefix_widths: None,
+            }
+        });
         self.cache.get(seg).unwrap()
     }
 
     pub fn get_width(&mut self, seg: &str, measure: &dyn TextMeasure) -> f64 {
         self.get_segment_metrics(seg, measure).width
+    }
+
+    fn ensure_parent_entry(&mut self, seg: &str, measure: &dyn TextMeasure) {
+        let _ = self.get_segment_metrics(seg, measure);
     }
 
     /// Get per-grapheme widths for a segment (measured individually).
@@ -109,7 +111,7 @@ impl MeasureCache {
         &mut self,
         seg: &str,
         measure: &dyn TextMeasure,
-    ) -> Option<Vec<f64>> {
+    ) -> Option<Arc<[f64]>> {
         // Check if already computed
         if let Some(metrics) = self.cache.get(seg)
             && let Some(ref gw) = metrics.grapheme_widths
@@ -122,20 +124,22 @@ impl MeasureCache {
 
         let graphemes: Vec<&str> = seg.graphemes(true).collect();
         if graphemes.len() <= 1 {
+            self.ensure_parent_entry(seg, measure);
             if let Some(metrics) = self.cache.get_mut(seg) {
-                metrics.grapheme_widths = Some(Vec::new()); // sentinel: computed but single
+                metrics.grapheme_widths = Some(Arc::from(Vec::new())); // sentinel: computed but single
             }
             return None;
         }
 
         // Ensure parent entry exists before measuring graphemes
         // (grapheme measurement may insert sub-entries but not the parent)
-        let _ = self.get_segment_metrics(seg, measure);
+        self.ensure_parent_entry(seg, measure);
 
-        let widths: Vec<f64> = graphemes
+        let widths_vec: Vec<f64> = graphemes
             .iter()
             .map(|g| self.get_width(g, measure))
             .collect();
+        let widths: Arc<[f64]> = Arc::from(widths_vec);
 
         // Store in the parent segment's metrics (guaranteed to exist now)
         if let Some(metrics) = self.cache.get_mut(seg) {
@@ -145,13 +149,13 @@ impl MeasureCache {
         Some(widths)
     }
 
-    /// Get cumulative prefix widths for a segment's graphemes (each prefix measured).
+    /// Get cumulative prefix widths for a segment's graphemes.
     /// Returns `None` if the segment has only one grapheme.
     pub fn get_grapheme_prefix_widths(
         &mut self,
         seg: &str,
         measure: &dyn TextMeasure,
-    ) -> Option<Vec<f64>> {
+    ) -> Option<Arc<[f64]>> {
         // Check if already computed
         if let Some(metrics) = self.cache.get(seg)
             && let Some(ref pw) = metrics.grapheme_prefix_widths
@@ -164,21 +168,28 @@ impl MeasureCache {
 
         let graphemes: Vec<&str> = seg.graphemes(true).collect();
         if graphemes.len() <= 1 {
+            self.ensure_parent_entry(seg, measure);
             if let Some(metrics) = self.cache.get_mut(seg) {
-                metrics.grapheme_prefix_widths = Some(Vec::new());
+                metrics.grapheme_prefix_widths = Some(Arc::from(Vec::new()));
             }
             return None;
         }
 
         // Ensure parent entry exists
-        let _ = self.get_segment_metrics(seg, measure);
+        self.ensure_parent_entry(seg, measure);
 
-        let mut prefix_widths = Vec::with_capacity(graphemes.len());
-        let mut prefix = String::new();
-        for g in &graphemes {
-            prefix.push_str(g);
-            prefix_widths.push(self.get_width(&prefix, measure));
-        }
+        // Reuse per-grapheme widths and compute prefix sums in O(n) instead of
+        // measuring every prefix substring (O(n²) calls into the measurer).
+        let widths = self.get_grapheme_widths(seg, measure)?;
+        let mut running = 0.0;
+        let prefix_widths_vec: Vec<f64> = widths
+            .iter()
+            .map(|w| {
+                running += w;
+                running
+            })
+            .collect();
+        let prefix_widths: Arc<[f64]> = Arc::from(prefix_widths_vec);
 
         if let Some(metrics) = self.cache.get_mut(seg) {
             metrics.grapheme_prefix_widths = Some(prefix_widths.clone());
@@ -242,9 +253,20 @@ mod tests {
         assert!(widths.is_some());
         assert_eq!(widths.as_ref().unwrap().len(), 3);
 
-        // Second call should use cache (not re-measure)
+        // Second call should use cache (not re-measure) and return the same Arc allocation.
         let widths2 = cache.get_grapheme_widths("xyz", &measure);
         assert_eq!(widths, widths2);
+        assert!(std::ptr::eq(
+            widths.as_ref().unwrap().as_ptr(),
+            widths2.as_ref().unwrap().as_ptr()
+        ));
+    }
+
+    #[test]
+    fn test_grapheme_widths_single_grapheme_returns_none() {
+        let measure = FixedWidthMeasure { char_width: 10.0 };
+        let mut cache = MeasureCache::new();
+        assert!(cache.get_grapheme_widths("x", &measure).is_none());
     }
 
     #[test]
@@ -260,5 +282,18 @@ mod tests {
         assert!((widths[0] - 10.0).abs() < 0.001);
         assert!((widths[1] - 20.0).abs() < 0.001);
         assert!((widths[2] - 30.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_grapheme_prefix_widths_cache_identity() {
+        let measure = FixedWidthMeasure { char_width: 10.0 };
+        let mut cache = MeasureCache::new();
+
+        let first = cache.get_grapheme_prefix_widths("abc", &measure);
+        let second = cache.get_grapheme_prefix_widths("abc", &measure);
+        assert!(std::ptr::eq(
+            first.as_ref().unwrap().as_ptr(),
+            second.as_ref().unwrap().as_ptr()
+        ));
     }
 }

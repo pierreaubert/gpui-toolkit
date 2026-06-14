@@ -62,17 +62,20 @@ impl Locale {
 
     /// Format a number according to the given specifier
     pub fn format(&self, spec: &FormatSpecifier, value: f64) -> String {
-        let mut value = value;
-        let mut prefix = String::new();
-        let mut suffix = String::new();
-
-        // Handle special values
         if value.is_nan() {
             return "NaN".to_string();
         }
         if value.is_infinite() {
-            return if value > 0.0 { "Infinity" } else { "-Infinity" }.to_string();
+            return if value > 0.0 {
+                "Infinity".to_string()
+            } else {
+                "-Infinity".to_string()
+            };
         }
+
+        let mut value = value;
+        let mut prefix = String::new();
+        let mut suffix = String::new();
 
         // Handle percentage types
         if spec.format_type == FormatType::Percent || spec.format_type == FormatType::PercentRounded
@@ -102,7 +105,10 @@ impl Locale {
                 prefix.push_str(cp);
             }
             if let Some(cs) = self.currency_suffix {
-                suffix = format!("{}{}", cs, suffix);
+                let mut new_suffix = String::with_capacity(cs.len() + suffix.len());
+                new_suffix.push_str(cs);
+                new_suffix.push_str(&suffix);
+                suffix = new_suffix;
             }
         }
 
@@ -112,10 +118,30 @@ impl Locale {
         // Handle alternate form for hex/octal/binary
         if spec.symbol == Some('#') {
             match spec.format_type {
-                FormatType::Binary => body = format!("0b{}", body),
-                FormatType::Octal => body = format!("0o{}", body),
-                FormatType::HexLower => body = format!("0x{}", body),
-                FormatType::HexUpper => body = format!("0x{}", body),
+                FormatType::Binary => {
+                    let mut prefixed = String::with_capacity(body.len() + 2);
+                    prefixed.push_str("0b");
+                    prefixed.push_str(&body);
+                    body = prefixed;
+                }
+                FormatType::Octal => {
+                    let mut prefixed = String::with_capacity(body.len() + 2);
+                    prefixed.push_str("0o");
+                    prefixed.push_str(&body);
+                    body = prefixed;
+                }
+                FormatType::HexLower => {
+                    let mut prefixed = String::with_capacity(body.len() + 2);
+                    prefixed.push_str("0x");
+                    prefixed.push_str(&body);
+                    body = prefixed;
+                }
+                FormatType::HexUpper => {
+                    let mut prefixed = String::with_capacity(body.len() + 2);
+                    prefixed.push_str("0x");
+                    prefixed.push_str(&body);
+                    body = prefixed;
+                }
                 _ => {}
             }
         }
@@ -125,9 +151,14 @@ impl Locale {
             body = self.apply_grouping(&body);
         }
 
+        // Assemble content
+        let mut content = String::with_capacity(prefix.len() + body.len() + suffix.len());
+        content.push_str(&prefix);
+        content.push_str(&body);
+        content.push_str(&suffix);
+
         // Apply padding
-        let content = format!("{}{}{}", prefix, body, suffix);
-        self.apply_padding(spec, &content, &prefix, &body, &suffix)
+        self.apply_padding(spec, content, &prefix, &body, &suffix)
     }
 
     /// Format the numeric part of the value
@@ -189,7 +220,7 @@ impl Locale {
                 if let Some(c) = char::from_u32(value as u32) {
                     c.to_string()
                 } else {
-                    "".to_string()
+                    String::new()
                 }
             }
         };
@@ -201,7 +232,7 @@ impl Locale {
 
         // Trim trailing zeros if requested
         if spec.trim {
-            result = self.trim_trailing_zeros(&result);
+            self.trim_trailing_zeros(&mut result);
         }
 
         result
@@ -224,35 +255,34 @@ impl Locale {
 
     /// Apply thousands grouping
     fn apply_grouping(&self, s: &str) -> String {
+        let mut grouped = String::with_capacity(s.len() + s.len() / 3);
         // Split on decimal point
-        let parts: Vec<&str> = s.split(self.decimal).collect();
-        let integer_part = parts[0];
-        let decimal_part = parts.get(1);
+        let decimal_idx = s.find(self.decimal);
+        let integer_part = &s[..decimal_idx.unwrap_or(s.len())];
+        let decimal_part = decimal_idx.map(|i| &s[i + self.decimal.len()..]);
 
-        // Group integer part from right
-        let mut grouped = String::new();
-        let chars: Vec<char> = integer_part.chars().collect();
-        let len = chars.len();
-
-        for (i, c) in chars.iter().enumerate() {
+        // Group integer part from right without allocating a char Vec
+        let len = integer_part.chars().count();
+        for (i, c) in integer_part.chars().enumerate() {
             if i > 0 && (len - i).is_multiple_of(3) {
                 grouped.push_str(self.thousands);
             }
-            grouped.push(*c);
+            grouped.push(c);
         }
 
         if let Some(dec) = decimal_part {
-            format!("{}{}{}", grouped, self.decimal, dec)
-        } else {
-            grouped
+            grouped.push_str(self.decimal);
+            grouped.push_str(dec);
         }
+
+        grouped
     }
 
     /// Apply padding to reach desired width
     fn apply_padding(
         &self,
         spec: &FormatSpecifier,
-        content: &str,
+        content: String,
         prefix: &str,
         body: &str,
         suffix: &str,
@@ -261,40 +291,51 @@ impl Locale {
         let content_len = content.chars().count();
 
         if content_len >= width {
-            return content.to_string();
+            return content;
         }
 
         let padding_len = width - content_len;
-        let padding: String = std::iter::repeat_n(spec.fill, padding_len).collect();
+        let mut result = String::with_capacity(width);
 
         match spec.align {
-            Align::Left => format!("{}{}", content, padding),
-            Align::Right => format!("{}{}", padding, content),
+            Align::Left => {
+                result.push_str(&content);
+                result.extend(std::iter::repeat_n(spec.fill, padding_len));
+            }
+            Align::Right => {
+                result.extend(std::iter::repeat_n(spec.fill, padding_len));
+                result.push_str(&content);
+            }
             Align::Center => {
                 let left = padding_len / 2;
                 let right = padding_len - left;
-                let left_pad: String = std::iter::repeat_n(spec.fill, left).collect();
-                let right_pad: String = std::iter::repeat_n(spec.fill, right).collect();
-                format!("{}{}{}", left_pad, content, right_pad)
+                result.extend(std::iter::repeat_n(spec.fill, left));
+                result.push_str(&content);
+                result.extend(std::iter::repeat_n(spec.fill, right));
             }
             Align::AfterSign => {
                 // Pad after sign/symbol but before number
-                format!("{}{}{}{}", prefix, padding, body, suffix)
+                result.push_str(prefix);
+                result.extend(std::iter::repeat_n(spec.fill, padding_len));
+                result.push_str(body);
+                result.push_str(suffix);
             }
         }
+
+        result
     }
 
     /// Trim trailing zeros after decimal point
-    fn trim_trailing_zeros(&self, s: &str) -> String {
+    fn trim_trailing_zeros(&self, s: &mut String) {
         if !s.contains(self.decimal) {
-            return s.to_string();
+            return;
         }
-
-        let mut result = s.trim_end_matches('0').to_string();
-        if result.ends_with(self.decimal) {
-            result.pop();
+        while s.ends_with('0') {
+            s.pop();
         }
-        result
+        if s.ends_with(self.decimal) {
+            s.pop();
+        }
     }
 }
 

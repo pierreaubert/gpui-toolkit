@@ -3,6 +3,7 @@
 use super::spectrum_colors::SpectrumColors;
 use gpui::prelude::*;
 use gpui::*;
+use std::cell::RefCell;
 use std::panic;
 use std::sync::Arc;
 
@@ -16,6 +17,7 @@ pub struct SpectrumElement {
     pub(super) colors: SpectrumColors,
     pub(super) height: Pixels,
     pub(super) bar_gap: Pixels,
+    scratch_heights: RefCell<Vec<f32>>,
 }
 
 impl SpectrumElement {
@@ -29,6 +31,7 @@ impl SpectrumElement {
             colors: SpectrumColors::default(),
             height: px(120.0),
             bar_gap: px(1.0),
+            scratch_heights: RefCell::new(Vec::new()),
         }
     }
 
@@ -147,23 +150,20 @@ impl Element for SpectrumElement {
         let step_width = bounds.size.width / bar_count as f32;
         let meter_height = bounds.size.height;
 
-        let smoothed_heights: Vec<f32> = self
-            .magnitudes
-            .iter()
-            .enumerate()
-            .map(|(i, &mag)| {
-                let smoothed_mag = if let Some(ref prev) = self.previous_magnitudes {
-                    if i < prev.len() {
-                        prev[i] * self.smoothing + mag * (1.0 - self.smoothing)
-                    } else {
-                        mag
-                    }
+        let mut scratch = self.scratch_heights.borrow_mut();
+        scratch.clear();
+        scratch.extend(self.magnitudes.iter().enumerate().map(|(i, &mag)| {
+            let smoothed_mag = if let Some(ref prev) = self.previous_magnitudes {
+                if i < prev.len() {
+                    prev[i] * self.smoothing + mag * (1.0 - self.smoothing)
                 } else {
                     mag
-                };
-                self.db_to_height(smoothed_mag)
-            })
-            .collect();
+                }
+            } else {
+                mag
+            };
+            self.db_to_height(smoothed_mag)
+        }));
 
         let mut green_path = PathBuilder::fill();
         green_path.move_to(point(bounds.origin.x, bounds.origin.y + meter_height));
@@ -172,7 +172,7 @@ impl Element for SpectrumElement {
         let mut red_path = PathBuilder::fill();
         let mut has_red = false;
 
-        for (i, &height_ratio) in smoothed_heights.iter().enumerate() {
+        for (i, &height_ratio) in scratch.iter().enumerate() {
             let x = bounds.origin.x + step_width * i as f32;
             let green_height = height_ratio.min(yellow_threshold);
             let green_y = bounds.origin.y + meter_height - (meter_height * green_height);
@@ -247,5 +247,37 @@ impl Element for SpectrumElement {
                 window.paint_path(path, self.colors.high);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SpectrumElement;
+
+    #[test]
+    fn scratch_buffer_is_reused_across_simulated_paints() {
+        let element = SpectrumElement::new(vec![-30.0_f32, -60.0, -10.0]);
+        assert!(element.scratch_heights.borrow().is_empty());
+
+        for _ in 0..3 {
+            let mut scratch = element.scratch_heights.borrow_mut();
+            scratch.clear();
+            scratch.extend(element.magnitudes.iter().enumerate().map(|(i, &mag)| {
+                let smoothed = if let Some(ref prev) = element.previous_magnitudes {
+                    if i < prev.len() {
+                        prev[i] * element.smoothing + mag * (1.0 - element.smoothing)
+                    } else {
+                        mag
+                    }
+                } else {
+                    mag
+                };
+                element.db_to_height(smoothed)
+            }));
+            assert_eq!(scratch.len(), element.magnitudes.len());
+        }
+
+        // Capacity should have been retained after clear/extend cycles.
+        assert!(element.scratch_heights.borrow().capacity() >= 3);
     }
 }

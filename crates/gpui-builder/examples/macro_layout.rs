@@ -21,10 +21,7 @@ static RACK_TIERS: &[DisplayTier<'_>] = &[
 ];
 
 fn main() {
-    let prefs = LayoutPreferences {
-        ratios: &[("library", Axis::Horizontal, 0.35)],
-        collapsed: &[],
-    };
+    let prefs = LayoutPreferences::new(&[("library", Axis::Horizontal, 0.35)], &[]);
 
     let solved = solve_layout! {
         width: 1200.0,

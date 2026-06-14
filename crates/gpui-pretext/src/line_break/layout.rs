@@ -221,7 +221,7 @@ pub fn layout_next_line_range(
                     let fit_widths = if profile.prefer_prefix_widths_for_breakable_runs {
                         breakable_prefix_widths[i].as_deref().unwrap_or(gw)
                     } else {
-                        gw.as_slice()
+                        gw.as_ref()
                     };
                     let uses_prefix = fit_widths.as_ptr() != gw.as_ptr();
                     let (fit_count, fitted_width) = fit_soft_hyphen_break(

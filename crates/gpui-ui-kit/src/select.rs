@@ -278,6 +278,11 @@ impl Select {
         let currently_open = self.is_open;
         let num_options = self.options.len();
         let current_highlight = self.highlighted_index;
+        let highlighted_option = current_highlight.and_then(|idx| {
+            self.options
+                .get(idx)
+                .map(|o| (o.value.clone(), o.disabled))
+        });
 
         if self.disabled {
             trigger = trigger.opacity(0.5).cursor_not_allowed();
@@ -303,8 +308,6 @@ impl Select {
                 let toggle_rc = on_toggle_rc.clone();
                 let change_rc = on_change_rc.clone();
                 let highlight_rc = on_highlight_rc.clone();
-                let options_clone = self.options.clone();
-
                 trigger = trigger.on_key_down(move |event, window, cx| {
                     let handled = match event.keystroke.key.as_str() {
                         "space" | " " => {
@@ -320,12 +323,11 @@ impl Select {
                             true
                         }
                         "enter" if currently_open => {
-                            if let Some(idx) = current_highlight
-                                && idx < options_clone.len()
-                                && !options_clone[idx].disabled
+                            if let Some((ref value, disabled)) = highlighted_option
+                                && !disabled
                             {
                                 if let Some(ref change_handler) = change_rc {
-                                    change_handler(&options_clone[idx].value, window, cx);
+                                    change_handler(value, window, cx);
                                 }
                                 if let Some(ref handler) = toggle_rc {
                                     handler(false, window, cx);
@@ -412,10 +414,8 @@ impl Select {
 
                 // L4 fix: scope option IDs to parent to avoid collision when
                 // multiple Select components exist on the same screen.
-                let option_id = ElementId::Name(SharedString::from(format!(
-                    "{:?}-option-{}",
-                    dropdown_id_for_options, idx
-                )));
+                // Use a tuple ID to avoid a format! allocation per option per render.
+                let option_id = (dropdown_id_for_options.clone(), idx.to_string());
                 let mut option_el = div().id(option_id).px_3().py(px(6.0)).cursor_pointer();
 
                 // Apply text size

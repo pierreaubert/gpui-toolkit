@@ -6,31 +6,35 @@ use gpui::prelude::*;
 use gpui::*;
 use gpui_design::DesignExt;
 use gpui_miniapp::{MiniApp, MiniAppConfig};
-use gpui_themes::{BuiltInThemePreset, ComponentShowcase};
+use gpui_themes::{BuiltInThemePreset, ComponentShowcase, EditorTheme};
 use gpui_ui_kit::{
     Button, ButtonSize, ButtonVariant, HStack, StackSpacing, Text, TextSize, TextWeight, VStack,
 };
+use std::sync::Arc;
 
 /// Theme showcase application
 struct ThemeShowcase {
     current_theme: BuiltInThemePreset,
+    cached_theme: Arc<EditorTheme>,
     showcase: Entity<ComponentShowcase>,
 }
 
 impl ThemeShowcase {
     fn new(cx: &mut Context<Self>) -> Self {
-        let theme = BuiltInThemePreset::Dark.to_theme();
-        let showcase = cx.new(|_| ComponentShowcase::new(theme));
+        let theme = Arc::new(BuiltInThemePreset::Dark.to_theme());
+        let showcase = cx.new(|_| ComponentShowcase::new(theme.clone()));
 
         Self {
             current_theme: BuiltInThemePreset::Dark,
+            cached_theme: theme,
             showcase,
         }
     }
 
     fn set_theme(&mut self, preset: BuiltInThemePreset, cx: &mut Context<Self>) {
         self.current_theme = preset;
-        let theme = preset.to_theme();
+        let theme = Arc::new(preset.to_theme());
+        self.cached_theme = theme.clone();
         self.showcase.update(cx, |showcase, _| {
             showcase.set_theme(theme);
         });
@@ -39,8 +43,9 @@ impl ThemeShowcase {
 
     fn render_theme_selector(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let current = self.current_theme;
-        let theme = current.to_theme();
+        let theme = &self.cached_theme;
         let ds = cx.design();
+        let button_theme = theme.to_button_theme();
 
         div()
             .w_full()
@@ -68,24 +73,21 @@ impl ThemeShowcase {
                             )
                             .children(BuiltInThemePreset::all().iter().map(|preset| {
                                 let is_selected = *preset == current;
-                                Button::new(
-                                    SharedString::from(format!("theme-{:?}", preset)),
-                                    preset.name(),
-                                )
-                                .variant(if is_selected {
-                                    ButtonVariant::Primary
-                                } else {
-                                    ButtonVariant::Ghost
-                                })
-                                .size(ButtonSize::Md)
-                                .theme(theme.to_button_theme())
-                                .build()
-                                .on_click(cx.listener({
-                                    let preset = *preset;
-                                    move |this, _: &ClickEvent, _window, cx| {
-                                        this.set_theme(preset, cx);
-                                    }
-                                }))
+                                Button::new(preset_button_id(*preset), preset.name())
+                                    .variant(if is_selected {
+                                        ButtonVariant::Primary
+                                    } else {
+                                        ButtonVariant::Ghost
+                                    })
+                                    .size(ButtonSize::Md)
+                                    .theme(button_theme.clone())
+                                    .build()
+                                    .on_click(cx.listener({
+                                        let preset = *preset;
+                                        move |this, _: &ClickEvent, _window, cx| {
+                                            this.set_theme(preset, cx);
+                                        }
+                                    }))
                             }))
                             .build(),
                     )
@@ -96,7 +98,7 @@ impl ThemeShowcase {
 
 impl Render for ThemeShowcase {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = self.current_theme.to_theme();
+        let theme = &self.cached_theme;
 
         div()
             .size_full()
@@ -111,6 +113,20 @@ impl Render for ThemeShowcase {
                     .child(self.showcase.clone()),
             )
     }
+}
+
+/// Stable element ID for a theme preset button.
+fn preset_button_id(preset: BuiltInThemePreset) -> SharedString {
+    SharedString::from(match preset {
+        BuiltInThemePreset::Dark => "theme-Dark",
+        BuiltInThemePreset::Light => "theme-Light",
+        BuiltInThemePreset::HighContrast => "theme-HighContrast",
+        BuiltInThemePreset::Nord => "theme-Nord",
+        BuiltInThemePreset::Dracula => "theme-Dracula",
+        BuiltInThemePreset::Protanopia => "theme-Protanopia",
+        BuiltInThemePreset::Deuteranopia => "theme-Deuteranopia",
+        BuiltInThemePreset::Tritanopia => "theme-Tritanopia",
+    })
 }
 
 fn main() {

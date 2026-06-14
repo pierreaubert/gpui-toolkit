@@ -5,6 +5,7 @@
 
 use std::fmt::Write as _;
 
+use crate::util::format_number;
 use crate::{Axis, LayoutNode, LayoutPreferences, SolvedNode, solve};
 
 /// A named viewport used for responsive layout snapshots.
@@ -31,7 +32,7 @@ impl<'a> LayoutViewport<'a> {
 
 /// A solved layout for one viewport.
 #[derive(Debug, Clone)]
-pub struct LayoutSnapshot {
+pub struct LayoutSnapshot<'a> {
     /// Viewport label.
     pub label: String,
     /// Viewport width in pixels.
@@ -39,10 +40,10 @@ pub struct LayoutSnapshot {
     /// Viewport height in pixels.
     pub height: f32,
     /// Solved root node for this viewport.
-    pub root: SolvedNode,
+    pub root: SolvedNode<'a>,
 }
 
-impl LayoutSnapshot {
+impl<'a> LayoutSnapshot<'a> {
     /// Return the ids of visible nodes in depth-first order.
     pub fn visible_ids(&self) -> Vec<&str> {
         let mut ids = Vec::new();
@@ -101,12 +102,12 @@ impl LayoutSnapshot {
 
 /// A set of solved snapshots for one layout declaration.
 #[derive(Debug, Clone, Default)]
-pub struct LayoutSnapshotMatrix {
+pub struct LayoutSnapshotMatrix<'a> {
     /// Snapshots in the same order as the input viewports.
-    pub snapshots: Vec<LayoutSnapshot>,
+    pub snapshots: Vec<LayoutSnapshot<'a>>,
 }
 
-impl LayoutSnapshotMatrix {
+impl<'a> LayoutSnapshotMatrix<'a> {
     /// Return true when there are no snapshots.
     pub fn is_empty(&self) -> bool {
         self.snapshots.is_empty()
@@ -151,11 +152,11 @@ impl LayoutSnapshotMatrix {
 }
 
 /// Solve a layout for each viewport and return the snapshot matrix.
-pub fn solve_snapshot_matrix(
-    root: &LayoutNode<'_>,
-    viewports: &[LayoutViewport<'_>],
-    prefs: &LayoutPreferences<'_>,
-) -> LayoutSnapshotMatrix {
+pub fn solve_snapshot_matrix<'a>(
+    root: &LayoutNode<'a>,
+    viewports: &[LayoutViewport<'a>],
+    prefs: &LayoutPreferences<'a>,
+) -> LayoutSnapshotMatrix<'a> {
     let snapshots = viewports
         .iter()
         .map(|viewport| LayoutSnapshot {
@@ -169,17 +170,17 @@ pub fn solve_snapshot_matrix(
     LayoutSnapshotMatrix { snapshots }
 }
 
-fn collect_visible_ids<'a>(node: &'a SolvedNode, ids: &mut Vec<&'a str>) {
+fn collect_visible_ids<'b>(node: &SolvedNode<'b>, ids: &mut Vec<&'b str>) {
     if node.visible {
-        ids.push(&node.id);
+        ids.push(node.id);
     }
     for child in &node.children {
         collect_visible_ids(child, ids);
     }
 }
 
-fn collect_active_tiers(node: &SolvedNode, tiers: &mut Vec<String>) {
-    if let Some(tier) = node.active_tier.as_deref() {
+fn collect_active_tiers(node: &SolvedNode<'_>, tiers: &mut Vec<String>) {
+    if let Some(tier) = node.active_tier {
         tiers.push(format!("{}:{tier}", node.id));
     }
     for child in &node.children {
@@ -187,7 +188,7 @@ fn collect_active_tiers(node: &SolvedNode, tiers: &mut Vec<String>) {
     }
 }
 
-fn collect_resolved_axes(node: &SolvedNode, axes: &mut Vec<String>) {
+fn collect_resolved_axes(node: &SolvedNode<'_>, axes: &mut Vec<String>) {
     if let Some(axis) = node.resolved_axis {
         axes.push(format!("{}:{}", node.id, axis_label(axis)));
     }
@@ -196,19 +197,19 @@ fn collect_resolved_axes(node: &SolvedNode, axes: &mut Vec<String>) {
     }
 }
 
-fn append_node_text(output: &mut String, node: &SolvedNode, depth: usize) {
+fn append_node_text(output: &mut String, node: &SolvedNode<'_>, depth: usize) {
     let indent = "  ".repeat(depth);
     let mut suffix = String::new();
 
     if let Some(axis) = node.resolved_axis {
         let _ = write!(suffix, " axis={}", axis_label(axis));
     }
-    if let Some(tier) = node.active_tier.as_deref() {
+    if let Some(tier) = node.active_tier {
         let _ = write!(suffix, " tier={tier}");
     }
     if !node.visible {
         suffix.push_str(" collapsed");
-        if let Some(label) = node.collapse_label.as_deref() {
+        if let Some(label) = node.collapse_label {
             let _ = write!(suffix, " label={label:?}");
         }
     }
@@ -244,21 +245,6 @@ fn axis_label(axis: Axis) -> &'static str {
         Axis::Horizontal => "horizontal",
         Axis::Vertical => "vertical",
     }
-}
-
-fn format_number(value: f32) -> String {
-    if !value.is_finite() {
-        return value.to_string();
-    }
-
-    let mut text = format!("{value:.2}");
-    while text.contains('.') && text.ends_with('0') {
-        text.pop();
-    }
-    if text.ends_with('.') {
-        text.pop();
-    }
-    if text == "-0" { "0".to_string() } else { text }
 }
 
 fn escape_table_cell(value: &str) -> String {

@@ -5,6 +5,7 @@ use crate::axis::AxisTheme;
 use crate::scale::Scale;
 use gpui::prelude::*;
 use gpui::*;
+use std::borrow::Cow;
 
 /// Render a grid overlay
 ///
@@ -35,15 +36,17 @@ where
     YS: Scale<f64, f64>,
     T: AxisTheme,
 {
-    // Get tick positions - use explicit values if provided, otherwise use scale ticks
-    let x_ticks = config
+    // Get tick positions - borrow explicit values; only allocate when falling back to scale ticks.
+    let x_ticks: Cow<[f64]> = config
         .vertical_line_values
-        .clone()
-        .unwrap_or_else(|| x_scale.ticks(10));
-    let y_ticks = config
+        .as_deref()
+        .map(Cow::Borrowed)
+        .unwrap_or_else(|| Cow::Owned(x_scale.ticks(10)));
+    let y_ticks: Cow<[f64]> = config
         .horizontal_line_values
-        .clone()
-        .unwrap_or_else(|| y_scale.ticks(10));
+        .as_deref()
+        .map(Cow::Borrowed)
+        .unwrap_or_else(|| Cow::Owned(y_scale.ticks(10)));
 
     let (x_range_min, x_range_max) = x_scale.range();
     let (y_range_min, y_range_max) = y_scale.range();
@@ -115,4 +118,20 @@ where
                 })
             }))
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::grid::GridConfig;
+    use crate::scale::LinearScale;
+    use crate::axis::DefaultAxisTheme;
+
+    #[test]
+    fn test_render_grid_borrowed_ticks() {
+        let x_scale = LinearScale::new().domain(0.0, 100.0).range(0.0, 400.0);
+        let y_scale = LinearScale::new().domain(0.0, 100.0).range(300.0, 0.0);
+        let config = GridConfig::with_lines();
+        let _element = render_grid(&x_scale, &y_scale, &config, 400.0, 300.0, &DefaultAxisTheme);
+    }
 }

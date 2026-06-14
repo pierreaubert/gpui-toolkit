@@ -8,7 +8,6 @@ use super::misc::can_break_after;
 use super::misc::fit_soft_hyphen_break;
 use super::types::InternalLayoutLine;
 use super::types::PreparedLineBreakData;
-use super::types::PreparedLineChunk;
 use super::types::breakpoints_to_lines;
 use super::types::build_kp_items;
 use super::types::knuth_plass_chunk;
@@ -311,7 +310,7 @@ pub fn walk_prepared_lines(
         };
     }
 
-    for chunk in chunks {
+    for chunk in chunks.as_ref() {
         if chunk.start_segment_index == chunk.end_segment_index {
             // Empty chunk (hard break only)
             line_count += 1;
@@ -636,7 +635,7 @@ pub fn walk_prepared_lines_optimal(
     if prepared.chunks.len() > 1 {
         let mut total_lines = 0;
 
-        for chunk in &prepared.chunks {
+        for chunk in prepared.chunks.as_ref() {
             if chunk.start_segment_index == chunk.end_segment_index {
                 // Empty chunk (hard break only).
                 total_lines += 1;
@@ -652,28 +651,14 @@ pub fn walk_prepared_lines_optimal(
                 continue;
             }
 
-            // Build a sub-prepared data for this chunk.
+            // Build a zero-copy view over this chunk's segment range.
             let chunk_start = chunk.start_segment_index;
             let chunk_end = chunk.end_segment_index;
-            let sub_prepared = PreparedLineBreakData {
-                widths: widths[chunk_start..chunk_end].to_vec(),
-                line_end_fit_advances: prepared.line_end_fit_advances[chunk_start..chunk_end]
-                    .to_vec(),
-                line_end_paint_advances: prepared.line_end_paint_advances[chunk_start..chunk_end]
-                    .to_vec(),
-                kinds: prepared.kinds[chunk_start..chunk_end].to_vec(),
-                simple_line_walk_fast_path: false,
-                breakable_widths: prepared.breakable_widths[chunk_start..chunk_end].to_vec(),
-                breakable_prefix_widths: prepared.breakable_prefix_widths[chunk_start..chunk_end]
-                    .to_vec(),
-                discretionary_hyphen_width: prepared.discretionary_hyphen_width,
-                tab_stop_advance: prepared.tab_stop_advance,
-                chunks: vec![PreparedLineChunk {
-                    start_segment_index: 0,
-                    end_segment_index: chunk_end - chunk_start,
-                    consumed_end_segment_index: chunk_end - chunk_start,
-                }],
-            };
+            let sub_prepared = prepared.slice(
+                chunk_start,
+                chunk_end,
+                chunk.consumed_end_segment_index,
+            );
 
             let items = build_kp_items(&sub_prepared, profile, params);
 

@@ -21,7 +21,7 @@ impl DesignConformanceMatrix {
                     reduced_motion,
                     report: system.conformance_report(reduced_motion),
                     motion: system.motion_spec(reduced_motion),
-                    token_count: system.style_dictionary_tokens().len(),
+                    token_count: system.style_dictionary_tokens_ref().len(),
                 });
             }
         }
@@ -48,16 +48,17 @@ impl DesignConformanceMatrix {
              | --- | --- | ---: | --- | --- |\n",
         );
         for case in &self.cases {
-            let findings = if case.report.findings.is_empty() {
-                "none".to_string()
+            let mut findings = String::new();
+            if case.report.findings.is_empty() {
+                findings.push_str("none");
             } else {
-                case.report
-                    .findings
-                    .iter()
-                    .map(|finding| finding.id)
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            };
+                for (i, finding) in case.report.findings.iter().enumerate() {
+                    if i > 0 {
+                        findings.push_str(", ");
+                    }
+                    findings.push_str(finding.id);
+                }
+            }
             output.push_str(&format!(
                 "| {} | {} | {} | {} | {} |\n",
                 case.preset_id,

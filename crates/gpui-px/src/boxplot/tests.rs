@@ -28,7 +28,19 @@ fn test_percentile_quartiles() {
 #[test]
 fn test_box_stats_from_sorted() {
     let values = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0];
-    let stats = BoxStats::from_sorted(5.0, &values).unwrap();
+    let stats = BoxStats::from_values(5.0, &values).unwrap();
+
+    assert!((stats.x - 5.0).abs() < 1e-10);
+    assert!(stats.q1 < stats.q2);
+    assert!(stats.q2 < stats.q3);
+    assert!(stats.whisker_low <= stats.q1);
+    assert!(stats.whisker_high >= stats.q3);
+}
+
+#[test]
+fn test_box_stats_from_unsorted() {
+    let values = vec![10.0, 2.0, 8.0, 4.0, 6.0, 1.0, 9.0, 3.0, 5.0, 7.0];
+    let stats = BoxStats::from_values(5.0, &values).unwrap();
 
     assert!((stats.x - 5.0).abs() < 1e-10);
     assert!(stats.q1 < stats.q2);
@@ -41,7 +53,7 @@ fn test_box_stats_from_sorted() {
 fn test_box_stats_with_outliers() {
     // Create data with outliers
     let values = vec![1.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 100.0];
-    let stats = BoxStats::from_sorted(0.0, &values).unwrap();
+    let stats = BoxStats::from_values(0.0, &values).unwrap();
 
     // 1.0 and 100.0 should be outliers
     assert!(!stats.outliers_low.is_empty() || !stats.outliers_high.is_empty());

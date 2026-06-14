@@ -379,23 +379,26 @@ impl RenderOnce for NumberInput {
         // Focus loss is handled by on_focus_out (registered above), not during render,
         // because is_focused() returns false during re-render before the element
         // is re-associated with the focus handle via track_focus().
+        // Format the value once and reuse it for display and click-to-edit state.
+        let formatted_value =
+            Self::format_value_str(current_value, decimals, unit_clone.as_ref());
+
         let state = edit_state.borrow();
         let editing = state.editing;
         let text_selected = state.text_selected;
         let edit_text = if editing {
             state.text.clone()
         } else {
-            Self::format_value_str(current_value, decimals, unit_clone.as_ref())
+            formatted_value.clone()
         };
         let cursor_pos = state.cursor;
         drop(state);
 
         // Create unique child IDs based on parent ID.
-        // Compute the base string once to avoid redundant format! calls.
-        let parent_id = format!("{:?}", self.id);
-        let dec_id = ElementId::Name(SharedString::from(parent_id.clone() + "-dec"));
-        let value_id = ElementId::Name(SharedString::from(parent_id.clone() + "-value"));
-        let inc_id = ElementId::Name(SharedString::from(parent_id + "-inc"));
+        // Use stable (id, suffix) tuples to avoid format! allocations on every render.
+        let dec_id = ElementId::from((self.id.clone(), "dec"));
+        let value_id = ElementId::from((self.id.clone(), "value"));
+        let inc_id = ElementId::from((self.id.clone(), "inc"));
 
         let mut container = div().flex().flex_col().gap_1();
 
@@ -529,8 +532,7 @@ impl RenderOnce for NumberInput {
             // Click to start editing / focus
             let edit_state_for_click = edit_state.clone();
             let focus_handle_for_click = focus_handle.clone();
-            let formatted_value =
-                Self::format_value_str(current_value, decimals, unit_clone.as_ref());
+            let formatted_value_for_click = formatted_value.clone();
 
             value_field = value_field.cursor_text().on_mouse_down(
                 MouseButton::Left,
@@ -547,7 +549,7 @@ impl RenderOnce for NumberInput {
                         if state.editing {
                             state.select_all();
                         } else {
-                            *state = NumberEditState::new(&formatted_value);
+                            *state = NumberEditState::new(&formatted_value_for_click);
                         }
                         drop(state);
                         window.refresh();
@@ -556,7 +558,7 @@ impl RenderOnce for NumberInput {
 
                     // Single click: start editing if not already
                     if !state.editing {
-                        *state = NumberEditState::new(&formatted_value);
+                        *state = NumberEditState::new(&formatted_value_for_click);
                     } else {
                         // Clear selection on single click while editing
                         state.text_selected = false;
@@ -790,5 +792,38 @@ impl RenderOnce for NumberInput {
         // Use +/- buttons or keyboard to adjust value.
 
         container.child(input_row)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::NumberInput;
+
+    #[test]
+    fn format_value_str_without_unit() {
+        assert_eq!(NumberInput::format_value_str(3.14159, 2, None), "3.14");
+        assert_eq!(NumberInput::format_value_str(42.0, 0, None), "42");
+    }
+
+    #[test]
+    fn format_value_str_with_unit() {
+        let unit: gpui::SharedString = "Hz".into();
+        assert_eq!(
+            NumberInput::format_value_str(440.0, 1, Some(&unit)),
+            "440.0 Hz"
+        );
+    }
+
+    #[test]
+    fn parse_value_str_ignores_unit() {
+        let unit: gpui::SharedString = "Hz".into();
+        assert_eq!(
+            NumberInput::parse_value_str("440.0 Hz", Some(&unit), 0.0, 1000.0),
+            Some(440.0)
+        );
+        assert_eq!(
+            NumberInput::parse_value_str("  440  ", Some(&unit), 0.0, 1000.0),
+            Some(440.0)
+        );
     }
 }

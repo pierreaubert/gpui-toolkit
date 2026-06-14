@@ -3,11 +3,13 @@
 use core_graphics::geometry::CGRect;
 use gpui::{Bounds, DisplayId, Pixels, PlatformDisplay, px, size};
 use objc::{class, msg_send, runtime::Object, sel, sel_impl};
+use std::cell::Cell;
 use uuid::Uuid;
 
 #[derive(Debug)]
 pub(crate) struct IosDisplay {
     screen: *mut Object,
+    cached_uuid: Cell<Option<Uuid>>,
 }
 
 unsafe impl Send for IosDisplay {}
@@ -38,7 +40,10 @@ impl IosDisplay {
         if !screen.is_null() {
             let _: *mut Object = msg_send![screen, retain];
         }
-        Self { screen }
+        Self {
+            screen,
+            cached_uuid: Cell::new(None),
+        }
     }
 
     fn bounds_in_points(&self) -> CGRect {
@@ -76,6 +81,9 @@ impl PlatformDisplay for IosDisplay {
     }
 
     fn uuid(&self) -> anyhow::Result<Uuid> {
+        if let Some(uuid) = self.cached_uuid.get() {
+            return Ok(uuid);
+        }
         let bounds = self.bounds_in_points();
         let scale = self.native_scale();
         let bytes = format!(
@@ -84,7 +92,9 @@ impl PlatformDisplay for IosDisplay {
             bounds.size.height as u32,
             (scale * 100.0) as u32
         );
-        Ok(Uuid::new_v5(&Uuid::NAMESPACE_OID, bytes.as_bytes()))
+        let uuid = Uuid::new_v5(&Uuid::NAMESPACE_OID, bytes.as_bytes());
+        self.cached_uuid.set(Some(uuid));
+        Ok(uuid)
     }
 
     fn bounds(&self) -> Bounds<Pixels> {

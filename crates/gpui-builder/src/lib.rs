@@ -60,6 +60,7 @@ pub mod solver;
 pub mod state;
 pub mod stories;
 pub mod types;
+pub mod util;
 pub mod validation;
 pub mod visual_regression;
 

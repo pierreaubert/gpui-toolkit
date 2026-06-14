@@ -23,14 +23,14 @@ pub struct DragState {
 }
 
 thread_local! {
-    static DRAG_STATES: RefCell<HashMap<String, DragState>> = RefCell::new(HashMap::new());
+    static DRAG_STATES: RefCell<HashMap<ElementId, DragState>> = RefCell::new(HashMap::new());
 }
 
 /// Store drag state for an element (call on mouse_down)
-pub fn store_drag_state(element_key: &str, start_pos: f32, start_value: f64) {
+pub fn store_drag_state(element_id: &ElementId, start_pos: f32, start_value: f64) {
     DRAG_STATES.with(|states| {
         states.borrow_mut().insert(
-            element_key.to_string(),
+            element_id.clone(),
             DragState {
                 start_pos,
                 start_value,
@@ -40,14 +40,14 @@ pub fn store_drag_state(element_key: &str, start_pos: f32, start_value: f64) {
 }
 
 /// Get drag state for an element (call on mouse_move)
-pub fn get_drag_state(element_key: &str) -> Option<DragState> {
-    DRAG_STATES.with(|states| states.borrow().get(element_key).copied())
+pub fn get_drag_state(element_id: &ElementId) -> Option<DragState> {
+    DRAG_STATES.with(|states| states.borrow().get(element_id).copied())
 }
 
 /// Clear drag state for an element (call on mouse_up)
-pub fn clear_drag_state(element_key: &str) {
+pub fn clear_drag_state(element_id: &ElementId) {
     DRAG_STATES.with(|states| {
-        states.borrow_mut().remove(element_key);
+        states.borrow_mut().remove(element_id);
     });
 }
 
@@ -224,6 +224,60 @@ pub fn handle_scroll(
             .scale
             .step_value(current_value, config.min, config.max, direction, step_size),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_config() -> InteractionConfig {
+        InteractionConfig::vertical(0.0, 100.0, Scale::Linear, 100.0)
+    }
+
+    #[test]
+    fn drag_state_round_trips_with_element_id() {
+        let id = ElementId::from("drag-test");
+        let state = DragState {
+            start_pos: 10.0,
+            start_value: 42.0,
+        };
+        store_drag_state(&id, state.start_pos, state.start_value);
+        assert_eq!(get_drag_state(&id), Some(state));
+        clear_drag_state(&id);
+        assert_eq!(get_drag_state(&id), None);
+    }
+
+    #[test]
+    fn handle_drag_respects_threshold() {
+        let config = test_config();
+        let state = DragState {
+            start_pos: 50.0,
+            start_value: 50.0,
+        };
+        // Movement below 2px threshold returns None
+        assert!(handle_drag(51.0, &state, &config).is_none());
+        // Movement above threshold returns a new value
+        assert!(handle_drag(30.0, &state, &config).is_some());
+    }
+
+    #[test]
+    fn handle_keyboard_steps() {
+        let config = test_config();
+        let modifiers = Modifiers::default();
+        let up = handle_keyboard("up", &modifiers, 50.0, &config).unwrap();
+        assert!(up > 50.0);
+        let down = handle_keyboard("down", &modifiers, up, &config).unwrap();
+        assert!(down < up);
+    }
+
+    #[test]
+    fn handle_scroll_changes_value() {
+        let config = test_config();
+        let modifiers = Modifiers::default();
+        let delta = ScrollDelta::Pixels(point(gpui::px(0.0), gpui::px(-10.0)));
+        let new_value = handle_scroll(&delta, &modifiers, 50.0, &config);
+        assert!(new_value.is_some());
+    }
 }
 
 /// Handle drag movement for value adjustment

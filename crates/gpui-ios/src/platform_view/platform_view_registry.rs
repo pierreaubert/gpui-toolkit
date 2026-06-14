@@ -10,7 +10,7 @@ use super::types::PlatformViewBounds;
 use super::types::PlatformViewParams;
 use super::types::SwiftPlatformViewCallbacks;
 use std::collections::HashMap;
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 
 pub struct PlatformViewRegistry {
     pub(super) factories: Mutex<HashMap<String, Box<dyn PlatformViewFactory>>>,
@@ -97,10 +97,10 @@ impl PlatformViewRegistry {
         self.views.lock().unwrap().remove(&id);
     }
 
-    pub fn view_snapshot(&self) -> Vec<PlatformViewRecord> {
+    pub fn view_snapshot(&self) -> Arc<[PlatformViewRecord]> {
         let mut views: Vec<_> = self.views.lock().unwrap().values().cloned().collect();
         views.sort_by_key(|view| (view.z_index, view.id.0));
-        views
+        Arc::from(views)
     }
 
     pub fn view_count(&self) -> usize {

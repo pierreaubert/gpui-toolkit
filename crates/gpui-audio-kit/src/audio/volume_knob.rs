@@ -253,7 +253,7 @@ impl RenderOnce for VolumeKnob {
         let current_value = value_tracker(self.value as f64);
         let interaction_config =
             InteractionConfig::rotational(0.0, 1.0, Scale::Linear, knob_size_f32).with_media_keys();
-        let drag_key = format!("{:?}", self.id);
+        let drag_key = self.id.clone();
 
         let mut container = div()
             .id(self.id)
@@ -286,7 +286,7 @@ impl RenderOnce for VolumeKnob {
                 }
                 if has_change_handler {
                     let click_y: f32 = event.position.y.into();
-                    store_drag_state(&drag_key_down, click_y, current_value_at_press.get());
+                    store_drag_state(drag_key_down.clone(), click_y, current_value_at_press.get());
                 }
             });
         }
@@ -342,7 +342,7 @@ impl RenderOnce for VolumeKnob {
         if on_change_rc.is_some() {
             let drag_key_up = drag_key.clone();
             container = container.on_mouse_up(MouseButton::Left, move |_event, _window, _cx| {
-                clear_drag_state(&drag_key_up);
+                clear_drag_state(drag_key_up.clone());
             });
         }
 

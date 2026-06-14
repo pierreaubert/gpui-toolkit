@@ -3,6 +3,7 @@
 use super::chart_size::ChartSize;
 pub use super::error::ChartError;
 use super::misc::extent_padded;
+use super::misc::extent_padded_iter;
 use super::validate::validate_data_array;
 use super::validate::validate_data_length;
 use super::validate::validate_dimensions;
@@ -43,6 +44,15 @@ fn test_extent_padded_normal_values() {
     // Max should be 5.0 + 0.05 * 4.0 = 5.2
     assert!((min - 0.8).abs() < 1e-10);
     assert!((max - 5.2).abs() < 1e-10);
+}
+
+#[test]
+fn test_extent_padded_iter_matches_slice_version() {
+    let values = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+    let (min_slice, max_slice) = extent_padded(&values, 0.05);
+    let (min_iter, max_iter) = extent_padded_iter(values.into_iter(), 0.05);
+    assert_eq!(min_slice, min_iter);
+    assert_eq!(max_slice, max_iter);
 }
 
 #[test]

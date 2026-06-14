@@ -1,5 +1,6 @@
 //! Momentum scrolling (inertia / fling) for touch-based platforms.
 
+use smallvec::SmallVec;
 use std::time::Instant;
 
 const DECELERATION_RATE: f32 = 0.998;
@@ -49,7 +50,7 @@ impl VelocityTracker {
 
     pub fn velocity(&self) -> (f32, f32) {
         let now = Instant::now();
-        let mut recent: Vec<&Sample> = Vec::with_capacity(MAX_SAMPLES);
+        let mut recent: SmallVec<[&Sample; MAX_SAMPLES]> = SmallVec::new();
         for s in self.samples.iter().flatten() {
             let age = now.duration_since(s.time).as_secs_f64();
             if age <= VELOCITY_WINDOW_SECS {
@@ -244,6 +245,7 @@ pub struct MomentumDelta {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::thread;
     use std::time::Duration;
 
     #[test]
@@ -284,5 +286,20 @@ mod tests {
             !scroller.is_finished(),
             "scroller should not be finished after sub-microsecond dt"
         );
+    }
+
+    #[test]
+    fn velocity_tracker_computes_release_velocity() {
+        let mut tracker = VelocityTracker::new();
+        tracker.record(0.0, 0.0);
+        thread::sleep(Duration::from_millis(8));
+        tracker.record(50.0, 0.0);
+        thread::sleep(Duration::from_millis(8));
+        tracker.record(100.0, 0.0);
+
+        let (vx, vy) = tracker.velocity();
+        assert!(vx > 0.0, "velocity should be positive after rightward drag");
+        assert_eq!(vy, 0.0);
+        assert!(vx.abs() <= MAX_VELOCITY);
     }
 }

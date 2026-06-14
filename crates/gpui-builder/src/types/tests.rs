@@ -11,6 +11,45 @@ use super::slot_node::SlotNode;
 use crate::solve;
 
 #[test]
+fn layout_preferences_uses_hash_map_for_o1_lookups() {
+    let ratios = [
+        ("a", Axis::Horizontal, 0.1),
+        ("b", Axis::Horizontal, 0.2),
+        ("c", Axis::Horizontal, 0.3),
+        ("d", Axis::Horizontal, 0.4),
+        ("e", Axis::Horizontal, 0.5),
+    ];
+    let collapsed = [("x", true), ("y", false)];
+    let prefs = LayoutPreferences::new(&ratios, &collapsed);
+
+    assert_eq!(prefs.ratio_for("a", Axis::Horizontal), Some(0.1));
+    assert_eq!(prefs.ratio_for("e", Axis::Horizontal), Some(0.5));
+    assert_eq!(prefs.ratio_for("missing", Axis::Horizontal), None);
+    assert_eq!(prefs.ratio_for("a", Axis::Vertical), None);
+
+    assert!(prefs.is_collapsed("x"));
+    assert!(!prefs.is_collapsed("y"));
+    assert!(!prefs.is_collapsed("missing"));
+}
+
+#[test]
+fn layout_preferences_last_ratio_wins_for_duplicate_keys() {
+    let ratios = [
+        ("panel", Axis::Horizontal, 0.25),
+        ("panel", Axis::Horizontal, 0.75),
+    ];
+    let prefs = LayoutPreferences::new(&ratios, &[]);
+    assert_eq!(prefs.ratio_for("panel", Axis::Horizontal), Some(0.75));
+}
+
+#[test]
+fn layout_preferences_collapsed_true_wins_for_duplicates() {
+    let collapsed = [("panel", false), ("panel", true)];
+    let prefs = LayoutPreferences::new(&[], &collapsed);
+    assert!(prefs.is_collapsed("panel"));
+}
+
+#[test]
 fn slot_constructor_uses_non_collapsible_defaults() {
     let slot = SlotNode::new("main", Sizing::flex(100.0));
 

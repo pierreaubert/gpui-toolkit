@@ -8,6 +8,7 @@ use uuid::Uuid;
 #[derive(Debug)]
 pub(crate) struct AuDisplay {
     screen: *mut objc::runtime::Object,
+    uuid: Uuid,
 }
 
 unsafe impl Send for AuDisplay {}
@@ -17,19 +18,21 @@ impl AuDisplay {
     pub fn main() -> Self {
         unsafe {
             let screen: *mut objc::runtime::Object = msg_send![class!(NSScreen), mainScreen];
-            Self { screen }
+            let bounds: CGRect = msg_send![screen, frame];
+            let scale: f64 = msg_send![screen, backingScaleFactor];
+            let bytes = format!(
+                "au-screen-{}-{}-{}",
+                bounds.size.width as u32,
+                bounds.size.height as u32,
+                (scale * 100.0) as u32
+            );
+            let uuid = Uuid::new_v5(&Uuid::NAMESPACE_OID, bytes.as_bytes());
+            Self { screen, uuid }
         }
     }
 
     fn bounds_in_points(&self) -> CGRect {
         unsafe { msg_send![self.screen, frame] }
-    }
-
-    pub fn scale(&self) -> f32 {
-        unsafe {
-            let scale: f64 = msg_send![self.screen, backingScaleFactor];
-            scale as f32
-        }
     }
 }
 
@@ -39,15 +42,7 @@ impl PlatformDisplay for AuDisplay {
     }
 
     fn uuid(&self) -> anyhow::Result<Uuid> {
-        let bounds = self.bounds_in_points();
-        let scale = self.scale();
-        let bytes = format!(
-            "au-screen-{}-{}-{}",
-            bounds.size.width as u32,
-            bounds.size.height as u32,
-            (scale * 100.0) as u32
-        );
-        Ok(Uuid::new_v5(&Uuid::NAMESPACE_OID, bytes.as_bytes()))
+        Ok(self.uuid)
     }
 
     fn bounds(&self) -> Bounds<Pixels> {
@@ -56,5 +51,20 @@ impl PlatformDisplay for AuDisplay {
             origin: Default::default(),
             size: size(px(bounds.size.width as f32), px(bounds.size.height as f32)),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_uuid_is_stable() {
+        let uuid = Uuid::new_v4();
+        let display = AuDisplay {
+            screen: std::ptr::null_mut(),
+            uuid,
+        };
+        assert_eq!(display.uuid().unwrap(), uuid);
     }
 }

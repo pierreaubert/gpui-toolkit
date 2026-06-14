@@ -42,30 +42,30 @@ alias clippy := lint
 [group('test')]
 test-examples:
 	@echo "Building gpui-ui-kit examples..."
-	!cargo build --examples -p gpui-ui-kit {{features}}
+	cargo build --examples -p gpui-ui-kit {{features}}
 	@echo "All gpui-ui-kit examples compiled successfully"
 
 [group('test')]
 ntest:
-	!cargo nextest run --release --no-fail-fast --workspace {{features}}
+	cargo nextest run --release --no-fail-fast --workspace {{features}}
 
 [group('qa')]
 qa-gpui-conformance:
 	mkdir -p target/gpui-conformance
-	!cargo test -p gpui-design-tools {{features}}
-	!cargo test -p gpui-component-lab {{features}}
-	!cargo run -p gpui-design-tools --bin gpui-validate-design-tokens {{features}} -- --report-json target/gpui-conformance/design-tokens.json --report-markdown target/gpui-conformance/design-tokens.md
-	!cargo run -p gpui-component-lab --bin gpui-component-lab {{features}} -- --conformance --report-json target/gpui-conformance/component-lab.json --report-markdown target/gpui-conformance/component-lab.md
+	cargo test -p gpui-design-tools {{features}}
+	cargo test -p gpui-component-lab {{features}}
+	cargo run -p gpui-design-tools --bin gpui-validate-design-tokens {{features}} -- --report-json target/gpui-conformance/design-tokens.json --report-markdown target/gpui-conformance/design-tokens.md
+	cargo run -p gpui-component-lab --bin gpui-component-lab {{features}} -- --conformance --report-json target/gpui-conformance/component-lab.json --report-markdown target/gpui-conformance/component-lab.md
 
 [group('qa')]
 qa-gpui-obvious: qa-gpui-conformance
-	!cargo test -p gpui-ui-kit-macros {{features}}
-	!cargo test -p gpui-builder {{features}}
-	!cargo check -p gpui-builder {{features}}
-	!cargo test -p gpui-audio-kit {{features}}
-	!cargo test -p gpui-ui-kit {{features}}
-	!cargo test -p gpui-d3rs {{features}}
-	!cargo test -p gpui-px {{features}}
+	cargo test -p gpui-ui-kit-macros {{features}}
+	cargo test -p gpui-builder {{features}}
+	cargo check -p gpui-builder {{features}}
+	cargo test -p gpui-audio-kit {{features}}
+	cargo test -p gpui-ui-kit {{features}}
+	cargo test -p gpui-d3rs {{features}}
+	cargo test -p gpui-px {{features}}
 	cargo tree -p gpui-design-tools {{features}}
 
 # ----------------------------------------------------------------------
@@ -141,31 +141,31 @@ examples: examples-audio-kit examples-builder examples-d3rs examples-px examples
 [group('examples')]
 examples-audio-kit:
 	@echo "Building gpui-audio-kit examples..."
-	!cargo build --examples -p gpui-audio-kit {{features}}
+	cargo build --examples -p gpui-audio-kit {{features}}
 	@echo "gpui-audio-kit examples compiled successfully"
 
 [group('examples')]
 examples-builder:
 	@echo "Building gpui-builder examples..."
-	!cargo build --examples -p gpui-builder {{features}}
+	cargo build --examples -p gpui-builder {{features}}
 	@echo "gpui-builder examples compiled successfully"
 
 [group('examples')]
 examples-d3rs:
 	@echo "Building gpui-d3rs examples..."
-	!cargo build --examples -p gpui-d3rs {{features}}
+	cargo build --examples -p gpui-d3rs {{features}}
 	@echo "gpui-d3rs examples compiled successfully"
 
 [group('examples')]
 examples-px:
 	@echo "Building gpui-px examples..."
-	!cargo build --examples -p gpui-px {{features}}
+	cargo build --examples -p gpui-px {{features}}
 	@echo "gpui-px examples compiled successfully"
 
 [group('examples')]
 examples-ui-kit:
 	@echo "Building all gpui-ui-kit examples..."
-	!cargo build --examples -p gpui-ui-kit {{features}}
+	cargo build --examples -p gpui-ui-kit {{features}}
 	@echo "All gpui-ui-kit examples compiled successfully"
 
 # Run QR debug example. On macOS this builds a small app bundle so the camera

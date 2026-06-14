@@ -6,65 +6,79 @@ use super::is::is_text_run_boundary;
 use super::is::is_url_like_run_start_raw;
 use super::is::is_url_query_boundary_segment;
 use super::merged_segmentation::MergedSegmentation;
-use super::merged_segmentation::compact;
 use super::misc::has_trailing_punctuation_joiners;
 use super::segment::segment_contains_decimal_digit;
 use super::types::SegmentBreakKind;
 
-pub(super) fn merge_url_like_runs(seg: MergedSegmentation) -> MergedSegmentation {
+pub(super) fn merge_url_like_runs(mut seg: MergedSegmentation) -> MergedSegmentation {
     let len = seg.len();
-    let mut texts = seg.texts;
-    let mut is_word_like = seg.is_word_like;
-    let mut kinds = seg.kinds;
-    let starts = seg.starts;
+    let mut texts = Vec::with_capacity(len);
+    let mut is_word_like = Vec::with_capacity(len);
+    let mut kinds = Vec::with_capacity(len);
+    let mut starts = Vec::with_capacity(len);
 
-    let orig_texts = texts.clone();
-    let orig_kinds = kinds.clone();
-
-    for i in 0..len {
-        if kinds[i] != SegmentBreakKind::Text
-            || !is_url_like_run_start_raw(&orig_texts, &orig_kinds, i, len)
+    let mut i = 0;
+    while i < len {
+        if seg.kinds[i] != SegmentBreakKind::Text
+            || !is_url_like_run_start_raw(&seg.texts, &seg.kinds, i, len)
         {
+            texts.push(std::mem::take(&mut seg.texts[i]));
+            is_word_like.push(seg.is_word_like[i]);
+            kinds.push(seg.kinds[i]);
+            starts.push(seg.starts[i]);
+            i += 1;
             continue;
         }
+
+        let mut merged = std::mem::take(&mut seg.texts[i]);
+        let start = seg.starts[i];
         let mut j = i + 1;
-        while j < len && !is_text_run_boundary(orig_kinds[j]) {
-            texts[i].push_str(&orig_texts[j]);
-            is_word_like[i] = true;
-            let ends_query = orig_texts[j].contains('?');
-            kinds[j] = SegmentBreakKind::Text;
-            texts[j].clear();
+        while j < len && !is_text_run_boundary(seg.kinds[j]) {
+            let ends_query = seg.texts[j].contains('?');
+            merged.push_str(&seg.texts[j]);
             j += 1;
             if ends_query {
                 break;
             }
         }
+
+        texts.push(merged);
+        is_word_like.push(true);
+        kinds.push(SegmentBreakKind::Text);
+        starts.push(start);
+        i = j;
     }
 
-    compact(texts, is_word_like, kinds, starts)
+    MergedSegmentation {
+        texts,
+        is_word_like,
+        kinds,
+        starts,
+    }
 }
 
-pub(super) fn merge_url_query_runs(seg: MergedSegmentation) -> MergedSegmentation {
-    let mut texts = Vec::new();
-    let mut is_word_like = Vec::new();
-    let mut kinds = Vec::new();
-    let mut starts = Vec::new();
+pub(super) fn merge_url_query_runs(mut seg: MergedSegmentation) -> MergedSegmentation {
+    let len = seg.len();
+    let mut texts = Vec::with_capacity(len);
+    let mut is_word_like = Vec::with_capacity(len);
+    let mut kinds = Vec::with_capacity(len);
+    let mut starts = Vec::with_capacity(len);
 
     let mut i = 0;
-    while i < seg.len() {
-        let text = &seg.texts[i];
-        texts.push(text.clone());
+    while i < len {
+        let is_query_boundary = is_url_query_boundary_segment(&seg.texts[i]);
+        texts.push(std::mem::take(&mut seg.texts[i]));
         is_word_like.push(seg.is_word_like[i]);
         kinds.push(seg.kinds[i]);
         starts.push(seg.starts[i]);
 
-        if !is_url_query_boundary_segment(text) {
+        if !is_query_boundary {
             i += 1;
             continue;
         }
 
         let next = i + 1;
-        if next >= seg.len() || is_text_run_boundary(seg.kinds[next]) {
+        if next >= len || is_text_run_boundary(seg.kinds[next]) {
             i += 1;
             continue;
         }
@@ -72,7 +86,7 @@ pub(super) fn merge_url_query_runs(seg: MergedSegmentation) -> MergedSegmentatio
         let mut query_text = String::new();
         let query_start = seg.starts[next];
         let mut j = next;
-        while j < seg.len() && !is_text_run_boundary(seg.kinds[j]) {
+        while j < len && !is_text_run_boundary(seg.kinds[j]) {
             query_text.push_str(&seg.texts[j]);
             j += 1;
         }
@@ -96,24 +110,25 @@ pub(super) fn merge_url_query_runs(seg: MergedSegmentation) -> MergedSegmentatio
     }
 }
 
-pub(super) fn merge_numeric_runs(seg: MergedSegmentation) -> MergedSegmentation {
-    let mut texts = Vec::new();
-    let mut is_word_like = Vec::new();
-    let mut kinds = Vec::new();
-    let mut starts = Vec::new();
+pub(super) fn merge_numeric_runs(mut seg: MergedSegmentation) -> MergedSegmentation {
+    let len = seg.len();
+    let mut texts = Vec::with_capacity(len);
+    let mut is_word_like = Vec::with_capacity(len);
+    let mut kinds = Vec::with_capacity(len);
+    let mut starts = Vec::with_capacity(len);
 
     let mut i = 0;
-    while i < seg.len() {
-        let text = &seg.texts[i];
+    while i < len {
         let kind = seg.kinds[i];
 
         if kind == SegmentBreakKind::Text
-            && is_numeric_run_segment(text)
-            && segment_contains_decimal_digit(text)
+            && is_numeric_run_segment(&seg.texts[i])
+            && segment_contains_decimal_digit(&seg.texts[i])
         {
-            let mut merged = text.clone();
+            let mut merged = std::mem::take(&mut seg.texts[i]);
+            let start = seg.starts[i];
             let mut j = i + 1;
-            while j < seg.len()
+            while j < len
                 && seg.kinds[j] == SegmentBreakKind::Text
                 && is_numeric_run_segment(&seg.texts[j])
             {
@@ -123,12 +138,12 @@ pub(super) fn merge_numeric_runs(seg: MergedSegmentation) -> MergedSegmentation 
             texts.push(merged);
             is_word_like.push(true);
             kinds.push(SegmentBreakKind::Text);
-            starts.push(seg.starts[i]);
+            starts.push(start);
             i = j;
             continue;
         }
 
-        texts.push(text.clone());
+        texts.push(std::mem::take(&mut seg.texts[i]));
         is_word_like.push(seg.is_word_like[i]);
         kinds.push(kind);
         starts.push(seg.starts[i]);
@@ -143,23 +158,25 @@ pub(super) fn merge_numeric_runs(seg: MergedSegmentation) -> MergedSegmentation 
     }
 }
 
-pub(super) fn merge_ascii_punctuation_chains(seg: MergedSegmentation) -> MergedSegmentation {
-    let mut texts = Vec::new();
-    let mut is_word_like = Vec::new();
-    let mut kinds = Vec::new();
-    let mut starts = Vec::new();
+pub(super) fn merge_ascii_punctuation_chains(mut seg: MergedSegmentation) -> MergedSegmentation {
+    let len = seg.len();
+    let mut texts = Vec::with_capacity(len);
+    let mut is_word_like = Vec::with_capacity(len);
+    let mut kinds = Vec::with_capacity(len);
+    let mut starts = Vec::with_capacity(len);
 
     let mut i = 0;
-    while i < seg.len() {
-        let text = &seg.texts[i];
+    while i < len {
         let kind = seg.kinds[i];
         let wl = seg.is_word_like[i];
 
-        if kind == SegmentBreakKind::Text && wl && is_ascii_punctuation_chain_segment(text) {
-            let mut merged = text.clone();
+        if kind == SegmentBreakKind::Text && wl && is_ascii_punctuation_chain_segment(&seg.texts[i])
+        {
+            let mut merged = std::mem::take(&mut seg.texts[i]);
+            let start = seg.starts[i];
             let mut j = i + 1;
             while has_trailing_punctuation_joiners(&merged)
-                && j < seg.len()
+                && j < len
                 && seg.kinds[j] == SegmentBreakKind::Text
                 && seg.is_word_like[j]
                 && is_ascii_punctuation_chain_segment(&seg.texts[j])
@@ -170,12 +187,12 @@ pub(super) fn merge_ascii_punctuation_chains(seg: MergedSegmentation) -> MergedS
             texts.push(merged);
             is_word_like.push(true);
             kinds.push(SegmentBreakKind::Text);
-            starts.push(seg.starts[i]);
+            starts.push(start);
             i = j;
             continue;
         }
 
-        texts.push(text.clone());
+        texts.push(std::mem::take(&mut seg.texts[i]));
         is_word_like.push(wl);
         kinds.push(kind);
         starts.push(seg.starts[i]);
@@ -190,46 +207,48 @@ pub(super) fn merge_ascii_punctuation_chains(seg: MergedSegmentation) -> MergedS
     }
 }
 
-pub(super) fn merge_glue_connected_text_runs(seg: MergedSegmentation) -> MergedSegmentation {
-    let mut texts = Vec::new();
-    let mut is_word_like = Vec::new();
-    let mut kinds = Vec::new();
-    let mut starts = Vec::new();
+pub(super) fn merge_glue_connected_text_runs(mut seg: MergedSegmentation) -> MergedSegmentation {
+    let len = seg.len();
+    let mut texts = Vec::with_capacity(len);
+    let mut is_word_like = Vec::with_capacity(len);
+    let mut kinds = Vec::with_capacity(len);
+    let mut starts = Vec::with_capacity(len);
 
     let mut read = 0;
-    while read < seg.len() {
-        let mut text = seg.texts[read].clone();
+    while read < len {
         let mut wl = seg.is_word_like[read];
-        let mut kind = seg.kinds[read];
+        let kind = seg.kinds[read];
         let start = seg.starts[read];
 
         if kind == SegmentBreakKind::Glue {
-            let mut glue_text = text;
+            let mut glue_text = std::mem::take(&mut seg.texts[read]);
             let glue_start = start;
             read += 1;
-            while read < seg.len() && seg.kinds[read] == SegmentBreakKind::Glue {
+            while read < len && seg.kinds[read] == SegmentBreakKind::Glue {
                 glue_text.push_str(&seg.texts[read]);
                 read += 1;
             }
 
-            if read < seg.len() && seg.kinds[read] == SegmentBreakKind::Text {
-                text = glue_text;
-                text.push_str(&seg.texts[read]);
+            if read < len && seg.kinds[read] == SegmentBreakKind::Text {
+                let mut text = glue_text;
+                let next_text = std::mem::take(&mut seg.texts[read]);
+                text.push_str(&next_text);
                 wl = seg.is_word_like[read];
-                kind = SegmentBreakKind::Text;
                 // start is glue_start
                 read += 1;
 
                 // Continue absorbing glue+text
-                while read < seg.len() && seg.kinds[read] == SegmentBreakKind::Glue {
-                    let mut gt = String::new();
-                    while read < seg.len() && seg.kinds[read] == SegmentBreakKind::Glue {
+                while read < len && seg.kinds[read] == SegmentBreakKind::Glue {
+                    let mut gt = std::mem::take(&mut seg.texts[read]);
+                    read += 1;
+                    while read < len && seg.kinds[read] == SegmentBreakKind::Glue {
                         gt.push_str(&seg.texts[read]);
                         read += 1;
                     }
-                    if read < seg.len() && seg.kinds[read] == SegmentBreakKind::Text {
+                    if read < len && seg.kinds[read] == SegmentBreakKind::Text {
+                        let next = std::mem::take(&mut seg.texts[read]);
                         text.push_str(&gt);
-                        text.push_str(&seg.texts[read]);
+                        text.push_str(&next);
                         wl = wl || seg.is_word_like[read];
                         read += 1;
                         continue;
@@ -252,12 +271,11 @@ pub(super) fn merge_glue_connected_text_runs(seg: MergedSegmentation) -> MergedS
             continue;
         }
 
-        read += 1;
-
-        texts.push(text);
+        texts.push(std::mem::take(&mut seg.texts[read]));
         is_word_like.push(wl);
         kinds.push(kind);
         starts.push(start);
+        read += 1;
     }
 
     MergedSegmentation {

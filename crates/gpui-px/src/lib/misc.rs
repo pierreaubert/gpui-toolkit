@@ -6,6 +6,33 @@ pub(crate) fn default_design() -> Arc<gpui_design::DesignSystem> {
     Arc::new(gpui_design::DesignSystem::neutral())
 }
 
+/// Calculate extent (min, max) with padding from an iterator.
+///
+/// Returns `(min - padding, max + padding)` where padding is calculated
+/// as `range * padding_fraction`.
+///
+/// ## Special Case: Constant Values
+///
+/// When all values are identical (range ≈ 0), uses a **hardcoded padding of 1.0**
+/// to ensure a meaningful range for visualization. This prevents collapsed
+/// axes and ensures the constant value is visible in the chart.
+pub(crate) fn extent_padded_iter(
+    iter: impl Iterator<Item = f64>,
+    padding_fraction: f64,
+) -> (f64, f64) {
+    let (min, max) = iter.fold((f64::INFINITY, f64::NEG_INFINITY), |(min, max), val| {
+        (min.min(val), max.max(val))
+    });
+
+    let range = max - min;
+    let padding = if range.abs() < f64::EPSILON {
+        1.0 // Default padding for constant values
+    } else {
+        range * padding_fraction
+    };
+    (min - padding, max + padding)
+}
+
 /// Calculate extent (min, max) with padding.
 ///
 /// Returns `(min - padding, max + padding)` where padding is calculated
@@ -19,18 +46,5 @@ pub(crate) fn default_design() -> Arc<gpui_design::DesignSystem> {
 ///
 /// For example, `[5.0, 5.0, 5.0]` returns `(4.0, 6.0)` instead of `(5.0, 5.0)`.
 pub(crate) fn extent_padded(values: &[f64], padding_fraction: f64) -> (f64, f64) {
-    let (min, max) = values
-        .iter()
-        .copied()
-        .fold((f64::INFINITY, f64::NEG_INFINITY), |(min, max), val| {
-            (min.min(val), max.max(val))
-        });
-
-    let range = max - min;
-    let padding = if range.abs() < f64::EPSILON {
-        1.0 // Default padding for constant values
-    } else {
-        range * padding_fraction
-    };
-    (min - padding, max + padding)
+    extent_padded_iter(values.iter().copied(), padding_fraction)
 }

@@ -156,12 +156,8 @@ fn main() {
     layout_state.set_ratio("library", Axis::Horizontal, 0.45);
     layout_state.set_collapsed("rack", true);
 
-    let solved = solve(
-        &root,
-        1200.0,
-        800.0,
-        &layout_state.preferences().as_preferences(),
-    );
+    let layout_prefs = layout_state.preferences();
+    let solved = solve(&root, 1200.0, 800.0, &layout_prefs.as_preferences());
     print_solved(&solved, 0);
 
     let tabs = solved.collapsed_tabs();

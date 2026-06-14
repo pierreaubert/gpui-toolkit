@@ -23,13 +23,15 @@ use super::types::MotionSpec;
 use super::types::ToggleVariant;
 use super::typography_rules::TypographyRules;
 use serde::Serialize;
+use std::borrow::Cow;
+use std::sync::OnceLock;
 
 /// Complete design system — all shape, spacing, and interaction rules
 /// needed to render platform-appropriate UIs.
 ///
 /// Orthogonal to the Theme (which handles colors). Any Theme works with
 /// any DesignSystem.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, PartialEq, Serialize)]
 pub struct DesignSystem {
     /// Which platform language this represents.
     pub language: DesignLanguage,
@@ -55,6 +57,29 @@ pub struct DesignSystem {
     pub label_position: LabelPosition,
     /// How control groups are visually separated.
     pub group_separator: GroupSeparatorStyle,
+    /// Lazily-cached style dictionary tokens.
+    #[serde(skip)]
+    cached_tokens: OnceLock<Vec<DesignToken>>,
+}
+
+impl Clone for DesignSystem {
+    fn clone(&self) -> Self {
+        Self {
+            language: self.language,
+            corners: self.corners.clone(),
+            spacing: self.spacing.clone(),
+            interaction: self.interaction.clone(),
+            elevation: self.elevation.clone(),
+            animation: self.animation.clone(),
+            typography: self.typography.clone(),
+            layout: self.layout.clone(),
+            audio_controls: self.audio_controls.clone(),
+            toggle_variant: self.toggle_variant,
+            label_position: self.label_position,
+            group_separator: self.group_separator,
+            cached_tokens: OnceLock::new(),
+        }
+    }
 }
 
 impl DesignSystem {
@@ -100,7 +125,7 @@ impl DesignSystem {
                 spring_damping: 26.0,
             },
             typography: TypographyRules {
-                font_family: ".SystemUIFont".to_string(),
+                font_family: Cow::Borrowed(".SystemUIFont"),
                 dynamic_sizing: false,
                 base_size: 14.0,
                 small_size: 11.0,
@@ -127,6 +152,7 @@ impl DesignSystem {
             toggle_variant: ToggleVariant::Capsule,
             label_position: LabelPosition::Below,
             group_separator: GroupSeparatorStyle::Divider,
+            cached_tokens: OnceLock::new(),
         }
     }
 
@@ -171,7 +197,7 @@ impl DesignSystem {
                 spring_damping: 14.0,
             },
             typography: TypographyRules {
-                font_family: ".SystemUIFont".to_string(),
+                font_family: Cow::Borrowed(".SystemUIFont"),
                 dynamic_sizing: true,
                 base_size: 15.0,
                 small_size: 12.0,
@@ -198,6 +224,7 @@ impl DesignSystem {
             toggle_variant: ToggleVariant::Capsule,
             label_position: LabelPosition::Below,
             group_separator: GroupSeparatorStyle::Divider,
+            cached_tokens: OnceLock::new(),
         }
     }
 
@@ -242,7 +269,7 @@ impl DesignSystem {
                 spring_damping: 26.0,
             },
             typography: TypographyRules {
-                font_family: ".SystemUIFont".to_string(),
+                font_family: Cow::Borrowed(".SystemUIFont"),
                 dynamic_sizing: false,
                 base_size: 14.0,
                 small_size: 12.0,
@@ -269,6 +296,7 @@ impl DesignSystem {
             toggle_variant: ToggleVariant::ThumbOnTrack,
             label_position: LabelPosition::Below,
             group_separator: GroupSeparatorStyle::Card,
+            cached_tokens: OnceLock::new(),
         }
     }
 
@@ -313,7 +341,7 @@ impl DesignSystem {
                 spring_damping: 30.0,
             },
             typography: TypographyRules {
-                font_family: ".SystemUIFont".to_string(),
+                font_family: Cow::Borrowed(".SystemUIFont"),
                 dynamic_sizing: false,
                 base_size: 14.0,
                 small_size: 12.0,
@@ -340,6 +368,7 @@ impl DesignSystem {
             toggle_variant: ToggleVariant::Pill,
             label_position: LabelPosition::Right,
             group_separator: GroupSeparatorStyle::Border,
+            cached_tokens: OnceLock::new(),
         }
     }
 
@@ -374,6 +403,18 @@ impl DesignSystem {
 impl DesignSystem {
     /// Export stable platform/design tokens for Style Dictionary pipelines.
     pub fn style_dictionary_tokens(&self) -> Vec<DesignToken> {
+        self.cached_tokens
+            .get_or_init(|| self.build_style_dictionary_tokens())
+            .clone()
+    }
+
+    /// Borrow the cached style dictionary tokens without cloning the vector.
+    pub fn style_dictionary_tokens_ref(&self) -> &[DesignToken] {
+        self.cached_tokens
+            .get_or_init(|| self.build_style_dictionary_tokens())
+    }
+
+    fn build_style_dictionary_tokens(&self) -> Vec<DesignToken> {
         vec![
             token("design.language", self.language.as_str(), "string"),
             token("radius.sm", self.corners.sm, "dimension"),
@@ -439,7 +480,7 @@ impl DesignSystem {
             ),
             token(
                 "typography.font_family",
-                &self.typography.font_family,
+                self.typography.font_family.as_ref(),
                 "font",
             ),
             token(
@@ -563,13 +604,13 @@ impl DesignSystem {
         if self.language == DesignLanguage::AppleHig && self.interaction.min_touch_target < 44.0 {
             findings.push(ConformanceFinding {
                 id: "apple.touch_target",
-                message: "Apple HIG touch targets should be at least 44px".to_string(),
+                message: Cow::Borrowed("Apple HIG touch targets should be at least 44px"),
             });
         }
         if self.language == DesignLanguage::Material3 && self.interaction.min_touch_target < 48.0 {
             findings.push(ConformanceFinding {
                 id: "material.touch_target",
-                message: "Material 3 touch targets should be at least 48px".to_string(),
+                message: Cow::Borrowed("Material 3 touch targets should be at least 48px"),
             });
         }
 
@@ -578,7 +619,7 @@ impl DesignSystem {
         {
             findings.push(ConformanceFinding {
                 id: "elevation.shadow_opacity",
-                message: "shadow opacity must be finite and in [0, 1]".to_string(),
+                message: Cow::Borrowed("shadow opacity must be finite and in [0, 1]"),
             });
         }
 
@@ -593,16 +634,16 @@ impl DesignSystem {
         {
             findings.push(ConformanceFinding {
                 id: "typography.scale",
-                message:
-                    "typography sizes must be finite, positive, and ordered small <= base <= large"
-                        .to_string(),
+                message: Cow::Borrowed(
+                    "typography sizes must be finite, positive, and ordered small <= base <= large",
+                ),
             });
         }
         if self.typography.dynamic_sizing && self.typography.large_size < self.typography.base_size
         {
             findings.push(ConformanceFinding {
                 id: "typography.scale",
-                message: "dynamic typography large_size must be >= base_size".to_string(),
+                message: Cow::Borrowed("dynamic typography large_size must be >= base_size"),
             });
         }
 
@@ -611,7 +652,7 @@ impl DesignSystem {
         {
             findings.push(ConformanceFinding {
                 id: "motion.duration_order",
-                message: "motion durations must be ordered fast <= default <= slow".to_string(),
+                message: Cow::Borrowed("motion durations must be ordered fast <= default <= slow"),
             });
         }
         finite_positive(
@@ -633,14 +674,14 @@ impl DesignSystem {
         {
             findings.push(ConformanceFinding {
                 id: "motion.reduced",
-                message: "reduced-motion mode should collapse transition durations".to_string(),
+                message: Cow::Borrowed("reduced-motion mode should collapse transition durations"),
             });
         }
 
         if self.layout.slider_height_compact > self.layout.slider_height_normal {
             findings.push(ConformanceFinding {
                 id: "layout.slider_height_order",
-                message: "compact slider height should not exceed normal slider height".to_string(),
+                message: Cow::Borrowed("compact slider height should not exceed normal slider height"),
             });
         }
 
@@ -650,31 +691,31 @@ impl DesignSystem {
         {
             findings.push(ConformanceFinding {
                 id: "audio.knob_arc_sweep",
-                message: "knob arc sweep must be finite and in (0, 360]".to_string(),
+                message: Cow::Borrowed("knob arc sweep must be finite and in (0, 360]"),
             });
         }
         if self.audio_controls.knob_arc_segments < 12 {
             findings.push(ConformanceFinding {
                 id: "audio.knob_arc_segments",
-                message: "knob arc should use at least 12 segments".to_string(),
+                message: Cow::Borrowed("knob arc should use at least 12 segments"),
             });
         }
         for (index, width) in self.audio_controls.slider_track_widths.iter().enumerate() {
             if !width.is_finite() || *width <= 0.0 {
                 findings.push(ConformanceFinding {
                     id: "audio.slider_track_width",
-                    message: format!(
+                    message: Cow::Owned(format!(
                         "slider track width at index {index} must be finite and positive"
-                    ),
+                    )),
                 });
             }
         }
 
-        let token_count = self.style_dictionary_tokens().len();
+        let token_count = self.style_dictionary_tokens_ref().len();
         if token_count < 24 {
             findings.push(ConformanceFinding {
                 id: "tokens.coverage",
-                message: "style dictionary export should include core shape, spacing, interaction, typography, motion, and audio tokens".to_string(),
+                message: Cow::Borrowed("style dictionary export should include core shape, spacing, interaction, typography, motion, and audio tokens"),
             });
         }
 

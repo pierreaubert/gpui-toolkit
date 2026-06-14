@@ -91,10 +91,10 @@ impl RetainedSceneCache {
     pub fn retain_only<I, S>(&mut self, ids: I)
     where
         I: IntoIterator<Item = S>,
-        S: AsRef<str>,
+        S: AsRef<str> + Into<String>,
     {
         let live: std::collections::HashSet<String> =
-            ids.into_iter().map(|id| id.as_ref().to_string()).collect();
+            ids.into_iter().map(Into::into).collect();
         self.entries.retain(|id, _| live.contains(id));
     }
 
@@ -203,5 +203,21 @@ mod tests {
 
         assert!(update.dirty.updates_geometry());
         assert!(!update.dirty.updates_camera());
+    }
+
+    #[test]
+    fn retain_only_removes_missing_ids() {
+        let spec = SurfaceSpec::from_flat("surface", vec![1.0, 2.0, 3.0, 4.0], 2, 2);
+        let mut cache = RetainedSceneCache::new();
+
+        cache.upsert_surface(&spec).expect("insert");
+        assert_eq!(cache.len(), 1);
+
+        cache.retain_only(["other"]);
+        assert!(cache.is_empty());
+
+        cache.upsert_surface(&spec).expect("reinsert");
+        cache.retain_only(std::iter::empty::<&str>());
+        assert!(cache.is_empty());
     }
 }

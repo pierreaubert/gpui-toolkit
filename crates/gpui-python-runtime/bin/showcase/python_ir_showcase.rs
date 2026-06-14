@@ -187,13 +187,12 @@ impl PythonIrShowcase {
         ds: &DesignSystem,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let children = node
-            .children
-            .iter()
-            .map(|child| self.render_node(child, theme, ds, cx))
-            .collect::<Vec<_>>();
         let gap = px(node.gap.unwrap_or(ds.spacing.control_gap));
-        let mut element = div().flex().gap(gap).children(children);
+        let mut element = div().flex().gap(gap).children(
+            node.children
+                .iter()
+                .map(|child| self.render_node(child, theme, ds, cx)),
+        );
         element = match direction {
             StackDirection::Vertical => element.flex_col(),
             StackDirection::Horizontal => element.flex_row(),
@@ -284,11 +283,6 @@ impl PythonIrShowcase {
         ds: &DesignSystem,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let children = node
-            .children
-            .iter()
-            .map(|child| self.render_node(child, theme, ds, cx))
-            .collect::<Vec<_>>();
         let mut element = div()
             .flex()
             .flex_col()
@@ -309,7 +303,16 @@ impl PythonIrShowcase {
             );
         }
 
-        apply_size(element.children(children), node.width, node.height).into_any_element()
+        apply_size(
+            element.children(
+                node.children
+                    .iter()
+                    .map(|child| self.render_node(child, theme, ds, cx)),
+            ),
+            node.width,
+            node.height,
+        )
+        .into_any_element()
     }
 
     pub(super) fn render_button(
@@ -333,7 +336,7 @@ impl PythonIrShowcase {
         };
 
         let element = div()
-            .id(ElementId::Name(format!("button-{}", node.label).into()))
+            .id(ElementId::Name(node.label.clone().into()))
             .px(px(ds.spacing.control_padding_x))
             .py(px(ds.spacing.control_padding_y))
             .rounded(px(ds.corners.md))

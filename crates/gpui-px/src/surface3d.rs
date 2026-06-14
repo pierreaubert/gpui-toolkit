@@ -182,9 +182,10 @@ impl Surface3DChart {
         validate_grid_dimensions(&self.z, self.grid_width, self.grid_height)?;
         validate_dimensions(layout_width, layout_height)?;
 
-        // Generate or validate x values
+        // Generate or validate x values. Take ownership of explicit values
+        // instead of cloning; only allocate when falling back to defaults.
         let x_values = match self.x_values {
-            Some(ref v) => {
+            Some(v) => {
                 if v.len() != self.grid_width {
                     return Err(ChartError::DataLengthMismatch {
                         x_field: "x",
@@ -193,12 +194,12 @@ impl Surface3DChart {
                         y_len: self.grid_width,
                     });
                 }
-                validate_data_array(v, "x")?;
-                validate_monotonic(v, "x")?;
+                validate_data_array(&v, "x")?;
+                validate_monotonic(&v, "x")?;
                 if self.x_log {
-                    validate_positive(v, "x")?;
+                    validate_positive(&v, "x")?;
                 }
-                v.clone()
+                v
             }
             None => {
                 if self.x_log {
@@ -213,7 +214,7 @@ impl Surface3DChart {
 
         // Generate or validate y values
         let y_values = match self.y_values {
-            Some(ref v) => {
+            Some(v) => {
                 if v.len() != self.grid_height {
                     return Err(ChartError::DataLengthMismatch {
                         x_field: "y",
@@ -222,12 +223,12 @@ impl Surface3DChart {
                         y_len: self.grid_height,
                     });
                 }
-                validate_data_array(v, "y")?;
-                validate_monotonic(v, "y")?;
+                validate_data_array(&v, "y")?;
+                validate_monotonic(&v, "y")?;
                 if self.y_log {
-                    validate_positive(v, "y")?;
+                    validate_positive(&v, "y")?;
                 }
-                v.clone()
+                v
             }
             None => {
                 if self.y_log {

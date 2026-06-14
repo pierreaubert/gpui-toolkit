@@ -73,7 +73,7 @@ impl AccessibilityTree {
 /// Build an accessibility tree from solved layout output plus optional
 /// per-node metadata keyed by solved node id.
 pub fn accessibility_tree_from_solved(
-    solved: &SolvedNode,
+    solved: &SolvedNode<'_>,
     metadata: &[(&str, AccessibilityMetadata<'_>)],
 ) -> AccessibilityTree {
     let metadata_map: HashMap<&str, AccessibilityMetadata<'_>> = metadata.iter().copied().collect();
@@ -83,16 +83,16 @@ pub fn accessibility_tree_from_solved(
 }
 
 fn build_node(
-    node: &SolvedNode,
+    node: &SolvedNode<'_>,
     metadata: &HashMap<&str, AccessibilityMetadata<'_>>,
 ) -> AccessibilityNode {
-    let meta = metadata.get(node.id.as_str()).copied().unwrap_or_default();
+    let meta = metadata.get(node.id).copied().unwrap_or_default();
 
     let role = meta.role.unwrap_or_else(|| default_role(node));
 
     let label = meta.label.map(str::to_string).or_else(|| {
         if !node.visible {
-            node.collapse_label.clone()
+            node.collapse_label.map(str::to_string)
         } else {
             None
         }
@@ -107,18 +107,18 @@ fn build_node(
         .collect();
 
     AccessibilityNode {
-        id: node.id.clone(),
+        id: node.id.to_string(),
         role,
         label,
         description,
         visible: node.visible,
         collapsed: !node.visible,
-        active_tier: node.active_tier.clone(),
+        active_tier: node.active_tier.map(str::to_string),
         children,
     }
 }
 
-fn default_role(node: &SolvedNode) -> AccessibilityRole {
+fn default_role(node: &SolvedNode<'_>) -> AccessibilityRole {
     if node.resolved_axis.is_some() {
         return AccessibilityRole::Group;
     }
@@ -137,9 +137,9 @@ mod tests {
     };
     use crate::Axis;
 
-    fn solved_tree() -> SolvedNode {
+    fn solved_tree() -> SolvedNode<'static> {
         SolvedNode {
-            id: "root".to_string(),
+            id: "root",
             width: 1200.0,
             height: 800.0,
             visible: true,
@@ -148,22 +148,22 @@ mod tests {
             resolved_axis: Some(Axis::Horizontal),
             children: vec![
                 SolvedNode {
-                    id: "library".to_string(),
+                    id: "library",
                     width: 320.0,
                     height: 800.0,
                     visible: true,
                     active_tier: None,
-                    collapse_label: Some("Library".to_string()),
+                    collapse_label: Some("Library"),
                     resolved_axis: None,
                     children: Vec::new(),
                 },
                 SolvedNode {
-                    id: "rack".to_string(),
+                    id: "rack",
                     width: 0.0,
                     height: 0.0,
                     visible: false,
                     active_tier: None,
-                    collapse_label: Some("Rack".to_string()),
+                    collapse_label: Some("Rack"),
                     resolved_axis: None,
                     children: Vec::new(),
                 },

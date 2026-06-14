@@ -33,47 +33,62 @@ pub fn platform_modifier_symbol() -> &'static str {
 /// Converts internal key spec format (e.g., "secondary-s", "ctrl-shift-k")
 /// into display format (e.g., "⌘S", "Ctrl+Shift+K").
 pub fn format_key_label(key_spec: &str) -> String {
-    // Handle chord key specs (space-separated sequences like "g g", "ctrl-k ctrl-t")
-    let chords: Vec<&str> = key_spec.split_whitespace().collect();
-    if chords.len() > 1 {
-        return chords
-            .iter()
-            .map(|chord| format_single_key(chord))
-            .collect::<Vec<_>>()
-            .join(" ");
+    // Fast path: no whitespace means a single key/chord part.
+    if !key_spec.bytes().any(|b: u8| b.is_ascii_whitespace()) {
+        return format_single_key(key_spec);
     }
 
-    format_single_key(key_spec)
+    let mut out = String::new();
+    for (i, chord) in key_spec.split_whitespace().enumerate() {
+        if i > 0 {
+            out.push(' ');
+        }
+        out.push_str(&format_single_key(chord));
+    }
+    out
 }
 
 fn format_single_key(key_spec: &str) -> String {
-    let parts: Vec<&str> = key_spec.split('-').collect();
-    let mut modifiers = Vec::new();
-    let mut key = String::new();
+    let mut out = String::new();
+    let key;
 
-    for (i, part) in parts.iter().enumerate() {
-        if i == parts.len() - 1 {
-            if part.is_empty() {
-                // Trailing dash — treat the whole spec as the key name.
-                return key_spec.to_string();
+    // Track whether we are still in the modifier portion. The final part after
+    // the last '-' is the key name; a trailing '-' means the whole spec is the
+    // key.
+    if let Some((head, tail)) = key_spec.rsplit_once('-') {
+        if tail.is_empty() {
+            return key_spec.to_string();
+        }
+        key = tail;
+
+        for part in head.split('-') {
+            if !out.is_empty() {
+                out.push('+');
             }
-            key = format_key_name(part);
-        } else {
-            match *part {
-                "secondary" => modifiers.push(platform_modifier_symbol().to_string()),
-                "ctrl" => modifiers.push("Ctrl".to_string()),
-                "alt" => modifiers.push("Alt".to_string()),
-                "shift" => modifiers.push("Shift".to_string()),
-                "cmd" => modifiers.push("⌘".to_string()),
-                other => modifiers.push(capitalize(other)),
+            match modifier_label(part) {
+                Some(label) => out.push_str(label),
+                None => out.push_str(&capitalize(part)),
             }
         }
+    } else {
+        key = key_spec;
     }
 
-    if modifiers.is_empty() {
-        key
-    } else {
-        format!("{}+{}", modifiers.join("+"), key)
+    if !out.is_empty() {
+        out.push('+');
+    }
+    out.push_str(&format_key_name(key));
+    out
+}
+
+fn modifier_label(part: &str) -> Option<&'static str> {
+    match part {
+        "secondary" => Some(platform_modifier_symbol()),
+        "ctrl" => Some("Ctrl"),
+        "alt" => Some("Alt"),
+        "shift" => Some("Shift"),
+        "cmd" => Some("⌘"),
+        _ => None,
     }
 }
 
@@ -101,7 +116,14 @@ fn capitalize(s: &str) -> String {
     let mut chars = s.chars();
     match chars.next() {
         None => String::new(),
-        Some(c) => c.to_uppercase().collect::<String>() + chars.as_str(),
+        Some(c) => {
+            let mut out = String::with_capacity(s.len());
+            for upper in c.to_uppercase() {
+                out.push(upper);
+            }
+            out.push_str(chars.as_str());
+            out
+        }
     }
 }
 

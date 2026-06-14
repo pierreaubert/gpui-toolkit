@@ -7,7 +7,7 @@ use super::geo_projection_type::GeoProjectionType;
 use gpui::prelude::*;
 use gpui::*;
 use gpui_builder::{
-    Axis, ContainerNode, LayoutNode, Sizing, SlotNode, SolvedNode, solve, types::LayoutPreferences,
+    Axis, ContainerNode, LayoutNode, Sizing, SlotNode, solve, types::LayoutPreferences,
 };
 use gpui_design::DesignExt;
 use gpui_ui_kit::theme::ThemeExt;
@@ -166,7 +166,7 @@ impl ShowcaseApp {
         }
     }
 
-    pub(super) fn solve_layout(&self, w: f32, h: f32) -> SolvedNode {
+    pub(super) fn solve_layout(&self, w: f32, h: f32) -> f32 {
         let content_children: &[LayoutNode<'_>] = &[
             LayoutNode::Slot(SlotNode {
                 id: "sidebar",
@@ -195,12 +195,9 @@ impl ShowcaseApp {
             divider_size: 0.0,
         });
 
-        let prefs = LayoutPreferences {
-            ratios: &[],
-            collapsed: &[],
-        };
-
-        solve(&root, w, h, &prefs)
+        let prefs = LayoutPreferences::new(&[], &[]);
+        let solved = solve(&root, w, h, &prefs);
+        solved.find("sidebar").map(|n| n.width).unwrap_or(120.0)
     }
 
     pub(super) fn render_sidebar(
@@ -531,8 +528,7 @@ impl Render for ShowcaseApp {
         let bounds = window.bounds();
         let w: f32 = bounds.size.width.into();
         let h: f32 = bounds.size.height.into();
-        let solved = self.solve_layout(w, h);
-        let sidebar_width = solved.find("sidebar").unwrap().width;
+        let sidebar_width = self.solve_layout(w, h);
         let ds = cx.design();
         self.content_width = (w - sidebar_width - ds.spacing.section_gap * 4.0).max(400.0);
         self.content_height = (h - ds.spacing.section_gap * 4.0).max(300.0);

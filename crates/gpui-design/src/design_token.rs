@@ -5,14 +5,15 @@ use serde::{Serialize, Serializer, ser::SerializeStruct};
 /// A style token in a shape compatible with Style Dictionary export.
 #[derive(Debug, Clone, PartialEq)]
 pub struct DesignToken {
-    pub path: Vec<String>,
+    pub name: String,
+    pub path: Vec<&'static str>,
     pub value: String,
     pub token_type: &'static str,
 }
 
 impl DesignToken {
-    pub fn name(&self) -> String {
-        self.path.join(".")
+    pub fn name(&self) -> &str {
+        &self.name
     }
 }
 
@@ -30,9 +31,16 @@ impl Serialize for DesignToken {
     }
 }
 
-pub(super) fn token(path: &str, value: impl ToString, token_type: &'static str) -> DesignToken {
+pub(super) fn token(
+    path: &'static str,
+    value: impl ToString,
+    token_type: &'static str,
+) -> DesignToken {
+    let path_vec: Vec<&'static str> = path.split('.').collect();
+    let name = path_vec.join(".");
     DesignToken {
-        path: path.split('.').map(str::to_string).collect(),
+        name,
+        path: path_vec,
         value: value.to_string(),
         token_type,
     }

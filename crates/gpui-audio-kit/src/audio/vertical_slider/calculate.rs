@@ -4,9 +4,11 @@ use super::misc::find_nice_step;
 use super::misc::format_value_abbrev;
 use super::types::TickMark;
 use crate::scale::Scale;
+use std::cell::RefCell;
+use std::collections::HashMap;
 
 /// Calculate tick marks for linear scale
-pub(super) fn calculate_linear_ticks(min: f64, max: f64, track_height: f32) -> Vec<TickMark> {
+fn calculate_linear_ticks(min: f64, max: f64, track_height: f32) -> Vec<TickMark> {
     let range = max - min;
     if range <= 0.0 {
         return vec![
@@ -87,7 +89,7 @@ pub(super) fn calculate_linear_ticks(min: f64, max: f64, track_height: f32) -> V
 }
 
 /// Calculate tick marks for logarithmic scale
-pub(super) fn calculate_log_ticks(min: f64, max: f64, track_height: f32) -> Vec<TickMark> {
+fn calculate_log_ticks(min: f64, max: f64, track_height: f32) -> Vec<TickMark> {
     let min = min.max(1e-10);
     let max = max.max(min + 1e-10);
 
@@ -195,15 +197,51 @@ pub(super) fn calculate_log_ticks(min: f64, max: f64, track_height: f32) -> Vec<
     ticks
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+struct TickCacheKey {
+    min: i64,
+    max: i64,
+    scale: Scale,
+    track_height: i32,
+}
+
+impl TickCacheKey {
+    fn new(min: f64, max: f64, scale: Scale, track_height: f32) -> Self {
+        Self {
+            min: (min * 1_000_000.0).round() as i64,
+            max: (max * 1_000_000.0).round() as i64,
+            scale,
+            track_height: (track_height * 1_000.0).round() as i32,
+        }
+    }
+}
+
+thread_local! {
+    static TICK_CACHE: RefCell<HashMap<TickCacheKey, Vec<TickMark>>> = RefCell::new(HashMap::new());
+}
+
 /// Calculate tick marks based on scale type
+///
+/// Results are cached by `(min, max, scale, track_height)` so repeated renders
+/// with unchanged parameters avoid re-allocating tick label strings.
 pub(super) fn calculate_ticks(
     min: f64,
     max: f64,
     scale: Scale,
     track_height: f32,
 ) -> Vec<TickMark> {
-    match scale {
-        Scale::Linear => calculate_linear_ticks(min, max, track_height),
-        Scale::Logarithmic => calculate_log_ticks(min, max, track_height),
-    }
+    let key = TickCacheKey::new(min, max, scale, track_height);
+    TICK_CACHE.with(|cache| {
+        if let Some(cached) = cache.borrow().get(&key) {
+            return cached.clone();
+        }
+
+        let ticks = match scale {
+            Scale::Linear => calculate_linear_ticks(min, max, track_height),
+            Scale::Logarithmic => calculate_log_ticks(min, max, track_height),
+        };
+
+        cache.borrow_mut().insert(key, ticks.clone());
+        ticks
+    })
 }

@@ -48,6 +48,9 @@ uuid = { workspace = true, features = ["v5"] }
 # Logging to stderr (visible in Console.app for AU extensions)
 env_logger = { workspace = true }
 
+[dev-dependencies]
+gpui = { workspace = true, features = ["test-support"] }
+
 # Apple-only deps (Objective-C runtime, Apple frameworks, font-kit)
 [target.'cfg(target_os = "macos")'.dependencies]
 objc = { workspace = true }

@@ -50,7 +50,77 @@ impl ShowcaseView {
         }
     }
 
-    pub(super) fn solve_at(&self, w: f32, h: f32) -> SolvedNode {
+    pub(super) fn begin_drag(
+        &mut self,
+        target: DragTarget,
+        axis: Axis,
+        start_pos: f32,
+        extent: f32,
+    ) {
+        let start_ratio = match (target, axis) {
+            (DragTarget::Sidebar, Axis::Horizontal) => self.sidebar_ratio_h,
+            (DragTarget::Sidebar, Axis::Vertical) => self.sidebar_ratio_v,
+            (DragTarget::Inspector, Axis::Horizontal) => self.inspector_ratio_h,
+            (DragTarget::Inspector, Axis::Vertical) => self.inspector_ratio_v,
+        };
+
+        self.dragging = Some(DragSession {
+            target,
+            axis,
+            start_pos,
+            start_ratio,
+            extent: extent.max(1.0),
+        });
+        self.drag_moved = false;
+        self.suppress_next_divider_click = false;
+    }
+
+    pub(super) fn update_drag_from_position(&mut self, position: Point<Pixels>) -> bool {
+        let Some(drag) = self.dragging else {
+            return false;
+        };
+        let delta = (drag.axis_position(position) - drag.start_pos) / drag.extent;
+        let next = match drag.target {
+            DragTarget::Sidebar => drag.start_ratio + delta,
+            DragTarget::Inspector => drag.start_ratio - delta,
+        }
+        .clamp(0.08, 0.45);
+
+        let ratio = match (drag.target, drag.axis) {
+            (DragTarget::Sidebar, Axis::Horizontal) => &mut self.sidebar_ratio_h,
+            (DragTarget::Sidebar, Axis::Vertical) => &mut self.sidebar_ratio_v,
+            (DragTarget::Inspector, Axis::Horizontal) => &mut self.inspector_ratio_h,
+            (DragTarget::Inspector, Axis::Vertical) => &mut self.inspector_ratio_v,
+        };
+
+        if (*ratio - next).abs() <= 0.001 {
+            return false;
+        }
+
+        *ratio = next;
+        self.drag_moved = true;
+        true
+    }
+
+    pub(super) fn finish_drag(&mut self, position: Point<Pixels>) -> bool {
+        let Some(drag) = self.dragging.take() else {
+            return false;
+        };
+        let moved = self.drag_moved || (drag.axis_position(position) - drag.start_pos).abs() > 3.0;
+        self.suppress_next_divider_click = moved;
+        self.drag_moved = false;
+        true
+    }
+}
+
+impl Render for ShowcaseView {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = ShowcaseTheme::dark();
+        let ds = cx.design();
+        let bounds = window.bounds();
+        let w: f32 = bounds.size.width.into();
+        let h: f32 = bounds.size.height.into();
+
         let content_children: &[LayoutNode<'_>] = &[
             LayoutNode::Slot(SlotNode {
                 id: "sidebar",
@@ -124,86 +194,9 @@ impl ShowcaseView {
             ("sidebar", self.sidebar_collapsed),
             ("inspector", self.inspector_collapsed),
         ];
-        let prefs = LayoutPreferences {
-            ratios: &ratios,
-            collapsed: &collapsed,
-        };
+        let prefs = LayoutPreferences::new(&ratios, &collapsed);
 
-        solve(&root, w, h, &prefs)
-    }
-
-    pub(super) fn begin_drag(
-        &mut self,
-        target: DragTarget,
-        axis: Axis,
-        start_pos: f32,
-        extent: f32,
-    ) {
-        let start_ratio = match (target, axis) {
-            (DragTarget::Sidebar, Axis::Horizontal) => self.sidebar_ratio_h,
-            (DragTarget::Sidebar, Axis::Vertical) => self.sidebar_ratio_v,
-            (DragTarget::Inspector, Axis::Horizontal) => self.inspector_ratio_h,
-            (DragTarget::Inspector, Axis::Vertical) => self.inspector_ratio_v,
-        };
-
-        self.dragging = Some(DragSession {
-            target,
-            axis,
-            start_pos,
-            start_ratio,
-            extent: extent.max(1.0),
-        });
-        self.drag_moved = false;
-        self.suppress_next_divider_click = false;
-    }
-
-    pub(super) fn update_drag_from_position(&mut self, position: Point<Pixels>) -> bool {
-        let Some(drag) = self.dragging else {
-            return false;
-        };
-        let delta = (drag.axis_position(position) - drag.start_pos) / drag.extent;
-        let next = match drag.target {
-            DragTarget::Sidebar => drag.start_ratio + delta,
-            DragTarget::Inspector => drag.start_ratio - delta,
-        }
-        .clamp(0.08, 0.45);
-
-        let ratio = match (drag.target, drag.axis) {
-            (DragTarget::Sidebar, Axis::Horizontal) => &mut self.sidebar_ratio_h,
-            (DragTarget::Sidebar, Axis::Vertical) => &mut self.sidebar_ratio_v,
-            (DragTarget::Inspector, Axis::Horizontal) => &mut self.inspector_ratio_h,
-            (DragTarget::Inspector, Axis::Vertical) => &mut self.inspector_ratio_v,
-        };
-
-        if (*ratio - next).abs() <= 0.001 {
-            return false;
-        }
-
-        *ratio = next;
-        self.drag_moved = true;
-        true
-    }
-
-    pub(super) fn finish_drag(&mut self, position: Point<Pixels>) -> bool {
-        let Some(drag) = self.dragging.take() else {
-            return false;
-        };
-        let moved = self.drag_moved || (drag.axis_position(position) - drag.start_pos).abs() > 3.0;
-        self.suppress_next_divider_click = moved;
-        self.drag_moved = false;
-        true
-    }
-}
-
-impl Render for ShowcaseView {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = ShowcaseTheme::dark();
-        let ds = cx.design();
-        let bounds = window.bounds();
-        let w: f32 = bounds.size.width.into();
-        let h: f32 = bounds.size.height.into();
-
-        let solved = self.solve_at(w, h);
+        let solved = solve(&root, w, h, &prefs);
         let selected_id = self.selected_node.as_deref().unwrap_or("root");
 
         let content = solved.find("content").unwrap();
@@ -212,9 +205,9 @@ impl Render for ShowcaseView {
         let footer_h = solved.find("footer").unwrap().height;
         let tabs = solved.collapsed_tabs();
 
-        let sidebar = solved.find("sidebar").unwrap().clone();
-        let main_n = solved.find("main").unwrap().clone();
-        let inspector = solved.find("inspector").unwrap().clone();
+        let sidebar = solved.find("sidebar").unwrap();
+        let main_n = solved.find("main").unwrap();
+        let inspector = solved.find("inspector").unwrap();
         let content_w = content.width;
         let content_h = content.height;
 

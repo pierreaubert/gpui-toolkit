@@ -405,16 +405,19 @@ pub fn render_axis<S>(
 where
     S: Scale<f64, f64>,
 {
-    let ticks = match &config.tick_values {
-        Some(values) => values.clone(),
-        None => scale.ticks(config.tick_count),
+    use std::borrow::Cow;
+
+    // Borrow explicit tick values; only allocate when falling back to scale ticks.
+    let ticks: Cow<[f64]> = match &config.tick_values {
+        Some(values) => Cow::Borrowed(values),
+        None => Cow::Owned(scale.ticks(config.tick_count)),
     };
 
     let (range_min, range_max) = scale.range();
     let range_span = range_max - range_min;
 
-    // Pre-compute tick data
-    let tick_data: Vec<(f32, String)> = if range_span == 0.0 {
+    // Pre-compute tick data with cached SharedString labels.
+    let tick_data: Vec<(f32, SharedString)> = if range_span == 0.0 {
         vec![]
     } else {
         ticks
@@ -433,15 +436,12 @@ where
     } else {
         config
             .minor_tick_values
-            .as_ref()
-            .map(|values| {
-                values
-                    .iter()
-                    .map(|&v| ((scale.scale(v) - range_min) / range_span) as f32)
-                    .filter(|p| (0.0..=1.0).contains(p))
-                    .collect()
-            })
+            .as_deref()
             .unwrap_or_default()
+            .iter()
+            .map(|&v| ((scale.scale(v) - range_min) / range_span) as f32)
+            .filter(|p| (0.0..=1.0).contains(p))
+            .collect()
     };
 
     let orientation = config.orientation;
@@ -454,7 +454,7 @@ where
     let domain_width = config.domain_line_width;
     let line_color = theme.line_color;
     let label_color = theme.label_color;
-    let title = config.title.clone();
+    let title: Option<SharedString> = config.title.clone().map(SharedString::from);
     let title_font_size = config.title_font_size;
     let _size = size; // Not used directly, bounds come from element
 
@@ -480,7 +480,7 @@ where
                     let label_y = tick_size + tick_padding + label_font_size * 0.8;
                     let label_width = label.len() as f32 * label_font_size * 0.6;
                     renderer.draw_text_rotated(
-                        label,
+                        label.as_ref(),
                         x - label_width / 2.0,
                         label_y,
                         label_font_size,
@@ -504,7 +504,7 @@ where
                         + title_font_size * 0.8;
                     let title_width = title_text.len() as f32 * title_font_size * 0.6;
                     renderer.draw_text(
-                        title_text,
+                        title_text.as_ref(),
                         width / 2.0 - title_width / 2.0,
                         title_y,
                         title_font_size,
@@ -531,7 +531,7 @@ where
                     let label_y = base_y - tick_size - tick_padding;
                     let label_width = label.len() as f32 * label_font_size * 0.6;
                     renderer.draw_text_rotated(
-                        label,
+                        label.as_ref(),
                         x - label_width / 2.0,
                         label_y,
                         label_font_size,
@@ -572,7 +572,7 @@ where
                     let label_width = label.len() as f32 * label_font_size * 0.6;
                     let label_x = base_x - tick_size - tick_padding - label_width;
                     renderer.draw_text(
-                        label,
+                        label.as_ref(),
                         label_x,
                         y + label_font_size * 0.3,
                         label_font_size,
@@ -596,7 +596,7 @@ where
                 if let Some(ref title_text) = title {
                     let title_width = title_text.len() as f32 * title_font_size * 0.6;
                     renderer.draw_text_rotated(
-                        title_text,
+                        title_text.as_ref(),
                         2.0,
                         height / 2.0 + title_width / 2.0,
                         title_font_size,
@@ -621,7 +621,7 @@ where
                     // Label (left-aligned to the right of tick)
                     let label_x = tick_size + tick_padding;
                     renderer.draw_text(
-                        label,
+                        label.as_ref(),
                         label_x,
                         y + label_font_size * 0.3,
                         label_font_size,
@@ -1029,4 +1029,24 @@ where
     })
     .transparent()
     .absolute()
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::axis::{AxisConfig, DefaultAxisTheme};
+    use crate::gpu2d::shapes::gpu_axis_theme::GpuAxisTheme;
+    use crate::scale::LinearScale;
+
+    #[test]
+    fn test_gpu_render_axis_orientations() {
+        let scale = LinearScale::new().domain(0.0, 100.0).range(0.0, 400.0);
+        let theme = GpuAxisTheme::light();
+
+        let _ = render_axis(&scale, &AxisConfig::bottom().with_ticks(5), 400.0, &theme);
+        let _ = render_axis(&scale, &AxisConfig::top().with_ticks(5), 400.0, &theme);
+        let _ = render_axis(&scale, &AxisConfig::left().with_ticks(5), 300.0, &theme);
+        let _ = render_axis(&scale, &AxisConfig::right().with_ticks(5), 300.0, &theme);
+    }
 }

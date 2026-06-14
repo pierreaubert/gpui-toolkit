@@ -113,7 +113,7 @@ impl<T> Hexbin<T> {
     pub fn bin(&self, data: Vec<T>) -> Vec<HexbinBin<T>> {
         let dx = self.radius * 3.0f64.sqrt();
         let dy = self.radius * 1.5;
-        let mut bins: HashMap<String, HexbinBin<T>> = HashMap::new();
+        let mut bins: HashMap<(i64, i64), HexbinBin<T>> = HashMap::new();
 
         for d in data {
             let px = (self.x)(&d);
@@ -144,13 +144,13 @@ impl<T> Hexbin<T> {
                 }
             }
 
-            let id = format!("{}-{}", pi0 as i64, pj0 as i64);
+            let key = (pi0 as i64, pj0 as i64);
             let odd = (pj0 as i64) & 1 == 1;
-            if let Some(bin) = bins.get_mut(&id) {
+            if let Some(bin) = bins.get_mut(&key) {
                 bin.points.push(d);
             } else {
                 bins.insert(
-                    id,
+                    key,
                     HexbinBin {
                         x: (pi0 + if odd { 0.5 } else { 0.0 }) * dx,
                         y: pj0 * dy,
@@ -161,5 +161,33 @@ impl<T> Hexbin<T> {
         }
 
         bins.into_values().collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_hexbin_basic() {
+        let hexbin = Hexbin::with_accessors(|p: &(f64, f64)| p.0, |p: &(f64, f64)| p.1)
+            .radius(1.0);
+        let data = vec![(0.0, 0.0), (0.1, 0.1), (2.0, 2.0)];
+        let bins = hexbin.bin(data);
+
+        assert!(!bins.is_empty());
+        let total: usize = bins.iter().map(|b| b.len()).sum();
+        assert_eq!(total, 3);
+    }
+
+    #[test]
+    fn test_hexbin_ignores_nan() {
+        let hexbin = Hexbin::with_accessors(|p: &(f64, f64)| p.0, |p: &(f64, f64)| p.1)
+            .radius(1.0);
+        let data = vec![(0.0, 0.0), (f64::NAN, 1.0), (1.0, f64::NAN)];
+        let bins = hexbin.bin(data);
+
+        let total: usize = bins.iter().map(|b| b.len()).sum();
+        assert_eq!(total, 1);
     }
 }

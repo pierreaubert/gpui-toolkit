@@ -4,8 +4,8 @@ use crate::error::ChartError;
 use crate::{
     ChartSize, DEFAULT_COLOR, DEFAULT_HEIGHT, DEFAULT_PADDING_FRACTION, DEFAULT_TITLE_FONT_SIZE,
     DEFAULT_WIDTH, ScaleType, TITLE_AREA_HEIGHT, apply_chart_size, default_design, extent_padded,
-    resolved_chart_dimensions, validate_data_array, validate_data_length, validate_dimensions,
-    validate_positive,
+    extent_padded_iter, resolved_chart_dimensions, validate_data_array, validate_data_length,
+    validate_dimensions, validate_positive,
 };
 use d3rs::color::D3Color;
 use d3rs::scale::{LinearScale, LogScale, Scale};
@@ -13,8 +13,8 @@ use d3rs::shape::{Area, Curve};
 use d3rs::text::{GlyphTextConfig, render_glyph_text};
 use gpui::prelude::*;
 use gpui::{AnyElement, IntoElement, PathBuilder, Rgba, canvas, div, hsla, px};
-use gpui_design::DesignSystem;
 use std::sync::Arc;
+use gpui_design::DesignSystem;
 
 /// Area chart builder.
 #[derive(Clone)]
@@ -149,18 +149,21 @@ impl AreaChart {
         // Calculate domains with padding
         let (x_min, x_max) = extent_padded(&self.x, DEFAULT_PADDING_FRACTION);
 
-        // Calculate Y domain considering y and y0
+        // Calculate Y domain considering y and y0 without intermediate allocations.
         let y_data_min = self.y.iter().copied().fold(f64::INFINITY, f64::min);
         let (y_min, y_max) = if let Some(ref y0) = self.y0 {
-            let all_y: Vec<f64> = self.y.iter().chain(y0.iter()).copied().collect();
-            extent_padded(&all_y, DEFAULT_PADDING_FRACTION)
+            extent_padded_iter(
+                self.y.iter().chain(y0.iter()).copied(),
+                DEFAULT_PADDING_FRACTION,
+            )
         } else if self.y_scale_type == ScaleType::Log {
             // For log scale, use data minimum as baseline instead of 0.0
             extent_padded(&self.y, DEFAULT_PADDING_FRACTION)
         } else {
-            let mut all_y: Vec<f64> = self.y.to_vec();
-            all_y.push(0.0); // Include baseline 0
-            extent_padded(&all_y, DEFAULT_PADDING_FRACTION)
+            extent_padded_iter(
+                self.y.iter().copied().chain(std::iter::once(0.0)),
+                DEFAULT_PADDING_FRACTION,
+            )
         };
 
         // Prepare data for rendering
@@ -197,47 +200,48 @@ impl AreaChart {
         let opacity = self.opacity;
         let curve = self.curve;
 
-        // Create render function
-        let render_element = move |x_scale: Arc<dyn Scale<f64, f64>>,
-                                   y_scale: Arc<dyn Scale<f64, f64>>| {
-            let x_scale_prepaint = x_scale.clone();
-            let y_scale_prepaint = y_scale.clone();
+        // Pre-build the area path points once per scale combination. This moves
+        // the Area::generate + flatten work out of the paint closure.
+        let build_area_points =
+            |x_scale: Arc<dyn Scale<f64, f64>>, y_scale: Arc<dyn Scale<f64, f64>>| {
+                let x_scale_for_area = x_scale.clone();
+                let y_scale_for_area = y_scale.clone();
+                let y_scale_for_y1 = y_scale.clone();
+                let area = Area::new()
+                    .x(move |d: &AreaDatum| x_scale_for_area.scale(d.x))
+                    .y0(move |d: &AreaDatum| y_scale_for_area.scale(d.y0))
+                    .y1(move |d: &AreaDatum| y_scale_for_y1.scale(d.y1))
+                    .curve(curve);
+                let path = area.generate(&data);
+                path.flatten(0.5)
+                    .into_iter()
+                    .map(|p| gpui::point(px(p.x as f32), px(p.y as f32)))
+                    .collect::<Vec<_>>()
+            };
 
+        let render_element = move |points: Vec<gpui::Point<gpui::Pixels>>| {
             canvas(
-                move |bounds, _, _| (x_scale_prepaint.clone(), y_scale_prepaint.clone(), bounds),
-                move |_, (x_scale, y_scale, bounds), window, _| {
-                    let x_scale_x = x_scale.clone();
-                    let y_scale_y0 = y_scale.clone();
-                    let y_scale_y1 = y_scale.clone();
-
-                    let area = Area::new()
-                        .x(move |d: &AreaDatum| x_scale_x.scale(d.x))
-                        .y0(move |d: &AreaDatum| y_scale_y0.scale(d.y0))
-                        .y1(move |d: &AreaDatum| y_scale_y1.scale(d.y1))
-                        .curve(curve);
-
-                    let path = area.generate(&data);
-                    let points = path.flatten(0.5);
-
-                    let origin_x: f32 = bounds.origin.x.into();
-                    let origin_y: f32 = bounds.origin.y.into();
-
+                move |bounds, _, _| (points.clone(), bounds),
+                move |_, (points, bounds), window, _| {
                     if points.is_empty() {
                         return;
                     }
+
+                    let origin_x: f32 = bounds.origin.x.into();
+                    let origin_y: f32 = bounds.origin.y.into();
 
                     let mut path_builder = PathBuilder::fill();
 
                     let first = points[0];
                     path_builder.move_to(gpui::point(
-                        px(origin_x + first.x as f32),
-                        px(origin_y + first.y as f32),
+                        px(origin_x + f32::from(first.x)),
+                        px(origin_y + f32::from(first.y)),
                     ));
 
                     for p in points.iter().skip(1) {
                         path_builder.line_to(gpui::point(
-                            px(origin_x + p.x as f32),
-                            px(origin_y + p.y as f32),
+                            px(origin_x + f32::from(p.x)),
+                            px(origin_y + f32::from(p.y)),
                         ));
                     }
 
@@ -267,7 +271,7 @@ impl AreaChart {
                 let y_scale = LinearScale::new()
                     .domain(y_min, y_max)
                     .range(plot_height as f64, 0.0);
-                render_element(Arc::new(x_scale), Arc::new(y_scale)).into_any_element()
+                render_element(build_area_points(Arc::new(x_scale), Arc::new(y_scale))).into_any_element()
             }
             (ScaleType::Log, ScaleType::Linear) => {
                 let x_scale = LogScale::new()
@@ -276,7 +280,7 @@ impl AreaChart {
                 let y_scale = LinearScale::new()
                     .domain(y_min, y_max)
                     .range(plot_height as f64, 0.0);
-                render_element(Arc::new(x_scale), Arc::new(y_scale)).into_any_element()
+                render_element(build_area_points(Arc::new(x_scale), Arc::new(y_scale))).into_any_element()
             }
             (ScaleType::Linear, ScaleType::Log) => {
                 let x_scale = LinearScale::new()
@@ -285,7 +289,7 @@ impl AreaChart {
                 let y_scale = LogScale::new()
                     .domain(y_min.max(1e-10), y_max)
                     .range(plot_height as f64, 0.0);
-                render_element(Arc::new(x_scale), Arc::new(y_scale)).into_any_element()
+                render_element(build_area_points(Arc::new(x_scale), Arc::new(y_scale))).into_any_element()
             }
             (ScaleType::Log, ScaleType::Log) => {
                 let x_scale = LogScale::new()
@@ -294,7 +298,7 @@ impl AreaChart {
                 let y_scale = LogScale::new()
                     .domain(y_min.max(1e-10), y_max)
                     .range(plot_height as f64, 0.0);
-                render_element(Arc::new(x_scale), Arc::new(y_scale)).into_any_element()
+                render_element(build_area_points(Arc::new(x_scale), Arc::new(y_scale))).into_any_element()
             }
         };
 

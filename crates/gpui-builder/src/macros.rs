@@ -44,22 +44,24 @@ macro_rules! solve_layout {
         $(,)?
     ) => {{
         $crate::__gpui_builder_layout_declare_children! { $($children)* }
-        let $id = {
+        let $id: &'static [$crate::LayoutNode<'static>] = {
             let mut __gpui_builder_children = ::std::vec::Vec::new();
             $crate::__gpui_builder_layout_push_children! {
                 __gpui_builder_children,
                 $($children)*
             }
-            __gpui_builder_children
+            ::std::boxed::Box::leak(__gpui_builder_children.into_boxed_slice())
         };
-        let __gpui_builder_root = $crate::__gpui_builder_layout_container_node!(
-            $id,
-            $axis,
-            $sizing,
-            $id.as_slice()
-            $(; $($opts)*)?
+        let __gpui_builder_root: &'static $crate::LayoutNode<'static> = ::std::boxed::Box::leak(
+            ::std::boxed::Box::new($crate::__gpui_builder_layout_container_node!(
+                $id,
+                $axis,
+                $sizing,
+                $id
+                $(; $($opts)*)?
+            ))
         );
-        $crate::solve(&__gpui_builder_root, $width, $height, $prefs)
+        $crate::solve(__gpui_builder_root, $width, $height, $prefs)
     }};
 }
 
@@ -82,13 +84,13 @@ macro_rules! __gpui_builder_layout_declare_children {
         $($rest:tt)*
     ) => {
         $crate::__gpui_builder_layout_declare_children! { $($children)* }
-        let $id = {
+        let $id: &'static [$crate::LayoutNode<'static>] = {
             let mut __gpui_builder_children = ::std::vec::Vec::new();
             $crate::__gpui_builder_layout_push_children! {
                 __gpui_builder_children,
                 $($children)*
             }
-            __gpui_builder_children
+            ::std::boxed::Box::leak(__gpui_builder_children.into_boxed_slice())
         };
         $crate::__gpui_builder_layout_declare_children! { $($rest)* }
     };
@@ -120,7 +122,7 @@ macro_rules! __gpui_builder_layout_push_children {
             $id,
             $axis,
             $sizing,
-            $id.as_slice()
+            $id
             $(; $($opts)*)?
         ));
         $crate::__gpui_builder_layout_push_children! { $children, $($rest)* }
@@ -289,10 +291,8 @@ mod tests {
             divider_size: 0.0,
         });
 
-        let prefs = LayoutPreferences {
-            ratios: &[("library", Axis::Horizontal, 0.45)],
-            collapsed: &[("rack", true)],
-        };
+        let prefs =
+            LayoutPreferences::new(&[("library", Axis::Horizontal, 0.45)], &[("rack", true)]);
 
         let explicit = solve(&explicit_root, 1200.0, 800.0, &prefs);
         let macro_solved = crate::solve_layout! {

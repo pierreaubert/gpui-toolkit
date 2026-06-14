@@ -63,6 +63,9 @@ pub struct CommandPaletteTheme {
 pub struct CommandItem {
     id: SharedString,
     label: SharedString,
+    /// Lowercased label for case-insensitive filtering without re-allocating
+    /// on every keystroke.
+    label_lower: SharedString,
     shortcut: Option<SharedString>,
     category: Option<SharedString>,
     icon: Option<SharedString>,
@@ -72,14 +75,25 @@ pub struct CommandItem {
 impl CommandItem {
     /// Create a new command item
     pub fn new(id: impl Into<SharedString>, label: impl Into<SharedString>) -> Self {
+        let label: SharedString = label.into();
+        let label_lower = label.to_lowercase().into();
         Self {
             id: id.into(),
-            label: label.into(),
+            label,
+            label_lower,
             shortcut: None,
             category: None,
             icon: None,
             disabled: false,
         }
+    }
+
+    /// Set the item label (also refreshes the cached lowercase form)
+    pub fn label(mut self, label: impl Into<SharedString>) -> Self {
+        let label: SharedString = label.into();
+        self.label_lower = label.to_lowercase().into();
+        self.label = label;
+        self
     }
 
     /// Set keyboard shortcut label
@@ -246,7 +260,7 @@ impl CommandPalette {
 
         for (i, item) in self.items.iter().enumerate() {
             // Simple filter: if query is non-empty, check if label contains it
-            if !query_lower.is_empty() && !item.label.to_lowercase().contains(&query_lower) {
+            if !query_lower.is_empty() && !item.label_lower.contains(&query_lower) {
                 continue;
             }
 
@@ -340,5 +354,19 @@ impl IntoElement for CommandPalette {
 
     fn into_element(self) -> Self::Element {
         gpui::Component::new(self)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::CommandItem;
+
+    #[test]
+    fn command_item_caches_lowercase_label() {
+        let item = CommandItem::new("open", "Open File");
+        assert_eq!(item.label_lower.as_ref(), "open file");
+
+        let renamed = CommandItem::new("save", "Save").label("Save As...");
+        assert_eq!(renamed.label_lower.as_ref(), "save as...");
     }
 }

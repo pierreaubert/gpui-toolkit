@@ -38,14 +38,13 @@ pub(super) fn carry_trailing_forward_sticky_across_cjk_boundary(
         if !is_cjk(&texts[i]) || !is_cjk(&texts[i + 1]) {
             continue;
         }
-        if let Some((head, tail)) = split_trailing_forward_sticky_cluster(&texts[i]) {
-            let head = head.to_string();
-            let tail = tail.to_string();
-            let new_next = format!("{}{}", tail, &texts[i + 1]);
-            starts[i + 1] = starts[i] + head.len();
-            texts[i] = head;
-            texts[i + 1] = new_next;
-        }
+        let (head_len, tail) = match split_trailing_forward_sticky_cluster(&texts[i]) {
+            Some((head, tail)) => (head.len(), tail.to_string()),
+            None => continue,
+        };
+        starts[i + 1] = starts[i] + head_len;
+        texts[i + 1].insert_str(0, &tail);
+        texts[i].truncate(head_len);
     }
 
     MergedSegmentation {
@@ -62,19 +61,25 @@ pub(super) fn compact(
     kinds: Vec<SegmentBreakKind>,
     starts: Vec<usize>,
 ) -> MergedSegmentation {
-    let mut out_texts = Vec::new();
-    let mut out_wl = Vec::new();
-    let mut out_kinds = Vec::new();
-    let mut out_starts = Vec::new();
+    let len = texts.len();
+    let mut out_texts = Vec::with_capacity(len);
+    let mut out_wl = Vec::with_capacity(len);
+    let mut out_kinds = Vec::with_capacity(len);
+    let mut out_starts = Vec::with_capacity(len);
 
-    for i in 0..texts.len() {
-        if texts[i].is_empty() {
+    for (((text, wl), kind), start) in texts
+        .into_iter()
+        .zip(is_word_like)
+        .zip(kinds)
+        .zip(starts)
+    {
+        if text.is_empty() {
             continue;
         }
-        out_texts.push(texts[i].clone());
-        out_wl.push(is_word_like[i]);
-        out_kinds.push(kinds[i]);
-        out_starts.push(starts[i]);
+        out_texts.push(text);
+        out_wl.push(wl);
+        out_kinds.push(kind);
+        out_starts.push(start);
     }
 
     MergedSegmentation {

@@ -255,7 +255,7 @@ pub struct PluginAdaptations {
 /// Finds the "main" slot's resolved width and applies threshold rules
 /// (identical to the existing `layout_solver.rs` logic).
 pub fn plugin_adaptations(
-    solved: &SolvedNode,
+    solved: &SolvedNode<'_>,
     thresholds: &PluginLayoutThresholds,
 ) -> PluginAdaptations {
     // Determine orientation from the root container's resolved axis
@@ -446,7 +446,7 @@ mod tests {
             .children
             .iter()
             .filter(|c| c.visible)
-            .map(|c| c.id.as_str())
+            .map(|c| c.id)
             .collect();
         assert_eq!(ids, vec!["config", "main", "diagnostic", "output"]);
     }

@@ -10,6 +10,9 @@ use crate::showcase::ComponentShowcase;
 use crate::theme::{BuiltInThemePreset, Color, ColorGroup, EditorTheme};
 use gpui::prelude::*;
 use gpui::*;
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::sync::OnceLock;
 use gpui_ui_kit::{
     Button, ButtonSize, ButtonVariant, ColorPickerView, HStack, StackSpacing, Text, TextSize,
     TextWeight, VStack,
@@ -18,7 +21,7 @@ use gpui_ui_kit::{
 /// Theme editor state
 pub struct ThemeEditor {
     /// Current theme being edited
-    pub theme: EditorTheme,
+    pub theme: Arc<EditorTheme>,
     /// Currently selected color group
     pub selected_group: ColorGroup,
     /// Currently selected color field index within group
@@ -26,7 +29,7 @@ pub struct ThemeEditor {
     /// Current tab
     pub current_tab: EditorTab,
     /// All color fields
-    pub color_fields: Vec<ColorField>,
+    pub color_fields: &'static [ColorField],
     /// Expanded accordion sections
     pub expanded_sections: Vec<SharedString>,
     /// Color picker model for modal
@@ -41,9 +44,82 @@ pub struct ThemeEditor {
     pub editing_field: Option<ColorField>,
 }
 
+/// Stable element ID for a color group row.
+fn group_element_id(group: ColorGroup) -> SharedString {
+    static IDS: OnceLock<HashMap<ColorGroup, SharedString>> = OnceLock::new();
+    IDS.get_or_init(|| {
+        ColorGroup::all()
+            .iter()
+            .map(|&g| (g, SharedString::from(format!("group-{g:?}"))))
+            .collect()
+    })
+    .get(&group)
+    .cloned()
+    .unwrap_or_else(|| SharedString::from(format!("group-{group:?}")))
+}
+
+/// Stable element ID for a color field row.
+fn field_element_id(field: &ColorField) -> SharedString {
+    static IDS: OnceLock<HashMap<&'static str, SharedString>> = OnceLock::new();
+    IDS.get_or_init(|| {
+        all_color_fields()
+            .iter()
+            .map(|f| (f.name, SharedString::from(format!("field-{}", f.name))))
+            .collect()
+    })
+    .get(field.name)
+    .cloned()
+    .unwrap_or_else(|| SharedString::from(format!("field-{}", field.name)))
+}
+
+/// Stable element ID for an editor tab.
+fn tab_element_id(tab: EditorTab) -> SharedString {
+    static IDS: OnceLock<HashMap<EditorTab, SharedString>> = OnceLock::new();
+    IDS.get_or_init(|| {
+        [EditorTab::Colors, EditorTab::Preview, EditorTab::Export]
+            .iter()
+            .map(|&t| (t, SharedString::from(format!("tab-{t:?}"))))
+            .collect()
+    })
+    .get(&tab)
+    .cloned()
+    .unwrap_or_else(|| SharedString::from(format!("tab-{tab:?}")))
+}
+
+/// Stable element ID for a preset button in the header.
+fn preset_element_id(preset_id: &str) -> SharedString {
+    static IDS: OnceLock<HashMap<&'static str, SharedString>> = OnceLock::new();
+    IDS.get_or_init(|| {
+        editor_header_presets()
+            .iter()
+            .map(|preset| {
+                let id = preset.id();
+                (id, SharedString::from(format!("preset-{id}")))
+            })
+            .collect()
+    })
+    .get(preset_id)
+    .cloned()
+    .unwrap_or_else(|| SharedString::from(format!("preset-{preset_id}")))
+}
+
+/// Cached "Edit: {field}" label for the color editor panel.
+fn field_edit_label(field: &ColorField) -> SharedString {
+    static LABELS: OnceLock<HashMap<&'static str, SharedString>> = OnceLock::new();
+    LABELS.get_or_init(|| {
+        all_color_fields()
+            .iter()
+            .map(|f| (f.name, SharedString::from(format!("Edit: {}", f.name))))
+            .collect()
+    })
+    .get(field.name)
+    .cloned()
+    .unwrap_or_else(|| SharedString::from(format!("Edit: {}", field.name)))
+}
+
 impl ThemeEditor {
     pub fn new(cx: &mut Context<Self>) -> Self {
-        let theme = EditorTheme::dark();
+        let theme = Arc::new(EditorTheme::dark());
         let showcase = cx.new(|_| ComponentShowcase::new(theme.clone()));
 
         Self {
@@ -62,17 +138,29 @@ impl ThemeEditor {
     }
 
     /// Get fields for a specific group
-    pub(super) fn fields_for_group(&self, group: ColorGroup) -> Vec<&ColorField> {
-        self.color_fields
-            .iter()
-            .filter(|f| f.group == group)
-            .collect()
+    pub(super) fn fields_for_group(group: ColorGroup) -> &'static [ColorField] {
+        static GROUPS: OnceLock<HashMap<ColorGroup, &'static [ColorField]>> = OnceLock::new();
+        GROUPS.get_or_init(|| {
+            let mut map: HashMap<ColorGroup, Vec<ColorField>> = HashMap::new();
+            for field in all_color_fields() {
+                map.entry(field.group).or_default().push(*field);
+            }
+            map.into_iter()
+                .map(|(group, fields)| {
+                    let leaked: &'static [ColorField] = Box::leak(fields.into_boxed_slice());
+                    (group, leaked)
+                })
+                .collect()
+        })
+        .get(&group)
+        .copied()
+        .unwrap_or(&[])
     }
 
     /// Get current selected field
-    pub(super) fn current_field(&self) -> Option<&ColorField> {
-        let fields = self.fields_for_group(self.selected_group);
-        fields.get(self.selected_field_index).copied()
+    pub(super) fn current_field(&self) -> Option<&'static ColorField> {
+        Self::fields_for_group(self.selected_group)
+            .get(self.selected_field_index)
     }
 
     /// Update a color and sync to showcase
@@ -82,19 +170,23 @@ impl ThemeEditor {
         color: Color,
         cx: &mut Context<Self>,
     ) {
-        (field.setter)(&mut self.theme, color);
-        // Update showcase
+        let theme = Arc::make_mut(&mut self.theme);
+        (field.setter)(theme, color);
+        // Update showcase with a cheap Arc clone
+        let new_theme = self.theme.clone();
         self.showcase.update(cx, |showcase, _| {
-            showcase.set_theme(self.theme.clone());
+            showcase.set_theme(new_theme);
         });
         cx.notify();
     }
 
     /// Load a preset theme
     pub(super) fn load_preset(&mut self, preset: &str, cx: &mut Context<Self>) {
-        self.theme = BuiltInThemePreset::from_id(preset)
-            .unwrap_or_default()
-            .to_theme();
+        self.theme = Arc::new(
+            BuiltInThemePreset::from_id(preset)
+                .unwrap_or_default()
+                .to_theme(),
+        );
         self.showcase.update(cx, |showcase, _| {
             showcase.set_theme(self.theme.clone());
         });
@@ -179,7 +271,7 @@ impl ThemeEditor {
                 };
 
                 div()
-                    .id(SharedString::from(format!("group-{:?}", group)))
+                    .id(group_element_id(*group))
                     .cursor_pointer()
                     .px_3()
                     .py_2()
@@ -208,7 +300,7 @@ impl ThemeEditor {
     /// Render color list for current group
     pub(super) fn render_color_list(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = &self.theme;
-        let fields = self.fields_for_group(self.selected_group);
+        let fields = Self::fields_for_group(self.selected_group);
         let selected_index = self.selected_field_index;
 
         VStack::new()
@@ -235,7 +327,7 @@ impl ThemeEditor {
                 };
 
                 div()
-                    .id(SharedString::from(format!("field-{}", field.name)))
+                    .id(field_element_id(field))
                     .cursor_pointer()
                     .px_3()
                     .py_2()
@@ -285,13 +377,12 @@ impl ThemeEditor {
 
         if let Some(field) = self.current_field() {
             let color = (field.getter)(&self.theme);
-            let field_name = field.name;
 
             div().p_4().child(
                 VStack::new()
                     .spacing(StackSpacing::Md)
                     .child(
-                        Text::new(SharedString::from(format!("Edit: {}", field_name)))
+                        Text::new(field_edit_label(field))
                             .size(TextSize::Md)
                             .weight(TextWeight::Bold)
                             .color(theme.text_primary.to_rgba()),
@@ -585,7 +676,7 @@ impl ThemeEditor {
                             )
                             .children(editor_header_presets().iter().map(|preset| {
                                 let preset = *preset;
-                                Button::new(format!("preset-{}", preset.id()), preset.name())
+                                Button::new(preset_element_id(preset.id()), preset.name())
                                     .variant(ButtonVariant::Ghost)
                                     .size(ButtonSize::Sm)
                                     .build()
@@ -654,7 +745,7 @@ impl ThemeEditor {
         };
 
         div()
-            .id(SharedString::from(format!("tab-{:?}", tab)))
+            .id(tab_element_id(tab))
             .cursor_pointer()
             .px_4()
             .py_2()
@@ -827,5 +918,51 @@ impl Render for ThemeEditor {
             }))
             // Color picker modal (rendered on top when visible)
             .child(self.render_color_modal(cx))
+    }
+}
+
+#[cfg(test)]
+mod theme_editor_tests {
+    use super::ColorGroup;
+    use super::EditorTab;
+    use super::ThemeEditor;
+    use super::all_color_fields;
+    use super::field_edit_label;
+    use super::field_element_id;
+    use super::group_element_id;
+    use super::tab_element_id;
+
+    #[test]
+    fn test_fields_for_group_filters_and_is_stable() {
+        let base = ThemeEditor::fields_for_group(ColorGroup::Base);
+        assert!(!base.is_empty());
+        for field in base {
+            assert_eq!(field.group, ColorGroup::Base);
+        }
+
+        // Repeated calls return the same static slice.
+        let base2 = ThemeEditor::fields_for_group(ColorGroup::Base);
+        assert_eq!(base.as_ptr(), base2.as_ptr());
+    }
+
+    #[test]
+    fn test_element_ids_are_stable() {
+        let fields = all_color_fields();
+        let first = fields.first().unwrap();
+        assert_eq!(
+            field_element_id(first).as_ref(),
+            format!("field-{}", first.name)
+        );
+        assert_eq!(group_element_id(ColorGroup::Base).as_ref(), "group-Base");
+        assert_eq!(tab_element_id(EditorTab::Colors).as_ref(), "tab-Colors");
+    }
+
+    #[test]
+    fn test_field_edit_label_is_cached() {
+        let field = all_color_fields().first().copied().unwrap();
+        let label1 = field_edit_label(&field);
+        let label2 = field_edit_label(&field);
+        assert_eq!(label1.as_ref(), format!("Edit: {}", field.name));
+        assert_eq!(label1, label2);
     }
 }

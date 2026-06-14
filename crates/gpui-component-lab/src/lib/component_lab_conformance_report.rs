@@ -4,6 +4,7 @@ use super::component_lab_conformance_finding::ComponentLabConformanceFinding;
 use anyhow::{Result, bail};
 use gpui_design_tools::DesignTokenValidationReport;
 use serde::Serialize;
+use std::fmt::Write;
 
 /// CI-facing component lab conformance report.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -37,14 +38,19 @@ impl ComponentLabConformanceReport {
     }
 
     pub fn to_markdown(&self) -> String {
-        let mut output = String::from("# GPUI Component Lab Conformance\n\n");
-        output.push_str(&format!(
-            "- stories: {}\n- token presets: {}\n- tokens: {}\n- status: {}\n\n",
-            self.story_count,
-            self.token_preset_count,
-            self.token_count,
+        let mut output = String::with_capacity(
+            128 + self.design_conformance_markdown.len() + self.findings.len() * 64,
+        );
+        writeln!(output, "# GPUI Component Lab Conformance\n").unwrap();
+        writeln!(output, "- stories: {}", self.story_count).unwrap();
+        writeln!(output, "- token presets: {}", self.token_preset_count).unwrap();
+        writeln!(output, "- tokens: {}", self.token_count).unwrap();
+        writeln!(
+            output,
+            "- status: {}\n",
             if self.passed { "pass" } else { "fail" }
-        ));
+        )
+        .unwrap();
         output.push_str("## Design Tokens\n\n");
         output.push_str(&self.design_conformance_markdown);
         if !output.ends_with('\n') {
@@ -57,13 +63,15 @@ impl ComponentLabConformanceReport {
             output.push_str("| category | id | story | message |\n");
             output.push_str("| --- | --- | --- | --- |\n");
             for finding in &self.findings {
-                output.push_str(&format!(
-                    "| {} | {} | {} | {} |\n",
+                writeln!(
+                    output,
+                    "| {} | {} | {} | {} |",
                     finding.category,
                     finding.id,
                     finding.story_id.as_deref().unwrap_or("-"),
                     finding.message.replace('|', "\\|")
-                ));
+                )
+                .unwrap();
             }
         }
         output
@@ -76,14 +84,13 @@ pub fn ensure_component_lab_conformance_passed(
     if report.passed() {
         Ok(())
     } else {
-        bail!(
-            "component lab conformance failed: {}",
-            report
-                .findings
-                .iter()
-                .map(|finding| format!("{}:{}", finding.category, finding.id))
-                .collect::<Vec<_>>()
-                .join(", ")
-        )
+        let mut message = String::from("component lab conformance failed: ");
+        for (i, finding) in report.findings.iter().enumerate() {
+            if i > 0 {
+                message.push_str(", ");
+            }
+            write!(message, "{}:{}", finding.category, finding.id).unwrap();
+        }
+        bail!(message)
     }
 }

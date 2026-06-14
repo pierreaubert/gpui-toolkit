@@ -1,57 +1,58 @@
 //! iOS text input handling — key code mapping for external keyboards.
 
 use gpui::{KeyDownEvent, Keystroke, Modifiers, PlatformInput};
+use std::borrow::Cow;
 
-pub fn key_code_to_string(code: u32) -> String {
+pub fn key_code_to_string(code: u32) -> Cow<'static, str> {
     match code {
         0x04..=0x1D => {
             let letter = (b'a' + (code - 0x04) as u8) as char;
-            letter.to_string()
+            Cow::Owned(letter.to_string())
         }
         0x1E..=0x26 => {
             let num = ((code - 0x1E + 1) % 10) as u8 + b'0';
-            (num as char).to_string()
+            Cow::Owned((num as char).to_string())
         }
-        0x27 => "0".to_string(),
-        0x28 => "enter".to_string(),
-        0x29 => "escape".to_string(),
-        0x2A => "backspace".to_string(),
-        0x2B => "tab".to_string(),
-        0x2C => " ".to_string(),
-        0x2D => "-".to_string(),
-        0x2E => "=".to_string(),
-        0x2F => "[".to_string(),
-        0x30 => "]".to_string(),
-        0x31 => "\\".to_string(),
-        0x33 => ";".to_string(),
-        0x34 => "'".to_string(),
-        0x35 => "`".to_string(),
-        0x36 => ",".to_string(),
-        0x37 => ".".to_string(),
-        0x38 => "/".to_string(),
-        0x4F => "right".to_string(),
-        0x50 => "left".to_string(),
-        0x51 => "down".to_string(),
-        0x52 => "up".to_string(),
-        0x3A => "f1".to_string(),
-        0x3B => "f2".to_string(),
-        0x3C => "f3".to_string(),
-        0x3D => "f4".to_string(),
-        0x3E => "f5".to_string(),
-        0x3F => "f6".to_string(),
-        0x40 => "f7".to_string(),
-        0x41 => "f8".to_string(),
-        0x42 => "f9".to_string(),
-        0x43 => "f10".to_string(),
-        0x44 => "f11".to_string(),
-        0x45 => "f12".to_string(),
-        0x49 => "insert".to_string(),
-        0x4A => "home".to_string(),
-        0x4B => "pageup".to_string(),
-        0x4C => "delete".to_string(),
-        0x4D => "end".to_string(),
-        0x4E => "pagedown".to_string(),
-        _ => format!("unknown-{:02x}", code),
+        0x27 => Cow::Borrowed("0"),
+        0x28 => Cow::Borrowed("enter"),
+        0x29 => Cow::Borrowed("escape"),
+        0x2A => Cow::Borrowed("backspace"),
+        0x2B => Cow::Borrowed("tab"),
+        0x2C => Cow::Borrowed(" "),
+        0x2D => Cow::Borrowed("-"),
+        0x2E => Cow::Borrowed("="),
+        0x2F => Cow::Borrowed("["),
+        0x30 => Cow::Borrowed("]"),
+        0x31 => Cow::Borrowed("\\"),
+        0x33 => Cow::Borrowed(";"),
+        0x34 => Cow::Borrowed("'"),
+        0x35 => Cow::Borrowed("`"),
+        0x36 => Cow::Borrowed(","),
+        0x37 => Cow::Borrowed("."),
+        0x38 => Cow::Borrowed("/"),
+        0x4F => Cow::Borrowed("right"),
+        0x50 => Cow::Borrowed("left"),
+        0x51 => Cow::Borrowed("down"),
+        0x52 => Cow::Borrowed("up"),
+        0x3A => Cow::Borrowed("f1"),
+        0x3B => Cow::Borrowed("f2"),
+        0x3C => Cow::Borrowed("f3"),
+        0x3D => Cow::Borrowed("f4"),
+        0x3E => Cow::Borrowed("f5"),
+        0x3F => Cow::Borrowed("f6"),
+        0x40 => Cow::Borrowed("f7"),
+        0x41 => Cow::Borrowed("f8"),
+        0x42 => Cow::Borrowed("f9"),
+        0x43 => Cow::Borrowed("f10"),
+        0x44 => Cow::Borrowed("f11"),
+        0x45 => Cow::Borrowed("f12"),
+        0x49 => Cow::Borrowed("insert"),
+        0x4A => Cow::Borrowed("home"),
+        0x4B => Cow::Borrowed("pageup"),
+        0x4C => Cow::Borrowed("delete"),
+        0x4D => Cow::Borrowed("end"),
+        0x4E => Cow::Borrowed("pagedown"),
+        _ => Cow::Owned(format!("unknown-{:02x}", code)),
     }
 }
 
@@ -80,7 +81,7 @@ pub fn key_code_to_key_down_with_characters(
     characters: Option<String>,
 ) -> PlatformInput {
     let modifiers = modifier_flags_to_modifiers(modifier_flags);
-    let key = key_code_to_string(key_code);
+    let key = key_code_to_string(key_code).into_owned();
     let key_char = characters
         .filter(|characters| !characters.is_empty() && key.len() == 1)
         .or_else(|| {
@@ -104,11 +105,41 @@ pub fn key_code_to_key_down_with_characters(
 
 pub fn key_code_to_key_up(key_code: u32, modifier_flags: u32) -> PlatformInput {
     let modifiers = modifier_flags_to_modifiers(modifier_flags);
-    let key = key_code_to_string(key_code);
+    let key = key_code_to_string(key_code).into_owned();
     let keystroke = Keystroke {
         modifiers,
         key: key.clone(),
         key_char: if key.len() == 1 { Some(key) } else { None },
     };
     PlatformInput::KeyUp(gpui::KeyUpEvent { keystroke })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn key_code_to_string_returns_static_str_for_named_keys() {
+        let key = key_code_to_string(0x29);
+        assert_eq!(key, "escape");
+        assert!(matches!(key, Cow::Borrowed(_)), "static key names should be borrowed");
+    }
+
+    #[test]
+    fn key_code_to_string_allocates_for_unknown_code() {
+        let key = key_code_to_string(0xFF);
+        assert_eq!(key, "unknown-ff");
+        assert!(matches!(key, Cow::Owned(_)), "unknown codes must allocate");
+    }
+
+    #[test]
+    fn key_code_to_key_down_maps_letters() {
+        let input = key_code_to_key_down(0x04, 0);
+        if let PlatformInput::KeyDown(event) = input {
+            assert_eq!(event.keystroke.key, "a");
+            assert_eq!(event.keystroke.key_char, Some("a".to_string()));
+        } else {
+            panic!("expected KeyDown event");
+        }
+    }
 }

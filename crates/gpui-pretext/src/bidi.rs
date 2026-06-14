@@ -263,34 +263,30 @@ pub fn compute_segment_levels(normalized: &str, seg_starts: &[usize]) -> Option<
     let bidi_levels = compute_bidi_levels(normalized)?;
 
     // seg_starts are byte offsets; bidi_levels are indexed by char position.
-    // Build a byte→char-index map.
-    let byte_to_char: Vec<usize> = {
-        let mut map = vec![0usize; normalized.len() + 1];
-        let mut ci = 0;
-        for (bi, ch) in normalized.char_indices() {
-            map[bi] = ci;
-            for slot in map.iter_mut().take(bi + ch.len_utf8()).skip(bi + 1) {
-                *slot = ci;
-            }
-            ci += 1;
-        }
-        if normalized.is_empty() {
-            map[normalized.len()] = 0;
-        } else {
-            map[normalized.len()] = ci - 1;
-        }
-        map
-    };
+    // Use a compact list of char-start byte offsets and binary search instead of
+    // a dense byte→char map.
+    let char_starts: Vec<usize> = normalized.char_indices().map(|(i, _)| i).collect();
 
     let seg_levels: Vec<i8> = seg_starts
         .iter()
         .map(|&start| {
-            let char_idx = byte_to_char.get(start).copied().unwrap_or(0);
+            let char_idx = byte_offset_to_char_index(start, &char_starts);
             bidi_levels.get(char_idx).copied().unwrap_or(0)
         })
         .collect();
 
     Some(seg_levels)
+}
+
+fn byte_offset_to_char_index(byte_offset: usize, char_starts: &[usize]) -> usize {
+    if char_starts.is_empty() || byte_offset == 0 {
+        return 0;
+    }
+    match char_starts.binary_search(&byte_offset) {
+        Ok(idx) => idx,
+        Err(0) => 0,
+        Err(idx) => idx - 1,
+    }
 }
 
 #[cfg(test)]
@@ -353,5 +349,18 @@ mod tests {
             levels.iter().all(|&l| l > 0),
             "end offset should have RTL level, not 0"
         );
+    }
+
+    #[test]
+    fn test_byte_offset_to_char_index_multibyte() {
+        // "a你b" -> char starts at byte offsets 0, 1, 4
+        let text = "a你b";
+        let char_starts: Vec<usize> = text.char_indices().map(|(i, _)| i).collect();
+        assert_eq!(byte_offset_to_char_index(0, &char_starts), 0);
+        assert_eq!(byte_offset_to_char_index(1, &char_starts), 1);
+        assert_eq!(byte_offset_to_char_index(2, &char_starts), 1);
+        assert_eq!(byte_offset_to_char_index(3, &char_starts), 1);
+        assert_eq!(byte_offset_to_char_index(4, &char_starts), 2);
+        assert_eq!(byte_offset_to_char_index(5, &char_starts), 2);
     }
 }

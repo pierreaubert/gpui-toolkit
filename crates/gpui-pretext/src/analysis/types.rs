@@ -54,8 +54,8 @@ pub(super) fn get_white_space_profile(ws: WhiteSpaceMode) -> WhiteSpaceProfile {
     }
 }
 
-pub(super) struct SegmentationPiece {
-    pub(super) text: String,
+pub(super) struct SegmentationPiece<'a> {
+    pub(super) text: &'a str,
     pub(super) is_word_like: bool,
     pub(super) kind: SegmentBreakKind,
     pub(super) start: usize,

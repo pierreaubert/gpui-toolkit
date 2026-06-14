@@ -11,6 +11,7 @@ use crate::text::{
 };
 use gpui::prelude::*;
 use gpui::*;
+use std::borrow::Cow;
 
 mod misc;
 
@@ -37,10 +38,10 @@ where
     S: Scale<f64, f64>,
     T: AxisTheme,
 {
-    // Use explicit tick values if provided, otherwise generate from scale
-    let ticks = match &config.tick_values {
-        Some(values) => values.clone(),
-        None => scale.ticks(config.tick_count),
+    // Use explicit tick values if provided; only allocate when falling back to scale ticks.
+    let ticks: Cow<[f64]> = match &config.tick_values {
+        Some(values) => Cow::Borrowed(values),
+        None => Cow::Owned(scale.ticks(config.tick_count)),
     };
 
     match config.orientation {
@@ -143,38 +144,34 @@ where
         .children(
             config
                 .minor_tick_values
-                .as_ref()
-                .map(|minor_ticks| {
-                    minor_ticks
-                        .iter()
-                        .filter_map(|&tick_value| {
-                            let range_value = scale.scale(tick_value);
-                            let x_pos = (range_value - range_min) / range_span;
-                            // Only render if within visible range
-                            if !(0.0..=1.0).contains(&x_pos) {
-                                return None;
-                            }
-                            let half_tick_width = config.domain_line_width / 2.0;
+                .as_deref()
+                .unwrap_or_default()
+                .iter()
+                .filter_map(|&tick_value| {
+                    let range_value = scale.scale(tick_value);
+                    let x_pos = (range_value - range_min) / range_span;
+                    // Only render if within visible range
+                    if !(0.0..=1.0).contains(&x_pos) {
+                        return None;
+                    }
+                    let half_tick_width = config.domain_line_width / 2.0;
 
-                            Some(
-                                div()
-                                    .absolute()
-                                    .left(relative(x_pos as f32))
-                                    .ml(px(-half_tick_width))
-                                    .top(px(tick_top))
-                                    .w(px(config.domain_line_width))
-                                    .h(px(config.minor_tick_size))
-                                    .bg(theme.axis_line_color())
-                                    .into_any_element(),
-                            )
-                        })
-                        .collect::<Vec<_>>()
-                })
-                .unwrap_or_default(),
+                    Some(
+                        div()
+                            .absolute()
+                            .left(relative(x_pos as f32))
+                            .ml(px(-half_tick_width))
+                            .top(px(tick_top))
+                            .w(px(config.domain_line_width))
+                            .h(px(config.minor_tick_size))
+                            .bg(theme.axis_line_color())
+                            .into_any_element(),
+                    )
+                }),
         )
         // Title (horizontal for bottom axis)
         .when(config.title.is_some(), |el| {
-            let title = config.title.clone().unwrap_or_default();
+            let title = config.title.as_deref().unwrap_or_default();
 
             // Calculate label height accounting for angle
             let label_height = if config.label_angle.abs() > 0.1 {
@@ -276,38 +273,34 @@ where
         .children(
             config
                 .minor_tick_values
-                .as_ref()
-                .map(|minor_ticks| {
-                    minor_ticks
-                        .iter()
-                        .filter_map(|&tick_value| {
-                            let range_value = scale.scale(tick_value);
-                            let x_pos = (range_value - range_min) / range_span;
-                            // Only render if within visible range
-                            if !(0.0..=1.0).contains(&x_pos) {
-                                return None;
-                            }
-                            let half_tick_width = config.domain_line_width / 2.0;
+                .as_deref()
+                .unwrap_or_default()
+                .iter()
+                .filter_map(|&tick_value| {
+                    let range_value = scale.scale(tick_value);
+                    let x_pos = (range_value - range_min) / range_span;
+                    // Only render if within visible range
+                    if !(0.0..=1.0).contains(&x_pos) {
+                        return None;
+                    }
+                    let half_tick_width = config.domain_line_width / 2.0;
 
-                            Some(
-                                div()
-                                    .absolute()
-                                    .left(relative(x_pos as f32))
-                                    .ml(px(-half_tick_width))
-                                    .top(px(tick_bottom - config.minor_tick_size))
-                                    .w(px(config.domain_line_width))
-                                    .h(px(config.minor_tick_size))
-                                    .bg(theme.axis_line_color())
-                                    .into_any_element(),
-                            )
-                        })
-                        .collect::<Vec<_>>()
-                })
-                .unwrap_or_default(),
+                    Some(
+                        div()
+                            .absolute()
+                            .left(relative(x_pos as f32))
+                            .ml(px(-half_tick_width))
+                            .top(px(tick_bottom - config.minor_tick_size))
+                            .w(px(config.domain_line_width))
+                            .h(px(config.minor_tick_size))
+                            .bg(theme.axis_line_color())
+                            .into_any_element(),
+                    )
+                }),
         )
         // Title (horizontal for top axis, at the very top)
         .when(config.title.is_some(), |el| {
-            let title = config.title.clone().unwrap_or_default();
+            let title = config.title.as_deref().unwrap_or_default();
             let font_config =
                 GlyphTextConfig::horizontal(config.title_font_size, theme.axis_label_color());
             el.child(
@@ -347,7 +340,7 @@ where
         .relative()
         // Title (rotated text for left axis - reading bottom-to-top)
         .when(config.title.is_some(), |el| {
-            let title = config.title.clone().unwrap_or_default();
+            let title = config.title.as_deref().unwrap_or_default();
             let font_config = GlyphTextConfig::vertical_bottom_to_top(
                 config.title_font_size,
                 theme.axis_label_color(),
@@ -415,34 +408,30 @@ where
         .children(
             config
                 .minor_tick_values
-                .as_ref()
-                .map(|minor_ticks| {
-                    minor_ticks
-                        .iter()
-                        .filter_map(|&tick_value| {
-                            let range_value = scale.scale(tick_value);
-                            let y_pos = 1.0 - (range_value - range_min) / range_span;
-                            // Only render if within visible range
-                            if !(0.0..=1.0).contains(&y_pos) {
-                                return None;
-                            }
-                            let half_tick_height = config.domain_line_width / 2.0;
+                .as_deref()
+                .unwrap_or_default()
+                .iter()
+                .filter_map(|&tick_value| {
+                    let range_value = scale.scale(tick_value);
+                    let y_pos = 1.0 - (range_value - range_min) / range_span;
+                    // Only render if within visible range
+                    if !(0.0..=1.0).contains(&y_pos) {
+                        return None;
+                    }
+                    let half_tick_height = config.domain_line_width / 2.0;
 
-                            Some(
-                                div()
-                                    .absolute()
-                                    .right(px(tick_right))
-                                    .top(relative(y_pos as f32))
-                                    .mt(px(-half_tick_height))
-                                    .w(px(config.minor_tick_size))
-                                    .h(px(config.domain_line_width))
-                                    .bg(theme.axis_line_color())
-                                    .into_any_element(),
-                            )
-                        })
-                        .collect::<Vec<_>>()
-                })
-                .unwrap_or_default(),
+                    Some(
+                        div()
+                            .absolute()
+                            .right(px(tick_right))
+                            .top(relative(y_pos as f32))
+                            .mt(px(-half_tick_height))
+                            .w(px(config.minor_tick_size))
+                            .h(px(config.domain_line_width))
+                            .bg(theme.axis_line_color())
+                            .into_any_element(),
+                    )
+                }),
         )
 }
 
@@ -514,7 +503,7 @@ where
         }))
         // Title (rotated text for right axis - reading bottom-to-top)
         .when(config.title.is_some(), |el| {
-            let title = config.title.clone().unwrap_or_default();
+            let title = config.title.as_deref().unwrap_or_default();
             let font_config = GlyphTextConfig::vertical_bottom_to_top(
                 config.title_font_size,
                 theme.axis_label_color(),
@@ -532,4 +521,21 @@ where
                     .child(render_glyph_text(&title, &font_config)),
             )
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::scale::LinearScale;
+
+    #[test]
+    fn test_render_axis_orientations() {
+        let scale = LinearScale::new().domain(0.0, 100.0).range(0.0, 400.0);
+        let theme = DefaultAxisTheme;
+
+        let _ = render_axis(&scale, &AxisConfig::bottom().with_ticks(5), 400.0, &theme);
+        let _ = render_axis(&scale, &AxisConfig::top().with_ticks(5), 400.0, &theme);
+        let _ = render_axis(&scale, &AxisConfig::left().with_ticks(5), 300.0, &theme);
+        let _ = render_axis(&scale, &AxisConfig::right().with_ticks(5), 300.0, &theme);
+    }
 }

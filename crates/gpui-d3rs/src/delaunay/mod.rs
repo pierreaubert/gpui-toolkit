@@ -111,10 +111,11 @@ impl Delaunay {
 
     /// Render triangulation edges as SVG path data.
     pub fn render_to_path(&self) -> String {
+        use std::fmt::Write;
         let mut path = String::new();
         for (a, b) in self.edges() {
             if let (Some((x0, y0)), Some((x1, y1))) = (self.point(a), self.point(b)) {
-                path.push_str(&format!("M{x0},{y0}L{x1},{y1}"));
+                write!(&mut path, "M{x0},{y0}L{x1},{y1}").unwrap();
             }
         }
         path
@@ -175,13 +176,36 @@ impl Delaunay {
 }
 
 pub(crate) fn polygon_to_path(points: &[(f64, f64)]) -> String {
+    use std::fmt::Write;
     let Some((x0, y0)) = points.first().copied() else {
         return String::new();
     };
 
-    let mut path = format!("M{x0},{y0}");
+    let mut path = String::with_capacity(points.len() * 24);
+    write!(&mut path, "M{x0},{y0}").unwrap();
     for &(x, y) in &points[1..] {
-        path.push_str(&format!("L{x},{y}"));
+        write!(&mut path, "L{x},{y}").unwrap();
     }
     path
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_render_to_path() {
+        let delaunay = Delaunay::new(&[(0.0, 0.0), (1.0, 0.0), (0.5, 1.0)]);
+        let path = delaunay.render_to_path();
+        assert!(path.starts_with('M'));
+        assert!(path.contains('L'));
+    }
+
+    #[test]
+    fn test_polygon_to_path() {
+        let points = &[(0.0, 0.0), (1.0, 0.0), (0.5, 1.0)];
+        let path = super::polygon_to_path(points);
+        assert!(path.starts_with('M'));
+        assert!(!path.contains("format"));
+    }
 }

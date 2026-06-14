@@ -7,9 +7,9 @@ use crate::error::ChartError;
 use crate::line::LegendPosition;
 use crate::{
     ChartSize, DEFAULT_COLOR, DEFAULT_HEIGHT, DEFAULT_PADDING_FRACTION, DEFAULT_TITLE_FONT_SIZE,
-    DEFAULT_WIDTH, ScaleType, TITLE_AREA_HEIGHT, apply_chart_size, default_design, extent_padded,
-    resolved_chart_dimensions, validate_data_array, validate_data_length, validate_dimensions,
-    validate_positive, validate_range, validate_range_log,
+    DEFAULT_WIDTH, ScaleType, TITLE_AREA_HEIGHT, apply_chart_size, default_design,
+    extent_padded_iter, resolved_chart_dimensions, validate_data_array, validate_data_length,
+    validate_dimensions, validate_positive, validate_range, validate_range_log,
 };
 use d3rs::axis::{AxisConfig, DefaultAxisTheme, render_axis};
 use d3rs::color::D3Color;
@@ -412,20 +412,24 @@ impl ScatterChart {
         let (x_min, x_max) = if let Some([min, max]) = self.x_range {
             (min, max)
         } else {
-            let mut all_x: Vec<f64> = self.x.clone();
-            for series in &self.series {
-                all_x.extend_from_slice(&series.x);
-            }
-            extent_padded(&all_x, DEFAULT_PADDING_FRACTION)
+            extent_padded_iter(
+                self.x
+                    .iter()
+                    .chain(self.series.iter().flat_map(|s| s.x.iter()))
+                    .copied(),
+                DEFAULT_PADDING_FRACTION,
+            )
         };
         let (y_min, y_max) = if let Some([min, max]) = self.y_range {
             (min, max)
         } else {
-            let mut all_y: Vec<f64> = self.y.clone();
-            for series in &self.series {
-                all_y.extend_from_slice(&series.y);
-            }
-            extent_padded(&all_y, DEFAULT_PADDING_FRACTION)
+            extent_padded_iter(
+                self.y
+                    .iter()
+                    .chain(self.series.iter().flat_map(|s| s.y.iter()))
+                    .copied(),
+                DEFAULT_PADDING_FRACTION,
+            )
         };
 
         // Create data points for primary series
@@ -962,6 +966,18 @@ mod tests {
             .title("Log Scale Plot")
             .x_scale(ScaleType::Log)
             .color(0x1f77b4)
+            .build();
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_scatter_multiple_series_auto_domain() {
+        let x1 = vec![1.0, 2.0, 3.0];
+        let y1 = vec![10.0, 20.0, 30.0];
+        let x2 = vec![4.0, 5.0, 6.0];
+        let y2 = vec![5.0, 15.0, 25.0];
+        let result = scatter(&x1, &y1)
+            .add_series(&x2, &y2, Some("Series 2"), 0xff7f0e, 4.0, 1.0)
             .build();
         assert!(result.is_ok());
     }

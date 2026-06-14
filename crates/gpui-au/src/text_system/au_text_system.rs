@@ -16,7 +16,7 @@ use gpui::{
 use parking_lot::{RwLock, RwLockUpgradableReadGuard};
 use smallvec::SmallVec;
 use std::collections::HashMap;
-use std::{borrow::Cow, char};
+use std::{borrow::Cow, char, sync::Arc};
 
 pub struct AuTextSystem(pub(super) RwLock<AuTextSystemState>);
 
@@ -30,6 +30,7 @@ impl AuTextSystem {
             font_ids_by_postscript_name: HashMap::default(),
             font_ids_by_font_key: HashMap::default(),
             postscript_names_by_font_id: HashMap::default(),
+            is_emoji: Vec::new(),
         }))
     }
 }
@@ -66,19 +67,20 @@ impl PlatformTextSystem for AuTextSystem {
             Ok(*font_id)
         } else {
             let mut lock = RwLockUpgradableReadGuard::upgrade(lock);
-            let font_key = FontKey {
+            let font_key = Arc::new(FontKey {
                 font_family: font.family.clone(),
                 font_features: font.features.clone(),
                 font_fallbacks: font.fallbacks.clone(),
-            };
-            let candidates: SmallVec<[FontId; 4]> =
+            });
+            let candidates: &SmallVec<[FontId; 4]> =
                 if let Some(font_ids) = lock.font_ids_by_font_key.get(&font_key) {
-                    font_ids.clone()
+                    font_ids
                 } else {
                     let font_ids =
                         lock.load_family(&font.family, &font.features, font.fallbacks.as_ref())?;
-                    lock.font_ids_by_font_key.insert(font_key, font_ids.clone());
-                    font_ids
+                    lock.font_ids_by_font_key
+                        .insert(Arc::clone(&font_key), font_ids);
+                    lock.font_ids_by_font_key.get(&font_key).unwrap()
                 };
             let candidate_properties: SmallVec<[font_kit::properties::Properties; 4]> = candidates
                 .iter()
@@ -140,5 +142,31 @@ impl PlatformTextSystem for AuTextSystem {
         _font_size: Pixels,
     ) -> TextRenderingMode {
         TextRenderingMode::Grayscale
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gpui::{Font, FontFeatures, FontStyle, FontWeight};
+
+    fn test_font(family: &str) -> Font {
+        Font {
+            family: family.to_string().into(),
+            features: FontFeatures::default(),
+            fallbacks: None,
+            weight: FontWeight::NORMAL,
+            style: FontStyle::Normal,
+        }
+    }
+
+    #[test]
+    fn test_font_id_caches_selection() {
+        let system = AuTextSystem::new();
+        let font = test_font(".AppleSystemUIFont");
+        let id1 = system.font_id(&font).unwrap();
+        let id2 = system.font_id(&font).unwrap();
+        assert_eq!(id1, id2);
+        assert!(system.0.read().font_selections.contains_key(&font));
     }
 }

@@ -51,7 +51,7 @@ pub enum GroupSeparatorStyle {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ConformanceFinding {
     pub id: &'static str,
-    pub message: String,
+    pub message: std::borrow::Cow<'static, str>,
 }
 
 /// Style Dictionary token export for one preset.

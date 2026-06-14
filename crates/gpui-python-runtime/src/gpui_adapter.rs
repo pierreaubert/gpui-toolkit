@@ -18,6 +18,7 @@ pub struct Gpui3DCache {
     resources: RetainedSceneCache,
     surfaces: HashMap<String, Surface3DElement>,
     line_states: HashMap<String, Rc<RefCell<Lines3DState>>>,
+    lines: HashMap<String, Lines3DElement>,
 }
 
 impl std::fmt::Debug for Gpui3DCache {
@@ -26,6 +27,7 @@ impl std::fmt::Debug for Gpui3DCache {
             .field("resources", &self.resources)
             .field("surface_count", &self.surfaces.len())
             .field("line_state_count", &self.line_states.len())
+            .field("line_count", &self.lines.len())
             .finish()
     }
 }
@@ -41,15 +43,13 @@ impl Gpui3DCache {
         spec: &SurfaceSpec,
     ) -> Result<Surface3DElement, Scene3DError> {
         let update = self.resources.upsert_surface(spec)?;
-        let data = surface_data(spec);
-        let config = surface_config(spec)?;
 
         if let Some(element) = self.surfaces.get_mut(&spec.id) {
             if update.dirty.updates_geometry() {
-                element.set_data(data);
+                element.set_data(surface_data(spec));
             }
             if update.dirty.updates_material() {
-                element.set_config(config);
+                element.set_config(surface_config(spec)?);
             }
             if update.dirty.updates_camera() {
                 *element.state().borrow_mut() = surface_state(spec)?;
@@ -57,14 +57,19 @@ impl Gpui3DCache {
             return Ok(element.clone());
         }
 
-        let element = Surface3DElement::new(data, config);
+        let element = Surface3DElement::new(surface_data(spec), surface_config(spec)?);
         self.surfaces.insert(spec.id.clone(), element.clone());
         Ok(element)
     }
 
     pub fn lines_element(&mut self, spec: &LinesSpec) -> Result<Lines3DElement, Scene3DError> {
         let update = self.resources.upsert_lines(spec)?;
-        let scene = lines_scene(spec);
+
+        if update.dirty.is_unchanged() {
+            if let Some(element) = self.lines.get(&spec.id) {
+                return Ok(element.clone());
+            }
+        }
 
         let state = match self.line_states.entry(spec.id.clone()) {
             Entry::Occupied(entry) => entry.get().clone(),
@@ -77,7 +82,10 @@ impl Gpui3DCache {
             *state.borrow_mut() = lines_state(spec)?;
         }
 
-        Ok(Lines3DElement::new(state, scene))
+        let scene = lines_scene(spec);
+        let element = Lines3DElement::new(state, scene);
+        self.lines.insert(spec.id.clone(), element.clone());
+        Ok(element)
     }
 
     pub fn retain_only<I, S>(&mut self, ids: I)
@@ -85,11 +93,12 @@ impl Gpui3DCache {
         I: IntoIterator<Item = S>,
         S: AsRef<str>,
     {
-        let live: Vec<String> = ids.into_iter().map(|id| id.as_ref().to_string()).collect();
+        let live: std::collections::HashSet<String> =
+            ids.into_iter().map(|id| id.as_ref().to_string()).collect();
         self.resources.retain_only(live.iter().map(String::as_str));
-        let live: std::collections::HashSet<String> = live.into_iter().collect();
         self.surfaces.retain(|id, _| live.contains(id));
         self.line_states.retain(|id, _| live.contains(id));
+        self.lines.retain(|id, _| live.contains(id));
     }
 }
 
@@ -261,5 +270,73 @@ mod tests {
                 kind: "perspective_camera"
             })
         ));
+    }
+
+    #[test]
+    fn lines_element_is_cached_and_reused_when_unchanged() {
+        let mut cache = Gpui3DCache::new();
+        let spec = LinesSpec {
+            id: "lines".to_string(),
+            strips: vec![LineStripSpec {
+                id: "path".to_string(),
+                points: vec![
+                    Point3::new(0.0, 0.0, 0.0),
+                    Point3::new(1.0, 0.0, 0.0),
+                    Point3::new(1.0, 1.0, 0.0),
+                ],
+                color: ColorRgba::from_rgb_u8(255, 255, 255),
+                width: 1.0,
+            }],
+            ..LinesSpec::default()
+        };
+
+        let _first = cache.lines_element(&spec).expect("first lines");
+        let _second = cache.lines_element(&spec).expect("second lines");
+
+        assert_eq!(cache.lines.len(), 1);
+        assert_eq!(cache.line_states.len(), 1);
+    }
+
+    #[test]
+    fn surface_camera_change_updates_state_only() {
+        let mut cache = Gpui3DCache::new();
+        let mut spec = SurfaceSpec::from_flat("surface", vec![1.0, 2.0, 3.0, 4.0], 2, 2);
+        spec.camera = Some(CameraSpec::Orbit(OrbitCameraSpec::new(4.0, 60.0, 25.0)));
+
+        let first = cache.surface_element(&spec).expect("first surface");
+        first.state().borrow_mut().controls.azimuth = 0.111;
+
+        spec.camera = Some(CameraSpec::Orbit(OrbitCameraSpec::new(4.0, 90.0, 25.0)));
+        let second = cache.surface_element(&spec).expect("camera-only update");
+
+        assert_eq!(Rc::as_ptr(&first.state()), Rc::as_ptr(&second.state()));
+        assert!((second.state().borrow().controls.azimuth - 90.0_f32.to_radians()).abs() < 1e-4);
+    }
+
+    #[test]
+    fn retain_only_drops_orphaned_resources() {
+        let mut cache = Gpui3DCache::new();
+        let surface = SurfaceSpec::from_flat("surface", vec![1.0, 2.0, 3.0, 4.0], 2, 2);
+        let lines = LinesSpec {
+            id: "lines".to_string(),
+            strips: vec![LineStripSpec {
+                id: "path".to_string(),
+                points: vec![Point3::new(0.0, 0.0, 0.0), Point3::new(1.0, 0.0, 0.0)],
+                color: ColorRgba::from_rgb_u8(255, 255, 255),
+                width: 1.0,
+            }],
+            ..LinesSpec::default()
+        };
+
+        cache.surface_element(&surface).expect("surface");
+        cache.lines_element(&lines).expect("lines");
+        assert_eq!(cache.resources.len(), 2);
+
+        cache.retain_only(["surface"]);
+
+        assert_eq!(cache.resources.len(), 1);
+        assert!(cache.surfaces.contains_key("surface"));
+        assert!(cache.lines.is_empty());
+        assert!(cache.line_states.is_empty());
     }
 }

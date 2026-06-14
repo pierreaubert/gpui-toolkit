@@ -4,7 +4,7 @@ use crate::helpers::nslog;
 use crate::window::{PENDING_VIEW, PendingViewInfo, with_au_window};
 use gpui::{
     App, AppCell, AppContext, Context, ElementId, InteractiveElement as _, IntoElement,
-    MouseButton, ParentElement, PlatformInput, Render, RequestFrameOptions,
+    MouseButton, ParentElement, PlatformInput, Render, RequestFrameOptions, SharedString,
     StatefulInteractiveElement as _, Styled, Window, WindowOptions, div, point, px, rgb,
 };
 use objc::runtime::Object;
@@ -26,15 +26,28 @@ fn init_logger() {
 // ── Root View ────────────────────────────────────────────────────────────────
 
 struct AuRootView {
-    plugin_type: String,
+    plugin_label: SharedString,
     click_count: usize,
+    click_label: SharedString,
+}
+
+impl AuRootView {
+    fn new(plugin_type: impl AsRef<str>) -> Self {
+        let plugin_label = SharedString::from(format!("SOTF: {}", plugin_type.as_ref()));
+        Self {
+            plugin_label,
+            click_count: 0,
+            click_label: SharedString::from("Clicks: 0"),
+        }
+    }
+
+    fn refresh_click_label(&mut self) {
+        self.click_label = SharedString::from(format!("Clicks: {}", self.click_count));
+    }
 }
 
 impl Render for AuRootView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let click_count = self.click_count;
-        let plugin_type = self.plugin_type.clone();
-
         div()
             .size_full()
             .bg(rgb(0x1a1a2e))
@@ -46,7 +59,7 @@ impl Render for AuRootView {
                 div()
                     .text_color(rgb(0xffffff))
                     .text_xl()
-                    .child(format!("SOTF: {plugin_type}")),
+                    .child(self.plugin_label.clone()),
             )
             .child(
                 div()
@@ -56,9 +69,10 @@ impl Render for AuRootView {
                     .py(px(8.0))
                     .bg(rgb(0x3366ff))
                     .text_color(rgb(0xffffff))
-                    .child(format!("Clicks: {click_count}"))
+                    .child(self.click_label.clone())
                     .on_click(cx.listener(|this, _event, _window, _cx| {
                         this.click_count += 1;
+                        this.refresh_click_label();
                     })),
             )
     }
@@ -171,12 +185,7 @@ pub extern "C" fn gpui_au_create(
                 window_bounds: None,
                 ..Default::default()
             },
-            |_window, cx| {
-                cx.new(|_| AuRootView {
-                    plugin_type: pt,
-                    click_count: 0,
-                })
-            },
+            |_window, cx| cx.new(|_| AuRootView::new(pt)),
         ) {
             Ok(_handle) => {
                 nslog(b"SOTF gpui_au_create: window opened OK");
@@ -336,4 +345,26 @@ fn dispatch_to_window(event: PlatformInput) {
     with_au_window(|window| {
         window.dispatch_input(event);
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gpui::TestAppContext;
+
+    #[gpui::test]
+    async fn test_root_view_renders(cx: &mut TestAppContext) {
+        let _window = cx.add_window(|_window, _cx| AuRootView::new("test-plugin"));
+    }
+
+    #[test]
+    fn test_root_view_caches_labels() {
+        let mut view = AuRootView::new("MyPlugin");
+        assert_eq!(view.plugin_label.as_ref(), "SOTF: MyPlugin");
+        assert_eq!(view.click_label.as_ref(), "Clicks: 0");
+
+        view.click_count = 3;
+        view.refresh_click_label();
+        assert_eq!(view.click_label.as_ref(), "Clicks: 3");
+    }
 }

@@ -96,24 +96,21 @@ fn run_conformance(
 
 fn validate_conformance_tokens(tokens: &[PathBuf]) -> Result<DesignTokenValidationReport> {
     if tokens.is_empty() {
-        return validate_current_design_tokens();
+        return validate_current_design_tokens(true);
     }
 
     let mut combined: Option<DesignTokenValidationReport> = None;
     for token in tokens {
         let report =
-            validate_design_tokens_from_path(token, DesignTokenFormat::StyleDictionaryJson)
+            validate_design_tokens_from_path(token, DesignTokenFormat::StyleDictionaryJson, true)
                 .with_context(|| format!("validate {}", token.display()))?;
         if let Some(combined) = combined.as_mut() {
             combined.passed &= report.passed;
             combined.preset_count += report.preset_count;
             combined.token_count += report.token_count;
-            combined.findings.extend(
-                report
-                    .findings
-                    .into_iter()
-                    .map(|finding| format!("{}: {finding}", token.display())),
-            );
+            combined.findings.extend(report.findings.into_iter().map(|finding| {
+                std::borrow::Cow::Owned(format!("{}: {finding}", token.display()))
+            }));
             combined
                 .conformance_markdown
                 .push_str(&format!("\n\n### {}\n\n", token.display()));

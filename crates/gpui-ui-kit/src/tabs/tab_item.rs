@@ -2,7 +2,7 @@
 
 use super::types::IconFactory;
 use gpui::prelude::IntoElement;
-use gpui::{AnyElement, Rgba, SharedString};
+use gpui::{AnyElement, ElementId, Rgba, SharedString};
 
 /// A single tab item
 pub struct TabItem {
@@ -15,13 +15,21 @@ pub struct TabItem {
     pub(super) badge: Option<SharedString>,
     pub(super) disabled: bool,
     pub(super) closeable: bool,
+    /// Pre-computed stable element IDs so `render` does not format strings every frame.
+    pub(super) tab_element_id: ElementId,
+    pub(super) close_element_id: ElementId,
+    pub(super) wrapper_element_id: ElementId,
 }
 
 impl TabItem {
     /// Create a new tab item
     pub fn new(id: impl Into<SharedString>, label: impl Into<SharedString>) -> Self {
+        let id: SharedString = id.into();
+        let tab_element_id = ElementId::Name(SharedString::from(format!("tab-{id}")));
+        let close_element_id = ElementId::Name(SharedString::from(format!("tab-close-{id}")));
+        let wrapper_element_id = ElementId::Name(SharedString::from(format!("tab-wrapper-{id}")));
         Self {
-            id: id.into(),
+            id,
             label: label.into(),
             icon: None,
             custom_icon: None,
@@ -29,6 +37,9 @@ impl TabItem {
             badge: None,
             disabled: false,
             closeable: false,
+            tab_element_id,
+            close_element_id,
+            wrapper_element_id,
         }
     }
 

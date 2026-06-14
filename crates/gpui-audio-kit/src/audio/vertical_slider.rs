@@ -276,13 +276,21 @@ impl VerticalSlider {
         match self.shortcut_key {
             Some(key) => {
                 let key_lower = key.to_ascii_lowercase();
-                let label_lower = label.to_lowercase();
-                if let Some(pos) = label_lower.find(key_lower) {
+                let mut match_pos = None;
+                for (pos, ch) in label.char_indices() {
+                    if ch.to_ascii_lowercase() == key_lower {
+                        match_pos = Some(pos);
+                        break;
+                    }
+                }
+                if let Some(pos) = match_pos {
+                    let matched_char = label[pos..].chars().next().unwrap();
+                    let after_pos = pos + matched_char.len_utf8();
                     format!(
                         "{}[{}]{}",
                         &label[..pos],
-                        label.chars().nth(pos).unwrap().to_ascii_uppercase(),
-                        &label[pos + 1..]
+                        matched_char.to_ascii_uppercase(),
+                        &label[after_pos..]
                     )
                 } else {
                     format!("[{}] {}", key.to_ascii_uppercase(), label)
@@ -294,7 +302,7 @@ impl VerticalSlider {
 
     /// Format the value display
     fn format_value(&self) -> String {
-        let unit = self.unit.to_string();
+        let unit = self.unit.as_ref();
         if unit == ":1" {
             format!("{:.1}{}", self.value, unit)
         } else if unit == "%" {
@@ -433,10 +441,12 @@ impl RenderOnce for VerticalSlider {
         let focus_handle = self.focus_handle.clone().unwrap_or_else(|| {
             VERTICAL_SLIDER_FOCUS_HANDLES.with(|handles| {
                 let mut handles = handles.borrow_mut();
-                handles
-                    .entry(element_id.clone())
-                    .or_insert_with(|| cx.focus_handle())
-                    .clone()
+                if let Some(handle) = handles.get(&element_id) {
+                    return handle.clone();
+                }
+                let handle = cx.focus_handle();
+                handles.insert(element_id.clone(), handle.clone());
+                handle
             })
         });
         let focus_handle = Some(focus_handle);
@@ -741,10 +751,9 @@ impl RenderOnce for VerticalSlider {
         // Track event handlers (if not disabled)
         if !disabled {
             // Create a unique key for this slider's drag state (survives re-renders)
-            let drag_key = format!("{:?}", element_id);
-            let drag_key_down = drag_key.clone();
-            let drag_key_move = drag_key.clone();
-            let drag_key_up = drag_key.clone();
+            let drag_key_down = element_id.clone();
+            let drag_key_move = element_id.clone();
+            let drag_key_up = element_id.clone();
 
             // Mouse down - focus, select, and start drag
             let on_select_track = on_select_rc.clone();
@@ -770,7 +779,11 @@ impl RenderOnce for VerticalSlider {
                 // Store drag state only if we have a change handler
                 if has_change_handler {
                     let click_pos: f32 = event.position.y.into();
-                    store_drag_state(&drag_key_down, click_pos, current_value_at_click.get());
+                    store_drag_state(
+                        drag_key_down.clone(),
+                        click_pos,
+                        current_value_at_click.get(),
+                    );
                 }
             });
 
@@ -804,7 +817,7 @@ impl RenderOnce for VerticalSlider {
 
                 // Mouse up - clear drag state
                 track = track.on_mouse_up(MouseButton::Left, move |_event, _window, _cx| {
-                    clear_drag_state(&drag_key_up);
+                    clear_drag_state(drag_key_up.clone());
                 });
 
                 // Scroll wheel handler on track
@@ -928,5 +941,46 @@ impl RenderOnce for VerticalSlider {
         }
 
         container
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::VerticalSlider;
+    use crate::AudioScale as Scale;
+
+    #[test]
+    fn format_label_wraps_shortcut_key() {
+        let slider = VerticalSlider::new("test")
+            .label("Volume")
+            .shortcut_key('v');
+        assert_eq!(slider.format_label(), "[V]olume");
+
+        let slider_unmatched = VerticalSlider::new("test").label("Gain").shortcut_key('z');
+        assert_eq!(slider_unmatched.format_label(), "[Z] Gain");
+    }
+
+    #[test]
+    fn format_value_respects_units() {
+        let slider_pct = VerticalSlider::new("test").value(0.75).unit("%");
+        assert_eq!(slider_pct.format_value(), "75%");
+
+        let slider_hz = VerticalSlider::new("test").value(1000.0).unit("Hz");
+        assert_eq!(slider_hz.format_value(), "1000.0 Hz");
+
+        let slider_default = VerticalSlider::new("test").value(3.14);
+        assert_eq!(slider_default.format_value(), "3.1");
+    }
+
+    #[test]
+    fn calculate_ticks_is_cached() {
+        use super::calculate::calculate_ticks;
+
+        let ticks_a = calculate_ticks(0.0, 100.0, Scale::Linear, 160.0);
+        let ticks_b = calculate_ticks(0.0, 100.0, Scale::Linear, 160.0);
+        assert_eq!(ticks_a.len(), ticks_b.len());
+        assert!(ticks_a.iter().zip(ticks_b.iter()).all(|(a, b)| {
+            a.normalized_pos == b.normalized_pos && a.is_major == b.is_major && a.label == b.label
+        }));
     }
 }

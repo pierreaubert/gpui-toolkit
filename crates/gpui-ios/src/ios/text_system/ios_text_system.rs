@@ -17,6 +17,7 @@ use gpui::{
 use parking_lot::{RwLock, RwLockUpgradableReadGuard};
 use smallvec::SmallVec;
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::{borrow::Cow, char};
 
 pub struct IosTextSystem(pub(super) RwLock<IosTextSystemState>);
@@ -31,6 +32,7 @@ impl IosTextSystem {
             font_ids_by_postscript_name: HashMap::default(),
             font_ids_by_font_key: HashMap::default(),
             postscript_names_by_font_id: HashMap::default(),
+            layout_cache: HashMap::default(),
         }))
     }
 }
@@ -72,13 +74,13 @@ impl PlatformTextSystem for IosTextSystem {
                 font_features: font.features.clone(),
                 font_fallbacks: font.fallbacks.clone(),
             };
-            let candidates: SmallVec<[FontId; 4]> =
+            let candidates: Arc<[FontId]> =
                 if let Some(font_ids) = lock.font_ids_by_font_key.get(&font_key) {
-                    font_ids.clone()
+                    Arc::clone(font_ids)
                 } else {
                     let font_ids =
                         lock.load_family(&font.family, &font.features, font.fallbacks.as_ref())?;
-                    lock.font_ids_by_font_key.insert(font_key, font_ids.clone());
+                    lock.font_ids_by_font_key.insert(font_key.clone(), Arc::clone(&font_ids));
                     font_ids
                 };
             let candidate_properties: SmallVec<[font_kit::properties::Properties; 4]> = candidates

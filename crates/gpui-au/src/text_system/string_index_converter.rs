@@ -26,4 +26,12 @@ impl<'a> StringIndexConverter<'a> {
         }
         self.utf8_ix = self.text.len();
     }
+
+    pub(super) fn rewind_to_utf16_ix(&mut self, utf16_target: usize) {
+        if self.utf16_ix > utf16_target {
+            self.utf8_ix = 0;
+            self.utf16_ix = 0;
+        }
+        self.advance_to_utf16_ix(utf16_target);
+    }
 }

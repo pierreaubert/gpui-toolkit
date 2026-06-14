@@ -54,9 +54,9 @@ impl fmt::Display for LayoutDebugReport {
     }
 }
 
-pub(super) fn build_debug_report(
-    root: &SolvedNode,
-    source: Option<&LayoutNode<'_>>,
+pub(super) fn build_debug_report<'a>(
+    root: &SolvedNode<'a>,
+    source: Option<&LayoutNode<'a>>,
 ) -> LayoutDebugReport {
     let mut lines = Vec::new();
     let mut warnings = Vec::new();

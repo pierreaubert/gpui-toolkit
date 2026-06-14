@@ -41,7 +41,7 @@ use gpui_design_tools::{
 };
 
 let json = export_design_tokens(DesignTokenFormat::StyleDictionaryJson)?;
-let report = validate_current_design_tokens()?;
+let report = validate_current_design_tokens(true)?;
 ```
 
 ## 5. Pair with Figma

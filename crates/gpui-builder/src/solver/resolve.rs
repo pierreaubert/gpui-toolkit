@@ -15,13 +15,13 @@ pub(super) fn resolve_axis(container: &ContainerNode<'_>, width: f32, height: f3
     }
 }
 
-pub(super) fn resolve_display_tier(slot: &SlotNode<'_>, main_size: f32) -> Option<String> {
+pub(super) fn resolve_display_tier<'a>(slot: &SlotNode<'a>, main_size: f32) -> Option<&'a str> {
     if slot.display_tiers.is_empty() {
         return None;
     }
 
     // Find the tier with the largest min_size that still fits
-    let mut best: Option<&str> = None;
+    let mut best: Option<&'a str> = None;
     let mut best_threshold = f32::NEG_INFINITY;
 
     for tier in slot.display_tiers {
@@ -31,5 +31,5 @@ pub(super) fn resolve_display_tier(slot: &SlotNode<'_>, main_size: f32) -> Optio
         }
     }
 
-    best.map(String::from)
+    best
 }

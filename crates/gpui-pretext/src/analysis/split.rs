@@ -44,31 +44,30 @@ pub(super) fn split_leading_space_and_marks(segment: &str) -> Option<(&str, &str
     }
 }
 
-pub(super) fn split_segment_by_break_kind(
-    segment: &str,
+pub(super) fn split_segment_by_break_kind<'a>(
+    segment: &'a str,
     is_word_like: bool,
     start: usize,
     ws_profile: &WhiteSpaceProfile,
-) -> Vec<SegmentationPiece> {
+) -> Vec<SegmentationPiece<'a>> {
     let mut pieces = Vec::new();
     let mut current_kind: Option<SegmentBreakKind> = None;
-    let mut current_text = String::new();
     let mut current_start = start;
     let mut current_word_like = false;
     let mut offset = 0;
 
     for ch in segment.chars() {
+        let ch_len = ch.len_utf8();
         let kind = classify_segment_break_char(ch, ws_profile);
         let word_like = kind == SegmentBreakKind::Text && is_word_like;
 
         if let Some(ck) = current_kind {
             if kind == ck && word_like == current_word_like {
-                current_text.push(ch);
-                offset += ch.len_utf8();
+                offset += ch_len;
                 continue;
             }
             pieces.push(SegmentationPiece {
-                text: std::mem::take(&mut current_text),
+                text: &segment[current_start - start..offset],
                 is_word_like: current_word_like,
                 kind: ck,
                 start: current_start,
@@ -76,15 +75,14 @@ pub(super) fn split_segment_by_break_kind(
         }
 
         current_kind = Some(kind);
-        current_text.push(ch);
         current_start = start + offset;
         current_word_like = word_like;
-        offset += ch.len_utf8();
+        offset += ch_len;
     }
 
     if let Some(ck) = current_kind {
         pieces.push(SegmentationPiece {
-            text: current_text,
+            text: &segment[current_start - start..offset],
             is_word_like: current_word_like,
             kind: ck,
             start: current_start,

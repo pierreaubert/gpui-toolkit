@@ -164,6 +164,9 @@ impl Tabs {
         for (index, tab) in self.tabs.into_iter().enumerate() {
             let is_selected = index == self.selected_index;
             let tab_id = tab.id.clone();
+            let tab_element_id = tab.tab_element_id;
+            let close_element_id = tab.close_element_id;
+            let wrapper_element_id = tab.wrapper_element_id;
             let label = tab.label;
             let icon = tab.icon;
             let custom_icon = tab.custom_icon;
@@ -178,7 +181,7 @@ impl Tabs {
             // For Underline variant, we wrap the tab content and underline in a flex column
             let tab_element = if self.variant == TabVariant::Underline {
                 let mut tab_content = div()
-                    .id(SharedString::from(format!("tab-{}", tab_id)))
+                    .id(tab_element_id.clone())
                     .flex()
                     .items_center()
                     .gap_2()
@@ -242,7 +245,7 @@ impl Tabs {
                     let close_color = theme.close_color;
                     let close_hover = theme.close_hover_color;
                     let mut close_btn = div()
-                        .id(SharedString::from(format!("tab-close-{}", tab_id)))
+                        .id(close_element_id.clone())
                         .text_xs()
                         .text_color(close_color)
                         .hover(move |s| s.text_color(close_hover));
@@ -269,7 +272,7 @@ impl Tabs {
 
                 // Wrap in a flex column
                 div()
-                    .id(SharedString::from(format!("tab-wrapper-{}", tab_id)))
+                    .id(wrapper_element_id.clone())
                     .flex()
                     .flex_col()
                     .child(tab_content)
@@ -281,7 +284,7 @@ impl Tabs {
                 // |      | Number |
                 // +---------------+
                 let mut tab_el = div()
-                    .id(SharedString::from(format!("tab-{}", tab_id)))
+                    .id(tab_element_id.clone())
                     .flex()
                     .items_center()
                     .gap_2()
@@ -382,7 +385,7 @@ impl Tabs {
             } else {
                 // Non-underline variants (Enclosed, Pills)
                 let mut tab_el = div()
-                    .id(SharedString::from(format!("tab-{}", tab_id)))
+                    .id(tab_element_id.clone())
                     .flex()
                     .items_center()
                     .gap_2()
@@ -475,7 +478,7 @@ impl Tabs {
                     let close_color = theme.close_color;
                     let close_hover = theme.close_hover_color;
                     let mut close_btn = div()
-                        .id(SharedString::from(format!("tab-close-{}", tab_id)))
+                        .id(close_element_id.clone())
                         .text_xs()
                         .text_color(close_color)
                         .hover(move |s| s.text_color(close_hover));

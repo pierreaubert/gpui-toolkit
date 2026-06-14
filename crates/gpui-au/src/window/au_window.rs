@@ -23,8 +23,12 @@ use std::{
     ffi::c_void,
     ptr::NonNull,
     rc::Rc,
-    sync::Arc,
+    sync::{Arc, OnceLock},
 };
+
+/// Single shared fallback atlas used when no wgpu renderer is available.
+/// Avoids allocating a fresh `Mutex`+`HashMap` on every `sprite_atlas()` call.
+static FALLBACK_ATLAS: OnceLock<Arc<FallbackAtlas>> = OnceLock::new();
 
 /// Execute a callback with a reference to the current AU window, if any.
 /// The mutex guard is held for the duration of the callback, ensuring the
@@ -448,7 +452,9 @@ impl PlatformWindow for AuWindow {
         if let Some(renderer) = guard.as_ref() {
             renderer.sprite_atlas().clone()
         } else {
-            Arc::new(FallbackAtlas::new())
+            FALLBACK_ATLAS
+                .get_or_init(|| Arc::new(FallbackAtlas::new()))
+                .clone()
         }
     }
 
@@ -468,10 +474,43 @@ impl PlatformWindow for AuWindow {
 mod tests {
     use super::*;
 
+    fn empty_window() -> AuWindow {
+        AuWindow {
+            view: std::ptr::null_mut(),
+            bounds: Cell::new(Bounds {
+                origin: Default::default(),
+                size: size(px(600.0), px(400.0)),
+            }),
+            scale_factor: Cell::new(2.0),
+            input_handler: RefCell::new(None),
+            request_frame_callback: RefCell::new(None),
+            input_callback: RefCell::new(None),
+            active_status_callback: RefCell::new(None),
+            hover_status_callback: RefCell::new(None),
+            resize_callback: RefCell::new(None),
+            moved_callback: RefCell::new(None),
+            should_close_callback: RefCell::new(None),
+            hit_test_callback: RefCell::new(None),
+            close_callback: RefCell::new(None),
+            appearance_changed_callback: RefCell::new(None),
+            mouse_position: Cell::new(Point::default()),
+            modifiers: Cell::new(Modifiers::default()),
+            renderer: Mutex::new(None),
+        }
+    }
+
     #[test]
     fn test_with_au_window_returns_none_when_unregistered() {
         // Ensure that with_au_window returns None when no window is registered
         let result = with_au_window(|_window| 42);
         assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_sprite_atlas_reuses_fallback() {
+        let window = empty_window();
+        let atlas1 = window.sprite_atlas();
+        let atlas2 = window.sprite_atlas();
+        assert!(Arc::ptr_eq(&atlas1, &atlas2));
     }
 }

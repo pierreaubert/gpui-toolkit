@@ -195,6 +195,7 @@ impl<T: 'static> Table<T> {
         cx: &mut App,
     ) -> impl IntoElement {
         let theme = std::rc::Rc::new(theme);
+        let table_id = self.id.clone();
         let cell_padding_x = px(design.spacing.card_padding);
         let cell_padding_y = px(design.spacing.control_padding_y);
         let compact_padding_x = px(design.spacing.control_padding_x * 0.5);
@@ -202,7 +203,7 @@ impl<T: 'static> Table<T> {
         let resize_hit_width = px(design.interaction.min_touch_target * 0.25);
         let control_radius = px(design.corners.sm);
         let mut container = div()
-            .id(self.id.clone())
+            .id(table_id.clone())
             .flex()
             .flex_col()
             .size_full()
@@ -231,7 +232,7 @@ impl<T: 'static> Table<T> {
             };
 
             let mut header_cell = div()
-                .id(SharedString::from(format!("header-{}", column_id)))
+                .id(ElementId::from((table_id.clone(), column_id.clone())))
                 .flex()
                 .items_center()
                 .gap_2()
@@ -330,13 +331,13 @@ impl<T: 'static> Table<T> {
             .flex_col();
 
         let selection_mode = self.selection_mode;
-        let selected_indices = self.selected_indices.clone();
+        let selected_indices = std::rc::Rc::new(self.selected_indices);
         let on_selection_change = self.on_selection_change.map(std::rc::Rc::new);
 
         for (row_idx, row_data) in self.rows.iter().enumerate() {
             let is_selected = selected_indices.contains(&row_idx);
             let mut row_el = div()
-                .id(SharedString::from(format!("row-{}", row_idx)))
+                .id(ElementId::from(row_idx))
                 .flex()
                 .w_full()
                 .border_b_1()
@@ -362,7 +363,7 @@ impl<T: 'static> Table<T> {
                     let handler = handler.clone();
                     let current_selected = selected_indices.clone();
                     row_el = row_el.on_mouse_down(MouseButton::Left, move |_event, window, cx| {
-                        let mut next_selected = current_selected.clone();
+                        let mut next_selected = (*current_selected).clone();
                         match selection_mode {
                             SelectionMode::Single => {
                                 next_selected.clear();

@@ -260,16 +260,16 @@ impl BoxPlotChart {
             bins[bin_idx].push(y);
         }
 
-        // Calculate statistics for each non-empty bin
-        bins.iter_mut()
+        // Calculate statistics for each non-empty bin. Quartiles are computed
+        // without fully sorting each bin.
+        bins.into_iter()
             .enumerate()
             .filter_map(|(i, bin)| {
                 if bin.is_empty() {
                     return None;
                 }
-                bin.sort_by(|a, b| a.total_cmp(b));
                 let x_center = x_min + (i as f64 + 0.5) * bin_width;
-                BoxStats::from_sorted(x_center, bin)
+                BoxStats::from_values(x_center, &bin)
             })
             .collect()
     }
@@ -392,6 +392,10 @@ impl BoxPlotChart {
         let box_elements: Vec<AnyElement> = boxes
             .iter()
             .flat_map(|stats| {
+                let estimated =
+                    5usize.saturating_add(stats.outliers_low.len()).saturating_add(stats.outliers_high.len());
+                let mut elements: Vec<AnyElement> = Vec::with_capacity(estimated);
+
                 let x_px = x_scale.scale(stats.x) as f32;
                 let half_width = self.box_width / 2.0;
 
@@ -404,8 +408,6 @@ impl BoxPlotChart {
                 let box_top = q3_px.min(q1_px);
                 let box_bottom = q3_px.max(q1_px);
                 let box_height = (box_bottom - box_top).max(1.0);
-
-                let mut elements: Vec<AnyElement> = Vec::new();
 
                 // Whisker line (vertical line from low to high)
                 elements.push(

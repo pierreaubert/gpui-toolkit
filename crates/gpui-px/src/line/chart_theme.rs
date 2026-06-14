@@ -333,6 +333,30 @@ mod tests {
     }
 
     #[test]
+    fn test_line_multiple_series_auto_domain() {
+        let x = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+        let y1 = vec![10.0, 20.0, 30.0, 40.0, 50.0];
+        let y2 = vec![5.0, 15.0, 25.0, 35.0, 45.0];
+        let result = line(&x, &y1)
+            .label("Series 1")
+            .add_series(&y2, Some("Series 2"), 0xff7f0e, 2.0, 1.0)
+            .build();
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_line_secondary_axis_auto_domain() {
+        let x = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+        let y1 = vec![10.0, 20.0, 30.0, 40.0, 50.0];
+        let y2 = vec![500.0, 600.0, 700.0, 800.0, 900.0];
+        let result = line(&x, &y1)
+            .label("Primary")
+            .add_series_y2(&y2, Some("Secondary"), 0xff7f0e, 2.0, 1.0)
+            .build();
+        assert!(result.is_ok());
+    }
+
+    #[test]
     fn test_line_range_negative_values() {
         let x = vec![-5.0, -2.0, 0.0, 2.0, 5.0];
         let y = vec![-10.0, -5.0, 0.0, 5.0, 10.0];

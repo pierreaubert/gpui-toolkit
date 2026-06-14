@@ -11,7 +11,7 @@ use super::types::LineSeries;
 use crate::error::ChartError;
 use crate::{
     ChartSize, DEFAULT_PADDING_FRACTION, DEFAULT_TITLE_FONT_SIZE, ScaleType, TITLE_AREA_HEIGHT,
-    apply_chart_size, default_design, extent_padded, resolved_chart_dimensions,
+    apply_chart_size, default_design, extent_padded, extent_padded_iter, resolved_chart_dimensions,
     validate_data_array, validate_data_length, validate_dimensions, validate_positive,
     validate_range, validate_range_log,
 };
@@ -772,46 +772,49 @@ impl LineChart {
             extent_padded(&self.x, DEFAULT_PADDING_FRACTION)
         };
 
-        // Collect Y values from primary series and non-secondary additional series
-        let mut primary_y_values: Vec<f64> = self.y.clone();
-        for series in &self.series {
-            if !series.use_secondary_axis {
-                primary_y_values.extend_from_slice(&series.y);
-            }
-        }
+        // Compute primary Y domain without allocating a combined vector.
         let (y_min, y_max) = if let Some([min, max]) = self.y_range {
             // User-specified range - use exactly as provided (no padding)
             (min, max)
         } else if self.y_scale_type == ScaleType::Log {
             // For log scale, use multiplicative padding
-            let min = primary_y_values
+            let (min, max) = self
+                .y
                 .iter()
+                .chain(self.series.iter().filter(|s| !s.use_secondary_axis).flat_map(|s| s.y.iter()))
                 .copied()
-                .fold(f64::INFINITY, f64::min);
-            let max = primary_y_values
-                .iter()
-                .copied()
-                .fold(f64::NEG_INFINITY, f64::max);
+                .fold((f64::INFINITY, f64::NEG_INFINITY), |(min, max), val| {
+                    (min.min(val), max.max(val))
+                });
             let padding_factor = 1.0 + DEFAULT_PADDING_FRACTION;
             (min / padding_factor, max * padding_factor)
         } else {
-            extent_padded(&primary_y_values, DEFAULT_PADDING_FRACTION)
+            extent_padded_iter(
+                self.y
+                    .iter()
+                    .chain(self.series.iter().filter(|s| !s.use_secondary_axis).flat_map(|s| s.y.iter()))
+                    .copied(),
+                DEFAULT_PADDING_FRACTION,
+            )
         };
 
         // Calculate secondary Y axis domain if needed
         let (y2_min, y2_max) = if has_secondary_axis {
-            let mut secondary_y_values: Vec<f64> = Vec::new();
-            for series in &self.series {
-                if series.use_secondary_axis {
-                    secondary_y_values.extend_from_slice(&series.y);
-                }
-            }
             if let Some([min, max]) = self.y2_range {
                 (min, max)
-            } else if secondary_y_values.is_empty() {
-                (0.0, 1.0) // Default fallback
             } else {
-                extent_padded(&secondary_y_values, DEFAULT_PADDING_FRACTION)
+                let mut secondary_iter = self
+                    .series
+                    .iter()
+                    .filter(|s| s.use_secondary_axis)
+                    .flat_map(|s| s.y.iter())
+                    .copied()
+                    .peekable();
+                if secondary_iter.peek().is_none() {
+                    (0.0, 1.0) // Default fallback
+                } else {
+                    extent_padded_iter(secondary_iter, DEFAULT_PADDING_FRACTION)
+                }
             }
         } else {
             (0.0, 1.0) // Placeholder, won't be used

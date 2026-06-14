@@ -6,6 +6,7 @@ use super::story_document::load_story_documents;
 use super::theme_preset::ThemePreset;
 use super::viewport_preset::ViewportPreset;
 use anyhow::{Context, Result};
+use gpui::SharedString;
 use gpui_design_tools::{
     DesignTokenFormat, DesignTokenValidationReport, validate_design_tokens_from_path,
 };
@@ -19,9 +20,9 @@ use std::time::SystemTime;
 pub enum StoryPropValue {
     Bool(bool),
     Number(f64),
-    Text(String),
-    Choice(String),
-    Color(String),
+    Text(SharedString),
+    Choice(SharedString),
+    Color(SharedString),
 }
 
 /// One responsive preview cell.
@@ -62,7 +63,7 @@ pub fn reload_live_preview_state(
     let mut token_reports = Vec::new();
     for token in tokens {
         let report =
-            validate_design_tokens_from_path(token, DesignTokenFormat::StyleDictionaryJson)
+            validate_design_tokens_from_path(token, DesignTokenFormat::StyleDictionaryJson, true)
                 .with_context(|| format!("validate {}", token.display()))?;
         token_reports.push(LivePreviewTokenReload {
             path: token.clone(),

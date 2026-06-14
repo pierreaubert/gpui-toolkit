@@ -9,6 +9,8 @@ mod error;
 #[cfg(feature = "gpui")]
 pub mod gpui_adapter;
 mod scene3d;
+#[cfg(feature = "showcase")]
+pub mod showcase;
 pub mod ui_ir;
 
 pub use cache::{CacheUpdate, DirtyResources, RetainedSceneCache};

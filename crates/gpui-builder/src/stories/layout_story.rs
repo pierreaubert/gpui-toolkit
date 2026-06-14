@@ -50,7 +50,7 @@ impl<'a> LayoutStory<'a> {
     }
 
     /// Solve one scenario.
-    pub fn solve(&self, scenario: &LayoutScenario<'a>) -> SolvedLayoutScenario {
+    pub fn solve(&self, scenario: &LayoutScenario<'a>) -> SolvedLayoutScenario<'a> {
         SolvedLayoutScenario {
             story_id: self.id.to_string(),
             story_title: self.title.to_string(),
@@ -85,12 +85,12 @@ impl<'a> LayoutStory<'a> {
     }
 
     /// Find and solve a scenario by id.
-    pub fn solve_scenario(&self, id: &str) -> Option<SolvedLayoutScenario> {
+    pub fn solve_scenario(&self, id: &str) -> Option<SolvedLayoutScenario<'a>> {
         self.scenario(id).map(|scenario| self.solve(scenario))
     }
 
     /// Solve every scenario for this story.
-    pub fn solve_all(&self) -> Vec<SolvedLayoutScenario> {
+    pub fn solve_all(&self) -> Vec<SolvedLayoutScenario<'a>> {
         self.scenarios
             .iter()
             .map(|scenario| self.solve(scenario))

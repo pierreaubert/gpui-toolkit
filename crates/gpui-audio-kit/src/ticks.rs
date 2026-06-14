@@ -9,6 +9,7 @@
 
 use gpui::prelude::*;
 use gpui::*;
+use std::cell::RefCell;
 
 /// Scale type for positioning tick marks and meter values
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -84,11 +85,10 @@ pub struct TickMark {
     /// Whether this is a major tick (big) or minor tick (small)
     pub is_major: bool,
     /// Optional label for the tick
-    pub label: Option<String>,
+    pub label: Option<SharedString>,
 }
 
 /// Configuration for tick mark generation
-#[derive(Clone)]
 pub struct TickConfig {
     /// Scale type for positioning
     pub scale: ScaleType,
@@ -106,6 +106,24 @@ pub struct TickConfig {
     pub minor_height: f32,
     /// Color for tick marks
     pub tick_color: Rgba,
+    /// Cached tick marks generated from this configuration.
+    cache: RefCell<Option<Vec<TickMark>>>,
+}
+
+impl Clone for TickConfig {
+    fn clone(&self) -> Self {
+        Self {
+            scale: self.scale,
+            min: self.min,
+            max: self.max,
+            major_values: self.major_values.clone(),
+            minor_count: self.minor_count,
+            major_height: self.major_height,
+            minor_height: self.minor_height,
+            tick_color: self.tick_color,
+            cache: RefCell::new(None),
+        }
+    }
 }
 
 impl Default for TickConfig {
@@ -124,6 +142,7 @@ impl Default for TickConfig {
                 b: 0.55,
                 a: 1.0,
             },
+            cache: RefCell::new(None),
         }
     }
 }
@@ -142,12 +161,14 @@ impl TickConfig {
     /// Set the major tick values
     pub fn with_major_values(mut self, values: Vec<f64>) -> Self {
         self.major_values = values;
+        self.cache.replace(None);
         self
     }
 
     /// Set the number of minor ticks between major ticks
     pub fn with_minor_count(mut self, count: usize) -> Self {
         self.minor_count = count;
+        self.cache.replace(None);
         self
     }
 
@@ -160,6 +181,10 @@ impl TickConfig {
 
     /// Generate tick marks based on configuration
     pub fn generate_ticks(&self) -> Vec<TickMark> {
+        if let Some(cached) = self.cache.borrow().as_ref() {
+            return cached.clone();
+        }
+
         let mut ticks = Vec::new();
 
         // Add major ticks
@@ -193,6 +218,7 @@ impl TickConfig {
             }
         }
 
+        self.cache.replace(Some(ticks.clone()));
         ticks
     }
 
@@ -346,5 +372,29 @@ impl TickConfig {
             minor_count: 4,
             ..Default::default()
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::TickConfig;
+
+    #[test]
+    fn generate_ticks_is_cached() {
+        let config = TickConfig::lufs();
+        let ticks_a = config.generate_ticks();
+        let ticks_b = config.generate_ticks();
+        assert_eq!(ticks_a.len(), ticks_b.len());
+        assert!(ticks_a.iter().zip(ticks_b.iter()).all(|(a, b)| {
+            a.position == b.position && a.is_major == b.is_major && a.label == b.label
+        }));
+    }
+
+    #[test]
+    fn tick_config_clone_clears_cache() {
+        let config = TickConfig::percentage();
+        let _ = config.generate_ticks();
+        let cloned = config.clone();
+        assert!(cloned.cache.borrow().is_none());
     }
 }

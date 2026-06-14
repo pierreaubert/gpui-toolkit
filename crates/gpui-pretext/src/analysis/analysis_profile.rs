@@ -138,7 +138,7 @@ fn build_merged_segmentation(
             }
 
             // Default: new segment
-            merged_texts.push(piece.text);
+            merged_texts.push(piece.text.to_string());
             merged_word_like.push(piece.is_word_like);
             merged_kinds.push(piece.kind);
             merged_starts.push(piece.start);
@@ -154,10 +154,9 @@ fn build_merged_segmentation(
             && is_escaped_quote_cluster_segment(&merged_texts[i])
             && merged_kinds[i - 1] == SegmentBreakKind::Text
         {
-            let text = merged_texts[i].clone();
+            let text = std::mem::take(&mut merged_texts[i]);
             merged_texts[i - 1].push_str(&text);
             merged_word_like[i - 1] = merged_word_like[i - 1] || merged_word_like[i];
-            merged_texts[i].clear();
         }
     }
 
@@ -172,10 +171,9 @@ fn build_merged_segmentation(
                 j += 1;
             }
             if j < merged_len && merged_kinds[j] == SegmentBreakKind::Text {
-                let prefix = merged_texts[i].clone();
-                merged_texts[j] = format!("{}{}", prefix, &merged_texts[j]);
+                let prefix = std::mem::take(&mut merged_texts[i]);
+                merged_texts[j].insert_str(0, &prefix);
                 merged_starts[j] = merged_starts[i];
-                merged_texts[i].clear();
             }
         }
     }
@@ -191,7 +189,7 @@ fn build_merged_segmentation(
     // Arabic combining mark split
     let mut result = with_merged;
     for i in 0..result.len().saturating_sub(1) {
-        if let Some((_space, marks)) = split_leading_space_and_marks(&result.texts[i]) {
+        if let Some((_space, _marks)) = split_leading_space_and_marks(&result.texts[i]) {
             let kind_i = result.kinds[i];
             if (kind_i != SegmentBreakKind::Space && kind_i != SegmentBreakKind::PreservedSpace)
                 || result.kinds[i + 1] != SegmentBreakKind::Text
@@ -199,16 +197,17 @@ fn build_merged_segmentation(
             {
                 continue;
             }
-            let marks_str = marks.to_string();
-            result.texts[i] = " ".to_string();
+            // Split " " + marks into the space segment and a separate marks string,
+            // then prepend the marks to the following text segment without cloning
+            // either string.
+            let marks = result.texts[i].split_off(1);
             result.is_word_like[i] = false;
             result.kinds[i] = if kind_i == SegmentBreakKind::PreservedSpace {
                 SegmentBreakKind::PreservedSpace
             } else {
                 SegmentBreakKind::Space
             };
-            let next_text = result.texts[i + 1].clone();
-            result.texts[i + 1] = format!("{marks_str}{next_text}");
+            result.texts[i + 1].insert_str(0, &marks);
             result.starts[i + 1] = result.starts[i] + 1; // 1 byte for space
         }
     }
@@ -229,7 +228,7 @@ pub fn analyze_text(
 
     if normalized.is_empty() {
         return TextAnalysis {
-            normalized,
+            normalized: normalized.into_owned(),
             chunks: Vec::new(),
             texts: Vec::new(),
             is_word_like: Vec::new(),
@@ -238,11 +237,12 @@ pub fn analyze_text(
         };
     }
 
-    let segmentation = build_merged_segmentation(&normalized, profile, &ws_profile);
+    let normalized_str = normalized.as_ref();
+    let segmentation = build_merged_segmentation(normalized_str, profile, &ws_profile);
     let chunks = compile_analysis_chunks(&segmentation, &ws_profile);
 
     TextAnalysis {
-        normalized,
+        normalized: normalized.into_owned(),
         chunks,
         texts: segmentation.texts,
         is_word_like: segmentation.is_word_like,

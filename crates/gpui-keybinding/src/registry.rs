@@ -1,6 +1,7 @@
 use gpui::KeyBinding;
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::rc::Rc;
 
 use crate::{
     CommandPaletteEntry, DocumentedKeybinding, KeyConflict, KeybindingProvider, KeymapPreset,
@@ -24,9 +25,9 @@ use crate::{
 /// ```
 pub struct KeybindingRegistry {
     providers: Vec<Box<dyn KeybindingProvider>>,
-    binding_cache: RefCell<HashMap<KeymapPreset, Vec<KeyBinding>>>,
-    documented_cache: RefCell<HashMap<KeymapPreset, Vec<DocumentedKeybinding>>>,
-    palette_cache: RefCell<HashMap<KeymapPreset, Vec<CommandPaletteEntry>>>,
+    binding_cache: RefCell<HashMap<KeymapPreset, Rc<[KeyBinding]>>>,
+    documented_cache: RefCell<HashMap<KeymapPreset, Rc<[DocumentedKeybinding]>>>,
+    palette_cache: RefCell<HashMap<KeymapPreset, Rc<[CommandPaletteEntry]>>>,
 }
 
 impl KeybindingRegistry {
@@ -46,34 +47,36 @@ impl KeybindingRegistry {
     }
 
     /// Get all GPUI `KeyBinding`s for a preset, collected from all providers.
-    pub fn get_bindings(&self, preset: KeymapPreset) -> Vec<KeyBinding> {
+    pub fn get_bindings(&self, preset: KeymapPreset) -> Rc<[KeyBinding]> {
         if let Some(bindings) = self.binding_cache.borrow().get(&preset) {
-            return bindings.clone();
+            return Rc::clone(bindings);
         }
 
         let mut bindings = Vec::new();
         for provider in &self.providers {
             bindings.extend(provider.bindings(preset));
         }
+        let bindings: Rc<[KeyBinding]> = bindings.into();
         self.binding_cache
             .borrow_mut()
-            .insert(preset, bindings.clone());
+            .insert(preset, Rc::clone(&bindings));
         bindings
     }
 
     /// Get all documented keybindings for help/settings UI.
-    pub fn get_documented(&self, preset: KeymapPreset) -> Vec<DocumentedKeybinding> {
+    pub fn get_documented(&self, preset: KeymapPreset) -> Rc<[DocumentedKeybinding]> {
         if let Some(docs) = self.documented_cache.borrow().get(&preset) {
-            return docs.clone();
+            return Rc::clone(docs);
         }
 
         let mut docs = Vec::new();
         for provider in &self.providers {
             docs.extend(provider.documented_bindings(preset));
         }
+        let docs: Rc<[DocumentedKeybinding]> = docs.into();
         self.documented_cache
             .borrow_mut()
-            .insert(preset, docs.clone());
+            .insert(preset, Rc::clone(&docs));
         docs
     }
 
@@ -83,15 +86,16 @@ impl KeybindingRegistry {
         detect_conflicts(&docs)
     }
 
-    pub(crate) fn get_palette_entries(&self, preset: KeymapPreset) -> Vec<CommandPaletteEntry> {
+    pub(crate) fn get_palette_entries(&self, preset: KeymapPreset) -> Rc<[CommandPaletteEntry]> {
         if let Some(entries) = self.palette_cache.borrow().get(&preset) {
-            return entries.clone();
+            return Rc::clone(entries);
         }
 
         let entries = command_palette_entries(&self.get_documented(preset));
+        let entries: Rc<[CommandPaletteEntry]> = entries.into();
         self.palette_cache
             .borrow_mut()
-            .insert(preset, entries.clone());
+            .insert(preset, Rc::clone(&entries));
         entries
     }
 
@@ -105,5 +109,46 @@ impl KeybindingRegistry {
 impl Default for KeybindingRegistry {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{DocumentedKeybinding, KeybindingCategory, KeybindingProvider, KeymapPreset};
+
+    struct StaticProvider;
+
+    impl KeybindingProvider for StaticProvider {
+        fn bindings(&self, _preset: KeymapPreset) -> Vec<gpui::KeyBinding> {
+            Vec::new()
+        }
+
+        fn documented_bindings(&self, _preset: KeymapPreset) -> Vec<DocumentedKeybinding> {
+            vec![DocumentedKeybinding::new(
+                "Ctrl+P",
+                "Open command palette",
+                KeybindingCategory::View,
+            )]
+        }
+    }
+
+    #[test]
+    fn caches_return_shared_rc_slices() {
+        let mut registry = KeybindingRegistry::new();
+        registry.register(StaticProvider);
+
+        let bindings_a = registry.get_bindings(KeymapPreset::Default);
+        let bindings_b = registry.get_bindings(KeymapPreset::Default);
+        assert_eq!(bindings_a.len(), bindings_b.len());
+        assert!(std::rc::Rc::ptr_eq(&bindings_a, &bindings_b));
+
+        let docs_a = registry.get_documented(KeymapPreset::Default);
+        let docs_b = registry.get_documented(KeymapPreset::Default);
+        assert!(std::rc::Rc::ptr_eq(&docs_a, &docs_b));
+
+        let palette_a = registry.get_palette_entries(KeymapPreset::Default);
+        let palette_b = registry.get_palette_entries(KeymapPreset::Default);
+        assert!(std::rc::Rc::ptr_eq(&palette_a, &palette_b));
     }
 }

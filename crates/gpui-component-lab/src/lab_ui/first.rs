@@ -6,7 +6,7 @@ pub(super) fn first_viewport_id(story: &ComponentStory) -> String {
     story
         .viewports
         .first()
-        .map(|viewport| viewport.id.clone())
+        .map(|viewport| viewport.id.to_string())
         .unwrap_or_else(|| "desktop".to_string())
 }
 
@@ -14,7 +14,7 @@ pub(super) fn first_theme_id(story: &ComponentStory) -> String {
     story
         .themes
         .first()
-        .map(|theme| theme.id.clone())
+        .map(|theme| theme.id.to_string())
         .unwrap_or_else(|| "neutral".to_string())
 }
 
@@ -22,6 +22,6 @@ pub(super) fn first_motion_id(story: &ComponentStory) -> String {
     story
         .motions
         .first()
-        .map(|motion| motion.id.clone())
+        .map(|motion| motion.id.to_string())
         .unwrap_or_else(|| "system".to_string())
 }

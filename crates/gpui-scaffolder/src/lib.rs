@@ -166,25 +166,29 @@ fn pascal_case(name: &str) -> String {
 }
 
 fn title_case(name: &str) -> String {
-    let mut words = Vec::new();
+    let mut out = String::new();
+    let mut first_word = true;
     for part in name.split(|ch: char| ch == '-' || ch == '_' || ch.is_whitespace()) {
         if part.is_empty() {
             continue;
         }
 
+        if !first_word {
+            out.push(' ');
+        }
+        first_word = false;
+
         let mut chars = part.chars();
         if let Some(first) = chars.next() {
-            let mut word = String::new();
-            word.push(first.to_ascii_uppercase());
-            word.extend(chars);
-            words.push(word);
+            out.push(first.to_ascii_uppercase());
+            out.extend(chars);
         }
     }
 
-    if words.is_empty() {
+    if out.is_empty() {
         name.to_owned()
     } else {
-        words.join(" ")
+        out
     }
 }
 
@@ -343,6 +347,17 @@ mod tests {
         assert_eq!(names.view_name, "MyLittleAppView");
 
         Ok(())
+    }
+
+    #[test]
+    fn title_cases_names() {
+        assert_eq!(title_case("my-little-app"), "My Little App");
+        assert_eq!(title_case("my_little_app"), "My Little App");
+        assert_eq!(title_case("my little app"), "My Little App");
+        assert_eq!(title_case("My-Little-App"), "My Little App");
+        assert_eq!(title_case("single"), "Single");
+        assert_eq!(title_case(""), "");
+        assert_eq!(title_case("--__  "), "--__  ");
     }
 
     #[test]

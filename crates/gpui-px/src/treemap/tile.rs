@@ -4,7 +4,7 @@ use super::treemap_node::TreemapNode;
 
 /// Slice tiling - horizontal strips.
 pub(super) fn tile_slice(
-    children: &[(&TreemapNode, f64)],
+    children: &[TreemapNode],
     x0: f64,
     y0: f64,
     x1: f64,
@@ -12,10 +12,11 @@ pub(super) fn tile_slice(
     total: f64,
 ) -> Vec<(f64, f64, f64, f64)> {
     let height = y1 - y0;
-    let mut rects = Vec::new();
+    let mut rects = Vec::with_capacity(children.len());
     let mut y = y0;
 
-    for (_, value) in children {
+    for child in children {
+        let value = child.total_value();
         let h = (value / total) * height;
         rects.push((x0, y, x1, y + h));
         y += h;
@@ -26,7 +27,7 @@ pub(super) fn tile_slice(
 
 /// Dice tiling - vertical strips.
 pub(super) fn tile_dice(
-    children: &[(&TreemapNode, f64)],
+    children: &[TreemapNode],
     x0: f64,
     y0: f64,
     x1: f64,
@@ -34,10 +35,11 @@ pub(super) fn tile_dice(
     total: f64,
 ) -> Vec<(f64, f64, f64, f64)> {
     let width = x1 - x0;
-    let mut rects = Vec::new();
+    let mut rects = Vec::with_capacity(children.len());
     let mut x = x0;
 
-    for (_, value) in children {
+    for child in children {
+        let value = child.total_value();
         let w = (value / total) * width;
         rects.push((x, y0, x + w, y1));
         x += w;
@@ -48,7 +50,7 @@ pub(super) fn tile_dice(
 
 /// Slice-Dice tiling - alternates between slice and dice based on depth.
 pub(super) fn tile_slice_dice(
-    children: &[(&TreemapNode, f64)],
+    children: &[TreemapNode],
     x0: f64,
     y0: f64,
     x1: f64,
@@ -65,7 +67,7 @@ pub(super) fn tile_slice_dice(
 
 /// Binary tiling - recursively subdivides into two halves.
 pub(super) fn tile_binary(
-    children: &[(&TreemapNode, f64)],
+    children: &[TreemapNode],
     x0: f64,
     y0: f64,
     x1: f64,
@@ -80,13 +82,13 @@ pub(super) fn tile_binary(
     }
 
     // Find partition point that balances the two halves
-    let total: f64 = children.iter().map(|(_, v)| *v).sum();
+    let total: f64 = children.iter().map(|c| c.total_value()).sum();
     let mut cumsum = 0.0;
     let mut split_idx = 0;
     let half = total / 2.0;
 
-    for (i, (_, value)) in children.iter().enumerate() {
-        cumsum += *value;
+    for (i, child) in children.iter().enumerate() {
+        cumsum += child.total_value();
         if cumsum >= half {
             split_idx = i + 1;
             break;
@@ -95,14 +97,14 @@ pub(super) fn tile_binary(
 
     split_idx = split_idx.max(1).min(children.len() - 1);
 
-    let left: f64 = children[..split_idx].iter().map(|(_, v)| *v).sum();
-    let right: f64 = children[split_idx..].iter().map(|(_, v)| *v).sum();
+    let left: f64 = children[..split_idx].iter().map(|c| c.total_value()).sum();
+    let right: f64 = children[split_idx..].iter().map(|c| c.total_value()).sum();
     let left_ratio = left / (left + right);
 
     let width = x1 - x0;
     let height = y1 - y0;
 
-    let mut rects = Vec::new();
+    let mut rects = Vec::with_capacity(children.len());
 
     if width >= height {
         // Split horizontally
@@ -125,16 +127,19 @@ pub(super) fn tile_binary(
 
 /// Squarify tiling - creates rectangles with aspect ratios close to 1.
 pub(super) fn tile_squarify(
-    children: &[(&TreemapNode, f64)],
+    children: &[TreemapNode],
     x0: f64,
     y0: f64,
     x1: f64,
     y1: f64,
     total: f64,
 ) -> Vec<(f64, f64, f64, f64)> {
-    // Filter out zero-value children to avoid division by zero
-    let children: Vec<_> = children.iter().filter(|(_, v)| *v > 0.0).copied().collect();
-    if children.is_empty() {
+    // Work with indices to avoid allocating temporary (node, value) vectors.
+    // Filter out zero-value children to avoid division by zero.
+    let mut indices: Vec<usize> = (0..children.len())
+        .filter(|&i| children[i].total_value() > 0.0)
+        .collect();
+    if indices.is_empty() {
         return Vec::new();
     }
 
@@ -142,18 +147,21 @@ pub(super) fn tile_squarify(
     let height = y1 - y0;
 
     // Sort by value descending for better packing
-    let mut sorted: Vec<_> = children.iter().map(|(n, v)| (*n, *v)).collect();
-    sorted.sort_by(|a, b| b.1.total_cmp(&a.1));
+    indices.sort_by(|&a, &b| {
+        children[b]
+            .total_value()
+            .total_cmp(&children[a].total_value())
+    });
 
-    let mut rects = Vec::new();
+    let mut rects = Vec::with_capacity(indices.len());
     let mut remaining_start = 0;
     let mut x = x0;
     let mut y = y0;
     let mut w = width;
     let mut h = height;
 
-    while remaining_start < sorted.len() {
-        let remaining = &sorted[remaining_start..];
+    while remaining_start < indices.len() {
+        let remaining = &indices[remaining_start..];
 
         // Try to find best row
         let mut best_row_len = 1;
@@ -161,16 +169,17 @@ pub(super) fn tile_squarify(
 
         for row_len in 1..=remaining.len() {
             let row = &remaining[..row_len];
-            let row_sum: f64 = row.iter().map(|(_n, v)| *v).sum();
+            let row_sum: f64 = row.iter().map(|&i| children[i].total_value()).sum();
 
             let short_side = w.min(h);
             let long_side = w.max(h);
 
             // Calculate worst aspect ratio in this row
             let mut worst_ratio: f64 = 0.0;
-            for (_n, value) in row {
+            for &i in row {
+                let value = children[i].total_value();
                 let rect_area =
-                    (*value / row_sum) * (short_side * long_side / (w.max(h) / short_side));
+                    (value / row_sum) * (short_side * long_side / (w.max(h) / short_side));
                 let rect_short = rect_area / long_side;
                 let ratio = rect_short.max(long_side / rect_short);
                 worst_ratio = worst_ratio.max(ratio);
@@ -186,7 +195,7 @@ pub(super) fn tile_squarify(
 
         // Layout the best row
         let row = &remaining[..best_row_len];
-        let row_sum: f64 = row.iter().map(|(_n, v)| *v).sum();
+        let row_sum: f64 = row.iter().map(|&i| children[i].total_value()).sum();
 
         let use_width = w <= h;
         let area = w * h;
@@ -194,8 +203,9 @@ pub(super) fn tile_squarify(
             // Layout horizontally
             let row_height = (row_sum / total) * area / w;
             let mut rx = x;
-            for (_n, value) in row {
-                let rw = (*value / row_sum) * w;
+            for &i in row {
+                let value = children[i].total_value();
+                let rw = (value / row_sum) * w;
                 rects.push((rx, y, rx + rw, y + row_height));
                 rx += rw;
             }
@@ -205,8 +215,9 @@ pub(super) fn tile_squarify(
             // Layout vertically
             let row_width = (row_sum / total) * area / h;
             let mut ry = y;
-            for (_n, value) in row {
-                let rh = (*value / row_sum) * h;
+            for &i in row {
+                let value = children[i].total_value();
+                let rh = (value / row_sum) * h;
                 rects.push((x, ry, x + row_width, ry + rh));
                 ry += rh;
             }

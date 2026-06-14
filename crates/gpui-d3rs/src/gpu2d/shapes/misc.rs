@@ -82,19 +82,24 @@ pub(super) fn clip_line_segment(
     }
 }
 
-/// Format a tick value using the optional custom formatter
-pub(super) fn format_tick(value: f64, formatter: &Option<fn(f64) -> String>) -> String {
+use gpui::SharedString;
+
+/// Format a tick value using the optional custom formatter.
+///
+/// Returns a `SharedString` so formatted labels can be cached and reused by
+/// GPU renderers without repeated per-frame `String` allocations.
+pub(super) fn format_tick(value: f64, formatter: &Option<fn(f64) -> String>) -> SharedString {
     match formatter {
-        Some(f) => f(value),
+        Some(f) => f(value).into(),
         None => {
             if value.abs() < 1e-10 {
-                "0".to_string()
+                "0".into()
             } else if value.abs() >= 1000.0 || value.abs() < 0.01 {
-                format!("{:.1e}", value)
+                format!("{:.1e}", value).into()
             } else if value.fract().abs() < 1e-10 {
-                format!("{:.0}", value)
+                format!("{:.0}", value).into()
             } else {
-                format!("{:.1}", value)
+                format!("{:.1}", value).into()
             }
         }
     }

@@ -14,6 +14,7 @@ use gpui_design::{DesignSystem, DesignSystemState};
 use gpui_ui_kit::accessibility::AccessibilityTree;
 use gpui_ui_kit::i18n::{I18nState, Language};
 use gpui_ui_kit::theme::{ThemeState, ThemeVariant};
+use std::rc::Rc;
 
 /// MiniApp provides a minimal application shell for GPUI examples and showcases
 ///
@@ -52,7 +53,7 @@ impl MiniApp {
         V: Render + 'static,
         F: FnOnce(&mut App) -> Entity<V> + 'static,
     {
-        let config_clone = config.clone();
+        let config_rc = Rc::new(config);
 
         let platform = match current_platform() {
             Ok(p) => p,
@@ -64,8 +65,8 @@ impl MiniApp {
 
         gpui::Application::with_platform(platform).run(move |cx: &mut App| {
             // Initialize theme state if enabled
-            if config_clone.with_theme {
-                cx.set_global(ThemeState::with_variant(config_clone.initial_theme));
+            if config_rc.with_theme {
+                cx.set_global(ThemeState::with_variant(config_rc.initial_theme));
             }
 
             // Always set design system global (platform-appropriate defaults)
@@ -75,9 +76,9 @@ impl MiniApp {
             cx.set_global(AccessibilityTree::new());
 
             // Initialize i18n state if enabled
-            if config_clone.with_i18n {
+            if config_rc.with_i18n {
                 let mut i18n = I18nState::new();
-                i18n.set_language(config_clone.initial_language);
+                i18n.set_language(config_rc.initial_language);
                 cx.set_global(i18n);
             }
 
@@ -87,7 +88,7 @@ impl MiniApp {
             });
 
             // Register theme actions if enabled
-            if config_clone.with_theme {
+            if config_rc.with_theme {
                 cx.on_action::<ToggleTheme>(|_action, cx| {
                     cx.update_global::<ThemeState, _>(|state, _cx| {
                         state.toggle();
@@ -150,8 +151,8 @@ impl MiniApp {
             });
 
             // Register language actions if enabled
-            if config_clone.with_i18n {
-                let config_for_lang = config_clone.clone();
+            if config_rc.with_i18n {
+                let config_for_lang = config_rc.clone();
                 cx.on_action::<SetLanguageEnglish>(move |_action, cx| {
                     cx.update_global::<I18nState, _>(|state, _cx| {
                         state.set_language(Language::English);
@@ -165,7 +166,7 @@ impl MiniApp {
                     cx.refresh_windows();
                 });
 
-                let config_for_lang = config_clone.clone();
+                let config_for_lang = config_rc.clone();
                 cx.on_action::<SetLanguageFrench>(move |_action, cx| {
                     cx.update_global::<I18nState, _>(|state, _cx| {
                         state.set_language(Language::French);
@@ -179,7 +180,7 @@ impl MiniApp {
                     cx.refresh_windows();
                 });
 
-                let config_for_lang = config_clone.clone();
+                let config_for_lang = config_rc.clone();
                 cx.on_action::<SetLanguageGerman>(move |_action, cx| {
                     cx.update_global::<I18nState, _>(|state, _cx| {
                         state.set_language(Language::German);
@@ -193,7 +194,7 @@ impl MiniApp {
                     cx.refresh_windows();
                 });
 
-                let config_for_lang = config_clone.clone();
+                let config_for_lang = config_rc.clone();
                 cx.on_action::<SetLanguageSpanish>(move |_action, cx| {
                     cx.update_global::<I18nState, _>(|state, _cx| {
                         state.set_language(Language::Spanish);
@@ -207,7 +208,7 @@ impl MiniApp {
                     cx.refresh_windows();
                 });
 
-                let config_for_lang = config_clone.clone();
+                let config_for_lang = config_rc.clone();
                 cx.on_action::<SetLanguageJapanese>(move |_action, cx| {
                     cx.update_global::<I18nState, _>(|state, _cx| {
                         state.set_language(Language::Japanese);
@@ -226,30 +227,30 @@ impl MiniApp {
             let current_language = cx
                 .try_global::<I18nState>()
                 .map(|state| state.language)
-                .unwrap_or(config_clone.initial_language);
-            let menus = Self::build_menus_with_language(&config_clone, current_language);
+                .unwrap_or(config_rc.initial_language);
+            let menus = Self::build_menus_with_language(&config_rc, current_language);
             cx.set_menus(menus);
 
             // Bind keyboard shortcuts
             cx.bind_keys([KeyBinding::new("cmd-q", Quit, None)]);
 
-            if config_clone.with_theme {
+            if config_rc.with_theme {
                 cx.bind_keys([KeyBinding::new("cmd-t", ToggleTheme, None)]);
             }
 
             // Create window
             let bounds = Bounds::centered(
                 None,
-                size(px(config_clone.width), px(config_clone.height)),
+                size(px(config_rc.width), px(config_rc.height)),
                 cx,
             );
 
-            let scrollable = config_clone.scrollable;
+            let scrollable = config_rc.scrollable;
             if let Err(e) = cx.open_window(
                 WindowOptions {
                     window_bounds: Some(WindowBounds::Windowed(bounds)),
                     titlebar: Some(TitlebarOptions {
-                        title: Some(config_clone.title.clone()),
+                        title: Some(config_rc.title.clone()),
                         ..Default::default()
                     }),
                     ..Default::default()

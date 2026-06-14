@@ -27,12 +27,14 @@ use gpui::*;
 
 mod knob_arc_element;
 mod potentiometer_size;
+mod tick_element;
 mod types;
 
 pub use potentiometer_size::*;
 pub use types::*;
 
 use knob_arc_element::KnobArcElement;
+use tick_element::{PotentiometerTickLinesElement, get_tick_geometry};
 
 /// A potentiometer (rotary knob) component for audio plugin parameters
 #[derive(IntoElement)]
@@ -246,13 +248,21 @@ impl Potentiometer {
         match self.shortcut_key {
             Some(key) => {
                 let key_lower = key.to_ascii_lowercase();
-                let label_lower = label.to_lowercase();
-                if let Some(pos) = label_lower.find(key_lower) {
+                let mut match_pos = None;
+                for (pos, ch) in label.char_indices() {
+                    if ch.to_ascii_lowercase() == key_lower {
+                        match_pos = Some(pos);
+                        break;
+                    }
+                }
+                if let Some(pos) = match_pos {
+                    let matched_char = label[pos..].chars().next().unwrap();
+                    let after_pos = pos + matched_char.len_utf8();
                     format!(
                         "{}[{}]{}",
                         &label[..pos],
-                        label.chars().nth(pos).unwrap().to_ascii_uppercase(),
-                        &label[pos + 1..]
+                        matched_char.to_ascii_uppercase(),
+                        &label[after_pos..]
                     )
                 } else {
                     format!("[{}] {}", key.to_ascii_uppercase(), label)
@@ -267,7 +277,7 @@ impl Potentiometer {
     #[allow(dead_code)]
     fn format_value(&self) -> String {
         let value = self.value.clamp(self.min, self.max);
-        let unit = self.unit.to_string();
+        let unit = self.unit.as_ref();
         if unit == ":1" {
             format!("{:.1}{}", value, unit)
         } else if unit == "%" {
@@ -290,7 +300,7 @@ impl Potentiometer {
     /// Format the value display (without unit, for center display)
     fn format_value_only(&self) -> String {
         let value = self.value.clamp(self.min, self.max);
-        let unit = self.unit.to_string();
+        let unit = self.unit.as_ref();
         if unit == ":1" {
             format!("{:.1}", value)
         } else if unit == "%" {
@@ -618,57 +628,6 @@ impl RenderOnce for Potentiometer {
             }
         }
 
-        // Determine number of major ticks based on range and size
-        // Algorithm:
-        // 1. Try divisors for max (10, 5, 3, 2) - prefer 10 for large size
-        // 2. Compute tick_interval = max / divisor
-        // 3. Check if min is a multiple of tick_interval
-        // 4. Number of ticks = range / tick_interval
-        // Example: min=100, max=1000, large → 1000/10=100, 100%100=0 ✓ → ticks every 100 → 9 ticks
-        let range = max - min;
-        let is_large = matches!(self.size, PotentiometerSize::Lg);
-
-        // Candidate divisors: large size can use 10, others prefer smaller counts
-        let divisors: &[i32] = if is_large { &[10, 5, 3, 2] } else { &[5, 3, 2] };
-
-        let num_major_ticks = {
-            let mut best_tick_count = if is_large { 10 } else { 4 };
-
-            for &div in divisors {
-                // Skip if max is not cleanly divisible by this divisor
-                if max.abs() < 0.0001 {
-                    continue;
-                }
-
-                let tick_interval = max / div as f64;
-                if tick_interval.abs() < 0.0001 {
-                    continue;
-                }
-
-                // Check if min is a multiple of tick_interval
-                let min_remainder = if min.abs() < 0.0001 {
-                    0.0
-                } else {
-                    (min / tick_interval).fract().abs()
-                };
-                let min_aligned = min_remainder < 0.01 || (1.0 - min_remainder) < 0.01;
-
-                if min_aligned {
-                    // Compute how many ticks fit in the range
-                    let tick_count = (range / tick_interval).round() as i32;
-                    if tick_count >= 2 && tick_count <= (if is_large { 10 } else { 6 }) {
-                        best_tick_count = tick_count;
-                        break;
-                    }
-                }
-            }
-
-            best_tick_count
-        };
-
-        // Number of minor ticks between each major tick
-        let minor_ticks_between = 4;
-
         // Knob graphic with ticks. Horizontal labels still need room for the
         // widest tick text, but the top/bottom gutter can be much tighter:
         // just enough for the tick label's own line height plus a small gap.
@@ -686,12 +645,6 @@ impl RenderOnce for Potentiometer {
             .w(px(container_width))
             .h(px(container_height))
             .relative();
-
-        // Add tick marks and labels around the knob
-        let knob_offset_x = horizontal_label_gutter;
-        let knob_offset_y = vertical_label_gutter;
-        let major_tick_width = 3.0; // Doubled from 1.5
-        let minor_tick_width = 1.5; // Thinner for minor ticks
 
         // Create tick colors - use accent-based colors for visibility
         let major_tick_color = {
@@ -713,128 +666,77 @@ impl RenderOnce for Potentiometer {
             }
         };
 
-        // Total number of tick positions (major + minor)
-        let total_ticks = num_major_ticks * (minor_ticks_between + 1);
+        // Cache tick geometry/labels by (min, max, scale, size, unit) and paint
+        // all tick lines in a single custom element instead of one div per dot.
+        let tick_geometry = get_tick_geometry(
+            min,
+            max,
+            scale,
+            self.size,
+            &self.unit,
+            self.design_tokens.knob_arc_start_deg,
+            self.design_tokens.knob_arc_sweep_deg,
+            knob_size,
+            center,
+            horizontal_label_gutter,
+            vertical_label_gutter,
+            container_width,
+            container_height,
+            major_tick_outer_radius,
+            minor_tick_outer_radius,
+            tick_inner_radius,
+            label_radius,
+        );
 
-        for i in 0..=total_ticks {
-            let tick_normalized = i as f32 / total_ticks as f32;
-            let tick_angle = start_rad + (end_rad - start_rad) * tick_normalized;
+        knob_container = knob_container.child(PotentiometerTickLinesElement {
+            container_width,
+            container_height,
+            major_tick_color,
+            minor_tick_color,
+            ticks: tick_geometry.ticks.clone(),
+            major_tick_width: tick_geometry.major_tick_width,
+            minor_tick_width: tick_geometry.minor_tick_width,
+        });
 
-            // Determine if this is a major tick (has label) or minor tick
-            let is_major = i % (minor_ticks_between + 1) == 0;
+        // Add cached tick labels as div children.
+        let char_w = 5.4_f32;
+        let line_h = label_line_h;
+        let dead_zone = 0.30_f32;
+        let pad = tick_label_pad;
+        for (label_text, label_x, label_y) in tick_geometry.labels.iter() {
+            let tick_angle = {
+                let dx = label_x - tick_geometry.knob_offset_x - center;
+                let dy = label_y - tick_geometry.knob_offset_y - center;
+                dy.atan2(dx)
+            };
+            let text_w = (label_text.len() as f32) * char_w;
+            let cos_a = tick_angle.cos();
+            let sin_a = tick_angle.sin();
 
-            let (tick_outer_radius, tick_width, tick_color) = if is_major {
-                (major_tick_outer_radius, major_tick_width, major_tick_color)
+            let dx = if cos_a > dead_zone {
+                pad
+            } else if cos_a < -dead_zone {
+                -text_w - pad
             } else {
-                (minor_tick_outer_radius, minor_tick_width, minor_tick_color)
+                -text_w / 2.0
+            };
+            let dy = if sin_a > dead_zone {
+                pad
+            } else if sin_a < -dead_zone {
+                -line_h - pad
+            } else {
+                -line_h / 2.0
             };
 
-            // Calculate tick line positions (inner and outer points)
-            let inner_x = knob_offset_x + center + tick_inner_radius * tick_angle.cos();
-            let inner_y = knob_offset_y + center + tick_inner_radius * tick_angle.sin();
-            let outer_x = knob_offset_x + center + tick_outer_radius * tick_angle.cos();
-            let outer_y = knob_offset_y + center + tick_outer_radius * tick_angle.sin();
-
-            // Draw tick line using circles connected visually
-            let tick_length = tick_outer_radius - tick_inner_radius;
-            let num_dots = (tick_length / 1.5).max(2.0) as usize;
-            for j in 0..=num_dots {
-                let t = j as f32 / num_dots as f32;
-                let dot_x = inner_x + (outer_x - inner_x) * t - tick_width / 2.0;
-                let dot_y = inner_y + (outer_y - inner_y) * t - tick_width / 2.0;
-
-                knob_container = knob_container.child(
-                    div()
-                        .absolute()
-                        .left(px(dot_x))
-                        .top(px(dot_y))
-                        .w(px(tick_width))
-                        .h(px(tick_width))
-                        .rounded_full()
-                        .bg(tick_color),
-                );
-            }
-
-            // Add tick label only for major ticks
-            if is_major {
-                // Convert normalized position to actual value using scale
-                let tick_value = scale.normalized_to_value(tick_normalized as f64, min, max);
-                let label_x = knob_offset_x + center + label_radius * tick_angle.cos();
-                let label_y = knob_offset_y + center + label_radius * tick_angle.sin();
-
-                // Format tick label
-                let unit = self.unit.as_ref();
-                let label_text = if unit == "%" {
-                    // tick_normalized is already 0.0 to 1.0, so multiply by 100 for percentage
-                    format!("{:.0}", tick_normalized * 100.0)
-                } else if unit == "Hz" {
-                    if tick_value >= 1000.0 {
-                        format!("{:.0}k", tick_value / 1000.0)
-                    } else {
-                        format!("{:.0}", tick_value)
-                    }
-                } else if unit == "dB" {
-                    format!("{:.0}", tick_value)
-                } else {
-                    format!("{:.1}", tick_value)
-                };
-
-                // Quadrant-aware label anchoring.
-                //
-                // Position the label so the corner closest to the knob center
-                // sits a small gap away from the tick — that means the digit
-                // facing the tick is what aligns with it, regardless of the
-                // label's length. Examples (default sweep, range 0..1000):
-                //   • upper-right tick "600.4" → label sits to the upper-right
-                //     of the tick, left edge anchored → "6" near the tick
-                //   • upper-left tick "400.6"  → label sits to the upper-left,
-                //     right edge anchored → "6" near the tick (was "0")
-                //   • 9 o'clock tick "200.0"   → label sits to the left, right
-                //     edge anchored, vertically centered → "0" near the tick
-                //   • 3 o'clock tick "800.0"   → label sits to the right, left
-                //     edge anchored, vertically centered
-                //
-                // We approximate the rendered text width from char count at
-                // 9px font (~5.4px/char). We can't measure exact glyph metrics
-                // here without entering paint, so the multiplier is tuned for
-                // the ~9px font used below.
-                let char_w = 5.4_f32;
-                let line_h = label_line_h;
-                let text_w = (label_text.len() as f32) * char_w;
-
-                // Anchor offsets: how far the label's top-left corner is
-                // shifted from `(label_x, label_y)` so that its facing edge
-                // lands on the tick's outer label position.
-                let cos_a = tick_angle.cos();
-                let sin_a = tick_angle.sin();
-                let dead_zone = 0.30_f32; // |cos|/|sin| below this counts as "centered"
-                let pad = tick_label_pad; // gap between tick and label edge
-
-                let dx = if cos_a > dead_zone {
-                    pad // left edge of label hugs the tick
-                } else if cos_a < -dead_zone {
-                    -text_w - pad // right edge of label hugs the tick
-                } else {
-                    -text_w / 2.0 // center horizontally
-                };
-                let dy = if sin_a > dead_zone {
-                    pad // top of label below the tick
-                } else if sin_a < -dead_zone {
-                    -line_h - pad // bottom of label above the tick
-                } else {
-                    -line_h / 2.0 // vertically center
-                };
-
-                knob_container = knob_container.child(
-                    div()
-                        .absolute()
-                        .left(px(label_x + dx))
-                        .top(px(label_y + dy))
-                        .text_size(px(9.0)) // Smaller than text_xs (12px)
-                        .text_color(major_tick_color)
-                        .child(label_text),
-                );
-            }
+            knob_container = knob_container.child(
+                div()
+                    .absolute()
+                    .left(px(label_x + dx))
+                    .top(px(label_y + dy))
+                    .text_size(px(9.0))
+                    .text_color(major_tick_color)
+                    .child(label_text.clone()),
+            );
         }
 
         // Value arc — painted behind tick marks, around the knob
@@ -851,8 +753,8 @@ impl RenderOnce for Potentiometer {
             div().absolute().inset_0().child(KnobArcElement {
                 container_width,
                 container_height,
-                knob_offset_x,
-                knob_offset_y,
+                knob_offset_x: tick_geometry.knob_offset_x,
+                knob_offset_y: tick_geometry.knob_offset_y,
                 knob_size,
                 normalized,
                 arc_color,
@@ -872,8 +774,8 @@ impl RenderOnce for Potentiometer {
         let knob_border = self.design_tokens.knob_border_width;
         let mut knob = div()
             .absolute()
-            .left(px(knob_offset_x))
-            .top(px(knob_offset_y))
+            .left(px(tick_geometry.knob_offset_x))
+            .top(px(tick_geometry.knob_offset_y))
             .w(px(knob_size))
             .h(px(knob_size))
             .rounded_full()
@@ -975,7 +877,7 @@ impl RenderOnce for Potentiometer {
             PotentiometerSize::Lg => value_display.text_sm(),
         };
 
-        knob = knob.child(value_display.child(value_str_only.clone()));
+        knob = knob.child(value_display.child(value_str_only));
 
         knob_container = knob_container.child(knob);
 
@@ -983,8 +885,8 @@ impl RenderOnce for Potentiometer {
         // Position it at the same radius as the tick labels
         if !unit_str.is_empty() {
             let unit_angle = std::f32::consts::PI * 0.5; // 90° in screen coordinates (6 o'clock)
-            let unit_x = knob_offset_x + center + label_radius * unit_angle.cos();
-            let unit_y = knob_offset_y + center + label_radius * unit_angle.sin();
+            let unit_x = tick_geometry.knob_offset_x + center + label_radius * unit_angle.cos();
+            let unit_y = tick_geometry.knob_offset_y + center + label_radius * unit_angle.sin();
 
             // Calculate approximate centering offset based on typical unit string lengths
             // "%" is 1 char, "Hz" is 2 chars, "dB" is 2 chars
@@ -1009,5 +911,41 @@ impl RenderOnce for Potentiometer {
         }
 
         container.child(knob_container)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Potentiometer;
+
+    #[test]
+    fn format_label_wraps_shortcut_key() {
+        let pot = Potentiometer::new("test")
+            .label("Frequency")
+            .shortcut_key('f');
+        assert_eq!(pot.format_label(), "[F]requency");
+
+        let pot_unmatched = Potentiometer::new("test").label("Gain").shortcut_key('z');
+        assert_eq!(pot_unmatched.format_label(), "[Z] Gain");
+    }
+
+    #[test]
+    fn format_value_only_respects_units() {
+        let pot_pct = Potentiometer::new("test")
+            .value(75.0)
+            .min(0.0)
+            .max(100.0)
+            .unit("%");
+        assert_eq!(pot_pct.format_value_only(), "75");
+
+        let pot_hz = Potentiometer::new("test")
+            .value(1000.0)
+            .min(20.0)
+            .max(20000.0)
+            .unit("Hz");
+        assert_eq!(pot_hz.format_value_only(), "1000");
+
+        let pot_default = Potentiometer::new("test").value(3.14);
+        assert_eq!(pot_default.format_value_only(), "3.1");
     }
 }

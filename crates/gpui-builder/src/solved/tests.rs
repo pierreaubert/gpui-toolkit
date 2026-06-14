@@ -7,9 +7,9 @@ use crate::types::{Axis, LayoutNode, Sizing};
 
 use crate::types::{ContainerNode, SlotNode};
 
-fn solved_slot(id: &str, width: f32, height: f32) -> SolvedNode {
+fn solved_slot(id: &'static str, width: f32, height: f32) -> SolvedNode<'static> {
     SolvedNode {
-        id: id.to_string(),
+        id,
         width,
         height,
         visible: true,
@@ -49,7 +49,7 @@ fn debug_report_includes_source_metadata_and_collapsed_labels() {
         divider_size: 0.0,
     });
     let solved = SolvedNode {
-        id: "root".to_string(),
+        id: "root",
         width: 320.0,
         height: 240.0,
         visible: true,
@@ -59,12 +59,12 @@ fn debug_report_includes_source_metadata_and_collapsed_labels() {
         children: vec![
             solved_slot("header", 320.0, 40.0),
             SolvedNode {
-                id: "inspector".to_string(),
+                id: "inspector",
                 width: 0.0,
                 height: 0.0,
                 visible: false,
                 active_tier: None,
-                collapse_label: Some("Inspector".to_string()),
+                collapse_label: Some("Inspector"),
                 resolved_axis: None,
                 children: Vec::new(),
             },
@@ -88,7 +88,7 @@ fn debug_report_includes_source_metadata_and_collapsed_labels() {
 #[test]
 fn debug_report_warns_for_invalid_hidden_and_overflowing_nodes() {
     let solved = SolvedNode {
-        id: "root".to_string(),
+        id: "root",
         width: 100.0,
         height: 40.0,
         visible: true,
@@ -99,7 +99,7 @@ fn debug_report_warns_for_invalid_hidden_and_overflowing_nodes() {
             solved_slot("wide", 75.0, 45.0),
             solved_slot("wider", 50.0, 20.0),
             SolvedNode {
-                id: "ghost".to_string(),
+                id: "ghost",
                 width: f32::NAN,
                 height: 0.0,
                 visible: false,
@@ -158,4 +158,38 @@ fn debug_report_warns_for_invalid_hidden_and_overflowing_nodes() {
             .to_string()
             .contains("warnings:\n- root children use 125px")
     );
+}
+
+#[test]
+fn as_map_builds_flat_id_index() {
+    let solved = SolvedNode {
+        id: "root",
+        width: 100.0,
+        height: 100.0,
+        visible: true,
+        active_tier: None,
+        collapse_label: None,
+        resolved_axis: Some(Axis::Horizontal),
+        children: vec![
+            solved_slot("a", 50.0, 100.0),
+            SolvedNode {
+                id: "b",
+                width: 50.0,
+                height: 100.0,
+                visible: true,
+                active_tier: None,
+                collapse_label: None,
+                resolved_axis: None,
+                children: vec![solved_slot("b1", 50.0, 50.0)],
+            },
+        ],
+    };
+
+    let map = solved.as_map();
+    assert_eq!(map.len(), 4);
+    assert_eq!(map.get("root").unwrap().width, 100.0);
+    assert_eq!(map.get("a").unwrap().width, 50.0);
+    assert_eq!(map.get("b").unwrap().width, 50.0);
+    assert_eq!(map.get("b1").unwrap().width, 50.0);
+    assert!(map.get("missing").is_none());
 }

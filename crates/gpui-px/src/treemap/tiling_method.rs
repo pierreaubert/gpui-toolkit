@@ -84,21 +84,22 @@ pub(super) fn compute_treemap(
             category_index,
         });
     } else {
-        // Layout children based on tiling method
-        let children: Vec<_> = node.children.iter().map(|c| (c, c.total_value())).collect();
+        // Layout children based on tiling method. total_value is cached on each
+        // node, so calling it repeatedly inside the tile helpers is cheap.
+        let children = &node.children;
 
         let rects = match method {
-            TilingMethod::Squarify => tile_squarify(&children, px0, py0, px1, py1, total_value),
-            TilingMethod::Binary => tile_binary(&children, px0, py0, px1, py1, total_value),
-            TilingMethod::Slice => tile_slice(&children, px0, py0, px1, py1, total_value),
-            TilingMethod::Dice => tile_dice(&children, px0, py0, px1, py1, total_value),
+            TilingMethod::Squarify => tile_squarify(children, px0, py0, px1, py1, total_value),
+            TilingMethod::Binary => tile_binary(children, px0, py0, px1, py1, total_value),
+            TilingMethod::Slice => tile_slice(children, px0, py0, px1, py1, total_value),
+            TilingMethod::Dice => tile_dice(children, px0, py0, px1, py1, total_value),
             TilingMethod::SliceDice => {
-                tile_slice_dice(&children, px0, py0, px1, py1, total_value, depth)
+                tile_slice_dice(children, px0, py0, px1, py1, total_value, depth)
             }
         };
 
         // Recursively process children
-        for (i, ((child, _), (cx0, cy0, cx1, cy1))) in children.iter().zip(rects.iter()).enumerate()
+        for (i, (child, (cx0, cy0, cx1, cy1))) in children.iter().zip(rects.iter()).enumerate()
         {
             let child_category = if depth == 0 { i } else { category_index };
             compute_treemap(

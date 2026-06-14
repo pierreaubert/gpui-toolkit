@@ -305,7 +305,7 @@ impl Menu {
                 let is_focused = focused_index == Some(index);
 
                 let mut row = div()
-                    .id(SharedString::from(format!("menu-item-{}", item_id)))
+                    .id(item.element_id.clone())
                     .px_3()
                     .py(px(6.0))
                     .mx_1()

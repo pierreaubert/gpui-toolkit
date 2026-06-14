@@ -66,6 +66,21 @@ fn test_to_rust_code_includes_nested_structs() {
 }
 
 #[test]
+fn test_to_rust_code_band_colors_are_indented() {
+    let theme = EditorTheme::dark();
+    let code = theme.to_rust_code();
+    // Each band color should appear on its own indented line inside the vec![...].
+    assert!(
+        code.contains(",\n            Color::from_hex"),
+        "Band colors should be formatted on separate indented lines"
+    );
+    assert!(
+        code.contains("band_colors: vec!["),
+        "Rust code should include band_colors vec initialization"
+    );
+}
+
+#[test]
 fn test_to_accordion_theme_maps_accent_fields() {
     let theme = EditorTheme::dark();
     let accordion = theme.to_accordion_theme();

@@ -245,7 +245,9 @@ impl Path {
 
     /// Convert to SVG path string.
     pub fn to_svg_string(&self) -> String {
-        let mut s = String::new();
+        use std::fmt::Write;
+
+        let mut s = String::with_capacity(self.commands.len() * 24);
 
         for cmd in &self.commands {
             if !s.is_empty() {
@@ -254,22 +256,22 @@ impl Path {
 
             match *cmd {
                 PathCommand::MoveTo { x, y } => {
-                    s.push_str(&format!("M{},{}", x, y));
+                    write!(&mut s, "M{},{}", x, y).unwrap();
                 }
                 PathCommand::LineTo { x, y } => {
-                    s.push_str(&format!("L{},{}", x, y));
+                    write!(&mut s, "L{},{}", x, y).unwrap();
                 }
                 PathCommand::HorizontalLineTo { x } => {
-                    s.push_str(&format!("H{}", x));
+                    write!(&mut s, "H{}", x).unwrap();
                 }
                 PathCommand::VerticalLineTo { y } => {
-                    s.push_str(&format!("V{}", y));
+                    write!(&mut s, "V{}", y).unwrap();
                 }
                 PathCommand::ClosePath => {
                     s.push('Z');
                 }
                 PathCommand::QuadraticCurveTo { x1, y1, x, y } => {
-                    s.push_str(&format!("Q{},{},{},{}", x1, y1, x, y));
+                    write!(&mut s, "Q{},{},{},{}", x1, y1, x, y).unwrap();
                 }
                 PathCommand::CubicCurveTo {
                     x1,
@@ -279,7 +281,7 @@ impl Path {
                     x,
                     y,
                 } => {
-                    s.push_str(&format!("C{},{},{},{},{},{}", x1, y1, x2, y2, x, y));
+                    write!(&mut s, "C{},{},{},{},{},{}", x1, y1, x2, y2, x, y).unwrap();
                 }
                 PathCommand::Arc {
                     x,
@@ -296,7 +298,8 @@ impl Path {
                     let y2 = y + radius * end_angle.sin();
                     let large_arc = (end_angle - start_angle).abs() > PI;
                     let sweep = end_angle > start_angle;
-                    s.push_str(&format!(
+                    write!(
+                        &mut s,
                         "M{},{} A{},{},0,{},{},{},{}",
                         x1,
                         y1,
@@ -306,7 +309,8 @@ impl Path {
                         if sweep { 1 } else { 0 },
                         x2,
                         y2
-                    ));
+                    )
+                    .unwrap();
                 }
                 PathCommand::EllipticalArc {
                     rx,
@@ -317,7 +321,8 @@ impl Path {
                     x,
                     y,
                 } => {
-                    s.push_str(&format!(
+                    write!(
+                        &mut s,
                         "A{},{},{},{},{},{},{}",
                         rx,
                         ry,
@@ -326,7 +331,8 @@ impl Path {
                         if sweep { 1 } else { 0 },
                         x,
                         y
-                    ));
+                    )
+                    .unwrap();
                 }
                 PathCommand::Rect {
                     x,
@@ -334,7 +340,8 @@ impl Path {
                     width,
                     height,
                 } => {
-                    s.push_str(&format!(
+                    write!(
+                        &mut s,
                         "M{},{} L{},{} L{},{} L{},{} Z",
                         x,
                         y,
@@ -344,11 +351,13 @@ impl Path {
                         y + height,
                         x,
                         y + height
-                    ));
+                    )
+                    .unwrap();
                 }
             }
         }
 
         s
     }
+
 }

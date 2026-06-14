@@ -14,5 +14,5 @@ Provides the theming infrastructure for all GPUI-based applications in the proje
 ## Testing
 
 ```bash
-cargo check -p gpui-themes && cargo clippy -p gpui-themes
+cargo check -p gpui-themes && cargo clippy -p gpui-themes && cargo test -p gpui-themes
 ```

@@ -186,6 +186,30 @@ fn style_dictionary_tokens_include_platform_and_motion() {
 }
 
 #[test]
+fn style_dictionary_tokens_are_cached_and_borrowable() {
+    let ds = DesignSystem::neutral();
+
+    let owned = ds.style_dictionary_tokens();
+    let borrowed = ds.style_dictionary_tokens_ref();
+
+    assert_eq!(owned.len(), borrowed.len());
+    assert!(owned.iter().zip(borrowed).all(|(a, b)| a.name() == b.name()));
+
+    // A second call should return the same cached slice.
+    assert_eq!(ds.style_dictionary_tokens_ref().as_ptr(), borrowed.as_ptr());
+}
+
+#[test]
+fn design_token_name_is_precomputed() {
+    let ds = DesignSystem::neutral();
+    let tokens = ds.style_dictionary_tokens();
+    let token = tokens.iter().find(|t| t.path == vec!["spacing", "grid_unit"]).unwrap();
+
+    assert_eq!(token.name(), "spacing.grid_unit");
+    assert_eq!(token.name(), token.path.join("."));
+}
+
+#[test]
 fn conformance_and_motion_reports_are_stable() {
     let ds = DesignSystem::apple_hig();
 
