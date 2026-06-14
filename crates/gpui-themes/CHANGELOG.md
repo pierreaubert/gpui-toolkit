@@ -1,3 +1,9 @@
+# 0.7.4
+
+## Maintenance
+
+- Version bump; no user-facing changes.
+
 # 0.6.2
 
 ## New

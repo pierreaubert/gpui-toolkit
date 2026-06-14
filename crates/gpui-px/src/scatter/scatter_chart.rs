@@ -26,8 +26,8 @@ use std::sync::Arc;
 #[derive(Debug, Clone)]
 pub struct ScatterChart {
     // Primary series
-    pub(super) x: Vec<f64>,
-    pub(super) y: Vec<f64>,
+    pub(super) x: Arc<[f64]>,
+    pub(super) y: Arc<[f64]>,
     pub(super) label: Option<String>,
     pub(super) color: u32,
     pub(super) point_radius: f32,
@@ -188,8 +188,8 @@ impl ScatterChart {
         opacity: f32,
     ) -> Self {
         self.series.push(ScatterSeries {
-            x: x.to_vec(),
-            y: y.to_vec(),
+            x: Arc::from(x),
+            y: Arc::from(y),
             label: label.map(|l| l.into()),
             color,
             point_radius,
@@ -777,8 +777,8 @@ impl ScatterChart {
 /// ```
 pub fn scatter(x: &[f64], y: &[f64]) -> ScatterChart {
     ScatterChart {
-        x: x.to_vec(),
-        y: y.to_vec(),
+        x: Arc::from(x),
+        y: Arc::from(y),
         label: None,
         color: DEFAULT_COLOR,
         point_radius: 5.0,
@@ -1019,5 +1019,20 @@ mod tests {
             180.0,
             Some(1.25),
         );
+    }
+
+    #[test]
+    fn test_scatter_data_shared_via_arc_on_clone() {
+        let x = vec![1.0, 2.0, 3.0];
+        let y = vec![2.0, 4.0, 8.0];
+        let x2 = vec![1.5, 2.5, 3.5];
+        let y2 = vec![8.0, 4.0, 2.0];
+        let chart = scatter(&x, &y).add_series(&x2, &y2, Some("Series 2"), 0xff7f0e, 4.0, 1.0);
+        let cloned = chart.clone();
+
+        assert!(Arc::ptr_eq(&chart.x, &cloned.x));
+        assert!(Arc::ptr_eq(&chart.y, &cloned.y));
+        assert!(Arc::ptr_eq(&chart.series[0].x, &cloned.series[0].x));
+        assert!(Arc::ptr_eq(&chart.series[0].y, &cloned.series[0].y));
     }
 }

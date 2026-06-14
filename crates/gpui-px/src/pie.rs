@@ -24,7 +24,7 @@ const DEFAULT_PALETTE: [u32; 10] = [
 #[derive(Clone)]
 pub struct PieChart {
     labels: Option<Vec<String>>,
-    values: Vec<f64>,
+    values: StdArc<[f64]>,
     title: Option<String>,
     inner_radius_fraction: f64, // 0.0 to 1.0 of outer radius
     pad_angle: f64,
@@ -177,7 +177,7 @@ impl PieChart {
         let center_x = plot_width as f64 / 2.0;
         let center_y = plot_height as f64 / 2.0;
         let arc_gen = Arc::new().center(center_x, center_y);
-        let slice_paths: Vec<Vec<gpui::Point<gpui::Pixels>>> = slices
+        let slice_paths: StdArc<[Vec<gpui::Point<gpui::Pixels>>]> = slices
             .iter()
             .map(|slice| {
                 arc_gen
@@ -187,11 +187,12 @@ impl PieChart {
                     .map(|p| point(px(p.x as f32), px(p.y as f32)))
                     .collect()
             })
-            .collect();
+            .collect::<Vec<_>>()
+            .into();
 
         // Render function
         let render_element = canvas(
-            move |bounds, _, _| (slice_paths, custom_palette, bounds),
+            move |bounds, _, _| (slice_paths.clone(), custom_palette, bounds),
             move |_, (slice_paths, custom_palette, bounds), window, _| {
                 let palette: &[u32] = custom_palette.as_deref().unwrap_or(&DEFAULT_PALETTE);
                 let origin_x: f32 = bounds.origin.x.into();
@@ -283,7 +284,7 @@ impl PieChart {
 pub fn pie(values: &[f64]) -> PieChart {
     PieChart {
         labels: None,
-        values: values.to_vec(),
+        values: StdArc::from(values),
         title: None,
         inner_radius_fraction: 0.0,
         pad_angle: 0.0,
@@ -363,5 +364,14 @@ mod tests {
             220.0,
             Some(1.0),
         );
+    }
+
+    #[test]
+    fn test_pie_data_shared_via_arc_on_clone() {
+        let values = vec![10.0, 20.0, 30.0];
+        let chart = pie(&values);
+        let cloned = chart.clone();
+
+        assert!(StdArc::ptr_eq(&chart.values, &cloned.values));
     }
 }

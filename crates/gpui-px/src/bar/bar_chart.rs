@@ -7,9 +7,9 @@ use crate::error::ChartError;
 use crate::line::LegendPosition;
 use crate::{
     ChartSize, DEFAULT_COLOR, DEFAULT_HEIGHT, DEFAULT_PADDING_FRACTION, DEFAULT_TITLE_FONT_SIZE,
-    DEFAULT_WIDTH, ScaleType, TITLE_AREA_HEIGHT, apply_chart_size, default_design, extent_padded,
-    resolved_chart_dimensions, validate_data_array, validate_data_length, validate_dimensions,
-    validate_positive, validate_range, validate_range_log,
+    DEFAULT_WIDTH, ScaleType, TITLE_AREA_HEIGHT, apply_chart_size, default_design,
+    extent_padded_iter, resolved_chart_dimensions, validate_data_array, validate_data_length,
+    validate_dimensions, validate_positive, validate_range, validate_range_log,
 };
 use d3rs::axis::{AxisConfig, DefaultAxisTheme, render_axis};
 use d3rs::color::D3Color;
@@ -30,7 +30,7 @@ use std::sync::Arc;
 pub struct BarChart {
     // Primary series
     pub(super) categories: Vec<String>,
-    pub(super) values: Vec<f64>,
+    pub(super) values: Arc<[f64]>,
     pub(super) label: Option<String>,
     pub(super) color: u32,
     pub(super) opacity: f32,
@@ -183,7 +183,7 @@ impl BarChart {
         opacity: f32,
     ) -> Self {
         self.series.push(BarSeries {
-            values: values.to_vec(),
+            values: Arc::from(values),
             label: label.map(|l| l.into()),
             color,
             opacity,
@@ -401,16 +401,18 @@ impl BarChart {
             }
         }
 
-        // Calculate y domain with padding - include all series
-        // Use explicit y_range if set, otherwise calculate from data
+        // Calculate y domain with padding - include all series without cloning.
+        // Use explicit y_range if set, otherwise calculate from data.
         let (mut y_min, mut y_max) = if let Some([min, max]) = self.y_range {
             (min, max)
         } else {
-            let mut all_values = self.values.clone();
-            for series in &self.series {
-                all_values.extend_from_slice(&series.values);
-            }
-            extent_padded(&all_values, DEFAULT_PADDING_FRACTION)
+            extent_padded_iter(
+                self.values
+                    .iter()
+                    .chain(self.series.iter().flat_map(|s| s.values.iter()))
+                    .copied(),
+                DEFAULT_PADDING_FRACTION,
+            )
         };
 
         // For linear scale, always include zero baseline for bar charts
@@ -758,7 +760,7 @@ impl BarChart {
 pub fn bar<S: AsRef<str>>(categories: &[S], values: &[f64]) -> BarChart {
     BarChart {
         categories: categories.iter().map(|s| s.as_ref().to_string()).collect(),
-        values: values.to_vec(),
+        values: Arc::from(values),
         label: None,
         color: DEFAULT_COLOR,
         opacity: 0.8,
@@ -960,5 +962,20 @@ mod tests {
             180.0,
             Some(1.6),
         );
+    }
+
+    #[test]
+    fn test_bar_data_shared_via_arc_on_clone() {
+        let categories = vec!["A", "B", "C"];
+        let values = vec![10.0, 20.0, 30.0];
+        let values2 = vec![5.0, 15.0, 25.0];
+        let chart = bar(&categories, &values).add_series(&values2, Some("2024"), 0xff7f0e, 0.8);
+        let cloned = chart.clone();
+
+        assert!(Arc::ptr_eq(&chart.values, &cloned.values));
+        assert!(Arc::ptr_eq(
+            &chart.series[0].values,
+            &cloned.series[0].values
+        ));
     }
 }

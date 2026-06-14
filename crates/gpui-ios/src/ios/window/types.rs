@@ -99,7 +99,13 @@ mod tests {
         let mut map = TouchStateMap::new();
         assert_eq!(map.get(1), None);
 
-        map.insert(1, TouchState::Pending { start_x: 0.0, start_y: 0.0 });
+        map.insert(
+            1,
+            TouchState::Pending {
+                start_x: 0.0,
+                start_y: 0.0,
+            },
+        );
         assert!(matches!(map.get(1), Some(TouchState::Pending { .. })));
 
         map.insert(1, TouchState::Dragging);
@@ -117,11 +123,20 @@ mod tests {
             map.insert(i, TouchState::Dragging);
         }
         // Adding one more should evict the oldest slot (id 0).
-        map.insert(MAX_TOUCHES, TouchState::Pending { start_x: 1.0, start_y: 2.0 });
+        map.insert(
+            MAX_TOUCHES,
+            TouchState::Pending {
+                start_x: 1.0,
+                start_y: 2.0,
+            },
+        );
         assert_eq!(map.get(0), None);
         assert!(matches!(
             map.get(MAX_TOUCHES),
-            Some(TouchState::Pending { start_x: 1.0, start_y: 2.0 })
+            Some(TouchState::Pending {
+                start_x: 1.0,
+                start_y: 2.0
+            })
         ));
     }
 }

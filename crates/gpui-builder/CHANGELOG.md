@@ -1,4 +1,4 @@
-# Unreleased
+# 0.7.4
 
 ## Demos
 
@@ -12,6 +12,12 @@
 - Visual regression manifests are now serializable for screenshot runners.
 - Added required color-scheme coverage validation and deterministic output
   paths for capture artifacts.
+
+## Performance
+
+- `SolvedNode`, `LayoutDebugReport`, and `LayoutDebugWarning` now borrow IDs,
+  labels, and display-tier strings from the source layout tree instead of
+  cloning them, cutting allocation overhead in solved-layout reporting.
 
 # 0.6.3
 

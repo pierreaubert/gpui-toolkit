@@ -73,26 +73,110 @@ where
         self.height = height;
         self
     }
+}
 
-    /// Normalize a value to 0.0-1.0 range
-    pub(super) fn normalize_value(&self, value: f64) -> f64 {
-        let (min, max) = self.value_range;
+/// Pre-built paths for a single contour band ring.
+#[derive(Clone)]
+pub struct PreparedBandPath {
+    fill: Path<Pixels>,
+    stroke: Path<Pixels>,
+    color: Rgba,
+}
+
+/// Build all paint-ready paths for a set of contour bands.
+fn prepare_band_paths<XS, YS>(
+    bands: &[ContourBand],
+    x_scale: &XS,
+    y_scale: &YS,
+    config: &ContourConfig,
+    value_range: (f64, f64),
+    bounds: Bounds<Pixels>,
+) -> Vec<PreparedBandPath>
+where
+    XS: Scale<f64, f64>,
+    YS: Scale<f64, f64>,
+{
+    let origin_x: f32 = bounds.origin.x.into();
+    let origin_y: f32 = bounds.origin.y.into();
+    let width: f32 = bounds.size.width.into();
+    let height: f32 = bounds.size.height.into();
+
+    let (x_range_min, x_range_max) = x_scale.range();
+    let (y_range_min, y_range_max) = y_scale.range();
+    let x_range_span = (x_range_max - x_range_min).abs();
+    let y_range_span = (y_range_max - y_range_min).abs();
+    let x_range_lo = x_range_min.min(x_range_max);
+    let y_range_lo = y_range_min.min(y_range_max);
+
+    let normalize_value = |value: f64| -> f64 {
+        let (min, max) = value_range;
         if (max - min).abs() < 1e-10 {
             0.5
         } else {
             (value - min) / (max - min)
         }
-    }
+    };
 
-    /// Get fill color for a band's mid value
-    pub(super) fn get_fill_color(&self, mid_value: f64) -> D3Color {
-        let t = self.normalize_value(mid_value);
-        if let Some(ref scale) = self.config.color_scale {
+    let get_fill_color = |mid_value: f64| -> D3Color {
+        let t = normalize_value(mid_value);
+        if let Some(ref scale) = config.color_scale {
             scale(t)
         } else {
-            self.config.fill_color
+            config.fill_color
+        }
+    };
+
+    let mut prepared = Vec::with_capacity(bands.iter().map(|b| b.polygons.len()).sum());
+
+    for band in bands.iter() {
+        let fill_color = get_fill_color(band.mid_value());
+
+        for ring in &band.polygons {
+            if ring.points.len() < 3 {
+                continue;
+            }
+
+            let screen_points: Vec<Point<Pixels>> = ring
+                .points
+                .iter()
+                .map(|p| {
+                    let x_scaled = x_scale.scale(p.x);
+                    let y_scaled = y_scale.scale(p.y);
+                    let x_norm = ((x_scaled - x_range_lo) / x_range_span) as f32;
+                    let y_norm = ((y_scaled - y_range_lo) / y_range_span) as f32;
+                    let screen_x = origin_x + x_norm * width;
+                    let screen_y = origin_y + y_norm * height;
+                    point(px(screen_x), px(screen_y))
+                })
+                .collect();
+
+            let mut fill_rgba = fill_color.to_rgba();
+            fill_rgba.a *= config.fill_opacity;
+
+            let mut fill_builder = PathBuilder::fill();
+            fill_builder.move_to(screen_points[0]);
+            for pt in &screen_points[1..] {
+                fill_builder.line_to(*pt);
+            }
+
+            let mut stroke_builder = PathBuilder::stroke(px(2.0));
+            stroke_builder.move_to(screen_points[0]);
+            for pt in &screen_points[1..] {
+                stroke_builder.line_to(*pt);
+            }
+            stroke_builder.line_to(screen_points[0]);
+
+            if let (Ok(fill), Ok(stroke)) = (fill_builder.build(), stroke_builder.build()) {
+                prepared.push(PreparedBandPath {
+                    fill,
+                    stroke,
+                    color: fill_rgba,
+                });
+            }
         }
     }
+
+    prepared
 }
 
 impl<XS, YS> IntoElement for ContourBandElement<XS, YS>
@@ -113,7 +197,7 @@ where
     YS: Scale<f64, f64> + Clone + 'static,
 {
     type RequestLayoutState = ();
-    type PrepaintState = ();
+    type PrepaintState = Vec<PreparedBandPath>;
 
     fn id(&self) -> Option<ElementId> {
         None
@@ -150,98 +234,105 @@ where
         &mut self,
         _id: Option<&GlobalElementId>,
         _inspector_id: Option<&InspectorElementId>,
-        _bounds: Bounds<Pixels>,
+        bounds: Bounds<Pixels>,
         _request_layout: &mut Self::RequestLayoutState,
         _window: &mut Window,
         _cx: &mut App,
     ) -> Self::PrepaintState {
+        prepare_band_paths(
+            &self.bands,
+            &self.x_scale,
+            &self.y_scale,
+            &self.config,
+            self.value_range,
+            bounds,
+        )
     }
 
     fn paint(
         &mut self,
         _id: Option<&GlobalElementId>,
         _inspector_id: Option<&InspectorElementId>,
-        bounds: Bounds<Pixels>,
+        _bounds: Bounds<Pixels>,
         _request_layout: &mut Self::RequestLayoutState,
-        _prepaint: &mut Self::PrepaintState,
+        prepaint: &mut Self::PrepaintState,
         window: &mut Window,
         _cx: &mut App,
     ) {
-        let origin_x: f32 = bounds.origin.x.into();
-        let origin_y: f32 = bounds.origin.y.into();
-        let width: f32 = bounds.size.width.into();
-        let height: f32 = bounds.size.height.into();
-
-        // Get the range (screen coordinates) for proper normalization
-        let (x_range_min, x_range_max) = self.x_scale.range();
-        let (y_range_min, y_range_max) = self.y_scale.range();
-        let x_range_span = (x_range_max - x_range_min).abs();
-        let y_range_span = (y_range_max - y_range_min).abs();
-        // Use actual min/max for proper handling of inverted scales
-        let x_range_lo = x_range_min.min(x_range_max);
-        let y_range_lo = y_range_min.min(y_range_max);
-
-        // Paint each band (from lowest to highest value for proper layering)
-        for band in self.bands.iter() {
-            let fill_color = self.get_fill_color(band.mid_value());
-
-            for ring in &band.polygons {
-                if ring.points.len() < 3 {
-                    continue;
-                }
-
-                // Convert ring points to screen coordinates using the scale
-                let screen_points: Vec<Point<Pixels>> = ring
-                    .points
-                    .iter()
-                    .map(|p| {
-                        // Use scale.scale() to transform data coordinates to range coordinates
-                        let x_scaled = self.x_scale.scale(p.x);
-                        let y_scaled = self.y_scale.scale(p.y);
-
-                        // Normalize to 0-1 based on range
-                        // Y scale is already inverted (high values at top=0, low at bottom=height)
-                        // so no additional inversion needed here
-                        let x_norm = ((x_scaled - x_range_lo) / x_range_span) as f32;
-                        let y_norm = ((y_scaled - y_range_lo) / y_range_span) as f32;
-
-                        let screen_x = origin_x + x_norm * width;
-                        let screen_y = origin_y + y_norm * height;
-                        point(px(screen_x), px(screen_y))
-                    })
-                    .collect();
-
-                // Paint fill using PathBuilder
-                if screen_points.len() >= 3 {
-                    let mut fill_rgba = fill_color.to_rgba();
-                    fill_rgba.a *= self.config.fill_opacity;
-
-                    // Draw fill
-                    let mut builder = PathBuilder::fill();
-                    builder.move_to(screen_points[0]);
-                    for pt in &screen_points[1..] {
-                        builder.line_to(*pt);
-                    }
-
-                    if let Ok(path) = builder.build() {
-                        window.paint_path(path, fill_rgba);
-                    }
-
-                    // Draw a stroke with the same color to eliminate anti-aliasing gaps
-                    // between adjacent bands. Use 2px stroke for better coverage.
-                    let stroke_color = fill_rgba;
-                    let mut stroke_builder = PathBuilder::stroke(px(2.0));
-                    stroke_builder.move_to(screen_points[0]);
-                    for pt in &screen_points[1..] {
-                        stroke_builder.line_to(*pt);
-                    }
-                    stroke_builder.line_to(screen_points[0]); // Close the path
-
-                    if let Ok(stroke_path) = stroke_builder.build() {
-                        window.paint_path(stroke_path, stroke_color);
-                    }
-                }
-            }
+        for prepared in prepaint.drain(..) {
+            window.paint_path(prepared.fill, prepared.color);
+            window.paint_path(prepared.stroke, prepared.color);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::contour::ContourRing;
+    use crate::scale::LinearScale;
+    use crate::shape::path::Point as D3Point;
+
+    fn test_bounds() -> Bounds<Pixels> {
+        Bounds::new(point(px(0.0), px(0.0)), size(px(100.0), px(100.0)))
+    }
+
+    fn test_band() -> ContourBand {
+        ContourBand {
+            lower: 0.0,
+            upper: 1.0,
+            polygons: vec![ContourRing::new(vec![
+                D3Point::new(0.0, 0.0),
+                D3Point::new(1.0, 0.0),
+                D3Point::new(1.0, 1.0),
+                D3Point::new(0.0, 1.0),
+                D3Point::new(0.0, 0.0),
+            ])],
+        }
+    }
+
+    #[test]
+    fn prepare_band_paths_builds_fill_and_stroke() {
+        let band = test_band();
+        let x_scale = LinearScale::new().domain(0.0, 1.0).range(0.0, 100.0);
+        let y_scale = LinearScale::new().domain(0.0, 1.0).range(100.0, 0.0);
+        let config = ContourConfig::new().fill_opacity(0.5);
+
+        let prepared = prepare_band_paths(
+            std::slice::from_ref(&band),
+            &x_scale,
+            &y_scale,
+            &config,
+            (0.0, 1.0),
+            test_bounds(),
+        );
+
+        assert_eq!(prepared.len(), 1);
+    }
+
+    #[test]
+    fn prepare_band_paths_skips_small_rings() {
+        let band = ContourBand {
+            lower: 0.0,
+            upper: 1.0,
+            polygons: vec![ContourRing::new(vec![
+                D3Point::new(0.0, 0.0),
+                D3Point::new(1.0, 0.0),
+            ])],
+        };
+        let x_scale = LinearScale::new().domain(0.0, 1.0).range(0.0, 100.0);
+        let y_scale = LinearScale::new().domain(0.0, 1.0).range(100.0, 0.0);
+        let config = ContourConfig::new();
+
+        let prepared = prepare_band_paths(
+            std::slice::from_ref(&band),
+            &x_scale,
+            &y_scale,
+            &config,
+            (0.0, 1.0),
+            test_bounds(),
+        );
+
+        assert!(prepared.is_empty());
     }
 }

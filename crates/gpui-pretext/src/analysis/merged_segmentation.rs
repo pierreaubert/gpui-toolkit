@@ -67,12 +67,7 @@ pub(super) fn compact(
     let mut out_kinds = Vec::with_capacity(len);
     let mut out_starts = Vec::with_capacity(len);
 
-    for (((text, wl), kind), start) in texts
-        .into_iter()
-        .zip(is_word_like)
-        .zip(kinds)
-        .zip(starts)
-    {
+    for (((text, wl), kind), start) in texts.into_iter().zip(is_word_like).zip(kinds).zip(starts) {
         if text.is_empty() {
             continue;
         }

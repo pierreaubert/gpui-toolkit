@@ -13,15 +13,15 @@ use d3rs::shape::{Area, Curve};
 use d3rs::text::{GlyphTextConfig, render_glyph_text};
 use gpui::prelude::*;
 use gpui::{AnyElement, IntoElement, PathBuilder, Rgba, canvas, div, hsla, px};
-use std::sync::Arc;
 use gpui_design::DesignSystem;
+use std::sync::Arc;
 
 /// Area chart builder.
 #[derive(Clone)]
 pub struct AreaChart {
-    x: Vec<f64>,
-    y: Vec<f64>,
-    y0: Option<Vec<f64>>,
+    x: Arc<[f64]>,
+    y: Arc<[f64]>,
+    y0: Option<Arc<[f64]>>,
     title: Option<String>,
     color: u32,
     opacity: f32,
@@ -107,7 +107,7 @@ impl AreaChart {
 
     /// Set baseline Y values (y0). Defaults to 0.0 if not specified.
     pub fn y0(mut self, y0: &[f64]) -> Self {
-        self.y0 = Some(y0.to_vec());
+        self.y0 = Some(Arc::from(y0));
         self
     }
 
@@ -213,13 +213,15 @@ impl AreaChart {
                     .y1(move |d: &AreaDatum| y_scale_for_y1.scale(d.y1))
                     .curve(curve);
                 let path = area.generate(&data);
-                path.flatten(0.5)
-                    .into_iter()
-                    .map(|p| gpui::point(px(p.x as f32), px(p.y as f32)))
-                    .collect::<Vec<_>>()
+                Arc::new(
+                    path.flatten(0.5)
+                        .into_iter()
+                        .map(|p| gpui::point(px(p.x as f32), px(p.y as f32)))
+                        .collect::<Vec<_>>(),
+                )
             };
 
-        let render_element = move |points: Vec<gpui::Point<gpui::Pixels>>| {
+        let render_element = move |points: Arc<Vec<gpui::Point<gpui::Pixels>>>| {
             canvas(
                 move |bounds, _, _| (points.clone(), bounds),
                 move |_, (points, bounds), window, _| {
@@ -271,7 +273,8 @@ impl AreaChart {
                 let y_scale = LinearScale::new()
                     .domain(y_min, y_max)
                     .range(plot_height as f64, 0.0);
-                render_element(build_area_points(Arc::new(x_scale), Arc::new(y_scale))).into_any_element()
+                render_element(build_area_points(Arc::new(x_scale), Arc::new(y_scale)))
+                    .into_any_element()
             }
             (ScaleType::Log, ScaleType::Linear) => {
                 let x_scale = LogScale::new()
@@ -280,7 +283,8 @@ impl AreaChart {
                 let y_scale = LinearScale::new()
                     .domain(y_min, y_max)
                     .range(plot_height as f64, 0.0);
-                render_element(build_area_points(Arc::new(x_scale), Arc::new(y_scale))).into_any_element()
+                render_element(build_area_points(Arc::new(x_scale), Arc::new(y_scale)))
+                    .into_any_element()
             }
             (ScaleType::Linear, ScaleType::Log) => {
                 let x_scale = LinearScale::new()
@@ -289,7 +293,8 @@ impl AreaChart {
                 let y_scale = LogScale::new()
                     .domain(y_min.max(1e-10), y_max)
                     .range(plot_height as f64, 0.0);
-                render_element(build_area_points(Arc::new(x_scale), Arc::new(y_scale))).into_any_element()
+                render_element(build_area_points(Arc::new(x_scale), Arc::new(y_scale)))
+                    .into_any_element()
             }
             (ScaleType::Log, ScaleType::Log) => {
                 let x_scale = LogScale::new()
@@ -298,7 +303,8 @@ impl AreaChart {
                 let y_scale = LogScale::new()
                     .domain(y_min.max(1e-10), y_max)
                     .range(plot_height as f64, 0.0);
-                render_element(build_area_points(Arc::new(x_scale), Arc::new(y_scale))).into_any_element()
+                render_element(build_area_points(Arc::new(x_scale), Arc::new(y_scale)))
+                    .into_any_element()
             }
         };
 
@@ -357,8 +363,8 @@ impl AreaChart {
 /// ```
 pub fn area(x: &[f64], y: &[f64]) -> AreaChart {
     AreaChart {
-        x: x.to_vec(),
-        y: y.to_vec(),
+        x: Arc::from(x),
+        y: Arc::from(y),
         y0: None,
         title: None,
         color: DEFAULT_COLOR,
@@ -412,5 +418,21 @@ mod tests {
             160.0,
             Some(1.5),
         );
+    }
+
+    #[test]
+    fn test_area_data_shared_via_arc_on_clone() {
+        let x = vec![1.0, 2.0, 3.0];
+        let y = vec![2.0, 3.0, 4.0];
+        let y0 = vec![0.0, 0.0, 0.0];
+        let chart = area(&x, &y).y0(&y0);
+        let cloned = chart.clone();
+
+        assert!(Arc::ptr_eq(&chart.x, &cloned.x));
+        assert!(Arc::ptr_eq(&chart.y, &cloned.y));
+        assert!(Arc::ptr_eq(
+            &chart.y0.as_ref().unwrap(),
+            &cloned.y0.as_ref().unwrap()
+        ));
     }
 }

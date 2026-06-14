@@ -4,6 +4,8 @@
 
 use std::f64::consts::PI;
 
+use crate::util::scratch::path_to_string;
+
 /// A chord representing a flow between source and target
 #[derive(Debug, Clone)]
 pub struct Chord {
@@ -248,6 +250,6 @@ impl RibbonGenerator {
 
     // Legacy String return for compatibility
     pub fn generate(&self, chord: &Chord) -> String {
-        self.generate_path(chord).to_svg_string()
+        path_to_string(&self.generate_path(chord))
     }
 }

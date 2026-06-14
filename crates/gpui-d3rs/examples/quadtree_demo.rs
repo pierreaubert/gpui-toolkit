@@ -94,7 +94,7 @@ fn main() {
                     x0, y0, x1, y1, point.x, point.y
                 );
             }
-            QuadNode::Internal(_) => {
+            QuadNode::Internal(_, _) => {
                 internal_count += 1;
                 println!(
                     "   Internal node: ({:.2}, {:.2})-({:.2}, {:.2})",

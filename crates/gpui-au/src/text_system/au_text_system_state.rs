@@ -38,11 +38,37 @@ use gpui::{
 use pathfinder_geometry::transform2d::Transform2F;
 use smallvec::SmallVec;
 use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
 use std::{borrow::Cow, cell::RefCell, char, sync::Arc};
 
 thread_local! {
     /// Reusable bitmap scratch buffer for glyph rasterization.
     static GLYPH_BITMAP_SCRATCH: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
+}
+
+#[derive(Clone, Debug)]
+pub(super) struct LayoutCacheKey {
+    text: Arc<str>,
+    font_size: Pixels,
+    runs: SmallVec<[FontRun; 2]>,
+}
+
+impl PartialEq for LayoutCacheKey {
+    fn eq(&self, other: &Self) -> bool {
+        self.text == other.text
+            && self.font_size.as_f32().to_bits() == other.font_size.as_f32().to_bits()
+            && self.runs == other.runs
+    }
+}
+
+impl Eq for LayoutCacheKey {}
+
+impl Hash for LayoutCacheKey {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.text.hash(state);
+        self.font_size.as_f32().to_bits().hash(state);
+        self.runs.hash(state);
+    }
 }
 
 pub(super) struct AuTextSystemState {
@@ -54,6 +80,7 @@ pub(super) struct AuTextSystemState {
     pub(super) font_ids_by_font_key: HashMap<Arc<FontKey>, SmallVec<[FontId; 4]>>,
     pub(super) postscript_names_by_font_id: HashMap<FontId, String>,
     pub(super) is_emoji: Vec<bool>,
+    pub(super) layout_cache: HashMap<LayoutCacheKey, Arc<LineLayout>>,
 }
 
 impl AuTextSystemState {
@@ -167,8 +194,8 @@ impl AuTextSystemState {
             *font_id
         } else {
             let font_id = FontId(self.fonts.len());
-            let is_emoji = postscript_name == "AppleColorEmoji"
-                || postscript_name == ".AppleColorEmojiUI";
+            let is_emoji =
+                postscript_name == "AppleColorEmoji" || postscript_name == ".AppleColorEmojiUI";
             self.font_ids_by_postscript_name
                 .insert(postscript_name.clone(), font_id);
             self.postscript_names_by_font_id
@@ -292,6 +319,46 @@ impl AuTextSystemState {
         font_size: Pixels,
         font_runs: &[FontRun],
     ) -> LineLayout {
+        let key = LayoutCacheKey {
+            text: text.into(),
+            font_size,
+            runs: font_runs.iter().copied().collect(),
+        };
+        if let Some(cached) = self.layout_cache.get(&key) {
+            let cached = Arc::clone(cached);
+            return LineLayout {
+                font_size: cached.font_size,
+                width: cached.width,
+                ascent: cached.ascent,
+                descent: cached.descent,
+                runs: cached.runs.clone(),
+                len: cached.len,
+            };
+        }
+
+        let result = self.layout_line_uncached(text, font_size, font_runs);
+        self.layout_cache
+            .insert(key, Arc::new(Self::clone_layout(&result)));
+        result
+    }
+
+    fn clone_layout(layout: &LineLayout) -> LineLayout {
+        LineLayout {
+            font_size: layout.font_size,
+            width: layout.width,
+            ascent: layout.ascent,
+            descent: layout.descent,
+            runs: layout.runs.clone(),
+            len: layout.len,
+        }
+    }
+
+    fn layout_line_uncached(
+        &mut self,
+        text: &str,
+        font_size: Pixels,
+        font_runs: &[FontRun],
+    ) -> LineLayout {
         let mut string = CFMutableAttributedString::new();
         let mut max_ascent = 0.0f32;
         let mut max_descent = 0.0f32;
@@ -320,7 +387,9 @@ impl AuTextSystemState {
                     string.set_attribute(
                         cf_range,
                         kCTFontAttributeName,
-                        &font.native_font().clone_with_font_size(run_font_size.into()),
+                        &font
+                            .native_font()
+                            .clone_with_font_size(run_font_size.into()),
                     );
                 }
                 break_ligature = !break_ligature;
@@ -393,6 +462,7 @@ mod tests {
             font_ids_by_font_key: HashMap::default(),
             postscript_names_by_font_id: HashMap::default(),
             is_emoji: Vec::new(),
+            layout_cache: HashMap::default(),
         }
     }
 
@@ -455,7 +525,10 @@ mod tests {
             }
         };
         let text = "hello";
-        let runs = [FontRun { font_id, len: text.len() }];
+        let runs = [FontRun {
+            font_id,
+            len: text.len(),
+        }];
         let layout1 = state.layout_line(text, px(12.0), &runs);
         let layout2 = state.layout_line(text, px(12.0), &runs);
         assert_eq!(layout1.width, layout2.width);
@@ -471,5 +544,40 @@ mod tests {
         converter.rewind_to_utf16_ix(1);
         assert_eq!(converter.utf8_ix, 1);
         assert_eq!(converter.utf16_ix, 1);
+    }
+
+    #[test]
+    fn test_layout_line_uses_cache_for_repeated_calls() {
+        let mut state = empty_state();
+        let font_id = match load_system_family(&mut state, ".AppleSystemUIFont") {
+            Some(id) => id,
+            None => {
+                // System font may not be available in all test environments.
+                return;
+            }
+        };
+        let text = "cache me";
+        let runs = [FontRun {
+            font_id,
+            len: text.len(),
+        }];
+
+        let layout1 = state.layout_line(text, px(12.0), &runs);
+        let cached_count_after_first = state.layout_cache.len();
+
+        let layout2 = state.layout_line(text, px(12.0), &runs);
+        let cached_count_after_second = state.layout_cache.len();
+
+        assert_eq!(layout1.width, layout2.width);
+        assert_eq!(layout1.len, layout2.len);
+        assert_eq!(layout1.runs.len(), layout2.runs.len());
+        assert!(
+            cached_count_after_first > 0,
+            "first layout should populate the cache"
+        );
+        assert_eq!(
+            cached_count_after_first, cached_count_after_second,
+            "second layout should reuse the cached entry"
+        );
     }
 }

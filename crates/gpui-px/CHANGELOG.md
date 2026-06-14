@@ -1,4 +1,4 @@
-# Unreleased
+# 0.7.6
 
 ## Features
 
@@ -11,6 +11,13 @@
 
 - Chart plot geometry now resolves from `ChartSize` so responsive minimums and
   aspect ratios are reflected in scales, canvases, and plot bounds.
+
+## Performance
+
+- Chart series data (`x`, `y`, values, etc.) is now stored as `Arc<[f64]>` so
+  large datasets can be shared between series and render passes.
+- Area and pie chart paths are built once outside the paint closure and reused
+  for rendering.
 
 # 0.6.4
 

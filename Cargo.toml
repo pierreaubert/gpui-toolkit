@@ -22,7 +22,7 @@ members = [
 resolver = "3"
 
 [workspace.package]
-version = "0.7.0"
+version = "0.7.1"
 authors = ["Pierre F. Aubert pierre@spinorama.org"]
 description = "Optimise the sound of your speakers or your headphones"
 edition = "2024"
@@ -95,6 +95,7 @@ wgpu = { version = "29.0.0", git = "https://github.com/zed-industries/wgpu.git",
 
 # Utilities
 approx = "0.5"
+criterion = "0.5"
 proptest = "1.9"
 unicode-normalization = "0.1"
 toml = "0.8"

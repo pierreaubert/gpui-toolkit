@@ -123,9 +123,9 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::axis::DefaultAxisTheme;
     use crate::grid::GridConfig;
     use crate::scale::LinearScale;
-    use crate::axis::DefaultAxisTheme;
 
     #[test]
     fn test_render_grid_borrowed_ticks() {

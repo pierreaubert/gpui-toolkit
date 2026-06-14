@@ -122,7 +122,10 @@ mod tests {
     fn key_code_to_string_returns_static_str_for_named_keys() {
         let key = key_code_to_string(0x29);
         assert_eq!(key, "escape");
-        assert!(matches!(key, Cow::Borrowed(_)), "static key names should be borrowed");
+        assert!(
+            matches!(key, Cow::Borrowed(_)),
+            "static key names should be borrowed"
+        );
     }
 
     #[test]

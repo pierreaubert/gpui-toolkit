@@ -2,10 +2,10 @@
 
 use super::layout_debug_warning::LayoutDebugWarning;
 use super::solved_node::SolvedNode;
+use super::solved_tree::SolvedTree;
 use super::types::LayoutDebugWarningKind;
-use crate::types::{Axis, LayoutNode, Sizing};
-
-use crate::types::{ContainerNode, SlotNode};
+use crate::solver::solve_tree;
+use crate::types::{Axis, ContainerNode, LayoutNode, LayoutPreferences, Sizing, SlotNode};
 
 fn solved_slot(id: &'static str, width: f32, height: f32) -> SolvedNode<'static> {
     SolvedNode {
@@ -118,7 +118,7 @@ fn debug_report_warns_for_invalid_hidden_and_overflowing_nodes() {
     assert_eq!(
         report.warnings()[0],
         LayoutDebugWarning {
-            node_id: "root".to_string(),
+            node_id: "root",
             kind: LayoutDebugWarningKind::MainAxisOverflow {
                 axis: Axis::Horizontal,
                 used: 125.0,
@@ -129,10 +129,10 @@ fn debug_report_warns_for_invalid_hidden_and_overflowing_nodes() {
     assert_eq!(
         report.warnings()[1],
         LayoutDebugWarning {
-            node_id: "root".to_string(),
+            node_id: "root",
             kind: LayoutDebugWarningKind::CrossAxisOverflow {
                 axis: Axis::Vertical,
-                child_id: "wide".to_string(),
+                child_id: "wide",
                 used: 45.0,
                 available: 40.0,
             },
@@ -149,7 +149,7 @@ fn debug_report_warns_for_invalid_hidden_and_overflowing_nodes() {
     assert_eq!(
         report.warnings()[3],
         LayoutDebugWarning {
-            node_id: "ghost".to_string(),
+            node_id: "ghost",
             kind: LayoutDebugWarningKind::InvisibleWithoutCollapseLabel,
         }
     );
@@ -192,4 +192,234 @@ fn as_map_builds_flat_id_index() {
     assert_eq!(map.get("b").unwrap().width, 50.0);
     assert_eq!(map.get("b1").unwrap().width, 50.0);
     assert!(map.get("missing").is_none());
+}
+
+#[test]
+fn debug_report_warning_ids_borrow_from_solved_tree() {
+    let solved = SolvedNode {
+        id: "root",
+        width: 100.0,
+        height: 40.0,
+        visible: true,
+        active_tier: None,
+        collapse_label: None,
+        resolved_axis: Some(Axis::Horizontal),
+        children: vec![SolvedNode {
+            id: "wide",
+            width: 75.0,
+            height: 45.0,
+            visible: true,
+            active_tier: None,
+            collapse_label: None,
+            resolved_axis: None,
+            children: Vec::new(),
+        }],
+    };
+
+    let report = solved.debug_report();
+    let warning = report
+        .warnings()
+        .iter()
+        .find(|w| matches!(w.kind, LayoutDebugWarningKind::CrossAxisOverflow { .. }))
+        .expect("expected a cross-axis overflow warning");
+
+    assert_eq!(warning.node_id, "root");
+    assert!(std::ptr::eq(warning.node_id.as_ptr(), solved.id.as_ptr()));
+    match &warning.kind {
+        LayoutDebugWarningKind::CrossAxisOverflow { child_id, .. } => {
+            assert!(std::ptr::eq(
+                child_id.as_ptr(),
+                solved.children[0].id.as_ptr()
+            ));
+        }
+        _ => unreachable!(),
+    }
+}
+
+// ===== Flat SolvedTree parity tests =====
+
+fn sample_layout_tree() -> LayoutNode<'static> {
+    let inner_children: &'static [LayoutNode<'static>] = Box::leak(
+        vec![
+            LayoutNode::Slot(SlotNode {
+                id: "a",
+                sizing: Sizing::flex(0.0),
+                priority: 1.0,
+                collapsible: false,
+                display_tiers: &[],
+                collapse_label: None,
+            }),
+            LayoutNode::Slot(SlotNode {
+                id: "b",
+                sizing: Sizing::flex(0.0),
+                priority: 1.0,
+                collapsible: false,
+                display_tiers: &[],
+                collapse_label: None,
+            }),
+        ]
+        .into_boxed_slice(),
+    );
+    let children: &'static [LayoutNode<'static>] = Box::leak(
+        vec![
+            LayoutNode::Slot(SlotNode {
+                id: "header",
+                sizing: Sizing::Fixed(50.0),
+                priority: 1.0,
+                collapsible: false,
+                display_tiers: &[],
+                collapse_label: None,
+            }),
+            LayoutNode::Container(ContainerNode {
+                id: "content",
+                axis: Axis::Horizontal,
+                auto_axis: None,
+                sizing: Sizing::flex(0.0),
+                children: inner_children,
+                divider_size: 0.0,
+            }),
+            LayoutNode::Slot(SlotNode {
+                id: "footer",
+                sizing: Sizing::Fixed(80.0),
+                priority: 1.0,
+                collapsible: false,
+                display_tiers: &[],
+                collapse_label: None,
+            }),
+        ]
+        .into_boxed_slice(),
+    );
+    LayoutNode::Container(ContainerNode {
+        id: "root",
+        axis: Axis::Vertical,
+        auto_axis: None,
+        sizing: Sizing::flex(0.0),
+        children,
+        divider_size: 0.0,
+    })
+}
+
+fn collect_ids_recursive<'a>(node: &'a SolvedNode<'a>) -> Vec<&'a str> {
+    let mut ids = vec![node.id];
+    for child in &node.children {
+        ids.extend(collect_ids_recursive(child));
+    }
+    ids
+}
+
+#[test]
+fn flat_tree_finds_every_id_recursive_find_finds() {
+    let root = sample_layout_tree();
+    let recursive = crate::solver::solve(&root, 1000.0, 800.0, &LayoutPreferences::default());
+    let flat = solve_tree(&root, 1000.0, 800.0, &LayoutPreferences::default());
+
+    let expected_ids = collect_ids_recursive(&recursive);
+    assert_eq!(flat.len(), expected_ids.len());
+
+    for id in &expected_ids {
+        let found = flat.find(id).expect("flat tree should find {id}");
+        assert_eq!(found.id(), *id);
+    }
+}
+
+#[test]
+fn flat_tree_iteration_matches_dfs_order() {
+    let root = sample_layout_tree();
+    let recursive = crate::solver::solve(&root, 1000.0, 800.0, &LayoutPreferences::default());
+    let flat = solve_tree(&root, 1000.0, 800.0, &LayoutPreferences::default());
+
+    let expected_order = collect_ids_recursive(&recursive);
+    let actual_order: Vec<&str> = flat.iter().map(|node| node.id()).collect();
+    assert_eq!(actual_order, expected_order);
+}
+
+#[test]
+fn flat_tree_into_tree_matches_recursive_solve() {
+    let root = sample_layout_tree();
+    let recursive = crate::solver::solve(&root, 1000.0, 800.0, &LayoutPreferences::default());
+    let via_into_tree: SolvedTree = recursive.clone().into_tree();
+    let direct = solve_tree(&root, 1000.0, 800.0, &LayoutPreferences::default());
+
+    let expected_order = collect_ids_recursive(&recursive);
+    let into_order: Vec<&str> = via_into_tree.iter().map(|node| node.id()).collect();
+    let direct_order: Vec<&str> = direct.iter().map(|node| node.id()).collect();
+    assert_eq!(into_order, expected_order);
+    assert_eq!(direct_order, expected_order);
+}
+
+#[test]
+fn flat_tree_debug_report_matches_recursive_debug_report() {
+    let root = sample_layout_tree();
+    let recursive = crate::solver::solve(&root, 1000.0, 800.0, &LayoutPreferences::default());
+    let flat = solve_tree(&root, 1000.0, 800.0, &LayoutPreferences::default());
+
+    let recursive_report = recursive.debug_report();
+    let flat_report = flat.debug_report();
+
+    assert_eq!(flat_report.tree(), recursive_report.tree());
+    assert_eq!(flat_report.warnings(), recursive_report.warnings());
+}
+
+#[test]
+fn flat_tree_collapsed_tabs_match_recursive_collapsed_tabs() {
+    let children: &'static [LayoutNode<'static>] = Box::leak(
+        vec![
+            LayoutNode::Slot(SlotNode {
+                id: "config",
+                sizing: Sizing::fractional(0.2, 100.0),
+                priority: 0.5,
+                collapsible: true,
+                display_tiers: &[],
+                collapse_label: Some("Config"),
+            }),
+            LayoutNode::Slot(SlotNode {
+                id: "main",
+                sizing: Sizing::flex(300.0),
+                priority: 1.0,
+                collapsible: false,
+                display_tiers: &[],
+                collapse_label: None,
+            }),
+            LayoutNode::Slot(SlotNode {
+                id: "output",
+                sizing: Sizing::fractional(0.2, 120.0),
+                priority: 0.6,
+                collapsible: true,
+                display_tiers: &[],
+                collapse_label: Some("Output"),
+            }),
+        ]
+        .into_boxed_slice(),
+    );
+    let root = LayoutNode::Container(ContainerNode {
+        id: "root",
+        axis: Axis::Horizontal,
+        auto_axis: None,
+        sizing: Sizing::flex(0.0),
+        children,
+        divider_size: 0.0,
+    });
+
+    let recursive = crate::solver::solve(&root, 250.0, 600.0, &LayoutPreferences::default());
+    let flat = solve_tree(&root, 250.0, 600.0, &LayoutPreferences::default());
+
+    let mut recursive_tabs = recursive.collapsed_tabs();
+    let mut flat_tabs = flat.collapsed_tabs();
+    recursive_tabs.sort_by_key(|(id, _)| *id);
+    flat_tabs.sort_by_key(|(id, _)| *id);
+    assert_eq!(flat_tabs, recursive_tabs);
+}
+
+#[test]
+fn flat_tree_as_map_get_matches_find() {
+    let root = sample_layout_tree();
+    let flat = solve_tree(&root, 1000.0, 800.0, &LayoutPreferences::default());
+
+    let map = flat.as_map();
+    for node in flat.iter() {
+        let from_map = map.get(node.id()).expect("id in map");
+        assert_eq!(from_map.id, node.id());
+        assert_eq!(from_map.width, node.width());
+        assert_eq!(from_map.height, node.height());
+    }
 }

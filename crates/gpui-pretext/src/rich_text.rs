@@ -1,5 +1,6 @@
 //! Rich text, variable font, accessibility, and benchmark helpers.
 
+use std::borrow::Cow;
 use std::ops::Range;
 
 /// One OpenType variable-font axis.
@@ -73,14 +74,18 @@ pub struct RichTextStyle {
 }
 
 /// A styled text span.
+///
+/// The text is stored as a `Cow<'_, str>` so that spans produced by
+/// [`parse_inline_markdown`] can borrow directly from the input string instead
+/// of allocating a new `String` for every span.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RichTextSpan {
-    pub text: String,
+pub struct RichTextSpan<'a> {
+    pub text: Cow<'a, str>,
     pub style: RichTextStyle,
 }
 
-impl RichTextSpan {
-    pub fn plain(text: impl Into<String>) -> Self {
+impl<'a> RichTextSpan<'a> {
+    pub fn plain(text: impl Into<Cow<'a, str>>) -> Self {
         Self {
             text: text.into(),
             style: RichTextStyle::default(),
@@ -89,7 +94,7 @@ impl RichTextSpan {
 }
 
 /// Parse a small Markdown inline subset: `code`, **bold**, _italic_, and links.
-pub fn parse_inline_markdown(input: &str) -> Vec<RichTextSpan> {
+pub fn parse_inline_markdown(input: &str) -> Vec<RichTextSpan<'_>> {
     let mut spans = Vec::new();
     let mut remaining = input;
 
@@ -98,7 +103,7 @@ pub fn parse_inline_markdown(input: &str) -> Vec<RichTextSpan> {
             && let Some(end) = stripped.find("**")
         {
             spans.push(RichTextSpan {
-                text: stripped[..end].to_string(),
+                text: Cow::Borrowed(&stripped[..end]),
                 style: RichTextStyle {
                     bold: true,
                     ..RichTextStyle::default()
@@ -112,7 +117,7 @@ pub fn parse_inline_markdown(input: &str) -> Vec<RichTextSpan> {
             && let Some(end) = stripped.find('`')
         {
             spans.push(RichTextSpan {
-                text: stripped[..end].to_string(),
+                text: Cow::Borrowed(&stripped[..end]),
                 style: RichTextStyle {
                     code: true,
                     ..RichTextStyle::default()
@@ -126,7 +131,7 @@ pub fn parse_inline_markdown(input: &str) -> Vec<RichTextSpan> {
             && let Some(end) = stripped.find('_')
         {
             spans.push(RichTextSpan {
-                text: stripped[..end].to_string(),
+                text: Cow::Borrowed(&stripped[..end]),
                 style: RichTextStyle {
                     italic: true,
                     ..RichTextStyle::default()
@@ -142,7 +147,7 @@ pub fn parse_inline_markdown(input: &str) -> Vec<RichTextSpan> {
         {
             let url_start = label_end + 2;
             spans.push(RichTextSpan {
-                text: stripped[..label_end].to_string(),
+                text: Cow::Borrowed(&stripped[..label_end]),
                 style: RichTextStyle {
                     link: Some(stripped[url_start..url_start + url_end].to_string()),
                     ..RichTextStyle::default()
@@ -167,9 +172,9 @@ pub fn parse_inline_markdown(input: &str) -> Vec<RichTextSpan> {
 
 /// One platform-accessible run mapped back to UTF-8 byte ranges.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AccessibleTextRun {
+pub struct AccessibleTextRun<'a> {
     pub byte_range: Range<usize>,
-    pub label: String,
+    pub label: Cow<'a, str>,
     pub role: AccessibleTextRole,
 }
 
@@ -180,7 +185,7 @@ pub enum AccessibleTextRole {
     Code,
 }
 
-pub fn accessibility_runs_for_spans(spans: &[RichTextSpan]) -> Vec<AccessibleTextRun> {
+pub fn accessibility_runs_for_spans<'a>(spans: &[RichTextSpan<'a>]) -> Vec<AccessibleTextRun<'a>> {
     let mut offset = 0;
     let mut runs = Vec::with_capacity(spans.len());
     for span in spans {
@@ -220,8 +225,8 @@ impl TextBenchmarkCase {
     }
 }
 
-fn coalesce_plain_spans(spans: Vec<RichTextSpan>) -> Vec<RichTextSpan> {
-    let mut merged: Vec<RichTextSpan> = Vec::new();
+fn coalesce_plain_spans<'a>(spans: Vec<RichTextSpan<'a>>) -> Vec<RichTextSpan<'a>> {
+    let mut merged: Vec<RichTextSpan<'a>> = Vec::new();
     for span in spans {
         if span.text.is_empty() {
             continue;
@@ -230,7 +235,7 @@ fn coalesce_plain_spans(spans: Vec<RichTextSpan>) -> Vec<RichTextSpan> {
             && let Some(last) = merged.last_mut()
             && last.style == RichTextStyle::default()
         {
-            last.text.push_str(&span.text);
+            last.text.to_mut().push_str(&span.text);
             continue;
         }
         merged.push(span);
@@ -273,6 +278,24 @@ mod tests {
                 .iter()
                 .any(|span| span.text == "site" && span.style.link.is_some())
         );
+    }
+
+    #[test]
+    fn inline_markdown_borrows_from_input_when_parsing() {
+        let input = "plain **bold** _italic_".to_string();
+        let spans = parse_inline_markdown(&input);
+
+        // Markdown spans should borrow from the input string.
+        assert!(matches!(spans[0].text, Cow::Borrowed(_)));
+        assert!(matches!(spans[1].text, Cow::Borrowed(_)));
+        assert!(matches!(spans[2].text, Cow::Borrowed(_)));
+    }
+
+    #[test]
+    fn rich_text_span_plain_owns_string_input() {
+        let span = RichTextSpan::plain("owned text".to_string());
+        assert!(matches!(span.text, Cow::Owned(_)));
+        assert_eq!(span.text, "owned text");
     }
 
     #[test]

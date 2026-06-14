@@ -70,6 +70,34 @@ fn test_geo_path_centroid() {
 }
 
 #[test]
+fn test_render_into_matches_render() {
+    let proj = Equirectangular::new().scale(100.0).translate(0.0, 0.0);
+    let path = GeoPath::new(proj);
+
+    let geometries = [
+        GeoJsonGeometry::Point(0.0, 0.0),
+        GeoJsonGeometry::LineString(vec![(0.0, 0.0), (10.0, 10.0), (20.0, 0.0)]),
+        GeoJsonGeometry::Polygon(vec![vec![
+            (0.0, 0.0),
+            (10.0, 0.0),
+            (10.0, 10.0),
+            (0.0, 10.0),
+            (0.0, 0.0),
+        ]]),
+    ];
+
+    for geometry in &geometries {
+        let expected = path.render(geometry);
+        let mut buf = String::new();
+        path.render_into(geometry, &mut buf);
+        assert_eq!(
+            buf, expected,
+            "render_into should match render for {geometry:?}"
+        );
+    }
+}
+
+#[test]
 fn test_geo_path_project_coords() {
     let proj = Equirectangular::new().scale(100.0).translate(500.0, 300.0);
     let path = GeoPath::new(proj);

@@ -10,13 +10,13 @@ use crate::showcase::ComponentShowcase;
 use crate::theme::{BuiltInThemePreset, Color, ColorGroup, EditorTheme};
 use gpui::prelude::*;
 use gpui::*;
-use std::collections::HashMap;
-use std::sync::Arc;
-use std::sync::OnceLock;
 use gpui_ui_kit::{
     Button, ButtonSize, ButtonVariant, ColorPickerView, HStack, StackSpacing, Text, TextSize,
     TextWeight, VStack,
 };
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::sync::OnceLock;
 
 /// Theme editor state
 pub struct ThemeEditor {
@@ -106,15 +106,16 @@ fn preset_element_id(preset_id: &str) -> SharedString {
 /// Cached "Edit: {field}" label for the color editor panel.
 fn field_edit_label(field: &ColorField) -> SharedString {
     static LABELS: OnceLock<HashMap<&'static str, SharedString>> = OnceLock::new();
-    LABELS.get_or_init(|| {
-        all_color_fields()
-            .iter()
-            .map(|f| (f.name, SharedString::from(format!("Edit: {}", f.name))))
-            .collect()
-    })
-    .get(field.name)
-    .cloned()
-    .unwrap_or_else(|| SharedString::from(format!("Edit: {}", field.name)))
+    LABELS
+        .get_or_init(|| {
+            all_color_fields()
+                .iter()
+                .map(|f| (f.name, SharedString::from(format!("Edit: {}", f.name))))
+                .collect()
+        })
+        .get(field.name)
+        .cloned()
+        .unwrap_or_else(|| SharedString::from(format!("Edit: {}", field.name)))
 }
 
 impl ThemeEditor {
@@ -140,27 +141,27 @@ impl ThemeEditor {
     /// Get fields for a specific group
     pub(super) fn fields_for_group(group: ColorGroup) -> &'static [ColorField] {
         static GROUPS: OnceLock<HashMap<ColorGroup, &'static [ColorField]>> = OnceLock::new();
-        GROUPS.get_or_init(|| {
-            let mut map: HashMap<ColorGroup, Vec<ColorField>> = HashMap::new();
-            for field in all_color_fields() {
-                map.entry(field.group).or_default().push(*field);
-            }
-            map.into_iter()
-                .map(|(group, fields)| {
-                    let leaked: &'static [ColorField] = Box::leak(fields.into_boxed_slice());
-                    (group, leaked)
-                })
-                .collect()
-        })
-        .get(&group)
-        .copied()
-        .unwrap_or(&[])
+        GROUPS
+            .get_or_init(|| {
+                let mut map: HashMap<ColorGroup, Vec<ColorField>> = HashMap::new();
+                for field in all_color_fields() {
+                    map.entry(field.group).or_default().push(*field);
+                }
+                map.into_iter()
+                    .map(|(group, fields)| {
+                        let leaked: &'static [ColorField] = Box::leak(fields.into_boxed_slice());
+                        (group, leaked)
+                    })
+                    .collect()
+            })
+            .get(&group)
+            .copied()
+            .unwrap_or(&[])
     }
 
     /// Get current selected field
     pub(super) fn current_field(&self) -> Option<&'static ColorField> {
-        Self::fields_for_group(self.selected_group)
-            .get(self.selected_field_index)
+        Self::fields_for_group(self.selected_group).get(self.selected_field_index)
     }
 
     /// Update a color and sync to showcase

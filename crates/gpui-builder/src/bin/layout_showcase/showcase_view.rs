@@ -18,7 +18,7 @@ use gpui::{
     SharedString, Stateful, StatefulInteractiveElement, Styled, Window, div, px, rgba,
 };
 use gpui_builder::types::LayoutPreferences;
-use gpui_builder::{Axis, ContainerNode, LayoutNode, Sizing, SlotNode, SolvedNode, solve};
+use gpui_builder::{Axis, ContainerNode, LayoutNode, Sizing, SlotNode, SolvedTree, solve_tree};
 use gpui_design::DesignExt;
 
 pub(super) struct ShowcaseView {
@@ -196,20 +196,20 @@ impl Render for ShowcaseView {
         ];
         let prefs = LayoutPreferences::new(&ratios, &collapsed);
 
-        let solved = solve(&root, w, h, &prefs);
+        let solved = solve_tree(&root, w, h, &prefs);
         let selected_id = self.selected_node.as_deref().unwrap_or("root");
 
         let content = solved.find("content").unwrap();
-        let is_h = content.resolved_axis == Some(Axis::Horizontal);
-        let header_h = solved.find("header").unwrap().height;
-        let footer_h = solved.find("footer").unwrap().height;
+        let is_h = content.resolved_axis() == Some(Axis::Horizontal);
+        let header_h = solved.find("header").unwrap().height();
+        let footer_h = solved.find("footer").unwrap().height();
         let tabs = solved.collapsed_tabs();
 
         let sidebar = solved.find("sidebar").unwrap();
         let main_n = solved.find("main").unwrap();
         let inspector = solved.find("inspector").unwrap();
-        let content_w = content.width;
-        let content_h = content.height;
+        let content_w = content.width();
+        let content_h = content.height();
 
         // Colors — tinted variants of surface to distinguish panels
         let header_bg = theme.surface;
@@ -312,9 +312,9 @@ impl Render for ShowcaseView {
                 is_h,
                 content_w,
                 content_h,
-                &sidebar,
-                &main_n,
-                &inspector,
+                sidebar,
+                main_n,
+                inspector,
                 sidebar_bg,
                 main_bg,
                 inspector_bg,
@@ -368,14 +368,14 @@ impl ShowcaseView {
     #[allow(clippy::too_many_arguments)]
     pub(super) fn render_content(
         &self,
-        solved: &SolvedNode,
+        solved: &SolvedTree,
         selected_id: &str,
         is_h: bool,
         content_w: f32,
         content_h: f32,
-        sidebar: &SolvedNode,
-        main_n: &SolvedNode,
-        inspector: &SolvedNode,
+        sidebar: gpui_builder::SolvedNodeRef<'_, '_>,
+        main_n: gpui_builder::SolvedNodeRef<'_, '_>,
+        inspector: gpui_builder::SolvedNodeRef<'_, '_>,
         sidebar_bg: Rgba,
         main_bg: Rgba,
         inspector_bg: Rgba,
@@ -405,10 +405,10 @@ impl ShowcaseView {
                 .flex()
                 .flex_row()
                 // Sidebar
-                .when(sidebar.visible, |d: Stateful<Div>| {
+                .when(sidebar.visible(), |d: Stateful<Div>| {
                     d.child(
                         div()
-                            .w(px(sidebar.width))
+                            .w(px(sidebar.width()))
                             .h_full()
                             .min_w_0()
                             .overflow_hidden()
@@ -417,7 +417,7 @@ impl ShowcaseView {
                             })
                             .child(panel_box(
                                 "Sidebar",
-                                &size_label(sidebar),
+                                &size_label(&sidebar),
                                 sidebar_bg,
                                 fg,
                                 false,
@@ -450,11 +450,11 @@ impl ShowcaseView {
                         )),
                 )
                 // Inspector divider + panel
-                .when(inspector.visible, |d: Stateful<Div>| {
+                .when(inspector.visible(), |d: Stateful<Div>| {
                     d.child(self.divider_v("inspector", divider_color, accent, content_w, cx))
                         .child(
                             div()
-                                .w(px(inspector.width))
+                                .w(px(inspector.width()))
                                 .h_full()
                                 .min_w_0()
                                 .overflow_hidden()
@@ -481,10 +481,10 @@ impl ShowcaseView {
                 .w_full()
                 .flex()
                 .flex_col()
-                .when(sidebar.visible, |d: Stateful<Div>| {
+                .when(sidebar.visible(), |d: Stateful<Div>| {
                     d.child(
                         div()
-                            .h(px(sidebar.height))
+                            .h(px(sidebar.height()))
                             .w_full()
                             .min_h_0()
                             .overflow_hidden()
@@ -493,7 +493,7 @@ impl ShowcaseView {
                             })
                             .child(panel_box(
                                 "Sidebar",
-                                &size_label(sidebar),
+                                &size_label(&sidebar),
                                 sidebar_bg,
                                 fg,
                                 false,
@@ -523,11 +523,11 @@ impl ShowcaseView {
                             small_sz,
                         )),
                 )
-                .when(inspector.visible, |d: Stateful<Div>| {
+                .when(inspector.visible(), |d: Stateful<Div>| {
                     d.child(self.divider_h("inspector", divider_color, accent, content_h, cx))
                         .child(
                             div()
-                                .h(px(inspector.height))
+                                .h(px(inspector.height()))
                                 .w_full()
                                 .min_h_0()
                                 .overflow_hidden()
@@ -558,7 +558,7 @@ impl ShowcaseView {
     )]
     pub(super) fn main_panel(
         &self,
-        node: &SolvedNode,
+        node: gpui_builder::SolvedNodeRef<'_, '_>,
         bg: Rgba,
         fg: Rgba,
         tabs: &[(&str, &str)],
@@ -594,7 +594,8 @@ impl ShowcaseView {
                     .text_color(muted(fg, 0.5))
                     .child(SharedString::from(format!(
                         "{:.0} x {:.0}",
-                        node.width, node.height
+                        node.width(),
+                        node.height()
                     ))),
             );
 
@@ -626,8 +627,8 @@ impl ShowcaseView {
     #[allow(clippy::too_many_arguments)]
     pub(super) fn visual_tree_inspector(
         &self,
-        solved: &SolvedNode,
-        panel: &SolvedNode,
+        solved: &SolvedTree,
+        panel: gpui_builder::SolvedNodeRef<'_, '_>,
         selected_id: &str,
         bg: Rgba,
         fg: Rgba,
@@ -638,9 +639,12 @@ impl ShowcaseView {
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let mut rows = Vec::new();
-        collect_visual_tree_rows(solved, 0, &mut rows);
+        collect_visual_tree_rows(solved, &mut rows);
         let node_count = rows.len();
-        let selected_size = solved.find(selected_id).map(size_label).unwrap_or_default();
+        let selected_size = solved
+            .find(selected_id)
+            .map(|node| size_label(&node))
+            .unwrap_or_default();
         let tree_rows: Vec<AnyElement> = rows
             .into_iter()
             .map(|row| {
@@ -689,7 +693,7 @@ impl ShowcaseView {
                         div()
                             .text_size(px(small_sz))
                             .text_color(muted(theme.accent, 0.9))
-                            .child(SharedString::from(size_label(panel))),
+                            .child(SharedString::from(size_label(&panel))),
                     ),
             )
             .child(

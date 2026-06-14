@@ -2,12 +2,22 @@
 ///
 /// Instead of the browser's canvas `measureText()`, users provide a [`TextMeasure`]
 /// implementation backed by their text rendering system (e.g., GPUI, CoreText, etc.).
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::analysis::is_cjk;
+
+thread_local! {
+    /// Reusable grapheme byte-range scratch for breaking segments into
+    /// user-perceived characters. Storing offsets rather than `&str` slices
+    /// avoids lifetime issues with the thread-local buffer.
+    static GRAPHEME_SCRATCH: RefCell<Vec<(usize, usize)>> = const { RefCell::new(Vec::new()) };
+    /// Reusable f64 buffer for per-grapheme and prefix widths.
+    static WIDTH_SCRATCH: RefCell<Vec<f64>> = const { RefCell::new(Vec::new()) };
+}
 
 // ---------------------------------------------------------------------------
 // TextMeasure trait
@@ -122,24 +132,44 @@ impl MeasureCache {
             return Some(gw.clone());
         }
 
-        let graphemes: Vec<&str> = seg.graphemes(true).collect();
-        if graphemes.len() <= 1 {
-            self.ensure_parent_entry(seg, measure);
-            if let Some(metrics) = self.cache.get_mut(seg) {
-                metrics.grapheme_widths = Some(Arc::from(Vec::new())); // sentinel: computed but single
+        let widths = GRAPHEME_SCRATCH.with(|grapheme_scratch| {
+            let mut graphemes = grapheme_scratch.borrow_mut();
+            graphemes.clear();
+            graphemes.extend(
+                seg.grapheme_indices(true)
+                    .map(|(start, g)| (start, start + g.len())),
+            );
+
+            if graphemes.len() <= 1 {
+                drop(graphemes);
+                self.ensure_parent_entry(seg, measure);
+                if let Some(metrics) = self.cache.get_mut(seg) {
+                    // sentinel: computed but single
+                    metrics.grapheme_widths = Some(Arc::from(Vec::new()));
+                }
+                return None;
             }
-            return None;
-        }
 
-        // Ensure parent entry exists before measuring graphemes
-        // (grapheme measurement may insert sub-entries but not the parent)
-        self.ensure_parent_entry(seg, measure);
+            // Ensure parent entry exists before measuring graphemes
+            // (grapheme measurement may insert sub-entries but not the parent)
+            self.ensure_parent_entry(seg, measure);
 
-        let widths_vec: Vec<f64> = graphemes
-            .iter()
-            .map(|g| self.get_width(g, measure))
-            .collect();
-        let widths: Arc<[f64]> = Arc::from(widths_vec);
+            let widths_arc = WIDTH_SCRATCH.with(|width_scratch| {
+                let mut widths = width_scratch.borrow_mut();
+                widths.clear();
+                widths.extend(
+                    graphemes
+                        .iter()
+                        .map(|(start, end)| self.get_width(&seg[*start..*end], measure)),
+                );
+                let widths_arc: Arc<[f64]> = Arc::from(widths.clone());
+                widths.clear();
+                widths_arc
+            });
+
+            graphemes.clear();
+            Some(widths_arc)
+        })?;
 
         // Store in the parent segment's metrics (guaranteed to exist now)
         if let Some(metrics) = self.cache.get_mut(seg) {
@@ -166,30 +196,29 @@ impl MeasureCache {
             return Some(pw.clone());
         }
 
-        let graphemes: Vec<&str> = seg.graphemes(true).collect();
-        if graphemes.len() <= 1 {
+        // Reuse per-grapheme widths and compute prefix sums in O(n) instead of
+        // measuring every prefix substring (O(n²) calls into the measurer).
+        let Some(widths) = self.get_grapheme_widths(seg, measure) else {
             self.ensure_parent_entry(seg, measure);
             if let Some(metrics) = self.cache.get_mut(seg) {
                 metrics.grapheme_prefix_widths = Some(Arc::from(Vec::new()));
             }
             return None;
-        }
+        };
 
-        // Ensure parent entry exists
-        self.ensure_parent_entry(seg, measure);
-
-        // Reuse per-grapheme widths and compute prefix sums in O(n) instead of
-        // measuring every prefix substring (O(n²) calls into the measurer).
-        let widths = self.get_grapheme_widths(seg, measure)?;
-        let mut running = 0.0;
-        let prefix_widths_vec: Vec<f64> = widths
-            .iter()
-            .map(|w| {
-                running += w;
-                running
-            })
-            .collect();
-        let prefix_widths: Arc<[f64]> = Arc::from(prefix_widths_vec);
+        let prefix_widths: Arc<[f64]> = WIDTH_SCRATCH.with(|scratch| {
+            let mut scratch = scratch.borrow_mut();
+            scratch.clear();
+            scratch.extend_from_slice(&widths);
+            let mut running = 0.0;
+            for w in scratch.iter_mut() {
+                running += *w;
+                *w = running;
+            }
+            let prefix_arc: Arc<[f64]> = Arc::from(scratch.clone());
+            scratch.clear();
+            prefix_arc
+        });
 
         if let Some(metrics) = self.cache.get_mut(seg) {
             metrics.grapheme_prefix_widths = Some(prefix_widths.clone());

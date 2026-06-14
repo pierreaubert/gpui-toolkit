@@ -278,11 +278,8 @@ impl Select {
         let currently_open = self.is_open;
         let num_options = self.options.len();
         let current_highlight = self.highlighted_index;
-        let highlighted_option = current_highlight.and_then(|idx| {
-            self.options
-                .get(idx)
-                .map(|o| (o.value.clone(), o.disabled))
-        });
+        let highlighted_option = current_highlight
+            .and_then(|idx| self.options.get(idx).map(|o| (o.value.clone(), o.disabled)));
 
         if self.disabled {
             trigger = trigger.opacity(0.5).cursor_not_allowed();

@@ -170,8 +170,7 @@ mod tests {
 
     #[test]
     fn test_hexbin_basic() {
-        let hexbin = Hexbin::with_accessors(|p: &(f64, f64)| p.0, |p: &(f64, f64)| p.1)
-            .radius(1.0);
+        let hexbin = Hexbin::with_accessors(|p: &(f64, f64)| p.0, |p: &(f64, f64)| p.1).radius(1.0);
         let data = vec![(0.0, 0.0), (0.1, 0.1), (2.0, 2.0)];
         let bins = hexbin.bin(data);
 
@@ -182,8 +181,7 @@ mod tests {
 
     #[test]
     fn test_hexbin_ignores_nan() {
-        let hexbin = Hexbin::with_accessors(|p: &(f64, f64)| p.0, |p: &(f64, f64)| p.1)
-            .radius(1.0);
+        let hexbin = Hexbin::with_accessors(|p: &(f64, f64)| p.0, |p: &(f64, f64)| p.1).radius(1.0);
         let data = vec![(0.0, 0.0), (f64::NAN, 1.0), (1.0, f64::NAN)];
         let bins = hexbin.bin(data);
 

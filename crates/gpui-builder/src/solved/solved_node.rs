@@ -2,6 +2,7 @@
 
 use super::layout_debug_report::LayoutDebugReport;
 use super::layout_debug_report::build_debug_report;
+use super::solved_tree::{NodeIndex, SolvedNodeData, SolvedTree};
 use crate::types::{Axis, LayoutNode};
 use std::collections::HashMap;
 
@@ -31,6 +32,14 @@ pub struct SolvedNode<'a> {
 }
 
 impl<'a> SolvedNode<'a> {
+    /// Convert this recursive tree into an arena/flat [`SolvedTree`].
+    pub fn into_tree(self) -> SolvedTree<'a> {
+        let mut nodes = Vec::new();
+        let mut index = HashMap::new();
+        collect_into_tree(self, &mut nodes, &mut index);
+        SolvedTree::from_parts(nodes, index)
+    }
+
     /// Find a solved node by id (depth-first search).
     pub fn find(&self, id: &str) -> Option<&SolvedNode<'a>> {
         if self.id == id {
@@ -93,7 +102,7 @@ impl<'a> SolvedNode<'a> {
     /// display tier, resolved container axis, and warnings for suspicious output.
     /// Use [`Self::debug_report_with_source`] when the source `LayoutNode` tree
     /// is available and you also want declared sizing metadata in each line.
-    pub fn debug_report(&self) -> LayoutDebugReport {
+    pub fn debug_report(&'a self) -> LayoutDebugReport<'a> {
         build_debug_report(self, None)
     }
 
@@ -102,11 +111,37 @@ impl<'a> SolvedNode<'a> {
     /// When `source` mirrors the solved tree, each line includes the original
     /// sizing mode, collapsibility, and priority. If a solved node is missing
     /// from the source tree, the report still renders the solved node.
-    pub fn debug_report_with_source(&self, source: &LayoutNode<'a>) -> LayoutDebugReport {
+    pub fn debug_report_with_source(&'a self, source: &'a LayoutNode<'a>) -> LayoutDebugReport<'a> {
         build_debug_report(self, Some(source))
     }
 }
 
 pub(super) fn visibility_label(node: &SolvedNode<'_>) -> &'static str {
     if node.visible { "visible" } else { "collapsed" }
+}
+
+fn collect_into_tree<'a>(
+    node: SolvedNode<'a>,
+    nodes: &mut Vec<SolvedNodeData<'a>>,
+    index: &mut HashMap<&'a str, NodeIndex>,
+) -> NodeIndex {
+    let idx = NodeIndex(nodes.len());
+    index.insert(node.id, idx);
+    nodes.push(SolvedNodeData {
+        id: node.id,
+        width: node.width,
+        height: node.height,
+        visible: node.visible,
+        active_tier: node.active_tier,
+        collapse_label: node.collapse_label,
+        resolved_axis: node.resolved_axis,
+        children: Vec::new(),
+    });
+
+    let mut child_indices = Vec::with_capacity(node.children.len());
+    for child in node.children {
+        child_indices.push(collect_into_tree(child, nodes, index));
+    }
+    nodes[idx.0].children = child_indices;
+    idx
 }

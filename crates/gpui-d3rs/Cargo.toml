@@ -1,6 +1,6 @@
 [package]
 name = "gpui-d3rs"
-version = "0.7.2"
+version = "0.7.3"
 edition.workspace = true
 repository.workspace = true
 authors.workspace = true
@@ -57,8 +57,13 @@ fontdue = { workspace = true, optional = true }
 
 [dev-dependencies]
 approx = { workspace = true }
+criterion = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+
+[[bench]]
+name = "force_many_body"
+harness = false
 
 [[bin]]
 name = "d3rs-showcase"
@@ -152,3 +157,7 @@ path = "examples/chord_demo.rs"
 [[example]]
 name = "chromatic_demo"
 path = "examples/chromatic_demo.rs"
+
+[[bench]]
+name = "path_strings"
+harness = false

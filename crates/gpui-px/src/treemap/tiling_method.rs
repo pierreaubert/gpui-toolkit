@@ -99,8 +99,7 @@ pub(super) fn compute_treemap(
         };
 
         // Recursively process children
-        for (i, (child, (cx0, cy0, cx1, cy1))) in children.iter().zip(rects.iter()).enumerate()
-        {
+        for (i, (child, (cx0, cy0, cx1, cy1))) in children.iter().zip(rects.iter()).enumerate() {
             let child_category = if depth == 0 { i } else { category_index };
             compute_treemap(
                 child,

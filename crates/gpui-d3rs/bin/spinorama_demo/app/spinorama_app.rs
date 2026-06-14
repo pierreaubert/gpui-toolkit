@@ -17,7 +17,7 @@ use d3rs::zoom::ZoomState;
 use gpui::prelude::*;
 use gpui::{deferred, *};
 use gpui_builder::{
-    Axis, ContainerNode, LayoutNode, Sizing, SlotNode, SolvedNode, solve, types::LayoutPreferences,
+    Axis, ContainerNode, LayoutNode, Sizing, SlotNode, solve, types::LayoutPreferences,
 };
 use gpui_design::DesignExt;
 use gpui_ui_kit::theme::ThemeExt;
@@ -107,18 +107,18 @@ impl SpinoramaApp {
         width: f32,
         height: f32,
         header_height: f32,
-    ) -> SolvedNode {
+    ) -> (f32, f32, f32, f32) {
         let root_children: &[LayoutNode<'_>] = &[
             SlotNode::new("header", Sizing::Fixed(header_height)).into_node(),
             SlotNode::new("content", Sizing::flex(300.0)).into_node(),
         ];
         let root = ContainerNode::new("root", Axis::Vertical, Sizing::flex(0.0), root_children)
             .into_node();
-        let prefs = LayoutPreferences {
-            ratios: &[],
-            collapsed: &[],
-        };
-        solve(&root, width, height, &prefs)
+        let prefs = LayoutPreferences::new(&[], &[]);
+        let solved = solve(&root, width, height, &prefs);
+        let header = solved.find("header").unwrap_or(&solved);
+        let content = solved.find("content").unwrap_or(&solved);
+        (header.width, header.height, content.width, content.height)
     }
 
     /// Scale factor for font sizes relative to 800px reference width.
@@ -1230,12 +1230,11 @@ impl Render for SpinoramaApp {
                 + ds.spacing.control_padding_y * 2.0
                 + ds.spacing.grid_unit * 2.0,
         );
-        let solved = self.solve_shell_layout(win_w, win_h, header_h);
-        let header = solved.find("header").unwrap_or(&solved);
-        let content = solved.find("content").unwrap_or(&solved);
+        let (header_w, header_h, content_w, content_h) =
+            self.solve_shell_layout(win_w, win_h, header_h);
         let padding = ds.spacing.card_padding * 2.0;
-        self.content_width = (content.width - padding - 120.0).max(400.0);
-        self.content_height = (content.height - padding).max(300.0);
+        self.content_width = (content_w - padding - 120.0).max(400.0);
+        self.content_height = (content_h - padding).max(300.0);
 
         div()
             .id("main-container")
@@ -1246,8 +1245,8 @@ impl Render for SpinoramaApp {
             .child(
                 div()
                     .id("layout-header-slot")
-                    .w(px(header.width))
-                    .h(px(header.height))
+                    .w(px(header_w))
+                    .h(px(header_h))
                     .flex()
                     .flex_col()
                     .child(self.render_header(cx)),
@@ -1255,8 +1254,8 @@ impl Render for SpinoramaApp {
             .child(
                 div()
                     .id("layout-content-slot")
-                    .w(px(content.width))
-                    .h(px(content.height))
+                    .w(px(content_w))
+                    .h(px(content_h))
                     .flex()
                     .flex_col()
                     .child(self.render_content(cx)),

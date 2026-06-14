@@ -120,12 +120,11 @@ mod tests {
 
     #[test]
     fn diff_empty_and_identical_collections() {
-        let rows = [
-            Row { id: 1, title: "a" },
-            Row { id: 2, title: "b" },
-        ];
+        let rows = [Row { id: 1, title: "a" }, Row { id: 2, title: "b" }];
         assert!(diff_by_key::<_, u32, _>(&[], &[], |row: &Row| row.id).is_empty());
         assert!(diff_by_key(&rows, &rows, |row| row.id).is_empty());
-        assert!(is_content_only_update(&diff_by_key(&rows, &rows, |row| row.id)));
+        assert!(is_content_only_update(&diff_by_key(&rows, &rows, |row| {
+            row.id
+        })));
     }
 }

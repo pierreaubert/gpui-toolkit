@@ -1,4 +1,4 @@
-# Unreleased
+# 0.7.3
 
 ## Features
 
@@ -28,6 +28,13 @@
 - Aligned spinorama legend line markers with the middle of their labels.
 - Updated the d3rs showcase to inherit theme and design tokens for text and UI
   chrome outside the color demo.
+
+## Performance
+
+- Contour and contour-band elements now build their fill/stroke paths in
+  `prepaint` and cache them for `paint`, avoiding repeated path construction
+  each frame.
+- Line types precompute segment geometry so render loops do not re-derive it.
 
 # 0.7.0
 

@@ -1,4 +1,4 @@
-# Unreleased
+# 0.7.26
 
 ## Features
 

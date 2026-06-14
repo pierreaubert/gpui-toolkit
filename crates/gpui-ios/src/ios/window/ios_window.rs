@@ -112,6 +112,10 @@ pub(crate) struct IosWindow {
     pub(super) renderer: Mutex<Option<WgpuRenderer>>,
     /// Reusable UIKit accessibility elements keyed by accessibility node id.
     pub(super) accessibility_elements: RefCell<HashMap<String, *mut Object>>,
+    /// Previous accessibility snapshot used to diff against the current one.
+    /// Only mutated on the main thread.
+    pub(super) prev_accessibility_snapshot:
+        RefCell<Option<Arc<crate::accessibility::IosAccessibilitySnapshot>>>,
     /// Native UIKit/SwiftUI views overlaid with GPUI-managed bounds.
     pub(super) platform_view_host: NativePlatformViewHost,
 }
@@ -285,6 +289,7 @@ impl IosWindow {
                 keyboard_observers: RefCell::new(Vec::new()),
                 renderer: Mutex::new(None),
                 accessibility_elements: RefCell::new(HashMap::new()),
+                prev_accessibility_snapshot: RefCell::new(None),
                 platform_view_host: NativePlatformViewHost::new(view as *mut c_void),
             };
 
@@ -848,6 +853,8 @@ impl IosWindow {
     }
 
     pub fn refresh_accessibility(&self) {
+        use crate::accessibility::compute_accessibility_diff;
+
         let snapshot = crate::accessibility::accessibility_snapshot();
         let element_count = snapshot
             .as_ref()
@@ -858,6 +865,16 @@ impl IosWindow {
             format!("accessibility_nodes={element_count}"),
         );
 
+        let prev_snapshot = self.prev_accessibility_snapshot.borrow().clone();
+        let diff = snapshot
+            .as_ref()
+            .map(|next| compute_accessibility_diff(prev_snapshot.as_deref(), next));
+
+        // Store the current snapshot for the next diff, even on non-Apple hosts
+        // where the UIKit mutations below are a no-op.
+        *self.prev_accessibility_snapshot.borrow_mut() = snapshot.clone();
+
+        #[cfg(any(target_os = "ios", target_os = "tvos"))]
         unsafe {
             // SAFETY: All UIKit accessibility objects are created and assigned
             // on the main thread while `self.view` is a live UIView owned by
@@ -869,7 +886,7 @@ impl IosWindow {
 
             let _: () = msg_send![self.view, setIsAccessibilityElement: false];
 
-            let Some(snapshot) = snapshot else {
+            let Some(snapshot) = snapshot.as_ref() else {
                 self.clear_accessibility_elements();
                 let _: () = msg_send![
                     self.view,
@@ -878,29 +895,24 @@ impl IosWindow {
                 return;
             };
 
-            let nodes = snapshot.flattened_nodes();
+            let Some(diff) = diff else {
+                return;
+            };
+
             let element_class = register_accessibility_element_class();
             let mut elements_map = self.accessibility_elements.borrow_mut();
-            let mut ordered_elements = Vec::with_capacity(nodes.len());
-            let mut reused_ids = HashSet::with_capacity(nodes.len());
 
-            for node in nodes {
-                reused_ids.insert(node.id.clone());
-
-                let element = if let Some(&element) = elements_map.get(&node.id) {
-                    element
-                } else {
-                    let element: *mut Object = msg_send![element_class, alloc];
-                    let element: *mut Object = msg_send![
-                        element,
-                        initWithAccessibilityContainer: self.view
-                    ];
-                    if element.is_null() {
-                        continue;
-                    }
-                    elements_map.insert(node.id.clone(), element);
-                    element
-                };
+            // Create or update elements for the current snapshot.
+            for &node in &diff.added {
+                let element: *mut Object = msg_send![element_class, alloc];
+                let element: *mut Object = msg_send![
+                    element,
+                    initWithAccessibilityContainer: self.view
+                ];
+                if element.is_null() {
+                    continue;
+                }
+                elements_map.insert(node.id.clone(), element);
 
                 let id = super::super::ns_string_from_str(&node.id);
                 let _: () = msg_send![element, setAccessibilityIdentifier: id];
@@ -932,13 +944,61 @@ impl IosWindow {
 
                 let traits = accessibility_traits_for_node(node);
                 let _: () = msg_send![element, setAccessibilityTraits: traits];
-                ordered_elements.push(element);
             }
 
-            // Release elements that are no longer present in the snapshot.
+            for &(node, changes) in &diff.changed {
+                let Some(&element) = elements_map.get(&node.id) else {
+                    continue;
+                };
+
+                if changes.label_changed {
+                    if let Some(label) = node.label.as_deref() {
+                        let label = super::super::ns_string_from_str(label);
+                        let _: () = msg_send![element, setAccessibilityLabel: label];
+                    }
+                }
+                if changes.hint_changed {
+                    if let Some(hint) = node.hint.as_deref() {
+                        let hint = super::super::ns_string_from_str(hint);
+                        let _: () = msg_send![element, setAccessibilityHint: hint];
+                    }
+                }
+                if changes.value_changed {
+                    if let Some(value) = accessibility_value_for_node(node) {
+                        let value = super::super::ns_string_from_str(&value);
+                        let _: () = msg_send![element, setAccessibilityValue: value];
+                    }
+                }
+                if changes.frame_changed {
+                    let frame = core_graphics::geometry::CGRect {
+                        origin: core_graphics::geometry::CGPoint {
+                            x: node.frame.x as core_graphics::base::CGFloat,
+                            y: node.frame.y as core_graphics::base::CGFloat,
+                        },
+                        size: core_graphics::geometry::CGSize {
+                            width: node.frame.width as core_graphics::base::CGFloat,
+                            height: node.frame.height as core_graphics::base::CGFloat,
+                        },
+                    };
+                    let _: () = msg_send![element, setAccessibilityFrameInContainerSpace: frame];
+                }
+                if changes.traits_changed {
+                    let traits = accessibility_traits_for_node(node);
+                    let _: () = msg_send![element, setAccessibilityTraits: traits];
+                }
+            }
+
+            // Release elements whose ids are no longer in the current snapshot.
+            // Use a `HashSet<&str>` borrowed from the snapshot rather than
+            // allocating `String`s for stale id tracking.
+            let current_ids: HashSet<&str> = snapshot
+                .flattened_nodes()
+                .iter()
+                .map(|node| node.id.as_str())
+                .collect();
             let stale_ids: Vec<String> = elements_map
                 .keys()
-                .filter(|id| !reused_ids.contains(id.as_str()))
+                .filter(|id| !current_ids.contains(id.as_str()))
                 .cloned()
                 .collect();
             for id in stale_ids {
@@ -946,21 +1006,33 @@ impl IosWindow {
                     let _: () = msg_send![element, release];
                 }
             }
-            drop(elements_map);
 
-            let elements: *mut Object =
-                msg_send![class!(NSMutableArray), arrayWithCapacity: ordered_elements.len()];
-            for element in ordered_elements.iter().copied() {
-                let _: () = msg_send![elements, addObject: element];
-            }
-            let _: () = msg_send![self.view, setAccessibilityElements: elements];
+            // Only rebuild the `accessibilityElements` array and post the layout
+            // notification when the node set or ordering changed.
+            if diff.order_changed {
+                let ordered_elements: Vec<*mut Object> = snapshot
+                    .flattened_nodes()
+                    .iter()
+                    .filter_map(|node| elements_map.get(&node.id).copied())
+                    .collect();
+                drop(elements_map);
 
-            if element_count > 0 {
-                let first_element: *mut Object = msg_send![elements, firstObject];
-                UIAccessibilityPostNotification(
-                    UIAccessibilityLayoutChangedNotification,
-                    first_element,
-                );
+                let elements: *mut Object =
+                    msg_send![class!(NSMutableArray), arrayWithCapacity: ordered_elements.len()];
+                for element in ordered_elements.iter().copied() {
+                    let _: () = msg_send![elements, addObject: element];
+                }
+                let _: () = msg_send![self.view, setAccessibilityElements: elements];
+
+                if element_count > 0 {
+                    let first_element: *mut Object = msg_send![elements, firstObject];
+                    UIAccessibilityPostNotification(
+                        UIAccessibilityLayoutChangedNotification,
+                        first_element,
+                    );
+                }
+            } else {
+                drop(elements_map);
             }
 
             for announcement in &snapshot.announcements {

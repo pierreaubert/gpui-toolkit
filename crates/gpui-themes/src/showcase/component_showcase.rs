@@ -4,13 +4,13 @@
 use crate::theme::EditorTheme;
 use gpui::prelude::*;
 use gpui::*;
-use std::sync::Arc;
 use gpui_ui_kit::{
     Alert, AlertVariant, Badge, BadgeVariant, BreadcrumbItem, Breadcrumbs, Button, ButtonSize,
     ButtonVariant, Card, Code, EmptyState, HStack, Heading, KeyboardShortcutLabel,
     KeyboardShortcutSize, SearchBar, SearchBarSize, StackSpacing, StatusBar, StatusBarPosition,
     Text, TextSize, TextWeight, VStack,
 };
+use std::sync::Arc;
 
 /// Component showcase that displays all UI kit components
 pub struct ComponentShowcase {

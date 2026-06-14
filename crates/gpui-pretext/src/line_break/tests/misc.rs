@@ -26,7 +26,10 @@ use super::super::walk::walk_prepared_lines_optimal;
 use crate::analysis::SegmentBreakKind;
 use crate::measurement::EngineProfile;
 
-fn simple_prepared(widths: Vec<f64>, kinds: Vec<SegmentBreakKind>) -> PreparedLineBreakData<'static> {
+fn simple_prepared(
+    widths: Vec<f64>,
+    kinds: Vec<SegmentBreakKind>,
+) -> PreparedLineBreakData<'static> {
     let len = widths.len();
     let fit = widths.to_vec();
     let paint = fit.clone();
@@ -45,6 +48,9 @@ fn simple_prepared(widths: Vec<f64>, kinds: Vec<SegmentBreakKind>) -> PreparedLi
             end_segment_index: len,
             consumed_end_segment_index: len,
         }]),
+        start_segment: 0,
+        end_segment: len,
+        kp_item_cache: None,
     }
 }
 
@@ -295,6 +301,9 @@ fn test_kp_soft_hyphen_penalty() {
             end_segment_index: len,
             consumed_end_segment_index: len,
         }]),
+        start_segment: 0,
+        end_segment: len,
+        kp_item_cache: None,
     };
     let profile = EngineProfile::default();
     let count = count_prepared_lines_optimal(&prepared, 60.0, &profile, &kp_params());
@@ -331,6 +340,9 @@ fn test_kp_hard_break() {
                 consumed_end_segment_index: 3,
             },
         ]),
+        start_segment: 0,
+        end_segment: 3,
+        kp_item_cache: None,
     };
     let profile = EngineProfile::default();
     let count = count_prepared_lines_optimal(&prepared, 200.0, &profile, &kp_params());

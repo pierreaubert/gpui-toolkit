@@ -57,6 +57,24 @@ fn test_path_to_svg() {
 }
 
 #[test]
+fn test_to_svg_string_is_stable_and_write_matches() {
+    let path = PathBuilder::new()
+        .move_to(0.0, 0.0)
+        .line_to(100.0, 0.0)
+        .line_to(100.0, 100.0)
+        .close_path()
+        .build();
+
+    let svg1 = path.to_svg_string();
+    let svg2 = path.to_svg_string();
+    assert_eq!(svg1, svg2);
+
+    let mut buf = String::new();
+    path.write_svg_string(&mut buf);
+    assert_eq!(buf, svg1);
+}
+
+#[test]
 fn test_point_distance() {
     let p1 = Point::new(0.0, 0.0);
     let p2 = Point::new(3.0, 4.0);

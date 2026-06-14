@@ -36,6 +36,8 @@
 
 #![cfg_attr(feature = "gpui", recursion_limit = "1024")]
 
+pub(crate) mod util;
+
 pub mod array;
 pub mod brush;
 pub mod chord;

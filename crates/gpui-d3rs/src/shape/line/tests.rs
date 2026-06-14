@@ -49,10 +49,9 @@ fn test_line_flat_range() {
     assert_eq!(y_rel, 0.5);
 }
 
-
 #[test]
 fn test_compute_line_segments_linear() {
-    use super::{compute_line_segments, CurveType};
+    use super::{CurveType, compute_line_segments};
 
     let points = vec![(-0.2, 0.5), (0.5, 0.5), (1.2, 0.5)];
     let segments = compute_line_segments(&points, CurveType::Linear);

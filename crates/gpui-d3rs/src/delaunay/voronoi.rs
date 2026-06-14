@@ -2,7 +2,8 @@
 
 use math_delaunay::{Delaunay as MathDelaunay, Voronoi as MathVoronoi};
 
-use super::polygon_to_path;
+use super::polygon_to_path_into;
+use crate::util::scratch::with_path_scratch;
 
 /// Voronoi diagram with D3-compatible API.
 pub struct Voronoi<'a> {
@@ -39,11 +40,12 @@ impl<'a> Voronoi<'a> {
 
     /// Render all Voronoi cells as SVG path data.
     pub fn render_to_path(&self) -> String {
-        let mut path = String::new();
-        for cell in self.cell_polygons() {
-            path.push_str(&polygon_to_path(&cell));
-        }
-        path
+        with_path_scratch(|scratch| {
+            for cell in self.cell_polygons() {
+                polygon_to_path_into(&cell, scratch);
+            }
+            scratch.clone()
+        })
     }
 
     /// Test if point (x, y) is inside cell i.

@@ -654,11 +654,8 @@ pub fn walk_prepared_lines_optimal(
             // Build a zero-copy view over this chunk's segment range.
             let chunk_start = chunk.start_segment_index;
             let chunk_end = chunk.end_segment_index;
-            let sub_prepared = prepared.slice(
-                chunk_start,
-                chunk_end,
-                chunk.consumed_end_segment_index,
-            );
+            let sub_prepared =
+                prepared.slice(chunk_start, chunk_end, chunk.consumed_end_segment_index);
 
             let items = build_kp_items(&sub_prepared, profile, params);
 
@@ -711,17 +708,23 @@ pub fn walk_prepared_lines_optimal(
     // Single chunk: run KP directly.
     let items = build_kp_items(prepared, profile, params);
 
-    let result = knuth_plass_chunk(&items, max_width, params, params.tolerance).or_else(|| {
-        if params.looseness_recovery {
-            for extra in [2.0, 4.0, 8.0, 16.0] {
-                let result = knuth_plass_chunk(&items, max_width, params, params.tolerance + extra);
-                if result.is_some() {
-                    return result;
+    let result =
+        knuth_plass_chunk(items.as_ref(), max_width, params, params.tolerance).or_else(|| {
+            if params.looseness_recovery {
+                for extra in [2.0, 4.0, 8.0, 16.0] {
+                    let result = knuth_plass_chunk(
+                        items.as_ref(),
+                        max_width,
+                        params,
+                        params.tolerance + extra,
+                    );
+                    if result.is_some() {
+                        return result;
+                    }
                 }
             }
-        }
-        None
-    });
+            None
+        });
 
     match result {
         Some(breaks) => breakpoints_to_lines(prepared, profile, &breaks, &mut on_line),

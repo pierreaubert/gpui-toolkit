@@ -1,3 +1,11 @@
+# 0.7.5
+
+## Performance
+
+- Added a shaped-line layout cache to `AuTextSystemState`, keyed by text, font
+  size, and run hash, so repeated layout calls reuse shaped `LineLayout`
+  results.
+
 # 0.6.3
 
 ## New

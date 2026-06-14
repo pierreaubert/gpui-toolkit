@@ -22,8 +22,8 @@ use std::sync::Arc;
 /// Box plot builder.
 #[derive(Debug, Clone)]
 pub struct BoxPlotChart {
-    pub(super) x: Vec<f64>,
-    pub(super) y: Vec<f64>,
+    pub(super) x: Arc<[f64]>,
+    pub(super) y: Arc<[f64]>,
     pub(super) title: Option<String>,
     pub(super) box_color: u32,
     pub(super) median_color: u32,
@@ -392,8 +392,9 @@ impl BoxPlotChart {
         let box_elements: Vec<AnyElement> = boxes
             .iter()
             .flat_map(|stats| {
-                let estimated =
-                    5usize.saturating_add(stats.outliers_low.len()).saturating_add(stats.outliers_high.len());
+                let estimated = 5usize
+                    .saturating_add(stats.outliers_low.len())
+                    .saturating_add(stats.outliers_high.len());
                 let mut elements: Vec<AnyElement> = Vec::with_capacity(estimated);
 
                 let x_px = x_scale.scale(stats.x) as f32;
@@ -571,8 +572,8 @@ impl BoxPlotChart {
 /// ```
 pub fn boxplot(x: &[f64], y: &[f64]) -> BoxPlotChart {
     BoxPlotChart {
-        x: x.to_vec(),
-        y: y.to_vec(),
+        x: Arc::from(x),
+        y: Arc::from(y),
         title: None,
         box_color: 0xdddddd,
         median_color: 0x000000,
@@ -589,5 +590,21 @@ pub fn boxplot(x: &[f64], y: &[f64]) -> BoxPlotChart {
         x_scale_type: ScaleType::Linear,
         y_scale_type: ScaleType::Linear,
         design: None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_boxplot_data_shared_via_arc_on_clone() {
+        let x = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+        let y = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+        let chart = boxplot(&x, &y);
+        let cloned = chart.clone();
+
+        assert!(Arc::ptr_eq(&chart.x, &cloned.x));
+        assert!(Arc::ptr_eq(&chart.y, &cloned.y));
     }
 }

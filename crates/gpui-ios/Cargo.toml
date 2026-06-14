@@ -1,6 +1,6 @@
 [package]
 name = "gpui-ios"
-version = "0.7.5"
+version = "0.7.6"
 edition = "2024"
 repository.workspace = true
 keywords.workspace = true
@@ -62,3 +62,8 @@ font-kit = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
+criterion = { workspace = true }
+
+[[bench]]
+name = "accessibility_diff"
+harness = false

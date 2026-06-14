@@ -20,7 +20,8 @@ pub use prepare_options::*;
 pub use types::*;
 pub use walk::*;
 
-use misc::build_line_text;
+use misc::build_line_text_into;
+use misc::with_line_text_scratch;
 use to::to_layout_line_range;
 use to::to_line_break_data;
 
@@ -66,14 +67,18 @@ pub fn layout_with_lines(
         profile,
         Some(&mut |line: &InternalLayoutLine| {
             lines.push(LayoutLine {
-                text: build_line_text(
-                    segments,
-                    kinds,
-                    line.start_segment_index,
-                    line.start_grapheme_index,
-                    line.end_segment_index,
-                    line.end_grapheme_index,
-                ),
+                text: with_line_text_scratch(|scratch| {
+                    build_line_text_into(
+                        segments,
+                        kinds,
+                        line.start_segment_index,
+                        line.start_grapheme_index,
+                        line.end_segment_index,
+                        line.end_grapheme_index,
+                        scratch,
+                    );
+                    scratch.clone()
+                }),
                 width: line.width,
                 start: LayoutCursor {
                     segment_index: line.start_segment_index,
@@ -143,14 +148,18 @@ pub fn layout_with_lines_optimal(
         params,
         Some(&mut |line: &InternalLayoutLine| {
             lines.push(LayoutLine {
-                text: build_line_text(
-                    segments,
-                    kinds,
-                    line.start_segment_index,
-                    line.start_grapheme_index,
-                    line.end_segment_index,
-                    line.end_grapheme_index,
-                ),
+                text: with_line_text_scratch(|scratch| {
+                    build_line_text_into(
+                        segments,
+                        kinds,
+                        line.start_segment_index,
+                        line.start_grapheme_index,
+                        line.end_segment_index,
+                        line.end_grapheme_index,
+                        scratch,
+                    );
+                    scratch.clone()
+                }),
                 width: line.width,
                 start: LayoutCursor {
                     segment_index: line.start_segment_index,
@@ -222,14 +231,18 @@ pub fn layout_next_line(
     let range = to_layout_line_range(&line);
 
     Some(LayoutLine {
-        text: build_line_text(
-            &prepared.segments,
-            &prepared.core.kinds,
-            range.start.segment_index,
-            range.start.grapheme_index,
-            range.end.segment_index,
-            range.end.grapheme_index,
-        ),
+        text: with_line_text_scratch(|scratch| {
+            build_line_text_into(
+                &prepared.segments,
+                &prepared.core.kinds,
+                range.start.segment_index,
+                range.start.grapheme_index,
+                range.end.segment_index,
+                range.end.grapheme_index,
+                scratch,
+            );
+            scratch.clone()
+        }),
         width: range.width,
         start: range.start,
         end: range.end,

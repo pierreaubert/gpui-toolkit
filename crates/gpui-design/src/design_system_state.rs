@@ -43,9 +43,8 @@ impl DesignExt for gpui::App {
                 static DEFAULT_DESIGN_SYSTEM: std::sync::OnceLock<std::sync::Arc<DesignSystem>> =
                     std::sync::OnceLock::new();
                 std::sync::Arc::clone(
-                    DEFAULT_DESIGN_SYSTEM.get_or_init(|| {
-                        std::sync::Arc::new(DesignSystem::platform_default())
-                    }),
+                    DEFAULT_DESIGN_SYSTEM
+                        .get_or_init(|| std::sync::Arc::new(DesignSystem::platform_default())),
                 )
             })
     }

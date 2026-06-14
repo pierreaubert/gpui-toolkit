@@ -5,6 +5,7 @@
 use std::f64::consts::PI;
 
 use super::path::{Path, PathBuilder, Point};
+use crate::util::scratch::path_to_string;
 
 /// Arc datum containing the angles and radii for an arc.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -207,7 +208,7 @@ impl Arc {
 
     /// Generate an arc and return the SVG path string.
     pub fn path_string(&self, datum: &ArcDatum) -> String {
-        self.generate(datum).to_svg_string()
+        path_to_string(&self.generate(datum))
     }
 }
 

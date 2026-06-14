@@ -4,6 +4,7 @@
 //! network visualizations and tree diagrams.
 
 use super::path::PathBuilder;
+use crate::util::scratch::path_to_string;
 
 /// Link direction/orientation
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -59,7 +60,7 @@ impl Link {
 pub fn link_horizontal(link: &Link) -> String {
     let midx = (link.source_x + link.target_x) / 2.0;
 
-    PathBuilder::new()
+    let path = PathBuilder::new()
         .move_to(link.source_x, link.source_y)
         .cubic_curve_to(
             midx,
@@ -69,8 +70,8 @@ pub fn link_horizontal(link: &Link) -> String {
             link.target_x,
             link.target_y,
         )
-        .build()
-        .to_svg_string()
+        .build();
+    path_to_string(&path)
 }
 
 /// Generator for vertical links (Bezier curves, vertical emphasis)
@@ -90,7 +91,7 @@ pub fn link_horizontal(link: &Link) -> String {
 pub fn link_vertical(link: &Link) -> String {
     let midy = (link.source_y + link.target_y) / 2.0;
 
-    PathBuilder::new()
+    let path = PathBuilder::new()
         .move_to(link.source_x, link.source_y)
         .cubic_curve_to(
             link.source_x,
@@ -100,8 +101,8 @@ pub fn link_vertical(link: &Link) -> String {
             link.target_x,
             link.target_y,
         )
-        .build()
-        .to_svg_string()
+        .build();
+    path_to_string(&path)
 }
 
 /// A radial link for polar coordinate connections
@@ -168,11 +169,11 @@ pub fn link_radial(link: &RadialLink, cx: f64, cy: f64) -> String {
     let mid_x = cx + mid_radius * mid_angle.cos();
     let mid_y = cy + mid_radius * mid_angle.sin();
 
-    PathBuilder::new()
+    let path = PathBuilder::new()
         .move_to(source_x, source_y)
         .quadratic_curve_to(mid_x, mid_y, target_x, target_y)
-        .build()
-        .to_svg_string()
+        .build();
+    path_to_string(&path)
 }
 
 /// Create a step link (orthogonal connection)
@@ -182,31 +183,31 @@ pub fn link_step(link: &Link, direction: LinkDirection) -> String {
     match direction {
         LinkDirection::Horizontal => {
             let midx = (link.source_x + link.target_x) / 2.0;
-            PathBuilder::new()
+            let path = PathBuilder::new()
                 .move_to(link.source_x, link.source_y)
                 .line_to(midx, link.source_y)
                 .line_to(midx, link.target_y)
                 .line_to(link.target_x, link.target_y)
-                .build()
-                .to_svg_string()
+                .build();
+            path_to_string(&path)
         }
         LinkDirection::Vertical => {
             let midy = (link.source_y + link.target_y) / 2.0;
-            PathBuilder::new()
+            let path = PathBuilder::new()
                 .move_to(link.source_x, link.source_y)
                 .line_to(link.source_x, midy)
                 .line_to(link.target_x, midy)
                 .line_to(link.target_x, link.target_y)
-                .build()
-                .to_svg_string()
+                .build();
+            path_to_string(&path)
         }
         LinkDirection::Radial => {
             // For radial, just use straight lines
-            PathBuilder::new()
+            let path = PathBuilder::new()
                 .move_to(link.source_x, link.source_y)
                 .line_to(link.target_x, link.target_y)
-                .build()
-                .to_svg_string()
+                .build();
+            path_to_string(&path)
         }
     }
 }

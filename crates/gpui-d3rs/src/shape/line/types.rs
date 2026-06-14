@@ -6,6 +6,7 @@ use super::misc::clip_line_segment;
 use crate::scale::Scale;
 use gpui::prelude::*;
 use gpui::*;
+use std::sync::Arc;
 
 /// Curve interpolation types
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -176,7 +177,9 @@ where
     });
 
     // Pre-compute clipped segments once; they only depend on relative points.
-    let segments_to_draw = compute_line_segments(&relative_points, curve_type);
+    let relative_points: Arc<[(f32, f32)]> = relative_points.into();
+    let segments_to_draw: Arc<[(f32, f32, f32, f32)]> =
+        compute_line_segments(&relative_points, curve_type).into();
 
     canvas(
         // Prepaint: pass through the relative points, pre-computed segments and bounds info
@@ -198,8 +201,8 @@ where
         // Paint: draw clipped line segments
         move |_bounds,
               (rel_points, segments_to_draw, width, height, origin_x, origin_y): (
-            Vec<(f32, f32)>,
-            Vec<(f32, f32, f32, f32)>,
+            Arc<[(f32, f32)]>,
+            Arc<[(f32, f32, f32, f32)]>,
             f32,
             f32,
             f32,
@@ -227,7 +230,7 @@ where
                     let mut remaining = pattern[0]; // remaining length in current dash/gap
                     let mut has_segments = false;
 
-                    for &(rx0, ry0, rx1, ry1) in &segments_to_draw {
+                    for &(rx0, ry0, rx1, ry1) in segments_to_draw.iter() {
                         let sx = origin_x + rx0 * width;
                         let sy = origin_y + ry0 * height;
                         let ex = origin_x + rx1 * width;
@@ -273,7 +276,7 @@ where
                     let mut path_builder = PathBuilder::stroke(px(stroke_width));
                     let mut last_end: Option<(f32, f32)> = None;
 
-                    for (x0, y0, x1, y1) in &segments_to_draw {
+                    for (x0, y0, x1, y1) in segments_to_draw.iter() {
                         let start = (origin_x + x0 * width, origin_y + y0 * height);
                         let end = (origin_x + x1 * width, origin_y + y1 * height);
 
@@ -299,7 +302,7 @@ where
 
             // Paint points if enabled (only for points inside the clip region)
             if show_points {
-                for &(x_rel, y_rel) in &rel_points {
+                for &(x_rel, y_rel) in rel_points.iter() {
                     // Only draw points inside the chart area
                     if (0.0..=1.0).contains(&x_rel) && (0.0..=1.0).contains(&y_rel) {
                         let px_x = origin_x + x_rel * width;

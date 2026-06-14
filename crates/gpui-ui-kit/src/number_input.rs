@@ -380,8 +380,7 @@ impl RenderOnce for NumberInput {
         // because is_focused() returns false during re-render before the element
         // is re-associated with the focus handle via track_focus().
         // Format the value once and reuse it for display and click-to-edit state.
-        let formatted_value =
-            Self::format_value_str(current_value, decimals, unit_clone.as_ref());
+        let formatted_value = Self::format_value_str(current_value, decimals, unit_clone.as_ref());
 
         let state = edit_state.borrow();
         let editing = state.editing;

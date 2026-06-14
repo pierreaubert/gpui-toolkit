@@ -681,7 +681,9 @@ impl DesignSystem {
         if self.layout.slider_height_compact > self.layout.slider_height_normal {
             findings.push(ConformanceFinding {
                 id: "layout.slider_height_order",
-                message: Cow::Borrowed("compact slider height should not exceed normal slider height"),
+                message: Cow::Borrowed(
+                    "compact slider height should not exceed normal slider height",
+                ),
             });
         }
 

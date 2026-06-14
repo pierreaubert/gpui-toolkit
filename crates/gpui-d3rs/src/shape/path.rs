@@ -243,35 +243,33 @@ impl Path {
         points
     }
 
-    /// Convert to SVG path string.
-    pub fn to_svg_string(&self) -> String {
+    /// Write the SVG path string representation into `buf`.
+    pub fn write_svg_string(&self, buf: &mut String) {
         use std::fmt::Write;
 
-        let mut s = String::with_capacity(self.commands.len() * 24);
-
         for cmd in &self.commands {
-            if !s.is_empty() {
-                s.push(' ');
+            if !buf.is_empty() {
+                buf.push(' ');
             }
 
             match *cmd {
                 PathCommand::MoveTo { x, y } => {
-                    write!(&mut s, "M{},{}", x, y).unwrap();
+                    write!(buf, "M{},{}", x, y).unwrap();
                 }
                 PathCommand::LineTo { x, y } => {
-                    write!(&mut s, "L{},{}", x, y).unwrap();
+                    write!(buf, "L{},{}", x, y).unwrap();
                 }
                 PathCommand::HorizontalLineTo { x } => {
-                    write!(&mut s, "H{}", x).unwrap();
+                    write!(buf, "H{}", x).unwrap();
                 }
                 PathCommand::VerticalLineTo { y } => {
-                    write!(&mut s, "V{}", y).unwrap();
+                    write!(buf, "V{}", y).unwrap();
                 }
                 PathCommand::ClosePath => {
-                    s.push('Z');
+                    buf.push('Z');
                 }
                 PathCommand::QuadraticCurveTo { x1, y1, x, y } => {
-                    write!(&mut s, "Q{},{},{},{}", x1, y1, x, y).unwrap();
+                    write!(buf, "Q{},{},{},{}", x1, y1, x, y).unwrap();
                 }
                 PathCommand::CubicCurveTo {
                     x1,
@@ -281,7 +279,7 @@ impl Path {
                     x,
                     y,
                 } => {
-                    write!(&mut s, "C{},{},{},{},{},{}", x1, y1, x2, y2, x, y).unwrap();
+                    write!(buf, "C{},{},{},{},{},{}", x1, y1, x2, y2, x, y).unwrap();
                 }
                 PathCommand::Arc {
                     x,
@@ -299,7 +297,7 @@ impl Path {
                     let large_arc = (end_angle - start_angle).abs() > PI;
                     let sweep = end_angle > start_angle;
                     write!(
-                        &mut s,
+                        buf,
                         "M{},{} A{},{},0,{},{},{},{}",
                         x1,
                         y1,
@@ -322,7 +320,7 @@ impl Path {
                     y,
                 } => {
                     write!(
-                        &mut s,
+                        buf,
                         "A{},{},{},{},{},{},{}",
                         rx,
                         ry,
@@ -341,7 +339,7 @@ impl Path {
                     height,
                 } => {
                     write!(
-                        &mut s,
+                        buf,
                         "M{},{} L{},{} L{},{} L{},{} Z",
                         x,
                         y,
@@ -356,8 +354,12 @@ impl Path {
                 }
             }
         }
-
-        s
     }
 
+    /// Convert to SVG path string.
+    pub fn to_svg_string(&self) -> String {
+        let mut s = String::with_capacity(self.commands.len() * 24);
+        self.write_svg_string(&mut s);
+        s
+    }
 }

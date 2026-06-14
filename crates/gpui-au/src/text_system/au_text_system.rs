@@ -31,6 +31,7 @@ impl AuTextSystem {
             font_ids_by_font_key: HashMap::default(),
             postscript_names_by_font_id: HashMap::default(),
             is_emoji: Vec::new(),
+            layout_cache: HashMap::default(),
         }))
     }
 }

@@ -42,8 +42,7 @@ pub(super) fn percentile_unsorted(values: &[f64], p: f64) -> f64 {
     let mut scratch = values.to_vec();
 
     if lower == upper || upper >= n {
-        let (_, kth, _) =
-            scratch.select_nth_unstable_by(lower.min(n - 1), |a, b| a.total_cmp(b));
+        let (_, kth, _) = scratch.select_nth_unstable_by(lower.min(n - 1), |a, b| a.total_cmp(b));
         *kth
     } else {
         let (_, kth_lower, right) = scratch.select_nth_unstable_by(lower, |a, b| a.total_cmp(b));

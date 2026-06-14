@@ -1,6 +1,6 @@
 [package]
 name = "gpui-pretext"
-version = "0.7.3"
+version = "0.7.4"
 authors.workspace = true
 edition.workspace = true
 keywords.workspace = true
@@ -23,3 +23,10 @@ urlencoding = []
 
 [dependencies]
 unicode-segmentation = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
+
+[[bench]]
+name = "layout_temporaries"
+harness = false

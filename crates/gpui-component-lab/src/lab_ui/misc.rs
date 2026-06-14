@@ -299,14 +299,11 @@ pub(super) fn lab_id(parts: &[&str]) -> SharedString {
     }
     LAB_ID_CACHE.with(|cache| {
         let mut cache = cache.borrow_mut();
-        cache
-            .get(&key)
-            .cloned()
-            .unwrap_or_else(|| {
-                let shared = SharedString::new(key.clone());
-                cache.insert(key, shared.clone());
-                shared
-            })
+        cache.get(&key).cloned().unwrap_or_else(|| {
+            let shared = SharedString::new(key.clone());
+            cache.insert(key, shared.clone());
+            shared
+        })
     })
 }
 

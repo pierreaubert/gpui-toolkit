@@ -239,11 +239,8 @@ impl MiniApp {
             }
 
             // Create window
-            let bounds = Bounds::centered(
-                None,
-                size(px(config_rc.width), px(config_rc.height)),
-                cx,
-            );
+            let bounds =
+                Bounds::centered(None, size(px(config_rc.width), px(config_rc.height)), cx);
 
             let scrollable = config_rc.scrollable;
             if let Err(e) = cx.open_window(

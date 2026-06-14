@@ -5,6 +5,7 @@
 
 use super::curve::Curve;
 use super::path::PathBuilder;
+use crate::util::scratch::path_to_string;
 
 /// A point in polar coordinates
 #[derive(Debug, Clone, Copy)]
@@ -132,7 +133,7 @@ pub fn radial_line(points: &[RadialPoint], config: &RadialLineConfig) -> String 
         builder = builder.close_path();
     }
 
-    builder.build().to_svg_string()
+    path_to_string(&builder.build())
 }
 
 /// Configuration for radial area generator
@@ -234,7 +235,7 @@ pub fn radial_area(points: &[RadialPoint], config: &RadialAreaConfig) -> String 
         builder = builder.line_to(x, y);
     }
 
-    builder.close_path().build().to_svg_string()
+    path_to_string(&builder.close_path().build())
 }
 
 /// Generate a polar grid of concentric circles
@@ -242,10 +243,11 @@ pub fn polar_grid_circles(cx: f64, cy: f64, radii: &[f64]) -> Vec<String> {
     radii
         .iter()
         .map(|&r| {
-            PathBuilder::new()
-                .arc(cx, cy, r, 0.0, std::f64::consts::TAU, false)
-                .build()
-                .to_svg_string()
+            path_to_string(
+                &PathBuilder::new()
+                    .arc(cx, cy, r, 0.0, std::f64::consts::TAU, false)
+                    .build(),
+            )
         })
         .collect()
 }
@@ -265,11 +267,12 @@ pub fn polar_grid_rays(
             let inner_y = cy + inner_radius * angle.sin();
             let outer_x = cx + outer_radius * angle.cos();
             let outer_y = cy + outer_radius * angle.sin();
-            PathBuilder::new()
-                .move_to(inner_x, inner_y)
-                .line_to(outer_x, outer_y)
-                .build()
-                .to_svg_string()
+            path_to_string(
+                &PathBuilder::new()
+                    .move_to(inner_x, inner_y)
+                    .line_to(outer_x, outer_y)
+                    .build(),
+            )
         })
         .collect()
 }

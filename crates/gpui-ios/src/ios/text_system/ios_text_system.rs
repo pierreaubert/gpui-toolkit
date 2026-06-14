@@ -80,7 +80,8 @@ impl PlatformTextSystem for IosTextSystem {
                 } else {
                     let font_ids =
                         lock.load_family(&font.family, &font.features, font.fallbacks.as_ref())?;
-                    lock.font_ids_by_font_key.insert(font_key.clone(), Arc::clone(&font_ids));
+                    lock.font_ids_by_font_key
+                        .insert(font_key.clone(), Arc::clone(&font_ids));
                     font_ids
                 };
             let candidate_properties: SmallVec<[font_kit::properties::Properties; 4]> = candidates

@@ -91,10 +91,7 @@ pub fn validate_design_tokens(
     validate_raw_tokens(&raw, render_markdown)
 }
 
-fn validate_raw_tokens(
-    raw: &Value,
-    render_markdown: bool,
-) -> Result<DesignTokenValidationReport> {
+fn validate_raw_tokens(raw: &Value, render_markdown: bool) -> Result<DesignTokenValidationReport> {
     let (preset_count, token_count, mut findings) = inspect_token_value(raw);
     let matrix = DesignConformanceMatrix::all_presets();
     for (case, finding) in matrix.findings() {
@@ -201,7 +198,9 @@ fn inspect_token_value(raw: &Value) -> (usize, usize, Vec<Cow<'static, str>>) {
         findings.push(Cow::Borrowed("root.presets must not be empty"));
     }
     if token_count == 0 {
-        findings.push(Cow::Borrowed("token export must contain at least one token"));
+        findings.push(Cow::Borrowed(
+            "token export must contain at least one token",
+        ));
     }
 
     (presets.len(), token_count, findings)
@@ -228,7 +227,9 @@ fn validate_design_token_export(
         findings.push(Cow::Borrowed("root.presets must not be empty"));
     }
     if token_count == 0 {
-        findings.push(Cow::Borrowed("token export must contain at least one token"));
+        findings.push(Cow::Borrowed(
+            "token export must contain at least one token",
+        ));
     }
 
     let matrix = DesignConformanceMatrix::all_presets();
@@ -316,15 +317,14 @@ mod tests {
     #[test]
     fn validate_from_path_round_trip() {
         let json = export_design_tokens(DesignTokenFormat::StyleDictionaryJson).unwrap();
-        let path = std::env::temp_dir()
-            .join(format!("gpui-design-tools-test-{}.json", std::process::id()));
+        let path = std::env::temp_dir().join(format!(
+            "gpui-design-tools-test-{}.json",
+            std::process::id()
+        ));
         std::fs::write(&path, &json).unwrap();
-        let report = validate_design_tokens_from_path(
-            &path,
-            DesignTokenFormat::StyleDictionaryJson,
-            true,
-        )
-        .unwrap();
+        let report =
+            validate_design_tokens_from_path(&path, DesignTokenFormat::StyleDictionaryJson, true)
+                .unwrap();
         assert!(report.preset_count > 0);
         assert!(report.token_count >= report.preset_count);
         assert!(!report.conformance_markdown.is_empty());

@@ -78,36 +78,174 @@ where
         self.height = height;
         self
     }
+}
 
-    /// Normalize a value to 0.0-1.0 range
-    pub(super) fn normalize_value(&self, value: f64) -> f64 {
-        let (min, max) = self.value_range;
+/// Pre-built paths for a single contour ring.
+#[derive(Clone)]
+pub struct PreparedContourPath {
+    fill: Option<(Path<Pixels>, Rgba)>,
+    stroke: Option<(Path<Pixels>, Rgba)>,
+}
+
+/// Build all paint-ready paths for a set of contours.
+///
+/// This is called from `prepaint` so that coordinate transformation, jump
+/// detection, smoothing, and `PathBuilder` construction happen once per frame
+/// instead of inside the paint closure.
+fn prepare_contour_paths<XS, YS>(
+    contours: &[Contour],
+    x_scale: &XS,
+    y_scale: &YS,
+    config: &ContourConfig,
+    value_range: (f64, f64),
+    bounds: Bounds<Pixels>,
+) -> Vec<PreparedContourPath>
+where
+    XS: Scale<f64, f64>,
+    YS: Scale<f64, f64>,
+{
+    let origin_x: f32 = bounds.origin.x.into();
+    let origin_y: f32 = bounds.origin.y.into();
+    let width: f32 = bounds.size.width.into();
+    let height: f32 = bounds.size.height.into();
+
+    let (x_range_min, x_range_max) = x_scale.range();
+    let (y_range_min, y_range_max) = y_scale.range();
+    let x_range_span = (x_range_max - x_range_min).abs();
+    let y_range_span = (y_range_max - y_range_min).abs();
+    let x_range_lo = x_range_min.min(x_range_max);
+    let y_range_lo = y_range_min.min(y_range_max);
+
+    let normalize_value = |value: f64| -> f64 {
+        let (min, max) = value_range;
         if (max - min).abs() < 1e-10 {
             0.5
         } else {
             (value - min) / (max - min)
         }
-    }
+    };
 
-    /// Get color for a contour value
-    pub(super) fn get_color(&self, value: f64) -> D3Color {
-        let t = self.normalize_value(value);
-        if let Some(ref scale) = self.config.color_scale {
+    let get_color = |value: f64, default: D3Color| -> D3Color {
+        let t = normalize_value(value);
+        if let Some(ref scale) = config.color_scale {
             scale(t)
         } else {
-            self.config.stroke_color
+            default
+        }
+    };
+
+    let mut prepared = Vec::with_capacity(contours.iter().map(|c| c.coordinates.len()).sum());
+
+    for contour in contours.iter() {
+        let stroke_color = get_color(contour.value, config.stroke_color);
+        let fill_color = get_color(contour.value, config.fill_color);
+
+        for ring in &contour.coordinates {
+            if ring.points.len() < 3 {
+                continue;
+            }
+
+            let screen_points: Vec<Point<Pixels>> = ring
+                .points
+                .iter()
+                .map(|p| {
+                    let x_scaled = x_scale.scale(p.x);
+                    let y_scaled = y_scale.scale(p.y);
+                    let x_norm = ((x_scaled - x_range_lo) / x_range_span) as f32;
+                    let y_norm = ((y_scaled - y_range_lo) / y_range_span) as f32;
+                    let screen_x = origin_x + x_norm * width;
+                    let screen_y = origin_y + y_norm * height;
+                    point(px(screen_x), px(screen_y))
+                })
+                .collect();
+
+            let is_closed = if screen_points.len() >= 2 {
+                let first = &screen_points[0];
+                let last = &screen_points[screen_points.len() - 1];
+                let dx: f32 = (first.x - last.x).into();
+                let dy: f32 = (first.y - last.y).into();
+                dx.abs() < 1.0 && dy.abs() < 1.0
+            } else {
+                false
+            };
+
+            let mut fill = None;
+            if config.fill && screen_points.len() >= 3 && is_closed {
+                let x_jump_threshold = width * 0.15;
+                let y_jump_threshold = height * 0.15;
+                let has_jump = screen_points.windows(2).any(|pair| {
+                    let dx: f32 = (pair[1].x - pair[0].x).abs().into();
+                    let dy: f32 = (pair[1].y - pair[0].y).abs().into();
+                    dx > x_jump_threshold || dy > y_jump_threshold
+                });
+
+                if !has_jump {
+                    let mut builder = PathBuilder::fill();
+                    builder.move_to(screen_points[0]);
+                    for pt in &screen_points[1..] {
+                        builder.line_to(*pt);
+                    }
+                    if let Ok(path) = builder.build() {
+                        let mut fill_rgba = fill_color.to_rgba();
+                        fill_rgba.a *= config.fill_opacity;
+                        fill = Some((path, fill_rgba));
+                    }
+                }
+            }
+
+            let mut stroke = None;
+            if config.stroke_opacity > 0.0 && config.stroke_width > 0.0 {
+                let x_jump_threshold = width * 0.15;
+                let y_jump_threshold = height * 0.15;
+
+                let points_to_draw = if screen_points.len() >= 2 {
+                    let first = &screen_points[0];
+                    let last = &screen_points[screen_points.len() - 1];
+                    let dx: f32 = (first.x - last.x).abs().into();
+                    let dy: f32 = (first.y - last.y).abs().into();
+                    if dx < 2.0 && dy < 2.0 {
+                        &screen_points[..screen_points.len() - 1]
+                    } else {
+                        &screen_points[..]
+                    }
+                } else {
+                    &screen_points[..]
+                };
+
+                let segments =
+                    split_stroke_segments(points_to_draw, x_jump_threshold, y_jump_threshold);
+                let closes_single_segment = is_closed && segments.len() == 1;
+                let mut builder = PathBuilder::stroke(px(config.stroke_width));
+                let mut has_segments = false;
+
+                for segment in segments {
+                    let segment_is_closed = closes_single_segment && segment.len() >= 3;
+                    let draw_points = smooth_stroke_segment(&segment, segment_is_closed, config);
+                    if draw_points.len() < 2 {
+                        continue;
+                    }
+                    builder.move_to(draw_points[0]);
+                    for point in &draw_points[1..] {
+                        builder.line_to(*point);
+                    }
+                    if segment_is_closed {
+                        builder.line_to(draw_points[0]);
+                    }
+                    has_segments = true;
+                }
+
+                if has_segments && let Ok(path) = builder.build() {
+                    let mut stroke_rgba = stroke_color.to_rgba();
+                    stroke_rgba.a *= config.stroke_opacity;
+                    stroke = Some((path, stroke_rgba));
+                }
+            }
+
+            prepared.push(PreparedContourPath { fill, stroke });
         }
     }
 
-    /// Get fill color for a contour value
-    pub(super) fn get_fill_color(&self, value: f64) -> D3Color {
-        let t = self.normalize_value(value);
-        if let Some(ref scale) = self.config.color_scale {
-            scale(t)
-        } else {
-            self.config.fill_color
-        }
-    }
+    prepared
 }
 
 impl<XS, YS> IntoElement for ContourElement<XS, YS>
@@ -128,7 +266,7 @@ where
     YS: Scale<f64, f64> + Clone + 'static,
 {
     type RequestLayoutState = ();
-    type PrepaintState = ();
+    type PrepaintState = Vec<PreparedContourPath>;
 
     fn id(&self) -> Option<ElementId> {
         None
@@ -165,170 +303,130 @@ where
         &mut self,
         _id: Option<&GlobalElementId>,
         _inspector_id: Option<&InspectorElementId>,
-        _bounds: Bounds<Pixels>,
+        bounds: Bounds<Pixels>,
         _request_layout: &mut Self::RequestLayoutState,
         _window: &mut Window,
         _cx: &mut App,
     ) -> Self::PrepaintState {
+        prepare_contour_paths(
+            &self.contours,
+            &self.x_scale,
+            &self.y_scale,
+            &self.config,
+            self.value_range,
+            bounds,
+        )
     }
 
     fn paint(
         &mut self,
         _id: Option<&GlobalElementId>,
         _inspector_id: Option<&InspectorElementId>,
-        bounds: Bounds<Pixels>,
+        _bounds: Bounds<Pixels>,
         _request_layout: &mut Self::RequestLayoutState,
-        _prepaint: &mut Self::PrepaintState,
+        prepaint: &mut Self::PrepaintState,
         window: &mut Window,
         _cx: &mut App,
     ) {
-        let origin_x: f32 = bounds.origin.x.into();
-        let origin_y: f32 = bounds.origin.y.into();
-        let width: f32 = bounds.size.width.into();
-        let height: f32 = bounds.size.height.into();
-
-        // Get the range (screen coordinates) for proper normalization
-        // Use scale.scale() to properly handle log scales
-        let (x_range_min, x_range_max) = self.x_scale.range();
-        let (y_range_min, y_range_max) = self.y_scale.range();
-        let x_range_span = (x_range_max - x_range_min).abs();
-        let y_range_span = (y_range_max - y_range_min).abs();
-
-        // Paint each contour (from lowest to highest value for proper layering)
-        for contour in self.contours.iter() {
-            let stroke_color = self.get_color(contour.value);
-            let fill_color = self.get_fill_color(contour.value);
-
-            for ring in &contour.coordinates {
-                if ring.points.len() < 3 {
-                    continue;
-                }
-
-                // Convert ring points to screen coordinates using the scale
-                // This properly handles log scales by using scale.scale()
-                // Use actual min/max for proper handling of inverted scales
-                let x_range_lo = x_range_min.min(x_range_max);
-                let y_range_lo = y_range_min.min(y_range_max);
-
-                let screen_points: Vec<Point<Pixels>> = ring
-                    .points
-                    .iter()
-                    .map(|p| {
-                        // Use scale.scale() to transform data coordinates to range coordinates
-                        // This properly handles log scales
-                        let x_scaled = self.x_scale.scale(p.x);
-                        let y_scaled = self.y_scale.scale(p.y);
-
-                        // Normalize to 0-1 based on range
-                        // Y scale is already inverted (high values at top=0, low at bottom=height)
-                        // so no additional inversion needed here
-                        let x_norm = ((x_scaled - x_range_lo) / x_range_span) as f32;
-                        let y_norm = ((y_scaled - y_range_lo) / y_range_span) as f32;
-
-                        let screen_x = origin_x + x_norm * width;
-                        let screen_y = origin_y + y_norm * height;
-                        point(px(screen_x), px(screen_y))
-                    })
-                    .collect();
-
-                // Check if this ring is closed (first and last point are the same)
-                let is_closed = if screen_points.len() >= 2 {
-                    let first = &screen_points[0];
-                    let last = &screen_points[screen_points.len() - 1];
-                    let dx: f32 = (first.x - last.x).into();
-                    let dy: f32 = (first.y - last.y).into();
-                    dx.abs() < 1.0 && dy.abs() < 1.0
-                } else {
-                    false
-                };
-
-                // Paint fill using PathBuilder (only for closed rings without large jumps)
-                if self.config.fill && screen_points.len() >= 3 && is_closed {
-                    // Detect if this ring has any large jumps that would cause artifacts
-                    // Skip filling rings that cross the boundary
-                    let x_jump_threshold = width * 0.15;
-                    let y_jump_threshold = height * 0.15;
-                    let has_jump = screen_points.windows(2).any(|pair| {
-                        let dx: f32 = (pair[1].x - pair[0].x).abs().into();
-                        let dy: f32 = (pair[1].y - pair[0].y).abs().into();
-                        dx > x_jump_threshold || dy > y_jump_threshold
-                    });
-
-                    if !has_jump {
-                        let mut builder = PathBuilder::fill();
-                        builder.move_to(screen_points[0]);
-                        for pt in &screen_points[1..] {
-                            builder.line_to(*pt);
-                        }
-                        // Don't call close() - the path is already closed by the data
-
-                        if let Ok(path) = builder.build() {
-                            let mut fill_rgba = fill_color.to_rgba();
-                            fill_rgba.a *= self.config.fill_opacity;
-                            window.paint_path(path, fill_rgba);
-                        }
-                    }
-                }
-
-                // Paint stroke using PathBuilder
-                // For open isolines, we need to draw each segment but NOT connect
-                // back to the start. For closed isolines, the data already includes the closing point.
-                if self.config.stroke_opacity > 0.0 && self.config.stroke_width > 0.0 {
-                    // Detect large jumps that indicate we should NOT draw a line
-                    // (e.g., isoline wrapping around the plot boundary)
-                    // Check both X and Y separately since log scale can compress one axis
-                    // Use a lower threshold (15%) to catch more edge cases
-                    let x_jump_threshold = width * 0.15;
-                    let y_jump_threshold = height * 0.15;
-
-                    let mut builder = PathBuilder::stroke(px(self.config.stroke_width));
-
-                    // Skip the last point if it's a duplicate of the first (closing point added by marching squares)
-                    let points_to_draw = if screen_points.len() >= 2 {
-                        let first = &screen_points[0];
-                        let last = &screen_points[screen_points.len() - 1];
-                        let dx: f32 = (first.x - last.x).abs().into();
-                        let dy: f32 = (first.y - last.y).abs().into();
-                        // If last point is very close to first (duplicate closing point), skip it
-                        if dx < 2.0 && dy < 2.0 {
-                            &screen_points[..screen_points.len() - 1]
-                        } else {
-                            &screen_points[..]
-                        }
-                    } else {
-                        &screen_points[..]
-                    };
-
-                    let segments =
-                        split_stroke_segments(points_to_draw, x_jump_threshold, y_jump_threshold);
-                    let closes_single_segment = is_closed && segments.len() == 1;
-                    let mut has_stroke_segments = false;
-
-                    for segment in segments {
-                        let segment_is_closed = closes_single_segment && segment.len() >= 3;
-                        let draw_points =
-                            smooth_stroke_segment(&segment, segment_is_closed, &self.config);
-                        if draw_points.len() < 2 {
-                            continue;
-                        }
-
-                        builder.move_to(draw_points[0]);
-                        for point in &draw_points[1..] {
-                            builder.line_to(*point);
-                        }
-                        if segment_is_closed {
-                            builder.line_to(draw_points[0]);
-                        }
-                        has_stroke_segments = true;
-                    }
-
-                    if has_stroke_segments && let Ok(path) = builder.build() {
-                        let mut stroke_rgba = stroke_color.to_rgba();
-                        stroke_rgba.a *= self.config.stroke_opacity;
-                        window.paint_path(path, stroke_rgba);
-                    }
-                }
+        for prepared in prepaint.drain(..) {
+            if let Some((path, color)) = prepared.fill {
+                window.paint_path(path, color);
+            }
+            if let Some((path, color)) = prepared.stroke {
+                window.paint_path(path, color);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::contour::ContourRing;
+    use crate::scale::LinearScale;
+    use crate::shape::path::Point as D3Point;
+
+    fn test_bounds() -> Bounds<Pixels> {
+        Bounds::new(point(px(0.0), px(0.0)), size(px(100.0), px(100.0)))
+    }
+
+    fn test_contour() -> Contour {
+        Contour {
+            value: 0.5,
+            coordinates: vec![ContourRing::new(vec![
+                D3Point::new(0.0, 0.0),
+                D3Point::new(1.0, 0.0),
+                D3Point::new(1.0, 1.0),
+                D3Point::new(0.0, 1.0),
+                D3Point::new(0.0, 0.0),
+            ])],
+        }
+    }
+
+    #[test]
+    fn prepare_contour_paths_builds_fill_and_stroke() {
+        let contour = test_contour();
+        let x_scale = LinearScale::new().domain(0.0, 1.0).range(0.0, 100.0);
+        let y_scale = LinearScale::new().domain(0.0, 1.0).range(100.0, 0.0);
+        let config = ContourConfig::new().fill(true).stroke_width(1.0);
+
+        let prepared = prepare_contour_paths(
+            std::slice::from_ref(&contour),
+            &x_scale,
+            &y_scale,
+            &config,
+            (0.0, 1.0),
+            test_bounds(),
+        );
+
+        assert_eq!(prepared.len(), 1);
+        assert!(prepared[0].fill.is_some(), "expected fill path");
+        assert!(prepared[0].stroke.is_some(), "expected stroke path");
+    }
+
+    #[test]
+    fn prepare_contour_paths_skips_small_rings() {
+        let contour = Contour {
+            value: 0.5,
+            coordinates: vec![ContourRing::new(vec![
+                D3Point::new(0.0, 0.0),
+                D3Point::new(1.0, 0.0),
+            ])],
+        };
+        let x_scale = LinearScale::new().domain(0.0, 1.0).range(0.0, 100.0);
+        let y_scale = LinearScale::new().domain(0.0, 1.0).range(100.0, 0.0);
+        let config = ContourConfig::new().fill(true).stroke_width(1.0);
+
+        let prepared = prepare_contour_paths(
+            std::slice::from_ref(&contour),
+            &x_scale,
+            &y_scale,
+            &config,
+            (0.0, 1.0),
+            test_bounds(),
+        );
+
+        assert!(prepared.is_empty());
+    }
+
+    #[test]
+    fn prepare_contour_paths_respects_fill_toggle() {
+        let contour = test_contour();
+        let x_scale = LinearScale::new().domain(0.0, 1.0).range(0.0, 100.0);
+        let y_scale = LinearScale::new().domain(0.0, 1.0).range(100.0, 0.0);
+        let config = ContourConfig::new().fill(false).stroke_width(1.0);
+
+        let prepared = prepare_contour_paths(
+            std::slice::from_ref(&contour),
+            &x_scale,
+            &y_scale,
+            &config,
+            (0.0, 1.0),
+            test_bounds(),
+        );
+
+        assert_eq!(prepared.len(), 1);
+        assert!(prepared[0].fill.is_none());
+        assert!(prepared[0].stroke.is_some());
     }
 }

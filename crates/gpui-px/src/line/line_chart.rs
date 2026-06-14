@@ -31,9 +31,9 @@ use std::sync::Arc;
 /// Line chart builder.
 #[derive(Clone)]
 pub struct LineChart {
-    pub(super) x: Vec<f64>,
+    pub(super) x: Arc<[f64]>,
     // Primary series (backwards compatible)
-    pub(super) y: Vec<f64>,
+    pub(super) y: Arc<[f64]>,
     pub(super) label: Option<String>,
     pub(super) color: u32,
     pub(super) stroke_width: f32,
@@ -285,7 +285,7 @@ impl LineChart {
     ) -> Self {
         self.series.push(LineSeries {
             x: None,
-            y: y.to_vec(),
+            y: Arc::from(y),
             label: label.map(|l| l.into()),
             color,
             stroke_width,
@@ -314,8 +314,8 @@ impl LineChart {
         opacity: f32,
     ) -> Self {
         self.series.push(LineSeries {
-            x: Some(x.to_vec()),
-            y: y.to_vec(),
+            x: Some(Arc::from(x)),
+            y: Arc::from(y),
             label: label.map(|l| l.into()),
             color,
             stroke_width,
@@ -375,7 +375,7 @@ impl LineChart {
     ) -> Self {
         self.series.push(LineSeries {
             x: None,
-            y: y.to_vec(),
+            y: Arc::from(y),
             label: label.map(|l| l.into()),
             color,
             stroke_width,
@@ -401,8 +401,8 @@ impl LineChart {
         opacity: f32,
     ) -> Self {
         self.series.push(LineSeries {
-            x: Some(x.to_vec()),
-            y: y.to_vec(),
+            x: Some(Arc::from(x)),
+            y: Arc::from(y),
             label: label.map(|l| l.into()),
             color,
             stroke_width,
@@ -781,7 +781,12 @@ impl LineChart {
             let (min, max) = self
                 .y
                 .iter()
-                .chain(self.series.iter().filter(|s| !s.use_secondary_axis).flat_map(|s| s.y.iter()))
+                .chain(
+                    self.series
+                        .iter()
+                        .filter(|s| !s.use_secondary_axis)
+                        .flat_map(|s| s.y.iter()),
+                )
                 .copied()
                 .fold((f64::INFINITY, f64::NEG_INFINITY), |(min, max), val| {
                     (min.min(val), max.max(val))
@@ -792,7 +797,12 @@ impl LineChart {
             extent_padded_iter(
                 self.y
                     .iter()
-                    .chain(self.series.iter().filter(|s| !s.use_secondary_axis).flat_map(|s| s.y.iter()))
+                    .chain(
+                        self.series
+                            .iter()
+                            .filter(|s| !s.use_secondary_axis)
+                            .flat_map(|s| s.y.iter()),
+                    )
                     .copied(),
                 DEFAULT_PADDING_FRACTION,
             )

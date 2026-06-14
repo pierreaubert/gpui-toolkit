@@ -1,6 +1,6 @@
 [package]
 name = "gpui-builder"
-version = "0.7.3"
+version = "0.7.4"
 authors.workspace = true
 edition.workspace = true
 keywords.workspace = true
@@ -55,3 +55,8 @@ required-features = ["showcase"]
 
 [dev-dependencies]
 serde_json = { workspace = true }
+criterion = { workspace = true }
+
+[[bench]]
+name = "solved_tree"
+harness = false

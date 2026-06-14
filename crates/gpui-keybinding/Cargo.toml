@@ -1,6 +1,6 @@
 [package]
 name = "gpui-keybinding"
-version = "0.7.2"
+version = "0.7.3"
 authors.workspace = true
 edition.workspace = true
 description = "Reusable keybinding framework with Vim/Emacs/VSCode presets for GPUI applications"

@@ -2,7 +2,7 @@
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{FontWeight, IntoElement, ParentElement, Rgba, SharedString, Styled, div, px};
-use gpui_builder::{Axis, DisplayTier, SolvedNode};
+use gpui_builder::{Axis, DisplayTier, SolvedNodeRef};
 use std::rc::Rc;
 
 pub(super) static INSPECTOR_TIERS: &[DisplayTier<'_>] = &[
@@ -66,13 +66,12 @@ pub(super) fn panel_box(
         )
 }
 
-pub(super) fn size_label(node: &SolvedNode<'_>) -> String {
+pub(super) fn size_label(node: &SolvedNodeRef<'_, '_>) -> String {
     let tier = node
-        .active_tier
-        .as_deref()
+        .active_tier()
         .map(|t| format!(" [{t}]"))
         .unwrap_or_default();
-    format!("{:.0} x {:.0}{tier}", node.width, node.height)
+    format!("{:.0} x {:.0}{tier}", node.width(), node.height())
 }
 
 pub(super) fn axis_text(axis: Option<Axis>) -> &'static str {

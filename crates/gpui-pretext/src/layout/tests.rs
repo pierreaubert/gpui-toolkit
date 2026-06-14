@@ -2,13 +2,15 @@
 
 use super::layout;
 use super::layout_next_line;
+use super::layout_optimal;
 use super::layout_with_lines;
-use super::misc::build_line_text;
+use super::misc::{build_line_text, build_line_text_into};
 use super::prepare_options::PrepareOptions;
 use super::prepare_options::prepare;
 use super::prepare_options::prepare_with_segments;
 use super::types::LayoutCursor;
 use crate::analysis::SegmentBreakKind;
+use crate::line_break::KnuthPlassParams;
 use crate::measurement::{EngineProfile, TextMeasure};
 
 /// Simple test measure: each character is 10px wide.
@@ -100,10 +102,39 @@ fn test_build_line_text_partial_graphemes() {
     let kinds = vec![SegmentBreakKind::Text];
 
     // Skip the first grapheme ("a"), take the second ("你").
-    let line = build_line_text(&segments, &kinds, 0, 1, 0, 2,);
+    let line = build_line_text(&segments, &kinds, 0, 1, 0, 2);
     assert_eq!(line, "你");
 
     // Same start/end segment with skip and take.
     let line2 = build_line_text(&segments, &kinds, 0, 1, 0, 1);
     assert_eq!(line2, "");
+}
+
+#[test]
+fn test_build_line_text_into_matches() {
+    let segments = vec!["a你b".to_string()];
+    let kinds = vec![SegmentBreakKind::Text];
+
+    let expected = build_line_text(&segments, &kinds, 0, 1, 0, 2);
+    let mut buf = String::new();
+    build_line_text_into(&segments, &kinds, 0, 1, 0, 2, &mut buf);
+    assert_eq!(buf, expected);
+}
+
+#[test]
+fn optimal_layout_caches_kp_items() {
+    let measure = TestMeasure;
+    let profile = EngineProfile::default();
+    let options = PrepareOptions::default();
+    let prepared = prepare("hello world foo bar baz qux", &measure, &profile, &options);
+    let params = KnuthPlassParams::default();
+
+    let first = layout_optimal(&prepared, 80.0, 20.0, &profile, &params);
+    assert!(
+        !prepared.core.kp_item_cache.borrow().is_empty(),
+        "KP items should be cached after the first optimal layout"
+    );
+
+    let second = layout_optimal(&prepared, 80.0, 20.0, &profile, &params);
+    assert_eq!(first, second);
 }

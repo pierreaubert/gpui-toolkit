@@ -185,11 +185,7 @@ fn title_case(name: &str) -> String {
         }
     }
 
-    if out.is_empty() {
-        name.to_owned()
-    } else {
-        out
-    }
+    if out.is_empty() { name.to_owned() } else { out }
 }
 
 fn separated_identifier(name: &str, separator: char) -> String {

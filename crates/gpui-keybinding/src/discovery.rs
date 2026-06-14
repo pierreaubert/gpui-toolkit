@@ -113,7 +113,10 @@ pub fn search_command_palette(
             .then_with(|| a.key.cmp(&b.key))
     });
 
-    matches.into_iter().map(|(_, entry)| entry.clone()).collect()
+    matches
+        .into_iter()
+        .map(|(_, entry)| entry.clone())
+        .collect()
 }
 
 /// Build which-key-style next-key hints for a chord prefix.
@@ -167,7 +170,10 @@ pub fn keybinding_hints<'a>(
 
 impl KeybindingRegistry {
     /// Get cached command-palette entries for a preset.
-    pub fn command_palette_entries(&self, preset: KeymapPreset) -> std::rc::Rc<[CommandPaletteEntry]> {
+    pub fn command_palette_entries(
+        &self,
+        preset: KeymapPreset,
+    ) -> std::rc::Rc<[CommandPaletteEntry]> {
         self.get_palette_entries(preset)
     }
 

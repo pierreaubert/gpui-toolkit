@@ -1,3 +1,14 @@
+# 0.7.4
+
+## Performance
+
+- `PreparedLineBreakData` now holds `Cow` views into `PreparedCore` and shares a
+  Knuth-Plass item cache, reducing allocations during line breaking.
+- `SegmentMetrics` widths are returned as `Arc<[f64]>` and reused across
+  callers.
+- `RichTextSpan` and `AccessibleTextRun` use `Cow<str>` to avoid cloning owned
+  text during parsing and layout.
+
 # 0.6.2
 
 ## New

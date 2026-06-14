@@ -6,9 +6,10 @@ use super::misc::{TextSizeCache, TextSizeInput, compute_text_size};
 use super::resolve::resolve_axis;
 use super::resolve::resolve_display_tier;
 use super::types::ChildInfo;
-use crate::solved::SolvedNode;
+use crate::solved::{NodeIndex, SolvedNode, SolvedNodeData, SolvedTree};
 use crate::types::{Axis, ContainerNode, LayoutNode, LayoutPreferences, Sizing, SlotNode};
 use gpui_pretext::{EngineProfile, PrepareOptions};
+use std::collections::HashMap;
 
 /// Solve the layout tree into concrete pixel sizes.
 ///
@@ -22,6 +23,244 @@ pub fn solve<'a>(
     prefs: &LayoutPreferences<'a>,
 ) -> SolvedNode<'a> {
     solve_node(root, width, height, prefs)
+}
+
+/// Solve the layout tree directly into an arena/flat [`SolvedTree`].
+///
+/// This is the same solver logic as [`solve`], but nodes are appended to a
+/// single `Vec` as they are resolved and parent/child relationships are stored
+/// as indices. The resulting tree supports O(1) id lookup and cache-friendly
+/// traversal.
+pub fn solve_tree<'a>(
+    root: &LayoutNode<'a>,
+    width: f32,
+    height: f32,
+    prefs: &LayoutPreferences<'a>,
+) -> SolvedTree<'a> {
+    let mut nodes = Vec::new();
+    let mut index = HashMap::new();
+    solve_tree_node(root, width, height, prefs, &mut nodes, &mut index);
+    SolvedTree::from_parts(nodes, index)
+}
+
+fn solve_tree_node<'a>(
+    node: &LayoutNode<'a>,
+    width: f32,
+    height: f32,
+    prefs: &LayoutPreferences<'a>,
+    nodes: &mut Vec<SolvedNodeData<'a>>,
+    index: &mut HashMap<&'a str, NodeIndex>,
+) -> NodeIndex {
+    match node {
+        LayoutNode::Slot(slot) => solve_tree_slot(slot, width, height, prefs, nodes, index),
+        LayoutNode::Container(container) => {
+            solve_tree_container(container, width, height, prefs, nodes, index)
+        }
+    }
+}
+
+fn solve_tree_slot<'a>(
+    slot: &SlotNode<'a>,
+    width: f32,
+    height: f32,
+    prefs: &LayoutPreferences<'a>,
+    nodes: &mut Vec<SolvedNodeData<'a>>,
+    index: &mut HashMap<&'a str, NodeIndex>,
+) -> NodeIndex {
+    let user_collapsed = slot.collapsible && prefs.is_collapsed(slot.id);
+
+    if user_collapsed {
+        return push_solved_node(
+            SolvedNodeData {
+                id: slot.id,
+                width: 0.0,
+                height: 0.0,
+                visible: false,
+                active_tier: None,
+                collapse_label: slot.collapse_label,
+                resolved_axis: None,
+                children: Vec::new(),
+            },
+            nodes,
+            index,
+        );
+    }
+
+    let active_tier = resolve_display_tier(slot, width);
+
+    push_solved_node(
+        SolvedNodeData {
+            id: slot.id,
+            width,
+            height,
+            visible: true,
+            active_tier,
+            collapse_label: slot.collapse_label,
+            resolved_axis: None,
+            children: Vec::new(),
+        },
+        nodes,
+        index,
+    )
+}
+
+fn solve_tree_container<'a>(
+    container: &ContainerNode<'a>,
+    width: f32,
+    height: f32,
+    prefs: &LayoutPreferences<'a>,
+    nodes: &mut Vec<SolvedNodeData<'a>>,
+    index: &mut HashMap<&'a str, NodeIndex>,
+) -> NodeIndex {
+    let axis = resolve_axis(container, width, height);
+
+    let main_size = match axis {
+        Axis::Horizontal => width,
+        Axis::Vertical => height,
+    };
+    let cross_size = match axis {
+        Axis::Horizontal => height,
+        Axis::Vertical => width,
+    };
+
+    let profile = EngineProfile::default();
+    let options = PrepareOptions::default();
+    let mut text_cache = TextSizeCache::new();
+    let mut child_infos: Vec<ChildInfo<'_>> = container
+        .children
+        .iter()
+        .map(|child| {
+            let user_collapsed = child.collapsible() && prefs.is_collapsed(child.id());
+            let computed_text_size = if !user_collapsed {
+                if let Sizing::Text {
+                    text,
+                    measure,
+                    line_height,
+                    min,
+                } = child.sizing()
+                {
+                    Some(compute_text_size(
+                        TextSizeInput {
+                            text,
+                            measure,
+                            line_height,
+                            min,
+                            axis,
+                            cross_size,
+                            profile: &profile,
+                            options: &options,
+                        },
+                        &mut text_cache,
+                    ))
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+            ChildInfo {
+                node: child,
+                user_collapsed,
+                solver_collapsed: false,
+                allocated_size: 0.0,
+                computed_text_size,
+            }
+        })
+        .collect();
+
+    allocate_main_axis(
+        &mut child_infos,
+        main_size,
+        container.divider_size,
+        axis,
+        prefs,
+    );
+
+    // Reserve the container node first so children are stored after it in
+    // pre-order DFS order.
+    let container_idx = NodeIndex(nodes.len());
+    index.insert(container.id, container_idx);
+    nodes.push(SolvedNodeData {
+        id: container.id,
+        width,
+        height,
+        visible: true,
+        active_tier: None,
+        collapse_label: None,
+        resolved_axis: Some(axis),
+        children: Vec::with_capacity(child_infos.len()),
+    });
+
+    let mut child_indices = Vec::with_capacity(child_infos.len());
+    for info in &child_infos {
+        let visible = !info.user_collapsed && !info.solver_collapsed;
+        if !visible {
+            let collapse_label = match info.node {
+                LayoutNode::Slot(s) => s.collapse_label,
+                LayoutNode::Container(_) => None,
+            };
+            let child_idx = push_solved_node(
+                SolvedNodeData {
+                    id: info.node.id(),
+                    width: 0.0,
+                    height: 0.0,
+                    visible: false,
+                    active_tier: None,
+                    collapse_label,
+                    resolved_axis: None,
+                    children: Vec::new(),
+                },
+                nodes,
+                index,
+            );
+            child_indices.push(child_idx);
+            continue;
+        }
+
+        let (child_w, child_h) = match axis {
+            Axis::Horizontal => (info.allocated_size, cross_size),
+            Axis::Vertical => (cross_size, info.allocated_size),
+        };
+
+        match info.node {
+            LayoutNode::Slot(slot) => {
+                let active_tier = resolve_display_tier(slot, info.allocated_size);
+                let child_idx = push_solved_node(
+                    SolvedNodeData {
+                        id: slot.id,
+                        width: child_w,
+                        height: child_h,
+                        visible: true,
+                        active_tier,
+                        collapse_label: slot.collapse_label,
+                        resolved_axis: None,
+                        children: Vec::new(),
+                    },
+                    nodes,
+                    index,
+                );
+                child_indices.push(child_idx);
+            }
+            LayoutNode::Container(_) => {
+                let child_idx = solve_tree_node(info.node, child_w, child_h, prefs, nodes, index);
+                child_indices.push(child_idx);
+            }
+        }
+    }
+
+    nodes[container_idx.0].children = child_indices;
+    container_idx
+}
+
+fn push_solved_node<'a>(
+    data: SolvedNodeData<'a>,
+    nodes: &mut Vec<SolvedNodeData<'a>>,
+    index: &mut HashMap<&'a str, NodeIndex>,
+) -> NodeIndex {
+    let idx = NodeIndex(nodes.len());
+    index.insert(data.id, idx);
+    nodes.push(data);
+    idx
 }
 
 fn solve_node<'a>(

@@ -93,8 +93,7 @@ impl RetainedSceneCache {
         I: IntoIterator<Item = S>,
         S: AsRef<str> + Into<String>,
     {
-        let live: std::collections::HashSet<String> =
-            ids.into_iter().map(Into::into).collect();
+        let live: std::collections::HashSet<String> = ids.into_iter().map(Into::into).collect();
         self.entries.retain(|id, _| live.contains(id));
     }
 

@@ -50,53 +50,91 @@ impl<P: Projection> GeoPath<P> {
 
     /// Render a GeoJSON geometry to an SVG path string.
     pub fn render(&self, geometry: &GeoJsonGeometry) -> String {
+        let mut buf = String::new();
+        self.render_into(geometry, &mut buf);
+        buf
+    }
+
+    /// Render a GeoJSON geometry into `buf`.
+    pub fn render_into(&self, geometry: &GeoJsonGeometry, buf: &mut String) {
         match geometry {
-            GeoJsonGeometry::Point(lon, lat) => self.render_point(*lon, *lat),
-            GeoJsonGeometry::MultiPoint(points) => self.render_multi_point(points),
-            GeoJsonGeometry::LineString(coords) => self.render_line_string(coords),
-            GeoJsonGeometry::MultiLineString(lines) => self.render_multi_line_string(lines),
-            GeoJsonGeometry::Polygon(rings) => self.render_polygon(rings),
-            GeoJsonGeometry::MultiPolygon(polygons) => self.render_multi_polygon(polygons),
+            GeoJsonGeometry::Point(lon, lat) => self.render_point_into(*lon, *lat, buf),
+            GeoJsonGeometry::MultiPoint(points) => self.render_multi_point_into(points, buf),
+            GeoJsonGeometry::LineString(coords) => self.render_line_string_into(coords, buf),
+            GeoJsonGeometry::MultiLineString(lines) => {
+                self.render_multi_line_string_into(lines, buf);
+            }
+            GeoJsonGeometry::Polygon(rings) => self.render_polygon_into(rings, buf),
+            GeoJsonGeometry::MultiPolygon(polygons) => {
+                self.render_multi_polygon_into(polygons, buf);
+            }
         }
     }
 
     /// Render a point as a circle.
+    #[allow(dead_code)]
     pub(super) fn render_point(&self, lon: f64, lat: f64) -> String {
+        let mut buf = String::with_capacity(80);
+        self.render_point_into(lon, lat, &mut buf);
+        buf
+    }
+
+    /// Render a point as a circle into `buf`.
+    pub(super) fn render_point_into(&self, lon: f64, lat: f64, buf: &mut String) {
         if !self.projection.is_visible(lon, lat) {
-            return String::new();
+            return;
         }
         let (x, y) = self.projection.project(lon, lat);
         let r = self.config.point_radius;
         let d = self.config.digits;
 
-        // Create a circle path
-        let mut s = String::with_capacity(80);
         write!(
-            &mut s,
+            buf,
             "M{:.d$},{:.d$}m0,{:.d$}a{:.d$},{:.d$} 0 1,1 0,-{:.d$}a{:.d$},{:.d$} 0 1,1 0,{:.d$}z",
-            x, y, r, r, r, 2.0 * r, r, r, 2.0 * r, d = d
+            x,
+            y,
+            r,
+            r,
+            r,
+            2.0 * r,
+            r,
+            r,
+            2.0 * r,
+            d = d
         )
         .unwrap();
-        s
     }
 
     /// Render multiple points.
+    #[allow(dead_code)]
     pub(super) fn render_multi_point(&self, points: &[(f64, f64)]) -> String {
-        let mut path = String::with_capacity(points.len() * 80);
+        let mut buf = String::with_capacity(points.len() * 80);
+        self.render_multi_point_into(points, &mut buf);
+        buf
+    }
+
+    /// Render multiple points into `buf`.
+    pub(super) fn render_multi_point_into(&self, points: &[(f64, f64)], buf: &mut String) {
         for &(lon, lat) in points {
-            path.push_str(&self.render_point(lon, lat));
+            self.render_point_into(lon, lat, buf);
         }
-        path
     }
 
     /// Render a line string.
+    #[allow(dead_code)]
     pub(super) fn render_line_string(&self, coords: &[(f64, f64)]) -> String {
+        let mut buf = String::with_capacity(coords.len() * 24);
+        self.render_line_string_into(coords, &mut buf);
+        buf
+    }
+
+    /// Render a line string into `buf`.
+    pub(super) fn render_line_string_into(&self, coords: &[(f64, f64)], buf: &mut String) {
         if coords.is_empty() {
-            return String::new();
+            return;
         }
 
         let d = self.config.digits;
-        let mut path = String::with_capacity(coords.len() * 24);
         let mut prev_lon: Option<f64> = None;
         let mut need_move = true;
 
@@ -125,35 +163,50 @@ impl<P: Projection> GeoPath<P> {
             };
 
             if need_move || crosses_antimeridian {
-                write!(&mut path, "M{:.d$},{:.d$}", x, y, d = d).unwrap();
+                write!(buf, "M{:.d$},{:.d$}", x, y, d = d).unwrap();
                 need_move = false;
             } else {
-                write!(&mut path, "L{:.d$},{:.d$}", x, y, d = d).unwrap();
+                write!(buf, "L{:.d$},{:.d$}", x, y, d = d).unwrap();
             }
 
             prev_lon = Some(lon);
         }
-
-        path
     }
 
     /// Render multiple line strings.
+    #[allow(dead_code)]
     pub(super) fn render_multi_line_string(&self, lines: &[Vec<(f64, f64)>]) -> String {
-        let mut path = String::new();
+        let mut buf = String::new();
+        self.render_multi_line_string_into(lines, &mut buf);
+        buf
+    }
+
+    /// Render multiple line strings into `buf`.
+    pub(super) fn render_multi_line_string_into(
+        &self,
+        lines: &[Vec<(f64, f64)>],
+        buf: &mut String,
+    ) {
         for line in lines {
-            path.push_str(&self.render_line_string(line));
+            self.render_line_string_into(line, buf);
         }
-        path
     }
 
     /// Render a polygon.
+    #[allow(dead_code)]
     pub(super) fn render_polygon(&self, rings: &[Vec<(f64, f64)>]) -> String {
+        let mut buf = String::with_capacity(rings.iter().map(|r| r.len()).sum::<usize>() * 24);
+        self.render_polygon_into(rings, &mut buf);
+        buf
+    }
+
+    /// Render a polygon into `buf`.
+    pub(super) fn render_polygon_into(&self, rings: &[Vec<(f64, f64)>], buf: &mut String) {
         if rings.is_empty() {
-            return String::new();
+            return;
         }
 
         let d = self.config.digits;
-        let mut path = String::with_capacity(rings.iter().map(|r| r.len()).sum::<usize>() * 24);
 
         for ring in rings {
             if ring.is_empty() {
@@ -168,7 +221,7 @@ impl<P: Projection> GeoPath<P> {
                 if !self.projection.is_visible(lon, lat) {
                     prev_lon = None;
                     if ring_started {
-                        path.push('Z');
+                        buf.push('Z');
                         ring_started = false;
                     }
                     continue;
@@ -180,7 +233,7 @@ impl<P: Projection> GeoPath<P> {
                 if !x.is_finite() || !y.is_finite() {
                     prev_lon = None;
                     if ring_started {
-                        path.push('Z');
+                        buf.push('Z');
                         ring_started = false;
                     }
                     continue;
@@ -196,12 +249,12 @@ impl<P: Projection> GeoPath<P> {
                 if !ring_started || crosses_antimeridian {
                     // Close previous segment if we're breaking due to antimeridian
                     if ring_started && crosses_antimeridian {
-                        path.push('Z');
+                        buf.push('Z');
                     }
-                    write!(&mut path, "M{:.d$},{:.d$}", x, y, d = d).unwrap();
+                    write!(buf, "M{:.d$},{:.d$}", x, y, d = d).unwrap();
                     ring_started = true;
                 } else {
-                    write!(&mut path, "L{:.d$},{:.d$}", x, y, d = d).unwrap();
+                    write!(buf, "L{:.d$},{:.d$}", x, y, d = d).unwrap();
                 }
 
                 prev_lon = Some(lon);
@@ -209,20 +262,28 @@ impl<P: Projection> GeoPath<P> {
 
             // Close the ring
             if ring_started {
-                path.push('Z');
+                buf.push('Z');
             }
         }
-
-        path
     }
 
     /// Render multiple polygons.
+    #[allow(dead_code)]
     pub(super) fn render_multi_polygon(&self, polygons: &[Vec<Vec<(f64, f64)>>]) -> String {
-        let mut path = String::new();
+        let mut buf = String::new();
+        self.render_multi_polygon_into(polygons, &mut buf);
+        buf
+    }
+
+    /// Render multiple polygons into `buf`.
+    pub(super) fn render_multi_polygon_into(
+        &self,
+        polygons: &[Vec<Vec<(f64, f64)>>],
+        buf: &mut String,
+    ) {
         for polygon in polygons {
-            path.push_str(&self.render_polygon(polygon));
+            self.render_polygon_into(polygon, buf);
         }
-        path
     }
 
     /// Render coordinates to a vector of projected (x, y) points.
@@ -301,14 +362,9 @@ impl<P: Projection> GeoPath<P> {
             GeoJsonGeometry::Polygon(rings) => {
                 Cow::Owned(rings.iter().flatten().copied().collect())
             }
-            GeoJsonGeometry::MultiPolygon(polygons) => Cow::Owned(
-                polygons
-                    .iter()
-                    .flatten()
-                    .flatten()
-                    .copied()
-                    .collect(),
-            ),
+            GeoJsonGeometry::MultiPolygon(polygons) => {
+                Cow::Owned(polygons.iter().flatten().flatten().copied().collect())
+            }
         }
     }
 }

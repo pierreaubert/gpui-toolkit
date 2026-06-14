@@ -3,6 +3,7 @@
 use d3rs::shape::StrokeDashArray;
 use gpui::{App, Window};
 use std::rc::Rc;
+use std::sync::Arc;
 
 /// Position of the legend relative to the chart
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
@@ -24,8 +25,8 @@ pub enum LegendPosition {
 #[derive(Debug, Clone)]
 pub(super) struct LineSeries {
     /// Optional custom X values (if None, uses the primary X values)
-    pub(super) x: Option<Vec<f64>>,
-    pub(super) y: Vec<f64>,
+    pub(super) x: Option<Arc<[f64]>>,
+    pub(super) y: Arc<[f64]>,
     pub(super) label: Option<String>,
     pub(super) color: u32,
     pub(super) stroke_width: f32,

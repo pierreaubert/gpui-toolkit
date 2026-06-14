@@ -8,6 +8,8 @@ pub mod voronoi;
 pub use math_delaunay::Delaunay as MathDelaunay;
 pub use math_delaunay::Voronoi as MathVoronoi;
 
+use crate::util::scratch::with_path_scratch;
+
 /// Delaunay triangulation with backward-compatible API.
 ///
 /// Wraps [`math_delaunay::Delaunay`] with the original d3rs interface.
@@ -111,14 +113,20 @@ impl Delaunay {
 
     /// Render triangulation edges as SVG path data.
     pub fn render_to_path(&self) -> String {
+        with_path_scratch(|scratch| {
+            self.render_to_path_into(scratch);
+            scratch.clone()
+        })
+    }
+
+    /// Render triangulation edges into `buf`.
+    pub fn render_to_path_into(&self, buf: &mut String) {
         use std::fmt::Write;
-        let mut path = String::new();
         for (a, b) in self.edges() {
             if let (Some((x0, y0)), Some((x1, y1))) = (self.point(a), self.point(b)) {
-                write!(&mut path, "M{x0},{y0}L{x1},{y1}").unwrap();
+                write!(buf, "M{x0},{y0}L{x1},{y1}").unwrap();
             }
         }
-        path
     }
 
     /// Render the convex hull as SVG path data.
@@ -176,17 +184,23 @@ impl Delaunay {
 }
 
 pub(crate) fn polygon_to_path(points: &[(f64, f64)]) -> String {
+    with_path_scratch(|scratch| {
+        polygon_to_path_into(points, scratch);
+        scratch.clone()
+    })
+}
+
+pub(crate) fn polygon_to_path_into(points: &[(f64, f64)], buf: &mut String) {
     use std::fmt::Write;
     let Some((x0, y0)) = points.first().copied() else {
-        return String::new();
+        return;
     };
 
-    let mut path = String::with_capacity(points.len() * 24);
-    write!(&mut path, "M{x0},{y0}").unwrap();
+    buf.reserve(points.len() * 24);
+    write!(buf, "M{x0},{y0}").unwrap();
     for &(x, y) in &points[1..] {
-        write!(&mut path, "L{x},{y}").unwrap();
+        write!(buf, "L{x},{y}").unwrap();
     }
-    path
 }
 
 #[cfg(test)]
@@ -202,10 +216,28 @@ mod tests {
     }
 
     #[test]
+    fn test_render_to_path_into_matches() {
+        let delaunay = Delaunay::new(&[(0.0, 0.0), (1.0, 0.0), (0.5, 1.0)]);
+        let expected = delaunay.render_to_path();
+        let mut buf = String::new();
+        delaunay.render_to_path_into(&mut buf);
+        assert_eq!(buf, expected);
+    }
+
+    #[test]
     fn test_polygon_to_path() {
         let points = &[(0.0, 0.0), (1.0, 0.0), (0.5, 1.0)];
         let path = super::polygon_to_path(points);
         assert!(path.starts_with('M'));
         assert!(!path.contains("format"));
+    }
+
+    #[test]
+    fn test_polygon_to_path_into_matches() {
+        let points = &[(0.0, 0.0), (1.0, 0.0), (0.5, 1.0)];
+        let expected = super::polygon_to_path(points);
+        let mut buf = String::new();
+        super::polygon_to_path_into(points, &mut buf);
+        assert_eq!(buf, expected);
     }
 }

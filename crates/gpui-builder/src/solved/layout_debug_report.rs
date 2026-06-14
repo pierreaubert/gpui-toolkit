@@ -11,20 +11,23 @@ use std::fmt;
 /// The report is intended for examples, debug panes, logs, and tests. It keeps
 /// the tree output stable and exposes warnings as structured values so callers
 /// can surface them however they like.
+///
+/// Warning identifiers are borrowed from the underlying [`SolvedNode`] tree;
+/// the report must not outlive the tree it describes.
 #[derive(Debug, Clone, PartialEq)]
-pub struct LayoutDebugReport {
+pub struct LayoutDebugReport<'a> {
     pub(super) tree: String,
-    pub(super) warnings: Vec<LayoutDebugWarning>,
+    pub(super) warnings: Vec<LayoutDebugWarning<'a>>,
 }
 
-impl LayoutDebugReport {
+impl<'a> LayoutDebugReport<'a> {
     /// Returns the stable, line-oriented solved tree.
     pub fn tree(&self) -> &str {
         &self.tree
     }
 
     /// Returns warnings found while inspecting the solved tree.
-    pub fn warnings(&self) -> &[LayoutDebugWarning] {
+    pub fn warnings(&self) -> &[LayoutDebugWarning<'a>] {
         &self.warnings
     }
 
@@ -39,7 +42,7 @@ impl LayoutDebugReport {
     }
 }
 
-impl fmt::Display for LayoutDebugReport {
+impl fmt::Display for LayoutDebugReport<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, "{}", self.tree)?;
         if self.warnings.is_empty() {
@@ -55,9 +58,9 @@ impl fmt::Display for LayoutDebugReport {
 }
 
 pub(super) fn build_debug_report<'a>(
-    root: &SolvedNode<'a>,
-    source: Option<&LayoutNode<'a>>,
-) -> LayoutDebugReport {
+    root: &'a SolvedNode<'a>,
+    source: Option<&'a LayoutNode<'a>>,
+) -> LayoutDebugReport<'a> {
     let mut lines = Vec::new();
     let mut warnings = Vec::new();
     append_debug_node(

@@ -193,7 +193,12 @@ fn style_dictionary_tokens_are_cached_and_borrowable() {
     let borrowed = ds.style_dictionary_tokens_ref();
 
     assert_eq!(owned.len(), borrowed.len());
-    assert!(owned.iter().zip(borrowed).all(|(a, b)| a.name() == b.name()));
+    assert!(
+        owned
+            .iter()
+            .zip(borrowed)
+            .all(|(a, b)| a.name() == b.name())
+    );
 
     // A second call should return the same cached slice.
     assert_eq!(ds.style_dictionary_tokens_ref().as_ptr(), borrowed.as_ptr());
@@ -203,7 +208,10 @@ fn style_dictionary_tokens_are_cached_and_borrowable() {
 fn design_token_name_is_precomputed() {
     let ds = DesignSystem::neutral();
     let tokens = ds.style_dictionary_tokens();
-    let token = tokens.iter().find(|t| t.path == vec!["spacing", "grid_unit"]).unwrap();
+    let token = tokens
+        .iter()
+        .find(|t| t.path == vec!["spacing", "grid_unit"])
+        .unwrap();
 
     assert_eq!(token.name(), "spacing.grid_unit");
     assert_eq!(token.name(), token.path.join("."));

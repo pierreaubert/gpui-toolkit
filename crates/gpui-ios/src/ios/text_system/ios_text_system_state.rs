@@ -38,9 +38,15 @@ use gpui::{
 };
 use pathfinder_geometry::transform2d::Transform2F;
 use smallvec::SmallVec;
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::{borrow::Cow, char, sync::Arc};
+
+thread_local! {
+    /// Reusable bitmap scratch buffer for glyph rasterization.
+    static GLYPH_BITMAP_SCRATCH: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
+}
 
 #[derive(Clone, Debug)]
 pub(super) struct LayoutCacheKey {
@@ -104,7 +110,7 @@ impl IosTextSystemState {
         name: &str,
         features: &FontFeatures,
         fallbacks: Option<&FontFallbacks>,
-) -> Result<Arc<[FontId]>> {
+    ) -> Result<Arc<[FontId]>> {
         let mut font_ids: SmallVec<[FontId; 4]> = SmallVec::new();
         // Map virtual font names to iOS equivalents.
         // gpui uses ".SystemUIFont", gpui-ui-kit theme uses ".SystemUI" — both
@@ -181,7 +187,10 @@ impl IosTextSystemState {
 
     pub(super) fn id_for_native_font(&mut self, requested_font: CTFont) -> FontId {
         let postscript_name = requested_font.postscript_name();
-        if let Some(font_id) = self.font_ids_by_postscript_name.get(postscript_name.as_str()) {
+        if let Some(font_id) = self
+            .font_ids_by_postscript_name
+            .get(postscript_name.as_str())
+        {
             *font_id
         } else {
             let font_id = FontId(self.fonts.len());
@@ -233,67 +242,76 @@ impl IosTextSystemState {
             bitmap_size.height += DevicePixels(1);
         }
         let bitmap_size = bitmap_size;
-        let mut bytes;
-        let cx;
-        if params.is_emoji {
-            bytes = vec![0; bitmap_size.width.0 as usize * 4 * bitmap_size.height.0 as usize];
-            cx = CGContext::create_bitmap_context(
-                Some(bytes.as_mut_ptr() as *mut _),
-                bitmap_size.width.0 as usize,
-                bitmap_size.height.0 as usize,
-                8,
-                bitmap_size.width.0 as usize * 4,
-                &CGColorSpace::create_device_rgb(),
-                kCGImageAlphaPremultipliedLast,
-            );
+        let needed = if params.is_emoji {
+            bitmap_size.width.0 as usize * 4 * bitmap_size.height.0 as usize
         } else {
-            bytes = vec![0; bitmap_size.width.0 as usize * bitmap_size.height.0 as usize];
-            cx = CGContext::create_bitmap_context(
-                Some(bytes.as_mut_ptr() as *mut _),
+            bitmap_size.width.0 as usize * bitmap_size.height.0 as usize
+        };
+        let mut bitmap = vec![0u8; needed];
+
+        GLYPH_BITMAP_SCRATCH.with(|scratch| {
+            let mut scratch = scratch.borrow_mut();
+            scratch.resize(needed, 0);
+            let (color_space, alpha_info, bytes_per_row) = if params.is_emoji {
+                (
+                    CGColorSpace::create_device_rgb(),
+                    kCGImageAlphaPremultipliedLast,
+                    bitmap_size.width.0 as usize * 4,
+                )
+            } else {
+                (
+                    CGColorSpace::create_device_gray(),
+                    kCGImageAlphaOnly,
+                    bitmap_size.width.0 as usize,
+                )
+            };
+            let cx = CGContext::create_bitmap_context(
+                Some(scratch.as_mut_ptr() as *mut _),
                 bitmap_size.width.0 as usize,
                 bitmap_size.height.0 as usize,
                 8,
-                bitmap_size.width.0 as usize,
-                &CGColorSpace::create_device_gray(),
-                kCGImageAlphaOnly,
+                bytes_per_row,
+                &color_space,
+                alpha_info,
             );
-        }
-        cx.translate(
-            -glyph_bounds.origin.x.0 as CGFloat,
-            (glyph_bounds.origin.y.0 + glyph_bounds.size.height.0) as CGFloat,
-        );
-        cx.scale(
-            params.scale_factor as CGFloat,
-            params.scale_factor as CGFloat,
-        );
-        let subpixel_shift = params
-            .subpixel_variant
-            .map(|v| v as f32 / SUBPIXEL_VARIANTS_X as f32);
-        cx.set_text_drawing_mode(CGTextDrawingMode::CGTextFill);
-        cx.set_gray_fill_color(0.0, 1.0);
-        cx.set_allows_antialiasing(true);
-        cx.set_should_antialias(true);
-        cx.set_allows_font_subpixel_positioning(true);
-        cx.set_should_subpixel_position_fonts(true);
-        cx.set_allows_font_subpixel_quantization(false);
-        cx.set_should_subpixel_quantize_fonts(false);
-        self.fonts[params.font_id.0]
-            .native_font()
-            .clone_with_font_size(f32::from(params.font_size) as CGFloat)
-            .draw_glyphs(
-                &[params.glyph_id.0 as CGGlyph],
-                &[CGPoint::new(
-                    (subpixel_shift.x / params.scale_factor) as CGFloat,
-                    (subpixel_shift.y / params.scale_factor) as CGFloat,
-                )],
-                cx,
+            cx.translate(
+                -glyph_bounds.origin.x.0 as CGFloat,
+                (glyph_bounds.origin.y.0 + glyph_bounds.size.height.0) as CGFloat,
             );
-        if params.is_emoji {
-            for pixel in bytes.chunks_exact_mut(4) {
-                gpui::swap_rgba_pa_to_bgra(pixel);
+            cx.scale(
+                params.scale_factor as CGFloat,
+                params.scale_factor as CGFloat,
+            );
+            let subpixel_shift = params
+                .subpixel_variant
+                .map(|v| v as f32 / SUBPIXEL_VARIANTS_X as f32);
+            cx.set_text_drawing_mode(CGTextDrawingMode::CGTextFill);
+            cx.set_gray_fill_color(0.0, 1.0);
+            cx.set_allows_antialiasing(true);
+            cx.set_should_antialias(true);
+            cx.set_allows_font_subpixel_positioning(true);
+            cx.set_should_subpixel_position_fonts(true);
+            cx.set_allows_font_subpixel_quantization(false);
+            cx.set_should_subpixel_quantize_fonts(false);
+            self.fonts[params.font_id.0]
+                .native_font()
+                .clone_with_font_size(f32::from(params.font_size) as CGFloat)
+                .draw_glyphs(
+                    &[params.glyph_id.0 as CGGlyph],
+                    &[CGPoint::new(
+                        (subpixel_shift.x / params.scale_factor) as CGFloat,
+                        (subpixel_shift.y / params.scale_factor) as CGFloat,
+                    )],
+                    cx,
+                );
+            if params.is_emoji {
+                for pixel in scratch.chunks_exact_mut(4) {
+                    gpui::swap_rgba_pa_to_bgra(pixel);
+                }
             }
-        }
-        Ok((bitmap_size, bytes))
+            bitmap.copy_from_slice(&scratch[..needed]);
+        });
+        Ok((bitmap_size, bitmap))
     }
 
     pub(super) fn layout_line(
@@ -454,7 +472,10 @@ mod tests {
         let font_ids = state
             .load_family("Helvetica", &Default::default(), None)
             .expect("Helvetica should be available on Apple targets");
-        assert!(!font_ids.is_empty(), "load_family should return at least one font");
+        assert!(
+            !font_ids.is_empty(),
+            "load_family should return at least one font"
+        );
 
         let run = FontRun {
             len: 5,
@@ -499,5 +520,48 @@ mod tests {
             .clone_with_font_size(16.0);
         assert_eq!(state.id_for_native_font(ct_font), font_id);
         assert_eq!(state.font_ids_by_postscript_name.len(), state.fonts.len());
+    }
+
+    fn glyph_bitmap_scratch_capacity() -> usize {
+        GLYPH_BITMAP_SCRATCH.with(|s| s.borrow().capacity())
+    }
+
+    #[test]
+    fn rasterize_glyph_reuses_scratch() {
+        let mut state = test_state();
+        let font_id = state
+            .load_family(".AppleSystemUIFont", &Default::default(), None)
+            .ok()
+            .and_then(|ids| ids.first().copied())
+            .expect("system font should be available");
+        let glyph_id = state
+            .glyph_for_char(font_id, 'A')
+            .expect("glyph should exist");
+        let params = RenderGlyphParams {
+            font_id,
+            glyph_id,
+            font_size: px(24.0),
+            subpixel_variant: point(0, 0),
+            scale_factor: 1.0,
+            is_emoji: false,
+            subpixel_rendering: false,
+        };
+        let bounds = state.raster_bounds(&params).expect("bounds");
+        let (size1, _) = state.rasterize_glyph(&params, bounds).expect("rasterize");
+        let cap_after_warmup = glyph_bitmap_scratch_capacity();
+        assert!(
+            cap_after_warmup >= size1.width.0 as usize * size1.height.0 as usize,
+            "scratch should be large enough for the bitmap"
+        );
+
+        let (size2, _) = state
+            .rasterize_glyph(&params, bounds)
+            .expect("rasterize again");
+        let cap_after_reuse = glyph_bitmap_scratch_capacity();
+        assert_eq!(size1, size2);
+        assert_eq!(
+            cap_after_warmup, cap_after_reuse,
+            "scratch buffer capacity should not grow on repeated rasterization"
+        );
     }
 }

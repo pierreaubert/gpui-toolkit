@@ -53,7 +53,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
         quadtree.visit(|nx0, ny0, nx1, ny1, node| {
             bounds_list.push((nx0, ny0, nx1, ny1));
             match node {
-                QuadNode::Internal(_) => false, // Continue visiting children
+                QuadNode::Internal(_, _) => false, // Continue visiting children
                 QuadNode::Leaf(_) => true,      // Stop at leaves
             }
         });

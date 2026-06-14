@@ -200,8 +200,10 @@ impl ComponentLab {
             .iter()
             .filter_map(|story_id| {
                 documents.get(story_id).map(|doc| {
-                    let label =
-                        SharedString::new(format!("{} / {}", doc.story.crate_name, doc.story.title));
+                    let label = SharedString::new(format!(
+                        "{} / {}",
+                        doc.story.crate_name, doc.story.title
+                    ));
                     (story_id.clone(), label)
                 })
             })
@@ -209,8 +211,9 @@ impl ComponentLab {
     }
 
     fn rebuild_derived_state(&mut self) {
-        self.cached_matrix =
-            ResponsivePreviewMatrix::for_story(&self.documents.get(&self.selected_story_id).unwrap().story);
+        self.cached_matrix = ResponsivePreviewMatrix::for_story(
+            &self.documents.get(&self.selected_story_id).unwrap().story,
+        );
         self.sidebar_labels = Self::build_sidebar_labels(&self.documents, &self.story_ids);
     }
 
@@ -296,8 +299,7 @@ impl ComponentLab {
             .find(|viewport| viewport.id == self.selected_viewport_id)
             .or_else(|| self.selected_story().viewports.first())
             .unwrap_or_else(|| {
-                static FALLBACK: std::sync::OnceLock<ViewportPreset> =
-                    std::sync::OnceLock::new();
+                static FALLBACK: std::sync::OnceLock<ViewportPreset> = std::sync::OnceLock::new();
                 FALLBACK.get_or_init(|| ViewportPreset::new("desktop", "Desktop", 1280.0, 800.0))
             })
     }
@@ -866,7 +868,11 @@ impl ComponentLab {
                             lab_id(&["prop-choice", &story.id, &prop.name, option]),
                             option_label.clone(),
                         )
-                        .variant(if option == value { ButtonVariant::Primary } else { ButtonVariant::Ghost })
+                        .variant(if option == value {
+                            ButtonVariant::Primary
+                        } else {
+                            ButtonVariant::Ghost
+                        })
                         .size(ButtonSize::Xs)
                         .on_click(move |_window, cx| {
                             entity.update(cx, |this, _| {

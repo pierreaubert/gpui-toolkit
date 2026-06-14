@@ -12,15 +12,18 @@ use crate::util::format_number;
 use std::fmt;
 
 /// A single warning emitted by a [`LayoutDebugReport`].
+///
+/// The node identifier strings are borrowed from the source [`SolvedNode`]
+/// tree, so building a debug report never allocates ids.
 #[derive(Debug, Clone, PartialEq)]
-pub struct LayoutDebugWarning {
+pub struct LayoutDebugWarning<'a> {
     /// Node where the suspicious outcome was detected.
-    pub node_id: String,
+    pub node_id: &'a str,
     /// Warning category and related measurements.
-    pub kind: LayoutDebugWarningKind,
+    pub kind: LayoutDebugWarningKind<'a>,
 }
 
-impl fmt::Display for LayoutDebugWarning {
+impl fmt::Display for LayoutDebugWarning<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.kind {
             LayoutDebugWarningKind::InvalidSize { width, height } => write!(
@@ -65,10 +68,10 @@ impl fmt::Display for LayoutDebugWarning {
 
 pub(super) fn append_debug_node<'a>(
     node: &SolvedNode<'a>,
-    source: Option<&LayoutNode<'a>>,
+    source: Option<&'a LayoutNode<'a>>,
     depth: usize,
     lines: &mut Vec<String>,
-    warnings: &mut Vec<LayoutDebugWarning>,
+    warnings: &mut Vec<LayoutDebugWarning<'a>>,
 ) {
     let indent = "  ".repeat(depth);
     let mut line = format!(
@@ -117,7 +120,7 @@ pub(super) fn append_debug_node<'a>(
 
 pub(super) fn collect_node_warnings<'a>(
     node: &SolvedNode<'a>,
-    warnings: &mut Vec<LayoutDebugWarning>,
+    warnings: &mut Vec<LayoutDebugWarning<'a>>,
 ) {
     if !node.width.is_finite()
         || !node.height.is_finite()
@@ -125,7 +128,7 @@ pub(super) fn collect_node_warnings<'a>(
         || node.height < -WARNING_EPSILON
     {
         warnings.push(LayoutDebugWarning {
-            node_id: node.id.to_string(),
+            node_id: node.id,
             kind: LayoutDebugWarningKind::InvalidSize {
                 width: node.width,
                 height: node.height,
@@ -135,7 +138,7 @@ pub(super) fn collect_node_warnings<'a>(
 
     if !node.visible && node.collapse_label.is_none() {
         warnings.push(LayoutDebugWarning {
-            node_id: node.id.to_string(),
+            node_id: node.id,
             kind: LayoutDebugWarningKind::InvisibleWithoutCollapseLabel,
         });
     }
@@ -157,7 +160,7 @@ pub(super) fn collect_node_warnings<'a>(
 
     if available.is_finite() && used.is_finite() && used > available + WARNING_EPSILON {
         warnings.push(LayoutDebugWarning {
-            node_id: node.id.to_string(),
+            node_id: node.id,
             kind: LayoutDebugWarningKind::MainAxisOverflow {
                 axis,
                 used,
@@ -176,10 +179,10 @@ pub(super) fn collect_node_warnings<'a>(
         let child_cross = child.size_along(cross);
         if child_cross.is_finite() && child_cross > available_cross + WARNING_EPSILON {
             warnings.push(LayoutDebugWarning {
-                node_id: node.id.to_string(),
+                node_id: node.id,
                 kind: LayoutDebugWarningKind::CrossAxisOverflow {
                     axis: cross,
-                    child_id: child.id.to_string(),
+                    child_id: child.id,
                     used: child_cross,
                     available: available_cross,
                 },

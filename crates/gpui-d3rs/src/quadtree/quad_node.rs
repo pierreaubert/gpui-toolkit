@@ -2,6 +2,37 @@
 
 use super::quad_point::QuadPoint;
 
+/// Aggregate mass and center-of-mass for a quadtree node.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Aggregate {
+    /// Total mass (number of points, weighted by `compute_aggregates` input)
+    pub mass: f64,
+    /// X coordinate of the center of mass
+    pub x: f64,
+    /// Y coordinate of the center of mass
+    pub y: f64,
+}
+
+impl Aggregate {
+    /// Create a new aggregate.
+    pub fn new(mass: f64, x: f64, y: f64) -> Self {
+        Self { mass, x, y }
+    }
+
+    /// Combine two aggregates into one.
+    pub fn merge(self, other: Self) -> Self {
+        let mass = self.mass + other.mass;
+        if mass == 0.0 {
+            return Self::new(0.0, 0.0, 0.0);
+        }
+        Self::new(
+            mass,
+            (self.mass * self.x + other.mass * other.x) / mass,
+            (self.mass * self.y + other.mass * other.y) / mass,
+        )
+    }
+}
+
 /// A node in the quadtree - either a leaf with points or an internal node with children
 #[derive(Debug, Clone)]
 pub enum QuadNode<T> {
@@ -10,12 +41,54 @@ pub enum QuadNode<T> {
     /// Internal node with four children: \[NE, NW, SE, SW\]
     /// Children are stored as: `[0]`=NE (x>=mid, y<mid), `[1]`=NW (x<mid, y<mid),
     ///                        `[2]`=SE (x>=mid, y>=mid), `[3]`=SW (x<mid, y>=mid)
-    Internal(Box<[Option<QuadNode<T>>; 4]>),
+    /// The optional aggregate stores the total mass and center of mass of the subtree.
+    Internal(Box<[Option<QuadNode<T>>; 4]>, Option<Aggregate>),
 }
 
 impl<T> QuadNode<T> {
     /// Create a new internal node with no children
     pub fn new_internal() -> Self {
-        QuadNode::Internal(Box::new([None, None, None, None]))
+        QuadNode::Internal(Box::new([None, None, None, None]), None)
+    }
+
+    /// Return the aggregate for this node.
+    ///
+    /// For internal nodes this returns the pre-computed aggregate if available.
+    /// For leaf nodes the aggregate is derived from the stored point(s), each
+    /// assumed to have a mass of one.
+    pub fn aggregate(&self) -> Option<Aggregate> {
+        match self {
+            QuadNode::Leaf(point) => {
+                let mut mass = 0.0;
+                let mut x = 0.0;
+                let mut y = 0.0;
+                let mut current = Some(point);
+                while let Some(p) = current {
+                    mass += 1.0;
+                    x += p.x;
+                    y += p.y;
+                    current = p.next.as_deref();
+                }
+                if mass == 0.0 {
+                    None
+                } else {
+                    Some(Aggregate::new(mass, x / mass, y / mass))
+                }
+            }
+            QuadNode::Internal(_, aggregate) => *aggregate,
+        }
+    }
+
+    /// Set the aggregate for an internal node.
+    ///
+    /// # Panics
+    /// Panics if called on a leaf node.
+    pub fn set_aggregate(&mut self, aggregate: Aggregate) {
+        match self {
+            QuadNode::Internal(_, agg) => {
+                *agg = Some(aggregate);
+            }
+            QuadNode::Leaf(_) => panic!("cannot set aggregate on a leaf node"),
+        }
     }
 }

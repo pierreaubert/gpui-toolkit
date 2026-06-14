@@ -75,8 +75,11 @@ pub use inspector::{
     inspect_layout, inspect_solved,
 };
 pub use snapshots::{LayoutSnapshot, LayoutSnapshotMatrix, LayoutViewport, solve_snapshot_matrix};
-pub use solved::{LayoutDebugReport, LayoutDebugWarning, LayoutDebugWarningKind, SolvedNode};
-pub use solver::solve;
+pub use solved::{
+    LayoutDebugReport, LayoutDebugWarning, LayoutDebugWarningKind, NodeIndex, SolvedNode,
+    SolvedNodeData, SolvedNodeRef, SolvedTree,
+};
+pub use solver::{solve, solve_tree};
 pub use state::{
     LayoutAction, LayoutCollapsedState, LayoutPreferenceSnapshot, LayoutRatioOverride, LayoutState,
 };

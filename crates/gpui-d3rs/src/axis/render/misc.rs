@@ -16,10 +16,7 @@ thread_local! {
 /// memoised by `(value, formatter)` so repeated renders of the same axis do
 /// not re-format unchanged ticks.
 pub(super) fn format_tick(value: f64, formatter: &Option<fn(f64) -> String>) -> SharedString {
-    let key = (
-        value.to_bits(),
-        formatter.map(|f| f as usize).unwrap_or(0),
-    );
+    let key = (value.to_bits(), formatter.map(|f| f as usize).unwrap_or(0));
     TICK_LABEL_CACHE.with(|cache| {
         cache
             .borrow_mut()

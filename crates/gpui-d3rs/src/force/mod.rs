@@ -5,6 +5,8 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use crate::quadtree::QuadTree;
+
 /// A node in the simulation
 #[derive(Debug, Clone)]
 pub struct SimulationNode {
@@ -151,11 +153,24 @@ impl Force for ForceCenter {
 /// Many-Body Force (Charge)
 pub struct ForceManyBody {
     pub strength: f64,
+    /// Barnes-Hut opening angle. Smaller values are more accurate.
+    /// `f64::INFINITY` disables Barnes-Hut and uses the exact brute-force path.
+    pub theta: f64,
+    /// Minimum distance at which the force is evaluated; closer points are
+    /// treated as if they were this far apart.
+    pub distance_min: f64,
+    /// Maximum distance at which the force is evaluated; farther points are ignored.
+    pub distance_max: f64,
 }
 
 impl Default for ForceManyBody {
     fn default() -> Self {
-        Self { strength: -30.0 }
+        Self {
+            strength: -30.0,
+            theta: f64::INFINITY,
+            distance_min: 0.0,
+            distance_max: f64::INFINITY,
+        }
     }
 }
 
@@ -163,45 +178,189 @@ impl ForceManyBody {
     pub fn new() -> Self {
         Self::default()
     }
+
+    /// Set the Barnes-Hut opening angle.
+    pub fn theta(mut self, theta: f64) -> Self {
+        self.theta = theta;
+        self
+    }
+
+    /// Set the minimum interaction distance.
+    pub fn distance_min(mut self, distance_min: f64) -> Self {
+        self.distance_min = distance_min;
+        self
+    }
+
+    /// Set the maximum interaction distance.
+    pub fn distance_max(mut self, distance_max: f64) -> Self {
+        self.distance_max = distance_max;
+        self
+    }
 }
 
 impl Force for ForceManyBody {
     fn initialize(&mut self, _nodes: &[Rc<RefCell<SimulationNode>>]) {}
 
     fn force(&mut self, alpha: f64, nodes: &[Rc<RefCell<SimulationNode>>]) {
-        // Brute force O(n^2) for simplicity in this MVP
-        // Real D3 uses Barnes-Hut (Quadtree)
-
         let n = nodes.len();
-        for i in 0..n {
-            for j in (i + 1)..n {
-                let mut node_i = nodes[i].borrow_mut();
-                let mut node_j = nodes[j].borrow_mut();
 
-                let dx = node_j.x - node_i.x;
-                let dy = node_j.y - node_i.y;
-                let mut l2 = dx * dx + dy * dy;
+        // The infinite opening angle keeps the original exact brute-force behavior.
+        if self.theta.is_infinite() {
+            for i in 0..n {
+                for j in (i + 1)..n {
+                    let mut node_i = nodes[i].borrow_mut();
+                    let mut node_j = nodes[j].borrow_mut();
 
-                if l2 < 1e-12 {
-                    l2 = 1e-12; // Small epsilon to avoid division by zero
+                    let dx = node_j.x - node_i.x;
+                    let dy = node_j.y - node_i.y;
+
+                    let mut fx = 0.0;
+                    let mut fy = 0.0;
+                    Self::apply_force_kernel(
+                        alpha,
+                        self.strength,
+                        self.distance_min,
+                        self.distance_max,
+                        dx,
+                        dy,
+                        1.0,
+                        &mut fx,
+                        &mut fy,
+                    );
+
+                    node_i.vx += fx;
+                    node_i.vy += fy;
+
+                    node_j.vx -= fx;
+                    node_j.vy -= fy;
                 }
-
-                let l = l2.sqrt();
-                // D3.js many-body: F = strength * alpha / l²
-                // Direction (dx/l, dy/l), so components = strength * alpha * dx / (l * l²)
-                // Simplify: strength * alpha * dx / l³... but D3 actually uses:
-                // w = strength * alpha / l, then vx += dx/l * w = dx * strength * alpha / l²
-                let w = self.strength * alpha / l;
-                let force_x = dx / l * w;
-                let force_y = dy / l * w;
-
-                node_i.vx += force_x;
-                node_i.vy += force_y;
-
-                node_j.vx -= force_x;
-                node_j.vy -= force_y;
             }
+            return;
         }
+
+        // Barnes-Hut approximation.
+        let theta2 = self.theta * self.theta;
+
+        let positions: Vec<(usize, f64, f64)> = nodes
+            .iter()
+            .enumerate()
+            .map(|(i, node)| {
+                let node = node.borrow();
+                (i, node.x, node.y)
+            })
+            .collect();
+
+        let mut tree = QuadTree::from_data(&positions, |p| p.1, |p| p.2);
+        tree.compute_aggregates();
+
+        for i in 0..n {
+            let (target_x, target_y) = {
+                let node = nodes[i].borrow();
+                (node.x, node.y)
+            };
+
+            let mut fx = 0.0;
+            let mut fy = 0.0;
+
+            tree.visit_aggregate(|x0, y0, x1, y1, node, aggregate| {
+                match node {
+                    crate::quadtree::QuadNode::Leaf(point) => {
+                        let mut current = Some(point);
+                        while let Some(p) = current {
+                            if p.data.0 != i {
+                                Self::apply_force_kernel(
+                                    alpha,
+                                    self.strength,
+                                    self.distance_min,
+                                    self.distance_max,
+                                    p.x - target_x,
+                                    p.y - target_y,
+                                    1.0,
+                                    &mut fx,
+                                    &mut fy,
+                                );
+                            }
+                            current = p.next.as_deref();
+                        }
+                        false
+                    }
+                    crate::quadtree::QuadNode::Internal(_, _) => {
+                        let Some(agg) = aggregate else {
+                            return true;
+                        };
+                        if agg.mass == 0.0 {
+                            return false;
+                        }
+
+                        // Never approximate a node that contains the target point,
+                        // because the aggregate includes the target itself.
+                        if target_x >= x0 && target_x <= x1 && target_y >= y0 && target_y <= y1 {
+                            return true;
+                        }
+
+                        let width = x1 - x0;
+                        let width2 = width * width;
+                        let dx = agg.x - target_x;
+                        let dy = agg.y - target_y;
+                        let dist2 = dx * dx + dy * dy;
+
+                        // Approximate this internal node as a single body when it appears
+                        // small relative to its distance from the target.
+                        if width2 < theta2 * dist2 {
+                            Self::apply_force_kernel(
+                                alpha,
+                                self.strength,
+                                self.distance_min,
+                                self.distance_max,
+                                dx,
+                                dy,
+                                agg.mass,
+                                &mut fx,
+                                &mut fy,
+                            );
+                            false
+                        } else {
+                            true
+                        }
+                    }
+                }
+            });
+
+            let mut node = nodes[i].borrow_mut();
+            node.vx += fx;
+            node.vy += fy;
+        }
+    }
+}
+
+impl ForceManyBody {
+    fn apply_force_kernel(
+        alpha: f64,
+        strength: f64,
+        distance_min: f64,
+        distance_max: f64,
+        dx: f64,
+        dy: f64,
+        mass: f64,
+        fx: &mut f64,
+        fy: &mut f64,
+    ) {
+        let mut l2 = dx * dx + dy * dy;
+        let l = l2.sqrt();
+
+        if l < distance_min {
+            l2 = distance_min * distance_min;
+        }
+        if l > distance_max {
+            return;
+        }
+        if l2 < 1e-12 {
+            l2 = 1e-12; // Small epsilon to avoid division by zero
+        }
+
+        let k = mass * strength * alpha / l2;
+        *fx += dx * k;
+        *fy += dy * k;
     }
 }
 
@@ -493,5 +652,98 @@ mod tests {
             (final_dist - 30.0).abs() < (initial_dist - 30.0).abs(),
             "nodes should converge toward target distance: initial={initial_dist}, final={final_dist}"
         );
+    }
+
+    fn deterministic_nodes(n: usize) -> Vec<Rc<RefCell<SimulationNode>>> {
+        let mut nodes = Vec::with_capacity(n);
+        for i in 0..n {
+            let x = (i as f64 * 0.618033988749895).fract() * 100.0;
+            let y = (i as f64 * 0.381966011250105).fract() * 100.0;
+            nodes.push(SimulationNode::new(i, x, y));
+        }
+        nodes
+    }
+
+    fn clone_nodes(nodes: &[Rc<RefCell<SimulationNode>>]) -> Vec<Rc<RefCell<SimulationNode>>> {
+        nodes
+            .iter()
+            .map(|n| {
+                let n = n.borrow();
+                SimulationNode::new(n.index, n.x, n.y)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn barnes_hut_matches_brute_force() {
+        let nodes = deterministic_nodes(200);
+        let brute_nodes = clone_nodes(&nodes);
+        let bh_nodes = clone_nodes(&nodes);
+
+        ForceManyBody::new().force(1.0, &brute_nodes);
+        ForceManyBody::new().theta(0.9).force(1.0, &bh_nodes);
+
+        // Barnes-Hut is an approximation; allow a generous combined tolerance.
+        let abs_tolerance = 10.0;
+        let rel_tolerance = 2.0;
+        for (brute, bh) in brute_nodes.iter().zip(bh_nodes.iter()) {
+            let b = brute.borrow();
+            let h = bh.borrow();
+            let scale = (b.vx.abs() + b.vy.abs()).max(1.0);
+            let tol = abs_tolerance + rel_tolerance * scale;
+            assert!(
+                (b.vx - h.vx).abs() < tol,
+                "vx mismatch: brute={} bh={}",
+                b.vx,
+                h.vx
+            );
+            assert!(
+                (b.vy - h.vy).abs() < tol,
+                "vy mismatch: brute={} bh={}",
+                b.vy,
+                h.vy
+            );
+        }
+    }
+
+    #[test]
+    fn theta_zero_is_exact() {
+        let nodes = deterministic_nodes(50);
+        let brute_nodes = clone_nodes(&nodes);
+        let bh_nodes = clone_nodes(&nodes);
+
+        ForceManyBody::new().force(1.0, &brute_nodes);
+        ForceManyBody::new().theta(0.0).force(1.0, &bh_nodes);
+
+        for (brute, bh) in brute_nodes.iter().zip(bh_nodes.iter()) {
+            let b = brute.borrow();
+            let h = bh.borrow();
+            assert!(
+                (b.vx - h.vx).abs() < 1e-12,
+                "vx mismatch: brute={} bh={}",
+                b.vx,
+                h.vx
+            );
+            assert!(
+                (b.vy - h.vy).abs() < 1e-12,
+                "vy mismatch: brute={} bh={}",
+                b.vy,
+                h.vy
+            );
+        }
+    }
+
+    #[test]
+    fn large_n_finite() {
+        let nodes = deterministic_nodes(5_000);
+        let bh_nodes = clone_nodes(&nodes);
+
+        ForceManyBody::new().theta(0.9).force(1.0, &bh_nodes);
+
+        for node in &bh_nodes {
+            let n = node.borrow();
+            assert!(n.vx.is_finite(), "vx should be finite");
+            assert!(n.vy.is_finite(), "vy should be finite");
+        }
     }
 }

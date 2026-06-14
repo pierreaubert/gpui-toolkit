@@ -19,6 +19,9 @@ pub(super) fn to_line_break_data(core: &PreparedCore) -> PreparedLineBreakData<'
         discretionary_hyphen_width: core.discretionary_hyphen_width,
         tab_stop_advance: core.tab_stop_advance,
         chunks: Cow::Borrowed(&core.chunks),
+        start_segment: 0,
+        end_segment: core.widths.len(),
+        kp_item_cache: Some(&core.kp_item_cache),
     }
 }
 

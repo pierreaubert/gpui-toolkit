@@ -261,7 +261,10 @@ fn lab_ids_are_stable_and_cached() {
     assert_eq!(first, second);
 
     assert_eq!(id_fragment("ui-kit.button"), "ui-kit-button");
-    assert!(matches!(id_fragment("alphanumeric"), std::borrow::Cow::Borrowed(_)));
+    assert!(matches!(
+        id_fragment("alphanumeric"),
+        std::borrow::Cow::Borrowed(_)
+    ));
 }
 
 #[test]

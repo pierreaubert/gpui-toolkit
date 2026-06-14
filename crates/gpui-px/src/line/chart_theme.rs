@@ -7,6 +7,7 @@ use crate::{ChartSize, DEFAULT_COLOR, DEFAULT_HEIGHT, DEFAULT_WIDTH, ScaleType};
 use d3rs::shape::CurveType;
 use gpui::{Rgba, rgb};
 use std::collections::HashSet;
+use std::sync::Arc;
 
 /// Theme for chart styling
 #[derive(Debug, Clone)]
@@ -58,8 +59,8 @@ impl Default for ChartTheme {
 /// ```
 pub fn line(x: &[f64], y: &[f64]) -> LineChart {
     LineChart {
-        x: x.to_vec(),
-        y: y.to_vec(),
+        x: Arc::from(x),
+        y: Arc::from(y),
         title: None,
         x_label: None,
         y_label: None,
@@ -419,5 +420,31 @@ mod tests {
             180.0,
             Some(1.75),
         );
+    }
+
+    #[test]
+    fn test_line_data_shared_via_arc_on_clone() {
+        let x = vec![1.0, 2.0, 3.0];
+        let y = vec![2.0, 3.0, 5.0];
+        let y2 = vec![5.0, 4.0, 3.0];
+        let chart = line(&x, &y)
+            .add_series(&y2, Some("Series 2"), 0xff7f0e, 2.0, 1.0)
+            .add_series_with_x(
+                &[0.0, 1.0, 2.0],
+                &[1.0, 1.0, 1.0],
+                Some("Custom X"),
+                0x00ff00,
+                1.0,
+                1.0,
+            );
+        let cloned = chart.clone();
+
+        assert!(Arc::ptr_eq(&chart.x, &cloned.x));
+        assert!(Arc::ptr_eq(&chart.y, &cloned.y));
+        assert!(Arc::ptr_eq(&chart.series[0].y, &cloned.series[0].y));
+        assert!(Arc::ptr_eq(
+            chart.series[1].x.as_ref().unwrap(),
+            cloned.series[1].x.as_ref().unwrap()
+        ));
     }
 }
