@@ -26,9 +26,20 @@ use glam::Vec3;
 use gpui::*;
 use image::{Frame, RgbaImage};
 use std::cell::RefCell;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use std::panic;
 use std::rc::Rc;
 use std::sync::Arc;
+
+/// Cached offscreen surface render result.
+#[derive(Clone)]
+pub(super) struct SurfaceTextureCache {
+    pub key: u64,
+    pub width: u32,
+    pub height: u32,
+    pub render_image: Arc<RenderImage>,
+}
 
 /// GPUI Element for interactive 3D surface visualization
 #[derive(Clone)]
@@ -38,6 +49,7 @@ pub struct Surface3DElement {
     pub(super) state: Rc<RefCell<Surface3DState>>,
     pub(super) renderer: Rc<RefCell<Option<Surface3DRenderer>>>,
     pub(super) mesh: Rc<RefCell<Option<SurfaceMesh>>>,
+    pub(super) surface_cache: Rc<RefCell<Option<SurfaceTextureCache>>>,
 }
 
 impl Surface3DElement {
@@ -55,6 +67,7 @@ impl Surface3DElement {
             state: Rc::new(RefCell::new(state)),
             renderer: Rc::new(RefCell::new(None)),
             mesh: Rc::new(RefCell::new(None)),
+            surface_cache: Rc::new(RefCell::new(None)),
         }
     }
 
@@ -66,8 +79,9 @@ impl Surface3DElement {
     /// Update the surface data
     pub fn set_data(&mut self, data: SurfaceData) {
         self.data = data;
-        // Clear cached mesh to force regeneration
+        // Clear cached mesh and surface render to force regeneration
         *self.mesh.borrow_mut() = None;
+        *self.surface_cache.borrow_mut() = None;
     }
 
     /// Update configuration
@@ -75,6 +89,10 @@ impl Surface3DElement {
         // If plot type changes, we need to regenerate the mesh
         if self.config.plot_type != config.plot_type {
             *self.mesh.borrow_mut() = None;
+        }
+        // If any render-relevant setting changes, invalidate the cached surface texture.
+        if surface_render_config_changed(&self.config, &config) {
+            *self.surface_cache.borrow_mut() = None;
         }
         self.config = config;
         if let Some(renderer) = self.renderer.borrow_mut().as_mut() {
@@ -110,6 +128,80 @@ impl Surface3DElement {
             }
             *mesh_ref = Some(mesh);
         }
+    }
+
+    /// Compute a cache key for the offscreen surface render.
+    ///
+    /// The key covers everything that affects the rendered surface texture:
+    /// render size, camera, data, and render-relevant configuration.
+    pub fn compute_surface_cache_key(
+        &self,
+        bounds: &Bounds<Pixels>,
+        scale_factor: f32,
+        camera: &Camera3D,
+    ) -> u64 {
+        let mut hasher = DefaultHasher::new();
+
+        // Render size
+        let width: f32 = bounds.size.width.into();
+        let height: f32 = bounds.size.height.into();
+        width.to_bits().hash(&mut hasher);
+        height.to_bits().hash(&mut hasher);
+        scale_factor.to_bits().hash(&mut hasher);
+
+        // Camera
+        camera.position.x.to_bits().hash(&mut hasher);
+        camera.position.y.to_bits().hash(&mut hasher);
+        camera.position.z.to_bits().hash(&mut hasher);
+        camera.target.x.to_bits().hash(&mut hasher);
+        camera.target.y.to_bits().hash(&mut hasher);
+        camera.target.z.to_bits().hash(&mut hasher);
+        camera.up.x.to_bits().hash(&mut hasher);
+        camera.up.y.to_bits().hash(&mut hasher);
+        camera.up.z.to_bits().hash(&mut hasher);
+        camera.fov.to_bits().hash(&mut hasher);
+        camera.aspect.to_bits().hash(&mut hasher);
+        camera.near.to_bits().hash(&mut hasher);
+        camera.far.to_bits().hash(&mut hasher);
+
+        // Data
+        for x in &self.data.x_values {
+            x.to_bits().hash(&mut hasher);
+        }
+        for y in &self.data.y_values {
+            y.to_bits().hash(&mut hasher);
+        }
+        for row in &self.data.z_values {
+            for z in row {
+                z.to_bits().hash(&mut hasher);
+            }
+        }
+        self.data.x_min.to_bits().hash(&mut hasher);
+        self.data.x_max.to_bits().hash(&mut hasher);
+        self.data.y_min.to_bits().hash(&mut hasher);
+        self.data.y_max.to_bits().hash(&mut hasher);
+        self.data.z_min.to_bits().hash(&mut hasher);
+        self.data.z_max.to_bits().hash(&mut hasher);
+        self.data.x_log.hash(&mut hasher);
+        self.data.y_log.hash(&mut hasher);
+        self.data.z_log.hash(&mut hasher);
+
+        // Render-relevant config
+        (self.config.colormap as i32).hash(&mut hasher);
+        self.config.wireframe.hash(&mut hasher);
+        self.config.wireframe_color[0].to_bits().hash(&mut hasher);
+        self.config.wireframe_color[1].to_bits().hash(&mut hasher);
+        self.config.wireframe_color[2].to_bits().hash(&mut hasher);
+        self.config.ambient.to_bits().hash(&mut hasher);
+        self.config.diffuse.to_bits().hash(&mut hasher);
+        self.config.light_direction.x.to_bits().hash(&mut hasher);
+        self.config.light_direction.y.to_bits().hash(&mut hasher);
+        self.config.light_direction.z.to_bits().hash(&mut hasher);
+        self.config.msaa_samples.hash(&mut hasher);
+        self.config.opacity.to_bits().hash(&mut hasher);
+        (self.config.plot_type as i32).hash(&mut hasher);
+
+        hasher.finish()
     }
 
     pub(super) fn normalized_z_grid(&self) -> Vec<f64> {
@@ -305,6 +397,85 @@ impl Surface3DElement {
             border_style: Default::default(),
         });
     }
+
+    /// Paint the cached surface texture, rendering and caching it on a cache miss.
+    pub(super) fn paint_cached_surface(
+        &self,
+        bounds: Bounds<Pixels>,
+        width_u32: u32,
+        height_u32: u32,
+        scale_factor: f32,
+        camera: &Camera3D,
+        window: &mut Window,
+    ) {
+        let key = self.compute_surface_cache_key(&bounds, scale_factor, camera);
+
+        // Reuse the cached image if the key and dimensions match.
+        {
+            let cache = self.surface_cache.borrow();
+            if let Some(cache) = cache.as_ref() {
+                if cache.key == key && cache.width == width_u32 && cache.height == height_u32 {
+                    let _ = window.paint_image(
+                        bounds,
+                        Corners::default(),
+                        cache.render_image.clone(),
+                        0,
+                        false,
+                    );
+                    return;
+                }
+            }
+        }
+
+        // Render to texture and cache the result.
+        self.ensure_renderer();
+        self.ensure_mesh();
+
+        if let Some(renderer) = self.renderer.borrow_mut().as_mut() {
+            renderer.resize(width_u32, height_u32);
+
+            let log_settings = if self.data.x_log {
+                let min_x = self.data.x_min as f32;
+                let max_x = self.data.x_max as f32;
+                Some((min_x, max_x))
+            } else {
+                None
+            };
+
+            if let Some(pixels) = renderer.render_transparent(camera, log_settings) {
+                if let Some(rgba_image) = RgbaImage::from_raw(width_u32, height_u32, pixels) {
+                    let frame = Frame::new(rgba_image);
+                    let render_image = Arc::new(RenderImage::new(vec![frame]));
+                    *self.surface_cache.borrow_mut() = Some(SurfaceTextureCache {
+                        key,
+                        width: width_u32,
+                        height: height_u32,
+                        render_image: render_image.clone(),
+                    });
+                    let _ = window.paint_image(
+                        bounds,
+                        Corners::default(),
+                        render_image,
+                        0,
+                        false,
+                    );
+                }
+            }
+        }
+    }
+}
+
+/// Returns `true` if a configuration change should invalidate the cached surface texture.
+fn surface_render_config_changed(old: &Surface3DConfig, new: &Surface3DConfig) -> bool {
+    old.colormap != new.colormap
+        || old.wireframe != new.wireframe
+        || old.wireframe_color != new.wireframe_color
+        || old.ambient.to_bits() != new.ambient.to_bits()
+        || old.diffuse.to_bits() != new.diffuse.to_bits()
+        || old.light_direction != new.light_direction
+        || old.msaa_samples != new.msaa_samples
+        || old.opacity.to_bits() != new.opacity.to_bits()
+        || old.plot_type != new.plot_type
 }
 
 impl IntoElement for Surface3DElement {
@@ -411,45 +582,8 @@ impl Element for Surface3DElement {
         let height_u32 = render_height.ceil().max(1.0) as u32;
 
         if width_u32 > 0 && height_u32 > 0 {
-            // Ensure renderer and mesh are initialized
-            self.ensure_renderer();
-            self.ensure_mesh();
-
-            // Resize renderer if needed
-            if let Some(renderer) = self.renderer.borrow_mut().as_mut() {
-                renderer.resize(width_u32, height_u32);
-
-                // Update camera and render
-                let state = self.state.borrow();
-
-                let log_settings = if self.data.x_log {
-                    let min_x = self.data.x_min as f32;
-                    let max_x = self.data.x_max as f32;
-                    Some((min_x, max_x))
-                } else {
-                    None
-                };
-
-                if let Some(pixels) = renderer.render_transparent(&state.camera, log_settings) {
-                    // Create RgbaImage from RGBA pixel data
-                    if let Some(rgba_image) = RgbaImage::from_raw(width_u32, height_u32, pixels) {
-                        // Create a Frame from the image
-                        let frame = Frame::new(rgba_image);
-
-                        // Create GPUI RenderImage from the frame
-                        let render_image = RenderImage::new(vec![frame]);
-
-                        // Paint the image
-                        let _ = window.paint_image(
-                            bounds,
-                            Corners::default(),
-                            Arc::new(render_image),
-                            0,
-                            false,
-                        );
-                    }
-                }
-            }
+            let camera = self.state.borrow().camera.clone();
+            self.paint_cached_surface(bounds, width_u32, height_u32, scale_factor, &camera, window);
         }
 
         {

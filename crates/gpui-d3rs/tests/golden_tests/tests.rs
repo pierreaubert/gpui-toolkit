@@ -9,7 +9,7 @@ use super::test::test_linear_nice;
 use super::test::test_linear_ticks;
 use super::types::GoldenFile;
 use d3rs::examples;
-use d3rs::geo::{Equirectangular, Orthographic, Projection};
+use d3rs::geo::{Equirectangular, GeoJsonGeometry, Mercator, Orthographic, Projection};
 use d3rs::hexbin::Hexbin;
 use d3rs::scale::{BandScale, LinearScale, LogScale, Scale};
 use d3rs::shape::pie::Pie;
@@ -1517,6 +1517,89 @@ fn test_geo_golden() {
                 exp_coords
             );
         }
+    }
+}
+
+#[test]
+fn test_geo_path_cylindrical_golden() {
+    use d3rs::geo::GeoPath;
+
+    let content =
+        fs::read_to_string("golden/geo/path_cylindrical.json").expect("golden file not found");
+    let golden: GoldenFile = serde_json::from_str(&content).unwrap();
+
+    assert_eq!(golden.module, "d3-geo");
+    assert_eq!(golden.function, "path_cylindrical");
+
+    for case in &golden.test_cases {
+        let name = case["name"].as_str().unwrap();
+        let projection_name = case["projection"].as_str().unwrap();
+        let scale = case["scale"].as_f64().unwrap();
+        let translate: Vec<f64> =
+            serde_json::from_value(case["translate"].clone()).unwrap();
+        let expected = case["path"].as_str().unwrap();
+
+        let geometry = parse_geojson_geometry(&case["geometry"]);
+
+        let actual = match projection_name {
+            "mercator" => {
+                let mut projection = Mercator::new();
+                projection.set_scale(scale);
+                projection.set_translate(translate[0], translate[1]);
+                GeoPath::new(projection).render(&geometry)
+            }
+            "equirectangular" => {
+                let mut projection = Equirectangular::new();
+                projection.set_scale(scale);
+                projection.set_translate(translate[0], translate[1]);
+                GeoPath::new(projection).render(&geometry)
+            }
+            other => panic!("unsupported projection: {other}"),
+        };
+
+        assert_eq!(
+            actual, expected,
+            "case '{name}': rendered path does not match golden"
+        );
+    }
+}
+
+fn parse_geojson_geometry(value: &serde_json::Value) -> GeoJsonGeometry {
+    let t = value["type"].as_str().unwrap();
+    match t {
+        "Polygon" => {
+            let coords: Vec<Vec<Vec<f64>>> =
+                serde_json::from_value(value["coordinates"].clone()).unwrap();
+            let rings = coords
+                .into_iter()
+                .map(|ring| ring.into_iter().map(|v| (v[0], v[1])).collect())
+                .collect();
+            GeoJsonGeometry::Polygon(rings)
+        }
+        "MultiPolygon" => {
+            let coords: Vec<Vec<Vec<Vec<f64>>>> =
+                serde_json::from_value(value["coordinates"].clone()).unwrap();
+            let polygons = coords
+                .into_iter()
+                .map(|poly| {
+                    poly.into_iter()
+                        .map(|ring| ring.into_iter().map(|v| (v[0], v[1])).collect())
+                        .collect()
+                })
+                .collect();
+            GeoJsonGeometry::MultiPolygon(polygons)
+        }
+        "LineString" => {
+            let coords: Vec<Vec<f64>> =
+                serde_json::from_value(value["coordinates"].clone()).unwrap();
+            GeoJsonGeometry::LineString(coords.into_iter().map(|v| (v[0], v[1])).collect())
+        }
+        "Point" => {
+            let coords: Vec<f64> =
+                serde_json::from_value(value["coordinates"].clone()).unwrap();
+            GeoJsonGeometry::Point(coords[0], coords[1])
+        }
+        other => panic!("unsupported geometry type: {other}"),
     }
 }
 

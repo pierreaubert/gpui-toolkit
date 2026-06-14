@@ -305,6 +305,20 @@ impl EditState {
         self.cursor += char_text.chars().count();
     }
 
+    /// Insert a single character without allocating a temporary `String`.
+    pub(super) fn insert_char(&mut self, ch: char) {
+        self.delete_selection();
+        // Find byte position for insertion
+        let byte_pos = self
+            .text
+            .char_indices()
+            .nth(self.cursor)
+            .map(|(i, _)| i)
+            .unwrap_or(self.text.len());
+        self.text.insert(byte_pos, ch);
+        self.cursor += 1;
+    }
+
     /// Start a selection at the given position
     pub(super) fn start_selection(&mut self, pos: usize) {
         self.cursor = pos;

@@ -201,7 +201,7 @@ impl Sidebar {
 impl RenderOnce for Sidebar {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let global_theme = cx.theme();
-        let theme = SidebarTheme::from(&global_theme);
+        let theme = SidebarTheme::from(global_theme);
         let design = crate::design::resolve_design(self.design.clone(), cx);
         self.build_with_theme_and_design(&theme, &design)
     }

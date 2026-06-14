@@ -20,8 +20,7 @@ pub use prepare_options::*;
 pub use types::*;
 pub use walk::*;
 
-use misc::build_line_text_into;
-use misc::with_line_text_scratch;
+use misc::build_line_text_cow;
 use to::to_layout_line_range;
 use to::to_line_break_data;
 
@@ -41,12 +40,12 @@ pub fn layout(
 }
 
 /// Layout with full line data (text content, widths, cursor positions).
-pub fn layout_with_lines(
-    prepared: &PreparedTextWithSegments,
+pub fn layout_with_lines<'a>(
+    prepared: &'a PreparedTextWithSegments,
     max_width: f64,
     line_height: f64,
     profile: &EngineProfile,
-) -> LayoutLinesResult {
+) -> LayoutLinesResult<'a> {
     let data = to_line_break_data(&prepared.core);
 
     if prepared.core.widths.is_empty() {
@@ -67,18 +66,14 @@ pub fn layout_with_lines(
         profile,
         Some(&mut |line: &InternalLayoutLine| {
             lines.push(LayoutLine {
-                text: with_line_text_scratch(|scratch| {
-                    build_line_text_into(
-                        segments,
-                        kinds,
-                        line.start_segment_index,
-                        line.start_grapheme_index,
-                        line.end_segment_index,
-                        line.end_grapheme_index,
-                        scratch,
-                    );
-                    scratch.clone()
-                }),
+                text: build_line_text_cow(
+                    segments,
+                    kinds,
+                    line.start_segment_index,
+                    line.start_grapheme_index,
+                    line.end_segment_index,
+                    line.end_grapheme_index,
+                ),
                 width: line.width,
                 start: LayoutCursor {
                     segment_index: line.start_segment_index,
@@ -120,13 +115,13 @@ pub fn layout_optimal(
 }
 
 /// Layout with full line data using Knuth-Plass optimal line breaking.
-pub fn layout_with_lines_optimal(
-    prepared: &PreparedTextWithSegments,
+pub fn layout_with_lines_optimal<'a>(
+    prepared: &'a PreparedTextWithSegments,
     max_width: f64,
     line_height: f64,
     profile: &EngineProfile,
     params: &KnuthPlassParams,
-) -> LayoutLinesResult {
+) -> LayoutLinesResult<'a> {
     let data = to_line_break_data(&prepared.core);
 
     if prepared.core.widths.is_empty() {
@@ -148,18 +143,14 @@ pub fn layout_with_lines_optimal(
         params,
         Some(&mut |line: &InternalLayoutLine| {
             lines.push(LayoutLine {
-                text: with_line_text_scratch(|scratch| {
-                    build_line_text_into(
-                        segments,
-                        kinds,
-                        line.start_segment_index,
-                        line.start_grapheme_index,
-                        line.end_segment_index,
-                        line.end_grapheme_index,
-                        scratch,
-                    );
-                    scratch.clone()
-                }),
+                text: build_line_text_cow(
+                    segments,
+                    kinds,
+                    line.start_segment_index,
+                    line.start_grapheme_index,
+                    line.end_segment_index,
+                    line.end_grapheme_index,
+                ),
                 width: line.width,
                 start: LayoutCursor {
                     segment_index: line.start_segment_index,
@@ -198,14 +189,14 @@ pub fn layout_with_strategy(
 }
 
 /// Layout with full line data, dispatching based on strategy.
-pub fn layout_with_lines_and_strategy(
-    prepared: &PreparedTextWithSegments,
+pub fn layout_with_lines_and_strategy<'a>(
+    prepared: &'a PreparedTextWithSegments,
     max_width: f64,
     line_height: f64,
     profile: &EngineProfile,
     strategy: LineBreakStrategy,
     params: &KnuthPlassParams,
-) -> LayoutLinesResult {
+) -> LayoutLinesResult<'a> {
     match strategy {
         LineBreakStrategy::Greedy => layout_with_lines(prepared, max_width, line_height, profile),
         LineBreakStrategy::Optimal => {
@@ -215,12 +206,12 @@ pub fn layout_with_lines_and_strategy(
 }
 
 /// Layout a single line starting from a cursor position.
-pub fn layout_next_line(
-    prepared: &PreparedTextWithSegments,
+pub fn layout_next_line<'a>(
+    prepared: &'a PreparedTextWithSegments,
     start: LayoutCursor,
     max_width: f64,
     profile: &EngineProfile,
-) -> Option<LayoutLine> {
+) -> Option<LayoutLine<'a>> {
     let data = to_line_break_data(&prepared.core);
     let cursor = LineBreakCursor {
         segment_index: start.segment_index,
@@ -231,18 +222,14 @@ pub fn layout_next_line(
     let range = to_layout_line_range(&line);
 
     Some(LayoutLine {
-        text: with_line_text_scratch(|scratch| {
-            build_line_text_into(
-                &prepared.segments,
-                &prepared.core.kinds,
-                range.start.segment_index,
-                range.start.grapheme_index,
-                range.end.segment_index,
-                range.end.grapheme_index,
-                scratch,
-            );
-            scratch.clone()
-        }),
+        text: build_line_text_cow(
+            &prepared.segments,
+            &prepared.core.kinds,
+            range.start.segment_index,
+            range.start.grapheme_index,
+            range.end.segment_index,
+            range.end.grapheme_index,
+        ),
         width: range.width,
         start: range.start,
         end: range.end,

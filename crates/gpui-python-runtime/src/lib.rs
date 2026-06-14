@@ -11,6 +11,7 @@ pub mod gpui_adapter;
 mod scene3d;
 #[cfg(feature = "showcase")]
 pub mod showcase;
+pub mod spec_cache;
 pub mod ui_ir;
 
 pub use cache::{CacheUpdate, DirtyResources, RetainedSceneCache};

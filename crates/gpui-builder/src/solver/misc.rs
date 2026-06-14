@@ -2,40 +2,39 @@
 
 use crate::types::Axis;
 use gpui_pretext::{
-    EngineProfile, PrepareOptions, layout, layout_with_lines, prepare, prepare_with_segments,
+    EngineProfile, PrepareOptions, PreparedText, PreparedTextWithSegments, layout,
+    layout_with_lines, prepare, prepare_with_segments,
 };
+use std::cell::RefCell;
 use std::collections::HashMap;
 
-/// Cache for `Sizing::Text` measurements within a single solve call.
+/// Thread-local persistent cache for `Sizing::Text` measurements and their
+/// underlying [`PreparedText`] data.
 ///
-/// Text layout is expensive; the same `(text, measure, cross_size, line_height, axis)`
-/// combination can appear multiple times in large trees, so memoize it.
-pub(super) struct TextSizeCache<'a> {
-    map: HashMap<(usize, &'a str, u32, u32, Axis), f32>,
+/// The cache survives across `solve` calls, so repeated layouts of the same
+/// text (same content, measure, profile and options) avoid re-running text
+/// analysis and measurement.
+struct PersistentTextCache {
+    /// `(measure_ptr, text)` → prepared text without segment strings.
+    prepared_vertical: HashMap<(usize, String), PreparedText>,
+    /// `(measure_ptr, text)` → prepared text with segment strings.
+    prepared_horizontal: HashMap<(usize, String), PreparedTextWithSegments>,
+    /// `(measure_ptr, text, cross_size, line_height, axis)` → computed size.
+    sizes: HashMap<(usize, String, u32, u32, Axis), f32>,
 }
 
-impl<'a> TextSizeCache<'a> {
-    pub(super) fn new() -> Self {
+impl PersistentTextCache {
+    fn new() -> Self {
         Self {
-            map: HashMap::new(),
+            prepared_vertical: HashMap::new(),
+            prepared_horizontal: HashMap::new(),
+            sizes: HashMap::new(),
         }
     }
+}
 
-    fn key(
-        measure_ptr: usize,
-        text: &'a str,
-        cross_size: f32,
-        line_height: f32,
-        axis: Axis,
-    ) -> (usize, &'a str, u32, u32, Axis) {
-        (
-            measure_ptr,
-            text,
-            cross_size.to_bits(),
-            line_height.to_bits(),
-            axis,
-        )
-    }
+thread_local! {
+    static TEXT_CACHE: RefCell<PersistentTextCache> = RefCell::new(PersistentTextCache::new());
 }
 
 pub(super) struct TextSizeInput<'a> {
@@ -55,41 +54,74 @@ pub(super) struct TextSizeInput<'a> {
 ///   with `cross_size` (the container's width) as `max_width`.
 /// - In a **horizontal** container (main axis = width): returns the maximum
 ///   line width with no wrapping constraint.
-pub(super) fn compute_text_size<'a>(
-    input: TextSizeInput<'a>,
-    cache: &mut TextSizeCache<'a>,
-) -> f32 {
+///
+/// Results and the intermediate [`PreparedText`] values are cached in a
+/// thread-local store that persists across `solve` calls.
+pub(super) fn compute_text_size<'a>(input: TextSizeInput<'a>) -> f32 {
     let measure_ptr = (input.measure as *const dyn gpui_pretext::TextMeasure) as *const () as usize;
-    let key = TextSizeCache::key(
+    let cross_bits = input.cross_size.to_bits();
+    let line_bits = input.line_height.to_bits();
+    let text_owned = input.text.to_string();
+    let size_key = (
         measure_ptr,
-        input.text,
-        input.cross_size,
-        input.line_height,
+        text_owned.clone(),
+        cross_bits,
+        line_bits,
         input.axis,
     );
-    if let Some(&size) = cache.map.get(&key) {
-        return size.max(input.min);
-    }
 
-    let size = match input.axis {
-        Axis::Vertical => {
-            let prepared = prepare(input.text, input.measure, input.profile, input.options);
-            layout(
-                &prepared,
-                input.cross_size as f64,
-                input.line_height as f64,
-                input.profile,
-            )
-            .height as f32
+    TEXT_CACHE.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        if let Some(&size) = cache.sizes.get(&size_key) {
+            return size.max(input.min);
         }
-        Axis::Horizontal => {
-            let prepared =
-                prepare_with_segments(input.text, input.measure, input.profile, input.options);
-            let result =
-                layout_with_lines(&prepared, f64::MAX, input.line_height as f64, input.profile);
-            result.lines.iter().map(|l| l.width).fold(0.0_f64, f64::max) as f32
-        }
-    };
-    cache.map.insert(key, size);
-    size.max(input.min)
+
+        let prepared_key = (measure_ptr, text_owned);
+        let size = match input.axis {
+            Axis::Vertical => {
+                let prepared = cache
+                    .prepared_vertical
+                    .entry(prepared_key)
+                    .or_insert_with(|| {
+                        prepare(input.text, input.measure, input.profile, input.options)
+                    });
+                layout(
+                    prepared,
+                    input.cross_size as f64,
+                    input.line_height as f64,
+                    input.profile,
+                )
+                .height as f32
+            }
+            Axis::Horizontal => {
+                let prepared = cache
+                    .prepared_horizontal
+                    .entry(prepared_key)
+                    .or_insert_with(|| {
+                        prepare_with_segments(
+                            input.text,
+                            input.measure,
+                            input.profile,
+                            input.options,
+                        )
+                    });
+                let result =
+                    layout_with_lines(prepared, f64::MAX, input.line_height as f64, input.profile);
+                result.lines.iter().map(|l| l.width).fold(0.0_f64, f64::max) as f32
+            }
+        };
+
+        cache.sizes.insert(size_key, size);
+        size.max(input.min)
+    })
+}
+
+/// Clear the persistent text measurement cache.
+///
+/// Mostly useful in tests to get deterministic baseline behaviour.
+#[cfg(test)]
+pub(super) fn clear_text_cache() {
+    TEXT_CACHE.with(|cache| {
+        *cache.borrow_mut() = PersistentTextCache::new();
+    });
 }

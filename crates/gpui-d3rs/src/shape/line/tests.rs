@@ -5,7 +5,7 @@ use gpui::prelude::*;
 use gpui::*;
 
 use super::*;
-use crate::scale::{LinearScale, Scale};
+use crate::scale::LinearScale;
 
 #[test]
 fn test_line_y_rel_inverted_range_with_zero() {

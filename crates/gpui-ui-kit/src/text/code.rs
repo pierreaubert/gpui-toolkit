@@ -74,7 +74,8 @@ impl Code {
 
 impl RenderOnce for Code {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let theme = self.theme.clone().unwrap_or_else(|| cx.theme());
-        self.build_with_theme(&theme)
+        let mut this = self;
+        let theme = this.theme.take().unwrap_or_else(|| (*cx.theme()).clone());
+        this.build_with_theme(&theme)
     }
 }

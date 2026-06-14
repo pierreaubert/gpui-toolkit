@@ -31,8 +31,12 @@ use crate::{
 use d3rs::color::ColorScheme;
 use d3rs::text::{GlyphTextConfig, render_glyph_text};
 use gpui::prelude::*;
-use gpui::{IntoElement, MouseButton, Rgba, div, hsla, px, rgb};
+use gpui::{
+    Bounds, IntoElement, MouseButton, PathBuilder, Pixels, Rgba, canvas, div, hsla, point, px, rgb,
+};
 use gpui_design::DesignSystem;
+use std::cell::RefCell;
+use std::collections::BTreeMap;
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -208,18 +212,26 @@ impl Treemap {
             &mut rects,
         );
 
-        // Render rectangles
         let color_scheme = self.color_scheme.unwrap_or_else(ColorScheme::tableau10);
-        let mut plot_content = div()
-            .w(px(plot_width as f32))
-            .h(px(plot_height as f32))
-            .relative()
-            .bg(rgb(0xffffff));
 
-        let on_click = self.on_click;
-        let hover_enabled = self.hover_enabled;
+        // Precompute per-rect colors and group by fill color so the canvas paint
+        // callback can emit one path per color group instead of one quad per rect.
+        #[derive(Clone, Debug)]
+        struct RectDrawData {
+            x0: f64,
+            y0: f64,
+            x1: f64,
+            y1: f64,
+            name: String,
+            value: f64,
+            fill: Rgba,
+            border: Rgba,
+        }
 
-        for rect in &rects {
+        let mut draw_data: Vec<RectDrawData> = Vec::with_capacity(rects.len());
+        let mut groups: BTreeMap<(u32, u32, u32, u32), Vec<usize>> = BTreeMap::new();
+
+        for rect in rects {
             let color = color_scheme.color(rect.category_index);
             let rgba = Rgba {
                 r: color.r / 255.0,
@@ -227,84 +239,154 @@ impl Treemap {
                 b: color.b / 255.0,
                 a: 0.8,
             };
-
-            let border_color = Rgba {
+            let border = Rgba {
                 r: rgba.r * 0.7,
                 g: rgba.g * 0.7,
                 b: rgba.b * 0.7,
                 a: 1.0,
             };
+            let key = (
+                color.r.to_bits(),
+                color.g.to_bits(),
+                color.b.to_bits(),
+                color.a.to_bits(),
+            );
+            let idx = draw_data.len();
+            draw_data.push(RectDrawData {
+                x0: rect.x0,
+                y0: rect.y0,
+                x1: rect.x1,
+                y1: rect.y1,
+                name: rect.name,
+                value: rect.value,
+                fill: rgba,
+                border,
+            });
+            groups.entry(key).or_default().push(idx);
+        }
 
-            let rect_name = rect.name.clone();
-            let rect_value = rect.value;
-
-            // Render rectangle
-            let mut rect_div = div()
-                .absolute()
-                .left(px(rect.x0 as f32))
-                .top(px(rect.y0 as f32))
-                .w(px(rect.width() as f32))
-                .h(px(rect.height() as f32))
-                .bg(rgba)
-                .border_1()
-                .border_color(border_color);
-
-            // Add hover effect
-            if hover_enabled {
-                let hover_color = Rgba {
-                    r: (rgba.r * 1.1).min(1.0),
-                    g: (rgba.g * 1.1).min(1.0),
-                    b: (rgba.b * 1.1).min(1.0),
-                    a: 0.9,
-                };
-                rect_div = rect_div.hover(|style| style.bg(hover_color).cursor_pointer());
-            }
-
-            // Add click handler
-            if let Some(handler) = on_click.as_ref() {
-                let handler = Rc::clone(handler);
-                let name = rect_name.clone();
-                let value = rect_value;
-                rect_div =
-                    rect_div.on_mouse_down(MouseButton::Left, move |_event, _window, _cx| {
-                        handler(&name, value);
-                    });
-            }
-
-            let rect_div = rect_div;
-
-            // Add label if rectangle is large enough
-            let rect_div = if rect.width() > 30.0 && rect.height() > 15.0 {
-                let font_size = (rect.height() * 0.2).clamp(8.0, 12.0);
-
-                // Calculate text color based on background luminance
-                // Using relative luminance formula: 0.2126*R + 0.7152*G + 0.0722*B
-                let luminance = 0.2126 * rgba.r + 0.7152 * rgba.g + 0.0722 * rgba.b;
+        // Labels are emitted only for rects large enough to be legible.
+        let mut label_elements = Vec::new();
+        for rect in &draw_data {
+            let width = rect.x1 - rect.x0;
+            let height = rect.y1 - rect.y0;
+            if width > 30.0 && height > 15.0 {
+                let font_size = (height * 0.2).clamp(8.0, 12.0);
+                let luminance = 0.2126 * rect.fill.r + 0.7152 * rect.fill.g + 0.0722 * rect.fill.b;
                 let text_color = if luminance > 0.5 {
-                    hsla(0.0, 0.0, 0.1, 1.0) // Dark text for light backgrounds
+                    hsla(0.0, 0.0, 0.1, 1.0)
                 } else {
-                    hsla(0.0, 0.0, 0.95, 1.0) // White text for dark backgrounds
+                    hsla(0.0, 0.0, 0.95, 1.0)
                 };
-
                 let font_config = GlyphTextConfig::horizontal(font_size as f32, text_color);
+                label_elements.push(
+                    div()
+                        .absolute()
+                        .left(px(rect.x0 as f32))
+                        .top(px(rect.y0 as f32))
+                        .w(px(width as f32))
+                        .h(px(height as f32))
+                        .flex()
+                        .flex_col()
+                        .justify_center()
+                        .items_center()
+                        .overflow_hidden()
+                        .text_ellipsis()
+                        .px_1()
+                        .child(render_glyph_text(&rect.name, &font_config)),
+                );
+            }
+        }
 
-                rect_div
-                    .flex()
-                    .flex_col()
-                    .justify_center()
-                    .items_center()
-                    .child(
-                        div()
-                            .overflow_hidden()
-                            .text_ellipsis()
-                            .px_1()
-                            .child(render_glyph_text(&rect.name, &font_config)),
-                    )
-            } else {
-                rect_div
-            };
+        // Shared bounds updated by the canvas paint callback; used by the click
+        // handler to map mouse coordinates back to treemap rects.
+        let bounds: Rc<RefCell<Option<Bounds<Pixels>>>> = Rc::new(RefCell::new(None));
+        let bounds_for_paint = bounds.clone();
+        let bounds_for_click = bounds.clone();
+        let draw_data_for_click = draw_data.clone();
+        let on_click = self.on_click;
 
-            plot_content = plot_content.child(rect_div);
+        let canvas_element = canvas(
+            move |_bounds, _window, _cx| (draw_data.clone(), groups.clone()),
+            move |bounds, (draw_data, groups), window, _cx| {
+                let origin_x: f32 = bounds.origin.x.into();
+                let origin_y: f32 = bounds.origin.y.into();
+
+                // Cache bounds for hit testing in event handlers.
+                // We only need to do this once per paint.
+                let _ = bounds_for_paint.borrow_mut().replace(bounds.clone());
+
+                for (_, indices) in groups {
+                    if indices.is_empty() {
+                        continue;
+                    }
+
+                    let mut fill_builder = PathBuilder::fill();
+                    let mut stroke_builder = PathBuilder::stroke(px(1.0));
+
+                    for &idx in &indices {
+                        let rect = &draw_data[idx];
+                        let x = origin_x + rect.x0 as f32;
+                        let y = origin_y + rect.y0 as f32;
+                        let w = (rect.x1 - rect.x0) as f32;
+                        let h = (rect.y1 - rect.y0) as f32;
+
+                        add_rect_to_path(&mut fill_builder, x, y, w, h);
+                        add_rect_to_path(&mut stroke_builder, x, y, w, h);
+                    }
+
+                    let first = &draw_data[indices[0]];
+                    if let Ok(path) = fill_builder.build() {
+                        window.paint_path(path, first.fill);
+                    }
+                    if let Ok(path) = stroke_builder.build() {
+                        window.paint_path(path, first.border);
+                    }
+                }
+            },
+        )
+        .w(px(plot_width as f32))
+        .h(px(plot_height as f32))
+        .absolute();
+
+        let mut plot_content = div()
+            .w(px(plot_width as f32))
+            .h(px(plot_height as f32))
+            .relative()
+            .bg(rgb(0xffffff))
+            .child(canvas_element);
+
+        if self.hover_enabled {
+            plot_content = plot_content.hover(|style| style.cursor_pointer());
+        }
+
+        for label in label_elements {
+            plot_content = plot_content.child(label);
+        }
+
+        // Click handler maps the mouse position to the treemap rect under the cursor.
+        if let Some(handler) = on_click {
+            let handler = Rc::clone(&handler);
+            let bounds_for_click_down = bounds_for_click.clone();
+            plot_content = plot_content.on_mouse_down(MouseButton::Left, move |event, _window, _cx| {
+                if let Some(bounds) = *bounds_for_click_down.borrow() {
+                    let origin_x: f32 = bounds.origin.x.into();
+                    let origin_y: f32 = bounds.origin.y.into();
+                    let local_x = f32::from(event.position.x) - origin_x;
+                    let local_y = f32::from(event.position.y) - origin_y;
+
+                    for rect in &draw_data_for_click {
+                        if local_x >= rect.x0 as f32
+                            && local_x <= rect.x1 as f32
+                            && local_y >= rect.y0 as f32
+                            && local_y <= rect.y1 as f32
+                        {
+                            handler(&rect.name, rect.value);
+                            break;
+                        }
+                    }
+                }
+            });
         }
 
         // Build container
@@ -343,3 +425,13 @@ impl Treemap {
         Ok(container)
     }
 }
+
+/// Append a rectangle outline to a GPUI path builder.
+fn add_rect_to_path(builder: &mut PathBuilder, x: f32, y: f32, width: f32, height: f32) {
+    builder.move_to(point(px(x), px(y)));
+    builder.line_to(point(px(x + width), px(y)));
+    builder.line_to(point(px(x + width), px(y + height)));
+    builder.line_to(point(px(x), px(y + height)));
+    builder.close();
+}
+

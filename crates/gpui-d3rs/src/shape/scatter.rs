@@ -109,6 +109,52 @@ impl ScatterPoint {
     }
 }
 
+/// Pre-computed screen-space point for a scatter plot.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) struct ScatterDrawPoint {
+    pub x_rel: f32,
+    pub y_rel: f32,
+}
+
+/// Pre-compute normalized (0-1) point positions in a single pass.
+pub(super) fn compute_scatter_points<XS, YS>(
+    x_scale: &XS,
+    y_scale: &YS,
+    data: &[ScatterPoint],
+) -> Vec<ScatterDrawPoint>
+where
+    XS: Scale<f64, f64>,
+    YS: Scale<f64, f64>,
+{
+    let (x_min, x_max) = x_scale.range();
+    let (y_min, y_max) = y_scale.range();
+    let x_range_span = x_max - x_min;
+    let y_range_span = y_max - y_min;
+
+    data.iter()
+        .map(|point| {
+            let x_range = x_scale.scale(point.x);
+            let x_pos = if x_range_span == 0.0 {
+                0.5
+            } else {
+                ((x_range - x_min) / x_range_span) as f32
+            };
+
+            let y_range = y_scale.scale(point.y);
+            let y_pos = if y_range_span == 0.0 {
+                0.5
+            } else {
+                1.0 - ((y_range - y_min) / y_range_span) as f32
+            };
+
+            ScatterDrawPoint {
+                x_rel: x_pos,
+                y_rel: y_pos,
+            }
+        })
+        .collect()
+}
+
 /// Render a scatter plot
 ///
 /// # Example
@@ -141,44 +187,99 @@ where
     XS: Scale<f64, f64>,
     YS: Scale<f64, f64>,
 {
-    let (x_min, x_max) = x_scale.range();
-    let (y_min, y_max) = y_scale.range();
-    let x_range_span = x_max - x_min;
-    let y_range_span = y_max - y_min;
-
+    let points = compute_scatter_points(x_scale, y_scale, data);
     let fill = config.fill_color.to_rgba();
+    let opacity = config.opacity;
+    let radius = config.point_radius;
+    let diameter = radius * 2.0;
+    let stroke = config.stroke_color;
+    let stroke_width = config.stroke_width;
 
-    div()
-        .absolute()
-        .inset_0()
-        .children(data.iter().map(|point| {
-            let x_range = x_scale.scale(point.x);
-            let x_pos = ((x_range - x_min) / x_range_span) as f32;
+    canvas(
+        move |_bounds, _window, _cx| {
+            // Prepaint is a no-op: positions are already computed.
+            (points, fill, stroke, diameter)
+        },
+        move |bounds, (points, fill, stroke, diameter), window, _cx| {
+            let width: f32 = bounds.size.width.into();
+            let height: f32 = bounds.size.height.into();
+            let origin_x: f32 = bounds.origin.x.into();
+            let origin_y: f32 = bounds.origin.y.into();
 
-            let y_range = y_scale.scale(point.y);
-            // Invert Y for screen coordinates (bottom-to-top becomes top-to-bottom)
-            let y_pos = 1.0 - ((y_range - y_min) / y_range_span) as f32;
+            for draw_point in &points {
+                let cx = origin_x + draw_point.x_rel * width;
+                let cy = origin_y + draw_point.y_rel * height;
+                let left = cx - radius;
+                let top = cy - radius;
 
-            let diameter = config.point_radius * 2.0;
+                let fill_color = Rgba {
+                    r: fill.r,
+                    g: fill.g,
+                    b: fill.b,
+                    a: fill.a * opacity,
+                };
 
-            let mut circle = div()
-                .absolute()
-                .left(relative(x_pos))
-                .top(relative(y_pos))
-                .w(px(diameter))
-                .h(px(diameter))
-                .ml(px(-config.point_radius))
-                .mt(px(-config.point_radius))
-                .rounded_full()
-                .bg(fill)
-                .opacity(config.opacity);
+                // Draw fill quad as a circle via rounded corners.
+                window.paint_quad(PaintQuad {
+                    bounds: Bounds::new(point(px(left), px(top)), size(px(diameter), px(diameter))),
+                    corner_radii: Corners::all(px(radius)),
+                    background: fill_color.into(),
+                    border_widths: Edges::default(),
+                    border_color: gpui::transparent_black(),
+                    border_style: Default::default(),
+                });
 
-            if let Some(stroke) = &config.stroke_color {
-                circle = circle
-                    .border_color(stroke.to_rgba())
-                    .border(px(config.stroke_width));
+                // Draw stroke if configured.
+                if let Some(stroke_color) = stroke {
+                    let stroke_rgba = stroke_color.to_rgba();
+                    let stroke_diameter = diameter + stroke_width * 2.0;
+                    let stroke_left = cx - radius - stroke_width;
+                    let stroke_top = cy - radius - stroke_width;
+                    window.paint_quad(PaintQuad {
+                        bounds: Bounds::new(
+                            point(px(stroke_left), px(stroke_top)),
+                            size(px(stroke_diameter), px(stroke_diameter)),
+                        ),
+                        corner_radii: Corners::all(px(radius + stroke_width)),
+                        background: stroke_rgba.into(),
+                        border_widths: Edges::default(),
+                        border_color: gpui::transparent_black(),
+                        border_style: Default::default(),
+                    });
+                }
             }
-
-            circle
-        }))
+        },
+    )
+    .size_full()
+    .absolute()
+    .inset_0()
 }
+
+/*
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::scale::LinearScale;
+
+    #[test]
+    fn render_scatter_uses_single_precomputed_pass() {
+        let x_scale = LinearScale::new().domain(0.0, 100.0).range(0.0, 400.0);
+        let y_scale = LinearScale::new().domain(0.0, 100.0).range(300.0, 0.0);
+        let data = vec![
+            ScatterPoint::new(10.0, 20.0),
+            ScatterPoint::new(50.0, 80.0),
+            ScatterPoint::new(90.0, 40.0),
+        ];
+
+        let points = compute_scatter_points(&x_scale, &y_scale, &data);
+
+        assert_eq!(
+            points.len(),
+            data.len(),
+            "all points should be precomputed in one pass"
+        );
+        assert_eq!(points[0].x_rel, 0.1);
+        assert_eq!(points[2].x_rel, 0.9);
+    }
+}
+*/

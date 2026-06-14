@@ -617,7 +617,7 @@ impl RenderOnce for Accordion {
         });
 
         let global_theme = cx.theme();
-        let accordion_theme = AccordionTheme::from(&global_theme);
+        let accordion_theme = AccordionTheme::from(global_theme);
         self.build_with_theme(&accordion_theme)
     }
 }

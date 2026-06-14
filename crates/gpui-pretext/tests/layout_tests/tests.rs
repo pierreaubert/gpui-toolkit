@@ -166,7 +166,7 @@ fn test_layout_next_line_iterates_all() {
     }
     assert!(lines.len() >= 2);
     // All text should be covered
-    let all_text: String = lines.iter().map(|l| l.text.as_str()).collect();
+    let all_text: String = lines.iter().map(|l| l.text.as_ref()).collect();
     assert!(all_text.contains("one"));
     assert!(all_text.contains("five"));
 }
@@ -300,7 +300,8 @@ fn test_pre_wrap_count_matches_lines() {
     let o = pre_wrap_options();
     let text = "first line\nsecond line\nthird line";
     let fast = layout(&prepare(text, &m, &p, &o), 300.0, 20.0, &p);
-    let rich = layout_with_lines(&prepare_with_segments(text, &m, &p, &o), 300.0, 20.0, &p);
+    let prepared_rich = prepare_with_segments(text, &m, &p, &o);
+    let rich = layout_with_lines(&prepared_rich, 300.0, 20.0, &p);
     assert_eq!(fast.line_count, rich.line_count);
     assert_eq!(rich.line_count, 3);
 }
@@ -312,7 +313,8 @@ fn test_pre_wrap_wrapping_plus_hard_breaks() {
     let o = pre_wrap_options();
     // Line 1 wraps due to width, line 2 is a hard break
     let text = "hello world\nfoo";
-    let result = layout_with_lines(&prepare_with_segments(text, &m, &p, &o), 60.0, 20.0, &p);
+    let prepared_rich = prepare_with_segments(text, &m, &p, &o);
+    let result = layout_with_lines(&prepared_rich, 60.0, 20.0, &p);
     // "hello " wraps, then "world\n" is a hard break, then "foo"
     assert!(result.line_count >= 3);
 }
@@ -422,13 +424,8 @@ fn test_optimal_count_matches_lines() {
     let text = "the quick brown fox jumps over the lazy dog";
     for width in [50.0, 100.0, 150.0, 200.0, 300.0] {
         let fast = layout_optimal(&prepare(text, &m, &p, &o), width, 20.0, &p, &kp_params());
-        let rich = layout_with_lines_optimal(
-            &prepare_with_segments(text, &m, &p, &o),
-            width,
-            20.0,
-            &p,
-            &kp_params(),
-        );
+        let prepared_rich = prepare_with_segments(text, &m, &p, &o);
+        let rich = layout_with_lines_optimal(&prepared_rich, width, 20.0, &p, &kp_params());
         assert_eq!(
             fast.line_count, rich.line_count,
             "optimal count mismatch at width {width}"
@@ -533,8 +530,8 @@ fn test_optimal_paragraph_quality() {
     assert!(optimal.line_count >= 2);
 
     // Optimal should have lines — verify text coverage.
-    let greedy_text: String = greedy.lines.iter().map(|l| l.text.as_str()).collect();
-    let optimal_text: String = optimal.lines.iter().map(|l| l.text.as_str()).collect();
+    let greedy_text: String = greedy.lines.iter().map(|l| l.text.as_ref()).collect();
+    let optimal_text: String = optimal.lines.iter().map(|l| l.text.as_ref()).collect();
     assert!(greedy_text.contains("aaa"));
     assert!(optimal_text.contains("aaa"));
     assert!(greedy_text.contains("ggg"));

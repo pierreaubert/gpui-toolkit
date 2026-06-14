@@ -280,7 +280,7 @@ impl RenderOnce for Toolbar {
         });
 
         let global_theme = cx.theme();
-        let theme = ToolbarTheme::from(&global_theme);
+        let theme = ToolbarTheme::from(global_theme);
         let design = crate::design::resolve_design(self.design.clone(), cx);
         self.build_with_theme_and_design(&theme, &design)
     }

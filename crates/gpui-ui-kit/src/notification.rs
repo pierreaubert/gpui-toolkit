@@ -249,7 +249,7 @@ impl Notification {
 impl RenderOnce for Notification {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let global_theme = cx.theme();
-        let theme = NotificationTheme::from(&global_theme);
+        let theme = NotificationTheme::from(global_theme);
         self.build_with_theme(&theme)
     }
 }

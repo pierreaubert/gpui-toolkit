@@ -6,6 +6,8 @@
 
 use std::sync::{Arc, Mutex, OnceLock};
 
+use std::collections::HashMap;
+
 type AccessibilityActionCallback =
     Box<dyn FnMut(&str, IosAccessibilityAction) -> bool + Send + 'static>;
 
@@ -143,10 +145,29 @@ impl IosAccessibilityNode {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug)]
 pub struct IosAccessibilitySnapshot {
     pub root: IosAccessibilityNode,
     pub announcements: Vec<String>,
+    flattened_cache: OnceLock<Arc<Vec<IosAccessibilityNode>>>,
+    id_index_cache: OnceLock<HashMap<String, usize>>,
+}
+
+impl Clone for IosAccessibilitySnapshot {
+    fn clone(&self) -> Self {
+        Self {
+            root: self.root.clone(),
+            announcements: self.announcements.clone(),
+            flattened_cache: OnceLock::new(),
+            id_index_cache: OnceLock::new(),
+        }
+    }
+}
+
+impl PartialEq for IosAccessibilitySnapshot {
+    fn eq(&self, other: &Self) -> bool {
+        self.root == other.root && self.announcements == other.announcements
+    }
 }
 
 impl IosAccessibilitySnapshot {
@@ -154,6 +175,8 @@ impl IosAccessibilitySnapshot {
         Self {
             root,
             announcements: Vec::new(),
+            flattened_cache: OnceLock::new(),
+            id_index_cache: OnceLock::new(),
         }
     }
 
@@ -169,10 +192,10 @@ impl IosAccessibilitySnapshot {
         self.root.validate()
     }
 
-    pub fn flattened_nodes(&self) -> Vec<&IosAccessibilityNode> {
-        fn visit<'a>(node: &'a IosAccessibilityNode, out: &mut Vec<&'a IosAccessibilityNode>) {
+    fn flatten_root(&self) -> Vec<IosAccessibilityNode> {
+        fn visit(node: &IosAccessibilityNode, out: &mut Vec<IosAccessibilityNode>) {
             if node.is_accessible_element() {
-                out.push(node);
+                out.push(node.clone());
             }
             for child in &node.children {
                 visit(child, out);
@@ -182,6 +205,31 @@ impl IosAccessibilitySnapshot {
         let mut nodes = Vec::new();
         visit(&self.root, &mut nodes);
         nodes
+    }
+
+    pub fn flattened_nodes(&self) -> Vec<&IosAccessibilityNode> {
+        let cached = self.flattened_cache.get_or_init(|| Arc::new(self.flatten_root()));
+        cached.iter().collect()
+    }
+
+    pub(crate) fn id_index_map(&self) -> &HashMap<String, usize> {
+        self.id_index_cache.get_or_init(|| {
+            let mut map = HashMap::new();
+            for (idx, node) in self.flattened_nodes().iter().enumerate() {
+                map.insert(node.id.clone(), idx);
+            }
+            map
+        })
+    }
+
+    #[cfg(test)]
+    fn is_flattened_cached(&self) -> bool {
+        self.flattened_cache.get().is_some()
+    }
+
+    #[cfg(test)]
+    fn is_id_index_cached(&self) -> bool {
+        self.id_index_cache.get().is_some()
     }
 }
 
@@ -268,22 +316,23 @@ pub fn compute_accessibility_diff<'a>(
     prev: Option<&'a IosAccessibilitySnapshot>,
     next: &'a IosAccessibilitySnapshot,
 ) -> AccessibilityDiff<'a> {
-    use std::collections::{HashMap, HashSet};
-
     let next_nodes = next.flattened_nodes();
-    let prev_nodes = prev.map(IosAccessibilitySnapshot::flattened_nodes);
+    let next_id_map = next.id_index_map();
 
-    let prev_by_id: HashMap<&str, &IosAccessibilityNode> =
-        prev_nodes.as_ref().map_or_else(HashMap::new, |nodes| {
-            nodes.iter().map(|node| (node.id.as_str(), *node)).collect()
-        });
+    let prev_nodes = prev.map(IosAccessibilitySnapshot::flattened_nodes);
+    let prev_id_map = prev.map(IosAccessibilitySnapshot::id_index_map);
 
     let mut unchanged = Vec::new();
     let mut changed = Vec::new();
     let mut added = Vec::new();
 
-    for next_node in &next_nodes {
-        if let Some(&prev_node) = prev_by_id.get(next_node.id.as_str()) {
+    for &next_node in &next_nodes {
+        let maybe_prev = prev_id_map
+            .as_ref()
+            .and_then(|map| map.get(&next_node.id))
+            .map(|&idx| prev_nodes.as_ref().unwrap()[idx]);
+
+        if let Some(prev_node) = maybe_prev {
             let mut changes = NodeChanges::default();
             if prev_node.label != next_node.label {
                 changes.label_changed = true;
@@ -302,29 +351,34 @@ pub fn compute_accessibility_diff<'a>(
             }
 
             if changes.any() {
-                changed.push((*next_node, changes));
+                changed.push((next_node, changes));
             } else {
-                unchanged.push(*next_node);
+                unchanged.push(next_node);
             }
         } else {
-            added.push(*next_node);
+            added.push(next_node);
         }
     }
 
-    let next_ids: HashSet<&str> = next_nodes.iter().map(|node| node.id.as_str()).collect();
-    let removed: Vec<&str> = prev_by_id
-        .keys()
-        .filter(|id| !next_ids.contains(**id))
-        .copied()
-        .collect();
+    let removed: Vec<&'a str> = prev_id_map
+        .map(|map| {
+            map.keys()
+                .filter(|id| !next_id_map.contains_key(id.as_str()))
+                .map(|id| id.as_str())
+                .collect()
+        })
+        .unwrap_or_default();
 
-    let order_changed = prev_nodes.as_deref().is_none_or(|prev_list| {
-        next_nodes.len() != prev_list.len()
-            || next_nodes
-                .iter()
-                .zip(prev_list.iter())
-                .any(|(next, prev)| next.id != prev.id)
-    });
+    let order_changed = match prev_nodes.as_ref() {
+        None => true,
+        Some(prev_list) => {
+            next_nodes.len() != prev_list.len()
+                || next_nodes
+                    .iter()
+                    .zip(prev_list.iter())
+                    .any(|(next, prev)| next.id != prev.id)
+        }
+    };
 
     AccessibilityDiff {
         unchanged,
@@ -379,216 +433,5 @@ pub fn clear_accessibility_snapshot() {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn snapshot_flattens_accessible_nodes() {
-        let snapshot = IosAccessibilitySnapshot::new(
-            IosAccessibilityNode::new("root", IosAccessibilityRole::Container).child(
-                IosAccessibilityNode::new("play", IosAccessibilityRole::Button)
-                    .label("Play")
-                    .action(IosAccessibilityAction::Activate),
-            ),
-        );
-
-        let nodes = snapshot.flattened_nodes();
-        assert_eq!(nodes.len(), 1);
-        assert_eq!(nodes[0].id, "play");
-    }
-
-    #[test]
-    fn invalid_frames_are_rejected() {
-        let snapshot = IosAccessibilitySnapshot::new(
-            IosAccessibilityNode::new("bad", IosAccessibilityRole::Button)
-                .label("Bad")
-                .frame(IosAccessibilityFrame {
-                    x: 0.0,
-                    y: 0.0,
-                    width: f32::NAN,
-                    height: 20.0,
-                }),
-        );
-
-        assert!(snapshot.validate().is_err());
-    }
-
-    #[test]
-    fn action_callback_dispatches_node_actions() {
-        set_accessibility_action_callback(Some(Box::new(|id, action| {
-            id == "volume" && action == IosAccessibilityAction::Increment
-        })));
-
-        assert!(dispatch_accessibility_action(
-            "volume",
-            IosAccessibilityAction::Increment
-        ));
-        assert!(!dispatch_accessibility_action(
-            "volume",
-            IosAccessibilityAction::Decrement
-        ));
-
-        set_accessibility_action_callback(None);
-    }
-
-    #[test]
-    fn snapshot_is_shared_via_arc() {
-        clear_accessibility_snapshot();
-        let snapshot = IosAccessibilitySnapshot::new(
-            IosAccessibilityNode::new("root", IosAccessibilityRole::Container).child(
-                IosAccessibilityNode::new("play", IosAccessibilityRole::Button)
-                    .label("Play")
-                    .frame(IosAccessibilityFrame {
-                        x: 0.0,
-                        y: 0.0,
-                        width: 44.0,
-                        height: 44.0,
-                    }),
-            ),
-        );
-        set_accessibility_snapshot(snapshot).unwrap();
-
-        let first = accessibility_snapshot().unwrap();
-        let second = accessibility_snapshot().unwrap();
-        assert!(Arc::ptr_eq(&first, &second));
-
-        clear_accessibility_snapshot();
-    }
-
-    fn button(id: &str, label: &str) -> IosAccessibilityNode {
-        IosAccessibilityNode::new(id, IosAccessibilityRole::Button)
-            .label(label)
-            .frame(IosAccessibilityFrame {
-                x: 0.0,
-                y: 0.0,
-                width: 44.0,
-                height: 44.0,
-            })
-    }
-
-    #[test]
-    fn diff_identical_snapshots_is_empty() {
-        let prev = IosAccessibilitySnapshot::new(
-            IosAccessibilityNode::new("root", IosAccessibilityRole::Container)
-                .child(button("a", "A"))
-                .child(button("b", "B")),
-        );
-        let next = IosAccessibilitySnapshot::new(
-            IosAccessibilityNode::new("root", IosAccessibilityRole::Container)
-                .child(button("a", "A"))
-                .child(button("b", "B")),
-        );
-
-        let diff = compute_accessibility_diff(Some(&prev), &next);
-        assert_eq!(diff.unchanged.len(), 2);
-        assert!(diff.changed.is_empty());
-        assert!(diff.added.is_empty());
-        assert!(diff.removed.is_empty());
-        assert!(!diff.order_changed);
-    }
-
-    #[test]
-    fn diff_property_change_only() {
-        let prev = IosAccessibilitySnapshot::new(
-            IosAccessibilityNode::new("root", IosAccessibilityRole::Container)
-                .child(button("a", "A"))
-                .child(button("b", "B")),
-        );
-        let next = IosAccessibilitySnapshot::new(
-            IosAccessibilityNode::new("root", IosAccessibilityRole::Container)
-                .child(button("a", "A changed"))
-                .child(button("b", "B")),
-        );
-
-        let diff = compute_accessibility_diff(Some(&prev), &next);
-        assert_eq!(diff.unchanged.len(), 1);
-        assert_eq!(diff.changed.len(), 1);
-        assert_eq!(diff.changed[0].0.id, "a");
-        assert!(diff.changed[0].1.label_changed);
-        assert!(!diff.changed[0].1.frame_changed);
-        assert!(!diff.changed[0].1.traits_changed);
-        assert!(diff.added.is_empty());
-        assert!(diff.removed.is_empty());
-        assert!(!diff.order_changed);
-    }
-
-    #[test]
-    fn diff_adds_removes_and_reorders() {
-        let prev = IosAccessibilitySnapshot::new(
-            IosAccessibilityNode::new("root", IosAccessibilityRole::Container)
-                .child(button("a", "A"))
-                .child(button("b", "B")),
-        );
-        let next = IosAccessibilitySnapshot::new(
-            IosAccessibilityNode::new("root", IosAccessibilityRole::Container)
-                .child(button("c", "C"))
-                .child(button("a", "A")),
-        );
-
-        let diff = compute_accessibility_diff(Some(&prev), &next);
-        assert_eq!(diff.unchanged.len(), 1);
-        assert_eq!(diff.unchanged[0].id, "a");
-        assert!(diff.changed.is_empty());
-        assert_eq!(diff.added.len(), 1);
-        assert_eq!(diff.added[0].id, "c");
-        assert_eq!(diff.removed.len(), 1);
-        assert_eq!(diff.removed[0], "b");
-        assert!(diff.order_changed);
-    }
-
-    #[test]
-    fn diff_detects_frame_change() {
-        let prev = IosAccessibilitySnapshot::new(
-            IosAccessibilityNode::new("root", IosAccessibilityRole::Container)
-                .child(button("a", "A")),
-        );
-        let next = IosAccessibilitySnapshot::new(
-            IosAccessibilityNode::new("root", IosAccessibilityRole::Container).child(
-                IosAccessibilityNode::new("a", IosAccessibilityRole::Button)
-                    .label("A")
-                    .frame(IosAccessibilityFrame {
-                        x: 10.0,
-                        y: 0.0,
-                        width: 44.0,
-                        height: 44.0,
-                    }),
-            ),
-        );
-
-        let diff = compute_accessibility_diff(Some(&prev), &next);
-        assert_eq!(diff.changed.len(), 1);
-        assert!(diff.changed[0].1.frame_changed);
-        assert!(!diff.order_changed);
-    }
-
-    #[test]
-    fn diff_detects_traits_change() {
-        let prev = IosAccessibilitySnapshot::new(
-            IosAccessibilityNode::new("root", IosAccessibilityRole::Container)
-                .child(button("a", "A")),
-        );
-        let mut next_node = button("a", "A");
-        next_node.enabled = false;
-        let next = IosAccessibilitySnapshot::new(
-            IosAccessibilityNode::new("root", IosAccessibilityRole::Container).child(next_node),
-        );
-
-        let diff = compute_accessibility_diff(Some(&prev), &next);
-        assert_eq!(diff.changed.len(), 1);
-        assert!(diff.changed[0].1.traits_changed);
-        assert!(!diff.changed[0].1.label_changed);
-    }
-
-    #[test]
-    fn diff_first_snapshot_treats_all_nodes_as_added() {
-        let next = IosAccessibilitySnapshot::new(
-            IosAccessibilityNode::new("root", IosAccessibilityRole::Container)
-                .child(button("a", "A")),
-        );
-
-        let diff = compute_accessibility_diff(None, &next);
-        assert_eq!(diff.added.len(), 1);
-        assert!(diff.unchanged.is_empty());
-        assert!(diff.order_changed);
-    }
-}
+#[path = "accessibility/tests.rs"]
+mod tests;

@@ -287,7 +287,7 @@ impl RenderOnce for TreeView {
         });
 
         let global_theme = cx.theme();
-        let theme = TreeViewTheme::from(&global_theme);
+        let theme = TreeViewTheme::from(global_theme);
         self.build_with_theme(&theme)
     }
 }

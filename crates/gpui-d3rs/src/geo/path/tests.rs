@@ -98,6 +98,35 @@ fn test_render_into_matches_render() {
 }
 
 #[test]
+fn test_render_cow_matches_render_and_borrows_empty() {
+    use std::borrow::Cow;
+
+    let proj = Equirectangular::new().scale(100.0).translate(0.0, 0.0);
+    let path = GeoPath::new(proj);
+
+    let geometries = [
+        GeoJsonGeometry::Point(0.0, 0.0),
+        GeoJsonGeometry::LineString(vec![(0.0, 0.0), (10.0, 10.0), (20.0, 0.0)]),
+        GeoJsonGeometry::MultiLineString(vec![]),
+    ];
+
+    for geometry in &geometries {
+        let expected = path.render(geometry);
+        let cow = path.render_cow(geometry);
+        assert_eq!(
+            cow.as_ref(),
+            expected.as_str(),
+            "render_cow should match render for {geometry:?}"
+        );
+        if expected.is_empty() {
+            assert!(matches!(cow, Cow::Borrowed(_)), "empty geometry should borrow");
+        } else {
+            assert!(matches!(cow, Cow::Owned(_)), "non-empty geometry should own");
+        }
+    }
+}
+
+#[test]
 fn test_geo_path_project_coords() {
     let proj = Equirectangular::new().scale(100.0).translate(500.0, 300.0);
     let path = GeoPath::new(proj);

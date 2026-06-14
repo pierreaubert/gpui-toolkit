@@ -4,10 +4,11 @@ use anyhow::Result;
 use gpui::prelude::*;
 use gpui::{AnyElement, IntoElement, div, px};
 use gpui_ui_kit::{Text, TextSize};
+use std::sync::Arc;
 
 pub(super) fn render_chart_error(
     err: impl std::fmt::Display,
-    theme: gpui_ui_kit::theme::Theme,
+    theme: Arc<gpui_ui_kit::theme::Theme>,
 ) -> AnyElement {
     div()
         .w(px(320.0))
@@ -26,7 +27,7 @@ pub(super) fn render_chart_error(
 
 pub(super) fn render_chart_result<E, Err>(
     result: Result<E, Err>,
-    theme: gpui_ui_kit::theme::Theme,
+    theme: Arc<gpui_ui_kit::theme::Theme>,
 ) -> AnyElement
 where
     E: IntoElement,

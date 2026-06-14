@@ -264,11 +264,20 @@ impl Render for Showcase {
         let slider_value = self.slider_value;
         let current_section = self.current_section;
 
-        // Get theme colors
-        let theme = cx.theme();
-        let bg_color = theme.background;
-        let text_color = theme.text_secondary;
-        let accent_color = theme.accent;
+        // Get theme colors. Scope the borrow so the mutable `cx` calls below
+        // do not conflict with the shared theme reference.
+        let (bg_color, text_color, accent_color, border_color, text_muted_color, surface_hover_color, surface_color) = {
+            let theme = cx.theme();
+            (
+                theme.background,
+                theme.text_secondary,
+                theme.accent,
+                theme.border,
+                theme.text_muted,
+                theme.surface_hover,
+                theme.surface,
+            )
+        };
 
         // Get translations
         let title = cx.t(TranslationKey::AppTitle);
@@ -369,7 +378,7 @@ impl Render for Showcase {
 
         // Build navigation sidebar items grouped by category
         let mut nav_items = div().flex().flex_col().py_4().gap_1();
-        let border_color = theme.border;
+        let border_color = border_color;
 
         for group in ShowcaseGroup::all() {
             // Group header
@@ -380,7 +389,7 @@ impl Render for Showcase {
                     .pb_1()
                     .text_xs()
                     .font_weight(FontWeight::BOLD)
-                    .text_color(theme.text_muted)
+                    .text_color(text_muted_color)
                     .child(group.label().to_uppercase()),
             );
 
@@ -408,7 +417,7 @@ impl Render for Showcase {
                         .text_color(rgba(0xffffffff))
                         .font_weight(FontWeight::SEMIBOLD);
                 } else {
-                    let hover_bg = theme.surface_hover;
+                    let hover_bg = surface_hover_color;
                     item = item.text_color(text_color).hover(move |s| s.bg(hover_bg));
                 }
 
@@ -438,9 +447,9 @@ impl Render for Showcase {
         let current_group = current_section.group();
         let group_description = current_group.description();
         let group_label = current_group.label();
-        let info_bg = theme.surface;
-        let info_border = theme.border;
-        let info_text = theme.text_muted;
+        let info_bg = surface_color;
+        let info_border = border_color;
+        let info_text = text_muted_color;
 
         let group_info = div()
             .mb_4()
@@ -650,8 +659,13 @@ impl Showcase {
 
 impl Showcase {
     fn render_workflow_section(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = cx.theme();
         let entity = self.entity.clone();
+
+        // Scope the theme borrow so the mutable `cx.new` call below does not conflict.
+        let (text_secondary, surface, border, background) = {
+            let theme = cx.theme();
+            (theme.text_secondary, theme.surface, theme.border, theme.background)
+        };
 
         // Create a WorkflowCanvas entity on-the-fly from the stored graph
         let graph = self.workflow_graph.clone();
@@ -668,7 +682,7 @@ impl Showcase {
             .child(self.section_header("Workflow Canvas"))
             .child(
                 Text::new("A node-based workflow editor with drag-and-drop connections, panning, and zooming.")
-                    .color(theme.text_secondary)
+                    .color(text_secondary)
             )
 
             // Canvas Container
@@ -677,9 +691,9 @@ impl Showcase {
                     .flex_1()
                     .flex()
                     .flex_col()
-                    .bg(theme.surface)
+                    .bg(surface)
                     .border_1()
-                    .border_color(theme.border)
+                    .border_color(border)
                     .rounded_xl()
                     .overflow_hidden()
                     .h(px(500.0))
@@ -692,8 +706,8 @@ impl Showcase {
                             .justify_between()
                             .p_3()
                             .border_b_1()
-                            .border_color(theme.border)
-                            .bg(theme.surface)
+                            .border_color(border)
+                            .bg(surface)
                             .child(
                                 HStack::new()
                                     .spacing(StackSpacing::Sm)
@@ -741,9 +755,9 @@ impl Showcase {
                     .child(
                         div()
                             .p_2()
-                            .bg(theme.background)
+                            .bg(background)
                             .border_t_1()
-                            .border_color(theme.border)
+                            .border_color(border)
                             .child(
                                 Text::new("Drag nodes to move. Drag from ports to connect. Scroll to zoom. Middle-click to pan.")
                                     .size(TextSize::Xs)

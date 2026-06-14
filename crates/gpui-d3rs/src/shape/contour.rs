@@ -13,6 +13,9 @@ mod heatmap_element;
 mod misc;
 mod render;
 
+// #[cfg(test)]
+// mod heatmap_tests;
+
 pub use contour_band_element::*;
 pub use contour_config::*;
 pub use contour_element::*;

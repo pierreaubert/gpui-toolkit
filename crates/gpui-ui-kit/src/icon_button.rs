@@ -447,21 +447,22 @@ impl RenderOnce for IconButton {
                 .maybe_state(self.disabled, AriaState::Disabled),
         });
 
-        let global_theme = cx.theme();
-        let icon_theme = IconButtonTheme::from(&global_theme);
         // Capture pieces needed for keyboard activation before `self` is
-        // moved into `build_with_theme`. Same convention as button.rs:
-        // direct `build_with_theme` callers bypass focus registration just
-        // like they bypass accessibility registration today (per
-        // gpui-ui-kit/CLAUDE.md).
+        // moved into `build_with_theme`. Resolve design and focus handle
+        // first because they need `&mut App`; theme is borrowed afterwards.
+        // Same convention as button.rs: direct `build_with_theme` callers
+        // bypass focus registration just like they bypass accessibility
+        // registration today (per gpui-ui-kit/CLAUDE.md).
         let focus_handle = icon_button_focus_handle(&self.id, cx);
-        let focus_ring_color = icon_theme.accent;
         let disabled = self.disabled;
         let on_click_for_kbd = self.on_click.clone();
-
         let design = crate::design::resolve_design(self.design.clone(), cx);
+
+        let global_theme = cx.theme();
+        let icon_theme = IconButtonTheme::from(global_theme.as_ref());
+        let focus_ring_color = icon_theme.accent;
         let mut el = self
-            .build_with_theme_and_design(&global_theme, &icon_theme, &design)
+            .build_with_theme_and_design(global_theme.as_ref(), &icon_theme, &design)
             .track_focus(&focus_handle)
             // CSS `:focus-visible` analogue — only renders when reached via
             // keyboard. Layered 2px accent border on top of the (optional)

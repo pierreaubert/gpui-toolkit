@@ -478,7 +478,7 @@ impl Default for Wizard {
 impl RenderOnce for Wizard {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let global_theme = cx.theme();
-        let wizard_theme = WizardTheme::from(&global_theme);
+        let wizard_theme = WizardTheme::from(global_theme);
         self.build_with_theme_and_density(
             &wizard_theme,
             WizardStepIndicatorDensity::from_window(window),

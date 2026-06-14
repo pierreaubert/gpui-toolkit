@@ -172,8 +172,9 @@ impl Text {
 
     /// Build into element with theme from App context
     pub fn build_with_cx(self, cx: &App) -> Div {
-        let theme = self.theme.clone().unwrap_or_else(|| cx.theme());
-        self.build_with_theme(&theme)
+        let mut this = self;
+        let theme = this.theme.take().unwrap_or_else(|| (*cx.theme()).clone());
+        this.build_with_theme(&theme)
     }
 
     /// Build into element with explicit theme
@@ -213,7 +214,7 @@ impl Text {
 
 impl RenderOnce for Text {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let theme = self.theme.clone().unwrap_or_else(|| cx.theme());
+        let theme = self.theme.clone().unwrap_or_else(|| (*cx.theme()).clone());
         self.build_with_theme(&theme)
     }
 }

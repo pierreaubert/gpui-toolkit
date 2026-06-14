@@ -21,6 +21,8 @@ mod child_info;
 mod misc;
 mod resolve;
 mod solve;
+#[cfg(test)]
+mod tests;
 mod types;
 
 pub use solve::*;

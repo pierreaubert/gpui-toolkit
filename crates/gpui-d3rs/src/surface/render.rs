@@ -10,9 +10,10 @@ mod misc;
 mod projection_impl;
 mod surface_config;
 mod surface_element;
-#[cfg(test)]
-mod tests;
 
 pub use color_scale_type::*;
 pub use surface_config::*;
 pub use surface_element::*;
+
+#[cfg(test)]
+mod tests;

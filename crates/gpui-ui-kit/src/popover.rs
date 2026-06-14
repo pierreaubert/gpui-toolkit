@@ -188,7 +188,7 @@ impl Popover {
 impl RenderOnce for Popover {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let global_theme = cx.theme();
-        let theme = PopoverTheme::from(&global_theme);
+        let theme = PopoverTheme::from(global_theme);
         self.build_with_theme(&theme)
     }
 }

@@ -17,12 +17,14 @@ use std::{
     sync::Arc,
 };
 
-pub struct IosPlatform(Mutex<IosPlatformState>);
-
-pub(crate) struct IosPlatformState {
+pub struct IosPlatform {
     background_executor: BackgroundExecutor,
     foreground_executor: ForegroundExecutor,
     text_system: Arc<dyn PlatformTextSystem>,
+    state: Mutex<IosPlatformState>,
+}
+
+pub(crate) struct IosPlatformState {
     finish_launching: Option<Box<dyn FnOnce()>>,
     quit_callback: Option<Box<dyn FnMut()>>,
     open_urls_callback: Option<Box<dyn FnMut(Vec<String>)>>,
@@ -38,17 +40,21 @@ impl Default for IosPlatform {
 impl IosPlatform {
     pub fn new() -> Self {
         let dispatcher = Arc::new(IosDispatcher);
+        let background_executor = BackgroundExecutor::new(dispatcher.clone());
+        let foreground_executor = ForegroundExecutor::new(dispatcher);
         let text_system: Arc<dyn PlatformTextSystem> = Arc::new(super::IosTextSystem::new());
 
-        Self(Mutex::new(IosPlatformState {
-            background_executor: BackgroundExecutor::new(dispatcher.clone()),
-            foreground_executor: ForegroundExecutor::new(dispatcher),
+        Self {
+            background_executor,
+            foreground_executor,
             text_system,
-            finish_launching: None,
-            quit_callback: None,
-            open_urls_callback: None,
-            thermal_state_callback: None,
-        }))
+            state: Mutex::new(IosPlatformState {
+                finish_launching: None,
+                quit_callback: None,
+                open_urls_callback: None,
+                thermal_state_callback: None,
+            }),
+        }
     }
 }
 
@@ -66,20 +72,22 @@ impl PlatformKeyboardLayout for IosKeyboardLayout {
 
 impl Platform for IosPlatform {
     fn background_executor(&self) -> BackgroundExecutor {
-        self.0.lock().background_executor.clone()
+        self.background_executor.clone()
     }
 
     fn foreground_executor(&self) -> ForegroundExecutor {
-        self.0.lock().foreground_executor.clone()
+        self.foreground_executor.clone()
     }
 
     fn text_system(&self) -> Arc<dyn PlatformTextSystem> {
-        self.0.lock().text_system.clone()
+        self.text_system.clone()
     }
 
     fn run(&self, on_finish_launching: Box<dyn 'static + FnOnce()>) {
-        self.0.lock().finish_launching = Some(on_finish_launching);
-        if let Some(callback) = self.0.lock().finish_launching.take() {
+        let mut state = self.state.lock();
+        state.finish_launching = Some(on_finish_launching);
+        if let Some(callback) = state.finish_launching.take() {
+            drop(state);
             super::ffi::set_finish_launching_callback(callback);
         }
         log::info!("GPUI iOS: Platform::run() completed, waiting for app delegate callback");
@@ -154,7 +162,7 @@ impl Platform for IosPlatform {
     }
 
     fn on_open_urls(&self, callback: Box<dyn FnMut(Vec<String>)>) {
-        self.0.lock().open_urls_callback = Some(callback);
+        self.state.lock().open_urls_callback = Some(callback);
     }
 
     fn register_url_scheme(&self, _url: &str) -> Task<Result<()>> {
@@ -189,7 +197,7 @@ impl Platform for IosPlatform {
     fn open_with_system(&self, _path: &Path) {}
 
     fn on_quit(&self, callback: Box<dyn FnMut()>) {
-        self.0.lock().quit_callback = Some(callback);
+        self.state.lock().quit_callback = Some(callback);
     }
 
     fn on_reopen(&self, _callback: Box<dyn FnMut()>) {}
@@ -273,7 +281,7 @@ impl Platform for IosPlatform {
     }
 
     fn on_thermal_state_change(&self, callback: Box<dyn FnMut()>) {
-        self.0.lock().thermal_state_callback = Some(callback);
+        self.state.lock().thermal_state_callback = Some(callback);
     }
 
     fn keyboard_layout(&self) -> Box<dyn PlatformKeyboardLayout> {

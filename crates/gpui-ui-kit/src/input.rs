@@ -67,8 +67,8 @@ use gpui::prelude::{
     InteractiveElement, IntoElement, ParentElement, RenderOnce, StatefulInteractiveElement, Styled,
 };
 use gpui::{
-    App, ClipboardItem, ElementId, FocusHandle, FontWeight, MouseButton, Rgba, SharedString,
-    Window, div, px,
+    App, AppContext, ClipboardItem, Context, ElementId, Entity, FocusHandle, FontWeight,
+    MouseButton, Render, Rgba, SharedString, WeakEntity, Window, div, px,
 };
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -82,6 +82,13 @@ thread_local! {
 }
 thread_local! {
     static TEXT_ORIGINS: RefCell<HashMap<ElementId, f32>> = RefCell::new(HashMap::new());
+}
+thread_local! {
+    // Cached render entities so repeated renders reuse the same GPUI entity.
+    // Stored as weak references so the entities can be dropped when no longer
+    // referenced by the element tree, avoiding leaked-handle panics in tests.
+    static INPUT_ENTITIES: RefCell<HashMap<ElementId, WeakEntity<InputEntity>>> =
+        RefCell::new(HashMap::new());
 }
 
 mod cleanup;
@@ -118,13 +125,13 @@ pub struct Input {
     border_color: Option<Rgba>,
     placeholder_color: Option<Rgba>,
     /// Called when value is confirmed (Enter pressed)
-    on_change: Option<Box<dyn Fn(&str, &mut Window, &mut App) + 'static>>,
+    on_change: Option<Rc<dyn Fn(&str, &mut Window, &mut App) + 'static>>,
     /// Called when editing starts (click on input)
-    on_edit_start: Option<Box<dyn Fn(&mut Window, &mut App) + 'static>>,
+    on_edit_start: Option<Rc<dyn Fn(&mut Window, &mut App) + 'static>>,
     /// Called when editing ends (Enter = Some(value), Escape = None)
-    on_edit_end: Option<Box<dyn Fn(Option<String>, &mut Window, &mut App) + 'static>>,
+    on_edit_end: Option<Rc<dyn Fn(Option<String>, &mut Window, &mut App) + 'static>>,
     /// Called on every text change during editing (for live updates)
-    on_text_change: Option<Box<dyn Fn(String, &mut Window, &mut App) + 'static>>,
+    on_text_change: Option<Rc<dyn Fn(String, &mut Window, &mut App) + 'static>>,
     /// Focus handle for this input
     focus_handle: Option<FocusHandle>,
     aria_label: Option<SharedString>,
@@ -252,13 +259,13 @@ impl Input {
 
     /// Set change handler (called when input value is confirmed with Enter)
     pub fn on_change(mut self, handler: impl Fn(&str, &mut Window, &mut App) + 'static) -> Self {
-        self.on_change = Some(Box::new(handler));
+        self.on_change = Some(Rc::new(handler));
         self
     }
 
     /// Set edit start handler (called when user clicks on input to edit)
     pub fn on_edit_start(mut self, handler: impl Fn(&mut Window, &mut App) + 'static) -> Self {
-        self.on_edit_start = Some(Box::new(handler));
+        self.on_edit_start = Some(Rc::new(handler));
         self
     }
 
@@ -268,7 +275,7 @@ impl Input {
         mut self,
         handler: impl Fn(Option<String>, &mut Window, &mut App) + 'static,
     ) -> Self {
-        self.on_edit_end = Some(Box::new(handler));
+        self.on_edit_end = Some(Rc::new(handler));
         self
     }
 
@@ -277,7 +284,7 @@ impl Input {
         mut self,
         handler: impl Fn(String, &mut Window, &mut App) + 'static,
     ) -> Self {
-        self.on_text_change = Some(Box::new(handler));
+        self.on_text_change = Some(Rc::new(handler));
         self
     }
 
@@ -294,485 +301,537 @@ impl Input {
     }
 }
 
-impl RenderOnce for Input {
-    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
-        // Register in accessibility tree
-        let effective_label = self
-            .aria_label
-            .clone()
-            .or_else(|| self.label.clone())
-            .or_else(|| self.placeholder.clone())
-            .unwrap_or_default();
-        cx.register_accessible(AccessibilityNode {
-            element_id: self.id.clone(),
-            label: effective_label,
-            props: AriaProps::with_role(self.aria_role.unwrap_or(AriaRole::Textbox))
-                .maybe_state(self.disabled, AriaState::Disabled),
-        });
+fn render_input(props: &Input, window: &mut Window, cx: &mut App) -> impl IntoElement {
+    // Build the effective label from references to avoid cloning through
+    // the whole fallback chain on every render.
+    let effective_label: Option<&SharedString> = props
+        .aria_label
+        .as_ref()
+        .or(props.label.as_ref())
+        .or(props.placeholder.as_ref());
+    cx.register_accessible(AccessibilityNode {
+        element_id: props.id.clone(),
+        label: effective_label.cloned().unwrap_or_default(),
+        props: AriaProps::with_role(props.aria_role.unwrap_or(AriaRole::Textbox))
+            .maybe_state(props.disabled, AriaState::Disabled),
+    });
 
-        let global_theme = cx.theme();
-        let theme = InputTheme::from(&global_theme);
+    let global_theme = cx.theme();
+    let theme = InputTheme::from(global_theme.as_ref());
 
-        let (py, _text_size_class) = match self.size {
-            InputSize::Xs => (px(2.0), "text_xs"),
-            InputSize::Sm => (px(4.0), "text_xs"),
-            InputSize::Md => (px(8.0), "text_sm"),
-            InputSize::Lg => (px(12.0), "text_base"),
-        };
+    let (py, _text_size_class) = match props.size {
+        InputSize::Xs => (px(2.0), "text_xs"),
+        InputSize::Sm => (px(4.0), "text_xs"),
+        InputSize::Md => (px(8.0), "text_sm"),
+        InputSize::Lg => (px(12.0), "text_base"),
+    };
 
-        let has_error = self.error.is_some();
-        let disabled = self.disabled;
-        let readonly = self.readonly;
-        let current_value = self.value.clone();
+    let has_error = props.error.is_some();
+    let disabled = props.disabled;
+    let readonly = props.readonly;
+    let current_value = props.value.clone();
 
-        // Use provided focus handle, or get/create one from the registry.
-        // The registry ensures the same focus handle is reused across renders,
-        // which is critical since Input is a RenderOnce component.
-        let focus_handle = self.focus_handle.unwrap_or_else(|| {
-            FOCUS_HANDLES.with(|handles| {
-                let mut handles = handles.borrow_mut();
-                handles
-                    .entry(self.id.clone())
-                    .or_insert_with(|| cx.focus_handle())
-                    .clone()
-            })
-        });
-
-        // Determine editing state from focus
-        // The input is "editing" when it has focus
-        let is_focused = focus_handle.is_focused(window);
-
-        // When focused, we're always in editing mode
-        let editing = is_focused && !disabled && !readonly;
-
-        // Get or create edit state from registry (persists across renders)
-        let edit_state = EDIT_STATES.with(|states| {
-            let mut states = states.borrow_mut();
-            states
-                .entry(self.id.clone())
-                .or_insert_with(|| Rc::new(RefCell::new(EditState::default())))
+    // Use provided focus handle, or get/create one from the registry.
+    // The registry ensures the same focus handle is reused across renders,
+    // which is critical since Input is a RenderOnce component.
+    let focus_handle = props.focus_handle.clone().unwrap_or_else(|| {
+        FOCUS_HANDLES.with(|handles| {
+            let mut handles = handles.borrow_mut();
+            handles
+                .entry(props.id.clone())
+                .or_insert_with(|| cx.focus_handle())
                 .clone()
+        })
+    });
+
+    // Determine editing state from focus
+    // The input is "editing" when it has focus
+    let is_focused = focus_handle.is_focused(window);
+
+    // When focused, we're always in editing mode
+    let editing = is_focused && !disabled && !readonly;
+
+    // Get or create edit state from registry (persists across renders)
+    let edit_state = EDIT_STATES.with(|states| {
+        let mut states = states.borrow_mut();
+        states
+            .entry(props.id.clone())
+            .or_insert_with(|| Rc::new(RefCell::new(EditState::default())))
+            .clone()
+    });
+
+    // Get display state from edit_state
+    let state = edit_state.borrow();
+    let selection_anchor = if editing {
+        state.selection_anchor
+    } else {
+        None
+    };
+    let cursor_pos = state.cursor;
+    let _is_dragging = state.is_dragging;
+    // When editing, display the internal state.text; otherwise display props value
+    let edit_text = if editing && state.editing {
+        state.text.clone()
+    } else {
+        current_value.to_string()
+    };
+    drop(state);
+
+    let border_color = if has_error {
+        theme.error
+    } else if editing {
+        theme.border_focus
+    } else {
+        props.border_color.unwrap_or(theme.border)
+    };
+
+    let mut container = div().flex().flex_col().gap_1();
+
+    // Label
+    if let Some(label) = &props.label {
+        container = container.child(
+            div()
+                .font_family(global_theme.font_family.clone())
+                .text_sm()
+                .text_color(theme.label)
+                .font_weight(FontWeight::MEDIUM)
+                .child(label.clone()),
+        );
+    }
+
+    // Create a unique ID for the input field.
+    // Use a stable (id, "field") tuple to avoid a format! allocation on every render.
+    let field_id = ElementId::from((props.id.clone(), "field"));
+
+    // Input wrapper
+    let mut input_wrapper = div()
+        .id(props.id.clone())
+        .font_family(global_theme.font_family.clone())
+        .track_focus(&focus_handle)
+        .flex()
+        .items_center()
+        .gap_2()
+        .px_3()
+        .py(py)
+        .rounded_md()
+        .border_1()
+        .border_color(border_color)
+        .focusable();
+
+    // Apply variant styling
+    match props.variant {
+        InputVariant::Default => {
+            input_wrapper = input_wrapper.bg(props.bg_color.unwrap_or(theme.background));
+        }
+        InputVariant::Filled => {
+            input_wrapper = input_wrapper
+                .bg(props.bg_color.unwrap_or(theme.filled_bg))
+                .border_color(theme.transparent);
+        }
+        InputVariant::Flushed => {
+            input_wrapper = input_wrapper
+                .bg(theme.transparent)
+                .border_0()
+                .border_b_1()
+                .border_color(border_color)
+                .rounded_none();
+        }
+    }
+
+    let border_hover = theme.border_hover;
+    if disabled {
+        input_wrapper = input_wrapper.opacity(0.5).cursor_not_allowed();
+    } else if !readonly {
+        input_wrapper = input_wrapper
+            .cursor_text()
+            .hover(move |s| s.border_color(border_hover));
+    }
+
+    let placeholder_color = props.placeholder_color.unwrap_or(theme.placeholder);
+    let text_color = props.text_color.unwrap_or(theme.text);
+    let selection_bg = theme.selection_bg;
+    let cursor_color = theme.cursor;
+
+    // Clone callback Rcs for sharing
+    let on_change_rc = props.on_change.clone();
+    let on_edit_start_rc = props.on_edit_start.clone();
+    let on_edit_end_rc = props.on_edit_end.clone();
+    let on_text_change_rc = props.on_text_change.clone();
+
+    // Add click handler - focus and start editing
+    // Double-click selects all text
+    // Single click positions cursor, drag selects text
+    if !disabled && !readonly {
+        let focus_handle_for_click = focus_handle.clone();
+        let edit_state_for_click = edit_state.clone();
+        let value_for_click = current_value.clone();
+        let on_edit_start_click = on_edit_start_rc.clone();
+        let edit_text_for_click = edit_text.clone();
+        let id_for_click = props.id.clone();
+
+        input_wrapper =
+            input_wrapper.on_mouse_down(MouseButton::Left, move |event, window, cx| {
+                // Focus the input
+                window.focus(&focus_handle_for_click, cx);
+
+                let mut state = edit_state_for_click.borrow_mut();
+
+                // Ensure editing state is initialised
+                if !state.editing {
+                    *state = EditState::new(value_for_click.as_ref());
+                }
+
+                // Double-click: select all text
+                if event.click_count == 2 {
+                    state.select_all();
+                    drop(state);
+                    window.refresh();
+                    return;
+                }
+
+                // Calculate cursor position from click.
+                // event.position is window-relative; we record the window-x of this
+                // click alongside the char position so that on_mouse_move can compute
+                // positions relative to the same origin.
+                let text_len = edit_text_for_click.chars().count();
+                let char_width = 8.0_f32;
+                let click_x: f32 = event.position.x.into();
+
+                // Retrieve stored text origin (set by a previous click on this element).
+                // On the very first click we have no stored origin, so we derive it:
+                // origin = click_x - char_pos * char_width, clamped so origin >= 0.
+                let stored_origin =
+                    TEXT_ORIGINS.with(|o| o.borrow().get(&id_for_click).copied());
+                let char_pos_f = click_x / char_width;
+                let origin = stored_origin.unwrap_or_else(|| {
+                    // Estimate: assume cursor lands at char_pos_f rounded
+                    let cp = char_pos_f.round().min(text_len as f32);
+                    (click_x - cp * char_width).max(0.0)
+                });
+                // Store the origin for future mouse-move events
+                TEXT_ORIGINS.with(|o| {
+                    o.borrow_mut().insert(id_for_click.clone(), origin);
+                });
+
+                let char_pos =
+                    (((click_x - origin) / char_width).round() as usize).min(text_len);
+
+                // Single click: position cursor and begin drag selection
+                let was_editing = state.editing;
+                state.editing = true;
+                state.start_selection(char_pos);
+                drop(state);
+
+                if !was_editing && let Some(ref handler) = on_edit_start_click {
+                    handler(window, cx);
+                }
+                window.refresh();
+            });
+
+        // Mouse move handler for drag selection
+        let edit_state_for_move = edit_state.clone();
+        let edit_text_for_move = edit_text.clone();
+        let id_for_move = props.id.clone();
+
+        input_wrapper = input_wrapper.on_mouse_move(move |event, window, _cx| {
+            let mut state = edit_state_for_move.borrow_mut();
+            if state.is_dragging && state.editing {
+                let text_len = edit_text_for_move.chars().count();
+                let char_width = 8.0_f32;
+                let move_x: f32 = event.position.x.into();
+                let origin =
+                    TEXT_ORIGINS.with(|o| o.borrow().get(&id_for_move).copied().unwrap_or(0.0));
+                let char_pos =
+                    (((move_x - origin) / char_width).round() as usize).min(text_len);
+                state.update_selection(char_pos);
+                drop(state);
+                window.refresh();
+            }
         });
 
-        // Get display state from edit_state
-        let state = edit_state.borrow();
-        let selection_anchor = if editing {
-            state.selection_anchor
-        } else {
-            None
-        };
-        let cursor_pos = state.cursor;
-        let _is_dragging = state.is_dragging;
-        // When editing, display the internal state.text; otherwise display props value
-        let edit_text = if editing && state.editing {
-            state.text.clone()
-        } else {
-            current_value.to_string()
-        };
-        drop(state);
+        // Mouse up handler to end drag selection
+        let edit_state_for_up = edit_state.clone();
 
-        let border_color = if has_error {
-            theme.error
-        } else if editing {
-            theme.border_focus
-        } else {
-            self.border_color.unwrap_or(theme.border)
-        };
+        input_wrapper =
+            input_wrapper.on_mouse_up(MouseButton::Left, move |_event, window, _cx| {
+                let mut state = edit_state_for_up.borrow_mut();
+                if state.is_dragging {
+                    state.end_selection();
+                    drop(state);
+                    window.refresh();
+                }
+            });
+    }
 
-        let mut container = div().flex().flex_col().gap_1();
+    // Add keyboard event handling
+    if !disabled && !readonly {
+        let edit_state_for_key = edit_state.clone();
+        let on_edit_end_key = on_edit_end_rc.clone();
+        let on_text_change_key = on_text_change_rc.clone();
+        let on_change_key = on_change_rc.clone();
+        let focus_handle_for_key = focus_handle.clone();
+        let current_value_for_key = current_value.clone();
 
-        // Label
-        if let Some(label) = &self.label {
-            container = container.child(
-                div()
-                    .font_family(global_theme.font_family.clone())
-                    .text_sm()
-                    .text_color(theme.label)
-                    .font_weight(FontWeight::MEDIUM)
-                    .child(label.clone()),
-            );
-        }
-
-        // Create a unique ID for the input field.
-        // Use a stable (id, "field") tuple to avoid a format! allocation on every render.
-        let field_id = ElementId::from((self.id.clone(), "field"));
-
-        // Input wrapper
-        let mut input_wrapper = div()
-            .id(self.id.clone())
-            .font_family(global_theme.font_family.clone())
-            .track_focus(&focus_handle)
-            .flex()
-            .items_center()
-            .gap_2()
-            .px_3()
-            .py(py)
-            .rounded_md()
-            .border_1()
-            .border_color(border_color)
-            .focusable();
-
-        // Apply variant styling
-        match self.variant {
-            InputVariant::Default => {
-                input_wrapper = input_wrapper.bg(self.bg_color.unwrap_or(theme.background));
+        input_wrapper = input_wrapper.on_key_down(move |event, window, cx| {
+            if !focus_handle_for_key.is_focused(window) {
+                return;
             }
-            InputVariant::Filled => {
-                input_wrapper = input_wrapper
-                    .bg(self.bg_color.unwrap_or(theme.filled_bg))
-                    .border_color(theme.transparent);
+            cx.stop_propagation();
+
+            let key = event.keystroke.key.as_str();
+            let ctrl = event.keystroke.modifiers.control;
+            let cmd = event.keystroke.modifiers.platform;
+            let alt = event.keystroke.modifiers.alt;
+            let shift = event.keystroke.modifiers.shift;
+
+            let mut state = edit_state_for_key.borrow_mut();
+            if !state.editing {
+                state.text = current_value_for_key.to_string();
+                state.editing = true;
+                state.cursor = state.text.chars().count();
+                state.selection_anchor = Some(0);
             }
-            InputVariant::Flushed => {
-                input_wrapper = input_wrapper
-                    .bg(theme.transparent)
-                    .border_0()
-                    .border_b_1()
-                    .border_color(border_color)
-                    .rounded_none();
-            }
-        }
 
-        let border_hover = theme.border_hover;
-        if disabled {
-            input_wrapper = input_wrapper.opacity(0.5).cursor_not_allowed();
-        } else if !readonly {
-            input_wrapper = input_wrapper
-                .cursor_text()
-                .hover(move |s| s.border_color(border_hover));
-        }
-
-        let placeholder_color = self.placeholder_color.unwrap_or(theme.placeholder);
-        let text_color = self.text_color.unwrap_or(theme.text);
-        let selection_bg = theme.selection_bg;
-        let cursor_color = theme.cursor;
-
-        // Wrap handlers in Rc for sharing
-        let on_change_rc = self.on_change.map(Rc::new);
-        let on_edit_start_rc = self.on_edit_start.map(Rc::new);
-        let on_edit_end_rc = self.on_edit_end.map(Rc::new);
-        let on_text_change_rc = self.on_text_change.map(Rc::new);
-
-        // Add click handler - focus and start editing
-        // Double-click selects all text
-        // Single click positions cursor, drag selects text
-        if !disabled && !readonly {
-            let focus_handle_for_click = focus_handle.clone();
-            let edit_state_for_click = edit_state.clone();
-            let value_for_click = current_value.to_string();
-            let on_edit_start_click = on_edit_start_rc.clone();
-            let edit_text_for_click = edit_text.clone();
-            let id_for_click = self.id.clone();
-
-            input_wrapper =
-                input_wrapper.on_mouse_down(MouseButton::Left, move |event, window, cx| {
-                    // Focus the input
-                    window.focus(&focus_handle_for_click, cx);
-
-                    let mut state = edit_state_for_click.borrow_mut();
-
-                    // Ensure editing state is initialised
-                    if !state.editing {
-                        *state = EditState::new(&value_for_click);
+            // cmd (macOS) or ctrl (Linux/Windows) clipboard + select-all
+            if cmd || (ctrl && matches!(key, "c" | "x" | "v" | "a")) {
+                match key {
+                    "c" => {
+                        if let Some(selected) = state.get_selected_text() {
+                            drop(state);
+                            cx.write_to_clipboard(ClipboardItem::new_string(selected));
+                        }
+                        return;
                     }
-
-                    // Double-click: select all text
-                    if event.click_count == 2 {
+                    "x" => {
+                        if let Some(selected) = state.get_selected_text() {
+                            cx.write_to_clipboard(ClipboardItem::new_string(selected));
+                            state.delete_selection();
+                            let text = state.text.clone();
+                            drop(state);
+                            if let Some(ref handler) = on_text_change_key {
+                                handler(text, window, cx);
+                            }
+                            window.refresh();
+                        }
+                        return;
+                    }
+                    "v" => {
+                        if let Some(clipboard) = cx.read_from_clipboard()
+                            && let Some(paste_text) = clipboard.text()
+                        {
+                            state.insert_text(&paste_text);
+                            let text = state.text.clone();
+                            drop(state);
+                            if let Some(ref handler) = on_text_change_key {
+                                handler(text, window, cx);
+                            }
+                            window.refresh();
+                        }
+                        return;
+                    }
+                    "a" => {
                         state.select_all();
                         drop(state);
                         window.refresh();
                         return;
                     }
-
-                    // Calculate cursor position from click.
-                    // event.position is window-relative; we record the window-x of this
-                    // click alongside the char position so that on_mouse_move can compute
-                    // positions relative to the same origin.
-                    let text_len = edit_text_for_click.chars().count();
-                    let char_width = 8.0_f32;
-                    let click_x: f32 = event.position.x.into();
-
-                    // Retrieve stored text origin (set by a previous click on this element).
-                    // On the very first click we have no stored origin, so we derive it:
-                    // origin = click_x - char_pos * char_width, clamped so origin >= 0.
-                    let stored_origin =
-                        TEXT_ORIGINS.with(|o| o.borrow().get(&id_for_click).copied());
-                    let char_pos_f = click_x / char_width;
-                    let origin = stored_origin.unwrap_or_else(|| {
-                        // Estimate: assume cursor lands at char_pos_f rounded
-                        let cp = char_pos_f.round().min(text_len as f32);
-                        (click_x - cp * char_width).max(0.0)
-                    });
-                    // Store the origin for future mouse-move events
-                    TEXT_ORIGINS.with(|o| {
-                        o.borrow_mut().insert(id_for_click.clone(), origin);
-                    });
-
-                    let char_pos =
-                        (((click_x - origin) / char_width).round() as usize).min(text_len);
-
-                    // Single click: position cursor and begin drag selection
-                    let was_editing = state.editing;
-                    state.editing = true;
-                    state.start_selection(char_pos);
-                    drop(state);
-
-                    if !was_editing && let Some(ref handler) = on_edit_start_click {
-                        handler(window, cx);
-                    }
-                    window.refresh();
-                });
-
-            // Mouse move handler for drag selection
-            let edit_state_for_move = edit_state.clone();
-            let edit_text_for_move = edit_text.clone();
-            let id_for_move = self.id.clone();
-
-            input_wrapper = input_wrapper.on_mouse_move(move |event, window, _cx| {
-                let mut state = edit_state_for_move.borrow_mut();
-                if state.is_dragging && state.editing {
-                    let text_len = edit_text_for_move.chars().count();
-                    let char_width = 8.0_f32;
-                    let move_x: f32 = event.position.x.into();
-                    let origin =
-                        TEXT_ORIGINS.with(|o| o.borrow().get(&id_for_move).copied().unwrap_or(0.0));
-                    let char_pos =
-                        (((move_x - origin) / char_width).round() as usize).min(text_len);
-                    state.update_selection(char_pos);
-                    drop(state);
-                    window.refresh();
+                    _ => {}
                 }
-            });
+            }
 
-            // Mouse up handler to end drag selection
-            let edit_state_for_up = edit_state.clone();
+            // cmd+left/right — line start/end (macOS); cmd+shift extends selection
+            if cmd && matches!(key, "left" | "right") {
+                if shift {
+                    match key {
+                        "left" => state.extend_to_start(),
+                        "right" => state.extend_to_end(),
+                        _ => {}
+                    }
+                } else {
+                    match key {
+                        "left" => state.move_to_start(),
+                        "right" => state.move_to_end(),
+                        _ => {}
+                    }
+                }
+                drop(state);
+                window.refresh();
+                return;
+            }
 
-            input_wrapper =
-                input_wrapper.on_mouse_up(MouseButton::Left, move |_event, window, _cx| {
-                    let mut state = edit_state_for_up.borrow_mut();
-                    if state.is_dragging {
-                        state.end_selection();
+            // alt+left/right — word jump; alt+shift extends selection
+            if alt && matches!(key, "left" | "right") {
+                if shift {
+                    match key {
+                        "left" => state.extend_word_backward(),
+                        "right" => state.extend_word_forward(),
+                        _ => {}
+                    }
+                } else {
+                    match key {
+                        "left" => state.move_word_backward(),
+                        "right" => state.move_word_forward(),
+                        _ => {}
+                    }
+                }
+                drop(state);
+                window.refresh();
+                return;
+            }
+
+            // alt+backspace / alt+d — kill word (Emacs M-DEL / M-d)
+            if alt {
+                match key {
+                    "backspace" => {
+                        state.kill_word_backward();
+                        let text = state.text.clone();
                         drop(state);
+                        if let Some(ref handler) = on_text_change_key {
+                            handler(text, window, cx);
+                        }
                         window.refresh();
+                        return;
                     }
-                });
-        }
-
-        // Add keyboard event handling... [unchanged]
-        // ... (Keyboard handling logic remains same, skipping for brevity in replacement if possible, but I must replace contiguous block)
-        // Since I need to output valid Rust code, I will include the keyboard logic.
-        if !disabled && !readonly {
-            let edit_state_for_key = edit_state.clone();
-            let on_edit_end_key = on_edit_end_rc.clone();
-            let on_text_change_key = on_text_change_rc.clone();
-            let on_change_key = on_change_rc.clone();
-            let focus_handle_for_key = focus_handle.clone();
-            let current_value_for_key = current_value.to_string();
-
-            input_wrapper = input_wrapper.on_key_down(move |event, window, cx| {
-                if !focus_handle_for_key.is_focused(window) {
-                    return;
-                }
-                cx.stop_propagation();
-
-                let key = event.keystroke.key.as_str();
-                let ctrl = event.keystroke.modifiers.control;
-                let cmd = event.keystroke.modifiers.platform;
-                let alt = event.keystroke.modifiers.alt;
-                let shift = event.keystroke.modifiers.shift;
-
-                let mut state = edit_state_for_key.borrow_mut();
-                if !state.editing {
-                    state.text = current_value_for_key.clone();
-                    state.editing = true;
-                    state.cursor = state.text.chars().count();
-                    state.selection_anchor = Some(0);
-                }
-
-                // cmd (macOS) or ctrl (Linux/Windows) clipboard + select-all
-                if cmd || (ctrl && matches!(key, "c" | "x" | "v" | "a")) {
-                    match key {
-                        "c" => {
-                            if let Some(selected) = state.get_selected_text() {
-                                drop(state);
-                                cx.write_to_clipboard(ClipboardItem::new_string(selected));
-                            }
-                            return;
+                    "d" => {
+                        state.kill_word_forward();
+                        let text = state.text.clone();
+                        drop(state);
+                        if let Some(ref handler) = on_text_change_key {
+                            handler(text, window, cx);
                         }
-                        "x" => {
-                            if let Some(selected) = state.get_selected_text() {
-                                cx.write_to_clipboard(ClipboardItem::new_string(selected));
-                                state.delete_selection();
-                                let text = state.text.clone();
-                                drop(state);
-                                if let Some(ref handler) = on_text_change_key {
-                                    handler(text, window, cx);
-                                }
-                                window.refresh();
-                            }
-                            return;
-                        }
-                        "v" => {
-                            if let Some(clipboard) = cx.read_from_clipboard()
-                                && let Some(paste_text) = clipboard.text()
-                            {
-                                state.insert_text(&paste_text);
-                                let text = state.text.clone();
-                                drop(state);
-                                if let Some(ref handler) = on_text_change_key {
-                                    handler(text, window, cx);
-                                }
-                                window.refresh();
-                            }
-                            return;
-                        }
-                        "a" => {
-                            state.select_all();
-                            drop(state);
-                            window.refresh();
-                            return;
-                        }
-                        _ => {}
+                        window.refresh();
+                        return;
                     }
+                    _ => {}
                 }
+            }
 
-                // cmd+left/right — line start/end (macOS); cmd+shift extends selection
-                if cmd && matches!(key, "left" | "right") {
-                    if shift {
-                        match key {
-                            "left" => state.extend_to_start(),
-                            "right" => state.extend_to_end(),
-                            _ => {}
-                        }
-                    } else {
-                        match key {
-                            "left" => state.move_to_start(),
-                            "right" => state.move_to_end(),
-                            _ => {}
+            // Emacs ctrl bindings
+            if ctrl {
+                match key {
+                    "a" => state.move_to_start(),
+                    "e" => state.move_to_end(),
+                    "k" => state.kill_to_end(),
+                    "u" => state.kill_to_start(),
+                    "w" => state.kill_word_backward(),
+                    "h" => state.do_backspace(),
+                    "d" => state.do_delete(),
+                    "f" => state.move_forward(),
+                    "b" => state.move_backward(),
+                    // ctrl+left/right — word jump (non-Mac)
+                    "left" => {
+                        if shift {
+                            state.extend_word_backward();
+                        } else {
+                            state.move_word_backward();
                         }
                     }
+                    "right" => {
+                        if shift {
+                            state.extend_word_forward();
+                        } else {
+                            state.move_word_forward();
+                        }
+                    }
+                    // ctrl+y — yank (Emacs paste from clipboard)
+                    "y" => {
+                        if let Some(clipboard) = cx.read_from_clipboard()
+                            && let Some(paste_text) = clipboard.text()
+                        {
+                            state.insert_text(&paste_text);
+                        }
+                    }
+                    _ => {}
+                }
+                let text = state.text.clone();
+                drop(state);
+                if let Some(ref handler) = on_text_change_key {
+                    handler(text, window, cx);
+                }
+                window.refresh();
+                return;
+            }
+
+            match key {
+                "enter" => {
+                    let text = state.text.clone();
+                    state.editing = false;
+                    state.clear_selection();
                     drop(state);
-                    window.refresh();
-                    return;
-                }
-
-                // alt+left/right — word jump; alt+shift extends selection
-                if alt && matches!(key, "left" | "right") {
-                    if shift {
-                        match key {
-                            "left" => state.extend_word_backward(),
-                            "right" => state.extend_word_forward(),
-                            _ => {}
-                        }
-                    } else {
-                        match key {
-                            "left" => state.move_word_backward(),
-                            "right" => state.move_word_forward(),
-                            _ => {}
-                        }
+                    window.blur();
+                    if let Some(ref handler) = on_change_key {
+                        handler(&text, window, cx);
                     }
+                    if let Some(ref handler) = on_edit_end_key {
+                        handler(Some(text), window, cx);
+                    }
+                }
+                "escape" => {
+                    state.editing = false;
+                    state.clear_selection();
                     drop(state);
-                    window.refresh();
-                    return;
-                }
-
-                // alt+backspace / alt+d — kill word (Emacs M-DEL / M-d)
-                if alt {
-                    match key {
-                        "backspace" => {
-                            state.kill_word_backward();
-                            let text = state.text.clone();
-                            drop(state);
-                            if let Some(ref handler) = on_text_change_key {
-                                handler(text, window, cx);
-                            }
-                            window.refresh();
-                            return;
-                        }
-                        "d" => {
-                            state.kill_word_forward();
-                            let text = state.text.clone();
-                            drop(state);
-                            if let Some(ref handler) = on_text_change_key {
-                                handler(text, window, cx);
-                            }
-                            window.refresh();
-                            return;
-                        }
-                        _ => {}
+                    window.blur();
+                    if let Some(ref handler) = on_edit_end_key {
+                        handler(None, window, cx);
                     }
                 }
-
-                // Emacs ctrl bindings
-                if ctrl {
-                    match key {
-                        "a" => state.move_to_start(),
-                        "e" => state.move_to_end(),
-                        "k" => state.kill_to_end(),
-                        "u" => state.kill_to_start(),
-                        "w" => state.kill_word_backward(),
-                        "h" => state.do_backspace(),
-                        "d" => state.do_delete(),
-                        "f" => state.move_forward(),
-                        "b" => state.move_backward(),
-                        // ctrl+left/right — word jump (non-Mac)
-                        "left" => {
-                            if shift {
-                                state.extend_word_backward();
-                            } else {
-                                state.move_word_backward();
-                            }
-                        }
-                        "right" => {
-                            if shift {
-                                state.extend_word_forward();
-                            } else {
-                                state.move_word_forward();
-                            }
-                        }
-                        // ctrl+y — yank (Emacs paste from clipboard)
-                        "y" => {
-                            if let Some(clipboard) = cx.read_from_clipboard()
-                                && let Some(paste_text) = clipboard.text()
-                            {
-                                state.insert_text(&paste_text);
-                            }
-                        }
-                        _ => {}
-                    }
+                "backspace" => {
+                    state.do_backspace();
                     let text = state.text.clone();
                     drop(state);
                     if let Some(ref handler) = on_text_change_key {
                         handler(text, window, cx);
                     }
                     window.refresh();
-                    return;
                 }
-
-                match key {
-                    "enter" => {
-                        let text = state.text.clone();
-                        state.editing = false;
-                        state.clear_selection();
-                        drop(state);
-                        window.blur();
-                        if let Some(ref handler) = on_change_key {
-                            handler(&text, window, cx);
-                        }
-                        if let Some(ref handler) = on_edit_end_key {
-                            handler(Some(text), window, cx);
-                        }
+                "delete" => {
+                    state.do_delete();
+                    let text = state.text.clone();
+                    drop(state);
+                    if let Some(ref handler) = on_text_change_key {
+                        handler(text, window, cx);
                     }
-                    "escape" => {
-                        state.editing = false;
-                        state.clear_selection();
-                        drop(state);
-                        window.blur();
-                        if let Some(ref handler) = on_edit_end_key {
-                            handler(None, window, cx);
-                        }
+                    window.refresh();
+                }
+                "left" => {
+                    if shift {
+                        state.extend_backward();
+                    } else {
+                        state.move_backward();
                     }
-                    "backspace" => {
-                        state.do_backspace();
+                    drop(state);
+                    window.refresh();
+                }
+                "right" => {
+                    if shift {
+                        state.extend_forward();
+                    } else {
+                        state.move_forward();
+                    }
+                    drop(state);
+                    window.refresh();
+                }
+                "home" => {
+                    if shift {
+                        state.extend_to_start();
+                    } else {
+                        state.move_to_start();
+                    }
+                    drop(state);
+                    window.refresh();
+                }
+                "end" => {
+                    if shift {
+                        state.extend_to_end();
+                    } else {
+                        state.move_to_end();
+                    }
+                    drop(state);
+                    window.refresh();
+                }
+                _ => {
+                    if let Some(ch) = keystroke_to_char(&event.keystroke) {
+                        state.insert_char(ch);
                         let text = state.text.clone();
                         drop(state);
                         if let Some(ref handler) = on_text_change_key {
@@ -780,184 +839,146 @@ impl RenderOnce for Input {
                         }
                         window.refresh();
                     }
-                    "delete" => {
-                        state.do_delete();
-                        let text = state.text.clone();
-                        drop(state);
-                        if let Some(ref handler) = on_text_change_key {
-                            handler(text, window, cx);
-                        }
-                        window.refresh();
-                    }
-                    "left" => {
-                        if shift {
-                            state.extend_backward();
-                        } else {
-                            state.move_backward();
-                        }
-                        drop(state);
-                        window.refresh();
-                    }
-                    "right" => {
-                        if shift {
-                            state.extend_forward();
-                        } else {
-                            state.move_forward();
-                        }
-                        drop(state);
-                        window.refresh();
-                    }
-                    "home" => {
-                        if shift {
-                            state.extend_to_start();
-                        } else {
-                            state.move_to_start();
-                        }
-                        drop(state);
-                        window.refresh();
-                    }
-                    "end" => {
-                        if shift {
-                            state.extend_to_end();
-                        } else {
-                            state.move_to_end();
-                        }
-                        drop(state);
-                        window.refresh();
-                    }
-                    _ => {
-                        if let Some(ch) = keystroke_to_char(&event.keystroke) {
-                            state.insert_text(&ch.to_string());
-                            let text = state.text.clone();
-                            drop(state);
-                            if let Some(ref handler) = on_text_change_key {
-                                handler(text, window, cx);
-                            }
-                            window.refresh();
-                        }
-                    }
                 }
-            });
-        }
+            }
+        });
+    }
 
-        // Left icon
-        if let Some(icon) = &self.icon_left {
-            input_wrapper =
-                input_wrapper.child(div().text_color(placeholder_color).child(icon.clone()));
-        }
+    // Left icon
+    if let Some(icon) = &props.icon_left {
+        input_wrapper =
+            input_wrapper.child(div().text_color(placeholder_color).child(icon.clone()));
+    }
 
-        // Determine display text. Keep it as a `SharedString` when it comes from
-        // props so we don't allocate a new `String` on every render.
-        let display_text: SharedString = if editing {
-            edit_text.into()
-        } else if current_value.is_empty() {
-            self.placeholder.clone().unwrap_or_default()
+    // Determine display text. Keep it as a `SharedString` when it comes from
+    // props so we don't allocate a new `String` on every render.
+    let display_text: SharedString = if editing {
+        edit_text.into()
+    } else if current_value.is_empty() {
+        props.placeholder.clone().unwrap_or_default()
+    } else {
+        current_value.clone()
+    };
+
+    // Build the text element with partial selection support
+    let mut text_el = div().id(field_id).flex_1().flex().items_center();
+
+    // Apply text size
+    text_el = match props.size {
+        InputSize::Xs => text_el.text_xs(),
+        InputSize::Sm => text_el.text_xs(),
+        InputSize::Md => text_el.text_sm(),
+        InputSize::Lg => text_el,
+    };
+
+    // Render text with selection highlighting and cursor.
+    // When editing, draw the full text as a single element and overlay
+    // absolute cursor/selection divs to avoid splitting the string into
+    // three owned buffers on every frame.
+    if editing {
+        let len = display_text.chars().count();
+
+        // Clamp cursor_pos and selection_anchor to valid bounds.
+        let cursor_pos = cursor_pos.min(len);
+        let selection_anchor = selection_anchor.map(|a| a.min(len));
+
+        // Normalize selection range (if any)
+        let (sel_start, sel_end) = if let Some(anchor) = selection_anchor {
+            (cursor_pos.min(anchor), cursor_pos.max(anchor))
         } else {
-            current_value.clone()
+            (cursor_pos, cursor_pos)
         };
 
-        // Build the text element with partial selection support
-        let mut text_el = div().id(field_id).flex_1().flex().items_center();
+        // Full text in one element; children are absolutely positioned overlays.
+        text_el = text_el
+            .relative()
+            .text_color(text_color)
+            .child(display_text.clone());
 
-        // Apply text size
-        text_el = match self.size {
-            InputSize::Xs => text_el.text_xs(),
-            InputSize::Sm => text_el.text_xs(),
-            InputSize::Md => text_el.text_sm(),
-            InputSize::Lg => text_el,
-        };
+        let char_width = 8.0_f32;
 
-        // Cursor element builder
-        let cursor_el = || {
+        // Selection highlight overlay.
+        if sel_start != sel_end {
+            let sel_left = char_width * sel_start as f32;
+            let sel_width = char_width * (sel_end - sel_start) as f32;
+            text_el = text_el.child(
+                div()
+                    .absolute()
+                    .left(px(sel_left))
+                    .top_0()
+                    .bottom_0()
+                    .w(px(sel_width))
+                    .bg(selection_bg),
+            );
+        }
+
+        // Cursor overlay.
+        let cursor_left = char_width * cursor_pos as f32;
+        text_el = text_el.child(
             div()
+                .absolute()
+                .left(px(cursor_left))
+                .top_0()
+                .bottom_0()
                 .w(px(1.5))
-                .h(px(14.0)) // Approximate height matching text
-                .bg(cursor_color)
-        };
+                .bg(cursor_color),
+        );
+    } else if current_value.is_empty() {
+        // Placeholder text
+        text_el = text_el.text_color(placeholder_color).child(display_text);
+    } else {
+        // Normal text (not editing)
+        text_el = text_el.text_color(text_color).child(display_text);
+    }
 
-        // Render text with selection highlighting and cursor
-        if editing {
-            let chars: Vec<char> = display_text.chars().collect();
-            let len = chars.len();
+    input_wrapper = input_wrapper.child(text_el);
 
-            // Clamp cursor_pos and selection_anchor to valid bounds.
-            // This can happen when the external value changes while editing,
-            // causing a mismatch between internal state and displayed text length.
-            let cursor_pos = cursor_pos.min(len);
-            let selection_anchor = selection_anchor.map(|a| a.min(len));
+    // Right icon
+    if let Some(icon) = &props.icon_right {
+        input_wrapper =
+            input_wrapper.child(div().text_color(placeholder_color).child(icon.clone()));
+    }
 
-            // Normalize selection range (if any)
-            let (sel_start, sel_end) = if let Some(anchor) = selection_anchor {
-                (cursor_pos.min(anchor), cursor_pos.max(anchor))
-            } else {
-                (cursor_pos, cursor_pos)
-            };
+    container = container.child(input_wrapper);
 
-            // Split text into 3 parts: 0..min, min..max, max..len
-            // Insert cursor at `cursor_pos`
+    // Error message
+    if let Some(error) = &props.error {
+        container =
+            container.child(div().text_xs().text_color(theme.error).child(error.clone()));
+    }
 
-            let part1_end = sel_start;
-            let part2_end = sel_end;
+    container
+}
 
-            let part1: String = chars[0..part1_end].iter().collect();
-            let part2: String = chars[part1_end..part2_end].iter().collect();
-            let part3: String = chars[part2_end..len].iter().collect();
+/// Internal entity that renders an [`Input`] with stable identity across frames.
+pub struct InputEntity {
+    props: Input,
+}
 
-            // Part 1 (Pre-selection/Pre-cursor)
-            if !part1.is_empty() {
-                text_el = text_el.child(div().text_color(text_color).child(part1));
+impl Render for InputEntity {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        render_input(&self.props, window, &mut **cx)
+    }
+}
+
+impl RenderOnce for Input {
+    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let id = self.id.clone();
+        let entity: Entity<InputEntity> = INPUT_ENTITIES.with(|map| {
+            let mut map = map.borrow_mut();
+            if let Some(weak) = map.get(&id) {
+                if let Some(entity) = weak.upgrade() {
+                    return entity;
+                }
             }
-
-            // If cursor is at start of selection (dragged backwards)
-            if cursor_pos == sel_start {
-                text_el = text_el.child(cursor_el());
-            }
-
-            // Part 2 (Selection)
-            if !part2.is_empty() {
-                text_el = text_el.child(div().bg(selection_bg).text_color(text_color).child(part2));
-            }
-
-            // If cursor is at end of selection (dragged forwards or no selection)
-            // Note: if selection is empty, sel_start == sel_end == cursor_pos, so this handles "no selection" case too
-            if cursor_pos == sel_end && cursor_pos != sel_start {
-                text_el = text_el.child(cursor_el());
-            } else if cursor_pos == sel_end && sel_start == sel_end {
-                // No selection case (sel_start == sel_end)
-                // We already added cursor at sel_start above?
-                // Wait: if cursor_pos == sel_start == sel_end, we added it above.
-                // So we don't need to add it here.
-            }
-
-            // Part 3 (Post-selection/Post-cursor)
-            if !part3.is_empty() {
-                text_el = text_el.child(div().text_color(text_color).child(part3));
-            }
-        } else if !editing && current_value.is_empty() {
-            // Placeholder text
-            text_el = text_el.text_color(placeholder_color).child(display_text);
-        } else {
-            // Normal text (not editing)
-            text_el = text_el.text_color(text_color).child(display_text);
-        }
-
-        input_wrapper = input_wrapper.child(text_el);
-
-        // Right icon
-        if let Some(icon) = &self.icon_right {
-            input_wrapper =
-                input_wrapper.child(div().text_color(placeholder_color).child(icon.clone()));
-        }
-
-        container = container.child(input_wrapper);
-
-        // Error message
-        if let Some(error) = &self.error {
-            container =
-                container.child(div().text_xs().text_color(theme.error).child(error.clone()));
-        }
-
-        container
+            let entity = cx.new(|_cx| InputEntity { props: Input::new(id.clone()) });
+            map.insert(id.clone(), entity.downgrade());
+            entity
+        });
+        entity.update(cx, |model, _cx| {
+            model.props = self;
+        });
+        entity
     }
 }
 
@@ -968,3 +989,6 @@ impl IntoElement for Input {
         gpui::Component::new(self)
     }
 }
+
+#[cfg(test)]
+mod tests;

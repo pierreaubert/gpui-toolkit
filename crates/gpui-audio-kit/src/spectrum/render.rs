@@ -22,14 +22,14 @@ pub fn render_spectrum_frequency_axis(
         .w_full()
         .h(px(axis_height))
         .relative()
-        .children(freq_labels.into_iter().map(move |label| {
+        .children(freq_labels.iter().map(move |label| {
             div()
                 .absolute()
                 .left(relative(label.position))
                 .top_0()
                 .text_size(text_size)
                 .text_color(text_color)
-                .child(div().ml(px(label_offset_x)).child(label.label))
+                .child(div().ml(px(label_offset_x)).child(label.label.clone()))
         }))
 }
 

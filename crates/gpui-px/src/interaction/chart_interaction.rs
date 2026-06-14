@@ -577,11 +577,13 @@ pub(super) mod interactive_chart {
 
         /// Build the interactive chart element
         pub fn build(self) -> impl IntoElement {
-            let state = self.state.clone();
-            let state_for_down = self.state.clone();
-            let state_for_move = self.state.clone();
-            let state_for_click = self.state.clone();
-            let state_for_wheel = self.state.clone();
+            // Share one `Rc<InteractiveChartState>` across all event handlers so the
+            // inner config/callbacks are not cloned for every handler.
+            let state = Rc::new(self.state);
+            let state_for_down = state.clone();
+            let state_for_move = state.clone();
+            let state_for_click = state.clone();
+            let state_for_wheel = state.clone();
 
             let is_zoomed = state.is_zoomed();
             let config = state.config.clone();

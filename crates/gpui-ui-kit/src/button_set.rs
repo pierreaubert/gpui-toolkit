@@ -298,7 +298,7 @@ impl RenderOnce for ButtonSet {
         let theme = self
             .theme
             .clone()
-            .unwrap_or_else(|| ButtonSetTheme::from(&global_theme));
+            .unwrap_or_else(|| ButtonSetTheme::from(global_theme));
 
         self.build(&theme)
     }

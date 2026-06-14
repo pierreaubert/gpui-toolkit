@@ -6,6 +6,12 @@
   now clip geometries to a rectangular geographic extent before projecting,
   preventing degenerate closing chords across the map.
 
+## Tests
+
+- Added `golden/geo/path_cylindrical.json` with Mercator/Equirectangular path
+  cases (including the south-pole clip regression) and a corresponding golden
+  test `test_geo_path_cylindrical_golden`.
+
 # 0.7.3
 
 ## Features

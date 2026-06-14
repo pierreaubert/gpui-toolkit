@@ -103,10 +103,14 @@ impl Gpui3DCache {
 }
 
 fn surface_data(spec: &SurfaceSpec) -> SurfaceData {
-    let mut data = SurfaceData::from_grid(spec.x_values(), spec.y_values(), spec.z.rows())
-        .with_log_x(spec.x_log)
-        .with_log_y(spec.y_log)
-        .with_log_z(spec.z_log);
+    let mut data = SurfaceData::from_grid(
+        spec.x_values().into(),
+        spec.y_values().into(),
+        spec.z.rows(),
+    )
+    .with_log_x(spec.x_log)
+    .with_log_y(spec.y_log)
+    .with_log_z(spec.z_log);
 
     if let Some(label) = &spec.labels.x {
         data = data.with_x_label(label.clone());

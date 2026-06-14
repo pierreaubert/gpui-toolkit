@@ -358,7 +358,7 @@ impl Potentiometer {
 impl RenderOnce for Potentiometer {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let global_theme = cx.theme();
-        let default_theme = PotentiometerTheme::from(&global_theme);
+        let default_theme = PotentiometerTheme::from(global_theme);
         let theme = self.theme.clone().unwrap_or(default_theme);
         let selected = self.selected;
         let disabled = self.disabled;

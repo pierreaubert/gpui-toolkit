@@ -6,6 +6,7 @@ use std::fmt::Write;
 use super::super::projection::Projection;
 use super::geo_path_config::GeoPathConfig;
 use super::types::GeoJsonGeometry;
+use crate::util::scratch;
 
 /// A path generator for GeoJSON geometries.
 ///
@@ -49,10 +50,30 @@ impl<P: Projection> GeoPath<P> {
     }
 
     /// Render a GeoJSON geometry to an SVG path string.
+    ///
+    /// The result is built in a thread-local scratch buffer and cloned, so
+    /// repeated calls retain the buffer's capacity.
     pub fn render(&self, geometry: &GeoJsonGeometry) -> String {
-        let mut buf = String::new();
-        self.render_into(geometry, &mut buf);
-        buf
+        scratch::with_path_scratch(|buf| {
+            self.render_into(geometry, buf);
+            buf.clone()
+        })
+    }
+
+    /// Render a GeoJSON geometry to an SVG path string, returning a `Cow`.
+    ///
+    /// This is useful for callers that can accept a borrowed string for empty
+    /// or trivial geometries. The owned branch still reuses the thread-local
+    /// scratch buffer's capacity.
+    pub fn render_cow(&self, geometry: &GeoJsonGeometry) -> Cow<'_, str> {
+        scratch::with_path_scratch(|buf| {
+            self.render_into(geometry, buf);
+            if buf.is_empty() {
+                Cow::Borrowed("")
+            } else {
+                Cow::Owned(buf.clone())
+            }
+        })
     }
 
     /// Render a GeoJSON geometry into `buf`.

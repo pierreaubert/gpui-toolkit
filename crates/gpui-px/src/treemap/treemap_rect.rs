@@ -13,12 +13,4 @@ pub(super) struct TreemapRect {
     pub(super) category_index: usize,
 }
 
-impl TreemapRect {
-    pub(super) fn width(&self) -> f64 {
-        self.x1 - self.x0
-    }
 
-    pub(super) fn height(&self) -> f64 {
-        self.y1 - self.y0
-    }
-}

@@ -326,7 +326,7 @@ impl SplitPane {
 impl RenderOnce for SplitPane {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let global_theme = cx.theme();
-        let theme = SplitPaneTheme::from(&global_theme);
+        let theme = SplitPaneTheme::from(global_theme);
         let design = crate::design::resolve_design(self.design.clone(), cx);
         self.build_with_theme_and_design(&theme, &design)
     }

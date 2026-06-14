@@ -338,7 +338,7 @@ impl RenderOnce for VerticalSlider {
         let theme = self
             .theme
             .clone()
-            .unwrap_or_else(|| VerticalSliderTheme::from(&global_theme));
+            .unwrap_or_else(|| VerticalSliderTheme::from(global_theme.as_ref()));
         let selected = self.selected;
         let disabled = self.disabled;
 

@@ -11,9 +11,10 @@ use gpui::prelude::{
     InteractiveElement, IntoElement, ParentElement, RenderOnce, StatefulInteractiveElement, Styled,
 };
 use gpui::{
-    App, Div, ElementId, FocusHandle, FontWeight, MouseButton, SharedString, Stateful, Window, div,
-    px,
+    App, AppContext, Context, Div, ElementId, FocusHandle, FontWeight, MouseButton, Render,
+    SharedString, Stateful, Window, div, px,
 };
+use std::rc::Rc;
 
 mod tab_item;
 mod types;
@@ -27,8 +28,8 @@ pub struct Tabs {
     selected_index: usize,
     variant: TabVariant,
     theme: Option<TabsTheme>,
-    on_change: Option<Box<dyn Fn(usize, &mut Window, &mut App) + 'static>>,
-    on_close: Option<Box<dyn Fn(&SharedString, &mut Window, &mut App) + 'static>>,
+    on_change: Option<Rc<dyn Fn(usize, &mut Window, &mut App) + 'static>>,
+    on_close: Option<Rc<dyn Fn(&SharedString, &mut Window, &mut App) + 'static>>,
     focus_handle: Option<FocusHandle>,
     aria_label: Option<SharedString>,
     aria_role: Option<AriaRole>,
@@ -83,7 +84,7 @@ impl Tabs {
 
     /// Set the tab change handler
     pub fn on_change(mut self, handler: impl Fn(usize, &mut Window, &mut App) + 'static) -> Self {
-        self.on_change = Some(Box::new(handler));
+        self.on_change = Some(Rc::new(handler));
         self
     }
 
@@ -104,7 +105,7 @@ impl Tabs {
         mut self,
         handler: impl Fn(&SharedString, &mut Window, &mut App) + 'static,
     ) -> Self {
-        self.on_close = Some(Box::new(handler));
+        self.on_close = Some(Rc::new(handler));
         self
     }
 
@@ -557,16 +558,32 @@ impl Default for Tabs {
     }
 }
 
-impl RenderOnce for Tabs {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+/// Internal entity that renders a [`Tabs`] component. A fresh entity is created
+/// on each render so that the tab items (which may contain single-use elements)
+/// can be consumed while still rendering through GPUI's entity path.
+pub struct TabsEntity {
+    props: Tabs,
+}
+
+impl Render for TabsEntity {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let id = self.props.id.clone();
+        let aria_label = self.props.aria_label.clone();
+        let aria_role = self.props.aria_role;
         cx.register_accessible(AccessibilityNode {
-            element_id: self.id.clone(),
-            label: self.aria_label.clone().unwrap_or_default(),
-            props: AriaProps::with_role(self.aria_role.unwrap_or(AriaRole::Tablist)),
+            element_id: id,
+            label: aria_label.unwrap_or_default(),
+            props: AriaProps::with_role(aria_role.unwrap_or(AriaRole::Tablist)),
         });
 
         let global_theme = cx.theme();
-        self.build_with_theme(&global_theme, cx)
+        std::mem::take(&mut self.props).build_with_theme(global_theme.as_ref(), &mut **cx)
+    }
+}
+
+impl RenderOnce for Tabs {
+    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+        cx.new(|_cx| TabsEntity { props: self })
     }
 }
 

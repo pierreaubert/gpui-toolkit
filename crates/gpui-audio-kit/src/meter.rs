@@ -3,7 +3,28 @@
 use crate::TickConfig;
 use gpui::prelude::*;
 use gpui::*;
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::panic;
+
+thread_local! {
+    static METER_VALUE_LABEL_CACHE: RefCell<HashMap<i64, SharedString>> =
+        RefCell::new(HashMap::new());
+}
+
+/// Format a meter value as a one-decimal string, reusing allocations for
+/// commonly occurring values.
+pub fn format_meter_value(value: f64) -> SharedString {
+    let key = (value * 10.0).round() as i64;
+    METER_VALUE_LABEL_CACHE.with(|cache| {
+        if let Some(cached) = cache.borrow().get(&key) {
+            return cached.clone();
+        }
+        let s: SharedString = format!("{value:.1}").into();
+        cache.borrow_mut().insert(key, s.clone());
+        s
+    })
+}
 
 /// dB scale positions: maps dB value to visual position (0.0 = bottom, 1.0 = top).
 pub fn db_to_position(db: f64) -> f32 {
@@ -115,7 +136,7 @@ pub fn render_horizontal_meter_bar(
 ) -> impl IntoElement {
     let ratio = tick_config.value_to_position(value);
     let bar_color = theme.color_for_ratio(ratio);
-    render_horizontal_meter_bar_with(label, ratio, bar_color, format!("{value:.1}"), theme)
+    render_horizontal_meter_bar_with(label, ratio, bar_color, format_meter_value(value), theme)
 }
 
 /// Single-element gradient fill for horizontal meter bars.
@@ -570,6 +591,17 @@ mod tests {
         let config = TickConfig::lufs();
         let _bar = render_horizontal_meter_bar("L", -18.0, &config, theme.clone());
         let _custom = render_horizontal_meter_bar_with("W", 0.72, theme.color_info, "72%", theme);
+    }
+
+    #[::core::prelude::v1::test]
+    fn format_meter_value_caches_strings() {
+        let a = format_meter_value(-18.0);
+        let b = format_meter_value(-18.0);
+        assert!(std::ptr::eq(a.as_ptr(), b.as_ptr()));
+
+        let c = format_meter_value(-18.1);
+        assert!(!std::ptr::eq(a.as_ptr(), c.as_ptr()));
+        assert_eq!(c, "-18.1");
     }
 
     #[::core::prelude::v1::test]

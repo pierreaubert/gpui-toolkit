@@ -327,11 +327,15 @@ impl RenderOnce for Button {
                 .maybe_state(self.selected, AriaState::Pressed(true)),
         });
 
-        let global_theme = cx.theme();
+        // Resolve design and focus handle first, before borrowing the theme,
+        // because those operations need `&mut App`.
         let design = crate::design::resolve_design(self.design.clone(), cx);
+        let focus_handle = button_focus_handle(&self.id, cx);
+
+        let global_theme = cx.theme();
         let theme = self
             .theme
-            .unwrap_or_else(|| ButtonTheme::from(&global_theme));
+            .unwrap_or_else(|| ButtonTheme::from(global_theme.as_ref()));
         let (bg, bg_hover, text_color, border_color) =
             Self::compute_colors(self.variant, self.selected, &theme);
 
@@ -341,7 +345,6 @@ impl RenderOnce for Button {
         // Get/create persistent focus handle for this button id so the
         // element is Tab-reachable across re-renders. See module-level
         // BUTTON_FOCUS_HANDLES comment for the registry pattern.
-        let focus_handle = button_focus_handle(&self.id, cx);
         let focus_ring_color = theme.accent;
 
         let mut el = div()

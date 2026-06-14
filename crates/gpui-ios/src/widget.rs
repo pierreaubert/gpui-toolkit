@@ -4,6 +4,7 @@
 //! app renders deterministic image payloads and timeline metadata into an App
 //! Group container that Swift WidgetKit/ActivityKit targets can display.
 
+use gpui::{BackgroundExecutor, Task};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -103,6 +104,45 @@ pub fn render_widget_snapshot(
         timeline_path,
         used_stale_snapshot,
         generated_unix_seconds: now_unix_seconds(),
+    })
+}
+
+/// Asynchronous variant of [`render_widget_snapshot`] that offloads the
+/// timeline JSON write (and the PNG write) to the provided background executor.
+pub fn render_widget_snapshot_async(
+    request: WidgetSnapshotRequest,
+    png_bytes: Vec<u8>,
+    executor: BackgroundExecutor,
+) -> Task<Result<WidgetSnapshotResult, String>> {
+    executor.spawn(async move {
+        request.validate()?;
+
+        fs::create_dir_all(&request.app_group_dir)
+            .map_err(|err| format!("create widget snapshot dir: {err}"))?;
+
+        let snapshot_path = request
+            .app_group_dir
+            .join(format!("{}.png", sanitized_file_stem(&request.id)));
+        let timeline_path = request
+            .app_group_dir
+            .join(format!("{}.timeline.json", sanitized_file_stem(&request.id)));
+
+        let used_stale_snapshot = if png_bytes.is_empty() {
+            !snapshot_path.exists()
+        } else {
+            fs::write(&snapshot_path, &png_bytes)
+                .map_err(|err| format!("write widget snapshot image: {err}"))?;
+            false
+        };
+
+        write_timeline_json(&timeline_path, &request, used_stale_snapshot)?;
+
+        Ok(WidgetSnapshotResult {
+            snapshot_path,
+            timeline_path,
+            used_stale_snapshot,
+            generated_unix_seconds: now_unix_seconds(),
+        })
     })
 }
 

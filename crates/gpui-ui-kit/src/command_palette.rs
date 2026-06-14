@@ -344,7 +344,7 @@ impl CommandPalette {
 impl RenderOnce for CommandPalette {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let global_theme = cx.theme();
-        let theme = CommandPaletteTheme::from(&global_theme);
+        let theme = CommandPaletteTheme::from(global_theme);
         self.build_with_theme(&theme)
     }
 }

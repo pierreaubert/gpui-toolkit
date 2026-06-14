@@ -28,6 +28,15 @@ use crate::analysis::SegmentBreakKind;
 use crate::layout::KpItemCacheKey;
 use crate::measurement::EngineProfile;
 
+thread_local! {
+    /// Reusable scratch buffer for Knuth-Plass active nodes.
+    static KP_NODES_SCRATCH: RefCell<Vec<ActiveNode>> = const { RefCell::new(Vec::new()) };
+    /// Reusable scratch buffer for the active-node index set in Knuth-Plass.
+    static KP_ACTIVE_SCRATCH: RefCell<Vec<usize>> = const { RefCell::new(Vec::new()) };
+    /// Reusable scratch buffer for Knuth-Plass breakpoints.
+    static KP_BREAKS_SCRATCH: RefCell<Vec<(usize, usize)>> = const { RefCell::new(Vec::new()) };
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LineBreakCursor {
     pub segment_index: usize,
@@ -63,12 +72,31 @@ pub struct PreparedLineBreakData<'a> {
 impl<'a> PreparedLineBreakData<'a> {
     /// Return a view over a sub-range of segments, remapping the chunk list to a
     /// single chunk covering the range.
+    ///
+    /// When the slice covers the whole view, the existing chunk list is already
+    /// in the correct local coordinate space and can be borrowed without a fresh
+    /// `Vec` allocation.
     pub(super) fn slice(
         &self,
         start: usize,
         end: usize,
         consumed_end: usize,
     ) -> PreparedLineBreakData<'_> {
+        // When the slice covers the entire view, the existing chunk list is
+        // already in the correct local coordinate space and can be borrowed.
+        let chunks: Cow<'_, [PreparedLineChunk]> = if start == 0
+            && end == self.widths.len()
+            && consumed_end == self.end_segment
+        {
+            Cow::Borrowed(&self.chunks)
+        } else {
+            Cow::Owned(vec![PreparedLineChunk {
+                start_segment_index: 0,
+                end_segment_index: end - start,
+                consumed_end_segment_index: consumed_end - start,
+            }])
+        };
+
         PreparedLineBreakData {
             widths: Cow::Borrowed(&self.widths[start..end]),
             line_end_fit_advances: Cow::Borrowed(&self.line_end_fit_advances[start..end]),
@@ -79,11 +107,7 @@ impl<'a> PreparedLineBreakData<'a> {
             breakable_prefix_widths: Cow::Borrowed(&self.breakable_prefix_widths[start..end]),
             discretionary_hyphen_width: self.discretionary_hyphen_width,
             tab_stop_advance: self.tab_stop_advance,
-            chunks: Cow::Owned(vec![PreparedLineChunk {
-                start_segment_index: 0,
-                end_segment_index: end - start,
-                consumed_end_segment_index: consumed_end - start,
-            }]),
+            chunks,
             start_segment: self.start_segment + start,
             end_segment: self.start_segment + end,
             kp_item_cache: self.kp_item_cache,
@@ -521,148 +545,161 @@ pub(super) fn knuth_plass_chunk(
         return Some(Vec::new());
     }
 
-    // All active nodes, stored in a flat vec. We use indices as references.
-    let mut nodes: Vec<ActiveNode> = Vec::new();
+    KP_NODES_SCRATCH.with(|nodes_scratch| {
+        KP_ACTIVE_SCRATCH.with(|active_scratch| {
+            KP_BREAKS_SCRATCH.with(|breaks_scratch| {
+                let mut nodes = nodes_scratch.borrow_mut();
+                let mut active = active_scratch.borrow_mut();
+                let mut breaks = breaks_scratch.borrow_mut();
 
-    // Active set: indices into `nodes` that are still candidates.
-    let mut active: Vec<usize> = Vec::new();
+                nodes.clear();
+                active.clear();
+                breaks.clear();
 
-    // Scratch buffer reused for each breakpoint to avoid per-iteration allocations.
-    let mut to_deactivate: Vec<usize> = Vec::new();
+                // Scratch buffer reused for each breakpoint to avoid per-iteration allocations.
+                let mut to_deactivate: Vec<usize> = Vec::new();
 
-    // Initialize with the start-of-paragraph node (items[0]).
-    nodes.push(ActiveNode {
-        break_index: 0,
-        line: 0,
-        fitness: FitnessClass::Normal,
-        total_demerits: 0.0,
-        prev_node: None,
-    });
-    active.push(0);
-
-    // Process each candidate breakpoint.
-    for b in 1..items.len() {
-        let item = &items[b];
-
-        // Skip non-breakable items (infinite penalty, not forced).
-        if item.penalty == f64::INFINITY {
-            continue;
-        }
-
-        // Best candidates for each fitness class at this breakpoint.
-        let mut best: [Option<(f64, usize)>; 4] = [None; 4]; // (demerits, node_index)
-
-        to_deactivate.clear();
-
-        for (ai, &node_idx) in active.iter().enumerate() {
-            let node = &nodes[node_idx];
-
-            let ratio =
-                compute_adjustment_ratio(items, node.break_index, b, max_width, item.break_width);
-
-            // If the line is too long even with maximum shrink, deactivate.
-            if ratio < -1.0 {
-                to_deactivate.push(ai);
-            }
-
-            // Check feasibility.
-            if ratio < -1.0 || ratio > tolerance {
-                // For forced breaks (neg infinity penalty), we must still
-                // consider even if ratio exceeds tolerance — the line might
-                // just be short (positive ratio), which is acceptable for
-                // paragraph-ending lines.
-                if item.penalty == f64::NEG_INFINITY && ratio >= -1.0 {
-                    // Allow forced breaks with short lines.
-                } else {
-                    continue;
-                }
-            }
-
-            // Compute demerits.
-            let bad = badness(ratio);
-            let fitness = FitnessClass::from_ratio(ratio);
-            let demerits = compute_demerits(
-                params,
-                item.penalty,
-                bad,
-                items[node.break_index].flagged,
-                item.flagged,
-                node.fitness,
-                fitness,
-            );
-            let total_d = node.total_demerits + demerits;
-
-            let class_idx = fitness as usize;
-            match best[class_idx] {
-                Some((best_d, _)) if total_d >= best_d => {}
-                _ => {
-                    best[class_idx] = Some((total_d, node_idx));
-                }
-            }
-        }
-
-        // Remove deactivated nodes (iterate in reverse to preserve indices).
-        for &ai in to_deactivate.iter().rev() {
-            active.swap_remove(ai);
-        }
-
-        // Add new active nodes for the best candidates.
-        for (class_idx, slot) in best.iter().enumerate() {
-            if let Some((total_d, prev_idx)) = *slot {
-                let fitness = match class_idx {
-                    0 => FitnessClass::Tight,
-                    1 => FitnessClass::Normal,
-                    2 => FitnessClass::Loose,
-                    _ => FitnessClass::VeryLoose,
-                };
-                let new_idx = nodes.len();
+                // Initialize with the start-of-paragraph node (items[0]).
                 nodes.push(ActiveNode {
-                    break_index: b,
-                    line: nodes[prev_idx].line + 1,
-                    fitness,
-                    total_demerits: total_d,
-                    prev_node: Some(prev_idx),
+                    break_index: 0,
+                    line: 0,
+                    fitness: FitnessClass::Normal,
+                    total_demerits: 0.0,
+                    prev_node: None,
                 });
-                active.push(new_idx);
-            }
-        }
+                active.push(0);
 
-        // If active set is empty, no feasible solution found.
-        if active.is_empty() {
-            return None;
-        }
-    }
+                // Process each candidate breakpoint.
+                for b in 1..items.len() {
+                    let item = &items[b];
 
-    // Find the best node at the end of paragraph (last item).
-    // Only nodes that reach the end-of-paragraph are valid; otherwise
-    // trailing text would be silently dropped.
-    let last_item_idx = items.len() - 1;
-    let best_node_idx = active
-        .iter()
-        .filter(|&&idx| nodes[idx].break_index == last_item_idx)
-        .min_by(|&&a, &&b| {
-            nodes[a]
-                .total_demerits
-                .partial_cmp(&nodes[b].total_demerits)
-                .unwrap_or(std::cmp::Ordering::Equal)
+                    // Skip non-breakable items (infinite penalty, not forced).
+                    if item.penalty == f64::INFINITY {
+                        continue;
+                    }
+
+                    // Best candidates for each fitness class at this breakpoint.
+                    let mut best: [Option<(f64, usize)>; 4] = [None; 4]; // (demerits, node_index)
+
+                    to_deactivate.clear();
+
+                    for (ai, &node_idx) in active.iter().enumerate() {
+                        let node = &nodes[node_idx];
+
+                        let ratio = compute_adjustment_ratio(
+                            items,
+                            node.break_index,
+                            b,
+                            max_width,
+                            item.break_width,
+                        );
+
+                        // If the line is too long even with maximum shrink, deactivate.
+                        if ratio < -1.0 {
+                            to_deactivate.push(ai);
+                        }
+
+                        // Check feasibility.
+                        if ratio < -1.0 || ratio > tolerance {
+                            // For forced breaks (neg infinity penalty), we must still
+                            // consider even if ratio exceeds tolerance — the line might
+                            // just be short (positive ratio), which is acceptable for
+                            // paragraph-ending lines.
+                            if item.penalty == f64::NEG_INFINITY && ratio >= -1.0 {
+                                // Allow forced breaks with short lines.
+                            } else {
+                                continue;
+                            }
+                        }
+
+                        // Compute demerits.
+                        let bad = badness(ratio);
+                        let fitness = FitnessClass::from_ratio(ratio);
+                        let demerits = compute_demerits(
+                            params,
+                            item.penalty,
+                            bad,
+                            items[node.break_index].flagged,
+                            item.flagged,
+                            node.fitness,
+                            fitness,
+                        );
+                        let total_d = node.total_demerits + demerits;
+
+                        let class_idx = fitness as usize;
+                        match best[class_idx] {
+                            Some((best_d, _)) if total_d >= best_d => {}
+                            _ => {
+                                best[class_idx] = Some((total_d, node_idx));
+                            }
+                        }
+                    }
+
+                    // Remove deactivated nodes (iterate in reverse to preserve indices).
+                    for &ai in to_deactivate.iter().rev() {
+                        active.swap_remove(ai);
+                    }
+
+                    // Add new active nodes for the best candidates.
+                    for (class_idx, slot) in best.iter().enumerate() {
+                        if let Some((total_d, prev_idx)) = *slot {
+                            let fitness = match class_idx {
+                                0 => FitnessClass::Tight,
+                                1 => FitnessClass::Normal,
+                                2 => FitnessClass::Loose,
+                                _ => FitnessClass::VeryLoose,
+                            };
+                            let new_idx = nodes.len();
+                            let prev_line = nodes[prev_idx].line;
+                            nodes.push(ActiveNode {
+                                break_index: b,
+                                line: prev_line + 1,
+                                fitness,
+                                total_demerits: total_d,
+                                prev_node: Some(prev_idx),
+                            });
+                            active.push(new_idx);
+                        }
+                    }
+
+                    // If active set is empty, no feasible solution found.
+                    if active.is_empty() {
+                        return None;
+                    }
+                }
+
+                // Find the best node at the end of paragraph (last item).
+                // Only nodes that reach the end-of-paragraph are valid; otherwise
+                // trailing text would be silently dropped.
+                let last_item_idx = items.len() - 1;
+                let best_node_idx = active
+                    .iter()
+                    .filter(|&&idx| nodes[idx].break_index == last_item_idx)
+                    .min_by(|&&a, &&b| {
+                        nodes[a]
+                            .total_demerits
+                            .partial_cmp(&nodes[b].total_demerits)
+                            .unwrap_or(std::cmp::Ordering::Equal)
+                    })
+                    .copied()?;
+
+                // Trace back the path to collect breakpoints.
+                let mut cur = Some(best_node_idx);
+                while let Some(idx) = cur {
+                    let node = &nodes[idx];
+                    let item = &items[node.break_index];
+                    breaks.push((item.segment_index, item.grapheme_index));
+                    cur = node.prev_node;
+                }
+                breaks.reverse();
+
+                // The first break is the start-of-paragraph (segment 0, grapheme 0),
+                // and the last is end-of-paragraph. We include both — callers interpret
+                // consecutive pairs as line ranges.
+                Some(breaks.clone())
+            })
         })
-        .copied()?;
-
-    // Trace back the path to collect breakpoints.
-    let mut breaks = Vec::new();
-    let mut cur = Some(best_node_idx);
-    while let Some(idx) = cur {
-        let node = &nodes[idx];
-        let item = &items[node.break_index];
-        breaks.push((item.segment_index, item.grapheme_index));
-        cur = node.prev_node;
-    }
-    breaks.reverse();
-
-    // The first break is the start-of-paragraph (segment 0, grapheme 0),
-    // and the last is end-of-paragraph. We include both — callers interpret
-    // consecutive pairs as line ranges.
-    Some(breaks)
+    })
 }
 
 /// Convert Knuth-Plass breakpoints into InternalLayoutLine entries.
@@ -796,4 +833,9 @@ pub(super) fn breakpoints_to_lines(
     }
 
     line_count
+}
+
+#[cfg(test)]
+pub(super) fn knuth_plass_chunk_breaks_scratch_capacity() -> usize {
+    KP_BREAKS_SCRATCH.with(|s| s.borrow().capacity())
 }

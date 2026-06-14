@@ -554,7 +554,7 @@ impl<T: 'static> RenderOnce for Table<T> {
         let theme = self
             .theme
             .clone()
-            .unwrap_or_else(|| TableTheme::from(&global_theme));
+            .unwrap_or_else(|| TableTheme::from(global_theme));
         let design = crate::design::resolve_design(self.design.clone(), cx);
         self.build(theme, design, window, cx)
     }

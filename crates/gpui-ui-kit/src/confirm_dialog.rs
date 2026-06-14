@@ -275,7 +275,7 @@ impl RenderOnce for ConfirmDialog {
         });
 
         let global_theme = cx.theme();
-        let theme = ConfirmDialogTheme::from(&global_theme);
+        let theme = ConfirmDialogTheme::from(global_theme);
         self.build_with_theme(&theme)
     }
 }

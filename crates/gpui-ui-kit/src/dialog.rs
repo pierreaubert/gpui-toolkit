@@ -377,7 +377,7 @@ impl RenderOnce for Dialog {
         });
 
         let global_theme = cx.theme();
-        let dialog_theme = DialogTheme::from(&global_theme);
+        let dialog_theme = DialogTheme::from(global_theme);
         self.build_with_theme(&dialog_theme)
     }
 }

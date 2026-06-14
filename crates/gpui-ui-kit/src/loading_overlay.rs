@@ -151,7 +151,7 @@ impl LoadingOverlay {
 impl RenderOnce for LoadingOverlay {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let global_theme = cx.theme();
-        let theme = LoadingOverlayTheme::from(&global_theme);
+        let theme = LoadingOverlayTheme::from(global_theme);
         self.build_with_theme(&theme)
     }
 }

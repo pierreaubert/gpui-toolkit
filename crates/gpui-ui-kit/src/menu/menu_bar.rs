@@ -116,7 +116,7 @@ impl MenuBar {
 impl RenderOnce for MenuBar {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let global_theme = cx.theme();
-        let menu_theme = MenuTheme::from(&global_theme);
+        let menu_theme = MenuTheme::from(global_theme);
         self.build_with_theme(&menu_theme)
     }
 }

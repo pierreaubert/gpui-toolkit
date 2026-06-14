@@ -5,6 +5,7 @@ use super::preview_overflow::PreviewOverflow;
 use super::preview_surface::PreviewSurface;
 use gpui::prelude::*;
 use gpui::{Div, Stateful};
+use std::sync::Arc;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum PreviewAlign {
@@ -48,7 +49,7 @@ impl PreviewAlign {
 pub(super) fn apply_preview_builder_style(
     el: Stateful<Div>,
     constraints: PreviewLayoutConstraints,
-    theme: gpui_ui_kit::theme::Theme,
+    theme: Arc<gpui_ui_kit::theme::Theme>,
 ) -> Stateful<Div> {
     let el = match constraints.horizontal_align {
         PreviewAlign::Start => el.justify_start(),

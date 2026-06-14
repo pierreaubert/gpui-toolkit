@@ -15,7 +15,7 @@ use d3rs::grid::{GridConfig, render_grid};
 use d3rs::scale::{LinearScale, LogScale, Scale};
 use d3rs::text::{GlyphTextConfig, render_glyph_text};
 use gpui::prelude::*;
-use gpui::{AnyElement, IntoElement, div, hsla, px, rgb};
+use gpui::{AnyElement, IntoElement, PathBuilder, canvas, div, hsla, point, px, rgb};
 use gpui_design::DesignSystem;
 use std::sync::Arc;
 
@@ -364,7 +364,7 @@ impl BoxPlotChart {
         }
     }
 
-    /// Render with specific scale types
+    /// Render with specific scale types using a single batched canvas layer.
     pub(super) fn render_with_scales<XS, YS>(
         &self,
         x_scale: &XS,
@@ -387,18 +387,26 @@ impl BoxPlotChart {
         let y_axis_config = AxisConfig::left().with_design(design);
         let grid_config = GridConfig::default().with_design(design);
 
-        // Render all boxes
-        #[allow(clippy::vec_init_then_push)]
-        let box_elements: Vec<AnyElement> = boxes
-            .iter()
-            .flat_map(|stats| {
-                let estimated = 5usize
-                    .saturating_add(stats.outliers_low.len())
-                    .saturating_add(stats.outliers_high.len());
-                let mut elements: Vec<AnyElement> = Vec::with_capacity(estimated);
+        #[derive(Clone, Debug)]
+        struct BoxDrawData {
+            x_px: f32,
+            half_width: f32,
+            box_top: f32,
+            box_height: f32,
+            whisker_low_px: f32,
+            whisker_high_px: f32,
+            q2_px: f32,
+            outliers_low: Vec<f32>,
+            outliers_high: Vec<f32>,
+        }
 
+        let box_width = self.box_width;
+
+        let draw_data: Vec<BoxDrawData> = boxes
+            .iter()
+            .map(|stats| {
                 let x_px = x_scale.scale(stats.x) as f32;
-                let half_width = self.box_width / 2.0;
+                let half_width = box_width / 2.0;
 
                 let q1_px = y_scale.scale(stats.q1) as f32;
                 let q2_px = y_scale.scale(stats.q2) as f32;
@@ -410,105 +418,122 @@ impl BoxPlotChart {
                 let box_bottom = q3_px.max(q1_px);
                 let box_height = (box_bottom - box_top).max(1.0);
 
-                // Whisker line (vertical line from low to high)
-                elements.push(
-                    div()
-                        .absolute()
-                        .left(px(x_px - 0.5))
-                        .top(px(whisker_high_px.min(whisker_low_px)))
-                        .w(px(self.stroke_width))
-                        .h(px((whisker_low_px - whisker_high_px).abs().max(1.0)))
-                        .bg(whisker_color)
-                        .into_any_element(),
-                );
-
-                // Lower whisker cap (horizontal line)
-                elements.push(
-                    div()
-                        .absolute()
-                        .left(px(x_px - half_width * 0.5))
-                        .top(px(whisker_low_px - self.stroke_width / 2.0))
-                        .w(px(half_width))
-                        .h(px(self.stroke_width))
-                        .bg(whisker_color)
-                        .into_any_element(),
-                );
-
-                // Upper whisker cap (horizontal line)
-                elements.push(
-                    div()
-                        .absolute()
-                        .left(px(x_px - half_width * 0.5))
-                        .top(px(whisker_high_px - self.stroke_width / 2.0))
-                        .w(px(half_width))
-                        .h(px(self.stroke_width))
-                        .bg(whisker_color)
-                        .into_any_element(),
-                );
-
-                // Box (IQR)
-                elements.push(
-                    div()
-                        .absolute()
-                        .left(px(x_px - half_width))
-                        .top(px(box_top))
-                        .w(px(self.box_width))
-                        .h(px(box_height))
-                        .bg(box_color)
-                        .opacity(self.box_opacity)
-                        .border_1()
-                        .border_color(whisker_color)
-                        .into_any_element(),
-                );
-
-                // Median line
-                elements.push(
-                    div()
-                        .absolute()
-                        .left(px(x_px - half_width))
-                        .top(px(q2_px - self.stroke_width))
-                        .w(px(self.box_width))
-                        .h(px(self.stroke_width * 2.0))
-                        .bg(median_color)
-                        .into_any_element(),
-                );
-
-                // Outliers
-                for &outlier in &stats.outliers_low {
-                    let y_px = y_scale.scale(outlier) as f32;
-                    elements.push(
-                        div()
-                            .absolute()
-                            .left(px(x_px - self.outlier_radius))
-                            .top(px(y_px - self.outlier_radius))
-                            .w(px(self.outlier_radius * 2.0))
-                            .h(px(self.outlier_radius * 2.0))
-                            .rounded_full()
-                            .bg(outlier_color)
-                            .opacity(0.7)
-                            .into_any_element(),
-                    );
+                BoxDrawData {
+                    x_px,
+                    half_width,
+                    box_top,
+                    box_height,
+                    whisker_low_px,
+                    whisker_high_px,
+                    q2_px,
+                    outliers_low: stats
+                        .outliers_low
+                        .iter()
+                        .map(|&o| y_scale.scale(o) as f32)
+                        .collect(),
+                    outliers_high: stats
+                        .outliers_high
+                        .iter()
+                        .map(|&o| y_scale.scale(o) as f32)
+                        .collect(),
                 }
-
-                for &outlier in &stats.outliers_high {
-                    let y_px = y_scale.scale(outlier) as f32;
-                    elements.push(
-                        div()
-                            .absolute()
-                            .left(px(x_px - self.outlier_radius))
-                            .top(px(y_px - self.outlier_radius))
-                            .w(px(self.outlier_radius * 2.0))
-                            .h(px(self.outlier_radius * 2.0))
-                            .rounded_full()
-                            .bg(outlier_color)
-                            .opacity(0.7)
-                            .into_any_element(),
-                    );
-                }
-
-                elements
             })
             .collect();
+
+        let stroke_width = self.stroke_width;
+        let box_opacity = self.box_opacity;
+        let outlier_radius = self.outlier_radius;
+
+        let plot = canvas(
+            move |_bounds, _window, _cx| draw_data.clone(),
+            move |bounds, draw_data, window, _cx| {
+                let origin_x: f32 = bounds.origin.x.into();
+                let origin_y: f32 = bounds.origin.y.into();
+
+                let mut whisker_builder = PathBuilder::stroke(px(stroke_width));
+                let mut box_builder = PathBuilder::fill();
+                let mut median_builder = PathBuilder::stroke(px(stroke_width * 2.0));
+                let mut outlier_builder = PathBuilder::fill();
+
+                for box_data in &draw_data {
+                    let x = origin_x + box_data.x_px;
+
+                    // Whisker line (vertical from low to high)
+                    let whisker_top = origin_y + box_data.whisker_high_px.min(box_data.whisker_low_px);
+                    let whisker_bottom = origin_y + box_data.whisker_high_px.max(box_data.whisker_low_px);
+                    whisker_builder.move_to(point(px(x), px(whisker_top)));
+                    whisker_builder.line_to(point(px(x), px(whisker_bottom)));
+
+                    // Lower cap
+                    let cap_y_low = origin_y + box_data.whisker_low_px;
+                    whisker_builder.move_to(point(px(x - box_data.half_width * 0.5), px(cap_y_low)));
+                    whisker_builder.line_to(point(px(x + box_data.half_width * 0.5), px(cap_y_low)));
+
+                    // Upper cap
+                    let cap_y_high = origin_y + box_data.whisker_high_px;
+                    whisker_builder.move_to(point(px(x - box_data.half_width * 0.5), px(cap_y_high)));
+                    whisker_builder.line_to(point(px(x + box_data.half_width * 0.5), px(cap_y_high)));
+
+                    // Box (IQR)
+                    add_rect_to_path(
+                        &mut box_builder,
+                        x - box_data.half_width,
+                        origin_y + box_data.box_top,
+                        box_width,
+                        box_data.box_height,
+                    );
+
+                    // Median line
+                    let median_y = origin_y + box_data.q2_px;
+                    median_builder.move_to(point(px(x - box_data.half_width), px(median_y)));
+                    median_builder.line_to(point(px(x + box_data.half_width), px(median_y)));
+
+                    // Outliers as small circles (drawn as filled rounded quads)
+                    let r = outlier_radius;
+                    let diameter = r * 2.0;
+                    for &y_px in &box_data.outliers_low {
+                        let cy = origin_y + y_px;
+                        add_rect_to_path(
+                            &mut outlier_builder,
+                            x - r,
+                            cy - r,
+                            diameter,
+                            diameter,
+                        );
+                    }
+                    for &y_px in &box_data.outliers_high {
+                        let cy = origin_y + y_px;
+                        add_rect_to_path(
+                            &mut outlier_builder,
+                            x - r,
+                            cy - r,
+                            diameter,
+                            diameter,
+                        );
+                    }
+                }
+
+                if let Ok(path) = whisker_builder.build() {
+                    window.paint_path(path, whisker_color);
+                }
+                if let Ok(path) = box_builder.build() {
+                    let mut fill = box_color;
+                    fill.a *= box_opacity;
+                    window.paint_path(path, fill);
+                }
+                if let Ok(path) = median_builder.build() {
+                    window.paint_path(path, median_color);
+                }
+                if let Ok(path) = outlier_builder.build() {
+                    let mut fill = outlier_color;
+                    fill.a *= 0.7;
+                    window.paint_path(path, fill);
+                }
+            },
+        )
+        .size_full()
+        .absolute()
+        .inset_0();
 
         div()
             .flex()
@@ -536,7 +561,7 @@ impl BoxPlotChart {
                                 plot_height as f32,
                                 theme,
                             ))
-                            .children(box_elements),
+                            .child(plot),
                     )
                     .child(render_axis(
                         x_scale,
@@ -607,4 +632,13 @@ mod tests {
         assert!(Arc::ptr_eq(&chart.x, &cloned.x));
         assert!(Arc::ptr_eq(&chart.y, &cloned.y));
     }
+}
+
+/// Append a rectangle outline to a GPUI path builder.
+fn add_rect_to_path(builder: &mut PathBuilder, x: f32, y: f32, width: f32, height: f32) {
+    builder.move_to(point(px(x), px(y)));
+    builder.line_to(point(px(x + width), px(y)));
+    builder.line_to(point(px(x + width), px(y + height)));
+    builder.line_to(point(px(x), px(y + height)));
+    builder.line_to(point(px(x), px(y)));
 }

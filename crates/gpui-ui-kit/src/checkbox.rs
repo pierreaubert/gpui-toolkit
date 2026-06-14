@@ -293,7 +293,7 @@ impl RenderOnce for Checkbox {
         });
 
         let global_theme = cx.theme();
-        let checkbox_theme = CheckboxTheme::from(&global_theme);
+        let checkbox_theme = CheckboxTheme::from(global_theme);
         let design = crate::design::resolve_design(self.design.clone(), cx);
         self.build_with_theme_and_design(&checkbox_theme, &design)
     }

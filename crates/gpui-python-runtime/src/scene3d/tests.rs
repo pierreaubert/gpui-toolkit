@@ -13,6 +13,33 @@ use super::scene_node::SceneNode;
 use super::scene_spec::SceneSpec;
 use super::surface_spec::SurfaceSpec;
 use crate::error::Scene3DError;
+use std::borrow::Cow;
+
+#[test]
+fn surface_x_values_returns_borrowed_for_explicit_axis() {
+    let mut spec = SurfaceSpec::from_flat("surface", vec![1.0, 2.0, 3.0, 4.0], 2, 2);
+    spec.x = Some(vec![10.0, 20.0]);
+    match spec.x_values() {
+        Cow::Borrowed(values) => assert_eq!(values, &[10.0, 20.0]),
+        Cow::Owned(_) => panic!("expected borrowed explicit x values"),
+    }
+}
+
+#[test]
+fn surface_default_axis_values_are_cached() {
+    let spec_a = SurfaceSpec::from_flat("surface", vec![1.0, 2.0, 3.0, 4.0], 2, 2);
+    let spec_b = SurfaceSpec::from_flat("other", vec![5.0, 6.0, 7.0, 8.0], 2, 2);
+
+    let x_a: Vec<f64> = spec_a.x_values().into();
+    let x_b: Vec<f64> = spec_b.x_values().into();
+    assert_eq!(x_a, x_b);
+    assert_eq!(x_a, vec![0.0, 1.0]);
+
+    let y_a: Vec<f64> = spec_a.y_values().into();
+    let y_b: Vec<f64> = spec_b.y_values().into();
+    assert_eq!(y_a, y_b);
+    assert_eq!(y_a, vec![0.0, 1.0]);
+}
 
 #[test]
 fn surface_validates_grid_dimensions() {

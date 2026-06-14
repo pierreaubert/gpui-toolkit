@@ -416,7 +416,7 @@ impl RenderOnce for Toggle {
         });
 
         let global_theme = cx.theme();
-        let toggle_theme = ToggleTheme::from(&global_theme);
+        let toggle_theme = ToggleTheme::from(global_theme);
         self.build_with_theme(&toggle_theme)
     }
 }

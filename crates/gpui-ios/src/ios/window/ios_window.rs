@@ -110,6 +110,9 @@ pub(crate) struct IosWindow {
     /// `request_frame` callback) can acquire a mutable reference without
     /// conflicting with the outer `&self` borrow.
     pub(super) renderer: Mutex<Option<WgpuRenderer>>,
+    /// Cached atlas handle so `sprite_atlas()` does not need to lock the
+    /// renderer mutex on every call once the renderer exists.
+    pub(super) sprite_atlas: Mutex<Option<Arc<dyn PlatformAtlas>>>,
     /// Reusable UIKit accessibility elements keyed by accessibility node id.
     pub(super) accessibility_elements: RefCell<HashMap<String, *mut Object>>,
     /// Previous accessibility snapshot used to diff against the current one.
@@ -288,6 +291,7 @@ impl IosWindow {
                 momentum_scroller: RefCell::new(MomentumScroller::new()),
                 keyboard_observers: RefCell::new(Vec::new()),
                 renderer: Mutex::new(None),
+                sprite_atlas: Mutex::new(None),
                 accessibility_elements: RefCell::new(HashMap::new()),
                 prev_accessibility_snapshot: RefCell::new(None),
                 platform_view_host: NativePlatformViewHost::new(view as *mut c_void),
@@ -1762,14 +1766,23 @@ impl PlatformWindow for IosWindow {
     }
 
     fn sprite_atlas(&self) -> Arc<dyn PlatformAtlas> {
-        let guard = self.renderer.lock();
-        if let Some(renderer) = guard.as_ref() {
-            renderer.sprite_atlas().clone()
-        } else {
-            // Fallback: return a dummy atlas so GPUI doesn't panic before
-            // the renderer is initialised.
-            Arc::new(FallbackAtlas::new())
+        if let Some(atlas) = self.sprite_atlas.lock().as_ref() {
+            return atlas.clone();
         }
+
+        let atlas: Arc<dyn PlatformAtlas> = {
+            let guard = self.renderer.lock();
+            if let Some(renderer) = guard.as_ref() {
+                renderer.sprite_atlas().clone()
+            } else {
+                // Fallback: return a dummy atlas so GPUI doesn't panic before
+                // the renderer is initialised.
+                Arc::new(FallbackAtlas::new())
+            }
+        };
+
+        *self.sprite_atlas.lock() = Some(atlas.clone());
+        atlas
     }
 
     fn is_subpixel_rendering_supported(&self) -> bool {

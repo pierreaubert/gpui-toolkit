@@ -37,39 +37,30 @@ mod python_ir_showcase;
 #[path = "showcase/types.rs"]
 mod types;
 
-use python::load_python_app;
 use python_ir_showcase::PythonIrShowcase;
 
 fn main() {
-    let app = match load_python_app() {
-        Ok(app) => app,
-        Err(error) => {
-            eprintln!("failed to load Python GPUI app: {error}");
-            std::process::exit(1);
-        }
-    };
-
-    let title = app.title.clone();
-    let width = app.width;
-    let height = app.height;
-
     if env::var_os("GPUI_TOOLKIT_VALIDATE_ONLY").is_some() {
-        println!(
-            "validated Python GPUI app {:?} with {} sections",
-            app.title,
-            app.sections.len()
-        );
+        match python::load_python_app_blocking() {
+            Ok(app) => {
+                println!(
+                    "validated Python GPUI app {:?} with {} sections",
+                    app.title,
+                    app.sections.len()
+                );
+            }
+            Err(error) => {
+                eprintln!("failed to validate Python GPUI app: {error}");
+                std::process::exit(1);
+            }
+        }
         return;
     }
 
     MiniApp::run(
-        MiniAppConfig::new(title)
-            .size(width, height)
+        MiniAppConfig::new("Python Showcase")
             .with_theme(true)
             .scrollable(false),
-        move |cx| {
-            let app = app.clone();
-            cx.new(move |_cx| PythonIrShowcase::new(app))
-        },
+        |cx| cx.new(|cx| PythonIrShowcase::new_loading(cx)),
     );
 }

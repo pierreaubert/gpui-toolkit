@@ -8,6 +8,7 @@ use super::types::LayoutDebugWarningKind;
 use crate::types::{Axis, LayoutNode};
 use crate::util::format_number;
 use std::collections::HashMap;
+use std::sync::OnceLock;
 
 /// Index into a [`SolvedTree`] node vector.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -114,6 +115,8 @@ impl<'tree, 'a> SolvedNodeRef<'tree, 'a> {
 pub struct SolvedTree<'a> {
     nodes: Vec<SolvedNodeData<'a>>,
     index: HashMap<&'a str, NodeIndex>,
+    /// Lazily-built id → node index map reused by [`Self::as_map`].
+    cached_as_map_index: OnceLock<HashMap<&'a str, NodeIndex>>,
 }
 
 impl<'a> SolvedTree<'a> {
@@ -126,7 +129,11 @@ impl<'a> SolvedTree<'a> {
         nodes: Vec<SolvedNodeData<'a>>,
         index: HashMap<&'a str, NodeIndex>,
     ) -> Self {
-        Self { nodes, index }
+        Self {
+            nodes,
+            index,
+            cached_as_map_index: OnceLock::new(),
+        }
     }
 
     /// Find a node by id in O(1).
@@ -157,12 +164,32 @@ impl<'a> SolvedTree<'a> {
     }
 
     /// Build a flat id → node map for O(1) repeated lookups.
+    ///
+    /// The first call walks the node list once and caches an internal id →
+    /// index map. Subsequent calls reuse that cached index, so repeated
+    /// lookups are cheap even when callers discard the returned map.
     pub fn as_map(&self) -> HashMap<&str, &SolvedNodeData<'a>> {
-        let mut map = HashMap::with_capacity(self.nodes.len());
-        for node in &self.nodes {
-            map.insert(node.id, node);
-        }
-        map
+        let index = self.cached_as_map_index.get_or_init(|| {
+            let mut map = HashMap::with_capacity(self.nodes.len());
+            for (i, node) in self.nodes.iter().enumerate() {
+                map.insert(node.id, NodeIndex(i));
+            }
+            map
+        });
+
+        index
+            .iter()
+            .map(|(&id, &idx)| (id, &self.nodes[idx.0]))
+            .collect()
+    }
+
+    /// Length of the lazily-built index used by [`Self::as_map`].
+    ///
+    /// Returns `0` before the first `as_map` call, and the number of indexed
+    /// ids afterwards.
+    #[cfg(test)]
+    pub(super) fn cached_index_len(&self) -> usize {
+        self.cached_as_map_index.get().map_or(0, |m| m.len())
     }
 
     /// Collect all collapsed nodes with their labels.

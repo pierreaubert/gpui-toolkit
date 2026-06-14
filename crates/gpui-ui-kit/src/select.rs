@@ -175,13 +175,7 @@ impl Select {
     }
 
     /// Build into element
-    fn build(
-        self,
-        global_theme: &crate::theme::Theme,
-        theme: &SelectTheme,
-        window: &mut Window,
-        cx: &mut App,
-    ) -> Div {
+    fn build(self, theme: &SelectTheme, window: &mut Window, cx: &mut App) -> Div {
         let (py, _text_size_class) = match self.size {
             SelectSize::Xs => (px(2.0), "xs"),
             SelectSize::Sm => (px(4.0), "sm"),
@@ -190,18 +184,6 @@ impl Select {
         };
 
         let mut container = div().relative().flex().flex_col().gap_1();
-
-        // Label
-        if let Some(label) = self.label {
-            container = container.child(
-                div()
-                    .font_family(global_theme.font_family.clone())
-                    .text_sm()
-                    .text_color(theme.label_color)
-                    .font_weight(FontWeight::MEDIUM)
-                    .child(label),
-            );
-        }
 
         // Find selected option label
         let selected_label = self.selected.as_ref().and_then(|val| {
@@ -232,9 +214,28 @@ impl Select {
                 .clone()
         });
 
+        // Borrow the global theme's font family in a scoped block so the
+        // mutable `cx` usage in `on_focus_out` does not conflict.
+        let font_family = {
+            let global_theme = cx.theme();
+            global_theme.font_family.clone()
+        };
+
+        // Label
+        if let Some(label) = self.label {
+            container = container.child(
+                div()
+                    .font_family(font_family.clone())
+                    .text_sm()
+                    .text_color(theme.label_color)
+                    .font_weight(FontWeight::MEDIUM)
+                    .child(label),
+            );
+        }
+
         let mut trigger = div()
             .id(self.id)
-            .font_family(global_theme.font_family.clone())
+            .font_family(font_family.clone())
             .track_focus(&focus_handle)
             .flex()
             .items_center()
@@ -388,7 +389,7 @@ impl Select {
             let dropdown_id_for_options = dropdown_id.clone();
             let mut dropdown = div()
                 .id((dropdown_id, "dropdown"))
-                .font_family(global_theme.font_family.clone())
+                .font_family(font_family.clone())
                 .absolute()
                 .top_full()
                 .left_0()
@@ -508,13 +509,12 @@ impl RenderOnce for Select {
                 .maybe_state(self.disabled, AriaState::Disabled),
         });
 
-        let global_theme = cx.theme();
         let theme = self
             .theme
             .clone()
-            .unwrap_or_else(|| SelectTheme::from(&global_theme));
+            .unwrap_or_else(|| SelectTheme::from(cx.theme()));
 
-        self.build(&global_theme, &theme, window, cx)
+        self.build(&theme, window, cx)
     }
 }
 

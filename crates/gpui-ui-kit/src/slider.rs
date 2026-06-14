@@ -19,12 +19,14 @@
 use crate::accessibility::{AccessibilityExt, AccessibilityNode, AriaProps, AriaRole, AriaState};
 use crate::theme::ThemeExt;
 use gpui::{
-    App, ElementId, FocusHandle, InteractiveElement, IntoElement, MouseButton, ParentElement,
-    RenderOnce, Rgba, SharedString, StatefulInteractiveElement, Styled, Window, div, px,
+    App, AppContext, Context, ElementId, FocusHandle, InteractiveElement, IntoElement, MouseButton,
+    ParentElement, Render, RenderOnce, Rgba, SharedString, StatefulInteractiveElement, Styled,
+    WeakEntity, Window, div, px,
 };
 use gpui_design::DesignSystem;
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::rc::Rc;
 use std::sync::Arc;
 
 thread_local! {
@@ -35,6 +37,12 @@ thread_local! {
     // Scroll events in GPUI go to the focused element; auto-focusing on hover
     // (same pattern as Potentiometer) makes scroll work without a click first.
     static SLIDER_FOCUS_HANDLES: RefCell<HashMap<ElementId, FocusHandle>> =
+        RefCell::new(HashMap::new());
+
+    // Cached render entities so repeated renders reuse the same GPUI entity.
+    // Weak references are used so GPUI can drop the entity when the view is
+    // destroyed; otherwise tests report leaked entity handles.
+    static SLIDER_ENTITIES: RefCell<HashMap<ElementId, WeakEntity<SliderEntity>>> =
         RefCell::new(HashMap::new());
 }
 
@@ -62,9 +70,9 @@ pub struct Slider {
     show_value: bool,
     label: Option<SharedString>,
     width: f32,
-    on_change: Option<Box<dyn Fn(f32, &mut Window, &mut App) + 'static>>,
-    on_drag_start: Option<Box<dyn Fn(f32, f32, &mut Window, &mut App) + 'static>>,
-    on_reset: Option<Box<dyn Fn(&mut Window, &mut App) + 'static>>,
+    on_change: Option<Rc<dyn Fn(f32, &mut Window, &mut App) + 'static>>,
+    on_drag_start: Option<Rc<dyn Fn(f32, f32, &mut Window, &mut App) + 'static>>,
+    on_reset: Option<Rc<dyn Fn(&mut Window, &mut App) + 'static>>,
     track_color: Option<Rgba>,
     fill_color: Option<Rgba>,
     thumb_color: Option<Rgba>,
@@ -193,7 +201,7 @@ impl Slider {
     ///
     /// The handler receives the new value by value.
     pub fn on_change(mut self, handler: impl Fn(f32, &mut Window, &mut App) + 'static) -> Self {
-        self.on_change = Some(Box::new(handler));
+        self.on_change = Some(Rc::new(handler));
         self
     }
 
@@ -204,7 +212,7 @@ impl Slider {
         mut self,
         handler: impl Fn(&f32, &mut Window, &mut App) + 'static,
     ) -> Self {
-        self.on_change = Some(Box::new(move |value, window, app| {
+        self.on_change = Some(Rc::new(move |value, window, app| {
             handler(&value, window, app);
         }));
         self
@@ -218,13 +226,13 @@ impl Slider {
         mut self,
         handler: impl Fn(f32, f32, &mut Window, &mut App) + 'static,
     ) -> Self {
-        self.on_drag_start = Some(Box::new(handler));
+        self.on_drag_start = Some(Rc::new(handler));
         self
     }
 
     /// Set reset handler (called on double-click)
     pub fn on_reset(mut self, handler: impl Fn(&mut Window, &mut App) + 'static) -> Self {
-        self.on_reset = Some(Box::new(handler));
+        self.on_reset = Some(Rc::new(handler));
         self
     }
 
@@ -271,310 +279,315 @@ impl Slider {
     }
 }
 
-impl RenderOnce for Slider {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
-        // Register in accessibility tree
-        let effective_label = self
-            .aria_label
+fn render_slider(props: &Slider, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+    // Register in accessibility tree
+    let effective_label = props
+        .aria_label
+        .clone()
+        .or_else(|| props.label.clone())
+        .unwrap_or_default();
+    cx.register_accessible(AccessibilityNode {
+        element_id: props.id.clone(),
+        label: effective_label,
+        props: AriaProps::with_role(props.aria_role.unwrap_or(AriaRole::Slider))
+            .value_range(props.value as f64, props.min as f64, props.max as f64)
+            .maybe_state(props.disabled, AriaState::Disabled),
+    });
+
+    // Reuse the same focus handle across renders so focus is not lost.
+    let focus_handle = SLIDER_FOCUS_HANDLES.with(|handles| {
+        handles
+            .borrow_mut()
+            .entry(props.id.clone())
+            .or_insert_with(|| cx.focus_handle())
             .clone()
-            .or_else(|| self.label.clone())
-            .unwrap_or_default();
-        cx.register_accessible(AccessibilityNode {
-            element_id: self.id.clone(),
-            label: effective_label,
-            props: AriaProps::with_role(self.aria_role.unwrap_or(AriaRole::Slider))
-                .value_range(self.value as f64, self.min as f64, self.max as f64)
-                .maybe_state(self.disabled, AriaState::Disabled),
-        });
+    });
 
-        let design = crate::design::resolve_design(self.design.clone(), cx);
-        let track_height = self.size.track_height_with_design(&design);
-        let thumb_size = self.size.thumb_size_with_design(&design);
-        let width = self.width;
+    let design = crate::design::resolve_design(props.design.clone(), cx);
+    let track_height = props.size.track_height_with_design(&design);
+    let thumb_size = props.size.thumb_size_with_design(&design);
+    let width = props.width;
 
-        // Use theme colors if available, then individual colors, then global theme
-        let global_theme = cx.theme();
-        let global_slider_theme = SliderTheme::from(&global_theme);
-        let theme = self.theme.as_ref().unwrap_or(&global_slider_theme);
-        let track_color = self.track_color.unwrap_or(theme.track);
-        let fill_color = self.fill_color.unwrap_or(theme.fill);
-        let thumb_color = self.thumb_color.unwrap_or(theme.thumb);
-        let thumb_hover = theme.thumb_hover;
-        let label_color = theme.label;
-        let value_color = theme.value;
-        let disabled_label = theme.disabled_label;
-        let disabled_fill = theme.disabled_fill;
+    // Use theme colors if available, then individual colors, then global theme
+    let global_theme = cx.theme();
+    let global_slider_theme = SliderTheme::from(global_theme.as_ref());
+    let theme = props.theme.as_ref().unwrap_or(&global_slider_theme);
+    let track_color = props.track_color.unwrap_or(theme.track);
+    let fill_color = props.fill_color.unwrap_or(theme.fill);
+    let thumb_color = props.thumb_color.unwrap_or(theme.thumb);
+    let thumb_hover = theme.thumb_hover;
+    let label_color = theme.label;
+    let value_color = theme.value;
+    let disabled_label = theme.disabled_label;
+    let disabled_fill = theme.disabled_fill;
 
-        let range = self.max - self.min;
-        let progress = if range > 0.0 {
-            (self.value - self.min) / range
-        } else {
-            0.0
-        };
+    let range = props.max - props.min;
+    let progress = if range > 0.0 {
+        (props.value - props.min) / range
+    } else {
+        0.0
+    };
 
-        let fill_width = (width * progress).max(0.0);
-        let thumb_left = (width * progress) - (thumb_size / 2.0);
+    let fill_width = (width * progress).max(0.0);
+    let thumb_left = (width * progress) - (thumb_size / 2.0);
 
-        let min = self.min;
-        let max = self.max;
-        let step = self.step;
-        let disabled = self.disabled;
-        let current_value = self.value;
+    let mut container = div().flex().flex_col().gap_1();
 
-        let mut container = div().flex().flex_col().gap_1();
+    // Label row
+    if props.label.is_some() || props.show_value {
+        let mut label_row = div().flex().justify_between().w(px(width)).text_sm();
 
-        // Label row
-        if self.label.is_some() || self.show_value {
-            let mut label_row = div().flex().justify_between().w(px(width)).text_sm();
-
-            if let Some(label) = &self.label {
-                label_row = label_row.child(
-                    div()
-                        .text_color(if disabled {
-                            disabled_label
-                        } else {
-                            label_color
-                        })
-                        .child(label.clone()),
-                );
-            }
-
-            if self.show_value {
-                label_row = label_row.child(
-                    div()
-                        .text_color(value_color)
-                        .child(format!("{:.1}", self.value)),
-                );
-            }
-
-            container = container.child(label_row);
-        }
-
-        // Wrap on_change in Rc for sharing between handlers
-        let on_change_rc = self.on_change.map(|h| std::rc::Rc::new(h));
-
-        // Get or create a stable FocusHandle for this slider so scroll wheel
-        // events are delivered. Auto-focus on hover (no button pressed) mirrors
-        // the Potentiometer pattern.
-        let focus_handle = SLIDER_FOCUS_HANDLES.with(|handles| {
-            let mut handles = handles.borrow_mut();
-            handles
-                .entry(self.id.clone())
-                .or_insert_with(|| cx.focus_handle())
-                .clone()
-        });
-
-        // Clone IDs for drag state keys before self.id is moved into the track element.
-        let drag_id_down = self.id.clone();
-        let drag_id_move = self.id.clone();
-        let drag_id_up = self.id.clone();
-
-        // Slider track
-        let mut track = div()
-            .id(self.id)
-            .track_focus(&focus_handle)
-            .w(px(width))
-            .h(px(thumb_size))
-            .flex()
-            .items_center()
-            .relative()
-            // Track background
-            .child(
+        if let Some(label) = &props.label {
+            label_row = label_row.child(
                 div()
-                    .absolute()
-                    .left_0()
-                    .w_full()
-                    .h(px(track_height))
-                    .rounded(px(track_height / 2.0))
-                    .bg(track_color),
-            )
-            // Fill
-            .child(
-                div()
-                    .absolute()
-                    .left_0()
-                    .w(px(fill_width))
-                    .h(px(track_height))
-                    .rounded(px(track_height / 2.0))
-                    .bg(if disabled { disabled_fill } else { fill_color }),
-            )
-            // Thumb with hover effect
-            .child({
-                let mut thumb = div()
-                    .absolute()
-                    .left(px(thumb_left.max(0.0)))
-                    .w(px(thumb_size))
-                    .h(px(thumb_size))
-                    .rounded_full()
-                    .bg(thumb_color)
-                    .border_2()
-                    .border_color(if disabled { disabled_fill } else { fill_color })
-                    .shadow_sm();
-                if !disabled {
-                    thumb = thumb.hover(move |s| s.bg(thumb_hover));
-                }
-                thumb
-            });
-
-        // Apply cursor style
-        if disabled {
-            track = track.cursor_not_allowed();
-        } else {
-            track = track.cursor_ew_resize();
-        }
-
-        // Event handlers (only if not disabled)
-        if !disabled {
-            // Mouse down - start drag or handle click
-            if let Some(on_drag_start) = self.on_drag_start {
-                let handler_down = on_drag_start;
-                track = track.on_mouse_down(MouseButton::Left, move |event, window, cx| {
-                    cx.stop_propagation();
-                    handler_down(event.position.x.into(), current_value, window, cx);
-                });
-            } else if let Some(ref handler_rc) = on_change_rc {
-                // Mouse down: record click position and value for delta-based drag.
-                // We do NOT compute value from absolute x here because event.position
-                // is window-relative, not element-relative.
-                let handler_click = handler_rc.clone();
-                track = track.on_mouse_down(MouseButton::Left, move |event, window, cx| {
-                    cx.stop_propagation();
-                    let click_x: f32 = event.position.x.into();
-                    SLIDER_DRAG_STATE.with(|s| {
-                        s.borrow_mut()
-                            .insert(drag_id_down.clone(), (click_x, current_value));
-                    });
-                    // Fire on_change immediately so the thumb snaps to a reasonable
-                    // position on click (use current value — caller can override).
-                    handler_click(current_value, window, cx);
-                });
-
-                // Mouse move while pressed: compute delta from click origin.
-                let handler_drag = handler_rc.clone();
-                track = track.on_mouse_move(move |event, window, cx| {
-                    if event.pressed_button == Some(MouseButton::Left) {
-                        let state =
-                            SLIDER_DRAG_STATE.with(|s| s.borrow().get(&drag_id_move).copied());
-                        if let Some((click_x, value_at_click)) = state {
-                            let current_x: f32 = event.position.x.into();
-                            let delta_x = current_x - click_x;
-                            let delta_value = (delta_x / width) * (max - min);
-                            let new_value = (value_at_click + delta_value).clamp(min, max);
-                            let snapped = if let Some(step) = step {
-                                let steps = ((new_value - min) / step).round();
-                                (min + steps * step).clamp(min, max)
-                            } else {
-                                new_value
-                            };
-                            handler_drag(snapped, window, cx);
-                        }
-                    }
-                });
-
-                // Mouse up: clear drag state.
-                track = track.on_mouse_up(MouseButton::Left, move |_event, _window, _cx| {
-                    SLIDER_DRAG_STATE.with(|s| {
-                        s.borrow_mut().remove(&drag_id_up);
-                    });
-                });
-            }
-
-            // Auto-focus on hover (no button pressed) so scroll wheel events
-            // are delivered. Mirrors the Potentiometer pattern.
-            let focus_handle_hover = focus_handle.clone();
-            track = track.on_mouse_move(move |event, window, cx| {
-                if !focus_handle_hover.is_focused(window) && event.pressed_button.is_none() {
-                    focus_handle_hover.focus(window, cx);
-                }
-            });
-
-            // Double-click to reset
-            if let Some(on_reset) = self.on_reset {
-                let reset_handler = std::rc::Rc::new(on_reset);
-                let reset_clone = reset_handler.clone();
-                track = track.on_click(move |event, window, cx| {
-                    if event.click_count() == 2 {
-                        reset_clone(window, cx);
-                    }
-                });
-            }
-
-            // Scroll wheel - adjust value (shift for fine-grained control)
-            if let Some(ref handler_rc) = on_change_rc {
-                let handler_scroll = handler_rc.clone();
-                track = track.on_scroll_wheel(move |event, window, cx| {
-                    // CRITICAL: Stop propagation immediately to prevent parent scroll container
-                    // from capturing the event before we can handle it
-                    cx.stop_propagation();
-
-                    // Get scroll delta - positive y means scrolling up
-                    let delta = event.delta.pixel_delta(px(20.0)).y;
-
-                    if delta.abs() < px(0.01) {
-                        return;
-                    }
-
-                    let scroll_up = delta < px(0.0);
-
-                    // Calculate step amount: 5% normally, 0.5% with shift
-                    let step_amount = if event.modifiers.shift {
-                        step.unwrap_or((max - min) * 0.005)
+                    .text_color(if props.disabled {
+                        disabled_label
                     } else {
-                        step.unwrap_or((max - min) * 0.05)
-                    };
+                        label_color
+                    })
+                    .child(label.clone()),
+            );
+        }
 
-                    // Increase on scroll up, decrease on scroll down
-                    let change = if scroll_up { step_amount } else { -step_amount };
-                    let new_value = current_value + change;
+        if props.show_value {
+            label_row = label_row.child(
+                div()
+                    .text_color(value_color)
+                    .child(format!("{:.1}", props.value)),
+            );
+        }
 
-                    // Snap to step if defined (only when not in fine mode)
-                    let snapped = if let Some(step) = step {
-                        if event.modifiers.shift {
-                            // In fine mode, don't snap to step
-                            new_value.clamp(min, max)
-                        } else {
+        container = container.child(label_row);
+    }
+
+    // Slider track
+    let mut track = div()
+        .id(props.id.clone())
+        .track_focus(&focus_handle)
+        .w(px(width))
+        .h(px(thumb_size))
+        .flex()
+        .items_center()
+        .relative()
+        // Track background
+        .child(
+            div()
+                .absolute()
+                .left_0()
+                .w_full()
+                .h(px(track_height))
+                .rounded(px(track_height / 2.0))
+                .bg(track_color),
+        )
+        // Fill
+        .child(
+            div()
+                .absolute()
+                .left_0()
+                .w(px(fill_width))
+                .h(px(track_height))
+                .rounded(px(track_height / 2.0))
+                .bg(if props.disabled { disabled_fill } else { fill_color }),
+        )
+        // Thumb with hover effect
+        .child({
+            let mut thumb = div()
+                .absolute()
+                .left(px(thumb_left.max(0.0)))
+                .w(px(thumb_size))
+                .h(px(thumb_size))
+                .rounded_full()
+                .bg(thumb_color)
+                .border_2()
+                .border_color(if props.disabled { disabled_fill } else { fill_color })
+                .shadow_sm();
+            if !props.disabled {
+                thumb = thumb.hover(move |s| s.bg(thumb_hover));
+            }
+            thumb
+        });
+
+    // Apply cursor style
+    if props.disabled {
+        track = track.cursor_not_allowed();
+    } else {
+        track = track.cursor_ew_resize();
+    }
+
+    // Event handlers (only if not disabled)
+    if !props.disabled {
+        // Mouse down - start drag or handle click
+        if props.on_drag_start.is_some() {
+            let handler = props.on_drag_start.as_ref().unwrap().clone();
+            let value = props.value;
+            track = track.on_mouse_down(MouseButton::Left, move |event, window, cx| {
+                cx.stop_propagation();
+                handler(event.position.x.into(), value, window, cx);
+            });
+        } else if let Some(handler) = props.on_change.as_ref() {
+            let handler = handler.clone();
+            let handler_click = handler.clone();
+            let value = props.value;
+            let id = props.id.clone();
+            track = track.on_mouse_down(MouseButton::Left, move |event, window, cx| {
+                cx.stop_propagation();
+                let click_x: f32 = event.position.x.into();
+                SLIDER_DRAG_STATE.with(|s| {
+                    s.borrow_mut().insert(id.clone(), (click_x, value));
+                });
+                handler_click(value, window, cx);
+            });
+
+            let handler_drag = handler.clone();
+            let id = props.id.clone();
+            let min = props.min;
+            let max = props.max;
+            let step = props.step;
+            track = track.on_mouse_move(move |event, window, cx| {
+                if event.pressed_button == Some(MouseButton::Left) {
+                    let state = SLIDER_DRAG_STATE.with(|s| s.borrow().get(&id).copied());
+                    if let Some((click_x, value_at_click)) = state {
+                        let current_x: f32 = event.position.x.into();
+                        let delta_x = current_x - click_x;
+                        let delta_value = (delta_x / width) * (max - min);
+                        let new_value = (value_at_click + delta_value).clamp(min, max);
+                        let snapped = if let Some(step) = step {
                             let steps = ((new_value - min) / step).round();
                             (min + steps * step).clamp(min, max)
-                        }
-                    } else {
-                        new_value.clamp(min, max)
-                    };
-
-                    handler_scroll(snapped, window, cx);
-                });
-            }
-
-            // Keyboard navigation
-            if let Some(handler_rc) = on_change_rc {
-                let handler_key = handler_rc.clone();
-                track = track.on_key_down(move |event, window, cx| {
-                    cx.stop_propagation();
-                    let step_amount = step.unwrap_or((max - min) * 0.05);
-                    let large_step = (max - min) * 0.10; // 10% for page up/down
-
-                    let new_value = match event.keystroke.key.as_str() {
-                        "up" | "right" => Some(current_value + step_amount),
-                        "down" | "left" => Some(current_value - step_amount),
-                        "pageup" => Some(current_value + large_step),
-                        "pagedown" => Some(current_value - large_step),
-                        "home" => Some(min),
-                        "end" => Some(max),
-                        _ => None,
-                    };
-
-                    if let Some(value) = new_value {
-                        let snapped = if let Some(step) = step {
-                            let steps = ((value - min) / step).round();
-                            (min + steps * step).clamp(min, max)
                         } else {
-                            value.clamp(min, max)
+                            new_value
                         };
-                        handler_key(snapped, window, cx);
+                        handler_drag(snapped, window, cx);
                     }
+                }
+            });
+
+            let id = props.id.clone();
+            track = track.on_mouse_up(MouseButton::Left, move |_event, _window, _cx| {
+                SLIDER_DRAG_STATE.with(|s| {
+                    s.borrow_mut().remove(&id);
                 });
-            }
+            });
         }
 
-        container.child(track)
+        // Auto-focus on hover (no button pressed) so scroll wheel events
+        // are delivered. Mirrors the Potentiometer pattern.
+        let focus_handle_hover = focus_handle.clone();
+        track = track.on_mouse_move(move |event, window, cx| {
+            if !focus_handle_hover.is_focused(window) && event.pressed_button.is_none() {
+                focus_handle_hover.focus(window, cx);
+            }
+        });
+
+        // Double-click to reset
+        if let Some(handler) = props.on_reset.as_ref() {
+            let handler = handler.clone();
+            track = track.on_click(move |event, window, cx| {
+                if event.click_count() == 2 {
+                    handler(window, cx);
+                }
+            });
+        }
+
+        // Scroll wheel - adjust value (shift for fine-grained control)
+        if let Some(handler) = props.on_change.as_ref() {
+            let handler = handler.clone();
+            let min = props.min;
+            let max = props.max;
+            let step = props.step;
+            let current_value = props.value;
+            track = track.on_scroll_wheel(move |event, window, cx| {
+                cx.stop_propagation();
+                let delta = event.delta.pixel_delta(px(20.0)).y;
+                if delta.abs() < px(0.01) {
+                    return;
+                }
+                let scroll_up = delta < px(0.0);
+                let step_amount = if event.modifiers.shift {
+                    step.unwrap_or((max - min) * 0.005)
+                } else {
+                    step.unwrap_or((max - min) * 0.05)
+                };
+                let change = if scroll_up { step_amount } else { -step_amount };
+                let new_value = current_value + change;
+                let snapped = if let Some(step) = step {
+                    if event.modifiers.shift {
+                        new_value.clamp(min, max)
+                    } else {
+                        let steps = ((new_value - min) / step).round();
+                        (min + steps * step).clamp(min, max)
+                    }
+                } else {
+                    new_value.clamp(min, max)
+                };
+                handler(snapped, window, cx);
+            });
+        }
+
+        // Keyboard navigation
+        if let Some(handler) = props.on_change.as_ref() {
+            let handler = handler.clone();
+            let min = props.min;
+            let max = props.max;
+            let step = props.step;
+            let current_value = props.value;
+            track = track.on_key_down(move |event, window, cx| {
+                cx.stop_propagation();
+                let step_amount = step.unwrap_or((max - min) * 0.05);
+                let large_step = (max - min) * 0.10;
+                let new_value = match event.keystroke.key.as_str() {
+                    "up" | "right" => Some(current_value + step_amount),
+                    "down" | "left" => Some(current_value - step_amount),
+                    "pageup" => Some(current_value + large_step),
+                    "pagedown" => Some(current_value - large_step),
+                    "home" => Some(min),
+                    "end" => Some(max),
+                    _ => None,
+                };
+                if let Some(value) = new_value {
+                    let snapped = if let Some(step) = step {
+                        let steps = ((value - min) / step).round();
+                        (min + steps * step).clamp(min, max)
+                    } else {
+                        value.clamp(min, max)
+                    };
+                    handler(snapped, window, cx);
+                }
+            });
+        }
+    }
+
+    container.child(track)
+}
+
+/// Internal entity that renders a [`Slider`] with stable identity across frames.
+pub struct SliderEntity {
+    props: Slider,
+}
+
+impl Render for SliderEntity {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        render_slider(&self.props, window, &mut **cx)
+    }
+}
+
+impl RenderOnce for Slider {
+    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let id = self.id.clone();
+        let entity = SLIDER_ENTITIES.with(|map| {
+            let mut map = map.borrow_mut();
+            if let Some(weak) = map.get(&id) {
+                if let Some(entity) = weak.upgrade() {
+                    return entity;
+                }
+            }
+            let entity = cx.new(|_cx| SliderEntity { props: Slider::new(id.clone()) });
+            map.insert(id.clone(), entity.downgrade());
+            entity
+        });
+        entity.update(cx, |model, _cx| {
+            model.props = self;
+        });
+        entity
     }
 }

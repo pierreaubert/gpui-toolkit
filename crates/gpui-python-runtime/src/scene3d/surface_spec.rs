@@ -14,8 +14,21 @@ use super::validate::validate_positive_f64_slice;
 use super::viewport_size::ViewportSize;
 use crate::error::Scene3DError;
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
+use std::collections::HashMap;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
+use std::sync::{Mutex, OnceLock};
+
+static DEFAULT_AXIS_CACHE: OnceLock<Mutex<HashMap<usize, Vec<f64>>>> = OnceLock::new();
+
+fn default_axis_values(size: usize) -> Vec<f64> {
+    let cache = DEFAULT_AXIS_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut map = cache.lock().unwrap();
+    map.entry(size)
+        .or_insert_with(|| (0..size).map(|value| value as f64).collect())
+        .clone()
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SurfaceSpec {
@@ -108,18 +121,28 @@ impl SurfaceSpec {
         Ok(())
     }
 
+    /// Return the x-axis coordinates.
+    ///
+    /// If explicit `x` values were supplied, they are borrowed from `self`.
+    /// Otherwise a cached default `[0, 1, ...]` vector is cloned.
     #[must_use]
-    pub fn x_values(&self) -> Vec<f64> {
-        self.x
-            .clone()
-            .unwrap_or_else(|| (0..self.z.width).map(|value| value as f64).collect())
+    pub fn x_values(&self) -> Cow<'_, [f64]> {
+        match &self.x {
+            Some(values) => Cow::Borrowed(values),
+            None => Cow::Owned(default_axis_values(self.z.width)),
+        }
     }
 
+    /// Return the y-axis coordinates.
+    ///
+    /// If explicit `y` values were supplied, they are borrowed from `self`.
+    /// Otherwise a cached default `[0, 1, ...]` vector is cloned.
     #[must_use]
-    pub fn y_values(&self) -> Vec<f64> {
-        self.y
-            .clone()
-            .unwrap_or_else(|| (0..self.z.height).map(|value| value as f64).collect())
+    pub fn y_values(&self) -> Cow<'_, [f64]> {
+        match &self.y {
+            Some(values) => Cow::Borrowed(values),
+            None => Cow::Owned(default_axis_values(self.z.height)),
+        }
     }
 
     pub(crate) fn fingerprints(&self) -> SceneFingerprints {

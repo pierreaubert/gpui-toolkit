@@ -209,7 +209,7 @@ impl ContextMenu {
 impl RenderOnce for ContextMenu {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let global_theme = cx.theme();
-        let theme = ContextMenuTheme::from(&global_theme);
+        let theme = ContextMenuTheme::from(global_theme);
         self.build_with_theme(&theme)
     }
 }

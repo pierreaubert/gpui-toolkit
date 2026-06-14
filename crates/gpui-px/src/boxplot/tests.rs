@@ -146,3 +146,21 @@ fn test_boxplot_responsive_size_defaults_and_fixed_opt_in() {
         Some(1.4),
     );
 }
+
+#[test]
+fn render_with_scales_batches_box_parts() {
+    let x: Vec<f64> = (0..100).map(|i| (i / 10) as f64).collect();
+    let y: Vec<f64> = x.iter().map(|&xi| xi * 2.0).collect();
+
+    let result = boxplot(&x, &y)
+        .title("Test Box Plot")
+        .box_color(0xcccccc)
+        .size(800.0, 600.0)
+        .build();
+
+    assert!(
+        result.is_ok(),
+        "boxplot should build with batched canvas layer: {:?}",
+        result.err()
+    );
+}

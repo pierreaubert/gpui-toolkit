@@ -283,7 +283,7 @@ impl StepIndicator {
 impl RenderOnce for StepIndicator {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let global_theme = cx.theme();
-        let theme = StepIndicatorTheme::from(&global_theme);
+        let theme = StepIndicatorTheme::from(global_theme);
         self.build_with_theme(&theme)
     }
 }

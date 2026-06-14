@@ -138,3 +138,20 @@ fn optimal_layout_caches_kp_items() {
     let second = layout_optimal(&prepared, 80.0, 20.0, &profile, &params);
     assert_eq!(first, second);
 }
+
+#[test]
+fn layout_with_lines_returns_borrowed_lines_when_possible() {
+    let measure = TestMeasure;
+    let profile = EngineProfile::default();
+    let options = PrepareOptions::default();
+    // A single word produces one prepared segment, so the single resulting line
+    // can borrow directly from `prepared.segments` instead of allocating.
+    let prepared = prepare_with_segments("hello", &measure, &profile, &options);
+    let result = layout_with_lines(&prepared, 200.0, 20.0, &profile);
+    assert_eq!(result.lines.len(), 1);
+    assert!(
+        matches!(result.lines[0].text, std::borrow::Cow::Borrowed(_)),
+        "single-segment line should be borrowed"
+    );
+    assert_eq!(result.lines[0].text, "hello");
+}

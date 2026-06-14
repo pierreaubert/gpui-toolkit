@@ -15,6 +15,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 pub struct PlatformViewRegistry {
     pub(super) factories: Mutex<HashMap<String, Box<dyn PlatformViewFactory>>>,
     pub(super) views: Mutex<HashMap<PlatformViewId, PlatformViewRecord>>,
+    snapshot_cache: Mutex<Option<Arc<[PlatformViewRecord]>>>,
 }
 
 impl PlatformViewRegistry {
@@ -22,7 +23,12 @@ impl PlatformViewRegistry {
         Self {
             factories: Mutex::new(HashMap::new()),
             views: Mutex::new(HashMap::new()),
+            snapshot_cache: Mutex::new(None),
         }
+    }
+
+    fn invalidate_snapshot_cache(&self) {
+        self.snapshot_cache.lock().unwrap().take();
     }
 
     pub fn global() -> &'static Self {
@@ -73,34 +79,45 @@ impl PlatformViewRegistry {
 
     pub fn register_view(&self, record: PlatformViewRecord) {
         self.views.lock().unwrap().insert(record.id, record);
+        self.invalidate_snapshot_cache();
     }
 
     pub fn update_view_bounds(&self, id: PlatformViewId, bounds: PlatformViewBounds) {
         if let Some(entry) = self.views.lock().unwrap().get_mut(&id) {
             entry.bounds = bounds;
+            self.invalidate_snapshot_cache();
         }
     }
 
     pub fn update_view_visibility(&self, id: PlatformViewId, visible: bool) {
         if let Some(entry) = self.views.lock().unwrap().get_mut(&id) {
             entry.visible = visible;
+            self.invalidate_snapshot_cache();
         }
     }
 
     pub fn update_view_z_index(&self, id: PlatformViewId, z_index: i32) {
         if let Some(entry) = self.views.lock().unwrap().get_mut(&id) {
             entry.z_index = z_index;
+            self.invalidate_snapshot_cache();
         }
     }
 
     pub fn remove_view(&self, id: PlatformViewId) {
         self.views.lock().unwrap().remove(&id);
+        self.invalidate_snapshot_cache();
     }
 
     pub fn view_snapshot(&self) -> Arc<[PlatformViewRecord]> {
+        if let Some(cached) = self.snapshot_cache.lock().unwrap().as_ref() {
+            return Arc::clone(cached);
+        }
+
         let mut views: Vec<_> = self.views.lock().unwrap().values().cloned().collect();
         views.sort_by_key(|view| (view.z_index, view.id.0));
-        Arc::from(views)
+        let snapshot: Arc<[PlatformViewRecord]> = Arc::from(views);
+        *self.snapshot_cache.lock().unwrap() = Some(Arc::clone(&snapshot));
+        snapshot
     }
 
     pub fn view_count(&self) -> usize {

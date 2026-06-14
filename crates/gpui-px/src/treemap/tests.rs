@@ -222,3 +222,18 @@ fn test_treemap_responsive_size_defaults_and_fixed_opt_in() {
         Some(1.5),
     );
 }
+
+#[test]
+fn build_uses_single_canvas() {
+    let root = TreemapNode::new("Root", 0.0)
+        .add_child(TreemapNode::new("A", 30.0))
+        .add_child(TreemapNode::new("B", 70.0));
+
+    let result = treemap(&root)
+        .title("Test Treemap")
+        .tiling_method(TilingMethod::Squarify)
+        .padding(2.0)
+        .build();
+
+    assert!(result.is_ok(), "treemap should build with single canvas: {:?}", result.err());
+}

@@ -5,7 +5,6 @@ use super::misc::apply_size;
 use super::misc::badge_colors;
 use super::misc::color_scale;
 use super::misc::hex_color;
-use super::misc::parse_spec;
 use super::misc::scale_type;
 use super::misc::tone_color;
 use super::types::StackDirection;
@@ -13,32 +12,52 @@ use gpui::*;
 use gpui_design::{DesignExt, DesignSystem};
 use gpui_px::{bar, heatmap, line, scatter};
 use gpui_python_runtime::gpui_adapter::Gpui3DCache;
+use gpui_python_runtime::spec_cache::TypedSpecCache;
 use gpui_python_runtime::ui_ir::{
     BadgeNode, ButtonNode, CardNode, ChartKind, ChartNode, ProgressNode, PythonAppIr, Scene3dNode,
     SectionHeaderNode, SimpleNode, SpinnerNode, StackNode, TableNode, TabsNode, TextNode, UiNode,
 };
-use gpui_python_runtime::{LinesSpec, MeshSpec, SceneSpec, SurfaceSpec};
 use gpui_ui_kit::theme::{Theme, ThemeExt};
 use serde_json::Value;
+use std::collections::HashMap;
 
 pub(super) struct PythonIrShowcase {
-    pub(super) app: PythonAppIr,
+    pub(super) app: Option<PythonAppIr>,
+    pub(super) load_error: Option<String>,
     pub(super) current_section: String,
     pub(super) gpui_3d: Gpui3DCache,
+    pub(super) spec_cache: TypedSpecCache,
+    pub(super) table_cells: HashMap<(usize, usize), (String, SharedString)>,
 }
 
 impl PythonIrShowcase {
-    pub(super) fn new(app: PythonAppIr) -> Self {
-        let current_section = app
-            .sections
-            .first()
-            .map(|section| section.id.clone())
-            .unwrap_or_default();
+    pub(super) fn new_loading(cx: &mut Context<Self>) -> Self {
+        cx.spawn(async move |this: WeakEntity<Self>, cx| {
+            let result = super::python::load_python_app_async().await;
+            let _ = this.update(cx, |this, cx| {
+                match result {
+                    Ok(app) => {
+                        if let Some(section) = app.sections.first() {
+                            this.current_section = section.id.clone();
+                        }
+                        this.app = Some(app);
+                    }
+                    Err(error) => {
+                        this.load_error = Some(error.to_string());
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
 
         Self {
-            app,
-            current_section,
+            app: None,
+            load_error: None,
+            current_section: String::new(),
             gpui_3d: Gpui3DCache::new(),
+            spec_cache: TypedSpecCache::new(),
+            table_cells: HashMap::new(),
         }
     }
 
@@ -48,6 +67,7 @@ impl PythonIrShowcase {
         ds: &DesignSystem,
         cx: &mut Context<Self>,
     ) -> Div {
+        let app = self.app.as_ref().expect("render_sidebar called after load");
         div()
             .w(px(240.0))
             .h_full()
@@ -69,16 +89,16 @@ impl PythonIrShowcase {
                             .text_size(px(ds.typography.large_size))
                             .font_weight(FontWeight::BOLD)
                             .text_color(theme.text_primary)
-                            .child(self.app.sidebar_title.clone()),
+                            .child(app.sidebar_title.clone()),
                     )
                     .child(
                         div()
                             .text_size(px(ds.typography.small_size))
                             .text_color(theme.text_muted)
-                            .child(self.app.sidebar_subtitle.clone()),
+                            .child(app.sidebar_subtitle.clone()),
                     ),
             )
-            .children(self.app.sections.iter().map(|section| {
+            .children(app.sections.iter().map(|section| {
                 let selected = section.id == self.current_section;
                 let section_id = section.id.clone();
                 let bg = if selected {
@@ -120,12 +140,12 @@ impl PythonIrShowcase {
         ds: &DesignSystem,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        let content = self
-            .app
+        let app = self.app.as_ref().expect("render_content called after load");
+        let content = app
             .sections
             .iter()
             .find(|section| section.id == self.current_section)
-            .or_else(|| self.app.sections.first())
+            .or_else(|| app.sections.first())
             .map(|section| section.content.clone());
 
         let content = content
@@ -508,7 +528,7 @@ impl PythonIrShowcase {
     }
 
     pub(super) fn render_table(
-        &self,
+        &mut self,
         node: &TableNode,
         theme: &Theme,
         ds: &DesignSystem,
@@ -522,19 +542,20 @@ impl PythonIrShowcase {
             .overflow_hidden();
 
         if !node.headers.is_empty() {
-            table = table.child(self.render_table_row(&node.headers, true, theme, ds));
+            table = table.child(self.render_table_row(&node.headers, 0, true, theme, ds));
         }
 
-        for row in &node.rows {
-            table = table.child(self.render_table_row(row, false, theme, ds));
+        for (index, row) in node.rows.iter().enumerate() {
+            table = table.child(self.render_table_row(row, index + 1, false, theme, ds));
         }
 
         table.into_any_element()
     }
 
     pub(super) fn render_table_row(
-        &self,
+        &mut self,
         row: &[String],
+        row_index: usize,
         header: bool,
         theme: &Theme,
         ds: &DesignSystem,
@@ -544,7 +565,14 @@ impl PythonIrShowcase {
             .bg(if header { theme.muted } else { theme.surface })
             .border_b_1()
             .border_color(theme.border)
-            .children(row.iter().map(|cell| {
+            .children(row.iter().enumerate().map(|(col, cell)| {
+                let cached = self
+                    .table_cells
+                    .entry((row_index, col))
+                    .or_insert_with(|| (cell.clone(), SharedString::from(cell.clone())));
+                if cached.0 != *cell {
+                    *cached = (cell.clone(), SharedString::from(cell.clone()));
+                }
                 div()
                     .w(px(180.0))
                     .px(px(ds.spacing.control_padding_x))
@@ -560,7 +588,7 @@ impl PythonIrShowcase {
                     } else {
                         theme.text_secondary
                     })
-                    .child(cell.clone())
+                    .child(cached.1.clone())
             }))
     }
 
@@ -652,15 +680,15 @@ impl PythonIrShowcase {
         let width = node.width.unwrap_or(560.0);
         let height = node.height.unwrap_or(360.0);
         let element = match node.spec.get("kind").and_then(Value::as_str) {
-            Some("surface") => self.render_surface_spec(&node.spec, theme, ds),
-            Some("lines") => self.render_lines_spec(&node.spec, theme, ds),
-            Some("mesh") => self.render_mesh_summary(&node.spec, theme, ds),
+            Some("surface") => self.render_surface_spec(&node.id, &node.spec, theme, ds),
+            Some("lines") => self.render_lines_spec(&node.id, &node.spec, theme, ds),
+            Some("mesh") => self.render_mesh_summary(&node.id, &node.spec, theme, ds),
             Some("light") => self.render_error("light nodes render inside scene specs", theme, ds),
             Some(kind) => {
                 self.render_error(&format!("unsupported scene3d kind: {kind}"), theme, ds)
             }
             None if node.spec.get("children").is_some() => {
-                self.render_scene_summary(&node.spec, theme, ds)
+                self.render_scene_summary(&node.id, &node.spec, theme, ds)
             }
             None => self.render_error("scene3d spec is missing kind or children", theme, ds),
         };
@@ -678,15 +706,13 @@ impl PythonIrShowcase {
 
     pub(super) fn render_surface_spec(
         &mut self,
+        node_id: &str,
         value: &Value,
         theme: &Theme,
         ds: &DesignSystem,
     ) -> AnyElement {
-        let spec = match parse_spec::<SurfaceSpec>(value).and_then(|spec| {
-            spec.validate().map_err(|error| error.to_string())?;
-            Ok(spec)
-        }) {
-            Ok(spec) => spec,
+        let spec = match self.spec_cache.parse_surface(node_id, value) {
+            Ok(spec) => spec.clone(),
             Err(error) => return self.render_error(&error, theme, ds),
         };
 
@@ -698,15 +724,13 @@ impl PythonIrShowcase {
 
     pub(super) fn render_lines_spec(
         &mut self,
+        node_id: &str,
         value: &Value,
         theme: &Theme,
         ds: &DesignSystem,
     ) -> AnyElement {
-        let spec = match parse_spec::<LinesSpec>(value).and_then(|spec| {
-            spec.validate().map_err(|error| error.to_string())?;
-            Ok(spec)
-        }) {
-            Ok(spec) => spec,
+        let spec = match self.spec_cache.parse_lines(node_id, value) {
+            Ok(spec) => spec.clone(),
             Err(error) => return self.render_error(&error, theme, ds),
         };
 
@@ -717,15 +741,13 @@ impl PythonIrShowcase {
     }
 
     pub(super) fn render_mesh_summary(
-        &self,
+        &mut self,
+        node_id: &str,
         value: &Value,
         theme: &Theme,
         ds: &DesignSystem,
     ) -> AnyElement {
-        match parse_spec::<MeshSpec>(value).and_then(|spec| {
-            spec.validate().map_err(|error| error.to_string())?;
-            Ok(spec)
-        }) {
+        match self.spec_cache.parse_mesh(node_id, value) {
             Ok(spec) => self.render_spec_summary(
                 "Mesh spec",
                 &[
@@ -742,15 +764,13 @@ impl PythonIrShowcase {
     }
 
     pub(super) fn render_scene_summary(
-        &self,
+        &mut self,
+        node_id: &str,
         value: &Value,
         theme: &Theme,
         ds: &DesignSystem,
     ) -> AnyElement {
-        match parse_spec::<SceneSpec>(value).and_then(|spec| {
-            spec.validate().map_err(|error| error.to_string())?;
-            Ok(spec)
-        }) {
+        match self.spec_cache.parse_scene(node_id, value) {
             Ok(spec) => self.render_spec_summary(
                 "Scene spec",
                 &[
@@ -828,6 +848,46 @@ impl Render for PythonIrShowcase {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
         let ds = cx.design();
+
+        if let Some(error) = &self.load_error {
+            return div()
+                .size_full()
+                .flex()
+                .items_center()
+                .justify_center()
+                .bg(theme.background)
+                .p(px(ds.spacing.card_padding))
+                .child(self.render_error(error, &theme, &ds));
+        }
+
+        if self.app.is_none() {
+            return div()
+                .size_full()
+                .flex()
+                .items_center()
+                .justify_center()
+                .bg(theme.background)
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .items_center()
+                        .gap(px(ds.spacing.control_gap))
+                        .child(
+                            div()
+                                .w(px(24.0))
+                                .h(px(24.0))
+                                .rounded(px(12.0))
+                                .bg(theme.accent),
+                        )
+                        .child(
+                            div()
+                                .text_size(px(ds.typography.small_size))
+                                .text_color(theme.text_secondary)
+                                .child("Loading Python app..."),
+                        ),
+                );
+        }
 
         div()
             .size_full()

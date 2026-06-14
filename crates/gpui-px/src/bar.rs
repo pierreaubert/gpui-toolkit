@@ -5,6 +5,8 @@
 
 mod bar_chart;
 mod bar_theme;
+#[cfg(test)]
+mod tests;
 mod types;
 
 pub use bar_chart::*;

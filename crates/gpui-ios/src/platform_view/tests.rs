@@ -9,7 +9,7 @@ use super::platform_view_registry::PlatformViewRegistry;
 use super::types::PlatformViewBounds;
 use super::types::PlatformViewParams;
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 struct TestView {
     id: PlatformViewId,
@@ -98,4 +98,34 @@ fn platform_view_kind_parses_common_spellings() {
     );
     assert_eq!(PlatformViewKind::WebView.as_str(), "webview");
     assert!("unknown".parse::<PlatformViewKind>().is_err());
+}
+
+#[test]
+fn view_snapshot_returns_cached_arc() {
+    let registry = PlatformViewRegistry::new();
+    registry.register_factory(Box::new(TestFactory));
+
+    let view = registry
+        .create_view(
+            "test",
+            &PlatformViewParams {
+                bounds: PlatformViewBounds {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 30.0,
+                    height: 40.0,
+                },
+                creation_params: HashMap::new(),
+                accessibility: PlatformViewAccessibility::named("Native picker"),
+            },
+        )
+        .unwrap();
+
+    let snapshot1 = registry.view_snapshot();
+    let snapshot2 = registry.view_snapshot();
+    assert!(Arc::ptr_eq(&snapshot1, &snapshot2));
+
+    registry.update_view_visibility(view.id(), false);
+    let snapshot3 = registry.view_snapshot();
+    assert!(!Arc::ptr_eq(&snapshot1, &snapshot3));
 }

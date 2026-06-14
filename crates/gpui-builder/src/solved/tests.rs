@@ -423,3 +423,31 @@ fn flat_tree_as_map_get_matches_find() {
         assert_eq!(from_map.height, node.height());
     }
 }
+
+#[test]
+fn as_map_is_cached() {
+    let root = sample_layout_tree();
+    let flat = solve_tree(&root, 1000.0, 800.0, &LayoutPreferences::default());
+
+    assert_eq!(
+        flat.cached_index_len(),
+        0,
+        "index should not be built until as_map is called"
+    );
+
+    let first = flat.as_map();
+    let cached_len = flat.cached_index_len();
+    assert!(cached_len > 0, "as_map should populate the cached index");
+    assert_eq!(cached_len, first.len());
+
+    let second = flat.as_map();
+    assert_eq!(
+        flat.cached_index_len(),
+        cached_len,
+        "second as_map should reuse the cached index"
+    );
+    assert_eq!(second.len(), first.len());
+    for (id, node) in &first {
+        assert_eq!(second.get(id).unwrap().width, node.width);
+    }
+}

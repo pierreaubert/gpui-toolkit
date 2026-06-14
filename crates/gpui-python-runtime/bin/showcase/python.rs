@@ -6,29 +6,96 @@ use gpui_python_runtime::ui_ir::PythonAppIr;
 use std::env;
 use std::error::Error;
 use std::ffi::OsString;
+use std::future::Future;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::pin::Pin;
+use std::process::{Command, Stdio};
+use std::sync::{Arc, Mutex};
+use std::task::{Context, Poll, Waker};
 
-pub(super) fn load_python_app() -> Result<PythonAppIr, Box<dyn Error>> {
+/// Load the Python app synchronously (blocks the calling thread).
+pub(super) fn load_python_app_blocking() -> Result<PythonAppIr, Box<dyn Error + Send + Sync>> {
     let script = env::args_os()
         .nth(1)
         .map(PathBuf::from)
         .unwrap_or_else(default_showcase_path);
-    let output = Command::new(python_executable())
+
+    let mut child = Command::new(python_executable())
         .arg(&script)
         .env("GPUI_TOOLKIT_DUMP_IR", "1")
         .env("PYTHONPATH", python_path(&script))
-        .output()?;
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("{} exited with {stderr}", script.display()).into());
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or("failed to capture Python stdout")?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or("failed to capture Python stderr")?;
+
+    // Drain stderr on a helper thread so the child can never block on a full
+    // stderr pipe while we stream JSON from stdout.
+    let stderr_thread = std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        let _ = std::io::Read::read_to_end(&mut stderr, &mut buf);
+        String::from_utf8_lossy(&buf).to_string()
+    });
+
+    let parse_result = serde_json::from_reader(std::io::BufReader::new(stdout));
+    let stderr_output = stderr_thread.join().unwrap_or_default();
+    let status = child.wait()?;
+
+    if !status.success() {
+        return Err(format!("{} exited with {stderr_output}", script.display()).into());
     }
 
-    let stdout = String::from_utf8(output.stdout)?;
-    let app: PythonAppIr = serde_json::from_str(stdout.trim())?;
+    let app: PythonAppIr = parse_result?;
     app.validate()?;
     Ok(app)
+}
+
+/// Future returned by `load_python_app_async`.
+struct BackgroundFuture<T> {
+    result: Arc<Mutex<Option<Result<T, Box<dyn Error + Send + Sync>>>>>,
+    waker: Arc<Mutex<Option<Waker>>>,
+}
+
+impl<T> Future for BackgroundFuture<T> {
+    type Output = Result<T, Box<dyn Error + Send + Sync>>;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        if let Some(result) = self.result.lock().unwrap().take() {
+            return Poll::Ready(result);
+        }
+        *self.waker.lock().unwrap() = Some(cx.waker().clone());
+        Poll::Pending
+    }
+}
+
+/// Load the Python app off the main thread.
+///
+/// The blocking Python process and JSON deserialization run on a dedicated
+/// background thread; the returned future resolves on the awaiting executor.
+pub(super) fn load_python_app_async()
+-> impl Future<Output = Result<PythonAppIr, Box<dyn Error + Send + Sync>>> {
+    let result = Arc::new(Mutex::new(None));
+    let waker = Arc::new(Mutex::new(None));
+    let result2 = result.clone();
+    let waker2 = waker.clone();
+
+    std::thread::spawn(move || {
+        let output = load_python_app_blocking();
+        *result2.lock().unwrap() = Some(output);
+        if let Some(w) = waker2.lock().unwrap().take() {
+            w.wake();
+        }
+    });
+
+    BackgroundFuture { result, waker }
 }
 
 pub(super) fn python_executable() -> OsString {

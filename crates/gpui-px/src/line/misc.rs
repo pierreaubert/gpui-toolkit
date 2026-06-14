@@ -20,49 +20,53 @@ thread_local! {
     static TICK_LABEL_BUF: RefCell<String> = RefCell::new(String::new());
 }
 
-/// Format tick labels for log scales with k/M suffixes
+/// Format tick labels for log scales with k/M suffixes into `buf`.
+pub(super) fn format_log_tick_into(value: f64, buf: &mut String) {
+    buf.clear();
+
+    let abs_value = value.abs();
+
+    // Handle zero
+    if abs_value < 1e-10 {
+        buf.push('0');
+        return;
+    }
+
+    // Format based on magnitude
+    if abs_value >= 1_000_000.0 {
+        // Millions: 1M, 2M, etc.
+        let millions = value / 1_000_000.0;
+        if millions.fract().abs() < 1e-10 {
+            let _ = write!(buf, "{:.0}M", millions);
+        } else {
+            let _ = write!(buf, "{:.1}M", millions);
+        }
+    } else if abs_value >= 1_000.0 {
+        // Thousands: 1k, 10k, 100k, etc.
+        let thousands = value / 1_000.0;
+        if thousands.fract().abs() < 1e-10 {
+            let _ = write!(buf, "{:.0}k", thousands);
+        } else {
+            let _ = write!(buf, "{:.1}k", thousands);
+        }
+    } else if abs_value >= 1.0 {
+        // Regular values >= 1
+        if value.fract().abs() < 1e-10 {
+            let _ = write!(buf, "{:.0}", value);
+        } else {
+            let _ = write!(buf, "{:.1}", value);
+        }
+    } else {
+        // Small values < 1
+        let _ = write!(buf, "{:.2}", value);
+    }
+}
+
+/// Format tick labels for log scales with k/M suffixes.
 pub(super) fn format_log_tick(value: f64) -> String {
     TICK_LABEL_BUF.with(|buf| {
         let mut buf = buf.borrow_mut();
-        buf.clear();
-
-        let abs_value = value.abs();
-
-        // Handle zero
-        if abs_value < 1e-10 {
-            buf.push('0');
-            return buf.clone();
-        }
-
-        // Format based on magnitude
-        if abs_value >= 1_000_000.0 {
-            // Millions: 1M, 2M, etc.
-            let millions = value / 1_000_000.0;
-            if millions.fract().abs() < 1e-10 {
-                let _ = write!(buf, "{:.0}M", millions);
-            } else {
-                let _ = write!(buf, "{:.1}M", millions);
-            }
-        } else if abs_value >= 1_000.0 {
-            // Thousands: 1k, 10k, 100k, etc.
-            let thousands = value / 1_000.0;
-            if thousands.fract().abs() < 1e-10 {
-                let _ = write!(buf, "{:.0}k", thousands);
-            } else {
-                let _ = write!(buf, "{:.1}k", thousands);
-            }
-        } else if abs_value >= 1.0 {
-            // Regular values >= 1
-            if value.fract().abs() < 1e-10 {
-                let _ = write!(buf, "{:.0}", value);
-            } else {
-                let _ = write!(buf, "{:.1}", value);
-            }
-        } else {
-            // Small values < 1
-            let _ = write!(buf, "{:.2}", value);
-        }
-
+        format_log_tick_into(value, &mut buf);
         buf.clone()
     })
 }
@@ -150,6 +154,25 @@ mod tests {
     #[test]
     fn test_format_log_tick_small() {
         assert_eq!(format_log_tick(0.42), "0.42");
+    }
+
+    #[test]
+    fn test_format_log_tick_into_matches_format_log_tick() {
+        let values = [
+            0.0,
+            2_000_000.0,
+            2_500_000.0,
+            3_000.0,
+            3_500.0,
+            42.0,
+            4.2,
+            0.42,
+        ];
+        for &value in &values {
+            let mut buf = String::new();
+            format_log_tick_into(value, &mut buf);
+            assert_eq!(buf, format_log_tick(value));
+        }
     }
 
     #[test]

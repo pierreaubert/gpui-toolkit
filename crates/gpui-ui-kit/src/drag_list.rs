@@ -216,7 +216,7 @@ impl DragList {
 impl RenderOnce for DragList {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let global_theme = cx.theme();
-        let theme = DragListTheme::from(&global_theme);
+        let theme = DragListTheme::from(global_theme);
         self.build_with_theme(&theme)
     }
 }

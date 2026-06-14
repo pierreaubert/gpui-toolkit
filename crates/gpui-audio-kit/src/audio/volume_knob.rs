@@ -214,7 +214,7 @@ impl RenderOnce for VolumeKnob {
         let theme = self
             .theme
             .clone()
-            .unwrap_or_else(|| VolumeKnobTheme::from(&global_theme));
+            .unwrap_or_else(|| VolumeKnobTheme::from(global_theme.as_ref()));
 
         // Apply color overrides or use theme defaults
         let accent_color = self.accent_color.unwrap_or(theme.accent);

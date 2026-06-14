@@ -46,6 +46,16 @@ fn frequency_axis_labels_include_bounds_and_avoid_overlap() {
 }
 
 #[::core::prelude::v1::test]
+fn frequency_axis_labels_are_cached() {
+    let labels_a = spectrum_frequency_axis_labels(20.0, 20_000.0);
+    let labels_b = spectrum_frequency_axis_labels(20.0, 20_000.0);
+    assert!(std::ptr::eq(labels_a.as_ptr(), labels_b.as_ptr()));
+
+    let labels_c = spectrum_frequency_axis_labels(30.0, 20_000.0);
+    assert!(!std::ptr::eq(labels_a.as_ptr(), labels_c.as_ptr()));
+}
+
+#[::core::prelude::v1::test]
 fn db_axis_labels_are_stable() {
     let labels = spectrum_db_axis_labels();
     assert_eq!(labels[0].label, "+3");

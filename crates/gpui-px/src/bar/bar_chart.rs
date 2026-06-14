@@ -14,14 +14,11 @@ use crate::{
 use d3rs::axis::{AxisConfig, DefaultAxisTheme, render_axis};
 use d3rs::color::D3Color;
 use d3rs::grid::{GridConfig, render_grid};
-use d3rs::scale::{LinearScale, LogScale};
-use d3rs::shape::{
-    BarConfig, BarDatum, GroupedBarConfig, GroupedBarDatum, GroupedBarMeta, analyze_grouped_data,
-    render_bars, render_grouped_bars,
-};
+use d3rs::scale::{LinearScale, LogScale, Scale};
+use d3rs::shape::{BarConfig, BarDatum, render_bars};
 use d3rs::text::{GlyphTextConfig, render_glyph_text};
 use gpui::prelude::*;
-use gpui::{AnyElement, IntoElement, div, px, rgb};
+use gpui::{AnyElement, IntoElement, PathBuilder, canvas, div, point, px, rgb};
 use gpui_design::DesignSystem;
 use std::sync::Arc;
 
@@ -435,57 +432,13 @@ impl BarChart {
         // Determine if we're using grouped bars (multiple series) or simple bars
         let use_grouped_bars = !self.series.is_empty();
 
-        // Prepare data for grouped bars
-        let grouped_data: Vec<GroupedBarDatum>;
-        let grouped_meta: GroupedBarMeta;
-        let grouped_config: GroupedBarConfig;
-
         // Prepare data for single-series bars
         let primary_data: Vec<BarDatum>;
         let primary_config: BarConfig;
 
         if use_grouped_bars {
-            // Build grouped bar data from all series
-            let mut all_data = Vec::new();
-
-            // Primary series
-            let primary_label = self.label.clone().unwrap_or_else(|| "Series 1".to_string());
-            for (cat, &val) in self.categories.iter().zip(self.values.iter()) {
-                all_data.push(GroupedBarDatum::new(
-                    cat.clone(),
-                    primary_label.clone(),
-                    val,
-                ));
-            }
-
-            // Additional series
-            for (i, s) in self.series.iter().enumerate() {
-                let series_label = s
-                    .label
-                    .clone()
-                    .unwrap_or_else(|| format!("Series {}", i + 2));
-                for (cat, &val) in self.categories.iter().zip(s.values.iter()) {
-                    all_data.push(GroupedBarDatum::new(cat.clone(), series_label.clone(), val));
-                }
-            }
-
-            grouped_data = all_data;
-            grouped_meta = analyze_grouped_data(&grouped_data);
-
-            // Collect colors for all series
-            let mut series_colors = vec![D3Color::from_hex(self.color)];
-            for s in &self.series {
-                series_colors.push(D3Color::from_hex(s.color));
-            }
-
-            grouped_config = GroupedBarConfig::new()
-                .series_colors(series_colors)
-                .opacity(self.opacity)
-                .group_gap(self.bar_gap * 3.0) // Gap between category groups
-                .bar_gap(self.bar_gap * 0.5) // Gap between bars within group
-                .border_radius(self.border_radius);
-
-            // Dummy values for single-series (won't be used)
+            // Grouped bars are rendered directly from the original category and
+            // series slices; no per-datum string clones are performed.
             primary_data = Vec::new();
             primary_config = BarConfig::from_design(&design);
         } else {
@@ -502,16 +455,6 @@ impl BarChart {
                 .opacity(self.opacity)
                 .bar_gap(self.bar_gap)
                 .border_radius(self.border_radius);
-
-            // Dummy values for grouped bars (won't be used)
-            grouped_data = Vec::new();
-            grouped_meta = GroupedBarMeta {
-                categories: Vec::new(),
-                series: Vec::new(),
-                min_value: 0.0,
-                max_value: 0.0,
-            };
-            grouped_config = GroupedBarConfig::new();
         }
 
         // Helper macro to build plot area with appropriate bar rendering
@@ -532,14 +475,18 @@ impl BarChart {
                     ));
 
                 if use_grouped_bars {
-                    // Use grouped bar rendering
-                    plot_area.child(render_grouped_bars(
+                    // Render grouped bars directly from original slices.
+                    plot_area.child(render_grouped_bars_view(
                         &$y_scale,
-                        &grouped_data,
-                        &grouped_meta,
+                        &self.categories,
+                        &self.values,
+                        &self.series,
+                        self.color,
+                        self.opacity,
+                        self.bar_gap,
+                        self.border_radius,
                         plot_width as f32,
                         plot_height as f32,
-                        &grouped_config,
                     ))
                 } else {
                     // Use simple bar rendering
@@ -978,4 +925,180 @@ mod tests {
             &cloned.series[0].values
         ));
     }
+}
+
+/// Render grouped bars without cloning category/series strings.
+///
+/// Bar positions are computed directly from the original `categories`, `values`
+/// and `series` slices, using numeric category/series indices instead of owned
+/// label strings.
+fn render_grouped_bars_view<YS>(
+    y_scale: &YS,
+    categories: &[String],
+    values: &[f64],
+    series: &[BarSeries],
+    primary_color: u32,
+    opacity: f32,
+    bar_gap: f32,
+    border_radius: f32,
+    plot_width: f32,
+    plot_height: f32,
+) -> impl IntoElement
+where
+    YS: Scale<f64, f64>,
+{
+    #[derive(Clone, Debug)]
+    struct GroupedBarQuad {
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+        color: D3Color,
+    }
+
+    let num_categories = categories.len() as f32;
+    let num_series = (series.len() + 1) as f32;
+
+    let group_gap = bar_gap * 3.0;
+    let inner_bar_gap = bar_gap * 0.5;
+    let total_group_gaps = group_gap * (num_categories - 1.0).max(0.0);
+    let available_width = plot_width - total_group_gaps;
+    let group_width = available_width / num_categories;
+    let total_bar_gaps = inner_bar_gap * (num_series - 1.0).max(0.0);
+    let available_bar_width = group_width - total_bar_gaps;
+    let bar_width = available_bar_width / num_series;
+
+    let (y_min, y_max) = y_scale.range();
+    let y_range_span = y_max - y_min;
+    let (y_domain_min, y_domain_max) = y_scale.domain();
+    let baseline = if y_domain_min <= 0.0 && y_domain_max >= 0.0 {
+        y_scale.scale(0.0)
+    } else {
+        y_scale.scale(y_domain_min)
+    };
+    let baseline_pos = if y_range_span == 0.0 {
+        0.5
+    } else {
+        1.0 - ((baseline - y_min) / y_range_span) as f32
+    };
+
+    let mut series_colors = vec![D3Color::from_hex(primary_color)];
+    for s in series {
+        series_colors.push(D3Color::from_hex(s.color));
+    }
+
+    let mut quads: Vec<GroupedBarQuad> =
+        Vec::with_capacity(categories.len() * series_colors.len());
+    for cat_idx in 0..categories.len() {
+        let group_start = cat_idx as f32 * (group_width + group_gap);
+        for ser_idx in 0..series_colors.len() {
+            let value = if ser_idx == 0 {
+                values[cat_idx]
+            } else {
+                series[ser_idx - 1].values[cat_idx]
+            };
+            let bar_offset = ser_idx as f32 * (bar_width + inner_bar_gap);
+            let x_pos = group_start + bar_offset;
+
+            let y_range = y_scale.scale(value);
+            let y_pos = if y_range_span == 0.0 {
+                0.5
+            } else {
+                1.0 - ((y_range - y_min) / y_range_span) as f32
+            };
+            let bar_height_rel = (baseline_pos - y_pos).abs();
+            let bar_height_px = bar_height_rel * plot_height;
+            let bar_top = if value >= 0.0 { y_pos } else { baseline_pos };
+            let bar_top_px = bar_top * plot_height;
+
+            quads.push(GroupedBarQuad {
+                x: x_pos,
+                y: bar_top_px,
+                width: bar_width,
+                height: bar_height_px,
+                color: series_colors[ser_idx],
+            });
+        }
+    }
+
+    quads.sort_by(|a, b| {
+        let a_key = (a.color.r.to_bits(), a.color.g.to_bits(), a.color.b.to_bits(), a.color.a.to_bits());
+        let b_key = (b.color.r.to_bits(), b.color.g.to_bits(), b.color.b.to_bits(), b.color.a.to_bits());
+        a_key.cmp(&b_key)
+    });
+
+    canvas(
+        move |_bounds, _window, _cx| quads,
+        move |bounds, quads, window, _cx| {
+            let origin_x: f32 = bounds.origin.x.into();
+            let origin_y: f32 = bounds.origin.y.into();
+
+            let mut i = 0;
+            while i < quads.len() {
+                let color = quads[i].color;
+                let mut group_end = i + 1;
+                while group_end < quads.len() && quads[group_end].color == color {
+                    group_end += 1;
+                }
+
+                let mut fill_builder = PathBuilder::fill();
+                for quad in &quads[i..group_end] {
+                    add_rounded_rect_to_path(
+                        &mut fill_builder,
+                        origin_x + quad.x,
+                        origin_y + quad.y,
+                        quad.width,
+                        quad.height,
+                        border_radius,
+                    );
+                }
+                if let Ok(path) = fill_builder.build() {
+                    let mut fill_color = color.to_rgba();
+                    fill_color.a *= opacity;
+                    window.paint_path(path, fill_color);
+                }
+
+                i = group_end;
+            }
+        },
+    )
+    .size_full()
+    .absolute()
+    .inset_0()
+}
+
+/// Append a rounded rectangle outline to a GPUI path builder.
+fn add_rounded_rect_to_path(
+    builder: &mut PathBuilder,
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+    radius: f32,
+) {
+    if radius <= 0.0 || width <= 0.0 || height <= 0.0 {
+        builder.move_to(point(px(x), px(y)));
+        builder.line_to(point(px(x + width), px(y)));
+        builder.line_to(point(px(x + width), px(y + height)));
+        builder.line_to(point(px(x), px(y + height)));
+        builder.line_to(point(px(x), px(y)));
+        return;
+    }
+
+    let r = radius.min(width / 2.0).min(height / 2.0);
+    builder.move_to(point(px(x + r), px(y)));
+    builder.line_to(point(px(x + width - r), px(y)));
+    builder.curve_to(point(px(x + width), px(y + r)), point(px(x + width), px(y)));
+    builder.line_to(point(px(x + width), px(y + height - r)));
+    builder.curve_to(
+        point(px(x + width - r), px(y + height)),
+        point(px(x + width), px(y + height)),
+    );
+    builder.line_to(point(px(x + r), px(y + height)));
+    builder.curve_to(
+        point(px(x), px(y + height - r)),
+        point(px(x), px(y + height)),
+    );
+    builder.line_to(point(px(x), px(y + r)));
+    builder.curve_to(point(px(x + r), px(y)), point(px(x), px(y)));
 }

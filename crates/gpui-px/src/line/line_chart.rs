@@ -18,7 +18,7 @@ use crate::{
 use d3rs::axis::{AxisConfig, render_axis};
 use d3rs::color::D3Color;
 use d3rs::grid::{GridConfig, render_grid};
-use d3rs::scale::{LinearScale, LogScale};
+use d3rs::scale::{LinearScale, LogScale, Scale};
 use d3rs::shape::{CurveType, LineConfig, LinePoint, StrokeDashArray, render_line};
 use d3rs::text::{GlyphTextConfig, render_glyph_text};
 use gpui::prelude::*;
@@ -561,6 +561,113 @@ impl LineChart {
         self
     }
 
+    /// Generic chart content builder for any X/Y scale combination.
+    fn build_chart_with_scales<XS, YS>(
+        &self,
+        x_scale: &XS,
+        y_scale: &YS,
+        y2_scale: &LinearScale,
+        x_axis_config: AxisConfig,
+        y_axis_config: AxisConfig,
+        y2_axis_config: AxisConfig,
+        plot_width: f64,
+        plot_height: f64,
+        grid_config: &GridConfig,
+        axis_theme: &ChartAxisTheme,
+        primary_hidden: bool,
+        primary_data: &[LinePoint],
+        primary_config: &LineConfig,
+        series_data_configs: &[(Vec<LinePoint>, LineConfig)],
+        secondary_series_data_configs: &[(Vec<LinePoint>, LineConfig)],
+        has_secondary_axis: bool,
+    ) -> AnyElement
+    where
+        XS: Scale<f64, f64>,
+        YS: Scale<f64, f64>,
+    {
+        let mut plot_area = div()
+            .w(px(plot_width as f32))
+            .h(px(plot_height as f32))
+            .relative()
+            .overflow_hidden()
+            .bg(self.theme.plot_background)
+            .child(render_grid(
+                x_scale,
+                y_scale,
+                grid_config,
+                plot_width as f32,
+                plot_height as f32,
+                axis_theme,
+            ));
+
+        for (series_data, series_config) in series_data_configs {
+            plot_area = plot_area.child(render_line(
+                x_scale,
+                y_scale,
+                series_data,
+                series_config,
+            ));
+        }
+
+        if !primary_hidden {
+            plot_area = plot_area.child(render_line(
+                x_scale,
+                y_scale,
+                primary_data,
+                primary_config,
+            ));
+        }
+
+        for (series_data, series_config) in secondary_series_data_configs {
+            plot_area = plot_area.child(render_line(
+                x_scale,
+                y2_scale,
+                series_data,
+                series_config,
+            ));
+        }
+
+        if has_secondary_axis {
+            div()
+                .flex()
+                .child(render_axis(
+                    y_scale,
+                    &y_axis_config,
+                    plot_height as f32,
+                    axis_theme,
+                ))
+                .child(div().flex().flex_col().child(plot_area).child(render_axis(
+                    x_scale,
+                    &x_axis_config,
+                    plot_width as f32,
+                    axis_theme,
+                )))
+                .child(render_axis(
+                    y2_scale,
+                    &y2_axis_config,
+                    plot_height as f32,
+                    axis_theme,
+                ))
+                .into_any_element()
+        } else {
+            div()
+                .flex()
+                .child(render_axis(
+                    y_scale,
+                    &y_axis_config,
+                    plot_height as f32,
+                    axis_theme,
+                ))
+                .child(div().flex().flex_col().child(plot_area).child(render_axis(
+                    x_scale,
+                    &x_axis_config,
+                    plot_width as f32,
+                    axis_theme,
+                )))
+                .into_any_element()
+        }
+    }
+
     /// Build and validate the chart, returning renderable element.
     pub fn build(self) -> Result<impl IntoElement, ChartError> {
         let design = self.design.clone().unwrap_or_else(default_design);
@@ -897,6 +1004,10 @@ impl LineChart {
             .with_line_opacity(0.3);
 
         // Build the element based on scale types
+        let y2_scale = LinearScale::new()
+            .domain(y2_min, y2_max)
+            .range(plot_height, 0.0);
+
         let chart_content: AnyElement = match (self.x_scale_type, self.y_scale_type) {
             (ScaleType::Linear, ScaleType::Linear) => {
                 let x_scale = LinearScale::new()
@@ -906,58 +1017,6 @@ impl LineChart {
                     .domain(y_min, y_max)
                     .range(plot_height, 0.0);
 
-                // Create secondary Y scale if needed
-                let y2_scale = LinearScale::new()
-                    .domain(y2_min, y2_max)
-                    .range(plot_height, 0.0);
-
-                // Build plot area with grid and all lines
-                let mut plot_area = div()
-                    .w(px(plot_width as f32))
-                    .h(px(plot_height as f32))
-                    .relative()
-                    .overflow_hidden()
-                    .bg(self.theme.plot_background)
-                    .child(render_grid(
-                        &x_scale,
-                        &y_scale,
-                        &grid_config,
-                        plot_width as f32,
-                        plot_height as f32,
-                        &axis_theme,
-                    ));
-
-                // Render all additional series first (so primary is on top)
-                for (series_data, series_config) in &series_data_configs {
-                    plot_area = plot_area.child(render_line(
-                        &x_scale,
-                        &y_scale,
-                        series_data,
-                        series_config,
-                    ));
-                }
-
-                // Render primary series on top (if not hidden)
-                if !primary_hidden {
-                    plot_area = plot_area.child(render_line(
-                        &x_scale,
-                        &y_scale,
-                        &primary_data,
-                        &primary_config,
-                    ));
-                }
-
-                // Render secondary axis series using secondary Y scale
-                for (series_data, series_config) in &secondary_series_data_configs {
-                    plot_area = plot_area.child(render_line(
-                        &x_scale,
-                        &y2_scale,
-                        series_data,
-                        series_config,
-                    ));
-                }
-
-                // Create axis configs with labels
                 let mut y_axis_config = AxisConfig::left().with_design(&design);
                 if let Some(ref label) = self.y_label {
                     y_axis_config = y_axis_config.with_title(label.clone());
@@ -968,51 +1027,29 @@ impl LineChart {
                     x_axis_config = x_axis_config.with_title(label.clone());
                 }
 
-                // Build chart with optional secondary Y axis
-                if has_secondary_axis {
-                    let mut y2_axis_config = AxisConfig::right().with_design(&design);
-                    if let Some(ref label) = self.y2_label {
-                        y2_axis_config = y2_axis_config.with_title(label.clone());
-                    }
-
-                    div()
-                        .flex()
-                        .child(render_axis(
-                            &y_scale,
-                            &y_axis_config,
-                            plot_height as f32,
-                            &axis_theme,
-                        ))
-                        .child(div().flex().flex_col().child(plot_area).child(render_axis(
-                            &x_scale,
-                            &x_axis_config,
-                            plot_width as f32,
-                            &axis_theme,
-                        )))
-                        .child(render_axis(
-                            &y2_scale,
-                            &y2_axis_config,
-                            plot_height as f32,
-                            &axis_theme,
-                        ))
-                        .into_any_element()
-                } else {
-                    div()
-                        .flex()
-                        .child(render_axis(
-                            &y_scale,
-                            &y_axis_config,
-                            plot_height as f32,
-                            &axis_theme,
-                        ))
-                        .child(div().flex().flex_col().child(plot_area).child(render_axis(
-                            &x_scale,
-                            &x_axis_config,
-                            plot_width as f32,
-                            &axis_theme,
-                        )))
-                        .into_any_element()
+                let mut y2_axis_config = AxisConfig::right().with_design(&design);
+                if let Some(ref label) = self.y2_label {
+                    y2_axis_config = y2_axis_config.with_title(label.clone());
                 }
+
+                self.build_chart_with_scales(
+                    &x_scale,
+                    &y_scale,
+                    &y2_scale,
+                    x_axis_config,
+                    y_axis_config,
+                    y2_axis_config,
+                    plot_width,
+                    plot_height,
+                    &grid_config,
+                    &axis_theme,
+                    primary_hidden,
+                    &primary_data,
+                    &primary_config,
+                    &series_data_configs,
+                    &secondary_series_data_configs,
+                    has_secondary_axis,
+                )
             }
             (ScaleType::Log, ScaleType::Linear) => {
                 let x_scale = LogScale::new().domain(x_min, x_max).range(0.0, plot_width);
@@ -1020,119 +1057,44 @@ impl LineChart {
                     .domain(y_min, y_max)
                     .range(plot_height, 0.0);
 
-                // Create secondary Y scale if needed
-                let y2_scale = LinearScale::new()
-                    .domain(y2_min, y2_max)
-                    .range(plot_height, 0.0);
-
-                // Build plot area with grid and all lines
-                let mut plot_area = div()
-                    .w(px(plot_width as f32))
-                    .h(px(plot_height as f32))
-                    .relative()
-                    .overflow_hidden()
-                    .bg(self.theme.plot_background)
-                    .child(render_grid(
-                        &x_scale,
-                        &y_scale,
-                        &grid_config,
-                        plot_width as f32,
-                        plot_height as f32,
-                        &axis_theme,
-                    ));
-
-                // Render all primary axis series first
-                for (series_data, series_config) in &series_data_configs {
-                    plot_area = plot_area.child(render_line(
-                        &x_scale,
-                        &y_scale,
-                        series_data,
-                        series_config,
-                    ));
-                }
-
-                // Render primary series on top (if not hidden)
-                if !primary_hidden {
-                    plot_area = plot_area.child(render_line(
-                        &x_scale,
-                        &y_scale,
-                        &primary_data,
-                        &primary_config,
-                    ));
-                }
-
-                // Render secondary axis series using secondary Y scale
-                for (series_data, series_config) in &secondary_series_data_configs {
-                    plot_area = plot_area.child(render_line(
-                        &x_scale,
-                        &y2_scale,
-                        series_data,
-                        series_config,
-                    ));
-                }
-
-                // Create axis configs with labels and angled X labels for log scale
                 let mut y_axis_config = AxisConfig::left().with_design(&design);
                 if let Some(ref label) = self.y_label {
                     y_axis_config = y_axis_config.with_title(label.clone());
                 }
 
-                // Generate smart tick values for log X axis to prevent collision
                 let x_ticks = generate_log_ticks(x_min, x_max);
                 let mut x_axis_config = AxisConfig::bottom()
                     .with_design(&design)
                     .with_tick_values(x_ticks)
                     .with_label_angle(-45.0)
-                    .with_formatter(format_log_tick); // Use k/M formatting for log scale
+                    .with_formatter(format_log_tick);
                 if let Some(ref label) = self.x_label {
                     x_axis_config = x_axis_config.with_title(label.clone());
                 }
 
-                // Build chart with optional secondary Y axis
-                if has_secondary_axis {
-                    let mut y2_axis_config = AxisConfig::right().with_design(&design);
-                    if let Some(ref label) = self.y2_label {
-                        y2_axis_config = y2_axis_config.with_title(label.clone());
-                    }
-
-                    div()
-                        .flex()
-                        .child(render_axis(
-                            &y_scale,
-                            &y_axis_config,
-                            plot_height as f32,
-                            &axis_theme,
-                        ))
-                        .child(div().flex().flex_col().child(plot_area).child(render_axis(
-                            &x_scale,
-                            &x_axis_config,
-                            plot_width as f32,
-                            &axis_theme,
-                        )))
-                        .child(render_axis(
-                            &y2_scale,
-                            &y2_axis_config,
-                            plot_height as f32,
-                            &axis_theme,
-                        ))
-                        .into_any_element()
-                } else {
-                    div()
-                        .flex()
-                        .child(render_axis(
-                            &y_scale,
-                            &y_axis_config,
-                            plot_height as f32,
-                            &axis_theme,
-                        ))
-                        .child(div().flex().flex_col().child(plot_area).child(render_axis(
-                            &x_scale,
-                            &x_axis_config,
-                            plot_width as f32,
-                            &axis_theme,
-                        )))
-                        .into_any_element()
+                let mut y2_axis_config = AxisConfig::right().with_design(&design);
+                if let Some(ref label) = self.y2_label {
+                    y2_axis_config = y2_axis_config.with_title(label.clone());
                 }
+
+                self.build_chart_with_scales(
+                    &x_scale,
+                    &y_scale,
+                    &y2_scale,
+                    x_axis_config,
+                    y_axis_config,
+                    y2_axis_config,
+                    plot_width,
+                    plot_height,
+                    &grid_config,
+                    &axis_theme,
+                    primary_hidden,
+                    &primary_data,
+                    &primary_config,
+                    &series_data_configs,
+                    &secondary_series_data_configs,
+                    has_secondary_axis,
+                )
             }
             (ScaleType::Linear, ScaleType::Log) => {
                 let x_scale = LinearScale::new()
@@ -1140,64 +1102,11 @@ impl LineChart {
                     .range(0.0, plot_width);
                 let y_scale = LogScale::new().domain(y_min, y_max).range(plot_height, 0.0);
 
-                // Create secondary Y scale if needed
-                let y2_scale = LinearScale::new()
-                    .domain(y2_min, y2_max)
-                    .range(plot_height, 0.0);
-
-                // Build plot area with grid and all lines
-                let mut plot_area = div()
-                    .w(px(plot_width as f32))
-                    .h(px(plot_height as f32))
-                    .relative()
-                    .overflow_hidden()
-                    .bg(self.theme.plot_background)
-                    .child(render_grid(
-                        &x_scale,
-                        &y_scale,
-                        &grid_config,
-                        plot_width as f32,
-                        plot_height as f32,
-                        &axis_theme,
-                    ));
-
-                // Render all additional series first
-                for (series_data, series_config) in &series_data_configs {
-                    plot_area = plot_area.child(render_line(
-                        &x_scale,
-                        &y_scale,
-                        series_data,
-                        series_config,
-                    ));
-                }
-
-                // Render primary series on top (if not hidden)
-                if !primary_hidden {
-                    plot_area = plot_area.child(render_line(
-                        &x_scale,
-                        &y_scale,
-                        &primary_data,
-                        &primary_config,
-                    ));
-                }
-
-                // Render secondary axis series using secondary Y scale
-                for (series_data, series_config) in &secondary_series_data_configs {
-                    plot_area = plot_area.child(render_line(
-                        &x_scale,
-                        &y2_scale,
-                        series_data,
-                        series_config,
-                    ));
-                }
-
-                // Create axis configs with labels
-                // Generate smart tick values for log Y axis to prevent collision
                 let y_ticks = generate_log_ticks(y_min, y_max);
                 let mut y_axis_config = AxisConfig::left()
                     .with_design(&design)
                     .with_tick_values(y_ticks)
-                    .with_formatter(format_log_tick); // Use k/M formatting for log scale
+                    .with_formatter(format_log_tick);
                 if let Some(ref label) = self.y_label {
                     y_axis_config = y_axis_config.with_title(label.clone());
                 }
@@ -1207,114 +1116,39 @@ impl LineChart {
                     x_axis_config = x_axis_config.with_title(label.clone());
                 }
 
-                // Build chart with optional secondary Y axis
-                if has_secondary_axis {
-                    let mut y2_axis_config = AxisConfig::right().with_design(&design);
-                    if let Some(ref label) = self.y2_label {
-                        y2_axis_config = y2_axis_config.with_title(label.clone());
-                    }
-
-                    div()
-                        .flex()
-                        .child(render_axis(
-                            &y_scale,
-                            &y_axis_config,
-                            plot_height as f32,
-                            &axis_theme,
-                        ))
-                        .child(div().flex().flex_col().child(plot_area).child(render_axis(
-                            &x_scale,
-                            &x_axis_config,
-                            plot_width as f32,
-                            &axis_theme,
-                        )))
-                        .child(render_axis(
-                            &y2_scale,
-                            &y2_axis_config,
-                            plot_height as f32,
-                            &axis_theme,
-                        ))
-                        .into_any_element()
-                } else {
-                    div()
-                        .flex()
-                        .child(render_axis(
-                            &y_scale,
-                            &y_axis_config,
-                            plot_height as f32,
-                            &axis_theme,
-                        ))
-                        .child(div().flex().flex_col().child(plot_area).child(render_axis(
-                            &x_scale,
-                            &x_axis_config,
-                            plot_width as f32,
-                            &axis_theme,
-                        )))
-                        .into_any_element()
+                let mut y2_axis_config = AxisConfig::right().with_design(&design);
+                if let Some(ref label) = self.y2_label {
+                    y2_axis_config = y2_axis_config.with_title(label.clone());
                 }
+
+                self.build_chart_with_scales(
+                    &x_scale,
+                    &y_scale,
+                    &y2_scale,
+                    x_axis_config,
+                    y_axis_config,
+                    y2_axis_config,
+                    plot_width,
+                    plot_height,
+                    &grid_config,
+                    &axis_theme,
+                    primary_hidden,
+                    &primary_data,
+                    &primary_config,
+                    &series_data_configs,
+                    &secondary_series_data_configs,
+                    has_secondary_axis,
+                )
             }
             (ScaleType::Log, ScaleType::Log) => {
                 let x_scale = LogScale::new().domain(x_min, x_max).range(0.0, plot_width);
                 let y_scale = LogScale::new().domain(y_min, y_max).range(plot_height, 0.0);
 
-                // Create secondary Y scale if needed
-                let y2_scale = LinearScale::new()
-                    .domain(y2_min, y2_max)
-                    .range(plot_height, 0.0);
-
-                // Build plot area with grid and all lines
-                let mut plot_area = div()
-                    .w(px(plot_width as f32))
-                    .h(px(plot_height as f32))
-                    .relative()
-                    .overflow_hidden()
-                    .bg(self.theme.plot_background)
-                    .child(render_grid(
-                        &x_scale,
-                        &y_scale,
-                        &grid_config,
-                        plot_width as f32,
-                        plot_height as f32,
-                        &axis_theme,
-                    ));
-
-                // Render all additional series first
-                for (series_data, series_config) in &series_data_configs {
-                    plot_area = plot_area.child(render_line(
-                        &x_scale,
-                        &y_scale,
-                        series_data,
-                        series_config,
-                    ));
-                }
-
-                // Render primary series on top (if not hidden)
-                if !primary_hidden {
-                    plot_area = plot_area.child(render_line(
-                        &x_scale,
-                        &y_scale,
-                        &primary_data,
-                        &primary_config,
-                    ));
-                }
-
-                // Render secondary axis series using secondary Y scale
-                for (series_data, series_config) in &secondary_series_data_configs {
-                    plot_area = plot_area.child(render_line(
-                        &x_scale,
-                        &y2_scale,
-                        series_data,
-                        series_config,
-                    ));
-                }
-
-                // Create axis configs with labels and angled X labels for log scale
-                // Generate smart tick values for both log axes to prevent collision
                 let y_ticks = generate_log_ticks(y_min, y_max);
                 let mut y_axis_config = AxisConfig::left()
                     .with_design(&design)
                     .with_tick_values(y_ticks)
-                    .with_formatter(format_log_tick); // Use k/M formatting for log scale
+                    .with_formatter(format_log_tick);
                 if let Some(ref label) = self.y_label {
                     y_axis_config = y_axis_config.with_title(label.clone());
                 }
@@ -1324,56 +1158,34 @@ impl LineChart {
                     .with_design(&design)
                     .with_tick_values(x_ticks)
                     .with_label_angle(-45.0)
-                    .with_formatter(format_log_tick); // Use k/M formatting for log scale
+                    .with_formatter(format_log_tick);
                 if let Some(ref label) = self.x_label {
                     x_axis_config = x_axis_config.with_title(label.clone());
                 }
 
-                // Build chart with optional secondary Y axis
-                if has_secondary_axis {
-                    let mut y2_axis_config = AxisConfig::right().with_design(&design);
-                    if let Some(ref label) = self.y2_label {
-                        y2_axis_config = y2_axis_config.with_title(label.clone());
-                    }
-
-                    div()
-                        .flex()
-                        .child(render_axis(
-                            &y_scale,
-                            &y_axis_config,
-                            plot_height as f32,
-                            &axis_theme,
-                        ))
-                        .child(div().flex().flex_col().child(plot_area).child(render_axis(
-                            &x_scale,
-                            &x_axis_config,
-                            plot_width as f32,
-                            &axis_theme,
-                        )))
-                        .child(render_axis(
-                            &y2_scale,
-                            &y2_axis_config,
-                            plot_height as f32,
-                            &axis_theme,
-                        ))
-                        .into_any_element()
-                } else {
-                    div()
-                        .flex()
-                        .child(render_axis(
-                            &y_scale,
-                            &y_axis_config,
-                            plot_height as f32,
-                            &axis_theme,
-                        ))
-                        .child(div().flex().flex_col().child(plot_area).child(render_axis(
-                            &x_scale,
-                            &x_axis_config,
-                            plot_width as f32,
-                            &axis_theme,
-                        )))
-                        .into_any_element()
+                let mut y2_axis_config = AxisConfig::right().with_design(&design);
+                if let Some(ref label) = self.y2_label {
+                    y2_axis_config = y2_axis_config.with_title(label.clone());
                 }
+
+                self.build_chart_with_scales(
+                    &x_scale,
+                    &y_scale,
+                    &y2_scale,
+                    x_axis_config,
+                    y_axis_config,
+                    y2_axis_config,
+                    plot_width,
+                    plot_height,
+                    &grid_config,
+                    &axis_theme,
+                    primary_hidden,
+                    &primary_data,
+                    &primary_config,
+                    &series_data_configs,
+                    &secondary_series_data_configs,
+                    has_secondary_axis,
+                )
             }
         };
 

@@ -392,7 +392,7 @@ impl RenderOnce for Menu {
         });
 
         let global_theme = cx.theme();
-        let menu_theme = MenuTheme::from(&global_theme);
+        let menu_theme = MenuTheme::from(global_theme);
         self.build_with_theme(&menu_theme)
     }
 }

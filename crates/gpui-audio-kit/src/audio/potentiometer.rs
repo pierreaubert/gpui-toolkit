@@ -337,7 +337,7 @@ impl RenderOnce for Potentiometer {
         });
 
         let global_theme = cx.theme();
-        let default_theme = PotentiometerTheme::from(&global_theme);
+        let default_theme = PotentiometerTheme::from(global_theme.as_ref());
         let theme = self.theme.clone().unwrap_or(default_theme);
         let selected = self.selected;
         let disabled = self.disabled;

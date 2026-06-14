@@ -3,8 +3,8 @@
 //! Showcase helpers shared with the `gpui-python-showcase` binary.
 
 use gpui_px::ColorScale;
-use serde::de::DeserializeOwned;
-use serde_json::Value;
+
+pub use crate::spec_cache::{TypedSceneSpec, TypedSpecCache, parse_spec};
 
 fn normalized_eq(value: &str, target: &str) -> bool {
     let mut value = value.trim().chars().filter(|&c| c != '-' && c != '_');
@@ -37,17 +37,11 @@ pub fn color_scale(value: &str) -> ColorScale {
     }
 }
 
-pub fn parse_spec<T>(value: &Value) -> Result<T, String>
-where
-    T: DeserializeOwned,
-{
-    T::deserialize(value).map_err(|error| error.to_string())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde::Deserialize;
+    use serde_json::Value;
 
     #[derive(Debug, Deserialize, PartialEq)]
     struct Sample {

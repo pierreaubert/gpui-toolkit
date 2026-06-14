@@ -241,7 +241,7 @@ impl RenderOnce for SearchBar {
         });
 
         let global_theme = cx.theme();
-        let theme = SearchBarTheme::from(&global_theme);
+        let theme = SearchBarTheme::from(global_theme);
         self.build_with_theme(&theme)
     }
 }

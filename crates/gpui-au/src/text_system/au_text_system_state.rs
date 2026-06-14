@@ -37,13 +37,27 @@ use gpui::{
 };
 use pathfinder_geometry::transform2d::Transform2F;
 use smallvec::SmallVec;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
-use std::{borrow::Cow, cell::RefCell, char, sync::Arc};
+use std::{borrow::Cow, char, sync::Arc};
 
 thread_local! {
     /// Reusable bitmap scratch buffer for glyph rasterization.
     static GLYPH_BITMAP_SCRATCH: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
+    /// Reusable Core Graphics context for text glyphs (grayscale).
+    static GLYPH_TEXT_CONTEXT_CACHE: RefCell<Option<CachedContext>> = const { RefCell::new(None) };
+    /// Reusable Core Graphics context for emoji glyphs (RGBA).
+    static GLYPH_EMOJI_CONTEXT_CACHE: RefCell<Option<CachedContext>> = const { RefCell::new(None) };
+    /// Test-only counter for how many bitmap contexts have been created.
+    static GLYPH_CONTEXT_CREATE_COUNT: Cell<usize> = const { Cell::new(0) };
+}
+
+struct CachedContext {
+    context: CGContext,
+    width: usize,
+    height: usize,
+    bytes_per_row: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -248,68 +262,124 @@ impl AuTextSystemState {
         };
         let mut bitmap = vec![0u8; needed];
 
+        let req_width = bitmap_size.width.0 as usize;
+        let req_height = bitmap_size.height.0 as usize;
+        let is_emoji = params.is_emoji;
+
         GLYPH_BITMAP_SCRATCH.with(|scratch| {
             let mut scratch = scratch.borrow_mut();
             scratch.resize(needed, 0);
-            let (color_space, alpha_info, bytes_per_row) = if params.is_emoji {
+
+            let (color_space, alpha_info, out_bytes_per_row) = if is_emoji {
                 (
                     CGColorSpace::create_device_rgb(),
                     kCGImageAlphaPremultipliedLast,
-                    bitmap_size.width.0 as usize * 4,
+                    req_width * 4,
                 )
             } else {
                 (
                     CGColorSpace::create_device_gray(),
                     kCGImageAlphaOnly,
-                    bitmap_size.width.0 as usize,
+                    req_width,
                 )
             };
-            let cx = CGContext::create_bitmap_context(
-                Some(scratch.as_mut_ptr() as *mut _),
-                bitmap_size.width.0 as usize,
-                bitmap_size.height.0 as usize,
-                8,
-                bytes_per_row,
-                &color_space,
-                alpha_info,
-            );
-            cx.translate(
-                -glyph_bounds.origin.x.0 as CGFloat,
-                (glyph_bounds.origin.y.0 + glyph_bounds.size.height.0) as CGFloat,
-            );
-            cx.scale(
-                params.scale_factor as CGFloat,
-                params.scale_factor as CGFloat,
-            );
-            let subpixel_shift = params
-                .subpixel_variant
-                .map(|v| v as f32 / SUBPIXEL_VARIANTS_X as f32);
-            cx.set_text_drawing_mode(CGTextDrawingMode::CGTextFill);
-            cx.set_gray_fill_color(0.0, 1.0);
-            cx.set_allows_antialiasing(true);
-            cx.set_should_antialias(true);
-            cx.set_allows_font_subpixel_positioning(true);
-            cx.set_should_subpixel_position_fonts(true);
-            cx.set_allows_font_subpixel_quantization(false);
-            cx.set_should_subpixel_quantize_fonts(false);
-            self.fonts[params.font_id.0]
-                .native_font()
-                .clone_with_font_size(f32::from(params.font_size) as CGFloat)
-                .draw_glyphs(
-                    &[params.glyph_id.0 as CGGlyph],
-                    &[CGPoint::new(
-                        (subpixel_shift.x / params.scale_factor) as CGFloat,
-                        (subpixel_shift.y / params.scale_factor) as CGFloat,
-                    )],
-                    cx,
-                );
-            if params.is_emoji {
-                for pixel in scratch.chunks_exact_mut(4) {
-                    gpui::swap_rgba_pa_to_bgra(pixel);
+
+            // Reuse an existing context if it is at least as large as the
+            // requested bitmap; otherwise create a new one sized exactly to the
+            // current glyph. Text and emoji use separate caches so interleaved
+            // glyph types do not evict each other.
+            let cache = if is_emoji {
+                &GLYPH_EMOJI_CONTEXT_CACHE
+            } else {
+                &GLYPH_TEXT_CONTEXT_CACHE
+            };
+            cache.with(|c| {
+                let mut c = c.borrow_mut();
+                let fits = c
+                    .as_ref()
+                    .is_some_and(|c| c.width >= req_width && c.height >= req_height);
+                if !fits {
+                    let context = CGContext::create_bitmap_context(
+                        Some(scratch.as_mut_ptr() as *mut _),
+                        req_width,
+                        req_height,
+                        8,
+                        out_bytes_per_row,
+                        &color_space,
+                        alpha_info,
+                    );
+                    *c = Some(CachedContext {
+                        context,
+                        width: req_width,
+                        height: req_height,
+                        bytes_per_row: out_bytes_per_row,
+                    });
+                    GLYPH_CONTEXT_CREATE_COUNT.with(|c| c.set(c.get() + 1));
                 }
-            }
-            bitmap.copy_from_slice(&scratch[..needed]);
+            });
+
+            cache.with(|c| {
+                let cache = c.borrow();
+                let cached = cache.as_ref().expect("context cache populated above");
+
+                // The cached context may be larger than the current glyph, so
+                // size the scratch buffer to match the cached context and clear
+                // it before drawing.
+                let cached_bytes = cached.height * cached.bytes_per_row;
+                scratch.resize(cached_bytes, 0);
+                scratch[..cached_bytes].fill(0);
+
+                let cx = &cached.context;
+                cx.translate(
+                    -glyph_bounds.origin.x.0 as CGFloat,
+                    (glyph_bounds.origin.y.0 + glyph_bounds.size.height.0) as CGFloat,
+                );
+                cx.scale(params.scale_factor as CGFloat, params.scale_factor as CGFloat);
+
+                let subpixel_shift = params
+                    .subpixel_variant
+                    .map(|v| v as f32 / SUBPIXEL_VARIANTS_X as f32);
+                cx.set_text_drawing_mode(CGTextDrawingMode::CGTextFill);
+                cx.set_gray_fill_color(0.0, 1.0);
+                cx.set_allows_antialiasing(true);
+                cx.set_should_antialias(true);
+                cx.set_allows_font_subpixel_positioning(true);
+                cx.set_should_subpixel_position_fonts(true);
+                cx.set_allows_font_subpixel_quantization(false);
+                cx.set_should_subpixel_quantize_fonts(false);
+                self.fonts[params.font_id.0]
+                    .native_font()
+                    .clone_with_font_size(f32::from(params.font_size) as CGFloat)
+                    .draw_glyphs(
+                        &[params.glyph_id.0 as CGGlyph],
+                        &[CGPoint::new(
+                            (subpixel_shift.x / params.scale_factor) as CGFloat,
+                            (subpixel_shift.y / params.scale_factor) as CGFloat,
+                        )],
+                        cx.clone(),
+                    );
+
+                if is_emoji {
+                    for pixel in scratch.chunks_exact_mut(4) {
+                        gpui::swap_rgba_pa_to_bgra(pixel);
+                    }
+                }
+
+                // Copy only the requested sub-rectangle, in case the cached
+                // context is larger than the current glyph.
+                if cached.width == req_width && cached.bytes_per_row == out_bytes_per_row {
+                    bitmap.copy_from_slice(&scratch[..needed]);
+                } else {
+                    for y in 0..req_height {
+                        let src_start = y * cached.bytes_per_row;
+                        let dst_start = y * out_bytes_per_row;
+                        bitmap[dst_start..dst_start + out_bytes_per_row]
+                            .copy_from_slice(&scratch[src_start..src_start + out_bytes_per_row]);
+                    }
+                }
+            });
         });
+
         Ok((bitmap_size, bitmap))
     }
 
@@ -447,137 +517,10 @@ impl AuTextSystemState {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use font_kit::source::SystemSource;
-    use gpui::{DevicePixels, FontRun, GlyphId, point, px, size};
-
-    fn empty_state() -> AuTextSystemState {
-        AuTextSystemState {
-            memory_source: MemSource::empty(),
-            system_source: SystemSource::new(),
-            fonts: Vec::new(),
-            font_selections: HashMap::default(),
-            font_ids_by_postscript_name: HashMap::default(),
-            font_ids_by_font_key: HashMap::default(),
-            postscript_names_by_font_id: HashMap::default(),
-            is_emoji: Vec::new(),
-            layout_cache: HashMap::default(),
-        }
-    }
-
-    fn load_system_family(state: &mut AuTextSystemState, family: &str) -> Option<FontId> {
-        state
-            .load_family(family, &Default::default(), None)
-            .ok()
-            .and_then(|ids| ids.first().copied())
-    }
-
-    #[test]
-    fn test_is_emoji_caches_bool() {
-        let mut state = empty_state();
-        assert!(!state.is_emoji(FontId(0)));
-
-        if let Some(regular_id) = load_system_family(&mut state, "Helvetica") {
-            assert!(!state.is_emoji(regular_id));
-        }
-
-        if let Some(emoji_id) = load_system_family(&mut state, "AppleColorEmoji") {
-            assert!(state.is_emoji(emoji_id));
-        }
-    }
-
-    #[test]
-    fn test_rasterize_glyph_empty_bounds_errors() {
-        let state = empty_state();
-        let params = gpui::RenderGlyphParams {
-            font_id: FontId(0),
-            glyph_id: GlyphId(0),
-            font_size: px(12.0),
-            subpixel_variant: point(0, 0),
-            scale_factor: 1.0,
-            is_emoji: false,
-            subpixel_rendering: false,
-        };
-        let bounds = Bounds {
-            origin: point(DevicePixels(0), DevicePixels(0)),
-            size: size(DevicePixels(0), DevicePixels(0)),
-        };
-        assert!(state.rasterize_glyph(&params, bounds).is_err());
-    }
-
-    #[test]
-    fn test_layout_line_empty_text() {
-        let mut state = empty_state();
-        let layout = state.layout_line("", px(12.0), &[]);
-        assert_eq!(layout.width, px(0.0));
-        assert_eq!(layout.len, 0);
-    }
-
-    #[test]
-    fn test_layout_line_repeated_text_is_consistent() {
-        let mut state = empty_state();
-        let font_id = match load_system_family(&mut state, ".AppleSystemUIFont") {
-            Some(id) => id,
-            None => {
-                // System font may not be available in all test environments.
-                return;
-            }
-        };
-        let text = "hello";
-        let runs = [FontRun {
-            font_id,
-            len: text.len(),
-        }];
-        let layout1 = state.layout_line(text, px(12.0), &runs);
-        let layout2 = state.layout_line(text, px(12.0), &runs);
-        assert_eq!(layout1.width, layout2.width);
-        assert_eq!(layout1.len, layout2.len);
-    }
-
-    #[test]
-    fn test_string_index_converter_rewind() {
-        let mut converter = StringIndexConverter::new("aéb");
-        converter.advance_to_utf16_ix(2);
-        assert_eq!(converter.utf8_ix, 3);
-        assert_eq!(converter.utf16_ix, 2);
-        converter.rewind_to_utf16_ix(1);
-        assert_eq!(converter.utf8_ix, 1);
-        assert_eq!(converter.utf16_ix, 1);
-    }
-
-    #[test]
-    fn test_layout_line_uses_cache_for_repeated_calls() {
-        let mut state = empty_state();
-        let font_id = match load_system_family(&mut state, ".AppleSystemUIFont") {
-            Some(id) => id,
-            None => {
-                // System font may not be available in all test environments.
-                return;
-            }
-        };
-        let text = "cache me";
-        let runs = [FontRun {
-            font_id,
-            len: text.len(),
-        }];
-
-        let layout1 = state.layout_line(text, px(12.0), &runs);
-        let cached_count_after_first = state.layout_cache.len();
-
-        let layout2 = state.layout_line(text, px(12.0), &runs);
-        let cached_count_after_second = state.layout_cache.len();
-
-        assert_eq!(layout1.width, layout2.width);
-        assert_eq!(layout1.len, layout2.len);
-        assert_eq!(layout1.runs.len(), layout2.runs.len());
-        assert!(
-            cached_count_after_first > 0,
-            "first layout should populate the cache"
-        );
-        assert_eq!(
-            cached_count_after_first, cached_count_after_second,
-            "second layout should reuse the cached entry"
-        );
-    }
+fn context_create_count() -> usize {
+    GLYPH_CONTEXT_CREATE_COUNT.with(|c| c.get())
 }
+
+#[cfg(test)]
+#[path = "tests.rs"]
+mod tests;

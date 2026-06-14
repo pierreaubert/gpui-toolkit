@@ -484,6 +484,12 @@ pub(crate) fn derive_component_theme_impl(input: TokenStream) -> TokenStream {
                 }
             }
         }
+
+        impl From<std::sync::Arc<#theme_path>> for #name {
+            fn from(theme: std::sync::Arc<#theme_path>) -> Self {
+                Self::from(theme.as_ref())
+            }
+        }
     };
 
     expanded

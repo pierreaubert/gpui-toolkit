@@ -538,3 +538,6 @@ impl Default for Theme {
         Self::dark()
     }
 }
+
+#[cfg(test)]
+mod tests;

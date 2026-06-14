@@ -51,8 +51,8 @@ use gpui::prelude::{
     InteractiveElement, IntoElement, ParentElement, RenderOnce, StatefulInteractiveElement, Styled,
 };
 use gpui::{
-    AnyElement, App, ClipboardItem, ElementId, FocusHandle, FontWeight, MouseButton, SharedString,
-    Subscription, Window, div, px, rgba,
+    AnyElement, App, AppContext, ClipboardItem, Context, ElementId, Entity, FocusHandle,
+    FontWeight, MouseButton, Render, SharedString, Subscription, WeakEntity, Window, div, px, rgba,
 };
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -66,6 +66,21 @@ thread_local! {
 }
 thread_local! {
     static NUMBER_INPUT_FOCUS_SUBS: RefCell<HashMap<ElementId, Subscription>> = RefCell::new(HashMap::new());
+}
+thread_local! {
+    /// Stored blur handlers keyed by element id. The focus-out subscription is
+    /// registered once per id and reads the latest handler from this map when
+    /// fired, so we do not create a new subscription on every render.
+    static NUMBER_INPUT_BLUR_HANDLERS: RefCell<
+        HashMap<ElementId, Option<Rc<dyn Fn(f64, &mut Window, &mut App) + 'static>>>,
+    > = RefCell::new(HashMap::new());
+}
+thread_local! {
+    // Cached render entities so repeated renders reuse the same GPUI entity.
+    // Stored as weak references so the entities can be dropped when no longer
+    // referenced by the element tree, avoiding leaked-handle panics in tests.
+    static NUMBER_INPUT_ENTITIES: RefCell<HashMap<ElementId, WeakEntity<NumberInputEntity>>> =
+        RefCell::new(HashMap::new());
 }
 
 mod misc;
@@ -97,7 +112,7 @@ pub struct NumberInput {
     width: Option<f32>,
     disabled: bool,
     theme: Option<NumberInputTheme>,
-    on_change: Option<Box<dyn Fn(f64, &mut Window, &mut App) + 'static>>,
+    on_change: Option<Rc<dyn Fn(f64, &mut Window, &mut App) + 'static>>,
     focus_handle: Option<FocusHandle>,
     aria_label: Option<SharedString>,
     aria_role: Option<AriaRole>,
@@ -248,7 +263,7 @@ impl NumberInput {
 
     /// Set value change handler (called on button click, scroll, keyboard, or text edit confirm)
     pub fn on_change(mut self, handler: impl Fn(f64, &mut Window, &mut App) + 'static) -> Self {
-        self.on_change = Some(Box::new(handler));
+        self.on_change = Some(Rc::new(handler));
         self
     }
 
@@ -264,7 +279,8 @@ impl NumberInput {
         self
     }
 
-    /// Format value for display
+    /// Format value for display (test helper).
+    #[cfg(test)]
     fn format_value_str(value: f64, decimals: usize, unit: Option<&SharedString>) -> String {
         let formatted = format!("{:.prec$}", value, prec = decimals);
         if let Some(unit) = unit {
@@ -274,7 +290,7 @@ impl NumberInput {
         }
     }
 
-    /// Parse a string to a value, removing unit suffix
+    /// Parse a string to a value, removing unit suffix.
     fn parse_value_str(text: &str, unit: Option<&SharedString>, min: f64, max: f64) -> Option<f64> {
         let text = if let Some(unit) = unit {
             text.trim().trim_end_matches(unit.as_ref()).trim()
@@ -286,543 +302,566 @@ impl NumberInput {
     }
 }
 
-impl RenderOnce for NumberInput {
-    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
-        // Register in accessibility tree
-        let effective_label = self
-            .aria_label
-            .clone()
-            .or_else(|| self.label.clone())
-            .unwrap_or_default();
-        cx.register_accessible(AccessibilityNode {
-            element_id: self.id.clone(),
-            label: effective_label,
-            props: AriaProps::with_role(self.aria_role.unwrap_or(AriaRole::Spinbutton))
-                .maybe_state(self.disabled, AriaState::Disabled)
-                .value_range(self.value, self.min, self.max),
-        });
+fn render_number_input(
+    props: &NumberInput,
+    window: &mut Window,
+    cx: &mut App,
+) -> impl IntoElement {
+    // Register in accessibility tree
+    let effective_label = props
+        .aria_label
+        .clone()
+        .or_else(|| props.label.clone())
+        .unwrap_or_default();
+    cx.register_accessible(AccessibilityNode {
+        element_id: props.id.clone(),
+        label: effective_label,
+        props: AriaProps::with_role(props.aria_role.unwrap_or(AriaRole::Spinbutton))
+            .maybe_state(props.disabled, AriaState::Disabled)
+            .value_range(props.value, props.min, props.max),
+    });
 
-        let global_theme = cx.theme();
-        let default_theme = NumberInputTheme::from(&global_theme);
-        let theme = self.theme.clone().unwrap_or(default_theme);
+    let global_theme = cx.theme();
+    let default_theme = NumberInputTheme::from(global_theme);
+    let theme = props.theme.clone().unwrap_or(default_theme);
 
-        let height = self.size.height();
-        let button_width = self.size.button_width();
-        let padding = self.size.padding();
-        let disabled = self.disabled;
-        let current_value = self.value;
-        let min = self.min;
-        let max = self.max;
-        let step = self.step;
-        let decimals = self.decimals;
-        let unit_clone = self.unit.clone();
+    let height = props.size.height();
+    let button_width = props.size.button_width();
+    let padding = props.size.padding();
+    let disabled = props.disabled;
+    let current_value = props.value;
+    let min = props.min;
+    let max = props.max;
+    let step = props.step;
+    let decimals = props.decimals;
+    let unit = props.unit.clone();
+    let label = props.label.clone();
 
-        // Use provided focus handle, or get/create one from the registry.
-        let focus_handle = self.focus_handle.unwrap_or_else(|| {
-            NUMBER_INPUT_FOCUS_HANDLES.with(|handles| {
-                let mut handles = handles.borrow_mut();
-                handles
-                    .entry(self.id.clone())
-                    .or_insert_with(|| cx.focus_handle())
-                    .clone()
-            })
-        });
-
-        // Get or create edit state for this element
-        let edit_state = NUMBER_INPUT_EDIT_STATES.with(|states| {
-            let mut states = states.borrow_mut();
-            states
-                .entry(self.id.clone())
-                .or_insert_with(|| Rc::new(RefCell::new(NumberEditState::default())))
+    // Use provided focus handle, or get/create one from the registry.
+    let focus_handle = props.focus_handle.clone().unwrap_or_else(|| {
+        NUMBER_INPUT_FOCUS_HANDLES.with(|handles| {
+            let mut handles = handles.borrow_mut();
+            handles
+                .entry(props.id.clone())
+                .or_insert_with(|| cx.focus_handle())
                 .clone()
+        })
+    });
+
+    // Get or create edit state for this element
+    let edit_state = NUMBER_INPUT_EDIT_STATES.with(|states| {
+        let mut states = states.borrow_mut();
+        states
+            .entry(props.id.clone())
+            .or_insert_with(|| Rc::new(RefCell::new(NumberEditState::default())))
+            .clone()
+    });
+
+    // Clone callback Rc for sharing (needed by focus-out and key handler)
+    let on_change_rc = props.on_change.clone();
+
+    // Register a focus-out subscription to commit the edited value when focus
+    // is lost. The subscription is created once per element id; the latest
+    // change handler is stored in a thread-local map so the subscription can
+    // invoke the most recent callback without being re-registered every render.
+    {
+        let id = props.id.clone();
+        NUMBER_INPUT_BLUR_HANDLERS.with(|handlers| {
+            handlers.borrow_mut().insert(id.clone(), on_change_rc.clone());
         });
 
-        // Wrap handler in Rc for sharing (needed by focus-out and key handler)
-        let on_change_rc = self.on_change.map(Rc::new);
-
-        // Register a focus-out subscription to commit the edited value when focus
-        // is lost (e.g. user clicks elsewhere). Always re-register to capture
-        // the latest on_change/min/max/unit values.
-        {
-            let edit_state_for_blur = edit_state.clone();
-            let on_change_blur = on_change_rc.clone();
-            let unit_for_blur = self.unit.clone();
-            let sub = window.on_focus_out(&focus_handle, cx, move |_event, window, cx| {
-                let mut state = edit_state_for_blur.borrow_mut();
-                if state.editing {
-                    let parsed =
-                        NumberInput::parse_value_str(&state.text, unit_for_blur.as_ref(), min, max);
-                    state.editing = false;
-                    state.text.clear();
-                    state.text_selected = false;
-                    drop(state);
-
-                    if let Some(ref handler) = on_change_blur
-                        && let Some(value) = parsed
-                    {
-                        handler(value, window, cx);
-                    }
-                    window.refresh();
-                }
-            });
-            let id = self.id.clone();
-            NUMBER_INPUT_FOCUS_SUBS.with(|subs| {
-                let mut subs = subs.borrow_mut();
-                // Explicitly cancel the previous subscription before inserting
-                // the new one to avoid re-entrancy hazards.
-                let _old = subs.remove(&id);
-                subs.insert(id, sub);
-            });
-        }
-
-        // Read current edit state — trust the thread-local state directly.
-        // Focus loss is handled by on_focus_out (registered above), not during render,
-        // because is_focused() returns false during re-render before the element
-        // is re-associated with the focus handle via track_focus().
-        // Format the value once and reuse it for display and click-to-edit state.
-        let formatted_value = Self::format_value_str(current_value, decimals, unit_clone.as_ref());
-
-        let state = edit_state.borrow();
-        let editing = state.editing;
-        let text_selected = state.text_selected;
-        let edit_text = if editing {
-            state.text.clone()
-        } else {
-            formatted_value.clone()
-        };
-        let cursor_pos = state.cursor;
-        drop(state);
-
-        // Create unique child IDs based on parent ID.
-        // Use stable (id, suffix) tuples to avoid format! allocations on every render.
-        let dec_id = ElementId::from((self.id.clone(), "dec"));
-        let value_id = ElementId::from((self.id.clone(), "value"));
-        let inc_id = ElementId::from((self.id.clone(), "inc"));
-
-        let mut container = div().flex().flex_col().gap_1();
-
-        // Label
-        if let Some(label) = self.label {
-            container = container.child(
-                div()
-                    .text_sm()
-                    .text_color(theme.label)
-                    .font_weight(FontWeight::MEDIUM)
-                    .child(label),
-            );
-        }
-
-        // Input row: [−] [value] [+]
-        let mut input_row = div()
-            .id(self.id.clone())
-            .flex()
-            .items_center()
-            .h(px(height))
-            .rounded_md()
-            .border_1()
-            .border_color(if editing {
-                theme.border_focus
-            } else {
-                theme.border
-            })
-            .bg(theme.background)
-            .overflow_hidden();
-
-        if let Some(width) = self.width {
-            input_row = input_row.w(px(width));
-        }
-
-        if disabled {
-            input_row = input_row.opacity(theme.disabled_opacity);
-        }
-
-        // Decrement button (−)
-        let button_bg = theme.button_bg;
-        let button_hover = theme.button_hover;
-        let button_active = theme.button_active;
-        let button_text = theme.button_text;
-        let text_color = theme.text;
-
-        let mut dec_button = div()
-            .id(dec_id)
-            .flex()
-            .items_center()
-            .justify_center()
-            .w(px(button_width))
-            .h_full()
-            .bg(button_bg)
-            .text_color(button_text)
-            .font_weight(FontWeight::BOLD)
-            .child("−");
-
-        if !disabled {
-            dec_button = dec_button
-                .cursor_pointer()
-                .hover(move |s| s.bg(button_hover))
-                .active(move |s| s.bg(button_active));
-
-            if let Some(ref handler_rc) = on_change_rc {
-                let handler = handler_rc.clone();
-                dec_button = dec_button.on_mouse_down(MouseButton::Left, move |_, window, cx| {
-                    window.blur();
-                    let new_value = (current_value - step).clamp(min, max);
-                    handler(new_value, window, cx);
-                });
-            }
-        } else {
-            dec_button = dec_button.cursor_not_allowed();
-        }
-
-        input_row = input_row.child(dec_button);
-
-        // Value display / edit field
-        // Visual selection highlight: when text_selected is true, show accent background
-        let (value_bg, value_text_color) = if editing && text_selected {
-            (Some(theme.button_active), rgba(0xffffffff))
-        } else {
-            (None, text_color)
-        };
-
-        // Build display with cursor if editing and not all selected
-        let display_element: AnyElement = if editing && !text_selected {
-            // Show text with cursor
-            let chars: Vec<char> = edit_text.chars().collect();
-            let before: String = chars[..cursor_pos].iter().collect();
-            let after: String = chars[cursor_pos..].iter().collect();
-
-            div()
-                .flex()
-                .items_center()
-                .child(before)
-                .child(
-                    div()
-                        .w(px(1.0))
-                        .h(px(self.size.font_size() + 2.0))
-                        .bg(text_color),
-                )
-                .child(after)
-                .into_any_element()
-        } else {
-            div().child(edit_text.clone()).into_any_element()
-        };
-
-        let mut value_field = div()
-            .id(value_id)
-            .flex_1()
-            .flex()
-            .items_center()
-            .justify_center()
-            .h_full()
-            .px(px(padding))
-            .text_color(value_text_color)
-            .track_focus(&focus_handle)
-            .focusable()
-            .child(display_element);
-
-        // Apply selection background if selected
-        if let Some(bg) = value_bg {
-            value_field = value_field.bg(bg);
-        }
-
-        // Apply font size
-        value_field = value_field.text_size(px(self.size.font_size()));
-
-        if !disabled {
-            // Click to start editing / focus
-            let edit_state_for_click = edit_state.clone();
-            let focus_handle_for_click = focus_handle.clone();
-            let formatted_value_for_click = formatted_value.clone();
-
-            value_field = value_field.cursor_text().on_mouse_down(
-                MouseButton::Left,
-                move |event, window, cx| {
-                    cx.stop_propagation();
-
-                    // Focus the input
-                    window.focus(&focus_handle_for_click, cx);
-
-                    let mut state = edit_state_for_click.borrow_mut();
-
-                    // Double-click: select all
-                    if event.click_count == 2 {
-                        if state.editing {
-                            state.select_all();
-                        } else {
-                            *state = NumberEditState::new(&formatted_value_for_click);
-                        }
-                        drop(state);
-                        window.refresh();
-                        return;
-                    }
-
-                    // Single click: start editing if not already
-                    if !state.editing {
-                        *state = NumberEditState::new(&formatted_value_for_click);
-                    } else {
-                        // Clear selection on single click while editing
+        NUMBER_INPUT_FOCUS_SUBS.with(|subs| {
+            let mut subs = subs.borrow_mut();
+            if !subs.contains_key(&id) {
+                let edit_state_for_blur = edit_state.clone();
+                let unit_for_blur = unit.clone();
+                let id_for_closure = id.clone();
+                let sub = window.on_focus_out(&focus_handle, cx, move |_event, window, cx| {
+                    let handler = NUMBER_INPUT_BLUR_HANDLERS.with(|h| {
+                        h.borrow().get(&id_for_closure).cloned().flatten()
+                    });
+                    let mut state = edit_state_for_blur.borrow_mut();
+                    if state.editing {
+                        let parsed = NumberInput::parse_value_str(
+                            &state.text,
+                            unit_for_blur.as_ref(),
+                            min,
+                            max,
+                        );
+                        state.editing = false;
+                        state.text.clear();
                         state.text_selected = false;
+                        drop(state);
+
+                        if let Some(ref handler) = handler
+                            && let Some(value) = parsed
+                        {
+                            handler(value, window, cx);
+                        }
+                        window.refresh();
                     }
-                    drop(state);
-                    window.refresh();
-                },
-            );
+                });
+                subs.insert(id, sub);
+            }
+        });
+    }
 
-            // Keyboard handling
-            let edit_state_for_key = edit_state.clone();
-            let on_change_key = on_change_rc.clone();
-            let unit_for_key = unit_clone.clone();
+    // Read current edit state — trust the thread-local state directly.
+    // Focus loss is handled by on_focus_out (registered above), not during render,
+    // because is_focused() returns false during re-render before the element
+    // is re-associated with the focus handle via track_focus().
+    // Format the value once and reuse it for display and click-to-edit state.
+    let formatted_value = edit_state
+        .borrow_mut()
+        .format_value_str(current_value, decimals, unit.as_ref());
 
-            value_field = value_field.on_key_down(move |event, window, cx| {
+    let state = edit_state.borrow();
+    let editing = state.editing;
+    let text_selected = state.text_selected;
+    let edit_text: SharedString = if editing {
+        state.text.clone().into()
+    } else {
+        formatted_value.clone()
+    };
+    let cursor_pos = state.cursor;
+    drop(state);
+
+    // Create unique child IDs based on parent ID.
+    // Use stable (id, suffix) tuples to avoid format! allocations on every render.
+    let dec_id = ElementId::from((props.id.clone(), "dec"));
+    let value_id = ElementId::from((props.id.clone(), "value"));
+    let inc_id = ElementId::from((props.id.clone(), "inc"));
+
+    let mut container = div().flex().flex_col().gap_1();
+
+    // Label
+    if let Some(label) = label {
+        container = container.child(
+            div()
+                .text_sm()
+                .text_color(theme.label)
+                .font_weight(FontWeight::MEDIUM)
+                .child(label),
+        );
+    }
+
+    // Input row: [−] [value] [+]
+    let mut input_row = div()
+        .id(props.id.clone())
+        .flex()
+        .items_center()
+        .h(px(height))
+        .rounded_md()
+        .border_1()
+        .border_color(if editing {
+            theme.border_focus
+        } else {
+            theme.border
+        })
+        .bg(theme.background)
+        .overflow_hidden();
+
+    if let Some(width) = props.width {
+        input_row = input_row.w(px(width));
+    }
+
+    if disabled {
+        input_row = input_row.opacity(theme.disabled_opacity);
+    }
+
+    // Decrement button (−)
+    let button_bg = theme.button_bg;
+    let button_hover = theme.button_hover;
+    let button_active = theme.button_active;
+    let button_text = theme.button_text;
+    let text_color = theme.text;
+
+    let mut dec_button = div()
+        .id(dec_id)
+        .flex()
+        .items_center()
+        .justify_center()
+        .w(px(button_width))
+        .h_full()
+        .bg(button_bg)
+        .text_color(button_text)
+        .font_weight(FontWeight::BOLD)
+        .child("−");
+
+    if !disabled {
+        dec_button = dec_button
+            .cursor_pointer()
+            .hover(move |s| s.bg(button_hover))
+            .active(move |s| s.bg(button_active));
+
+        if let Some(ref handler_rc) = on_change_rc {
+            let handler = handler_rc.clone();
+            dec_button = dec_button.on_mouse_down(MouseButton::Left, move |_, window, cx| {
+                window.blur();
+                let new_value = (current_value - step).clamp(min, max);
+                handler(new_value, window, cx);
+            });
+        }
+    } else {
+        dec_button = dec_button.cursor_not_allowed();
+    }
+
+    input_row = input_row.child(dec_button);
+
+    // Value display / edit field
+    // Visual selection highlight: when text_selected is true, show accent background
+    let (value_bg, value_text_color) = if editing && text_selected {
+        (Some(theme.button_active), rgba(0xffffffff))
+    } else {
+        (None, text_color)
+    };
+
+    // Build display with cursor if editing and not all selected
+    let display_element: AnyElement = if editing && !text_selected {
+        // Render the full text as a single element and overlay an absolute
+        // cursor div to avoid allocating before/after strings every frame.
+        let char_width = 8.0_f32;
+        let cursor_left = char_width * cursor_pos as f32;
+
+        div()
+            .relative()
+            .flex()
+            .items_center()
+            .child(edit_text.clone())
+            .child(
+                div()
+                    .absolute()
+                    .left(px(cursor_left))
+                    .top_0()
+                    .bottom_0()
+                    .w(px(1.0))
+                    .bg(text_color),
+            )
+            .into_any_element()
+    } else {
+        div().child(edit_text.clone()).into_any_element()
+    };
+
+    let mut value_field = div()
+        .id(value_id)
+        .flex_1()
+        .flex()
+        .items_center()
+        .justify_center()
+        .h_full()
+        .px(px(padding))
+        .text_color(value_text_color)
+        .track_focus(&focus_handle)
+        .focusable()
+        .child(display_element);
+
+    // Apply selection background if selected
+    if let Some(bg) = value_bg {
+        value_field = value_field.bg(bg);
+    }
+
+    // Apply font size
+    value_field = value_field.text_size(px(props.size.font_size()));
+
+    if !disabled {
+        // Click to start editing / focus
+        let edit_state_for_click = edit_state.clone();
+        let focus_handle_for_click = focus_handle.clone();
+        let formatted_value_for_click = formatted_value.clone();
+
+        value_field = value_field.cursor_text().on_mouse_down(
+            MouseButton::Left,
+            move |event, window, cx| {
                 cx.stop_propagation();
 
-                let key = event.keystroke.key.as_str();
-                let ctrl = event.keystroke.modifiers.control;
-                let cmd = event.keystroke.modifiers.platform;
-                let alt = event.keystroke.modifiers.alt;
+                // Focus the input
+                window.focus(&focus_handle_for_click, cx);
 
-                let mut state = edit_state_for_key.borrow_mut();
+                let mut state = edit_state_for_click.borrow_mut();
 
-                if state.editing {
-                    // cmd/ctrl clipboard + select-all
-                    if cmd || (ctrl && matches!(key, "c" | "x" | "v" | "a")) {
-                        match key {
-                            "a" => {
-                                state.select_all();
-                                drop(state);
-                                window.refresh();
-                                return;
-                            }
-                            "c" => {
-                                if let Some(selected) = state.get_selected_text() {
-                                    drop(state);
-                                    cx.write_to_clipboard(ClipboardItem::new_string(selected));
-                                }
-                                return;
-                            }
-                            "x" => {
-                                if let Some(selected) = state.get_selected_text() {
-                                    cx.write_to_clipboard(ClipboardItem::new_string(selected));
-                                    state.delete_selected();
-                                    drop(state);
-                                    window.refresh();
-                                }
-                                return;
-                            }
-                            "v" => {
-                                if let Some(clipboard) = cx.read_from_clipboard()
-                                    && let Some(paste_text) = clipboard.text()
-                                {
-                                    state.insert_str(&paste_text);
-                                    drop(state);
-                                    window.refresh();
-                                }
-                                return;
-                            }
-                            _ => {}
-                        }
+                // Double-click: select all
+                if event.click_count == 2 {
+                    if state.editing {
+                        state.select_all();
+                    } else {
+                        *state = NumberEditState::new(&formatted_value_for_click);
                     }
-
-                    // alt+backspace — kill word backward; alt+d — kill word forward
-                    if alt {
-                        match key {
-                            "backspace" => {
-                                state.kill_word_backward();
-                                drop(state);
-                                window.refresh();
-                                return;
-                            }
-                            "d" => {
-                                state.kill_word_forward();
-                                drop(state);
-                                window.refresh();
-                                return;
-                            }
-                            _ => {}
-                        }
-                    }
-
-                    // Emacs ctrl bindings
-                    if ctrl {
-                        match key {
-                            "a" => state.move_to_start(),
-                            "e" => state.move_to_end(),
-                            "k" => state.kill_to_end(),
-                            "u" => state.kill_to_start(),
-                            "w" => state.kill_word_backward(),
-                            "h" => state.do_backspace(),
-                            "d" => state.do_delete(),
-                            "f" => state.move_right(),
-                            "b" => state.move_left(),
-                            "y" => {
-                                if let Some(clipboard) = cx.read_from_clipboard()
-                                    && let Some(paste_text) = clipboard.text()
-                                {
-                                    state.insert_str(&paste_text);
-                                }
-                            }
-                            _ => {}
-                        }
-                        drop(state);
-                        window.refresh();
-                        return;
-                    }
-
-                    match key {
-                        "enter" => {
-                            // Confirm edit - parse and call on_change
-                            let parsed =
-                                Self::parse_value_str(&state.text, unit_for_key.as_ref(), min, max);
-                            state.editing = false;
-                            state.text.clear();
-                            state.text_selected = false;
-                            drop(state);
-
-                            window.blur();
-
-                            if let Some(ref handler) = on_change_key
-                                && let Some(value) = parsed
-                            {
-                                handler(value, window, cx);
-                            }
-                            window.refresh();
-                        }
-                        "escape" => {
-                            // Cancel edit - restore original value
-                            state.editing = false;
-                            state.text.clear();
-                            state.text_selected = false;
-                            drop(state);
-                            window.blur();
-                            window.refresh();
-                        }
-                        "backspace" => {
-                            state.do_backspace();
-                            drop(state);
-                            window.refresh();
-                        }
-                        "delete" => {
-                            state.do_delete();
-                            drop(state);
-                            window.refresh();
-                        }
-                        "left" => {
-                            state.move_left();
-                            drop(state);
-                            window.refresh();
-                        }
-                        "right" => {
-                            state.move_right();
-                            drop(state);
-                            window.refresh();
-                        }
-                        "home" => {
-                            state.move_to_start();
-                            drop(state);
-                            window.refresh();
-                        }
-                        "end" => {
-                            state.move_to_end();
-                            drop(state);
-                            window.refresh();
-                        }
-                        _ => {
-                            // Character input - use key_char for actual text characters
-                            if let Some(ch) = keystroke_to_char(&event.keystroke) {
-                                state.insert_char(ch);
-                                drop(state);
-                                window.refresh();
-                            }
-                        }
-                    }
-                } else {
-                    // Non-editing mode - arrow keys adjust value
-                    let new_value = match key {
-                        "up" | "right" => Some((current_value + step).clamp(min, max)),
-                        "down" | "left" => Some((current_value - step).clamp(min, max)),
-                        _ => None,
-                    };
                     drop(state);
+                    window.refresh();
+                    return;
+                }
 
-                    if let Some(v) = new_value
-                        && let Some(ref handler) = on_change_key
-                    {
-                        handler(v, window, cx);
+                // Single click: start editing if not already
+                if !state.editing {
+                    *state = NumberEditState::new(&formatted_value_for_click);
+                } else {
+                    // Clear selection on single click while editing
+                    state.text_selected = false;
+                }
+                drop(state);
+                window.refresh();
+            },
+        );
+
+        // Keyboard handling
+        let edit_state_for_key = edit_state.clone();
+        let on_change_key = on_change_rc.clone();
+        let unit_for_key = unit.clone();
+
+        value_field = value_field.on_key_down(move |event, window, cx| {
+            cx.stop_propagation();
+
+            let key = event.keystroke.key.as_str();
+            let ctrl = event.keystroke.modifiers.control;
+            let cmd = event.keystroke.modifiers.platform;
+            let alt = event.keystroke.modifiers.alt;
+
+            let mut state = edit_state_for_key.borrow_mut();
+
+            if state.editing {
+                // cmd/ctrl clipboard + select-all
+                if cmd || (ctrl && matches!(key, "c" | "x" | "v" | "a")) {
+                    match key {
+                        "a" => {
+                            state.select_all();
+                            drop(state);
+                            window.refresh();
+                            return;
+                        }
+                        "c" => {
+                            if let Some(selected) = state.get_selected_text() {
+                                drop(state);
+                                cx.write_to_clipboard(ClipboardItem::new_string(selected));
+                            }
+                            return;
+                        }
+                        "x" => {
+                            if let Some(selected) = state.get_selected_text() {
+                                cx.write_to_clipboard(ClipboardItem::new_string(selected));
+                                state.delete_selected();
+                                drop(state);
+                                window.refresh();
+                            }
+                            return;
+                        }
+                        "v" => {
+                            if let Some(clipboard) = cx.read_from_clipboard()
+                                && let Some(paste_text) = clipboard.text()
+                            {
+                                state.insert_str(&paste_text);
+                                drop(state);
+                                window.refresh();
+                            }
+                            return;
+                        }
+                        _ => {}
                     }
                 }
+
+                // alt+backspace — kill word backward; alt+d — kill word forward
+                if alt {
+                    match key {
+                        "backspace" => {
+                            state.kill_word_backward();
+                            drop(state);
+                            window.refresh();
+                            return;
+                        }
+                        "d" => {
+                            state.kill_word_forward();
+                            drop(state);
+                            window.refresh();
+                            return;
+                        }
+                        _ => {}
+                    }
+                }
+
+                // Emacs ctrl bindings
+                if ctrl {
+                    match key {
+                        "a" => state.move_to_start(),
+                        "e" => state.move_to_end(),
+                        "k" => state.kill_to_end(),
+                        "u" => state.kill_to_start(),
+                        "w" => state.kill_word_backward(),
+                        "h" => state.do_backspace(),
+                        "d" => state.do_delete(),
+                        "f" => state.move_right(),
+                        "b" => state.move_left(),
+                        "y" => {
+                            if let Some(clipboard) = cx.read_from_clipboard()
+                                && let Some(paste_text) = clipboard.text()
+                            {
+                                state.insert_str(&paste_text);
+                            }
+                        }
+                        _ => {}
+                    }
+                    drop(state);
+                    window.refresh();
+                    return;
+                }
+
+                match key {
+                    "enter" => {
+                        // Confirm edit - parse and call on_change
+                        let parsed =
+                            NumberInput::parse_value_str(&state.text, unit_for_key.as_ref(), min, max);
+                        state.editing = false;
+                        state.text.clear();
+                        state.text_selected = false;
+                        drop(state);
+
+                        window.blur();
+
+                        if let Some(ref handler) = on_change_key
+                            && let Some(value) = parsed
+                        {
+                            handler(value, window, cx);
+                        }
+                        window.refresh();
+                    }
+                    "escape" => {
+                        // Cancel edit - restore original value
+                        state.editing = false;
+                        state.text.clear();
+                        state.text_selected = false;
+                        drop(state);
+                        window.blur();
+                        window.refresh();
+                    }
+                    "backspace" => {
+                        state.do_backspace();
+                        drop(state);
+                        window.refresh();
+                    }
+                    "delete" => {
+                        state.do_delete();
+                        drop(state);
+                        window.refresh();
+                    }
+                    "left" => {
+                        state.move_left();
+                        drop(state);
+                        window.refresh();
+                    }
+                    "right" => {
+                        state.move_right();
+                        drop(state);
+                        window.refresh();
+                    }
+                    "home" => {
+                        state.move_to_start();
+                        drop(state);
+                        window.refresh();
+                    }
+                    "end" => {
+                        state.move_to_end();
+                        drop(state);
+                        window.refresh();
+                    }
+                    _ => {
+                        // Character input - use key_char for actual text characters
+                        if let Some(ch) = keystroke_to_char(&event.keystroke) {
+                            state.insert_char(ch);
+                            drop(state);
+                            window.refresh();
+                        }
+                    }
+                }
+            } else {
+                // Non-editing mode - arrow keys adjust value
+                let new_value = match key {
+                    "up" | "right" => Some((current_value + step).clamp(min, max)),
+                    "down" | "left" => Some((current_value - step).clamp(min, max)),
+                    _ => None,
+                };
+                drop(state);
+
+                if let Some(v) = new_value
+                    && let Some(ref handler) = on_change_key
+                {
+                    handler(v, window, cx);
+                }
+            }
+        });
+    }
+
+    input_row = input_row.child(value_field);
+
+    // Increment button (+)
+    let mut inc_button = div()
+        .id(inc_id)
+        .flex()
+        .items_center()
+        .justify_center()
+        .w(px(button_width))
+        .h_full()
+        .bg(button_bg)
+        .text_color(button_text)
+        .font_weight(FontWeight::BOLD)
+        .child("+");
+
+    if !disabled {
+        inc_button = inc_button
+            .cursor_pointer()
+            .hover(move |s| s.bg(button_hover))
+            .active(move |s| s.bg(button_active));
+
+        if let Some(ref handler_rc) = on_change_rc {
+            let handler = handler_rc.clone();
+            inc_button = inc_button.on_mouse_down(MouseButton::Left, move |_, window, cx| {
+                window.blur();
+                let new_value = (current_value + step).clamp(min, max);
+                handler(new_value, window, cx);
             });
         }
+    } else {
+        inc_button = inc_button.cursor_not_allowed();
+    }
 
-        input_row = input_row.child(value_field);
+    input_row = input_row.child(inc_button);
 
-        // Increment button (+)
-        let mut inc_button = div()
-            .id(inc_id)
-            .flex()
-            .items_center()
-            .justify_center()
-            .w(px(button_width))
-            .h_full()
-            .bg(button_bg)
-            .text_color(button_text)
-            .font_weight(FontWeight::BOLD)
-            .child("+");
+    // Note: Scroll wheel handling removed to allow page scrolling.
+    // Use +/- buttons or keyboard to adjust value.
 
-        if !disabled {
-            inc_button = inc_button
-                .cursor_pointer()
-                .hover(move |s| s.bg(button_hover))
-                .active(move |s| s.bg(button_active));
+    container.child(input_row)
+}
 
-            if let Some(ref handler_rc) = on_change_rc {
-                let handler = handler_rc.clone();
-                inc_button = inc_button.on_mouse_down(MouseButton::Left, move |_, window, cx| {
-                    window.blur();
-                    let new_value = (current_value + step).clamp(min, max);
-                    handler(new_value, window, cx);
-                });
+/// Internal entity that renders a [`NumberInput`] with stable identity across frames.
+pub struct NumberInputEntity {
+    props: NumberInput,
+}
+
+impl Render for NumberInputEntity {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        render_number_input(&self.props, window, &mut **cx)
+    }
+}
+
+impl RenderOnce for NumberInput {
+    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let id = self.id.clone();
+        let entity: Entity<NumberInputEntity> = NUMBER_INPUT_ENTITIES.with(|map| {
+            let mut map = map.borrow_mut();
+            if let Some(weak) = map.get(&id) {
+                if let Some(entity) = weak.upgrade() {
+                    return entity;
+                }
             }
-        } else {
-            inc_button = inc_button.cursor_not_allowed();
-        }
-
-        input_row = input_row.child(inc_button);
-
-        // Note: Scroll wheel handling removed to allow page scrolling.
-        // Use +/- buttons or keyboard to adjust value.
-
-        container.child(input_row)
+            let entity = cx.new(|_cx| NumberInputEntity {
+                props: NumberInput::new(id.clone()),
+            });
+            map.insert(id.clone(), entity.downgrade());
+            entity
+        });
+        entity.update(cx, |model, _cx| {
+            model.props = self;
+        });
+        entity
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::NumberInput;
-
-    #[test]
-    fn format_value_str_without_unit() {
-        assert_eq!(NumberInput::format_value_str(3.14159, 2, None), "3.14");
-        assert_eq!(NumberInput::format_value_str(42.0, 0, None), "42");
-    }
-
-    #[test]
-    fn format_value_str_with_unit() {
-        let unit: gpui::SharedString = "Hz".into();
-        assert_eq!(
-            NumberInput::format_value_str(440.0, 1, Some(&unit)),
-            "440.0 Hz"
-        );
-    }
-
-    #[test]
-    fn parse_value_str_ignores_unit() {
-        let unit: gpui::SharedString = "Hz".into();
-        assert_eq!(
-            NumberInput::parse_value_str("440.0 Hz", Some(&unit), 0.0, 1000.0),
-            Some(440.0)
-        );
-        assert_eq!(
-            NumberInput::parse_value_str("  440  ", Some(&unit), 0.0, 1000.0),
-            Some(440.0)
-        );
-    }
-}
+mod tests;
