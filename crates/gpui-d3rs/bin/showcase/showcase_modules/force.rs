@@ -2,6 +2,8 @@ use crate::ShowcaseApp;
 use d3rs::gpu2d::Chart2DElement;
 use gpui::*;
 use gpui_ui_kit::theme::ThemeExt;
+use std::cell::RefCell;
+use std::rc::Rc;
 
 pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
     let ui_theme = cx.theme();
@@ -16,16 +18,18 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
         cx.notify();
     }
 
-    // Extract node positions to pass to the closure
-    let node_data: Vec<(f32, f32)> = app
-        .force_simulation
-        .nodes
-        .iter()
-        .map(|n| {
+    // Share the latest node positions via a reusable Rc<RefCell<Vec>> so the
+    // render closure does not need to copy them every frame.
+    {
+        let mut positions = app.force_node_positions.borrow_mut();
+        positions.clear();
+        positions.extend(app.force_simulation.nodes.iter().map(|n| {
             let n = n.borrow();
             (n.x as f32, n.y as f32)
-        })
-        .collect();
+        }));
+    }
+
+    let node_data: Rc<RefCell<Vec<(f32, f32)>>> = app.force_node_positions.clone();
 
     div()
         .flex()
@@ -54,7 +58,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                 .overflow_hidden()
                 .child(
                     Chart2DElement::new(move |renderer, _bounds| {
-                        for (x, y) in &node_data {
+                        for (x, y) in node_data.borrow().iter() {
                             renderer.draw_circle(*x, *y, 5.0, [1.0, 0.2, 0.2, 1.0]);
                         }
                     })

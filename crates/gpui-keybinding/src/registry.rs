@@ -4,9 +4,12 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use crate::{
-    CommandPaletteEntry, DocumentedKeybinding, KeyConflict, KeybindingProvider, KeymapPreset,
-    command_palette_entries, detect_conflicts,
+    CommandPaletteEntry, DocumentedKeybinding, KeyConflict, KeybindingHint, KeybindingProvider,
+    KeymapPreset, command_palette_entries, detect_conflicts,
 };
+
+type SearchCache = HashMap<(KeymapPreset, String), Rc<[CommandPaletteEntry]>>;
+type HintsCache = HashMap<(KeymapPreset, String), Rc<[KeybindingHint]>>;
 
 /// Collects keybindings from multiple providers and aggregates them.
 ///
@@ -28,6 +31,8 @@ pub struct KeybindingRegistry {
     binding_cache: RefCell<HashMap<KeymapPreset, Rc<[KeyBinding]>>>,
     documented_cache: RefCell<HashMap<KeymapPreset, Rc<[DocumentedKeybinding]>>>,
     palette_cache: RefCell<HashMap<KeymapPreset, Rc<[CommandPaletteEntry]>>>,
+    pub(crate) search_cache: RefCell<SearchCache>,
+    pub(crate) hints_cache: RefCell<HintsCache>,
 }
 
 impl KeybindingRegistry {
@@ -37,6 +42,8 @@ impl KeybindingRegistry {
             binding_cache: RefCell::new(HashMap::new()),
             documented_cache: RefCell::new(HashMap::new()),
             palette_cache: RefCell::new(HashMap::new()),
+            search_cache: RefCell::new(HashMap::new()),
+            hints_cache: RefCell::new(HashMap::new()),
         }
     }
 
@@ -103,6 +110,8 @@ impl KeybindingRegistry {
         self.binding_cache.get_mut().clear();
         self.documented_cache.get_mut().clear();
         self.palette_cache.get_mut().clear();
+        self.search_cache.get_mut().clear();
+        self.hints_cache.get_mut().clear();
     }
 }
 

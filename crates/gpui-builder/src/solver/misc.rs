@@ -7,14 +7,22 @@ use gpui_pretext::{
 };
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::rc::Rc;
 
-/// Thread-local persistent cache for `Sizing::Text` measurements and their
-/// underlying [`PreparedText`] data.
+/// Persistent cache for `Sizing::Text` measurements and their underlying
+/// [`PreparedText`] data.
 ///
 /// The cache survives across `solve` calls, so repeated layouts of the same
 /// text (same content, measure, profile and options) avoid re-running text
 /// analysis and measurement.
-struct PersistentTextCache {
+///
+/// The cache is meant to be shared via [`Rc`]`<`[`RefCell`]`<`[`TextMeasureCache`]`>>`
+/// and passed into [`solve_with_cache`](crate::solver::solve_with_cache) /
+/// [`solve_tree_with_cache`](crate::solver::solve_tree_with_cache). A thread-local
+/// default cache is used by the non-`_with_cache` entry points so existing callers
+/// still benefit from cross-frame caching without any API change.
+#[derive(Debug)]
+pub struct TextMeasureCache {
     /// `(measure_ptr, text)` → prepared text without segment strings.
     prepared_vertical: HashMap<(usize, String), PreparedText>,
     /// `(measure_ptr, text)` → prepared text with segment strings.
@@ -23,18 +31,39 @@ struct PersistentTextCache {
     sizes: HashMap<(usize, String, u32, u32, Axis), f32>,
 }
 
-impl PersistentTextCache {
-    fn new() -> Self {
+impl TextMeasureCache {
+    /// Create a new, empty text-measurement cache.
+    pub fn new() -> Self {
         Self {
             prepared_vertical: HashMap::new(),
             prepared_horizontal: HashMap::new(),
             sizes: HashMap::new(),
         }
     }
+
+    /// Drop all cached prepared text and measured sizes.
+    pub fn clear(&mut self) {
+        self.prepared_vertical.clear();
+        self.prepared_horizontal.clear();
+        self.sizes.clear();
+    }
+}
+
+impl Default for TextMeasureCache {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 thread_local! {
-    static TEXT_CACHE: RefCell<PersistentTextCache> = RefCell::new(PersistentTextCache::new());
+    /// Thread-local default cache used by the non-`_with_cache` solver entry
+    /// points so callers are not required to manage a cache handle.
+    static DEFAULT_TEXT_CACHE: RefCell<Rc<RefCell<TextMeasureCache>>> = RefCell::new(Rc::new(RefCell::new(TextMeasureCache::new())));
+}
+
+/// Access the thread-local default text-measurement cache handle.
+pub(super) fn default_text_cache() -> Rc<RefCell<TextMeasureCache>> {
+    DEFAULT_TEXT_CACHE.with(|cache| Rc::clone(&cache.borrow()))
 }
 
 pub(super) struct TextSizeInput<'a> {
@@ -55,9 +84,13 @@ pub(super) struct TextSizeInput<'a> {
 /// - In a **horizontal** container (main axis = width): returns the maximum
 ///   line width with no wrapping constraint.
 ///
-/// Results and the intermediate [`PreparedText`] values are cached in a
-/// thread-local store that persists across `solve` calls.
-pub(super) fn compute_text_size<'a>(input: TextSizeInput<'a>) -> f32 {
+/// Results and the intermediate [`PreparedText`] values are cached in the
+/// provided [`TextMeasureCache`], which survives across `solve` calls when
+/// shared by the caller.
+pub(super) fn compute_text_size<'a>(
+    input: TextSizeInput<'a>,
+    cache: &RefCell<TextMeasureCache>,
+) -> f32 {
     let measure_ptr = (input.measure as *const dyn gpui_pretext::TextMeasure) as *const () as usize;
     let cross_bits = input.cross_size.to_bits();
     let line_bits = input.line_height.to_bits();
@@ -70,50 +103,48 @@ pub(super) fn compute_text_size<'a>(input: TextSizeInput<'a>) -> f32 {
         input.axis,
     );
 
-    TEXT_CACHE.with(|cache| {
-        let mut cache = cache.borrow_mut();
-        if let Some(&size) = cache.sizes.get(&size_key) {
-            return size.max(input.min);
+    let mut cache = cache.borrow_mut();
+    if let Some(&size) = cache.sizes.get(&size_key) {
+        return size.max(input.min);
+    }
+
+    let prepared_key = (measure_ptr, text_owned);
+    let size = match input.axis {
+        Axis::Vertical => {
+            let prepared = cache
+                .prepared_vertical
+                .entry(prepared_key)
+                .or_insert_with(|| {
+                    prepare(input.text, input.measure, input.profile, input.options)
+                });
+            layout(
+                prepared,
+                input.cross_size as f64,
+                input.line_height as f64,
+                input.profile,
+            )
+            .height as f32
         }
+        Axis::Horizontal => {
+            let prepared = cache
+                .prepared_horizontal
+                .entry(prepared_key)
+                .or_insert_with(|| {
+                    prepare_with_segments(
+                        input.text,
+                        input.measure,
+                        input.profile,
+                        input.options,
+                    )
+                });
+            let result =
+                layout_with_lines(prepared, f64::MAX, input.line_height as f64, input.profile);
+            result.lines.iter().map(|l| l.width).fold(0.0_f64, f64::max) as f32
+        }
+    };
 
-        let prepared_key = (measure_ptr, text_owned);
-        let size = match input.axis {
-            Axis::Vertical => {
-                let prepared = cache
-                    .prepared_vertical
-                    .entry(prepared_key)
-                    .or_insert_with(|| {
-                        prepare(input.text, input.measure, input.profile, input.options)
-                    });
-                layout(
-                    prepared,
-                    input.cross_size as f64,
-                    input.line_height as f64,
-                    input.profile,
-                )
-                .height as f32
-            }
-            Axis::Horizontal => {
-                let prepared = cache
-                    .prepared_horizontal
-                    .entry(prepared_key)
-                    .or_insert_with(|| {
-                        prepare_with_segments(
-                            input.text,
-                            input.measure,
-                            input.profile,
-                            input.options,
-                        )
-                    });
-                let result =
-                    layout_with_lines(prepared, f64::MAX, input.line_height as f64, input.profile);
-                result.lines.iter().map(|l| l.width).fold(0.0_f64, f64::max) as f32
-            }
-        };
-
-        cache.sizes.insert(size_key, size);
-        size.max(input.min)
-    })
+    cache.sizes.insert(size_key, size);
+    size.max(input.min)
 }
 
 /// Clear the persistent text measurement cache.
@@ -121,7 +152,7 @@ pub(super) fn compute_text_size<'a>(input: TextSizeInput<'a>) -> f32 {
 /// Mostly useful in tests to get deterministic baseline behaviour.
 #[cfg(test)]
 pub(super) fn clear_text_cache() {
-    TEXT_CACHE.with(|cache| {
-        *cache.borrow_mut() = PersistentTextCache::new();
-    });
+    DEFAULT_TEXT_CACHE.with(|cache| {
+        cache.borrow().borrow_mut().clear();
+    })
 }

@@ -31,6 +31,11 @@ impl NumberEditState {
         }
     }
 
+    /// Returns the unit stored in the cached format key, if any.
+    pub(super) fn last_unit(&self) -> Option<&SharedString> {
+        self.last_format_key.as_ref().and_then(|(_, _, unit)| unit.as_ref())
+    }
+
     /// Format a numeric value as a display string, caching the result keyed by
     /// `(value, decimals, unit)`.
     pub(super) fn format_value_str(

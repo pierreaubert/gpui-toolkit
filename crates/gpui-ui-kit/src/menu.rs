@@ -11,8 +11,8 @@ use gpui::prelude::{
     InteractiveElement, IntoElement, ParentElement, RenderOnce, StatefulInteractiveElement, Styled,
 };
 use gpui::{
-    App, Div, ElementId, FocusHandle, KeyDownEvent, MouseButton, Pixels, SharedString, Stateful,
-    Window, div, px,
+    AnyElement, App, Div, ElementId, FocusHandle, KeyDownEvent, MouseButton, Pixels, SharedString,
+    Stateful, Window, div, px,
 };
 
 mod menu_bar;
@@ -145,8 +145,7 @@ impl Menu {
     }
 
     /// Get the next selectable index after the current one
-    fn next_selectable_index(&self, current: Option<usize>) -> Option<usize> {
-        let selectable = self.selectable_indices();
+    fn next_selectable_index(selectable: &[usize], current: Option<usize>) -> Option<usize> {
         if selectable.is_empty() {
             return None;
         }
@@ -164,8 +163,7 @@ impl Menu {
     }
 
     /// Get the previous selectable index before the current one
-    fn prev_selectable_index(&self, current: Option<usize>) -> Option<usize> {
-        let selectable = self.selectable_indices();
+    fn prev_selectable_index(selectable: &[usize], current: Option<usize>) -> Option<usize> {
         if selectable.is_empty() {
             return None;
         }
@@ -188,13 +186,13 @@ impl Menu {
     }
 
     /// Get the first selectable index
-    fn first_selectable_index(&self) -> Option<usize> {
-        self.selectable_indices().first().copied()
+    fn first_selectable_index(selectable: &[usize]) -> Option<usize> {
+        selectable.first().copied()
     }
 
     /// Get the last selectable index
-    fn last_selectable_index(&self) -> Option<usize> {
-        self.selectable_indices().last().copied()
+    fn last_selectable_index(selectable: &[usize]) -> Option<usize> {
+        selectable.last().copied()
     }
 
     /// Build into element with theme
@@ -203,19 +201,12 @@ impl Menu {
         let theme = self.theme.as_ref().unwrap_or(menu_theme);
         let focused_index = self.focused_index;
 
-        // Pre-compute navigation indices BEFORE taking ownership
+        // Pre-compute navigation indices once per render
         let selectable_indices = self.selectable_indices();
-        let next_index = self.next_selectable_index(focused_index);
-        let prev_index = self.prev_selectable_index(focused_index);
-        let first_index = self.first_selectable_index();
-        let last_index = self.last_selectable_index();
-
-        // Clone items for keyboard handler BEFORE taking ownership
-        let items_for_keyboard: Vec<_> = self
-            .items
-            .iter()
-            .map(|item| (item.id.clone(), item.is_separator, item.disabled))
-            .collect();
+        let next_index = Self::next_selectable_index(&selectable_indices, focused_index);
+        let prev_index = Self::prev_selectable_index(&selectable_indices, focused_index);
+        let first_index = Self::first_selectable_index(&selectable_indices);
+        let last_index = Self::last_selectable_index(&selectable_indices);
 
         // Use Rc pattern for handlers (takes ownership)
         let on_select_rc = self.on_select.map(|f| std::rc::Rc::new(f));
@@ -239,12 +230,122 @@ impl Menu {
             menu = menu.track_focus(handle);
         }
 
+        // Pre-build the two possible hover closures once per render; both
+        // captured colors are `Copy`, so the closures can be reused for every
+        // non-focused, non-disabled row.
+        let normal_hover = {
+            let hover_bg = theme.hover_bg;
+            let text_hover = theme.text_hover;
+            move |style: gpui::StyleRefinement| {
+                style
+                    .bg(hover_bg)
+                    .text_color(text_hover)
+                    .shadow(glow_shadow(hover_bg))
+            }
+        };
+        let danger_hover = {
+            let hover_bg = theme.danger_hover_bg;
+            let text_hover = theme.text_hover;
+            move |style: gpui::StyleRefinement| {
+                style
+                    .bg(hover_bg)
+                    .text_color(text_hover)
+                    .shadow(glow_shadow(hover_bg))
+            }
+        };
+
+        // Build rows and collect item ids in a single pass.
+        let mut rows: Vec<AnyElement> = Vec::with_capacity(self.items.len());
+        let mut item_ids = Vec::with_capacity(self.items.len());
+        for (index, item) in self.items.into_iter().enumerate() {
+            item_ids.push(item.id.clone());
+            if item.is_separator {
+                rows.push(div().my_1().h(px(1.0)).bg(theme.separator).mx_2().into_any_element());
+            } else {
+                let disabled = item.disabled;
+                let is_checkbox = item.is_checkbox;
+                let checked = item.checked;
+                let is_danger = item.is_danger;
+                let is_focused = focused_index == Some(index);
+
+                let mut row = div()
+                    .id(item.element_id)
+                    .px_3()
+                    .py(px(6.0))
+                    .mx_1()
+                    .rounded(px(3.0))
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .text_sm();
+
+                if disabled {
+                    row = row.text_color(theme.text_disabled).cursor_not_allowed();
+                } else {
+                    let text_color = theme.text;
+                    let hover_bg = if is_danger {
+                        theme.danger_hover_bg
+                    } else {
+                        theme.hover_bg
+                    };
+
+                    // Apply focus styling if this item is keyboard-focused
+                    if is_focused {
+                        row = row
+                            .bg(hover_bg)
+                            .text_color(theme.text_hover)
+                            .shadow(glow_shadow(hover_bg));
+                    } else {
+                        row = if is_danger {
+                            row.text_color(text_color).hover(danger_hover)
+                        } else {
+                            row.text_color(text_color).hover(normal_hover)
+                        };
+                    }
+
+                    row = row.cursor_pointer();
+
+                    if let Some(ref handler) = on_select_rc {
+                        let handler = handler.clone();
+                        let id = item_ids[index].clone();
+                        row = row.on_mouse_up(MouseButton::Left, move |_event, window, cx| {
+                            handler(&id, window, cx);
+                        });
+                    }
+                }
+
+                // Checkbox indicator
+                if is_checkbox {
+                    row = row.child(div().w(px(16.0)).text_xs().child(if checked {
+                        "✓"
+                    } else {
+                        " "
+                    }));
+                }
+
+                // Icon
+                if let Some(icon) = item.icon {
+                    row = row.child(div().w(px(16.0)).child(icon));
+                }
+
+                // Label (flex-1 to push shortcut to right)
+                row = row.child(div().flex_1().child(item.label));
+
+                // Shortcut
+                if let Some(shortcut) = item.shortcut {
+                    let shortcut_color = theme.text_shortcut;
+                    row = row.child(div().text_xs().text_color(shortcut_color).child(shortcut));
+                }
+
+                rows.push(row.into_any_element());
+            }
+        }
+
         // Keyboard event handler
         if self.focus_handle.is_some() {
             let on_select_for_keyboard = on_select_rc.clone();
             let on_close_for_keyboard = on_close_rc.clone();
             let on_focus_change_for_keyboard = on_focus_change_rc.clone();
-            let _selectable = selectable_indices; // For potential future use
 
             menu = menu.on_key_down(move |event: &KeyDownEvent, window, cx| {
                 let key = event.keystroke.key.as_str();
@@ -257,9 +358,8 @@ impl Menu {
                     "enter" | " " => {
                         // Select the focused item
                         if let Some(idx) = focused_index
-                            && let Some((id, is_sep, disabled)) = items_for_keyboard.get(idx)
-                            && !*is_sep
-                            && !*disabled
+                            && selectable_indices.contains(&idx)
+                            && let Some(id) = item_ids.get(idx)
                             && let Some(ref handler) = on_select_for_keyboard
                         {
                             handler(id, window, cx);
@@ -290,93 +390,8 @@ impl Menu {
             });
         }
 
-        for (index, item) in self.items.into_iter().enumerate() {
-            if item.is_separator {
-                menu = menu.child(div().my_1().h(px(1.0)).bg(theme.separator).mx_2());
-            } else {
-                let item_id = item.id.clone();
-                let label = item.label.clone();
-                let shortcut = item.shortcut.clone();
-                let icon = item.icon.clone();
-                let disabled = item.disabled;
-                let is_checkbox = item.is_checkbox;
-                let checked = item.checked;
-                let is_danger = item.is_danger;
-                let is_focused = focused_index == Some(index);
-
-                let mut row = div()
-                    .id(item.element_id.clone())
-                    .px_3()
-                    .py(px(6.0))
-                    .mx_1()
-                    .rounded(px(3.0))
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    .text_sm();
-
-                if disabled {
-                    row = row.text_color(theme.text_disabled).cursor_not_allowed();
-                } else {
-                    let text_color = theme.text;
-                    let text_hover = theme.text_hover;
-                    let hover_bg = if is_danger {
-                        theme.danger_hover_bg
-                    } else {
-                        theme.hover_bg
-                    };
-
-                    // Apply focus styling if this item is keyboard-focused
-                    if is_focused {
-                        row = row
-                            .bg(hover_bg)
-                            .text_color(text_hover)
-                            .shadow(glow_shadow(hover_bg));
-                    } else {
-                        row = row.text_color(text_color).hover(move |style| {
-                            style
-                                .bg(hover_bg)
-                                .text_color(text_hover)
-                                .shadow(glow_shadow(hover_bg))
-                        });
-                    }
-
-                    row = row.cursor_pointer();
-
-                    if let Some(ref handler) = on_select_rc {
-                        let handler = handler.clone();
-                        let id = item_id.clone();
-                        row = row.on_mouse_up(MouseButton::Left, move |_event, window, cx| {
-                            handler(&id, window, cx);
-                        });
-                    }
-                }
-
-                // Checkbox indicator
-                if is_checkbox {
-                    row = row.child(div().w(px(16.0)).text_xs().child(if checked {
-                        "✓"
-                    } else {
-                        " "
-                    }));
-                }
-
-                // Icon
-                if let Some(icon) = icon {
-                    row = row.child(div().w(px(16.0)).child(icon));
-                }
-
-                // Label (flex-1 to push shortcut to right)
-                row = row.child(div().flex_1().child(label));
-
-                // Shortcut
-                if let Some(shortcut) = shortcut {
-                    let shortcut_color = theme.text_shortcut;
-                    row = row.child(div().text_xs().text_color(shortcut_color).child(shortcut));
-                }
-
-                menu = menu.child(row);
-            }
+        for row in rows {
+            menu = menu.child(row);
         }
 
         menu

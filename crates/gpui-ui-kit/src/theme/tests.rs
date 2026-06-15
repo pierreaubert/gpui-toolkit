@@ -15,7 +15,10 @@ fn theme_state_stores_theme_as_arc() {
     let theme_ref1: &Theme = &state.theme;
     let theme_ref2: &Theme = &state.theme;
     assert!(
-        std::ptr::eq(theme_ref1.font_family.as_ref(), theme_ref2.font_family.as_ref()),
+        std::ptr::eq(
+            theme_ref1.font_family.as_ref(),
+            theme_ref2.font_family.as_ref()
+        ),
         "repeated borrows of ThemeState.theme should point to the same Theme instance"
     );
 }

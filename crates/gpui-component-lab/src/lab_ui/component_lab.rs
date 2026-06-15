@@ -132,6 +132,11 @@ pub struct ComponentLab {
     pub(super) entity: Entity<Self>,
     pub(super) cached_matrix: ResponsivePreviewMatrix,
     pub(super) sidebar_labels: BTreeMap<String, SharedString>,
+    // Persistent child render entities to avoid rebuilding stable UI every frame.
+    sidebar_entity: Entity<LabSidebar>,
+    toolbar_entity: Entity<LabToolbar>,
+    controls_panel_entity: Entity<LabControlsPanel>,
+    preview_area_entity: Entity<LabPreviewArea>,
 }
 
 impl ComponentLab {
@@ -164,6 +169,14 @@ impl ComponentLab {
         let cached_matrix =
             ResponsivePreviewMatrix::for_story(&documents.get(&selected_story_id).unwrap().story);
         let sidebar_labels = Self::build_sidebar_labels(&documents, &story_ids);
+
+        let entity = cx.entity().clone();
+        let parent = entity.downgrade();
+        let sidebar_entity = cx.new(|_cx| LabSidebar::new(parent.clone()));
+        let toolbar_entity = cx.new(|_cx| LabToolbar::new(parent.clone()));
+        let controls_panel_entity = cx.new(|_cx| LabControlsPanel::new(parent.clone()));
+        let preview_area_entity = cx.new(|_cx| LabPreviewArea::new(parent.clone()));
+
         let mut lab = Self {
             registry,
             renderers,
@@ -182,9 +195,13 @@ impl ComponentLab {
             last_live_modified,
             stories_dir: config.stories_dir,
             token_paths: config.token_paths,
-            entity: cx.entity().clone(),
+            entity,
             cached_matrix,
             sidebar_labels,
+            sidebar_entity,
+            toolbar_entity,
+            controls_panel_entity,
+            preview_area_entity,
         };
         if lab.live_preview {
             lab.start_live_preview(cx);
@@ -2995,13 +3012,100 @@ impl Render for ComponentLab {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
 
+        // Sync child entity state only when it changes so stable subtrees are
+        // not marked dirty on every frame.
+        {
+            let sidebar = self.sidebar_entity.read(cx);
+            let live_status = self.live_status.clone();
+            if sidebar.selected_story_id != self.selected_story_id
+                || sidebar.live_status != live_status
+                || sidebar.registry_len != self.registry.len()
+            {
+                self.sidebar_entity.update(cx, |sidebar, _cx| {
+                    sidebar.selected_story_id = self.selected_story_id.clone();
+                    sidebar.live_status = live_status;
+                    sidebar.registry_len = self.registry.len();
+                });
+            }
+        }
+
+        {
+            let toolbar = self.toolbar_entity.read(cx);
+            let story = self.selected_story();
+            let viewport = self.selected_viewport();
+            let theme_preset = self.selected_theme_preset();
+            if toolbar.story_id != story.id
+                || toolbar.viewport_id != viewport.id.as_ref()
+                || toolbar.theme_id != theme_preset.id.as_ref()
+                || toolbar.matrix_mode != self.matrix_mode
+            {
+                self.toolbar_entity.update(cx, |toolbar, _cx| {
+                    toolbar.story_id = story.id.clone();
+                    toolbar.viewport_id = viewport.id.to_string();
+                    toolbar.theme_id = theme_preset.id.to_string();
+                    toolbar.matrix_mode = self.matrix_mode;
+                });
+            }
+        }
+
+        {
+            let controls = self.controls_panel_entity.read(cx);
+            let story_id = self.selected_story().id.clone();
+            let constraints = self.layout_constraints;
+            let save_status = self.save_status.clone();
+            if controls.story_id != story_id
+                || controls.layout_constraints != constraints
+                || controls.save_status != save_status
+            {
+                let story = self.selected_story().clone();
+                self.controls_panel_entity.update(cx, |controls, _cx| {
+                    controls.story_id = story_id;
+                    controls.story = story;
+                    controls.layout_constraints = constraints;
+                    controls.save_status = save_status;
+                });
+            }
+        }
+
+        {
+            let preview = self.preview_area_entity.read(cx);
+            let story_id = self.selected_story().id.clone();
+            let viewport_id = self.selected_viewport().id.clone();
+            let theme_id = self.selected_theme_preset().id.clone();
+            let motion_id = self.selected_motion_preset().id.clone();
+            let constraints = self.layout_constraints;
+            if preview.story_id != story_id
+                || preview.viewport.id != viewport_id
+                || preview.theme.id != theme_id
+                || preview.motion.id != motion_id
+                || preview.layout_constraints != constraints
+                || preview.matrix_mode != self.matrix_mode
+            {
+                let story = self.selected_story().clone();
+                let viewport = self.selected_viewport().clone();
+                let theme = self.selected_theme_preset().clone();
+                let motion = self.selected_motion_preset().clone();
+                let matrix = self.cached_matrix.clone();
+                self.preview_area_entity.update(cx, |preview, _cx| {
+                    preview.story_id = story_id;
+                    preview.story = story;
+                    preview.viewport = viewport;
+                    preview.theme = theme;
+                    preview.motion = motion;
+                    preview.layout_constraints = constraints;
+                    preview.matrix_mode = self.matrix_mode;
+                    preview.cached_matrix = matrix;
+                });
+            }
+        }
+
         div()
             .id("gpui-component-lab-root")
             .size_full()
             .bg(theme.background)
             .text_color(theme.text_primary)
             .flex()
-            .child(self.render_sidebar(cx))
+            .child(self.sidebar_entity.clone())
             .child(
                 div()
                     .flex_1()
@@ -3009,7 +3113,7 @@ impl Render for ComponentLab {
                     .flex()
                     .flex_col()
                     .p_5()
-                    .child(self.render_toolbar(cx))
+                    .child(self.toolbar_entity.clone())
                     .child(
                         div()
                             .flex_1()
@@ -3020,10 +3124,157 @@ impl Render for ComponentLab {
                                     .flex_1()
                                     .min_w_0()
                                     .h_full()
-                                    .child(self.render_preview_area(cx)),
+                                    .child(self.preview_area_entity.clone()),
                             )
-                            .child(self.render_controls_panel(cx)),
+                            .child(self.controls_panel_entity.clone()),
                     ),
             )
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Persistent child render entities
+// ---------------------------------------------------------------------------
+
+/// Persistent sidebar for the component lab.
+///
+/// Only re-renders when the selected story or live-reload status changes.
+struct LabSidebar {
+    selected_story_id: String,
+    live_status: Option<SharedString>,
+    registry_len: usize,
+    parent: WeakEntity<ComponentLab>,
+}
+
+impl LabSidebar {
+    fn new(parent: WeakEntity<ComponentLab>) -> Self {
+        Self {
+            selected_story_id: String::new(),
+            live_status: None,
+            registry_len: 0,
+            parent,
+        }
+    }
+}
+
+impl Render for LabSidebar {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        match self.parent.update(cx, |parent, cx| parent.render_sidebar(cx)) {
+            Ok(element) => element,
+            Err(_) => div().into_any_element(),
+        }
+    }
+}
+
+/// Persistent toolbar for the component lab.
+///
+/// Only re-renders when the active story, viewport, theme or matrix mode
+/// changes.
+struct LabToolbar {
+    story_id: String,
+    viewport_id: String,
+    theme_id: String,
+    matrix_mode: bool,
+    parent: WeakEntity<ComponentLab>,
+}
+
+impl LabToolbar {
+    fn new(parent: WeakEntity<ComponentLab>) -> Self {
+        Self {
+            story_id: String::new(),
+            viewport_id: String::new(),
+            theme_id: String::new(),
+            matrix_mode: false,
+            parent,
+        }
+    }
+}
+
+impl Render for LabToolbar {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        match self.parent.update(cx, |parent, cx| parent.render_toolbar(cx)) {
+            Ok(element) => element,
+            Err(_) => div().into_any_element(),
+        }
+    }
+}
+
+/// Persistent controls panel for the component lab.
+///
+/// Only re-renders when the active story, layout constraints or save status
+/// changes.
+struct LabControlsPanel {
+    story_id: String,
+    story: ComponentStory,
+    layout_constraints: PreviewLayoutConstraints,
+    save_status: Option<SharedString>,
+    parent: WeakEntity<ComponentLab>,
+}
+
+impl LabControlsPanel {
+    fn new(parent: WeakEntity<ComponentLab>) -> Self {
+        Self {
+            story_id: String::new(),
+            story: ComponentStory::new("", "", "", ""),
+            layout_constraints: PreviewLayoutConstraints::default(),
+            save_status: None,
+            parent,
+        }
+    }
+}
+
+impl Render for LabControlsPanel {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        match self
+            .parent
+            .update(cx, |parent, cx| parent.render_controls_panel(cx))
+        {
+            Ok(element) => element,
+            Err(_) => div().into_any_element(),
+        }
+    }
+}
+
+/// Persistent preview area for the component lab.
+///
+/// Only re-renders when the active story, viewport, theme, motion, layout
+/// constraints or matrix mode changes.
+struct LabPreviewArea {
+    story_id: String,
+    story: ComponentStory,
+    viewport: ViewportPreset,
+    theme: ThemePreset,
+    motion: MotionPreset,
+    layout_constraints: PreviewLayoutConstraints,
+    matrix_mode: bool,
+    cached_matrix: ResponsivePreviewMatrix,
+    parent: WeakEntity<ComponentLab>,
+}
+
+impl LabPreviewArea {
+    fn new(parent: WeakEntity<ComponentLab>) -> Self {
+        Self {
+            story_id: String::new(),
+            story: ComponentStory::new("", "", "", ""),
+            viewport: ViewportPreset::new("", "", 0.0, 0.0),
+            theme: ThemePreset::new("", "", "", false),
+            motion: MotionPreset::new("", "", false),
+            layout_constraints: PreviewLayoutConstraints::default(),
+            matrix_mode: false,
+            cached_matrix: ResponsivePreviewMatrix { cells: Vec::new() },
+            parent,
+        }
+    }
+}
+
+impl Render for LabPreviewArea {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        match self
+            .parent
+            .update(cx, |parent, cx| parent.render_preview_area(cx))
+        {
+            Ok(element) => element,
+            Err(_) => div().into_any_element(),
+        }
     }
 }

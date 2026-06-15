@@ -20,6 +20,11 @@ use gpui::prelude::{InteractiveElement, IntoElement, ParentElement, RenderOnce, 
 use gpui::{
     App, Div, ElementId, FontWeight, MouseButton, Rgba, SharedString, Stateful, Window, div, px,
 };
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
+use std::rc::Rc;
 
 /// Theme colors for command palette
 #[derive(Debug, Clone, ComponentTheme)]
@@ -119,6 +124,69 @@ impl CommandItem {
         self.disabled = disabled;
         self
     }
+
+    fn content_hash<H: Hasher>(&self, hasher: &mut H) {
+        self.id.hash(hasher);
+        self.label.hash(hasher);
+        self.label_lower.hash(hasher);
+        self.shortcut.hash(hasher);
+        self.category.hash(hasher);
+        self.icon.hash(hasher);
+        self.disabled.hash(hasher);
+    }
+}
+
+fn items_hash(items: &[CommandItem]) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    for item in items {
+        item.content_hash(&mut hasher);
+    }
+    hasher.finish()
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+struct FilteredIndicesKey {
+    id: ElementId,
+    query: SharedString,
+    items_hash: u64,
+    max_visible: usize,
+}
+
+thread_local! {
+    static FILTERED_INDICES_CACHE: RefCell<HashMap<FilteredIndicesKey, Rc<[usize]>>> =
+        RefCell::new(HashMap::new());
+    static PALETTE_HOVER_HANDLERS: RefCell<
+        HashMap<ElementId, &'static dyn Fn(gpui::StyleRefinement) -> gpui::StyleRefinement>,
+    > = RefCell::new(HashMap::new());
+    static PALETTE_HOVER_BG: RefCell<HashMap<ElementId, Rgba>> = RefCell::new(HashMap::new());
+}
+
+/// Return a stable hover handler for the given palette id.
+///
+/// The actual hover color is read from a thread-local map on each invocation so
+/// theme changes are reflected without leaking a new closure per color.
+fn palette_hover_handler(
+    palette_id: ElementId,
+    hover_bg: Rgba,
+) -> &'static dyn Fn(gpui::StyleRefinement) -> gpui::StyleRefinement {
+    PALETTE_HOVER_BG.with(|bg_map| {
+        bg_map.borrow_mut().insert(palette_id.clone(), hover_bg);
+    });
+
+    PALETTE_HOVER_HANDLERS.with(|cache| {
+        if let Some(handler) = cache.borrow().get(&palette_id) {
+            return *handler;
+        }
+
+        let cache_key = palette_id.clone();
+        let handler: &'static dyn Fn(gpui::StyleRefinement) -> gpui::StyleRefinement =
+            Box::leak(Box::new(move |s: gpui::StyleRefinement| {
+                let bg = PALETTE_HOVER_BG.with(|map| map.borrow().get(&palette_id).copied());
+                s.bg(bg.unwrap_or(hover_bg))
+            }));
+        cache.borrow_mut().insert(cache_key, handler);
+        handler
+    })
 }
 
 /// A command palette component
@@ -187,13 +255,50 @@ impl CommandPalette {
         self
     }
 
+    /// Return the indices of items visible for the current query, using a
+    /// thread-local cache keyed by the lowercased query and a hash of the items.
+    fn filtered_indices(&self) -> Rc<[usize]> {
+        let query_lower: SharedString = self.query.to_lowercase().into();
+        let hash = items_hash(&self.items);
+        let key = FilteredIndicesKey {
+            id: self.id.clone(),
+            query: query_lower.clone(),
+            items_hash: hash,
+            max_visible: self.max_visible,
+        };
+
+        FILTERED_INDICES_CACHE.with(|cache| {
+            if let Some(cached) = cache.borrow().get(&key) {
+                return Rc::clone(cached);
+            }
+
+            let mut indices = Vec::new();
+            for (i, item) in self.items.iter().enumerate() {
+                if !query_lower.is_empty() && !item.label_lower.contains(query_lower.as_ref()) {
+                    continue;
+                }
+                indices.push(i);
+                if indices.len() >= self.max_visible {
+                    break;
+                }
+            }
+
+            let result: Rc<[usize]> = indices.into();
+            cache.borrow_mut().insert(key, Rc::clone(&result));
+            result
+        })
+    }
+
     /// Build with theme
     pub fn build_with_theme(self, theme: &CommandPaletteTheme) -> Stateful<Div> {
-        let dismiss_id = (self.id.clone(), "backdrop");
+        let palette_id = self.id.clone();
+        let filtered = self.filtered_indices();
+        let hover_handler = palette_hover_handler(palette_id.clone(), theme.hover_bg);
+        let dismiss_id = (palette_id.clone(), "backdrop");
 
         // Backdrop
         let mut overlay = div()
-            .id(self.id)
+            .id(palette_id.clone())
             .absolute()
             .inset_0()
             .flex()
@@ -240,7 +345,7 @@ impl CommandPalette {
                     .flex_1()
                     .text_sm()
                     .text_color(theme.placeholder_text)
-                    .child(self.placeholder)
+                    .child(self.placeholder.clone())
             } else {
                 div()
                     .flex_1()
@@ -253,20 +358,11 @@ impl CommandPalette {
 
         // Results list
         let mut results = div().flex_1().flex().flex_col().overflow_y_hidden();
-        let query_lower = self.query.to_lowercase();
 
-        let mut visible_count = 0;
         let mut current_category: Option<SharedString> = None;
 
-        for (i, item) in self.items.iter().enumerate() {
-            // Simple filter: if query is non-empty, check if label contains it
-            if !query_lower.is_empty() && !item.label_lower.contains(&query_lower) {
-                continue;
-            }
-
-            if visible_count >= self.max_visible {
-                break;
-            }
+        for &i in filtered.iter() {
+            let item = &self.items[i];
 
             // Category header
             if let Some(cat) = &item.category
@@ -285,7 +381,6 @@ impl CommandPalette {
             }
 
             let is_selected = i == self.selected_index;
-            let hover_bg = theme.hover_bg;
 
             let mut row = div()
                 .id(ElementId::from(item.id.clone()))
@@ -302,9 +397,7 @@ impl CommandPalette {
             } else if item.disabled {
                 row = row.text_color(theme.meta_text).opacity(0.5);
             } else {
-                row = row
-                    .text_color(theme.item_text)
-                    .hover(move |s| s.bg(hover_bg));
+                row = row.text_color(theme.item_text).hover(hover_handler);
             }
 
             // Icon
@@ -330,7 +423,6 @@ impl CommandPalette {
             }
 
             results = results.child(row);
-            visible_count += 1;
         }
 
         palette = palette.child(results);

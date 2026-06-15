@@ -47,7 +47,9 @@ pub use types::SelectTheme;
 pub struct Select {
     id: ElementId,
     options: Vec<SelectOption>,
+    option_ids: Vec<ElementId>,
     selected: Option<SharedString>,
+    selected_label: Option<SharedString>,
     placeholder: Option<SharedString>,
     label: Option<SharedString>,
     size: SelectSize,
@@ -68,7 +70,9 @@ impl Select {
         Self {
             id: id.into(),
             options: Vec::new(),
+            option_ids: Vec::new(),
             selected: None,
+            selected_label: None,
             placeholder: None,
             label: None,
             size: SelectSize::default(),
@@ -84,15 +88,38 @@ impl Select {
         }
     }
 
+    /// Refresh the cached selected label from the current value and options.
+    fn refresh_selected_label(&mut self) {
+        self.selected_label = self.selected.as_ref().and_then(|val| {
+            self.options
+                .iter()
+                .find(|o| &o.value == val)
+                .map(|o| o.label.clone())
+        });
+    }
+
+    /// Refresh the stable element IDs for each option.
+    fn refresh_option_ids(&mut self) {
+        self.option_ids = self
+            .options
+            .iter()
+            .enumerate()
+            .map(|(idx, _)| (self.id.clone(), idx.to_string()).into())
+            .collect();
+    }
+
     /// Set options
     pub fn options(mut self, options: Vec<SelectOption>) -> Self {
         self.options = options;
+        self.refresh_selected_label();
+        self.refresh_option_ids();
         self
     }
 
     /// Set selected value
     pub fn selected(mut self, value: impl Into<SharedString>) -> Self {
         self.selected = Some(value.into());
+        self.refresh_selected_label();
         self
     }
 
@@ -185,13 +212,7 @@ impl Select {
 
         let mut container = div().relative().flex().flex_col().gap_1();
 
-        // Find selected option label
-        let selected_label = self.selected.as_ref().and_then(|val| {
-            self.options
-                .iter()
-                .find(|o| &o.value == val)
-                .map(|o| o.label.clone())
-        });
+        // Cached selected label is maintained by options()/selected().
 
         // Select trigger
         let border_color = if self.is_open {
@@ -263,17 +284,22 @@ impl Select {
         let on_change_rc = self.on_change.map(std::rc::Rc::new);
         let on_highlight_rc = self.on_highlight.map(std::rc::Rc::new);
 
-        // Register focus-out handler to close dropdown when user clicks outside.
-        if let Some(ref toggle_handler) = on_toggle_rc {
-            let toggle_for_blur = toggle_handler.clone();
-            let sub = window.on_focus_out(&focus_handle, cx, move |_event, window, cx| {
-                toggle_for_blur(false, window, cx);
-            });
-            SELECT_FOCUS_SUBS.with(|subs| {
-                let mut subs = subs.borrow_mut();
-                let _old = subs.remove(&dropdown_id);
-                subs.insert(dropdown_id.clone(), sub);
-            });
+        // Register focus-out handler once per select id to close the dropdown
+        // when the user clicks outside. The focus handle is stable per id, so
+        // re-registration only happens when the id first appears.
+        let needs_focus_sub =
+            SELECT_FOCUS_SUBS.with(|subs| !subs.borrow().contains_key(&dropdown_id));
+        if needs_focus_sub {
+            if let Some(ref toggle_handler) = on_toggle_rc {
+                let toggle_for_blur = toggle_handler.clone();
+                let sub = window.on_focus_out(&focus_handle, cx, move |_event, window, cx| {
+                    toggle_for_blur(false, window, cx);
+                });
+                SELECT_FOCUS_SUBS.with(|subs| {
+                    let mut subs = subs.borrow_mut();
+                    subs.insert(dropdown_id.clone(), sub);
+                });
+            }
         }
 
         let currently_open = self.is_open;
@@ -368,7 +394,7 @@ impl Select {
         }
 
         // Display value or placeholder
-        let display_text = if let Some(label) = selected_label {
+        let display_text = if let Some(label) = self.selected_label {
             div().text_color(theme.text_color).child(label)
         } else if let Some(placeholder) = self.placeholder {
             div().text_color(theme.placeholder_color).child(placeholder)
@@ -386,7 +412,6 @@ impl Select {
         // Dropdown menu (only shown when open)
         // Use deferred() to ensure the dropdown renders on top of other content
         if self.is_open {
-            let dropdown_id_for_options = dropdown_id.clone();
             let mut dropdown = div()
                 .id((dropdown_id, "dropdown"))
                 .font_family(font_family.clone())
@@ -412,8 +437,9 @@ impl Select {
 
                 // L4 fix: scope option IDs to parent to avoid collision when
                 // multiple Select components exist on the same screen.
-                // Use a tuple ID to avoid a format! allocation per option per render.
-                let option_id = (dropdown_id_for_options.clone(), idx.to_string());
+                // Option IDs are precomputed when options change, so render no
+                // longer performs a per-option to_string allocation.
+                let option_id = self.option_ids[idx].clone();
                 let mut option_el = div().id(option_id).px_3().py(px(6.0)).cursor_pointer();
 
                 // Apply text size

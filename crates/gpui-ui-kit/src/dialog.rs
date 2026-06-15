@@ -33,10 +33,14 @@ use gpui::prelude::{
     InteractiveElement, IntoElement, ParentElement, RenderOnce, StatefulInteractiveElement, Styled,
 };
 use gpui::{
-    AnyElement, App, Div, ElementId, FontWeight, MouseButton, Rems, Rgba, SharedString, Window,
-    div, px,
+    AnyElement, App, Div, ElementId, FontWeight, MouseButton, MouseDownEvent, Rems, Rgba,
+    ScrollWheelEvent, SharedString, Window, div, px,
 };
 use std::rc::Rc;
+
+fn ignore_scroll_wheel(_event: &ScrollWheelEvent, _window: &mut Window, _cx: &mut App) {}
+
+fn ignore_mouse_down(_event: &MouseDownEvent, _window: &mut Window, _cx: &mut App) {}
 
 /// Factory function type for creating elements with dialog theme access
 pub type DialogSlotFactory = Box<dyn FnOnce(&DialogTheme) -> AnyElement>;
@@ -256,7 +260,7 @@ impl Dialog {
             .justify_center()
             .bg(theme.backdrop)
             // Capture scroll events to prevent propagation to underlying view
-            .on_scroll_wheel(|_event, _window, _cx| {});
+            .on_scroll_wheel(ignore_scroll_wheel);
 
         // Handle backdrop click
         if close_on_backdrop && let Some(handler) = on_close.clone() {
@@ -279,9 +283,7 @@ impl Dialog {
             .flex()
             .flex_col()
             // Stop propagation so clicking dialog doesn't close it
-            .on_mouse_down(MouseButton::Left, |_event, _window, _cx| {
-                // Consume the event
-            });
+            .on_mouse_down(MouseButton::Left, ignore_mouse_down);
 
         // Header with title and close button
         if self.title.is_some() || self.show_close_button {

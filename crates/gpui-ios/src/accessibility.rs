@@ -207,15 +207,24 @@ impl IosAccessibilitySnapshot {
         nodes
     }
 
-    pub fn flattened_nodes(&self) -> Vec<&IosAccessibilityNode> {
+    /// Returns the cached flattened accessible nodes as a borrowed slice.
+    ///
+    /// This avoids the per-call `Vec<&IosAccessibilityNode>` allocation that
+    /// [`Self::flattened_nodes`] performs and is the preferred path for hot
+    /// internal callers.
+    pub fn flattened_node_slice(&self) -> &[IosAccessibilityNode] {
         let cached = self.flattened_cache.get_or_init(|| Arc::new(self.flatten_root()));
-        cached.iter().collect()
+        cached.as_slice()
+    }
+
+    pub fn flattened_nodes(&self) -> Vec<&IosAccessibilityNode> {
+        self.flattened_node_slice().iter().collect()
     }
 
     pub(crate) fn id_index_map(&self) -> &HashMap<String, usize> {
         self.id_index_cache.get_or_init(|| {
             let mut map = HashMap::new();
-            for (idx, node) in self.flattened_nodes().iter().enumerate() {
+            for (idx, node) in self.flattened_node_slice().iter().enumerate() {
                 map.insert(node.id.clone(), idx);
             }
             map
@@ -316,21 +325,21 @@ pub fn compute_accessibility_diff<'a>(
     prev: Option<&'a IosAccessibilitySnapshot>,
     next: &'a IosAccessibilitySnapshot,
 ) -> AccessibilityDiff<'a> {
-    let next_nodes = next.flattened_nodes();
+    let next_nodes = next.flattened_node_slice();
     let next_id_map = next.id_index_map();
 
-    let prev_nodes = prev.map(IosAccessibilitySnapshot::flattened_nodes);
+    let prev_nodes = prev.map(IosAccessibilitySnapshot::flattened_node_slice);
     let prev_id_map = prev.map(IosAccessibilitySnapshot::id_index_map);
 
     let mut unchanged = Vec::new();
     let mut changed = Vec::new();
     let mut added = Vec::new();
 
-    for &next_node in &next_nodes {
+    for next_node in next_nodes.iter() {
         let maybe_prev = prev_id_map
             .as_ref()
             .and_then(|map| map.get(&next_node.id))
-            .map(|&idx| prev_nodes.as_ref().unwrap()[idx]);
+            .map(|&idx| prev_nodes.unwrap().get(idx).unwrap());
 
         if let Some(prev_node) = maybe_prev {
             let mut changes = NodeChanges::default();
@@ -369,7 +378,7 @@ pub fn compute_accessibility_diff<'a>(
         })
         .unwrap_or_default();
 
-    let order_changed = match prev_nodes.as_ref() {
+    let order_changed = match prev_nodes {
         None => true,
         Some(prev_list) => {
             next_nodes.len() != prev_list.len()

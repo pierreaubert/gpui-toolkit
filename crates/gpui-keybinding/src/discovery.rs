@@ -1,4 +1,9 @@
+use std::cell::RefCell;
 use std::collections::BTreeMap;
+use std::collections::HashMap;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
+use std::rc::Rc;
 
 use crate::{
     DocumentedKeybinding, KeybindingCategory, KeymapPreset, format_key_label,
@@ -6,7 +11,7 @@ use crate::{
 };
 
 /// A searchable command-palette row derived from documented keybindings.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct CommandPaletteEntry {
     /// Display string for the key combination.
     pub key: String,
@@ -75,6 +80,35 @@ pub struct KeybindingHint {
     pub has_children: bool,
 }
 
+fn hash_documented_bindings(bindings: &[DocumentedKeybinding]) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    for binding in bindings {
+        binding.key.hash(&mut hasher);
+        binding.raw_key_spec.hash(&mut hasher);
+        binding.description.hash(&mut hasher);
+        binding.category.hash(&mut hasher);
+    }
+    hasher.finish()
+}
+
+fn hash_palette_entries(entries: &[CommandPaletteEntry]) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    for entry in entries {
+        entry.hash(&mut hasher);
+    }
+    hasher.finish()
+}
+
+type SearchKey = (u64, String);
+type HintsKey = (u64, String);
+
+thread_local! {
+    static SEARCH_CACHE: RefCell<HashMap<SearchKey, Rc<[CommandPaletteEntry]>>> =
+        RefCell::new(HashMap::new());
+    static HINTS_CACHE: RefCell<HashMap<HintsKey, Rc<[KeybindingHint]>>> =
+        RefCell::new(HashMap::new());
+}
+
 /// Build deterministic command-palette entries from documented keybindings.
 pub fn command_palette_entries(bindings: &[DocumentedKeybinding]) -> Vec<CommandPaletteEntry> {
     let mut entries: Vec<_> = bindings
@@ -90,33 +124,63 @@ pub fn command_palette_entries(bindings: &[DocumentedKeybinding]) -> Vec<Command
 /// Empty queries return all entries in their existing order. Non-empty queries
 /// split on whitespace and require every token to match the precomputed search
 /// index.
+///
+/// This is the convenience wrapper that returns a [`Vec`]; prefer
+/// [`search_command_palette_cached`] to reuse the same allocation across calls.
 pub fn search_command_palette(
     entries: &[CommandPaletteEntry],
     query: &str,
 ) -> Vec<CommandPaletteEntry> {
+    search_command_palette_cached(entries, query).to_vec()
+}
+
+/// Cached version of [`search_command_palette`].
+///
+/// Results are stored in a thread-local cache keyed by a hash of the entries and
+/// the normalized query, and returned as an [`Rc`] slice so callers can clone
+/// the handle cheaply.
+pub fn search_command_palette_cached(
+    entries: &[CommandPaletteEntry],
+    query: &str,
+) -> Rc<[CommandPaletteEntry]> {
     let normalized = query.trim().to_ascii_lowercase();
-    if normalized.is_empty() {
-        return entries.to_vec();
-    }
+    let entries_hash = hash_palette_entries(entries);
+    let key = (entries_hash, normalized.clone());
 
-    let tokens: Vec<&str> = normalized.split_whitespace().collect();
-    let mut matches: Vec<_> = entries
-        .iter()
-        .filter_map(|entry| score_entry(entry, &normalized, &tokens).map(|score| (score, entry)))
-        .collect();
+    SEARCH_CACHE.with(|cache| {
+        if let Some(cached) = cache.borrow().get(&key) {
+            return Rc::clone(cached);
+        }
 
-    matches.sort_by(|(score_a, a), (score_b, b)| {
-        score_a
-            .cmp(score_b)
-            .then_with(|| a.category.name().cmp(b.category.name()))
-            .then_with(|| a.description.cmp(&b.description))
-            .then_with(|| a.key.cmp(&b.key))
-    });
+        let result: Rc<[CommandPaletteEntry]> = if normalized.is_empty() {
+            entries.to_vec().into()
+        } else {
+            let tokens: Vec<&str> = normalized.split_whitespace().collect();
+            let mut matches: Vec<_> = entries
+                .iter()
+                .filter_map(|entry| {
+                    score_entry(entry, &normalized, &tokens).map(|score| (score, entry))
+                })
+                .collect();
 
-    matches
-        .into_iter()
-        .map(|(_, entry)| entry.clone())
-        .collect()
+            matches.sort_by(|(score_a, a), (score_b, b)| {
+                score_a
+                    .cmp(score_b)
+                    .then_with(|| a.category.name().cmp(b.category.name()))
+                    .then_with(|| a.description.cmp(&b.description))
+                    .then_with(|| a.key.cmp(&b.key))
+            });
+
+            matches
+                .into_iter()
+                .map(|(_, entry)| entry.clone())
+                .collect::<Vec<_>>()
+                .into()
+        };
+
+        cache.borrow_mut().insert(key, Rc::clone(&result));
+        result
+    })
 }
 
 /// Build which-key-style next-key hints for a chord prefix.
@@ -124,12 +188,41 @@ pub fn search_command_palette(
 /// `prefix` should use GPUI key-spec syntax such as `"ctrl-k"` or
 /// `"ctrl-k ctrl-s"`. Bindings without `raw_key_spec` are still considered,
 /// but matching is necessarily based on their display string.
-pub fn keybinding_hints<'a>(
-    bindings: &'a [DocumentedKeybinding],
+///
+/// This is the convenience wrapper that returns a [`Vec`]; prefer
+/// [`keybinding_hints_cached`] to reuse the same allocation across calls.
+pub fn keybinding_hints(bindings: &[DocumentedKeybinding], prefix: &str) -> Vec<KeybindingHint> {
+    keybinding_hints_cached(bindings, prefix).to_vec()
+}
+
+/// Cached version of [`keybinding_hints`].
+///
+/// Results are stored in a thread-local cache keyed by a hash of the bindings and
+/// the normalized prefix, and returned as an [`Rc`] slice so callers can clone
+/// the handle cheaply.
+pub fn keybinding_hints_cached(
+    bindings: &[DocumentedKeybinding],
     prefix: &str,
-) -> Vec<KeybindingHint> {
+) -> Rc<[KeybindingHint]> {
+    let prefix_normalized = prefix.trim().to_ascii_lowercase();
+    let bindings_hash = hash_documented_bindings(bindings);
+    let key = (bindings_hash, prefix_normalized);
+
+    HINTS_CACHE.with(|cache| {
+        if let Some(cached) = cache.borrow().get(&key) {
+            return Rc::clone(cached);
+        }
+
+        let result = build_keybinding_hints(bindings, prefix);
+        let result: Rc<[KeybindingHint]> = result.into();
+        cache.borrow_mut().insert(key, Rc::clone(&result));
+        result
+    })
+}
+
+fn build_keybinding_hints(bindings: &[DocumentedKeybinding], prefix: &str) -> Vec<KeybindingHint> {
     let prefix_parts: Vec<&str> = prefix.split_whitespace().collect();
-    let mut hints: BTreeMap<&'a str, KeybindingHint> = BTreeMap::new();
+    let mut hints: BTreeMap<&str, KeybindingHint> = BTreeMap::new();
 
     for binding in bindings {
         let spec = binding.raw_key_spec.as_deref().unwrap_or(&binding.key);
@@ -178,19 +271,69 @@ impl KeybindingRegistry {
     }
 
     /// Search cached command-palette entries for a preset.
+    ///
+    /// This convenience method returns a [`Vec`]. Use
+    /// [`search_command_palette_cached`] to reuse the same allocation.
     pub fn search_command_palette(
         &self,
         preset: KeymapPreset,
         query: &str,
     ) -> Vec<CommandPaletteEntry> {
+        self.search_command_palette_cached(preset, query).to_vec()
+    }
+
+    /// Cached search of command-palette entries for a preset.
+    ///
+    /// Returns an [`Rc`] slice so callers can clone the result cheaply.
+    pub fn search_command_palette_cached(
+        &self,
+        preset: KeymapPreset,
+        query: &str,
+    ) -> Rc<[CommandPaletteEntry]> {
+        let normalized = query.trim().to_ascii_lowercase();
+        let key = (preset, normalized);
+
+        if let Some(cached) = self.search_cache.borrow().get(&key) {
+            return Rc::clone(cached);
+        }
+
         let entries = self.get_palette_entries(preset);
-        search_command_palette(&entries, query)
+        let result = search_command_palette_cached(&entries, query);
+        self.search_cache
+            .borrow_mut()
+            .insert(key, Rc::clone(&result));
+        result
     }
 
     /// Build which-key-style next-key hints for a preset and chord prefix.
+    ///
+    /// This convenience method returns a [`Vec`]. Use
+    /// [`keybinding_hints_cached`] to reuse the same allocation.
     pub fn keybinding_hints(&self, preset: KeymapPreset, prefix: &str) -> Vec<KeybindingHint> {
+        self.keybinding_hints_cached(preset, prefix).to_vec()
+    }
+
+    /// Cached which-key-style next-key hints for a preset and chord prefix.
+    ///
+    /// Returns an [`Rc`] slice so callers can clone the result cheaply.
+    pub fn keybinding_hints_cached(
+        &self,
+        preset: KeymapPreset,
+        prefix: &str,
+    ) -> Rc<[KeybindingHint]> {
+        let prefix_normalized = prefix.trim().to_ascii_lowercase();
+        let key = (preset, prefix_normalized);
+
+        if let Some(cached) = self.hints_cache.borrow().get(&key) {
+            return Rc::clone(cached);
+        }
+
         let docs = self.get_documented(preset);
-        keybinding_hints(&docs, prefix)
+        let result = keybinding_hints_cached(&docs, prefix);
+        self.hints_cache
+            .borrow_mut()
+            .insert(key, Rc::clone(&result));
+        result
     }
 }
 

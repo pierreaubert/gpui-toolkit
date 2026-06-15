@@ -42,6 +42,16 @@ pub struct ThemeEditor {
     pub show_color_modal: bool,
     /// Field being edited in modal
     pub editing_field: Option<ColorField>,
+    /// Cached export format used to generate `cached_export_content`
+    cached_export_format: String,
+    /// Cached serialized export content for the export tab
+    cached_export_content: SharedString,
+    /// Cached export filename derived from theme name and format
+    cached_export_filename: SharedString,
+    /// Theme Arc that `cached_export_content` corresponds to
+    cached_theme: Arc<EditorTheme>,
+    /// Cached hex strings for color fields, keyed by field name
+    hex_cache: HashMap<&'static str, SharedString>,
 }
 
 /// Stable element ID for a color group row.
@@ -123,8 +133,20 @@ impl ThemeEditor {
         let theme = Arc::new(EditorTheme::dark());
         let showcase = cx.new(|_| ComponentShowcase::new(theme.clone()));
 
+        let hex_cache = Self::build_hex_cache(&theme);
+        let cached_export_content = SharedString::from(
+            theme
+                .to_json()
+                .unwrap_or_else(|e| format!("Error: {}", e)),
+        );
+        let cached_export_filename = SharedString::from(format!(
+            "{}_theme.{}",
+            theme.name.to_lowercase().replace(' ', "_"),
+            "json"
+        ));
+
         Self {
-            theme,
+            theme: theme.clone(),
             selected_group: ColorGroup::Base,
             selected_field_index: 0,
             current_tab: EditorTab::Colors,
@@ -135,6 +157,11 @@ impl ThemeEditor {
             export_format: "json".to_string(),
             show_color_modal: false,
             editing_field: None,
+            cached_export_format: "json".to_string(),
+            cached_export_content,
+            cached_export_filename,
+            cached_theme: theme,
+            hex_cache,
         }
     }
 
@@ -164,6 +191,40 @@ impl ThemeEditor {
         Self::fields_for_group(self.selected_group).get(self.selected_field_index)
     }
 
+    /// Build a fresh hex string cache from the given theme.
+    fn build_hex_cache(theme: &Arc<EditorTheme>) -> HashMap<&'static str, SharedString> {
+        let mut cache = HashMap::new();
+        for &field in all_color_fields() {
+            let color = (field.getter)(theme);
+            cache.insert(field.name, SharedString::from(color.to_hex_string()));
+        }
+        cache
+    }
+
+    /// Refresh the export tab cache if the format or theme Arc has changed.
+    fn refresh_export_cache(&mut self) {
+        if self.cached_export_format != self.export_format
+            || !Arc::ptr_eq(&self.cached_theme, &self.theme)
+        {
+            self.cached_export_format.clone_from(&self.export_format);
+            self.cached_theme = self.theme.clone();
+            let content = if self.export_format == "json" {
+                self.theme
+                    .to_json()
+                    .unwrap_or_else(|e| format!("Error: {}", e))
+            } else {
+                self.theme.to_rust_code()
+            };
+            self.cached_export_content = SharedString::from(content);
+            let filename = format!(
+                "{}_theme.{}",
+                self.theme.name.to_lowercase().replace(' ', "_"),
+                self.export_format
+            );
+            self.cached_export_filename = SharedString::from(filename);
+        }
+    }
+
     /// Update a color and sync to showcase
     pub(super) fn update_color(
         &mut self,
@@ -173,6 +234,12 @@ impl ThemeEditor {
     ) {
         let theme = Arc::make_mut(&mut self.theme);
         (field.setter)(theme, color);
+        // Refresh cached hex for the changed field
+        let updated_color = (field.getter)(&self.theme);
+        self.hex_cache
+            .insert(field.name, SharedString::from(updated_color.to_hex_string()));
+        // Export content depends on the theme, so refresh it
+        self.refresh_export_cache();
         // Update showcase with a cheap Arc clone
         let new_theme = self.theme.clone();
         self.showcase.update(cx, |showcase, _| {
@@ -188,6 +255,10 @@ impl ThemeEditor {
                 .unwrap_or_default()
                 .to_theme(),
         );
+        // Rebuild the hex cache for the new preset theme
+        self.hex_cache = Self::build_hex_cache(&self.theme);
+        // Export content depends on the theme, so refresh it
+        self.refresh_export_cache();
         self.showcase.update(cx, |showcase, _| {
             showcase.set_theme(self.theme.clone());
         });
@@ -362,9 +433,14 @@ impl ThemeEditor {
                             )
                             .child(div().flex_1())
                             .child(
-                                Text::new(SharedString::from(color.to_hex_string()))
-                                    .size(TextSize::Xs)
-                                    .color(theme.text_muted.to_rgba()),
+                                Text::new(
+                                    self.hex_cache
+                                        .get(field.name)
+                                        .cloned()
+                                        .unwrap_or_else(|| SharedString::from(color.to_hex_string())),
+                                )
+                                .size(TextSize::Xs)
+                                .color(theme.text_muted.to_rgba()),
                             )
                             .build(),
                     )
@@ -510,17 +586,12 @@ impl ThemeEditor {
     }
 
     /// Render the export tab
-    pub(super) fn render_export_tab(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    pub(super) fn render_export_tab(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
+        self.refresh_export_cache();
+
         let theme = &self.theme;
         let export_format = self.export_format.clone();
-
-        let export_content = if export_format == "json" {
-            self.theme
-                .to_json()
-                .unwrap_or_else(|e| format!("Error: {}", e))
-        } else {
-            self.theme.to_rust_code()
-        };
+        let export_content = self.cached_export_content.clone();
 
         div().p_6().size_full().child(
             VStack::new()
@@ -562,6 +633,7 @@ impl ThemeEditor {
                                 .build()
                                 .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
                                     this.export_format = "json".to_string();
+                                    this.refresh_export_cache();
                                     cx.notify();
                                 })),
                         )
@@ -576,6 +648,7 @@ impl ThemeEditor {
                                 .build()
                                 .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
                                     this.export_format = "rust".to_string();
+                                    this.refresh_export_cache();
                                     cx.notify();
                                 })),
                         )
@@ -608,11 +681,8 @@ impl ThemeEditor {
                                 .size(ButtonSize::Md)
                                 .build()
                                 .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
-                                    let content = if this.export_format == "json" {
-                                        this.theme.to_json().unwrap_or_default()
-                                    } else {
-                                        this.theme.to_rust_code()
-                                    };
+                                    this.refresh_export_cache();
+                                    let content = this.cached_export_content.to_string();
                                     cx.write_to_clipboard(gpui::ClipboardItem::new_string(content));
                                 })),
                         )
@@ -622,16 +692,9 @@ impl ThemeEditor {
                                 .size(ButtonSize::Md)
                                 .build()
                                 .on_click(cx.listener(|this, _: &ClickEvent, _window, _cx| {
-                                    let content = if this.export_format == "json" {
-                                        this.theme.to_json().unwrap_or_default()
-                                    } else {
-                                        this.theme.to_rust_code()
-                                    };
-                                    let filename = format!(
-                                        "{}_theme.{}",
-                                        this.theme.name.to_lowercase().replace(' ', "_"),
-                                        this.export_format
-                                    );
+                                    this.refresh_export_cache();
+                                    let content = this.cached_export_content.to_string();
+                                    let filename = this.cached_export_filename.to_string();
                                     if let Err(e) = std::fs::write(&filename, content) {
                                         eprintln!("Failed to save theme to {filename}: {e}");
                                     } else {

@@ -439,12 +439,11 @@ fn render_input(props: &Input, window: &mut Window, cx: &mut App) -> impl IntoEl
     }
 
     let border_hover = theme.border_hover;
+    let hover_border = move |s: gpui::StyleRefinement| s.border_color(border_hover);
     if disabled {
         input_wrapper = input_wrapper.opacity(0.5).cursor_not_allowed();
     } else if !readonly {
-        input_wrapper = input_wrapper
-            .cursor_text()
-            .hover(move |s| s.border_color(border_hover));
+        input_wrapper = input_wrapper.cursor_text().hover(hover_border);
     }
 
     let placeholder_color = props.placeholder_color.unwrap_or(theme.placeholder);
@@ -469,64 +468,61 @@ fn render_input(props: &Input, window: &mut Window, cx: &mut App) -> impl IntoEl
         let edit_text_for_click = edit_text.clone();
         let id_for_click = props.id.clone();
 
-        input_wrapper =
-            input_wrapper.on_mouse_down(MouseButton::Left, move |event, window, cx| {
-                // Focus the input
-                window.focus(&focus_handle_for_click, cx);
+        input_wrapper = input_wrapper.on_mouse_down(MouseButton::Left, move |event, window, cx| {
+            // Focus the input
+            window.focus(&focus_handle_for_click, cx);
 
-                let mut state = edit_state_for_click.borrow_mut();
+            let mut state = edit_state_for_click.borrow_mut();
 
-                // Ensure editing state is initialised
-                if !state.editing {
-                    *state = EditState::new(value_for_click.as_ref());
-                }
+            // Ensure editing state is initialised
+            if !state.editing {
+                *state = EditState::new(value_for_click.as_ref());
+            }
 
-                // Double-click: select all text
-                if event.click_count == 2 {
-                    state.select_all();
-                    drop(state);
-                    window.refresh();
-                    return;
-                }
-
-                // Calculate cursor position from click.
-                // event.position is window-relative; we record the window-x of this
-                // click alongside the char position so that on_mouse_move can compute
-                // positions relative to the same origin.
-                let text_len = edit_text_for_click.chars().count();
-                let char_width = 8.0_f32;
-                let click_x: f32 = event.position.x.into();
-
-                // Retrieve stored text origin (set by a previous click on this element).
-                // On the very first click we have no stored origin, so we derive it:
-                // origin = click_x - char_pos * char_width, clamped so origin >= 0.
-                let stored_origin =
-                    TEXT_ORIGINS.with(|o| o.borrow().get(&id_for_click).copied());
-                let char_pos_f = click_x / char_width;
-                let origin = stored_origin.unwrap_or_else(|| {
-                    // Estimate: assume cursor lands at char_pos_f rounded
-                    let cp = char_pos_f.round().min(text_len as f32);
-                    (click_x - cp * char_width).max(0.0)
-                });
-                // Store the origin for future mouse-move events
-                TEXT_ORIGINS.with(|o| {
-                    o.borrow_mut().insert(id_for_click.clone(), origin);
-                });
-
-                let char_pos =
-                    (((click_x - origin) / char_width).round() as usize).min(text_len);
-
-                // Single click: position cursor and begin drag selection
-                let was_editing = state.editing;
-                state.editing = true;
-                state.start_selection(char_pos);
+            // Double-click: select all text
+            if event.click_count == 2 {
+                state.select_all();
                 drop(state);
-
-                if !was_editing && let Some(ref handler) = on_edit_start_click {
-                    handler(window, cx);
-                }
                 window.refresh();
+                return;
+            }
+
+            // Calculate cursor position from click.
+            // event.position is window-relative; we record the window-x of this
+            // click alongside the char position so that on_mouse_move can compute
+            // positions relative to the same origin.
+            let text_len = edit_text_for_click.chars().count();
+            let char_width = 8.0_f32;
+            let click_x: f32 = event.position.x.into();
+
+            // Retrieve stored text origin (set by a previous click on this element).
+            // On the very first click we have no stored origin, so we derive it:
+            // origin = click_x - char_pos * char_width, clamped so origin >= 0.
+            let stored_origin = TEXT_ORIGINS.with(|o| o.borrow().get(&id_for_click).copied());
+            let char_pos_f = click_x / char_width;
+            let origin = stored_origin.unwrap_or_else(|| {
+                // Estimate: assume cursor lands at char_pos_f rounded
+                let cp = char_pos_f.round().min(text_len as f32);
+                (click_x - cp * char_width).max(0.0)
             });
+            // Store the origin for future mouse-move events
+            TEXT_ORIGINS.with(|o| {
+                o.borrow_mut().insert(id_for_click.clone(), origin);
+            });
+
+            let char_pos = (((click_x - origin) / char_width).round() as usize).min(text_len);
+
+            // Single click: position cursor and begin drag selection
+            let was_editing = state.editing;
+            state.editing = true;
+            state.start_selection(char_pos);
+            drop(state);
+
+            if !was_editing && let Some(ref handler) = on_edit_start_click {
+                handler(window, cx);
+            }
+            window.refresh();
+        });
 
         // Mouse move handler for drag selection
         let edit_state_for_move = edit_state.clone();
@@ -541,8 +537,7 @@ fn render_input(props: &Input, window: &mut Window, cx: &mut App) -> impl IntoEl
                 let move_x: f32 = event.position.x.into();
                 let origin =
                     TEXT_ORIGINS.with(|o| o.borrow().get(&id_for_move).copied().unwrap_or(0.0));
-                let char_pos =
-                    (((move_x - origin) / char_width).round() as usize).min(text_len);
+                let char_pos = (((move_x - origin) / char_width).round() as usize).min(text_len);
                 state.update_selection(char_pos);
                 drop(state);
                 window.refresh();
@@ -552,15 +547,14 @@ fn render_input(props: &Input, window: &mut Window, cx: &mut App) -> impl IntoEl
         // Mouse up handler to end drag selection
         let edit_state_for_up = edit_state.clone();
 
-        input_wrapper =
-            input_wrapper.on_mouse_up(MouseButton::Left, move |_event, window, _cx| {
-                let mut state = edit_state_for_up.borrow_mut();
-                if state.is_dragging {
-                    state.end_selection();
-                    drop(state);
-                    window.refresh();
-                }
-            });
+        input_wrapper = input_wrapper.on_mouse_up(MouseButton::Left, move |_event, window, _cx| {
+            let mut state = edit_state_for_up.borrow_mut();
+            if state.is_dragging {
+                state.end_selection();
+                drop(state);
+                window.refresh();
+            }
+        });
     }
 
     // Add keyboard event handling
@@ -943,8 +937,7 @@ fn render_input(props: &Input, window: &mut Window, cx: &mut App) -> impl IntoEl
 
     // Error message
     if let Some(error) = &props.error {
-        container =
-            container.child(div().text_xs().text_color(theme.error).child(error.clone()));
+        container = container.child(div().text_xs().text_color(theme.error).child(error.clone()));
     }
 
     container
@@ -971,7 +964,9 @@ impl RenderOnce for Input {
                     return entity;
                 }
             }
-            let entity = cx.new(|_cx| InputEntity { props: Input::new(id.clone()) });
+            let entity = cx.new(|_cx| InputEntity {
+                props: Input::new(id.clone()),
+            });
             map.insert(id.clone(), entity.downgrade());
             entity
         });

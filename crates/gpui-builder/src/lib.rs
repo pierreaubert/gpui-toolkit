@@ -79,7 +79,7 @@ pub use solved::{
     LayoutDebugReport, LayoutDebugWarning, LayoutDebugWarningKind, NodeIndex, SolvedNode,
     SolvedNodeData, SolvedNodeRef, SolvedTree,
 };
-pub use solver::{solve, solve_tree};
+pub use solver::{solve, solve_tree, solve_tree_with_cache, solve_with_cache, TextMeasureCache};
 pub use state::{
     LayoutAction, LayoutCollapsedState, LayoutPreferenceSnapshot, LayoutRatioOverride, LayoutState,
 };

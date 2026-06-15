@@ -33,12 +33,6 @@ thread_local! {
     static SLIDER_DRAG_STATE: RefCell<HashMap<ElementId, (f32, f32)>> =
         RefCell::new(HashMap::new());
 
-    // Focus handles keyed by ElementId so scroll wheel events are delivered.
-    // Scroll events in GPUI go to the focused element; auto-focusing on hover
-    // (same pattern as Potentiometer) makes scroll work without a click first.
-    static SLIDER_FOCUS_HANDLES: RefCell<HashMap<ElementId, FocusHandle>> =
-        RefCell::new(HashMap::new());
-
     // Cached render entities so repeated renders reuse the same GPUI entity.
     // Weak references are used so GPUI can drop the entity when the view is
     // destroyed; otherwise tests report leaked entity handles.
@@ -279,7 +273,13 @@ impl Slider {
     }
 }
 
-fn render_slider(props: &Slider, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+fn render_slider(
+    props: &Slider,
+    focus_handle: &FocusHandle,
+    value_label: &SharedString,
+    _window: &mut Window,
+    cx: &mut App,
+) -> impl IntoElement {
     // Register in accessibility tree
     let effective_label = props
         .aria_label
@@ -292,15 +292,6 @@ fn render_slider(props: &Slider, _window: &mut Window, cx: &mut App) -> impl Int
         props: AriaProps::with_role(props.aria_role.unwrap_or(AriaRole::Slider))
             .value_range(props.value as f64, props.min as f64, props.max as f64)
             .maybe_state(props.disabled, AriaState::Disabled),
-    });
-
-    // Reuse the same focus handle across renders so focus is not lost.
-    let focus_handle = SLIDER_FOCUS_HANDLES.with(|handles| {
-        handles
-            .borrow_mut()
-            .entry(props.id.clone())
-            .or_insert_with(|| cx.focus_handle())
-            .clone()
     });
 
     let design = crate::design::resolve_design(props.design.clone(), cx);
@@ -316,6 +307,7 @@ fn render_slider(props: &Slider, _window: &mut Window, cx: &mut App) -> impl Int
     let fill_color = props.fill_color.unwrap_or(theme.fill);
     let thumb_color = props.thumb_color.unwrap_or(theme.thumb);
     let thumb_hover = theme.thumb_hover;
+    let hover_thumb = move |s: gpui::StyleRefinement| s.bg(thumb_hover);
     let label_color = theme.label;
     let value_color = theme.value;
     let disabled_label = theme.disabled_label;
@@ -353,7 +345,7 @@ fn render_slider(props: &Slider, _window: &mut Window, cx: &mut App) -> impl Int
             label_row = label_row.child(
                 div()
                     .text_color(value_color)
-                    .child(format!("{:.1}", props.value)),
+                    .child(value_label.clone()),
             );
         }
 
@@ -363,7 +355,7 @@ fn render_slider(props: &Slider, _window: &mut Window, cx: &mut App) -> impl Int
     // Slider track
     let mut track = div()
         .id(props.id.clone())
-        .track_focus(&focus_handle)
+        .track_focus(focus_handle)
         .w(px(width))
         .h(px(thumb_size))
         .flex()
@@ -387,7 +379,11 @@ fn render_slider(props: &Slider, _window: &mut Window, cx: &mut App) -> impl Int
                 .w(px(fill_width))
                 .h(px(track_height))
                 .rounded(px(track_height / 2.0))
-                .bg(if props.disabled { disabled_fill } else { fill_color }),
+                .bg(if props.disabled {
+                    disabled_fill
+                } else {
+                    fill_color
+                }),
         )
         // Thumb with hover effect
         .child({
@@ -399,10 +395,14 @@ fn render_slider(props: &Slider, _window: &mut Window, cx: &mut App) -> impl Int
                 .rounded_full()
                 .bg(thumb_color)
                 .border_2()
-                .border_color(if props.disabled { disabled_fill } else { fill_color })
+                .border_color(if props.disabled {
+                    disabled_fill
+                } else {
+                    fill_color
+                })
                 .shadow_sm();
             if !props.disabled {
-                thumb = thumb.hover(move |s| s.bg(thumb_hover));
+                thumb = thumb.hover(hover_thumb);
             }
             thumb
         });
@@ -563,11 +563,13 @@ fn render_slider(props: &Slider, _window: &mut Window, cx: &mut App) -> impl Int
 /// Internal entity that renders a [`Slider`] with stable identity across frames.
 pub struct SliderEntity {
     props: Slider,
+    focus_handle: FocusHandle,
+    value_label: SharedString,
 }
 
 impl Render for SliderEntity {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        render_slider(&self.props, window, &mut **cx)
+        render_slider(&self.props, &self.focus_handle, &self.value_label, window, &mut **cx)
     }
 }
 
@@ -581,11 +583,21 @@ impl RenderOnce for Slider {
                     return entity;
                 }
             }
-            let entity = cx.new(|_cx| SliderEntity { props: Slider::new(id.clone()) });
+            let entity = cx.new(|_cx| SliderEntity {
+                props: Slider::new(id.clone()),
+                focus_handle: _cx.focus_handle(),
+                value_label: SharedString::default(),
+            });
             map.insert(id.clone(), entity.downgrade());
             entity
         });
         entity.update(cx, |model, _cx| {
+            if model.props.value != self.value
+                || model.props.show_value != self.show_value
+                || model.value_label.is_empty()
+            {
+                model.value_label = format!("{:.1}", self.value).into();
+            }
             model.props = self;
         });
         entity

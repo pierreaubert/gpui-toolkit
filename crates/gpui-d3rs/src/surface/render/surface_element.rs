@@ -339,8 +339,11 @@ impl Element for SurfaceElement {
         window: &mut Window,
         cx: &mut App,
     ) {
-        // Ensure geometry is prepared even if prepaint was skipped (e.g. tests).
-        self.prepare_geometry(bounds);
+        // `prepaint` already prepares the geometry; only fall back if it was
+        // skipped (e.g. direct unit-test paint calls).
+        if !self.has_cached_projected {
+            self.prepare_geometry(bounds);
+        }
 
         // Paint each triangle using the cached projected buffer
         for tri in &self.cached_projected {

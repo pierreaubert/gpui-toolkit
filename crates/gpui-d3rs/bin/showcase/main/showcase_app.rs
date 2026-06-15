@@ -11,6 +11,8 @@ use gpui_builder::{
 };
 use gpui_design::DesignExt;
 use gpui_ui_kit::theme::ThemeExt;
+use std::cell::RefCell;
+use std::rc::Rc;
 
 pub struct ShowcaseApp {
     pub current_section: DemoSection,
@@ -63,6 +65,11 @@ pub struct ShowcaseApp {
     // Force Simulation
     pub force_simulation: d3rs::force::Simulation,
     pub force_running: bool,
+    pub force_node_positions: Rc<RefCell<Vec<(f32, f32)>>>,
+    // Cached expensive D3 example data so it is not recomputed every render.
+    pub hexbin_cache: Option<Rc<super::showcase_modules::d3_examples::hexbin::HexbinCache>>,
+    pub force_directed_cache:
+        Option<Rc<super::showcase_modules::d3_examples::force_directed::ForceDirectedCache>>,
     // Horizon Chart
     pub horizon_data: Vec<f64>,
     pub horizon_offset: f64,
@@ -153,6 +160,9 @@ impl ShowcaseApp {
                     .force(Box::new(ForceCenter::new(width / 2.0, height / 2.0)))
             },
             force_running: false,
+            force_node_positions: Rc::new(RefCell::new(Vec::new())),
+            hexbin_cache: None,
+            force_directed_cache: None,
             // Horizon Chart defaults
             horizon_data: (0..200).map(|i| (i as f64 * 0.1).sin() * 20.0).collect(),
             horizon_offset: 0.0,

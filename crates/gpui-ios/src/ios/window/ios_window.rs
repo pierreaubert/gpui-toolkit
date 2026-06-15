@@ -862,7 +862,7 @@ impl IosWindow {
         let snapshot = crate::accessibility::accessibility_snapshot();
         let element_count = snapshot
             .as_ref()
-            .map(|snapshot| snapshot.flattened_nodes().len())
+            .map(|snapshot| snapshot.flattened_node_slice().len())
             .unwrap_or_default();
         crate::instrumentation::emit_signpost(
             crate::instrumentation::IosSignpostCategory::Accessibility,
@@ -996,7 +996,7 @@ impl IosWindow {
             // Use a `HashSet<&str>` borrowed from the snapshot rather than
             // allocating `String`s for stale id tracking.
             let current_ids: HashSet<&str> = snapshot
-                .flattened_nodes()
+                .flattened_node_slice()
                 .iter()
                 .map(|node| node.id.as_str())
                 .collect();
@@ -1015,7 +1015,7 @@ impl IosWindow {
             // notification when the node set or ordering changed.
             if diff.order_changed {
                 let ordered_elements: Vec<*mut Object> = snapshot
-                    .flattened_nodes()
+                    .flattened_node_slice()
                     .iter()
                     .filter_map(|node| elements_map.get(&node.id).copied())
                     .collect();

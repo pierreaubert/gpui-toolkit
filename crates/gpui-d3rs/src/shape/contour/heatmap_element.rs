@@ -352,7 +352,11 @@ where
         window: &mut Window,
         _cx: &mut App,
     ) {
-        self.prepare_quads(bounds);
+        // `prepaint` already prepares the quads; only fall back if it was
+        // skipped (e.g. direct unit-test paint calls).
+        if self.cache_generation == u64::MAX {
+            self.prepare_quads(bounds);
+        }
 
         for quad in &self.cached_quads {
             let mut fill_rgba = quad.color.to_rgba();

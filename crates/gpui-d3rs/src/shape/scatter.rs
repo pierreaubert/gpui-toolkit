@@ -191,61 +191,55 @@ where
     let fill = config.fill_color.to_rgba();
     let opacity = config.opacity;
     let radius = config.point_radius;
-    let diameter = radius * 2.0;
     let stroke = config.stroke_color;
     let stroke_width = config.stroke_width;
 
     canvas(
         move |_bounds, _window, _cx| {
             // Prepaint is a no-op: positions are already computed.
-            (points, fill, stroke, diameter)
+            (points, fill, stroke)
         },
-        move |bounds, (points, fill, stroke, diameter), window, _cx| {
+        move |bounds, (points, fill, stroke), window, _cx| {
             let width: f32 = bounds.size.width.into();
             let height: f32 = bounds.size.height.into();
             let origin_x: f32 = bounds.origin.x.into();
             let origin_y: f32 = bounds.origin.y.into();
 
-            for draw_point in &points {
-                let cx = origin_x + draw_point.x_rel * width;
-                let cy = origin_y + draw_point.y_rel * height;
-                let left = cx - radius;
-                let top = cy - radius;
+            // Batch all points into a single fill path. If a stroke is configured,
+            // build one stroke path that encircles every point.
+            let mut fill_builder = PathBuilder::fill();
+            let mut fill_count = 0usize;
 
-                let fill_color = Rgba {
-                    r: fill.r,
-                    g: fill.g,
-                    b: fill.b,
-                    a: fill.a * opacity,
-                };
+            if let Some(stroke_color) = stroke {
+                let mut stroke_builder = PathBuilder::stroke(px(stroke_width));
+                // A stroked circle of radius `r + stroke_width/2` with stroke width
+                // `stroke_width` produces a ring that matches the previous filled
+                // stroke ring (outer radius `r + stroke_width`, inner radius `r`).
+                let stroke_radius = radius + stroke_width / 2.0;
+                for draw_point in &points {
+                    let cx = origin_x + draw_point.x_rel * width;
+                    let cy = origin_y + draw_point.y_rel * height;
+                    add_circle_to_path(&mut stroke_builder, cx, cy, stroke_radius);
+                    add_circle_to_path(&mut fill_builder, cx, cy, radius);
+                    fill_count += 1;
+                }
+                if let Ok(path) = stroke_builder.build() {
+                    window.paint_path(path, stroke_color.to_rgba());
+                }
+            } else {
+                for draw_point in &points {
+                    let cx = origin_x + draw_point.x_rel * width;
+                    let cy = origin_y + draw_point.y_rel * height;
+                    add_circle_to_path(&mut fill_builder, cx, cy, radius);
+                    fill_count += 1;
+                }
+            }
 
-                // Draw fill quad as a circle via rounded corners.
-                window.paint_quad(PaintQuad {
-                    bounds: Bounds::new(point(px(left), px(top)), size(px(diameter), px(diameter))),
-                    corner_radii: Corners::all(px(radius)),
-                    background: fill_color.into(),
-                    border_widths: Edges::default(),
-                    border_color: gpui::transparent_black(),
-                    border_style: Default::default(),
-                });
-
-                // Draw stroke if configured.
-                if let Some(stroke_color) = stroke {
-                    let stroke_rgba = stroke_color.to_rgba();
-                    let stroke_diameter = diameter + stroke_width * 2.0;
-                    let stroke_left = cx - radius - stroke_width;
-                    let stroke_top = cy - radius - stroke_width;
-                    window.paint_quad(PaintQuad {
-                        bounds: Bounds::new(
-                            point(px(stroke_left), px(stroke_top)),
-                            size(px(stroke_diameter), px(stroke_diameter)),
-                        ),
-                        corner_radii: Corners::all(px(radius + stroke_width)),
-                        background: stroke_rgba.into(),
-                        border_widths: Edges::default(),
-                        border_color: gpui::transparent_black(),
-                        border_style: Default::default(),
-                    });
+            if fill_count > 0 {
+                if let Ok(path) = fill_builder.build() {
+                    let mut fill_color = fill;
+                    fill_color.a *= opacity;
+                    window.paint_path(path, fill_color);
                 }
             }
         },
@@ -255,7 +249,25 @@ where
     .inset_0()
 }
 
-/*
+/// Append a circle outline to a GPUI path builder.
+fn add_circle_to_path(builder: &mut PathBuilder, cx: f32, cy: f32, r: f32) {
+    if r <= 0.0 {
+        return;
+    }
+
+    // Start at the rightmost point and draw four quadratic arcs.
+    builder.move_to(point(px(cx + r), px(cy)));
+    // Top-right quadrant
+    builder.curve_to(point(px(cx + r), px(cy - r)), point(px(cx), px(cy - r)));
+    // Top-left quadrant
+    builder.curve_to(point(px(cx - r), px(cy - r)), point(px(cx - r), px(cy)));
+    // Bottom-left quadrant
+    builder.curve_to(point(px(cx - r), px(cy + r)), point(px(cx), px(cy + r)));
+    // Bottom-right quadrant
+    builder.curve_to(point(px(cx + r), px(cy + r)), point(px(cx + r), px(cy)));
+    builder.close();
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -282,4 +294,3 @@ mod tests {
         assert_eq!(points[2].x_rel, 0.9);
     }
 }
-*/

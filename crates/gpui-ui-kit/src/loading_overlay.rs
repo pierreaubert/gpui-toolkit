@@ -16,8 +16,13 @@ use crate::spinner::{Spinner, SpinnerSize};
 use crate::theme::ThemeExt;
 use gpui::prelude::{InteractiveElement, IntoElement, ParentElement, RenderOnce, Styled};
 use gpui::{
-    App, Div, ElementId, FontWeight, MouseButton, Rgba, SharedString, Stateful, Window, div,
+    App, Div, ElementId, FontWeight, MouseButton, MouseDownEvent, Rgba, ScrollWheelEvent,
+    SharedString, Stateful, Window, div,
 };
+
+fn ignore_scroll_wheel(_event: &ScrollWheelEvent, _window: &mut Window, _cx: &mut App) {}
+
+fn ignore_mouse_down(_event: &MouseDownEvent, _window: &mut Window, _cx: &mut App) {}
 
 /// Theme colors for loading overlay
 #[derive(Debug, Clone, ComponentTheme)]
@@ -107,8 +112,8 @@ impl LoadingOverlay {
             .gap_3()
             .bg(theme.backdrop)
             // Block scroll and click-through
-            .on_scroll_wheel(|_event, _window, _cx| {})
-            .on_mouse_down(MouseButton::Left, |_event, _window, _cx| {});
+            .on_scroll_wheel(ignore_scroll_wheel)
+            .on_mouse_down(MouseButton::Left, ignore_mouse_down);
 
         if let (true, Some(handler)) = (self.dismissible, self.on_dismiss) {
             overlay = overlay.on_mouse_up(MouseButton::Left, move |_event, window, cx| {

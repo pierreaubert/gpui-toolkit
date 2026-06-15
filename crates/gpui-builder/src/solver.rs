@@ -25,4 +25,5 @@ mod solve;
 mod tests;
 mod types;
 
+pub use misc::TextMeasureCache;
 pub use solve::*;

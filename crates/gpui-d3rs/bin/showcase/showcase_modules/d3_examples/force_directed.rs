@@ -10,12 +10,24 @@ use d3rs::shape::path::PathBuilder as D3PathBuilder;
 use gpui::prelude::*;
 use gpui::*;
 use gpui_ui_kit::theme::ThemeExt;
+use std::collections::HashMap;
+use std::rc::Rc;
 
 /// Embedded miserables.json data (77 nodes, 254 links).
 const MISERABLES_JSON: &str = include_str!("../../data/miserables.json");
 
-pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
-    let ui_theme = cx.theme();
+/// Cached force-directed graph data so the full simulation and path generation
+/// run only once.
+pub struct ForceDirectedCache {
+    pub node_count: usize,
+    pub link_count: usize,
+    pub d3_paths: Rc<[d3rs::shape::path::Path]>,
+    pub all_colors: Rc<[Hsla]>,
+    pub groups: Rc<[usize]>,
+    pub scheme: ColorScheme,
+}
+
+fn build_cache() -> Rc<ForceDirectedCache> {
     // Load the full Les Miserables dataset from JSON
     let (node_data, links) = d3rs::examples::force_directed::load_json(MISERABLES_JSON);
 
@@ -51,22 +63,29 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
         .iter()
         .map(|n| (x_scale.scale(n.x), y_scale.scale(n.y), n.group))
         .collect();
-    let node_ids: Vec<&str> = result.nodes.iter().map(|n| n.id.as_str()).collect();
+
+    // Fast id -> index lookup for link resolution.
+    let node_id_to_index: HashMap<String, usize> = result
+        .nodes
+        .iter()
+        .enumerate()
+        .map(|(i, n)| (n.id.clone(), i))
+        .collect();
 
     let mut d3_paths: Vec<d3rs::shape::path::Path> = Vec::new();
     let mut all_colors: Vec<Hsla> = Vec::new();
 
     // Links as thin lines (Observable: stroke="#999", stroke-opacity=0.6, stroke-width=sqrt(value)*1.5)
     for link in &result.links {
-        let si = node_ids.iter().position(|&id| id == link.source.as_str());
-        let ti = node_ids.iter().position(|&id| id == link.target.as_str());
-        if let (Some(si), Some(ti)) = (si, ti) {
+        if let (Some(&si), Some(&ti)) = (
+            node_id_to_index.get(&link.source),
+            node_id_to_index.get(&link.target),
+        ) {
             let (sx, sy, _) = node_positions[si];
             let (tx, ty, _) = node_positions[ti];
             let dx = tx - sx;
             let dy = ty - sy;
             let len = (dx * dx + dy * dy).sqrt().max(1e-6);
-            // Observable: stroke-width defaults to 1.5, we scale by sqrt(link.value)
             let half_w = (link.value as f64).sqrt() * 0.75;
             let nx = -dy / len * half_w;
             let ny = dx / len * half_w;
@@ -107,7 +126,36 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
     let mut groups: Vec<usize> = result.nodes.iter().map(|n| n.group).collect();
     groups.sort();
     groups.dedup();
-    let legend_items: Vec<Div> = groups
+
+    Rc::new(ForceDirectedCache {
+        node_count: result.nodes.len(),
+        link_count: result.links.len(),
+        d3_paths: d3_paths.into(),
+        all_colors: all_colors.into(),
+        groups: groups.into(),
+        scheme,
+    })
+}
+
+fn ensure_cache(app: &mut ShowcaseApp) -> Rc<ForceDirectedCache> {
+    if let Some(cache) = app.force_directed_cache.clone() {
+        return cache;
+    }
+    let cache = build_cache();
+    app.force_directed_cache = Some(cache.clone());
+    cache
+}
+
+pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
+    let ui_theme = cx.theme();
+    let cache = ensure_cache(app);
+
+    let width = 640.0_f64;
+    let height = 400.0_f64;
+
+    let scheme = cache.scheme.clone();
+    let legend_items = cache
+        .groups
         .iter()
         .map(|&g| {
             div()
@@ -117,7 +165,10 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                 .child(div().size_3().bg(scheme.color(g).to_rgba()))
                 .child(div().text_xs().child(format!("Group {}", g)))
         })
-        .collect();
+        .collect::<Vec<_>>();
+
+    let cache_for_paths = cache.clone();
+    let cache_for_paint = cache.clone();
 
     div()
         .flex()
@@ -133,8 +184,7 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
         )
         .child(div().text_xs().mb_2().child(format!(
             "Source: observablehq.com/@d3/force-directed-graph — {} nodes, {} links",
-            result.nodes.len(),
-            result.links.len()
+            cache.node_count, cache.link_count
         )))
         .child(
             div()
@@ -154,7 +204,8 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                 .child(
                     canvas(
                         move |bounds, _, _| {
-                            d3_paths
+                            cache_for_paths
+                                .d3_paths
                                 .iter()
                                 .map(|p| {
                                     super::path_utils::d3rs_path_to_gpui_simple(p, bounds, 0.0, 0.0)
@@ -164,7 +215,7 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                         move |_bounds, paths, window, _| {
                             for (i, path_opt) in paths.into_iter().enumerate() {
                                 if let Some(path) = path_opt {
-                                    window.paint_path(path, all_colors[i]);
+                                    window.paint_path(path, cache_for_paint.all_colors[i]);
                                 }
                             }
                         },

@@ -51,8 +51,7 @@ impl ThemeExt for App {
             .map(|s| s.theme.clone())
             .unwrap_or_else(|| {
                 // The fallback theme is allocated once and reused across calls.
-                static FALLBACK: std::sync::OnceLock<Arc<Theme>> =
-                    std::sync::OnceLock::new();
+                static FALLBACK: std::sync::OnceLock<Arc<Theme>> = std::sync::OnceLock::new();
                 FALLBACK.get_or_init(|| Arc::new(Theme::dark())).clone()
             })
     }

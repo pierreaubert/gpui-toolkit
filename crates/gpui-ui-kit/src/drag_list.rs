@@ -18,7 +18,7 @@ use crate::theme::ThemeExt;
 use gpui::prelude::{InteractiveElement, IntoElement, ParentElement, RenderOnce, Styled};
 use gpui::{
     AnyElement, App, CursorStyle, Div, ElementId, MouseButton, Pixels, Rgba, SharedString,
-    Stateful, Window, div, px,
+    Stateful, StyleRefinement, Window, div, px,
 };
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -139,13 +139,13 @@ impl DragList {
         };
 
         let on_reorder = self.on_reorder;
-        let list_id = self.id.clone();
+        let list_id = Rc::new(self.id.clone());
+        let hover_bg = theme.item_hover;
+        let apply_hover = move |s: StyleRefinement| s.bg(hover_bg);
 
         for (idx, item) in self.items.into_iter().enumerate() {
-            let hover_bg = theme.item_hover;
-            let item_id = item.id.clone();
             let mut row = div()
-                .id(ElementId::from(item_id))
+                .id(ElementId::from(item.id))
                 .flex()
                 .items_center()
                 .gap_2()
@@ -156,7 +156,7 @@ impl DragList {
                 .border_1()
                 .border_color(theme.border)
                 .cursor_pointer()
-                .hover(move |s| s.bg(hover_bg));
+                .hover(apply_hover);
 
             // Drag handle
             if self.show_handles {
@@ -172,11 +172,10 @@ impl DragList {
 
             // Attach drag logic when a reorder handler is provided.
             if let Some(ref handler) = on_reorder {
-                let _handler_down = handler.clone();
                 let list_id_down = list_id.clone();
                 row = row.on_mouse_down(MouseButton::Left, move |_event, _window, _cx| {
                     DRAG_LIST_DRAG_STATE.with(|state| {
-                        state.borrow_mut().insert(list_id_down.clone(), idx);
+                        state.borrow_mut().insert((*list_id_down).clone(), idx);
                     });
                 });
 
@@ -185,11 +184,11 @@ impl DragList {
                 row = row.on_mouse_up(MouseButton::Left, move |_event, window, cx| {
                     DRAG_LIST_DRAG_STATE.with(|state| {
                         let mut state = state.borrow_mut();
-                        if let Some(source_idx) = state.get(&list_id_up).copied() {
+                        if let Some(source_idx) = state.get(&*list_id_up).copied() {
                             if source_idx != idx {
                                 handler_up(source_idx, idx, window, cx);
                             }
-                            state.remove(&list_id_up);
+                            state.remove(&*list_id_up);
                         }
                     });
                     cx.stop_propagation();
@@ -204,7 +203,7 @@ impl DragList {
             let list_id_clear = list_id.clone();
             container = container.on_mouse_up(MouseButton::Left, move |_event, _window, _cx| {
                 DRAG_LIST_DRAG_STATE.with(|state| {
-                    state.borrow_mut().remove(&list_id_clear);
+                    state.borrow_mut().remove(&*list_id_clear);
                 });
             });
         }

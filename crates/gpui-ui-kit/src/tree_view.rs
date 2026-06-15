@@ -22,7 +22,10 @@ use crate::ComponentTheme;
 use crate::accessibility::{AccessibilityExt, AccessibilityNode, AriaProps, AriaRole};
 use crate::theme::ThemeExt;
 use gpui::prelude::{InteractiveElement, IntoElement, ParentElement, RenderOnce, Styled};
-use gpui::{App, Div, ElementId, Pixels, Rgba, SharedString, Stateful, Window, div, px};
+use gpui::{
+    AnyElement, App, Div, ElementId, Pixels, Rgba, SharedString, Stateful, StyleRefinement, Window,
+    div, px,
+};
 use std::collections::HashSet;
 
 /// Theme colors for tree view
@@ -173,7 +176,7 @@ impl TreeView {
         self
     }
 
-    fn render_nodes(
+    fn render_nodes<F>(
         nodes: &[TreeNode],
         depth: usize,
         expanded: &HashSet<SharedString>,
@@ -181,16 +184,17 @@ impl TreeView {
         indent_size: Pixels,
         _show_guides: bool,
         theme: &TreeViewTheme,
-    ) -> Vec<Div> {
-        let mut elements = Vec::new();
-
+        apply_hover: F,
+        elements: &mut Vec<AnyElement>,
+    ) where
+        F: Fn(StyleRefinement) -> StyleRefinement + Copy,
+    {
         for node in nodes {
             let is_expanded = expanded.contains(&node.id);
             let is_selected = selected.as_ref() == Some(&node.id);
             let has_children = !node.children.is_empty() && !node.leaf;
 
             // Build node row
-            let hover_bg = theme.hover_bg;
             let mut row = div()
                 .w_full()
                 .flex()
@@ -201,7 +205,7 @@ impl TreeView {
                 .py(px(3.0))
                 .text_sm()
                 .rounded(px(4.0))
-                .hover(move |s| s.bg(hover_bg));
+                .hover(apply_hover);
 
             if is_selected {
                 row = row.bg(theme.selected_bg).text_color(theme.selected_text);
@@ -235,11 +239,11 @@ impl TreeView {
             // Label
             row = row.child(node.label.clone());
 
-            elements.push(row);
+            elements.push(row.into_any_element());
 
             // Children (if expanded)
             if has_children && is_expanded {
-                let child_elements = Self::render_nodes(
+                Self::render_nodes(
                     &node.children,
                     depth + 1,
                     expanded,
@@ -247,17 +251,19 @@ impl TreeView {
                     indent_size,
                     _show_guides,
                     theme,
+                    apply_hover,
+                    elements,
                 );
-                elements.extend(child_elements);
             }
         }
-
-        elements
     }
 
     /// Build the tree view with theme
     pub fn build_with_theme(self, theme: &TreeViewTheme) -> Stateful<Div> {
-        let elements = Self::render_nodes(
+        let hover_bg = theme.hover_bg;
+        let apply_hover = move |s: StyleRefinement| s.bg(hover_bg);
+        let mut elements = Vec::new();
+        Self::render_nodes(
             &self.nodes,
             0,
             &self.expanded,
@@ -265,6 +271,8 @@ impl TreeView {
             self.indent_size,
             self.show_guides,
             theme,
+            apply_hover,
+            &mut elements,
         );
 
         let mut container = div().id(self.id).flex().flex_col().w_full();

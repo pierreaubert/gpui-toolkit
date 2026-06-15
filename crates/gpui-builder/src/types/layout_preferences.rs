@@ -7,7 +7,7 @@ use std::collections::HashMap;
 ///
 /// Internally stores overrides in hash maps so repeated `ratio_for` / `is_collapsed`
 /// lookups are O(1) instead of linear scans.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct LayoutPreferences<'a> {
     pub(crate) ratios: HashMap<(&'a str, Axis), f32>,
     pub(crate) collapsed: HashMap<&'a str, bool>,

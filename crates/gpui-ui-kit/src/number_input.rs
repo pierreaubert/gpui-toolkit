@@ -302,11 +302,7 @@ impl NumberInput {
     }
 }
 
-fn render_number_input(
-    props: &NumberInput,
-    window: &mut Window,
-    cx: &mut App,
-) -> impl IntoElement {
+fn render_number_input(props: &NumberInput, window: &mut Window, cx: &mut App) -> impl IntoElement {
     // Register in accessibility tree
     let effective_label = props
         .aria_label
@@ -323,7 +319,7 @@ fn render_number_input(
 
     let global_theme = cx.theme();
     let default_theme = NumberInputTheme::from(global_theme);
-    let theme = props.theme.clone().unwrap_or(default_theme);
+    let theme = props.theme.as_ref().unwrap_or(&default_theme);
 
     let height = props.size.height();
     let button_width = props.size.button_width();
@@ -334,7 +330,7 @@ fn render_number_input(
     let max = props.max;
     let step = props.step;
     let decimals = props.decimals;
-    let unit = props.unit.clone();
+    let unit = &props.unit;
     let label = props.label.clone();
 
     // Use provided focus handle, or get/create one from the registry.
@@ -367,7 +363,9 @@ fn render_number_input(
     {
         let id = props.id.clone();
         NUMBER_INPUT_BLUR_HANDLERS.with(|handlers| {
-            handlers.borrow_mut().insert(id.clone(), on_change_rc.clone());
+            handlers
+                .borrow_mut()
+                .insert(id.clone(), on_change_rc.clone());
         });
 
         NUMBER_INPUT_FOCUS_SUBS.with(|subs| {
@@ -377,9 +375,8 @@ fn render_number_input(
                 let unit_for_blur = unit.clone();
                 let id_for_closure = id.clone();
                 let sub = window.on_focus_out(&focus_handle, cx, move |_event, window, cx| {
-                    let handler = NUMBER_INPUT_BLUR_HANDLERS.with(|h| {
-                        h.borrow().get(&id_for_closure).cloned().flatten()
-                    });
+                    let handler = NUMBER_INPUT_BLUR_HANDLERS
+                        .with(|h| h.borrow().get(&id_for_closure).cloned().flatten());
                     let mut state = edit_state_for_blur.borrow_mut();
                     if state.editing {
                         let parsed = NumberInput::parse_value_str(
@@ -411,9 +408,10 @@ fn render_number_input(
     // because is_focused() returns false during re-render before the element
     // is re-associated with the focus handle via track_focus().
     // Format the value once and reuse it for display and click-to-edit state.
-    let formatted_value = edit_state
-        .borrow_mut()
-        .format_value_str(current_value, decimals, unit.as_ref());
+    let formatted_value =
+        edit_state
+            .borrow_mut()
+            .format_value_str(current_value, decimals, unit.as_ref());
 
     let state = edit_state.borrow();
     let editing = state.editing;
@@ -476,6 +474,9 @@ fn render_number_input(
     let button_text = theme.button_text;
     let text_color = theme.text;
 
+    let hover_button = move |s: gpui::StyleRefinement| s.bg(button_hover);
+    let active_button = move |s: gpui::StyleRefinement| s.bg(button_active);
+
     let mut dec_button = div()
         .id(dec_id)
         .flex()
@@ -491,8 +492,8 @@ fn render_number_input(
     if !disabled {
         dec_button = dec_button
             .cursor_pointer()
-            .hover(move |s| s.bg(button_hover))
-            .active(move |s| s.bg(button_active));
+            .hover(hover_button)
+            .active(active_button);
 
         if let Some(ref handler_rc) = on_change_rc {
             let handler = handler_rc.clone();
@@ -569,44 +570,43 @@ fn render_number_input(
         let focus_handle_for_click = focus_handle.clone();
         let formatted_value_for_click = formatted_value.clone();
 
-        value_field = value_field.cursor_text().on_mouse_down(
-            MouseButton::Left,
-            move |event, window, cx| {
-                cx.stop_propagation();
+        value_field =
+            value_field
+                .cursor_text()
+                .on_mouse_down(MouseButton::Left, move |event, window, cx| {
+                    cx.stop_propagation();
 
-                // Focus the input
-                window.focus(&focus_handle_for_click, cx);
+                    // Focus the input
+                    window.focus(&focus_handle_for_click, cx);
 
-                let mut state = edit_state_for_click.borrow_mut();
+                    let mut state = edit_state_for_click.borrow_mut();
 
-                // Double-click: select all
-                if event.click_count == 2 {
-                    if state.editing {
-                        state.select_all();
-                    } else {
+                    // Double-click: select all
+                    if event.click_count == 2 {
+                        if state.editing {
+                            state.select_all();
+                        } else {
+                            *state = NumberEditState::new(&formatted_value_for_click);
+                        }
+                        drop(state);
+                        window.refresh();
+                        return;
+                    }
+
+                    // Single click: start editing if not already
+                    if !state.editing {
                         *state = NumberEditState::new(&formatted_value_for_click);
+                    } else {
+                        // Clear selection on single click while editing
+                        state.text_selected = false;
                     }
                     drop(state);
                     window.refresh();
-                    return;
-                }
-
-                // Single click: start editing if not already
-                if !state.editing {
-                    *state = NumberEditState::new(&formatted_value_for_click);
-                } else {
-                    // Clear selection on single click while editing
-                    state.text_selected = false;
-                }
-                drop(state);
-                window.refresh();
-            },
-        );
+                });
 
         // Keyboard handling
         let edit_state_for_key = edit_state.clone();
         let on_change_key = on_change_rc.clone();
-        let unit_for_key = unit.clone();
 
         value_field = value_field.on_key_down(move |event, window, cx| {
             cx.stop_propagation();
@@ -706,8 +706,12 @@ fn render_number_input(
                 match key {
                     "enter" => {
                         // Confirm edit - parse and call on_change
-                        let parsed =
-                            NumberInput::parse_value_str(&state.text, unit_for_key.as_ref(), min, max);
+                        let parsed = NumberInput::parse_value_str(
+                            &state.text,
+                            state.last_unit(),
+                            min,
+                            max,
+                        );
                         state.editing = false;
                         state.text.clear();
                         state.text_selected = false;
@@ -806,8 +810,8 @@ fn render_number_input(
     if !disabled {
         inc_button = inc_button
             .cursor_pointer()
-            .hover(move |s| s.bg(button_hover))
-            .active(move |s| s.bg(button_active));
+            .hover(hover_button)
+            .active(active_button);
 
         if let Some(ref handler_rc) = on_change_rc {
             let handler = handler_rc.clone();
