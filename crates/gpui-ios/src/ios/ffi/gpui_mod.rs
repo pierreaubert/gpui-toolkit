@@ -3,7 +3,9 @@
 use super::consts::IOS_APP_STATE;
 use super::consts::IOS_WINDOW_LIST;
 use super::consts::REQUEST_FRAME_DISABLED;
+use super::consts::current_window;
 use super::consts::install_ios_panic_hook;
+use super::consts::registered_window;
 use super::ios_app_state::IosAppState;
 use super::ios_app_state::run_app;
 use super::misc::begin_platform_metal_capture;
@@ -36,15 +38,7 @@ pub extern "C" fn gpui_ios_initialize() -> *mut c_void {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn gpui_ios_get_window() -> *mut c_void {
-    if let Some(wrapper) = IOS_WINDOW_LIST.get() {
-        unsafe {
-            let windows = &*wrapper.0.get();
-            if let Some(&window) = windows.last() {
-                return window as *mut c_void;
-            }
-        }
-    }
-    std::ptr::null_mut()
+    current_window() as *mut c_void
 }
 
 #[unsafe(no_mangle)]
@@ -174,7 +168,14 @@ pub extern "C" fn gpui_ios_request_frame(window_ptr: *mut c_void) {
     if window_ptr.is_null() || REQUEST_FRAME_DISABLED.load(Ordering::Relaxed) {
         return;
     }
-    let window = unsafe { &*(window_ptr as *const super::super::window::IosWindow) };
+    let Some(window) = registered_window(window_ptr as *const super::super::window::IosWindow)
+    else {
+        log::warn!(
+            "GPUI iOS: Ignoring frame request for unregistered window {:p}",
+            window_ptr
+        );
+        return;
+    };
 
     let result = panic::catch_unwind(AssertUnwindSafe(|| {
         request_frame_for_window(window);
@@ -186,6 +187,15 @@ pub extern "C" fn gpui_ios_request_frame(window_ptr: *mut c_void) {
             "GPUI iOS: request frame panicked; disabling display-link frame requests: {}",
             panic_payload_message(payload.as_ref())
         );
+    }
+}
+
+#[inline(never)]
+#[unsafe(no_mangle)]
+pub extern "C" fn gpui_ios_request_current_frame() {
+    let window = gpui_ios_get_window();
+    if !window.is_null() {
+        gpui_ios_request_frame(window);
     }
 }
 

@@ -14,6 +14,7 @@ The `gpui-toolkit` workspace contains several related crates for building GPUI a
 | `gpui-design` | Platform-adaptive design system (Apple HIG, Material 3, Fluent, Neutral) — spacing, corners, typography, animation | [README](gpui-design/README.md) |
 | `gpui-ios` | iOS platform backend (Metal rendering, touch, text) | [README](gpui-ios/README.md), [AGENTS.md](gpui-ios/AGENTS.md) |
 | `gpui-pretext` | High-performance text measurement and multiline layout (Rust port of chenglou/pretext) | [README](gpui-pretext/README.md) |
+| `gpui-profiler` | Lightweight allocation profiling utilities for interactive UI hot paths | [README](gpui-profiler/README.md) |
 | `gpui-px` | High-level Plotly Express-style charting API | [README](gpui-px/README.md) |
 | `gpui-themes` | Theme editor and management infrastructure | [AGENTS.md](gpui-themes/AGENTS.md) |
 | `gpui-ui-kit` | Reusable UI components (buttons, forms, layout) with ARIA accessibility support | [lib.rs](gpui-ui-kit/src/lib.rs), [CLAUDE.md](gpui-ui-kit/CLAUDE.md) |

@@ -15,6 +15,7 @@ autoeq = []
 camera = []
 gpu-2d = []
 gpu-3d = []
+profiler = ["gpui-profiler/global-allocator"]
 reqwest = []
 showcase = []
 spinorama = []
@@ -28,6 +29,7 @@ gpui = { workspace = true }
 gpui-audio-kit = { workspace = true }
 gpui-design-tools = { workspace = true }
 gpui-miniapp = { workspace = true }
+gpui-profiler = { workspace = true }
 gpui-px = { workspace = true, features = ["gpui", "gpu-3d"] }
 gpui-ui-kit = { workspace = true }
 serde = { workspace = true }

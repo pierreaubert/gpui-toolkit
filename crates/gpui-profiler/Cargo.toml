@@ -1,0 +1,17 @@
+[package]
+name = "gpui-profiler"
+version = "0.7.0"
+edition.workspace = true
+authors.workspace = true
+keywords.workspace = true
+categories.workspace = true
+description = "Lightweight allocation profiling utilities for GPUI applications"
+license.workspace = true
+repository.workspace = true
+
+[features]
+default = []
+# Install a counting global allocator. Disable for zero-overhead builds.
+global-allocator = []
+
+[dependencies]

@@ -36,6 +36,37 @@ pub(crate) fn unregister_window(window: *const super::super::window::IosWindow) 
     }
 }
 
+pub(crate) fn current_window() -> *const super::super::window::IosWindow {
+    if let Some(wrapper) = IOS_WINDOW_LIST.get() {
+        unsafe {
+            let windows = &*wrapper.0.get();
+            if let Some(&window) = windows.last() {
+                return window;
+            }
+        }
+    }
+    std::ptr::null()
+}
+
+pub(crate) fn registered_window(
+    window: *const super::super::window::IosWindow,
+) -> Option<&'static super::super::window::IosWindow> {
+    if window.is_null() {
+        return None;
+    }
+
+    if let Some(wrapper) = IOS_WINDOW_LIST.get() {
+        unsafe {
+            let windows = &*wrapper.0.get();
+            if windows.iter().any(|&registered| registered == window) {
+                return Some(&*window);
+            }
+        }
+    }
+
+    None
+}
+
 pub(super) static APP_CALLBACK: OnceLock<AppCallbackCell> = OnceLock::new();
 
 pub(super) static ASSET_SOURCE: OnceLock<AssetSourceCell> = OnceLock::new();

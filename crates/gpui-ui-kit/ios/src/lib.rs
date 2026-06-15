@@ -5,6 +5,7 @@
 
 #[cfg(any(target_os = "ios", target_os = "tvos"))]
 mod imp {
+    use super::misc::ffi_guard;
     use gpui::*;
     use gpui_ui_kit::i18n::I18nState;
     use gpui_ui_kit::showcase::Showcase;
@@ -13,35 +14,44 @@ mod imp {
     /// Called from Swift to start the GPUI application.
     #[unsafe(no_mangle)]
     pub extern "C" fn showcase_ios_start() {
-        // Set up logging to os_log
-        oslog::OsLogger::new("org.spinorama.gpui-showcase")
-            .level_filter(log::LevelFilter::Info)
-            .init()
-            .ok();
+        ffi_guard(|| {
+            // Set up logging to os_log
+            oslog::OsLogger::new("org.spinorama.gpui-showcase")
+                .level_filter(log::LevelFilter::Info)
+                .init()
+                .ok();
 
-        log::info!("showcase_ios_start: registering app callback");
+            log::info!("showcase_ios_start: registering app callback");
 
-        gpui_ios::ios::ffi::set_app_callback(Box::new(|cx: &mut App| {
-            log::info!("GPUI app callback: setting up showcase");
+            gpui_ios::ios::ffi::set_app_callback(Box::new(|cx: &mut App| {
+                log::info!("GPUI app callback: setting up showcase");
 
-            // Initialize theme and i18n
-            cx.set_global(ThemeState::with_variant(ThemeVariant::Dark));
-            cx.set_global(I18nState::new());
+                // Initialize theme and i18n
+                cx.set_global(ThemeState::with_variant(ThemeVariant::Dark));
+                cx.set_global(I18nState::new());
 
-            // Open a fullscreen window with the full showcase
-            cx.open_window(
-                WindowOptions {
-                    window_bounds: None,
-                    ..Default::default()
-                },
-                |_, cx| cx.new(Showcase::new),
-            )
-            .expect("Failed to open showcase window");
+                // Open a fullscreen window with the full showcase
+                let open_result = cx.open_window(
+                    WindowOptions {
+                        window_bounds: None,
+                        ..Default::default()
+                    },
+                    |_, cx| cx.new(Showcase::new),
+                );
 
-            cx.activate(true);
-        }));
+                if let Err(error) = open_result {
+                    log::error!("[iOS] Failed to open showcase window: {error}");
+                    return;
+                }
 
-        log::info!("showcase_ios_start: calling run_app");
-        gpui_ios::ios::ffi::run_app();
+                cx.activate(true);
+            }));
+
+            log::info!("showcase_ios_start: calling run_app");
+            gpui_ios::ios::ffi::run_app();
+        })
     }
 }
+
+#[cfg(any(target_os = "ios", target_os = "tvos"))]
+mod misc;

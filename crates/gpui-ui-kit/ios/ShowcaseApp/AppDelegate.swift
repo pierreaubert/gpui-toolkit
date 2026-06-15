@@ -16,7 +16,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         showcase_ios_start()
 
         // Set up a CADisplayLink so GPUI gets a render tick every frame.
-        // gpui_ios_request_frame pumps momentum scrolling, checks for dirty
+        // gpui_ios_request_current_frame pumps momentum scrolling, checks for dirty
         // text input, and invokes the GPUI render callback.
         displayLink = CADisplayLink(target: self, selector: #selector(renderFrame))
         displayLink?.add(to: .main, forMode: .common)
@@ -25,10 +25,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     }
 
     @objc private func renderFrame() {
-        let win = gpui_ios_get_window()
-        if win != nil {
-            gpui_ios_request_frame(win)
-        }
+        gpui_ios_request_current_frame()
     }
 
     // MARK: - Lifecycle forwarding

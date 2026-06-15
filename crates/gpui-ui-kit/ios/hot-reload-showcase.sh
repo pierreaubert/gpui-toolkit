@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 OUT_DIR="${ROOT}/target/gpui-ios-hot-reload"
 GENERATION_FILE="${OUT_DIR}/generation"
 MANIFEST="${OUT_DIR}/showcase.reload"

@@ -11,6 +11,7 @@ members = [
     "crates/gpui-keybinding",
     "crates/gpui-miniapp",
     "crates/gpui-pretext",
+    "crates/gpui-profiler",
     "crates/gpui-px",
     "crates/gpui-python-runtime",
     "crates/gpui-scaffolder",
@@ -70,13 +71,14 @@ gpui-au = { path = "crates/gpui-au", version = "0.7" }
 gpui-audio-kit = { path = "crates/gpui-audio-kit", version = "0.7" }
 gpui-builder = { path = "crates/gpui-builder", version = "0.7" }
 gpui-component-lab = { path = "crates/gpui-component-lab", version = "0.7" }
-gpui-d3rs = { path = "crates/gpui-d3rs", version = "0.7", default-features = false }
+gpui-d3rs = { path = "crates/gpui-d3rs", version = "0.8", default-features = false }
 gpui-design = { path = "crates/gpui-design", version = "0.7" }
 gpui-design-tools = { path = "crates/gpui-design-tools", version = "0.7" }
 gpui-ios = { path = "crates/gpui-ios", version = "0.7" }
 gpui-keybinding = { path = "crates/gpui-keybinding", version = "0.7" }
 gpui-miniapp = { path = "crates/gpui-miniapp" }
 gpui-pretext = { path = "crates/gpui-pretext", version = "0.7" }
+gpui-profiler = { path = "crates/gpui-profiler", version = "0.7" }
 gpui-px = { path = "crates/gpui-px", version = "0.7", default-features = false }
 gpui-python-runtime = { path = "crates/gpui-python-runtime", version = "0.7" }
 gpui-scaffolder = { path = "crates/gpui-scaffolder", version = "0.7" }

@@ -32,7 +32,7 @@ pub(super) fn load_python_app_blocking() -> Result<PythonAppIr, Box<dyn Error + 
         .stdout
         .take()
         .ok_or("failed to capture Python stdout")?;
-    let stderr = child
+    let mut stderr = child
         .stderr
         .take()
         .ok_or("failed to capture Python stderr")?;
@@ -83,7 +83,7 @@ impl<T> Future for BackgroundFuture<T> {
 pub(super) fn load_python_app_async()
 -> impl Future<Output = Result<PythonAppIr, Box<dyn Error + Send + Sync>>> {
     let result = Arc::new(Mutex::new(None));
-    let waker = Arc::new(Mutex::new(None));
+    let waker = Arc::new(Mutex::new(None::<Waker>));
     let result2 = result.clone();
     let waker2 = waker.clone();
 

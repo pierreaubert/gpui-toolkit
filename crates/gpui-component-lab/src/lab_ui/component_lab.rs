@@ -57,8 +57,8 @@ use crate::{
 use anyhow::{Context as AnyhowContext, Result};
 use gpui::prelude::*;
 use gpui::{
-    AnyElement, Context, Entity, IntoElement, Render, SharedString, WeakEntity, Window, div, px,
-    relative,
+    AnyElement, Context, Entity, IntoElement, MouseButton, Pixels, Render, SharedString, Size,
+    WeakEntity, Window, div, px, relative,
 };
 use gpui_audio_kit::{
     AudioScale, HorizontalMeterTheme, LevelMeterElement, Potentiometer, PotentiometerSize,
@@ -137,6 +137,12 @@ pub struct ComponentLab {
     toolbar_entity: Entity<LabToolbar>,
     controls_panel_entity: Entity<LabControlsPanel>,
     preview_area_entity: Entity<LabPreviewArea>,
+    // Allocation probe for tracking heap allocations during interactive events.
+    alloc_probe: gpui_profiler::AllocProbe,
+    last_render_alloc: gpui_profiler::AllocSnapshot,
+    last_mouse_move_alloc: gpui_profiler::AllocSnapshot,
+    last_sample: Option<(String, gpui_profiler::AllocSnapshot)>,
+    last_window_size: Option<Size<Pixels>>,
 }
 
 impl ComponentLab {
@@ -202,6 +208,11 @@ impl ComponentLab {
             toolbar_entity,
             controls_panel_entity,
             preview_area_entity,
+            alloc_probe: gpui_profiler::AllocProbe::new(),
+            last_render_alloc: gpui_profiler::AllocSnapshot::default(),
+            last_mouse_move_alloc: gpui_profiler::AllocSnapshot::default(),
+            last_sample: None,
+            last_window_size: None,
         };
         if lab.live_preview {
             lab.start_live_preview(cx);
@@ -363,8 +374,16 @@ impl ComponentLab {
         if let Some(doc) = self.documents.get_mut(story_id)
             && doc.set_prop_value(prop_name, value).is_ok()
         {
+            self.record_sample("prop-change");
             self.save_status = Some("Unsaved changes".into());
         }
+    }
+
+    /// Sample allocations and remember the result as the most recent sample.
+    fn record_sample(&mut self, label: &str) -> gpui_profiler::AllocSnapshot {
+        let delta = self.alloc_probe.sample(label);
+        self.last_sample = Some((label.to_string(), delta));
+        delta
     }
 
     pub(super) fn set_viewport(&mut self, viewport_id: impl Into<String>) {
@@ -3008,9 +3027,80 @@ fn build_ui_showcase_entities(
     showcases
 }
 
-impl Render for ComponentLab {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+impl ComponentLab {
+    /// Small in-UI overlay showing the last measured allocation deltas.
+    pub(super) fn render_alloc_overlay(&self, cx: &mut Context<Self>) -> AnyElement {
         let theme = cx.theme();
+        let render_ok = self.last_render_alloc.count == 0;
+        let mouse_ok = self.last_mouse_move_alloc.count == 0;
+        let last_ok = self
+            .last_sample
+            .as_ref()
+            .map_or(true, |(_, s)| s.count == 0);
+
+        div()
+            .id("alloc-overlay")
+            .absolute()
+            .top_4()
+            .right_4()
+            .p_3()
+            .rounded_md()
+            .border_1()
+            .border_color(theme.border)
+            .bg(if render_ok && mouse_ok && last_ok {
+                theme.surface
+            } else {
+                theme.error
+            })
+            .text_color(if render_ok && mouse_ok && last_ok {
+                theme.text_primary
+            } else {
+                theme.text_on_accent
+            })
+            .shadow_lg()
+            .flex()
+            .flex_col()
+            .gap_1()
+            .child(
+                Text::new(format!(
+                    "render: {} bytes / {} allocs",
+                    self.last_render_alloc.bytes, self.last_render_alloc.count
+                ))
+                .size(TextSize::Xs),
+            )
+            .child(
+                Text::new(format!(
+                    "mouse: {} bytes / {} allocs",
+                    self.last_mouse_move_alloc.bytes, self.last_mouse_move_alloc.count
+                ))
+                .size(TextSize::Xs),
+            )
+            .when_some(self.last_sample.as_ref(), |el, (label, snapshot)| {
+                el.child(
+                    Text::new(format!(
+                        "last ({label}): {} bytes / {} allocs",
+                        snapshot.bytes, snapshot.count
+                    ))
+                    .size(TextSize::Xs),
+                )
+            })
+            .into_any_element()
+    }
+}
+
+impl Render for ComponentLab {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = cx.theme();
+
+        // Detect window resize and sample allocations triggered by it.
+        let current_size = window.bounds().size;
+        let resized = self
+            .last_window_size
+            .map_or(false, |last| last != current_size);
+        self.last_window_size = Some(current_size);
+        if resized {
+            self.record_sample("resize");
+        }
 
         // Sync child entity state only when it changes so stable subtrees are
         // not marked dirty on every frame.
@@ -3099,12 +3189,46 @@ impl Render for ComponentLab {
             }
         }
 
-        div()
+        let entity = self.entity.clone();
+        let result = div()
             .id("gpui-component-lab-root")
+            .relative()
             .size_full()
             .bg(theme.background)
             .text_color(theme.text_primary)
             .flex()
+            .on_mouse_move({
+                let entity = entity.clone();
+                move |_event, _window, cx| {
+                    let _ = entity.update(cx, |this, _cx| {
+                        this.last_mouse_move_alloc = this.record_sample("mouse-move");
+                    });
+                }
+            })
+            .on_mouse_down(MouseButton::Left, {
+                let entity = entity.clone();
+                move |_event, _window, cx| {
+                    let _ = entity.update(cx, |this, _cx| {
+                        this.record_sample("mouse-down");
+                    });
+                }
+            })
+            .on_mouse_up(MouseButton::Left, {
+                let entity = entity.clone();
+                move |_event, _window, cx| {
+                    let _ = entity.update(cx, |this, _cx| {
+                        this.record_sample("mouse-up");
+                    });
+                }
+            })
+            .on_scroll_wheel({
+                let entity = entity.clone();
+                move |_event, _window, cx| {
+                    let _ = entity.update(cx, |this, _cx| {
+                        this.record_sample("scroll");
+                    });
+                }
+            })
             .child(self.sidebar_entity.clone())
             .child(
                 div()
@@ -3129,6 +3253,10 @@ impl Render for ComponentLab {
                             .child(self.controls_panel_entity.clone()),
                     ),
             )
+            .child(self.render_alloc_overlay(cx));
+
+        self.last_render_alloc = self.record_sample("render");
+        result
     }
 }
 

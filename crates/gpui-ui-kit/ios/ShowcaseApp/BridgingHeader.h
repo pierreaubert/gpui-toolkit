@@ -10,6 +10,7 @@ void showcase_ios_start(void);
 
 // Frame rendering — call from CADisplayLink
 void gpui_ios_request_frame(void *window_ptr);
+void gpui_ios_request_current_frame(void);
 
 // Get the active GPUI window pointer
 void *gpui_ios_get_window(void);

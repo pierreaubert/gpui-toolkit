@@ -747,20 +747,21 @@ impl PythonIrShowcase {
         theme: &Theme,
         ds: &DesignSystem,
     ) -> AnyElement {
-        match self.spec_cache.parse_mesh(node_id, value) {
-            Ok(spec) => self.render_spec_summary(
-                "Mesh spec",
-                &[
-                    ("id", spec.id.as_str()),
-                    ("vertices", &spec.vertices.len().to_string()),
-                    ("indices", &spec.indices.len().to_string()),
-                    ("renderer", "pending"),
-                ],
-                theme,
-                ds,
-            ),
-            Err(error) => self.render_error(&error, theme, ds),
-        }
+        let spec = match self.spec_cache.parse_mesh(node_id, value) {
+            Ok(spec) => spec.clone(),
+            Err(error) => return self.render_error(&error, theme, ds),
+        };
+        self.render_spec_summary(
+            "Mesh spec",
+            &[
+                ("id", spec.id.as_str()),
+                ("vertices", &spec.vertices.len().to_string()),
+                ("indices", &spec.indices.len().to_string()),
+                ("renderer", "pending"),
+            ],
+            theme,
+            ds,
+        )
     }
 
     pub(super) fn render_scene_summary(
@@ -770,20 +771,21 @@ impl PythonIrShowcase {
         theme: &Theme,
         ds: &DesignSystem,
     ) -> AnyElement {
-        match self.spec_cache.parse_scene(node_id, value) {
-            Ok(spec) => self.render_spec_summary(
-                "Scene spec",
-                &[
-                    ("id", spec.id.as_str()),
-                    ("children", &spec.children.len().to_string()),
-                    ("camera", "orbit/perspective"),
-                    ("mesh renderer", "pending"),
-                ],
-                theme,
-                ds,
-            ),
-            Err(error) => self.render_error(&error, theme, ds),
-        }
+        let spec = match self.spec_cache.parse_scene(node_id, value) {
+            Ok(spec) => spec.clone(),
+            Err(error) => return self.render_error(&error, theme, ds),
+        };
+        self.render_spec_summary(
+            "Scene spec",
+            &[
+                ("id", spec.id.as_str()),
+                ("children", &spec.children.len().to_string()),
+                ("camera", "orbit/perspective"),
+                ("mesh renderer", "pending"),
+            ],
+            theme,
+            ds,
+        )
     }
 
     pub(super) fn render_spec_summary(

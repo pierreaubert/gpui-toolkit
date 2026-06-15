@@ -2917,6 +2917,7 @@ dependencies = [
  "gpui-audio-kit",
  "gpui-design-tools",
  "gpui-miniapp",
+ "gpui-profiler",
  "gpui-px",
  "gpui-ui-kit",
  "serde",
@@ -2926,7 +2927,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-d3rs"
-version = "0.7.4"
+version = "0.8.0"
 dependencies = [
  "approx",
  "autoeq",
@@ -2939,6 +2940,7 @@ dependencies = [
  "gpui-builder",
  "gpui-design",
  "gpui-miniapp",
+ "gpui-profiler",
  "gpui-ui-kit",
  "image",
  "math-delaunay",
@@ -3030,6 +3032,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "gpui-profiler"
+version = "0.7.0"
+
+[[package]]
 name = "gpui-px"
 version = "0.7.6"
 dependencies = [
@@ -3105,7 +3111,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-ui-kit-ios-showcase"
-version = "0.7.1"
+version = "0.7.2"
 dependencies = [
  "gpui",
  "gpui-ios",
