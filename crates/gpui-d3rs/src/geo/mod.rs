@@ -34,6 +34,9 @@ pub use projection::{
 mod graticule;
 mod path;
 pub mod projection;
+pub mod projection_stream;
+pub mod stream;
+pub mod topojson;
 pub mod versor;
 
 mod consts;
@@ -45,6 +48,7 @@ mod tests;
 pub use consts::*;
 pub use misc::*;
 pub use rotation::*;
+pub use stream::*;
 
 /// Calculate the great-circle distance between two points on a sphere.
 ///

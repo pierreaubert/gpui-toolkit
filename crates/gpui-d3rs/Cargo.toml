@@ -1,6 +1,6 @@
 [package]
 name = "gpui-d3rs"
-version = "0.7.4"
+version = "0.8.0"
 edition.workspace = true
 repository.workspace = true
 authors.workspace = true
@@ -18,6 +18,7 @@ default = ["gpui", "gpu-2d", "gpu-3d"]
 autoeq = ["dep:autoeq"]
 camera = []
 gpui = ["dep:gpui", "dep:gpui-ui-kit", "dep:gpui-miniapp", "dep:gpui-builder", "dep:gpui-design", "gpui-design/gpui", "dep:smol", "dep:fontdue", "dep:image"]
+profiler = ["dep:gpui-profiler", "gpui-profiler/global-allocator"]
 reqwest = ["dep:reqwest"]
 showcase = []
 spinorama = ["dep:autoeq", "dep:tokio", "dep:ndarray", "dep:reqwest", "dep:urlencoding", "gpui"]
@@ -31,6 +32,7 @@ gpui = { workspace = true, optional = true }
 smol = { workspace = true, optional = true }
 gpui-ui-kit = { workspace = true, optional = true }
 gpui-miniapp = { workspace = true, optional = true }
+gpui-profiler = { workspace = true, optional = true }
 gpui-builder = { workspace = true, optional = true }
 gpui-design = { workspace = true, optional = true }
 regex = { workspace = true }

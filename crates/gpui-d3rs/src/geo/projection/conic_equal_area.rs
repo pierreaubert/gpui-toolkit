@@ -124,14 +124,18 @@ impl Projection for ConicEqualArea {
         // 1. Rotate input
         let (rl, rp) = rotation.rotate(radians(lon), radians(lat));
 
-        // 2. Project rotated input (no center subtraction — center is handled via output offset)
-        let (x, y) = match self.project_raw_conic(rl, rp) {
+        self.project_rotated(rl, rp)
+    }
+
+    fn project_rotated(&self, lambda: f64, phi: f64) -> (f64, f64) {
+        let (x, y) = match self.project_raw_conic(lambda, phi) {
             Some(v) => v,
             None => return (f64::NAN, f64::NAN),
         };
 
-        // 3. D3 recenter: offset output so that center point maps to translate.
-        // Center is in the post-rotation frame, project it to get the offset.
+        // D3 recenter: offset output so that the configured geographic center
+        // maps to translate.  The center is projected without rotation, exactly
+        // as D3's recenter() does.
         let cl = radians(self.config.center.0);
         let cp = radians(self.config.center.1);
         let (cx, cy) = self.project_raw_conic(cl, cp).unwrap_or((0.0, 0.0));

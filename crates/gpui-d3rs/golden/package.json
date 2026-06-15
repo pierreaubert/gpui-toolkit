@@ -21,6 +21,7 @@
     "d3": "7.9.0",
     "d3-hexbin": "0.2.2",
     "d3-sankey": "0.12.3",
+    "topojson-client": "^3.1.0",
     "versor": "^0.2.0"
   }
 }

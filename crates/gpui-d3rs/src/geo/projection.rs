@@ -43,6 +43,21 @@ pub trait Projection: Clone {
     /// Projected (x, y) coordinates
     fn project(&self, lon: f64, lat: f64) -> (f64, f64);
 
+    /// Project a point that has already been rotated into the projection's
+    /// pre-projection frame.
+    ///
+    /// `lambda` and `phi` are in radians.  This is used by `GeoPath` after
+    /// spherical clipping so that coordinates are not round-tripped through
+    /// geographic coordinates, which is numerically unstable near the poles.
+    ///
+    /// The default implementation falls back to `project`, which is sufficient
+    /// for projections that do not suffer from polar round-trip instability.
+    fn project_rotated(&self, lambda: f64, phi: f64) -> (f64, f64) {
+        let (lon, lat) = crate::geo::projection::SphereRotation::from_radians(0.0, 0.0, 0.0)
+            .invert(lambda, phi);
+        self.project(lon.to_degrees(), lat.to_degrees())
+    }
+
     /// Inverse projection from planar coordinates to geographic coordinates.
     ///
     /// # Arguments
@@ -90,6 +105,15 @@ pub trait Projection: Clone {
         true
     }
 
+    /// Optional spherical clip angle (degrees) for this projection.
+    ///
+    /// Projections such as Orthographic and Stereographic clip geometry to a
+    /// small circle around the projection center. `None` means no small-circle
+    /// clipping; `GeoPath` will instead cut along the antimeridian.
+    fn clip_angle(&self) -> Option<f64> {
+        None
+    }
+
     /// Optional rectangular clip extent in geographic coordinates.
     ///
     /// Points outside `((min_lon, min_lat), (max_lon, max_lat))` are clipped
@@ -97,6 +121,18 @@ pub trait Projection: Clone {
     /// Equirectangular use this to avoid infinite coordinates at the poles and
     /// to draw clean edges at the antimeridian instead of closing chords.
     fn clip_extent(&self) -> Option<((f64, f64), (f64, f64))> {
+        None
+    }
+
+    /// Optional longitude around which path rendering should unwrap coordinates.
+    ///
+    /// For projections that are periodic in longitude (Mercator,
+    /// Equirectangular, Transverse Mercator), returning `Some(central_lon)`
+    /// tells `GeoPath` to normalize each ring's longitudes into
+    /// `[central_lon - 180, central_lon + 180]` before projecting. This avoids
+    /// spurious antimeridian jumps that produce closing chords across the map
+    /// when the viewport is rotated or centered.
+    fn longitude_unwrap_center(&self) -> Option<f64> {
         None
     }
 }

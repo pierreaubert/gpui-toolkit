@@ -119,9 +119,15 @@ fn test_render_cow_matches_render_and_borrows_empty() {
             "render_cow should match render for {geometry:?}"
         );
         if expected.is_empty() {
-            assert!(matches!(cow, Cow::Borrowed(_)), "empty geometry should borrow");
+            assert!(
+                matches!(cow, Cow::Borrowed(_)),
+                "empty geometry should borrow"
+            );
         } else {
-            assert!(matches!(cow, Cow::Owned(_)), "non-empty geometry should own");
+            assert!(
+                matches!(cow, Cow::Owned(_)),
+                "non-empty geometry should own"
+            );
         }
     }
 }
@@ -160,11 +166,12 @@ fn test_antimeridian_line_string_crossing() {
         "Should have 2 move commands for antimeridian crossing"
     );
 
-    // Should NOT have L command connecting them
+    // Each clipped piece has two endpoints, so there is one L command per
+    // piece. No L connects the two sides across the antimeridian.
     let l_count = svg.matches('L').count();
     assert_eq!(
-        l_count, 0,
-        "Should have no line commands across antimeridian"
+        l_count, 2,
+        "Should have one line command per clipped piece"
     );
 }
 
@@ -393,7 +400,10 @@ fn test_mercator_pole_clip() {
             y.parse().ok()
         })
         .collect();
-    assert!(ys.len() >= 4, "clipped polygon should have several vertices");
+    assert!(
+        ys.len() >= 4,
+        "clipped polygon should have several vertices"
+    );
     let span = ys.iter().copied().fold(f64::NEG_INFINITY, f64::max)
         - ys.iter().copied().fold(f64::INFINITY, f64::min);
     assert!(

@@ -452,13 +452,7 @@ impl Surface3DElement {
                         height: height_u32,
                         render_image: render_image.clone(),
                     });
-                    let _ = window.paint_image(
-                        bounds,
-                        Corners::default(),
-                        render_image,
-                        0,
-                        false,
-                    );
+                    let _ = window.paint_image(bounds, Corners::default(), render_image, 0, false);
                 }
             }
         }

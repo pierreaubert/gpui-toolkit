@@ -9,7 +9,10 @@ use super::test::test_linear_nice;
 use super::test::test_linear_ticks;
 use super::types::GoldenFile;
 use d3rs::examples;
-use d3rs::geo::{Equirectangular, GeoJsonGeometry, Mercator, Orthographic, Projection};
+use d3rs::geo::{
+    ConicEqualArea, Equirectangular, GeoJsonGeometry, GeoPath, Mercator, Orthographic, Projection,
+    Stereographic, topojson,
+};
 use d3rs::hexbin::Hexbin;
 use d3rs::scale::{BandScale, LinearScale, LogScale, Scale};
 use d3rs::shape::pie::Pie;
@@ -1521,6 +1524,71 @@ fn test_geo_golden() {
 }
 
 #[test]
+fn test_geo_projections_angles_golden() {
+    let content =
+        fs::read_to_string("golden/geo/projections_angles.json").expect("golden file not found");
+    let golden: GoldenFile = serde_json::from_str(&content).unwrap();
+
+    assert_eq!(golden.module, "d3-geo");
+    assert_eq!(golden.function, "projections_angles");
+
+    for case in &golden.test_cases {
+        let name = case["name"].as_str().unwrap();
+        let projection_name = case["projection"].as_str().unwrap();
+        let scale = case["scale"].as_f64().unwrap();
+        let translate: Vec<f64> = serde_json::from_value(case["translate"].clone()).unwrap();
+        let center: Vec<f64> = serde_json::from_value(case["center"].clone()).unwrap();
+        let rotate: Vec<f64> = serde_json::from_value(case["rotate"].clone()).unwrap();
+        let points: Vec<Vec<f64>> = serde_json::from_value(case["points"].clone()).unwrap();
+        let expected: Vec<Vec<f64>> = serde_json::from_value(case["projected"].clone()).unwrap();
+
+        for (point, exp) in points.iter().zip(expected.iter()) {
+            let actual = match projection_name {
+                "mercator" => Mercator::new()
+                    .scale(scale)
+                    .translate(translate[0], translate[1])
+                    .center(center[0], center[1])
+                    .rotate(rotate[0], rotate[1], rotate[2])
+                    .project(point[0], point[1]),
+                "equirectangular" => Equirectangular::new()
+                    .scale(scale)
+                    .translate(translate[0], translate[1])
+                    .center(center[0], center[1])
+                    .rotate(rotate[0], rotate[1], rotate[2])
+                    .project(point[0], point[1]),
+                "orthographic" => Orthographic::new()
+                    .scale(scale)
+                    .translate(translate[0], translate[1])
+                    .center(center[0], center[1])
+                    .rotate(rotate[0], rotate[1], rotate[2])
+                    .project(point[0], point[1]),
+                "stereographic" => Stereographic::new()
+                    .scale(scale)
+                    .translate(translate[0], translate[1])
+                    .center(center[0], center[1])
+                    .rotate(rotate[0], rotate[1], rotate[2])
+                    .project(point[0], point[1]),
+                "conicEqualArea" => ConicEqualArea::new()
+                    .scale(scale)
+                    .translate(translate[0], translate[1])
+                    .center(center[0], center[1])
+                    .rotate(rotate[0], rotate[1], rotate[2])
+                    .project(point[0], point[1]),
+                other => panic!("unsupported projection: {other}"),
+            };
+            assert!(
+                approx_eq(exp[0], actual.0) && approx_eq(exp[1], actual.1),
+                "case '{}': project({:?}) = {:?} (expected {:?})",
+                name,
+                point,
+                actual,
+                exp
+            );
+        }
+    }
+}
+
+#[test]
 fn test_geo_path_cylindrical_golden() {
     use d3rs::geo::GeoPath;
 
@@ -1528,15 +1596,14 @@ fn test_geo_path_cylindrical_golden() {
         fs::read_to_string("golden/geo/path_cylindrical.json").expect("golden file not found");
     let golden: GoldenFile = serde_json::from_str(&content).unwrap();
 
-    assert_eq!(golden.module, "d3-geo");
+    assert_eq!(golden.module, "d3rs");
     assert_eq!(golden.function, "path_cylindrical");
 
     for case in &golden.test_cases {
         let name = case["name"].as_str().unwrap();
         let projection_name = case["projection"].as_str().unwrap();
         let scale = case["scale"].as_f64().unwrap();
-        let translate: Vec<f64> =
-            serde_json::from_value(case["translate"].clone()).unwrap();
+        let translate: Vec<f64> = serde_json::from_value(case["translate"].clone()).unwrap();
         let expected = case["path"].as_str().unwrap();
 
         let geometry = parse_geojson_geometry(&case["geometry"]);
@@ -1595,8 +1662,7 @@ fn parse_geojson_geometry(value: &serde_json::Value) -> GeoJsonGeometry {
             GeoJsonGeometry::LineString(coords.into_iter().map(|v| (v[0], v[1])).collect())
         }
         "Point" => {
-            let coords: Vec<f64> =
-                serde_json::from_value(value["coordinates"].clone()).unwrap();
+            let coords: Vec<f64> = serde_json::from_value(value["coordinates"].clone()).unwrap();
             GeoJsonGeometry::Point(coords[0], coords[1])
         }
         other => panic!("unsupported geometry type: {other}"),
@@ -3569,5 +3635,124 @@ fn test_observable_voronoi_stippling() {
     assert!(
         center_count > n / 4,
         "most points should be near center: {center_count}/{n}"
+    );
+}
+
+#[test]
+fn test_geo_land_projection_paths_golden() {
+    let content = fs::read_to_string("golden/geo/land_projection_paths.json")
+        .expect("land_projection_paths golden file not found");
+    let golden: GoldenFile = serde_json::from_str(&content).unwrap();
+
+    assert_eq!(golden.module, "d3-geo");
+    assert_eq!(golden.function, "land_projection_paths");
+
+    let land_json = include_str!("../../bin/showcase/data/land-50m.json");
+    let land_geom = topojson::parse_land(land_json).expect("failed to parse land-50m.json");
+
+    let mut failures: Vec<String> = Vec::new();
+
+    for case in &golden.test_cases {
+        let name = case["name"].as_str().unwrap();
+        let projection_name = case["projection"].as_str().unwrap();
+
+        let scale = case["scale"].as_f64().unwrap();
+        let translate: Vec<f64> = serde_json::from_value(case["translate"].clone()).unwrap();
+        let center: Vec<f64> = serde_json::from_value(case["center"].clone()).unwrap();
+        let rotate: Vec<f64> = serde_json::from_value(case["rotate"].clone()).unwrap();
+        let expected_bounds: Vec<Vec<f64>> =
+            serde_json::from_value(case["bounds"].clone()).unwrap();
+
+        macro_rules! check {
+            ($path:expr) => {{
+                let actual_bounds = $path.bounds(&land_geom);
+                if !(approx_eq(expected_bounds[0][0], actual_bounds.0.0)
+                    && approx_eq(expected_bounds[0][1], actual_bounds.0.1)
+                    && approx_eq(expected_bounds[1][0], actual_bounds.1.0)
+                    && approx_eq(expected_bounds[1][1], actual_bounds.1.1))
+                {
+                    failures.push(format!(
+                        "case '{}': expected {:?} vs actual {:?}",
+                        name, expected_bounds, actual_bounds
+                    ));
+                }
+                // Rendering must not panic; the returned path is allowed to differ
+                // from D3's path string because we compare projected bounds.
+                let _ = $path.render(&land_geom);
+            }};
+        }
+
+        match projection_name {
+            "mercator" => {
+                let path = GeoPath::new(
+                    Mercator::new()
+                        .scale(scale)
+                        .translate(translate[0], translate[1])
+                        .center(center[0], center[1])
+                        .rotate(rotate[0], rotate[1], rotate[2]),
+                )
+                .digits(9);
+                check!(path);
+            }
+            "equirectangular" => {
+                let path = GeoPath::new(
+                    Equirectangular::new()
+                        .scale(scale)
+                        .translate(translate[0], translate[1])
+                        .center(center[0], center[1])
+                        .rotate(rotate[0], rotate[1], rotate[2]),
+                )
+                .digits(9);
+                check!(path);
+            }
+            "orthographic" => {
+                let path = GeoPath::new(
+                    Orthographic::new()
+                        .scale(scale)
+                        .translate(translate[0], translate[1])
+                        .center(center[0], center[1])
+                        .rotate(rotate[0], rotate[1], rotate[2]),
+                )
+                .digits(9);
+                check!(path);
+            }
+            "stereographic" => {
+                let path = GeoPath::new(
+                    Stereographic::new()
+                        .scale(scale)
+                        .translate(translate[0], translate[1])
+                        .center(center[0], center[1])
+                        .rotate(rotate[0], rotate[1], rotate[2]),
+                )
+                .digits(9);
+                check!(path);
+            }
+            "conicEqualArea" => {
+                let path = GeoPath::new(
+                    ConicEqualArea::new()
+                        .scale(scale)
+                        .translate(translate[0], translate[1])
+                        .center(center[0], center[1])
+                        .rotate(rotate[0], rotate[1], rotate[2])
+                        .parallels(29.5, 45.5),
+                )
+                .digits(9);
+                check!(path);
+            }
+            other => panic!("unsupported projection: {other}"),
+        };
+    }
+
+    assert!(
+        failures.is_empty(),
+        "{} land projection path cases failed:
+{}",
+        failures.len(),
+        failures
+            .iter()
+            .take(20)
+            .cloned()
+            .collect::<Vec<_>>()
+            .join("\n\n")
     );
 }

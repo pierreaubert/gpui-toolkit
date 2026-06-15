@@ -133,7 +133,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-gpui-d3rs = "0.7"
+gpui-d3rs = "0.8"
 gpui = { version="0.2.2", git = "https://github.com/zed-industries/zed.git" }
 ```
 

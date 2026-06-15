@@ -3,10 +3,16 @@
 use std::borrow::Cow;
 use std::fmt::Write;
 
-use super::super::projection::Projection;
+use super::clip::{
+    clip_antimeridian, clip_antimeridian_polygon, clip_circle, clip_circle_polygon,
+    resample_spherical_line,
+};
+use super::super::projection::{Projection, SphereRotation};
+use super::super::{degrees, geo_distance, geo_interpolate, radians};
 use super::geo_path_config::GeoPathConfig;
 use super::types::GeoJsonGeometry;
 use crate::util::scratch;
+use std::f64::consts::PI;
 
 /// A path generator for GeoJSON geometries.
 ///
@@ -162,118 +168,48 @@ impl<P: Projection> GeoPath<P> {
         }
 
         let d = self.config.digits;
+        let rotate = self.projection.rotate();
+        let rotation = clip_rotation(rotate);
 
-        // If the projection defines a rectangular clip extent, clip each segment
-        // to the rectangle before projecting. This avoids infinite coordinates at
-        // the poles and removes antimeridian closing chords for cylindrical
-        // projections such as Mercator.
-        if let Some(extent) = self.projection.clip_extent() {
-            let mut current_piece: Option<Vec<(f64, f64)>> = None;
-
-            for window in coords.windows(2) {
-                let s = window[0];
-                let e = window[1];
-
-                if let Some((cs, ce)) = clip_line_segment(s, e, extent) {
-                    match current_piece.as_mut() {
-                        Some(piece) => {
-                            let last = *piece.last().unwrap();
-                            if (last.0 - cs.0).abs() < 1e-9
-                                && (last.1 - cs.1).abs() < 1e-9
-                            {
-                                piece.push(ce);
-                            } else {
-                                self.render_line_piece(buf, d, piece);
-                                current_piece = Some(vec![cs, ce]);
-                            }
-                        }
-                        None => {
-                            current_piece = Some(vec![cs, ce]);
-                        }
-                    }
-                } else if let Some(piece) = current_piece.take() {
-                    self.render_line_piece(buf, d, &piece);
+        match self.projection.clip_angle() {
+            Some(angle) => {
+                let pieces = clip_circle(coords, false, &rotation, radians(angle));
+                for piece in &pieces {
+                    self.render_line_piece(buf, d, piece);
                 }
             }
-
-            if let Some(piece) = current_piece.take() {
-                self.render_line_piece(buf, d, &piece);
+            None => {
+                let pieces = clip_antimeridian(coords, false, &rotation);
+                for piece in &pieces {
+                    self.render_line_piece(buf, d, piece);
+                }
             }
-            return;
-        }
-
-        let mut prev_lon: Option<f64> = None;
-        let mut need_move = true;
-
-        for &(lon, lat) in coords.iter() {
-            // Pre-clip: skip points outside the projection's clip angle
-            if !self.projection.is_visible(lon, lat) {
-                prev_lon = None;
-                need_move = true;
-                continue;
-            }
-
-            let (x, y) = self.projection.project(lon, lat);
-
-            // Check if coordinates are valid
-            if !x.is_finite() || !y.is_finite() {
-                prev_lon = None;
-                need_move = true;
-                continue;
-            }
-
-            // Detect antimeridian crossing: if longitude jumps > 180 degrees
-            let crosses_antimeridian = if let Some(prev) = prev_lon {
-                (lon - prev).abs() > 180.0
-            } else {
-                false
-            };
-
-            if need_move || crosses_antimeridian {
-                write!(buf, "M{:.d$},{:.d$}", x, y, d = d).unwrap();
-                need_move = false;
-            } else {
-                write!(buf, "L{:.d$},{:.d$}", x, y, d = d).unwrap();
-            }
-
-            prev_lon = Some(lon);
         }
     }
 
-    /// Render an already-clipped piece of a line string.
+    /// Render an already-clipped piece of a line string from rotated spherical coords.
     fn render_line_piece(&self, buf: &mut String, d: usize, piece: &[(f64, f64)]) {
-        let mut prev_lon: Option<f64> = None;
+        let projected =
+            resample_spherical_line(piece, &|l, p| self.projection.project_rotated(l, p), false);
+        self.render_projected_line_piece(buf, d, &projected);
+    }
+
+    /// Render an already-clipped piece of a line string from projected coords.
+    fn render_projected_line_piece(&self, buf: &mut String, d: usize, piece: &[(f64, f64)]) {
         let mut need_move = true;
 
-        for &(lon, lat) in piece {
-            if !self.projection.is_visible(lon, lat) {
-                prev_lon = None;
-                need_move = true;
-                continue;
-            }
-
-            let (x, y) = self.projection.project(lon, lat);
-
+        for &(x, y) in piece {
             if !x.is_finite() || !y.is_finite() {
-                prev_lon = None;
                 need_move = true;
                 continue;
             }
 
-            let crosses_antimeridian = if let Some(prev) = prev_lon {
-                (lon - prev).abs() > 180.0
-            } else {
-                false
-            };
-
-            if need_move || crosses_antimeridian {
+            if need_move {
                 write!(buf, "M{:.d$},{:.d$}", x, y, d = d).unwrap();
                 need_move = false;
             } else {
                 write!(buf, "L{:.d$},{:.d$}", x, y, d = d).unwrap();
             }
-
-            prev_lon = Some(lon);
         }
     }
 
@@ -311,77 +247,84 @@ impl<P: Projection> GeoPath<P> {
         }
 
         let d = self.config.digits;
-        let clip_extent = self.projection.clip_extent();
+        let rotate = self.projection.rotate();
+        let rotation = clip_rotation(rotate);
 
-        let mut clipped;
-        for ring in rings {
-            if ring.is_empty() {
+        // Filter out degenerate near-full interior rings that collapse to a line
+        // of constant latitude. These are polar holes in Natural Earth data and
+        // produce spurious filled horizontal bands when rendered as polygons.
+        let rings_to_clip: Vec<Vec<(f64, f64)>> = rings
+            .iter()
+            .enumerate()
+            .filter(|(ring_index, ring)| {
+                if *ring_index == 0 {
+                    return true;
+                }
+                if ring.len() < 3 {
+                    return false;
+                }
+                if !ring.iter().all(|(_, lat)| (lat - ring[0].1).abs() < 1e-6) {
+                    return true;
+                }
+                let (min_lon, max_lon) = ring
+                    .iter()
+                    .fold((f64::INFINITY, f64::NEG_INFINITY), |(mn, mx), &(lon, _)| {
+                        (mn.min(lon), mx.max(lon))
+                    });
+                max_lon - min_lon <= 359.0
+            })
+            .map(|(_, ring)| ring.clone())
+            .collect();
+
+        if rings_to_clip.is_empty() {
+            return;
+        }
+
+        let pieces: Vec<Vec<(f64, f64)>> = match self.projection.clip_angle() {
+            Some(angle) => clip_circle_polygon(&rings_to_clip, &rotation, radians(angle)),
+            None => clip_antimeridian_polygon(&rings_to_clip, &rotation),
+        };
+
+        for mut piece in pieces {
+            // Drop an explicit trailing duplicate of the first vertex; the
+            // piece is closed with Z below.
+            if piece.len() > 1 && piece[0] == piece[piece.len() - 1] {
+                piece.pop();
+            }
+            piece.dedup();
+
+            let projected = resample_spherical_line(
+                &piece,
+                &|l, p| self.projection.project_rotated(l, p),
+                true,
+            );
+            self.render_projected_polygon_piece(buf, d, &projected);
+        }
+    }
+
+    /// Render an already-clipped polygon ring from projected coordinates.
+    fn render_projected_polygon_piece(&self, buf: &mut String, d: usize, piece: &[(f64, f64)]) {
+        let mut ring_started = false;
+
+        for &(x, y) in piece {
+            if !x.is_finite() || !y.is_finite() {
+                if ring_started {
+                    buf.push('Z');
+                    ring_started = false;
+                }
                 continue;
             }
 
-            let ring_coords: &[(f64, f64)] = if let Some(extent) = clip_extent {
-                clipped = clip_polygon_to_rect(ring, extent);
-                if clipped.len() < 3 {
-                    continue;
-                }
-                &clipped
+            if !ring_started {
+                write!(buf, "M{:.d$},{:.d$}", x, y, d = d).unwrap();
+                ring_started = true;
             } else {
-                ring
-            };
-
-            let mut prev_lon: Option<f64> = None;
-            let mut ring_started = false;
-
-            for &(lon, lat) in ring_coords {
-                // Pre-clip: skip points outside the projection's clip angle
-                if !self.projection.is_visible(lon, lat) {
-                    prev_lon = None;
-                    if ring_started {
-                        buf.push('Z');
-                        ring_started = false;
-                    }
-                    continue;
-                }
-
-                let (x, y) = self.projection.project(lon, lat);
-
-                // Check if coordinates are valid
-                if !x.is_finite() || !y.is_finite() {
-                    prev_lon = None;
-                    if ring_started {
-                        buf.push('Z');
-                        ring_started = false;
-                    }
-                    continue;
-                }
-
-                // Detect antimeridian crossing: if longitude jumps > 180 degrees.
-                // After rectangular clipping this should not happen, but keep the
-                // guard for projections without an extent.
-                let crosses_antimeridian = if let Some(prev) = prev_lon {
-                    (lon - prev).abs() > 180.0
-                } else {
-                    false
-                };
-
-                if !ring_started || crosses_antimeridian {
-                    // Close previous segment if we're breaking due to antimeridian
-                    if ring_started && crosses_antimeridian {
-                        buf.push('Z');
-                    }
-                    write!(buf, "M{:.d$},{:.d$}", x, y, d = d).unwrap();
-                    ring_started = true;
-                } else {
-                    write!(buf, "L{:.d$},{:.d$}", x, y, d = d).unwrap();
-                }
-
-                prev_lon = Some(lon);
+                write!(buf, "L{:.d$},{:.d$}", x, y, d = d).unwrap();
             }
+        }
 
-            // Close the ring
-            if ring_started {
-                buf.push('Z');
-            }
+        if ring_started {
+            buf.push('Z');
         }
     }
 
@@ -416,33 +359,120 @@ impl<P: Projection> GeoPath<P> {
     ///
     /// Returns `((min_x, min_y), (max_x, max_y))`
     pub fn bounds(&self, geometry: &GeoJsonGeometry) -> ((f64, f64), (f64, f64)) {
-        let coords = self.geometry_coordinates(geometry);
-        if coords.is_empty() {
-            return ((f64::NAN, f64::NAN), (f64::NAN, f64::NAN));
-        }
-
         let mut min_x = f64::MAX;
         let mut max_x = f64::MIN;
         let mut min_y = f64::MAX;
         let mut max_y = f64::MIN;
 
-        for &(lon, lat) in coords.iter() {
-            let (x, y) = self.projection.project(lon, lat);
-            if x < min_x {
-                min_x = x;
+        let rotate = self.projection.rotate();
+        let rotation = clip_rotation(rotate);
+        let clip_angle = self.projection.clip_angle().map(radians);
+
+        fn update_bounds(
+            min_x: &mut f64,
+            max_x: &mut f64,
+            min_y: &mut f64,
+            max_y: &mut f64,
+            x: f64,
+            y: f64,
+        ) {
+            if !x.is_finite() || !y.is_finite() {
+                return;
             }
-            if x > max_x {
-                max_x = x;
+            if x < *min_x {
+                *min_x = x;
             }
-            if y < min_y {
-                min_y = y;
+            if x > *max_x {
+                *max_x = x;
             }
-            if y > max_y {
-                max_y = y;
+            if y < *min_y {
+                *min_y = y;
+            }
+            if y > *max_y {
+                *max_y = y;
             }
         }
 
-        ((min_x, min_y), (max_x, max_y))
+        let clip_line = |coords: &[(f64, f64)]| match clip_angle {
+            Some(angle) => clip_circle(coords, false, &rotation, angle),
+            None => clip_antimeridian(coords, false, &rotation),
+        };
+
+        let clip_polygon = |rings: &[Vec<(f64, f64)>]| match clip_angle {
+            Some(angle) => clip_circle_polygon(rings, &rotation, angle),
+            None => clip_antimeridian_polygon(rings, &rotation),
+        };
+
+        match geometry {
+            GeoJsonGeometry::Point(lon, lat) => {
+                if self.projection.is_visible(*lon, *lat) {
+                    let (x, y) = self.projection.project(*lon, *lat);
+                    update_bounds(&mut min_x, &mut max_x, &mut min_y, &mut max_y, x, y);
+                }
+            }
+            GeoJsonGeometry::MultiPoint(points) => {
+                for &(lon, lat) in points {
+                    if self.projection.is_visible(lon, lat) {
+                        let (x, y) = self.projection.project(lon, lat);
+                        update_bounds(&mut min_x, &mut max_x, &mut min_y, &mut max_y, x, y);
+                    }
+                }
+            }
+            GeoJsonGeometry::LineString(coords) => {
+                for piece in &clip_line(coords) {
+                    for &(x, y) in &resample_spherical_line(
+                        piece,
+                        &|l, p| self.projection.project_rotated(l, p),
+                        false,
+                    ) {
+                        update_bounds(&mut min_x, &mut max_x, &mut min_y, &mut max_y, x, y);
+                    }
+                }
+            }
+            GeoJsonGeometry::MultiLineString(lines) => {
+                for line in lines {
+                    for piece in &clip_line(line) {
+                        for &(x, y) in &resample_spherical_line(
+                            piece,
+                            &|l, p| self.projection.project_rotated(l, p),
+                            false,
+                        ) {
+                            update_bounds(&mut min_x, &mut max_x, &mut min_y, &mut max_y, x, y);
+                        }
+                    }
+                }
+            }
+            GeoJsonGeometry::Polygon(rings) => {
+                for piece in &clip_polygon(rings) {
+                    for &(x, y) in &resample_spherical_line(
+                        piece,
+                        &|l, p| self.projection.project_rotated(l, p),
+                        true,
+                    ) {
+                        update_bounds(&mut min_x, &mut max_x, &mut min_y, &mut max_y, x, y);
+                    }
+                }
+            }
+            GeoJsonGeometry::MultiPolygon(polygons) => {
+                for rings in polygons {
+                    for piece in &clip_polygon(rings) {
+                        for &(x, y) in &resample_spherical_line(
+                            piece,
+                            &|l, p| self.projection.project_rotated(l, p),
+                            true,
+                        ) {
+                            update_bounds(&mut min_x, &mut max_x, &mut min_y, &mut max_y, x, y);
+                        }
+                    }
+                }
+            }
+        }
+
+        if min_x == f64::MAX {
+            ((f64::NAN, f64::NAN), (f64::NAN, f64::NAN))
+        } else {
+            ((min_x, min_y), (max_x, max_y))
+        }
     }
 
     /// Calculate the centroid of a geometry after projection.
@@ -487,6 +517,231 @@ impl<P: Projection> GeoPath<P> {
     }
 }
 
+/// Build the pre-projection sphere rotation used for clipping.
+///
+/// This is the same rotation that D3's projection applies before projecting,
+/// i.e. `geoRotation([λ, φ, γ])` for configured angles `[λ, φ, γ]`.
+fn clip_rotation(rotate: (f64, f64, f64)) -> SphereRotation {
+    SphereRotation::from_degrees(rotate.0, rotate.1, rotate.2)
+}
+
+/// Map a longitude into the principal copy `[center_lon - 180, center_lon + 180]`.
+fn principal_longitude(lon: f64, center_lon: f64) -> f64 {
+    let lower = center_lon - 180.0;
+    let mut t = (lon - lower) % 360.0;
+    if t < 0.0 {
+        t += 360.0;
+    }
+    lower + t
+}
+
+/// Unwrap longitudes continuously so that consecutive points differ by at most
+/// 180°. This mirrors D3's antimeridian pre-clip stage and keeps rings that
+/// surround a pole from picking the wrong branch.
+fn unwrap_longitudes(coords: &[(f64, f64)], center_lon: f64) -> Vec<(f64, f64)> {
+    if coords.is_empty() {
+        return Vec::new();
+    }
+
+    let mut out = Vec::with_capacity(coords.len());
+    let first_lon = principal_longitude(coords[0].0, center_lon);
+    out.push((first_lon, coords[0].1));
+    let mut prev_lon = first_lon;
+
+    for i in 1..coords.len() {
+        let mut lon = principal_longitude(coords[i].0, center_lon);
+        let delta = lon - prev_lon;
+        if delta > 180.0 {
+            lon -= 360.0;
+        } else if delta < -180.0 {
+            lon += 360.0;
+        }
+        out.push((lon, coords[i].1));
+        prev_lon = lon;
+    }
+
+    // For closed rings, make the closing edge continuous as well. If the first
+    // point is on the wrong branch relative to the last, shift the whole ring.
+    if coords.len() > 1 {
+        let closing_delta = out[0].0 - out[out.len() - 1].0;
+        if closing_delta > 180.0 {
+            let shift = ((closing_delta + 180.0) / 360.0).floor() * 360.0;
+            for p in &mut out {
+                p.0 -= shift;
+            }
+        } else if closing_delta < -180.0 {
+            let shift = ((closing_delta - 180.0) / 360.0).ceil() * 360.0;
+            for p in &mut out {
+                p.0 -= shift;
+            }
+        }
+    }
+
+    out
+}
+
+/// Return the antimeridian boundary point between `a` and `b` if the segment
+/// crosses the periodic longitude boundary of the visible world copy centered
+/// at `center_lon`.
+///
+/// `a` and `b` are expected to be unwrapped longitudes so that the boundary
+/// that lies strictly between them is well-defined.
+fn antimeridian_intersection(a: (f64, f64), b: (f64, f64), center_lon: f64) -> Option<(f64, f64)> {
+    if a.0 == b.0 {
+        return None;
+    }
+
+    let min_lon = a.0.min(b.0);
+    let max_lon = a.0.max(b.0);
+
+    // The visible world copy has two boundary meridians at center_lon ± 180,
+    // which represent the same great circle. A short edge can cross either one.
+    let lower = center_lon - 180.0;
+    let upper = center_lon + 180.0;
+
+    let boundary = if lower > min_lon && lower < max_lon {
+        lower
+    } else if upper > min_lon && upper < max_lon {
+        upper
+    } else {
+        return None;
+    };
+
+    let t = (boundary - a.0) / (b.0 - a.0);
+    let lat = a.1 + t * (b.1 - a.1);
+    Some((boundary, lat))
+}
+
+/// Return the nearest antimeridian boundary longitude to `target`.
+fn nearest_boundary(lon: f64, target: f64) -> f64 {
+    lon + ((target - lon) / 360.0).round() * 360.0
+}
+
+const BOUNDARY_EPS: f64 = 1e-9;
+
+fn is_antimeridian_boundary(lon: f64, center_lon: f64) -> bool {
+    let r = ((lon - (center_lon + 180.0)) % 360.0 + 360.0) % 360.0;
+    r < BOUNDARY_EPS || r > 360.0 - BOUNDARY_EPS
+}
+
+/// Split a polygon ring at every periodic longitude boundary it strictly
+/// crosses.
+///
+/// The input ring is unwrapped around `center_lon` and cut at each crossing of
+/// the visible boundary meridian. Boundary-following edges (both endpoints on
+/// the same meridian) are kept in the same piece so that full-width polar caps
+/// remain intact. Each returned piece can be rendered as a closed subpath
+/// without producing closing chords across the viewport.
+fn cut_ring_at_antimeridian(ring: &[(f64, f64)], center_lon: f64) -> Vec<Vec<(f64, f64)>> {
+    if ring.len() < 3 {
+        return Vec::new();
+    }
+
+    let unwrapped = unwrap_longitudes(ring, center_lon);
+    let n = unwrapped.len();
+    if n < 3 {
+        return Vec::new();
+    }
+
+    // Build a cyclic list with boundary intersections inserted after each edge
+    // that strictly crosses the visible boundary meridian.
+    let mut expanded = Vec::with_capacity(n * 2);
+    let mut crossing_indices = Vec::new();
+    for i in 0..n {
+        expanded.push(unwrapped[i]);
+        let a = unwrapped[i];
+        let b = unwrapped[(i + 1) % n];
+        let delta = b.0 - a.0;
+        let b_unwrapped = if delta > 180.0 {
+            (b.0 - 360.0, b.1)
+        } else if delta < -180.0 {
+            (b.0 + 360.0, b.1)
+        } else {
+            b
+        };
+        if let Some(cross) = antimeridian_intersection(a, b_unwrapped, center_lon) {
+            expanded.push(cross);
+            crossing_indices.push(expanded.len() - 1);
+        }
+    }
+
+    if crossing_indices.is_empty() {
+        // The ring stays inside one world copy (it may follow the boundary but
+        // never cross it). Keep it as a single piece.
+        let mut piece = expanded;
+        piece.dedup();
+        return if piece.len() >= 3 { vec![piece] } else { Vec::new() };
+    }
+
+    let mut pieces = Vec::new();
+    let m = crossing_indices.len();
+
+    // Degenerate rings (e.g., a back-and-forth polar cap) may cross the
+    // boundary meridian only once in the unwrapped representation. Treat them
+    // as a single closed piece that goes through every vertex and returns to
+    // the crossing.
+    if m == 1 {
+        let start = crossing_indices[0];
+        let mut piece = Vec::with_capacity(expanded.len() + 1);
+        let mut i = start;
+        loop {
+            piece.push(expanded[i]);
+            if piece.len() == expanded.len() + 1 {
+                break;
+            }
+            i = (i + 1) % expanded.len();
+        }
+        if piece.len() > 1 && piece[0] == piece[piece.len() - 1] {
+            piece.pop();
+        }
+        piece.dedup();
+        if piece.len() >= 3 {
+            pieces.push(piece);
+        }
+        return pieces;
+    }
+
+    for k in 0..m {
+        let start = crossing_indices[k];
+        let end = crossing_indices[(k + 1) % m];
+        let mut piece = Vec::new();
+        let mut i = start;
+        loop {
+            piece.push(expanded[i]);
+            if i == end {
+                break;
+            }
+            i = (i + 1) % expanded.len();
+        }
+        // Drop a trailing duplicate of the first boundary vertex and any
+        // consecutive duplicate points introduced by the ring closure.
+        if piece.len() > 1 && piece[0] == piece[piece.len() - 1] {
+            piece.pop();
+        }
+        piece.dedup();
+        if piece.len() >= 3 {
+            pieces.push(piece);
+        }
+    }
+
+    pieces
+}
+
+/// Shift all longitudes in a cut piece so that its mean longitude lies in the
+/// visible world copy around `center_lon`. We do not collapse endpoints; the
+/// closing edge follows the antimeridian seam via `sample_antimeridian_arc`.
+fn normalize_piece_longitudes(piece: &mut [(f64, f64)], center_lon: f64) {
+    if piece.is_empty() {
+        return;
+    }
+
+    let mean_lon = piece.iter().map(|p| p.0).sum::<f64>() / piece.len() as f64;
+    let offset = ((mean_lon - center_lon) / 360.0).round() * 360.0;
+
+    for p in piece.iter_mut() {
+        p.0 -= offset;
+    }
+}
 
 /// Clip a line segment to a rectangle using Liang-Barsky.
 ///
@@ -501,12 +756,7 @@ fn clip_line_segment(
     let dy = e.1 - s.1;
 
     let p = [-dx, dx, -dy, dy];
-    let q = [
-        s.0 - min_lon,
-        max_lon - s.0,
-        s.1 - min_lat,
-        max_lat - s.1,
-    ];
+    let q = [s.0 - min_lon, max_lon - s.0, s.1 - min_lat, max_lat - s.1];
 
     let mut u1: f64 = 0.0;
     let mut u2: f64 = 1.0;
@@ -537,10 +787,7 @@ fn clip_line_segment(
 }
 
 /// Clip a polygon ring to a rectangle using Sutherland-Hodgman.
-fn clip_polygon_to_rect(
-    ring: &[(f64, f64)],
-    extent: ((f64, f64), (f64, f64)),
-) -> Vec<(f64, f64)> {
+fn clip_polygon_to_rect(ring: &[(f64, f64)], extent: ((f64, f64), (f64, f64))) -> Vec<(f64, f64)> {
     let ((min_lon, min_lat), (max_lon, max_lat)) = extent;
 
     let mut output: Vec<(f64, f64)> = ring.to_vec();
@@ -590,11 +837,7 @@ fn clip_polygon_to_rect(
 
 fn rect_inside(p: (f64, f64), boundary: f64, is_min: bool, is_y: bool) -> bool {
     let v = if is_y { p.1 } else { p.0 };
-    if is_min {
-        v >= boundary
-    } else {
-        v <= boundary
-    }
+    if is_min { v >= boundary } else { v <= boundary }
 }
 
 fn rect_intersection(s: (f64, f64), e: (f64, f64), boundary: f64, is_y: bool) -> (f64, f64) {
@@ -608,9 +851,693 @@ fn rect_intersection(s: (f64, f64), e: (f64, f64), boundary: f64, is_y: bool) ->
     };
 
     let o = so + t * (eo - so);
-    if is_y {
-        (o, boundary)
-    } else {
-        (boundary, o)
+    if is_y { (o, boundary) } else { (boundary, o) }
+}
+
+// ---------------------------------------------------------------------------
+// Spherical pre-clipping
+// ---------------------------------------------------------------------------
+
+fn spherical_to_cartesian(lon: f64, lat: f64) -> [f64; 3] {
+    let lambda = radians(lon);
+    let phi = radians(lat);
+    let cos_phi = phi.cos();
+    [cos_phi * lambda.cos(), cos_phi * lambda.sin(), phi.sin()]
+}
+
+fn cartesian_to_spherical(v: [f64; 3]) -> (f64, f64) {
+    let lon = degrees(v[1].atan2(v[0]));
+    let lat = degrees(v[2].atan2((v[0] * v[0] + v[1] * v[1]).sqrt()));
+    (lon, lat)
+}
+
+fn vec_sub(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
+    [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
+}
+
+fn vec_scale(a: [f64; 3], s: f64) -> [f64; 3] {
+    [a[0] * s, a[1] * s, a[2] * s]
+}
+
+fn vec_cross(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
+    [
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0],
+    ]
+}
+
+fn vec_normalize(a: [f64; 3]) -> [f64; 3] {
+    let len = vec_dot(a, a).sqrt();
+    if len == 0.0 {
+        return a;
     }
+    [a[0] / len, a[1] / len, a[2] / len]
+}
+
+fn vec_dot(a: [f64; 3], b: [f64; 3]) -> f64 {
+    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+}
+
+fn vec_slerp(a: [f64; 3], b: [f64; 3], t: f64) -> [f64; 3] {
+    let omega = vec_dot(a, b).clamp(-1.0, 1.0).acos();
+    if omega < 1e-12 {
+        return a;
+    }
+    let sin_omega = omega.sin();
+    let s0 = ((1.0 - t) * omega).sin() / sin_omega;
+    let s1 = (t * omega).sin() / sin_omega;
+    [
+        a[0] * s0 + b[0] * s1,
+        a[1] * s0 + b[1] * s1,
+        a[2] * s0 + b[2] * s1,
+    ]
+}
+
+/// Find the point on the great-circle arc from `p1` to `p2` whose dot product
+/// with `center` equals `target_dot`. Used for small-circle clipping.
+fn great_circle_intersection_to_plane(
+    p1: (f64, f64),
+    p2: (f64, f64),
+    center: [f64; 3],
+    target_dot: f64,
+) -> (f64, f64) {
+    let a = spherical_to_cartesian(p1.0, p1.1);
+    let b = spherical_to_cartesian(p2.0, p2.1);
+    let da = vec_dot(a, center);
+    let db = vec_dot(b, center);
+
+    if (da - target_dot).abs() < 1e-12 {
+        return p1;
+    }
+    if (db - target_dot).abs() < 1e-12 {
+        return p2;
+    }
+
+    let (mut lo, mut hi) = (0.0, 1.0);
+    for _ in 0..16 {
+        let mid = (lo + hi) / 2.0;
+        let m = vec_slerp(a, b, mid);
+        let dm = vec_dot(m, center);
+        if (da - target_dot).signum() == (dm - target_dot).signum() {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    cartesian_to_spherical(vec_slerp(a, b, (lo + hi) / 2.0))
+}
+
+/// Sample points along the shorter arc of the spherical-cap boundary between
+/// `from` and `to`. The returned points exclude the endpoints.
+fn sample_cap_boundary_arc(
+    from: (f64, f64),
+    to: (f64, f64),
+    clip_center: (f64, f64),
+    clip_angle_deg: f64,
+) -> Vec<(f64, f64)> {
+    let c = spherical_to_cartesian(clip_center.0, clip_center.1);
+    let h = clip_angle_deg.to_radians().cos();
+    let r = clip_angle_deg.to_radians().sin();
+
+    let p1 = spherical_to_cartesian(from.0, from.1);
+    // u is a unit vector in the cap plane pointing from the cap center to p1.
+    let u = vec_normalize(vec_sub(p1, vec_scale(c, h)));
+    // v is a unit vector perpendicular to c and u, also in the cap plane.
+    let v = vec_cross(c, u);
+
+    let p2 = spherical_to_cartesian(to.0, to.1);
+    let theta2 = f64::atan2(vec_dot(p2, v), vec_dot(p2, u));
+    let mut delta = theta2;
+    if delta.abs() > PI {
+        delta -= 2.0 * PI * delta.signum();
+    }
+
+    let step = 5.0_f64.to_radians();
+    let n = (delta.abs() / step).ceil() as usize;
+    if n < 2 {
+        return Vec::new();
+    }
+
+    let mut samples = Vec::with_capacity(n - 1);
+    for i in 1..n {
+        let t = i as f64 / n as f64;
+        let theta = t * delta;
+        let p = vec_add(
+            vec_scale(c, h),
+            vec_add(vec_scale(u, r * theta.cos()), vec_scale(v, r * theta.sin())),
+        );
+        samples.push(cartesian_to_spherical(p));
+    }
+    samples
+}
+
+fn vec_add(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
+    [a[0] + b[0], a[1] + b[1], a[2] + b[2]]
+}
+
+/// Clip a polygon ring to a spherical cap centered at `clip_center` with angular
+/// radius `clip_angle_deg`. Returns zero or more closed pieces whose vertices lie
+/// inside or on the cap boundary.
+fn clip_ring_to_cap(
+    ring: &[(f64, f64)],
+    clip_center: (f64, f64),
+    clip_angle_deg: f64,
+) -> Vec<Vec<(f64, f64)>> {
+    if ring.len() < 3 {
+        return Vec::new();
+    }
+
+    let center = spherical_to_cartesian(clip_center.0, clip_center.1);
+    let cos_clip = clip_angle_deg.to_radians().cos();
+    let eps = 1e-12;
+
+    let mut pieces: Vec<Vec<(f64, f64)>> = Vec::new();
+    let mut current: Option<Vec<(f64, f64)>> = None;
+
+    let n = ring.len();
+    for i in 0..n {
+        let p1 = ring[i];
+        let p2 = ring[(i + 1) % n];
+        let d1 = vec_dot(spherical_to_cartesian(p1.0, p1.1), center);
+        let d2 = vec_dot(spherical_to_cartesian(p2.0, p2.1), center);
+        let v1 = d1 >= cos_clip - eps;
+        let v2 = d2 >= cos_clip - eps;
+
+        match (v1, v2) {
+            (true, true) => {
+                if let Some(c) = current.as_mut() {
+                    c.push(p2);
+                } else {
+                    current = Some(vec![p1, p2]);
+                }
+            }
+            (true, false) => {
+                let ix = great_circle_intersection_to_plane(p1, p2, center, cos_clip);
+                if let Some(mut c) = current.take() {
+                    c.push(ix);
+                    pieces.push(c);
+                }
+            }
+            (false, true) => {
+                let ix = great_circle_intersection_to_plane(p1, p2, center, cos_clip);
+                current = Some(vec![ix, p2]);
+            }
+            (false, false) => {}
+        }
+    }
+
+    if let Some(c) = current.take() {
+        pieces.push(c);
+    }
+
+    // Close clipped pieces with the cap-boundary arc so the projected polygon
+    // follows the clip circle rather than cutting straight across it.
+    for piece in &mut pieces {
+        if piece.len() >= 2 {
+            let first = piece[0];
+            let last = piece[piece.len() - 1];
+            if is_near_cap_boundary(first, center, cos_clip)
+                && is_near_cap_boundary(last, center, cos_clip)
+                && (first.0 != last.0 || first.1 != last.1)
+            {
+                let arc = sample_cap_boundary_arc(last, first, clip_center, clip_angle_deg);
+                piece.extend(arc);
+            }
+        }
+    }
+
+    pieces.retain(|p| p.len() >= 3);
+    pieces
+}
+
+fn is_near_cap_boundary(p: (f64, f64), center: [f64; 3], cos_clip: f64) -> bool {
+    let d = vec_dot(spherical_to_cartesian(p.0, p.1), center);
+    (d - cos_clip).abs() < 1e-9
+}
+
+/// Clip a line string to a spherical cap. Returns zero or more contiguous pieces.
+fn clip_line_to_cap(
+    line: &[(f64, f64)],
+    clip_center: (f64, f64),
+    clip_angle_deg: f64,
+) -> Vec<Vec<(f64, f64)>> {
+    if line.len() < 2 {
+        return Vec::new();
+    }
+
+    let center = spherical_to_cartesian(clip_center.0, clip_center.1);
+    let cos_clip = clip_angle_deg.to_radians().cos();
+    let eps = 1e-12;
+
+    let mut pieces: Vec<Vec<(f64, f64)>> = Vec::new();
+    let mut current: Option<Vec<(f64, f64)>> = None;
+
+    for window in line.windows(2) {
+        let p1 = window[0];
+        let p2 = window[1];
+        let d1 = vec_dot(spherical_to_cartesian(p1.0, p1.1), center);
+        let d2 = vec_dot(spherical_to_cartesian(p2.0, p2.1), center);
+        let v1 = d1 >= cos_clip - eps;
+        let v2 = d2 >= cos_clip - eps;
+
+        match (v1, v2) {
+            (true, true) => {
+                if let Some(c) = current.as_mut() {
+                    c.push(p2);
+                } else {
+                    current = Some(vec![p1, p2]);
+                }
+            }
+            (true, false) => {
+                let ix = great_circle_intersection_to_plane(p1, p2, center, cos_clip);
+                if let Some(mut c) = current.take() {
+                    c.push(ix);
+                    pieces.push(c);
+                }
+            }
+            (false, true) => {
+                let ix = great_circle_intersection_to_plane(p1, p2, center, cos_clip);
+                current = Some(vec![ix, p2]);
+            }
+            (false, false) => {}
+        }
+    }
+
+    if let Some(c) = current.take() {
+        pieces.push(c);
+    }
+
+    pieces.retain(|p| p.len() >= 2);
+    pieces
+}
+
+// ---------------------------------------------------------------------------
+// Antimeridian pre-clipping in the projection's rotated frame
+// ---------------------------------------------------------------------------
+
+fn rotate_point_deg(rotation: &SphereRotation, lon: f64, lat: f64) -> (f64, f64) {
+    let (lambda, phi) = rotation.rotate(radians(lon), radians(lat));
+    (degrees(lambda), degrees(phi))
+}
+
+fn unrotate_point_deg(rotation: &SphereRotation, lon: f64, lat: f64) -> (f64, f64) {
+    let (lambda, phi) = rotation.invert(radians(lon), radians(lat));
+    (degrees(lambda), degrees(phi))
+}
+
+/// Split an open polyline at the antimeridian in the rotated frame, returning
+/// geographic-coordinate pieces that each lie in one 360° world copy.
+fn cut_line_at_antimeridian(line: &[(f64, f64)], center_lon: f64) -> Vec<Vec<(f64, f64)>> {
+    if line.len() < 2 {
+        return Vec::new();
+    }
+
+    let unwrapped = unwrap_longitudes(line, center_lon);
+    let mut expanded = Vec::with_capacity(unwrapped.len() * 2);
+    let mut crossing_indices = Vec::new();
+
+    for i in 0..unwrapped.len() - 1 {
+        expanded.push(unwrapped[i]);
+        let a = unwrapped[i];
+        let b = unwrapped[i + 1];
+        let delta = b.0 - a.0;
+        let b_cont = if delta > 180.0 {
+            (b.0 - 360.0, b.1)
+        } else if delta < -180.0 {
+            (b.0 + 360.0, b.1)
+        } else {
+            b
+        };
+        if let Some(cross) = antimeridian_intersection(a, b_cont, center_lon) {
+            expanded.push(cross);
+            crossing_indices.push(expanded.len() - 1);
+        }
+    }
+    expanded.push(unwrapped[unwrapped.len() - 1]);
+
+    if crossing_indices.is_empty() {
+        let mut piece = expanded;
+        piece.dedup();
+        return if piece.len() >= 2 {
+            vec![piece]
+        } else {
+            Vec::new()
+        };
+    }
+
+    let mut pieces = Vec::new();
+    let m = crossing_indices.len();
+
+    // Segment before the first crossing.
+    {
+        let end = crossing_indices[0];
+        let mut piece = expanded[0..=end].to_vec();
+        piece.dedup();
+        if piece.len() >= 2 {
+            pieces.push(piece);
+        }
+    }
+
+    // Segments between consecutive crossings.
+    for k in 0..m - 1 {
+        let start = crossing_indices[k];
+        let end = crossing_indices[k + 1];
+        let mut piece = expanded[start..=end].to_vec();
+        piece.dedup();
+        if piece.len() >= 2 {
+            pieces.push(piece);
+        }
+    }
+
+    // Segment after the last crossing.
+    {
+        let start = crossing_indices[m - 1];
+        let mut piece = expanded[start..].to_vec();
+        piece.dedup();
+        if piece.len() >= 2 {
+            pieces.push(piece);
+        }
+    }
+
+    pieces
+}
+
+/// Sample points along the antimeridian great-circle arc between `from` and
+/// `to`. The returned points exclude the endpoints.
+fn sample_antimeridian_arc(from: (f64, f64), to: (f64, f64)) -> Vec<(f64, f64)> {
+    let angle = geo_distance(from.0, from.1, to.0, to.1);
+    if angle < 1e-12 {
+        return Vec::new();
+    }
+    let step = 5.0_f64.to_radians();
+    let n = (angle / step).ceil() as usize;
+    if n < 2 {
+        return Vec::new();
+    }
+    (1..n)
+        .map(|i| {
+            let t = i as f64 / n as f64;
+            geo_interpolate(from.0, from.1, to.0, to.1, t)
+        })
+        .collect()
+}
+
+/// Cut a polygon ring along the antimeridian in the projection's rotated frame.
+pub(super) fn antimeridian_clip_ring(ring: &[(f64, f64)], rotation: &SphereRotation) -> Vec<Vec<(f64, f64)>> {
+    let rotated: Vec<(f64, f64)> = ring
+        .iter()
+        .map(|&(lon, lat)| rotate_point_deg(rotation, lon, lat))
+        .collect();
+
+    let pieces = cut_ring_at_antimeridian(&rotated, 0.0);
+
+    pieces
+        .into_iter()
+        .map(|mut piece| {
+            for p in &mut piece {
+                *p = unrotate_point_deg(rotation, p.0, p.1);
+            }
+
+            // Close clipped pieces along the antimeridian great circle. This is
+            // especially important for conic projections, where the antimeridian
+            // projects to a curved seam rather than a vertical line.
+            if piece.len() >= 2 {
+                let first_geo = piece[0];
+                let last_geo = piece[piece.len() - 1];
+                let first_rot = rotate_point_deg(rotation, first_geo.0, first_geo.1);
+                let last_rot = rotate_point_deg(rotation, last_geo.0, last_geo.1);
+                if is_antimeridian_boundary(first_rot.0, 0.0)
+                    && is_antimeridian_boundary(last_rot.0, 0.0)
+                    && (first_geo.0 != last_geo.0 || first_geo.1 != last_geo.1)
+                {
+                    let arc = sample_antimeridian_arc(last_geo, first_geo);
+                    piece.extend(arc);
+                }
+            }
+
+            piece
+        })
+        .collect()
+}
+
+/// Cut an open polyline along the antimeridian in the projection's rotated frame.
+pub(super) fn antimeridian_clip_line(line: &[(f64, f64)], rotation: &SphereRotation) -> Vec<Vec<(f64, f64)>> {
+    let rotated: Vec<(f64, f64)> = line
+        .iter()
+        .map(|&(lon, lat)| rotate_point_deg(rotation, lon, lat))
+        .collect();
+
+    let pieces = cut_line_at_antimeridian(&rotated, 0.0);
+
+    pieces
+        .into_iter()
+        .map(|mut piece| {
+            for p in &mut piece {
+                *p = unrotate_point_deg(rotation, p.0, p.1);
+            }
+            piece
+        })
+        .collect()
+}
+
+/// Geographic center of the projection's spherical clip cap. This is the point
+/// that the projection rotates to the origin.
+fn clip_center_geo(rotate: (f64, f64, f64)) -> (f64, f64) {
+    let rotation = SphereRotation::from_degrees(rotate.0, rotate.1, rotate.2);
+    let (lambda, phi) = rotation.invert(0.0, 0.0);
+    (degrees(lambda), degrees(phi))
+}
+
+// ---------------------------------------------------------------------------
+// Planar clip-circle clipping for azimuthal projections
+// ---------------------------------------------------------------------------
+
+/// Compute the projected center and radius of the spherical clip cap for an
+/// azimuthal projection. The clip boundary is a circle in the projected plane.
+fn planar_clip_circle<P: Projection>(
+    projection: &P,
+    clip_angle_deg: f64,
+) -> Option<((f64, f64), f64)> {
+    let rotate = projection.rotate();
+    let rotation = SphereRotation::from_degrees(rotate.0, rotate.1, rotate.2);
+
+    let (cl, cp) = rotation.invert(0.0, 0.0);
+    let center_geo = (degrees(cl), degrees(cp));
+    let center_proj = projection.project(center_geo.0, center_geo.1);
+
+    let (bl, bp) = rotation.invert(radians(clip_angle_deg), 0.0);
+    let boundary_geo = (degrees(bl), degrees(bp));
+    let boundary_proj = projection.project(boundary_geo.0, boundary_geo.1);
+
+    let dx = boundary_proj.0 - center_proj.0;
+    let dy = boundary_proj.1 - center_proj.1;
+    let radius = (dx * dx + dy * dy).sqrt();
+
+    if !radius.is_finite() || radius <= 0.0 {
+        return None;
+    }
+
+    Some((center_proj, radius))
+}
+
+fn dist2(a: (f64, f64), b: (f64, f64)) -> f64 {
+    let dx = a.0 - b.0;
+    let dy = a.1 - b.1;
+    dx * dx + dy * dy
+}
+
+fn circle_segment_intersection(
+    p1: (f64, f64),
+    p2: (f64, f64),
+    c: (f64, f64),
+    r: f64,
+) -> (f64, f64) {
+    let dx = p2.0 - p1.0;
+    let dy = p2.1 - p1.1;
+    let fx = p1.0 - c.0;
+    let fy = p1.1 - c.1;
+
+    let a = dx * dx + dy * dy;
+    let b = 2.0 * (fx * dx + fy * dy);
+    let d_val = fx * fx + fy * fy - r * r;
+
+    if a.abs() < 1e-18 {
+        return p1;
+    }
+
+    let discriminant = b * b - 4.0 * a * d_val;
+    if discriminant < 0.0 {
+        // No real intersection; return midpoint.
+        return ((p1.0 + p2.0) / 2.0, (p1.1 + p2.1) / 2.0);
+    }
+    let sqrt_disc = discriminant.sqrt();
+    let t1 = (-b - sqrt_disc) / (2.0 * a);
+    let t2 = (-b + sqrt_disc) / (2.0 * a);
+
+    let t = if t1 >= 0.0 && t1 <= 1.0 {
+        t1
+    } else {
+        t2
+    };
+    (p1.0 + t * dx, p1.1 + t * dy)
+}
+
+fn sample_circle_arc(
+    from: (f64, f64),
+    to: (f64, f64),
+    center: (f64, f64),
+) -> Vec<(f64, f64)> {
+    let a1 = (from.1 - center.1).atan2(from.0 - center.0);
+    let a2 = (to.1 - center.1).atan2(to.0 - center.0);
+    let mut delta = a2 - a1;
+    if delta > PI {
+        delta -= 2.0 * PI;
+    } else if delta < -PI {
+        delta += 2.0 * PI;
+    }
+
+    let step = 5.0_f64.to_radians();
+    let n = (delta.abs() / step).ceil() as usize;
+    if n < 2 {
+        return Vec::new();
+    }
+
+    let r = dist2(from, center).sqrt();
+    (1..n)
+        .map(|i| {
+            let t = i as f64 / n as f64;
+            let angle = a1 + t * delta;
+            (center.0 + r * angle.cos(), center.1 + r * angle.sin())
+        })
+        .collect()
+}
+
+/// Clip a polygon ring to a planar circle. Returns zero or more closed pieces in
+/// projected coordinates.
+fn clip_polygon_to_circle(
+    ring: &[(f64, f64)],
+    projected: &[(f64, f64)],
+    center: (f64, f64),
+    radius: f64,
+) -> Vec<Vec<(f64, f64)>> {
+    if ring.len() < 3 || projected.len() != ring.len() {
+        return Vec::new();
+    }
+
+    let r2 = radius * radius;
+    let eps = 1e-9 * radius.max(1.0);
+
+    let mut pieces: Vec<Vec<(f64, f64)>> = Vec::new();
+    let mut current: Option<Vec<(f64, f64)>> = None;
+
+    let n = ring.len();
+    for i in 0..n {
+        let p1 = projected[i];
+        let p2 = projected[(i + 1) % n];
+        let d1 = dist2(p1, center);
+        let d2 = dist2(p2, center);
+        let v1 = d1 <= r2 + eps;
+        let v2 = d2 <= r2 + eps;
+
+        match (v1, v2) {
+            (true, true) => {
+                if let Some(c) = current.as_mut() {
+                    c.push(p2);
+                } else {
+                    current = Some(vec![p1, p2]);
+                }
+            }
+            (true, false) => {
+                let ix = circle_segment_intersection(p1, p2, center, radius);
+                if let Some(mut c) = current.take() {
+                    c.push(ix);
+                    pieces.push(c);
+                }
+            }
+            (false, true) => {
+                let ix = circle_segment_intersection(p1, p2, center, radius);
+                current = Some(vec![ix, p2]);
+            }
+            (false, false) => {}
+        }
+    }
+
+    if let Some(c) = current.take() {
+        pieces.push(c);
+    }
+
+    for piece in &mut pieces {
+        if piece.len() >= 2 {
+            let first = piece[0];
+            let last = piece[piece.len() - 1];
+            if (dist2(first, center) - r2).abs() <= eps
+                && (dist2(last, center) - r2).abs() <= eps
+                && (first.0 != last.0 || first.1 != last.1)
+            {
+                let arc = sample_circle_arc(last, first, center);
+                piece.extend(arc);
+            }
+        }
+    }
+
+    pieces.retain(|p| p.len() >= 3);
+    pieces
+}
+
+/// Clip an open polyline to a planar circle. Returns contiguous pieces in
+/// projected coordinates.
+fn clip_line_to_circle(
+    line: &[(f64, f64)],
+    projected: &[(f64, f64)],
+    center: (f64, f64),
+    radius: f64,
+) -> Vec<Vec<(f64, f64)>> {
+    if line.len() < 2 || projected.len() != line.len() {
+        return Vec::new();
+    }
+
+    let r2 = radius * radius;
+    let eps = 1e-9 * radius.max(1.0);
+
+    let mut pieces: Vec<Vec<(f64, f64)>> = Vec::new();
+    let mut current: Option<Vec<(f64, f64)>> = None;
+
+    for i in 0..line.len() - 1 {
+        let p1 = projected[i];
+        let p2 = projected[i + 1];
+        let d1 = dist2(p1, center);
+        let d2 = dist2(p2, center);
+        let v1 = d1 <= r2 + eps;
+        let v2 = d2 <= r2 + eps;
+
+        match (v1, v2) {
+            (true, true) => {
+                if let Some(c) = current.as_mut() {
+                    c.push(p2);
+                } else {
+                    current = Some(vec![p1, p2]);
+                }
+            }
+            (true, false) => {
+                let ix = circle_segment_intersection(p1, p2, center, radius);
+                if let Some(mut c) = current.take() {
+                    c.push(ix);
+                    pieces.push(c);
+                }
+            }
+            (false, true) => {
+                let ix = circle_segment_intersection(p1, p2, center, radius);
+                current = Some(vec![ix, p2]);
+            }
+            (false, false) => {}
+        }
+    }
+
+    if let Some(c) = current.take() {
+        pieces.push(c);
+    }
+
+    pieces.retain(|p| p.len() >= 2);
+    pieces
 }

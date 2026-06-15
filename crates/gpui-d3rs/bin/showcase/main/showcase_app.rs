@@ -14,6 +14,26 @@ use gpui_ui_kit::theme::ThemeExt;
 use std::cell::RefCell;
 use std::rc::Rc;
 
+#[cfg(feature = "profiler")]
+use gpui_profiler::{AllocProbe, AllocSnapshot};
+
+/// No-op snapshot/probe used when the `profiler` feature is disabled.
+#[cfg(not(feature = "profiler"))]
+#[derive(Debug, Clone, Copy, Default)]
+struct AllocSnapshot {
+    pub bytes: usize,
+    pub count: usize,
+}
+
+#[cfg(not(feature = "profiler"))]
+struct AllocProbe;
+
+#[cfg(not(feature = "profiler"))]
+impl AllocProbe {
+    fn new() -> Self { Self }
+    fn sample(&mut self, _label: &str) -> AllocSnapshot { AllocSnapshot::default() }
+}
+
 pub struct ShowcaseApp {
     pub current_section: DemoSection,
     // Available content dimensions (updated each render from window bounds)
@@ -78,6 +98,12 @@ pub struct ShowcaseApp {
     // Dragging state
     pub is_dragging: bool,
     pub last_mouse_pos: Option<Point<Pixels>>,
+    // Allocation probe for tracking heap allocations during interactive events.
+    alloc_probe: AllocProbe,
+    last_render_alloc: AllocSnapshot,
+    last_mouse_move_alloc: AllocSnapshot,
+    last_sample: Option<(String, AllocSnapshot)>,
+    last_window_size: Option<Size<Pixels>>,
     // Snapshot state
     pub snapshot_mode: bool,
     pub snapshot_list: Vec<DemoSection>,
@@ -169,11 +195,23 @@ impl ShowcaseApp {
             use_large_data: false,
             is_dragging: false,
             last_mouse_pos: None,
+            alloc_probe: AllocProbe::new(),
+            last_render_alloc: AllocSnapshot::default(),
+            last_mouse_move_alloc: AllocSnapshot::default(),
+            last_sample: None,
+            last_window_size: None,
             snapshot_mode,
             snapshot_list: DemoSection::all(),
             snapshot_index: 0,
             snapshot_wait_frames: 3, // Wait 60 frames initially
         }
+    }
+
+    /// Sample allocations and remember the result as the most recent sample.
+    fn record_sample(&mut self, label: &str) -> AllocSnapshot {
+        let delta = self.alloc_probe.sample(label);
+        self.last_sample = Some((label.to_string(), delta));
+        delta
     }
 
     pub(super) fn solve_layout(&self, w: f32, h: f32) -> f32 {
@@ -456,6 +494,66 @@ impl ShowcaseApp {
             .p(px(ds.spacing.section_gap * 2.0))
             .child(content)
     }
+
+    /// Small in-UI overlay showing the last measured allocation deltas.
+    pub(super) fn render_alloc_overlay(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = cx.theme();
+        let ds = cx.design();
+        let render_ok = self.last_render_alloc.count == 0;
+        let mouse_ok = self.last_mouse_move_alloc.count == 0;
+        let last_ok = self
+            .last_sample
+            .as_ref()
+            .map_or(true, |(_, s)| s.count == 0);
+
+        div()
+            .id("alloc-overlay")
+            .absolute()
+            .top(px(ds.spacing.section_gap))
+            .right(px(ds.spacing.section_gap))
+            .p_3()
+            .rounded_md()
+            .border_1()
+            .border_color(theme.border)
+            .bg(if render_ok && mouse_ok && last_ok {
+                theme.surface
+            } else {
+                theme.error
+            })
+            .text_color(if render_ok && mouse_ok && last_ok {
+                theme.text_primary
+            } else {
+                theme.text_on_accent
+            })
+            .shadow_lg()
+            .flex()
+            .flex_col()
+            .gap_1()
+            .child(
+                div()
+                    .text_size(px(ds.typography.small_size * 0.85))
+                    .child(format!(
+                        "render: {} bytes / {} allocs",
+                        self.last_render_alloc.bytes, self.last_render_alloc.count
+                    )),
+            )
+            .child(
+                div()
+                    .text_size(px(ds.typography.small_size * 0.85))
+                    .child(format!(
+                        "mouse: {} bytes / {} allocs",
+                        self.last_mouse_move_alloc.bytes, self.last_mouse_move_alloc.count
+                    )),
+            )
+            .children(self.last_sample.as_ref().map(|(label, snapshot)| {
+                div()
+                    .text_size(px(ds.typography.small_size * 0.85))
+                    .child(format!(
+                        "last ({label}): {} bytes / {} allocs",
+                        snapshot.bytes, snapshot.count
+                    ))
+            }))
+    }
 }
 
 impl Render for ShowcaseApp {
@@ -538,16 +636,44 @@ impl Render for ShowcaseApp {
         let bounds = window.bounds();
         let w: f32 = bounds.size.width.into();
         let h: f32 = bounds.size.height.into();
+
+        // Detect window resize and sample allocations triggered by it.
+        let resized = self
+            .last_window_size
+            .map_or(false, |last| last != bounds.size);
+        self.last_window_size = Some(bounds.size);
+        if resized {
+            self.record_sample("resize");
+        }
+
         let sidebar_width = self.solve_layout(w, h);
         let ds = cx.design();
         self.content_width = (w - sidebar_width - ds.spacing.section_gap * 4.0).max(400.0);
         self.content_height = (h - ds.spacing.section_gap * 4.0).max(300.0);
 
-        div()
+        let result = div()
+            .id("d3rs-showcase-root")
+            .relative()
             .size_full()
             .flex()
             .flex_row()
+            .on_mouse_move(cx.listener(|this, _event, _window, _cx| {
+                this.last_mouse_move_alloc = this.record_sample("mouse-move");
+            }))
+            .on_mouse_down(MouseButton::Left, cx.listener(|this, _event, _window, _cx| {
+                this.record_sample("mouse-down");
+            }))
+            .on_mouse_up(MouseButton::Left, cx.listener(|this, _event, _window, _cx| {
+                this.record_sample("mouse-up");
+            }))
+            .on_scroll_wheel(cx.listener(|this, _event, _window, _cx| {
+                this.record_sample("scroll");
+            }))
             .child(self.render_sidebar(sidebar_width, cx))
             .child(self.render_content(cx))
+            .child(self.render_alloc_overlay(cx));
+
+        self.last_render_alloc = self.record_sample("render");
+        result
     }
 }

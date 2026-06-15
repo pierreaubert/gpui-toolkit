@@ -7,7 +7,10 @@ fn test_element() -> Surface3DElement {
 }
 
 fn test_bounds() -> Bounds<gpui::Pixels> {
-    Bounds::new(Point::new(px(0.0), px(0.0)), Size::new(px(100.0), px(100.0)))
+    Bounds::new(
+        Point::new(px(0.0), px(0.0)),
+        Size::new(px(100.0), px(100.0)),
+    )
 }
 
 #[test]

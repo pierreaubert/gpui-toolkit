@@ -10,7 +10,7 @@ use super::super::projection::{
 use super::misc::format_tick_value;
 use super::projection_impl::ProjectionImpl;
 use super::surface_config::SurfaceConfig;
-use crate::text::{paint_chart_text_at, GlyphTextConfig, HorizontalTextAnchor, VerticalTextAnchor};
+use crate::text::{GlyphTextConfig, HorizontalTextAnchor, VerticalTextAnchor, paint_chart_text_at};
 use gpui::prelude::*;
 use gpui::*;
 use std::collections::hash_map::DefaultHasher;

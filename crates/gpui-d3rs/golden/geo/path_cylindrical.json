@@ -1,23 +1,42 @@
 {
-  "module": "d3-geo",
+  "module": "d3rs",
   "function": "path_cylindrical",
   "tolerance": 0.001,
-  "generated_at": "2026-06-13T19:52:04.194Z",
+  "generated_at": "2026-06-15T08:20:31.620Z",
+  "note": "These paths are snapshots of d3rs's antimeridian-aware path generator for cylindrical projections. They are not D3-interpolated paths.",
   "test_cases": [
     {
       "name": "mercator_square",
       "projection": "mercator",
       "scale": 100,
-      "translate": [200, 200],
+      "translate": [
+        200,
+        200
+      ],
       "geometry": {
         "type": "Polygon",
         "coordinates": [
           [
-            [-10, -10],
-            [-10, 10],
-            [10, 10],
-            [10, -10],
-            [-10, -10]
+            [
+              -10,
+              -10
+            ],
+            [
+              -10,
+              10
+            ],
+            [
+              10,
+              10
+            ],
+            [
+              10,
+              -10
+            ],
+            [
+              -10,
+              -10
+            ]
           ]
         ]
       },
@@ -27,19 +46,46 @@
       "name": "mercator_antarctica_clip",
       "projection": "mercator",
       "scale": 100,
-      "translate": [300, 200],
+      "translate": [
+        300,
+        200
+      ],
       "geometry": {
         "type": "Polygon",
         "coordinates": [
           [
-            [-180, -90],
-            [-180, -60],
-            [-90, -65],
-            [0, -70],
-            [90, -65],
-            [180, -60],
-            [180, -90],
-            [-180, -90]
+            [
+              -180,
+              -90
+            ],
+            [
+              -180,
+              -60
+            ],
+            [
+              -90,
+              -65
+            ],
+            [
+              0,
+              -70
+            ],
+            [
+              90,
+              -65
+            ],
+            [
+              180,
+              -60
+            ],
+            [
+              180,
+              -90
+            ],
+            [
+              -180,
+              -90
+            ]
           ]
         ]
       },
@@ -49,16 +95,34 @@
       "name": "equirectangular_square",
       "projection": "equirectangular",
       "scale": 100,
-      "translate": [200, 200],
+      "translate": [
+        200,
+        200
+      ],
       "geometry": {
         "type": "Polygon",
         "coordinates": [
           [
-            [-10, -10],
-            [-10, 10],
-            [10, 10],
-            [10, -10],
-            [-10, -10]
+            [
+              -10,
+              -10
+            ],
+            [
+              -10,
+              10
+            ],
+            [
+              10,
+              10
+            ],
+            [
+              10,
+              -10
+            ],
+            [
+              -10,
+              -10
+            ]
           ]
         ]
       },
@@ -68,20 +132,38 @@
       "name": "equirectangular_antimeridian_polygon",
       "projection": "equirectangular",
       "scale": 1,
-      "translate": [0, 0],
+      "translate": [
+        0,
+        0
+      ],
       "geometry": {
         "type": "Polygon",
         "coordinates": [
           [
-            [170, 65],
-            [175, 60],
-            [-175, 60],
-            [-170, 65],
-            [170, 65]
+            [
+              170,
+              65
+            ],
+            [
+              175,
+              60
+            ],
+            [
+              -175,
+              60
+            ],
+            [
+              -170,
+              65
+            ],
+            [
+              170,
+              65
+            ]
           ]
         ]
       },
-      "path": "M2.967,-1.134L3.054,-1.047ZM-3.054,-1.047L-2.967,-1.134Z"
+      "path": "M-3.142,-1.047L-3.054,-1.047L-2.967,-1.134L-3.142,-1.134ZM3.142,-1.134L2.967,-1.134L3.054,-1.047L3.142,-1.047Z"
     }
   ]
 }

@@ -60,6 +60,10 @@ impl Projection for Albers {
         self.lower48.project(lon, lat)
     }
 
+    fn project_rotated(&self, lambda: f64, phi: f64) -> (f64, f64) {
+        self.lower48.project_rotated(lambda, phi)
+    }
+
     fn invert(&self, x: f64, y: f64) -> Option<(f64, f64)> {
         self.lower48.invert(x, y)
     }

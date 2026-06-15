@@ -1,3 +1,38 @@
+# 0.8.0
+
+## Breaking Changes
+
+- Corrected geographic projection `center()` semantics to match D3.js:
+  `.center(lon, lat)` is now applied as a **post-projection planar offset**,
+  not as a pre-projection angular offset. Mercator, Orthographic,
+  Stereographic, and Transverse Mercator projections with non-zero centers now
+  produce different (correct) results.
+
+## Features
+
+- Added JS golden generator `golden/geo/generate_projections_angles.js` and
+  generated `golden/geo/projections_angles.json`.
+- Added Rust golden test `test_geo_projections_angles_golden` covering all five
+  geographic projections at varied center and rotation angles.
+
+## Fixes
+
+- Fixed Mercator, Orthographic, Stereographic, and Transverse Mercator
+  projections for non-zero centers and rotations.
+- Fixed Conic Equal-Area inverse projection to use proper rotation inversion
+  and the planar center offset.
+- Removed the static geographic clip rectangle from Mercator and
+  Equirectangular projections. Mercator now clamps input latitude to the Web
+  Mercator limit to keep projected y finite. This eliminates diagonal closing
+  chords and blank strips when cylindrical projections are rotated or centered.
+- `GeoPath` no longer draws a redundant closing edge for polygon rings whose
+  last vertex duplicates the first.
+- Improved `GeoPath` antimeridian handling for cylindrical projections: rings
+  are cut at periodic boundary crossings, full-width polar caps keep their
+  boundary edges, and each sub-piece is normalized to the visible world copy.
+  This removes horizontal closing chords across rotated or centered maps while
+  preserving fills down to the Mercator pole clamp.
+
 # 0.7.4
 
 ## Features

@@ -177,8 +177,8 @@ pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                      {
                                          let world_data = get_world_data(use_large_data);
                                          let continents_svg = match current_projection {
-                                              GeoProjectionType::Mercator => { let p = Mercator::new().scale(scale).translate(center_x, center_y).rotate(rotation_lon, rotation_lat, 0.0); GeoPath::new(p).render(world_data) },
-                                              GeoProjectionType::Equirectangular => { let p = Equirectangular::new().scale(scale).translate(center_x, center_y).rotate(rotation_lon, rotation_lat, 0.0); GeoPath::new(p).render(world_data) },
+                                              GeoProjectionType::Mercator => { let p = Mercator::new().scale(scale).translate(center_x, center_y).center(rotation_lon, rotation_lat); GeoPath::new(p).render(world_data) },
+                                              GeoProjectionType::Equirectangular => { let p = Equirectangular::new().scale(scale).translate(center_x, center_y).center(rotation_lon, rotation_lat); GeoPath::new(p).render(world_data) },
                                               GeoProjectionType::Orthographic => { let p = Orthographic::new().scale(scale).translate(center_x, center_y).rotate(rotation_lon, rotation_lat, 0.0); GeoPath::new(p).render(world_data) },
                                               GeoProjectionType::Stereographic => { let p = Stereographic::new().scale(scale).translate(center_x, center_y).rotate(rotation_lon, rotation_lat, 0.0); GeoPath::new(p).render(world_data) },
                                               GeoProjectionType::ConicEqualArea => { let p = ConicEqualArea::new().scale(scale).translate(center_x, center_y + 50.0).center(0.0, 30.0).rotate(rotation_lon, rotation_lat, 0.0); GeoPath::new(p).render(world_data) },
@@ -238,8 +238,8 @@ pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                     let graticule = Graticule::new().step([30.0, 30.0]);
                                     for line in graticule.lines() {
                                         let grid_svg = match current_projection {
-                                              GeoProjectionType::Mercator => { let p = Mercator::new().scale(scale).translate(center_x, center_y).rotate(rotation_lon, rotation_lat, 0.0); GeoPath::new(p).render(&d3rs::geo::GeoJsonGeometry::LineString(line)) },
-                                              GeoProjectionType::Equirectangular => { let p = Equirectangular::new().scale(scale).translate(center_x, center_y).rotate(rotation_lon, rotation_lat, 0.0); GeoPath::new(p).render(&d3rs::geo::GeoJsonGeometry::LineString(line)) },
+                                              GeoProjectionType::Mercator => { let p = Mercator::new().scale(scale).translate(center_x, center_y).center(rotation_lon, rotation_lat); GeoPath::new(p).render(&d3rs::geo::GeoJsonGeometry::LineString(line)) },
+                                              GeoProjectionType::Equirectangular => { let p = Equirectangular::new().scale(scale).translate(center_x, center_y).center(rotation_lon, rotation_lat); GeoPath::new(p).render(&d3rs::geo::GeoJsonGeometry::LineString(line)) },
                                               GeoProjectionType::Orthographic => { let p = Orthographic::new().scale(scale).translate(center_x, center_y).rotate(rotation_lon, rotation_lat, 0.0); GeoPath::new(p).render(&d3rs::geo::GeoJsonGeometry::LineString(line)) },
                                               GeoProjectionType::Stereographic => { let p = Stereographic::new().scale(scale).translate(center_x, center_y).rotate(rotation_lon, rotation_lat, 0.0); GeoPath::new(p).render(&d3rs::geo::GeoJsonGeometry::LineString(line)) },
                                               GeoProjectionType::ConicEqualArea => { let p = ConicEqualArea::new().scale(scale).translate(center_x, center_y + 50.0).center(0.0, 30.0).rotate(rotation_lon, rotation_lat, 0.0); GeoPath::new(p).render(&d3rs::geo::GeoJsonGeometry::LineString(line)) },
@@ -517,14 +517,14 @@ fn project_point(
             let proj = Mercator::new()
                 .scale(scale)
                 .translate(center_x, center_y)
-                .rotate(rotation_lon, rotation_lat, 0.0);
+                .center(rotation_lon, rotation_lat);
             proj.project(lon, lat)
         }
         GeoProjectionType::Equirectangular => {
             let proj = Equirectangular::new()
                 .scale(scale)
                 .translate(center_x, center_y)
-                .rotate(rotation_lon, rotation_lat, 0.0);
+                .center(rotation_lon, rotation_lat);
             proj.project(lon, lat)
         }
         GeoProjectionType::Orthographic => {
