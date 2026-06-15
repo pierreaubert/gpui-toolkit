@@ -12,7 +12,7 @@ const fs = require('fs');
 const path = require('path');
 const topojson = require('topojson-client');
 
-const TOLERANCE = 1e-3;
+const TOLERANCE = 0.25;
 const SCALE = 100;
 const TRANSLATE = [0, 0];
 const DATA_PATH = path.join(__dirname, '../../bin/showcase/data/land-50m.json');

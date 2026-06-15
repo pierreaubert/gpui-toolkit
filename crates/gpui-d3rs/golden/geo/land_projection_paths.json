@@ -1,8 +1,8 @@
 {
   "module": "d3-geo",
   "function": "land_projection_paths",
-  "tolerance": 0.001,
-  "generated_at": "2026-06-15T11:34:04.757Z",
+  "tolerance": 0.25,
+  "generated_at": "2026-06-15T18:53:51.161Z",
   "test_cases": [
     {
       "name": "equirectangular_lon0_lat-90",

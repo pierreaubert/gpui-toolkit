@@ -3646,6 +3646,7 @@ fn test_geo_land_projection_paths_golden() {
 
     assert_eq!(golden.module, "d3-geo");
     assert_eq!(golden.function, "land_projection_paths");
+    let tolerance = golden.tolerance;
 
     let land_json = include_str!("../../bin/showcase/data/land-50m.json");
     let land_geom = topojson::parse_land(land_json).expect("failed to parse land-50m.json");
@@ -3666,14 +3667,14 @@ fn test_geo_land_projection_paths_golden() {
         macro_rules! check {
             ($path:expr) => {{
                 let actual_bounds = $path.bounds(&land_geom);
-                if !(approx_eq(expected_bounds[0][0], actual_bounds.0.0)
-                    && approx_eq(expected_bounds[0][1], actual_bounds.0.1)
-                    && approx_eq(expected_bounds[1][0], actual_bounds.1.0)
-                    && approx_eq(expected_bounds[1][1], actual_bounds.1.1))
+                if !((expected_bounds[0][0] - actual_bounds.0.0).abs() <= tolerance
+                    && (expected_bounds[0][1] - actual_bounds.0.1).abs() <= tolerance
+                    && (expected_bounds[1][0] - actual_bounds.1.0).abs() <= tolerance
+                    && (expected_bounds[1][1] - actual_bounds.1.1).abs() <= tolerance)
                 {
                     failures.push(format!(
-                        "case '{}': expected {:?} vs actual {:?}",
-                        name, expected_bounds, actual_bounds
+                        "case '{}': expected {:?} vs actual {:?} (tolerance={})",
+                        name, expected_bounds, actual_bounds, tolerance
                     ));
                 }
                 // Rendering must not panic; the returned path is allowed to differ

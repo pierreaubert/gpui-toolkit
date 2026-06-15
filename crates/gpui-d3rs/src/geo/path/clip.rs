@@ -286,7 +286,7 @@ fn unrotate_point_deg(rotation: &SphereRotation, lambda: f64, phi: f64) -> (f64,
     let (lon, lat) = if phi.abs() > HALF_PI - POLE_SNAP_RAD {
         let (rot_lon, rot_phi) = rotation.rotate(lon, lat);
         let err = rot_lon - lambda;
-        eprintln!("pole snap: lambda={} phi={} inv=({},{}) rot=({},{}) err={} new_lon={}", lambda, phi, lon.to_degrees(), lat.to_degrees(), rot_lon.to_degrees(), rot_phi.to_degrees(), err.to_degrees(), (lon-err).to_degrees());
+        let _ = rot_phi;
         (lon - err, lat)
     } else {
         (lon, lat)
@@ -964,12 +964,6 @@ fn rejoin_segments(
     mut start_inside: bool,
     mut interpolate: impl FnMut((f64, f64), (f64, f64), f64, &mut Vec<(f64, f64)>),
 ) -> Vec<Vec<(f64, f64)>> {
-    if segments.len() <= 2 && segments.iter().map(|s| s.len()).sum::<usize>() < 10000 {
-        eprintln!("REJOIN segments={} start_inside={}", segments.len(), start_inside);
-        for (i,s) in segments.iter().enumerate() {
-            eprintln!("  seg{} len={} first={:?} last={:?}", i, s.len(), s.first().map(|p|(p[0],p[1])), s.last().map(|p|(p[0],p[1])));
-        }
-    }
     // segments are kept as [lambda, phi, m] so that intersection markers are
     // available; only the first two coordinates are used for geometry.
     if segments.is_empty() {
@@ -1155,7 +1149,6 @@ fn rejoin_segments(
 // -----------------------------------------------------------------------------
 
 fn interpolate_antimeridian(from: (f64, f64), to: (f64, f64), direction: f64, out: &mut Vec<(f64, f64)>) {
-    eprintln!("INTERPOLATE from=({:.4},{:.4}) to=({:.4},{:.4}) dir={}", from.0.to_degrees(), from.1.to_degrees(), to.0.to_degrees(), to.1.to_degrees(), direction);
     if (from.0 - to.0).abs() > EPSILON {
         let lambda = if from.0 < to.0 { PI } else { -PI };
         let phi = direction * lambda / 2.0;
@@ -1396,25 +1389,7 @@ pub fn clip_antimeridian_polygon(
     let mut output_rings: Vec<Vec<(f64, f64)>> = Vec::new();
     let mut all_segments: Vec<Vec<[f64; 3]>> = Vec::new();
 
-    // debug polygon 1379 rotated ring extrema
-    if rotated_rings.len() > 1 {
-        let outer = &rotated_rings[0];
-        let mut max_phi_neg = -1.0_f64;
-        let mut max_phi_pos = -1.0_f64;
-        let mut min_phi_neg = 1.0_f64;
-        let mut min_phi_pos = 1.0_f64;
-        for &(l,p) in outer {
-            if p < -80.0_f64.to_radians() {
-                if l < 0.0 && l > max_phi_neg { max_phi_neg = l; }
-                if l > 0.0 && l > max_phi_pos { max_phi_pos = l; }
-                if l < 0.0 && l < min_phi_neg { min_phi_neg = l; }
-                if l > 0.0 && l < min_phi_pos { min_phi_pos = l; }
-            }
-        }
-        println!("outer phi<-80 pos lambda range {:.4}..{:.4} neg {:.4}..{:.4}", min_phi_pos.to_degrees(), max_phi_pos.to_degrees(), min_phi_neg.to_degrees(), max_phi_neg.to_degrees());
-    }
-
-    for (ri, ring) in rotated_rings.iter().enumerate() {
+    for ring in &rotated_rings {
         let mut buffer = ClipBuffer::new();
         let clean = {
             let mut line = AntimeridianClipLine::new(&mut buffer);
@@ -1430,12 +1405,6 @@ pub fn clip_antimeridian_polygon(
         };
 
         let mut segments = buffer.result();
-        {
-            println!("ring{} raw segments before merge: {}", ri, segments.len());
-            for (si, s) in segments.iter().enumerate() {
-                println!("  raw seg{} len={} first=({:.4},{:.4}) last=({:.4},{:.4})", si, s.len(), s[0][0].to_degrees(), s[0][1].to_degrees(), s.last().unwrap()[0].to_degrees(), s.last().unwrap()[1].to_degrees());
-            }
-        }
         if !segments.is_empty() && (clean & 2) != 0 {
             let first = segments.remove(0);
             if let Some(last) = segments.last_mut() {
@@ -1450,12 +1419,6 @@ pub fn clip_antimeridian_polygon(
             let ring: Vec<(f64, f64)> = segments.pop().unwrap().into_iter().map(|p| (p[0], p[1])).collect();
             output_rings.push(ring);
         } else {
-            {
-                println!("ring{} after merge segments: {}", ri, segments.len());
-                for (si, s) in segments.iter().enumerate() {
-                    println!("  seg{} len={} first=({:.4},{:.4}) last=({:.4},{:.4})", si, s.len(), s[0][0].to_degrees(), s[0][1].to_degrees(), s.last().unwrap()[0].to_degrees(), s.last().unwrap()[1].to_degrees());
-                }
-            }
             all_segments.extend(segments.into_iter().filter(|s| s.len() > 1));
         }
     }
@@ -1558,19 +1521,9 @@ pub fn clip_circle_polygon(
 
         if (clean & 1) != 0 && !segments.is_empty() {
             let seg = segments.pop().unwrap();
-            println!("clean&1 seg len={} clean={}", seg.len(), clean);
             let ring: Vec<(f64, f64)> = seg.into_iter().map(|p| (p[0], p[1])).collect();
             output_rings.push(ring);
         } else {
-            let debug = rings[0].len() == 122;
-            if debug {
-                println!("segments for polygon93: {}", segments.len());
-                for (i, seg) in segments.iter().enumerate() {
-                    if seg.len() > 1 {
-                        println!("  seg {} len={} first={:?} last={:?}", i, seg.len(), seg.first(), seg.last());
-                    }
-                }
-            }
             all_segments.extend(segments.into_iter().filter(|s| s.len() > 1));
         }
     }

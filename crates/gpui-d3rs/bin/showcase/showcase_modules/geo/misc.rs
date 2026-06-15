@@ -165,13 +165,7 @@ pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                             canvas(
                                 move |bounds, _, _| bounds,
                                 move |bounds, _, window, _| {
-                                    let scale = match current_projection {
-                                        GeoProjectionType::Mercator => map_height / 3.0,
-                                        GeoProjectionType::Equirectangular => map_height / 2.0,
-                                        GeoProjectionType::Orthographic => map_height / 2.5,
-                                        GeoProjectionType::Stereographic => map_height / 4.0,
-                                        GeoProjectionType::ConicEqualArea => map_height / 4.5,
-                                    };
+                                    let scale = projection_scale(current_projection, map_height);
 
                                      // 1. Draw Continents (Fill)
                                      {
@@ -504,13 +498,7 @@ fn project_point(
     //
     // For now, we delegate visibility filtering to the caller or accept that points might wrap around.
 
-    let scale = match proj_type {
-        GeoProjectionType::Mercator => map_height / 3.0,
-        GeoProjectionType::Equirectangular => map_height / 2.0,
-        GeoProjectionType::Orthographic => map_height / 2.5,
-        GeoProjectionType::Stereographic => map_height / 4.0,
-        GeoProjectionType::ConicEqualArea => map_height / 4.5,
-    };
+    let scale = projection_scale(proj_type, map_height);
 
     let (x, y) = match proj_type {
         GeoProjectionType::Mercator => {
@@ -532,6 +520,9 @@ fn project_point(
                 .scale(scale)
                 .translate(center_x, center_y)
                 .rotate(rotation_lon, rotation_lat, 0.0);
+            if !proj.is_visible(lon, lat) {
+                return None;
+            }
             proj.project(lon, lat)
         }
         GeoProjectionType::Stereographic => {
@@ -539,6 +530,9 @@ fn project_point(
                 .scale(scale)
                 .translate(center_x, center_y)
                 .rotate(rotation_lon, rotation_lat, 0.0);
+            if !proj.is_visible(lon, lat) {
+                return None;
+            }
             proj.project(lon, lat)
         }
         GeoProjectionType::ConicEqualArea => {
@@ -557,6 +551,22 @@ fn project_point(
         Some((x, y))
     } else {
         None
+    }
+}
+
+fn projection_scale(proj_type: GeoProjectionType, map_height: f64) -> f64 {
+    match proj_type {
+        GeoProjectionType::Mercator => map_height / 3.0,
+        GeoProjectionType::Equirectangular => map_height / 2.0,
+        GeoProjectionType::Orthographic => map_height / 2.5,
+        GeoProjectionType::Stereographic => {
+            let clip_angle = Stereographic::new()
+                .clip_angle()
+                .unwrap_or(142.0)
+                .to_radians();
+            (map_height * 0.46) / (clip_angle / 2.0).tan()
+        }
+        GeoProjectionType::ConicEqualArea => map_height / 4.5,
     }
 }
 
