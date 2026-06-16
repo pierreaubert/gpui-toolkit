@@ -1,17 +1,45 @@
+use super::ShowcaseApp;
 use d3rs::prelude::*;
 use d3rs::surface::{ColorScaleType, SurfaceConfig, SurfaceData, render_surface};
 use gpui::*;
 use gpui_ui_kit::theme::ThemeExt;
 
-pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
-    let ui_theme = cx.theme();
-    let width = app.content_width;
-    let height = (width * 0.56).min(app.content_height * 0.6);
+/// Parameters that determine the generated surface data.
+///
+/// The surface functions and ranges are fixed, so the key currently only
+/// captures the grid resolutions. If the analytic functions are ever changed,
+/// additional fields should be added here and to [`SURFACE_PLOT_CACHE_KEY`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SurfacePlotCacheKey {
+    pub freq_response_res: usize,
+    pub freq_2d_res: usize,
+    pub spectral_res: usize,
+}
+
+/// The current surface-plot generation parameters.
+pub const SURFACE_PLOT_CACHE_KEY: SurfacePlotCacheKey = SurfacePlotCacheKey {
+    freq_response_res: 80,
+    freq_2d_res: 40,
+    spectral_res: 60,
+};
+
+/// Cached surface data for the surface-plots showcase.
+///
+/// The data is generated from fixed analytic functions, so it can be computed
+/// once and reused across renders and resizes.
+pub struct SurfacePlotCache {
+    pub key: SurfacePlotCacheKey,
+    pub freq_response: SurfaceData,
+    pub freq_2d: SurfaceData,
+    pub spectral: SurfaceData,
+}
+
+pub fn build_surface_plot_cache(key: SurfacePlotCacheKey) -> SurfacePlotCache {
     // Logarithmic frequency response surface (20 Hz to 20 kHz)
     let freq_response = SurfaceData::from_z_function_logx(
-        (20.0, 20000.0), // X: Frequency (logarithmic)
-        (0.0, 1.0),      // Y: Time/Channel (linear)
-        80,              // Resolution
+        (20.0, 20000.0),       // X: Frequency (logarithmic)
+        (0.0, 1.0),            // Y: Time/Channel (linear)
+        key.freq_response_res, // Resolution
         |freq, time| {
             // Simulated frequency response with rolloffs and time variation
             let base_response = if freq < 100.0 {
@@ -33,7 +61,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
     let freq_2d = SurfaceData::from_z_function_logxy(
         (100.0, 10000.0), // X: Frequency 1 (log)
         (100.0, 10000.0), // Y: Frequency 2 (log)
-        40,
+        key.freq_2d_res,
         |fx, fy| {
             // Interaction between two frequency components
             let product = (fx * fy).sqrt();
@@ -54,7 +82,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
     let spectral = SurfaceData::from_z_function_logy(
         (0.0, 1.0),      // X: Time (linear)
         (20.0, 20000.0), // Y: Frequency (log)
-        60,
+        key.spectral_res,
         |time, freq| {
             // Simulated spectrogram data
             let fundamental = 440.0; // A4 note
@@ -70,6 +98,26 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
             energy * (1.0 - 0.7 * time)
         },
     );
+
+    SurfacePlotCache {
+        key,
+        freq_response,
+        freq_2d,
+        spectral,
+    }
+}
+
+pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
+    let ui_theme = cx.theme();
+    let width = app.content_width;
+    let height = (width * 0.56).min(app.content_height * 0.6);
+
+    // Ensure data is cached locally so render never falls back to generation.
+    app.ensure_surface_plot_cache();
+    let cache = app.surface_plot_cache.as_ref().unwrap();
+    let freq_response = &cache.freq_response;
+    let freq_2d = &cache.freq_2d;
+    let spectral = &cache.spectral;
 
     div()
         .flex()
@@ -123,7 +171,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                         .border_color(ui_theme.border)
                         .child(
                             render_surface(
-                                &freq_response,
+                                freq_response,
                                 SurfaceConfig::new()
                                     .isometric()
                                     .rotation(30.0, 45.0)
@@ -187,7 +235,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                         .border_color(ui_theme.border)
                         .child(
                             render_surface(
-                                &freq_2d,
+                                freq_2d,
                                 SurfaceConfig::new()
                                     .isometric()
                                     .rotation(35.0, 50.0)
@@ -251,7 +299,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                         .border_color(ui_theme.border)
                         .child(
                             render_surface(
-                                &spectral,
+                                spectral,
                                 SurfaceConfig::new()
                                     .isometric()
                                     .rotation(25.0, 40.0)
@@ -306,9 +354,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                     div()
                         .text_xs()
                         .mt_2()
-                        .child("Available methods: from_function_logx(), from_function_logy(), from_function_logxy()"),
+                        .child("Available methods: from_z_function_logx(), from_z_function_logy(), from_z_function_logxy()"),
                 ),
         )
 }
-
-use super::ShowcaseApp;

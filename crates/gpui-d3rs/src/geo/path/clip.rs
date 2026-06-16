@@ -162,8 +162,18 @@ fn resample_line_to(
 
             if split {
                 resample_line_to(
-                    x0, y0, lambda0, a0, b0, c0,
-                    x2, y2, lambda2, a, b, c,
+                    x0,
+                    y0,
+                    lambda0,
+                    a0,
+                    b0,
+                    c0,
+                    x2,
+                    y2,
+                    lambda2,
+                    a,
+                    b,
+                    c,
                     depth - 1,
                     project,
                     delta2,
@@ -172,8 +182,18 @@ fn resample_line_to(
                 );
                 out.push((x2, y2));
                 resample_line_to(
-                    x2, y2, lambda2, a, b, c,
-                    x1, y1, lambda1, a1, b1, c1,
+                    x2,
+                    y2,
+                    lambda2,
+                    a,
+                    b,
+                    c,
+                    x1,
+                    y1,
+                    lambda1,
+                    a1,
+                    b1,
+                    c1,
                     depth - 1,
                     project,
                     delta2,
@@ -421,11 +441,7 @@ fn circle_stream_angles(
     let mut points = Vec::new();
     let mut t = t0;
     while if direction > 0.0 { t > t1 } else { t < t1 } {
-        let p = spherical([
-            cos_radius,
-            -sin_radius * t.cos(),
-            -sin_radius * t.sin(),
-        ]);
+        let p = spherical([cos_radius, -sin_radius * t.cos(), -sin_radius * t.sin()]);
         points.push(p);
         t -= step;
     }
@@ -445,11 +461,7 @@ fn circle_stream_full(radius: f64, delta: f64, direction: f64) -> Vec<(f64, f64)
     let mut points = Vec::new();
     let mut t = t0;
     while if direction > 0.0 { t > t1 } else { t < t1 } {
-        let p = spherical([
-            cos_radius,
-            -sin_radius * t.cos(),
-            -sin_radius * t.sin(),
-        ]);
+        let p = spherical([cos_radius, -sin_radius * t.cos(), -sin_radius * t.sin()]);
         points.push(p);
         t -= step;
     }
@@ -670,7 +682,13 @@ fn circle_intersect(a: (f64, f64), b: (f64, f64), cr: f64, two: bool) -> Option<
 
     let on_arc = if meridian {
         if polar {
-            (phi0 + phi1 > 0.0) ^ (q.1 < if (q.0 - lambda0).abs() < EPSILON { phi0 } else { phi1 })
+            (phi0 + phi1 > 0.0)
+                ^ (q.1
+                    < if (q.0 - lambda0).abs() < EPSILON {
+                        phi0
+                    } else {
+                        phi1
+                    })
         } else {
             phi0 <= q.1 && q.1 <= phi1
         }
@@ -678,11 +696,7 @@ fn circle_intersect(a: (f64, f64), b: (f64, f64), cr: f64, two: bool) -> Option<
         (delta > PI) ^ (lambda0 <= q.0 && q.0 <= lambda1)
     };
 
-    if on_arc {
-        Some([q, q1])
-    } else {
-        None
-    }
+    if on_arc { Some([q, q1]) } else { None }
 }
 
 struct CircleClipLine<S: Sink> {
@@ -736,7 +750,11 @@ impl<S: Sink> CircleClipLine<S> {
                 circle_code(lambda, phi, self.radius)
             }
         } else if v {
-            circle_code(lambda + if lambda < 0.0 { PI } else { -PI }, phi, PI - self.radius)
+            circle_code(
+                lambda + if lambda < 0.0 { PI } else { -PI },
+                phi,
+                PI - self.radius,
+            )
         } else {
             0
         }
@@ -893,17 +911,12 @@ fn polygon_contains(polygon: &[Vec<(f64, f64)>], point: (f64, f64)) -> bool {
             let antimeridian = abs_delta > PI;
             let k = sin_phi0 * sin_phi1;
 
-            sum.add(
-                (k * s * abs_delta.sin()).atan2(cos_phi0 * cos_phi1 + k * abs_delta.cos()),
-            );
-            angle += if antimeridian {
-                delta + s * TAU
-            } else {
-                delta
-            };
+            sum.add((k * s * abs_delta.sin()).atan2(cos_phi0 * cos_phi1 + k * abs_delta.cos()));
+            angle += if antimeridian { delta + s * TAU } else { delta };
 
             if antimeridian ^ (lambda0 >= lambda) ^ (lambda1 >= lambda) {
-                let mut arc = cartesian_cross(cartesian(point0.0, point0.1), cartesian(point1.0, point1.1));
+                let mut arc =
+                    cartesian_cross(cartesian(point0.0, point0.1), cartesian(point1.0, point1.1));
                 cartesian_normalize_in_place(&mut arc);
                 let mut intersection = cartesian_cross(normal, arc);
                 cartesian_normalize_in_place(&mut intersection);
@@ -912,9 +925,7 @@ fn polygon_contains(polygon: &[Vec<(f64, f64)>], point: (f64, f64)) -> bool {
                 } else {
                     1.0
                 }) * asin_clamped(intersection[2]);
-                if phi_eps > phi_arc
-                    || (phi_eps == phi_arc && (arc[0] != 0.0 || arc[1] != 0.0))
-                {
+                if phi_eps > phi_arc || (phi_eps == phi_arc && (arc[0] != 0.0 || arc[1] != 0.0)) {
                     winding += if antimeridian ^ (delta >= 0.0) { 1 } else { -1 };
                 }
             }
@@ -1148,7 +1159,12 @@ fn rejoin_segments(
 // Interpolation along clip edges
 // -----------------------------------------------------------------------------
 
-fn interpolate_antimeridian(from: (f64, f64), to: (f64, f64), direction: f64, out: &mut Vec<(f64, f64)>) {
+fn interpolate_antimeridian(
+    from: (f64, f64),
+    to: (f64, f64),
+    direction: f64,
+    out: &mut Vec<(f64, f64)>,
+) {
     if (from.0 - to.0).abs() > EPSILON {
         let lambda = if from.0 < to.0 { PI } else { -PI };
         let phi = direction * lambda / 2.0;
@@ -1160,7 +1176,13 @@ fn interpolate_antimeridian(from: (f64, f64), to: (f64, f64), direction: f64, ou
     }
 }
 
-fn interpolate_circle(radius: f64, from: (f64, f64), to: (f64, f64), direction: f64, out: &mut Vec<(f64, f64)>) {
+fn interpolate_circle(
+    radius: f64,
+    from: (f64, f64),
+    to: (f64, f64),
+    direction: f64,
+    out: &mut Vec<(f64, f64)>,
+) {
     let arc = circle_stream_points(radius, 2.0_f64.to_radians(), direction, from, to);
     out.extend(arc);
 }
@@ -1416,7 +1438,12 @@ pub fn clip_antimeridian_polygon(
 
         if (clean & 1) != 0 && !segments.is_empty() {
             // No intersections: the whole ring is visible.
-            let ring: Vec<(f64, f64)> = segments.pop().unwrap().into_iter().map(|p| (p[0], p[1])).collect();
+            let ring: Vec<(f64, f64)> = segments
+                .pop()
+                .unwrap()
+                .into_iter()
+                .map(|p| (p[0], p[1]))
+                .collect();
             output_rings.push(ring);
         } else {
             all_segments.extend(segments.into_iter().filter(|s| s.len() > 1));
@@ -1568,7 +1595,13 @@ mod tests {
     #[test]
     fn circle_ring_visible() {
         let rotation = SphereRotation::from_degrees(0.0, 0.0, 0.0);
-        let ring = vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0), (0.0, 0.0)];
+        let ring = vec![
+            (0.0, 0.0),
+            (10.0, 0.0),
+            (10.0, 10.0),
+            (0.0, 10.0),
+            (0.0, 0.0),
+        ];
         let pieces = clip_circle(&ring, true, &rotation, 90.0_f64.to_radians());
         assert!(!pieces.is_empty());
     }
@@ -1632,8 +1665,8 @@ mod tests {
 
     #[test]
     fn land_polygon_contains_orthographic_start() {
-        use crate::geo::topojson::parse_land;
         use crate::geo::GeoJsonGeometry;
+        use crate::geo::topojson::parse_land;
         let json = include_str!("../../../bin/showcase/data/land-50m.json");
         let land = parse_land(json).expect("parse land");
         let rotation = SphereRotation::from_degrees(45.0, -15.0, 0.0);
@@ -1661,8 +1694,8 @@ mod tests {
 
     #[test]
     fn debug_land_polygon_93_clip() {
-        use crate::geo::topojson::parse_land;
         use crate::geo::GeoJsonGeometry;
+        use crate::geo::topojson::parse_land;
         let json = include_str!("../../../bin/showcase/data/land-50m.json");
         let land = parse_land(json).expect("parse land");
         let rotation = SphereRotation::from_degrees(45.0, -15.0, 0.0);
@@ -1687,45 +1720,72 @@ mod tests {
 
     #[test]
     fn debug_antarctica_conic180_60() {
-        use crate::geo::topojson::parse_land;
         use crate::geo::ConicEqualArea;
         use crate::geo::GeoJsonGeometry;
         use crate::geo::GeoPath;
         use crate::geo::Projection;
+        use crate::geo::topojson::parse_land;
         let json = include_str!("../../../bin/showcase/data/land-50m.json");
         let land = parse_land(json).expect("parse land");
         if let GeoJsonGeometry::MultiPolygon(polygons) = land {
             let geom = GeoJsonGeometry::Polygon(polygons[1379].clone());
-            let proj = ConicEqualArea::new().scale(100.0).translate(0.0,0.0).center(0.0,0.0).rotate(180.0,-60.0,0.0).parallels(29.5,45.5);
+            let proj = ConicEqualArea::new()
+                .scale(100.0)
+                .translate(0.0, 0.0)
+                .center(0.0, 0.0)
+                .rotate(180.0, -60.0, 0.0)
+                .parallels(29.5, 45.5);
             let path = GeoPath::new(proj.clone());
             let b = path.bounds(&geom);
             println!("poly1379 bounds rotate 180,-60: {:?}", b);
             let s = path.render(&geom);
-            let nums: Vec<f64> = s.split(|c: char| !c.is_ascii_digit() && c != '.' && c != '-' && c != '+' && c != 'e' && c != 'E')
+            let nums: Vec<f64> = s
+                .split(|c: char| {
+                    !c.is_ascii_digit() && c != '.' && c != '-' && c != '+' && c != 'e' && c != 'E'
+                })
                 .filter(|t| !t.is_empty())
                 .map(|t| t.parse().unwrap())
                 .collect();
             let (mut miny, mut maxx) = (f64::INFINITY, f64::NEG_INFINITY);
-            let (mut pmin_render, mut pmax_render) = ((0.0,0.0),(0.0,0.0));
+            let (mut pmin_render, mut pmax_render) = ((0.0, 0.0), (0.0, 0.0));
             for i in (0..nums.len()).step_by(2) {
-                if i+1>=nums.len(){break;}
-                let (x,y)=(nums[i],nums[i+1]);
-                if y<miny { miny=y; pmin_render=(x,y); }
-                if x>maxx { maxx=x; pmax_render=(x,y); }
+                if i + 1 >= nums.len() {
+                    break;
+                }
+                let (x, y) = (nums[i], nums[i + 1]);
+                if y < miny {
+                    miny = y;
+                    pmin_render = (x, y);
+                }
+                if x > maxx {
+                    maxx = x;
+                    pmax_render = (x, y);
+                }
             }
-            println!("render min y {:.9} at {:?} max x {:?}", miny, pmin_render, pmax_render);
+            println!(
+                "render min y {:.9} at {:?} max x {:?}",
+                miny, pmin_render, pmax_render
+            );
             // find point in clipped piece with min projected y
             use crate::geo::path::clip::{clip_antimeridian_polygon, resample_spherical_line};
             use crate::geo::projection::SphereRotation;
-            let rotation = SphereRotation::from_degrees(180.0,-60.0,0.0);
+            let rotation = SphereRotation::from_degrees(180.0, -60.0, 0.0);
             {
                 use std::io::Write;
                 let mut f = std::fs::File::create("/tmp/rust_rotated_1379_180_60.txt").unwrap();
                 for (ri, ring) in polygons[1379].iter().enumerate() {
                     writeln!(f, "ring{}", ri).unwrap();
-                    for &(lon,lat) in ring {
-                        let (l,p) = rotation.rotate(lon.to_radians(), lat.to_radians());
-                        writeln!(f, "{},{} -> {},{} (deg)", lon, lat, l.to_degrees(), p.to_degrees()).unwrap();
+                    for &(lon, lat) in ring {
+                        let (l, p) = rotation.rotate(lon.to_radians(), lat.to_radians());
+                        writeln!(
+                            f,
+                            "{},{} -> {},{} (deg)",
+                            lon,
+                            lat,
+                            l.to_degrees(),
+                            p.to_degrees()
+                        )
+                        .unwrap();
                     }
                 }
             }
@@ -1735,30 +1795,39 @@ mod tests {
                 let mut f = std::fs::File::create("/tmp/rust_clipped_1379_180_60.txt").unwrap();
                 for (pi, piece) in pieces.iter().enumerate() {
                     writeln!(f, "ring{}", pi).unwrap();
-                    for &(l,p) in piece {
+                    for &(l, p) in piece {
                         writeln!(f, "{},{} (deg)", l.to_degrees(), p.to_degrees()).unwrap();
                     }
                 }
             }
             let (mut miny2, mut maxx2) = (f64::INFINITY, f64::NEG_INFINITY);
-            let (mut pmin2, mut pmax2) = ((0.0,0.0),(0.0,0.0));
+            let (mut pmin2, mut pmax2) = ((0.0, 0.0), (0.0, 0.0));
             for piece in &pieces {
-                let pts = resample_spherical_line(piece, &|l,p| proj.project_rotated(l,p), true);
-                for (x,y) in pts {
-                    if y < miny2 { miny2=y; pmin2=(x,y); }
-                    if x > maxx2 { maxx2=x; pmax2=(x,y); }
+                let pts = resample_spherical_line(piece, &|l, p| proj.project_rotated(l, p), true);
+                for (x, y) in pts {
+                    if y < miny2 {
+                        miny2 = y;
+                        pmin2 = (x, y);
+                    }
+                    if x > maxx2 {
+                        maxx2 = x;
+                        pmax2 = (x, y);
+                    }
                 }
             }
-            println!("resampled min y {:.9} at {:?} max x {:?}", miny2, pmin2, pmax2);
+            println!(
+                "resampled min y {:.9} at {:?} max x {:?}",
+                miny2, pmin2, pmax2
+            );
         }
     }
 
     #[test]
     fn debug_antarctica_conic() {
-        use crate::geo::topojson::parse_land;
         use crate::geo::ConicEqualArea;
         use crate::geo::GeoJsonGeometry;
         use crate::geo::Projection;
+        use crate::geo::topojson::parse_land;
         let json = include_str!("../../../bin/showcase/data/land-50m.json");
         let land = parse_land(json).expect("parse land");
         let proj = ConicEqualArea::new()
@@ -1770,53 +1839,102 @@ mod tests {
         if let GeoJsonGeometry::MultiPolygon(polygons) = land {
             let rings = &polygons[1379];
             let rotation = SphereRotation::from_degrees(0.0, -15.0, 0.0);
-            let rotated_rings: Vec<Vec<(f64,f64)>> = rings.iter().map(|r| r.iter().map(|&(lon,lat)| rotate_point_rad(&rotation, lon, lat)).collect()).collect();
+            let rotated_rings: Vec<Vec<(f64, f64)>> = rings
+                .iter()
+                .map(|r| {
+                    r.iter()
+                        .map(|&(lon, lat)| rotate_point_rad(&rotation, lon, lat))
+                        .collect()
+                })
+                .collect();
             // write rotated rings to file for comparison
             {
                 use std::io::Write;
                 let mut f = std::fs::File::create("/tmp/rust_rotated_1379.txt").unwrap();
                 for (ri, ring) in rings.iter().enumerate() {
                     writeln!(f, "ring{}", ri).unwrap();
-                    for (i, &(lon,lat)) in ring.iter().enumerate() {
-                        let (l,p) = rotated_rings[ri][i];
-                        writeln!(f, "{},{} -> {},{} (deg)", lon, lat, l.to_degrees(), p.to_degrees()).unwrap();
+                    for (i, &(lon, lat)) in ring.iter().enumerate() {
+                        let (l, p) = rotated_rings[ri][i];
+                        writeln!(
+                            f,
+                            "{},{} -> {},{} (deg)",
+                            lon,
+                            lat,
+                            l.to_degrees(),
+                            p.to_degrees()
+                        )
+                        .unwrap();
                     }
                 }
             }
-            let start = (-std::f64::consts::PI, -std::f64::consts::PI/2.0);
-            println!("antarctica start_inside={}", polygon_contains(&rotated_rings, start));
+            let start = (-std::f64::consts::PI, -std::f64::consts::PI / 2.0);
+            println!(
+                "antarctica start_inside={}",
+                polygon_contains(&rotated_rings, start)
+            );
             let pieces = clip_antimeridian_polygon(rings, &rotation);
             // compare with old antimeridian_clip_ring
-            let old_pieces = crate::geo::path::geo_path::antimeridian_clip_ring(&rings[0], &rotation);
+            let old_pieces =
+                crate::geo::path::geo_path::antimeridian_clip_ring(&rings[0], &rotation);
             println!("old antimeridian_clip_ring pieces: {}", old_pieces.len());
             let mut old_max_x = f64::NEG_INFINITY;
-            for (i,piece) in old_pieces.iter().enumerate() {
-                println!("old piece {} len={} first={:?} last={:?}", i, piece.len(), piece.first(), piece.last());
-                for &(lon,lat) in piece {
-                    let (x,y) = proj.project(lon, lat);
-                    if x > old_max_x { old_max_x = x; }
+            for (i, piece) in old_pieces.iter().enumerate() {
+                println!(
+                    "old piece {} len={} first={:?} last={:?}",
+                    i,
+                    piece.len(),
+                    piece.first(),
+                    piece.last()
+                );
+                for &(lon, lat) in piece {
+                    let (x, y) = proj.project(lon, lat);
+                    if x > old_max_x {
+                        old_max_x = x;
+                    }
                 }
             }
             println!("old max_x {}", old_max_x);
             // find projected extrema in piece
-            let mut min_x = f64::INFINITY; let mut max_x = -f64::INFINITY;
-            let mut min_p = (0.0,0.0); let mut max_p=(0.0,0.0);
-            for &(l,p) in &pieces[0] {
-                let (x,y) = proj.project_rotated(l,p);
-                if p < -80.0_f64.to_radians() && l>0.0 {
-                    println!("high south pos l={:.3} p={:.3} -> x={:.3} y={:.3}", l.to_degrees(), p.to_degrees(), x, y);
+            let mut min_x = f64::INFINITY;
+            let mut max_x = -f64::INFINITY;
+            let mut min_p = (0.0, 0.0);
+            let mut max_p = (0.0, 0.0);
+            for &(l, p) in &pieces[0] {
+                let (x, y) = proj.project_rotated(l, p);
+                if p < -80.0_f64.to_radians() && l > 0.0 {
+                    println!(
+                        "high south pos l={:.3} p={:.3} -> x={:.3} y={:.3}",
+                        l.to_degrees(),
+                        p.to_degrees(),
+                        x,
+                        y
+                    );
                 }
-                if x < min_x { min_x=x; min_p=(l,p);}
-                if x > max_x { max_x=x; max_p=(l,p);}
+                if x < min_x {
+                    min_x = x;
+                    min_p = (l, p);
+                }
+                if x > max_x {
+                    max_x = x;
+                    max_p = (l, p);
+                }
             }
-            println!("piece extrema min_x={:.3} at raw ({:.4},{:.4}) max_x={:.3} at raw ({:.4},{:.4})", min_x, min_p.0.to_degrees(), min_p.1.to_degrees(), max_x, max_p.0.to_degrees(), max_p.1.to_degrees());
+            println!(
+                "piece extrema min_x={:.3} at raw ({:.4},{:.4}) max_x={:.3} at raw ({:.4},{:.4})",
+                min_x,
+                min_p.0.to_degrees(),
+                min_p.1.to_degrees(),
+                max_x,
+                max_p.0.to_degrees(),
+                max_p.1.to_degrees()
+            );
             // write our clipped piece to file
             {
                 use std::io::Write;
                 let mut f = std::fs::File::create("/tmp/rust_clipped_1379.txt").unwrap();
                 for (pi, piece) in pieces.iter().enumerate() {
                     writeln!(f, "ring{}", pi).unwrap();
-                    for &(l,p) in piece {
+                    for &(l, p) in piece {
                         writeln!(f, "{},{} (deg)", l.to_degrees(), p.to_degrees()).unwrap();
                     }
                 }
@@ -1825,32 +1943,66 @@ mod tests {
             let mut max_x = f64::NEG_INFINITY;
             let mut max_pt = (0.0, 0.0);
             for (i, piece) in pieces.iter().enumerate() {
-                println!("piece {} len={} first={:?} last={:?}", i, piece.len(), piece.first(), piece.last());
+                println!(
+                    "piece {} len={} first={:?} last={:?}",
+                    i,
+                    piece.len(),
+                    piece.first(),
+                    piece.last()
+                );
                 let mut min_x = f64::MAX;
                 let mut max_x_local = f64::NEG_INFINITY;
                 for &(l, p) in piece {
                     let (x, y) = proj.project_rotated(l, p);
-                    if x > max_x { max_x = x; max_pt = (l, p); }
-                    if x > max_x_local { max_x_local = x; }
-                    if x < min_x { min_x = x; }
+                    if x > max_x {
+                        max_x = x;
+                        max_pt = (l, p);
+                    }
+                    if x > max_x_local {
+                        max_x_local = x;
+                    }
+                    if x < min_x {
+                        min_x = x;
+                    }
                 }
                 println!("  projected x range {} .. {}", min_x, max_x_local);
                 println!("  extreme raw points:");
-                for (k, &(l,p)) in piece.iter().enumerate() {
-                    let (x,y) = proj.project_rotated(l,p);
+                for (k, &(l, p)) in piece.iter().enumerate() {
+                    let (x, y) = proj.project_rotated(l, p);
                     if x > 240.0 || x < -240.0 {
-                        println!("    k={} raw ({:.4},{:.4}) proj ({:.3},{:.3})", k, l.to_degrees(), p.to_degrees(), x, y);
+                        println!(
+                            "    k={} raw ({:.4},{:.4}) proj ({:.3},{:.3})",
+                            k,
+                            l.to_degrees(),
+                            p.to_degrees(),
+                            x,
+                            y
+                        );
                     }
                 }
             }
             println!("our antarctica max_x {} at {:?}", max_x, max_pt);
-            println!("projected max_pt {:?}", proj.project_rotated(max_pt.0, max_pt.1));
+            println!(
+                "projected max_pt {:?}",
+                proj.project_rotated(max_pt.0, max_pt.1)
+            );
             // also render via GeoPath
             use crate::geo::GeoPath;
-            let path = GeoPath::new(ConicEqualArea::new().scale(100.0).translate(0.0,0.0).center(0.0,0.0).rotate(0.0,-15.0,0.0).parallels(29.5,45.5)).digits(3);
+            let path = GeoPath::new(
+                ConicEqualArea::new()
+                    .scale(100.0)
+                    .translate(0.0, 0.0)
+                    .center(0.0, 0.0)
+                    .rotate(0.0, -15.0, 0.0)
+                    .parallels(29.5, 45.5),
+            )
+            .digits(3);
             let geom = GeoJsonGeometry::Polygon(polygons[1379].clone());
             println!("our path len {}", path.render(&geom).len());
-            println!("our path first 200: {}", &path.render(&geom)[..200.min(path.render(&geom).len())]);
+            println!(
+                "our path first 200: {}",
+                &path.render(&geom)[..200.min(path.render(&geom).len())]
+            );
         }
     }
 
@@ -1859,7 +2011,11 @@ mod tests {
         use crate::geo::projection::SphereRotation;
         let rotation = SphereRotation::from_degrees(180.0, -60.0, 0.0);
         let (l, p) = rotation.rotate(0.0_f64.to_radians(), -90.0_f64.to_radians());
-        println!("rot(0,-90) = {:.6}, {:.6} deg", l.to_degrees(), p.to_degrees());
+        println!(
+            "rot(0,-90) = {:.6}, {:.6} deg",
+            l.to_degrees(),
+            p.to_degrees()
+        );
     }
 
     #[test]
@@ -1897,23 +2053,26 @@ mod tests {
             let theta = l * n;
             let xr = r * theta.sin();
             let yr = r0 - r * theta.cos();
-            println!("  manual raw n={:.6} c={:.6} r0={:.6} r={:.6} theta={:.6} -> ({:.6},{:.6})", n, c, r0, r, theta, xr, yr);
+            println!(
+                "  manual raw n={:.6} c={:.6} r0={:.6} r={:.6} theta={:.6} -> ({:.6},{:.6})",
+                n, c, r0, r, theta, xr, yr
+            );
         }
     }
 
     #[test]
     fn debug_conic_polygon_1200() {
-        use crate::geo::topojson::parse_land;
         use crate::geo::ConicEqualArea;
         use crate::geo::GeoJsonGeometry;
         use crate::geo::Projection;
+        use crate::geo::topojson::parse_land;
         let proj0 = ConicEqualArea::new()
             .scale(100.0)
             .translate(0.0, 0.0)
             .center(0.0, 0.0)
             .rotate(60.0, -60.0, 0.0)
             .parallels(29.5, 45.5);
-        let (x0,y0)=proj0.project(-60.0, -30.0);
+        let (x0, y0) = proj0.project(-60.0, -30.0);
         println!("DEBUG TOP proj(-60,-30) = {}, {}", x0, y0);
         let json = include_str!("../../../bin/showcase/data/land-50m.json");
         let land = parse_land(json).expect("parse land");
@@ -1925,12 +2084,24 @@ mod tests {
             println!("first 3 rotated:");
             for &(lon, lat) in &ring[..3] {
                 let (l, p) = rotation.rotate(radians(lon), radians(lat));
-                println!("  geo ({:.4},{:.4}) -> rot ({:.4},{:.4})", lon, lat, degrees(l), degrees(p));
+                println!(
+                    "  geo ({:.4},{:.4}) -> rot ({:.4},{:.4})",
+                    lon,
+                    lat,
+                    degrees(l),
+                    degrees(p)
+                );
             }
             println!("last 3 rotated:");
-            for &(lon, lat) in &ring[ring.len()-3..] {
+            for &(lon, lat) in &ring[ring.len() - 3..] {
                 let (l, p) = rotation.rotate(radians(lon), radians(lat));
-                println!("  geo ({:.4},{:.4}) -> rot ({:.4},{:.4})", lon, lat, degrees(l), degrees(p));
+                println!(
+                    "  geo ({:.4},{:.4}) -> rot ({:.4},{:.4})",
+                    lon,
+                    lat,
+                    degrees(l),
+                    degrees(p)
+                );
             }
             let rotated: Vec<Vec<(f64, f64)>> = rings
                 .iter()
@@ -1941,7 +2112,10 @@ mod tests {
                 })
                 .collect();
             let start = (-PI, -HALF_PI);
-            println!("polygon 1200 contains start: {}", polygon_contains(&rotated, start));
+            println!(
+                "polygon 1200 contains start: {}",
+                polygon_contains(&rotated, start)
+            );
             // test direct line clip on closed rotated ring
             let mut closed_rotated = rotated[0].clone();
             if let Some(first) = closed_rotated.first().copied() {
@@ -1950,33 +2124,73 @@ mod tests {
             let line_segments = clip_antimeridian_line(&closed_rotated);
             println!("direct line segments: {}", line_segments.len());
             for (i, seg) in line_segments.iter().enumerate() {
-                println!("seg {} len={} first={:?} last={:?}", i, seg.len(), seg.first(), seg.last());
+                println!(
+                    "seg {} len={} first={:?} last={:?}",
+                    i,
+                    seg.len(),
+                    seg.first(),
+                    seg.last()
+                );
             }
             // test rejoin directly
-            let segs3: Vec<Vec<[f64;3]>> = line_segments.iter().map(|s| s.iter().map(|&(x,y)| [x,y,0.0]).collect()).collect();
-            let rejoined = rejoin_segments(&segs3, true, |from,to,dir,out| interpolate_antimeridian(from,to,dir,out));
+            let segs3: Vec<Vec<[f64; 3]>> = line_segments
+                .iter()
+                .map(|s| s.iter().map(|&(x, y)| [x, y, 0.0]).collect())
+                .collect();
+            let rejoined = rejoin_segments(&segs3, true, |from, to, dir, out| {
+                interpolate_antimeridian(from, to, dir, out)
+            });
             println!("direct rejoined pieces: {}", rejoined.len());
-            for (i,p) in rejoined.iter().enumerate() {
-                println!("rejoined {} len={} first={:?} last={:?}", i, p.len(), p.first(), p.last());
+            for (i, p) in rejoined.iter().enumerate() {
+                println!(
+                    "rejoined {} len={} first={:?} last={:?}",
+                    i,
+                    p.len(),
+                    p.first(),
+                    p.last()
+                );
             }
             let pieces = clip_antimeridian_polygon(rings, &rotation);
             println!("polygon 1200 pieces: {}", pieces.len());
             let (lr, pr) = rotation.rotate(radians(-60.0), radians(-30.0));
-            println!("rotation of -60,-30 in debug = {}, {} deg", lr.to_degrees(), pr.to_degrees());
+            println!(
+                "rotation of -60,-30 in debug = {}, {} deg",
+                lr.to_degrees(),
+                pr.to_degrees()
+            );
             let (ip_l, ip_p) = rotation.invert(0.0, -HALF_PI);
-            println!("inverse south pole = {}, {} deg", ip_l.to_degrees(), ip_p.to_degrees());
+            println!(
+                "inverse south pole = {}, {} deg",
+                ip_l.to_degrees(),
+                ip_p.to_degrees()
+            );
             let proj = ConicEqualArea::new()
                 .scale(100.0)
                 .translate(0.0, 0.0)
                 .center(0.0, 0.0)
                 .rotate(60.0, -60.0, 0.0)
                 .parallels(29.5, 45.5);
-            println!("before max loop proj(-60,-30) = {:?}", proj.project(-60.0, -30.0));
-            println!("before max loop proj(last-like) = {:?}", proj.project(-59.99999999999999, -30.000000000000014));
-            let (l1,p1)=rotation.rotate(radians(-60.0), radians(-30.0));
-            let (l2,p2)=rotation.rotate(radians(-59.99999999999999), radians(-30.000000000000014));
-            println!("rot(-60,-30) = {}, {} deg", l1.to_degrees(), p1.to_degrees());
-            println!("rot(last-like) = {}, {} deg", l2.to_degrees(), p2.to_degrees());
+            println!(
+                "before max loop proj(-60,-30) = {:?}",
+                proj.project(-60.0, -30.0)
+            );
+            println!(
+                "before max loop proj(last-like) = {:?}",
+                proj.project(-59.99999999999999, -30.000000000000014)
+            );
+            let (l1, p1) = rotation.rotate(radians(-60.0), radians(-30.0));
+            let (l2, p2) =
+                rotation.rotate(radians(-59.99999999999999), radians(-30.000000000000014));
+            println!(
+                "rot(-60,-30) = {}, {} deg",
+                l1.to_degrees(),
+                p1.to_degrees()
+            );
+            println!(
+                "rot(last-like) = {}, {} deg",
+                l2.to_degrees(),
+                p2.to_degrees()
+            );
             let mut max_y = f64::NEG_INFINITY;
             let mut max_pt = (0.0, 0.0);
             for piece in &pieces {
@@ -1989,27 +2203,40 @@ mod tests {
                 }
             }
             println!("our max y {} at {:?}", max_y, max_pt);
-            println!("after max loop proj(-60,-30) = {:?}", proj.project(-60.0, -30.0));
+            println!(
+                "after max loop proj(-60,-30) = {:?}",
+                proj.project(-60.0, -30.0)
+            );
             for (i, piece) in pieces.iter().enumerate() {
-                println!("inside loop start proj(-60,-30) = {:?}", proj.project(-60.0, -30.0));
-                println!("piece {} len={} first={:?} last={:?}", i, piece.len(), piece.first(), piece.last());
+                println!(
+                    "inside loop start proj(-60,-30) = {:?}",
+                    proj.project(-60.0, -30.0)
+                );
+                println!(
+                    "piece {} len={} first={:?} last={:?}",
+                    i,
+                    piece.len(),
+                    piece.first(),
+                    piece.last()
+                );
                 println!("  first 5 {:?}", &piece[..5.min(piece.len())]);
                 println!("  last 5 {:?}", &piece[piece.len().saturating_sub(5)..]);
-                if let Some(last)=piece.last() {
-                    let (x,y)=proj.project(last.0, last.1);
+                if let Some(last) = piece.last() {
+                    let (x, y) = proj.project(last.0, last.1);
                     println!("  last {:?} projected {}, {}", last, x, y);
-                    let (x2,y2)=proj.project(-59.99999999999999, -30.000000000000014);
+                    let (x2, y2) = proj.project(-59.99999999999999, -30.000000000000014);
                     println!("  direct -60,-30 projected {}, {}", x2, y2);
                 }
                 use std::io::Write;
                 let mut f = std::fs::File::create("/tmp/our_piece_1200.json").unwrap();
                 for (j, &(l, p)) in piece.iter().enumerate() {
-                    if j > 0 { write!(f, ",").unwrap(); }
+                    if j > 0 {
+                        write!(f, ",").unwrap();
+                    }
                     write!(f, "[{},{}]", l, p).unwrap();
                 }
                 writeln!(f).unwrap();
             }
         }
     }
-
 }

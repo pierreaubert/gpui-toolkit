@@ -459,20 +459,26 @@ impl BoxPlotChart {
                     let x = origin_x + box_data.x_px;
 
                     // Whisker line (vertical from low to high)
-                    let whisker_top = origin_y + box_data.whisker_high_px.min(box_data.whisker_low_px);
-                    let whisker_bottom = origin_y + box_data.whisker_high_px.max(box_data.whisker_low_px);
+                    let whisker_top =
+                        origin_y + box_data.whisker_high_px.min(box_data.whisker_low_px);
+                    let whisker_bottom =
+                        origin_y + box_data.whisker_high_px.max(box_data.whisker_low_px);
                     whisker_builder.move_to(point(px(x), px(whisker_top)));
                     whisker_builder.line_to(point(px(x), px(whisker_bottom)));
 
                     // Lower cap
                     let cap_y_low = origin_y + box_data.whisker_low_px;
-                    whisker_builder.move_to(point(px(x - box_data.half_width * 0.5), px(cap_y_low)));
-                    whisker_builder.line_to(point(px(x + box_data.half_width * 0.5), px(cap_y_low)));
+                    whisker_builder
+                        .move_to(point(px(x - box_data.half_width * 0.5), px(cap_y_low)));
+                    whisker_builder
+                        .line_to(point(px(x + box_data.half_width * 0.5), px(cap_y_low)));
 
                     // Upper cap
                     let cap_y_high = origin_y + box_data.whisker_high_px;
-                    whisker_builder.move_to(point(px(x - box_data.half_width * 0.5), px(cap_y_high)));
-                    whisker_builder.line_to(point(px(x + box_data.half_width * 0.5), px(cap_y_high)));
+                    whisker_builder
+                        .move_to(point(px(x - box_data.half_width * 0.5), px(cap_y_high)));
+                    whisker_builder
+                        .line_to(point(px(x + box_data.half_width * 0.5), px(cap_y_high)));
 
                     // Box (IQR)
                     add_rect_to_path(
@@ -493,23 +499,11 @@ impl BoxPlotChart {
                     let diameter = r * 2.0;
                     for &y_px in &box_data.outliers_low {
                         let cy = origin_y + y_px;
-                        add_rect_to_path(
-                            &mut outlier_builder,
-                            x - r,
-                            cy - r,
-                            diameter,
-                            diameter,
-                        );
+                        add_rect_to_path(&mut outlier_builder, x - r, cy - r, diameter, diameter);
                     }
                     for &y_px in &box_data.outliers_high {
                         let cy = origin_y + y_px;
-                        add_rect_to_path(
-                            &mut outlier_builder,
-                            x - r,
-                            cy - r,
-                            diameter,
-                            diameter,
-                        );
+                        add_rect_to_path(&mut outlier_builder, x - r, cy - r, diameter, diameter);
                     }
                 }
 

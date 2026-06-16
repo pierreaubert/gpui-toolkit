@@ -987,8 +987,7 @@ where
         series_colors.push(D3Color::from_hex(s.color));
     }
 
-    let mut quads: Vec<GroupedBarQuad> =
-        Vec::with_capacity(categories.len() * series_colors.len());
+    let mut quads: Vec<GroupedBarQuad> = Vec::with_capacity(categories.len() * series_colors.len());
     for cat_idx in 0..categories.len() {
         let group_start = cat_idx as f32 * (group_width + group_gap);
         for ser_idx in 0..series_colors.len() {
@@ -1022,8 +1021,18 @@ where
     }
 
     quads.sort_by(|a, b| {
-        let a_key = (a.color.r.to_bits(), a.color.g.to_bits(), a.color.b.to_bits(), a.color.a.to_bits());
-        let b_key = (b.color.r.to_bits(), b.color.g.to_bits(), b.color.b.to_bits(), b.color.a.to_bits());
+        let a_key = (
+            a.color.r.to_bits(),
+            a.color.g.to_bits(),
+            a.color.b.to_bits(),
+            a.color.a.to_bits(),
+        );
+        let b_key = (
+            b.color.r.to_bits(),
+            b.color.g.to_bits(),
+            b.color.b.to_bits(),
+            b.color.a.to_bits(),
+        );
         a_key.cmp(&b_key)
     });
 

@@ -72,8 +72,9 @@ pub fn solve_tree_with_cache<'a>(
     prefs: &LayoutPreferences<'a>,
     cache: Rc<RefCell<TextMeasureCache>>,
 ) -> SolvedTree<'a> {
-    let mut nodes = Vec::new();
-    let mut index = HashMap::new();
+    let estimated = root.node_count();
+    let mut nodes = Vec::with_capacity(estimated);
+    let mut index = HashMap::with_capacity(estimated);
     solve_tree_node(root, width, height, prefs, &mut nodes, &mut index, &cache);
     SolvedTree::from_parts(nodes, index)
 }
@@ -135,9 +136,7 @@ fn solve_tree_node<'a>(
     cache: &Rc<RefCell<TextMeasureCache>>,
 ) -> NodeIndex {
     match node {
-        LayoutNode::Slot(slot) => {
-            solve_tree_slot(slot, width, height, prefs, nodes, index)
-        }
+        LayoutNode::Slot(slot) => solve_tree_slot(slot, width, height, prefs, nodes, index),
         LayoutNode::Container(container) => {
             solve_tree_container(container, width, height, prefs, nodes, index, cache)
         }
@@ -358,9 +357,7 @@ fn solve_node<'a>(
 ) -> SolvedNode<'a> {
     match node {
         LayoutNode::Slot(slot) => solve_slot(slot, width, height, prefs),
-        LayoutNode::Container(container) => {
-            solve_container(container, width, height, prefs, cache)
-        }
+        LayoutNode::Container(container) => solve_container(container, width, height, prefs, cache),
     }
 }
 
@@ -515,9 +512,7 @@ fn solve_container<'a>(
                         children: Vec::new(),
                     }
                 }
-                LayoutNode::Container(_) => {
-                    solve_node(info.node, child_w, child_h, prefs, cache)
-                }
+                LayoutNode::Container(_) => solve_node(info.node, child_w, child_h, prefs, cache),
             }
         })
         .collect();

@@ -235,5 +235,9 @@ fn build_uses_single_canvas() {
         .padding(2.0)
         .build();
 
-    assert!(result.is_ok(), "treemap should build with single canvas: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "treemap should build with single canvas: {:?}",
+        result.err()
+    );
 }

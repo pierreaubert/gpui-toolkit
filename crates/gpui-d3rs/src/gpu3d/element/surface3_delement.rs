@@ -41,6 +41,19 @@ pub(super) struct SurfaceTextureCache {
     pub render_image: Arc<RenderImage>,
 }
 
+/// Cached paint-time geometry for isolines, depth buffer, and pre-formatted tick labels.
+pub(super) struct SurfaceGeometryCache {
+    pub key: u64,
+    pub isoline_segments: Vec<(Vec3, Vec3)>,
+    pub depth_buffer: Option<ProjectedDepthBuffer>,
+    pub freq_labels: Vec<String>,
+    pub angle_labels: Vec<String>,
+    pub spl_labels: Vec<String>,
+    pub azimuth_labels: Vec<String>,
+    pub elevation_labels: Vec<String>,
+    pub colorbar_labels: Vec<String>,
+}
+
 /// GPUI Element for interactive 3D surface visualization
 #[derive(Clone)]
 pub struct Surface3DElement {
@@ -50,6 +63,7 @@ pub struct Surface3DElement {
     pub(super) renderer: Rc<RefCell<Option<Surface3DRenderer>>>,
     pub(super) mesh: Rc<RefCell<Option<SurfaceMesh>>>,
     pub(super) surface_cache: Rc<RefCell<Option<SurfaceTextureCache>>>,
+    pub(super) geometry_cache: Rc<RefCell<Option<SurfaceGeometryCache>>>,
 }
 
 impl Surface3DElement {
@@ -68,6 +82,7 @@ impl Surface3DElement {
             renderer: Rc::new(RefCell::new(None)),
             mesh: Rc::new(RefCell::new(None)),
             surface_cache: Rc::new(RefCell::new(None)),
+            geometry_cache: Rc::new(RefCell::new(None)),
         }
     }
 
@@ -79,9 +94,10 @@ impl Surface3DElement {
     /// Update the surface data
     pub fn set_data(&mut self, data: SurfaceData) {
         self.data = data;
-        // Clear cached mesh and surface render to force regeneration
+        // Clear cached mesh, surface render, and paint geometry to force regeneration
         *self.mesh.borrow_mut() = None;
         *self.surface_cache.borrow_mut() = None;
+        *self.geometry_cache.borrow_mut() = None;
     }
 
     /// Update configuration
@@ -94,6 +110,8 @@ impl Surface3DElement {
         if surface_render_config_changed(&self.config, &config) {
             *self.surface_cache.borrow_mut() = None;
         }
+        // Isoline / label settings may change independently; invalidate geometry cache.
+        *self.geometry_cache.borrow_mut() = None;
         self.config = config;
         if let Some(renderer) = self.renderer.borrow_mut().as_mut() {
             renderer.set_config(self.config.clone());
@@ -204,6 +222,197 @@ impl Surface3DElement {
         hasher.finish()
     }
 
+    /// Compute a cache key for paint-time geometry (isolines, depth buffer, tick labels).
+    ///
+    /// Covers the surface render key plus isoline configuration and label data so that
+    /// changes to line appearance or data ranges invalidate the cache without recomputing
+    /// the offscreen surface texture.
+    pub fn compute_geometry_cache_key(
+        &self,
+        bounds: &Bounds<Pixels>,
+        scale_factor: f32,
+        camera: &Camera3D,
+    ) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        self.compute_surface_cache_key(bounds, scale_factor, camera)
+            .hash(&mut hasher);
+
+        // Isoline configuration
+        self.config.isoline_step.to_bits().hash(&mut hasher);
+        self.config.isoline_opacity.to_bits().hash(&mut hasher);
+        self.config.isoline_width_px.to_bits().hash(&mut hasher);
+        self.config.isoline_color[0].to_bits().hash(&mut hasher);
+        self.config.isoline_color[1].to_bits().hash(&mut hasher);
+        self.config.isoline_color[2].to_bits().hash(&mut hasher);
+        self.config.isoline_upsample_factor.hash(&mut hasher);
+        self.config.show_grid.hash(&mut hasher);
+        self.config.show_axes.hash(&mut hasher);
+        self.config.show_colorbar.hash(&mut hasher);
+
+        // Tick label data
+        if let Some(ticks) = &self.data.x_ticks {
+            for v in ticks {
+                v.to_bits().hash(&mut hasher);
+            }
+        }
+        if let Some(ticks) = &self.data.y_ticks {
+            for v in ticks {
+                v.to_bits().hash(&mut hasher);
+            }
+        }
+        if let Some(ticks) = &self.data.z_ticks {
+            for v in ticks {
+                v.to_bits().hash(&mut hasher);
+            }
+        }
+        self.data.z_min.to_bits().hash(&mut hasher);
+        self.data.z_max.to_bits().hash(&mut hasher);
+
+        hasher.finish()
+    }
+
+    /// Ensure the paint-time geometry cache is populated for the current
+    /// camera, bounds, scale factor, and configuration.
+    ///
+    /// This moves isoline contour generation, world-to-screen projection, depth
+    /// buffer construction, and tick-label formatting out of the hot `paint`
+    /// path. The cache is invalidated automatically when data or relevant config
+    /// changes.
+    pub(super) fn ensure_geometry_cache(
+        &self,
+        bounds: Bounds<Pixels>,
+        width: f32,
+        height: f32,
+        scale_factor: f32,
+        camera: &Camera3D,
+    ) {
+        let key = self.compute_geometry_cache_key(&bounds, scale_factor, camera);
+        if self
+            .geometry_cache
+            .borrow()
+            .as_ref()
+            .map_or(false, |c| c.key == key)
+        {
+            return;
+        }
+
+        let view_projection = camera.view_projection_matrix();
+
+        let isoline_segments = if self.config.isolines
+            && self.config.isoline_opacity > 0.0
+            && self.config.isoline_width_px > 0.0
+            && self.data.x_count() >= 2
+            && self.data.y_count() >= 2
+        {
+            let levels = self.isoline_levels();
+            let values = self.normalized_z_grid();
+            let contour_segments = ContourGenerator::new(self.data.x_count(), self.data.y_count())
+                .x_values(self.data.x_values.clone())
+                .y_values(self.data.y_values.clone())
+                .x_log_interpolation(self.data.x_log)
+                .y_log_interpolation(self.data.y_log)
+                .upsample_factor(self.config.isoline_upsample_factor)
+                .contour_segments(&values, &levels);
+
+            let mut segments = Vec::with_capacity(contour_segments.len());
+            for segment in contour_segments {
+                let start_world =
+                    self.isoline_world_position(segment.start.x, segment.start.y, segment.value);
+                let end_world =
+                    self.isoline_world_position(segment.end.x, segment.end.y, segment.value);
+                if let (Some(start), Some(end)) = (
+                    project_world_to_screen(view_projection, start_world, width, height),
+                    project_world_to_screen(view_projection, end_world, width, height),
+                ) {
+                    segments.push((start, end));
+                }
+            }
+            segments
+        } else {
+            Vec::new()
+        };
+
+        let depth_buffer = if self.config.isolines
+            && self.config.opacity > 0.0
+            && self.data.x_count() >= 2
+            && self.data.y_count() >= 2
+        {
+            self.ensure_mesh();
+            let mesh_ref = self.mesh.borrow();
+            mesh_ref
+                .as_ref()
+                .and_then(|mesh| ProjectedDepthBuffer::from_mesh(mesh, view_projection, width, height))
+        } else {
+            None
+        };
+
+        let freq_labels: Vec<String> = self
+            .data
+            .x_ticks
+            .clone()
+            .unwrap_or_else(default_frequency_ticks)
+            .iter()
+            .map(|&freq| {
+                if freq >= 1000.0 {
+                    format!("{}k", freq / 1000.0)
+                } else {
+                    format!("{}", freq)
+                }
+            })
+            .collect();
+
+        let angle_labels: Vec<String> = angle_major_ticks(&self.data)
+            .iter()
+            .map(|&angle| format!("{}°", angle))
+            .collect();
+
+        let (spl_ticks, _) = spl_major_ticks(&self.data);
+        let spl_labels: Vec<String> = spl_ticks
+            .iter()
+            .map(|&spl| format!("{}dB", spl))
+            .collect();
+
+        let azimuth_labels: Vec<String> = self
+            .data
+            .y_ticks
+            .clone()
+            .unwrap_or_else(|| vec![-180.0, -90.0, 0.0, 90.0, 180.0])
+            .iter()
+            .map(|&az| format!("{}°", az))
+            .collect();
+
+        let elevation_labels: Vec<String> = self
+            .data
+            .x_ticks
+            .clone()
+            .unwrap_or_else(|| vec![-90.0, -45.0, 0.0, 45.0, 90.0])
+            .iter()
+            .map(|&el| format!("{}°", el))
+            .collect();
+
+        let (z_min, z_max) = (self.data.z_min, self.data.z_max);
+        let num_ticks = 5;
+        let colorbar_labels: Vec<String> = (0..=num_ticks)
+            .map(|i| {
+                let t = i as f64 / num_ticks as f64;
+                let value = z_min + t * (z_max - z_min);
+                format!("{:.0}", value)
+            })
+            .collect();
+
+        *self.geometry_cache.borrow_mut() = Some(SurfaceGeometryCache {
+            key,
+            isoline_segments,
+            depth_buffer,
+            freq_labels,
+            angle_labels,
+            spl_labels,
+            azimuth_labels,
+            elevation_labels,
+            colorbar_labels,
+        });
+    }
+
     pub(super) fn normalized_z_grid(&self) -> Vec<f64> {
         let x_count = self.data.x_count();
         let y_count = self.data.y_count();
@@ -252,6 +461,7 @@ impl Surface3DElement {
         bounds: Bounds<Pixels>,
         width: f32,
         height: f32,
+        scale_factor: f32,
         camera: &Camera3D,
         window: &mut Window,
     ) {
@@ -264,19 +474,10 @@ impl Surface3DElement {
             return;
         }
 
-        let levels = self.isoline_levels();
-        if levels.is_empty() {
-            return;
-        }
+        self.ensure_geometry_cache(bounds, width, height, scale_factor, camera);
+        let cache = self.geometry_cache.borrow();
+        let cache = cache.as_ref().expect("geometry cache just ensured");
 
-        let values = self.normalized_z_grid();
-        let contour_segments = ContourGenerator::new(self.data.x_count(), self.data.y_count())
-            .x_values(self.data.x_values.clone())
-            .y_values(self.data.y_values.clone())
-            .x_log_interpolation(self.data.x_log)
-            .y_log_interpolation(self.data.y_log)
-            .upsample_factor(self.config.isoline_upsample_factor)
-            .contour_segments(&values, &levels);
         let mut stroke_color = D3Color {
             r: self.config.isoline_color[0].clamp(0.0, 1.0),
             g: self.config.isoline_color[1].clamp(0.0, 1.0),
@@ -286,32 +487,8 @@ impl Surface3DElement {
         .to_rgba();
         stroke_color.a *= self.config.isoline_opacity.clamp(0.0, 1.0);
 
-        let view_projection = camera.view_projection_matrix();
-        let depth_buffer = if self.config.opacity > 0.0 {
-            self.ensure_mesh();
-            let mesh_ref = self.mesh.borrow();
-            mesh_ref.as_ref().and_then(|mesh| {
-                ProjectedDepthBuffer::from_mesh(mesh, view_projection, width, height)
-            })
-        } else {
-            None
-        };
-
-        for segment in contour_segments {
-            let start_world =
-                self.isoline_world_position(segment.start.x, segment.start.y, segment.value);
-            let end_world =
-                self.isoline_world_position(segment.end.x, segment.end.y, segment.value);
-            let Some(start) = project_world_to_screen(view_projection, start_world, width, height)
-            else {
-                continue;
-            };
-            let Some(end) = project_world_to_screen(view_projection, end_world, width, height)
-            else {
-                continue;
-            };
-
-            if let Some(depth_buffer) = depth_buffer.as_ref() {
+        for &(start, end) in &cache.isoline_segments {
+            if let Some(depth_buffer) = cache.depth_buffer.as_ref() {
                 paint_depth_clipped_stroke_segment(
                     start,
                     end,
@@ -582,11 +759,20 @@ impl Element for Surface3DElement {
 
         {
             let camera = &self.state.borrow().camera;
-            self.paint_projected_isolines(bounds, width, height, camera, window);
+            self.paint_projected_isolines(bounds, width, height, scale_factor, camera, window);
+        }
+
+        // Ensure paint-time geometry (isoline segments, depth buffer, tick labels)
+        // is cached before drawing axes and colorbar.
+        if self.config.show_axes || self.config.show_colorbar {
+            let camera = &self.state.borrow().camera;
+            self.ensure_geometry_cache(bounds, width, height, scale_factor, camera);
         }
 
         // Draw axis labels (AFTER rendering surface to be ON TOP)
         let camera = &self.state.borrow().camera;
+        let geometry_cache = self.geometry_cache.borrow();
+        let cache = geometry_cache.as_ref().expect("geometry cache ensured");
         // Re-use width/height f32 from above
 
         let upright_rotation = |mut angle: f32| -> f32 {
@@ -654,7 +840,7 @@ impl Element for Surface3DElement {
 
             // Shared helper to draw a single tick and its label
             let draw_tick_and_label =
-                |window: &mut Window, pos: glam::Vec3, tick_vec: glam::Vec3, label: String| {
+                |window: &mut Window, pos: glam::Vec3, tick_vec: glam::Vec3, label: &str| {
                     // Draw tick
                     let tick_end = pos + tick_vec;
                     if let (Some(s_start), Some(s_end)) = (to_screen(pos), to_screen(tick_end)) {
@@ -713,7 +899,7 @@ impl Element for Surface3DElement {
                         paint_chart_text_at(
                             window,
                             cx,
-                            &label,
+                            label,
                             label_screen.x + f32::from(bounds.origin.x) + offset_x,
                             label_screen.y + f32::from(bounds.origin.y) + offset_y,
                             &text_config,
@@ -748,18 +934,13 @@ impl Element for Surface3DElement {
                 .x_ticks
                 .clone()
                 .unwrap_or_else(default_frequency_ticks);
-            for freq in freq_ticks {
+            for (i, &freq) in freq_ticks.iter().enumerate() {
                 let x = self.data.normalize_x(freq);
                 let pos = glam::Vec3::new(x, -0.5, best_x_z_val);
                 let tick_dir_z = if best_x_z_val > 0.0 { 1.0 } else { -1.0 };
                 let tick_vec = glam::Vec3::new(0.0, 0.0, 0.1 * tick_dir_z);
 
-                let label = if freq >= 1000.0 {
-                    format!("{}k", freq / 1000.0)
-                } else {
-                    format!("{}", freq)
-                };
-
+                let label = cache.freq_labels.get(i).map(|s| s.as_str()).unwrap_or("");
                 draw_tick_and_label(window, pos, tick_vec, label);
             }
 
@@ -800,14 +981,13 @@ impl Element for Surface3DElement {
             // Angle Labels (Z axis) - 30° major ticks
             let angle_ticks = angle_major_ticks(&self.data);
 
-            for angle in angle_ticks {
+            for (i, &angle) in angle_ticks.iter().enumerate() {
                 let z = self.data.normalize_y(angle);
                 let pos = glam::Vec3::new(best_z_x_val, -0.5, z);
                 let tick_dir_x = if best_z_x_val > 0.0 { 1.0 } else { -1.0 };
                 let tick_vec = glam::Vec3::new(0.1 * tick_dir_x, 0.0, 0.0);
 
-                let label = format!("{}°", angle);
-
+                let label = cache.angle_labels.get(i).map(|s| s.as_str()).unwrap_or("");
                 draw_tick_and_label(window, pos, tick_vec, label);
             }
             // Angle Axis Title
@@ -848,12 +1028,12 @@ impl Element for Surface3DElement {
             // SPL Labels (Y axis)
             // Generate dynamic ticks based on actual data range
             let (spl_ticks, _) = spl_major_ticks(&self.data);
-            for spl in spl_ticks {
+            for (i, &spl) in spl_ticks.iter().enumerate() {
                 let y = self.data.normalize_z(spl) - 0.5;
                 let pos = glam::Vec3::new(best_y_x, y, best_y_z);
                 let tick_vec = glam::Vec3::new(best_y_x * 0.1, 0.0, best_y_z * 0.1);
 
-                let label = format!("{}dB", spl);
+                let label = cache.spl_labels.get(i).map(|s| s.as_str()).unwrap_or("");
                 draw_tick_and_label(window, pos, tick_vec, label);
             }
             // SPL Axis Title
@@ -880,7 +1060,7 @@ impl Element for Surface3DElement {
             // Shared helper to draw a single tick and its label
             // Re-defining for simplicity as scope is separate
             let draw_tick_and_label =
-                |window: &mut Window, pos: glam::Vec3, tick_vec: glam::Vec3, label: String| {
+                |window: &mut Window, pos: glam::Vec3, tick_vec: glam::Vec3, label: &str| {
                     let tick_end = pos + tick_vec;
                     if let (Some(s_start), Some(s_end)) = (to_screen(pos), to_screen(tick_end)) {
                         let p1 = gpui::Point {
@@ -933,7 +1113,7 @@ impl Element for Surface3DElement {
                         paint_chart_text_at(
                             window,
                             cx,
-                            &label,
+                            label,
                             label_screen.x + f32::from(bounds.origin.x) + offset_x,
                             label_screen.y + f32::from(bounds.origin.y) + offset_y,
                             &text_config,
@@ -951,7 +1131,7 @@ impl Element for Surface3DElement {
                 .clone()
                 .unwrap_or_else(|| vec![-180.0, -90.0, 0.0, 90.0, 180.0]);
 
-            for az in az_ticks {
+            for (i, &az) in az_ticks.iter().enumerate() {
                 // Convert Azimuth to 3D pos on sphere equator (Phi=0)
                 // normalize_y maps Azimuth to [-1, 1]
                 // mesh.rs: theta = ny * PI => [-PI, PI]
@@ -965,7 +1145,7 @@ impl Element for Surface3DElement {
                 let pos = glam::Vec3::new(x, 0.0, z);
 
                 let tick_vec = pos.normalize() * 0.15; // Point out
-                let label = format!("{}°", az);
+                let label = cache.azimuth_labels.get(i).map(|s| s.as_str()).unwrap_or("");
                 draw_tick_and_label(window, pos, tick_vec, label);
             }
 
@@ -979,7 +1159,7 @@ impl Element for Surface3DElement {
 
             // Draw on Prime Meridian (Theta=0 -> Y=0 in data, Z positive)
 
-            for el in el_ticks {
+            for (i, &el) in el_ticks.iter().enumerate() {
                 if el.abs() > 89.0 {
                     continue;
                 } // Skip poles to avoid clutter
@@ -996,7 +1176,7 @@ impl Element for Surface3DElement {
 
                 let pos = glam::Vec3::new(x, y, z);
                 let tick_vec = pos.normalize() * 0.1;
-                let label = format!("{}°", el);
+                let label = cache.elevation_labels.get(i).map(|s| s.as_str()).unwrap_or("");
 
                 draw_tick_and_label(window, pos, tick_vec, label);
             }
@@ -1009,9 +1189,6 @@ impl Element for Surface3DElement {
             let colorbar_x = f32::from(bounds.origin.x) + width - colorbar_width - 50.0;
             let colorbar_y = f32::from(bounds.origin.y) + (height - colorbar_height) / 2.0;
             let num_segments = 50;
-
-            // Get Z range from data
-            let (z_min, z_max) = (self.data.z_min, self.data.z_max);
 
             // Draw colorbar segments
             for i in 0..num_segments {
@@ -1064,7 +1241,6 @@ impl Element for Surface3DElement {
             let font_size = 9.0;
             for i in 0..=num_ticks {
                 let t = i as f64 / num_ticks as f64;
-                let value = z_min + t * (z_max - z_min);
                 let y = colorbar_y + colorbar_height * (1.0 - t as f32);
 
                 // Draw tick line
@@ -1075,13 +1251,17 @@ impl Element for Surface3DElement {
                     window.paint_path(path, overlay_color);
                 }
 
-                // Draw label
-                let label = format!("{:.0}", value);
+                // Draw label from cache
+                let label = cache
+                    .colorbar_labels
+                    .get(i)
+                    .map(|s| s.as_str())
+                    .unwrap_or("");
                 let text_config = GlyphTextConfig::horizontal(font_size, overlay_color);
                 paint_chart_text_at(
                     window,
                     cx,
-                    &label,
+                    label,
                     colorbar_x + colorbar_width + 6.0,
                     y,
                     &text_config,

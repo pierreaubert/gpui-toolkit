@@ -53,8 +53,8 @@ pub trait Projection: Clone {
     /// The default implementation falls back to `project`, which is sufficient
     /// for projections that do not suffer from polar round-trip instability.
     fn project_rotated(&self, lambda: f64, phi: f64) -> (f64, f64) {
-        let (lon, lat) = crate::geo::projection::SphereRotation::from_radians(0.0, 0.0, 0.0)
-            .invert(lambda, phi);
+        let (lon, lat) =
+            crate::geo::projection::SphereRotation::from_radians(0.0, 0.0, 0.0).invert(lambda, phi);
         self.project(lon.to_degrees(), lat.to_degrees())
     }
 

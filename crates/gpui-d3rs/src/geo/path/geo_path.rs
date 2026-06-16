@@ -3,12 +3,12 @@
 use std::borrow::Cow;
 use std::fmt::Write;
 
+use super::super::projection::{Projection, SphereRotation};
+use super::super::{degrees, geo_distance, geo_interpolate, radians};
 use super::clip::{
     clip_antimeridian, clip_antimeridian_polygon, clip_circle, clip_circle_polygon,
     resample_spherical_line,
 };
-use super::super::projection::{Projection, SphereRotation};
-use super::super::{degrees, geo_distance, geo_interpolate, radians};
 use super::geo_path_config::GeoPathConfig;
 use super::types::GeoJsonGeometry;
 use crate::util::scratch;
@@ -670,7 +670,11 @@ fn cut_ring_at_antimeridian(ring: &[(f64, f64)], center_lon: f64) -> Vec<Vec<(f6
         // never cross it). Keep it as a single piece.
         let mut piece = expanded;
         piece.dedup();
-        return if piece.len() >= 3 { vec![piece] } else { Vec::new() };
+        return if piece.len() >= 3 {
+            vec![piece]
+        } else {
+            Vec::new()
+        };
     }
 
     let mut pieces = Vec::new();
@@ -1244,7 +1248,10 @@ fn sample_antimeridian_arc(from: (f64, f64), to: (f64, f64)) -> Vec<(f64, f64)> 
 }
 
 /// Cut a polygon ring along the antimeridian in the projection's rotated frame.
-pub(super) fn antimeridian_clip_ring(ring: &[(f64, f64)], rotation: &SphereRotation) -> Vec<Vec<(f64, f64)>> {
+pub(super) fn antimeridian_clip_ring(
+    ring: &[(f64, f64)],
+    rotation: &SphereRotation,
+) -> Vec<Vec<(f64, f64)>> {
     let rotated: Vec<(f64, f64)> = ring
         .iter()
         .map(|&(lon, lat)| rotate_point_deg(rotation, lon, lat))
@@ -1282,7 +1289,10 @@ pub(super) fn antimeridian_clip_ring(ring: &[(f64, f64)], rotation: &SphereRotat
 }
 
 /// Cut an open polyline along the antimeridian in the projection's rotated frame.
-pub(super) fn antimeridian_clip_line(line: &[(f64, f64)], rotation: &SphereRotation) -> Vec<Vec<(f64, f64)>> {
+pub(super) fn antimeridian_clip_line(
+    line: &[(f64, f64)],
+    rotation: &SphereRotation,
+) -> Vec<Vec<(f64, f64)>> {
     let rotated: Vec<(f64, f64)> = line
         .iter()
         .map(|&(lon, lat)| rotate_point_deg(rotation, lon, lat))
@@ -1375,19 +1385,11 @@ fn circle_segment_intersection(
     let t1 = (-b - sqrt_disc) / (2.0 * a);
     let t2 = (-b + sqrt_disc) / (2.0 * a);
 
-    let t = if t1 >= 0.0 && t1 <= 1.0 {
-        t1
-    } else {
-        t2
-    };
+    let t = if t1 >= 0.0 && t1 <= 1.0 { t1 } else { t2 };
     (p1.0 + t * dx, p1.1 + t * dy)
 }
 
-fn sample_circle_arc(
-    from: (f64, f64),
-    to: (f64, f64),
-    center: (f64, f64),
-) -> Vec<(f64, f64)> {
+fn sample_circle_arc(from: (f64, f64), to: (f64, f64), center: (f64, f64)) -> Vec<(f64, f64)> {
     let a1 = (from.1 - center.1).atan2(from.0 - center.0);
     let a2 = (to.1 - center.1).atan2(to.0 - center.0);
     let mut delta = a2 - a1;

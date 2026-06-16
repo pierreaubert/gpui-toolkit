@@ -3287,7 +3287,10 @@ impl LabSidebar {
 
 impl Render for LabSidebar {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        match self.parent.update(cx, |parent, cx| parent.render_sidebar(cx)) {
+        match self
+            .parent
+            .update(cx, |parent, cx| parent.render_sidebar(cx))
+        {
             Ok(element) => element,
             Err(_) => div().into_any_element(),
         }
@@ -3320,7 +3323,10 @@ impl LabToolbar {
 
 impl Render for LabToolbar {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        match self.parent.update(cx, |parent, cx| parent.render_toolbar(cx)) {
+        match self
+            .parent
+            .update(cx, |parent, cx| parent.render_toolbar(cx))
+        {
             Ok(element) => element,
             Err(_) => div().into_any_element(),
         }

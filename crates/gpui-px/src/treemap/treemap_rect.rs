@@ -12,5 +12,3 @@ pub(super) struct TreemapRect {
     pub(super) _depth: usize,
     pub(super) category_index: usize,
 }
-
-

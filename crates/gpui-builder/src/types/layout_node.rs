@@ -68,6 +68,20 @@ impl<'a> LayoutNode<'a> {
             LayoutNode::Container(_) => 1.0,
         }
     }
+
+    /// Total number of nodes in this subtree, including this node.
+    pub fn node_count(&self) -> usize {
+        match self {
+            LayoutNode::Slot(_) => 1,
+            LayoutNode::Container(c) => {
+                1 + c
+                    .children
+                    .iter()
+                    .map(|child| child.node_count())
+                    .sum::<usize>()
+            }
+        }
+    }
 }
 
 impl<'a> From<SlotNode<'a>> for LayoutNode<'a> {

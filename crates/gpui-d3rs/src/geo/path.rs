@@ -10,10 +10,10 @@ mod clip;
 mod geo_path;
 mod geo_path_config;
 mod preclip;
+pub mod stream;
 #[cfg(test)]
 mod tests;
 mod types;
-pub mod stream;
 
 pub use geo_path::*;
 pub use geo_path_config::*;

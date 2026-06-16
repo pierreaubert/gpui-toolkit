@@ -157,8 +157,7 @@ fn diff_adds_removes_and_reorders() {
 #[test]
 fn diff_detects_frame_change() {
     let prev = IosAccessibilitySnapshot::new(
-        IosAccessibilityNode::new("root", IosAccessibilityRole::Container)
-            .child(button("a", "A")),
+        IosAccessibilityNode::new("root", IosAccessibilityRole::Container).child(button("a", "A")),
     );
     let next = IosAccessibilitySnapshot::new(
         IosAccessibilityNode::new("root", IosAccessibilityRole::Container).child(
@@ -182,8 +181,7 @@ fn diff_detects_frame_change() {
 #[test]
 fn diff_detects_traits_change() {
     let prev = IosAccessibilitySnapshot::new(
-        IosAccessibilityNode::new("root", IosAccessibilityRole::Container)
-            .child(button("a", "A")),
+        IosAccessibilityNode::new("root", IosAccessibilityRole::Container).child(button("a", "A")),
     );
     let mut next_node = button("a", "A");
     next_node.enabled = false;
@@ -200,8 +198,7 @@ fn diff_detects_traits_change() {
 #[test]
 fn diff_first_snapshot_treats_all_nodes_as_added() {
     let next = IosAccessibilitySnapshot::new(
-        IosAccessibilityNode::new("root", IosAccessibilityRole::Container)
-            .child(button("a", "A")),
+        IosAccessibilityNode::new("root", IosAccessibilityRole::Container).child(button("a", "A")),
     );
 
     let diff = compute_accessibility_diff(None, &next);

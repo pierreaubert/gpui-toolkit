@@ -27,6 +27,36 @@ pub(super) struct ProjectedTriangle {
     pub color: crate::color::D3Color,
 }
 
+/// Which axis a cached tick belongs to.
+#[derive(Clone, Copy, Debug)]
+enum Axis {
+    X,
+    Y,
+    Z,
+}
+
+/// Cached axis tick geometry and label text.
+#[derive(Clone, Debug)]
+struct CachedAxisTick {
+    axis: Axis,
+    start: Point2D,
+    end: Point2D,
+    label: Option<String>,
+}
+
+/// Cached paint-time axis geometry so projections and tick labels are not
+/// recomputed every `paint` call.
+#[derive(Clone, Debug)]
+struct PaintCache {
+    generation: u64,
+    origin: Point2D,
+    x_end: Point2D,
+    y_end: Point2D,
+    z_end: Point2D,
+    ticks: Vec<CachedAxisTick>,
+    axis_labels: Option<[(Point2D, String); 3]>,
+}
+
 /// A custom GPUI element for rendering 3D surfaces
 pub struct SurfaceElement {
     /// The surface mesh
@@ -45,6 +75,8 @@ pub struct SurfaceElement {
     pub(super) cached_projected: Vec<ProjectedTriangle>,
     /// Whether `cached_projected` is populated for the current generation.
     pub(super) has_cached_projected: bool,
+    /// Cached axis endpoints, tick geometry, and pre-formatted tick labels.
+    paint_cache: Option<PaintCache>,
 }
 
 impl SurfaceElement {
@@ -68,6 +100,7 @@ impl SurfaceElement {
             cache_generation: u64::MAX,
             cached_projected: Vec::new(),
             has_cached_projected: false,
+            paint_cache: None,
         }
     }
 
@@ -185,6 +218,32 @@ impl SurfaceElement {
             for p in row {
                 hash_point3d(p, &mut hasher);
             }
+        }
+
+        hasher.finish()
+    }
+
+    /// Compute a generation key for the paint-time axis/tick cache.
+    ///
+    /// Extends the geometry cache key with label-related state so that changes
+    /// to axis ranges or labels invalidate the formatted tick strings.
+    pub(super) fn compute_paint_generation(&self, bounds: &Bounds<Pixels>) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        self.compute_generation(bounds).hash(&mut hasher);
+
+        if let Some(((x_min, x_max), (y_min, y_max), (z_min, z_max))) = self.config.axis_ranges {
+            x_min.to_bits().hash(&mut hasher);
+            x_max.to_bits().hash(&mut hasher);
+            y_min.to_bits().hash(&mut hasher);
+            y_max.to_bits().hash(&mut hasher);
+            z_min.to_bits().hash(&mut hasher);
+            z_max.to_bits().hash(&mut hasher);
+        }
+
+        if let Some((x_label, y_label, z_label)) = &self.config.axis_labels {
+            x_label.hash(&mut hasher);
+            y_label.hash(&mut hasher);
+            z_label.hash(&mut hasher);
         }
 
         hasher.finish()
@@ -377,60 +436,127 @@ impl Element for SurfaceElement {
 
         // Draw 3D axes if enabled
         if self.config.show_axes {
-            let projection = self.create_projection(&bounds);
+            let generation = self.compute_paint_generation(&bounds);
+            if self.paint_cache.as_ref().map_or(true, |c| c.generation != generation) {
+                let projection = self.create_projection(&bounds);
+
+                let origin = (-0.5, -0.5, -0.5);
+                let x_end = (0.6, -0.5, -0.5);
+                let y_end = (-0.5, 0.6, -0.5);
+                let z_end = (-0.5, -0.5, 0.6);
+
+                let p_origin = projection.project(origin.0, origin.1, origin.2);
+                let p_x = projection.project(x_end.0, x_end.1, x_end.2);
+                let p_y = projection.project(y_end.0, y_end.1, y_end.2);
+                let p_z = projection.project(z_end.0, z_end.1, z_end.2);
+
+                let tick_size = 0.03;
+                let num_ticks = 5;
+                let mut ticks = Vec::with_capacity((num_ticks + 1) * 3);
+
+                for i in 0..=num_ticks {
+                    let t = i as f64 / num_ticks as f64;
+
+                    // X axis tick
+                    let x_tick_pos = (-0.5 + t * 1.0, -0.5, -0.5);
+                    let x_tick_end = (-0.5 + t * 1.0, -0.5 - tick_size, -0.5);
+                    let x_label =
+                        if let Some(((x_min, x_max), _, _)) = self.config.axis_ranges {
+                            Some(format_tick_value(x_min + t * (x_max - x_min), x_min, x_max))
+                        } else {
+                            None
+                        };
+                    ticks.push(CachedAxisTick {
+                        axis: Axis::X,
+                        start: projection.project(x_tick_pos.0, x_tick_pos.1, x_tick_pos.2),
+                        end: projection.project(x_tick_end.0, x_tick_end.1, x_tick_end.2),
+                        label: x_label,
+                    });
+
+                    // Y axis tick
+                    let y_tick_pos = (-0.5, -0.5 + t * 1.0, -0.5);
+                    let y_tick_end = (-0.5 - tick_size, -0.5 + t * 1.0, -0.5);
+                    let y_label =
+                        if let Some((_, (y_min, y_max), _)) = self.config.axis_ranges {
+                            Some(format_tick_value(y_min + t * (y_max - y_min), y_min, y_max))
+                        } else {
+                            None
+                        };
+                    ticks.push(CachedAxisTick {
+                        axis: Axis::Y,
+                        start: projection.project(y_tick_pos.0, y_tick_pos.1, y_tick_pos.2),
+                        end: projection.project(y_tick_end.0, y_tick_end.1, y_tick_end.2),
+                        label: y_label,
+                    });
+
+                    // Z axis tick
+                    let z_tick_pos = (-0.5, -0.5, -0.5 + t * 1.0);
+                    let z_tick_end = (-0.5 - tick_size, -0.5, -0.5 + t * 1.0);
+                    let z_label =
+                        if let Some((_, _, (z_min, z_max))) = self.config.axis_ranges {
+                            Some(format_tick_value(z_min + t * (z_max - z_min), z_min, z_max))
+                        } else {
+                            None
+                        };
+                    ticks.push(CachedAxisTick {
+                        axis: Axis::Z,
+                        start: projection.project(z_tick_pos.0, z_tick_pos.1, z_tick_pos.2),
+                        end: projection.project(z_tick_end.0, z_tick_end.1, z_tick_end.2),
+                        label: z_label,
+                    });
+                }
+
+                let axis_labels = self.config.axis_labels.as_ref().map(|(x, y, z)| {
+                    [
+                        (projection.project(0.7, -0.5, -0.5), x.clone()),
+                        (projection.project(-0.5, 0.7, -0.5), y.clone()),
+                        (projection.project(-0.5, -0.5, 0.7), z.clone()),
+                    ]
+                });
+
+                self.paint_cache = Some(PaintCache {
+                    generation,
+                    origin: p_origin,
+                    x_end: p_x,
+                    y_end: p_y,
+                    z_end: p_z,
+                    ticks,
+                    axis_labels,
+                });
+            }
+
+            let cache = self.paint_cache.as_ref().expect("paint cache just set");
             let axis_color = self.config.axis_color.to_rgba();
-
-            // Origin point (corner of the unit cube, offset to center)
-            let origin = (-0.5, -0.5, -0.5);
-
-            // Axis endpoints (extend slightly beyond the surface for visibility)
-            let x_end = (0.6, -0.5, -0.5);
-            let y_end = (-0.5, 0.6, -0.5);
-            let z_end = (-0.5, -0.5, 0.6);
-
-            // Project axis endpoints
-            let p_origin = projection.project(origin.0, origin.1, origin.2);
-            let p_x = projection.project(x_end.0, x_end.1, x_end.2);
-            let p_y = projection.project(y_end.0, y_end.1, y_end.2);
-            let p_z = projection.project(z_end.0, z_end.1, z_end.2);
+            let tick_font_size = self.config.axis_font_size;
 
             // Draw X axis
             let mut x_builder = PathBuilder::stroke(px(self.config.axis_width));
-            x_builder.move_to(point(px(p_origin.x as f32), px(p_origin.y as f32)));
-            x_builder.line_to(point(px(p_x.x as f32), px(p_x.y as f32)));
+            x_builder.move_to(point(px(cache.origin.x as f32), px(cache.origin.y as f32)));
+            x_builder.line_to(point(px(cache.x_end.x as f32), px(cache.x_end.y as f32)));
             if let Ok(path) = x_builder.build() {
                 window.paint_path(path, axis_color);
             }
 
             // Draw Y axis
             let mut y_builder = PathBuilder::stroke(px(self.config.axis_width));
-            y_builder.move_to(point(px(p_origin.x as f32), px(p_origin.y as f32)));
-            y_builder.line_to(point(px(p_y.x as f32), px(p_y.y as f32)));
+            y_builder.move_to(point(px(cache.origin.x as f32), px(cache.origin.y as f32)));
+            y_builder.line_to(point(px(cache.y_end.x as f32), px(cache.y_end.y as f32)));
             if let Ok(path) = y_builder.build() {
                 window.paint_path(path, axis_color);
             }
 
             // Draw Z axis
             let mut z_builder = PathBuilder::stroke(px(self.config.axis_width));
-            z_builder.move_to(point(px(p_origin.x as f32), px(p_origin.y as f32)));
-            z_builder.line_to(point(px(p_z.x as f32), px(p_z.y as f32)));
+            z_builder.move_to(point(px(cache.origin.x as f32), px(cache.origin.y as f32)));
+            z_builder.line_to(point(px(cache.z_end.x as f32), px(cache.z_end.y as f32)));
             if let Ok(path) = z_builder.build() {
                 window.paint_path(path, axis_color);
             }
 
-            // Draw tick marks on each axis (5 ticks)
-            let tick_size = 0.03;
-            let num_ticks = 5;
-            let tick_font_size = self.config.axis_font_size;
-
-            for i in 0..=num_ticks {
-                let t = i as f64 / num_ticks as f64;
-
-                // X axis ticks (perpendicular to X in YZ plane)
-                let x_tick_pos = (-0.5 + t * 1.0, -0.5, -0.5);
-                let x_tick_end = (-0.5 + t * 1.0, -0.5 - tick_size, -0.5);
-                let p1 = projection.project(x_tick_pos.0, x_tick_pos.1, x_tick_pos.2);
-                let p2 = projection.project(x_tick_end.0, x_tick_end.1, x_tick_end.2);
+            // Draw tick marks and labels from the cache.
+            for tick in &cache.ticks {
+                let p1 = tick.start;
+                let p2 = tick.end;
                 let mut tick_builder = PathBuilder::stroke(px(1.0));
                 tick_builder.move_to(point(px(p1.x as f32), px(p1.y as f32)));
                 tick_builder.line_to(point(px(p2.x as f32), px(p2.y as f32)));
@@ -438,90 +564,32 @@ impl Element for SurfaceElement {
                     window.paint_path(path, axis_color);
                 }
 
-                // Draw X tick value if ranges provided
-                if let Some(((x_min, x_max), _, _)) = self.config.axis_ranges {
-                    let value = x_min + t * (x_max - x_min);
-                    let label = format_tick_value(value, x_min, x_max);
+                if let Some(label) = tick.label.as_deref() {
                     let text_config = GlyphTextConfig::horizontal(tick_font_size, axis_color);
+                    let (x, y, h_anchor, v_anchor) = match tick.axis {
+                        Axis::X => (p2.x as f32, p2.y as f32 + 12.0, HorizontalTextAnchor::Middle, VerticalTextAnchor::Top),
+                        Axis::Y | Axis::Z => (p2.x as f32 - 4.0, p2.y as f32, HorizontalTextAnchor::End, VerticalTextAnchor::Middle),
+                    };
                     paint_chart_text_at(
                         window,
                         cx,
-                        &label,
-                        p2.x as f32,
-                        p2.y as f32 + 12.0,
+                        label,
+                        x,
+                        y,
                         &text_config,
-                        HorizontalTextAnchor::Middle,
-                        VerticalTextAnchor::Top,
-                    );
-                }
-
-                // Y axis ticks
-                let y_tick_pos = (-0.5, -0.5 + t * 1.0, -0.5);
-                let y_tick_end = (-0.5 - tick_size, -0.5 + t * 1.0, -0.5);
-                let p1 = projection.project(y_tick_pos.0, y_tick_pos.1, y_tick_pos.2);
-                let p2 = projection.project(y_tick_end.0, y_tick_end.1, y_tick_end.2);
-                let mut tick_builder = PathBuilder::stroke(px(1.0));
-                tick_builder.move_to(point(px(p1.x as f32), px(p1.y as f32)));
-                tick_builder.line_to(point(px(p2.x as f32), px(p2.y as f32)));
-                if let Ok(path) = tick_builder.build() {
-                    window.paint_path(path, axis_color);
-                }
-
-                // Draw Y tick value if ranges provided
-                if let Some((_, (y_min, y_max), _)) = self.config.axis_ranges {
-                    let value = y_min + t * (y_max - y_min);
-                    let label = format_tick_value(value, y_min, y_max);
-                    let text_config = GlyphTextConfig::horizontal(tick_font_size, axis_color);
-                    paint_chart_text_at(
-                        window,
-                        cx,
-                        &label,
-                        p2.x as f32 - 4.0,
-                        p2.y as f32,
-                        &text_config,
-                        HorizontalTextAnchor::End,
-                        VerticalTextAnchor::Middle,
-                    );
-                }
-
-                // Z axis ticks
-                let z_tick_pos = (-0.5, -0.5, -0.5 + t * 1.0);
-                let z_tick_end = (-0.5 - tick_size, -0.5, -0.5 + t * 1.0);
-                let p1 = projection.project(z_tick_pos.0, z_tick_pos.1, z_tick_pos.2);
-                let p2 = projection.project(z_tick_end.0, z_tick_end.1, z_tick_end.2);
-                let mut tick_builder = PathBuilder::stroke(px(1.0));
-                tick_builder.move_to(point(px(p1.x as f32), px(p1.y as f32)));
-                tick_builder.line_to(point(px(p2.x as f32), px(p2.y as f32)));
-                if let Ok(path) = tick_builder.build() {
-                    window.paint_path(path, axis_color);
-                }
-
-                // Draw Z tick value if ranges provided
-                if let Some((_, _, (z_min, z_max))) = self.config.axis_ranges {
-                    let value = z_min + t * (z_max - z_min);
-                    let label = format_tick_value(value, z_min, z_max);
-                    let text_config = GlyphTextConfig::horizontal(tick_font_size, axis_color);
-                    paint_chart_text_at(
-                        window,
-                        cx,
-                        &label,
-                        p2.x as f32 - 4.0,
-                        p2.y as f32,
-                        &text_config,
-                        HorizontalTextAnchor::End,
-                        VerticalTextAnchor::Middle,
+                        h_anchor,
+                        v_anchor,
                     );
                 }
             }
 
             // Draw axis labels if configured
-            if let Some((x_label, y_label, z_label)) = &self.config.axis_labels {
+            if let Some(labels) = &cache.axis_labels {
                 let font_size = 11.0;
                 let horizontal_text = GlyphTextConfig::horizontal(font_size, axis_color);
                 let vertical_text = GlyphTextConfig::rotated(font_size, axis_color, -PI / 2.0);
 
-                // X axis label - positioned at the end of the X axis
-                let x_label_pos = projection.project(0.7, -0.5, -0.5);
+                let (x_label_pos, x_label) = &labels[0];
                 paint_chart_text_at(
                     window,
                     cx,
@@ -533,8 +601,7 @@ impl Element for SurfaceElement {
                     VerticalTextAnchor::Top,
                 );
 
-                // Y axis label - positioned at the end of the Y axis
-                let y_label_pos = projection.project(-0.5, 0.7, -0.5);
+                let (y_label_pos, y_label) = &labels[1];
                 paint_chart_text_at(
                     window,
                     cx,
@@ -546,8 +613,7 @@ impl Element for SurfaceElement {
                     VerticalTextAnchor::Middle,
                 );
 
-                // Z axis label - positioned at the end of the Z axis
-                let z_label_pos = projection.project(-0.5, -0.5, 0.7);
+                let (z_label_pos, z_label) = &labels[2];
                 paint_chart_text_at(
                     window,
                     cx,

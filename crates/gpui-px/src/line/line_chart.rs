@@ -601,30 +601,16 @@ impl LineChart {
             ));
 
         for (series_data, series_config) in series_data_configs {
-            plot_area = plot_area.child(render_line(
-                x_scale,
-                y_scale,
-                series_data,
-                series_config,
-            ));
+            plot_area = plot_area.child(render_line(x_scale, y_scale, series_data, series_config));
         }
 
         if !primary_hidden {
-            plot_area = plot_area.child(render_line(
-                x_scale,
-                y_scale,
-                primary_data,
-                primary_config,
-            ));
+            plot_area =
+                plot_area.child(render_line(x_scale, y_scale, primary_data, primary_config));
         }
 
         for (series_data, series_config) in secondary_series_data_configs {
-            plot_area = plot_area.child(render_line(
-                x_scale,
-                y2_scale,
-                series_data,
-                series_config,
-            ));
+            plot_area = plot_area.child(render_line(x_scale, y2_scale, series_data, series_config));
         }
 
         if has_secondary_axis {

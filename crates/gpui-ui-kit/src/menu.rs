@@ -260,7 +260,14 @@ impl Menu {
         for (index, item) in self.items.into_iter().enumerate() {
             item_ids.push(item.id.clone());
             if item.is_separator {
-                rows.push(div().my_1().h(px(1.0)).bg(theme.separator).mx_2().into_any_element());
+                rows.push(
+                    div()
+                        .my_1()
+                        .h(px(1.0))
+                        .bg(theme.separator)
+                        .mx_2()
+                        .into_any_element(),
+                );
             } else {
                 let disabled = item.disabled;
                 let is_checkbox = item.is_checkbox;

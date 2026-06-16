@@ -368,25 +368,26 @@ impl Treemap {
         if let Some(handler) = on_click {
             let handler = Rc::clone(&handler);
             let bounds_for_click_down = bounds_for_click.clone();
-            plot_content = plot_content.on_mouse_down(MouseButton::Left, move |event, _window, _cx| {
-                if let Some(bounds) = *bounds_for_click_down.borrow() {
-                    let origin_x: f32 = bounds.origin.x.into();
-                    let origin_y: f32 = bounds.origin.y.into();
-                    let local_x = f32::from(event.position.x) - origin_x;
-                    let local_y = f32::from(event.position.y) - origin_y;
+            plot_content =
+                plot_content.on_mouse_down(MouseButton::Left, move |event, _window, _cx| {
+                    if let Some(bounds) = *bounds_for_click_down.borrow() {
+                        let origin_x: f32 = bounds.origin.x.into();
+                        let origin_y: f32 = bounds.origin.y.into();
+                        let local_x = f32::from(event.position.x) - origin_x;
+                        let local_y = f32::from(event.position.y) - origin_y;
 
-                    for rect in &draw_data_for_click {
-                        if local_x >= rect.x0 as f32
-                            && local_x <= rect.x1 as f32
-                            && local_y >= rect.y0 as f32
-                            && local_y <= rect.y1 as f32
-                        {
-                            handler(&rect.name, rect.value);
-                            break;
+                        for rect in &draw_data_for_click {
+                            if local_x >= rect.x0 as f32
+                                && local_x <= rect.x1 as f32
+                                && local_y >= rect.y0 as f32
+                                && local_y <= rect.y1 as f32
+                            {
+                                handler(&rect.name, rect.value);
+                                break;
+                            }
                         }
                     }
-                }
-            });
+                });
         }
 
         // Build container
@@ -434,4 +435,3 @@ fn add_rect_to_path(builder: &mut PathBuilder, x: f32, y: f32, width: f32, heigh
     builder.line_to(point(px(x), px(y + height)));
     builder.close();
 }
-

@@ -134,11 +134,8 @@ impl ThemeEditor {
         let showcase = cx.new(|_| ComponentShowcase::new(theme.clone()));
 
         let hex_cache = Self::build_hex_cache(&theme);
-        let cached_export_content = SharedString::from(
-            theme
-                .to_json()
-                .unwrap_or_else(|e| format!("Error: {}", e)),
-        );
+        let cached_export_content =
+            SharedString::from(theme.to_json().unwrap_or_else(|e| format!("Error: {}", e)));
         let cached_export_filename = SharedString::from(format!(
             "{}_theme.{}",
             theme.name.to_lowercase().replace(' ', "_"),
@@ -236,8 +233,10 @@ impl ThemeEditor {
         (field.setter)(theme, color);
         // Refresh cached hex for the changed field
         let updated_color = (field.getter)(&self.theme);
-        self.hex_cache
-            .insert(field.name, SharedString::from(updated_color.to_hex_string()));
+        self.hex_cache.insert(
+            field.name,
+            SharedString::from(updated_color.to_hex_string()),
+        );
         // Export content depends on the theme, so refresh it
         self.refresh_export_cache();
         // Update showcase with a cheap Arc clone
@@ -434,10 +433,9 @@ impl ThemeEditor {
                             .child(div().flex_1())
                             .child(
                                 Text::new(
-                                    self.hex_cache
-                                        .get(field.name)
-                                        .cloned()
-                                        .unwrap_or_else(|| SharedString::from(color.to_hex_string())),
+                                    self.hex_cache.get(field.name).cloned().unwrap_or_else(|| {
+                                        SharedString::from(color.to_hex_string())
+                                    }),
                                 )
                                 .size(TextSize::Xs)
                                 .color(theme.text_muted.to_rgba()),

@@ -213,7 +213,9 @@ impl IosAccessibilitySnapshot {
     /// [`Self::flattened_nodes`] performs and is the preferred path for hot
     /// internal callers.
     pub fn flattened_node_slice(&self) -> &[IosAccessibilityNode] {
-        let cached = self.flattened_cache.get_or_init(|| Arc::new(self.flatten_root()));
+        let cached = self
+            .flattened_cache
+            .get_or_init(|| Arc::new(self.flatten_root()));
         cached.as_slice()
     }
 

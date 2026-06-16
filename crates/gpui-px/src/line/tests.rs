@@ -1,5 +1,5 @@
-use crate::line::line;
 use crate::ScaleType;
+use crate::line::line;
 
 #[test]
 fn build_uses_generic_scale_helper_all_combinations_build() {

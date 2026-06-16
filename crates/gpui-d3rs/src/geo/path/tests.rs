@@ -169,10 +169,7 @@ fn test_antimeridian_line_string_crossing() {
     // Each clipped piece has two endpoints, so there is one L command per
     // piece. No L connects the two sides across the antimeridian.
     let l_count = svg.matches('L').count();
-    assert_eq!(
-        l_count, 2,
-        "Should have one line command per clipped piece"
-    );
+    assert_eq!(l_count, 2, "Should have one line command per clipped piece");
 }
 
 #[test]
@@ -208,32 +205,32 @@ fn test_antimeridian_polygon_crossing() {
     ]]);
     let svg = path.render(&geometry);
 
-    // Should have multiple M commands due to antimeridian breaks
+    // The antimeridian clip cuts the ring into pieces and then rejoins them
+    // along the antimeridian edge, so the result is a single closed path.
     let m_count = svg.matches('M').count();
-    assert!(
-        m_count >= 2,
-        "Should have at least 2 move commands for crossing polygon"
+    assert_eq!(
+        m_count, 1,
+        "Should have 1 rejoined move command for crossing polygon"
     );
 
-    // Should have multiple Z commands (closed segments)
+    // Should have one close command for the rejoined ring.
     let z_count = svg.matches('Z').count();
-    assert!(
-        z_count >= 2,
-        "Should have at least 2 close commands for crossing polygon"
-    );
+    assert_eq!(z_count, 1, "Should have 1 close command for crossing polygon");
 }
 
 #[test]
 fn test_antimeridian_polygon_no_crossing() {
-    // Normal polygon not crossing antimeridian
+    // Normal polygon not crossing antimeridian.
+    // D3's spherical polygon convention requires exterior rings smaller than
+    // a hemisphere to be clockwise, so this ring is ordered clockwise.
     let proj = Equirectangular::new().scale(1.0).translate(0.0, 0.0);
     let path = GeoPath::new(proj);
 
     let geometry = GeoJsonGeometry::Polygon(vec![vec![
         (10.0, 50.0),
-        (20.0, 50.0),
-        (20.0, 60.0),
         (10.0, 60.0),
+        (20.0, 60.0),
+        (20.0, 50.0),
         (10.0, 50.0),
     ]]);
     let svg = path.render(&geometry);

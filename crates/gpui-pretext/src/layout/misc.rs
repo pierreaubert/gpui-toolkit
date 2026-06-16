@@ -148,10 +148,7 @@ pub(super) fn build_line_text_cow<'a>(
     end_graph: usize,
 ) -> Cow<'a, str> {
     // Fast path: the line spans exactly one whole prepared segment.
-    if start_graph == 0
-        && end_graph == 0
-        && start_seg + 1 == end_seg
-        && start_seg < segments.len()
+    if start_graph == 0 && end_graph == 0 && start_seg + 1 == end_seg && start_seg < segments.len()
     {
         return Cow::Borrowed(&segments[start_seg]);
     }

@@ -277,11 +277,15 @@ impl LayoutState {
         let prefs = unsafe { &mut *(self.cached_preferences.get() as *mut LayoutPreferences<'_>) };
         prefs.ratios.clear();
         for entry in &self.ratio_overrides {
-            prefs.ratios.insert((entry.slot_id.as_str(), entry.axis), entry.ratio);
+            prefs
+                .ratios
+                .insert((entry.slot_id.as_str(), entry.axis), entry.ratio);
         }
         prefs.collapsed.clear();
         for entry in &self.collapsed {
-            prefs.collapsed.insert(entry.slot_id.as_str(), entry.collapsed);
+            prefs
+                .collapsed
+                .insert(entry.slot_id.as_str(), entry.collapsed);
         }
     }
 

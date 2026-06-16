@@ -30,8 +30,12 @@ struct AllocProbe;
 
 #[cfg(not(feature = "profiler"))]
 impl AllocProbe {
-    fn new() -> Self { Self }
-    fn sample(&mut self, _label: &str) -> AllocSnapshot { AllocSnapshot::default() }
+    fn new() -> Self {
+        Self
+    }
+    fn sample(&mut self, _label: &str) -> AllocSnapshot {
+        AllocSnapshot::default()
+    }
 }
 
 pub struct ShowcaseApp {
@@ -98,6 +102,8 @@ pub struct ShowcaseApp {
     // Dragging state
     pub is_dragging: bool,
     pub last_mouse_pos: Option<Point<Pixels>>,
+    // Cached expensive showcase data so it is not regenerated every render.
+    pub surface_plot_cache: Option<super::showcase_modules::surface_plots::SurfacePlotCache>,
     // Allocation probe for tracking heap allocations during interactive events.
     alloc_probe: AllocProbe,
     last_render_alloc: AllocSnapshot,
@@ -195,6 +201,7 @@ impl ShowcaseApp {
             use_large_data: false,
             is_dragging: false,
             last_mouse_pos: None,
+            surface_plot_cache: None,
             alloc_probe: AllocProbe::new(),
             last_render_alloc: AllocSnapshot::default(),
             last_mouse_move_alloc: AllocSnapshot::default(),
@@ -212,6 +219,37 @@ impl ShowcaseApp {
         let delta = self.alloc_probe.sample(label);
         self.last_sample = Some((label.to_string(), delta));
         delta
+    }
+
+    /// Ensure the expensive surface-plot data is cached and matches the current
+    /// generation parameters. Rebuilds only when the cache key changes.
+    pub(super) fn ensure_surface_plot_cache(&mut self) {
+        use super::showcase_modules::surface_plots::{
+            SURFACE_PLOT_CACHE_KEY, build_surface_plot_cache,
+        };
+
+        if self
+            .surface_plot_cache
+            .as_ref()
+            .is_some_and(|cache| cache.key == SURFACE_PLOT_CACHE_KEY)
+        {
+            return;
+        }
+        self.surface_plot_cache = Some(build_surface_plot_cache(SURFACE_PLOT_CACHE_KEY));
+    }
+
+    /// Advance the force simulation by five ticks and copy the new node
+    /// positions into the render cache.
+    pub(super) fn tick_force_simulation(&mut self) {
+        for _ in 0..5 {
+            self.force_simulation.tick();
+        }
+        let mut positions = self.force_node_positions.borrow_mut();
+        positions.clear();
+        positions.extend(self.force_simulation.nodes.iter().map(|n| {
+            let n = n.borrow();
+            (n.x as f32, n.y as f32)
+        }));
     }
 
     pub(super) fn solve_layout(&self, w: f32, h: f32) -> f32 {
@@ -359,7 +397,10 @@ impl ShowcaseApp {
             DemoSection::BarCharts => super::showcase_modules::bar_charts::render(self, cx),
             DemoSection::LineCharts => super::showcase_modules::line_charts::render(self, cx),
             DemoSection::ScatterPlots => super::showcase_modules::scatter_plots::render(self, cx),
-            DemoSection::SurfacePlots => super::showcase_modules::surface_plots::render(self, cx),
+            DemoSection::SurfacePlots => {
+                self.ensure_surface_plot_cache();
+                super::showcase_modules::surface_plots::render(self, cx)
+            }
             DemoSection::QuadTree => super::showcase_modules::quadtree::render(self, cx),
             DemoSection::Contours => super::showcase_modules::contours::render(self, cx),
             DemoSection::Transitions => super::showcase_modules::transitions::render(self, cx),
@@ -660,12 +701,18 @@ impl Render for ShowcaseApp {
             .on_mouse_move(cx.listener(|this, _event, _window, _cx| {
                 this.last_mouse_move_alloc = this.record_sample("mouse-move");
             }))
-            .on_mouse_down(MouseButton::Left, cx.listener(|this, _event, _window, _cx| {
-                this.record_sample("mouse-down");
-            }))
-            .on_mouse_up(MouseButton::Left, cx.listener(|this, _event, _window, _cx| {
-                this.record_sample("mouse-up");
-            }))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _event, _window, _cx| {
+                    this.record_sample("mouse-down");
+                }),
+            )
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(|this, _event, _window, _cx| {
+                    this.record_sample("mouse-up");
+                }),
+            )
             .on_scroll_wheel(cx.listener(|this, _event, _window, _cx| {
                 this.record_sample("scroll");
             }))

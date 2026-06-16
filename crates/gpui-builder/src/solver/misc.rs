@@ -8,6 +8,7 @@ use gpui_pretext::{
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
+use std::sync::Arc;
 
 /// Persistent cache for `Sizing::Text` measurements and their underlying
 /// [`PreparedText`] data.
@@ -24,11 +25,11 @@ use std::rc::Rc;
 #[derive(Debug)]
 pub struct TextMeasureCache {
     /// `(measure_ptr, text)` → prepared text without segment strings.
-    prepared_vertical: HashMap<(usize, String), PreparedText>,
+    prepared_vertical: HashMap<(usize, Arc<str>), PreparedText>,
     /// `(measure_ptr, text)` → prepared text with segment strings.
-    prepared_horizontal: HashMap<(usize, String), PreparedTextWithSegments>,
+    prepared_horizontal: HashMap<(usize, Arc<str>), PreparedTextWithSegments>,
     /// `(measure_ptr, text, cross_size, line_height, axis)` → computed size.
-    sizes: HashMap<(usize, String, u32, u32, Axis), f32>,
+    sizes: HashMap<(usize, Arc<str>, u32, u32, Axis), f32>,
 }
 
 impl TextMeasureCache {
@@ -94,10 +95,10 @@ pub(super) fn compute_text_size<'a>(
     let measure_ptr = (input.measure as *const dyn gpui_pretext::TextMeasure) as *const () as usize;
     let cross_bits = input.cross_size.to_bits();
     let line_bits = input.line_height.to_bits();
-    let text_owned = input.text.to_string();
+    let text_arc: Arc<str> = Arc::from(input.text);
     let size_key = (
         measure_ptr,
-        text_owned.clone(),
+        Arc::clone(&text_arc),
         cross_bits,
         line_bits,
         input.axis,
@@ -108,7 +109,7 @@ pub(super) fn compute_text_size<'a>(
         return size.max(input.min);
     }
 
-    let prepared_key = (measure_ptr, text_owned);
+    let prepared_key = (measure_ptr, text_arc);
     let size = match input.axis {
         Axis::Vertical => {
             let prepared = cache
@@ -130,12 +131,7 @@ pub(super) fn compute_text_size<'a>(
                 .prepared_horizontal
                 .entry(prepared_key)
                 .or_insert_with(|| {
-                    prepare_with_segments(
-                        input.text,
-                        input.measure,
-                        input.profile,
-                        input.options,
-                    )
+                    prepare_with_segments(input.text, input.measure, input.profile, input.options)
                 });
             let result =
                 layout_with_lines(prepared, f64::MAX, input.line_height as f64, input.profile);

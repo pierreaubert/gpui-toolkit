@@ -123,9 +123,10 @@ pub fn render_widget_snapshot_async(
         let snapshot_path = request
             .app_group_dir
             .join(format!("{}.png", sanitized_file_stem(&request.id)));
-        let timeline_path = request
-            .app_group_dir
-            .join(format!("{}.timeline.json", sanitized_file_stem(&request.id)));
+        let timeline_path = request.app_group_dir.join(format!(
+            "{}.timeline.json",
+            sanitized_file_stem(&request.id)
+        ));
 
         let used_stale_snapshot = if png_bytes.is_empty() {
             !snapshot_path.exists()

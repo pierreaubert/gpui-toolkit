@@ -6,16 +6,16 @@ fn compute_bidi_levels_reuses_scratch() {
 
     // First call primes the thread-local scratch buffers.
     let _ = compute_bidi_levels(text);
-    let cap_after_first = bidi_chars_scratch_capacity();
+    let cap_after_first = bidi_types_scratch_capacity();
     assert!(cap_after_first >= text.chars().count());
 
     // Second call with the same text must reuse the allocated scratch rather
-    // than grow or reallocate a fresh Vec<char>.
+    // than grow or reallocate a fresh Vec<BidiType>.
     let _ = compute_bidi_levels(text);
-    let cap_after_second = bidi_chars_scratch_capacity();
+    let cap_after_second = bidi_types_scratch_capacity();
     assert_eq!(
         cap_after_first, cap_after_second,
-        "bidi char scratch buffer should be reused, not reallocated"
+        "bidi types scratch buffer should be reused, not reallocated"
     );
 }
 

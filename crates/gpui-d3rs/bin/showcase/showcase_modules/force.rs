@@ -1,34 +1,52 @@
 use crate::ShowcaseApp;
+use crate::demo_section::DemoSection;
 use d3rs::gpu2d::Chart2DElement;
 use gpui::*;
 use gpui_ui_kit::theme::ThemeExt;
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::time::Duration;
+
+/// Start a background animation loop that advances the force simulation and
+/// caches node positions. The loop stops automatically when the user leaves the
+/// force demo section.
+pub fn ensure_force_animation(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) {
+    if app.force_running {
+        return;
+    }
+    app.force_running = true;
+
+    // Seed the position cache so the first frame is not blank.
+    app.tick_force_simulation();
+
+    cx.spawn(async move |this: WeakEntity<ShowcaseApp>, cx| {
+        loop {
+            cx.background_executor()
+                .timer(Duration::from_millis(16))
+                .await;
+            let still_force = this
+                .update(cx, |app, _cx| {
+                    if app.current_section != DemoSection::Force {
+                        app.force_running = false;
+                        return false;
+                    }
+                    app.tick_force_simulation();
+                    true
+                })
+                .unwrap_or(false);
+            if !still_force {
+                break;
+            }
+            this.update(cx, |_, cx| cx.notify()).ok();
+        }
+    })
+    .detach();
+}
 
 pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
+    ensure_force_animation(app, cx);
+
     let ui_theme = cx.theme();
-    if app.force_running {
-        for _ in 0..5 {
-            app.force_simulation.tick();
-        }
-        cx.notify();
-    } else {
-        // Start running if not already
-        app.force_running = true;
-        cx.notify();
-    }
-
-    // Share the latest node positions via a reusable Rc<RefCell<Vec>> so the
-    // render closure does not need to copy them every frame.
-    {
-        let mut positions = app.force_node_positions.borrow_mut();
-        positions.clear();
-        positions.extend(app.force_simulation.nodes.iter().map(|n| {
-            let n = n.borrow();
-            (n.x as f32, n.y as f32)
-        }));
-    }
-
     let node_data: Rc<RefCell<Vec<(f32, f32)>>> = app.force_node_positions.clone();
 
     div()
