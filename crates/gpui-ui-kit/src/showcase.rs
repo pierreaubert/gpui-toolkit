@@ -125,8 +125,8 @@ pub struct Showcase {
     // Wizard state
     pub wizard_step: usize,
     pub wizard_statuses: Vec<StepStatus>,
-    // Workflow state (simple graph, no persistent Entity)
-    pub workflow_graph: WorkflowGraph,
+    // Persistent workflow canvas entity; graph state lives inside it.
+    pub workflow_canvas: Entity<WorkflowCanvas>,
     pub workflow_node_counter: usize,
     // Table states
     pub users: Vec<User>,
@@ -159,7 +159,7 @@ pub struct Showcase {
 
 impl Showcase {
     pub fn new(cx: &mut Context<Self>) -> Self {
-        let workflow_graph = WorkflowGraph::new();
+        let workflow_canvas = cx.new(|cx| WorkflowCanvas::with_graph(WorkflowGraph::new(), cx));
         let entity = cx.entity().clone();
         let parent = entity.downgrade();
 
@@ -242,7 +242,7 @@ impl Showcase {
                 page_size: 5,
                 total_items: 5,
             },
-            workflow_graph,
+            workflow_canvas,
             workflow_node_counter: 0,
             pane_left_collapsed: false,
             pane_left_width: 200.0,
@@ -586,23 +586,16 @@ impl Showcase {
     fn render_workflow_section(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
         let entity = self.entity.clone();
 
-        // Scope the theme borrow so the mutable `cx.new` call below does not conflict.
-        let (text_secondary, surface, border, background) = {
-            let theme = cx.theme();
-            (
-                theme.text_secondary,
-                theme.surface,
-                theme.border,
-                theme.background,
-            )
-        };
+        let theme = cx.theme();
+        let (text_secondary, surface, border, background) = (
+            theme.text_secondary,
+            theme.surface,
+            theme.border,
+            theme.background,
+        );
 
-        // Create a WorkflowCanvas entity on-the-fly from the stored graph
-        let graph = self.workflow_graph.clone();
-        let workflow_canvas = cx.new(|cx| WorkflowCanvas::with_graph(graph, cx));
-
-        // Get stats from canvas
-        let (node_count, connection_count, _selected_count) = workflow_canvas.read(cx).stats();
+        // Get stats from the persistent canvas entity
+        let (node_count, connection_count, _selected_count) = self.workflow_canvas.read(cx).stats();
 
         div()
             .flex()
@@ -658,8 +651,10 @@ impl Showcase {
                                             .on_click({
                                                 let entity = entity.clone();
                                                 move |_, cx| {
-                                                    entity.update(cx, |this, _cx| {
-                                                        this.workflow_graph = WorkflowGraph::new();
+                                                    entity.update(cx, |this, cx| {
+                                                        this.workflow_canvas.update(cx, |canvas, cx| {
+                                                            canvas.clear(cx);
+                                                        });
                                                         this.workflow_node_counter = 0;
                                                     });
                                                 }
@@ -678,7 +673,7 @@ impl Showcase {
                         div()
                             .flex_1()
                             .relative()
-                            .child(workflow_canvas)
+                            .child(self.workflow_canvas.clone())
                     )
 
                     // Footer instructions
@@ -697,7 +692,7 @@ impl Showcase {
             )
     }
 
-    fn workflow_add_node(&mut self, _cx: &mut Context<Self>) {
+    fn workflow_add_node(&mut self, cx: &mut Context<Self>) {
         self.workflow_node_counter += 1;
         let id = self.workflow_node_counter;
 
@@ -708,7 +703,9 @@ impl Showcase {
             .with_ports(1, 1)
             .with_size(160.0, 70.0);
 
-        self.workflow_graph.add_node(node);
+        self.workflow_canvas.update(cx, |canvas, _cx| {
+            canvas.add_node(node);
+        });
     }
 }
 

@@ -46,8 +46,19 @@ impl NumberEditState {
         decimals: usize,
         unit: Option<&SharedString>,
     ) -> SharedString {
-        let key = (value, decimals, unit.cloned());
-        if self.last_format_key.as_ref() == Some(&key) {
+        // Fast path: compare the incoming unit by reference against the stored
+        // key so we do not clone the SharedString on every cache hit.
+        let cache_hit = self
+            .last_format_key
+            .as_ref()
+            .map(|(last_value, last_decimals, last_unit)| {
+                *last_value == value
+                    && *last_decimals == decimals
+                    && last_unit.as_ref() == unit
+            })
+            .unwrap_or(false);
+
+        if cache_hit {
             return self.last_format_value.clone();
         }
 
@@ -58,7 +69,7 @@ impl NumberEditState {
             formatted.into()
         };
 
-        self.last_format_key = Some(key);
+        self.last_format_key = Some((value, decimals, unit.cloned()));
         self.last_format_value = result.clone();
         result
     }
