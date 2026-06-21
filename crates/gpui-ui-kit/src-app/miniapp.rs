@@ -153,6 +153,10 @@ actions!(
         SetThemeMidnight,
         SetThemeForest,
         SetThemeBlackAndWhite,
+        SetThemeCarbonWhite,
+        SetThemeCarbonGray10,
+        SetThemeCarbonGray90,
+        SetThemeCarbonGray100,
         SetLanguageEnglish,
         SetLanguageFrench,
         SetLanguageGerman,
@@ -274,6 +278,34 @@ impl MiniApp {
                     cx.on_action::<SetThemeBlackAndWhite>(|_action, cx| {
                         cx.update_global::<ThemeState, _>(|state, _cx| {
                             state.set_variant(ThemeVariant::BlackAndWhite);
+                        });
+                        cx.refresh_windows();
+                    });
+
+                    cx.on_action::<SetThemeCarbonWhite>(|_action, cx| {
+                        cx.update_global::<ThemeState, _>(|state, _cx| {
+                            state.set_variant(ThemeVariant::CarbonWhite);
+                        });
+                        cx.refresh_windows();
+                    });
+
+                    cx.on_action::<SetThemeCarbonGray10>(|_action, cx| {
+                        cx.update_global::<ThemeState, _>(|state, _cx| {
+                            state.set_variant(ThemeVariant::CarbonGray10);
+                        });
+                        cx.refresh_windows();
+                    });
+
+                    cx.on_action::<SetThemeCarbonGray90>(|_action, cx| {
+                        cx.update_global::<ThemeState, _>(|state, _cx| {
+                            state.set_variant(ThemeVariant::CarbonGray90);
+                        });
+                        cx.refresh_windows();
+                    });
+
+                    cx.on_action::<SetThemeCarbonGray100>(|_action, cx| {
+                        cx.update_global::<ThemeState, _>(|state, _cx| {
+                            state.set_variant(ThemeVariant::CarbonGray100);
                         });
                         cx.refresh_windows();
                     });
@@ -439,6 +471,11 @@ impl MiniApp {
                         MenuItem::action("Midnight", SetThemeMidnight),
                         MenuItem::action("Forest", SetThemeForest),
                         MenuItem::action("Black & White", SetThemeBlackAndWhite),
+                        MenuItem::separator(),
+                        MenuItem::action("Carbon White", SetThemeCarbonWhite),
+                        MenuItem::action("Carbon Gray 10", SetThemeCarbonGray10),
+                        MenuItem::action("Carbon Gray 90", SetThemeCarbonGray90),
+                        MenuItem::action("Carbon Gray 100", SetThemeCarbonGray100),
                         MenuItem::separator(),
                         MenuItem::action("Toggle Theme  Cmd+T", ToggleTheme),
                     ],

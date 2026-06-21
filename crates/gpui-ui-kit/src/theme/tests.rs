@@ -55,3 +55,19 @@ fn theme_state_set_variant_replaces_but_keeps_arc() {
     assert_ne!(before, after, "set_variant should allocate a new Arc");
     assert_eq!(state.theme.variant, ThemeVariant::Light);
 }
+
+#[test]
+fn carbon_themes_use_plex_and_blue_action_color() {
+    for variant in [
+        ThemeVariant::CarbonWhite,
+        ThemeVariant::CarbonGray10,
+        ThemeVariant::CarbonGray90,
+        ThemeVariant::CarbonGray100,
+    ] {
+        let theme = Theme::for_variant(variant);
+        assert_eq!(theme.variant, variant);
+        assert_eq!(theme.font_family.as_ref(), "IBM Plex Sans");
+        assert_ne!(theme.background, theme.surface);
+        assert_eq!(theme.text_on_accent, gpui::rgb(0xffffff));
+    }
+}

@@ -1,9 +1,10 @@
 //! Platform-Adaptive Design System
 //!
 //! Defines shape, spacing, interaction, and animation rules that vary per
-//! platform (Apple HIG, Material Design 3, Windows Fluent) while the Theme
-//! system handles colors independently. The two layers are independently
-//! combinable: any color theme works with any design system.
+//! platform (Apple HIG/Liquid Glass, Material Design 3, Windows Fluent,
+//! GNOME Adwaita, KDE Breeze) and opt-in product languages such as IBM Carbon
+//! while the Theme system handles colors independently. The two layers are
+//! independently combinable: any color theme works with any design system.
 //!
 //! This module contains only data types — no rendering code, no framework deps.
 //! Platform renderers consume it alongside Theme colors.

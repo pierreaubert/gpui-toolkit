@@ -52,9 +52,7 @@ impl NumberEditState {
             .last_format_key
             .as_ref()
             .map(|(last_value, last_decimals, last_unit)| {
-                *last_value == value
-                    && *last_decimals == decimals
-                    && last_unit.as_ref() == unit
+                *last_value == value && *last_decimals == decimals && last_unit.as_ref() == unit
             })
             .unwrap_or(false);
 

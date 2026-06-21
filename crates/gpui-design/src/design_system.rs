@@ -161,47 +161,47 @@ impl DesignSystem {
         Self {
             language: DesignLanguage::AppleHig,
             corners: CornerRadii {
-                sm: 6.0,
-                md: 10.0,
-                lg: 14.0,
-                xl: 20.0,
+                sm: 10.0,
+                md: 16.0,
+                lg: 22.0,
+                xl: 30.0,
                 style: CornerRadiusStyle::Continuous,
             },
             spacing: SpacingRules {
                 grid_unit: 8.0,
-                control_padding_x: 16.0,
-                control_padding_y: 12.0,
-                control_gap: 8.0,
-                section_gap: 20.0,
-                card_padding: 16.0,
+                control_padding_x: 18.0,
+                control_padding_y: 10.0,
+                control_gap: 10.0,
+                section_gap: 24.0,
+                card_padding: 20.0,
             },
             interaction: InteractionRules {
                 min_touch_target: 44.0,
                 border_width: 0.5,
                 focus_ring_width: 3.0,
-                focus_ring_offset: 2.0,
+                focus_ring_offset: 3.0,
             },
             elevation: ElevationRules {
                 level_0_blur: 0.0,
-                level_1_blur: 8.0,
-                level_2_blur: 24.0,
-                shadow_opacity: 0.1,
-                shadow_y_offset: 4.0,
+                level_1_blur: 14.0,
+                level_2_blur: 32.0,
+                shadow_opacity: 0.12,
+                shadow_y_offset: 6.0,
             },
             animation: AnimationRules {
-                duration_ms: 350,
-                fast_ms: 150,
-                slow_ms: 500,
+                duration_ms: 280,
+                fast_ms: 120,
+                slow_ms: 460,
                 prefer_spring: true,
-                spring_stiffness: 120.0,
-                spring_damping: 14.0,
+                spring_stiffness: 155.0,
+                spring_damping: 20.0,
             },
             typography: TypographyRules {
                 font_family: Cow::Borrowed(".SystemUIFont"),
                 dynamic_sizing: true,
                 base_size: 15.0,
                 small_size: 12.0,
-                large_size: 20.0,
+                large_size: 22.0,
             },
             layout: LayoutThresholds {
                 vertical_threshold: 400.0,
@@ -223,7 +223,7 @@ impl DesignSystem {
             },
             toggle_variant: ToggleVariant::Capsule,
             label_position: LabelPosition::Below,
-            group_separator: GroupSeparatorStyle::Divider,
+            group_separator: GroupSeparatorStyle::None,
             cached_tokens: OnceLock::new(),
         }
     }
@@ -305,18 +305,18 @@ impl DesignSystem {
         Self {
             language: DesignLanguage::Fluent,
             corners: CornerRadii {
-                sm: 2.0,
+                sm: 4.0,
                 md: 4.0,
                 lg: 8.0,
-                xl: 12.0,
+                xl: 8.0,
                 style: CornerRadiusStyle::Circular,
             },
             spacing: SpacingRules {
                 grid_unit: 4.0,
                 control_padding_x: 12.0,
-                control_padding_y: 8.0,
-                control_gap: 6.0,
-                section_gap: 12.0,
+                control_padding_y: 6.0,
+                control_gap: 8.0,
+                section_gap: 16.0,
                 card_padding: 12.0,
             },
             interaction: InteractionRules {
@@ -327,21 +327,21 @@ impl DesignSystem {
             },
             elevation: ElevationRules {
                 level_0_blur: 0.0,
-                level_1_blur: 2.0,
-                level_2_blur: 8.0,
-                shadow_opacity: 0.08,
-                shadow_y_offset: 1.0,
+                level_1_blur: 4.0,
+                level_2_blur: 16.0,
+                shadow_opacity: 0.1,
+                shadow_y_offset: 2.0,
             },
             animation: AnimationRules {
-                duration_ms: 200,
-                fast_ms: 100,
-                slow_ms: 350,
+                duration_ms: 167,
+                fast_ms: 83,
+                slow_ms: 333,
                 prefer_spring: false,
                 spring_stiffness: 300.0,
                 spring_damping: 30.0,
             },
             typography: TypographyRules {
-                font_family: Cow::Borrowed(".SystemUIFont"),
+                font_family: Cow::Borrowed("Segoe UI Variable"),
                 dynamic_sizing: false,
                 base_size: 14.0,
                 small_size: 12.0,
@@ -372,11 +372,230 @@ impl DesignSystem {
         }
     }
 
+    /// GNOME Adwaita / GTK 4 / libadwaita preset.
+    pub fn adwaita() -> Self {
+        Self {
+            language: DesignLanguage::Adwaita,
+            corners: CornerRadii {
+                sm: 8.0,
+                md: 12.0,
+                lg: 16.0,
+                xl: 18.0,
+                style: CornerRadiusStyle::Circular,
+            },
+            spacing: SpacingRules {
+                grid_unit: 6.0,
+                control_padding_x: 12.0,
+                control_padding_y: 9.0,
+                control_gap: 6.0,
+                section_gap: 18.0,
+                card_padding: 18.0,
+            },
+            interaction: InteractionRules {
+                min_touch_target: 40.0,
+                border_width: 1.0,
+                focus_ring_width: 2.0,
+                focus_ring_offset: 2.0,
+            },
+            elevation: ElevationRules {
+                level_0_blur: 0.0,
+                level_1_blur: 6.0,
+                level_2_blur: 18.0,
+                shadow_opacity: 0.16,
+                shadow_y_offset: 2.0,
+            },
+            animation: AnimationRules {
+                duration_ms: 200,
+                fast_ms: 100,
+                slow_ms: 300,
+                prefer_spring: false,
+                spring_stiffness: 220.0,
+                spring_damping: 28.0,
+            },
+            typography: TypographyRules {
+                font_family: Cow::Borrowed("Adwaita Sans"),
+                dynamic_sizing: false,
+                base_size: 14.0,
+                small_size: 12.0,
+                large_size: 20.0,
+            },
+            layout: LayoutThresholds {
+                vertical_threshold: 400.0,
+                group_stack_threshold: 500.0,
+                compact_slider_threshold: 700.0,
+                hide_viz_threshold: 600.0,
+                compact_knob_threshold: 400.0,
+                large_knob_threshold: 800.0,
+                slider_height_normal: 170.0,
+                slider_height_compact: 110.0,
+            },
+            audio_controls: AudioControlRules {
+                knob_arc_start_deg: 135.0,
+                knob_arc_sweep_deg: 270.0,
+                knob_arc_width: 2.5,
+                knob_arc_segments: 48,
+                knob_border_width: 1.0,
+                slider_track_widths: [12.0, 16.0, 20.0],
+            },
+            toggle_variant: ToggleVariant::Capsule,
+            label_position: LabelPosition::Below,
+            group_separator: GroupSeparatorStyle::Divider,
+            cached_tokens: OnceLock::new(),
+        }
+    }
+
+    /// KDE Breeze / Kirigami preset.
+    pub fn breeze() -> Self {
+        Self {
+            language: DesignLanguage::Breeze,
+            corners: CornerRadii {
+                sm: 4.0,
+                md: 6.0,
+                lg: 8.0,
+                xl: 10.0,
+                style: CornerRadiusStyle::Circular,
+            },
+            spacing: SpacingRules {
+                grid_unit: 4.0,
+                control_padding_x: 12.0,
+                control_padding_y: 7.0,
+                control_gap: 6.0,
+                section_gap: 12.0,
+                card_padding: 12.0,
+            },
+            interaction: InteractionRules {
+                min_touch_target: 32.0,
+                border_width: 1.0,
+                focus_ring_width: 2.0,
+                focus_ring_offset: 1.0,
+            },
+            elevation: ElevationRules {
+                level_0_blur: 0.0,
+                level_1_blur: 4.0,
+                level_2_blur: 12.0,
+                shadow_opacity: 0.16,
+                shadow_y_offset: 2.0,
+            },
+            animation: AnimationRules {
+                duration_ms: 150,
+                fast_ms: 75,
+                slow_ms: 250,
+                prefer_spring: false,
+                spring_stiffness: 260.0,
+                spring_damping: 30.0,
+            },
+            typography: TypographyRules {
+                font_family: Cow::Borrowed("Noto Sans"),
+                dynamic_sizing: false,
+                base_size: 14.0,
+                small_size: 12.0,
+                large_size: 20.0,
+            },
+            layout: LayoutThresholds {
+                vertical_threshold: 400.0,
+                group_stack_threshold: 500.0,
+                compact_slider_threshold: 700.0,
+                hide_viz_threshold: 600.0,
+                compact_knob_threshold: 400.0,
+                large_knob_threshold: 800.0,
+                slider_height_normal: 160.0,
+                slider_height_compact: 100.0,
+            },
+            audio_controls: AudioControlRules {
+                knob_arc_start_deg: 135.0,
+                knob_arc_sweep_deg: 270.0,
+                knob_arc_width: 2.0,
+                knob_arc_segments: 48,
+                knob_border_width: 1.0,
+                slider_track_widths: [12.0, 16.0, 20.0],
+            },
+            toggle_variant: ToggleVariant::Pill,
+            label_position: LabelPosition::Right,
+            group_separator: GroupSeparatorStyle::Border,
+            cached_tokens: OnceLock::new(),
+        }
+    }
+
+    /// IBM Carbon Design System preset.
+    pub fn carbon() -> Self {
+        Self {
+            language: DesignLanguage::Carbon,
+            corners: CornerRadii {
+                sm: 0.0,
+                md: 0.0,
+                lg: 0.0,
+                xl: 0.0,
+                style: CornerRadiusStyle::Circular,
+            },
+            spacing: SpacingRules {
+                grid_unit: 2.0,
+                control_padding_x: 16.0,
+                control_padding_y: 8.0,
+                control_gap: 8.0,
+                section_gap: 16.0,
+                card_padding: 16.0,
+            },
+            interaction: InteractionRules {
+                min_touch_target: 32.0,
+                border_width: 1.0,
+                focus_ring_width: 2.0,
+                focus_ring_offset: 0.0,
+            },
+            elevation: ElevationRules {
+                level_0_blur: 0.0,
+                level_1_blur: 0.0,
+                level_2_blur: 4.0,
+                shadow_opacity: 0.08,
+                shadow_y_offset: 1.0,
+            },
+            animation: AnimationRules {
+                duration_ms: 180,
+                fast_ms: 90,
+                slow_ms: 280,
+                prefer_spring: false,
+                spring_stiffness: 300.0,
+                spring_damping: 30.0,
+            },
+            typography: TypographyRules {
+                font_family: Cow::Borrowed("IBM Plex Sans"),
+                dynamic_sizing: false,
+                base_size: 14.0,
+                small_size: 12.0,
+                large_size: 20.0,
+            },
+            layout: LayoutThresholds {
+                vertical_threshold: 400.0,
+                group_stack_threshold: 500.0,
+                compact_slider_threshold: 700.0,
+                hide_viz_threshold: 600.0,
+                compact_knob_threshold: 400.0,
+                large_knob_threshold: 800.0,
+                slider_height_normal: 160.0,
+                slider_height_compact: 100.0,
+            },
+            audio_controls: AudioControlRules {
+                knob_arc_start_deg: 135.0,
+                knob_arc_sweep_deg: 270.0,
+                knob_arc_width: 2.0,
+                knob_arc_segments: 48,
+                knob_border_width: 1.0,
+                slider_track_widths: [12.0, 16.0, 20.0],
+            },
+            toggle_variant: ToggleVariant::Pill,
+            label_position: LabelPosition::Right,
+            group_separator: GroupSeparatorStyle::Divider,
+            cached_tokens: OnceLock::new(),
+        }
+    }
+
     pub fn for_language(language: DesignLanguage) -> Self {
         match language {
             DesignLanguage::AppleHig => Self::apple_hig(),
             DesignLanguage::Material3 => Self::material3(),
             DesignLanguage::Fluent => Self::fluent(),
+            DesignLanguage::Adwaita => Self::adwaita(),
+            DesignLanguage::Breeze => Self::breeze(),
+            DesignLanguage::Carbon => Self::carbon(),
             DesignLanguage::Neutral => Self::neutral(),
         }
     }
@@ -390,7 +609,8 @@ impl DesignSystem {
             DesignPlatform::Macos | DesignPlatform::Ios => Self::apple_hig(),
             DesignPlatform::Windows => Self::fluent(),
             DesignPlatform::Android => Self::material3(),
-            DesignPlatform::Linux | DesignPlatform::Other => Self::neutral(),
+            DesignPlatform::Linux => Self::adwaita(),
+            DesignPlatform::Other => Self::neutral(),
         }
     }
 
@@ -751,5 +971,8 @@ pub(super) fn all_design_presets() -> Vec<(&'static str, DesignSystem)> {
         ("apple_hig", DesignSystem::apple_hig()),
         ("material3", DesignSystem::material3()),
         ("fluent", DesignSystem::fluent()),
+        ("adwaita", DesignSystem::adwaita()),
+        ("breeze", DesignSystem::breeze()),
+        ("carbon", DesignSystem::carbon()),
     ]
 }
