@@ -107,6 +107,66 @@ pub fn build_surface_plot_cache(key: SurfacePlotCacheKey) -> SurfacePlotCache {
     }
 }
 
+fn camera_for_plot(this: &mut ShowcaseApp, index: usize) -> &mut d3rs::surface::SurfaceCamera {
+    match index {
+        0 => &mut this.surface_plot_camera_freq_response,
+        1 => &mut this.surface_plot_camera_freq_2d,
+        2 => &mut this.surface_plot_camera_spectral,
+        _ => unreachable!(),
+    }
+}
+
+fn interactive_surface_plot(
+    app: &mut ShowcaseApp,
+    cx: &mut Context<ShowcaseApp>,
+    data: &SurfaceData,
+    mut config: SurfaceConfig,
+    width: f32,
+    height: f32,
+    plot_index: usize,
+) -> impl IntoElement {
+    config.camera = camera_for_plot(app, plot_index).camera.clone();
+
+    div()
+        .w(px(width))
+        .h(px(height))
+        .cursor_crosshair()
+        .child(render_surface(data, config, width, height))
+        .on_mouse_down(
+            MouseButton::Left,
+            cx.listener(move |this, event: &MouseDownEvent, _window, _cx| {
+                this.surface_plot_drag = Some((plot_index, event.position));
+            }),
+        )
+        .on_mouse_move(cx.listener(move |this, event: &MouseMoveEvent, _window, cx| {
+            if let Some((idx, start)) = this.surface_plot_drag {
+                if idx == plot_index {
+                    let dx: f64 = (event.position.x - start.x).into();
+                    let dy: f64 = (event.position.y - start.y).into();
+                    camera_for_plot(this, plot_index).apply_drag(dx, dy);
+                    this.surface_plot_drag = Some((plot_index, event.position));
+                    cx.notify();
+                }
+            }
+        }))
+        .on_mouse_up(
+            MouseButton::Left,
+            cx.listener(move |this, _event, _window, _cx| {
+                if this.surface_plot_drag.map_or(false, |(idx, _)| idx == plot_index) {
+                    this.surface_plot_drag = None;
+                }
+            }),
+        )
+        .on_scroll_wheel(cx.listener(move |this, event: &ScrollWheelEvent, _window, cx| {
+            let delta_y: f32 = match event.delta {
+                ScrollDelta::Lines(lines) => lines.y,
+                ScrollDelta::Pixels(pixels) => pixels.y.into(),
+            };
+            camera_for_plot(this, plot_index).apply_scroll(f64::from(delta_y) / 50.0);
+            cx.notify();
+        }))
+}
+
 pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
     let ui_theme = cx.theme();
     let width = app.content_width;
@@ -114,10 +174,14 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
 
     // Ensure data is cached locally so render never falls back to generation.
     app.ensure_surface_plot_cache();
-    let cache = app.surface_plot_cache.as_ref().unwrap();
-    let freq_response = &cache.freq_response;
-    let freq_2d = &cache.freq_2d;
-    let spectral = &cache.spectral;
+    let (freq_response, freq_2d, spectral) = {
+        let cache = app.surface_plot_cache.as_ref().unwrap();
+        (
+            cache.freq_response.clone(),
+            cache.freq_2d.clone(),
+            cache.spectral.clone(),
+        )
+    };
 
     div()
         .flex()
@@ -164,27 +228,25 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                 )
                 .child(
                     div()
-                        .w(px(width))
-                        .h(px(height))
                         .bg(ui_theme.surface)
                         .border_1()
                         .border_color(ui_theme.border)
-                        .child(
-                            render_surface(
-                                freq_response,
-                                SurfaceConfig::new()
-                                    .isometric()
-                                    .rotation(30.0, 45.0)
-                                    .color_scale(ColorScaleType::Viridis)
-                                    .opacity(0.85)
-                                    .wireframe(true)
-                                    .wireframe_opacity(0.3)
-                                    .wireframe_color(D3Color::rgb(0, 0, 0))
-                                    .scale(1.2),
-                                width,
-                                height,
-                            ),
-                        ),
+                        .child(interactive_surface_plot(
+                            app,
+                            cx,
+                            &freq_response,
+                            SurfaceConfig::new()
+                                .isometric()
+                                .color_scale(ColorScaleType::Viridis)
+                                .opacity(0.85)
+                                .wireframe(true)
+                                .wireframe_opacity(0.3)
+                                .wireframe_color(D3Color::rgb(0, 0, 0))
+                                .scale(1.2),
+                            width,
+                            height,
+                            0,
+                        )),
                 )
                 .child(
                     div()
@@ -228,27 +290,25 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                 )
                 .child(
                     div()
-                        .w(px(width))
-                        .h(px(height))
                         .bg(ui_theme.surface)
                         .border_1()
                         .border_color(ui_theme.border)
-                        .child(
-                            render_surface(
-                                freq_2d,
-                                SurfaceConfig::new()
-                                    .isometric()
-                                    .rotation(35.0, 50.0)
-                                    .color_scale(ColorScaleType::Heat)
-                                    .opacity(0.9)
-                                    .wireframe(true)
-                                    .wireframe_opacity(0.2)
-                                    .wireframe_color(D3Color::rgb(100, 100, 100))
-                                    .scale(1.3),
-                                width,
-                                height,
-                            ),
-                        ),
+                        .child(interactive_surface_plot(
+                            app,
+                            cx,
+                            &freq_2d,
+                            SurfaceConfig::new()
+                                .isometric()
+                                .color_scale(ColorScaleType::Heat)
+                                .opacity(0.9)
+                                .wireframe(true)
+                                .wireframe_opacity(0.2)
+                                .wireframe_color(D3Color::rgb(100, 100, 100))
+                                .scale(1.3),
+                            width,
+                            height,
+                            1,
+                        )),
                 )
                 .child(
                     div()
@@ -292,28 +352,26 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                 )
                 .child(
                     div()
-                        .w(px(width))
-                        .h(px(height))
                         .bg(ui_theme.surface)
                         .border_1()
                         .border_color(ui_theme.border)
-                        .child(
-                            render_surface(
-                                spectral,
-                                SurfaceConfig::new()
-                                    .isometric()
-                                    .rotation(25.0, 40.0)
-                                    .color_scale(ColorScaleType::Spectral)
-                                    .opacity(0.95)
-                                    .wireframe(false)
-                                    .lighting(true)
-                                    .ambient(0.5)
-                                    .diffuse(0.5)
-                                    .scale(1.4),
-                                width,
-                                height,
-                            ),
-                        ),
+                        .child(interactive_surface_plot(
+                            app,
+                            cx,
+                            &spectral,
+                            SurfaceConfig::new()
+                                .isometric()
+                                .color_scale(ColorScaleType::Spectral)
+                                .opacity(0.95)
+                                .wireframe(false)
+                                .lighting(true)
+                                .ambient(0.5)
+                                .diffuse(0.5)
+                                .scale(1.4),
+                            width,
+                            height,
+                            2,
+                        )),
                 )
                 .child(
                     div()
