@@ -50,7 +50,7 @@ pub enum ProjectionType {
 }
 
 /// Camera controls for view manipulation
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Camera2D {
     /// Rotation around X axis (pitch) in degrees
     pub rotation_x: f64,

@@ -70,12 +70,14 @@
 //! let element = render_surface(&freq_response, SurfaceConfig::new(), 800.0, 400.0);
 //! ```
 
+mod camera;
 mod data;
 mod mesh;
 mod projection;
 #[cfg(feature = "gpui")]
 mod render;
 
+pub use camera::{SurfaceCamera, SurfaceCameraLimits};
 pub use data::{SurfaceData, SurfacePoint3D};
 pub use mesh::{SurfaceMesh, Triangle};
 pub use projection::{
