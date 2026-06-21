@@ -79,7 +79,7 @@ pub mod sankey;
 pub mod shape;
 #[cfg(all(feature = "gpu-3d", not(test)))]
 pub mod sphere_gallery;
-#[cfg(all(feature = "gpui", not(test)))]
+#[cfg(any(test, feature = "gpui"))]
 pub mod surface;
 #[cfg(all(feature = "gpui", not(test)))]
 pub mod text;

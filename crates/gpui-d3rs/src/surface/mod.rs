@@ -70,19 +70,27 @@
 //! let element = render_surface(&freq_response, SurfaceConfig::new(), 800.0, 400.0);
 //! ```
 
+#[cfg(any(test, feature = "gpui"))]
 mod camera;
+#[cfg(any(test, feature = "gpui"))]
 mod data;
+#[cfg(any(test, feature = "gpui"))]
 mod mesh;
+#[cfg(any(test, feature = "gpui"))]
 mod projection;
-#[cfg(feature = "gpui")]
+#[cfg(all(feature = "gpui", not(test)))]
 mod render;
 
+#[cfg(any(test, feature = "gpui"))]
 pub use camera::{SurfaceCamera, SurfaceCameraLimits};
+#[cfg(any(test, feature = "gpui"))]
 pub use data::{SurfaceData, SurfacePoint3D};
+#[cfg(any(test, feature = "gpui"))]
 pub use mesh::{SurfaceMesh, Triangle};
+#[cfg(any(test, feature = "gpui"))]
 pub use projection::{
     Camera2D, IsometricProjection, ObliqueProjection, OrthographicProjection,
     PerspectiveProjection, Projection, ProjectionType,
 };
-#[cfg(feature = "gpui")]
+#[cfg(all(feature = "gpui", not(test)))]
 pub use render::{ColorScaleType, SurfaceConfig, SurfaceElement, render_surface};

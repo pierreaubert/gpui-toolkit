@@ -88,3 +88,50 @@ impl Default for SurfaceCamera {
         }
     }
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_camera_applies_drag() {
+        let mut camera = SurfaceCamera::new().with_rotation(30.0, 45.0);
+        camera.apply_drag(10.0, -5.0);
+
+        // 10 px / 2 px-per-degree = +5 degrees yaw
+        assert!((camera.camera.rotation_z - 50.0).abs() < 1e-9);
+        // -5 px / 2 px-per-degree = +2.5 degrees pitch (negated in apply_drag)
+        assert!((camera.camera.rotation_x - 32.5).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_camera_pitch_is_clamped() {
+        let mut camera = SurfaceCamera::new();
+        camera.apply_drag(0.0, -1000.0);
+        assert_eq!(camera.camera.rotation_x, camera.limits.max_rotation_x);
+
+        camera.apply_drag(0.0, 2000.0);
+        assert_eq!(camera.camera.rotation_x, camera.limits.min_rotation_x);
+    }
+
+    #[test]
+    fn test_camera_zoom_is_clamped() {
+        let mut camera = SurfaceCamera::new().with_zoom(1.0);
+        camera.apply_scroll(100.0);
+        assert_eq!(camera.camera.zoom, camera.limits.max_zoom);
+
+        camera.apply_scroll(-1000.0);
+        assert_eq!(camera.camera.zoom, camera.limits.min_zoom);
+    }
+
+    #[test]
+    fn test_camera_zoom_direction() {
+        let mut camera = SurfaceCamera::new().with_zoom(1.0);
+        camera.apply_scroll(1.0);
+        assert!(camera.camera.zoom > 1.0);
+
+        camera.apply_scroll(-1.0);
+        assert!((camera.camera.zoom - 1.0).abs() < 1e-9);
+    }
+}
