@@ -74,16 +74,9 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
         })
         .collect();
 
-    // X-axis ticks (every 5 days)
-    let x_ticks: Vec<f64> = (0..=30).step_by(5).map(|v| v as f64).collect();
-    // Y-axis ticks
-    let y_range = result.y_domain[1] - result.y_domain[0];
-    let y_step = (y_range / 5.0).ceil();
-    let y_min_tick = (result.y_domain[0] / y_step).floor() * y_step;
-    let y_ticks: Vec<f64> = (0..=6)
-        .map(|i| y_min_tick + i as f64 * y_step)
-        .filter(|v| *v >= result.y_domain[0] - 0.1 && *v <= result.y_domain[1] + 0.1)
-        .collect();
+        // Derive ticks from the scales so they match the domain
+    let x_ticks = x_scale.ticks(10);
+    let y_ticks = y_scale.ticks(8);
 
     let colors: Vec<Rgba> = (0..scheme.len())
         .map(|i| scheme.color(i).to_rgba())
@@ -164,16 +157,16 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                         .top(px((margin_top + y) as f32))
                         .w(px(plot_w as f32))
                         .h(px(1.0))
-                        .bg(ui_theme.surface)
+                        .bg(Hsla::from(ui_theme.border).opacity(0.25))
                 }))
                 // X-axis ticks + labels
                 .children(x_ticks.iter().map(|&val| {
                     let x = x_scale.scale(val);
                     div()
                         .absolute()
-                        .left(px((margin_left + x - 10.0) as f32))
+                        .left(px((margin_left + x - 20.0) as f32))
                         .top(px((margin_top + plot_h + 4.0) as f32))
-                        .w(px(20.0))
+                        .w(px(40.0))
                         .flex()
                         .justify_center()
                         .child(div().text_xs().child(format!("{:.0}", val)))
@@ -187,7 +180,7 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                         .top(px(margin_top as f32))
                         .w(px(1.0))
                         .h(px(plot_h as f32))
-                        .bg(ui_theme.surface)
+                        .bg(Hsla::from(ui_theme.border).opacity(0.25))
                 }))
                 // Plot area with curves
                 .child(

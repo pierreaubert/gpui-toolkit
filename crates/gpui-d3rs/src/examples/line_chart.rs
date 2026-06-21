@@ -42,16 +42,17 @@ pub fn compute(data: &[(f64, f64)]) -> LineChartResult {
     let x_ext = data
         .iter()
         .fold((f64::MAX, f64::MIN), |a, d| (a.0.min(d.0), a.1.max(d.0)));
-    let y_ext = data
+    let y_max = data
         .iter()
-        .fold((f64::MAX, f64::MIN), |a, d| (a.0.min(d.1), a.1.max(d.1)));
+        .fold(f64::NEG_INFINITY, |a, d| a.max(d.1));
 
     let x_scale = LinearScale::new()
         .domain(x_ext.0, x_ext.1)
         .range(margin_left, width - margin_right);
 
     let y_scale = LinearScale::new()
-        .domain(y_ext.0, y_ext.1)
+        .domain(0.0, y_max)
+        .nice(None)
         .range(height - margin_bottom, margin_top);
 
     // Project data points
@@ -90,7 +91,7 @@ pub fn compute(data: &[(f64, f64)]) -> LineChartResult {
         width,
         height,
         x_domain: [x_ext.0, x_ext.1],
-        y_domain: [y_ext.0, y_ext.1],
+        y_domain: [0.0, y_scale.domain_max()],
         paths,
     }
 }
