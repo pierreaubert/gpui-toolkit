@@ -6,6 +6,9 @@
 use crate::ShowcaseApp;
 use d3rs::color::ColorScheme;
 use d3rs::shape::path::PathBuilder as D3PathBuilder;
+use d3rs::text::{
+    GlyphTextConfig, HorizontalTextAnchor, VerticalTextAnchor, render_glyph_text_anchored,
+};
 use gpui::prelude::*;
 use gpui::*;
 use gpui_ui_kit::theme::ThemeExt;
@@ -56,12 +59,34 @@ fn render_radial(cluster: bool, ui_theme: &gpui_ui_kit::theme::Theme) -> Div {
         all_colors.push(scheme.color(node.depth).to_rgba().into());
     }
 
-    // Node labels for internal nodes
-    let labels: Vec<(String, f64, f64)> = result
+    // Node labels for internal nodes, rotated tangent to the circle.
+    let label_items: Vec<Div> = result
         .nodes
         .iter()
         .filter(|n| !n.is_leaf)
-        .map(|n| (n.name.clone(), n.x, n.y))
+        .map(|n| {
+            let on_left = n.angle > std::f64::consts::PI;
+            let std_angle = n.angle - std::f64::consts::FRAC_PI_2;
+            let rotation = std_angle as f32 + if on_left { std::f32::consts::PI } else { 0.0 };
+            let h_anchor = if on_left {
+                HorizontalTextAnchor::Start
+            } else {
+                HorizontalTextAnchor::End
+            };
+
+            let config = GlyphTextConfig::rotated(8.0, ui_theme.text_primary, rotation);
+
+            div()
+                .absolute()
+                .left(px(n.x as f32))
+                .top(px(n.y as f32))
+                .child(render_glyph_text_anchored(
+                    &n.name,
+                    &config,
+                    h_anchor,
+                    VerticalTextAnchor::Middle,
+                ))
+        })
         .collect();
 
     let title = if cluster {
@@ -122,13 +147,6 @@ fn render_radial(cluster: bool, ui_theme: &gpui_ui_kit::theme::Theme) -> Div {
                     .size_full(),
                 )
                 // Internal node labels
-                .children(labels.into_iter().map(|(name, x, y)| {
-                    div()
-                        .absolute()
-                        .left(px((x + 5.0) as f32))
-                        .top(px((y - 5.0) as f32))
-                        .text_size(px(8.0))
-                        .child(name)
-                })),
+                .children(label_items),
         )
 }

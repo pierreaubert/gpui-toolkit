@@ -11,8 +11,9 @@ use std::rc::Rc;
 #[derive(Debug, Clone)]
 pub struct RadialNodeResult {
     pub name: String,
-    pub x: f64, // projected x (cartesian)
-    pub y: f64, // projected y (cartesian)
+    pub x: f64,      // projected x (cartesian)
+    pub y: f64,      // projected y (cartesian)
+    pub angle: f64,  // raw radial angle (0..2π, 0 at top, clockwise)
     pub depth: usize,
     pub is_leaf: bool,
 }
@@ -164,6 +165,7 @@ pub fn compute(cluster: bool) -> RadialTreeResult {
             name: n.data.name.clone(),
             x: px + width / 2.0,
             y: py + height / 2.0,
+            angle: n.x,
             depth: n.depth,
             is_leaf,
         });
