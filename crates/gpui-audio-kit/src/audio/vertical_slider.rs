@@ -76,6 +76,10 @@ pub struct VerticalSlider {
     focus_handle: Option<FocusHandle>,
     aria_label: Option<SharedString>,
     aria_role: Option<AriaRole>,
+    /// Cached formatted label with keyboard shortcut indicator.
+    formatted_label: SharedString,
+    /// Cached formatted value display.
+    formatted_value: SharedString,
 }
 
 impl VerticalSlider {
@@ -105,6 +109,8 @@ impl VerticalSlider {
             focus_handle: None,
             aria_label: None,
             aria_role: None,
+            formatted_label: SharedString::default(),
+            formatted_value: SharedString::default(),
         }
     }
 
@@ -118,36 +124,42 @@ impl VerticalSlider {
     /// after min/max are known
     pub fn value(mut self, value: f64) -> Self {
         self.value = value;
+        self.formatted_value = self.format_value();
         self
     }
 
     /// Set the minimum value
     pub fn min(mut self, min: f64) -> Self {
         self.min = min;
+        self.formatted_value = self.format_value();
         self
     }
 
     /// Set the maximum value
     pub fn max(mut self, max: f64) -> Self {
         self.max = max;
+        self.formatted_value = self.format_value();
         self
     }
 
     /// Set the unit label (e.g., "dB", "Hz", "%", ":1")
     pub fn unit(mut self, unit: impl Into<SharedString>) -> Self {
         self.unit = unit.into();
+        self.formatted_value = self.format_value();
         self
     }
 
     /// Set the display label
     pub fn label(mut self, label: impl Into<SharedString>) -> Self {
         self.label = Some(label.into());
+        self.formatted_label = self.format_label();
         self
     }
 
     /// Set the keyboard shortcut key for the label
     pub fn shortcut_key(mut self, key: char) -> Self {
         self.shortcut_key = Some(key);
+        self.formatted_label = self.format_label();
         self
     }
 
@@ -267,12 +279,8 @@ impl VerticalSlider {
     }
 
     /// Format the label with keyboard shortcut indicator
-    fn format_label(&self) -> String {
-        let label = self
-            .label
-            .as_ref()
-            .map(|s| s.to_string())
-            .unwrap_or_default();
+    fn format_label(&self) -> SharedString {
+        let label = self.label.as_ref().cloned().unwrap_or_default();
         match self.shortcut_key {
             Some(key) => {
                 let key_lower = key.to_ascii_lowercase();
@@ -286,14 +294,14 @@ impl VerticalSlider {
                 if let Some(pos) = match_pos {
                     let matched_char = label[pos..].chars().next().unwrap();
                     let after_pos = pos + matched_char.len_utf8();
-                    format!(
+                    SharedString::new(format!(
                         "{}[{}]{}",
                         &label[..pos],
                         matched_char.to_ascii_uppercase(),
                         &label[after_pos..]
-                    )
+                    ))
                 } else {
-                    format!("[{}] {}", key.to_ascii_uppercase(), label)
+                    SharedString::new(format!("[{}] {}", key.to_ascii_uppercase(), label))
                 }
             }
             None => label,
@@ -301,9 +309,9 @@ impl VerticalSlider {
     }
 
     /// Format the value display
-    fn format_value(&self) -> String {
+    fn format_value(&self) -> SharedString {
         let unit = self.unit.as_ref();
-        if unit == ":1" {
+        SharedString::new(if unit == ":1" {
             format!("{:.1}{}", self.value, unit)
         } else if unit == "%" {
             format!("{:.0}{}", self.value * 100.0, unit)
@@ -311,7 +319,7 @@ impl VerticalSlider {
             format!("{:.1}", self.value)
         } else {
             format!("{:.1} {}", self.value, unit)
-        }
+        })
     }
 }
 
@@ -351,8 +359,8 @@ impl RenderOnce for VerticalSlider {
             self.value_to_normalized(clamped_peak) as f32
         });
 
-        let formatted_label = self.format_label();
-        let value_str = self.format_value();
+        let formatted_label = self.formatted_label;
+        let value_str = self.formatted_value;
 
         let track_width = self.size.track_width(&self.design_tokens);
         let track_height = self
@@ -859,7 +867,7 @@ impl RenderOnce for VerticalSlider {
                 .h(px(track_height))
                 .w(px(label_width + label_tick_gap + tick_mark_width));
 
-            for tick in &ticks {
+            for tick in ticks.iter() {
                 let pos = tick.normalized_pos as f32;
                 let tick_width = if tick.is_major { 6.0 } else { 3.0 };
 
@@ -897,7 +905,7 @@ impl RenderOnce for VerticalSlider {
             // Build right-side tick marks (no labels, just tick marks)
             let mut ticks_right = div().relative().h(px(track_height)).w(px(tick_mark_width));
 
-            for tick in &ticks {
+            for tick in ticks.iter() {
                 let pos = tick.normalized_pos as f32;
                 let tick_width = if tick.is_major { 6.0 } else { 3.0 };
                 let top_pos = (1.0 - pos) * track_height - label_height / 2.0;

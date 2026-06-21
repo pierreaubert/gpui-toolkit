@@ -24,7 +24,7 @@ pub mod presets;
 pub use conflict::{KeyConflict, detect_conflicts};
 pub use discovery::{
     CommandPaletteEntry, KeybindingHint, command_palette_entries, keybinding_hints,
-    search_command_palette,
+    search_command_palette, search_command_palette_cached,
 };
 pub use platform::{format_key_label, platform_modifier, platform_modifier_symbol};
 pub use preset::KeymapPreset;

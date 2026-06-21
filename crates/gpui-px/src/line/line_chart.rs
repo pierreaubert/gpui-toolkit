@@ -28,6 +28,26 @@ use std::collections::HashSet;
 use std::rc::Rc;
 use std::sync::Arc;
 
+/// Build or reuse a cached `Arc<[LinePoint]>` slice keyed by the source `x` and `y`
+/// `Arc` pointer equality.
+fn cached_line_points(
+    x: &Arc<[f64]>,
+    y: &Arc<[f64]>,
+    cache: &mut Option<(Arc<[f64]>, Arc<[f64]>, Arc<[LinePoint]>)>,
+) -> Arc<[LinePoint]> {
+    if let Some((cached_x, cached_y, cached_points)) = cache {
+        if Arc::ptr_eq(x, cached_x) && Arc::ptr_eq(y, cached_y) {
+            return cached_points.clone();
+        }
+    }
+
+    let mut points = Vec::with_capacity(x.len().min(y.len()));
+    points.extend(x.iter().zip(y.iter()).map(|(&x, &y)| LinePoint::new(x, y)));
+    let points: Arc<[LinePoint]> = points.into();
+    *cache = Some((x.clone(), y.clone(), points.clone()));
+    points
+}
+
 /// Line chart builder.
 #[derive(Clone)]
 pub struct LineChart {
@@ -70,6 +90,8 @@ pub struct LineChart {
     pub(super) on_legend_click: Option<LegendClickCallback>,
     /// Optional dash pattern for the primary series
     pub(super) dash_array: Option<StrokeDashArray>,
+    /// Cache of mapped primary points keyed by source `(x, y)` `Arc` pointer equality.
+    pub(super) primary_data_cache: Option<(Arc<[f64]>, Arc<[f64]>, Arc<[LinePoint]>)>,
 }
 
 impl std::fmt::Debug for LineChart {
@@ -292,6 +314,7 @@ impl LineChart {
             opacity,
             use_secondary_axis: false,
             dash_array: None,
+            data_cache: None,
         });
         // Auto-enable legend if any series has a label
         if self.series.iter().any(|s| s.label.is_some()) {
@@ -322,6 +345,7 @@ impl LineChart {
             opacity,
             use_secondary_axis: false,
             dash_array: None,
+            data_cache: None,
         });
         // Auto-enable legend if any series has a label
         if self.series.iter().any(|s| s.label.is_some()) {
@@ -382,6 +406,7 @@ impl LineChart {
             opacity,
             use_secondary_axis: true,
             dash_array: None,
+            data_cache: None,
         });
         // Auto-enable legend if any series has a label
         if self.series.iter().any(|s| s.label.is_some()) {
@@ -409,6 +434,7 @@ impl LineChart {
             opacity,
             use_secondary_axis: true,
             dash_array: None,
+            data_cache: None,
         });
         // Auto-enable legend if any series has a label
         if self.series.iter().any(|s| s.label.is_some()) {
@@ -577,8 +603,8 @@ impl LineChart {
         primary_hidden: bool,
         primary_data: &[LinePoint],
         primary_config: &LineConfig,
-        series_data_configs: &[(Vec<LinePoint>, LineConfig)],
-        secondary_series_data_configs: &[(Vec<LinePoint>, LineConfig)],
+        series_data_configs: &[(Arc<[LinePoint]>, LineConfig)],
+        secondary_series_data_configs: &[(Arc<[LinePoint]>, LineConfig)],
         has_secondary_axis: bool,
     ) -> AnyElement
     where
@@ -601,7 +627,7 @@ impl LineChart {
             ));
 
         for (series_data, series_config) in series_data_configs {
-            plot_area = plot_area.child(render_line(x_scale, y_scale, series_data, series_config));
+            plot_area = plot_area.child(render_line(x_scale, y_scale, series_data.as_ref(), series_config));
         }
 
         if !primary_hidden {
@@ -610,7 +636,7 @@ impl LineChart {
         }
 
         for (series_data, series_config) in secondary_series_data_configs {
-            plot_area = plot_area.child(render_line(x_scale, y2_scale, series_data, series_config));
+            plot_area = plot_area.child(render_line(x_scale, y2_scale, series_data.as_ref(), series_config));
         }
 
         if has_secondary_axis {
@@ -655,7 +681,7 @@ impl LineChart {
     }
 
     /// Build and validate the chart, returning renderable element.
-    pub fn build(self) -> Result<impl IntoElement, ChartError> {
+    pub fn build(mut self) -> Result<impl IntoElement, ChartError> {
         let design = self.design.clone().unwrap_or_else(default_design);
         let (layout_width, layout_height) = resolved_chart_dimensions(self.chart_size);
         // Validate inputs
@@ -923,16 +949,12 @@ impl LineChart {
             (0.0, 1.0) // Placeholder, won't be used
         };
 
-        // Create data points for primary series
+        // Create data points for primary series, reusing the cache when the
+        // source `Arc`s have not changed.
         // Check if primary series is hidden
         let primary_hidden = self.hidden_series.contains(&0);
 
-        let primary_data: Vec<LinePoint> = self
-            .x
-            .iter()
-            .zip(self.y.iter())
-            .map(|(&x, &y)| LinePoint::new(x, y))
-            .collect();
+        let primary_data = cached_line_points(&self.x, &self.y, &mut self.primary_data_cache);
 
         // Create configs for primary series
         let mut primary_config = LineConfig::from_design(&design)
@@ -947,9 +969,9 @@ impl LineChart {
 
         // Prepare additional series data and configs, separating primary and secondary axis series
         // Skip hidden series
-        let mut series_data_configs: Vec<(Vec<LinePoint>, LineConfig)> = Vec::new();
-        let mut secondary_series_data_configs: Vec<(Vec<LinePoint>, LineConfig)> = Vec::new();
-        for (i, series) in self.series.iter().enumerate() {
+        let mut series_data_configs: Vec<(Arc<[LinePoint]>, LineConfig)> = Vec::new();
+        let mut secondary_series_data_configs: Vec<(Arc<[LinePoint]>, LineConfig)> = Vec::new();
+        for (i, series) in self.series.iter_mut().enumerate() {
             // Series index is i+1 (primary is 0)
             if self.hidden_series.contains(&(i + 1)) {
                 continue; // Skip hidden series
@@ -957,11 +979,8 @@ impl LineChart {
 
             // Use custom X values if provided, otherwise use primary X values
             let x_values = series.x.as_ref().unwrap_or(&self.x);
-            let series_points: Vec<LinePoint> = x_values
-                .iter()
-                .zip(series.y.iter())
-                .map(|(&x, &y)| LinePoint::new(x, y))
-                .collect();
+            let series_points =
+                cached_line_points(x_values, &series.y, &mut series.data_cache);
 
             let mut series_config = LineConfig::from_design(&design)
                 .stroke_color(D3Color::from_hex(series.color))

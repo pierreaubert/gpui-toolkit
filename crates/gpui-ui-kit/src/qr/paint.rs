@@ -2,13 +2,13 @@
 
 use super::misc::QUIET_ZONE;
 use gpui::{BorderStyle, Bounds, Corners, Edges, PaintQuad, Pixels, Rgba, Window, point, px, size};
-use qrcode::QrCode as QrMatrix;
 use qrcode::types::Color as QrColor;
 
-/// Paint the full QR matrix (used by static QrCode).
-pub(super) fn paint_qr_full(
+/// Paint the full QR matrix from pre-computed colors (used by static QrCode).
+pub(super) fn paint_qr_full_from_colors(
     bounds: Bounds<Pixels>,
-    matrix: &Option<QrMatrix>,
+    colors: &[QrColor],
+    modules: usize,
     size_f32: f32,
     fg_color: Rgba,
     bg_color: Rgba,
@@ -25,13 +25,10 @@ pub(super) fn paint_qr_full(
         });
     }
 
-    let Some(matrix) = matrix else { return };
-    let modules = matrix.width();
-    if modules == 0 {
+    if modules == 0 || colors.is_empty() {
         return;
     }
 
-    let colors = matrix.to_colors();
     let total_modules = modules + QUIET_ZONE * 2;
     let module_px = size_f32 / total_modules as f32;
     let origin_x: f32 = bounds.origin.x.into();

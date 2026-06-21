@@ -40,6 +40,7 @@ gpui-ui-kit-macros = { workspace = true }
 
 [features]
 default = []
+bench = []
 autoeq = []
 # `camera` enables the optional `nokhwa` dependency used by the qr_debug
 # example. Off by default to keep the camera-capture stack out of normal
@@ -59,6 +60,7 @@ nokhwa = { workspace = true, features = ["input-native"], optional = true }
 [dev-dependencies]
 gpui = { workspace = true, features = ["test-support"] }
 rqrr = { workspace = true }
+criterion = { workspace = true }
 # Examples in `examples/` use the MiniApp shell, which lives in a workspace-
 # only crate (it transitively pulls in non-publishable platform backends).
 gpui-miniapp = { workspace = true }
@@ -215,3 +217,8 @@ name = "wizard_debug"
 
 [[example]]
 name = "workflow_debug"
+
+[[bench]]
+name = "edit_state"
+harness = false
+required-features = ["bench"]

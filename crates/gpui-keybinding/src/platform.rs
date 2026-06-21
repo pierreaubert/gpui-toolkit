@@ -28,11 +28,13 @@ pub fn platform_modifier_symbol() -> &'static str {
     }
 }
 
+use std::borrow::Cow;
+
 /// Format a GPUI key spec string into a human-readable label.
 ///
 /// Converts internal key spec format (e.g., "secondary-s", "ctrl-shift-k")
 /// into display format (e.g., "⌘S", "Ctrl+Shift+K").
-pub fn format_key_label(key_spec: &str) -> String {
+pub fn format_key_label(key_spec: &str) -> Cow<'static, str> {
     // Fast path: no whitespace means a single key/chord part.
     if !key_spec.bytes().any(|b: u8| b.is_ascii_whitespace()) {
         return format_single_key(key_spec);
@@ -45,22 +47,25 @@ pub fn format_key_label(key_spec: &str) -> String {
         }
         out.push_str(&format_single_key(chord));
     }
-    out
+    Cow::Owned(out)
 }
 
-fn format_single_key(key_spec: &str) -> String {
-    let mut out = String::new();
-    let key;
+fn format_single_key(key_spec: &str) -> Cow<'static, str> {
+    // Fast path: no modifiers means we can return the formatted key name
+    // without allocating a String.
+    if !key_spec.contains('-') {
+        return format_key_name(key_spec);
+    }
 
     // Track whether we are still in the modifier portion. The final part after
     // the last '-' is the key name; a trailing '-' means the whole spec is the
     // key.
     if let Some((head, tail)) = key_spec.rsplit_once('-') {
         if tail.is_empty() {
-            return key_spec.to_string();
+            return Cow::Owned(key_spec.to_string());
         }
-        key = tail;
 
+        let mut out = String::new();
         for part in head.split('-') {
             if !out.is_empty() {
                 out.push('+');
@@ -70,15 +75,15 @@ fn format_single_key(key_spec: &str) -> String {
                 None => out.push_str(&capitalize(part)),
             }
         }
-    } else {
-        key = key_spec;
-    }
 
-    if !out.is_empty() {
-        out.push('+');
+        if !out.is_empty() {
+            out.push('+');
+        }
+        out.push_str(&format_key_name(tail));
+        Cow::Owned(out)
+    } else {
+        format_key_name(key_spec)
     }
-    out.push_str(&format_key_name(key));
-    out
 }
 
 fn modifier_label(part: &str) -> Option<&'static str> {
@@ -92,23 +97,23 @@ fn modifier_label(part: &str) -> Option<&'static str> {
     }
 }
 
-fn format_key_name(key: &str) -> String {
+fn format_key_name(key: &str) -> Cow<'static, str> {
     match key {
-        "space" => "Space".to_string(),
-        "enter" => "Enter".to_string(),
-        "escape" => "Esc".to_string(),
-        "tab" => "Tab".to_string(),
-        "backspace" => "Backspace".to_string(),
-        "delete" => "Del".to_string(),
-        "up" => "↑".to_string(),
-        "down" => "↓".to_string(),
-        "left" => "←".to_string(),
-        "right" => "→".to_string(),
-        "pageup" => "PgUp".to_string(),
-        "pagedown" => "PgDn".to_string(),
-        "home" => "Home".to_string(),
-        "end" => "End".to_string(),
-        other => capitalize(other),
+        "space" => Cow::Borrowed("Space"),
+        "enter" => Cow::Borrowed("Enter"),
+        "escape" => Cow::Borrowed("Esc"),
+        "tab" => Cow::Borrowed("Tab"),
+        "backspace" => Cow::Borrowed("Backspace"),
+        "delete" => Cow::Borrowed("Del"),
+        "up" => Cow::Borrowed("↑"),
+        "down" => Cow::Borrowed("↓"),
+        "left" => Cow::Borrowed("←"),
+        "right" => Cow::Borrowed("→"),
+        "pageup" => Cow::Borrowed("PgUp"),
+        "pagedown" => Cow::Borrowed("PgDn"),
+        "home" => Cow::Borrowed("Home"),
+        "end" => Cow::Borrowed("End"),
+        other => Cow::Owned(capitalize(other)),
     }
 }
 

@@ -127,15 +127,24 @@ impl<T> Area<T> {
 
     /// Generate the area path from data.
     pub fn generate(&self, data: &[T]) -> Path {
-        if data.is_empty() {
-            return Path::new();
-        }
-
         let mut builder = PathBuilder::new();
+        self.generate_into(data, &mut builder);
+        builder.build()
+    }
+
+    /// Generate the area path from data, appending commands into `builder`.
+    ///
+    /// `builder` is *not* cleared; callers should call `builder.commands.clear()`
+    /// (or create a fresh builder) if they want to replace a previous path.
+    pub fn generate_into(&self, data: &[T], builder: &mut PathBuilder) {
+        if data.is_empty() {
+            return;
+        }
 
         // Collect defined points
         let defined_segments = self.collect_defined_segments(data);
 
+        let mut seg_builder = PathBuilder::new();
         for segment in defined_segments {
             if segment.is_empty() {
                 continue;
@@ -174,23 +183,27 @@ impl<T> Area<T> {
                 })
                 .collect();
 
+            seg_builder.commands.clear();
+            seg_builder.current_point = Point::default();
+            seg_builder.start_point = Point::default();
+
             // Generate curved path for top line
             if !top_points.is_empty() {
                 let first = top_points[0];
-                builder = builder.move_to(first.x, first.y);
+                seg_builder = seg_builder.move_to(first.x, first.y);
 
                 // Apply curve interpolation
                 match self.curve {
                     Curve::Linear => {
                         for p in top_points.iter().skip(1) {
-                            builder = builder.line_to(p.x, p.y);
+                            seg_builder = seg_builder.line_to(p.x, p.y);
                         }
                     }
                     _ => {
                         // For other curves, use the curve's interpolation
                         let curved = self.curve.interpolate(&top_points);
                         for p in curved.iter().skip(1) {
-                            builder = builder.line_to(p.x, p.y);
+                            seg_builder = seg_builder.line_to(p.x, p.y);
                         }
                     }
                 }
@@ -199,22 +212,24 @@ impl<T> Area<T> {
                 match self.curve {
                     Curve::Linear => {
                         for p in &bottom_points {
-                            builder = builder.line_to(p.x, p.y);
+                            seg_builder = seg_builder.line_to(p.x, p.y);
                         }
                     }
                     _ => {
                         let curved = self.curve.interpolate(&bottom_points);
                         for p in &curved {
-                            builder = builder.line_to(p.x, p.y);
+                            seg_builder = seg_builder.line_to(p.x, p.y);
                         }
                     }
                 }
 
-                builder = builder.close_path();
+                seg_builder = seg_builder.close_path();
             }
-        }
 
-        builder.build()
+            builder
+                .commands
+                .extend(std::mem::take(&mut seg_builder.commands));
+        }
     }
 
     /// Collect data into segments of defined points.
@@ -390,5 +405,20 @@ mod tests {
 
         let path = area.generate(&data);
         assert!(path.is_empty());
+    }
+
+    #[test]
+    fn test_generate_into_matches_generate() {
+        let data = vec![(0.0, 10.0), (1.0, 20.0), (2.0, 15.0)];
+        let area = Area::new()
+            .x(|d: &(f64, f64)| d.0)
+            .y0(|_| 0.0)
+            .y1(|d: &(f64, f64)| d.1);
+
+        let expected = area.generate(&data);
+        let mut builder = PathBuilder::new();
+        area.generate_into(&data, &mut builder);
+        let generated = builder.build();
+        assert_eq!(expected.commands(), generated.commands());
     }
 }

@@ -7,6 +7,11 @@ use std::rc::Rc;
 
 use crate::quadtree::QuadTree;
 
+thread_local! {
+    /// Reusable positions buffer for the Barnes-Hut many-body force.
+    static MANY_BODY_POSITIONS: RefCell<Vec<(usize, f64, f64)>> = const { RefCell::new(Vec::new()) };
+}
+
 /// A node in the simulation
 #[derive(Debug, Clone)]
 pub struct SimulationNode {
@@ -241,95 +246,95 @@ impl Force for ForceManyBody {
         // Barnes-Hut approximation.
         let theta2 = self.theta * self.theta;
 
-        let positions: Vec<(usize, f64, f64)> = nodes
-            .iter()
-            .enumerate()
-            .map(|(i, node)| {
+        MANY_BODY_POSITIONS.with(|positions| {
+            let mut positions = positions.borrow_mut();
+            positions.clear();
+            positions.extend(nodes.iter().enumerate().map(|(i, node)| {
                 let node = node.borrow();
                 (i, node.x, node.y)
-            })
-            .collect();
+            }));
 
-        let mut tree = QuadTree::from_data(&positions, |p| p.1, |p| p.2);
-        tree.compute_aggregates();
+            let mut tree = QuadTree::from_data(&positions, |p| p.1, |p| p.2);
+            tree.compute_aggregates();
 
-        for i in 0..n {
-            let (target_x, target_y) = {
-                let node = nodes[i].borrow();
-                (node.x, node.y)
-            };
+            for i in 0..n {
+                let (target_x, target_y) = {
+                    let node = nodes[i].borrow();
+                    (node.x, node.y)
+                };
 
-            let mut fx = 0.0;
-            let mut fy = 0.0;
+                let mut fx = 0.0;
+                let mut fy = 0.0;
 
-            tree.visit_aggregate(|x0, y0, x1, y1, node, aggregate| {
-                match node {
-                    crate::quadtree::QuadNode::Leaf(point) => {
-                        let mut current = Some(point);
-                        while let Some(p) = current {
-                            if p.data.0 != i {
+                tree.visit_aggregate(|x0, y0, x1, y1, node, aggregate| {
+                    match node {
+                        crate::quadtree::QuadNode::Leaf(point) => {
+                            let mut current = Some(point);
+                            while let Some(p) = current {
+                                if p.data.0 != i {
+                                    Self::apply_force_kernel(
+                                        alpha,
+                                        self.strength,
+                                        self.distance_min,
+                                        self.distance_max,
+                                        p.x - target_x,
+                                        p.y - target_y,
+                                        1.0,
+                                        &mut fx,
+                                        &mut fy,
+                                    );
+                                }
+                                current = p.next.as_deref();
+                            }
+                            false
+                        }
+                        crate::quadtree::QuadNode::Internal(_, _) => {
+                            let Some(agg) = aggregate else {
+                                return true;
+                            };
+                            if agg.mass == 0.0 {
+                                return false;
+                            }
+
+                            // Never approximate a node that contains the target point,
+                            // because the aggregate includes the target itself.
+                            if target_x >= x0 && target_x <= x1 && target_y >= y0 && target_y <= y1 {
+                                return true;
+                            }
+
+                            let width = x1 - x0;
+                            let width2 = width * width;
+                            let dx = agg.x - target_x;
+                            let dy = agg.y - target_y;
+                            let dist2 = dx * dx + dy * dy;
+
+                            // Approximate this internal node as a single body when it appears
+                            // small relative to its distance from the target.
+                            if width2 < theta2 * dist2 {
                                 Self::apply_force_kernel(
                                     alpha,
                                     self.strength,
                                     self.distance_min,
                                     self.distance_max,
-                                    p.x - target_x,
-                                    p.y - target_y,
-                                    1.0,
+                                    dx,
+                                    dy,
+                                    agg.mass,
                                     &mut fx,
                                     &mut fy,
                                 );
+                                false
+                            } else {
+                                true
                             }
-                            current = p.next.as_deref();
-                        }
-                        false
-                    }
-                    crate::quadtree::QuadNode::Internal(_, _) => {
-                        let Some(agg) = aggregate else {
-                            return true;
-                        };
-                        if agg.mass == 0.0 {
-                            return false;
-                        }
-
-                        // Never approximate a node that contains the target point,
-                        // because the aggregate includes the target itself.
-                        if target_x >= x0 && target_x <= x1 && target_y >= y0 && target_y <= y1 {
-                            return true;
-                        }
-
-                        let width = x1 - x0;
-                        let width2 = width * width;
-                        let dx = agg.x - target_x;
-                        let dy = agg.y - target_y;
-                        let dist2 = dx * dx + dy * dy;
-
-                        // Approximate this internal node as a single body when it appears
-                        // small relative to its distance from the target.
-                        if width2 < theta2 * dist2 {
-                            Self::apply_force_kernel(
-                                alpha,
-                                self.strength,
-                                self.distance_min,
-                                self.distance_max,
-                                dx,
-                                dy,
-                                agg.mass,
-                                &mut fx,
-                                &mut fy,
-                            );
-                            false
-                        } else {
-                            true
                         }
                     }
-                }
-            });
+                });
 
-            let mut node = nodes[i].borrow_mut();
-            node.vx += fx;
-            node.vy += fy;
-        }
+                let mut node = nodes[i].borrow_mut();
+                node.vx += fx;
+                node.vy += fy;
+            }
+        });
     }
 }
 

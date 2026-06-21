@@ -17,7 +17,7 @@ impl DesignTokenExport {
                 .into_iter()
                 .map(|(preset_id, system)| DesignTokenPresetExport {
                     preset_id,
-                    tokens: system.style_dictionary_tokens(),
+                    tokens: system.style_dictionary_tokens().to_vec(),
                 })
                 .collect(),
         }

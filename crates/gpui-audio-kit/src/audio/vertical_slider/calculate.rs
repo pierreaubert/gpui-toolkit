@@ -6,6 +6,7 @@ use super::types::TickMark;
 use crate::scale::Scale;
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 /// Calculate tick marks for linear scale
 fn calculate_linear_ticks(min: f64, max: f64, track_height: f32) -> Vec<TickMark> {
@@ -217,7 +218,7 @@ impl TickCacheKey {
 }
 
 thread_local! {
-    static TICK_CACHE: RefCell<HashMap<TickCacheKey, Vec<TickMark>>> = RefCell::new(HashMap::new());
+    static TICK_CACHE: RefCell<HashMap<TickCacheKey, Arc<[TickMark]>>> = RefCell::new(HashMap::new());
 }
 
 /// Calculate tick marks based on scale type
@@ -229,7 +230,7 @@ pub(super) fn calculate_ticks(
     max: f64,
     scale: Scale,
     track_height: f32,
-) -> Vec<TickMark> {
+) -> Arc<[TickMark]> {
     let key = TickCacheKey::new(min, max, scale, track_height);
     TICK_CACHE.with(|cache| {
         if let Some(cached) = cache.borrow().get(&key) {
@@ -241,6 +242,7 @@ pub(super) fn calculate_ticks(
             Scale::Logarithmic => calculate_log_ticks(min, max, track_height),
         };
 
+        let ticks: Arc<[TickMark]> = ticks.into();
         cache.borrow_mut().insert(key, ticks.clone());
         ticks
     })

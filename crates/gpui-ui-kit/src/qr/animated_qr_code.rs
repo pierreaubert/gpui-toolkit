@@ -31,6 +31,8 @@ use std::time::{Duration, Instant};
 pub struct AnimatedQrCode {
     /// Encoded QR matrix (None on encode failure).
     pub(super) matrix: Option<QrMatrix>,
+    /// Pre-computed module colors (empty on encode failure).
+    pub(super) colors: Vec<QrColor>,
     /// Number of modules on one side of the QR.
     pub(super) modules: usize,
     /// Display size in pixels.
@@ -56,6 +58,7 @@ impl AnimatedQrCode {
     /// animation starts automatically. Otherwise it renders statically.
     pub fn new(data: impl AsRef<[u8]>, size: Pixels, cx: &mut Context<Self>) -> Self {
         let matrix = QrMatrix::new(data.as_ref()).ok();
+        let colors = matrix.as_ref().map(|m| m.to_colors()).unwrap_or_default();
         let modules = matrix.as_ref().map_or(0, |m| m.width());
         let size_f32: f32 = size.into();
         let total_modules = modules + QUIET_ZONE * 2;
@@ -102,6 +105,7 @@ impl AnimatedQrCode {
 
         Self {
             matrix,
+            colors,
             modules,
             size,
             fg: None,
@@ -136,11 +140,7 @@ impl Render for AnimatedQrCode {
 
         if !self.needs_animation || self.matrix.is_none() {
             // Static render — same as QrCode
-            let colors: Vec<QrColor> = self
-                .matrix
-                .as_ref()
-                .map(|m| m.to_colors())
-                .unwrap_or_default();
+            let colors = self.colors.clone();
             let modules = self.modules;
 
             return canvas(
@@ -180,11 +180,7 @@ impl Render for AnimatedQrCode {
         // Scroll both axes together (diagonal pan)
         let offset_modules = eased * scroll_range;
 
-        let colors: Vec<QrColor> = self
-            .matrix
-            .as_ref()
-            .map(|m| m.to_colors())
-            .unwrap_or_default();
+        let colors = self.colors.clone();
 
         canvas(
             move |_bounds, _window, _cx| colors,

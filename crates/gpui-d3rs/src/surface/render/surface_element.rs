@@ -437,7 +437,11 @@ impl Element for SurfaceElement {
         // Draw 3D axes if enabled
         if self.config.show_axes {
             let generation = self.compute_paint_generation(&bounds);
-            if self.paint_cache.as_ref().map_or(true, |c| c.generation != generation) {
+            if self
+                .paint_cache
+                .as_ref()
+                .map_or(true, |c| c.generation != generation)
+            {
                 let projection = self.create_projection(&bounds);
 
                 let origin = (-0.5, -0.5, -0.5);
@@ -460,12 +464,11 @@ impl Element for SurfaceElement {
                     // X axis tick
                     let x_tick_pos = (-0.5 + t * 1.0, -0.5, -0.5);
                     let x_tick_end = (-0.5 + t * 1.0, -0.5 - tick_size, -0.5);
-                    let x_label =
-                        if let Some(((x_min, x_max), _, _)) = self.config.axis_ranges {
-                            Some(format_tick_value(x_min + t * (x_max - x_min), x_min, x_max))
-                        } else {
-                            None
-                        };
+                    let x_label = if let Some(((x_min, x_max), _, _)) = self.config.axis_ranges {
+                        Some(format_tick_value(x_min + t * (x_max - x_min), x_min, x_max))
+                    } else {
+                        None
+                    };
                     ticks.push(CachedAxisTick {
                         axis: Axis::X,
                         start: projection.project(x_tick_pos.0, x_tick_pos.1, x_tick_pos.2),
@@ -476,12 +479,11 @@ impl Element for SurfaceElement {
                     // Y axis tick
                     let y_tick_pos = (-0.5, -0.5 + t * 1.0, -0.5);
                     let y_tick_end = (-0.5 - tick_size, -0.5 + t * 1.0, -0.5);
-                    let y_label =
-                        if let Some((_, (y_min, y_max), _)) = self.config.axis_ranges {
-                            Some(format_tick_value(y_min + t * (y_max - y_min), y_min, y_max))
-                        } else {
-                            None
-                        };
+                    let y_label = if let Some((_, (y_min, y_max), _)) = self.config.axis_ranges {
+                        Some(format_tick_value(y_min + t * (y_max - y_min), y_min, y_max))
+                    } else {
+                        None
+                    };
                     ticks.push(CachedAxisTick {
                         axis: Axis::Y,
                         start: projection.project(y_tick_pos.0, y_tick_pos.1, y_tick_pos.2),
@@ -492,12 +494,11 @@ impl Element for SurfaceElement {
                     // Z axis tick
                     let z_tick_pos = (-0.5, -0.5, -0.5 + t * 1.0);
                     let z_tick_end = (-0.5 - tick_size, -0.5, -0.5 + t * 1.0);
-                    let z_label =
-                        if let Some((_, _, (z_min, z_max))) = self.config.axis_ranges {
-                            Some(format_tick_value(z_min + t * (z_max - z_min), z_min, z_max))
-                        } else {
-                            None
-                        };
+                    let z_label = if let Some((_, _, (z_min, z_max))) = self.config.axis_ranges {
+                        Some(format_tick_value(z_min + t * (z_max - z_min), z_min, z_max))
+                    } else {
+                        None
+                    };
                     ticks.push(CachedAxisTick {
                         axis: Axis::Z,
                         start: projection.project(z_tick_pos.0, z_tick_pos.1, z_tick_pos.2),
@@ -567,19 +568,20 @@ impl Element for SurfaceElement {
                 if let Some(label) = tick.label.as_deref() {
                     let text_config = GlyphTextConfig::horizontal(tick_font_size, axis_color);
                     let (x, y, h_anchor, v_anchor) = match tick.axis {
-                        Axis::X => (p2.x as f32, p2.y as f32 + 12.0, HorizontalTextAnchor::Middle, VerticalTextAnchor::Top),
-                        Axis::Y | Axis::Z => (p2.x as f32 - 4.0, p2.y as f32, HorizontalTextAnchor::End, VerticalTextAnchor::Middle),
+                        Axis::X => (
+                            p2.x as f32,
+                            p2.y as f32 + 12.0,
+                            HorizontalTextAnchor::Middle,
+                            VerticalTextAnchor::Top,
+                        ),
+                        Axis::Y | Axis::Z => (
+                            p2.x as f32 - 4.0,
+                            p2.y as f32,
+                            HorizontalTextAnchor::End,
+                            VerticalTextAnchor::Middle,
+                        ),
                     };
-                    paint_chart_text_at(
-                        window,
-                        cx,
-                        label,
-                        x,
-                        y,
-                        &text_config,
-                        h_anchor,
-                        v_anchor,
-                    );
+                    paint_chart_text_at(window, cx, label, x, y, &text_config, h_anchor, v_anchor);
                 }
             }
 

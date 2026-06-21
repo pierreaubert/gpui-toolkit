@@ -215,7 +215,10 @@ fn test_antimeridian_polygon_crossing() {
 
     // Should have one close command for the rejoined ring.
     let z_count = svg.matches('Z').count();
-    assert_eq!(z_count, 1, "Should have 1 close command for crossing polygon");
+    assert_eq!(
+        z_count, 1,
+        "Should have 1 close command for crossing polygon"
+    );
 }
 
 #[test]

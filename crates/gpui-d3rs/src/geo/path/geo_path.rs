@@ -253,28 +253,25 @@ impl<P: Projection> GeoPath<P> {
         // Filter out degenerate near-full interior rings that collapse to a line
         // of constant latitude. These are polar holes in Natural Earth data and
         // produce spurious filled horizontal bands when rendered as polygons.
-        let rings_to_clip: Vec<Vec<(f64, f64)>> = rings
-            .iter()
-            .enumerate()
-            .filter(|(ring_index, ring)| {
-                if *ring_index == 0 {
-                    return true;
-                }
+        let mut rings_to_clip: Vec<&[(f64, f64)]> = Vec::with_capacity(rings.len());
+        for (ring_index, ring) in rings.iter().enumerate() {
+            if ring_index != 0 {
                 if ring.len() < 3 {
-                    return false;
+                    continue;
                 }
-                if !ring.iter().all(|(_, lat)| (lat - ring[0].1).abs() < 1e-6) {
-                    return true;
+                if ring.iter().all(|(_, lat)| (lat - ring[0].1).abs() < 1e-6) {
+                    let (min_lon, max_lon) = ring
+                        .iter()
+                        .fold((f64::INFINITY, f64::NEG_INFINITY), |(mn, mx), &(lon, _)| {
+                            (mn.min(lon), mx.max(lon))
+                        });
+                    if max_lon - min_lon > 359.0 {
+                        continue;
+                    }
                 }
-                let (min_lon, max_lon) = ring
-                    .iter()
-                    .fold((f64::INFINITY, f64::NEG_INFINITY), |(mn, mx), &(lon, _)| {
-                        (mn.min(lon), mx.max(lon))
-                    });
-                max_lon - min_lon <= 359.0
-            })
-            .map(|(_, ring)| ring.clone())
-            .collect();
+            }
+            rings_to_clip.push(ring.as_slice());
+        }
 
         if rings_to_clip.is_empty() {
             return;

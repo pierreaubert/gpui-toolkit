@@ -163,6 +163,14 @@ pub(super) fn build_line_text_cow<'a>(
             end_graph,
             scratch,
         );
-        Cow::Owned(scratch.clone())
+        // For long lines, move the buffer out to avoid copying its contents.
+        // For short lines, cloning is cheaper than allocating a replacement
+        // scratch buffer, so we keep the warmed-up scratch in place.
+        const MOVE_THRESHOLD: usize = 128;
+        if scratch.len() > MOVE_THRESHOLD {
+            Cow::Owned(std::mem::take(scratch))
+        } else {
+            Cow::Owned(scratch.clone())
+        }
     })
 }

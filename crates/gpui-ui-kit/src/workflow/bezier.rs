@@ -88,7 +88,7 @@ pub fn connection_path(from: Position, to: Position, tolerance: f32) -> Vec<Posi
 }
 
 /// Rectangle representing a node bounding box used as a routing obstacle.
-#[derive(Clone, Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct ObstacleRect {
     pub x: f32,
     pub y: f32,

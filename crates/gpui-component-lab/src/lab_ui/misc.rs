@@ -14,6 +14,7 @@ use serde_json::Value;
 use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
 use std::sync::{Arc, Mutex, OnceLock};
 
 pub(super) fn showcase_section_for_story_id(story_id: &str) -> Option<ShowcaseSection> {
@@ -287,23 +288,37 @@ pub(super) fn treemap_story_data() -> TreemapNode {
 }
 
 thread_local! {
-    static LAB_ID_CACHE: RefCell<HashMap<String, SharedString>> = RefCell::new(HashMap::new());
+    static LAB_ID_CACHE: RefCell<HashMap<u64, SharedString>> = RefCell::new(HashMap::new());
+}
+
+fn lab_id_hash(parts: &[&str]) -> u64 {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    parts.len().hash(&mut hasher);
+    for part in parts {
+        part.hash(&mut hasher);
+    }
+    hasher.finish()
 }
 
 pub(super) fn lab_id(parts: &[&str]) -> SharedString {
-    let mut key = String::with_capacity(parts.iter().map(|p| p.len()).sum::<usize>() + parts.len());
-    key.push_str("lab");
-    for part in parts {
-        key.push('-');
-        key.push_str(id_fragment(part).as_ref());
-    }
+    let key = lab_id_hash(parts);
     LAB_ID_CACHE.with(|cache| {
-        let mut cache = cache.borrow_mut();
-        cache.get(&key).cloned().unwrap_or_else(|| {
-            let shared = SharedString::new(key.clone());
-            cache.insert(key, shared.clone());
-            shared
-        })
+        {
+            let cache = cache.borrow();
+            if let Some(cached) = cache.get(&key) {
+                return cached.clone();
+            }
+        }
+
+        let mut s = String::with_capacity(parts.iter().map(|p| p.len()).sum::<usize>() + parts.len());
+        s.push_str("lab");
+        for part in parts {
+            s.push('-');
+            s.push_str(id_fragment(part).as_ref());
+        }
+        let shared = SharedString::new(s);
+        cache.borrow_mut().insert(key, shared.clone());
+        shared
     })
 }
 
@@ -324,8 +339,25 @@ pub(super) fn layout_string(layout: &Value, key: &str) -> Option<String> {
     layout.get(key).and_then(Value::as_str).map(str::to_string)
 }
 
+static DESIGN_SYSTEM_CACHE: OnceLock<Mutex<HashMap<String, Arc<DesignSystem>>>> = OnceLock::new();
+
 pub(super) fn design_for_theme_preset(theme: &ThemePreset) -> Arc<DesignSystem> {
-    Arc::new(DesignSystem::from_language_id(&theme.design).unwrap_or_else(DesignSystem::neutral))
+    let cache = DESIGN_SYSTEM_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    {
+        let locked = cache.lock().expect("design system cache poisoned");
+        if let Some(cached) = locked.get(&theme.design) {
+            return cached.clone();
+        }
+    }
+
+    let design = Arc::new(
+        DesignSystem::from_language_id(&theme.design).unwrap_or_else(DesignSystem::neutral),
+    );
+    cache
+        .lock()
+        .expect("design system cache poisoned")
+        .insert(theme.design.clone(), design.clone());
+    design
 }
 
 pub(super) fn clamp_f32(value: f64, min: f32, max: f32) -> f32 {

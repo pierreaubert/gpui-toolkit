@@ -29,8 +29,16 @@ use gpui::{
     MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement, Render, ScrollDelta,
     ScrollWheelEvent, SharedString, StatefulInteractiveElement, Styled, Window, canvas, div, px,
 };
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
+use std::sync::Arc;
+
+thread_local! {
+    /// Reusable obstacle buffer for connection routing. Retains capacity across
+    /// frames so we avoid allocating a fresh `Vec` for every connection.
+    static CONNECTION_OBSTACLES: RefCell<Vec<ObstacleRect>> = const { RefCell::new(Vec::new()) };
+}
 
 /// Workflow canvas component
 ///
@@ -936,53 +944,55 @@ impl Render for WorkflowCanvas {
         let scaled_theme = theme.scale(viewport.zoom);
 
         // Build connection render data with screen-space port positions
-        let connections: Vec<_> = self
-            .state
-            .graph
-            .connections
-            .iter()
-            .filter_map(|conn| {
-                let from_node = self.state.graph.nodes.get(&conn.from_node)?;
-                let to_node = self.state.graph.nodes.get(&conn.to_node)?;
-                // Calculate port positions in screen coordinates (not canvas coordinates)
-                let from_pos = port_screen_position(from_node, conn.from_port, false, &viewport);
-                let to_pos = port_screen_position(to_node, conn.to_port, true, &viewport);
-                let selected = self.state.selection.is_connection_selected(conn.id);
-                let link_type = conn.link_type;
-                Some((
-                    from_pos,
-                    to_pos,
-                    selected,
-                    link_type,
-                    conn.from_node,
-                    conn.to_node,
-                ))
-            })
-            .collect();
+        let connections: Arc<[_]> = Arc::from(
+            self.state
+                .graph
+                .connections
+                .iter()
+                .filter_map(|conn| {
+                    let from_node = self.state.graph.nodes.get(&conn.from_node)?;
+                    let to_node = self.state.graph.nodes.get(&conn.to_node)?;
+                    // Calculate port positions in screen coordinates (not canvas coordinates)
+                    let from_pos = port_screen_position(from_node, conn.from_port, false, &viewport);
+                    let to_pos = port_screen_position(to_node, conn.to_port, true, &viewport);
+                    let selected = self.state.selection.is_connection_selected(conn.id);
+                    let link_type = conn.link_type;
+                    Some((
+                        from_pos,
+                        to_pos,
+                        selected,
+                        link_type,
+                        conn.from_node,
+                        conn.to_node,
+                    ))
+                })
+                .collect::<Vec<_>>(),
+        );
 
         // Collect node bounding rects in screen coordinates for obstacle avoidance
-        let node_screen_rects: Vec<(NodeId, ObstacleRect)> = self
-            .state
-            .graph
-            .nodes
-            .values()
-            .map(|node| {
-                let sp = viewport.canvas_to_screen(&node.position);
-                (
-                    node.id,
-                    ObstacleRect::new(
-                        sp.x,
-                        sp.y,
-                        node.width * viewport.zoom,
-                        node.height * viewport.zoom,
-                    ),
-                )
-            })
-            .collect();
+        let node_screen_rects: Arc<[_]> = Arc::from(
+            self.state
+                .graph
+                .nodes
+                .values()
+                .map(|node| {
+                    let sp = viewport.canvas_to_screen(&node.position);
+                    (
+                        node.id,
+                        ObstacleRect::new(
+                            sp.x,
+                            sp.y,
+                            node.width * viewport.zoom,
+                            node.height * viewport.zoom,
+                        ),
+                    )
+                })
+                .collect::<Vec<_>>(),
+        );
 
         let connection_drag = self.state.connection_drag.clone();
         let bulk_connect_drag = self.state.bulk_connect_drag.clone();
-        let graph = self.state.graph.clone();
+        let graph = Arc::new(self.state.graph.clone());
 
         let conn_color = theme.connection_color;
         let conn_selected = theme.connection_selected;
@@ -1006,12 +1016,12 @@ impl Render for WorkflowCanvas {
                     this.canvas_origin = Position::new(origin_x, origin_y);
                 });
                 (
-                    connections.clone(),
+                    Arc::clone(&connections),
                     connection_drag.clone(),
                     bulk_connect_drag.clone(),
-                    graph.clone(),
+                    Arc::clone(&graph),
                     bounds,
-                    node_screen_rects.clone(),
+                    Arc::clone(&node_screen_rects),
                 )
             },
             move |_,
@@ -1032,7 +1042,7 @@ impl Render for WorkflowCanvas {
                 // Draw connections - positions are already in screen coordinates
                 // Shorten lines by port_radius at each end so they don't overlap ports
                 for (from_pos, to_pos, selected, link_type, from_node_id, to_node_id) in
-                    &connections
+                    connections.iter()
                 {
                     let color = if *selected { conn_selected } else { conn_color };
                     let width = match link_type {
@@ -1040,24 +1050,30 @@ impl Render for WorkflowCanvas {
                         LinkType::Thin => conn_width_thin,
                     };
 
-                    // Obstacles = all nodes except the connection's source and target
-                    let obstacles: Vec<ObstacleRect> = node_screen_rects
-                        .iter()
-                        .filter(|(id, _)| id != from_node_id && id != to_node_id)
-                        .map(|(_, r)| r.clone())
-                        .collect();
+                    // Obstacles = all nodes except the connection's source and target.
+                    // Reuse a thread-local buffer instead of allocating per connection.
+                    CONNECTION_OBSTACLES.with(|obstacles| {
+                        let mut obstacles = obstacles.borrow_mut();
+                        obstacles.clear();
+                        obstacles.extend(
+                            node_screen_rects
+                                .iter()
+                                .filter(|(id, _)| id != from_node_id && id != to_node_id)
+                                .map(|(_, r)| *r),
+                        );
 
-                    draw_connection(
-                        window,
-                        *from_pos,
-                        *to_pos,
-                        color,
-                        width,
-                        port_radius,
-                        &obstacles,
-                        origin_x,
-                        origin_y,
-                    );
+                        draw_connection(
+                            window,
+                            *from_pos,
+                            *to_pos,
+                            color,
+                            width,
+                            port_radius,
+                            &obstacles,
+                            origin_x,
+                            origin_y,
+                        );
+                    });
                 }
 
                 // Draw connection preview

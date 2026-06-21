@@ -10,6 +10,7 @@
 use gpui::prelude::*;
 use gpui::*;
 use std::cell::RefCell;
+use std::sync::Arc;
 
 /// Scale type for positioning tick marks and meter values
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -107,7 +108,7 @@ pub struct TickConfig {
     /// Color for tick marks
     pub tick_color: Rgba,
     /// Cached tick marks generated from this configuration.
-    cache: RefCell<Option<Vec<TickMark>>>,
+    cache: RefCell<Option<Arc<[TickMark]>>>,
 }
 
 impl Clone for TickConfig {
@@ -180,7 +181,7 @@ impl TickConfig {
     }
 
     /// Generate tick marks based on configuration
-    pub fn generate_ticks(&self) -> Vec<TickMark> {
+    pub fn generate_ticks(&self) -> Arc<[TickMark]> {
         if let Some(cached) = self.cache.borrow().as_ref() {
             return cached.clone();
         }
@@ -218,6 +219,7 @@ impl TickConfig {
             }
         }
 
+        let ticks: Arc<[TickMark]> = ticks.into();
         self.cache.replace(Some(ticks.clone()));
         ticks
     }

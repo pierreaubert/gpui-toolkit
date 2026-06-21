@@ -110,6 +110,32 @@ impl SurfaceData {
         }
     }
 
+    /// Create new surface data from a flat row-major grid slice.
+    ///
+    /// This avoids the intermediate `Vec<Vec<f64>>` copy required by
+    /// [`Self::from_grid`] when the data is already stored flat.
+    ///
+    /// # Arguments
+    /// * `x_values` - X-axis coordinates
+    /// * `y_values` - Y-axis coordinates
+    /// * `z_values` - Z values as a flat row-major slice (`width * height` elements)
+    /// * `width` - Number of columns in each row
+    /// * `height` - Number of rows
+    pub fn from_flat_grid(
+        x_values: Vec<f64>,
+        y_values: Vec<f64>,
+        z_values: &[f64],
+        width: usize,
+        height: usize,
+    ) -> Self {
+        let z_values: Vec<Vec<f64>> = z_values
+            .chunks(width)
+            .take(height)
+            .map(<[f64]>::to_vec)
+            .collect();
+        Self::from_grid(x_values, y_values, z_values)
+    }
+
     /// Create surface data from a function z = f(x, y)
     pub fn from_function<F>(
         x_range: (f64, f64),

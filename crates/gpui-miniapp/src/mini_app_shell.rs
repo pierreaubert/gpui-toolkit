@@ -2,7 +2,7 @@
 
 use gpui::prelude::FluentBuilder;
 use gpui::*;
-#[cfg(feature = "builder")]
+#[cfg(all(test, feature = "builder"))]
 use gpui_builder::{Axis, SolvedNode};
 use gpui_design::{DesignExt, DesignSystem};
 #[cfg(feature = "builder")]
@@ -29,7 +29,7 @@ thread_local! {
 }
 
 impl MiniAppShell {
-    #[cfg(feature = "builder")]
+    #[cfg(all(test, feature = "builder"))]
     pub(super) fn solve_content_layout(
         width: f32,
         height: f32,
@@ -68,9 +68,8 @@ impl MiniAppShell {
         {
             return cache.content_size;
         }
-        let solved = Self::solve_content_layout(width, height, min_content_width);
-        let content = solved.find("content").unwrap_or(&solved);
-        let result = (content.width, content.height);
+        // The shell layout is trivial: the single content slot fills the root.
+        let result = (width, height);
         CONTENT_SIZE_CACHE.with(|c| {
             *c.borrow_mut() = Some(ContentSizeCache {
                 window_size: (width, height),

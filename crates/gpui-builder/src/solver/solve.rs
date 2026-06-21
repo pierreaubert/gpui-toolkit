@@ -22,6 +22,14 @@ use std::rc::Rc;
 /// This entry point uses a thread-local default text-measurement cache. To
 /// share a cache explicitly across calls (or across threads with an
 /// `Arc<Mutex<_>>`), use [`solve_with_cache`].
+///
+/// # Performance note
+///
+/// This function is allocation-heavy: it builds a fresh recursive
+/// [`SolvedNode`] tree on every call, and every container allocates a new
+/// `Vec<SolvedNode>` for its children. For frame-rate layout work, prefer
+/// [`solve_tree`] / [`solve_tree_with_cache`], which stores the whole tree in a
+/// single pre-allocated arena and avoids the per-container child vectors.
 pub fn solve<'a>(
     root: &LayoutNode<'a>,
     width: f32,
@@ -36,6 +44,13 @@ pub fn solve<'a>(
 /// The cache is keyed by `(text, measure, cross_size, line_height, axis)` and
 /// stores both the measured size and the intermediate [`gpui_pretext::PreparedText`]
 /// so repeated layouts of the same text avoid re-running text analysis.
+///
+/// # Performance note
+///
+/// Like [`solve`], this function builds a fresh recursive [`SolvedNode`] tree
+/// with a per-container child vector on every call. For frame-rate layout
+/// work, prefer [`solve_tree_with_cache`], which uses a single arena and
+/// avoids those allocations.
 pub fn solve_with_cache<'a>(
     root: &LayoutNode<'a>,
     width: f32,

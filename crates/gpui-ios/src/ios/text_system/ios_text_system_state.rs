@@ -41,7 +41,7 @@ use smallvec::SmallVec;
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
-use std::{borrow::Cow, char, sync::Arc};
+use std::{borrow::Borrow, borrow::Cow, char, sync::Arc};
 
 thread_local! {
     /// Reusable bitmap scratch buffer for glyph rasterization.
@@ -68,11 +68,50 @@ pub(super) struct LayoutCacheKey {
     runs: SmallVec<[FontRun; 2]>,
 }
 
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
+pub(super) struct LayoutCacheKeyRef<'a> {
+    text: &'a str,
+    font_size: Pixels,
+    runs: &'a [FontRun],
+}
+
+pub(super) trait AsLayoutCacheKeyRef {
+    fn as_layout_cache_key_ref(&self) -> LayoutCacheKeyRef<'_>;
+}
+
+impl AsLayoutCacheKeyRef for LayoutCacheKey {
+    fn as_layout_cache_key_ref(&self) -> LayoutCacheKeyRef<'_> {
+        LayoutCacheKeyRef {
+            text: &self.text,
+            font_size: self.font_size,
+            runs: &self.runs,
+        }
+    }
+}
+
+impl AsLayoutCacheKeyRef for LayoutCacheKeyRef<'_> {
+    fn as_layout_cache_key_ref(&self) -> LayoutCacheKeyRef<'_> {
+        *self
+    }
+}
+
+impl PartialEq for dyn AsLayoutCacheKeyRef + '_ {
+    fn eq(&self, other: &dyn AsLayoutCacheKeyRef) -> bool {
+        self.as_layout_cache_key_ref() == other.as_layout_cache_key_ref()
+    }
+}
+
+impl Eq for dyn AsLayoutCacheKeyRef + '_ {}
+
+impl Hash for dyn AsLayoutCacheKeyRef + '_ {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.as_layout_cache_key_ref().hash(state);
+    }
+}
+
 impl PartialEq for LayoutCacheKey {
     fn eq(&self, other: &Self) -> bool {
-        self.text == other.text
-            && self.font_size.as_f32().to_bits() == other.font_size.as_f32().to_bits()
-            && self.runs == other.runs
+        self.as_layout_cache_key_ref() == other.as_layout_cache_key_ref()
     }
 }
 
@@ -80,9 +119,13 @@ impl Eq for LayoutCacheKey {}
 
 impl Hash for LayoutCacheKey {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        self.text.hash(state);
-        self.font_size.as_f32().to_bits().hash(state);
-        self.runs.hash(state);
+        self.as_layout_cache_key_ref().hash(state);
+    }
+}
+
+impl<'a> Borrow<dyn AsLayoutCacheKeyRef + 'a> for LayoutCacheKey {
+    fn borrow(&self) -> &(dyn AsLayoutCacheKeyRef + 'a) {
+        self as &dyn AsLayoutCacheKeyRef
     }
 }
 
@@ -260,7 +303,10 @@ impl IosTextSystemState {
         } else {
             bitmap_size.width.0 as usize * bitmap_size.height.0 as usize
         };
-        let mut bitmap = vec![0u8; needed];
+        let mut bitmap = Vec::with_capacity(needed);
+        // SAFETY: every byte in [0, needed) is initialized by the
+        // copy_from_slice calls below before the Vec is returned.
+        unsafe { bitmap.set_len(needed) };
 
         let req_width = bitmap_size.width.0 as usize;
         let req_height = bitmap_size.height.0 as usize;
@@ -392,23 +438,20 @@ impl IosTextSystemState {
         font_size: Pixels,
         font_runs: &[FontRun],
     ) -> LineLayout {
+        let key_ref = LayoutCacheKeyRef {
+            text,
+            font_size,
+            runs: font_runs,
+        };
+        if let Some(cached) = self.layout_cache.get(&key_ref as &dyn AsLayoutCacheKeyRef) {
+            return Self::clone_layout(cached);
+        }
+
         let key = LayoutCacheKey {
             text: text.into(),
             font_size,
             runs: font_runs.iter().copied().collect(),
         };
-        if let Some(cached) = self.layout_cache.get(&key) {
-            let cached = Arc::clone(cached);
-            return LineLayout {
-                font_size: cached.font_size,
-                width: cached.width,
-                ascent: cached.ascent,
-                descent: cached.descent,
-                runs: cached.runs.clone(),
-                len: cached.len,
-            };
-        }
-
         let result = self.layout_line_uncached(text, font_size, font_runs);
         self.layout_cache
             .insert(key, Arc::new(Self::clone_layout(&result)));

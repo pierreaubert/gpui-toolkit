@@ -67,12 +67,16 @@ impl GridData {
         validate_finite_f64_slice(&self.values, "z")
     }
 
+    /// Return the grid data as a borrowed flat slice together with its dimensions.
     #[must_use]
-    pub fn rows(&self) -> Vec<Vec<f64>> {
-        self.values
-            .chunks(self.width)
-            .map(<[f64]>::to_vec)
-            .collect()
+    pub fn as_flat(&self) -> (&[f64], usize, usize) {
+        (&self.values, self.width, self.height)
+    }
+
+    /// Iterate over the grid rows as borrowed slices.
+    #[must_use]
+    pub fn rows(&self) -> impl Iterator<Item = &[f64]> {
+        self.values.chunks(self.width)
     }
 
     pub(crate) fn hash_into(&self, h: &mut impl Hasher) {

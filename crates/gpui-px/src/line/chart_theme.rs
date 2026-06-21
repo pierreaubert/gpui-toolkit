@@ -89,6 +89,7 @@ pub fn line(x: &[f64], y: &[f64]) -> LineChart {
         hidden_series: HashSet::new(),
         on_legend_click: None,
         dash_array: None,
+        primary_data_cache: None,
     }
 }
 

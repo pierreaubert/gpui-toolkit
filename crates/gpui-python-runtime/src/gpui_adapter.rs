@@ -103,10 +103,13 @@ impl Gpui3DCache {
 }
 
 fn surface_data(spec: &SurfaceSpec) -> SurfaceData {
-    let mut data = SurfaceData::from_grid(
+    let (z_flat, z_width, z_height) = spec.z.as_flat();
+    let mut data = SurfaceData::from_flat_grid(
         spec.x_values().into(),
         spec.y_values().into(),
-        spec.z.rows(),
+        z_flat,
+        z_width,
+        z_height,
     )
     .with_log_x(spec.x_log)
     .with_log_y(spec.y_log)

@@ -1,7 +1,9 @@
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use gpui_pretext::{
-    EngineProfile, KnuthPlassParams, PrepareOptions, TextMeasure, layout_optimal, prepare,
+    EngineProfile, PrepareOptions, TextMeasure, layout_optimal, layout_with_lines, prepare,
+    prepare_with_segments,
 };
+use gpui_pretext::measurement::MeasureCache;
 
 struct FixedWidthMeasure {
     char_width: f64,
@@ -15,12 +17,44 @@ impl TextMeasure for FixedWidthMeasure {
 
 fn bench_grapheme_prefix_widths(c: &mut Criterion) {
     let measure = FixedWidthMeasure { char_width: 10.0 };
-    let mut cache = gpui_pretext::measurement::MeasureCache::new();
+    let mut cache = MeasureCache::new();
     let text = "The quick brown fox jumps over the lazy dog. The five boxing wizards jump quickly.";
 
     c.bench_function("measurement/get_grapheme_prefix_widths", |b| {
         b.iter(|| {
             let result = cache.get_grapheme_prefix_widths(black_box(text), &measure);
+            black_box(&result);
+        });
+    });
+}
+
+fn bench_measure_cache_hit(c: &mut Criterion) {
+    let measure = FixedWidthMeasure { char_width: 10.0 };
+    let mut cache = MeasureCache::new();
+    let text = "some moderately long text";
+
+    // Warm the cache so the benchmarked loop only hits cache hits.
+    let _ = cache.get_width(text, &measure);
+
+    c.bench_function("measurement/get_width_cache_hit", |b| {
+        b.iter(|| {
+            let result = cache.get_width(black_box(text), &measure);
+            black_box(result);
+        });
+    });
+}
+
+fn bench_grapheme_widths_cache_hit(c: &mut Criterion) {
+    let measure = FixedWidthMeasure { char_width: 10.0 };
+    let mut cache = MeasureCache::new();
+    let text = "alphabet";
+
+    // Warm the cache so the benchmarked loop only hits cache hits.
+    let _ = cache.get_grapheme_widths(text, &measure);
+
+    c.bench_function("measurement/get_grapheme_widths_cache_hit", |b| {
+        b.iter(|| {
+            let result = cache.get_grapheme_widths(black_box(text), &measure);
             black_box(&result);
         });
     });
@@ -32,7 +66,7 @@ fn bench_layout_optimal(c: &mut Criterion) {
     let options = PrepareOptions::default();
     let text = "The quick brown fox jumps over the lazy dog. The five boxing wizards jump quickly.";
     let prepared = prepare(text, &measure, &profile, &options);
-    let params = KnuthPlassParams::default();
+    let params = gpui_pretext::KnuthPlassParams::default();
 
     c.bench_function("layout/layout_optimal", |b| {
         b.iter(|| {
@@ -42,5 +76,28 @@ fn bench_layout_optimal(c: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, bench_grapheme_prefix_widths, bench_layout_optimal);
+fn bench_layout_with_lines(c: &mut Criterion) {
+    let measure = FixedWidthMeasure { char_width: 10.0 };
+    let profile = EngineProfile::default();
+    let options = PrepareOptions::default();
+    let text = "The quick brown fox jumps over the lazy dog. The five boxing wizards jump quickly.";
+    let prepared = prepare_with_segments(text, &measure, &profile, &options);
+    let line_height = 20.0;
+
+    c.bench_function("layout/layout_with_lines", |b| {
+        b.iter(|| {
+            let result = layout_with_lines(black_box(&prepared), f64::MAX, line_height, &profile);
+            black_box(&result);
+        });
+    });
+}
+
+criterion_group!(
+    benches,
+    bench_grapheme_prefix_widths,
+    bench_measure_cache_hit,
+    bench_grapheme_widths_cache_hit,
+    bench_layout_optimal,
+    bench_layout_with_lines
+);
 criterion_main!(benches);

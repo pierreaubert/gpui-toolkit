@@ -94,16 +94,19 @@ impl MeasureCache {
     }
 
     pub fn get_segment_metrics(&mut self, seg: &str, measure: &dyn TextMeasure) -> &SegmentMetrics {
-        self.cache.entry(seg.into()).or_insert_with(|| {
+        if !self.cache.contains_key(seg) {
             let width = measure.measure_width(seg);
             let contains_cjk = is_cjk(seg);
-            SegmentMetrics {
-                width,
-                contains_cjk,
-                grapheme_widths: None,
-                grapheme_prefix_widths: None,
-            }
-        });
+            self.cache.insert(
+                Arc::from(seg),
+                SegmentMetrics {
+                    width,
+                    contains_cjk,
+                    grapheme_widths: None,
+                    grapheme_prefix_widths: None,
+                },
+            );
+        }
         self.cache.get(seg).unwrap()
     }
 

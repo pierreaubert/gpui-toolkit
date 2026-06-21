@@ -92,7 +92,10 @@ fn surface_from_rows_flattens_row_major_data() {
     assert_eq!(spec.z.width, 2);
     assert_eq!(spec.z.height, 2);
     assert_eq!(spec.z.values, vec![1.0, 2.0, 3.0, 4.0]);
-    assert_eq!(spec.z.rows(), vec![vec![1.0, 2.0], vec![3.0, 4.0]]);
+    assert_eq!(
+        spec.z.rows().collect::<Vec<_>>(),
+        vec![&[1.0, 2.0], &[3.0, 4.0]]
+    );
 }
 
 #[test]

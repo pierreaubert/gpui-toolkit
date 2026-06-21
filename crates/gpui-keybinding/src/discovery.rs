@@ -131,7 +131,7 @@ pub fn search_command_palette(
     entries: &[CommandPaletteEntry],
     query: &str,
 ) -> Vec<CommandPaletteEntry> {
-    search_command_palette_cached(entries, query).to_vec()
+    search_command_palette_cached(Rc::from(entries.to_vec()), query).to_vec()
 }
 
 /// Cached version of [`search_command_palette`].
@@ -139,12 +139,14 @@ pub fn search_command_palette(
 /// Results are stored in a thread-local cache keyed by a hash of the entries and
 /// the normalized query, and returned as an [`Rc`] slice so callers can clone
 /// the handle cheaply.
+///
+/// Empty queries return the input `entries` handle directly without cloning.
 pub fn search_command_palette_cached(
-    entries: &[CommandPaletteEntry],
+    entries: Rc<[CommandPaletteEntry]>,
     query: &str,
 ) -> Rc<[CommandPaletteEntry]> {
     let normalized = query.trim().to_ascii_lowercase();
-    let entries_hash = hash_palette_entries(entries);
+    let entries_hash = hash_palette_entries(&entries);
     let key = (entries_hash, normalized.clone());
 
     SEARCH_CACHE.with(|cache| {
@@ -153,13 +155,13 @@ pub fn search_command_palette_cached(
         }
 
         let result: Rc<[CommandPaletteEntry]> = if normalized.is_empty() {
-            entries.to_vec().into()
+            entries
         } else {
-            let tokens: Vec<&str> = normalized.split_whitespace().collect();
             let mut matches: Vec<_> = entries
                 .iter()
                 .filter_map(|entry| {
-                    score_entry(entry, &normalized, &tokens).map(|score| (score, entry))
+                    score_entry(entry, &normalized, normalized.split_whitespace())
+                        .map(|score| (score, entry))
                 })
                 .collect();
 
@@ -298,7 +300,7 @@ impl KeybindingRegistry {
         }
 
         let entries = self.get_palette_entries(preset);
-        let result = search_command_palette_cached(&entries, query);
+        let result = search_command_palette_cached(entries, query);
         self.search_cache
             .borrow_mut()
             .insert(key, Rc::clone(&result));
@@ -344,7 +346,7 @@ fn hint_from_binding(
     has_children: bool,
 ) -> KeybindingHint {
     KeybindingHint {
-        key: format_key_label(raw_key_spec),
+        key: format_key_label(raw_key_spec).into_owned(),
         raw_key_spec: raw_key_spec.to_string(),
         description: is_terminal.then(|| binding.description.clone()),
         category: binding.category.clone(),
@@ -368,11 +370,12 @@ fn push_search_text(out: &mut String, value: &str) {
     out.push_str(&value.to_ascii_lowercase());
 }
 
-fn score_entry(entry: &CommandPaletteEntry, normalized: &str, tokens: &[&str]) -> Option<usize> {
-    if !tokens
-        .iter()
-        .all(|token| entry.search_index.contains(token))
-    {
+fn score_entry<'a>(
+    entry: &CommandPaletteEntry,
+    normalized: &str,
+    mut tokens: impl Iterator<Item = &'a str>,
+) -> Option<usize> {
+    if !tokens.all(|token| entry.search_index.contains(token)) {
         return None;
     }
 

@@ -24,7 +24,7 @@ use super::types::ToggleVariant;
 use super::typography_rules::TypographyRules;
 use serde::Serialize;
 use std::borrow::Cow;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 /// Complete design system — all shape, spacing, and interaction rules
 /// needed to render platform-appropriate UIs.
@@ -59,7 +59,7 @@ pub struct DesignSystem {
     pub group_separator: GroupSeparatorStyle,
     /// Lazily-cached style dictionary tokens.
     #[serde(skip)]
-    cached_tokens: OnceLock<Vec<DesignToken>>,
+    cached_tokens: OnceLock<Arc<[DesignToken]>>,
 }
 
 impl Clone for DesignSystem {
@@ -402,16 +402,16 @@ impl DesignSystem {
 
 impl DesignSystem {
     /// Export stable platform/design tokens for Style Dictionary pipelines.
-    pub fn style_dictionary_tokens(&self) -> Vec<DesignToken> {
+    pub fn style_dictionary_tokens(&self) -> Arc<[DesignToken]> {
         self.cached_tokens
-            .get_or_init(|| self.build_style_dictionary_tokens())
+            .get_or_init(|| self.build_style_dictionary_tokens().into())
             .clone()
     }
 
     /// Borrow the cached style dictionary tokens without cloning the vector.
     pub fn style_dictionary_tokens_ref(&self) -> &[DesignToken] {
         self.cached_tokens
-            .get_or_init(|| self.build_style_dictionary_tokens())
+            .get_or_init(|| self.build_style_dictionary_tokens().into())
     }
 
     fn build_style_dictionary_tokens(&self) -> Vec<DesignToken> {

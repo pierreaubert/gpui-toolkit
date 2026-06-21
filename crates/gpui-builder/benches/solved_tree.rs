@@ -60,6 +60,54 @@ fn make_wide_tree(count: usize) -> LayoutNode<'static> {
     })
 }
 
+/// A deterministic, cheap text measurer for benchmarking the text-measurement
+/// cache-hit path without the noise of a real shaping engine.
+struct FixedWidthMeasure {
+    char_width: f64,
+}
+
+impl gpui_pretext::TextMeasure for FixedWidthMeasure {
+    fn measure_width(&self, text: &str) -> f64 {
+        text.chars().count() as f64 * self.char_width
+    }
+}
+
+/// Build a layout tree containing `count` `Sizing::Text` children.
+fn make_text_tree(count: usize) -> LayoutNode<'static> {
+    let measure: &'static FixedWidthMeasure = Box::leak(Box::new(FixedWidthMeasure {
+        char_width: 8.0,
+    }));
+
+    let mut children = Vec::with_capacity(count);
+    for i in 0..count {
+        let id: &'static str = Box::leak(format!("text-{i}").into_boxed_str());
+        let text: &'static str = Box::leak(format!("Text slot {i}").into_boxed_str());
+        children.push(LayoutNode::Slot(SlotNode {
+            id,
+            sizing: Sizing::Text {
+                text,
+                measure,
+                line_height: 20.0,
+                min: 0.0,
+            },
+            priority: 1.0,
+            collapsible: false,
+            display_tiers: &[],
+            collapse_label: None,
+        }));
+    }
+
+    let children = Box::leak(children.into_boxed_slice());
+    LayoutNode::Container(ContainerNode {
+        id: "root",
+        axis: Axis::Vertical,
+        auto_axis: None,
+        sizing: Sizing::flex(0.0),
+        children,
+        divider_size: 0.0,
+    })
+}
+
 fn benchmark_find(c: &mut Criterion) {
     let prefs = LayoutPreferences::default();
 
@@ -134,6 +182,30 @@ fn benchmark_traversal(c: &mut Criterion) {
     group.finish();
 }
 
+fn benchmark_text_cache_hit(c: &mut Criterion) {
+    let prefs = LayoutPreferences::default();
+    let root = make_text_tree(20);
+
+    // Warm the thread-local text-measurement cache so the benchmarked calls
+    // hit the cache instead of running real text layout.
+    let _warm = solve(&root, 400.0, 2000.0, &prefs);
+
+    let mut group = c.benchmark_group("text_cache_hit");
+    group.bench_function("solve_text_cache_hit", |b| {
+        b.iter(|| {
+            let solved = solve(black_box(&root), black_box(400.0), black_box(2000.0), &prefs);
+            black_box(solved);
+        });
+    });
+    group.bench_function("solve_tree_text_cache_hit", |b| {
+        b.iter(|| {
+            let solved = solve_tree(black_box(&root), black_box(400.0), black_box(2000.0), &prefs);
+            black_box(solved);
+        });
+    });
+    group.finish();
+}
+
 fn collect_recursive_ids<'a>(node: &'a SolvedNode<'a>, out: &mut Vec<&'a str>) {
     out.push(node.id);
     for child in &node.children {
@@ -141,5 +213,5 @@ fn collect_recursive_ids<'a>(node: &'a SolvedNode<'a>, out: &mut Vec<&'a str>) {
     }
 }
 
-criterion_group!(benches, benchmark_find, benchmark_traversal);
+criterion_group!(benches, benchmark_find, benchmark_traversal, benchmark_text_cache_hit);
 criterion_main!(benches);

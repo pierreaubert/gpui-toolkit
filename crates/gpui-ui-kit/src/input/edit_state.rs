@@ -2,7 +2,7 @@
 
 /// Internal editing state for the input
 #[derive(Clone, Default)]
-pub(super) struct EditState {
+pub struct EditState {
     /// Whether currently editing
     pub(super) editing: bool,
     /// Current edit text
@@ -16,7 +16,7 @@ pub(super) struct EditState {
 }
 
 impl EditState {
-    pub(super) fn new(value: &str) -> Self {
+    pub fn new(value: &str) -> Self {
         let len = value.chars().count();
         Self {
             editing: true,
@@ -27,9 +27,39 @@ impl EditState {
         }
     }
 
+    /// Convert a character index to the byte index of the start of that character.
+    /// Returns `self.text.len()` if `char_idx` is past the end of the text.
+    fn char_index_to_byte(&self, char_idx: usize) -> usize {
+        self.text
+            .char_indices()
+            .nth(char_idx)
+            .map(|(i, _)| i)
+            .unwrap_or(self.text.len())
+    }
+
+    /// Return the character immediately before `byte_pos`, along with its starting byte index.
+    fn char_before_byte(&self, byte_pos: usize) -> Option<(usize, char)> {
+        if byte_pos == 0 {
+            return None;
+        }
+        let prev_byte = self.text.floor_char_boundary(byte_pos - 1);
+        self.text[prev_byte..].chars().next().map(|c| (prev_byte, c))
+    }
+
+    /// Return the character immediately at/after `byte_pos`, along with the byte index just after it.
+    fn char_after_byte(&self, byte_pos: usize) -> Option<(usize, char)> {
+        if byte_pos >= self.text.len() {
+            return None;
+        }
+        self.text[byte_pos..].chars().next().map(|c| {
+            let next_byte = byte_pos + c.len_utf8();
+            (next_byte, c)
+        })
+    }
+
     /// Check if there's any selection
     #[allow(dead_code)]
-    pub(super) fn has_selection(&self) -> bool {
+    pub fn has_selection(&self) -> bool {
         if let Some(anchor) = self.selection_anchor {
             anchor != self.cursor
         } else {
@@ -38,7 +68,7 @@ impl EditState {
     }
 
     /// Get selection range (start, end) where start <= end
-    pub(super) fn selection_range(&self) -> Option<(usize, usize)> {
+    pub fn selection_range(&self) -> Option<(usize, usize)> {
         self.selection_anchor.map(|anchor| {
             let start = anchor.min(self.cursor);
             let end = anchor.max(self.cursor);
@@ -48,7 +78,7 @@ impl EditState {
 
     /// Check if all text is selected
     #[allow(dead_code)]
-    pub(super) fn is_all_selected(&self) -> bool {
+    pub fn is_all_selected(&self) -> bool {
         if let Some((start, end)) = self.selection_range() {
             start == 0 && end == self.text.chars().count()
         } else {
@@ -57,31 +87,32 @@ impl EditState {
     }
 
     /// Get the currently selected text
-    pub(super) fn get_selected_text(&self) -> Option<String> {
+    pub fn get_selected_text(&self) -> Option<String> {
         if let Some((start, end)) = self.selection_range()
             && start != end
         {
-            let chars: Vec<char> = self.text.chars().collect();
-            return Some(chars[start..end].iter().collect());
+            let start_byte = self.char_index_to_byte(start);
+            let end_byte = self.char_index_to_byte(end);
+            return Some(self.text[start_byte..end_byte].to_string());
         }
         None
     }
 
-    pub(super) fn clear_selection(&mut self) {
+    pub fn clear_selection(&mut self) {
         self.selection_anchor = None;
     }
 
-    pub(super) fn move_to_start(&mut self) {
+    pub fn move_to_start(&mut self) {
         self.cursor = 0;
         self.clear_selection();
     }
 
-    pub(super) fn move_to_end(&mut self) {
+    pub fn move_to_end(&mut self) {
         self.cursor = self.text.chars().count();
         self.clear_selection();
     }
 
-    pub(super) fn move_forward(&mut self) {
+    pub fn move_forward(&mut self) {
         let len = self.text.chars().count();
         if self.cursor < len {
             self.cursor += 1;
@@ -89,156 +120,154 @@ impl EditState {
         self.clear_selection();
     }
 
-    pub(super) fn move_backward(&mut self) {
+    pub fn move_backward(&mut self) {
         if self.cursor > 0 {
             self.cursor -= 1;
         }
         self.clear_selection();
     }
 
-    pub(super) fn select_all(&mut self) {
+    pub fn select_all(&mut self) {
         self.selection_anchor = Some(0);
         self.cursor = self.text.chars().count();
     }
 
-    pub(super) fn kill_to_end(&mut self) {
-        let chars: Vec<char> = self.text.chars().collect();
-        let cursor = self.cursor.min(chars.len());
-        self.text = chars[..cursor].iter().collect();
+    pub fn kill_to_end(&mut self) {
+        let byte_pos = self.char_index_to_byte(self.cursor);
+        self.text.truncate(byte_pos);
         self.clear_selection();
     }
 
-    pub(super) fn kill_to_start(&mut self) {
-        let chars: Vec<char> = self.text.chars().collect();
-        let cursor = self.cursor.min(chars.len());
-        self.text = chars[cursor..].iter().collect();
+    pub fn kill_to_start(&mut self) {
+        let byte_pos = self.char_index_to_byte(self.cursor);
+        self.text.replace_range(0..byte_pos, "");
         self.cursor = 0;
         self.clear_selection();
     }
 
-    pub(super) fn kill_word_backward(&mut self) {
+    pub fn kill_word_backward(&mut self) {
         if self.cursor == 0 {
             return;
         }
-        let chars: Vec<char> = self.text.chars().collect();
-        self.cursor = self.cursor.min(chars.len());
-        let mut new_pos = self.cursor;
-        // Skip trailing spaces
-        while new_pos > 0 && chars[new_pos - 1].is_whitespace() {
-            new_pos -= 1;
-        }
-        // Skip word characters
-        while new_pos > 0 && !chars[new_pos - 1].is_whitespace() {
-            new_pos -= 1;
-        }
-        let mut new_chars = chars[..new_pos].to_vec();
-        new_chars.extend_from_slice(&chars[self.cursor..]);
-        self.text = new_chars.into_iter().collect();
+        let new_pos = self.word_start_backward();
+        let start_byte = self.char_index_to_byte(new_pos);
+        let end_byte = self.char_index_to_byte(self.cursor);
+        self.text.replace_range(start_byte..end_byte, "");
         self.cursor = new_pos;
         self.clear_selection();
     }
 
-    pub(super) fn kill_word_forward(&mut self) {
-        let chars: Vec<char> = self.text.chars().collect();
-        let len = chars.len();
-        self.cursor = self.cursor.min(len);
-        let mut new_pos = self.cursor;
-        // Skip leading spaces
-        while new_pos < len && chars[new_pos].is_whitespace() {
-            new_pos += 1;
-        }
-        // Skip word characters
-        while new_pos < len && !chars[new_pos].is_whitespace() {
-            new_pos += 1;
-        }
-        let mut new_chars = chars[..self.cursor].to_vec();
-        new_chars.extend_from_slice(&chars[new_pos..]);
-        self.text = new_chars.into_iter().collect();
+    pub fn kill_word_forward(&mut self) {
+        let new_pos = self.word_end_forward();
+        let start_byte = self.char_index_to_byte(self.cursor);
+        let end_byte = self.char_index_to_byte(new_pos);
+        self.text.replace_range(start_byte..end_byte, "");
         self.clear_selection();
     }
 
-    pub(super) fn word_start_backward(&self) -> usize {
-        let chars: Vec<char> = self.text.chars().collect();
-        let mut pos = self.cursor.min(chars.len());
-        while pos > 0 && chars[pos - 1].is_whitespace() {
-            pos -= 1;
+    pub fn word_start_backward(&self) -> usize {
+        let len = self.text.chars().count();
+        let cursor = self.cursor.min(len);
+        let mut byte_pos = self.char_index_to_byte(cursor);
+        let mut char_pos = cursor;
+
+        // Skip trailing whitespace
+        while let Some((prev_byte, ch)) = self.char_before_byte(byte_pos) {
+            if !ch.is_whitespace() {
+                break;
+            }
+            byte_pos = prev_byte;
+            char_pos -= 1;
         }
-        while pos > 0 && !chars[pos - 1].is_whitespace() {
-            pos -= 1;
+        // Skip word characters
+        while let Some((prev_byte, ch)) = self.char_before_byte(byte_pos) {
+            if ch.is_whitespace() {
+                break;
+            }
+            byte_pos = prev_byte;
+            char_pos -= 1;
         }
-        pos
+        char_pos
     }
 
-    pub(super) fn word_end_forward(&self) -> usize {
-        let chars: Vec<char> = self.text.chars().collect();
-        let len = chars.len();
-        let mut pos = self.cursor.min(len);
-        while pos < len && chars[pos].is_whitespace() {
-            pos += 1;
+    pub fn word_end_forward(&self) -> usize {
+        let len = self.text.chars().count();
+        let cursor = self.cursor.min(len);
+        let mut byte_pos = self.char_index_to_byte(cursor);
+        let mut char_pos = cursor;
+
+        // Skip leading whitespace
+        while let Some((next_byte, ch)) = self.char_after_byte(byte_pos) {
+            if !ch.is_whitespace() {
+                break;
+            }
+            byte_pos = next_byte;
+            char_pos += 1;
         }
-        while pos < len && !chars[pos].is_whitespace() {
-            pos += 1;
+        // Skip word characters
+        while let Some((next_byte, ch)) = self.char_after_byte(byte_pos) {
+            if ch.is_whitespace() {
+                break;
+            }
+            byte_pos = next_byte;
+            char_pos += 1;
         }
-        pos
+        char_pos
     }
 
-    pub(super) fn move_word_backward(&mut self) {
+    pub fn move_word_backward(&mut self) {
         self.cursor = self.word_start_backward();
         self.clear_selection();
     }
 
-    pub(super) fn move_word_forward(&mut self) {
+    pub fn move_word_forward(&mut self) {
         self.cursor = self.word_end_forward();
         self.clear_selection();
     }
 
-    pub(super) fn extend_selection_to(&mut self, new_cursor: usize) {
+    pub fn extend_selection_to(&mut self, new_cursor: usize) {
         if self.selection_anchor.is_none() {
             self.selection_anchor = Some(self.cursor);
         }
         self.cursor = new_cursor;
     }
 
-    pub(super) fn extend_backward(&mut self) {
+    pub fn extend_backward(&mut self) {
         let new = if self.cursor > 0 { self.cursor - 1 } else { 0 };
         self.extend_selection_to(new);
     }
 
-    pub(super) fn extend_forward(&mut self) {
+    pub fn extend_forward(&mut self) {
         let new = (self.cursor + 1).min(self.text.chars().count());
         self.extend_selection_to(new);
     }
 
-    pub(super) fn extend_to_start(&mut self) {
+    pub fn extend_to_start(&mut self) {
         self.extend_selection_to(0);
     }
 
-    pub(super) fn extend_to_end(&mut self) {
+    pub fn extend_to_end(&mut self) {
         self.extend_selection_to(self.text.chars().count());
     }
 
-    pub(super) fn extend_word_backward(&mut self) {
+    pub fn extend_word_backward(&mut self) {
         let new = self.word_start_backward();
         self.extend_selection_to(new);
     }
 
-    pub(super) fn extend_word_forward(&mut self) {
+    pub fn extend_word_forward(&mut self) {
         let new = self.word_end_forward();
         self.extend_selection_to(new);
     }
 
     /// Delete selected text, returning true if something was deleted
-    pub(super) fn delete_selection(&mut self) -> bool {
+    pub fn delete_selection(&mut self) -> bool {
         if let Some((start, end)) = self.selection_range()
             && start != end
         {
-            let chars: Vec<char> = self.text.chars().collect();
-            let len = chars.len();
-            let start = start.min(len);
-            let end = end.min(len);
-            let mut new_chars = chars[..start].to_vec();
-            new_chars.extend_from_slice(&chars[end..]);
-            self.text = new_chars.into_iter().collect();
+            let start_byte = self.char_index_to_byte(start);
+            let end_byte = self.char_index_to_byte(end);
+            self.text.replace_range(start_byte..end_byte, "");
             self.cursor = start;
             self.clear_selection();
             return true;
@@ -246,7 +275,7 @@ impl EditState {
         false
     }
 
-    pub(super) fn do_backspace(&mut self) {
+    pub fn do_backspace(&mut self) {
         if self.delete_selection() {
             return;
         }
@@ -269,7 +298,7 @@ impl EditState {
         }
     }
 
-    pub(super) fn do_delete(&mut self) {
+    pub fn do_delete(&mut self) {
         if self.delete_selection() {
             return;
         }
@@ -292,7 +321,7 @@ impl EditState {
         }
     }
 
-    pub(super) fn insert_text(&mut self, char_text: &str) {
+    pub fn insert_text(&mut self, char_text: &str) {
         self.delete_selection();
         // Find byte position for insertion
         let byte_pos = self
@@ -306,7 +335,7 @@ impl EditState {
     }
 
     /// Insert a single character without allocating a temporary `String`.
-    pub(super) fn insert_char(&mut self, ch: char) {
+    pub fn insert_char(&mut self, ch: char) {
         self.delete_selection();
         // Find byte position for insertion
         let byte_pos = self
@@ -320,7 +349,7 @@ impl EditState {
     }
 
     /// Start a selection at the given position
-    pub(super) fn start_selection(&mut self, pos: usize) {
+    pub fn start_selection(&mut self, pos: usize) {
         self.cursor = pos;
         self.selection_anchor = Some(pos);
         self.is_dragging = true;
@@ -328,37 +357,48 @@ impl EditState {
 
     /// Select word at the given position
     #[allow(dead_code)]
-    pub(super) fn select_word_at(&mut self, pos: usize) {
-        let text = &self.text;
-        let len = text.chars().count();
+    pub fn select_word_at(&mut self, pos: usize) {
+        let len = self.text.chars().count();
         if len == 0 {
             return;
         }
         let pos = pos.min(len);
-        let chars: Vec<char> = text.chars().collect();
 
         // Helper to check if char is part of a word (alphanumeric or underscore)
         let is_word_char = |c: char| c.is_alphanumeric() || c == '_';
 
-        // Find start of word
+        // Find char at pos and char at pos - 1
+        let char_at_pos = self.text.chars().nth(pos);
+        let char_before_pos = if pos > 0 {
+            self.text.chars().nth(pos - 1)
+        } else {
+            None
+        };
+
         let mut start = pos;
-        if start < len && !is_word_char(chars[start]) && start > 0 && is_word_char(chars[start - 1])
+        if let Some(curr) = char_at_pos
+            && !is_word_char(curr)
+            && start > 0
+            && let Some(prev) = char_before_pos
+            && is_word_char(prev)
         {
-            // Clicked just after a word, select that word
             start -= 1;
         }
 
         // If we are on a non-word char (like whitespace), select the run of whitespace/symbols?
         // Standard behavior: double click on whitespace selects whitespace run.
-        let target_is_word = start < len && is_word_char(chars[start]);
+        let target_is_word = self.text.chars().nth(start).is_some_and(is_word_char);
 
-        while start > 0 {
-            let prev = chars[start - 1];
+        // Find start of word
+        let mut scan_start = start;
+        while scan_start > 0 {
+            let prev = self.text.chars().nth(scan_start - 1).unwrap();
             if is_word_char(prev) != target_is_word {
                 break;
             }
-            start -= 1;
+            scan_start -= 1;
         }
+        start = scan_start;
 
         // Find end of word
         let mut end = pos;
@@ -367,25 +407,27 @@ impl EditState {
             end = start;
         }
 
-        while end < len {
-            let curr = chars[end];
+        let mut scan_end = end;
+        while scan_end < len {
+            let curr = self.text.chars().nth(scan_end).unwrap();
             if is_word_char(curr) != target_is_word {
                 break;
             }
-            end += 1;
+            scan_end += 1;
         }
+        end = scan_end;
 
         self.selection_anchor = Some(start);
         self.cursor = end;
     }
 
     /// Update selection during drag
-    pub(super) fn update_selection(&mut self, pos: usize) {
+    pub fn update_selection(&mut self, pos: usize) {
         self.cursor = pos;
     }
 
     /// End selection drag
-    pub(super) fn end_selection(&mut self) {
+    pub fn end_selection(&mut self) {
         self.is_dragging = false;
         // If no actual selection (anchor == cursor), clear the anchor
         if let Some(anchor) = self.selection_anchor
@@ -393,5 +435,135 @@ impl EditState {
         {
             self.selection_anchor = None;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unicode_insert_delete_backspace() {
+        let mut state = EditState::new("αβγ δε");
+        state.clear_selection();
+        state.cursor = 4; // After "αβγ "
+
+        state.insert_text("🔥");
+        assert_eq!(state.text, "αβγ 🔥δε");
+        assert_eq!(state.cursor, 5);
+
+        state.do_backspace();
+        assert_eq!(state.text, "αβγ δε");
+        assert_eq!(state.cursor, 4);
+
+        state.cursor = 3; // After "αβγ"
+        state.do_delete();
+        assert_eq!(state.text, "αβγδε");
+        assert_eq!(state.cursor, 3);
+    }
+
+    #[test]
+    fn unicode_kill_word_backward() {
+        let mut state = EditState::new("hello αβγ world");
+        state.clear_selection();
+        state.cursor = 10; // Between the space before "world" and "w"
+
+        state.kill_word_backward();
+        assert_eq!(state.text, "hello world");
+        assert_eq!(state.cursor, 6);
+
+        state.kill_word_backward();
+        assert_eq!(state.text, "world");
+        assert_eq!(state.cursor, 0);
+    }
+
+    #[test]
+    fn unicode_kill_word_forward() {
+        let mut state = EditState::new("hello αβγ world");
+        state.clear_selection();
+        state.cursor = 0;
+
+        state.kill_word_forward();
+        assert_eq!(state.text, " αβγ world");
+        assert_eq!(state.cursor, 0);
+
+        state.kill_word_forward();
+        assert_eq!(state.text, " world");
+        assert_eq!(state.cursor, 0);
+    }
+
+    #[test]
+    fn unicode_kill_to_start_and_end() {
+        let mut state = EditState::new("αβγ δε");
+        state.clear_selection();
+        state.cursor = 4;
+
+        state.kill_to_start();
+        assert_eq!(state.text, "δε");
+        assert_eq!(state.cursor, 0);
+
+        let mut state = EditState::new("αβγ δε");
+        state.clear_selection();
+        state.cursor = 4;
+
+        state.kill_to_end();
+        assert_eq!(state.text, "αβγ ");
+        assert_eq!(state.cursor, 4);
+    }
+
+    #[test]
+    fn unicode_get_selected_text_and_delete_selection() {
+        let mut state = EditState::new("αβγ δε");
+        state.selection_anchor = Some(1);
+        state.cursor = 4;
+
+        assert_eq!(state.get_selected_text(), Some("βγ ".to_string()));
+
+        assert!(state.delete_selection());
+        assert_eq!(state.text, "αδε");
+        assert_eq!(state.cursor, 1);
+        assert!(state.selection_anchor.is_none());
+    }
+
+    #[test]
+    fn unicode_word_boundaries() {
+        let state = EditState::new("αβγ  δε");
+        // cursor after "δε"
+        let mut state = state;
+        state.cursor = 7;
+        assert_eq!(state.word_start_backward(), 5);
+        assert_eq!(state.word_end_forward(), 7);
+    }
+
+    #[test]
+    fn unicode_select_word_at() {
+        let mut state = EditState::new("αβγ δε");
+        state.select_word_at(2); // Inside "αβγ"
+        assert_eq!(state.selection_anchor, Some(0));
+        assert_eq!(state.cursor, 3);
+
+        state.select_word_at(3); // On space between words
+        assert_eq!(state.selection_anchor, Some(0));
+        assert_eq!(state.cursor, 3);
+    }
+
+    #[test]
+    fn emoji_single_codepoint_behavior() {
+        // Each emoji is a single char for this API, even though multi-byte.
+        let mut state = EditState::new("🔥 family");
+        state.clear_selection();
+        state.cursor = 1; // After the fire emoji
+
+        state.do_backspace();
+        assert_eq!(state.text, " family");
+        assert_eq!(state.cursor, 0);
+
+        state.move_forward();
+        state.move_forward();
+        state.move_forward();
+        state.move_forward();
+        state.move_forward();
+        state.move_forward();
+        assert_eq!(state.cursor, 6); // " family" has 6 chars (space + family)
     }
 }

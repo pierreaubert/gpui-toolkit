@@ -121,12 +121,27 @@ impl Curve {
     ///
     /// Returns a new set of points that follow the curve.
     pub fn interpolate(&self, points: &[Point]) -> Vec<Point> {
+        let mut out = Vec::new();
+        self.interpolate_into(points, &mut out);
+        out
+    }
+
+    /// Interpolate points using this curve type, appending into `out`.
+    ///
+    /// `out` is cleared first. Callers can reuse `out` across frames to avoid
+    /// reallocating the output buffer.
+    pub fn interpolate_into(&self, points: &[Point], out: &mut Vec<Point>) {
+        out.clear();
         if points.len() < 2 {
-            return points.to_vec();
+            out.extend_from_slice(points);
+            return;
         }
 
-        match self {
-            Curve::Linear => points.to_vec(),
+        let pts = match self {
+            Curve::Linear => {
+                out.extend_from_slice(points);
+                return;
+            }
             Curve::Step => interpolate_step(points, 0.5),
             Curve::StepBefore => interpolate_step(points, 0.0),
             Curve::StepAfter => interpolate_step(points, 1.0),
@@ -141,7 +156,8 @@ impl Curve {
             Curve::MonotoneX => interpolate_monotone_x(points),
             Curve::MonotoneY => interpolate_monotone_y(points),
             Curve::Natural => interpolate_natural(points),
-        }
+        };
+        out.extend_from_slice(&pts);
     }
 
     /// Get the number of subdivisions per segment for this curve type.
@@ -227,5 +243,34 @@ mod tests {
         ];
         let result = Curve::Natural.interpolate(&points);
         assert!(result.len() > points.len());
+    }
+
+    #[test]
+    fn test_interpolate_into_matches_interpolate() {
+        let points = vec![
+            Point::new(0.0, 0.0),
+            Point::new(10.0, 50.0),
+            Point::new(20.0, 30.0),
+            Point::new(30.0, 70.0),
+        ];
+
+        for curve in [
+            Curve::Linear,
+            Curve::Step,
+            Curve::Basis,
+            Curve::cardinal(0.5),
+            Curve::catmull_rom(0.5),
+            Curve::MonotoneX,
+            Curve::Natural,
+        ] {
+            let expected = curve.interpolate(&points);
+            let mut out = Vec::new();
+            curve.interpolate_into(&points, &mut out);
+            assert_eq!(
+                expected, out,
+                "interpolate_into should match interpolate for {:?}",
+                curve
+            );
+        }
     }
 }

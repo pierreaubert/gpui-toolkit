@@ -1383,18 +1383,19 @@ pub fn clip_antimeridian(
 /// Clip all rings of a polygon against the antimeridian in the projection's
 /// rotated frame, treating the first ring as the exterior and subsequent rings
 /// as holes. Returns geographic-coordinate rings.
-pub fn clip_antimeridian_polygon(
-    rings: &[Vec<(f64, f64)>],
+pub fn clip_antimeridian_polygon<R: AsRef<[(f64, f64)]>>(
+    rings: &[R],
     rotation: &SphereRotation,
 ) -> Vec<Vec<(f64, f64)>> {
     let trimmed_rings: Vec<Vec<(f64, f64)>> = rings
         .iter()
         .map(|ring| {
+            let ring = ring.as_ref();
             let n = ring.len();
             if n > 1 && ring[0] == ring[n - 1] {
                 ring[..n - 1].to_vec()
             } else {
-                ring.clone()
+                ring.to_vec()
             }
         })
         .collect();
@@ -1492,19 +1493,20 @@ pub fn clip_circle(
 /// Clip all rings of a polygon against a spherical cap centered at the origin
 /// in the rotated frame, treating the first ring as the exterior and
 /// subsequent rings as holes. Returns geographic-coordinate rings.
-pub fn clip_circle_polygon(
-    rings: &[Vec<(f64, f64)>],
+pub fn clip_circle_polygon<R: AsRef<[(f64, f64)]>>(
+    rings: &[R],
     rotation: &SphereRotation,
     clip_angle_rad: f64,
 ) -> Vec<Vec<(f64, f64)>> {
     let trimmed_rings: Vec<Vec<(f64, f64)>> = rings
         .iter()
         .map(|ring| {
+            let ring = ring.as_ref();
             let n = ring.len();
             if n > 1 && ring[0] == ring[n - 1] {
                 ring[..n - 1].to_vec()
             } else {
-                ring.clone()
+                ring.to_vec()
             }
         })
         .collect();

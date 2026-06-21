@@ -39,7 +39,8 @@ fn test_box_stats_from_sorted() {
 
 #[test]
 fn test_box_stats_from_unsorted() {
-    let values = vec![10.0, 2.0, 8.0, 4.0, 6.0, 1.0, 9.0, 3.0, 5.0, 7.0];
+    let mut values = vec![10.0, 2.0, 8.0, 4.0, 6.0, 1.0, 9.0, 3.0, 5.0, 7.0];
+    values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
     let stats = BoxStats::from_values(5.0, &values).unwrap();
 
     assert!((stats.x - 5.0).abs() < 1e-10);
@@ -52,7 +53,8 @@ fn test_box_stats_from_unsorted() {
 #[test]
 fn test_box_stats_with_outliers() {
     // Create data with outliers
-    let values = vec![1.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 100.0];
+    let mut values = vec![1.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 100.0];
+    values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
     let stats = BoxStats::from_values(0.0, &values).unwrap();
 
     // 1.0 and 100.0 should be outliers

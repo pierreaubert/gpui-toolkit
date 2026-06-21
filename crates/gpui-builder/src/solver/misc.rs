@@ -24,12 +24,12 @@ use std::sync::Arc;
 /// still benefit from cross-frame caching without any API change.
 #[derive(Debug)]
 pub struct TextMeasureCache {
-    /// `(measure_ptr, text)` → prepared text without segment strings.
-    prepared_vertical: HashMap<(usize, Arc<str>), PreparedText>,
-    /// `(measure_ptr, text)` → prepared text with segment strings.
-    prepared_horizontal: HashMap<(usize, Arc<str>), PreparedTextWithSegments>,
-    /// `(measure_ptr, text, cross_size, line_height, axis)` → computed size.
-    sizes: HashMap<(usize, Arc<str>, u32, u32, Axis), f32>,
+    /// `measure_ptr` → `text` → prepared text without segment strings.
+    prepared_vertical: HashMap<usize, HashMap<Arc<str>, PreparedText>>,
+    /// `measure_ptr` → `text` → prepared text with segment strings.
+    prepared_horizontal: HashMap<usize, HashMap<Arc<str>, PreparedTextWithSegments>>,
+    /// `(measure_ptr, cross_size, line_height, axis)` → `text` → computed size.
+    sizes: HashMap<(usize, u32, u32, Axis), HashMap<Arc<str>, f32>>,
 }
 
 impl TextMeasureCache {
@@ -95,26 +95,27 @@ pub(super) fn compute_text_size<'a>(
     let measure_ptr = (input.measure as *const dyn gpui_pretext::TextMeasure) as *const () as usize;
     let cross_bits = input.cross_size.to_bits();
     let line_bits = input.line_height.to_bits();
-    let text_arc: Arc<str> = Arc::from(input.text);
-    let size_key = (
-        measure_ptr,
-        Arc::clone(&text_arc),
-        cross_bits,
-        line_bits,
-        input.axis,
-    );
+    let params_key = (measure_ptr, cross_bits, line_bits, input.axis);
 
     let mut cache = cache.borrow_mut();
-    if let Some(&size) = cache.sizes.get(&size_key) {
-        return size.max(input.min);
+
+    // Fast-path: probe the size cache using the borrowed `&str` key so cache
+    // hits do not allocate an `Arc<str>`.
+    if let Some(by_text) = cache.sizes.get(&params_key) {
+        if let Some(&size) = by_text.get(input.text) {
+            return size.max(input.min);
+        }
     }
 
-    let prepared_key = (measure_ptr, text_arc);
+    // Size is not cached; prepare the text (reusing any cached `PreparedText`).
+    let text_arc: Arc<str> = Arc::from(input.text);
     let size = match input.axis {
         Axis::Vertical => {
             let prepared = cache
                 .prepared_vertical
-                .entry(prepared_key)
+                .entry(measure_ptr)
+                .or_default()
+                .entry(Arc::clone(&text_arc))
                 .or_insert_with(|| {
                     prepare(input.text, input.measure, input.profile, input.options)
                 });
@@ -129,7 +130,9 @@ pub(super) fn compute_text_size<'a>(
         Axis::Horizontal => {
             let prepared = cache
                 .prepared_horizontal
-                .entry(prepared_key)
+                .entry(measure_ptr)
+                .or_default()
+                .entry(Arc::clone(&text_arc))
                 .or_insert_with(|| {
                     prepare_with_segments(input.text, input.measure, input.profile, input.options)
                 });
@@ -139,7 +142,11 @@ pub(super) fn compute_text_size<'a>(
         }
     };
 
-    cache.sizes.insert(size_key, size);
+    cache
+        .sizes
+        .entry(params_key)
+        .or_default()
+        .insert(text_arc, size);
     size.max(input.min)
 }
 

@@ -93,7 +93,10 @@ thread_local! {
 }
 
 mod cleanup;
+#[cfg(not(feature = "bench"))]
 mod edit_state;
+#[cfg(feature = "bench")]
+pub mod edit_state;
 mod input_size;
 mod misc;
 mod types;

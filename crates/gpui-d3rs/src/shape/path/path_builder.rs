@@ -22,9 +22,9 @@ use super::types::PathCommand;
 /// ```
 #[derive(Debug, Clone, Default)]
 pub struct PathBuilder {
-    pub(super) commands: Vec<PathCommand>,
-    pub(super) current_point: Point,
-    pub(super) start_point: Point,
+    pub(crate) commands: Vec<PathCommand>,
+    pub(crate) current_point: Point,
+    pub(crate) start_point: Point,
 }
 
 impl PathBuilder {

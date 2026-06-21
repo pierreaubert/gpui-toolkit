@@ -22,6 +22,26 @@ use gpui::{AnyElement, IntoElement, div, px, rgb};
 use gpui_design::DesignSystem;
 use std::sync::Arc;
 
+/// Build or reuse a cached `Arc<[ScatterPoint]>` slice keyed by the source `x` and `y`
+/// `Arc` pointer equality.
+fn cached_scatter_points(
+    x: &Arc<[f64]>,
+    y: &Arc<[f64]>,
+    cache: &mut Option<(Arc<[f64]>, Arc<[f64]>, Arc<[ScatterPoint]>)>,
+) -> Arc<[ScatterPoint]> {
+    if let Some((cached_x, cached_y, cached_points)) = cache {
+        if Arc::ptr_eq(x, cached_x) && Arc::ptr_eq(y, cached_y) {
+            return cached_points.clone();
+        }
+    }
+
+    let mut points = Vec::with_capacity(x.len().min(y.len()));
+    points.extend(x.iter().zip(y.iter()).map(|(&x, &y)| ScatterPoint::new(x, y)));
+    let points: Arc<[ScatterPoint]> = points.into();
+    *cache = Some((x.clone(), y.clone(), points.clone()));
+    points
+}
+
 /// Scatter chart builder.
 #[derive(Debug, Clone)]
 pub struct ScatterChart {
@@ -51,6 +71,8 @@ pub struct ScatterChart {
     pub(super) graph_ratio: f32,
     pub(super) theme: ScatterTheme,
     pub(super) design: Option<Arc<DesignSystem>>,
+    /// Cache of mapped primary points keyed by source `(x, y)` `Arc` pointer equality.
+    pub(super) primary_data_cache: Option<(Arc<[f64]>, Arc<[f64]>, Arc<[ScatterPoint]>)>,
 }
 
 impl ScatterChart {
@@ -194,6 +216,7 @@ impl ScatterChart {
             color,
             point_radius,
             opacity,
+            data_cache: None,
         });
         // Auto-enable legend if any series has a label
         if self.series.iter().any(|s| s.label.is_some()) {
@@ -240,7 +263,7 @@ impl ScatterChart {
     }
 
     /// Build and validate the chart, returning renderable element.
-    pub fn build(self) -> Result<impl IntoElement, ChartError> {
+    pub fn build(mut self) -> Result<impl IntoElement, ChartError> {
         let design = self.design.clone().unwrap_or_else(default_design);
         let (layout_width, layout_height) = resolved_chart_dimensions(self.chart_size);
         // Validate inputs
@@ -432,13 +455,9 @@ impl ScatterChart {
             )
         };
 
-        // Create data points for primary series
-        let primary_data: Vec<ScatterPoint> = self
-            .x
-            .iter()
-            .zip(self.y.iter())
-            .map(|(&x, &y)| ScatterPoint::new(x, y))
-            .collect();
+        // Create data points for primary series, reusing the cache when the
+        // source `Arc`s have not changed.
+        let primary_data = cached_scatter_points(&self.x, &self.y, &mut self.primary_data_cache);
 
         let primary_config = ScatterConfig::new()
             .fill_color(D3Color::from_hex(self.color))
@@ -446,15 +465,11 @@ impl ScatterChart {
             .opacity(self.opacity);
 
         // Prepare additional series data and configs
-        let series_data_configs: Vec<(Vec<ScatterPoint>, ScatterConfig)> = self
+        let series_data_configs: Vec<(Arc<[ScatterPoint]>, ScatterConfig)> = self
             .series
-            .iter()
+            .iter_mut()
             .map(|s| {
-                let points: Vec<ScatterPoint> =
-                    s.x.iter()
-                        .zip(s.y.iter())
-                        .map(|(&x, &y)| ScatterPoint::new(x, y))
-                        .collect();
+                let points = cached_scatter_points(&s.x, &s.y, &mut s.data_cache);
                 let config = ScatterConfig::new()
                     .fill_color(D3Color::from_hex(s.color))
                     .point_radius(s.point_radius)
@@ -491,7 +506,7 @@ impl ScatterChart {
                     plot_area = plot_area.child(render_scatter(
                         &$x_scale,
                         &$y_scale,
-                        series_data,
+                        series_data.as_ref(),
                         series_config,
                     ));
                 }
@@ -500,7 +515,7 @@ impl ScatterChart {
                 plot_area = plot_area.child(render_scatter(
                     &$x_scale,
                     &$y_scale,
-                    &primary_data,
+                    primary_data.as_ref(),
                     &primary_config,
                 ));
 
@@ -798,6 +813,7 @@ pub fn scatter(x: &[f64], y: &[f64]) -> ScatterChart {
         graph_ratio: 1.414,
         theme: ScatterTheme::default(),
         design: None,
+        primary_data_cache: None,
     }
 }
 

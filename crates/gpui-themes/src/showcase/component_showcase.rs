@@ -6,7 +6,7 @@ use gpui::prelude::*;
 use gpui::*;
 use gpui_ui_kit::{
     Alert, AlertVariant, Badge, BadgeVariant, BreadcrumbItem, Breadcrumbs, Button, ButtonSize,
-    ButtonVariant, Card, Code, EmptyState, HStack, Heading, KeyboardShortcutLabel,
+    ButtonTheme, ButtonVariant, Card, Code, EmptyState, HStack, Heading, KeyboardShortcutLabel,
     KeyboardShortcutSize, SearchBar, SearchBarSize, StackSpacing, StatusBar, StatusBarPosition,
     Text, TextSize, TextWeight, VStack,
 };
@@ -15,15 +15,21 @@ use std::sync::Arc;
 /// Component showcase that displays all UI kit components
 pub struct ComponentShowcase {
     pub(super) theme: Arc<EditorTheme>,
+    button_theme: ButtonTheme,
 }
 
 impl ComponentShowcase {
     pub fn new(theme: Arc<EditorTheme>) -> Self {
-        Self { theme }
+        let button_theme = theme.to_button_theme();
+        Self {
+            theme,
+            button_theme,
+        }
     }
 
     /// Update the theme
     pub fn set_theme(&mut self, theme: Arc<EditorTheme>) {
+        self.button_theme = theme.to_button_theme();
         self.theme = theme;
     }
 
@@ -45,7 +51,7 @@ impl ComponentShowcase {
 
     /// Render buttons section
     pub(super) fn render_buttons(&self, _cx: &mut Context<Self>) -> impl IntoElement {
-        let button_theme = self.theme.to_button_theme();
+        let button_theme = self.button_theme.clone();
 
         VStack::new()
             .spacing(StackSpacing::Md)

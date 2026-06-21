@@ -25,6 +25,13 @@ urlencoding = []
 gpui = { workspace = true }
 serde = { workspace = true }
 
+[dev-dependencies]
+criterion = { workspace = true }
+
+[[bench]]
+name = "discovery"
+harness = false
+
 [lib]
 name = "gpui_keybinding"
 path = "src/lib.rs"

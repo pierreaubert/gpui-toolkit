@@ -260,14 +260,14 @@ impl BoxPlotChart {
             bins[bin_idx].push(y);
         }
 
-        // Calculate statistics for each non-empty bin. Quartiles are computed
-        // without fully sorting each bin.
+        // Sort each bin once, then compute statistics from the sorted slice.
         bins.into_iter()
             .enumerate()
-            .filter_map(|(i, bin)| {
+            .filter_map(|(i, mut bin)| {
                 if bin.is_empty() {
                     return None;
                 }
+                bin.sort_by(|a, b| a.total_cmp(b));
                 let x_center = x_min + (i as f64 + 0.5) * bin_width;
                 BoxStats::from_values(x_center, &bin)
             })

@@ -9,6 +9,8 @@ use super::misc::interpolate_axis_value;
 use super::misc::points_equal;
 use super::misc::upsample_axis_values;
 use crate::shape::path::Point;
+use std::cell::RefCell;
+use std::rc::Rc;
 
 /// Contour generator using the marching squares algorithm.
 ///
@@ -53,6 +55,14 @@ pub struct ContourGenerator {
     pub(super) x_log_interpolation: bool,
     /// Interpolate explicit y values in log space when possible
     pub(super) y_log_interpolation: bool,
+    /// Cached `visited` buffer keyed by grid size, reused across `contour` calls.
+    visited_cache: Rc<RefCell<Option<(usize, usize, Vec<bool>)>>>,
+    /// Reusable buffer for upsampled scalar-field values.
+    upsampled_buf: Rc<RefCell<Vec<f64>>>,
+    /// Reusable point buffer for band polygon fragments.
+    band_points: Rc<RefCell<Vec<Point>>>,
+    /// Reusable crossing buffer for band polygon fragments.
+    band_crossings: Rc<RefCell<Vec<(f64, Point)>>>,
 }
 
 impl ContourGenerator {
@@ -70,6 +80,10 @@ impl ContourGenerator {
             upsample_factor: 1,
             x_log_interpolation: false,
             y_log_interpolation: false,
+            visited_cache: Rc::new(RefCell::new(None)),
+            upsampled_buf: Rc::new(RefCell::new(Vec::new())),
+            band_points: Rc::new(RefCell::new(Vec::new())),
+            band_crossings: Rc::new(RefCell::new(Vec::new())),
         }
     }
 
@@ -131,47 +145,144 @@ impl ContourGenerator {
         self
     }
 
-    /// Generate a contour at the given threshold value.
-    pub fn contour(&self, values: &[f64], threshold: f64) -> Contour {
-        if let Some((generator, upsampled_values)) = self.upsampled(values) {
-            return generator.contour(&upsampled_values, threshold);
+    /// Run `f` with a freshly-cleared `visited` buffer sized for the current grid.
+    fn with_visited<R>(&self, f: impl FnOnce(&mut [bool]) -> R) -> R {
+        let needed = self.width * self.height * 4;
+        let mut cache = self.visited_cache.borrow_mut();
+        match cache.as_mut() {
+            Some((w, h, buf)) if *w == self.width && *h == self.height => {
+                buf.fill(false);
+            }
+            _ => {
+                *cache = Some((self.width, self.height, vec![false; needed]));
+            }
+        }
+        let buf = &mut cache.as_mut().unwrap().2;
+        f(buf)
+    }
+
+    /// Upsample `values` into `out` and return a generator for the upsampled grid.
+    ///
+    /// Returns `None` when upsampling is not required or not possible.
+    fn upsampled_into(&self, values: &[f64], out: &mut Vec<f64>) -> Option<Self> {
+        let factor = self.upsample_factor;
+        if factor <= 1
+            || self.width < 2
+            || self.height < 2
+            || values.len() < self.width * self.height
+        {
+            return None;
         }
 
-        let mut contour = Contour::new(threshold);
+        let new_width = (self.width - 1) * factor + 1;
+        let new_height = (self.height - 1) * factor + 1;
+        out.resize(new_width * new_height, 0.0);
 
-        if self.width < 2 || self.height < 2 || values.len() < (self.width * self.height) {
-            return contour;
-        }
+        for y in 0..new_height {
+            let source_y = y as f64 / factor as f64;
+            let y0 = (source_y.floor() as usize).min(self.height - 2);
+            let ty = source_y - y0 as f64;
 
-        // Track which edges have been visited
-        let mut visited = vec![false; self.width * self.height * 4];
+            for x in 0..new_width {
+                let source_x = x as f64 / factor as f64;
+                let x0 = (source_x.floor() as usize).min(self.width - 2);
+                let tx = source_x - x0 as f64;
 
-        // For each cell, check if it crosses the threshold
-        for j in 0..self.height - 1 {
-            for i in 0..self.width - 1 {
-                let case = self.cell_case(values, i, j, threshold);
+                let z00 = values[y0 * self.width + x0];
+                let z10 = values[y0 * self.width + x0 + 1];
+                let z01 = values[(y0 + 1) * self.width + x0];
+                let z11 = values[(y0 + 1) * self.width + x0 + 1];
 
-                if case == 0 || case == 15 {
-                    continue; // No contour crosses this cell
-                }
-
-                // Try to trace contours starting from edges that cross the threshold
-                for &edge in Self::crossing_edges(case) {
-                    let idx = (j * self.width + i) * 4 + edge;
-                    if visited[idx] {
-                        continue;
-                    }
-
-                    if let Some(ring) =
-                        self.trace_contour(values, threshold, i, j, edge, &mut visited)
-                        && ring.points.len() >= 3
-                    {
-                        contour.add_ring(ring);
-                    }
-                }
+                let z0 = z00 + (z10 - z00) * tx;
+                let z1 = z01 + (z11 - z01) * tx;
+                out[y * new_width + x] = z0 + (z1 - z0) * ty;
             }
         }
 
+        Some(Self {
+            width: new_width,
+            height: new_height,
+            x0: self.x0,
+            y0: self.y0,
+            x1: self.x1,
+            y1: self.y1,
+            x_values: self.x_values.as_ref().map(|values| {
+                upsample_axis_values(values, factor, new_width, self.x_log_interpolation)
+            }),
+            y_values: self.y_values.as_ref().map(|values| {
+                upsample_axis_values(values, factor, new_height, self.y_log_interpolation)
+            }),
+            upsample_factor: 1,
+            x_log_interpolation: self.x_log_interpolation,
+            y_log_interpolation: self.y_log_interpolation,
+            visited_cache: Rc::new(RefCell::new(None)),
+            upsampled_buf: Rc::new(RefCell::new(Vec::new())),
+            band_points: Rc::new(RefCell::new(Vec::new())),
+            band_crossings: Rc::new(RefCell::new(Vec::new())),
+        })
+    }
+
+    /// Run `f` with the (possibly upsampled) values for this generator.
+    ///
+    /// Reuses the generator's upsampled-value buffer when upsampling is active.
+    fn with_upsampled<R>(&self, values: &[f64], f: impl FnOnce(&Self, &[f64]) -> R) -> R {
+        if self.upsample_factor > 1 {
+            let mut buf = self.upsampled_buf.borrow_mut();
+            if let Some(generator) = self.upsampled_into(values, &mut *buf) {
+                return f(&generator, &*buf);
+            }
+        }
+        f(self, values)
+    }
+
+    /// Generate a contour at the given threshold value, writing into `out`.
+    pub fn contour_into(&self, values: &[f64], threshold: f64, out: &mut Contour) {
+        self.with_upsampled(values, |this, vals| {
+            this.contour_internal(vals, threshold, out)
+        });
+    }
+
+    fn contour_internal(&self, values: &[f64], threshold: f64, out: &mut Contour) {
+        out.value = threshold;
+        out.coordinates.clear();
+
+        if self.width < 2 || self.height < 2 || values.len() < (self.width * self.height) {
+            return;
+        }
+
+        self.with_visited(|visited| {
+            // For each cell, check if it crosses the threshold
+            for j in 0..self.height - 1 {
+                for i in 0..self.width - 1 {
+                    let case = self.cell_case(values, i, j, threshold);
+
+                    if case == 0 || case == 15 {
+                        continue; // No contour crosses this cell
+                    }
+
+                    // Try to trace contours starting from edges that cross the threshold
+                    for &edge in Self::crossing_edges(case) {
+                        let idx = (j * self.width + i) * 4 + edge;
+                        if visited[idx] {
+                            continue;
+                        }
+
+                        if let Some(ring) =
+                            self.trace_contour(values, threshold, i, j, edge, visited)
+                            && ring.points.len() >= 3
+                        {
+                            out.add_ring(ring);
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    /// Generate a contour at the given threshold value.
+    pub fn contour(&self, values: &[f64], threshold: f64) -> Contour {
+        let mut contour = Contour::new(threshold);
+        self.contour_into(values, threshold, &mut contour);
         contour
     }
 
@@ -198,14 +309,9 @@ impl ContourGenerator {
 
     /// Generate contours at multiple threshold values.
     pub fn contours(&self, values: &[f64], thresholds: &[f64]) -> Vec<Contour> {
-        if let Some((generator, upsampled_values)) = self.upsampled(values) {
-            return generator.contours(&upsampled_values, thresholds);
-        }
-
-        thresholds
-            .iter()
-            .map(|&t| self.contour(values, t))
-            .collect()
+        self.with_upsampled(values, |this, vals| {
+            thresholds.iter().map(|&t| this.contour(vals, t)).collect()
+        })
     }
 
     /// Generate independent cell-local contour segments for multiple thresholds.
@@ -213,32 +319,30 @@ impl ContourGenerator {
     /// This avoids connecting traced rings across discontinuities and is useful
     /// for renderers that prefer to draw each marching-squares segment directly.
     pub fn contour_segments(&self, values: &[f64], thresholds: &[f64]) -> Vec<ContourSegment> {
-        if let Some((generator, upsampled_values)) = self.upsampled(values) {
-            return generator.contour_segments(&upsampled_values, thresholds);
-        }
+        self.with_upsampled(values, |this, vals| {
+            if this.width < 2 || this.height < 2 || vals.len() < (this.width * this.height) {
+                return Vec::new();
+            }
 
-        if self.width < 2 || self.height < 2 || values.len() < (self.width * self.height) {
-            return Vec::new();
-        }
-
-        let mut segments = Vec::new();
-        for &threshold in thresholds {
-            for j in 0..self.height - 1 {
-                for i in 0..self.width - 1 {
-                    let case = self.cell_case(values, i, j, threshold);
-                    for &(edge_a, edge_b) in Self::cell_segment_edge_pairs(case) {
-                        let Some(start) = self.edge_point(values, i, j, edge_a, threshold) else {
-                            continue;
-                        };
-                        let Some(end) = self.edge_point(values, i, j, edge_b, threshold) else {
-                            continue;
-                        };
-                        segments.push(ContourSegment::new(threshold, start, end));
+            let mut segments = Vec::new();
+            for &threshold in thresholds {
+                for j in 0..this.height - 1 {
+                    for i in 0..this.width - 1 {
+                        let case = this.cell_case(vals, i, j, threshold);
+                        for &(edge_a, edge_b) in Self::cell_segment_edge_pairs(case) {
+                            let Some(start) = this.edge_point(vals, i, j, edge_a, threshold) else {
+                                continue;
+                            };
+                            let Some(end) = this.edge_point(vals, i, j, edge_b, threshold) else {
+                                continue;
+                            };
+                            segments.push(ContourSegment::new(threshold, start, end));
+                        }
                     }
                 }
             }
-        }
-        segments
+            segments
+        })
     }
 
     pub(super) fn cell_segment_edge_pairs(case: u8) -> &'static [(usize, usize)] {
@@ -256,60 +360,10 @@ impl ContourGenerator {
         }
     }
 
+    #[allow(dead_code)] // Used only by tests and the internal `_into` helpers.
     pub(super) fn upsampled(&self, values: &[f64]) -> Option<(Self, Vec<f64>)> {
-        let factor = self.upsample_factor;
-        if factor <= 1
-            || self.width < 2
-            || self.height < 2
-            || values.len() < self.width * self.height
-        {
-            return None;
-        }
-
-        let new_width = (self.width - 1) * factor + 1;
-        let new_height = (self.height - 1) * factor + 1;
-        let mut upsampled = vec![0.0; new_width * new_height];
-
-        for y in 0..new_height {
-            let source_y = y as f64 / factor as f64;
-            let y0 = (source_y.floor() as usize).min(self.height - 2);
-            let ty = source_y - y0 as f64;
-
-            for x in 0..new_width {
-                let source_x = x as f64 / factor as f64;
-                let x0 = (source_x.floor() as usize).min(self.width - 2);
-                let tx = source_x - x0 as f64;
-
-                let z00 = values[y0 * self.width + x0];
-                let z10 = values[y0 * self.width + x0 + 1];
-                let z01 = values[(y0 + 1) * self.width + x0];
-                let z11 = values[(y0 + 1) * self.width + x0 + 1];
-
-                let z0 = z00 + (z10 - z00) * tx;
-                let z1 = z01 + (z11 - z01) * tx;
-                upsampled[y * new_width + x] = z0 + (z1 - z0) * ty;
-            }
-        }
-
-        let generator = Self {
-            width: new_width,
-            height: new_height,
-            x0: self.x0,
-            y0: self.y0,
-            x1: self.x1,
-            y1: self.y1,
-            x_values: self.x_values.as_ref().map(|values| {
-                upsample_axis_values(values, factor, new_width, self.x_log_interpolation)
-            }),
-            y_values: self.y_values.as_ref().map(|values| {
-                upsample_axis_values(values, factor, new_height, self.y_log_interpolation)
-            }),
-            upsample_factor: 1,
-            x_log_interpolation: self.x_log_interpolation,
-            y_log_interpolation: self.y_log_interpolation,
-        };
-
-        Some((generator, upsampled))
+        let mut out = Vec::new();
+        self.upsampled_into(values, &mut out).map(|g| (g, out))
     }
 
     /// Compute the marching squares case for a cell.
@@ -640,60 +694,59 @@ impl ContourGenerator {
     ///
     /// # Returns
     /// A vector of ContourBand, one for each pair of consecutive thresholds.
+    /// Generate filled contour bands between consecutive threshold values.
     pub fn contour_bands(&self, values: &[f64], thresholds: &[f64]) -> Vec<ContourBand> {
-        if let Some((generator, upsampled_values)) = self.upsampled(values) {
-            return generator.contour_bands(&upsampled_values, thresholds);
-        }
-
-        if self.width < 2
-            || self.height < 2
-            || thresholds.len() < 2
-            || values.len() < (self.width * self.height)
-        {
-            return Vec::new();
-        }
-
-        let mut bands = Vec::with_capacity(thresholds.len() - 1);
-
-        // For each pair of consecutive thresholds, create a band
-        for i in 0..thresholds.len() - 1 {
-            let lower = thresholds[i];
-            let upper = thresholds[i + 1];
-
-            let band = self.generate_band(values, lower, upper);
-            bands.push(band);
-        }
-
+        let mut bands = Vec::new();
+        self.contour_bands_into(values, thresholds, &mut bands);
         bands
+    }
+
+    /// Generate filled contour bands into `out`, reusing workspace buffers.
+    ///
+    /// `out` is cleared before appending one `ContourBand` per threshold pair.
+    pub fn contour_bands_into(
+        &self,
+        values: &[f64],
+        thresholds: &[f64],
+        out: &mut Vec<ContourBand>,
+    ) {
+        out.clear();
+        if thresholds.len() < 2 {
+            return;
+        }
+        self.with_upsampled(values, |this, vals| {
+            if this.width < 2 || this.height < 2 || vals.len() < (this.width * this.height) {
+                return;
+            }
+            out.reserve(thresholds.len() - 1);
+            for i in 0..thresholds.len() - 1 {
+                let lower = thresholds[i];
+                let upper = thresholds[i + 1];
+                out.push(this.generate_band(vals, lower, upper));
+            }
+        });
     }
 
     /// Generate a single contour band between two threshold values.
     pub(super) fn generate_band(&self, values: &[f64], lower: f64, upper: f64) -> ContourBand {
         let mut band = ContourBand::new(lower, upper);
-
-        // For each cell, determine which band case it belongs to
-        // and generate the appropriate polygon fragments
-        let mut cell_polygons: Vec<Vec<Point>> = Vec::new();
+        let mut points = self.band_points.borrow_mut();
+        let mut crossings = self.band_crossings.borrow_mut();
 
         for j in 0..self.height - 1 {
             for i in 0..self.width - 1 {
-                if let Some(poly) = self.cell_band_polygon(values, i, j, lower, upper) {
-                    cell_polygons.push(poly);
+                if let Some(n) =
+                    self.cell_band_polygon(values, i, j, lower, upper, &mut points, &mut crossings)
+                {
+                    if n >= 3 {
+                        let mut ring = Vec::with_capacity(n + 1);
+                        ring.extend_from_slice(&points[..n]);
+                        if !points_equal(&ring[0], &ring[n - 1]) {
+                            ring.push(ring[0]);
+                        }
+                        band.polygons.push(ContourRing::new(ring));
+                    }
                 }
-            }
-        }
-
-        // Merge adjacent cell polygons into contiguous bands
-        // For simplicity, we'll just add each cell polygon as a separate ring
-        // A more sophisticated implementation would merge connected polygons
-        for poly in cell_polygons {
-            if poly.len() >= 3 {
-                let mut ring = poly.clone();
-                // Close the ring if not already closed
-                if !points_equal(&ring[0], &ring[ring.len() - 1]) {
-                    ring.push(ring[0]);
-                }
-                band.polygons.push(ContourRing::new(ring));
             }
         }
 
@@ -701,6 +754,9 @@ impl ContourGenerator {
     }
 
     /// Generate the polygon fragment for a single cell in the band.
+    ///
+    /// Writes the fragment into `points` (which is cleared first) and returns
+    /// the number of points, or `None` if the cell does not contribute.
     pub(super) fn cell_band_polygon(
         &self,
         values: &[f64],
@@ -708,7 +764,12 @@ impl ContourGenerator {
         j: usize,
         lower: f64,
         upper: f64,
-    ) -> Option<Vec<Point>> {
+        points: &mut Vec<Point>,
+        crossings: &mut Vec<(f64, Point)>,
+    ) -> Option<usize> {
+        points.clear();
+        crossings.clear();
+
         // Get the four corner values
         let v00 = values[j * self.width + i];
         let v10 = values[j * self.width + i + 1];
@@ -731,22 +792,14 @@ impl ContourGenerator {
         // If all corners are in the band, return the whole cell
         if c00 == 1 && c10 == 1 && c01 == 1 && c11 == 1 {
             let corners = self.cell_corners(i, j);
-            return Some(corners.to_vec());
+            points.extend_from_slice(&corners);
+            return Some(4);
         }
-
-        // Otherwise, build the polygon by tracing around the cell
-        let mut points = Vec::new();
 
         // Corner positions
         let corners = self.cell_corners(i, j);
         let corner_values = [v00, v10, v11, v01];
         let corner_classes = [c00, c10, c11, c01];
-
-        // Edge interpolation positions (between consecutive corners)
-        // Edge 0: corner 0 to corner 1 (bottom)
-        // Edge 1: corner 1 to corner 2 (right)
-        // Edge 2: corner 2 to corner 3 (top)
-        // Edge 3: corner 3 to corner 0 (left)
 
         // Walk around the cell, adding points where we're in the band
         for edge_idx in 0..4 {
@@ -763,7 +816,7 @@ impl ContourGenerator {
             }
 
             // Check for crossings on this edge - collect both crossings if any
-            let mut crossings: Vec<(f64, Point)> = Vec::new();
+            crossings.clear();
             let val_diff = next_val - curr_val;
 
             // Avoid division by zero for flat edges
@@ -797,25 +850,23 @@ impl ContourGenerator {
                     .sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
 
                 // Add sorted crossings to points
-                for (_, pt) in crossings {
+                for (_, pt) in crossings.iter().copied() {
                     points.push(pt);
                 }
             }
         }
 
-        // Remove duplicate consecutive points
-        let mut deduped = Vec::with_capacity(points.len());
-        for pt in points {
-            if deduped.is_empty() || !points_equal(&deduped[deduped.len() - 1], &pt) {
-                deduped.push(pt);
+        // Remove duplicate consecutive points in place
+        let mut write = 0;
+        for read in 0..points.len() {
+            if write == 0 || !points_equal(&points[write - 1], &points[read]) {
+                points[write] = points[read];
+                write += 1;
             }
         }
+        points.truncate(write);
 
-        if deduped.len() >= 3 {
-            Some(deduped)
-        } else {
-            None
-        }
+        if write >= 3 { Some(write) } else { None }
     }
 
     /// Classify a value relative to the band thresholds.

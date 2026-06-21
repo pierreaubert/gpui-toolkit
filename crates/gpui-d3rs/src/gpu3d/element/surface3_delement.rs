@@ -339,9 +339,9 @@ impl Surface3DElement {
         {
             self.ensure_mesh();
             let mesh_ref = self.mesh.borrow();
-            mesh_ref
-                .as_ref()
-                .and_then(|mesh| ProjectedDepthBuffer::from_mesh(mesh, view_projection, width, height))
+            mesh_ref.as_ref().and_then(|mesh| {
+                ProjectedDepthBuffer::from_mesh(mesh, view_projection, width, height)
+            })
         } else {
             None
         };
@@ -367,10 +367,7 @@ impl Surface3DElement {
             .collect();
 
         let (spl_ticks, _) = spl_major_ticks(&self.data);
-        let spl_labels: Vec<String> = spl_ticks
-            .iter()
-            .map(|&spl| format!("{}dB", spl))
-            .collect();
+        let spl_labels: Vec<String> = spl_ticks.iter().map(|&spl| format!("{}dB", spl)).collect();
 
         let azimuth_labels: Vec<String> = self
             .data
@@ -1145,7 +1142,11 @@ impl Element for Surface3DElement {
                 let pos = glam::Vec3::new(x, 0.0, z);
 
                 let tick_vec = pos.normalize() * 0.15; // Point out
-                let label = cache.azimuth_labels.get(i).map(|s| s.as_str()).unwrap_or("");
+                let label = cache
+                    .azimuth_labels
+                    .get(i)
+                    .map(|s| s.as_str())
+                    .unwrap_or("");
                 draw_tick_and_label(window, pos, tick_vec, label);
             }
 
@@ -1176,7 +1177,11 @@ impl Element for Surface3DElement {
 
                 let pos = glam::Vec3::new(x, y, z);
                 let tick_vec = pos.normalize() * 0.1;
-                let label = cache.elevation_labels.get(i).map(|s| s.as_str()).unwrap_or("");
+                let label = cache
+                    .elevation_labels
+                    .get(i)
+                    .map(|s| s.as_str())
+                    .unwrap_or("");
 
                 draw_tick_and_label(window, pos, tick_vec, label);
             }
