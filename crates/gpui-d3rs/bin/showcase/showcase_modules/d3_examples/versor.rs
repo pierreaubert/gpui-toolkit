@@ -8,12 +8,13 @@ use gpui::prelude::*;
 use gpui::*;
 use gpui_ui_kit::theme::ThemeExt;
 
-pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
+pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
     let width = 600.0f32;
     let height = 400.0f32;
 
-    // Use app state for rotation
+    // Use app state for rotation and zoom
     let rotation = [app.geo_rotation_lon, app.geo_rotation_lat];
+    let zoom = app.geo_zoom;
     let use_large_data = app.use_large_data;
     let current_projection = app.geo_projection_type;
     let theme = cx.theme();
@@ -148,6 +149,14 @@ pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                         this.last_mouse_pos = Some(event.position);
                     }
                 }))
+                .on_scroll_wheel(cx.listener(|this, event: &ScrollWheelEvent, _, _| {
+                    let delta_y: f32 = match event.delta {
+                        ScrollDelta::Lines(lines) => lines.y,
+                        ScrollDelta::Pixels(pixels) => pixels.y.into(),
+                    };
+                    let factor = 1.0 + f64::from(delta_y) * 0.1;
+                    this.geo_zoom = (this.geo_zoom * factor).clamp(0.3, 10.0);
+                }))
                 .child(
                     canvas(
                         move |bounds, _, _| bounds,
@@ -194,7 +203,7 @@ pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                             match current_projection {
                                 GeoProjectionType::Mercator => {
                                     // Mercator is roughly square (up to ~85 deg lat)
-                                    let scale = min_dim / (2.0 * pi) * 0.9;
+                                    let scale = min_dim / (2.0 * pi) * 0.9 * zoom;
                                     let p = Mercator::new()
                                         .scale(scale)
                                         .translate(width / 2.0, height / 2.0)
@@ -203,7 +212,7 @@ pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                 }
                                 GeoProjectionType::Orthographic => {
                                     // Radius = scale
-                                    let scale = min_dim / 2.0 * 0.9;
+                                    let scale = min_dim / 2.0 * 0.9 * zoom;
                                     let p = Orthographic::new()
                                         .scale(scale)
                                         .translate(width / 2.0, height / 2.0)
@@ -213,7 +222,7 @@ pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                 GeoProjectionType::Equirectangular => {
                                     // Width = 2*PI*k, Height = PI*k
                                     // k = min(width/(2*PI), height/PI)
-                                    let scale = (width / 2.0).min(height) / pi * 0.9;
+                                    let scale = (width / 2.0).min(height) / pi * 0.9 * zoom;
                                     let p = Equirectangular::new()
                                         .scale(scale)
                                         .translate(width / 2.0, height / 2.0)
@@ -222,7 +231,7 @@ pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                 }
                                 GeoProjectionType::Stereographic => {
                                     // Stereographic projects to infinity at horizon, use smaller scale
-                                    let scale = min_dim / 4.0 * 0.9;
+                                    let scale = min_dim / 4.0 * 0.9 * zoom;
                                     let p = Stereographic::new()
                                         .scale(scale)
                                         .translate(width / 2.0, height / 2.0)
@@ -231,7 +240,7 @@ pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                 }
                                 GeoProjectionType::ConicEqualArea => {
                                     // Conic fits well in square or landscape
-                                    let scale = min_dim / 6.0; // Conservative scale
+                                    let scale = min_dim / 6.0 * zoom; // Conservative scale
                                     let p = ConicEqualArea::new()
                                         .scale(scale)
                                         .translate(width / 2.0, height / 2.0)

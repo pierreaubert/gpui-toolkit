@@ -25,10 +25,11 @@ const CITIES: &[(&str, f64, f64)] = &[
     ("Beijing", 116.4, 39.9),
 ];
 
-pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
+pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
     let current_projection = app.geo_projection_type;
     let rotation_lon = app.geo_rotation_lon;
     let rotation_lat = app.geo_rotation_lat;
+    let zoom = app.geo_zoom;
     let use_large_data = app.use_large_data;
     let theme = cx.theme();
 
@@ -161,11 +162,19 @@ pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                         .border_color(theme.border)
                         .rounded_lg()
                         .overflow_hidden()
+                        .on_scroll_wheel(cx.listener(|this, event: &ScrollWheelEvent, _, _| {
+                            let delta_y: f32 = match event.delta {
+                                ScrollDelta::Lines(lines) => lines.y,
+                                ScrollDelta::Pixels(pixels) => pixels.y.into(),
+                            };
+                            let factor = 1.0 + f64::from(delta_y) * 0.1;
+                            this.geo_zoom = (this.geo_zoom * factor).clamp(0.3, 10.0);
+                        }))
                         .child(
                             canvas(
                                 move |bounds, _, _| bounds,
                                 move |bounds, _, window, _| {
-                                    let scale = projection_scale(current_projection, map_height);
+                                    let scale = projection_scale(current_projection, map_height) * zoom;
 
                                      // 1. Draw Continents (Fill)
                                      {
@@ -290,6 +299,7 @@ pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                             center_y,
                             rotation_lon,
                             rotation_lat,
+                            zoom,
                         )),
                 ),
         )
@@ -487,6 +497,7 @@ fn project_point(
     center_y: f64,
     rotation_lon: f64,
     rotation_lat: f64,
+    zoom: f64,
 ) -> Option<(f64, f64)> {
     // Check if point is visible (especially for azimuthal projections)
     // For Orthographic/Stereographic, we need to check visibility relative to the rotation center.
@@ -498,7 +509,7 @@ fn project_point(
     //
     // For now, we delegate visibility filtering to the caller or accept that points might wrap around.
 
-    let scale = projection_scale(proj_type, map_height);
+    let scale = projection_scale(proj_type, map_height) * zoom;
 
     let (x, y) = match proj_type {
         GeoProjectionType::Mercator => {
@@ -579,6 +590,7 @@ fn render_cities(
     center_y: f64,
     rotation_lon: f64,
     rotation_lat: f64,
+    zoom: f64,
 ) -> Vec<Div> {
     let mut elements = Vec::new();
 
@@ -593,6 +605,7 @@ fn render_cities(
             center_y,
             rotation_lon,
             rotation_lat,
+            zoom,
         ) {
             // Basic visibility check for Orthographic (hide points behind globe)
             if matches!(proj_type, GeoProjectionType::Orthographic) {
