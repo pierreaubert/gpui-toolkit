@@ -244,7 +244,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                         .top(px((margin_top + y) as f32))
                         .w(px(cache.plot_w as f32))
                         .h(px(1.0))
-                        .bg(ui_theme.surface)
+                        .bg(Hsla::from(ui_theme.border).opacity(0.25))
                 }))
                 // X-axis tick labels
                 .children(x_ticks.iter().map(|&val| {
@@ -271,7 +271,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                         .top(px(margin_top as f32))
                         .w(px(1.0))
                         .h(px(cache.plot_h as f32))
-                        .bg(ui_theme.surface)
+                        .bg(Hsla::from(ui_theme.border).opacity(0.25))
                 }))
                 // Plot area with hexbin
                 .child(
