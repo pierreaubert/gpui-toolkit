@@ -12,8 +12,8 @@ use crate::ShowcaseApp;
 use d3rs::contour::ContourGenerator;
 use d3rs::prelude::*;
 use d3rs::shape::contour::{
-    ContourConfig, HeatmapData, render_contour, render_heatmap, turbo_color_scale,
-    viridis_color_scale,
+    ContourConfig, HeatmapData, render_contour, render_contour_bands, render_heatmap,
+    turbo_color_scale, viridis_color_scale,
 };
 use gpui::*;
 use gpui_ui_kit::Slider;
@@ -60,14 +60,16 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
     let color_scale_type = app.volcano_color_scale;
     let show_stroke = app.volcano_show_stroke;
 
-    // Generate thresholds evenly spaced across the elevation range
-    let thresholds: Vec<f64> = (0..num_thresholds)
+    // Generate thresholds evenly spaced across the elevation range.
+    // Include max_elev so the top band is fully covered.
+    let thresholds: Vec<f64> = (0..=num_thresholds)
         .map(|i| min_elev + (max_elev - min_elev) * (i as f64 / num_thresholds as f64))
         .collect();
 
     // Create contour generator
     let generator = ContourGenerator::new(VOLCANO_WIDTH, VOLCANO_HEIGHT);
     let contours = generator.contours(&values, &thresholds);
+    let bands = generator.contour_bands(&values, &thresholds);
 
     // Scales for positioning
     let plot_width = (app.content_width as f64).min(app.content_height as f64 * 0.7);
@@ -80,19 +82,31 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
         .domain(0.0, VOLCANO_HEIGHT as f64)
         .range(0.0, plot_height);
 
-    // Color configuration
-    let config = match color_scale_type {
+    // Color configuration for filled bands
+    let band_config = match color_scale_type {
         VolcanoColorScale::Turbo => ContourConfig::new()
-            .stroke_width(if show_stroke { 0.5 } else { 0.0 })
-            .stroke_opacity(if show_stroke { 0.3 } else { 0.0 })
             .fill(true)
             .fill_opacity(1.0)
+            .stroke_opacity(0.0)
             .color_scale(turbo_color_scale()),
         VolcanoColorScale::Viridis => ContourConfig::new()
-            .stroke_width(if show_stroke { 0.5 } else { 0.0 })
-            .stroke_opacity(if show_stroke { 0.3 } else { 0.0 })
             .fill(true)
             .fill_opacity(1.0)
+            .stroke_opacity(0.0)
+            .color_scale(viridis_color_scale()),
+    };
+
+    // Color configuration for contour lines
+    let line_config = match color_scale_type {
+        VolcanoColorScale::Turbo => ContourConfig::new()
+            .fill(false)
+            .stroke_width(if show_stroke { 0.5 } else { 0.0 })
+            .stroke_opacity(if show_stroke { 0.3 } else { 0.0 })
+            .color_scale(turbo_color_scale()),
+        VolcanoColorScale::Viridis => ContourConfig::new()
+            .fill(false)
+            .stroke_width(if show_stroke { 0.5 } else { 0.0 })
+            .stroke_opacity(if show_stroke { 0.3 } else { 0.0 })
             .color_scale(viridis_color_scale()),
     };
 
@@ -170,17 +184,27 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                     div()
                                         .w(px(plot_width as f32))
                                         .h(px(plot_height as f32))
-                                        .bg(rgb(0x1a1a1a))
+                                        .bg(ui_theme.surface)
                                         .border_1()
-                                        .border_color(rgb(0x333333))
+                                        .border_color(ui_theme.border)
                                         .rounded_md()
                                         .overflow_hidden()
+                                        .child(
+                                            render_contour_bands(
+                                                bands.clone(),
+                                                &x_scale,
+                                                &y_scale,
+                                                &band_config,
+                                            )
+                                            .value_range(min_elev, max_elev)
+                                            .height(px(plot_height as f32)),
+                                        )
                                         .child(
                                             render_contour(
                                                 contours.clone(),
                                                 &x_scale,
                                                 &y_scale,
-                                                &config,
+                                                &line_config,
                                             )
                                             .value_range(min_elev, max_elev)
                                             .height(px(plot_height as f32)),
@@ -209,9 +233,9 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                     div()
                                         .w(px(plot_width as f32))
                                         .h(px(plot_height as f32))
-                                        .bg(rgb(0x1a1a1a))
+                                        .bg(ui_theme.surface)
                                         .border_1()
-                                        .border_color(rgb(0x333333))
+                                        .border_color(ui_theme.border)
                                         .rounded_md()
                                         .overflow_hidden()
                                         .child(
@@ -219,7 +243,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                                 heatmap_data,
                                                 &x_scale,
                                                 &y_scale,
-                                                &config,
+                                                &band_config,
                                             )
                                             .value_range(min_elev, max_elev)
                                             .height(px(plot_height as f32)),
@@ -263,8 +287,9 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                         .show_value(true)
                                         .width(250.0)
                                         .on_change(move |value, _window, cx| {
-                                            entity.update(cx, |this, _| {
+                                            entity.update(cx, |this, cx| {
                                                 this.volcano_num_thresholds = value as usize;
+                                                cx.notify();
                                             });
                                         })
                                 })
@@ -305,9 +330,9 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                         .child({
                                             let entity = entity.clone();
                                             let bg = if show_stroke {
-                                                rgb(0x28a745)
+                                                ui_theme.success
                                             } else {
-                                                rgb(0xcccccc)
+                                                ui_theme.muted
                                             };
                                             div()
                                                 .id("stroke-toggle")
