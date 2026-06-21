@@ -193,12 +193,49 @@ codegen-units = 256
 zed-font-kit = "0.14.1-zed"
 
 [profile.release]
-lto = true
-codegen-units = 1
+# `release` is the everyday optimised profile — used by CI, `just prod-*`,
+# benchmarks, and local release iteration. Thin LTO keeps cross-crate inlining
+# without the serial bottleneck of fat LTO, and 14 codegen units balance
+# parallelism with optimiser visibility. Compile time stays in the few-minute
+# range on typical hardware.
+lto = "thin"
+codegen-units = 14
 panic = "unwind"  # Changed from "abort" to allow tests to run
+# debug = true # Keeps debug symbols for profiling
 
+# `dist` is the "cut a release" profile. Inherits everything from `release`
+# (including panic=unwind) and tightens for maximum runtime performance at the
+# cost of much longer compile time. Use via `cargo build --profile dist` —
+# artifacts land in `target/dist/` instead of `target/release/`. The Justfile
+# `dist-*` recipes wrap this for the shipping binaries.
+#
+# Tradeoffs vs `release`:
+#   - lto = "fat"           — whole-program LTO across all crates. Serial,
+#                             single-threaded final link; typically 5-10x
+#                             slower than thin LTO. Worth it for the binary
+#                             that ships to users.
+#   - codegen-units = 1     — single codegen unit per crate maximises the
+#                             optimiser's view, enables aggressive inlining
+#                             and dead-code elimination.
+#   - incremental = false   — incremental cache is useless for a release cut
+#                             and can suppress some optimisations.
+#   - strip is intentionally NOT set; macOS distribution scripts run
+#     `dsymutil` before stripping so they can ship .dSYM bundles for crash
+#     symbolication. Linux scripts strip with `strip -v` post-build.
 [profile.dist]
 inherits = "release"
 lto = "fat"
 codegen-units = 1
 incremental = false
+
+# Explicit size-optimised profile for measuring and shipping small desktop
+# binaries. It preserves unwind semantics for plugin/host panic boundaries,
+# but strips the final executable and lets LLVM optimise for size.
+[profile.size]
+inherits = "release"
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
+incremental = false
+strip = "symbols"
+
