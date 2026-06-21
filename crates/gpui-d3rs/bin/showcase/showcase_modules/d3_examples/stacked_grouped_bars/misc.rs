@@ -4,7 +4,6 @@ use crate::ShowcaseApp;
 use d3rs::color::D3Color;
 use d3rs::ease::ease_cubic_in_out;
 use gpui::*;
-use smol::Timer;
 use std::time::Duration;
 
 /// Sample data for the bar chart
@@ -66,27 +65,29 @@ pub(super) fn interpolate_layouts(
         .collect()
 }
 
-pub(super) fn start_animation_loop(entity: Entity<ShowcaseApp>, cx: &mut Context<ShowcaseApp>) {
-    let animation_entity = entity.clone();
-    cx.spawn(async move |_this: WeakEntity<ShowcaseApp>, cx| {
+pub(super) fn start_animation_loop(_entity: Entity<ShowcaseApp>, cx: &mut Context<ShowcaseApp>) {
+    cx.spawn(async move |this: WeakEntity<ShowcaseApp>, cx| {
         loop {
-            Timer::after(Duration::from_millis(16)).await;
-            let should_continue = cx.update(|cx| {
-                animation_entity.update(cx, |this, cx| {
-                    if !this.stacked_bars_animating {
+            cx.background_executor()
+                .timer(Duration::from_millis(16))
+                .await;
+
+            let should_continue = this
+                .update(cx, |app, _cx| {
+                    if !app.stacked_bars_animating {
                         return false;
                     }
-                    this.stacked_bars_animation_progress += 0.04; // ~25 frames for full animation
-                    if this.stacked_bars_animation_progress >= 1.0 {
-                        this.stacked_bars_animation_progress = 1.0;
-                        this.stacked_bars_animating = false;
-                        cx.notify();
+                    app.stacked_bars_animation_progress += 0.04; // ~25 frames for full animation
+                    if app.stacked_bars_animation_progress >= 1.0 {
+                        app.stacked_bars_animation_progress = 1.0;
+                        app.stacked_bars_animating = false;
                         return false;
                     }
-                    cx.notify();
                     true
                 })
-            });
+                .unwrap_or(false);
+
+            this.update(cx, |_, cx| cx.notify()).ok();
 
             if !should_continue {
                 break;
