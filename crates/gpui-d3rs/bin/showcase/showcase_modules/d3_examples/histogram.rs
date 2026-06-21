@@ -42,7 +42,7 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
 
     // Bin the data
     let bin_count = 40;
-    let step = (max_val - min_val) / bin_count as f64;
+    let step = ((max_val - min_val) / bin_count as f64).max(f64::EPSILON);
     let mut bins = vec![0usize; bin_count];
     for &c in &carats {
         let idx = ((c - min_val) / step).floor() as usize;
@@ -189,8 +189,12 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                     let y = y_scale.scale(tick_val);
                     div()
                         .absolute()
-                        .right(px((width - margin_left + 5.0) as f32))
+                        .left(px(0.0))
                         .top(px((y - 6.0) as f32))
+                        .w(px((margin_left - 6.0) as f32))
+                        .flex()
+                        .justify_end()
+                        .pr_1()
                         .text_size(px(9.0))
                         .child(format!("{:.0}", tick_val))
                 }))
@@ -199,8 +203,11 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                     let x = x_scale.scale(tick_val);
                     div()
                         .absolute()
-                        .left(px((x - 10.0) as f32))
+                        .left(px((x - 20.0) as f32))
                         .top(px((margin_top + chart_height + 5.0) as f32))
+                        .w(px(40.0))
+                        .flex()
+                        .justify_center()
                         .text_size(px(9.0))
                         .child(format!("{tick_val:.1}"))
                 }))
@@ -208,8 +215,11 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                 .child(
                     div()
                         .absolute()
-                        .left(px((margin_left + chart_width / 2.0 - 15.0) as f32))
+                        .left(px(margin_left as f32))
                         .top(px((height - 12.0) as f32))
+                        .w(px(chart_width as f32))
+                        .flex()
+                        .justify_center()
                         .text_size(px(10.0))
                         .child("Carat"),
                 ),
