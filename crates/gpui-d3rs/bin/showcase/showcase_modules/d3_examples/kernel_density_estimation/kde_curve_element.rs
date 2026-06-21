@@ -170,7 +170,10 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                                         .h(px(bar_height))
                                                         .bg(Hsla::from(ui_theme.muted).opacity(0.6))
                                                         .border_1()
-                                                        .border_color(Hsla::from(ui_theme.border).opacity(0.3))
+                                                        .border_color(
+                                                            Hsla::from(ui_theme.border)
+                                                                .opacity(0.3),
+                                                        )
                                                 },
                                             ))
                                         })

@@ -74,7 +74,7 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
         })
         .collect();
 
-        // Derive ticks from the scales so they match the domain
+    // Derive ticks from the scales so they match the domain
     let x_ticks = x_scale.ticks(10);
     let y_ticks = y_scale.ticks(8);
 
