@@ -13,7 +13,9 @@ use gpui::prelude::*;
 use gpui::*;
 use gpui_ui_kit::theme::ThemeExt;
 
-pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
+pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
+    app.ensure_horizon_animation(cx);
+
     let ui_theme = cx.theme();
     let width = app.content_width as f64;
     let height = 100.0;

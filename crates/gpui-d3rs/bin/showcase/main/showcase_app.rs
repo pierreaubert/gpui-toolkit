@@ -97,6 +97,7 @@ pub struct ShowcaseApp {
     // Horizon Chart
     pub horizon_data: Vec<f64>,
     pub horizon_offset: f64,
+    pub horizon_animating: bool,
     // Data toggle
     pub use_large_data: bool,
     // Dragging state
@@ -202,6 +203,7 @@ impl ShowcaseApp {
             // Horizon Chart defaults
             horizon_data: (0..200).map(|i| (i as f64 * 0.1).sin() * 20.0).collect(),
             horizon_offset: 0.0,
+            horizon_animating: false,
             use_large_data: false,
             is_dragging: false,
             last_mouse_pos: None,
@@ -233,6 +235,49 @@ impl ShowcaseApp {
         let delta = self.alloc_probe.sample(label);
         self.last_sample = Some((label.to_string(), delta));
         delta
+    }
+
+    /// Start a background timer that animates the horizon chart data.
+    pub(super) fn ensure_horizon_animation(&mut self, cx: &mut Context<Self>) {
+        if self.horizon_animating {
+            return;
+        }
+        self.horizon_animating = true;
+
+        cx.spawn(async move |this: WeakEntity<ShowcaseApp>, cx| {
+            loop {
+                cx.background_executor()
+                    .timer(std::time::Duration::from_millis(16))
+                    .await;
+
+                let still_active = this
+                    .update(cx, |app, _cx| {
+                        let active = app.current_section == DemoSection::D3Horizon
+                            || app.current_section == DemoSection::D3RealtimeHorizon;
+                        if !active {
+                            app.horizon_animating = false;
+                            return false;
+                        }
+
+                        app.horizon_offset += 0.1;
+                        let len = app.horizon_data.len();
+                        for i in 0..len {
+                            app.horizon_data[i] = ((i as f64 * 0.1) + app.horizon_offset).sin()
+                                * 20.0
+                                + ((i as f64 * 0.03) - app.horizon_offset * 0.5).cos() * 10.0;
+                        }
+                        true
+                    })
+                    .unwrap_or(false);
+
+                this.update(cx, |_, cx| cx.notify()).ok();
+
+                if !still_active {
+                    break;
+                }
+            }
+        })
+        .detach();
     }
 
     /// Ensure the expensive surface-plot data is cached and matches the current
@@ -671,18 +716,6 @@ impl Render for ShowcaseApp {
             } else {
                 cx.quit();
             }
-        }
-
-        // Realtime animation for Horizon Chart
-        if self.current_section == DemoSection::D3Horizon {
-            self.horizon_offset += 0.1;
-            // Update data: simulate random walk or scrolling sine wave
-            let len = self.horizon_data.len();
-            for i in 0..len {
-                self.horizon_data[i] = ((i as f64 * 0.1) + self.horizon_offset).sin() * 20.0
-                    + ((i as f64 * 0.03) - self.horizon_offset * 0.5).cos() * 10.0;
-            }
-            cx.notify();
         }
 
         let bounds = window.bounds();
