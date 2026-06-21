@@ -556,10 +556,7 @@ impl ShowcaseApp {
         let ds = cx.design();
         let render_ok = self.last_render_alloc.count == 0;
         let mouse_ok = self.last_mouse_move_alloc.count == 0;
-        let last_ok = self
-            .last_sample
-            .as_ref()
-            .is_none_or(|(_, s)| s.count == 0);
+        let last_ok = self.last_sample.as_ref().is_none_or(|(_, s)| s.count == 0);
 
         div()
             .id("alloc-overlay")

@@ -75,8 +75,8 @@ impl SurfaceCamera {
     /// Positive delta zooms in; negative delta zooms out.
     pub fn apply_scroll(&mut self, delta: f64) {
         let factor = self.limits.zoom_factor_per_tick.powf(delta);
-        self.camera.zoom = (self.camera.zoom * factor)
-            .clamp(self.limits.min_zoom, self.limits.max_zoom);
+        self.camera.zoom =
+            (self.camera.zoom * factor).clamp(self.limits.min_zoom, self.limits.max_zoom);
     }
 }
 
@@ -88,7 +88,6 @@ impl Default for SurfaceCamera {
         }
     }
 }
-
 
 #[cfg(test)]
 mod tests {

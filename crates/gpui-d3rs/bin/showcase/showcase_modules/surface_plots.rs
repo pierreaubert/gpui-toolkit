@@ -138,33 +138,40 @@ fn interactive_surface_plot(
                 this.surface_plot_drag = Some((plot_index, event.position));
             }),
         )
-        .on_mouse_move(cx.listener(move |this, event: &MouseMoveEvent, _window, cx| {
-            if let Some((idx, start)) = this.surface_plot_drag {
-                if idx == plot_index {
-                    let dx: f64 = (event.position.x - start.x).into();
-                    let dy: f64 = (event.position.y - start.y).into();
-                    camera_for_plot(this, plot_index).apply_drag(dx, dy);
-                    this.surface_plot_drag = Some((plot_index, event.position));
-                    cx.notify();
+        .on_mouse_move(
+            cx.listener(move |this, event: &MouseMoveEvent, _window, cx| {
+                if let Some((idx, start)) = this.surface_plot_drag {
+                    if idx == plot_index {
+                        let dx: f64 = (event.position.x - start.x).into();
+                        let dy: f64 = (event.position.y - start.y).into();
+                        camera_for_plot(this, plot_index).apply_drag(dx, dy);
+                        this.surface_plot_drag = Some((plot_index, event.position));
+                        cx.notify();
+                    }
                 }
-            }
-        }))
+            }),
+        )
         .on_mouse_up(
             MouseButton::Left,
             cx.listener(move |this, _event, _window, _cx| {
-                if this.surface_plot_drag.map_or(false, |(idx, _)| idx == plot_index) {
+                if this
+                    .surface_plot_drag
+                    .map_or(false, |(idx, _)| idx == plot_index)
+                {
                     this.surface_plot_drag = None;
                 }
             }),
         )
-        .on_scroll_wheel(cx.listener(move |this, event: &ScrollWheelEvent, _window, cx| {
-            let delta_y: f32 = match event.delta {
-                ScrollDelta::Lines(lines) => lines.y,
-                ScrollDelta::Pixels(pixels) => pixels.y.into(),
-            };
-            camera_for_plot(this, plot_index).apply_scroll(f64::from(delta_y) / 50.0);
-            cx.notify();
-        }))
+        .on_scroll_wheel(
+            cx.listener(move |this, event: &ScrollWheelEvent, _window, cx| {
+                let delta_y: f32 = match event.delta {
+                    ScrollDelta::Lines(lines) => lines.y,
+                    ScrollDelta::Pixels(pixels) => pixels.y.into(),
+                };
+                camera_for_plot(this, plot_index).apply_scroll(f64::from(delta_y) / 50.0);
+                cx.notify();
+            }),
+        )
 }
 
 pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
