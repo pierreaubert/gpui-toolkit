@@ -1,4 +1,4 @@
-use d3rs::geo::{GeoJsonGeometry, GeoPath, Mercator, Projection};
+use d3rs::geo::{GeoJsonGeometry, GeoPath, Mercator};
 use serde::Deserialize;
 use std::fs;
 
@@ -209,8 +209,8 @@ fn main() {
                                 .parse()
                                 .unwrap_or(0.0);
                             i = k;
-                            if let Some((px, py)) = prev {
-                                if cur_cmd == 'L' {
+                            if let Some((px, py)) = prev
+                                && cur_cmd == 'L' {
                                     let dx = x - px;
                                     let dy = y - py;
                                     let d = (dx * dx + dy * dy).sqrt();
@@ -220,7 +220,6 @@ fn main() {
                                         max_to = (x, y);
                                     }
                                 }
-                            }
                             prev = Some((x, y));
                         } else {
                             break;

@@ -196,7 +196,7 @@ where
                     .top(px(title_top))
                     .flex()
                     .justify_center()
-                    .child(render_glyph_text(&title, &font_config)),
+                    .child(render_glyph_text(title, &font_config)),
             )
         })
 }
@@ -311,7 +311,7 @@ where
                     .top_0()
                     .flex()
                     .justify_center()
-                    .child(render_glyph_text(&title, &font_config)),
+                    .child(render_glyph_text(title, &font_config)),
             )
         })
 }
@@ -355,7 +355,7 @@ where
                     .flex()
                     .justify_center()
                     .items_center()
-                    .child(render_glyph_text(&title, &font_config)),
+                    .child(render_glyph_text(title, &font_config)),
             )
         })
         // Domain line
@@ -518,7 +518,7 @@ where
                     .flex()
                     .justify_center()
                     .items_center()
-                    .child(render_glyph_text(&title, &font_config)),
+                    .child(render_glyph_text(title, &font_config)),
             )
         })
 }

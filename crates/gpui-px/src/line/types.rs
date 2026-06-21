@@ -5,6 +5,8 @@ use gpui::{App, Window};
 use std::rc::Rc;
 use std::sync::Arc;
 
+pub(super) type LineDataCache = Option<(Arc<[f64]>, Arc<[f64]>, Arc<[LinePoint]>)>;
+
 /// Position of the legend relative to the chart
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub enum LegendPosition {
@@ -36,7 +38,7 @@ pub(super) struct LineSeries {
     /// Optional dash pattern for this series
     pub(super) dash_array: Option<StrokeDashArray>,
     /// Cache of mapped points keyed by source `(x, y)` `Arc` pointer equality.
-    pub(super) data_cache: Option<(Arc<[f64]>, Arc<[f64]>, Arc<[LinePoint]>)>,
+    pub(super) data_cache: LineDataCache,
 }
 
 /// Callback type for legend click events

@@ -303,10 +303,7 @@ impl AuTextSystemState {
         } else {
             bitmap_size.width.0 as usize * bitmap_size.height.0 as usize
         };
-        let mut bitmap = Vec::with_capacity(needed);
-        // SAFETY: every byte in [0, needed) is initialized by the
-        // copy_from_slice calls below before the Vec is returned.
-        unsafe { bitmap.set_len(needed) };
+        let mut bitmap = vec![0; needed];
 
         let req_width = bitmap_size.width.0 as usize;
         let req_height = bitmap_size.height.0 as usize;

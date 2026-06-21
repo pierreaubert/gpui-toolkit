@@ -545,7 +545,7 @@ impl ShowcaseApp {
         let last_ok = self
             .last_sample
             .as_ref()
-            .map_or(true, |(_, s)| s.count == 0);
+            .is_none_or(|(_, s)| s.count == 0);
 
         div()
             .id("alloc-overlay")
@@ -681,7 +681,7 @@ impl Render for ShowcaseApp {
         // Detect window resize and sample allocations triggered by it.
         let resized = self
             .last_window_size
-            .map_or(false, |last| last != bounds.size);
+            .is_some_and(|last| last != bounds.size);
         self.last_window_size = Some(bounds.size);
         if resized {
             self.record_sample("resize");

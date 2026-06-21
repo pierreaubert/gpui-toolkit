@@ -7,6 +7,7 @@ use super::misc::format_log_tick;
 use super::misc::generate_log_ticks;
 use super::types::LegendClickCallback;
 use super::types::LegendPosition;
+use super::types::LineDataCache;
 use super::types::LineSeries;
 use crate::error::ChartError;
 use crate::{
@@ -33,13 +34,12 @@ use std::sync::Arc;
 fn cached_line_points(
     x: &Arc<[f64]>,
     y: &Arc<[f64]>,
-    cache: &mut Option<(Arc<[f64]>, Arc<[f64]>, Arc<[LinePoint]>)>,
+    cache: &mut LineDataCache,
 ) -> Arc<[LinePoint]> {
-    if let Some((cached_x, cached_y, cached_points)) = cache {
-        if Arc::ptr_eq(x, cached_x) && Arc::ptr_eq(y, cached_y) {
+    if let Some((cached_x, cached_y, cached_points)) = cache
+        && Arc::ptr_eq(x, cached_x) && Arc::ptr_eq(y, cached_y) {
             return cached_points.clone();
         }
-    }
 
     let mut points = Vec::with_capacity(x.len().min(y.len()));
     points.extend(x.iter().zip(y.iter()).map(|(&x, &y)| LinePoint::new(x, y)));
@@ -91,7 +91,7 @@ pub struct LineChart {
     /// Optional dash pattern for the primary series
     pub(super) dash_array: Option<StrokeDashArray>,
     /// Cache of mapped primary points keyed by source `(x, y)` `Arc` pointer equality.
-    pub(super) primary_data_cache: Option<(Arc<[f64]>, Arc<[f64]>, Arc<[LinePoint]>)>,
+    pub(super) primary_data_cache: LineDataCache,
 }
 
 impl std::fmt::Debug for LineChart {

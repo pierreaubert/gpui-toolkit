@@ -382,7 +382,7 @@ mod tests {
         // Config (priority 0.5) should collapse before Output (priority 0.6)
         let config = solved.find("config").unwrap();
         assert!(!config.visible);
-        assert_eq!(config.collapse_label.as_deref(), Some("Config"));
+        assert_eq!(config.collapse_label, Some("Config"));
 
         let output = solved.find("output").unwrap();
         assert!(output.visible);

@@ -74,7 +74,6 @@ impl GridData {
     }
 
     /// Iterate over the grid rows as borrowed slices.
-    #[must_use]
     pub fn rows(&self) -> impl Iterator<Item = &[f64]> {
         self.values.chunks(self.width)
     }

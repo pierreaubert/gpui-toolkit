@@ -265,7 +265,7 @@ pub fn render_tick_row(
                 .flex_1()
                 .h(px(major_height))
                 .relative()
-                .children(ticks.into_iter().map(move |tick| {
+                .children(ticks.iter().map(move |tick| {
                     let height = if tick.is_major {
                         major_height
                     } else {

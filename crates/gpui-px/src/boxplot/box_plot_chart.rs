@@ -612,6 +612,15 @@ pub fn boxplot(x: &[f64], y: &[f64]) -> BoxPlotChart {
     }
 }
 
+/// Append a rectangle outline to a GPUI path builder.
+fn add_rect_to_path(builder: &mut PathBuilder, x: f32, y: f32, width: f32, height: f32) {
+    builder.move_to(point(px(x), px(y)));
+    builder.line_to(point(px(x + width), px(y)));
+    builder.line_to(point(px(x + width), px(y + height)));
+    builder.line_to(point(px(x), px(y + height)));
+    builder.line_to(point(px(x), px(y)));
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -626,13 +635,4 @@ mod tests {
         assert!(Arc::ptr_eq(&chart.x, &cloned.x));
         assert!(Arc::ptr_eq(&chart.y, &cloned.y));
     }
-}
-
-/// Append a rectangle outline to a GPUI path builder.
-fn add_rect_to_path(builder: &mut PathBuilder, x: f32, y: f32, width: f32, height: f32) {
-    builder.move_to(point(px(x), px(y)));
-    builder.line_to(point(px(x + width), px(y)));
-    builder.line_to(point(px(x + width), px(y + height)));
-    builder.line_to(point(px(x), px(y + height)));
-    builder.line_to(point(px(x), px(y)));
 }

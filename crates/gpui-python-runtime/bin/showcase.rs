@@ -61,6 +61,6 @@ fn main() {
         MiniAppConfig::new("Python Showcase")
             .with_theme(true)
             .scrollable(false),
-        |cx| cx.new(|cx| PythonIrShowcase::new_loading(cx)),
+        |cx| cx.new(PythonIrShowcase::new_loading),
     );
 }

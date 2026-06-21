@@ -440,7 +440,7 @@ impl Element for SurfaceElement {
             if self
                 .paint_cache
                 .as_ref()
-                .map_or(true, |c| c.generation != generation)
+                .is_none_or(|c| c.generation != generation)
             {
                 let projection = self.create_projection(&bounds);
 

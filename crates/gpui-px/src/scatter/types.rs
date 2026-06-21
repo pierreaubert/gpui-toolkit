@@ -3,6 +3,8 @@
 use d3rs::shape::ScatterPoint;
 use std::sync::Arc;
 
+pub(super) type ScatterDataCache = Option<(Arc<[f64]>, Arc<[f64]>, Arc<[ScatterPoint]>)>;
+
 /// A single series in a scatter chart
 #[derive(Debug, Clone)]
 pub(super) struct ScatterSeries {
@@ -13,5 +15,5 @@ pub(super) struct ScatterSeries {
     pub(super) point_radius: f32,
     pub(super) opacity: f32,
     /// Cache of mapped points keyed by source `(x, y)` `Arc` pointer equality.
-    pub(super) data_cache: Option<(Arc<[f64]>, Arc<[f64]>, Arc<[ScatterPoint]>)>,
+    pub(super) data_cache: ScatterDataCache,
 }

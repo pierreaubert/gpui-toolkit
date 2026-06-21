@@ -17,7 +17,7 @@ pub(super) fn rgba(hex: u32, alpha: f32) -> Rgba {
 
 thread_local! {
     /// Reusable scratch buffer for formatting log tick labels.
-    static TICK_LABEL_BUF: RefCell<String> = RefCell::new(String::new());
+    static TICK_LABEL_BUF: RefCell<String> = const { RefCell::new(String::new()) };
 }
 
 /// Format tick labels for log scales with k/M suffixes into `buf`.

@@ -59,7 +59,7 @@ fn main() {
             node.width,
             node.height,
             node.visible,
-            node.active_tier.as_deref().unwrap_or("-")
+            node.active_tier.unwrap_or("-")
         );
     }
 }

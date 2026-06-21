@@ -17,6 +17,9 @@ use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::sync::{Arc, Mutex, OnceLock};
 
+type VecPairCache = Mutex<HashMap<usize, (Vec<f64>, Vec<f64>)>>;
+type VecF64Cache = Mutex<HashMap<(usize, usize), Vec<f64>>>;
+
 pub(super) fn showcase_section_for_story_id(story_id: &str) -> Option<ShowcaseSection> {
     Some(match story_id {
         "ui-kit.buttons" => ShowcaseSection::Buttons,
@@ -157,7 +160,7 @@ fn scatter_story_data_inner(count: usize) -> (Vec<f64>, Vec<f64>) {
 }
 
 pub(super) fn scatter_story_data(count: usize) -> (Vec<f64>, Vec<f64>) {
-    static CACHE: OnceLock<Mutex<HashMap<usize, (Vec<f64>, Vec<f64>)>>> = OnceLock::new();
+    static CACHE: OnceLock<VecPairCache> = OnceLock::new();
     let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
     let mut guard = cache.lock().unwrap();
     guard
@@ -181,7 +184,7 @@ fn scalar_field_data_inner(width: usize, height: usize) -> Vec<f64> {
 }
 
 pub(super) fn scalar_field_data(width: usize, height: usize) -> Vec<f64> {
-    static CACHE: OnceLock<Mutex<HashMap<(usize, usize), Vec<f64>>>> = OnceLock::new();
+    static CACHE: OnceLock<VecF64Cache> = OnceLock::new();
     let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
     let mut guard = cache.lock().unwrap();
     guard
@@ -209,7 +212,7 @@ fn boxplot_story_data_inner(groups: usize) -> (Vec<f64>, Vec<f64>) {
 }
 
 pub(super) fn boxplot_story_data(groups: usize) -> (Vec<f64>, Vec<f64>) {
-    static CACHE: OnceLock<Mutex<HashMap<usize, (Vec<f64>, Vec<f64>)>>> = OnceLock::new();
+    static CACHE: OnceLock<VecPairCache> = OnceLock::new();
     let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
     let mut guard = cache.lock().unwrap();
     guard
@@ -273,7 +276,7 @@ fn treemap_story_data_inner() -> TreemapNode {
 }
 
 thread_local! {
-    static TREEMAP_CACHE: RefCell<Option<TreemapNode>> = RefCell::new(None);
+    static TREEMAP_CACHE: RefCell<Option<TreemapNode>> = const { RefCell::new(None) };
 }
 
 pub(super) fn treemap_story_data() -> TreemapNode {

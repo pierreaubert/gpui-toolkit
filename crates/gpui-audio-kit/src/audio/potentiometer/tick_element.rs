@@ -67,6 +67,7 @@ thread_local! {
         RefCell::new(HashMap::new());
 }
 
+#[allow(clippy::too_many_arguments)]
 /// Compute or retrieve cached tick geometry for the given parameters.
 pub(super) fn get_tick_geometry(
     min: f64,
@@ -117,6 +118,7 @@ pub(super) fn get_tick_geometry(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_tick_geometry(
     min: f64,
     max: f64,
@@ -357,16 +359,14 @@ impl Element for PotentiometerTickLinesElement {
             }
         }
 
-        if has_major {
-            if let Ok(path) = major_path.build() {
+        if has_major
+            && let Ok(path) = major_path.build() {
                 window.paint_path(path, self.major_tick_color);
             }
-        }
-        if has_minor {
-            if let Ok(path) = minor_path.build() {
+        if has_minor
+            && let Ok(path) = minor_path.build() {
                 window.paint_path(path, self.minor_tick_color);
             }
-        }
     }
 }
 

@@ -112,11 +112,10 @@ impl<P: Projection> GeoPath<P> {
             return;
         }
 
-        if let Some(((min_lon, min_lat), (max_lon, max_lat))) = self.projection.clip_extent() {
-            if lon < min_lon || lon > max_lon || lat < min_lat || lat > max_lat {
+        if let Some(((min_lon, min_lat), (max_lon, max_lat))) = self.projection.clip_extent()
+            && (lon < min_lon || lon > max_lon || lat < min_lat || lat > max_lat) {
                 return;
             }
-        }
         let (x, y) = self.projection.project(lon, lat);
         let r = self.config.point_radius;
         let d = self.config.digits;
@@ -545,15 +544,15 @@ fn unwrap_longitudes(coords: &[(f64, f64)], center_lon: f64) -> Vec<(f64, f64)> 
     out.push((first_lon, coords[0].1));
     let mut prev_lon = first_lon;
 
-    for i in 1..coords.len() {
-        let mut lon = principal_longitude(coords[i].0, center_lon);
+    for coord in coords.iter().skip(1) {
+        let mut lon = principal_longitude(coord.0, center_lon);
         let delta = lon - prev_lon;
         if delta > 180.0 {
             lon -= 360.0;
         } else if delta < -180.0 {
             lon += 360.0;
         }
-        out.push((lon, coords[i].1));
+        out.push((lon, coord.1));
         prev_lon = lon;
     }
 
@@ -618,7 +617,7 @@ const BOUNDARY_EPS: f64 = 1e-9;
 
 fn is_antimeridian_boundary(lon: f64, center_lon: f64) -> bool {
     let r = ((lon - (center_lon + 180.0)) % 360.0 + 360.0) % 360.0;
-    r < BOUNDARY_EPS || r > 360.0 - BOUNDARY_EPS
+    !(BOUNDARY_EPS..=360.0 - BOUNDARY_EPS).contains(&r)
 }
 
 /// Split a polygon ring at every periodic longitude boundary it strictly
@@ -1382,7 +1381,7 @@ fn circle_segment_intersection(
     let t1 = (-b - sqrt_disc) / (2.0 * a);
     let t2 = (-b + sqrt_disc) / (2.0 * a);
 
-    let t = if t1 >= 0.0 && t1 <= 1.0 { t1 } else { t2 };
+    let t = if (0.0..=1.0).contains(&t1) { t1 } else { t2 };
     (p1.0 + t * dx, p1.1 + t * dy)
 }
 

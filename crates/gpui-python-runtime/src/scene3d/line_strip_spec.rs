@@ -35,7 +35,6 @@ impl LineStripSpec {
         validate_positive_f32(self.width, "line_strip.width")
     }
 
-    #[must_use]
     pub fn to_segments(&self) -> impl Iterator<Item = LineSegmentSpec> + '_ {
         self.points.windows(2).map(move |pair| LineSegmentSpec {
             from: pair[0],

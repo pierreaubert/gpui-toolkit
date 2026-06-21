@@ -162,10 +162,10 @@ impl TabsEntity {
         window: &mut Window,
         _cx: &mut Context<Self>,
     ) {
-        if let Some(tab_id) = self.tab_ids.get(index) {
-            if let Some(ref handler) = self.props.on_close {
-                handler(tab_id, window, _cx);
-            }
+        if let Some(tab_id) = self.tab_ids.get(index)
+            && let Some(ref handler) = self.props.on_close
+        {
+            handler(tab_id, window, _cx);
         }
     }
 
@@ -640,10 +640,10 @@ impl RenderOnce for Tabs {
 
         let entity: Entity<TabsEntity> = TABS_ENTITIES.with(|map| {
             let mut map = map.borrow_mut();
-            if let Some(weak) = map.get(&id) {
-                if let Some(entity) = weak.upgrade() {
-                    return entity;
-                }
+            if let Some(weak) = map.get(&id)
+                && let Some(entity) = weak.upgrade()
+            {
+                return entity;
             }
             let entity = cx.new(|_cx| TabsEntity {
                 props: Tabs::new(id.clone()),

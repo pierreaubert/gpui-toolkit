@@ -2,6 +2,7 @@ use super::{NumberEditState, NumberInput};
 use gpui::SharedString;
 
 #[test]
+#[allow(clippy::approx_constant)]
 fn format_value_str_without_unit() {
     assert_eq!(NumberInput::format_value_str(3.14159, 2, None), "3.14");
     assert_eq!(NumberInput::format_value_str(42.0, 0, None), "42");

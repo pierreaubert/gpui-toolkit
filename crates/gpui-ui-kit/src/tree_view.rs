@@ -176,6 +176,7 @@ impl TreeView {
         self
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn render_nodes<F>(
         nodes: &[TreeNode],
         depth: usize,

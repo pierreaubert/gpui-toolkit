@@ -431,8 +431,8 @@ mod tests {
         assert!(Arc::ptr_eq(&chart.x, &cloned.x));
         assert!(Arc::ptr_eq(&chart.y, &cloned.y));
         assert!(Arc::ptr_eq(
-            &chart.y0.as_ref().unwrap(),
-            &cloned.y0.as_ref().unwrap()
+            chart.y0.as_ref().unwrap(),
+            cloned.y0.as_ref().unwrap()
         ));
     }
 }

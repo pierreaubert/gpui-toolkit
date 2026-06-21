@@ -257,9 +257,9 @@ impl Force for ForceManyBody {
             let mut tree = QuadTree::from_data(&positions, |p| p.1, |p| p.2);
             tree.compute_aggregates();
 
-            for i in 0..n {
+            for (i, node_rc) in nodes.iter().enumerate().take(n) {
                 let (target_x, target_y) = {
-                    let node = nodes[i].borrow();
+                    let node = node_rc.borrow();
                     (node.x, node.y)
                 };
 

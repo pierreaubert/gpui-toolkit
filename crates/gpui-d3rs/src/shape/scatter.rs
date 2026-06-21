@@ -235,13 +235,12 @@ where
                 }
             }
 
-            if fill_count > 0 {
-                if let Ok(path) = fill_builder.build() {
+            if fill_count > 0
+                && let Ok(path) = fill_builder.build() {
                     let mut fill_color = fill;
                     fill_color.a *= opacity;
                     window.paint_path(path, fill_color);
                 }
-            }
         },
     )
     .size_full()

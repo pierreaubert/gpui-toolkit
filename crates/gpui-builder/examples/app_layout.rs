@@ -57,7 +57,7 @@ fn print_solved(solved: &gpui_builder::SolvedNode, indent: usize) {
     } else {
         "collapsed"
     };
-    let tier = solved.active_tier.as_deref().unwrap_or("-");
+    let tier = solved.active_tier.unwrap_or("-");
     let axis = match solved.resolved_axis {
         Some(Axis::Horizontal) => " [H]",
         Some(Axis::Vertical) => " [V]",

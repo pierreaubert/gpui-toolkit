@@ -12,6 +12,8 @@ use crate::shape::path::Point;
 use std::cell::RefCell;
 use std::rc::Rc;
 
+type VisitedCache = Option<(usize, usize, Vec<bool>)>;
+
 /// Contour generator using the marching squares algorithm.
 ///
 /// # Example
@@ -56,7 +58,7 @@ pub struct ContourGenerator {
     /// Interpolate explicit y values in log space when possible
     pub(super) y_log_interpolation: bool,
     /// Cached `visited` buffer keyed by grid size, reused across `contour` calls.
-    visited_cache: Rc<RefCell<Option<(usize, usize, Vec<bool>)>>>,
+    visited_cache: Rc<RefCell<VisitedCache>>,
     /// Reusable buffer for upsampled scalar-field values.
     upsampled_buf: Rc<RefCell<Vec<f64>>>,
     /// Reusable point buffer for band polygon fragments.
@@ -228,8 +230,8 @@ impl ContourGenerator {
     fn with_upsampled<R>(&self, values: &[f64], f: impl FnOnce(&Self, &[f64]) -> R) -> R {
         if self.upsample_factor > 1 {
             let mut buf = self.upsampled_buf.borrow_mut();
-            if let Some(generator) = self.upsampled_into(values, &mut *buf) {
-                return f(&generator, &*buf);
+            if let Some(generator) = self.upsampled_into(values, &mut buf) {
+                return f(&generator, &buf);
             }
         }
         f(self, values)
@@ -737,8 +739,7 @@ impl ContourGenerator {
             for i in 0..self.width - 1 {
                 if let Some(n) =
                     self.cell_band_polygon(values, i, j, lower, upper, &mut points, &mut crossings)
-                {
-                    if n >= 3 {
+                    && n >= 3 {
                         let mut ring = Vec::with_capacity(n + 1);
                         ring.extend_from_slice(&points[..n]);
                         if !points_equal(&ring[0], &ring[n - 1]) {
@@ -746,7 +747,6 @@ impl ContourGenerator {
                         }
                         band.polygons.push(ContourRing::new(ring));
                     }
-                }
             }
         }
 

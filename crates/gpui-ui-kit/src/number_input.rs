@@ -848,10 +848,10 @@ impl RenderOnce for NumberInput {
 
         let entity: Entity<NumberInputEntity> = NUMBER_INPUT_ENTITIES.with(|map| {
             let mut map = map.borrow_mut();
-            if let Some(weak) = map.get(&id) {
-                if let Some(entity) = weak.upgrade() {
-                    return entity;
-                }
+            if let Some(weak) = map.get(&id)
+                && let Some(entity) = weak.upgrade()
+            {
+                return entity;
             }
             let entity = cx.new(|_cx| NumberInputEntity {
                 props: NumberInput::new(id.clone()),

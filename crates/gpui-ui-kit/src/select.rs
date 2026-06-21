@@ -289,17 +289,17 @@ impl Select {
         // re-registration only happens when the id first appears.
         let needs_focus_sub =
             SELECT_FOCUS_SUBS.with(|subs| !subs.borrow().contains_key(&dropdown_id));
-        if needs_focus_sub {
-            if let Some(ref toggle_handler) = on_toggle_rc {
-                let toggle_for_blur = toggle_handler.clone();
-                let sub = window.on_focus_out(&focus_handle, cx, move |_event, window, cx| {
-                    toggle_for_blur(false, window, cx);
-                });
-                SELECT_FOCUS_SUBS.with(|subs| {
-                    let mut subs = subs.borrow_mut();
-                    subs.insert(dropdown_id.clone(), sub);
-                });
-            }
+        if needs_focus_sub
+            && let Some(ref toggle_handler) = on_toggle_rc
+        {
+            let toggle_for_blur = toggle_handler.clone();
+            let sub = window.on_focus_out(&focus_handle, cx, move |_event, window, cx| {
+                toggle_for_blur(false, window, cx);
+            });
+            SELECT_FOCUS_SUBS.with(|subs| {
+                let mut subs = subs.borrow_mut();
+                subs.insert(dropdown_id.clone(), sub);
+            });
         }
 
         let currently_open = self.is_open;

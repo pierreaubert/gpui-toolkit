@@ -277,10 +277,10 @@ fn compute_bidi_levels(s: &str) -> Option<Vec<i8>> {
 pub fn compute_segment_levels(normalized: &str, seg_starts: &[usize]) -> Option<Vec<i8>> {
     let bidi_levels = BIDI_LEVELS_CACHE.with(|cache| {
         let mut cache = cache.borrow_mut();
-        if let Some((ref cached_text, ref levels)) = *cache {
-            if cached_text == normalized {
-                return Some(levels.clone());
-            }
+        if let Some((ref cached_text, ref levels)) = *cache
+            && cached_text == normalized
+        {
+            return Some(levels.clone());
         }
         let levels = compute_bidi_levels(normalized)?;
         *cache = Some((normalized.to_string(), levels.clone()));

@@ -354,10 +354,10 @@ impl InputEntity {
         state.start_selection(char_pos);
         drop(state);
 
-        if !was_editing {
-            if let Some(ref handler) = self.props.on_edit_start {
-                handler(window, cx);
-            }
+        if !was_editing
+            && let Some(ref handler) = self.props.on_edit_start
+        {
+            handler(window, cx);
         }
         window.refresh();
     }
@@ -955,10 +955,10 @@ impl RenderOnce for Input {
 
         let entity: Entity<InputEntity> = INPUT_ENTITIES.with(|map| {
             let mut map = map.borrow_mut();
-            if let Some(weak) = map.get(&id) {
-                if let Some(entity) = weak.upgrade() {
-                    return entity;
-                }
+            if let Some(weak) = map.get(&id)
+                && let Some(entity) = weak.upgrade()
+            {
+                return entity;
             }
             let entity = cx.new(|_cx| InputEntity {
                 props: Input::new(id.clone()),

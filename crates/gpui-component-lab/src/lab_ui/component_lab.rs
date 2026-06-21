@@ -1299,9 +1299,9 @@ impl ComponentLab {
         let viewport = self.selected_viewport();
         let theme_preset = self.selected_theme_preset();
         let motion_preset = self.selected_motion_preset();
-        let preview_design = design_for_theme_preset(&theme_preset);
+        let preview_design = design_for_theme_preset(theme_preset);
         let constraints = self.layout_constraints;
-        let (frame_width, frame_height) = constraints.frame_dimensions(&viewport);
+        let (frame_width, frame_height) = constraints.frame_dimensions(viewport);
         let scope = story.id.as_str();
 
         div()
@@ -3036,7 +3036,7 @@ impl ComponentLab {
         let last_ok = self
             .last_sample
             .as_ref()
-            .map_or(true, |(_, s)| s.count == 0);
+            .is_none_or(|(_, s)| s.count == 0);
 
         div()
             .id("alloc-overlay")
@@ -3096,7 +3096,7 @@ impl Render for ComponentLab {
         let current_size = window.bounds().size;
         let resized = self
             .last_window_size
-            .map_or(false, |last| last != current_size);
+            .is_some_and(|last| last != current_size);
         self.last_window_size = Some(current_size);
         if resized {
             self.record_sample("resize");
@@ -3200,7 +3200,7 @@ impl Render for ComponentLab {
             .on_mouse_move({
                 let entity = entity.clone();
                 move |_event, _window, cx| {
-                    let _ = entity.update(cx, |this, _cx| {
+                    entity.update(cx, |this, _cx| {
                         this.last_mouse_move_alloc = this.record_sample("mouse-move");
                     });
                 }
@@ -3208,7 +3208,7 @@ impl Render for ComponentLab {
             .on_mouse_down(MouseButton::Left, {
                 let entity = entity.clone();
                 move |_event, _window, cx| {
-                    let _ = entity.update(cx, |this, _cx| {
+                    entity.update(cx, |this, _cx| {
                         this.record_sample("mouse-down");
                     });
                 }
@@ -3216,7 +3216,7 @@ impl Render for ComponentLab {
             .on_mouse_up(MouseButton::Left, {
                 let entity = entity.clone();
                 move |_event, _window, cx| {
-                    let _ = entity.update(cx, |this, _cx| {
+                    entity.update(cx, |this, _cx| {
                         this.record_sample("mouse-up");
                     });
                 }
@@ -3224,7 +3224,7 @@ impl Render for ComponentLab {
             .on_scroll_wheel({
                 let entity = entity.clone();
                 move |_event, _window, cx| {
-                    let _ = entity.update(cx, |this, _cx| {
+                    entity.update(cx, |this, _cx| {
                         this.record_sample("scroll");
                     });
                 }

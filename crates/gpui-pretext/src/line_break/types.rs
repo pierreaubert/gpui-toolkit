@@ -39,6 +39,8 @@ thread_local! {
     static KP_DEACTIVATE_SCRATCH: RefCell<Vec<usize>> = const { RefCell::new(Vec::new()) };
 }
 
+pub(crate) type KpItemCache<'a> = Option<&'a RefCell<HashMap<KpItemCacheKey, Arc<[KPItem]>>>>;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LineBreakCursor {
     pub segment_index: usize,
@@ -68,7 +70,7 @@ pub struct PreparedLineBreakData<'a> {
     /// Optional cache for Knuth-Plass breakpoint candidate lists. This is
     /// populated by production paths and left as `None` in manually-constructed
     /// test fixtures.
-    pub(crate) kp_item_cache: Option<&'a RefCell<HashMap<KpItemCacheKey, Arc<[KPItem]>>>>,
+    pub(crate) kp_item_cache: KpItemCache<'a>,
 }
 
 impl<'a> PreparedLineBreakData<'a> {
@@ -281,10 +283,10 @@ pub(super) fn build_kp_items(
         prefer_prefix_widths: profile.prefer_prefix_widths_for_breakable_runs,
     };
 
-    if let Some(cache) = prepared.kp_item_cache {
-        if let Some(cached) = cache.borrow().get(&cache_key) {
-            return Arc::clone(cached);
-        }
+    if let Some(cache) = prepared.kp_item_cache
+        && let Some(cached) = cache.borrow().get(&cache_key)
+    {
+        return Arc::clone(cached);
     }
 
     let mut items = Vec::new();

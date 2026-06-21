@@ -938,6 +938,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::approx_constant)]
     fn format_value_only_respects_units() {
         let pot_pct = Potentiometer::new("test")
             .value(75.0)

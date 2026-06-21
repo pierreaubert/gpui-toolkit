@@ -355,10 +355,10 @@ impl SliderEntity {
         window: &mut Window,
         _cx: &mut Context<Self>,
     ) {
-        if event.click_count() == 2 {
-            if let Some(ref handler) = self.props.on_reset {
-                handler(window, _cx);
-            }
+        if event.click_count() == 2
+            && let Some(ref handler) = self.props.on_reset
+        {
+            handler(window, _cx);
         }
     }
 
@@ -625,10 +625,10 @@ impl RenderOnce for Slider {
         let id = self.id.clone();
         let entity = SLIDER_ENTITIES.with(|map| {
             let mut map = map.borrow_mut();
-            if let Some(weak) = map.get(&id) {
-                if let Some(entity) = weak.upgrade() {
-                    return entity;
-                }
+            if let Some(weak) = map.get(&id)
+                && let Some(entity) = weak.upgrade()
+            {
+                return entity;
             }
             let entity = cx.new(|cx| SliderEntity {
                 props: Slider::new(id.clone()),

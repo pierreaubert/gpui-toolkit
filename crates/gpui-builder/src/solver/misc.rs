@@ -29,8 +29,11 @@ pub struct TextMeasureCache {
     /// `measure_ptr` → `text` → prepared text with segment strings.
     prepared_horizontal: HashMap<usize, HashMap<Arc<str>, PreparedTextWithSegments>>,
     /// `(measure_ptr, cross_size, line_height, axis)` → `text` → computed size.
-    sizes: HashMap<(usize, u32, u32, Axis), HashMap<Arc<str>, f32>>,
+    sizes: HashMap<TextSizeKey, TextSizeMap>,
 }
+
+pub(crate) type TextSizeKey = (usize, u32, u32, Axis);
+pub(crate) type TextSizeMap = HashMap<Arc<str>, f32>;
 
 impl TextMeasureCache {
     /// Create a new, empty text-measurement cache.
@@ -101,10 +104,10 @@ pub(super) fn compute_text_size<'a>(
 
     // Fast-path: probe the size cache using the borrowed `&str` key so cache
     // hits do not allocate an `Arc<str>`.
-    if let Some(by_text) = cache.sizes.get(&params_key) {
-        if let Some(&size) = by_text.get(input.text) {
-            return size.max(input.min);
-        }
+    if let Some(by_text) = cache.sizes.get(&params_key)
+        && let Some(&size) = by_text.get(input.text)
+    {
+        return size.max(input.min);
     }
 
     // Size is not cached; prepare the text (reusing any cached `PreparedText`).

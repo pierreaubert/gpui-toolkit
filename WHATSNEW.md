@@ -1,4 +1,6 @@
-# 9.8
+# 0.8
+
+This branch is aligned with the GPUI version of Zed 1.0.
 
 ## Design
 
@@ -6,7 +8,7 @@
 
 ## Perf
 
-- Removed most of the memory allocations in loops
+- Removed most of the memory allocations
 
 # 0.7
 

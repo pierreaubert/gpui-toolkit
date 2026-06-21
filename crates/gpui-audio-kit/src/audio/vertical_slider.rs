@@ -969,6 +969,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::approx_constant)]
     fn format_value_respects_units() {
         let slider_pct = VerticalSlider::new("test").value(0.75).unit("%");
         assert_eq!(slider_pct.format_value(), "75%");

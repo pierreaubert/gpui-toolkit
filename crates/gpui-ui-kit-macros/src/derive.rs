@@ -185,8 +185,7 @@ pub(crate) fn derive_component_theme_impl(input: TokenStream) -> TokenStream {
                     proc_macro2::Span::call_site(),
                     "ComponentTheme only supports structs with named fields",
                 )
-                .to_compile_error()
-                .into();
+                .to_compile_error();
             }
         },
         _ => {
@@ -194,8 +193,7 @@ pub(crate) fn derive_component_theme_impl(input: TokenStream) -> TokenStream {
                 proc_macro2::Span::call_site(),
                 "ComponentTheme only supports structs",
             )
-            .to_compile_error()
-            .into();
+            .to_compile_error();
         }
     };
 
@@ -227,8 +225,7 @@ pub(crate) fn derive_component_theme_impl(input: TokenStream) -> TokenStream {
                 proc_macro2::Span::call_site(),
                 format!("Invalid theme_path: {e}"),
             )
-            .to_compile_error()
-            .into();
+            .to_compile_error();
         }
     };
 
@@ -239,8 +236,7 @@ pub(crate) fn derive_component_theme_impl(input: TokenStream) -> TokenStream {
                 proc_macro2::Span::call_site(),
                 format!("Invalid gpui_path: {e}"),
             )
-            .to_compile_error()
-            .into();
+            .to_compile_error();
         }
     };
 
@@ -520,8 +516,7 @@ pub(crate) fn derive_component_builder_impl(input: TokenStream) -> TokenStream {
                     proc_macro2::Span::call_site(),
                     "ComponentBuilder only supports structs with named fields",
                 )
-                .to_compile_error()
-                .into();
+                .to_compile_error();
             }
         },
         _ => {
@@ -529,8 +524,7 @@ pub(crate) fn derive_component_builder_impl(input: TokenStream) -> TokenStream {
                 proc_macro2::Span::call_site(),
                 "ComponentBuilder only supports structs",
             )
-            .to_compile_error()
-            .into();
+            .to_compile_error();
         }
     };
 

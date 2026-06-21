@@ -60,11 +60,11 @@ fn build_merged_segmentation(
                 && is_text
                 && merged_len > 0
                 && merged_kinds[merged_len - 1] == SegmentBreakKind::Text
-                && is_cjk(&piece.text)
+                && is_cjk(piece.text)
                 && is_cjk(&merged_texts[merged_len - 1])
                 && ends_with_closing_quote(&merged_texts[merged_len - 1])
             {
-                merged_texts[merged_len - 1].push_str(&piece.text);
+                merged_texts[merged_len - 1].push_str(piece.text);
                 merged_word_like[merged_len - 1] =
                     merged_word_like[merged_len - 1] || piece.is_word_like;
                 continue;
@@ -74,10 +74,10 @@ fn build_merged_segmentation(
             if is_text
                 && merged_len > 0
                 && merged_kinds[merged_len - 1] == SegmentBreakKind::Text
-                && is_cjk_line_start_prohibited_segment(&piece.text)
+                && is_cjk_line_start_prohibited_segment(piece.text)
                 && is_cjk(&merged_texts[merged_len - 1])
             {
-                merged_texts[merged_len - 1].push_str(&piece.text);
+                merged_texts[merged_len - 1].push_str(piece.text);
                 merged_word_like[merged_len - 1] =
                     merged_word_like[merged_len - 1] || piece.is_word_like;
                 continue;
@@ -89,7 +89,7 @@ fn build_merged_segmentation(
                 && merged_kinds[merged_len - 1] == SegmentBreakKind::Text
                 && ends_with_myanmar_medial_glue(&merged_texts[merged_len - 1])
             {
-                merged_texts[merged_len - 1].push_str(&piece.text);
+                merged_texts[merged_len - 1].push_str(piece.text);
                 merged_word_like[merged_len - 1] =
                     merged_word_like[merged_len - 1] || piece.is_word_like;
                 continue;
@@ -100,10 +100,10 @@ fn build_merged_segmentation(
                 && piece.is_word_like
                 && merged_len > 0
                 && merged_kinds[merged_len - 1] == SegmentBreakKind::Text
-                && contains_arabic_script(&piece.text)
+                && contains_arabic_script(piece.text)
                 && ends_with_arabic_no_space_punctuation(&merged_texts[merged_len - 1])
             {
-                merged_texts[merged_len - 1].push_str(&piece.text);
+                merged_texts[merged_len - 1].push_str(piece.text);
                 merged_word_like[merged_len - 1] = true;
                 continue;
             }
@@ -120,7 +120,7 @@ fn build_merged_segmentation(
                     && ch != '\u{2014}'
                     && is_repeated_single_char_run(&merged_texts[merged_len - 1], ch)
                 {
-                    merged_texts[merged_len - 1].push_str(&piece.text);
+                    merged_texts[merged_len - 1].push_str(piece.text);
                     continue;
                 }
             }
@@ -130,10 +130,10 @@ fn build_merged_segmentation(
                 && !piece.is_word_like
                 && merged_len > 0
                 && merged_kinds[merged_len - 1] == SegmentBreakKind::Text
-                && (is_left_sticky_punctuation_segment(&piece.text)
+                && (is_left_sticky_punctuation_segment(piece.text)
                     || (piece.text == "-" && merged_word_like[merged_len - 1]))
             {
-                merged_texts[merged_len - 1].push_str(&piece.text);
+                merged_texts[merged_len - 1].push_str(piece.text);
                 continue;
             }
 

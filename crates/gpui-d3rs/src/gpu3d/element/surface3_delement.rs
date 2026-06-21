@@ -291,7 +291,7 @@ impl Surface3DElement {
             .geometry_cache
             .borrow()
             .as_ref()
-            .map_or(false, |c| c.key == key)
+            .is_some_and(|c| c.key == key)
         {
             return;
         }
@@ -587,8 +587,8 @@ impl Surface3DElement {
         // Reuse the cached image if the key and dimensions match.
         {
             let cache = self.surface_cache.borrow();
-            if let Some(cache) = cache.as_ref() {
-                if cache.key == key && cache.width == width_u32 && cache.height == height_u32 {
+            if let Some(cache) = cache.as_ref()
+                && cache.key == key && cache.width == width_u32 && cache.height == height_u32 {
                     let _ = window.paint_image(
                         bounds,
                         Corners::default(),
@@ -598,7 +598,6 @@ impl Surface3DElement {
                     );
                     return;
                 }
-            }
         }
 
         // Render to texture and cache the result.
@@ -616,8 +615,8 @@ impl Surface3DElement {
                 None
             };
 
-            if let Some(pixels) = renderer.render_transparent(camera, log_settings) {
-                if let Some(rgba_image) = RgbaImage::from_raw(width_u32, height_u32, pixels) {
+            if let Some(pixels) = renderer.render_transparent(camera, log_settings)
+                && let Some(rgba_image) = RgbaImage::from_raw(width_u32, height_u32, pixels) {
                     let frame = Frame::new(rgba_image);
                     let render_image = Arc::new(RenderImage::new(vec![frame]));
                     *self.surface_cache.borrow_mut() = Some(SurfaceTextureCache {
@@ -628,7 +627,6 @@ impl Surface3DElement {
                     });
                     let _ = window.paint_image(bounds, Corners::default(), render_image, 0, false);
                 }
-            }
         }
     }
 }

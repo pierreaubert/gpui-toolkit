@@ -8,6 +8,8 @@ use gpui::prelude::*;
 use gpui::*;
 use std::sync::Arc;
 
+type LinePaintInputs = (Arc<[(f32, f32)]>, Arc<[(f32, f32, f32, f32)]>, f32, f32, f32, f32);
+
 /// Curve interpolation types
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CurveType {
@@ -200,14 +202,7 @@ where
         },
         // Paint: draw clipped line segments
         move |_bounds,
-              (rel_points, segments_to_draw, width, height, origin_x, origin_y): (
-            Arc<[(f32, f32)]>,
-            Arc<[(f32, f32, f32, f32)]>,
-            f32,
-            f32,
-            f32,
-            f32,
-        ),
+              (rel_points, segments_to_draw, width, height, origin_x, origin_y): LinePaintInputs,
               window,
               _cx| {
             if segments_to_draw.is_empty() {

@@ -191,7 +191,7 @@ fn as_map_builds_flat_id_index() {
     assert_eq!(map.get("a").unwrap().width, 50.0);
     assert_eq!(map.get("b").unwrap().width, 50.0);
     assert_eq!(map.get("b1").unwrap().width, 50.0);
-    assert!(map.get("missing").is_none());
+    assert!(!map.contains_key("missing"));
 }
 
 #[test]

@@ -13,6 +13,8 @@ use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll, Waker};
 
+type SharedResult<T> = Arc<Mutex<Option<Result<T, Box<dyn Error + Send + Sync>>>>>;
+
 /// Load the Python app synchronously (blocks the calling thread).
 pub(super) fn load_python_app_blocking() -> Result<PythonAppIr, Box<dyn Error + Send + Sync>> {
     let script = env::args_os()
@@ -60,7 +62,7 @@ pub(super) fn load_python_app_blocking() -> Result<PythonAppIr, Box<dyn Error + 
 
 /// Future returned by `load_python_app_async`.
 struct BackgroundFuture<T> {
-    result: Arc<Mutex<Option<Result<T, Box<dyn Error + Send + Sync>>>>>,
+    result: SharedResult<T>,
     waker: Arc<Mutex<Option<Waker>>>,
 }
 

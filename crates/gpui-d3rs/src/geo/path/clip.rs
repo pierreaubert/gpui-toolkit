@@ -423,7 +423,7 @@ fn circle_stream_angles(
     delta: f64,
     direction: f64,
     mut t0: f64,
-    mut t1: f64,
+    t1: f64,
 ) -> Vec<(f64, f64)> {
     if delta == 0.0 {
         return Vec::new();
@@ -432,9 +432,7 @@ fn circle_stream_angles(
     let sin_radius = radius.sin();
     let step = direction * delta;
 
-    if direction > 0.0 && t0 < t1 {
-        t0 += direction * TAU;
-    } else if direction < 0.0 && t0 > t1 {
+    if (direction > 0.0 && t0 < t1) || (direction < 0.0 && t0 > t1) {
         t0 += direction * TAU;
     }
 
@@ -774,14 +772,7 @@ impl<S: Sink> CircleClipLine<S> {
         }
 
         if v != self.v0 {
-            let mut point1m = [lambda1, phi1, m as f64];
             let point2 = circle_intersect(self.point0.unwrap(), point1, self.cr, false);
-            if point2.is_none()
-                || point_equal(self.point0.unwrap(), point2.unwrap()[0])
-                || point_equal(point1, point2.unwrap()[0])
-            {
-                point1m[2] = 1.0;
-            }
 
             self.clean = 0;
             if v {
@@ -895,12 +886,11 @@ fn polygon_contains(polygon: &[Vec<(f64, f64)>], point: (f64, f64)) -> bool {
 
         let mut point0 = ring[m - 1];
         let mut lambda0 = longitude(point0.0);
-        let mut phi0 = point0.1 / 2.0 + QUARTER_PI;
+        let phi0 = point0.1 / 2.0 + QUARTER_PI;
         let mut sin_phi0 = phi0.sin();
         let mut cos_phi0 = phi0.cos();
 
-        for j in 0..m {
-            let point1 = ring[j];
+        for point1 in ring.iter().take(m).copied() {
             let lambda1 = longitude(point1.0);
             let phi1 = point1.1 / 2.0 + QUARTER_PI;
             let sin_phi1 = phi1.sin();
@@ -932,7 +922,6 @@ fn polygon_contains(polygon: &[Vec<(f64, f64)>], point: (f64, f64)) -> bool {
 
             point0 = point1;
             lambda0 = lambda1;
-            phi0 = phi1;
             sin_phi0 = sin_phi1;
             cos_phi0 = cos_phi1;
         }
@@ -1066,8 +1055,7 @@ fn rejoin_segments(
         clip[idx].p = prev;
     }
 
-    for i in 0..clip_order.len() {
-        let idx = clip_order[i];
+    for &idx in &clip_order {
         start_inside = !start_inside;
         clip[idx].e = start_inside;
     }
@@ -1889,7 +1877,7 @@ mod tests {
                     piece.last()
                 );
                 for &(lon, lat) in piece {
-                    let (x, y) = proj.project(lon, lat);
+                    let (x, _y) = proj.project(lon, lat);
                     if x > old_max_x {
                         old_max_x = x;
                     }
@@ -1955,7 +1943,7 @@ mod tests {
                 let mut min_x = f64::MAX;
                 let mut max_x_local = f64::NEG_INFINITY;
                 for &(l, p) in piece {
-                    let (x, y) = proj.project_rotated(l, p);
+                    let (x, _y) = proj.project_rotated(l, p);
                     if x > max_x {
                         max_x = x;
                         max_pt = (l, p);
@@ -1971,7 +1959,7 @@ mod tests {
                 println!("  extreme raw points:");
                 for (k, &(l, p)) in piece.iter().enumerate() {
                     let (x, y) = proj.project_rotated(l, p);
-                    if x > 240.0 || x < -240.0 {
+                    if !(-240.0..=240.0).contains(&x) {
                         println!(
                             "    k={} raw ({:.4},{:.4}) proj ({:.3},{:.3})",
                             k,
@@ -2197,7 +2185,7 @@ mod tests {
             let mut max_pt = (0.0, 0.0);
             for piece in &pieces {
                 for &(lon, lat) in piece {
-                    let (x, y) = proj.project(lon, lat);
+                    let (_x, y) = proj.project(lon, lat);
                     if y > max_y {
                         max_y = y;
                         max_pt = (lon, lat);

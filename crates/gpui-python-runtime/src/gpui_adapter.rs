@@ -65,11 +65,10 @@ impl Gpui3DCache {
     pub fn lines_element(&mut self, spec: &LinesSpec) -> Result<Lines3DElement, Scene3DError> {
         let update = self.resources.upsert_lines(spec)?;
 
-        if update.dirty.is_unchanged() {
-            if let Some(element) = self.lines.get(&spec.id) {
+        if update.dirty.is_unchanged()
+            && let Some(element) = self.lines.get(&spec.id) {
                 return Ok(element.clone());
             }
-        }
 
         let state = match self.line_states.entry(spec.id.clone()) {
             Entry::Occupied(entry) => entry.get().clone(),

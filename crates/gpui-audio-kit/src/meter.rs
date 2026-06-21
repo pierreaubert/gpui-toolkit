@@ -606,8 +606,10 @@ mod tests {
 
     #[::core::prelude::v1::test]
     fn gradient_meter_bar_is_constructible() {
-        let mut theme = HorizontalMeterTheme::default();
-        theme.use_gradient = true;
+        let theme = HorizontalMeterTheme {
+            use_gradient: true,
+            ..Default::default()
+        };
         let _custom = render_horizontal_meter_bar_with("G", 0.5, theme.color_info, "50%", theme);
     }
 }

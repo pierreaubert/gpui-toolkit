@@ -314,7 +314,7 @@ impl Treemap {
 
                 // Cache bounds for hit testing in event handlers.
                 // We only need to do this once per paint.
-                let _ = bounds_for_paint.borrow_mut().replace(bounds.clone());
+                let _ = bounds_for_paint.borrow_mut().replace(bounds);
 
                 for (_, indices) in groups {
                     if indices.is_empty() {

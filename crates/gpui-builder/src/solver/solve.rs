@@ -735,7 +735,7 @@ mod tests {
 
         let config = solved.find("config").unwrap();
         assert!(!config.visible, "Config should collapse (lowest priority)");
-        assert_eq!(config.collapse_label.as_deref(), Some("Config"));
+        assert_eq!(config.collapse_label, Some("Config"));
 
         let output = solved.find("output").unwrap();
         assert!(output.visible);
@@ -862,14 +862,14 @@ mod tests {
         // Wide → Full tier
         let solved = solve(&root, 300.0, 600.0, &LayoutPreferences::default());
         assert_eq!(
-            solved.find("rack").unwrap().active_tier.as_deref(),
+            solved.find("rack").unwrap().active_tier,
             Some("Full")
         );
 
         // Medium → Mini tier
         let solved = solve(&root, 150.0, 600.0, &LayoutPreferences::default());
         assert_eq!(
-            solved.find("rack").unwrap().active_tier.as_deref(),
+            solved.find("rack").unwrap().active_tier,
             Some("Mini")
         );
 
@@ -901,7 +901,7 @@ mod tests {
         });
 
         let solved = solve(&root, 240.0, 48.0, &LayoutPreferences::default());
-        assert_eq!(solved.active_tier.as_deref(), Some("Full"));
+        assert_eq!(solved.active_tier, Some("Full"));
     }
 
     // ===== Preference override tests =====
@@ -1156,7 +1156,7 @@ mod tests {
 
         let rack = solved.find("rack").unwrap();
         assert!(rack.visible);
-        assert_eq!(rack.active_tier.as_deref(), Some("Full"));
+        assert_eq!(rack.active_tier, Some("Full"));
 
         // Narrow tall window → vertical
         let solved = solve(&root, 500.0, 900.0, &LayoutPreferences::default());
