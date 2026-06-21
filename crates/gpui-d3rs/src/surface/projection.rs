@@ -485,7 +485,8 @@ mod tests {
 
     #[test]
     fn test_depth_sorting() {
-        let proj = IsometricProjection::new().camera(Camera2D::new().rotation(30.0, 45.0));
+        // Use a rotation where the +Y point ends up further from the camera.
+        let proj = IsometricProjection::new().camera(Camera2D::new().rotation(30.0, 135.0));
 
         let p1 = SurfacePoint3D::new(0.0, 0.0, 0.0, 0.0);
         let p2 = SurfacePoint3D::new(0.0, 1.0, 0.0, 0.0);
