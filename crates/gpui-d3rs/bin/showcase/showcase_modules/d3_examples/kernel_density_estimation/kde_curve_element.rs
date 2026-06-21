@@ -168,9 +168,9 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                                         .top(px(y))
                                                         .w(px((x2 - x1).max(1.0)))
                                                         .h(px(bar_height))
-                                                        .bg(rgba(0xbbbbbbaa))
+                                                        .bg(Hsla::from(ui_theme.muted).opacity(0.6))
                                                         .border_1()
-                                                        .border_color(rgba(0x99999933))
+                                                        .border_color(Hsla::from(ui_theme.border).opacity(0.3))
                                                 },
                                             ))
                                         })
@@ -179,7 +179,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                             points: Arc::new(density_points.clone()),
                                             x_scale,
                                             y_scale,
-                                            color: D3Color::from_hex(0x4169e1),
+                                            color: D3Color::from_rgba(ui_theme.accent),
                                             stroke_width: 2.5,
                                             plot_width,
                                             plot_height,
@@ -192,7 +192,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                                 .bottom(px(0.0))
                                                 .w_full()
                                                 .h(px(1.0))
-                                                .bg(rgb(0x333333)),
+                                                .bg(ui_theme.border),
                                         ),
                                 )
                                 // X-axis labels
@@ -245,8 +245,9 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                         .show_value(true)
                                         .width(230.0)
                                         .on_change(move |value, _window, cx| {
-                                            entity.update(cx, |this, _| {
+                                            entity.update(cx, |this, cx| {
                                                 this.kde_bandwidth = value as f64;
+                                                cx.notify();
                                             });
                                         })
                                 })
@@ -287,9 +288,9 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                         .child({
                                             let entity = entity.clone();
                                             let bg = if show_histogram {
-                                                rgb(0x28a745)
+                                                ui_theme.success
                                             } else {
-                                                rgb(0xcccccc)
+                                                ui_theme.muted
                                             };
                                             div()
                                                 .id("histogram-toggle")
@@ -321,8 +322,9 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                         .show_value(true)
                                         .width(230.0)
                                         .on_change(move |value, _window, cx| {
-                                            entity.update(cx, |this, _| {
+                                            entity.update(cx, |this, cx| {
                                                 this.kde_bin_count = value as usize;
+                                                cx.notify();
                                             });
                                         })
                                 }),
@@ -371,9 +373,9 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                 .flex_col()
                                 .gap_2()
                                 .p_4()
-                                .bg(rgb(0x1e1e1e))
+                                .bg(ui_theme.muted)
                                 .border_1()
-                                .border_color(rgb(0x333333))
+                                .border_color(ui_theme.border)
                                 .rounded_lg()
                                 .child(
                                     div()
