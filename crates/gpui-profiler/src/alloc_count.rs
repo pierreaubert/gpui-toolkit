@@ -114,6 +114,35 @@ mod tests {
         assert_eq!(delta.count, 0);
     }
 
+    #[test]
+    fn probe_default_is_equivalent_to_new() {
+        let probe = AllocProbe::default();
+        let _ = probe;
+    }
+
+    #[test]
+    fn probe_reset_can_be_called() {
+        let mut probe = AllocProbe::new();
+        probe.reset();
+        let _ = probe.sample("after-reset");
+    }
+
+    #[cfg(not(feature = "global-allocator"))]
+    #[test]
+    fn snapshot_now_without_global_allocator_is_zero() {
+        let snapshot = AllocSnapshot::now();
+        assert_eq!(snapshot, AllocSnapshot::default());
+    }
+
+    #[test]
+    fn snapshot_delta_since_computes_difference() {
+        let start = AllocSnapshot { bytes: 3, count: 5 };
+        let delta = AllocSnapshot::delta_since(start);
+        let now = AllocSnapshot::now();
+        assert_eq!(delta.bytes, now.bytes.saturating_sub(start.bytes));
+        assert_eq!(delta.count, now.count.saturating_sub(start.count));
+    }
+
     #[cfg(feature = "global-allocator")]
     #[test]
     fn probe_detects_allocations() {

@@ -435,4 +435,173 @@ mod tests {
             cloned.y0.as_ref().unwrap()
         ));
     }
+
+    #[test]
+    fn test_area_empty_x() {
+        let result = area(&[], &[1.0, 2.0]).build();
+        assert!(matches!(result, Err(ChartError::EmptyData { field: "x" })));
+    }
+
+    #[test]
+    fn test_area_empty_y() {
+        let result = area(&[1.0, 2.0], &[]).build();
+        assert!(matches!(result, Err(ChartError::EmptyData { field: "y" })));
+    }
+
+    #[test]
+    fn test_area_length_mismatch() {
+        let result = area(&[1.0, 2.0, 3.0], &[1.0, 2.0]).build();
+        assert!(matches!(
+            result,
+            Err(ChartError::DataLengthMismatch {
+                x_field: "x",
+                y_field: "y",
+                x_len: 3,
+                y_len: 2,
+            })
+        ));
+    }
+
+    #[test]
+    fn test_area_nan_in_data() {
+        let result = area(&[1.0, f64::NAN], &[1.0, 2.0]).build();
+        assert!(matches!(
+            result,
+            Err(ChartError::InvalidData {
+                field: "x",
+                reason: "contains NaN or Infinity"
+            })
+        ));
+    }
+
+    #[test]
+    fn test_area_invalid_dimensions() {
+        let result = area(&[1.0, 2.0], &[1.0, 2.0]).size(-100.0, 400.0).build();
+        assert!(matches!(
+            result,
+            Err(ChartError::InvalidDimension {
+                field: "width",
+                value: -100.0
+            })
+        ));
+    }
+
+    #[test]
+    fn test_area_y0_length_mismatch() {
+        let x = vec![1.0, 2.0, 3.0];
+        let y = vec![2.0, 3.0, 4.0];
+        let y0 = vec![0.0, 0.0];
+        let result = area(&x, &y).y0(&y0).build();
+        assert!(matches!(
+            result,
+            Err(ChartError::DataLengthMismatch {
+                x_field: "x",
+                y_field: "y0",
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn test_area_y0_nan() {
+        let x = vec![1.0, 2.0, 3.0];
+        let y = vec![2.0, 3.0, 4.0];
+        let y0 = vec![0.0, f64::NAN, 0.0];
+        let result = area(&x, &y).y0(&y0).build();
+        assert!(matches!(
+            result,
+            Err(ChartError::InvalidData {
+                field: "y0",
+                reason: "contains NaN or Infinity"
+            })
+        ));
+    }
+
+    #[test]
+    fn test_area_log_x_negative() {
+        let result = area(&[-1.0, 1.0], &[1.0, 2.0])
+            .x_scale(ScaleType::Log)
+            .build();
+        assert!(matches!(
+            result,
+            Err(ChartError::InvalidData {
+                field: "x",
+                reason: "contains non-positive values for log scale"
+            })
+        ));
+    }
+
+    #[test]
+    fn test_area_log_y_zero() {
+        let result = area(&[1.0, 2.0], &[0.0, 1.0])
+            .y_scale(ScaleType::Log)
+            .build();
+        assert!(matches!(
+            result,
+            Err(ChartError::InvalidData {
+                field: "y",
+                reason: "contains non-positive values for log scale"
+            })
+        ));
+    }
+
+    #[test]
+    fn test_area_all_scale_combinations_build() {
+        let x = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+        let y = vec![10.0, 20.0, 30.0, 40.0, 50.0];
+        for (x_scale, y_scale) in [
+            (ScaleType::Linear, ScaleType::Linear),
+            (ScaleType::Log, ScaleType::Linear),
+            (ScaleType::Linear, ScaleType::Log),
+            (ScaleType::Log, ScaleType::Log),
+        ] {
+            let result = area(&x, &y)
+                .x_scale(x_scale)
+                .y_scale(y_scale)
+                .build();
+            assert!(result.is_ok(), "failed for x={x_scale:?}, y={y_scale:?}");
+        }
+    }
+
+    #[test]
+    fn test_area_builder_chain() {
+        let x = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+        let y = vec![2.0, 4.0, 3.0, 5.0, 4.5];
+        let result = area(&x, &y)
+            .title("My Area Chart")
+            .color(0xff7f0e)
+            .opacity(0.8)
+            .curve(Curve::MonotoneX)
+            .size(800.0, 600.0)
+            .build();
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_area_opacity_clamping() {
+        let x = vec![1.0, 2.0, 3.0];
+        let y = vec![2.0, 3.0, 4.0];
+        let chart = area(&x, &y).opacity(2.0);
+        assert_eq!(chart.opacity, 1.0);
+        let chart = area(&x, &y).opacity(-1.0);
+        assert_eq!(chart.opacity, 0.0);
+    }
+
+    #[test]
+    fn test_area_with_y0_linear() {
+        let x = vec![1.0, 2.0, 3.0];
+        let y = vec![2.0, 3.0, 4.0];
+        let y0 = vec![0.5, 1.0, 1.5];
+        let result = area(&x, &y).y0(&y0).build();
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_area_with_y0_log_positive() {
+        let x = vec![1.0, 2.0, 3.0];
+        let y = vec![10.0, 20.0, 30.0];
+        let y0 = vec![1.0, 1.0, 1.0];
+        let result = area(&x, &y).y0(&y0).y_scale(ScaleType::Log).build();
+        assert!(result.is_ok());
+    }
 }

@@ -134,3 +134,53 @@ fn test_ease_type_enum() {
     assert!(approx_eq(EaseType::CubicInOut.ease(0.0), 0.0));
     assert!(approx_eq(EaseType::CubicInOut.ease(1.0), 1.0));
 }
+
+#[test]
+fn test_all_ease_types_at_endpoints() {
+    let types = vec![
+        EaseType::Linear,
+        EaseType::QuadIn,
+        EaseType::QuadOut,
+        EaseType::QuadInOut,
+        EaseType::CubicIn,
+        EaseType::CubicOut,
+        EaseType::CubicInOut,
+        EaseType::SinIn,
+        EaseType::SinOut,
+        EaseType::SinInOut,
+        EaseType::ExpIn,
+        EaseType::ExpOut,
+        EaseType::ExpInOut,
+        EaseType::CircleIn,
+        EaseType::CircleOut,
+        EaseType::CircleInOut,
+        EaseType::ElasticIn,
+        EaseType::ElasticOut,
+        EaseType::ElasticInOut,
+        EaseType::BackIn,
+        EaseType::BackOut,
+        EaseType::BackInOut,
+        EaseType::BounceIn,
+        EaseType::BounceOut,
+        EaseType::BounceInOut,
+    ];
+
+    for ease_type in types {
+        assert!(
+            approx_eq(ease_type.ease(0.0), 0.0),
+            "{ease_type:?} should be 0 at t=0"
+        );
+        assert!(
+            approx_eq(ease_type.ease(1.0), 1.0),
+            "{ease_type:?} should be 1 at t=1"
+        );
+        let mid = ease_type.ease(0.5);
+        assert!(mid.is_finite(), "{ease_type:?} should be finite at t=0.5");
+    }
+}
+
+#[test]
+fn test_ease_type_equality() {
+    assert_eq!(EaseType::Linear, EaseType::Linear);
+    assert_ne!(EaseType::Linear, EaseType::QuadIn);
+}

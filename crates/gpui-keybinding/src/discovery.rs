@@ -504,4 +504,91 @@ mod tests {
         );
         assert_eq!(calls.get(), 1);
     }
+
+    #[test]
+    fn command_palette_entry_exposes_search_index() {
+        let binding = DocumentedKeybinding::new("Ctrl+P", "Open", KeybindingCategory::View);
+        let entry = CommandPaletteEntry::from_binding(&binding);
+        assert!(entry.search_index().contains("ctrl+p"));
+    }
+
+    #[test]
+    fn search_ranks_non_prefix_matches() {
+        let entries = command_palette_entries(&docs());
+        let results = search_command_palette(&entries, "all");
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].description, "Save all");
+    }
+
+    #[test]
+    fn search_command_palette_cache_hit_returns_same_rc() {
+        let entries: Rc<_> = command_palette_entries(&docs()).into();
+        let a = search_command_palette_cached(Rc::clone(&entries), "palette");
+        let b = search_command_palette_cached(Rc::clone(&entries), "palette");
+        assert!(Rc::ptr_eq(&a, &b));
+    }
+
+    #[test]
+    fn keybinding_hints_cache_hit_returns_same_rc() {
+        let docs = docs();
+        let a = keybinding_hints_cached(&docs, "ctrl-k");
+        let b = keybinding_hints_cached(&docs, "ctrl-k");
+        assert!(Rc::ptr_eq(&a, &b));
+    }
+
+    #[test]
+    fn keybinding_hints_terminal_when_prefix_matches_full_binding() {
+        let binding = DocumentedKeybinding::new("Ctrl+X", "Cut", KeybindingCategory::Editing)
+            .with_raw_key_spec("ctrl-x");
+        let hints = keybinding_hints(&[binding], "ctrl-x");
+        assert_eq!(hints.len(), 1);
+        assert!(hints[0].is_terminal);
+        assert_eq!(hints[0].description.as_deref(), Some("Cut"));
+    }
+
+    #[test]
+    fn keybinding_hints_marks_non_terminal_chords() {
+        let binding = DocumentedKeybinding::new(
+            "Ctrl+K Ctrl+X Ctrl+Y",
+            "Deep chord",
+            KeybindingCategory::Editing,
+        )
+        .with_raw_key_spec("ctrl-k ctrl-x ctrl-y");
+        let hints = keybinding_hints(&[binding], "ctrl-k");
+        assert_eq!(hints.len(), 1);
+        assert!(!hints[0].is_terminal);
+        assert!(hints[0].has_children);
+    }
+
+    #[test]
+    fn counting_provider_bindings_returns_empty() {
+        let provider = CountingProvider {
+            documented_calls: Rc::new(Cell::new(0)),
+        };
+        assert!(provider.bindings(KeymapPreset::Default).is_empty());
+    }
+
+    #[test]
+    fn registry_command_palette_entries() {
+        let mut registry = KeybindingRegistry::new();
+        registry.register(CountingProvider {
+            documented_calls: Rc::new(Cell::new(0)),
+        });
+        assert!(!registry.command_palette_entries(KeymapPreset::Default).is_empty());
+    }
+
+    #[test]
+    fn registry_search_and_hints_caches_reuse_rc() {
+        let mut registry = KeybindingRegistry::new();
+        registry.register(CountingProvider {
+            documented_calls: Rc::new(Cell::new(0)),
+        });
+        let a = registry.search_command_palette_cached(KeymapPreset::Default, "palette");
+        let b = registry.search_command_palette_cached(KeymapPreset::Default, "palette");
+        assert!(Rc::ptr_eq(&a, &b));
+
+        let c = registry.keybinding_hints_cached(KeymapPreset::Default, "ctrl-k");
+        let d = registry.keybinding_hints_cached(KeymapPreset::Default, "ctrl-k");
+        assert!(Rc::ptr_eq(&c, &d));
+    }
 }

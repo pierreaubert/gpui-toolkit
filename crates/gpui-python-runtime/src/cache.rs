@@ -219,4 +219,38 @@ mod tests {
         cache.retain_only(std::iter::empty::<&str>());
         assert!(cache.is_empty());
     }
+
+    #[test]
+    fn upsert_rejects_invalid_specs() {
+        let mut cache = RetainedSceneCache::new();
+
+        let bad_surface = SurfaceSpec::from_flat("bad", vec![1.0, 2.0, 3.0], 2, 2);
+        assert!(cache.upsert_surface(&bad_surface).is_err());
+
+        let bad_scene = SceneSpec {
+            id: "bad".to_string(),
+            camera: CameraSpec::default(),
+            children: vec![],
+            interactions: vec![],
+            background: None,
+            size: None,
+        };
+        assert!(cache.upsert_scene(&bad_scene).is_err());
+
+        let bad_lines = LinesSpec {
+            id: "bad".to_string(),
+            segments: vec![],
+            strips: vec![],
+            ..LinesSpec::default()
+        };
+        assert!(cache.upsert_lines(&bad_lines).is_err());
+
+        let bad_mesh = MeshSpec {
+            id: "bad".to_string(),
+            vertices: vec![],
+            indices: vec![],
+            material: crate::scene3d::MaterialSpec::default(),
+        };
+        assert!(cache.upsert_mesh(&bad_mesh).is_err());
+    }
 }

@@ -388,4 +388,112 @@ mod tests {
 
         Ok(())
     }
+
+    #[test]
+    fn package_name_normalizes_edge_cases() {
+        assert_eq!(package_name("my app"), "my-app");
+        assert_eq!(package_name("123-app"), "app-123-app");
+        assert_eq!(package_name(""), "gpui-app");
+        assert_eq!(package_name("app"), "app");
+    }
+
+    #[test]
+    fn pascal_case_normalizes_edge_cases() {
+        assert_eq!(pascal_case("my-app"), "MyApp");
+        assert_eq!(pascal_case("123"), "App123");
+        assert_eq!(pascal_case(""), "App");
+    }
+
+    #[test]
+    fn title_case_numbers_and_symbols() {
+        assert_eq!(title_case("123-app"), "123 App");
+        assert_eq!(title_case("under_score"), "Under Score");
+    }
+
+    #[test]
+    fn separated_identifier_respects_separator() {
+        assert_eq!(separated_identifier("my app", '_'), "my_app");
+        assert_eq!(separated_identifier("a--b", '-'), "a-b");
+    }
+
+    #[test]
+    fn relative_path_handles_edge_cases() {
+        let base = Path::new("/a/b/c");
+        let target = Path::new("/a/b/c");
+        assert_eq!(relative_path(base, target), PathBuf::from("."));
+
+        let target = Path::new("/x/y/z");
+        assert_eq!(relative_path(base, target), PathBuf::from("../../../x/y/z"));
+    }
+
+    #[test]
+    fn string_escaping_helpers() {
+        assert_eq!(toml_string(r#"a\"b"#), r#"a\\\"b"#);
+        assert_eq!(rust_string(r#"a\"b"#), r#"a\\\"b"#);
+        assert_eq!(cargo_path(Path::new(r"C:\path")), "C:/path");
+    }
+
+    #[test]
+    fn cargo_toml_escapes_package_name_and_path() {
+        let names = AppNames::new("demo-app").unwrap();
+        let toml = cargo_toml(&names, Path::new("/tmp/miniapp"));
+        assert!(toml.contains("name = \"demo-app\""));
+        assert!(toml.contains("/tmp/miniapp"));
+    }
+
+    #[test]
+    fn app_names_with_numeric_start_get_prefix() {
+        let names = AppNames::new("123-demo").unwrap();
+        assert_eq!(names.package_name, "app-123-demo");
+        assert_eq!(names.view_name, "App123DemoView");
+    }
+
+    #[test]
+    fn scaffold_refuses_existing_non_empty_directory() -> Result<()> {
+        let dir = tempdir()?;
+        let output = dir.path().join("existing");
+        fs::create_dir(&output)?;
+        fs::write(output.join("file.txt"), "x")?;
+
+        assert!(scaffold_app(&ScaffoldOptions {
+            name: "existing".to_owned(),
+            output_dir: dir.path().to_path_buf(),
+            force: false,
+        })
+        .is_err());
+
+        Ok(())
+    }
+
+    #[test]
+    fn scaffold_force_replaces_empty_directory() -> Result<()> {
+        let dir = tempdir()?;
+        let output = dir.path().join("empty");
+        fs::create_dir(&output)?;
+
+        let scaffolded = scaffold_app(&ScaffoldOptions {
+            name: "empty".to_owned(),
+            output_dir: dir.path().to_path_buf(),
+            force: true,
+        })?;
+
+        assert!(scaffolded.app_dir.join("Cargo.toml").is_file());
+        Ok(())
+    }
+
+    #[test]
+    fn scaffold_force_refuses_file_collision() -> Result<()> {
+        let dir = tempdir()?;
+        let output = dir.path().join("existing");
+        fs::write(&output, "x")?;
+
+        assert!(scaffold_app(&ScaffoldOptions {
+            name: "existing".to_owned(),
+            output_dir: dir.path().to_path_buf(),
+            force: true,
+        })
+        .is_err());
+
+        Ok(())
+    }
 }

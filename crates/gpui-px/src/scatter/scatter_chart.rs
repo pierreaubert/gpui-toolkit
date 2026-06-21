@@ -1051,4 +1051,98 @@ mod tests {
         assert!(Arc::ptr_eq(&chart.series[0].x, &cloned.series[0].x));
         assert!(Arc::ptr_eq(&chart.series[0].y, &cloned.series[0].y));
     }
+
+    #[test]
+    fn test_scatter_series_nan() {
+        let x1 = vec![1.0, 2.0, 3.0];
+        let y1 = vec![1.0, 2.0, 3.0];
+        let x2 = vec![1.0, 2.0, 3.0];
+        let y2 = vec![1.0, f64::NAN, 3.0];
+        let result = scatter(&x1, &y1)
+            .add_series(&x2, &y2, Some("Bad"), 0xff0000, 4.0, 1.0)
+            .build();
+        assert!(matches!(
+            result,
+            Err(ChartError::InvalidData {
+                field: "series.y",
+                reason: "contains NaN or Infinity"
+            })
+        ));
+    }
+
+    #[test]
+    fn test_scatter_series_length_mismatch() {
+        let x1 = vec![1.0, 2.0, 3.0];
+        let y1 = vec![1.0, 2.0, 3.0];
+        let x2 = vec![1.0, 2.0];
+        let y2 = vec![1.0, 2.0, 3.0];
+        let result = scatter(&x1, &y1)
+            .add_series(&x2, &y2, Some("Short"), 0xff0000, 4.0, 1.0)
+            .build();
+        assert!(matches!(
+            result,
+            Err(ChartError::DataLengthMismatch {
+                x_field: "series.x",
+                y_field: "series.y",
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn test_scatter_log_x_series_negative() {
+        let x1 = vec![10.0, 100.0, 1000.0];
+        let y1 = vec![1.0, 2.0, 3.0];
+        let x2 = vec![-1.0, 1.0, 10.0];
+        let y2 = vec![1.0, 2.0, 3.0];
+        let result = scatter(&x1, &y1)
+            .x_scale(ScaleType::Log)
+            .add_series(&x2, &y2, Some("Bad"), 0xff0000, 4.0, 1.0)
+            .build();
+        assert!(matches!(
+            result,
+            Err(ChartError::InvalidData {
+                field: "series.x",
+                reason: "contains non-positive values for log scale"
+            })
+        ));
+    }
+
+    #[test]
+    fn test_scatter_legend_positions_build() {
+        let x = vec![1.0, 2.0, 3.0];
+        let y = vec![1.0, 2.0, 3.0];
+        for position in [
+            LegendPosition::Left,
+            LegendPosition::Right,
+            LegendPosition::Top,
+            LegendPosition::Bottom,
+            LegendPosition::Hidden,
+        ] {
+            let result = scatter(&x, &y)
+                .label("Primary")
+                .legend_position(position)
+                .build();
+            assert!(result.is_ok(), "failed for {position:?}");
+        }
+    }
+
+    #[test]
+    fn test_scatter_theme_override() {
+        use crate::scatter::ScatterTheme;
+        let x = vec![1.0, 2.0, 3.0];
+        let y = vec![1.0, 2.0, 3.0];
+        let result = scatter(&x, &y)
+            .theme(ScatterTheme::default())
+            .build();
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_scatter_graph_ratio() {
+        let x = vec![1.0, 2.0, 3.0];
+        let y = vec![1.0, 2.0, 3.0];
+        let chart = scatter(&x, &y).graph_ratio(1.0);
+        assert_eq!(chart.graph_ratio, 1.0);
+    }
 }

@@ -328,4 +328,28 @@ mod tests {
             second.as_ref().unwrap().as_ptr()
         ));
     }
+
+    #[test]
+    fn test_grapheme_widths_sentinel_cache_hit() {
+        let measure = FixedWidthMeasure { char_width: 10.0 };
+        let mut cache = MeasureCache::new();
+        assert!(cache.get_grapheme_widths("x", &measure).is_none());
+        // Second call should hit the cached sentinel and return None.
+        assert!(cache.get_grapheme_widths("x", &measure).is_none());
+    }
+
+    #[test]
+    fn test_grapheme_prefix_widths_sentinel_cache_hit() {
+        let measure = FixedWidthMeasure { char_width: 10.0 };
+        let mut cache = MeasureCache::new();
+        assert!(cache.get_grapheme_prefix_widths("x", &measure).is_none());
+        // Second call should hit the cached sentinel and return None.
+        assert!(cache.get_grapheme_prefix_widths("x", &measure).is_none());
+    }
+
+    #[test]
+    fn test_measure_cache_default() {
+        let cache = MeasureCache::default();
+        assert!(cache.cache.is_empty());
+    }
 }

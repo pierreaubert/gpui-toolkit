@@ -494,4 +494,75 @@ mod tests {
         assert_relative_eq!(back.g, color.g);
         assert_relative_eq!(back.b, color.b);
     }
+
+    #[test]
+    fn test_from_rgb_f32_and_rgba_f32() {
+        let c = D3Color::from_rgb_f32(1.0, 0.5, 0.25);
+        assert_relative_eq!(c.r, 1.0);
+        assert_relative_eq!(c.g, 0.5);
+        assert_relative_eq!(c.b, 0.25);
+        assert_relative_eq!(c.a, 1.0);
+
+        let c2 = D3Color::from_rgba_f32(0.2, 0.4, 0.6, 0.8);
+        assert_relative_eq!(c2.a, 0.8);
+    }
+
+    #[test]
+    fn test_with_alpha_clamping() {
+        let c = D3Color::rgb(255, 0, 0).with_alpha(-0.5);
+        assert_relative_eq!(c.a, 0.0);
+        let c = D3Color::rgb(255, 0, 0).with_alpha(1.5);
+        assert_relative_eq!(c.a, 1.0);
+    }
+
+    #[test]
+    fn test_brighter_darker() {
+        let c = D3Color::rgb(100, 100, 100);
+        let b = c.brighter(1.0);
+        assert!(b.r > c.r);
+        let d = c.darker(1.0);
+        assert!(d.r < c.r);
+    }
+
+    #[test]
+    fn test_with_opacity_and_opacity() {
+        let c = D3Color::rgb(255, 0, 0).with_opacity(0.25);
+        assert_relative_eq!(c.opacity(), 0.25);
+    }
+
+    #[test]
+    fn test_to_hex_alpha() {
+        let c = D3Color::rgba(255, 0, 0, 128);
+        assert_eq!(c.to_hex_alpha(), "#ff000080");
+    }
+
+    #[test]
+    fn test_luminance() {
+        let white = D3Color::rgb(255, 255, 255);
+        let black = D3Color::rgb(0, 0, 0);
+        assert!(white.luminance() > 0.9);
+        assert!(black.luminance() < 0.1);
+    }
+
+    #[test]
+    fn test_from_hsl_gray_and_hues() {
+        let gray = D3Color::from_hsl(120.0, 0.0, 0.5);
+        assert!(gray.r > 0.49 && gray.r < 0.51);
+        let red = D3Color::from_hsl(0.0, 1.0, 0.5);
+        assert_eq!(red.to_hex(), "#ff0000");
+        let red_neg = D3Color::from_hsl(-360.0, 1.0, 0.5);
+        assert_eq!(red_neg.to_hex(), "#ff0000");
+    }
+
+    #[test]
+    fn test_lab_and_hcl_roundtrip() {
+        let original = D3Color::rgb(128, 64, 32);
+        let lab = original.to_lab();
+        let from_lab = D3Color::from_lab(lab.l, lab.a, lab.b);
+        assert_relative_eq!(original.r, from_lab.r, epsilon = 1e-2);
+
+        let hcl = original.to_hcl();
+        let from_hcl = D3Color::from_hcl(hcl.h, hcl.c, hcl.l);
+        assert_relative_eq!(original.r, from_hcl.r, epsilon = 1e-2);
+    }
 }

@@ -212,3 +212,147 @@ fn test_theme_gallery_contains_builtins_and_community() {
     );
     assert!(gallery.entries.iter().any(|entry| entry.id == "nord"));
 }
+
+#[test]
+fn test_default_functions() {
+    assert_eq!(
+        super::default::default_community_theme_schema_version(),
+        COMMUNITY_THEME_SCHEMA_VERSION
+    );
+    assert_eq!(super::default::default_design_language(), "neutral");
+}
+
+#[test]
+fn test_accessibility_palette() {
+    assert_eq!(AccessibilityPalette::all().len(), 5);
+    assert_eq!(AccessibilityPalette::HighContrast.name(), "High Contrast");
+    assert!(AccessibilityPalette::Protanopia.is_color_blind_safe());
+    assert!(!AccessibilityPalette::Standard.is_color_blind_safe());
+}
+
+#[test]
+fn test_time_of_day() {
+    assert_eq!(TimeOfDay::new(7, 30).minutes_after_midnight(), 450);
+    assert_eq!(TimeOfDay::checked_new(23, 59), Some(TimeOfDay::new(23, 59)));
+    assert_eq!(TimeOfDay::checked_new(24, 0), None);
+    assert_eq!(TimeOfDay::checked_new(0, 60), None);
+}
+
+#[test]
+fn test_theme_schedule_boundaries() {
+    let schedule = ThemeSchedule::new(TimeOfDay::new(7, 0), TimeOfDay::new(18, 0));
+    assert_eq!(schedule.resolve_at_minutes(7 * 60), ThemeAppearance::Light);
+    assert_eq!(schedule.resolve_at_minutes(18 * 60 - 1), ThemeAppearance::Light);
+    assert_eq!(schedule.resolve_at_minutes(18 * 60), ThemeAppearance::Dark);
+    assert_eq!(schedule.resolve_at_minutes(6 * 60), ThemeAppearance::Dark);
+
+    let equal = ThemeSchedule::new(TimeOfDay::new(12, 0), TimeOfDay::new(12, 0));
+    assert_eq!(equal.resolve_at_minutes(12 * 60), ThemeAppearance::Dark);
+
+    let wrap = ThemeSchedule::new(TimeOfDay::new(18, 0), TimeOfDay::new(7, 0));
+    assert_eq!(wrap.resolve_at_minutes(25 * 60), ThemeAppearance::Light);
+    assert_eq!(wrap.resolve_at_minutes(12 * 60), ThemeAppearance::Dark);
+}
+
+#[test]
+fn test_theme_mode_preference_resolve() {
+    assert_eq!(
+        ThemeModePreference::FollowSystem.resolve(ThemeAppearance::Light, 0),
+        ThemeAppearance::Light
+    );
+    assert_eq!(
+        ThemeModePreference::Dark.resolve(ThemeAppearance::Light, 0),
+        ThemeAppearance::Dark
+    );
+    let scheduled = ThemeSchedule::new(TimeOfDay::new(7, 0), TimeOfDay::new(18, 0));
+    assert_eq!(
+        ThemeModePreference::Scheduled { schedule: scheduled }.resolve(ThemeAppearance::Light, 20 * 60),
+        ThemeAppearance::Dark
+    );
+}
+
+#[test]
+fn test_community_theme_manifest_validation_errors() {
+    let mut manifest = CommunityThemeManifest::for_theme(&EditorTheme::dark());
+    manifest.schema_version = 999;
+    assert!(manifest.validate().is_err());
+
+    let mut manifest = CommunityThemeManifest::for_theme(&EditorTheme::dark());
+    manifest.id = "   ".to_string();
+    assert!(manifest.validate().is_err());
+
+    let mut manifest = CommunityThemeManifest::for_theme(&EditorTheme::dark());
+    manifest.display_name = "".to_string();
+    assert!(manifest.validate().is_err());
+}
+
+#[test]
+fn test_community_theme_bundle_from_theme() {
+    let theme = EditorTheme::nord();
+    let bundle = CommunityThemeBundle::from_theme(theme.clone());
+    assert_eq!(bundle.theme.name, theme.name);
+    assert!(!bundle.manifest.id.is_empty());
+    assert!(bundle.validate().is_ok());
+}
+
+#[test]
+fn test_misc_helpers() {
+    use super::misc::{
+        normalize_theme_id, readable_text_color, shift_lightness, slugify_theme_name,
+    };
+    assert_eq!(normalize_theme_id("My Theme!"), "my_theme");
+    assert_eq!(slugify_theme_name("My Theme!"), "my-theme");
+    assert_eq!(slugify_theme_name("!!!"), "custom-theme");
+    let black = Color::from_hex(0x000000);
+    let white = Color::from_hex(0xffffff);
+    assert!(contrast_ratio(white, black) > 20.0);
+    assert_eq!(readable_text_color(black), white);
+    assert_eq!(readable_text_color(white), black);
+    let shifted = shift_lightness(white, -1.0);
+    assert_eq!(shifted, Color::from_hsl(0.0, 0.0, 0.0));
+}
+
+#[test]
+fn test_theme_transition() {
+    let default = ThemeTransition::default();
+    assert_eq!(default.effective_duration_ms(false), 220);
+    assert_eq!(default.effective_duration_ms(true), 0);
+    assert_eq!(ThemeTransition::disabled().effective_duration_ms(false), 0);
+}
+
+#[test]
+fn test_editor_theme_appearance_and_accessibility() {
+    let dark = EditorTheme::dark();
+    assert_eq!(dark.appearance(), ThemeAppearance::Dark);
+    let light = EditorTheme::light();
+    assert_eq!(light.appearance(), ThemeAppearance::Light);
+
+    let protanopia = EditorTheme::accessibility_preset(AccessibilityPalette::Protanopia);
+    assert!(protanopia.validate_accessibility().is_ok());
+
+    let preset = EditorTheme::preset(BuiltInThemePreset::Nord);
+    assert_eq!(preset.name, "Nord");
+}
+
+#[test]
+fn test_editor_theme_conversions() {
+    let theme = EditorTheme::dark();
+    let _ = theme.to_button_theme();
+    let _ = theme.to_slider_theme();
+    let _ = theme.to_tabs_theme();
+    let _ = theme.to_accordion_theme();
+    let _ = theme.to_community_json().unwrap();
+}
+
+#[test]
+fn test_editor_theme_validate_accessibility_fails_for_low_contrast() {
+    let mut theme = EditorTheme::dark();
+    theme.text_primary = theme.background;
+    assert!(theme.validate_accessibility().is_err());
+}
+
+#[test]
+fn test_editor_theme_with_accent_seed() {
+    let theme = EditorTheme::light().with_accent_seed(Color::from_hex(0xf0e442), AccentSource::User);
+    assert_eq!(theme.accent, Color::from_hex(0xf0e442));
+}

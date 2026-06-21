@@ -18,6 +18,17 @@ import 'builds/cross.just'
 features := "--features autoeq,camera,gpu-2d,gpu-3d,reqwest,showcase,spinorama,tokio,urlencoding"
 cross_packages := "-p gpui-audio-kit -p gpui-builder -p gpui-component-lab -p gpui-d3rs -p gpui-design -p gpui-design-tools -p gpui-keybinding -p gpui-miniapp -p gpui-pretext -p gpui-px -p gpui-python-runtime -p gpui-scaffolder -p gpui-themes -p gpui-ui-kit -p gpui-ui-kit-macros"
 
+# QA / coverage settings
+cov_threshold := "90"
+cov_ignore_regex := '.*/(tests|benches|examples|target|crates/3rdparties|crates/gpui-au|crates/gpui-ios|crates/gpui-miniapp|crates/.*/bin)/.*'
+cov_summary := "target/qa/cov/summary.json"
+cov_report := "target/qa/cov/report.md"
+perf_baseline := "qa/perf/baseline.json"
+perf_current := "target/qa/perf/current.json"
+perf_report := "target/qa/perf/report.md"
+perf_threshold := "10"
+perf_noise_floor_ns := "150"
+
 # ----------------------------------------------------------------------
 # TEST / QA
 # ----------------------------------------------------------------------
@@ -67,6 +78,63 @@ qa-gpui-obvious: qa-gpui-conformance
 	cargo test -p gpui-d3rs {{features}}
 	cargo test -p gpui-px {{features}}
 	cargo tree -p gpui-design-tools {{features}}
+
+# ----------------------------------------------------------------------
+# QA SUITE
+# ----------------------------------------------------------------------
+
+# Full QA aggregator. Runs non-coverage checks first; coverage gate is last so a
+# sub-90% report still lets the other suites exercise the code.
+[group('qa')]
+qa: qa-prop qa-visual qa-perf qa-gpui-obvious qa-cov-check
+	@echo "Full QA suite passed"
+
+# Property-based non-regression. If no proptest tests exist, this exits cleanly.
+[group('qa')]
+qa-prop:
+	@echo "Running property-based tests..."
+	bash scripts/qa_prop_check.sh
+
+# Visual non-regression (manifest/golden/conformance; pixel diff is a Phase 1+ stub).
+[group('qa')]
+qa-visual:
+	@echo "Running visual non-regression checks..."
+	bash scripts/qa_visual_capture.sh
+
+# Generate a full workspace coverage report.
+[group('qa')]
+qa-cov:
+	mkdir -p target/qa/cov
+	cargo llvm-cov --workspace --all-targets --html --output-dir target/qa/cov/html {{features}} --ignore-filename-regex '{{cov_ignore_regex}}'
+	cargo llvm-cov --workspace --all-targets --json --summary-only --output-path {{cov_summary}} {{features}} --ignore-filename-regex '{{cov_ignore_regex}}'
+	@echo "Coverage report: target/qa/cov/html/index.html"
+
+# Open the HTML coverage report (macOS).
+[group('qa')]
+qa-cov-html: qa-cov
+	open target/qa/cov/html/index.html
+
+# Coverage gate: fails if aggregate coverage is below {{cov_threshold}}%.
+[group('qa')]
+qa-cov-check:
+	@echo "Running coverage gate (threshold {{cov_threshold}}%)..."
+	mkdir -p target/qa/cov
+	cargo llvm-cov --workspace --all-targets --json --summary-only --output-path {{cov_summary}} {{features}} --ignore-filename-regex '{{cov_ignore_regex}}'
+	python3 scripts/qa_cov_check.py --summary {{cov_summary}} --threshold {{cov_threshold}} --output {{cov_report}}
+
+# Update the committed performance baseline. Run intentionally after benchmarking.
+[group('qa')]
+qa-perf-update:
+	@echo "Updating performance baseline..."
+	python3 scripts/qa_perf_baseline.py --output {{perf_baseline}}
+
+# Performance non-regression against the committed baseline.
+[group('qa')]
+qa-perf:
+	@echo "Running performance non-regression checks..."
+	python3 scripts/qa_perf_baseline.py --output {{perf_current}}
+	# Phase 0: --warn-only keeps the gate informational while the baseline stabilizes.
+	python3 scripts/qa_perf_check.py --baseline {{perf_baseline}} --current {{perf_current}} --threshold {{perf_threshold}} --noise-floor-ns {{perf_noise_floor_ns}} --warn-only --output {{perf_report}}
 
 # ----------------------------------------------------------------------
 # FORMAT / BUILD

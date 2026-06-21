@@ -95,9 +95,12 @@ pub fn clear_all_input_states() {
 #[cfg(test)]
 mod tests {
     use super::{
-        MAX_THREAD_LOCAL_INPUT_STATES, TEXT_ORIGINS, keystroke_to_char, trim_thread_local_storage,
+        EDIT_STATES, MAX_THREAD_LOCAL_INPUT_STATES, TEXT_ORIGINS, clear_all_input_states,
+        input_state_count, is_input_editing, keystroke_to_char, trim_thread_local_storage,
     };
     use gpui::{ElementId, Keystroke, Modifiers, SharedString};
+    use std::cell::RefCell;
+    use std::rc::Rc;
 
     #[test]
     fn test_keystroke_to_char_space() {
@@ -134,4 +137,47 @@ mod tests {
             MAX_THREAD_LOCAL_INPUT_STATES
         );
     }
+
+    #[test]
+    fn keystroke_to_char_regular_key() {
+        let ks = Keystroke {
+            key: "a".into(),
+            key_char: Some("a".into()),
+            modifiers: Modifiers::default(),
+        };
+        assert_eq!(keystroke_to_char(&ks), Some('a'));
+    }
+
+    #[test]
+    fn is_input_editing_reflects_state() {
+        clear_all_input_states();
+        assert!(!is_input_editing());
+
+        EDIT_STATES.with(|states| {
+            let mut states = states.borrow_mut();
+            states.insert(
+                ElementId::Name(SharedString::from("test-edit")),
+                Rc::new(RefCell::new(super::super::EditState::new("x"))),
+            );
+        });
+        assert!(is_input_editing());
+        clear_all_input_states();
+    }
+
+    #[test]
+    fn input_state_count_trims_all_maps() {
+        clear_all_input_states();
+        TEXT_ORIGINS.with(|origins| {
+            origins.borrow_mut().insert(
+                ElementId::Name(SharedString::from("count-test")),
+                42.0,
+            );
+        });
+        let (focus, edit, origins) = input_state_count();
+        assert_eq!(focus, 0);
+        assert_eq!(edit, 0);
+        assert_eq!(origins, 1);
+        clear_all_input_states();
+    }
+
 }

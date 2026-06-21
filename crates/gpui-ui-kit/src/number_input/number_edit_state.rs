@@ -264,3 +264,128 @@ impl NumberEditState {
         self.cursor += filtered.chars().count();
     }
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gpui::SharedString;
+
+    #[test]
+    fn new_selects_all_text() {
+        let state = NumberEditState::new("12.34");
+        assert!(state.editing);
+        assert_eq!(state.text, "12.34");
+        assert_eq!(state.cursor, 5);
+        assert!(state.text_selected);
+    }
+
+    #[test]
+    fn format_value_caches_and_includes_unit() {
+        let mut state = NumberEditState::default();
+        let unit: SharedString = "Hz".into();
+
+        let first = state.format_value_str(440.0, 1, Some(&unit));
+        assert_eq!(first, "440.0 Hz");
+        assert_eq!(state.last_unit(), Some(&unit));
+
+        let second = state.format_value_str(440.0, 1, Some(&unit));
+        assert!(std::ptr::eq(first.as_ref(), second.as_ref()));
+
+        let third = state.format_value_str(440.0, 1, None);
+        assert_ne!(first.as_ref(), third.as_ref());
+    }
+
+    #[test]
+    fn insert_char_allows_only_numeric_input() {
+        let mut state = NumberEditState::new("");
+        state.insert_char('a');
+        assert!(state.text.is_empty());
+
+        state.insert_char('1');
+        state.insert_char('.');
+        state.insert_char('-');
+        state.insert_char('+');
+        assert_eq!(state.text, "1.-+");
+    }
+
+    #[test]
+    fn backspace_and_delete_with_selection() {
+        let mut state = NumberEditState::new("12345");
+        state.do_backspace();
+        assert!(state.text.is_empty());
+        assert_eq!(state.cursor, 0);
+
+        let mut state = NumberEditState::new("12345");
+        state.delete_selected();
+        assert!(state.text.is_empty());
+
+        let mut state = NumberEditState::default();
+        state.text = "ab".into();
+        state.cursor = 0;
+        state.do_delete();
+        assert_eq!(state.text, "b");
+    }
+
+    #[test]
+    fn move_and_kill_operations() {
+        let mut state = NumberEditState::new("12 34");
+        state.select_all();
+        assert_eq!(state.cursor, 5);
+
+        state.move_to_start();
+        assert_eq!(state.cursor, 0);
+
+        state.move_right();
+        state.move_right();
+        state.kill_to_end();
+        assert_eq!(state.text, "12");
+
+        let mut state = NumberEditState::new("12 34");
+        state.cursor = 3;
+        state.kill_to_start();
+        assert_eq!(state.text, "34");
+        assert_eq!(state.cursor, 0);
+    }
+
+    #[test]
+    fn word_kill_and_navigation() {
+        let mut state = NumberEditState::new("hello world");
+        state.cursor = 11;
+        state.kill_word_backward();
+        assert_eq!(state.text, "hello ");
+        assert_eq!(state.cursor, 6);
+
+        let mut state = NumberEditState::new("hello world");
+        state.cursor = 0;
+        state.kill_word_forward();
+        assert_eq!(state.text, " world");
+        assert_eq!(state.cursor, 0);
+
+        let mut state = NumberEditState::new("hello world");
+        state.cursor = 0;
+        state.kill_word_forward();
+        assert_eq!(state.text, " world");
+        state.cursor = 6;
+        state.kill_word_backward();
+        assert_eq!(state.text, " ");
+    }
+
+    #[test]
+    fn insert_str_filters_and_replaces_selection() {
+        let mut state = NumberEditState::new("abc");
+        state.insert_str("1x2y3");
+        assert_eq!(state.text, "123");
+        assert_eq!(state.cursor, 3);
+    }
+
+    #[test]
+    fn get_selected_text_only_when_selected() {
+        let mut state = NumberEditState::new("hello");
+        assert_eq!(state.get_selected_text(), Some("hello".to_string()));
+
+        state.text_selected = false;
+        assert!(state.get_selected_text().is_none());
+    }
+}
+

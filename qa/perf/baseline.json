@@ -1,0 +1,550 @@
+{
+  "version": 1,
+  "generated_at": "2026-06-21T11:18:29Z",
+  "metadata": {
+    "criterion_flags": "--noplot --sample-size 100 --measurement-time 5 --warm-up-time 2",
+    "generator": "scripts/qa_perf_baseline.py"
+  },
+  "records": [
+    {
+      "crate": "gpui-ios",
+      "bench": "accessibility_diff",
+      "group": "accessibility_diff",
+      "function": "size_1000_churn_0_pct",
+      "median_ns": 28604.742995746943,
+      "mean_ns": 28625.824278480253,
+      "unit": "ns"
+    },
+    {
+      "crate": "gpui-ios",
+      "bench": "accessibility_diff",
+      "group": "accessibility_diff",
+      "function": "size_1000_churn_1_pct",
+      "median_ns": 30649.18712797619,
+      "mean_ns": 34074.8951663949,
+      "unit": "ns"
+    },
+    {
+      "crate": "gpui-ios",
+      "bench": "accessibility_diff",
+      "group": "accessibility_diff",
+      "function": "size_1000_churn_5_pct",
+      "median_ns": 31774.705527210885,
+      "mean_ns": 38892.59719950336,
+      "unit": "ns"
+    },
+    {
+      "crate": "gpui-ios",
+      "bench": "accessibility_diff",
+      "group": "accessibility_diff",
+      "function": "size_100_churn_0_pct",
+      "median_ns": 3145.27622467553,
+      "mean_ns": 3155.664782660049,
+      "unit": "ns"
+    },
+    {
+      "crate": "gpui-ios",
+      "bench": "accessibility_diff",
+      "group": "accessibility_diff",
+      "function": "size_100_churn_1_pct",
+      "median_ns": 3037.827325667109,
+      "mean_ns": 3043.3674514571703,
+      "unit": "ns"
+    },
+    {
+      "crate": "gpui-ios",
+      "bench": "accessibility_diff",
+      "group": "accessibility_diff",
+      "function": "size_100_churn_5_pct",
+      "median_ns": 3151.4974019443516,
+      "mean_ns": 3155.7494918973935,
+      "unit": "ns"
+    },
+    {
+      "crate": "gpui-ios",
+      "bench": "accessibility_diff",
+      "group": "accessibility_diff",
+      "function": "size_5000_churn_0_pct",
+      "median_ns": 165755.54851212804,
+      "mean_ns": 166853.22527622155,
+      "unit": "ns"
+    },
+    {
+      "crate": "gpui-ios",
+      "bench": "accessibility_diff",
+      "group": "accessibility_diff",
+      "function": "size_5000_churn_1_pct",
+      "median_ns": 160749.73492063492,
+      "mean_ns": 161593.77781947525,
+      "unit": "ns"
+    },
+    {
+      "crate": "gpui-ios",
+      "bench": "accessibility_diff",
+      "group": "accessibility_diff",
+      "function": "size_5000_churn_5_pct",
+      "median_ns": 161642.13435374148,
+      "mean_ns": 162085.40453399887,
+      "unit": "ns"
+    },
+    {
+      "crate": "gpui-ui-kit",
+      "bench": "edit_state",
+      "group": "backspace",
+      "function": "backspace",
+      "median_ns": 219.63490037418467,
+      "mean_ns": 220.10213179172527,
+      "unit": "ns"
+    },
+    {
+      "crate": "gpui-builder",
+      "bench": "solved_tree",
+      "group": "balanced_tree_find",
+      "function": "as_map_get_depth_10",
+      "median_ns": 8.120104573045431,
+      "mean_ns": 8.33831290188963,
+      "unit": "ns"
+    },
+    {
+      "crate": "gpui-builder",
+      "bench": "solved_tree",
+      "group": "balanced_tree_find",
+      "function": "as_map_get_depth_6",
+      "median_ns": 7.653886105085746,
+      "mean_ns": 7.725293868256752,
+      "unit": "ns"
+    },
+    {
+      "crate": "gpui-builder",
+      "bench": "solved_tree",
+      "group": "balanced_tree_find",
+      "function": "as_map_get_depth_8",
+      "median_ns": 7.884130529602046,
+      "mean_ns": 8.180457819267449,
+      "unit": "ns"
+    },
+    {
+      "crate": "gpui-builder",
+      "bench": "solved_tree",
+      "group": "balanced_tree_find",
+      "function": "flat_find_depth_10",
+      "median_ns": 8.112552100311285,
+      "mean_ns": 8.226363405981186,
+      "unit": "ns"
+    },
+    {
+      "crate": "gpui-builder",
+      "bench": "solved_tree",
+      "group": "balanced_tree_find",
+      "function": "flat_find_depth_6",
+      "median_ns": 7.845718697999271,
+      "mean_ns": 8.429403722797286,
+      "unit": "ns"
+    },
+    {
+      "crate": "gpui-builder",
+      "bench": "solved_tree",
+      "group": "balanced_tree_find",
+      "function": "flat_find_depth_8",
+      "median_ns": 9.330835627989353,
+      "mean_ns": 9.335760072885357,
+      "unit": "ns"
+    },
+    {
+      "crate": "gpui-builder",
+      "bench": "solved_tree",
+      "group": "balanced_tree_find",
+      "function": "recursive_find_depth_10",
+      "median_ns": 4791.262761039375,
+      "mean_ns": 4812.719380648506,
+      "unit": "ns"
+    },
+    {
+      "crate": "gpui-builder",
+      "bench": "solved_tree",
+      "group": "balanced_tree_find",
+      "function": "recursive_find_depth_6",
+      "median_ns": 240.60910252398833,
+      "mean_ns": 243.40259587972608,
+      "unit": "ns"
+    },
+    {
+      "crate": "gpui-builder",
+      "bench": "solved_tree",
+      "group": "balanced_tree_find",
+      "function": "recursive_find_depth_8",
+      "median_ns": 1458.3824551372272,
+      "mean_ns": 1459.8142839698544,
+      "unit": "ns"
+    },
+    {
+      "crate": "gpui-builder",
+      "bench": "solved_tree",
+      "group": "balanced_tree_traversal",
+      "function": "flat_iter_depth_10",
+      "median_ns": 1378.697621081195,
+      "mean_ns": 1382.355943110354,
+      "unit": "ns"
+    },
+    {
+      "crate": "gpui-builder",
+      "bench": "solved_tree",
+      "group": "balanced_tree_traversal",
+      "function": "flat_iter_depth_6",
+      "median_ns": 54.79270527833156,
+      "mean_ns": 54.8791574217556,
+      "unit": "ns"
+    },
+    {
+      "crate": "gpui-builder",
+      "bench": "solved_tree",
+      "group": "balanced_tree_traversal",
+      "function": "flat_iter_depth_8",
+      "median_ns": 169.67408978174603,
+      "mean_ns": 173.04241901391686,
+      "unit": "ns"
+    },
+    {
+      "crate": "gpui-builder",
+      "bench": "solved_tree",
+      "group": "balanced_tree_traversal",
+      "function": "recursive_collect_depth_10",
+      "median_ns": 4386.109104111019,
+      "mean_ns": 4431.683011905343,
+      "unit": "ns"
+    },
+    {
+      "crate": "gpui-builder",
+      "bench": "solved_tree",
+      "group": "balanced_tree_traversal",
+      "function": "recursive_collect_depth_6",
+      "median_ns": 388.3298198840329,
+      "mean_ns": 388.47273045310584,
+      "unit": "ns"
+    },
+    {
+      "crate": "gpui-builder",
+      "bench": "solved_tree",
+      "group": "balanced_tree_traversal",
+      "function": "recursive_collect_depth_8",
+      "median_ns": 1066.163616081956,
+      "mean_ns": 1065.9309792251788,
+      "unit": "ns"
+    },
+    {
+      "crate": "gpui-ui-kit",
+      "bench": "edit_state",
+      "group": "delete_selection",
+      "function": "delete_selection",
+      "median_ns": 113.19595268038756,
+      "mean_ns": 113.93135241666648,
+      "unit": "ns"
+    },
+    {
+      "crate": "gpui-d3rs",
+      "bench": "force_many_body",
+      "group": "force_many_body",
+      "function": "barnes_hut/100",
+      "median_ns": 19947.046518680254,
+      "mean_ns": 19937.4603593425,
+      "unit": "ns"
+    },
+    {
+      "crate": "gpui-d3rs",
+      "bench": "force_many_body",
+      "group": "force_many_body",
+      "function": "barnes_hut/1000",
+      "median_ns": 274836.0852941176,
+      "mean_ns": 273819.7712495016,
+      "unit": "ns"
+    },
+    {
+      "crate": "gpui-d3rs",
+      "bench": "force_many_body",
+      "group": "force_many_body",
+      "function": "barnes_hut/50",
+      "median_ns": 9099.596074421588,
+      "mean_ns": 9148.703502975957,
+      "unit": "ns"
+    },
+    {
+      "crate": "gpui-d3rs",
+      "bench": "force_many_body",
+      "group": "force_many_body",
+      "function": "barnes_hut/500",
+      "median_ns": 130012.6331081081,
+      "mean_ns": 129101.2191130321,
+      "unit": "ns"
+    },
+    {
+      "crate": "gpui-d3rs",
+      "bench": "force_many_body",
+      "group": "force_many_body",
+      "function": "barnes_hut/5000",
+      "median_ns": 1881809.2677696077,
+      "mean_ns": 1893694.3016720829,
+      "unit": "ns"
+    },
+    {
+      "crate": "gpui-d3rs",
+      "bench": "force_many_body",
+      "group": "force_many_body",
+      "function": "brute_force/100",
+      "median_ns": 15373.60667851033,
+      "mean_ns": 15556.224137971163,
+      "unit": "ns"
+    },
+    {
+      "crate": "gpui-d3rs",
+      "bench": "force_many_body",
+      "group": "force_many_body",
+      "function": "brute_force/1000",
+      "median_ns": 1273967.9017857143,
+      "mean_ns": 1280008.1267559566,
+      "unit": "ns"
+    },
+    {
+      "crate": "gpui-d3rs",
+      "bench": "force_many_body",
+      "group": "force_many_body",
+      "function": "brute_force/50",
+      "median_ns": 3870.1881572698285,
+      "mean_ns": 3898.335820165209,
+      "unit": "ns"
+    },
+    {
+      "crate": "gpui-d3rs",
+      "bench": "force_many_body",
+      "group": "force_many_body",
+      "function": "brute_force/500",
+      "median_ns": 391855.20141700405,
+      "mean_ns": 390956.1215684294,
+      "unit": "ns"
+    },
+    {
+      "crate": "gpui-d3rs",
+      "bench": "force_many_body",
+      "group": "force_many_body",
+      "function": "brute_force/5000",
+      "median_ns": 40186083.5,
+      "mean_ns": 40439513.7,
+      "unit": "ns"
+    },
+    {
+      "crate": "gpui-keybinding",
+      "bench": "discovery",
+      "group": "format_key_label",
+      "function": "format_key_label",
+      "median_ns": 298.7535568212386,
+      "mean_ns": 301.3064469246524,
+      "unit": "ns"
+    },
+    {
+      "crate": "gpui-d3rs",
+      "bench": "path_strings",
+      "group": "geo_path/render",
+      "function": "geo_path_render",
+      "median_ns": 700.900790869957,
+      "mean_ns": 702.588376959889,
+      "unit": "ns"
+    },
+    {
+      "crate": "gpui-d3rs",
+      "bench": "path_strings",
+      "group": "geo_path/render_into",
+      "function": "geo_path_render_into",
+      "median_ns": 693.4848745226404,
+      "mean_ns": 698.523078075911,
+      "unit": "ns"
+    },
+    {
+      "crate": "gpui-ui-kit",
+      "bench": "edit_state",
+      "group": "insert_char",
+      "function": "insert_char",
+      "median_ns": 162.31361418312616,
+      "mean_ns": 163.05446860125403,
+      "unit": "ns"
+    },
+    {
+      "crate": "gpui-ui-kit",
+      "bench": "edit_state",
+      "group": "kill_word_backward",
+      "function": "kill_word_backward",
+      "median_ns": 323.25973011363635,
+      "mean_ns": 324.5900856442427,
+      "unit": "ns"
+    },
+    {
+      "crate": "gpui-pretext",
+      "bench": "layout_temporaries",
+      "group": "layout/layout_optimal",
+      "function": "layout_layout_optimal",
+      "median_ns": 2876.5502899967414,
+      "mean_ns": 2876.3661694158886,
+      "unit": "ns"
+    },
+    {
+      "crate": "gpui-pretext",
+      "bench": "layout_temporaries",
+      "group": "layout/layout_with_lines",
+      "function": "layout_layout_with_lines",
+      "median_ns": 158.5275134800579,
+      "mean_ns": 159.00808799700457,
+      "unit": "ns"
+    },
+    {
+      "crate": "gpui-pretext",
+      "bench": "layout_temporaries",
+      "group": "measurement/get_grapheme_prefix_widths",
+      "function": "measurement_get_grapheme_prefix_widths",
+      "median_ns": 22.84405654818778,
+      "mean_ns": 23.30679987222451,
+      "unit": "ns"
+    },
+    {
+      "crate": "gpui-pretext",
+      "bench": "layout_temporaries",
+      "group": "measurement/get_grapheme_widths_cache_hit",
+      "function": "measurement_get_grapheme_widths_cache_hit",
+      "median_ns": 10.743262856912393,
+      "mean_ns": 10.745197841615445,
+      "unit": "ns"
+    },
+    {
+      "crate": "gpui-pretext",
+      "bench": "layout_temporaries",
+      "group": "measurement/get_width_cache_hit",
+      "function": "measurement_get_width_cache_hit",
+      "median_ns": 27.262755588999674,
+      "mean_ns": 29.022997972886436,
+      "unit": "ns"
+    },
+    {
+      "crate": "gpui-d3rs",
+      "bench": "path_strings",
+      "group": "path/to_svg_string",
+      "function": "path_to_svg_string",
+      "median_ns": 237.5334096629285,
+      "mean_ns": 238.50521437952065,
+      "unit": "ns"
+    },
+    {
+      "crate": "gpui-d3rs",
+      "bench": "path_strings",
+      "group": "path/write_svg_string",
+      "function": "path_write_svg_string",
+      "median_ns": 224.88710914275168,
+      "mean_ns": 226.6015368601101,
+      "unit": "ns"
+    },
+    {
+      "crate": "gpui-keybinding",
+      "bench": "discovery",
+      "group": "search_command_palette_cached",
+      "function": "search_command_palette_cached",
+      "median_ns": 23154.185594512193,
+      "mean_ns": 25487.328617404986,
+      "unit": "ns"
+    },
+    {
+      "crate": "gpui-builder",
+      "bench": "solved_tree",
+      "group": "text_cache_hit",
+      "function": "solve_text_cache_hit",
+      "median_ns": 802.2078706741918,
+      "mean_ns": 813.0738784812535,
+      "unit": "ns"
+    },
+    {
+      "crate": "gpui-builder",
+      "bench": "solved_tree",
+      "group": "text_cache_hit",
+      "function": "solve_tree_text_cache_hit",
+      "median_ns": 1197.1943479073243,
+      "mean_ns": 1240.73400164165,
+      "unit": "ns"
+    },
+    {
+      "crate": "gpui-builder",
+      "bench": "solved_tree",
+      "group": "wide_tree_find",
+      "function": "as_map_get_count_200",
+      "median_ns": 8.691042317725277,
+      "mean_ns": 8.705548763391722,
+      "unit": "ns"
+    },
+    {
+      "crate": "gpui-builder",
+      "bench": "solved_tree",
+      "group": "wide_tree_find",
+      "function": "as_map_get_count_50",
+      "median_ns": 9.951235439052917,
+      "mean_ns": 10.093341334635516,
+      "unit": "ns"
+    },
+    {
+      "crate": "gpui-builder",
+      "bench": "solved_tree",
+      "group": "wide_tree_find",
+      "function": "as_map_get_count_500",
+      "median_ns": 8.574555727896932,
+      "mean_ns": 8.599630249421494,
+      "unit": "ns"
+    },
+    {
+      "crate": "gpui-builder",
+      "bench": "solved_tree",
+      "group": "wide_tree_find",
+      "function": "flat_find_count_200",
+      "median_ns": 9.031560830452973,
+      "mean_ns": 9.043656939113514,
+      "unit": "ns"
+    },
+    {
+      "crate": "gpui-builder",
+      "bench": "solved_tree",
+      "group": "wide_tree_find",
+      "function": "flat_find_count_50",
+      "median_ns": 10.27995188190187,
+      "mean_ns": 10.32698854262855,
+      "unit": "ns"
+    },
+    {
+      "crate": "gpui-builder",
+      "bench": "solved_tree",
+      "group": "wide_tree_find",
+      "function": "flat_find_count_500",
+      "median_ns": 8.79387094387478,
+      "mean_ns": 8.80370008608093,
+      "unit": "ns"
+    },
+    {
+      "crate": "gpui-builder",
+      "bench": "solved_tree",
+      "group": "wide_tree_find",
+      "function": "recursive_find_count_200",
+      "median_ns": 135.3887960365067,
+      "mean_ns": 136.31477545792296,
+      "unit": "ns"
+    },
+    {
+      "crate": "gpui-builder",
+      "bench": "solved_tree",
+      "group": "wide_tree_find",
+      "function": "recursive_find_count_50",
+      "median_ns": 95.81553551003074,
+      "mean_ns": 100.74221254278169,
+      "unit": "ns"
+    },
+    {
+      "crate": "gpui-builder",
+      "bench": "solved_tree",
+      "group": "wide_tree_find",
+      "function": "recursive_find_count_500",
+      "median_ns": 519.1510116595733,
+      "mean_ns": 521.166682835375,
+      "unit": "ns"
+    }
+  ]
+}

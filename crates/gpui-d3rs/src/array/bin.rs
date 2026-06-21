@@ -396,4 +396,103 @@ mod tests {
         assert_eq!(bins.len(), 1);
         assert_eq!(bins[0].values.len(), 3);
     }
+
+    #[test]
+    fn test_bin_len_and_is_empty() {
+        let mut bin = Bin {
+            x0: 0.0,
+            x1: 1.0,
+            values: vec![],
+        };
+        assert_eq!(bin.len(), 0);
+        assert!(bin.is_empty());
+        bin.values.push(1.0);
+        assert_eq!(bin.len(), 1);
+        assert!(!bin.is_empty());
+    }
+
+    #[test]
+    fn test_bin_generator_default_and_debug() {
+        let generator: BinGenerator<f64> = BinGenerator::default();
+        let s = format!("{:?}", generator);
+        assert!(s.contains("BinGenerator"));
+    }
+
+    #[test]
+    fn test_bin_empty_data() {
+        let bins: Vec<Bin<f64>> = bin(&[], 4);
+        assert!(bins.is_empty());
+    }
+
+    #[test]
+    fn test_bin_same_values() {
+        let data = vec![5.0; 10];
+        let bins = bin(&data, 4);
+        assert_eq!(bins.len(), 1);
+        assert_eq!(bins[0].x0, 5.0);
+        assert_eq!(bins[0].x1, 5.0);
+        assert_eq!(bins[0].values.len(), 10);
+    }
+
+    #[test]
+    fn test_bin_explicit_thresholds() {
+        let data = vec![0.0, 25.0, 50.0, 75.0, 100.0];
+        let bins = BinGenerator::new()
+            .value(|x: &f64| *x)
+            .domain(0.0, 100.0)
+            .thresholds(vec![25.0, 50.0, 75.0])
+            .generate(&data);
+        assert_eq!(bins.len(), 2);
+        assert_eq!(bins[0].values, vec![0.0, 25.0]);
+        assert_eq!(bins[1].values, vec![50.0, 75.0, 100.0]);
+    }
+
+    #[test]
+    fn test_bin_threshold_strategies() {
+        let data: Vec<f64> = (1..=100).map(|i| i as f64).collect();
+
+        let sturges = BinGenerator::new()
+            .thresholds_sturges()
+            .generate(&data);
+        assert!(!sturges.is_empty());
+
+        let fd = BinGenerator::new()
+            .value(|x: &f64| *x)
+            .thresholds_freedman_diaconis()
+            .generate(&data);
+        assert!(!fd.is_empty());
+
+        let scott = BinGenerator::new()
+            .value(|x: &f64| *x)
+            .thresholds_scott()
+            .generate(&data);
+        assert!(!scott.is_empty());
+    }
+
+    #[test]
+    fn test_bin_generator_methods_chain() {
+        let generator = BinGenerator::<f64>::new()
+            .domain(0.0, 10.0)
+            .thresholds_count(2);
+        let _ = format!("{:?}", generator);
+    }
+
+    #[test]
+    fn test_nice_bin_edges_equal_min_max() {
+        let edges = nice_bin_edges(5.0, 5.0, 4);
+        assert_eq!(edges, vec![5.0, 5.0]);
+    }
+
+    #[test]
+    fn test_nice_bin_edges_zero_count() {
+        let edges = nice_bin_edges(0.0, 10.0, 0);
+        assert_eq!(edges, vec![0.0, 10.0]);
+    }
+
+    #[test]
+    fn test_nice_bin_edges_fractional_step() {
+        let edges = nice_bin_edges(0.3, 9.7, 5);
+        assert!(edges.first().unwrap() <= &0.3);
+        assert!(edges.last().unwrap() >= &9.7);
+    }
 }

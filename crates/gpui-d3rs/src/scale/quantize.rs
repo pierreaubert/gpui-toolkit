@@ -215,4 +215,58 @@ mod tests {
         assert!((scale.scale(50.0) - 0.5).abs() < 1e-6);
         assert!((scale.scale(90.0) - 1.0).abs() < 1e-6);
     }
+
+    #[test]
+    fn test_quantize_scale_default() {
+        let scale: QuantizeScale<i32> = QuantizeScale::default();
+        assert_eq!(scale.domain_min(), 0.0);
+        assert_eq!(scale.domain_max(), 1.0);
+        assert!(scale.range_values().is_empty());
+    }
+
+    #[test]
+    fn test_quantize_scale_single_range_value() {
+        let scale = QuantizeScale::with_range(vec!["only"]).domain(0.0, 100.0);
+        assert_eq!(scale.scale(0.0), "only");
+        assert_eq!(scale.scale(50.0), "only");
+        assert_eq!(scale.scale(100.0), "only");
+    }
+
+    #[test]
+    fn test_quantize_scale_empty_thresholds_and_extent() {
+        let scale: QuantizeScale<&str> = QuantizeScale::new().domain(0.0, 100.0);
+        assert!(scale.thresholds().is_empty());
+        assert!(scale.invert_extent(0).is_none());
+    }
+
+    #[test]
+    fn test_quantize_scale_invert_extent_out_of_range() {
+        let scale = QuantizeScale::with_range(vec!["a", "b"]).domain(0.0, 100.0);
+        assert!(scale.invert_extent(2).is_none());
+    }
+
+    #[test]
+    fn test_quantize_scale_copy() {
+        let scale = QuantizeScale::with_range(vec!["a", "b", "c"]).domain(0.0, 100.0);
+        let copied = scale.copy();
+        assert_eq!(scale, copied);
+    }
+
+    #[test]
+    #[should_panic(expected = "QuantizeScale requires at least one range value")]
+    fn test_quantize_scale_empty_range_panics() {
+        let scale: QuantizeScale<&str> = QuantizeScale::new().domain(0.0, 100.0);
+        scale.scale(50.0);
+    }
+
+    #[test]
+    fn test_quantize_scale_accessors() {
+        let scale = QuantizeScale::with_range(vec![1, 2, 3]).domain(10.0, 20.0);
+        assert_eq!(scale.domain_min(), 10.0);
+        assert_eq!(scale.domain_max(), 20.0);
+        assert_eq!(scale.range_values(), &[1, 2, 3]);
+        assert_eq!(Scale::domain(&scale), (10.0, 20.0));
+        assert_eq!(Scale::range(&scale), (1, 3));
+        assert_eq!(scale.ticks(10), scale.thresholds());
+    }
 }

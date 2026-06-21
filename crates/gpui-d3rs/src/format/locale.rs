@@ -400,4 +400,77 @@ mod tests {
         let spec = parse_specifier("#x");
         assert_eq!(DEFAULT_LOCALE.format(&spec, 255.0), "0xff");
     }
+
+    #[test]
+    fn test_format_special_values() {
+        let spec = parse_specifier(".2f");
+        assert_eq!(DEFAULT_LOCALE.format(&spec, f64::NAN), "NaN");
+        assert_eq!(DEFAULT_LOCALE.format(&spec, f64::INFINITY), "Infinity");
+        assert_eq!(DEFAULT_LOCALE.format(&spec, f64::NEG_INFINITY), "-Infinity");
+    }
+
+    #[test]
+    fn test_format_sign_variants() {
+        let plus = parse_specifier("+d");
+        assert_eq!(DEFAULT_LOCALE.format(&plus, 5.0), "+5");
+
+        let space = parse_specifier(" d");
+        assert_eq!(DEFAULT_LOCALE.format(&space, 5.0), " 5");
+
+        let parens = parse_specifier("(d");
+        assert_eq!(DEFAULT_LOCALE.format(&parens, -5.0), "(5)");
+    }
+
+    #[test]
+    fn test_format_currency() {
+        let spec = parse_specifier("$.2f");
+        assert_eq!(DEFAULT_LOCALE.format(&spec, 1234.5), "$1234.50");
+    }
+
+    #[test]
+    fn test_format_types() {
+        assert_eq!(DEFAULT_LOCALE.format(&parse_specifier(".3e"), 1234.6), "1.235e3");
+        assert_eq!(DEFAULT_LOCALE.format(&parse_specifier(".4g"), 1.5), "1.5000");
+        assert_eq!(DEFAULT_LOCALE.format(&parse_specifier(".2r"), 1234.0), "1200");
+        assert_eq!(DEFAULT_LOCALE.format(&parse_specifier("b"), 13.0), "1101");
+        assert_eq!(DEFAULT_LOCALE.format(&parse_specifier("#o"), 9.0), "0o11");
+        assert_eq!(DEFAULT_LOCALE.format(&parse_specifier("X"), 255.0), "FF");
+        assert_eq!(DEFAULT_LOCALE.format(&parse_specifier("c"), 65.0), "A");
+    }
+
+    #[test]
+    fn test_format_trim() {
+        let spec = parse_specifier("#.4f");
+        assert_eq!(DEFAULT_LOCALE.format(&spec, 1.5), "1.5000");
+        let spec_trim = parse_specifier("#.4~f");
+        assert_eq!(DEFAULT_LOCALE.format(&spec_trim, 1.5), "1.5");
+    }
+
+    #[test]
+    fn test_format_si_negative() {
+        let spec = parse_specifier(".2s");
+        assert_eq!(DEFAULT_LOCALE.format(&spec, 0.00123), "1.23m");
+        assert_eq!(DEFAULT_LOCALE.format(&spec, -1234.0), "-1.23k");
+    }
+
+    #[test]
+    fn test_format_locale_new_and_decimal() {
+        let locale = Locale::new(",", " ", Some("€"), None);
+        let spec = parse_specifier(",.2f");
+        assert_eq!(locale.format(&spec, 1234.5), "1 234,50");
+    }
+
+    #[test]
+    fn test_format_padding_alignments() {
+        assert_eq!(DEFAULT_LOCALE.format(&parse_specifier("<8d"), 42.0), "42      ");
+        assert_eq!(DEFAULT_LOCALE.format(&parse_specifier(">8d"), 42.0), "      42");
+        assert_eq!(DEFAULT_LOCALE.format(&parse_specifier("^8d"), 42.0), "   42   ");
+        assert_eq!(DEFAULT_LOCALE.format(&parse_specifier("=+8d"), 42.0), "+     42");
+    }
+
+    #[test]
+    fn test_format_no_padding_needed() {
+        let spec = parse_specifier("2d");
+        assert_eq!(DEFAULT_LOCALE.format(&spec, 1234.0), "1234");
+    }
 }

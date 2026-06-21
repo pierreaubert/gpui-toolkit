@@ -167,3 +167,116 @@ fn warns_for_tier_and_container_quality_issues() {
             .any(|issue| issue.kind == LayoutIssueKind::EmptyContainer)
     );
 }
+
+#[test]
+fn validation_reports_invalid_sizing_and_tier_values() {
+    struct DummyMeasure;
+    impl gpui_pretext::TextMeasure for DummyMeasure {
+        fn measure_width(&self, _text: &str) -> f64 {
+            0.0
+        }
+    }
+    static MEASURE: DummyMeasure = DummyMeasure;
+
+    static BAD_TIERS: &[DisplayTier<'_>] = &[
+        DisplayTier {
+            name: "",
+            min_size: -10.0,
+        },
+        DisplayTier {
+            name: "Mini",
+            min_size: 50.0,
+        },
+        DisplayTier {
+            name: "Mini",
+            min_size: 50.0,
+        },
+        DisplayTier {
+            name: "Small",
+            min_size: 100.0,
+        },
+    ];
+
+    let empty_children: &[LayoutNode<'_>] = &[];
+    let children = [
+        LayoutNode::Slot(SlotNode {
+            id: "",
+            sizing: Sizing::Fixed(-1.0),
+            priority: f32::NAN,
+            collapsible: true,
+            display_tiers: BAD_TIERS,
+            collapse_label: None,
+        }),
+        LayoutNode::Slot(SlotNode {
+            id: "bad-frac",
+            sizing: Sizing::Fractional {
+                initial: 1.5,
+                min: -1.0,
+                max: -2.0,
+            },
+            priority: 1.0,
+            collapsible: false,
+            display_tiers: &[],
+            collapse_label: None,
+        }),
+        LayoutNode::Slot(SlotNode {
+            id: "bad-flex",
+            sizing: Sizing::Flex {
+                min: f32::NEG_INFINITY,
+                weight: 0.0,
+            },
+            priority: 1.0,
+            collapsible: false,
+            display_tiers: &[],
+            collapse_label: None,
+        }),
+        LayoutNode::Slot(SlotNode {
+            id: "bad-text",
+            sizing: Sizing::Text {
+                text: "x",
+                measure: &MEASURE,
+                line_height: 0.0,
+                min: f32::NAN,
+            },
+            priority: 1.0,
+            collapsible: false,
+            display_tiers: &[],
+            collapse_label: None,
+        }),
+        LayoutNode::Container(ContainerNode {
+            id: "empty",
+            axis: Axis::Vertical,
+            auto_axis: None,
+            sizing: Sizing::flex(0.0),
+            children: empty_children,
+            divider_size: 0.0,
+        }),
+    ];
+    let root = LayoutNode::Container(ContainerNode {
+        id: "root",
+        axis: Axis::Horizontal,
+        auto_axis: Some(f32::NAN),
+        sizing: Sizing::flex(0.0),
+        children: &children,
+        divider_size: f32::NAN,
+    });
+
+    let report = validate_layout(&root);
+
+    assert!(report.has_errors());
+    let kinds: Vec<_> = report.issues().iter().map(|issue| issue.kind.clone()).collect();
+    assert!(kinds.contains(&LayoutIssueKind::EmptyId));
+    assert!(kinds.contains(&LayoutIssueKind::InvalidPriority));
+    assert!(kinds.contains(&LayoutIssueKind::InvalidSizing));
+    assert!(kinds.contains(&LayoutIssueKind::InvalidAutoAxis));
+    assert!(kinds.contains(&LayoutIssueKind::InvalidDividerSize));
+    assert!(kinds.contains(&LayoutIssueKind::InvalidDisplayTier));
+    assert!(kinds
+        .iter()
+        .any(|kind| matches!(kind, LayoutIssueKind::DuplicateDisplayTierName { .. })));
+    assert!(kinds
+        .iter()
+        .any(|kind| matches!(kind, LayoutIssueKind::DuplicateDisplayTierThreshold { .. })));
+    assert!(kinds.contains(&LayoutIssueKind::DisplayTiersNotDescending));
+    assert!(kinds.contains(&LayoutIssueKind::EmptyContainer));
+}

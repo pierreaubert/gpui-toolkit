@@ -613,7 +613,7 @@ pub fn boxplot(x: &[f64], y: &[f64]) -> BoxPlotChart {
 }
 
 /// Append a rectangle outline to a GPUI path builder.
-fn add_rect_to_path(builder: &mut PathBuilder, x: f32, y: f32, width: f32, height: f32) {
+pub(crate) fn add_rect_to_path(builder: &mut PathBuilder, x: f32, y: f32, width: f32, height: f32) {
     builder.move_to(point(px(x), px(y)));
     builder.line_to(point(px(x + width), px(y)));
     builder.line_to(point(px(x + width), px(y + height)));
@@ -634,5 +634,204 @@ mod tests {
 
         assert!(Arc::ptr_eq(&chart.x, &cloned.x));
         assert!(Arc::ptr_eq(&chart.y, &cloned.y));
+    }
+
+    #[test]
+    fn test_boxplot_empty_x() {
+        let result = boxplot(&[], &[1.0, 2.0]).build();
+        assert!(matches!(result, Err(ChartError::EmptyData { field: "x" })));
+    }
+
+    #[test]
+    fn test_boxplot_empty_y() {
+        let result = boxplot(&[1.0, 2.0], &[]).build();
+        assert!(matches!(result, Err(ChartError::EmptyData { field: "y" })));
+    }
+
+    #[test]
+    fn test_boxplot_length_mismatch() {
+        let result = boxplot(&[1.0, 2.0, 3.0], &[1.0, 2.0]).build();
+        assert!(matches!(
+            result,
+            Err(ChartError::DataLengthMismatch {
+                x_field: "x",
+                y_field: "y",
+                x_len: 3,
+                y_len: 2,
+            })
+        ));
+    }
+
+    #[test]
+    fn test_boxplot_nan_in_data() {
+        let result = boxplot(&[1.0, f64::NAN], &[1.0, 2.0]).build();
+        assert!(matches!(
+            result,
+            Err(ChartError::InvalidData {
+                field: "x",
+                reason: "contains NaN or Infinity"
+            })
+        ));
+    }
+
+    #[test]
+    fn test_boxplot_invalid_dimensions() {
+        let result = boxplot(&[1.0, 2.0], &[1.0, 2.0]).size(0.0, 400.0).build();
+        assert!(matches!(
+            result,
+            Err(ChartError::InvalidDimension {
+                field: "width",
+                value: 0.0
+            })
+        ));
+    }
+
+    #[test]
+    fn test_boxplot_log_scale_negative_x() {
+        let result = boxplot(&[-1.0, 1.0], &[1.0, 2.0])
+            .x_scale(ScaleType::Log)
+            .build();
+        assert!(matches!(
+            result,
+            Err(ChartError::InvalidData {
+                field: "x",
+                reason: "contains non-positive values for log scale"
+            })
+        ));
+    }
+
+    #[test]
+    fn test_boxplot_log_scale_negative_y() {
+        let result = boxplot(&[1.0, 2.0], [-1.0, 1.0].as_slice())
+            .y_scale(ScaleType::Log)
+            .build();
+        assert!(matches!(
+            result,
+            Err(ChartError::InvalidData {
+                field: "y",
+                reason: "contains non-positive values for log scale"
+            })
+        ));
+    }
+
+    #[test]
+    fn test_boxplot_zero_bins_rejected() {
+        let result = boxplot(&[1.0, 2.0, 3.0], &[1.0, 2.0, 3.0]).bins(0).build();
+        assert!(matches!(
+            result,
+            Err(ChartError::InvalidData {
+                field: "bins",
+                reason: "boxplot bin count must be at least 1"
+            })
+        ));
+    }
+
+    #[test]
+    fn test_boxplot_successful_build() {
+        let x: Vec<f64> = (0..30).map(|i| i as f64).collect();
+        let y: Vec<f64> = x.iter().map(|&xi| xi + 1.0).collect();
+        let result = boxplot(&x, &y).title("Box Plot").build();
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_boxplot_all_scale_combinations_build() {
+        let x = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+        let y = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+        for (x_scale, y_scale) in [
+            (ScaleType::Linear, ScaleType::Linear),
+            (ScaleType::Log, ScaleType::Linear),
+            (ScaleType::Linear, ScaleType::Log),
+            (ScaleType::Log, ScaleType::Log),
+        ] {
+            let result = boxplot(&x, &y)
+                .x_scale(x_scale)
+                .y_scale(y_scale)
+                .build();
+            assert!(result.is_ok(), "failed for x={x_scale:?}, y={y_scale:?}");
+        }
+    }
+
+    #[test]
+    fn test_calculate_boxes_single_bin() {
+        let chart = boxplot(&[1.0, 2.0, 3.0], &[10.0, 20.0, 30.0]).bins(1);
+        let boxes = chart.calculate_boxes(0.0, 4.0, 1);
+        assert_eq!(boxes.len(), 1);
+        // Linear interpolation on sorted [10,20,30]
+        assert_eq!(boxes[0].q1, 15.0);
+        assert_eq!(boxes[0].q2, 20.0);
+        assert_eq!(boxes[0].q3, 25.0);
+    }
+
+    #[test]
+    fn test_calculate_boxes_multiple_bins() {
+        let x = vec![0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0];
+        let y = vec![1.0; 10];
+        let chart = boxplot(&x, &y).bins(2);
+        let boxes = chart.calculate_boxes(-1.0, 10.0, 2);
+        assert!(!boxes.is_empty());
+    }
+
+    #[test]
+    fn test_calculate_boxes_empty_bins_filtered() {
+        // Sparse data so some bins are empty
+        let x = vec![0.0, 9.0];
+        let y = vec![1.0, 2.0];
+        let chart = boxplot(&x, &y).bins(5);
+        let boxes = chart.calculate_boxes(0.0, 10.0, 5);
+        assert_eq!(boxes.len(), 2);
+    }
+
+    #[test]
+    fn test_add_rect_to_path_builds_rectangle() {
+        use gpui::PathBuilder;
+        let mut builder = PathBuilder::fill();
+        add_rect_to_path(&mut builder, 0.0, 0.0, 10.0, 20.0);
+        // Building should succeed for a closed rectangle
+        let _ = builder.build();
+    }
+
+    #[test]
+    fn test_boxplot_builder_chain() {
+        let x = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+        let y = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+        let result = boxplot(&x, &y)
+            .title("My Box Plot")
+            .box_color(0xdddddd)
+            .median_color(0x000000)
+            .whisker_color(0x333333)
+            .outlier_color(0xff0000)
+            .box_opacity(0.8)
+            .box_width(15.0)
+            .stroke_width(1.5)
+            .outlier_radius(4.0)
+            .bins(3)
+            .size(800.0, 600.0)
+            .build();
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_boxplot_responsive_size_defaults_and_fixed_opt_in() {
+        let x = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+        let y = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+
+        crate::assert_default_chart_size(boxplot(&x, &y).chart_size);
+        crate::assert_fixed_chart_size(
+            boxplot(&x, &y).size(360.0, 240.0).chart_size,
+            360.0,
+            240.0,
+        );
+        crate::assert_fill_chart_size(
+            boxplot(&x, &y)
+                .size(360.0, 240.0)
+                .fill()
+                .min_size(300.0, 220.0)
+                .aspect_ratio(1.2)
+                .chart_size,
+            300.0,
+            220.0,
+            Some(1.2),
+        );
     }
 }

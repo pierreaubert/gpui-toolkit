@@ -256,4 +256,25 @@ mod tests {
         assert_eq!(scene_first, scene_second);
         assert_eq!(cache.len(), 2);
     }
+
+    #[test]
+    fn parse_surface_reports_validation_errors() {
+        let mut cache = TypedSpecCache::new();
+        let bad = serde_json::json!({
+            "id": "bad",
+            "z": { "values": [1.0, 2.0], "width": 2, "height": 2 }
+        });
+        assert!(cache.parse_surface("bad", &bad).is_err());
+    }
+
+    #[test]
+    fn parse_methods_report_type_mismatch() {
+        let mut cache = TypedSpecCache::new();
+        let surface = serde_json::json!({
+            "id": "shared",
+            "z": { "values": [1.0, 2.0, 3.0, 4.0], "width": 2, "height": 2 }
+        });
+        cache.parse_surface("shared", &surface).unwrap();
+        assert!(cache.parse_lines("shared", &surface).is_err());
+    }
 }

@@ -318,3 +318,39 @@ mod tests {
         assert_eq!(case.estimated_work_units(), 600);
     }
 }
+
+
+#[test]
+fn variable_font_axis_rejects_infinite_values() {
+    assert!(VariableFontAxis::new("wght", f32::INFINITY, 400.0, 900.0).is_err());
+    assert!(VariableFontAxis::new("wght", 100.0, 400.0, f32::NAN).is_err());
+}
+
+#[test]
+fn font_variation_settings_round_trip() {
+    let settings = FontVariationSettings::default()
+        .set("wght", 700.0)
+        .set("wdth", 100.0)
+        .set("wght", 800.0);
+    assert_eq!(settings.axes.len(), 2);
+    assert_eq!(settings.axes[0].1, 800.0);
+    let css = settings.css_settings();
+    assert!(css.contains("wght"));
+    assert!(css.contains("800"));
+}
+
+#[test]
+fn accessibility_runs_for_code_role() {
+    let spans = parse_inline_markdown("`code`");
+    let runs = accessibility_runs_for_spans(&spans);
+    assert_eq!(runs.len(), 1);
+    assert_eq!(runs[0].role, AccessibleTextRole::Code);
+}
+
+#[test]
+fn coalesce_plain_spans_merges_adjacent_plain_text() {
+    let spans = parse_inline_markdown("hello **world** again");
+    assert_eq!(spans.len(), 3);
+    assert_eq!(spans[0].text, "hello ");
+    assert_eq!(spans[2].text, " again");
+}

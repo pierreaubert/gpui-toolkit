@@ -342,4 +342,67 @@ mod tests {
         let mid_deg = mid.rotate * 180.0 / PI;
         assert!((mid_deg - 45.0).abs() < 0.001);
     }
+
+    #[test]
+    fn test_transform_rotate_rad_scale_uniform_skew() {
+        let t = Transform2D::rotate_rad(PI / 2.0);
+        let (x, y) = t.apply(1.0, 0.0);
+        assert!(x.abs() < 1e-6);
+        assert!((y - 1.0).abs() < 1e-6);
+
+        let s = Transform2D::scale_uniform(3.0);
+        let (x, y) = s.apply(2.0, 4.0);
+        assert_eq!(x, 6.0);
+        assert_eq!(y, 12.0);
+
+        let sk = Transform2D::skew_x_deg(45.0);
+        let (x, _) = sk.apply(1.0, 1.0);
+        assert!(x > 1.0);
+    }
+
+    #[test]
+    fn test_transform_from_matrix_negative_determinant() {
+        let t = Transform2D::from_matrix(-1.0, 0.0, 0.0, 1.0, 0.0, 0.0);
+        assert!(t.scale_x < 0.0);
+    }
+
+    #[test]
+    fn test_transform_to_css_and_svg() {
+        let identity = Transform2D::identity();
+        assert_eq!(identity.to_css(), "none");
+
+        let t = Transform2D {
+            translate_x: 10.0,
+            translate_y: 20.0,
+            rotate: PI / 2.0,
+            scale_x: 1.0,
+            scale_y: 1.0,
+            skew_x: 0.0,
+        };
+        let css = t.to_css();
+        assert!(css.contains("translate("));
+        assert!(css.contains("rotate("));
+
+        let svg = t.to_svg();
+        assert!(svg.starts_with("matrix("));
+    }
+
+    #[test]
+    fn test_interpolate_rotation_wraparound() {
+        let start = Transform2D::rotate_deg(170.0);
+        let end = Transform2D::rotate_deg(-170.0);
+        let mid = start.interpolate(&end, 0.5);
+        let mid_deg = mid.rotate * 180.0 / PI;
+        assert!((mid_deg - 180.0).abs() < 1.0 || (mid_deg + 180.0).abs() < 1.0);
+    }
+
+    #[test]
+    fn test_interpolate_transform_svg() {
+        let identity = [1.0, 0.0, 0.0, 1.0, 0.0, 0.0];
+        let translated = [1.0, 0.0, 0.0, 1.0, 100.0, 50.0];
+        let interp = interpolate_transform_svg(identity, translated);
+        let mid = interp(0.5);
+        assert!((mid[4] - 50.0).abs() < 0.001);
+        assert!((mid[5] - 25.0).abs() < 0.001);
+    }
 }

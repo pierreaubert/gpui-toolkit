@@ -879,7 +879,7 @@ where
 }
 
 /// Append a rounded rectangle outline to a GPUI path builder.
-fn add_rounded_rect_to_path(
+pub(crate) fn add_rounded_rect_to_path(
     builder: &mut PathBuilder,
     x: f32,
     y: f32,
@@ -1109,5 +1109,106 @@ mod tests {
             &chart.series[0].values,
             &cloned.series[0].values
         ));
+    }
+
+    #[test]
+    fn test_bar_invalid_value_infinity() {
+        let result = bar(&["A", "B", "C"], &[1.0, f64::INFINITY, 3.0]).build();
+        assert!(matches!(
+            result,
+            Err(ChartError::InvalidData {
+                field: "values",
+                reason: "contains NaN or Infinity"
+            })
+        ));
+    }
+
+    #[test]
+    fn test_bar_series_length_mismatch() {
+        let result = bar(&["A", "B", "C"], &[1.0, 2.0, 3.0])
+            .add_series(&[1.0, 2.0], Some("Short"), 0xff0000, 0.8)
+            .build();
+        assert!(matches!(
+            result,
+            Err(ChartError::DataLengthMismatch {
+                x_field: "categories",
+                y_field: "series.values",
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn test_bar_series_nan() {
+        let result = bar(&["A", "B", "C"], &[1.0, 2.0, 3.0])
+            .add_series(&[1.0, f64::NAN, 3.0], Some("Bad"), 0xff0000, 0.8)
+            .build();
+        assert!(matches!(
+            result,
+            Err(ChartError::InvalidData {
+                field: "series.values",
+                reason: "contains NaN or Infinity"
+            })
+        ));
+    }
+
+    #[test]
+    fn test_bar_series_log_scale_zero() {
+        let result = bar(&["A", "B", "C"], &[1.0, 2.0, 3.0])
+            .add_series(&[0.0, 1.0, 2.0], Some("Zero"), 0xff0000, 0.8)
+            .y_scale(ScaleType::Log)
+            .build();
+        assert!(matches!(
+            result,
+            Err(ChartError::InvalidData {
+                field: "series.values",
+                reason: "contains non-positive values for log scale"
+            })
+        ));
+    }
+
+    #[test]
+    fn test_bar_grouped_builds() {
+        let categories = vec!["A", "B", "C"];
+        let values = vec![10.0, 20.0, 30.0];
+        let values2 = vec![5.0, 15.0, 25.0];
+        let result = bar(&categories, &values)
+            .add_series(&values2, Some("2024"), 0xff7f0e, 0.8)
+            .build();
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_bar_legend_positions_build() {
+        let categories = vec!["A", "B"];
+        let values = vec![10.0, 20.0];
+        for position in [
+            LegendPosition::Left,
+            LegendPosition::Right,
+            LegendPosition::Top,
+            LegendPosition::Bottom,
+            LegendPosition::Hidden,
+        ] {
+            let result = bar(&categories, &values)
+                .label("Primary")
+                .legend_position(position)
+                .build();
+            assert!(result.is_ok(), "failed for {position:?}");
+        }
+    }
+
+    #[test]
+    fn test_add_rounded_rect_to_path_zero_radius() {
+        let mut builder = PathBuilder::fill();
+        add_rounded_rect_to_path(&mut builder, 0.0, 0.0, 10.0, 20.0, 0.0);
+        let _ = builder.build();
+    }
+
+    #[test]
+    fn test_add_rounded_rect_to_path_large_radius() {
+        // Radius larger than half width/height should be clamped
+        let mut builder = PathBuilder::fill();
+        add_rounded_rect_to_path(&mut builder, 0.0, 0.0, 10.0, 20.0, 100.0);
+        let _ = builder.build();
     }
 }

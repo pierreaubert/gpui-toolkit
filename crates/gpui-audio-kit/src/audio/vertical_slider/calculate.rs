@@ -247,3 +247,43 @@ pub(super) fn calculate_ticks(
         ticks
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::calculate_ticks;
+    use crate::AudioScale as Scale;
+
+    #[test]
+    fn linear_ticks_include_min_and_max() {
+        let ticks = calculate_ticks(0.0, 100.0, Scale::Linear, 160.0);
+        assert!(ticks.first().unwrap().normalized_pos == 0.0);
+        assert!(ticks.last().unwrap().normalized_pos == 1.0);
+        assert!(ticks.iter().any(|t| t.is_major));
+    }
+
+    #[test]
+    fn logarithmic_ticks_include_min_and_max() {
+        let ticks = calculate_ticks(20.0, 20_000.0, Scale::Logarithmic, 160.0);
+        assert!(ticks.first().unwrap().normalized_pos == 0.0);
+        assert!(ticks.last().unwrap().normalized_pos == 1.0);
+    }
+
+    #[test]
+    fn calculate_ticks_is_cached() {
+        let a = calculate_ticks(0.0, 100.0, Scale::Linear, 160.0);
+        let b = calculate_ticks(0.0, 100.0, Scale::Linear, 160.0);
+        assert_eq!(a.len(), b.len());
+        assert!(std::ptr::eq(a.as_ptr(), b.as_ptr()));
+    }
+
+    #[test]
+    fn degenerate_ranges_still_produce_bounds() {
+        let linear = calculate_ticks(10.0, 10.0, Scale::Linear, 80.0);
+        assert_eq!(linear.len(), 2);
+        assert_eq!(linear[0].normalized_pos, 0.0);
+        assert_eq!(linear[1].normalized_pos, 1.0);
+
+        let log = calculate_ticks(100.0, 100.0, Scale::Logarithmic, 80.0);
+        assert_eq!(log.len(), 2);
+    }
+}

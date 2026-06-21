@@ -24,3 +24,20 @@ impl From<crate::ComponentSize> for InputSize {
         }
     }
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::InputSize;
+    use crate::ComponentSize;
+
+    #[test]
+    fn input_size_from_component_size() {
+        assert_eq!(InputSize::from(ComponentSize::Xs), InputSize::Xs);
+        assert_eq!(InputSize::from(ComponentSize::Sm), InputSize::Sm);
+        assert_eq!(InputSize::from(ComponentSize::Md), InputSize::Md);
+        assert_eq!(InputSize::from(ComponentSize::Lg), InputSize::Lg);
+        assert_eq!(InputSize::from(ComponentSize::Xl), InputSize::Lg);
+    }
+}
+

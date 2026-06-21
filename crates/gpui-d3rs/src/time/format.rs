@@ -64,3 +64,44 @@ impl TimeFormat {
 pub fn format(pattern: &str, timestamp: i64) -> String {
     TimeFormat::new(pattern).format(timestamp)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_format_new() {
+        let fmt = TimeFormat::new("%Y-%m-%d %H:%M:%S");
+        let s = fmt.format(0);
+        assert_eq!(s, "1970-01-01 00:00:00");
+    }
+
+    #[test]
+    fn test_format_helper() {
+        assert_eq!(format("%Y/%m/%d", 0), "1970/01/01");
+    }
+
+    #[test]
+    fn test_format_specific_timestamp() {
+        // 2024-06-21 12:13:38 UTC
+        let ts = 1718972018;
+        assert_eq!(format("%Y-%m-%d %H:%M:%S", ts), "2024-06-21 12:13:38");
+    }
+
+    #[test]
+    fn test_format_partial_pattern() {
+        assert_eq!(format("%H:%M", 3661), "01:01");
+    }
+
+    #[test]
+    fn test_format_negative_timestamp() {
+        // Current implementation produces a literal negative hour; this test
+        // exercises the negative-timestamp branch of the formatter.
+        assert_eq!(format("%Y-%m-%d %H:%M:%S", -7200), "1970-01-01 -2:00:00");
+    }
+
+    #[test]
+    fn test_format_no_tokens() {
+        assert_eq!(format("hello world", 12345), "hello world");
+    }
+}

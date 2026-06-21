@@ -762,4 +762,111 @@ mod tests {
             Some(1.2),
         );
     }
+
+    #[test]
+    fn test_isoline_invalid_dimensions() {
+        let z = vec![1.0; 9];
+        let result = isoline(&z, 3, 3).size(0.0, 400.0).build();
+        assert!(matches!(
+            result,
+            Err(ChartError::InvalidDimension {
+                field: "width",
+                value: 0.0
+            })
+        ));
+    }
+
+    #[test]
+    fn test_isoline_nan_in_z() {
+        let z = vec![1.0, f64::NAN, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0];
+        let result = isoline(&z, 3, 3).build();
+        assert!(matches!(
+            result,
+            Err(ChartError::InvalidData {
+                field: "z",
+                reason: "contains NaN or Infinity"
+            })
+        ));
+    }
+
+    #[test]
+    fn test_isoline_x_not_monotonic() {
+        let z = vec![1.0; 6];
+        let x = vec![2.0, 1.0];
+        let result = isoline(&z, 2, 3).x(&x).build();
+        assert!(matches!(
+            result,
+            Err(ChartError::InvalidData {
+                field: "x",
+                reason: "must be strictly monotonically increasing"
+            })
+        ));
+    }
+
+    #[test]
+    fn test_isoline_x_log_negative() {
+        let z = vec![1.0; 4];
+        let x = vec![-1.0, 1.0];
+        let result = isoline(&z, 2, 2).x(&x).x_scale(ScaleType::Log).build();
+        assert!(matches!(
+            result,
+            Err(ChartError::InvalidData {
+                field: "x",
+                reason: "contains non-positive values for log scale"
+            })
+        ));
+    }
+
+    #[test]
+    fn test_isoline_log_scale_requires_explicit_axes() {
+        let z = vec![1.0; 9];
+        let result = isoline(&z, 3, 3).x_scale(ScaleType::Log).build();
+        assert!(matches!(result, Err(ChartError::InvalidData { .. })));
+    }
+
+    #[test]
+    fn test_isoline_opacity_clamping() {
+        let z = vec![1.0; 9];
+        let chart = isoline(&z, 3, 3).opacity(2.0);
+        assert_eq!(chart.opacity, 1.0);
+        let chart = isoline(&z, 3, 3).opacity(-1.0);
+        assert_eq!(chart.opacity, 0.0);
+    }
+
+    #[test]
+    fn test_isoline_stroke_width_and_smoothing_settings() {
+        let z = vec![1.0; 9];
+        let chart = isoline(&z, 3, 3)
+            .stroke_width(2.5)
+            .smooth_strokes(true)
+            .smoothing_iterations(3)
+            .smoothing_max_deviation_px(5.0)
+            .contour_upsample_factor(2);
+        assert_eq!(chart.stroke_width, 2.5);
+        assert!(chart.smooth_strokes);
+        assert_eq!(chart.smoothing_iterations, 3);
+        assert_eq!(chart.smoothing_max_deviation_px, 5.0);
+        assert_eq!(chart.contour_upsample_factor, 2);
+    }
+
+    #[test]
+    fn test_isoline_all_scale_combinations_build() {
+        let z = vec![1.0; 9];
+        let x = vec![1.0, 2.0, 3.0];
+        let y = vec![1.0, 2.0, 3.0];
+        for (x_scale, y_scale) in [
+            (ScaleType::Linear, ScaleType::Linear),
+            (ScaleType::Log, ScaleType::Linear),
+            (ScaleType::Linear, ScaleType::Log),
+            (ScaleType::Log, ScaleType::Log),
+        ] {
+            let result = isoline(&z, 3, 3)
+                .x(&x)
+                .y(&y)
+                .x_scale(x_scale)
+                .y_scale(y_scale)
+                .build();
+            assert!(result.is_ok(), "failed for x={x_scale:?}, y={y_scale:?}");
+        }
+    }
 }

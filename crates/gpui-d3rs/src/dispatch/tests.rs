@@ -315,3 +315,21 @@ fn test_dispatcher_clone_event_with_none_data() {
     assert_eq!(cloned.type_, "test");
     assert!(cloned.data.is_none());
 }
+
+#[test]
+fn test_listener_debug() {
+    use super::listener::Listener;
+    use super::listener_id::ListenerId;
+    use super::types::ListenerFn;
+
+    let listener = Listener {
+        id: ListenerId::new(),
+        type_: "test".to_string(),
+        callback: Box::new(|_: &Event| {}) as ListenerFn,
+        once: false,
+    };
+
+    let debug = format!("{listener:?}");
+    assert!(debug.contains("Listener"));
+    assert!(debug.contains("test"));
+}

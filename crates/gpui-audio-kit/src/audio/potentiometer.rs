@@ -925,6 +925,7 @@ impl RenderOnce for Potentiometer {
 #[cfg(test)]
 mod tests {
     use super::Potentiometer;
+    use crate::{AudioScale as Scale, PotentiometerTheme};
 
     #[test]
     fn format_label_wraps_shortcut_key() {
@@ -956,5 +957,96 @@ mod tests {
 
         let pot_default = Potentiometer::new("test").value(3.14);
         assert_eq!(pot_default.format_value_only(), "3.1");
+    }
+
+    #[test]
+    #[allow(clippy::approx_constant)]
+    fn format_value_includes_units() {
+        let pot_pct = Potentiometer::new("test")
+            .value(75.0)
+            .min(0.0)
+            .max(100.0)
+            .unit("%");
+        assert_eq!(pot_pct.format_value(), "75%");
+
+        let pot_hz = Potentiometer::new("test")
+            .value(1000.0)
+            .min(20.0)
+            .max(20000.0)
+            .unit("Hz");
+        assert_eq!(pot_hz.format_value(), "1000 Hz");
+
+        let pot_ratio = Potentiometer::new("test")
+            .value(4.0)
+            .min(1.0)
+            .max(20.0)
+            .unit(":1");
+        assert_eq!(pot_ratio.format_value(), "4.0:1");
+
+        let pot_default = Potentiometer::new("test").value(3.14);
+        assert_eq!(pot_default.format_value(), "3.1");
+    }
+
+    #[test]
+    fn value_to_normalized_respects_scale() {
+        let linear = Potentiometer::new("test")
+            .value(50.0)
+            .min(0.0)
+            .max(100.0)
+            .scale(Scale::Linear);
+        assert!((linear.value_to_normalized(50.0) - 0.5).abs() < 1e-9);
+
+        let log = Potentiometer::new("test")
+            .value(1000.0)
+            .min(20.0)
+            .max(20000.0)
+            .scale(Scale::Logarithmic);
+        let norm = log.value_to_normalized(1000.0);
+        assert!(norm > 0.0 && norm < 1.0);
+    }
+
+    #[test]
+    fn builder_setters_chain() {
+        let _pot = Potentiometer::new("test")
+            .value(50.0)
+            .min(0.0)
+            .max(100.0)
+            .unit("%")
+            .label("Gain")
+            .shortcut_key('g')
+            .size(crate::PotentiometerSize::Lg)
+            .scale(Scale::Linear)
+            .selected(true)
+            .disabled(false)
+            .on_change(|_val, _window, _cx| {})
+            .on_drag_start(|_pos, _val, _window, _cx| {})
+            .on_select(|_window, _cx| {})
+            .on_reset(|_window, _cx| {});
+    }
+
+    #[test]
+    fn extended_builder_setters_chain() {
+        let theme = PotentiometerTheme {
+            surface: gpui::rgba(0x1a1a1aff),
+            surface_hover: gpui::rgba(0x2a2a2aff),
+            knob_bg: gpui::rgba(0x333333ff),
+            accent: gpui::rgba(0xff6600ff),
+            accent_muted: gpui::rgba(0xff660033),
+            border: gpui::rgba(0x444444ff),
+            text_secondary: gpui::rgba(0xaaaaaaff),
+            text_primary: gpui::rgba(0xffffffff),
+            text_muted: gpui::rgba(0x888888ff),
+            text_on_accent: gpui::rgba(0xffffffff),
+            background_secondary: gpui::rgba(0x222222ff),
+        };
+        let design = gpui_design::DesignSystem::neutral();
+
+        let _pot = Potentiometer::new("extended")
+            .theme(theme)
+            .accent_color(gpui::rgba(0x00ff00ff))
+            .design_tokens(crate::AudioDesignTokens::default())
+            .design(design)
+            .aria_label("Gain knob")
+            .aria_role(crate::accessibility::AriaRole::Slider);
     }
 }

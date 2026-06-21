@@ -167,4 +167,36 @@ mod tests {
         assert_eq!(format_key_label("ctrl-"), "ctrl-");
         assert_eq!(format_key_label("shift-"), "shift-");
     }
+
+    #[test]
+    fn test_platform_modifier() {
+        #[cfg(target_os = "macos")]
+        assert_eq!(platform_modifier(), "Cmd");
+        #[cfg(not(target_os = "macos"))]
+        assert_eq!(platform_modifier(), "Ctrl");
+    }
+
+    #[test]
+    fn test_platform_modifier_symbol() {
+        #[cfg(target_os = "macos")]
+        assert_eq!(platform_modifier_symbol(), "⌘");
+        #[cfg(not(target_os = "macos"))]
+        assert_eq!(platform_modifier_symbol(), "Ctrl");
+    }
+
+    #[test]
+    fn test_format_key_label_empty() {
+        assert_eq!(format_key_label(""), "");
+    }
+
+    #[test]
+    fn test_format_key_label_unknown_modifier() {
+        assert_eq!(format_key_label("foo-bar"), "Foo+Bar");
+        assert_eq!(format_key_label("meta-s"), "Meta+S");
+    }
+
+    #[test]
+    fn test_format_key_label_cmd_modifier() {
+        assert_eq!(format_key_label("cmd-s"), "⌘+S");
+    }
 }

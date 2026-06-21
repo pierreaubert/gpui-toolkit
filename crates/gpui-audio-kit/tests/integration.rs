@@ -1,3 +1,5 @@
+#[path = "integration/design_tokens_render.rs"]
+mod design_tokens_render;
 #[path = "integration/potentiometer_test.rs"]
 mod potentiometer_test;
 #[path = "integration/vertical_slider_test.rs"]

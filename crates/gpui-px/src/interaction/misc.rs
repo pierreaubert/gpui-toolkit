@@ -128,3 +128,52 @@ pub(super) mod gpui_render {
             )
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_clamp_log_domain_valid() {
+        let (min, max) = clamp_log_domain(1.0, 100.0);
+        assert!((min - 1.0).abs() < 1e-10);
+        assert!((max - 100.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_clamp_log_domain_reversed() {
+        let (min, max) = clamp_log_domain(100.0, 1.0);
+        assert!((min - 100.0).abs() < 1e-10);
+        assert!((max - (100.0 + 1e-10)).abs() < 1e-10);
+        assert!(min < max);
+    }
+
+    #[test]
+    fn test_clamp_log_domain_zero() {
+        let (min, max) = clamp_log_domain(0.0, 10.0);
+        assert!((min - 1e-10).abs() < 1e-10);
+        assert!((max - 10.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_clamp_log_domain_negative() {
+        let (min, max) = clamp_log_domain(-10.0, -1.0);
+        assert!((min - 1e-10).abs() < 1e-10);
+        assert!((max - 2e-10).abs() < 1e-10);
+        assert!(min < max);
+    }
+
+    #[test]
+    fn test_clamp_log_domain_nan() {
+        let (min, max) = clamp_log_domain(f64::NAN, 10.0);
+        assert!((min - 1e-10).abs() < 1e-10);
+        assert!((max - 10.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_clamp_log_domain_infinite() {
+        let (min, max) = clamp_log_domain(f64::INFINITY, 10.0);
+        assert!((min - 1e-10).abs() < 1e-10);
+        assert!((max - 10.0).abs() < 1e-10);
+    }
+}

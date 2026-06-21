@@ -29,3 +29,22 @@ impl<T> Keyframe<T> {
         self
     }
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::{Easing, Keyframe};
+
+    #[test]
+    fn keyframe_clamps_progress_and_easing() {
+        let k = Keyframe::new(-0.5, 10.0).with_easing(Easing::EaseOutQuad);
+        assert_eq!(k.at, 0.0);
+        assert_eq!(k.value, 10.0);
+        assert_eq!(k.easing, Easing::EaseOutQuad);
+
+        let k = Keyframe::new(1.5, 20.0);
+        assert_eq!(k.at, 1.0);
+        assert_eq!(k.easing, Easing::Linear);
+    }
+}
+

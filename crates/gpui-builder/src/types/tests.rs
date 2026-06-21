@@ -159,3 +159,108 @@ fn fluent_constructors_match_explicit_struct_layout() {
         );
     }
 }
+
+struct DummyMeasure;
+
+impl gpui_pretext::TextMeasure for DummyMeasure {
+    fn measure_width(&self, _text: &str) -> f64 {
+        0.0
+    }
+}
+
+#[test]
+fn sizing_text_debug_equality_and_min_size() {
+    static M1: DummyMeasure = DummyMeasure;
+    static M2: DummyMeasure = DummyMeasure;
+
+    let t1 = Sizing::Text {
+        text: "a",
+        measure: &M1,
+        line_height: 20.0,
+        min: 5.0,
+    };
+    let t2 = Sizing::Text {
+        text: "a",
+        measure: &M1,
+        line_height: 20.0,
+        min: 5.0,
+    };
+    let t3 = Sizing::Text {
+        text: "a",
+        measure: &M2,
+        line_height: 20.0,
+        min: 5.0,
+    };
+
+    assert_eq!(t1, t2);
+    assert_ne!(t1, t3);
+    assert_eq!(
+        format!("{:?}", t1),
+        r#"Text { text: "a", line_height: 20, min: 5 }"#
+    );
+    assert_eq!(t1.min_size(), 5.0);
+
+    let fixed = Sizing::Fixed(12.0);
+    assert_eq!(format!("{:?}", fixed), "Fixed(12)");
+    assert_eq!(fixed.min_size(), 12.0);
+
+    let frac = Sizing::Fractional {
+        initial: 0.25,
+        min: 10.0,
+        max: 100.0,
+    };
+    assert_eq!(
+        format!("{:?}", frac),
+        "Fractional { initial: 0.25, min: 10, max: 100 }"
+    );
+    assert_eq!(frac.min_size(), 10.0);
+
+    let flex = Sizing::Flex {
+        min: 20.0,
+        weight: 2.0,
+    };
+    assert_eq!(format!("{:?}", flex), "Flex { min: 20, weight: 2 }");
+    assert_eq!(flex.min_size(), 20.0);
+}
+
+#[test]
+fn slot_node_fluent_setters_and_into_node() {
+    let slot = SlotNode::new("main", Sizing::flex(0.0))
+        .priority(0.3)
+        .collapse_label(Some("Tab"));
+    assert_eq!(slot.priority, 0.3);
+    assert_eq!(slot.collapse_label, Some("Tab"));
+    assert!(!slot.collapsible);
+
+    let node: LayoutNode = slot.into_node();
+    assert!(matches!(node, LayoutNode::Slot(s) if s.id == "main"));
+}
+
+#[test]
+fn layout_preferences_accessors_expose_maps() {
+    let prefs = LayoutPreferences::new(&[("a", Axis::Horizontal, 0.1)], &[("b", true)]);
+    assert_eq!(prefs.ratios().len(), 1);
+    assert_eq!(prefs.collapsed().len(), 1);
+    assert_eq!(prefs.ratio_for("a", Axis::Horizontal), Some(0.1));
+    assert!(prefs.is_collapsed("b"));
+}
+
+#[test]
+fn layout_node_constructors_and_from_impls() {
+    let slot = SlotNode::new("s", Sizing::Fixed(1.0));
+    let container = ContainerNode::new("c", Axis::Vertical, Sizing::flex(0.0), &[]);
+
+    let _node_from_slot: LayoutNode = slot.into();
+    let _node_from_container: LayoutNode = container.into_node();
+
+    assert_eq!(LayoutNode::slot("s", Sizing::Fixed(1.0)).id(), "s");
+    assert_eq!(
+        LayoutNode::container("c", Axis::Vertical, Sizing::flex(0.0), &[]).id(),
+        "c"
+    );
+    assert_eq!(
+        LayoutNode::Container(container).priority(),
+        1.0,
+        "containers have neutral priority"
+    );
+}

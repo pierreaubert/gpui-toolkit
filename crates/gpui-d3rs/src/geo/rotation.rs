@@ -152,3 +152,56 @@ impl Rotation {
         (degrees(lambda), degrees(phi))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_rotation_new_and_default() {
+        let r = Rotation::new();
+        assert_eq!(r.lambda, 0.0);
+        assert_eq!(r.phi, 0.0);
+        assert_eq!(r.gamma, 0.0);
+
+        let d = Rotation::default();
+        assert_eq!(d.lambda, 0.0);
+    }
+
+    #[test]
+    fn test_rotation_identity() {
+        let r = Rotation::new();
+        assert!((r.rotate(10.0, 20.0).0 - 10.0).abs() < 1e-9);
+        assert!((r.rotate(10.0, 20.0).1 - 20.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_rotation_lambda_only() {
+        let r = Rotation::new().angles(10.0, 0.0, 0.0);
+        let (lon, lat) = r.rotate(0.0, 0.0);
+        assert!((lon - 10.0).abs() < 1e-9);
+        assert!(lat.abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_rotation_phi_and_gamma() {
+        let r = Rotation::new().angles(0.0, 90.0, 0.0);
+        let (lon, lat) = r.rotate(0.0, 0.0);
+        assert!(lon.abs() < 1e-9);
+        assert!((lat - 90.0).abs() < 1e-9);
+
+        let r2 = Rotation::new().angles(0.0, 0.0, 90.0);
+        let (lon2, lat2) = r2.rotate(0.0, 0.0);
+        assert!(lon2.abs() < 1e-9);
+        assert!(lat2.abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_rotation_invert_roundtrip() {
+        let r = Rotation::new().angles(12.0, 34.0, 56.0);
+        let (lon, lat) = (10.0, 20.0);
+        let (lon2, lat2) = r.invert(r.rotate(lon, lat).0, r.rotate(lon, lat).1);
+        assert!((lon - lon2).abs() < 1e-9);
+        assert!((lat - lat2).abs() < 1e-9);
+    }
+}

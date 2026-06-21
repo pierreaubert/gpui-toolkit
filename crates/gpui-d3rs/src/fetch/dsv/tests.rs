@@ -157,3 +157,20 @@ fn test_format_quoted() {
     let result = parser.format(&[row], &["text"]);
     assert!(result.contains("\"hello, \"\"world\"\"\""));
 }
+
+#[test]
+fn test_try_parse_dsv_alias() {
+    let rows = super::types::try_parse_dsv("a,b\n1,2", ',').unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].get("a"), Some(&"1".to_string()));
+}
+
+#[test]
+fn test_column_policy_traits() {
+    let policy = ColumnPolicy::D3Compatible;
+    assert_eq!(format!("{policy:?}"), "D3Compatible");
+    assert_eq!(policy, ColumnPolicy::D3Compatible);
+    assert_ne!(policy, ColumnPolicy::Strict);
+    let cloned = policy.clone();
+    assert_eq!(policy, cloned);
+}

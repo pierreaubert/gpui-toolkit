@@ -109,3 +109,129 @@ fn test_albers_project() {
     // Should be in reasonable screen coordinates (positive, given the translate offset)
     assert!(x > 0.0);
 }
+
+#[test]
+fn test_projection_config_default() {
+    let config = super::projection_config::ProjectionConfig::default();
+    assert_eq!(config.scale, 150.0);
+    assert_eq!(config.translate, (480.0, 250.0));
+    assert_eq!(config.center, (0.0, 0.0));
+    assert_eq!(config.rotate, (0.0, 0.0, 0.0));
+    assert!(config.clip_angle.is_none());
+}
+
+#[test]
+fn test_projection_config_rotation_helpers() {
+    use super::projection_config::{apply_rotation, build_rotation, invert_rotation};
+
+    let config = super::projection_config::ProjectionConfig {
+        rotate: (90.0, 0.0, 0.0),
+        ..Default::default()
+    };
+    let _rotation = build_rotation(&config);
+    let (lambda, phi) = apply_rotation(&config, 0.0, 0.0);
+    assert!((lambda - std::f64::consts::FRAC_PI_2).abs() < 1e-10);
+    assert!(phi.abs() < 1e-10);
+
+    let (lon, lat) = invert_rotation(&config, lambda, phi);
+    assert!((lon - 0.0).abs() < 1e-6);
+    assert!((lat - 0.0).abs() < 1e-6);
+}
+
+#[test]
+fn test_clip_angle_visible() {
+    use super::projection_config::clip_angle_visible;
+
+    let config_no_clip = super::projection_config::ProjectionConfig::default();
+    assert!(clip_angle_visible(&config_no_clip, 0.0, 0.0));
+
+    let config_clip = super::projection_config::ProjectionConfig {
+        clip_angle: Some(90.0),
+        ..Default::default()
+    };
+    assert!(clip_angle_visible(&config_clip, 0.0, 0.0));
+    assert!(!clip_angle_visible(&config_clip, 0.0, 91.0));
+}
+
+#[test]
+fn test_albers_setters() {
+    let proj = Albers::new()
+        .scale(500.0)
+        .translate(100.0, 200.0)
+        .center(10.0, 20.0)
+        .rotate(5.0, 0.0, 0.0);
+
+    assert_eq!(Projection::scale(&proj), 500.0);
+    assert_eq!(Projection::translate(&proj), (100.0, 200.0));
+    assert_eq!(Projection::center(&proj), (10.0, 20.0));
+    assert_eq!(Projection::rotate(&proj), (5.0, 0.0, 0.0));
+}
+
+#[test]
+fn test_albers_mutating_setters() {
+    let mut proj = Albers::new();
+    proj.set_scale(500.0);
+    proj.set_translate(100.0, 200.0);
+    proj.set_center(10.0, 20.0);
+    proj.set_rotate(5.0, 0.0, 0.0);
+
+    assert_eq!(Projection::scale(&proj), 500.0);
+    assert_eq!(Projection::translate(&proj), (100.0, 200.0));
+    assert_eq!(Projection::center(&proj), (10.0, 20.0));
+    assert_eq!(Projection::rotate(&proj), (5.0, 0.0, 0.0));
+}
+
+#[test]
+fn test_transverse_mercator_project_invert() {
+    use super::transverse_mercator::TransverseMercator;
+
+    let proj = TransverseMercator::new().scale(100.0).translate(200.0, 200.0);
+    let (x, y) = proj.project(0.0, 0.0);
+    let (lon, lat) = proj.invert(x, y).unwrap();
+    assert!((lon - 0.0).abs() < 1e-6);
+    assert!((lat - 0.0).abs() < 1e-6);
+}
+
+#[test]
+fn test_transverse_mercator_raw_functions() {
+    use super::transverse_mercator::TransverseMercator;
+
+    let (x, y) = TransverseMercator::project_raw(0.0, 0.0);
+    assert!(x.is_finite());
+    assert!(y.is_finite());
+
+    let (lambda, phi) = TransverseMercator::invert_raw(x, y);
+    assert!((lambda - 0.0).abs() < 1e-10);
+    assert!((phi - 0.0).abs() < 1e-10);
+}
+
+#[test]
+fn test_transverse_mercator_longitude_unwrap_center() {
+    use super::transverse_mercator::TransverseMercator;
+    use super::Projection;
+
+    let proj = TransverseMercator::new().rotate(10.0, 0.0, 0.0).center(5.0, 0.0);
+    assert_eq!(proj.longitude_unwrap_center(), Some(15.0));
+}
+
+#[test]
+fn test_sphere_rotation_identity() {
+    use super::sphere_rotation::SphereRotation;
+
+    let identity = SphereRotation::identity();
+    let (lon, lat) = identity.rotate(0.0, 0.0);
+    assert!((lon - 0.0).abs() < 1e-10);
+    assert!((lat - 0.0).abs() < 1e-10);
+}
+
+#[test]
+fn test_sphere_rotation_from_radians_roundtrip() {
+    use super::sphere_rotation::SphereRotation;
+
+    let rotation = SphereRotation::from_radians(0.5, 0.3, 0.1);
+    let original = (10.0f64.to_radians(), 20.0f64.to_radians());
+    let rotated = rotation.rotate(original.0, original.1);
+    let inverted = rotation.invert(rotated.0, rotated.1);
+    assert!((inverted.0 - original.0).abs() < 1e-9);
+    assert!((inverted.1 - original.1).abs() < 1e-9);
+}

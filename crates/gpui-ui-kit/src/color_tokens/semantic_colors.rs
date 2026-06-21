@@ -72,3 +72,32 @@ impl Default for SemanticColors {
         Self::dark()
     }
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::SemanticColors;
+    use super::super::color_token::ColorToken;
+
+    #[test]
+    fn semantic_colors_constructors() {
+        let custom = SemanticColors::new(
+            ColorToken::from_hex(0x007acc),
+            ColorToken::from_hex(0x6c757d),
+            ColorToken::from_hex(0x22c55e),
+            ColorToken::from_hex(0xf59e0b),
+            ColorToken::from_hex(0xef4444),
+            ColorToken::from_hex(0x3b82f6),
+        );
+        assert_eq!(custom.primary, ColorToken::from_hex(0x007acc));
+
+        let dark = SemanticColors::dark();
+        assert!(dark.primary.base.b > dark.primary.base.r);
+
+        let light = SemanticColors::light();
+        assert_ne!(dark.primary.base, light.primary.base);
+
+        assert_eq!(SemanticColors::default(), SemanticColors::dark());
+    }
+}
+

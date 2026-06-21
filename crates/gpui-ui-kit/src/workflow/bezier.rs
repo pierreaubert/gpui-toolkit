@@ -250,4 +250,61 @@ mod tests {
         // Last point should be near end
         assert!((points.last().unwrap().x - to.x).abs() < 0.1);
     }
+
+    use super::{
+        connection_path_avoiding, lerp, path_hits_rect, ObstacleRect,
+    };
+
+    #[test]
+    fn test_lerp_and_distance_to_line() {
+        let a = Position::new(0.0, 0.0);
+        let b = Position::new(10.0, 0.0);
+        let mid = lerp(&a, &b, 0.5);
+        assert_eq!(mid, Position::new(5.0, 0.0));
+
+        let from = Position::new(0.0, 50.0);
+        let to = Position::new(200.0, 50.0);
+        let path = connection_path(from, to, 1.0);
+        assert!(path.len() >= 2);
+    }
+
+    #[test]
+    fn test_connection_path_avoiding_empty_obstacles() {
+        let from = Position::new(0.0, 50.0);
+        let to = Position::new(200.0, 50.0);
+        let path = connection_path_avoiding(from, to, &[], 10.0, 1.0);
+        assert!(path.len() >= 2);
+        assert!((path[0].x - from.x).abs() < 0.1);
+        assert!((path.last().unwrap().x - to.x).abs() < 0.1);
+    }
+
+    #[test]
+    fn test_connection_path_avoiding_detours() {
+        let from = Position::new(0.0, 50.0);
+        let to = Position::new(200.0, 50.0);
+        let obstacle = ObstacleRect::new(80.0, 30.0, 40.0, 40.0);
+        let path = connection_path_avoiding(from, to, &[obstacle], 10.0, 1.0);
+        // Path should not pass through the obstacle's interior
+        assert!(!path_hits_rect(&path, &obstacle));
+        assert!((path.last().unwrap().x - to.x).abs() < 0.1);
+    }
+
+    #[test]
+    fn test_connection_path_avoiding_degenerate_fallback() {
+        let from = Position::new(0.0, 50.0);
+        let to = Position::new(50.0, 50.0);
+        // Obstacle wider than the available gap, forcing enter_x >= exit_x
+        let obstacle = ObstacleRect::new(10.0, 30.0, 30.0, 40.0);
+        let path = connection_path_avoiding(from, to, &[obstacle], 100.0, 1.0);
+        assert!(path.len() >= 2);
+    }
+
+    #[test]
+    fn test_obstacle_rect_contains() {
+        let rect = ObstacleRect::new(10.0, 10.0, 20.0, 20.0);
+        assert!(rect.contains(&Position::new(15.0, 15.0)));
+        assert!(!rect.contains(&Position::new(5.0, 15.0)));
+        assert!(!rect.contains(&Position::new(35.0, 15.0)));
+    }
+
 }

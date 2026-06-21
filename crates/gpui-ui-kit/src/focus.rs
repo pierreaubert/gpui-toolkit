@@ -180,3 +180,24 @@ pub trait FocusGroupExt {
     /// Wrap this element in a focus group with vertical navigation
     fn with_focus_navigation(self, id: impl Into<ElementId>) -> FocusGroup;
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::{FocusDirection, FocusGroup};
+    use gpui::px;
+
+    #[test]
+    fn focus_group_builder_covers_all_setters() {
+        let _ = FocusGroup::new("group")
+            .direction(FocusDirection::Horizontal)
+            .wraparound(true)
+            .focus_ring(false)
+            .gap(px(4.0))
+            .child(gpui::div())
+            .children(vec![gpui::div(), gpui::div()]);
+
+        let _ = FocusGroup::new("grid").direction(FocusDirection::Grid { columns: 3 });
+    }
+}
+

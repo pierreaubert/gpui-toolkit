@@ -576,6 +576,7 @@ fn rgba(hex: u32) -> Rgba {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::render_tick_row;
 
     #[::core::prelude::v1::test]
     fn horizontal_meter_theme_uses_threshold_colors() {
@@ -611,5 +612,116 @@ mod tests {
             ..Default::default()
         };
         let _custom = render_horizontal_meter_bar_with("G", 0.5, theme.color_info, "50%", theme);
+    }
+
+    #[::core::prelude::v1::test]
+    fn db_to_position_covers_all_regions() {
+        assert_eq!(db_to_position(-80.0), 0.0);
+        assert_eq!(db_to_position(-60.0), 0.0);
+        assert!((db_to_position(-45.0) - 0.165).abs() < 0.01);
+        assert!((db_to_position(-30.0) - 0.33).abs() < 0.01);
+        assert!((db_to_position(-20.0) - 0.495).abs() < 0.01);
+        assert!((db_to_position(-10.0) - 0.66).abs() < 0.01);
+        assert!((db_to_position(-5.0) - 0.83).abs() < 0.01);
+        assert_eq!(db_to_position(0.0), 1.0);
+        assert_eq!(db_to_position(6.0), 1.0);
+    }
+
+    #[::core::prelude::v1::test]
+    fn meter_colors_default_is_constructible() {
+        let colors = MeterColors::default();
+        assert!(colors.corner_radius >= 0.0);
+        assert!(!colors.use_gradient);
+    }
+
+    #[::core::prelude::v1::test]
+    fn horizontal_meter_theme_defaults_are_sensible() {
+        let theme = HorizontalMeterTheme::default();
+        assert!(theme.warning_threshold < theme.critical_threshold);
+        assert!(theme.bar_height > 0.0);
+        assert!(theme.label_width > 0.0);
+        assert!(theme.value_width > 0.0);
+    }
+
+    #[::core::prelude::v1::test]
+    fn level_meter_element_builder_chains() {
+        let colors = MeterColors::default();
+        let meter = LevelMeterElement::new(-6.0, "L")
+            .peak(-1.0)
+            .width(px(24.0))
+            .colors(colors.clone());
+        assert!(meter.fill_ratio() > 0.0 && meter.fill_ratio() <= 1.0);
+        assert!(meter.yellow_threshold() < meter.red_threshold());
+
+        let clipping = LevelMeterElement::new(0.0, "R");
+        assert!(clipping.is_clipping);
+
+        let quiet = LevelMeterElement::new(-12.0, "R");
+        assert!(!quiet.is_clipping);
+    }
+
+    #[::core::prelude::v1::test]
+    fn render_horizontal_meter_bar_with_clamps_ratio() {
+        let theme = HorizontalMeterTheme::default();
+        let _below = render_horizontal_meter_bar_with("B", -0.5, theme.color_normal, "-50%", theme.clone());
+        let _above = render_horizontal_meter_bar_with("A", 1.5, theme.color_critical, "150%", theme);
+    }
+
+    #[::core::prelude::v1::test]
+    fn tick_configs_render_tick_row_constructible() {
+        for config in [
+            TickConfig::lufs(),
+            TickConfig::true_peak(),
+            TickConfig::percentage(),
+        ] {
+            let _row = render_tick_row(&config, 32.0, 50.0);
+        }
+    }
+
+    #[::core::prelude::v1::test]
+    fn rgba_helper_unpacks_components() {
+        let c = rgba(0x12345678);
+        assert!((c.r - 0x12 as f32 / 255.0).abs() < 1e-6);
+        assert!((c.g - 0x34 as f32 / 255.0).abs() < 1e-6);
+        assert!((c.b - 0x56 as f32 / 255.0).abs() < 1e-6);
+        assert!((c.a - 0x78 as f32 / 255.0).abs() < 1e-6);
+    }
+
+    #[::core::prelude::v1::test]
+    fn meter_colors_and_theme_can_be_customized() {
+        let colors = MeterColors {
+            background: rgba(0x000000ff),
+            green: rgba(0x00ff00ff),
+            yellow: rgba(0xffff00ff),
+            red: rgba(0xff0000ff),
+            peak: rgba(0xffffffff),
+            text: rgba(0xccccccff),
+            corner_radius: 4.0,
+            use_gradient: true,
+        };
+        let _meter = LevelMeterElement::new(-10.0, "L").colors(colors);
+
+        let theme = HorizontalMeterTheme {
+            color_normal: rgba(0x4caf50ff),
+            color_warning: rgba(0xffc107ff),
+            color_critical: rgba(0xf44336ff),
+            color_info: rgba(0x38bdf8ff),
+            color_background: rgba(0x1f1f1fff),
+            color_border: rgba(0x3f3f46ff),
+            color_text: rgba(0xd0d0d0ff),
+            bar_height: 20.0,
+            border_radius: 2.0,
+            border_width: 1.0,
+            label_width: 32.0,
+            value_width: 50.0,
+            warning_threshold: 0.75,
+            critical_threshold: 0.90,
+            use_gradient: false,
+            text_size: gpui::rems(0.75),
+            gap: gpui::px(4.0),
+        };
+        assert_eq!(theme.color_for_ratio(0.5), theme.color_normal);
+        assert_eq!(theme.color_for_ratio(0.8), theme.color_warning);
+        assert_eq!(theme.color_for_ratio(0.95), theme.color_critical);
     }
 }

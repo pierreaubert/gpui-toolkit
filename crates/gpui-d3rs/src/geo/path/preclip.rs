@@ -89,3 +89,124 @@ impl<S: Stream> Stream for PreclipAntimeridianStream<S> {
         self.sink.sphere();
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::PreclipAntimeridianStream;
+    use crate::geo::projection::SphereRotation;
+    use crate::geo::stream::Stream;
+
+    struct RecordingStream {
+        events: Vec<String>,
+    }
+
+    impl RecordingStream {
+        fn new() -> Self {
+            Self { events: Vec::new() }
+        }
+    }
+
+    impl Stream for RecordingStream {
+        fn point(&mut self, x: f64, y: f64, m: i32) {
+            self.events.push(format!("point {x} {y} {m}"));
+        }
+
+        fn line_start(&mut self) {
+            self.events.push("line_start".to_string());
+        }
+
+        fn line_end(&mut self) {
+            self.events.push("line_end".to_string());
+        }
+
+        fn polygon_start(&mut self) {
+            self.events.push("polygon_start".to_string());
+        }
+
+        fn polygon_end(&mut self) {
+            self.events.push("polygon_end".to_string());
+        }
+
+        fn sphere(&mut self) {
+            self.events.push("sphere".to_string());
+        }
+    }
+
+    #[test]
+    fn test_preclip_point_forwards_directly() {
+        let rotation = SphereRotation::identity();
+        let sink = RecordingStream::new();
+        let mut stream = PreclipAntimeridianStream::new(rotation, sink);
+
+        stream.point(10.0, 20.0, 0);
+        assert_eq!(stream.sink.events, vec!["point 10 20 0"]);
+    }
+
+    #[test]
+    fn test_preclip_line_no_crossing() {
+        let rotation = SphereRotation::identity();
+        let sink = RecordingStream::new();
+        let mut stream = PreclipAntimeridianStream::new(rotation, sink);
+
+        stream.line_start();
+        stream.point(0.0, 0.0, 0);
+        stream.point(10.0, 10.0, 0);
+        stream.line_end();
+
+        assert!(stream.sink.events.contains(&"line_start".to_string()));
+        assert!(stream.sink.events.contains(&"line_end".to_string()));
+        assert_eq!(
+            stream
+                .sink
+                .events
+                .iter()
+                .filter(|e| e.starts_with("point"))
+                .count(),
+            2
+        );
+    }
+
+    #[test]
+    fn test_preclip_polygon_ring() {
+        let rotation = SphereRotation::identity();
+        let sink = RecordingStream::new();
+        let mut stream = PreclipAntimeridianStream::new(rotation, sink);
+
+        stream.polygon_start();
+        stream.line_start();
+        stream.point(0.0, 0.0, 0);
+        stream.point(10.0, 0.0, 0);
+        stream.point(10.0, 10.0, 0);
+        stream.line_end();
+        stream.polygon_end();
+
+        assert!(stream.sink.events.contains(&"polygon_start".to_string()));
+        assert!(stream.sink.events.contains(&"polygon_end".to_string()));
+        assert!(stream
+            .sink
+            .events
+            .iter()
+            .filter(|e| e == &"line_start")
+            .count()
+            >= 1);
+    }
+
+    #[test]
+    fn test_preclip_sphere_forwards() {
+        let rotation = SphereRotation::identity();
+        let sink = RecordingStream::new();
+        let mut stream = PreclipAntimeridianStream::new(rotation, sink);
+
+        stream.sphere();
+        assert_eq!(stream.sink.events, vec!["sphere"]);
+    }
+
+    #[test]
+    fn test_preclip_into_sink() {
+        let rotation = SphereRotation::identity();
+        let sink = RecordingStream::new();
+        let stream = PreclipAntimeridianStream::new(rotation, sink);
+        let recovered = stream.into_sink();
+        assert!(recovered.events.is_empty());
+    }
+}

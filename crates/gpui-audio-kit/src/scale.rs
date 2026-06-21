@@ -78,3 +78,70 @@ pub mod step_sizes {
     /// Large step when Ctrl/Cmd is held (10% of range)
     pub const LARGE: f64 = 0.1;
 }
+
+#[cfg(test)]
+mod tests {
+    use super::Scale;
+
+    #[test]
+    fn linear_value_to_normalized_is_bounded() {
+        assert_eq!(Scale::Linear.value_to_normalized(0.0, 0.0, 100.0), 0.0);
+        assert_eq!(Scale::Linear.value_to_normalized(50.0, 0.0, 100.0), 0.5);
+        assert_eq!(Scale::Linear.value_to_normalized(100.0, 0.0, 100.0), 1.0);
+        assert_eq!(Scale::Linear.value_to_normalized(-10.0, 0.0, 100.0), 0.0);
+        assert_eq!(Scale::Linear.value_to_normalized(200.0, 0.0, 100.0), 1.0);
+    }
+
+    #[test]
+    fn linear_value_to_normalized_handles_bad_range() {
+        assert_eq!(Scale::Linear.value_to_normalized(5.0, 10.0, 10.0), 0.0);
+        assert_eq!(Scale::Linear.value_to_normalized(5.0, 10.0, 0.0), 0.0);
+    }
+
+    #[test]
+    fn linear_normalized_to_value_round_trips() {
+        let scale = Scale::Linear;
+        for norm in [0.0, 0.25, 0.5, 0.75, 1.0] {
+            let value = scale.normalized_to_value(norm, -10.0, 30.0);
+            let back = scale.value_to_normalized(value, -10.0, 30.0);
+            assert!((back - norm).abs() < 1e-9);
+        }
+    }
+
+    #[test]
+    fn logarithmic_conversion_round_trips() {
+        let scale = Scale::Logarithmic;
+        let min = 20.0;
+        let max = 20_000.0;
+        for value in [20.0, 100.0, 1000.0, 20_000.0] {
+            let norm = scale.value_to_normalized(value, min, max);
+            let back = scale.normalized_to_value(norm, min, max);
+            assert!((back - value).abs() < 1e-6 * value.max(1.0));
+        }
+    }
+
+    #[test]
+    fn logarithmic_conversion_sanitizes_non_positive_range() {
+        let scale = Scale::Logarithmic;
+        assert_eq!(scale.value_to_normalized(-5.0, 0.0, 100.0), 0.0);
+        assert_eq!(scale.value_to_normalized(50.0, -10.0, 0.0), 1.0);
+        let value = scale.normalized_to_value(0.5, 0.0, -10.0);
+        assert!(value > 0.0 && value.is_finite());
+    }
+
+    #[test]
+    fn step_value_respects_bounds_and_direction() {
+        let scale = Scale::Linear;
+        assert!((scale.step_value(50.0, 0.0, 100.0, 1.0, 0.05) - 55.0).abs() < 1e-9);
+        assert!((scale.step_value(50.0, 0.0, 100.0, -1.0, 0.05) - 45.0).abs() < 1e-9);
+        assert!((scale.step_value(98.0, 0.0, 100.0, 1.0, 0.05) - 100.0).abs() < 1e-9);
+        assert!((scale.step_value(2.0, 0.0, 100.0, -1.0, 0.05) - 0.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn step_sizes_are_documented_fractions() {
+        assert_eq!(super::step_sizes::NORMAL, 0.05);
+        assert_eq!(super::step_sizes::FINE, 0.005);
+        assert_eq!(super::step_sizes::LARGE, 0.1);
+    }
+}

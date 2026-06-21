@@ -83,3 +83,64 @@ impl BoxStats {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_box_stats_empty() {
+        assert!(BoxStats::from_values(0.0, &[]).is_none());
+    }
+
+    #[test]
+    fn test_box_stats_single_value() {
+        let stats = BoxStats::from_values(1.0, &[42.0]).unwrap();
+        assert_eq!(stats.x, 1.0);
+        assert_eq!(stats.q1, 42.0);
+        assert_eq!(stats.q2, 42.0);
+        assert_eq!(stats.q3, 42.0);
+        assert_eq!(stats.whisker_low, 42.0);
+        assert_eq!(stats.whisker_high, 42.0);
+        assert!(stats.outliers_low.is_empty());
+        assert!(stats.outliers_high.is_empty());
+    }
+
+    #[test]
+    fn test_box_stats_no_outliers() {
+        let values = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+        let stats = BoxStats::from_values(0.0, &values).unwrap();
+        assert!(stats.outliers_low.is_empty());
+        assert!(stats.outliers_high.is_empty());
+        assert!(stats.q1 < stats.q2);
+        assert!(stats.q2 < stats.q3);
+    }
+
+    #[test]
+    fn test_box_stats_with_outliers() {
+        let values = vec![1.0, 2.0, 3.0, 4.0, 5.0, 100.0];
+        let stats = BoxStats::from_values(0.0, &values).unwrap();
+        assert!(stats.outliers_high.contains(&100.0));
+        assert!(!stats.outliers_high.contains(&5.0));
+    }
+
+    #[test]
+    fn test_box_stats_all_same() {
+        let values = vec![5.0, 5.0, 5.0, 5.0];
+        let stats = BoxStats::from_values(0.0, &values).unwrap();
+        assert_eq!(stats.q1, 5.0);
+        assert_eq!(stats.q2, 5.0);
+        assert_eq!(stats.q3, 5.0);
+        assert_eq!(stats.whisker_low, 5.0);
+        assert_eq!(stats.whisker_high, 5.0);
+    }
+
+    #[test]
+    fn test_box_stats_negative_values() {
+        let values = vec![-10.0, -5.0, 0.0, 5.0, 10.0];
+        let stats = BoxStats::from_values(0.0, &values).unwrap();
+        assert!(stats.q2.abs() < 1e-10);
+        assert!(stats.whisker_low >= -10.0);
+        assert!(stats.whisker_high <= 10.0);
+    }
+}

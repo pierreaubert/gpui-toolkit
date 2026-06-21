@@ -235,4 +235,47 @@ mod tests {
         assert!((color.g as i16 - back.g as i16).abs() <= 1);
         assert!((color.b as i16 - back.b as i16).abs() <= 1);
     }
+
+    #[test]
+    fn color_alpha_and_hsl_edge_cases() {
+        let c = Color::rgb(128, 128, 128);
+        let clamped = c.with_alpha(2.0);
+        assert_eq!(clamped.a, 255);
+        let zero = c.with_alpha(-1.0);
+        assert_eq!(zero.a, 0);
+
+        let gray = Color::from_hsl(0.0, 0.0, 0.5);
+        assert_eq!(gray.r, 128);
+        assert_eq!(gray.g, 128);
+        assert_eq!(gray.b, 128);
+
+        let (_h, s, l) = gray.to_hsl();
+        assert_eq!(s, 0.0);
+        assert!((l - 0.5).abs() < 0.01);
+    }
+
+    #[test]
+    fn color_invalid_hex_string_returns_none() {
+        assert!(Color::from_hex_string("").is_none());
+        assert!(Color::from_hex_string("#12").is_none());
+        assert!(Color::from_hex_string("#gggggg").is_none());
+    }
+
+    #[test]
+    fn color_from_hex_alpha_and_rgba() {
+        let c = Color::from_hex_alpha(0x11223344);
+        assert_eq!(c.r, 0x11);
+        assert_eq!(c.g, 0x22);
+        assert_eq!(c.b, 0x33);
+        assert_eq!(c.a, 0x44);
+
+        let rgba = gpui::Rgba {
+            r: 1.0,
+            g: 0.0,
+            b: 0.0,
+            a: 1.0,
+        };
+        assert_eq!(Color::from_rgba(rgba), Color::rgb(255, 0, 0));
+    }
+
 }

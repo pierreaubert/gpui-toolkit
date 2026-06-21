@@ -62,3 +62,28 @@ impl NumberInputSize {
         }
     }
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::NumberInputSize;
+    use crate::ComponentSize;
+
+    #[test]
+    fn number_input_size_from_component_size() {
+        assert_eq!(NumberInputSize::from(ComponentSize::Xs), NumberInputSize::Xs);
+        assert_eq!(NumberInputSize::from(ComponentSize::Sm), NumberInputSize::Sm);
+        assert_eq!(NumberInputSize::from(ComponentSize::Md), NumberInputSize::Md);
+        assert_eq!(NumberInputSize::from(ComponentSize::Lg), NumberInputSize::Lg);
+        assert_eq!(NumberInputSize::from(ComponentSize::Xl), NumberInputSize::Lg);
+    }
+
+    #[test]
+    fn number_input_size_measurements() {
+        assert_eq!(NumberInputSize::Xs.height(), 20.0);
+        assert_eq!(NumberInputSize::Md.button_width(), 28.0);
+        assert_eq!(NumberInputSize::Lg.font_size(), 15.0);
+        assert_eq!(NumberInputSize::Sm.padding(), 4.0);
+    }
+}
+

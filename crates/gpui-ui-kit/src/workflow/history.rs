@@ -380,4 +380,106 @@ mod tests {
         assert!(!graph.nodes.contains_key(&id1));
         assert!(!graph.nodes.contains_key(&id2));
     }
+
+    use super::super::Connection;
+    use super::{ChangePortCountsCommand, RemoveNodeCommand};
+
+    #[test]
+    fn test_remove_node_undo_redo() {
+        let mut graph = WorkflowGraph::new();
+        let mut history = HistoryManager::new();
+
+        let node = WorkflowNodeData::new("N", Position::new(0.0, 0.0));
+        let id = node.id;
+        graph.add_node(node.clone());
+        let conn = Connection::new(id, 0, id, 0);
+        let conn_id = conn.id;
+        graph.connections.push(conn.clone());
+
+        history.execute(Box::new(RemoveNodeCommand { node, connections: vec![conn] }), &mut graph);
+        assert!(!graph.nodes.contains_key(&id));
+        assert!(graph.connections.iter().all(|c| c.id != conn_id));
+
+        history.undo(&mut graph);
+        assert!(graph.nodes.contains_key(&id));
+        assert!(graph.connections.iter().any(|c| c.id == conn_id));
+    }
+
+    #[test]
+    fn test_change_port_counts_undo() {
+        let mut graph = WorkflowGraph::new();
+        let mut history = HistoryManager::new();
+
+        let node = WorkflowNodeData::new("N", Position::new(0.0, 0.0));
+        let id = node.id;
+        graph.add_node(node);
+
+        history.execute(
+            Box::new(ChangePortCountsCommand {
+                node_id: id,
+                old_input_count: 1,
+                new_input_count: 4,
+                old_output_count: 1,
+                new_output_count: 2,
+                old_height: 100.0,
+                new_height: 150.0,
+            }),
+            &mut graph,
+        );
+        assert_eq!(graph.nodes[&id].input_count, 4);
+        assert_eq!(graph.nodes[&id].output_count, 2);
+        assert_eq!(graph.nodes[&id].height, 150.0);
+
+        history.undo(&mut graph);
+        assert_eq!(graph.nodes[&id].input_count, 1);
+        assert_eq!(graph.nodes[&id].output_count, 1);
+        assert_eq!(graph.nodes[&id].height, 100.0);
+    }
+
+    #[test]
+    fn test_history_record_and_descriptions() {
+        let mut graph = WorkflowGraph::new();
+        let mut history = HistoryManager::new();
+
+        let node = WorkflowNodeData::new("N", Position::new(0.0, 0.0));
+        let cmd = AddNodeCommand { node };
+        history.record(Box::new(cmd));
+        assert!(history.can_undo());
+        assert_eq!(history.undo_description(), Some("Add node"));
+        assert!(!history.can_redo());
+        assert!(history.redo_description().is_none());
+
+        history.undo(&mut graph);
+        assert!(!history.can_undo());
+        assert!(history.can_redo());
+        assert_eq!(history.redo_description(), Some("Add node"));
+    }
+
+    #[test]
+    fn test_composite_command_via_add() {
+        let mut graph = WorkflowGraph::new();
+        let mut history = HistoryManager::new();
+
+        let mut composite = CompositeCommand::new("Add pair");
+        let n1 = WorkflowNodeData::new("A", Position::new(0.0, 0.0));
+        let n2 = WorkflowNodeData::new("B", Position::new(10.0, 10.0));
+        composite.add(Box::new(AddNodeCommand { node: n1 }));
+        composite.add(Box::new(AddNodeCommand { node: n2 }));
+
+        history.execute(Box::new(composite), &mut graph);
+        assert_eq!(graph.nodes.len(), 2);
+        history.undo(&mut graph);
+        assert!(graph.nodes.is_empty());
+    }
+
+    #[test]
+    fn test_history_clear() {
+        let mut graph = WorkflowGraph::new();
+        let mut history = HistoryManager::new();
+        history.execute(Box::new(AddNodeCommand { node: WorkflowNodeData::new("N", Position::new(0.0, 0.0)) }), &mut graph);
+        history.clear();
+        assert!(!history.can_undo());
+        assert!(!history.can_redo());
+    }
+
 }

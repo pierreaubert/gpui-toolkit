@@ -277,8 +277,8 @@ pub fn handle_drag(
 #[cfg(test)]
 mod tests {
     use super::{
-        DragState, InteractionConfig, ScrollDelta, clear_drag_state, get_drag_state, handle_scroll,
-        store_drag_state,
+        DragOrientation, DragState, InteractionConfig, ScrollDelta, clear_drag_state,
+        get_drag_state, handle_drag, handle_keyboard, handle_scroll, store_drag_state,
     };
     use crate::scale::Scale;
     use gpui::{ElementId, Modifiers, SharedString, point, px};
@@ -311,5 +311,202 @@ mod tests {
 
         clear_drag_state(id.clone());
         assert_eq!(get_drag_state(&id), None);
+    }
+
+    #[test]
+    fn handle_keyboard_arrow_keys_step() {
+        let config = InteractionConfig::vertical(0.0, 100.0, Scale::Linear, 200.0);
+        let modifiers = Modifiers::default();
+
+        assert!(handle_keyboard("up", &modifiers, 50.0, &config).unwrap() > 50.0);
+        assert!(handle_keyboard("down", &modifiers, 50.0, &config).unwrap() < 50.0);
+        assert!(handle_keyboard("left", &modifiers, 50.0, &config).unwrap() < 50.0);
+        assert!(handle_keyboard("right", &modifiers, 50.0, &config).unwrap() > 50.0);
+    }
+
+    #[test]
+    fn handle_keyboard_modifier_steps() {
+        let config = InteractionConfig::vertical(0.0, 100.0, Scale::Linear, 200.0);
+        let shift = Modifiers {
+            shift: true,
+            ..Modifiers::default()
+        };
+        let ctrl = Modifiers {
+            control: true,
+            ..Modifiers::default()
+        };
+
+        let normal = handle_keyboard("up", &Modifiers::default(), 50.0, &config).unwrap();
+        let fine = handle_keyboard("up", &shift, 50.0, &config).unwrap();
+        let large = handle_keyboard("up", &ctrl, 50.0, &config).unwrap();
+
+        assert!(fine > 50.0 && fine < normal);
+        assert!(large > normal);
+    }
+
+    #[test]
+    fn handle_keyboard_page_and_home_end() {
+        let config = InteractionConfig::vertical(0.0, 100.0, Scale::Linear, 200.0);
+        let modifiers = Modifiers::default();
+
+        assert!(handle_keyboard("pageup", &modifiers, 50.0, &config).unwrap() > 50.0);
+        assert!(handle_keyboard("pagedown", &modifiers, 50.0, &config).unwrap() < 50.0);
+        assert_eq!(handle_keyboard("home", &modifiers, 50.0, &config).unwrap(), 0.0);
+        assert_eq!(handle_keyboard("end", &modifiers, 50.0, &config).unwrap(), 100.0);
+    }
+
+    #[test]
+    fn handle_keyboard_media_keys_respect_enabled_flag() {
+        let config_without = InteractionConfig::vertical(0.0, 100.0, Scale::Linear, 200.0);
+        let modifiers = Modifiers::default();
+        assert_eq!(handle_keyboard("audioraisevolume", &modifiers, 50.0, &config_without), None);
+
+        let config_with = InteractionConfig::vertical(0.0, 100.0, Scale::Linear, 200.0).with_media_keys();
+        assert!(
+            handle_keyboard("audioraisevolume", &modifiers, 50.0, &config_with)
+                .unwrap()
+                > 50.0
+        );
+        assert!(
+            handle_keyboard("audiolowervolume", &modifiers, 50.0, &config_with)
+                .unwrap()
+                < 50.0
+        );
+        assert_eq!(handle_keyboard("audiomute", &modifiers, 50.0, &config_with), None);
+    }
+
+    #[test]
+    fn handle_keyboard_unknown_key_returns_none() {
+        let config = InteractionConfig::vertical(0.0, 100.0, Scale::Linear, 200.0);
+        assert_eq!(handle_keyboard("space", &Modifiers::default(), 50.0, &config), None);
+    }
+
+    #[test]
+    fn handle_scroll_vertical_direction() {
+        let config = InteractionConfig::vertical(0.0, 100.0, Scale::Linear, 200.0);
+        let up = ScrollDelta::Lines(point(0.0, -1.0));
+        let down = ScrollDelta::Lines(point(0.0, 1.0));
+
+        assert!(handle_scroll(&up, &Modifiers::default(), 50.0, &config).unwrap() > 50.0);
+        assert!(handle_scroll(&down, &Modifiers::default(), 50.0, &config).unwrap() < 50.0);
+    }
+
+    #[test]
+    fn handle_scroll_horizontal_direction() {
+        let config = InteractionConfig::horizontal(0.0, 100.0, Scale::Linear, 200.0);
+        let right = ScrollDelta::Lines(point(1.0, 0.0));
+        let left = ScrollDelta::Lines(point(-1.0, 0.0));
+
+        assert!(handle_scroll(&right, &Modifiers::default(), 50.0, &config).unwrap() > 50.0);
+        assert!(handle_scroll(&left, &Modifiers::default(), 50.0, &config).unwrap() < 50.0);
+    }
+
+    #[test]
+    fn handle_scroll_rotational_uses_vertical_delta() {
+        let config = InteractionConfig::rotational(0.0, 100.0, Scale::Linear, 200.0);
+        let up = ScrollDelta::Lines(point(0.0, -1.0));
+        assert!(handle_scroll(&up, &Modifiers::default(), 50.0, &config).unwrap() > 50.0);
+    }
+
+    #[test]
+    fn handle_scroll_fine_control() {
+        let config = InteractionConfig::vertical(0.0, 100.0, Scale::Linear, 200.0);
+        let shift = Modifiers {
+            shift: true,
+            ..Modifiers::default()
+        };
+        let normal = handle_scroll(
+            &ScrollDelta::Lines(point(0.0, -1.0)),
+            &Modifiers::default(),
+            50.0,
+            &config,
+        )
+        .unwrap();
+        let fine = handle_scroll(&ScrollDelta::Lines(point(0.0, -1.0)), &shift, 50.0, &config).unwrap();
+        assert!(fine > 50.0 && fine < normal);
+    }
+
+    #[test]
+    fn handle_scroll_zero_delta_returns_none() {
+        let config = InteractionConfig::vertical(0.0, 100.0, Scale::Linear, 200.0);
+        let delta = ScrollDelta::Pixels(point(px(0.0), px(0.0)));
+        assert_eq!(handle_scroll(&delta, &Modifiers::default(), 50.0, &config), None);
+    }
+
+    #[test]
+    fn handle_scroll_lines_delta_works() {
+        let config = InteractionConfig::horizontal(0.0, 100.0, Scale::Linear, 200.0);
+        let delta = ScrollDelta::Lines(point(-2.0, 0.0));
+        let result = handle_scroll(&delta, &Modifiers::default(), 50.0, &config);
+        assert!(result.unwrap() < 50.0);
+    }
+
+    #[test]
+    fn handle_drag_vertical_direction_and_threshold() {
+        let config = InteractionConfig::vertical(0.0, 100.0, Scale::Linear, 200.0);
+        let state = DragState {
+            start_pos: 100.0,
+            start_value: 50.0,
+        };
+
+        // Below threshold returns None.
+        assert_eq!(handle_drag(99.0, &state, &config), None);
+
+        // Drag up (lower y) increases value.
+        let up = handle_drag(50.0, &state, &config).unwrap();
+        assert!(up > 50.0);
+
+        // Drag down (higher y) decreases value.
+        let down_state = DragState {
+            start_pos: 100.0,
+            start_value: 50.0,
+        };
+        let down = handle_drag(150.0, &down_state, &config).unwrap();
+        assert!(down < 50.0);
+    }
+
+    #[test]
+    fn handle_drag_horizontal_direction() {
+        let config = InteractionConfig::horizontal(0.0, 100.0, Scale::Linear, 200.0);
+        let state = DragState {
+            start_pos: 100.0,
+            start_value: 50.0,
+        };
+
+        let right = handle_drag(150.0, &state, &config).unwrap();
+        assert!(right > 50.0);
+
+        let left_state = DragState {
+            start_pos: 100.0,
+            start_value: 50.0,
+        };
+        let left = handle_drag(50.0, &left_state, &config).unwrap();
+        assert!(left < 50.0);
+    }
+
+    #[test]
+    fn handle_drag_rotational_direction() {
+        let config = InteractionConfig::rotational(0.0, 100.0, Scale::Linear, 200.0);
+        let state = DragState {
+            start_pos: 100.0,
+            start_value: 50.0,
+        };
+
+        let up = handle_drag(50.0, &state, &config).unwrap();
+        assert!(up > 50.0);
+    }
+
+    #[test]
+    fn interaction_config_constructors_set_orientation() {
+        let vertical = InteractionConfig::vertical(0.0, 100.0, Scale::Linear, 200.0);
+        assert_eq!(vertical.orientation, DragOrientation::Vertical);
+        assert!(!vertical.media_keys);
+
+        let horizontal = InteractionConfig::horizontal(0.0, 100.0, Scale::Logarithmic, 200.0);
+        assert_eq!(horizontal.orientation, DragOrientation::Horizontal);
+
+        let rotational = InteractionConfig::rotational(0.0, 1.0, Scale::Linear, 100.0).with_media_keys();
+        assert_eq!(rotational.orientation, DragOrientation::Rotational);
+        assert!(rotational.media_keys);
     }
 }

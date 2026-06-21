@@ -160,4 +160,38 @@ mod tests {
         let palette_b = registry.get_palette_entries(KeymapPreset::Default);
         assert!(std::rc::Rc::ptr_eq(&palette_a, &palette_b));
     }
+
+    #[test]
+    fn default_registry_is_empty() {
+        let registry: KeybindingRegistry = Default::default();
+        assert!(registry.get_bindings(KeymapPreset::Default).is_empty());
+        assert!(registry.get_documented(KeymapPreset::Default).is_empty());
+    }
+
+    #[test]
+    fn detects_conflicts_through_registry() {
+        let mut registry = KeybindingRegistry::new();
+        registry.register(StaticProvider);
+        registry.register(StaticProvider);
+        let conflicts = registry.detect_conflicts(KeymapPreset::Default);
+        assert_eq!(conflicts.len(), 1);
+        assert_eq!(conflicts[0].count, 2);
+    }
+
+    #[test]
+    fn get_bindings_returns_provider_bindings() {
+        struct BindingProvider;
+        impl KeybindingProvider for BindingProvider {
+            fn bindings(&self, _preset: KeymapPreset) -> Vec<gpui::KeyBinding> {
+                Vec::new()
+            }
+            fn documented_bindings(&self, _preset: KeymapPreset) -> Vec<DocumentedKeybinding> {
+                Vec::new()
+            }
+        }
+        let mut registry = KeybindingRegistry::new();
+        registry.register(BindingProvider);
+        assert!(registry.get_bindings(KeymapPreset::Default).is_empty());
+        assert!(registry.get_documented(KeymapPreset::Default).is_empty());
+    }
 }

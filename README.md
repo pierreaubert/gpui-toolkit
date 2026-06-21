@@ -64,6 +64,28 @@ just examples
 just qa-gpui-obvious
 ```
 
+## QA & Non-Regression
+
+The full QA suite is `just qa`. It runs coverage, property tests, visual
+non-regression, performance non-regression, and the existing smoke tests:
+
+```bash
+just qa           # full suite (coverage gate intentionally fails until 90% is reached)
+just qa-prop      # property-based tests
+just qa-visual    # visual/golden/conformance checks
+just qa-perf      # benchmark non-regression against qa/perf/baseline.json
+just qa-cov       # workspace coverage report (HTML + JSON)
+just qa-cov-check # coverage gate (currently 51%, target 90%)
+```
+
+Update the committed performance baseline after intentional improvements:
+
+```bash
+just qa-perf-update
+```
+
+See [`qa.md`](./qa.md) for the detailed coverage and non-regression plan.
+
 If the pinned Rust toolchain is unavailable locally, use an installed toolchain
 explicitly:
 

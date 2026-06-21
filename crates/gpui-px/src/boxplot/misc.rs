@@ -84,4 +84,45 @@ mod tests {
         let values: Vec<f64> = vec![];
         assert_eq!(percentile_unsorted(&values, 0.5), 0.0);
     }
+
+    #[test]
+    fn test_percentile_endpoints() {
+        let sorted = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+        assert_eq!(percentile(&sorted, 0.0), 1.0);
+        assert_eq!(percentile(&sorted, 1.0), 5.0);
+    }
+
+    #[test]
+    fn test_percentile_two_values() {
+        let sorted = vec![10.0, 20.0];
+        assert_eq!(percentile(&sorted, 0.25), 12.5);
+        assert_eq!(percentile(&sorted, 0.5), 15.0);
+        assert_eq!(percentile(&sorted, 0.75), 17.5);
+    }
+
+    #[test]
+    fn test_percentile_duplicates() {
+        let sorted = vec![1.0, 1.0, 1.0, 1.0];
+        assert_eq!(percentile(&sorted, 0.5), 1.0);
+    }
+
+    #[test]
+    fn test_percentile_single_value() {
+        let sorted = vec![42.0];
+        assert_eq!(percentile(&sorted, 0.5), 42.0);
+    }
+
+    #[test]
+    fn test_percentile_unsorted_duplicates() {
+        let values = vec![3.0, 1.0, 2.0, 1.0, 3.0];
+        let mut sorted = values.clone();
+        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        for p in [0.0, 0.25, 0.5, 0.75, 1.0] {
+            assert!(
+                (percentile(&sorted, p) - percentile_unsorted(&values, p)).abs() < 1e-10,
+                "mismatch at p={}",
+                p
+            );
+        }
+    }
 }

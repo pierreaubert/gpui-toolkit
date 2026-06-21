@@ -155,3 +155,106 @@ pub(crate) fn assert_fill_chart_size(
         }
     );
 }
+
+#[cfg(test)]
+mod extra_tests {
+    use super::*;
+
+    #[test]
+    fn test_layout_dimensions_ignores_invalid_aspect_ratio() {
+        // Non-positive and non-finite aspect ratios should be ignored
+        assert_eq!(
+            ChartSize::fill()
+                .min_size(300.0, 200.0)
+                .aspect_ratio(0.0)
+                .layout_dimensions(),
+            (300.0, 200.0)
+        );
+        assert_eq!(
+            ChartSize::fill()
+                .min_size(300.0, 200.0)
+                .aspect_ratio(-1.0)
+                .layout_dimensions(),
+            (300.0, 200.0)
+        );
+        assert_eq!(
+            ChartSize::fill()
+                .min_size(300.0, 200.0)
+                .aspect_ratio(f32::NAN)
+                .layout_dimensions(),
+            (300.0, 200.0)
+        );
+        assert_eq!(
+            ChartSize::fill()
+                .min_size(300.0, 200.0)
+                .aspect_ratio(f32::INFINITY)
+                .layout_dimensions(),
+            (300.0, 200.0)
+        );
+    }
+
+    #[test]
+    fn test_layout_dimensions_ignores_invalid_dimensions() {
+        // Non-positive or non-finite min dimensions should prevent aspect adjustment
+        assert_eq!(
+            ChartSize::fill()
+                .min_size(0.0, 200.0)
+                .aspect_ratio(2.0)
+                .layout_dimensions(),
+            (0.0, 200.0)
+        );
+        let dims = ChartSize::fill()
+            .min_size(300.0, f32::NAN)
+            .aspect_ratio(2.0)
+            .layout_dimensions();
+        assert_eq!(dims.0, 300.0);
+        assert!(dims.1.is_nan());
+    }
+
+    #[test]
+    fn test_fixed_converted_to_fill_by_min_size() {
+        let fixed = ChartSize::fixed(400.0, 300.0);
+        let fill = fixed.min_size(200.0, 150.0);
+        assert_eq!(
+            fill,
+            ChartSize::Fill {
+                min_width: 200.0,
+                min_height: 150.0,
+                aspect_ratio: None,
+            }
+        );
+    }
+
+    #[test]
+    fn test_fill_preserves_aspect_ratio_on_min_size() {
+        let fill = ChartSize::fill()
+            .min_size(300.0, 200.0)
+            .aspect_ratio(2.0);
+        let resized = fill.min_size(150.0, 100.0);
+        assert_eq!(
+            resized,
+            ChartSize::Fill {
+                min_width: 150.0,
+                min_height: 100.0,
+                aspect_ratio: Some(2.0),
+            }
+        );
+    }
+
+    #[test]
+    fn test_layout_dimensions_when_already_matching_ratio() {
+        // 400x200 has ratio 2.0, so no change needed
+        assert_eq!(
+            ChartSize::fill()
+                .min_size(400.0, 200.0)
+                .aspect_ratio(2.0)
+                .layout_dimensions(),
+            (400.0, 200.0)
+        );
+    }
+
+    #[test]
+    fn test_fill_factory() {
+        assert_eq!(ChartSize::fill(), ChartSize::default());
+    }
+}

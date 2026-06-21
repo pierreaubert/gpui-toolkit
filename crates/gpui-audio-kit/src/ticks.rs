@@ -379,7 +379,49 @@ impl TickConfig {
 
 #[cfg(test)]
 mod tests {
-    use super::TickConfig;
+    use super::{ScaleType, TickConfig, TickMark, render_tick_row};
+
+    #[test]
+    fn scale_type_linear_value_to_position_round_trips() {
+        let scale = ScaleType::Linear;
+        assert_eq!(scale.value_to_position(0.0, 0.0, 100.0), 0.0);
+        assert_eq!(scale.value_to_position(50.0, 0.0, 100.0), 0.5);
+        assert_eq!(scale.value_to_position(100.0, 0.0, 100.0), 1.0);
+        assert_eq!(scale.value_to_position(-10.0, 0.0, 100.0), 0.0);
+        assert_eq!(scale.value_to_position(200.0, 0.0, 100.0), 1.0);
+
+        assert_eq!(scale.position_to_value(0.5, 0.0, 100.0), 50.0);
+        assert_eq!(scale.position_to_value(0.0, -10.0, 30.0), -10.0);
+        assert_eq!(scale.position_to_value(1.0, -10.0, 30.0), 30.0);
+    }
+
+    #[test]
+    fn scale_type_quadratic_emphasizes_top() {
+        let scale = ScaleType::Quadratic;
+        let mid = scale.value_to_position(50.0, 0.0, 100.0);
+        assert!(mid < 0.5);
+        assert_eq!(scale.position_to_value(mid, 0.0, 100.0), 50.0);
+    }
+
+    #[test]
+    fn scale_type_logarithmic_handles_positive_range() {
+        let scale = ScaleType::Logarithmic;
+        let min = 20.0;
+        let max = 20_000.0;
+        assert_eq!(scale.value_to_position(min, min, max), 0.0);
+        assert_eq!(scale.value_to_position(max, min, max), 1.0);
+        let mid = scale.value_to_position(1_000.0, min, max);
+        assert!(mid > 0.0 && mid < 1.0);
+        assert!(scale.position_to_value(mid, min, max) >= min);
+    }
+
+    #[test]
+    fn scale_type_logarithmic_handles_bad_range() {
+        let scale = ScaleType::Logarithmic;
+        assert_eq!(scale.value_to_position(5.0, 10.0, 10.0), 0.0);
+        // Degenerate range keeps the min anchor.
+        assert_eq!(scale.position_to_value(0.5, 10.0, 10.0), 10.0);
+    }
 
     #[test]
     fn generate_ticks_is_cached() {
@@ -398,5 +440,59 @@ mod tests {
         let _ = config.generate_ticks();
         let cloned = config.clone();
         assert!(cloned.cache.borrow().is_none());
+    }
+
+    #[test]
+    fn tick_config_presets_generate_major_ticks() {
+        for config in [
+            TickConfig::true_peak(),
+            TickConfig::lufs(),
+            TickConfig::stereo_width(),
+            TickConfig::peak_spread(),
+            TickConfig::percentage(),
+            TickConfig::gain_reduction(30.0),
+            TickConfig::db_linear(-40.0, 10.0),
+        ] {
+            let ticks = config.generate_ticks();
+            assert!(!ticks.is_empty());
+            assert!(ticks.iter().any(|t| t.is_major));
+        }
+    }
+
+    #[test]
+    fn tick_config_with_major_values_and_minor_count() {
+        let config = TickConfig::new(ScaleType::Linear, 0.0, 100.0)
+            .with_major_values(vec![0.0, 50.0, 100.0])
+            .with_minor_count(2)
+            .with_heights(12.0, 4.0);
+        let ticks = config.generate_ticks();
+        assert!(ticks.iter().any(|t| t.is_major && (t.position - 0.5).abs() < 0.01));
+        assert!(ticks.iter().any(|t| !t.is_major));
+    }
+
+    #[test]
+    fn tick_config_value_to_position_matches_scale() {
+        let config = TickConfig::percentage();
+        assert_eq!(config.value_to_position(0.0), 0.0);
+        assert_eq!(config.value_to_position(100.0), 1.0);
+        assert_eq!(config.value_to_position(50.0), 0.5);
+    }
+
+    #[test]
+    fn render_tick_row_is_constructible() {
+        let config = TickConfig::lufs();
+        let _row = render_tick_row(&config, 32.0, 50.0);
+    }
+
+    #[test]
+    fn tick_mark_fields_are_settable() {
+        let mark = TickMark {
+            position: 0.5,
+            is_major: true,
+            label: Some("0".into()),
+        };
+        assert_eq!(mark.position, 0.5);
+        assert!(mark.is_major);
+        assert_eq!(mark.label.as_ref().unwrap(), "0");
     }
 }

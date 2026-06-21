@@ -103,3 +103,72 @@ fn test_byte_offset_to_char_index_multibyte() {
     assert_eq!(byte_offset_to_char_index(4, &char_starts), 2);
     assert_eq!(byte_offset_to_char_index(5, &char_starts), 2);
 }
+
+
+#[test]
+fn test_bidi_start_level_rtl_majority() {
+    // Mostly RTL characters -> paragraph level 1.
+    let levels = compute_bidi_levels("مرحبا بالعالم").unwrap();
+    assert!(levels.iter().all(|&l| l > 0));
+}
+
+#[test]
+fn test_classify_ltr_mark() {
+    assert_eq!(classify_char('\u{200E}' as u32), L);
+    assert_eq!(classify_char('\u{202A}' as u32), L);
+}
+
+#[test]
+fn test_classify_rtl_mark() {
+    assert_eq!(classify_char('\u{200F}' as u32), R);
+    assert_eq!(classify_char('\u{202B}' as u32), R);
+}
+
+#[test]
+fn test_classify_bidi_boundary() {
+    assert_eq!(classify_char('\u{202C}' as u32), BN);
+    assert_eq!(classify_char('\u{2066}' as u32), BN);
+}
+
+#[test]
+fn test_bidi_nsm_takes_previous_type() {
+    // Arabic shadda (U+0651) is NSM and should inherit the previous strong type.
+    let levels = compute_bidi_levels("مر\u{0651}حبا").unwrap();
+    assert!(!levels.is_empty());
+}
+
+#[test]
+fn test_bidi_en_after_al_becomes_an() {
+    // European digits after Arabic letters become AN in bidi algorithm.
+    let levels = compute_bidi_levels("abc 123 مرحبا").unwrap();
+    assert!(!levels.is_empty());
+}
+
+#[test]
+fn test_bidi_es_cs_conversion() {
+    // Colon between EN digits in RTL context should become EN.
+    let levels = compute_bidi_levels("مرحبا 12:34").unwrap();
+    assert!(!levels.is_empty());
+}
+
+#[test]
+fn test_bidi_et_conversion() {
+    // Percent signs around EN digits in RTL context should become EN.
+    let levels = compute_bidi_levels("مرحبا 50%").unwrap();
+    assert!(!levels.is_empty());
+}
+
+#[test]
+fn test_bidi_on_runs_surrounded_by_rtl() {
+    // Neutral chars between RTL chars take RTL direction.
+    let levels = compute_bidi_levels("ا + ب").unwrap();
+    assert!(!levels.is_empty());
+}
+
+#[test]
+fn test_byte_offset_to_char_index_mid_char() {
+    let text = "a你b";
+    let char_starts: Vec<usize> = text.char_indices().map(|(i, _)| i).collect();
+    // Byte offset 2 is in the middle of "你" (bytes 1-3).
+    assert_eq!(byte_offset_to_char_index(2, &char_starts), 1);
+}

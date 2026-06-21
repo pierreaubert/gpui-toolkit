@@ -497,4 +497,39 @@ mod tests {
         let main = solved.find("main").unwrap();
         assert_eq!(main.width, 1000.0);
     }
+
+    #[test]
+    fn clone_rebuilds_preferences() {
+        let mut state = LayoutState::with_capacity(2, 2);
+        state.set_ratio("a", Axis::Horizontal, 0.5);
+        state.set_collapsed("b", true);
+
+        let cloned = state.clone();
+        assert_eq!(cloned, state);
+
+        let prefs = cloned.preferences().as_preferences();
+        assert_eq!(prefs.ratio_for("a", Axis::Horizontal), Some(0.5));
+        assert!(prefs.is_collapsed("b"));
+    }
+
+    #[test]
+    fn set_collapsed_false_clears_and_snapshot_exposes_slices() {
+        let mut state = LayoutState::new();
+        state.set_collapsed("panel", true);
+        assert!(state.is_collapsed("panel"));
+
+        state.set_collapsed("panel", false);
+        assert!(!state.is_collapsed("panel"));
+
+        state.set_ratio("panel", Axis::Horizontal, 0.25);
+        state.set_collapsed("panel", true);
+
+        let snap = state.preferences();
+        assert_eq!(snap.ratios(), vec![("panel", Axis::Horizontal, 0.25)]);
+        assert_eq!(snap.collapsed(), vec![("panel", true)]);
+
+        let prefs = snap.as_preferences_ref();
+        assert_eq!(prefs.ratio_for("panel", Axis::Horizontal), Some(0.25));
+        assert!(prefs.is_collapsed("panel"));
+    }
 }

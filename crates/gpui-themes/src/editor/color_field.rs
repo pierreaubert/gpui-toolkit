@@ -526,3 +526,27 @@ pub fn all_color_fields() -> &'static [ColorField] {
         ]
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::theme::{ColorGroup, EditorTheme};
+
+    #[test]
+    fn all_color_fields_are_populated() {
+        let fields = all_color_fields();
+        assert!(!fields.is_empty());
+        assert_eq!(fields[0].group, ColorGroup::Base);
+    }
+
+    #[test]
+    fn color_field_getter_setter_roundtrip() {
+        let fields = all_color_fields();
+        let mut theme = EditorTheme::dark();
+        for field in fields.iter() {
+            let original = (field.getter)(&theme);
+            (field.setter)(&mut theme, original);
+            assert_eq!((field.getter)(&theme), original);
+        }
+    }
+}

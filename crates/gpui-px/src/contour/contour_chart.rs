@@ -723,4 +723,83 @@ mod tests {
             Some(1.2),
         );
     }
+
+    #[test]
+    fn test_contour_invalid_dimensions() {
+        let z = vec![1.0; 9];
+        let result = contour(&z, 3, 3).size(0.0, 400.0).build();
+        assert!(matches!(
+            result,
+            Err(ChartError::InvalidDimension {
+                field: "width",
+                value: 0.0
+            })
+        ));
+    }
+
+    #[test]
+    fn test_contour_nan_in_z() {
+        let z = vec![1.0, f64::NAN, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0];
+        let result = contour(&z, 3, 3).build();
+        assert!(matches!(
+            result,
+            Err(ChartError::InvalidData {
+                field: "z",
+                reason: "contains NaN or Infinity"
+            })
+        ));
+    }
+
+    #[test]
+    fn test_contour_x_not_monotonic() {
+        let z = vec![1.0; 6];
+        let x = vec![2.0, 1.0];
+        let result = contour(&z, 2, 3).x(&x).build();
+        assert!(matches!(
+            result,
+            Err(ChartError::InvalidData {
+                field: "x",
+                reason: "must be strictly monotonically increasing"
+            })
+        ));
+    }
+
+    #[test]
+    fn test_contour_y_log_negative() {
+        let z = vec![1.0; 4];
+        let y = vec![-1.0, 1.0];
+        let result = contour(&z, 2, 2).y(&y).y_scale(ScaleType::Log).build();
+        assert!(matches!(
+            result,
+            Err(ChartError::InvalidData {
+                field: "y",
+                reason: "contains non-positive values for log scale"
+            })
+        ));
+    }
+
+    #[test]
+    fn test_contour_log_scale_requires_explicit_axes() {
+        let z = vec![1.0; 9];
+        let result = contour(&z, 3, 3).x_scale(ScaleType::Log).build();
+        assert!(matches!(result, Err(ChartError::InvalidData { .. })));
+    }
+
+    #[test]
+    fn test_contour_opacity_clamping() {
+        let z = vec![1.0; 9];
+        let chart = contour(&z, 3, 3).opacity(2.0);
+        assert_eq!(chart.opacity, 1.0);
+        let chart = contour(&z, 3, 3).opacity(-1.0);
+        assert_eq!(chart.opacity, 0.0);
+    }
+
+    #[test]
+    fn test_contour_upsample_factor_clamping() {
+        let z = vec![1.0; 9];
+        let chart = contour(&z, 3, 3).contour_upsample_factor(20);
+        assert_eq!(chart.contour_upsample_factor, 8);
+        let chart = contour(&z, 3, 3).contour_upsample_factor(0);
+        assert_eq!(chart.contour_upsample_factor, 1);
+    }
 }

@@ -53,3 +53,38 @@ impl PotentiometerSize {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::PotentiometerSize;
+    use crate::ComponentSize;
+
+    #[test]
+    fn default_size_is_medium() {
+        assert_eq!(PotentiometerSize::default(), PotentiometerSize::Md);
+    }
+
+    #[test]
+    fn sizes_increase_monotonically() {
+        let sizes = [
+            PotentiometerSize::Xs,
+            PotentiometerSize::Sm,
+            PotentiometerSize::Md,
+            PotentiometerSize::Lg,
+        ];
+        for window in sizes.windows(2) {
+            assert!(window[0].knob_size() < window[1].knob_size());
+            assert!(window[0].indicator_radius() < window[1].indicator_radius());
+            assert!(window[0].min_width() < window[1].min_width());
+        }
+    }
+
+    #[test]
+    fn component_size_maps_to_potentiometer_size() {
+        assert_eq!(PotentiometerSize::from(ComponentSize::Xs), PotentiometerSize::Xs);
+        assert_eq!(PotentiometerSize::from(ComponentSize::Sm), PotentiometerSize::Sm);
+        assert_eq!(PotentiometerSize::from(ComponentSize::Md), PotentiometerSize::Md);
+        assert_eq!(PotentiometerSize::from(ComponentSize::Lg), PotentiometerSize::Lg);
+        assert_eq!(PotentiometerSize::from(ComponentSize::Xl), PotentiometerSize::Lg);
+    }
+}

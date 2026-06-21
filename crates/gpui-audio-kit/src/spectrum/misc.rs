@@ -63,3 +63,34 @@ pub(super) fn rgba(hex: u32) -> Rgba {
         a: (hex & 0xff) as f32 / 255.0,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{format_spectrum_frequency_label, logarithmic_frequency_position, valid_frequency_range};
+
+    #[test]
+    fn format_frequency_label_edge_cases() {
+        assert_eq!(format_spectrum_frequency_label(0.0), "0");
+        assert_eq!(format_spectrum_frequency_label(999.0), "999");
+        assert_eq!(format_spectrum_frequency_label(1000.0), "1k");
+        assert_eq!(format_spectrum_frequency_label(1500.0), "1.5k");
+        assert_eq!(format_spectrum_frequency_label(20000.0), "20k");
+    }
+
+    #[test]
+    fn logarithmic_frequency_position_clamps_and_handles_nan() {
+        assert_eq!(logarithmic_frequency_position(20.0, 20.0, 20_000.0), 0.0);
+        assert_eq!(logarithmic_frequency_position(20_000.0, 20.0, 20_000.0), 1.0);
+        assert_eq!(logarithmic_frequency_position(10.0, 20.0, 20_000.0), 0.0);
+        assert_eq!(logarithmic_frequency_position(30_000.0, 20.0, 20_000.0), 1.0);
+        assert_eq!(logarithmic_frequency_position(f32::NAN, 20.0, 20_000.0), 0.0);
+    }
+
+    #[test]
+    fn valid_frequency_range_sanitizes_bad_values() {
+        assert_eq!(valid_frequency_range(-10.0, 0.0), (20.0, 20_000.0));
+        assert_eq!(valid_frequency_range(20.0, 10.0), (20.0, 20_000.0));
+        assert_eq!(valid_frequency_range(f32::NAN, 20_000.0), (20.0, 20_000.0));
+        assert_eq!(valid_frequency_range(30.0, 40.0), (30.0, 40.0));
+    }
+}

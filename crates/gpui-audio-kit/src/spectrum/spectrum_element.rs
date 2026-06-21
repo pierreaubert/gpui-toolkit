@@ -253,6 +253,8 @@ impl Element for SpectrumElement {
 #[cfg(test)]
 mod tests {
     use super::SpectrumElement;
+    use crate::spectrum::SpectrumColors;
+    use gpui::{Element, IntoElement, px};
 
     #[test]
     fn scratch_buffer_is_reused_across_simulated_paints() {
@@ -279,5 +281,48 @@ mod tests {
 
         // Capacity should have been retained after clear/extend cycles.
         assert!(element.scratch_heights.borrow().capacity() >= 3);
+    }
+
+    #[test]
+    fn builder_setters_chain() {
+        let prev: Vec<f32> = vec![-40.0, -50.0];
+        let element = SpectrumElement::new(vec![-30.0, -60.0])
+            .frequency_range(20.0, 20_000.0)
+            .smoothing(0.5)
+            .previous(prev.clone())
+            .colors(SpectrumColors::default())
+            .height(px(100.0))
+            .bar_gap(px(2.0));
+
+        assert_eq!(element.min_freq, 20.0);
+        assert_eq!(element.max_freq, 20_000.0);
+        assert_eq!(element.smoothing, 0.5);
+        assert!(element.previous_magnitudes.is_some());
+        assert_eq!(element.height, px(100.0));
+        assert_eq!(element.bar_gap, px(2.0));
+    }
+
+    #[test]
+    fn smoothing_is_clamped_to_valid_range() {
+        let low = SpectrumElement::new(vec![0.0]).smoothing(-0.5);
+        assert_eq!(low.smoothing, 0.0);
+
+        let high = SpectrumElement::new(vec![0.0]).smoothing(1.5);
+        assert_eq!(high.smoothing, 0.99);
+    }
+
+    #[test]
+    fn db_to_height_is_bounded() {
+        let element = SpectrumElement::new(vec![]);
+        assert_eq!(element.db_to_height(-100.0), 0.0);
+        assert_eq!(element.db_to_height(3.0), 1.0);
+        assert!(element.db_to_height(-50.0) > 0.0 && element.db_to_height(-50.0) < 1.0);
+    }
+
+    #[test]
+    fn element_trait_methods_are_callable() {
+        let element = SpectrumElement::new(vec![-30.0, -60.0]);
+        let _same = element.into_element();
+        assert!(_same.id().is_none());
     }
 }

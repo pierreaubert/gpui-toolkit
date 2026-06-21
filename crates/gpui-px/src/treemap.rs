@@ -428,7 +428,7 @@ impl Treemap {
 }
 
 /// Append a rectangle outline to a GPUI path builder.
-fn add_rect_to_path(builder: &mut PathBuilder, x: f32, y: f32, width: f32, height: f32) {
+pub(crate) fn add_rect_to_path(builder: &mut PathBuilder, x: f32, y: f32, width: f32, height: f32) {
     builder.move_to(point(px(x), px(y)));
     builder.line_to(point(px(x + width), px(y)));
     builder.line_to(point(px(x + width), px(y + height)));

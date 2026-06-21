@@ -5,7 +5,7 @@ use super::solved_node::SolvedNode;
 use super::solved_tree::SolvedTree;
 use super::types::LayoutDebugWarningKind;
 use crate::solver::solve_tree;
-use crate::types::{Axis, ContainerNode, LayoutNode, LayoutPreferences, Sizing, SlotNode};
+use crate::types::{Axis, ContainerNode, DisplayTier, LayoutNode, LayoutPreferences, Sizing, SlotNode};
 
 fn solved_slot(id: &'static str, width: f32, height: f32) -> SolvedNode<'static> {
     SolvedNode {
@@ -450,4 +450,188 @@ fn as_map_is_cached() {
     for (id, node) in &first {
         assert_eq!(second.get(id).unwrap().width, node.width);
     }
+}
+
+#[test]
+fn solved_tree_ref_accessors_and_root() {
+    static TIERS: &[DisplayTier<'_>] = &[DisplayTier {
+        name: "Full",
+        min_size: 0.0,
+    }];
+
+    let children = [
+        LayoutNode::Slot(SlotNode {
+            id: "header",
+            sizing: Sizing::Fixed(40.0),
+            priority: 1.0,
+            collapsible: false,
+            display_tiers: &[],
+            collapse_label: None,
+        }),
+        LayoutNode::Slot(SlotNode {
+            id: "rack",
+            sizing: Sizing::flex(0.0),
+            priority: 0.5,
+            collapsible: true,
+            display_tiers: TIERS,
+            collapse_label: Some("Rack"),
+        }),
+    ];
+    let root = LayoutNode::Container(ContainerNode {
+        id: "root",
+        axis: Axis::Horizontal,
+        auto_axis: None,
+        sizing: Sizing::flex(0.0),
+        children: &children,
+        divider_size: 0.0,
+    });
+    let prefs = LayoutPreferences::new(&[], &[("rack", true)]);
+    let tree = solve_tree(&root, 200.0, 100.0, &prefs);
+
+    let root_ref = tree.root();
+    assert_eq!(root_ref.id(), "root");
+    assert_eq!(root_ref.width(), 200.0);
+    assert_eq!(root_ref.height(), 100.0);
+    assert!(root_ref.visible());
+    assert_eq!(root_ref.resolved_axis(), Some(Axis::Horizontal));
+
+    let kids: Vec<_> = root_ref.children().collect();
+    assert_eq!(kids.len(), 2);
+    assert_eq!(kids[0].id(), "header");
+    assert_eq!(kids[0].size_along(Axis::Horizontal), kids[0].width());
+    assert_eq!(kids[0].size_along(Axis::Vertical), kids[0].height());
+    assert_eq!(kids[1].id(), "rack");
+    assert!(!kids[1].visible());
+    assert_eq!(kids[1].collapse_label(), Some("Rack"));
+    assert_eq!(kids[1].active_tier(), None);
+}
+
+#[test]
+fn debug_report_with_source_includes_tier_label_and_sizing() {
+    struct FixedMeasure;
+    impl gpui_pretext::TextMeasure for FixedMeasure {
+        fn measure_width(&self, text: &str) -> f64 {
+            text.chars().count() as f64 * 10.0
+        }
+    }
+    static MEASURE: FixedMeasure = FixedMeasure;
+    static TIERS: &[DisplayTier<'_>] = &[DisplayTier {
+        name: "Full",
+        min_size: 0.0,
+    }];
+
+    let children = [
+        LayoutNode::Slot(SlotNode {
+            id: "text",
+            sizing: Sizing::Text {
+                text: "hi",
+                measure: &MEASURE,
+                line_height: 20.0,
+                min: 0.0,
+            },
+            priority: 1.0,
+            collapsible: false,
+            display_tiers: &[],
+            collapse_label: None,
+        }),
+        LayoutNode::Slot(SlotNode {
+            id: "rack",
+            sizing: Sizing::Fractional {
+                initial: 0.25,
+                min: 10.0,
+                max: 100.0,
+            },
+            priority: 0.4,
+            collapsible: true,
+            display_tiers: TIERS,
+            collapse_label: Some("Rack"),
+        }),
+        LayoutNode::Slot(SlotNode {
+            id: "side",
+            sizing: Sizing::Fixed(30.0),
+            priority: 0.2,
+            collapsible: true,
+            display_tiers: &[],
+            collapse_label: Some("Side"),
+        }),
+    ];
+    let source = LayoutNode::Container(ContainerNode {
+        id: "root",
+        axis: Axis::Horizontal,
+        auto_axis: None,
+        sizing: Sizing::flex(0.0),
+        children: &children,
+        divider_size: 0.0,
+    });
+
+    let tree = solve_tree(
+        &source,
+        200.0,
+        50.0,
+        &LayoutPreferences::new(&[], &[("side", true)]),
+    );
+    let report = tree.debug_report_with_source(&source);
+    let text = report.tree();
+
+    assert!(text.contains("tier=Full"), "{text}");
+    assert!(text.contains("label=\"Side\""), "{text}");
+    assert!(
+        text.contains("sizing=Text(chars=2,line_height=20,min=0)"),
+        "{text}"
+    );
+    assert!(
+        text.contains("sizing=Fractional(initial=0.25,min=10,max=100)"),
+        "{text}"
+    );
+    assert!(text.contains("collapsible priority=0.4"), "{text}");
+}
+
+#[test]
+fn debug_report_handles_infinite_cross_axis() {
+    use super::solved_tree::{NodeIndex, SolvedNodeData};
+    use std::collections::HashMap;
+
+    let tree = SolvedTree::from_parts(
+        vec![
+            SolvedNodeData {
+                id: "root",
+                width: 100.0,
+                height: f32::INFINITY,
+                visible: true,
+                active_tier: None,
+                collapse_label: None,
+                resolved_axis: Some(Axis::Horizontal),
+                children: vec![NodeIndex(1)],
+            },
+            SolvedNodeData {
+                id: "child",
+                width: 50.0,
+                height: 20.0,
+                visible: true,
+                active_tier: None,
+                collapse_label: None,
+                resolved_axis: None,
+                children: vec![],
+            },
+        ],
+        HashMap::from([("root", NodeIndex(0)), ("child", NodeIndex(1))]),
+    );
+
+    let report = tree.debug_report();
+
+    assert!(report.has_warnings());
+    assert!(
+        report
+            .warnings()
+            .iter()
+            .any(|w| matches!(w.kind, LayoutDebugWarningKind::InvalidSize { .. })),
+        "expected invalid-size warning for infinite height"
+    );
+    assert!(
+        !report
+            .warnings()
+            .iter()
+            .any(|w| matches!(w.kind, LayoutDebugWarningKind::CrossAxisOverflow { .. })),
+        "infinite cross axis should not produce overflow"
+    );
 }

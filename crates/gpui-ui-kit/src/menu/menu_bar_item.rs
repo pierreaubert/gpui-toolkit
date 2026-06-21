@@ -41,3 +41,18 @@ impl MenuBarItem {
         &self.items
     }
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::MenuBarItem;
+
+    #[test]
+    fn menu_bar_item_builder_and_getters() {
+        let item = MenuBarItem::new("file", "File").with_items(vec![]);
+        assert_eq!(item.id(), &gpui::SharedString::from("file"));
+        assert_eq!(item.label(), &gpui::SharedString::from("File"));
+        assert!(item.items().is_empty());
+    }
+}
+

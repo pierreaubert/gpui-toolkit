@@ -566,4 +566,103 @@ mod tests {
         state.move_forward();
         assert_eq!(state.cursor, 6); // " family" has 6 chars (space + family)
     }
+
+    #[test]
+    fn selection_helpers_and_movement() {
+        let mut state = EditState::new("hello world");
+        assert!(state.has_selection());
+        assert!(state.is_all_selected());
+
+        state.clear_selection();
+        assert!(!state.has_selection());
+        assert!(!state.is_all_selected());
+
+        state.move_to_start();
+        assert_eq!(state.cursor, 0);
+        state.move_forward();
+        assert_eq!(state.cursor, 1);
+        state.move_backward();
+        assert_eq!(state.cursor, 0);
+        state.move_to_end();
+        assert_eq!(state.cursor, 11);
+    }
+
+    #[test]
+    fn extend_selection_operations() {
+        let mut state = EditState::new("hello world");
+        state.clear_selection();
+        state.cursor = 0;
+
+        state.extend_forward();
+        assert_eq!(state.cursor, 1);
+        assert!(state.has_selection());
+
+        state.extend_to_end();
+        assert_eq!(state.cursor, 11);
+
+        state.extend_to_start();
+        assert_eq!(state.cursor, 0);
+
+        state.clear_selection();
+        state.cursor = 6;
+        state.extend_word_forward();
+        assert_eq!(state.cursor, 11);
+
+        state.extend_word_backward();
+        assert_eq!(state.cursor, 6);
+    }
+
+    #[test]
+    fn start_update_end_selection() {
+        let mut state = EditState::new("hello");
+        state.start_selection(2);
+        assert_eq!(state.cursor, 2);
+        assert!(state.is_dragging);
+
+        state.update_selection(4);
+        assert_eq!(state.cursor, 4);
+
+        state.end_selection();
+        assert!(!state.is_dragging);
+        assert_eq!(state.selection_range(), Some((2, 4)));
+
+        state.cursor = 2;
+        state.selection_anchor = Some(2);
+        state.end_selection();
+        assert!(state.selection_anchor.is_none());
+    }
+
+    #[test]
+    fn delete_selection_returns_false_when_empty() {
+        let mut state = EditState::default();
+        state.text = "abc".into();
+        state.cursor = 1;
+        state.selection_anchor = None;
+        assert!(!state.delete_selection());
+        assert_eq!(state.text, "abc");
+    }
+
+    #[test]
+    fn select_word_at_edges() {
+        let mut state = EditState::new("hello world");
+        state.select_word_at(0);
+        assert_eq!(state.selection_range(), Some((0, 5)));
+
+        state.select_word_at(6);
+        assert_eq!(state.selection_range(), Some((6, 11)));
+
+        // On whitespace with word before should select previous word
+        state.select_word_at(5);
+        assert_eq!(state.selection_range(), Some((0, 5)));
+    }
+
+    #[test]
+    fn char_before_after_byte_positions() {
+        let state = EditState::new("αβ");
+        assert!(state.char_before_byte(0).is_none());
+        assert_eq!(state.char_before_byte(2).unwrap().1, 'α');
+        assert_eq!(state.char_after_byte(0).unwrap().1, 'α');
+        assert!(state.char_after_byte(4).is_none());
+    }
+
 }

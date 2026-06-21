@@ -548,7 +548,7 @@ fn solve_container<'a>(
 
 #[cfg(test)]
 mod tests {
-    use super::{LayoutNode, LayoutPreferences, solve};
+    use super::{LayoutNode, LayoutPreferences, solve, solve_tree};
     use crate::solved::SolvedNode;
     use crate::types::{Axis, ContainerNode, DisplayTier, Sizing, SlotNode};
 
@@ -1387,5 +1387,114 @@ mod tests {
             calls_for_two_duplicates, calls_for_single,
             "duplicate text nodes should reuse the cached measurement"
         );
+    }
+
+    #[test]
+    fn root_slot_collapsed_gets_zero_size() {
+        static TIERS: &[DisplayTier<'_>] = &[DisplayTier {
+            name: "Full",
+            min_size: 0.0,
+        }];
+
+        let root = LayoutNode::Slot(SlotNode {
+            id: "root-slot",
+            sizing: Sizing::flex(0.0),
+            priority: 1.0,
+            collapsible: true,
+            display_tiers: TIERS,
+            collapse_label: Some("Tab"),
+        });
+        let prefs = LayoutPreferences::new(&[], &[("root-slot", true)]);
+
+        let solved = solve(&root, 200.0, 100.0, &prefs);
+        assert!(!solved.visible);
+        assert_eq!(solved.width, 0.0);
+        assert_eq!(solved.height, 0.0);
+        assert_eq!(solved.active_tier, None);
+
+        let tree = solve_tree(&root, 200.0, 100.0, &prefs);
+        let root_ref = tree.root();
+        assert!(!root_ref.visible());
+        assert_eq!(root_ref.width(), 0.0);
+        assert_eq!(root_ref.collapse_label(), Some("Tab"));
+    }
+
+    #[test]
+    fn solve_tree_user_collapsed_slot_child_gets_zero_size() {
+        let children = [
+            collapsible_slot("sidebar", Sizing::Fixed(50.0), 0.5, "Sidebar"),
+            simple_slot("main", Sizing::flex(0.0)),
+        ];
+        let root = LayoutNode::Container(ContainerNode {
+            id: "root",
+            axis: Axis::Horizontal,
+            auto_axis: None,
+            sizing: Sizing::flex(0.0),
+            children: &children,
+            divider_size: 0.0,
+        });
+        let prefs = LayoutPreferences::new(&[], &[("sidebar", true)]);
+
+        let tree = solve_tree(&root, 200.0, 100.0, &prefs);
+        let sidebar = tree.find("sidebar").unwrap();
+        assert!(!sidebar.visible());
+        assert_eq!(sidebar.collapse_label(), Some("Sidebar"));
+        assert_eq!(tree.find("main").unwrap().width(), 200.0);
+    }
+
+    #[test]
+    fn fractional_ratios_are_scaled_when_total_exceeds_one() {
+        let children = [
+            simple_slot("a", Sizing::fractional(0.6, 0.0)),
+            simple_slot("b", Sizing::fractional(0.6, 0.0)),
+        ];
+        let root = LayoutNode::Container(ContainerNode {
+            id: "root",
+            axis: Axis::Horizontal,
+            auto_axis: None,
+            sizing: Sizing::flex(0.0),
+            children: &children,
+            divider_size: 0.0,
+        });
+
+        let solved = solve(&root, 100.0, 10.0, &LayoutPreferences::default());
+        assert_eq!(solved.find("a").unwrap().width, 50.0);
+        assert_eq!(solved.find("b").unwrap().width, 50.0);
+    }
+
+    #[test]
+    fn collapsible_text_child_gets_measured_size() {
+        struct FixedMeasure;
+        impl gpui_pretext::TextMeasure for FixedMeasure {
+            fn measure_width(&self, text: &str) -> f64 {
+                text.chars().count() as f64 * 10.0
+            }
+        }
+        static MEASURE: FixedMeasure = FixedMeasure;
+
+        let children = [LayoutNode::Slot(SlotNode {
+            id: "label",
+            sizing: Sizing::Text {
+                text: "abc",
+                measure: &MEASURE,
+                line_height: 20.0,
+                min: 0.0,
+            },
+            priority: 1.0,
+            collapsible: true,
+            display_tiers: &[],
+            collapse_label: Some("Label"),
+        })];
+        let root = LayoutNode::Container(ContainerNode {
+            id: "root",
+            axis: Axis::Horizontal,
+            auto_axis: None,
+            sizing: Sizing::flex(0.0),
+            children: &children,
+            divider_size: 0.0,
+        });
+
+        let solved = solve(&root, 200.0, 50.0, &LayoutPreferences::default());
+        assert_eq!(solved.find("label").unwrap().width, 30.0);
     }
 }

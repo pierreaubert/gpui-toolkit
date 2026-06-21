@@ -955,7 +955,7 @@ impl RenderOnce for VerticalSlider {
 #[cfg(test)]
 mod tests {
     use super::VerticalSlider;
-    use crate::AudioScale as Scale;
+    use crate::{AudioScale as Scale, VerticalSliderTheme};
 
     #[test]
     fn format_label_wraps_shortcut_key() {
@@ -979,6 +979,9 @@ mod tests {
 
         let slider_default = VerticalSlider::new("test").value(3.14);
         assert_eq!(slider_default.format_value(), "3.1");
+
+        let slider_ratio = VerticalSlider::new("test").value(4.0).unit(":1");
+        assert_eq!(slider_ratio.format_value(), "4.0:1");
     }
 
     #[test]
@@ -991,5 +994,71 @@ mod tests {
         assert!(ticks_a.iter().zip(ticks_b.iter()).all(|(a, b)| {
             a.normalized_pos == b.normalized_pos && a.is_major == b.is_major && a.label == b.label
         }));
+    }
+
+    #[test]
+    fn value_to_normalized_respects_scale() {
+        let linear = VerticalSlider::new("test")
+            .value(50.0)
+            .min(0.0)
+            .max(100.0)
+            .scale(Scale::Linear);
+        assert!((linear.value_to_normalized(50.0) - 0.5).abs() < 1e-9);
+
+        let log = VerticalSlider::new("test")
+            .value(1000.0)
+            .min(20.0)
+            .max(20_000.0)
+            .scale(Scale::Logarithmic);
+        let norm = log.value_to_normalized(1000.0);
+        assert!(norm > 0.0 && norm < 1.0);
+    }
+
+    #[test]
+    fn builder_setters_chain() {
+        let _slider = VerticalSlider::new("test")
+            .value(50.0)
+            .min(0.0)
+            .max(100.0)
+            .unit("%")
+            .label("Gain")
+            .shortcut_key('g')
+            .size(crate::VerticalSliderSize::Lg)
+            .scale(Scale::Linear)
+            .height(200.0)
+            .with_ticks()
+            .selected(true)
+            .disabled(false)
+            .peak(Some(80.0))
+            .on_change(|_val, _window, _cx| {})
+            .on_drag_start(|_pos, _val, _window, _cx| {})
+            .on_select(|_window, _cx| {})
+            .on_reset(|_window, _cx| {});
+    }
+
+    #[test]
+    fn extended_builder_setters_chain() {
+        let theme = VerticalSliderTheme {
+            surface: gpui::rgba(0x1a1a1aff),
+            surface_hover: gpui::rgba(0x2a2a2aff),
+            track_bg: gpui::rgba(0x111111ff),
+            accent: gpui::rgba(0xff6600ff),
+            accent_muted: gpui::rgba(0xff660033),
+            border: gpui::rgba(0x444444ff),
+            text_secondary: gpui::rgba(0xaaaaaaff),
+            text_primary: gpui::rgba(0xffffffff),
+            text_muted: gpui::rgba(0x888888ff),
+            text_on_accent: gpui::rgba(0xffffffff),
+            background_secondary: gpui::rgba(0x222222ff),
+            peak_marker: gpui::rgba(0xff0000ff),
+        };
+        let design = gpui_design::DesignSystem::neutral();
+
+        let _slider = VerticalSlider::new("extended")
+            .theme(theme)
+            .design_tokens(crate::AudioDesignTokens::default())
+            .design(design)
+            .aria_label("Gain slider")
+            .aria_role(crate::accessibility::AriaRole::Slider);
     }
 }

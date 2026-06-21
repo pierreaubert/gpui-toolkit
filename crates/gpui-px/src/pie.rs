@@ -374,4 +374,97 @@ mod tests {
 
         assert!(StdArc::ptr_eq(&chart.values, &cloned.values));
     }
+
+    #[test]
+    fn test_pie_empty_values() {
+        let result = pie(&[]).build();
+        assert!(matches!(result, Err(ChartError::EmptyData { field: "values" })));
+    }
+
+    #[test]
+    fn test_pie_nan_values() {
+        let result = pie(&[10.0, f64::NAN, 30.0]).build();
+        assert!(matches!(
+            result,
+            Err(ChartError::InvalidData {
+                field: "values",
+                reason: "contains NaN or Infinity"
+            })
+        ));
+    }
+
+    #[test]
+    fn test_pie_invalid_dimensions() {
+        let result = pie(&[10.0, 20.0]).size(0.0, 400.0).build();
+        assert!(matches!(
+            result,
+            Err(ChartError::InvalidDimension {
+                field: "width",
+                value: 0.0
+            })
+        ));
+    }
+
+    #[test]
+    fn test_pie_labels_mismatch() {
+        let result = pie(&[10.0, 20.0, 30.0]).labels(&["A", "B"]).build();
+        assert!(matches!(
+            result,
+            Err(ChartError::DataLengthMismatch {
+                x_field: "labels",
+                y_field: "values",
+                x_len: 2,
+                y_len: 3,
+            })
+        ));
+    }
+
+    #[test]
+    fn test_pie_hole_clamping() {
+        let chart = pie(&[10.0, 20.0]).hole(2.0);
+        assert_eq!(chart.inner_radius_fraction, 0.99);
+        let chart = pie(&[10.0, 20.0]).hole(-1.0);
+        assert_eq!(chart.inner_radius_fraction, 0.0);
+    }
+
+    #[test]
+    fn test_pie_donut_builds() {
+        let result = donut(&[10.0, 20.0, 30.0]).title("Donut").build();
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_pie_custom_colors() {
+        let result = pie(&[10.0, 20.0, 30.0])
+            .colors(&[0xff0000, 0x00ff00, 0x0000ff])
+            .build();
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_pie_empty_custom_colors_treated_as_default() {
+        let result = pie(&[10.0, 20.0, 30.0]).colors(&[]).build();
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_pie_builder_chain() {
+        let result = pie(&[10.0, 20.0, 30.0])
+            .title("My Pie")
+            .hole(0.5)
+            .pad_angle(0.02)
+            .corner_radius(2.0)
+            .sort(false)
+            .colors(&[0xff0000, 0x00ff00, 0x0000ff])
+            .size(500.0, 500.0)
+            .build();
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_pie_all_zero_but_one() {
+        // Sum is positive, should build
+        let result = pie(&[0.0, 0.0, 10.0]).build();
+        assert!(result.is_ok());
+    }
 }

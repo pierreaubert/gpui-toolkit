@@ -77,8 +77,9 @@ pub(super) fn keystroke_to_char(keystroke: &Keystroke) -> Option<char> {
 
 #[cfg(test)]
 mod tests {
-    use super::super::keystroke_to_char;
-    use gpui::{Keystroke, Modifiers};
+    use super::super::{NumberEditState, NUMBER_INPUT_EDIT_STATES, NUMBER_INPUT_FOCUS_HANDLES, NUMBER_INPUT_FOCUS_SUBS};
+    use super::{cleanup_number_input_state, is_number_input_editing, keystroke_to_char, MAX_NUMBER_INPUT_STATES};
+    use gpui::{ElementId, Keystroke, Modifiers, SharedString};
 
     #[test]
     fn test_keystroke_to_char_space() {
@@ -89,4 +90,65 @@ mod tests {
         };
         assert_eq!(keystroke_to_char(&ks), Some(' '));
     }
+
+    #[test]
+    fn keystroke_to_char_regular_key() {
+        let ks = Keystroke {
+            key: "1".into(),
+            key_char: Some("1".into()),
+            modifiers: Modifiers::default(),
+        };
+        assert_eq!(keystroke_to_char(&ks), Some('1'));
+    }
+
+    #[test]
+    fn is_number_input_editing_reflects_state() {
+        NUMBER_INPUT_EDIT_STATES.with(|states| states.borrow_mut().clear());
+        assert!(!is_number_input_editing());
+
+        NUMBER_INPUT_EDIT_STATES.with(|states| {
+            let mut states = states.borrow_mut();
+            states.insert(
+                ElementId::Name(SharedString::from("num-edit")),
+                std::rc::Rc::new(std::cell::RefCell::new(NumberEditState::new("5"))),
+            );
+        });
+        assert!(is_number_input_editing());
+        NUMBER_INPUT_EDIT_STATES.with(|states| states.borrow_mut().clear());
+    }
+
+    #[test]
+    fn cleanup_number_input_state_removes_edit_state() {
+        let id = ElementId::Name(SharedString::from("cleanup-test"));
+        NUMBER_INPUT_EDIT_STATES.with(|states| {
+            states.borrow_mut().insert(
+                id.clone(),
+                std::rc::Rc::new(std::cell::RefCell::new(NumberEditState::default())),
+            );
+        });
+
+        cleanup_number_input_state(&id);
+        assert!(!NUMBER_INPUT_EDIT_STATES.with(|s| s.borrow().contains_key(&id)));
+    }
+
+    #[test]
+    fn trim_number_input_storage_evicts_oldest() {
+        NUMBER_INPUT_FOCUS_HANDLES.with(|h| h.borrow_mut().clear());
+        NUMBER_INPUT_EDIT_STATES.with(|s| s.borrow_mut().clear());
+        NUMBER_INPUT_FOCUS_SUBS.with(|s| s.borrow_mut().clear());
+
+        for i in 0..=MAX_NUMBER_INPUT_STATES {
+            NUMBER_INPUT_EDIT_STATES.with(|s| {
+                s.borrow_mut().insert(
+                    ElementId::Name(SharedString::from(format!("s-{i}"))),
+                    std::rc::Rc::new(std::cell::RefCell::new(NumberEditState::default())),
+                );
+            });
+        }
+
+        cleanup_number_input_state(&ElementId::Name(SharedString::from("unused")));
+        let count = NUMBER_INPUT_EDIT_STATES.with(|s| s.borrow().len());
+        assert!(count <= MAX_NUMBER_INPUT_STATES);
+    }
+
 }

@@ -109,3 +109,16 @@ pub trait KeybindingProvider {
     /// Return documented keybindings for help/settings UI.
     fn documented_bindings(&self, preset: KeymapPreset) -> Vec<DocumentedKeybinding>;
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn custom_category_name() {
+        assert_eq!(
+            KeybindingCategory::Custom("My Category".to_string()).name(),
+            "My Category"
+        );
+    }
+}

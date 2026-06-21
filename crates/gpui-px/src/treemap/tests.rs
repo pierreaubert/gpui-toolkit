@@ -241,3 +241,76 @@ fn build_uses_single_canvas() {
         result.err()
     );
 }
+
+#[test]
+fn test_treemap_negative_root_value() {
+    let root = TreemapNode::new("Root", -10.0);
+    let result = treemap(&root).build();
+    assert!(matches!(result, Err(ChartError::InvalidData { .. })));
+}
+
+#[test]
+fn test_treemap_child_negative_value() {
+    let root = TreemapNode::new("Root", 0.0)
+        .add_child(TreemapNode::new("A", 30.0))
+        .add_child(TreemapNode::new("B", -5.0));
+    let result = treemap(&root).build();
+    assert!(matches!(result, Err(ChartError::InvalidData { .. })));
+}
+
+#[test]
+fn test_treemap_invalid_dimensions() {
+    let root = TreemapNode::new("Root", 100.0);
+    let result = treemap(&root).size(0.0, 400.0).build();
+    assert!(matches!(
+        result,
+        Err(ChartError::InvalidDimension {
+            field: "width",
+            value: 0.0
+        })
+    ));
+}
+
+#[test]
+fn test_treemap_builder_chain() {
+    let root = TreemapNode::new("Root", 0.0)
+        .add_child(TreemapNode::new("A", 30.0))
+        .add_child(TreemapNode::new("B", 70.0));
+
+    let clicked: std::rc::Rc<std::cell::RefCell<Option<(String, f64)>>> =
+        std::rc::Rc::new(std::cell::RefCell::new(None));
+    let clicked_for_handler = clicked.clone();
+    let result = treemap(&root)
+        .title("Chained")
+        .tiling_method(TilingMethod::SliceDice)
+        .padding(3.0)
+        .size(800.0, 600.0)
+        .hover(false)
+        .on_click(move |name, value| {
+            *clicked_for_handler.borrow_mut() = Some((name.to_string(), value));
+        })
+        .build();
+
+    assert!(result.is_ok());
+    assert!(clicked.borrow().is_none()); // handler not invoked during build
+}
+
+#[test]
+fn test_treemap_color_scheme() {
+    let root = TreemapNode::new("Root", 0.0)
+        .add_child(TreemapNode::new("A", 30.0))
+        .add_child(TreemapNode::new("B", 70.0));
+
+    let result = treemap(&root)
+        .color_scheme(d3rs::color::ColorScheme::category10())
+        .build();
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_treemap_add_rect_to_path() {
+    use gpui::PathBuilder;
+    let mut builder = PathBuilder::fill();
+    super::add_rect_to_path(&mut builder, 0.0, 0.0, 10.0, 20.0);
+    let _ = builder.build();
+}

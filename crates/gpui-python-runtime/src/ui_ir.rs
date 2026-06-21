@@ -420,4 +420,89 @@ mod tests {
             Err(UiIrError::ChartLengthMismatch { .. })
         ));
     }
+
+    #[test]
+    fn validates_empty_sections_and_ids() {
+        let empty: PythonAppIr = serde_json::from_value(serde_json::json!({
+            "title": "Demo",
+            "sections": []
+        }))
+        .unwrap();
+        assert!(matches!(empty.validate(), Err(UiIrError::EmptySections)));
+
+        let missing_id: PythonAppIr = serde_json::from_value(serde_json::json!({
+            "title": "Demo",
+            "sections": [{"id": "", "label": "Bad", "content": {"kind": "text", "text": "x"}}]
+        }))
+        .unwrap();
+        assert!(matches!(
+            missing_id.validate(),
+            Err(UiIrError::EmptySectionId { .. })
+        ));
+    }
+
+    #[test]
+    fn validates_bar_and_heatmap_charts() {
+        let bar_missing_values: PythonAppIr = serde_json::from_value(serde_json::json!({
+            "title": "Demo",
+            "sections": [{
+                "id": "bar",
+                "label": "Bar",
+                "content": {"kind": "chart", "id": "bar", "chart": "bar", "categories": ["a"]}
+            }]
+        }))
+        .unwrap();
+        assert!(matches!(
+            bar_missing_values.validate(),
+            Err(UiIrError::MissingChartData { field: "values", .. })
+        ));
+
+        let bar_mismatch: PythonAppIr = serde_json::from_value(serde_json::json!({
+            "title": "Demo",
+            "sections": [{
+                "id": "bar",
+                "label": "Bar",
+                "content": {"kind": "chart", "id": "bar", "chart": "bar", "categories": ["a","b"], "values": [1.0]}
+            }]
+        }))
+        .unwrap();
+        assert!(matches!(
+            bar_mismatch.validate(),
+            Err(UiIrError::ChartLengthMismatch { .. })
+        ));
+
+        let heatmap_bad_dim: PythonAppIr = serde_json::from_value(serde_json::json!({
+            "title": "Demo",
+            "sections": [{
+                "id": "heatmap",
+                "label": "Heatmap",
+                "content": {"kind": "chart", "id": "h", "chart": "heatmap", "z": [1.0,2.0,3.0], "width_count": 2, "height_count": 2}
+            }]
+        }))
+        .unwrap();
+        assert!(matches!(
+            heatmap_bad_dim.validate(),
+            Err(UiIrError::HeatmapDimensionMismatch { .. })
+        ));
+    }
+
+    #[test]
+    fn validates_nested_cards_and_stacks() {
+        let app: PythonAppIr = serde_json::from_value(serde_json::json!({
+            "title": "Demo",
+            "sections": [{
+                "id": "s",
+                "label": "S",
+                "content": {
+                    "kind": "card",
+                    "children": [{
+                        "kind": "vstack",
+                        "children": [{"kind": "hstack", "children": [{"kind": "text", "text": "x"}]}]
+                    }]
+                }
+            }]
+        }))
+        .unwrap();
+        assert!(app.validate().is_ok());
+    }
 }

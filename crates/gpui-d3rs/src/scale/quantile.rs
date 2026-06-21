@@ -285,4 +285,81 @@ mod tests {
         let scale = QuantileScale::with_range(vec!["a", "b"]).domain(vec![1.0, 2.0, 3.0, 4.0]);
         scale.scale(f64::NAN);
     }
+
+    #[test]
+    fn test_quantile_scale_default() {
+        let scale: QuantileScale<i32> = QuantileScale::default();
+        assert!(scale.domain_samples().is_empty());
+        assert!(scale.range_values().is_empty());
+        assert!(scale.quantiles().is_empty());
+        assert_eq!(Scale::domain(&scale), (0.0, 1.0));
+    }
+
+    #[test]
+    fn test_quantile_scale_empty_domain() {
+        let scale = QuantileScale::with_range(vec!["a", "b"]).domain(vec![]);
+        assert!(scale.quantiles().is_empty());
+        assert!(scale.invert_extent(0).is_none());
+    }
+
+    #[test]
+    fn test_quantile_scale_filters_nan() {
+        let scale = QuantileScale::with_range(vec!["a", "b"])
+            .domain(vec![1.0, f64::NAN, 2.0, 3.0, 4.0]);
+        assert_eq!(scale.domain_samples(), &[1.0, 2.0, 3.0, 4.0]);
+    }
+
+    #[test]
+    fn test_quantile_scale_single_range_value() {
+        let scale = QuantileScale::with_range(vec!["only"]).domain(vec![1.0, 2.0, 3.0]);
+        assert_eq!(scale.scale(1.0), "only");
+        assert_eq!(scale.scale(3.0), "only");
+    }
+
+    #[test]
+    fn test_quantile_scale_invert_extent_edges() {
+        let scale = QuantileScale::with_range(vec!["a", "b", "c"])
+            .domain(vec![0.0, 3.0, 6.0, 9.0, 12.0, 15.0]);
+
+        let first = scale.invert_extent(0).unwrap();
+        assert_eq!(first.0, 0.0);
+
+        let last = scale.invert_extent(2).unwrap();
+        assert_eq!(last.1, 15.0);
+    }
+
+    #[test]
+    fn test_quantile_scale_invert_extent_out_of_range() {
+        let scale = QuantileScale::with_range(vec!["a", "b"]).domain(vec![1.0, 2.0, 3.0, 4.0]);
+        assert!(scale.invert_extent(5).is_none());
+    }
+
+    #[test]
+    fn test_quantile_scale_copy() {
+        let scale = QuantileScale::with_range(vec!["a", "b"]).domain(vec![1.0, 2.0, 3.0, 4.0]);
+        let copied = scale.copy();
+        assert_eq!(scale, copied);
+    }
+
+    #[test]
+    #[should_panic(expected = "QuantileScale requires at least one range value")]
+    fn test_quantile_scale_empty_range_panics() {
+        let scale: QuantileScale<&str> = QuantileScale::new().domain(vec![1.0, 2.0]);
+        scale.scale(1.0);
+    }
+
+    #[test]
+    fn test_quantile_scale_empty_domain_maps_to_last_range() {
+        let scale: QuantileScale<&str> = QuantileScale::with_range(vec!["a", "b"]).domain(vec![]);
+        assert_eq!(scale.scale(0.0), "b");
+    }
+
+    #[test]
+    fn test_quantile_scale_accessors() {
+        let scale = QuantileScale::with_range(vec![1, 2, 3]).domain(vec![1.0, 2.0, 3.0]);
+        assert_eq!(scale.range_values(), &[1, 2, 3]);
+        assert_eq!(Scale::domain(&scale), (1.0, 3.0));
+        assert_eq!(Scale::range(&scale), (1, 3));
+        assert_eq!(scale.ticks(10), scale.quantiles().to_vec());
+    }
 }

@@ -62,3 +62,35 @@ pub(super) fn find_nice_step(range: f64, target_ticks: usize) -> f64 {
 
     nice_normalized * magnitude
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{find_nice_step, format_value_abbrev};
+
+    #[test]
+    fn format_value_abbrev_covers_ranges() {
+        assert_eq!(format_value_abbrev(0.0), "0");
+        assert_eq!(format_value_abbrev(0.05), "0.05");
+        assert_eq!(format_value_abbrev(0.5), "0.5");
+        assert_eq!(format_value_abbrev(5.0), "5");
+        assert_eq!(format_value_abbrev(10.0), "10");
+        assert_eq!(format_value_abbrev(999.0), "999");
+        assert_eq!(format_value_abbrev(1000.0), "1k");
+        assert_eq!(format_value_abbrev(2500.0), "2.5k");
+        assert_eq!(format_value_abbrev(20000.0), "20k");
+        assert_eq!(format_value_abbrev(-2500.0), "-2.5k");
+    }
+
+    #[test]
+    fn find_nice_step_falls_back_for_bad_inputs() {
+        assert_eq!(find_nice_step(0.0, 5), 0.0);
+        assert_eq!(find_nice_step(100.0, 1), 100.0);
+    }
+
+    #[test]
+    fn find_nice_step_picks_expected_multiples() {
+        assert_eq!(find_nice_step(100.0, 5), 25.0);
+        assert_eq!(find_nice_step(100.0, 6), 20.0);
+        assert_eq!(find_nice_step(100.0, 11), 10.0);
+    }
+}

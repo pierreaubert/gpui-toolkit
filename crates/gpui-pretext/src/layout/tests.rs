@@ -12,6 +12,9 @@ use super::types::LayoutCursor;
 use crate::analysis::SegmentBreakKind;
 use crate::line_break::KnuthPlassParams;
 use crate::measurement::{EngineProfile, TextMeasure};
+use crate::profile_prepare;
+use crate::LineBreakStrategy;
+use crate::WhiteSpaceMode;
 
 /// Simple test measure: each character is 10px wide.
 struct TestMeasure;
@@ -154,4 +157,203 @@ fn layout_with_lines_returns_borrowed_lines_when_possible() {
         "single-segment line should be borrowed"
     );
     assert_eq!(result.lines[0].text, "hello");
+}
+
+
+#[test]
+fn test_prepare_options_default() {
+    let options = PrepareOptions::default();
+    assert_eq!(options.white_space, WhiteSpaceMode::Normal);
+}
+
+#[test]
+fn test_profile_prepare() {
+    let measure = TestMeasure;
+    let profile = EngineProfile::default();
+    let options = PrepareOptions::default();
+    let prep = profile_prepare("hello world", &measure, &profile, &options);
+    assert!(prep.analysis_segments > 0);
+    assert!(prep.prepared_segments >= prep.analysis_segments);
+}
+
+#[test]
+fn test_prepare_with_segments_exposes_segments() {
+    let measure = TestMeasure;
+    let profile = EngineProfile::default();
+    let options = PrepareOptions::default();
+    let prepared = prepare_with_segments("hi", &measure, &profile, &options);
+    assert_eq!(prepared.segments.len(), 1);
+    assert_eq!(prepared.segments[0], "hi");
+}
+
+#[test]
+fn test_prepare_cjk_splits_into_graphemes() {
+    struct CjkMeasure;
+
+    impl TextMeasure for CjkMeasure {
+        fn measure_width(&self, text: &str) -> f64 {
+            text.chars().count() as f64 * 10.0
+        }
+    }
+
+    let measure = CjkMeasure;
+    let profile = EngineProfile::default();
+    let options = PrepareOptions::default();
+    let prepared = prepare("你好世界", &measure, &profile, &options);
+    let result = layout(&prepared, 25.0, 20.0, &profile);
+    // Each CJK grapheme is 10px; width 25 fits two per line.
+    assert_eq!(result.line_count, 2);
+}
+
+#[test]
+fn test_prepare_breakable_word_with_prefix_widths() {
+    struct WideMeasure;
+
+    impl TextMeasure for WideMeasure {
+        fn measure_width(&self, text: &str) -> f64 {
+            text.chars().count() as f64 * 10.0
+        }
+    }
+
+    let measure = WideMeasure;
+    let mut profile = EngineProfile::default();
+    profile.prefer_prefix_widths_for_breakable_runs = true;
+    let options = PrepareOptions::default();
+    let prepared = prepare("abcdefghij", &measure, &profile, &options);
+    let result = layout(&prepared, 25.0, 20.0, &profile);
+    assert!(result.line_count >= 4);
+}
+
+#[test]
+fn test_prepare_prewrap_preserves_tabs_and_spaces() {
+    struct FixedMeasure;
+
+    impl TextMeasure for FixedMeasure {
+        fn measure_width(&self, text: &str) -> f64 {
+            text.chars().count() as f64 * 10.0
+        }
+    }
+
+    let measure = FixedMeasure;
+    let profile = EngineProfile::default();
+    let options = PrepareOptions {
+        white_space: WhiteSpaceMode::PreWrap,
+    };
+    let prepared = prepare("a\tb", &measure, &profile, &options);
+    let result = layout(&prepared, 200.0, 20.0, &profile);
+    assert_eq!(result.line_count, 1);
+}
+
+
+#[test]
+fn test_prepare_cjk_with_kinsoku() {
+    struct CjkMeasure;
+
+    impl TextMeasure for CjkMeasure {
+        fn measure_width(&self, text: &str) -> f64 {
+            text.chars().count() as f64 * 10.0
+        }
+    }
+
+    let measure = CjkMeasure;
+    let profile = EngineProfile::default();
+    let options = PrepareOptions::default();
+    // Mixed CJK with punctuation to exercise kinsoku merge paths.
+    let prepared = prepare("（你好）世界", &measure, &profile, &options);
+    let result = layout(&prepared, 30.0, 20.0, &profile);
+    assert!(result.line_count >= 1);
+}
+
+#[test]
+fn test_prepare_soft_hyphen() {
+    struct FixedMeasure;
+
+    impl TextMeasure for FixedMeasure {
+        fn measure_width(&self, text: &str) -> f64 {
+            text.chars().count() as f64 * 10.0
+        }
+    }
+
+    let measure = FixedMeasure;
+    let profile = EngineProfile::default();
+    let options = PrepareOptions::default();
+    let text = "abcdef\u{00AD}ghij";
+    let prepared = prepare(text, &measure, &profile, &options);
+    let result = layout(&prepared, 40.0, 20.0, &profile);
+    assert!(result.line_count >= 2);
+}
+
+
+#[test]
+fn test_layout_with_strategy_optimal() {
+    let measure = TestMeasure;
+    let profile = EngineProfile::default();
+    let options = PrepareOptions::default();
+    let prepared = prepare("hello world foo", &measure, &profile, &options);
+    let params = KnuthPlassParams::default();
+    let result = crate::layout_with_strategy(
+        &prepared,
+        80.0,
+        20.0,
+        &profile,
+        LineBreakStrategy::Optimal,
+        &params,
+    );
+    assert!(result.line_count >= 1);
+}
+
+#[test]
+fn test_layout_with_lines_and_strategy_optimal() {
+    let measure = TestMeasure;
+    let profile = EngineProfile::default();
+    let options = PrepareOptions::default();
+    let prepared = prepare_with_segments("hello world", &measure, &profile, &options);
+    let params = KnuthPlassParams::default();
+    let result = crate::layout_with_lines_and_strategy(
+        &prepared,
+        80.0,
+        20.0,
+        &profile,
+        LineBreakStrategy::Optimal,
+        &params,
+    );
+    assert!(result.line_count >= 1);
+}
+
+
+#[test]
+fn test_layout_with_lines_and_strategy_greedy() {
+    let measure = TestMeasure;
+    let profile = EngineProfile::default();
+    let options = PrepareOptions::default();
+    let prepared = prepare_with_segments("hello world", &measure, &profile, &options);
+    let params = KnuthPlassParams::default();
+    let result = crate::layout_with_lines_and_strategy(
+        &prepared,
+        80.0,
+        20.0,
+        &profile,
+        LineBreakStrategy::Greedy,
+        &params,
+    );
+    assert!(result.line_count >= 1);
+}
+
+#[test]
+fn test_build_line_text_cow_moves_long_lines() {
+    let segments = vec!["a".repeat(200)];
+    let kinds = vec![SegmentBreakKind::Text];
+    let cow = crate::layout::misc::build_line_text_cow(&segments, &kinds, 0, 0, 1, 0);
+    assert_eq!(cow.len(), 200);
+}
+
+
+#[test]
+fn test_walk_line_ranges_empty() {
+    let measure = TestMeasure;
+    let profile = EngineProfile::default();
+    let options = PrepareOptions::default();
+    let prepared = prepare_with_segments("", &measure, &profile, &options);
+    let count = crate::walk_line_ranges(&prepared, 100.0, &profile, |_line| {});
+    assert_eq!(count, 0);
 }

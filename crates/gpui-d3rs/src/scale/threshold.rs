@@ -242,4 +242,42 @@ mod tests {
         let scale = ThresholdScale::with_range(vec!["a", "b"]).domain(vec![0.0]);
         scale.scale(f64::NAN);
     }
+
+    #[test]
+    fn test_threshold_scale_default_new_and_accessors() {
+        let scale: ThresholdScale<i32> = ThresholdScale::default();
+        assert!(scale.thresholds().is_empty());
+        assert!(scale.range_values().is_empty());
+
+        let scale2 = ThresholdScale::<i32>::new().copy();
+        assert!(scale2.thresholds().is_empty());
+    }
+
+    #[test]
+    fn test_threshold_scale_domain_range_and_ticks() {
+        let scale = ThresholdScale::with_range(vec!["a", "b", "c"]).domain(vec![0.0, 1.0]);
+        assert_eq!(Scale::domain(&scale), (0.0, 1.0));
+        assert_eq!(Scale::range(&scale), ("a", "c"));
+        assert_eq!(Scale::ticks(&scale, 10), vec![0.0, 1.0]);
+    }
+
+    #[test]
+    fn test_threshold_scale_empty_domain() {
+        let scale = ThresholdScale::with_range(vec!["only"]).domain(vec![]);
+        assert_eq!(Scale::domain(&scale), (0.0, 1.0));
+        assert_eq!(scale.scale(123.0), "only");
+    }
+
+    #[test]
+    #[should_panic(expected = "ThresholdScale requires at least one range value")]
+    fn test_threshold_scale_range_empty_panics() {
+        let scale: ThresholdScale<f64> = ThresholdScale::new().domain(vec![0.0]);
+        let _ = Scale::range(&scale);
+    }
+
+    #[test]
+    fn test_threshold_scale_invert_extent_out_of_range() {
+        let scale = ThresholdScale::with_range(vec!["a", "b"]).domain(vec![0.0]);
+        assert!(scale.invert_extent(5).is_none());
+    }
 }

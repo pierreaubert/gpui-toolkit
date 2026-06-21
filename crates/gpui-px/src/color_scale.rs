@@ -292,4 +292,114 @@ mod tests {
         // Midpoint should be gray-ish
         assert!(result.r > 0.4 && result.r < 0.6);
     }
+
+    #[test]
+    fn test_interpolate_palette_empty() {
+        let colors: Vec<D3Color> = vec![];
+        let result = interpolate_palette(0.5, &colors);
+        // Should return black when no colors provided
+        assert_eq!(result.r, 0.0);
+        assert_eq!(result.g, 0.0);
+        assert_eq!(result.b, 0.0);
+    }
+
+    #[test]
+    fn test_interpolate_palette_at_zero() {
+        let colors = vec![D3Color::from_hex(0xff0000), D3Color::from_hex(0x0000ff)];
+        let result = interpolate_palette(0.0, &colors);
+        assert!(result.r > 0.9);
+        assert!(result.b < 0.1);
+    }
+
+    #[test]
+    fn test_interpolate_palette_at_one() {
+        let colors = vec![D3Color::from_hex(0xff0000), D3Color::from_hex(0x0000ff)];
+        let result = interpolate_palette(1.0, &colors);
+        assert!(result.r < 0.1);
+        assert!(result.b > 0.9);
+    }
+
+    #[test]
+    fn test_inferno_endpoints() {
+        let start = ColorScale::Inferno.map(0.0);
+        let end = ColorScale::Inferno.map(1.0);
+        // Inferno starts black, ends bright yellow/white
+        assert!(start.r < 0.1 && start.g < 0.1 && start.b < 0.1);
+        assert!(end.r > 0.9 && end.g > 0.9);
+    }
+
+    #[test]
+    fn test_magma_endpoints() {
+        let start = ColorScale::Magma.map(0.0);
+        let end = ColorScale::Magma.map(1.0);
+        // Magma starts black, ends bright yellow/white
+        assert!(start.r < 0.1 && start.g < 0.1 && start.b < 0.1);
+        assert!(end.r > 0.9 && end.g > 0.9);
+    }
+
+    #[test]
+    fn test_coolwarm_endpoints() {
+        let low = ColorScale::Coolwarm.map(0.0);
+        let mid = ColorScale::Coolwarm.map(0.5);
+        let high = ColorScale::Coolwarm.map(1.0);
+        // Low is blue, mid is neutral, high is red
+        assert!(low.b > low.r);
+        assert!(mid.r > 0.8 && mid.g > 0.8 && mid.b > 0.8);
+        assert!(high.r > high.b);
+    }
+
+    #[test]
+    fn test_all_named_scales_finite() {
+        for scale in [
+            ColorScale::Viridis,
+            ColorScale::Plasma,
+            ColorScale::Inferno,
+            ColorScale::Magma,
+            ColorScale::Heat,
+            ColorScale::Coolwarm,
+            ColorScale::Greys,
+        ] {
+            for t in [0.0, 0.25, 0.5, 0.75, 1.0] {
+                let c = scale.map(t);
+                assert!(c.r.is_finite(), "{scale:?} r non-finite at {t}");
+                assert!(c.g.is_finite(), "{scale:?} g non-finite at {t}");
+                assert!(c.b.is_finite(), "{scale:?} b non-finite at {t}");
+            }
+        }
+    }
+
+    #[test]
+    fn test_to_fn_returns_equivalent_result() {
+        let f = ColorScale::Plasma.to_fn();
+        for t in [0.0, 0.33, 0.67, 1.0] {
+            let direct = ColorScale::Plasma.map(t);
+            let via_fn = f(t);
+            assert_eq!(direct.r, via_fn.r);
+            assert_eq!(direct.g, via_fn.g);
+            assert_eq!(direct.b, via_fn.b);
+        }
+    }
+
+    #[test]
+    fn test_custom_scale_clamping() {
+        let scale = ColorScale::custom(|t| D3Color::from_hex(0x123456).interpolate(&D3Color::from_hex(0xabcdef), t as f32));
+        let below = scale.map(-1.0);
+        let above = scale.map(2.0);
+        let at_zero = scale.map(0.0);
+        let at_one = scale.map(1.0);
+        assert_eq!(below.r, at_zero.r);
+        assert_eq!(above.r, at_one.r);
+    }
+
+    #[test]
+    fn test_clone_preserves_behavior() {
+        let scale = ColorScale::Inferno;
+        let cloned = scale.clone();
+        assert_eq!(format!("{:?}", scale), format!("{:?}", cloned));
+        let c1 = scale.map(0.5);
+        let c2 = cloned.map(0.5);
+        assert_eq!(c1.r, c2.r);
+        assert_eq!(c1.g, c2.g);
+        assert_eq!(c1.b, c2.b);
+    }
 }

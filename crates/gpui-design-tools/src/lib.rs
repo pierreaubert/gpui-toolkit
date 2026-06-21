@@ -315,6 +315,13 @@ mod tests {
     }
 
     #[test]
+    fn current_tokens_validate_skips_markdown() {
+        let report = validate_current_design_tokens(false).unwrap();
+        assert!(report.preset_count > 0);
+        assert!(report.conformance_markdown.is_empty());
+    }
+
+    #[test]
     fn validate_from_path_round_trip() {
         let json = export_design_tokens(DesignTokenFormat::StyleDictionaryJson).unwrap();
         let path = std::env::temp_dir().join(format!(
@@ -362,5 +369,159 @@ mod tests {
             conformance_markdown: String::new(),
         };
         assert!(ensure_passed(&failing).is_err());
+    }
+
+    #[test]
+    fn format_parse_accepts_aliases() {
+        for value in ["json", "style-dictionary-json", "style_dictionary_json"] {
+            assert_eq!(
+                DesignTokenFormat::parse(value).unwrap(),
+                DesignTokenFormat::StyleDictionaryJson
+            );
+        }
+    }
+
+    #[test]
+    fn format_parse_rejects_unknown() {
+        let err = DesignTokenFormat::parse("yaml").unwrap_err();
+        assert!(err.to_string().contains("unsupported design token format"));
+    }
+
+    #[test]
+    fn import_design_tokens_reports_invalid_shape() {
+        let err = import_design_tokens("{}", DesignTokenFormat::StyleDictionaryJson).unwrap_err();
+        assert!(err.to_string().contains("root.presets"));
+    }
+
+    #[test]
+    fn export_design_tokens_to_path_round_trip() {
+        let path = std::env::temp_dir().join(format!(
+            "gpui-design-tools-export-test-{}.json",
+            std::process::id()
+        ));
+        export_design_tokens_to_path(&path, DesignTokenFormat::StyleDictionaryJson).unwrap();
+        let contents = std::fs::read_to_string(&path).unwrap();
+        assert!(contents.contains("presets"));
+        std::fs::remove_file(&path).unwrap();
+    }
+
+    #[test]
+    fn import_design_tokens_from_path_round_trip() {
+        let json = export_design_tokens(DesignTokenFormat::StyleDictionaryJson).unwrap();
+        let path = std::env::temp_dir().join(format!(
+            "gpui-design-tools-import-test-{}.json",
+            std::process::id()
+        ));
+        std::fs::write(&path, &json).unwrap();
+        let imported =
+            import_design_tokens_from_path(&path, DesignTokenFormat::StyleDictionaryJson).unwrap();
+        assert!(imported.preset_count > 0);
+        std::fs::remove_file(&path).unwrap();
+    }
+
+    #[test]
+    fn import_design_tokens_from_path_missing_file() {
+        let result = import_design_tokens_from_path(
+            Path::new("/nonexistent/gpui-design-tools-test.json"),
+            DesignTokenFormat::StyleDictionaryJson,
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn validate_design_tokens_from_path_missing_file() {
+        let result = validate_design_tokens_from_path(
+            Path::new("/nonexistent/gpui-design-tools-test.json"),
+            DesignTokenFormat::StyleDictionaryJson,
+            false,
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn inspect_token_value_presets_not_array() {
+        let raw = serde_json::json!({"presets": "nope"});
+        let (presets, tokens, findings) = inspect_token_value(&raw);
+        assert_eq!(presets, 0);
+        assert_eq!(tokens, 0);
+        assert!(findings.iter().any(|f| f.contains("root.presets")));
+    }
+
+    #[test]
+    fn inspect_token_value_empty_presets() {
+        let raw = serde_json::json!({"presets": []});
+        let (presets, tokens, findings) = inspect_token_value(&raw);
+        assert_eq!(presets, 0);
+        assert_eq!(tokens, 0);
+        assert!(findings.iter().any(|f| f.contains("must not be empty")));
+        assert!(findings.iter().any(|f| f.contains("at least one token")));
+    }
+
+    #[test]
+    fn inspect_token_value_missing_preset_id() {
+        let raw = serde_json::json!({
+            "presets": [{"tokens": [{"name": "n", "path": [], "value": "v", "token_type": "t"}]}]
+        });
+        let (_, _, findings) = inspect_token_value(&raw);
+        assert!(findings.iter().any(|f| f.contains("preset_id must be a string")));
+    }
+
+    #[test]
+    fn inspect_token_value_tokens_not_array() {
+        let raw = serde_json::json!({
+            "presets": [{"preset_id": "test", "tokens": "nope"}]
+        });
+        let (_, _, findings) = inspect_token_value(&raw);
+        assert!(findings.iter().any(|f| f.contains("tokens must be an array")));
+        assert!(findings.iter().any(|f| f.contains("at least one token")));
+    }
+
+    #[test]
+    fn inspect_token_value_missing_name() {
+        let raw = serde_json::json!({
+            "presets": [{"preset_id": "test", "tokens": [{"path": [], "value": "v", "token_type": "t"}]}]
+        });
+        let (_, _, findings) = inspect_token_value(&raw);
+        assert!(findings.iter().any(|f| f.contains("name must be a string")));
+    }
+
+    #[test]
+    fn inspect_token_value_missing_path() {
+        let raw = serde_json::json!({
+            "presets": [{"preset_id": "test", "tokens": [{"name": "n", "value": "v", "token_type": "t"}]}]
+        });
+        let (_, _, findings) = inspect_token_value(&raw);
+        assert!(findings.iter().any(|f| f.contains("path must be an array")));
+    }
+
+    #[test]
+    fn inspect_token_value_missing_value() {
+        let raw = serde_json::json!({
+            "presets": [{"preset_id": "test", "tokens": [{"name": "n", "path": [], "token_type": "t"}]}]
+        });
+        let (_, _, findings) = inspect_token_value(&raw);
+        assert!(findings.iter().any(|f| f.contains("value must be a string")));
+    }
+
+    #[test]
+    fn inspect_token_value_missing_token_type() {
+        let raw = serde_json::json!({
+            "presets": [{"preset_id": "test", "tokens": [{"name": "n", "path": [], "value": "v"}]}]
+        });
+        let (_, _, findings) = inspect_token_value(&raw);
+        assert!(findings.iter().any(|f| f.contains("token_type must be a string")));
+    }
+
+    #[test]
+    fn inspect_token_value_lazy_prefix_reused() {
+        let raw = serde_json::json!({
+            "presets": [{"preset_id": "test", "tokens": [{"name": 1, "path": 2, "value": 3, "token_type": 4}]}]
+        });
+        let (_, _, findings) = inspect_token_value(&raw);
+        let prefix = "presets[0].tokens[0]";
+        assert!(findings.iter().any(|f| f.contains(&format!("{prefix}.name must be a string"))));
+        assert!(findings.iter().any(|f| f.contains(&format!("{prefix}.path must be an array"))));
+        assert!(findings.iter().any(|f| f.contains(&format!("{prefix}.value must be a string"))));
+        assert!(findings.iter().any(|f| f.contains(&format!("{prefix}.token_type must be a string"))));
     }
 }

@@ -417,4 +417,65 @@ mod tests {
         assert_eq!(interp(0.75), 75.0);
         assert_eq!(interp(1.0), 100.0);
     }
+
+    #[test]
+    fn test_interpolate_f32() {
+        let lerp = interpolate_f32(0.0, 100.0);
+        assert_eq!(lerp(0.5), 50.0);
+    }
+
+    #[test]
+    fn test_interpolate_round_i32() {
+        let lerp = interpolate_round_i32(0, 100);
+        assert_eq!(lerp(0.25), 25);
+    }
+
+    #[test]
+    fn test_lerp() {
+        assert_eq!(lerp(0.0_f64, 100.0, 0.5), 50.0);
+    }
+
+    #[test]
+    fn test_clamp01() {
+        assert_eq!(clamp01(-0.5), 0.0);
+        assert_eq!(clamp01(0.5), 0.5);
+        assert_eq!(clamp01(1.5), 1.0);
+    }
+
+    #[test]
+    fn test_interpolate_basis_edge_cases() {
+        let empty = interpolate_basis(&[]);
+        assert_eq!(empty(0.5), 0.0);
+
+        let single = interpolate_basis(&[7.0]);
+        assert_eq!(single(0.5), 7.0);
+    }
+
+    #[test]
+    fn test_interpolate_basis_closed() {
+        let closed = interpolate_basis_closed(&[0.0, 10.0, 20.0, 10.0]);
+        assert!(closed(0.0) >= 0.0);
+        assert!(closed(1.0) >= 0.0);
+
+        let empty = interpolate_basis_closed(&[]);
+        assert_eq!(empty(0.5), 0.0);
+
+        let single = interpolate_basis_closed(&[5.0]);
+        assert_eq!(single(0.5), 5.0);
+    }
+
+    #[test]
+    fn test_interpolate_quantize_edge_cases() {
+        let interp = interpolate_quantize(0.0, 100.0, 1);
+        assert_eq!(interp(0.5), 0.0);
+        let interp2 = interpolate_quantize(10.0, 20.0, 0);
+        assert_eq!(interp2(0.5), 10.0);
+    }
+
+    #[test]
+    fn test_interpolate_trait_variants() {
+        assert_eq!(0.0_f32.interpolate(&100.0, 0.5), 50.0);
+        assert_eq!(0_i64.interpolate(&100, 0.5), 50);
+        assert_eq!(0_i32.interpolate(&100, 0.5), 50);
+    }
 }

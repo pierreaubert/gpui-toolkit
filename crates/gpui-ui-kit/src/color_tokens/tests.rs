@@ -83,3 +83,15 @@ fn test_helper_functions() {
     let hsla = Hsla::from(darker_color);
     assert!(hsla.l < 0.5);
 }
+
+#[test]
+fn color_token_default_and_conversions() {
+    let default = ColorToken::default();
+    assert!((default.base.b - 0.8).abs() < 0.05);
+
+    let from_rgba: ColorToken = gpui::rgba(0x007accff).into();
+    assert_eq!(from_rgba.base, gpui::rgb(0x007acc));
+
+    let from_u32: ColorToken = 0x007accu32.into();
+    assert_eq!(from_u32.base, gpui::rgb(0x007acc));
+}
