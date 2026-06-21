@@ -242,7 +242,10 @@ fn test_time_of_day() {
 fn test_theme_schedule_boundaries() {
     let schedule = ThemeSchedule::new(TimeOfDay::new(7, 0), TimeOfDay::new(18, 0));
     assert_eq!(schedule.resolve_at_minutes(7 * 60), ThemeAppearance::Light);
-    assert_eq!(schedule.resolve_at_minutes(18 * 60 - 1), ThemeAppearance::Light);
+    assert_eq!(
+        schedule.resolve_at_minutes(18 * 60 - 1),
+        ThemeAppearance::Light
+    );
     assert_eq!(schedule.resolve_at_minutes(18 * 60), ThemeAppearance::Dark);
     assert_eq!(schedule.resolve_at_minutes(6 * 60), ThemeAppearance::Dark);
 
@@ -266,7 +269,10 @@ fn test_theme_mode_preference_resolve() {
     );
     let scheduled = ThemeSchedule::new(TimeOfDay::new(7, 0), TimeOfDay::new(18, 0));
     assert_eq!(
-        ThemeModePreference::Scheduled { schedule: scheduled }.resolve(ThemeAppearance::Light, 20 * 60),
+        ThemeModePreference::Scheduled {
+            schedule: scheduled
+        }
+        .resolve(ThemeAppearance::Light, 20 * 60),
         ThemeAppearance::Dark
     );
 }
@@ -353,6 +359,7 @@ fn test_editor_theme_validate_accessibility_fails_for_low_contrast() {
 
 #[test]
 fn test_editor_theme_with_accent_seed() {
-    let theme = EditorTheme::light().with_accent_seed(Color::from_hex(0xf0e442), AccentSource::User);
+    let theme =
+        EditorTheme::light().with_accent_seed(Color::from_hex(0xf0e442), AccentSource::User);
     assert_eq!(theme.accent, Color::from_hex(0xf0e442));
 }

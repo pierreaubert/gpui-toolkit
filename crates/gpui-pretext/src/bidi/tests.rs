@@ -104,7 +104,6 @@ fn test_byte_offset_to_char_index_multibyte() {
     assert_eq!(byte_offset_to_char_index(5, &char_starts), 2);
 }
 
-
 #[test]
 fn test_bidi_start_level_rtl_majority() {
     // Mostly RTL characters -> paragraph level 1.

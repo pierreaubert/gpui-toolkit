@@ -73,7 +73,9 @@ impl QrCode {
         canvas(
             move |_bounds, _window, _cx| (colors, modules),
             move |bounds, (colors, modules), window, _cx| {
-                paint_qr_full_from_colors(bounds, &colors, modules, size_f32, fg_color, bg_color, window);
+                paint_qr_full_from_colors(
+                    bounds, &colors, modules, size_f32, fg_color, bg_color, window,
+                );
             },
         )
         .w(requested_size)

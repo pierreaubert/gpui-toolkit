@@ -3,7 +3,7 @@
 //! These tests exercise builder setters, pure helpers, state machines, and math
 //! helpers without requiring a GPUI application context.
 
-use gpui::{div, px, rgb, rgba, IntoElement, SharedString};
+use gpui::{IntoElement, SharedString, div, px, rgb, rgba};
 use gpui_ui_kit::*;
 
 // ===========================================================================
@@ -63,7 +63,12 @@ fn all_easing_variants_at_boundaries() {
         );
         // Smoke-test an interior point; should not panic or return NaN.
         let mid = ease(easing, 0.5);
-        assert!(mid.is_finite(), "{:?} at 0.5 should be finite, got {}", easing, mid);
+        assert!(
+            mid.is_finite(),
+            "{:?} at 0.5 should be finite, got {}",
+            easing,
+            mid
+        );
     }
 }
 
@@ -153,8 +158,14 @@ fn color_all_constructors_and_conversions() {
     assert_eq!(c2.to_hex_string(), "#ff8040");
     assert!(hex_alpha.to_hex_string().len() > 7);
 
-    assert_eq!(Color::from_hex_string("#f80").unwrap(), Color::rgb(255, 136, 0));
-    assert_eq!(Color::from_hex_string("#ff8040").unwrap(), Color::rgb(255, 128, 64));
+    assert_eq!(
+        Color::from_hex_string("#f80").unwrap(),
+        Color::rgb(255, 136, 0)
+    );
+    assert_eq!(
+        Color::from_hex_string("#ff8040").unwrap(),
+        Color::rgb(255, 128, 64)
+    );
     assert!(Color::from_hex_string("not-a-color").is_none());
 
     let rgba = c2.to_rgba();
@@ -253,9 +264,18 @@ fn mobile_primitives() {
     assert_eq!(insets.horizontal(), 6.0);
     assert_eq!(insets.vertical(), 4.0);
 
-    assert!(matches!(PullToRefreshState::from_drag(-1.0, 80.0), PullToRefreshState::Idle));
-    assert!(matches!(PullToRefreshState::from_drag(40.0, 80.0), PullToRefreshState::Pulling { .. }));
-    assert_eq!(PullToRefreshState::from_drag(120.0, 80.0), PullToRefreshState::Armed);
+    assert!(matches!(
+        PullToRefreshState::from_drag(-1.0, 80.0),
+        PullToRefreshState::Idle
+    ));
+    assert!(matches!(
+        PullToRefreshState::from_drag(40.0, 80.0),
+        PullToRefreshState::Pulling { .. }
+    ));
+    assert_eq!(
+        PullToRefreshState::from_drag(120.0, 80.0),
+        PullToRefreshState::Armed
+    );
     assert_eq!(PullToRefreshState::Armed.progress(), 1.0);
     assert_eq!(PullToRefreshState::Refreshing.progress(), 1.0);
 
@@ -439,7 +459,10 @@ fn focus_group_builder() {
 
 #[test]
 fn menu_bar_builder() {
-    let items = vec![MenuBarItem::new("file", "File"), MenuBarItem::new("edit", "Edit")];
+    let items = vec![
+        MenuBarItem::new("file", "File"),
+        MenuBarItem::new("edit", "Edit"),
+    ];
     let bar = MenuBar::new(items)
         .active_menu(Some("file".into()))
         .on_select(|_id, _window, _cx| {})
@@ -695,7 +718,11 @@ fn workflow_hit_testing() {
 
     // Hit connection roughly midpoint
     let result = tester.hit_test(Position::new(240.0, 64.0), &graph);
-    assert!(matches!(result, HitTestResult::Connection(_)), "got {:?}", result);
+    assert!(
+        matches!(result, HitTestResult::Connection(_)),
+        "got {:?}",
+        result
+    );
 
     // Hit canvas
     let result = tester.hit_test(Position::new(1000.0, 1000.0), &graph);
@@ -718,7 +745,10 @@ fn workflow_history_undo_redo() {
 
     let conn = Connection::new(id, 0, id, 0);
     let conn_id = conn.id;
-    history.execute(Box::new(AddConnectionCommand { connection: conn }), &mut graph);
+    history.execute(
+        Box::new(AddConnectionCommand { connection: conn }),
+        &mut graph,
+    );
     // Note: self-loop is invalid in graph but command pushes directly; verify presence.
     assert!(graph.connections.iter().any(|c| c.id == conn_id));
 
@@ -733,14 +763,27 @@ fn workflow_history_undo_redo() {
     assert!(graph.connections.iter().any(|c| c.id == conn_id));
 
     // Remove connection command
-    let to_remove = graph.connections.iter().find(|c| c.id == conn_id).unwrap().clone();
-    history.execute(Box::new(RemoveConnectionCommand { connection: to_remove }), &mut graph);
+    let to_remove = graph
+        .connections
+        .iter()
+        .find(|c| c.id == conn_id)
+        .unwrap()
+        .clone();
+    history.execute(
+        Box::new(RemoveConnectionCommand {
+            connection: to_remove,
+        }),
+        &mut graph,
+    );
     assert!(!graph.connections.iter().any(|c| c.id == conn_id));
 
     // Remove node command
     let node = graph.nodes.remove(&id).unwrap();
     let conns = graph.connections.clone();
-    history.record(Box::new(RemoveNodeCommand { node, connections: conns }));
+    history.record(Box::new(RemoveNodeCommand {
+        node,
+        connections: conns,
+    }));
     assert!(!graph.nodes.contains_key(&id));
 
     // Change port counts
@@ -764,9 +807,24 @@ fn workflow_history_undo_redo() {
 
     // Max history trim
     let mut big_history = HistoryManager::with_max_history(2);
-    big_history.execute(Box::new(AddNodeCommand { node: WorkflowNodeData::new("1", Position::new(0.0, 0.0)) }), &mut graph);
-    big_history.execute(Box::new(AddNodeCommand { node: WorkflowNodeData::new("2", Position::new(0.0, 0.0)) }), &mut graph);
-    big_history.execute(Box::new(AddNodeCommand { node: WorkflowNodeData::new("3", Position::new(0.0, 0.0)) }), &mut graph);
+    big_history.execute(
+        Box::new(AddNodeCommand {
+            node: WorkflowNodeData::new("1", Position::new(0.0, 0.0)),
+        }),
+        &mut graph,
+    );
+    big_history.execute(
+        Box::new(AddNodeCommand {
+            node: WorkflowNodeData::new("2", Position::new(0.0, 0.0)),
+        }),
+        &mut graph,
+    );
+    big_history.execute(
+        Box::new(AddNodeCommand {
+            node: WorkflowNodeData::new("3", Position::new(0.0, 0.0)),
+        }),
+        &mut graph,
+    );
     // History trimmed to max 2; undo should still work for the most recent commands.
     assert!(big_history.can_undo());
 

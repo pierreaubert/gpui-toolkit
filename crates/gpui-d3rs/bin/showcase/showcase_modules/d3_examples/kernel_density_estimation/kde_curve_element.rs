@@ -274,9 +274,10 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                                 .text_sm()
                                                 .child(kernel_type.label())
                                                 .on_click(move |_, _window, cx| {
-                                                    entity.update(cx, |this, _| {
+                                                    entity.update(cx, |this, cx| {
                                                         this.kde_kernel_type =
                                                             this.kde_kernel_type.next();
+                                                        cx.notify();
                                                     });
                                                 })
                                         }),
@@ -306,9 +307,10 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                                 .text_sm()
                                                 .child(if show_histogram { "On" } else { "Off" })
                                                 .on_click(move |_, _window, cx| {
-                                                    entity.update(cx, |this, _| {
+                                                    entity.update(cx, |this, cx| {
                                                         this.kde_show_histogram =
                                                             !this.kde_show_histogram;
+                                                        cx.notify();
                                                     });
                                                 })
                                         }),

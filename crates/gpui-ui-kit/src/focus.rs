@@ -181,7 +181,6 @@ pub trait FocusGroupExt {
     fn with_focus_navigation(self, id: impl Into<ElementId>) -> FocusGroup;
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::{FocusDirection, FocusGroup};
@@ -200,4 +199,3 @@ mod tests {
         let _ = FocusGroup::new("grid").direction(FocusDirection::Grid { columns: 3 });
     }
 }
-

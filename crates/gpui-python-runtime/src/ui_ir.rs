@@ -454,7 +454,10 @@ mod tests {
         .unwrap();
         assert!(matches!(
             bar_missing_values.validate(),
-            Err(UiIrError::MissingChartData { field: "values", .. })
+            Err(UiIrError::MissingChartData {
+                field: "values",
+                ..
+            })
         ));
 
         let bar_mismatch: PythonAppIr = serde_json::from_value(serde_json::json!({

@@ -37,9 +37,11 @@ fn cached_line_points(
     cache: &mut LineDataCache,
 ) -> Arc<[LinePoint]> {
     if let Some((cached_x, cached_y, cached_points)) = cache
-        && Arc::ptr_eq(x, cached_x) && Arc::ptr_eq(y, cached_y) {
-            return cached_points.clone();
-        }
+        && Arc::ptr_eq(x, cached_x)
+        && Arc::ptr_eq(y, cached_y)
+    {
+        return cached_points.clone();
+    }
 
     let mut points = Vec::with_capacity(x.len().min(y.len()));
     points.extend(x.iter().zip(y.iter()).map(|(&x, &y)| LinePoint::new(x, y)));
@@ -627,7 +629,12 @@ impl LineChart {
             ));
 
         for (series_data, series_config) in series_data_configs {
-            plot_area = plot_area.child(render_line(x_scale, y_scale, series_data.as_ref(), series_config));
+            plot_area = plot_area.child(render_line(
+                x_scale,
+                y_scale,
+                series_data.as_ref(),
+                series_config,
+            ));
         }
 
         if !primary_hidden {
@@ -636,7 +643,12 @@ impl LineChart {
         }
 
         for (series_data, series_config) in secondary_series_data_configs {
-            plot_area = plot_area.child(render_line(x_scale, y2_scale, series_data.as_ref(), series_config));
+            plot_area = plot_area.child(render_line(
+                x_scale,
+                y2_scale,
+                series_data.as_ref(),
+                series_config,
+            ));
         }
 
         if has_secondary_axis {
@@ -979,8 +991,7 @@ impl LineChart {
 
             // Use custom X values if provided, otherwise use primary X values
             let x_values = series.x.as_ref().unwrap_or(&self.x);
-            let series_points =
-                cached_line_points(x_values, &series.y, &mut series.data_cache);
+            let series_points = cached_line_points(x_values, &series.y, &mut series.data_cache);
 
             let mut series_config = LineConfig::from_design(&design)
                 .stroke_color(D3Color::from_hex(series.color))

@@ -1,9 +1,9 @@
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
+use gpui_pretext::measurement::MeasureCache;
 use gpui_pretext::{
     EngineProfile, PrepareOptions, TextMeasure, layout_optimal, layout_with_lines, prepare,
     prepare_with_segments,
 };
-use gpui_pretext::measurement::MeasureCache;
 
 struct FixedWidthMeasure {
     char_width: f64,

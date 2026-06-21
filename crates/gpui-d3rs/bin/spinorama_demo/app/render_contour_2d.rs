@@ -43,11 +43,6 @@ impl SpinoramaApp {
             .cloned()
             .fold(f64::NEG_INFINITY, f64::max);
 
-        println!(
-            "Contour (SPL Horizontal Contour): {} angles x {} freqs, angle range: {:.1}° to {:.1}°, freq range: {:.1}Hz to {:.1}Hz",
-            angle_count, freq_count, angle_min, angle_max, freq_min, freq_max
-        );
-
         // Calculate SPL range
         let spl_min = contour_data
             .spl
@@ -238,29 +233,35 @@ impl SpinoramaApp {
                                 ),
                         )
                         .child(
-                            div().flex().child(div().w(px((80.0 * font_scale).round()))).child(render_axis(
-                                &freq_scale,
-                                &AxisConfig::bottom()
-                                    .with_tick_values(freq_ticks)
-                                    .with_formatter(|log_f| {
-                                        let f = log_f.exp();
-                                        if f >= 1000.0 {
-                                            format!("{:.0}k", f / 1000.0)
-                                        } else {
-                                            format!("{:.0}", f)
-                                        }
-                                    })
-                                    .with_title("Frequency (Hz)")
-                                    .with_label_font_size(label_sz)
-                                    .with_title_font_size(title_sz),
-                                chart_width,
-                                &axis_theme,
-                            )),
+                            div()
+                                .flex()
+                                .child(div().w(px((80.0 * font_scale).round())))
+                                .child(render_axis(
+                                    &freq_scale,
+                                    &AxisConfig::bottom()
+                                        .with_tick_values(freq_ticks)
+                                        .with_formatter(|log_f| {
+                                            let f = log_f.exp();
+                                            if f >= 1000.0 {
+                                                format!("{:.0}k", f / 1000.0)
+                                            } else {
+                                                format!("{:.0}", f)
+                                            }
+                                        })
+                                        .with_title("Frequency (Hz)")
+                                        .with_label_font_size(label_sz)
+                                        .with_title_font_size(title_sz),
+                                    chart_width,
+                                    &axis_theme,
+                                )),
                         ),
                 )
                 // Color legend
                 .child({
-                    let font_config = GlyphTextConfig::horizontal((10.0 * font_scale).round(), Hsla::from(theme.text_primary));
+                    let font_config = GlyphTextConfig::horizontal(
+                        (10.0 * font_scale).round(),
+                        Hsla::from(theme.text_primary),
+                    );
                     div()
                         .flex()
                         .items_center()

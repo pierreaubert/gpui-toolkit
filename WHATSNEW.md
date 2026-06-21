@@ -6,9 +6,10 @@ This branch is aligned with the GPUI version of Zed 1.0.
 
 - Added support for the Carbon theme
 
-## Perf
+## Perf double (at lease wrt 0.7)
 
 - Removed most of the memory allocations
+- Reuse memory better
 
 # 0.7
 

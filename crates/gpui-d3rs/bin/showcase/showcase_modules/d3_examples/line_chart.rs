@@ -22,7 +22,7 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
     let margin_left = 50.0;
     let margin_right = 20.0;
     let margin_top = 20.0;
-    let margin_bottom = 40.0;
+    let margin_bottom = 50.0;
     let plot_w = chart_w - margin_left - margin_right;
     let plot_h = chart_h - margin_top - margin_bottom;
 
@@ -121,7 +121,7 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                         .absolute()
                         .left(px(margin_left as f32))
                         .top(px(margin_top as f32))
-                        .w(px(1.0))
+                        .w(px(2.0))
                         .h(px(plot_h as f32))
                         .bg(ui_theme.border),
                 )
@@ -162,11 +162,13 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                 // X-axis ticks + labels
                 .children(x_ticks.iter().map(|&val| {
                     let x = x_scale.scale(val);
+                    let label_w = 40.0;
+                    let left = (margin_left + x - label_w / 2.0).clamp(0.0, chart_w - label_w);
                     div()
                         .absolute()
-                        .left(px((margin_left + x - 20.0) as f32))
+                        .left(px(left as f32))
                         .top(px((margin_top + plot_h + 4.0) as f32))
-                        .w(px(40.0))
+                        .w(px(label_w as f32))
                         .flex()
                         .justify_center()
                         .child(div().text_xs().child(format!("{:.0}", val)))

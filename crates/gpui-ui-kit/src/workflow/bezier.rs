@@ -251,9 +251,7 @@ mod tests {
         assert!((points.last().unwrap().x - to.x).abs() < 0.1);
     }
 
-    use super::{
-        connection_path_avoiding, lerp, path_hits_rect, ObstacleRect,
-    };
+    use super::{ObstacleRect, connection_path_avoiding, lerp, path_hits_rect};
 
     #[test]
     fn test_lerp_and_distance_to_line() {
@@ -306,5 +304,4 @@ mod tests {
         assert!(!rect.contains(&Position::new(5.0, 15.0)));
         assert!(!rect.contains(&Position::new(35.0, 15.0)));
     }
-
 }

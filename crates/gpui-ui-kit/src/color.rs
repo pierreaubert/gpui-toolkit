@@ -277,5 +277,4 @@ mod tests {
         };
         assert_eq!(Color::from_rgba(rgba), Color::rgb(255, 0, 0));
     }
-
 }

@@ -143,7 +143,9 @@ fn test_line_series_length_mismatch() {
     let x = vec![1.0, 2.0, 3.0];
     let y = vec![1.0, 2.0, 3.0];
     let y2 = vec![1.0, 2.0];
-    let result = line(&x, &y).add_series(&y2, Some("Short"), 0xff0000, 2.0, 1.0).build();
+    let result = line(&x, &y)
+        .add_series(&y2, Some("Short"), 0xff0000, 2.0, 1.0)
+        .build();
     assert!(matches!(
         result,
         Err(ChartError::DataLengthMismatch {

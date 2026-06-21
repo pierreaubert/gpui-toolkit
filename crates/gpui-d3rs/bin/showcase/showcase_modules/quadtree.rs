@@ -292,8 +292,9 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                 .show_value(true)
                                 .width(220.0)
                                 .on_change(move |value, _window, cx| {
-                                    entity.update(cx, |this, _| {
+                                    entity.update(cx, |this, cx| {
                                         this.quadtree_query_x = value;
+                                        cx.notify();
                                     });
                                 })
                         })
@@ -308,8 +309,9 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                 .show_value(true)
                                 .width(220.0)
                                 .on_change(move |value, _window, cx| {
-                                    entity.update(cx, |this, _| {
+                                    entity.update(cx, |this, cx| {
                                         this.quadtree_query_y = value;
+                                        cx.notify();
                                     });
                                 })
                         })
@@ -324,8 +326,9 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                 .show_value(true)
                                 .width(220.0)
                                 .on_change(move |value, _window, cx| {
-                                    entity.update(cx, |this, _| {
+                                    entity.update(cx, |this, cx| {
                                         this.quadtree_search_radius = value;
+                                        cx.notify();
                                     });
                                 })
                         }),

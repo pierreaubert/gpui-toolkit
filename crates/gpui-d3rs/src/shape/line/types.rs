@@ -8,7 +8,14 @@ use gpui::prelude::*;
 use gpui::*;
 use std::sync::Arc;
 
-type LinePaintInputs = (Arc<[(f32, f32)]>, Arc<[(f32, f32, f32, f32)]>, f32, f32, f32, f32);
+type LinePaintInputs = (
+    Arc<[(f32, f32)]>,
+    Arc<[(f32, f32, f32, f32)]>,
+    f32,
+    f32,
+    f32,
+    f32,
+);
 
 /// Curve interpolation types
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

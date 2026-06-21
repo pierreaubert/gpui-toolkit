@@ -313,9 +313,10 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                                 .text_sm()
                                                 .child(color_scale_type.label())
                                                 .on_click(move |_, _window, cx| {
-                                                    entity.update(cx, |this, _| {
+                                                    entity.update(cx, |this, cx| {
                                                         this.volcano_color_scale =
                                                             this.volcano_color_scale.next();
+                                                        cx.notify();
                                                     });
                                                 })
                                         }),
@@ -345,9 +346,10 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                                 .text_sm()
                                                 .child(if show_stroke { "On" } else { "Off" })
                                                 .on_click(move |_, _window, cx| {
-                                                    entity.update(cx, |this, _| {
+                                                    entity.update(cx, |this, cx| {
                                                         this.volcano_show_stroke =
                                                             !this.volcano_show_stroke;
+                                                        cx.notify();
                                                     });
                                                 })
                                         }),
@@ -397,10 +399,11 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                 .flex_col()
                                 .gap_2()
                                 .p_4()
-                                .bg(rgb(0x1e1e1e))
+                                .bg(ui_theme.surface)
                                 .border_1()
-                                .border_color(rgb(0x333333))
+                                .border_color(ui_theme.border)
                                 .rounded_lg()
+                                .text_color(ui_theme.text_primary)
                                 .child(
                                     div()
                                         .text_xs()
@@ -426,7 +429,7 @@ let config = ContourConfig::new()
     .color_scale(turbo_color_scale());
 
 // 5. Render
-render_contour(contours, &x_scale, &y_scale, &config)"#,
+render_contour_bands(bands, &x_scale, &y_scale, &config)"#,
                                 )),
                         ),
                 ),

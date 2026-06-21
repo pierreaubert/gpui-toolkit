@@ -1,8 +1,7 @@
 use gpui::{Context, TestAppContext, Window, div, prelude::*};
 use gpui_audio_kit::{
     AudioDesignTokens, Potentiometer, PotentiometerSize, VerticalSlider,
-    audio::potentiometer::PotentiometerTheme,
-    audio::vertical_slider::VerticalSliderTheme,
+    audio::potentiometer::PotentiometerTheme, audio::vertical_slider::VerticalSliderTheme,
 };
 
 #[gpui::test]

@@ -51,7 +51,7 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
 
     let canvas_size = 560.0_f64;
     let center = canvas_size / 2.0;
-    let margin = 10.0;
+    let margin = 44.0;
     let inner_radius = canvas_size / 5.0;
     let outer_radius = canvas_size / 2.0 - margin;
 
@@ -276,7 +276,7 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
         .enumerate()
         .map(|(mi, &day)| {
             let angle = angle_for_day(day);
-            let r = outer_radius + 16.0;
+            let r = outer_radius + 18.0;
             (
                 center + r * angle.cos(),
                 center + r * angle.sin(),

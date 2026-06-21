@@ -162,7 +162,11 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                         .border_color(theme.border)
                         .rounded_lg()
                         .overflow_hidden()
-                        .on_scroll_wheel(cx.listener(|this, event: &ScrollWheelEvent, _, _| {
+                        .on_scroll_wheel(cx.listener(|this, event: &ScrollWheelEvent, _, cx| {
+                            if !event.modifiers.alt {
+                                return;
+                            }
+                            cx.stop_propagation();
                             let delta_y: f32 = match event.delta {
                                 ScrollDelta::Lines(lines) => lines.y,
                                 ScrollDelta::Pixels(pixels) => pixels.y.into(),

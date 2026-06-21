@@ -1,5 +1,8 @@
 use crate::ShowcaseApp;
 use d3rs::chord::{ChordLayout, RibbonGenerator};
+use d3rs::text::{
+    GlyphTextConfig, HorizontalTextAnchor, VerticalTextAnchor, render_glyph_text_anchored,
+};
 use gpui::*;
 use gpui_ui_kit::theme::ThemeExt;
 use std::f64::consts::PI;
@@ -34,15 +37,23 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
     use d3rs::shape::arc::{Arc, ArcDatum};
     let arc_gen = Arc::new();
 
-    // Pre-compute label positions for absolute-positioned divs
-    let label_positions: Vec<(&str, f64, f64)> = chords
+    // Pre-compute side-aware label positions and rotations.
+    let label_positions: Vec<(&str, f64, f64, f32, HorizontalTextAnchor)> = chords
         .groups
         .iter()
         .map(|g| {
-            let mid = (g.start_angle + g.end_angle) / 2.0 - PI / 2.0;
-            let lx = width / 2.0 + label_radius * mid.cos();
-            let ly = height / 2.0 + label_radius * mid.sin();
-            (names[g.index % names.len()], lx, ly)
+            let d3_mid = (g.start_angle + g.end_angle) / 2.0;
+            let std_mid = d3_mid - PI / 2.0;
+            let lx = width / 2.0 + label_radius * std_mid.cos();
+            let ly = height / 2.0 + label_radius * std_mid.sin();
+            let on_left = d3_mid > PI;
+            let rotation = std_mid as f32 + if on_left { std::f32::consts::PI } else { 0.0 };
+            let h_anchor = if on_left {
+                HorizontalTextAnchor::Start
+            } else {
+                HorizontalTextAnchor::End
+            };
+            (names[g.index % names.len()], lx, ly, rotation, h_anchor)
         })
         .collect();
 
@@ -179,21 +190,24 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                     )
                     .size_full(),
                 )
-                // Group name labels as positioned divs outside the arcs
-                .children(label_positions.iter().map(|(name, lx, ly)| {
-                    div()
-                        .absolute()
-                        .left(px((*lx - 20.0) as f32))
-                        .top(px((*ly - 7.0) as f32))
-                        .w(px(40.0))
-                        .flex()
-                        .justify_center()
-                        .child(
+                // Group name labels as rotated glyph text outside the arcs
+                .children(
+                    label_positions
+                        .iter()
+                        .map(|(name, lx, ly, rotation, h_anchor)| {
+                            let config =
+                                GlyphTextConfig::rotated(10.0, ui_theme.text_primary, *rotation);
                             div()
-                                .text_xs()
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .child(*name),
-                        )
-                })),
+                                .absolute()
+                                .left(px(*lx as f32))
+                                .top(px(*ly as f32))
+                                .child(render_glyph_text_anchored(
+                                    name,
+                                    &config,
+                                    *h_anchor,
+                                    VerticalTextAnchor::Middle,
+                                ))
+                        }),
+                ),
         )
 }

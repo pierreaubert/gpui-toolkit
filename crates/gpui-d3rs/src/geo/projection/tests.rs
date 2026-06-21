@@ -185,7 +185,9 @@ fn test_albers_mutating_setters() {
 fn test_transverse_mercator_project_invert() {
     use super::transverse_mercator::TransverseMercator;
 
-    let proj = TransverseMercator::new().scale(100.0).translate(200.0, 200.0);
+    let proj = TransverseMercator::new()
+        .scale(100.0)
+        .translate(200.0, 200.0);
     let (x, y) = proj.project(0.0, 0.0);
     let (lon, lat) = proj.invert(x, y).unwrap();
     assert!((lon - 0.0).abs() < 1e-6);
@@ -207,10 +209,12 @@ fn test_transverse_mercator_raw_functions() {
 
 #[test]
 fn test_transverse_mercator_longitude_unwrap_center() {
-    use super::transverse_mercator::TransverseMercator;
     use super::Projection;
+    use super::transverse_mercator::TransverseMercator;
 
-    let proj = TransverseMercator::new().rotate(10.0, 0.0, 0.0).center(5.0, 0.0);
+    let proj = TransverseMercator::new()
+        .rotate(10.0, 0.0, 0.0)
+        .center(5.0, 0.0);
     assert_eq!(proj.longitude_unwrap_center(), Some(15.0));
 }
 

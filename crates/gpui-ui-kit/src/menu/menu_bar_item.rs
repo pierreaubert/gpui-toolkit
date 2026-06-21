@@ -42,7 +42,6 @@ impl MenuBarItem {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::MenuBarItem;
@@ -55,4 +54,3 @@ mod tests {
         assert!(item.items().is_empty());
     }
 }
-

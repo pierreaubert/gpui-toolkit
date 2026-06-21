@@ -210,16 +210,17 @@ fn main() {
                                 .unwrap_or(0.0);
                             i = k;
                             if let Some((px, py)) = prev
-                                && cur_cmd == 'L' {
-                                    let dx = x - px;
-                                    let dy = y - py;
-                                    let d = (dx * dx + dy * dy).sqrt();
-                                    if d > max_diag {
-                                        max_diag = d;
-                                        max_from = (px, py);
-                                        max_to = (x, y);
-                                    }
+                                && cur_cmd == 'L'
+                            {
+                                let dx = x - px;
+                                let dy = y - py;
+                                let d = (dx * dx + dy * dy).sqrt();
+                                if d > max_diag {
+                                    max_diag = d;
+                                    max_from = (px, py);
+                                    max_to = (x, y);
                                 }
+                            }
                             prev = Some((x, y));
                         } else {
                             break;

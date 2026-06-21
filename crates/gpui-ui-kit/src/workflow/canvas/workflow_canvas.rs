@@ -953,7 +953,8 @@ impl Render for WorkflowCanvas {
                     let from_node = self.state.graph.nodes.get(&conn.from_node)?;
                     let to_node = self.state.graph.nodes.get(&conn.to_node)?;
                     // Calculate port positions in screen coordinates (not canvas coordinates)
-                    let from_pos = port_screen_position(from_node, conn.from_port, false, &viewport);
+                    let from_pos =
+                        port_screen_position(from_node, conn.from_port, false, &viewport);
                     let to_pos = port_screen_position(to_node, conn.to_port, true, &viewport);
                     let selected = self.state.selection.is_connection_selected(conn.id);
                     let link_type = conn.link_type;

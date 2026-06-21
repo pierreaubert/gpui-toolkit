@@ -264,19 +264,27 @@ fn validation_reports_invalid_sizing_and_tier_values() {
     let report = validate_layout(&root);
 
     assert!(report.has_errors());
-    let kinds: Vec<_> = report.issues().iter().map(|issue| issue.kind.clone()).collect();
+    let kinds: Vec<_> = report
+        .issues()
+        .iter()
+        .map(|issue| issue.kind.clone())
+        .collect();
     assert!(kinds.contains(&LayoutIssueKind::EmptyId));
     assert!(kinds.contains(&LayoutIssueKind::InvalidPriority));
     assert!(kinds.contains(&LayoutIssueKind::InvalidSizing));
     assert!(kinds.contains(&LayoutIssueKind::InvalidAutoAxis));
     assert!(kinds.contains(&LayoutIssueKind::InvalidDividerSize));
     assert!(kinds.contains(&LayoutIssueKind::InvalidDisplayTier));
-    assert!(kinds
-        .iter()
-        .any(|kind| matches!(kind, LayoutIssueKind::DuplicateDisplayTierName { .. })));
-    assert!(kinds
-        .iter()
-        .any(|kind| matches!(kind, LayoutIssueKind::DuplicateDisplayTierThreshold { .. })));
+    assert!(
+        kinds
+            .iter()
+            .any(|kind| matches!(kind, LayoutIssueKind::DuplicateDisplayTierName { .. }))
+    );
+    assert!(
+        kinds
+            .iter()
+            .any(|kind| matches!(kind, LayoutIssueKind::DuplicateDisplayTierThreshold { .. }))
+    );
     assert!(kinds.contains(&LayoutIssueKind::DisplayTiersNotDescending));
     assert!(kinds.contains(&LayoutIssueKind::EmptyContainer));
 }

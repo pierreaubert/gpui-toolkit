@@ -77,8 +77,14 @@ pub(super) fn keystroke_to_char(keystroke: &Keystroke) -> Option<char> {
 
 #[cfg(test)]
 mod tests {
-    use super::super::{NumberEditState, NUMBER_INPUT_EDIT_STATES, NUMBER_INPUT_FOCUS_HANDLES, NUMBER_INPUT_FOCUS_SUBS};
-    use super::{cleanup_number_input_state, is_number_input_editing, keystroke_to_char, MAX_NUMBER_INPUT_STATES};
+    use super::super::{
+        NUMBER_INPUT_EDIT_STATES, NUMBER_INPUT_FOCUS_HANDLES, NUMBER_INPUT_FOCUS_SUBS,
+        NumberEditState,
+    };
+    use super::{
+        MAX_NUMBER_INPUT_STATES, cleanup_number_input_state, is_number_input_editing,
+        keystroke_to_char,
+    };
     use gpui::{ElementId, Keystroke, Modifiers, SharedString};
 
     #[test]
@@ -150,5 +156,4 @@ mod tests {
         let count = NUMBER_INPUT_EDIT_STATES.with(|s| s.borrow().len());
         assert!(count <= MAX_NUMBER_INPUT_STATES);
     }
-
 }

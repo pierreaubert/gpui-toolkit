@@ -299,14 +299,32 @@ fn interaction_and_colormap_parse() {
     use super::colormap_spec::ColormapSpec;
     use super::interaction_mode::InteractionMode;
 
-    assert_eq!(InteractionMode::parse("orbit").unwrap(), InteractionMode::Orbit);
-    assert_eq!(InteractionMode::parse("hit-test").unwrap(), InteractionMode::HitTest);
-    assert_eq!(InteractionMode::parse("  HitTest  ").unwrap(), InteractionMode::HitTest);
+    assert_eq!(
+        InteractionMode::parse("orbit").unwrap(),
+        InteractionMode::Orbit
+    );
+    assert_eq!(
+        InteractionMode::parse("hit-test").unwrap(),
+        InteractionMode::HitTest
+    );
+    assert_eq!(
+        InteractionMode::parse("  HitTest  ").unwrap(),
+        InteractionMode::HitTest
+    );
     assert!(InteractionMode::parse("unknown").is_err());
 
-    assert_eq!(ColormapSpec::parse("viridis").unwrap(), ColormapSpec::Viridis);
-    assert_eq!(ColormapSpec::parse("cool-warm").unwrap(), ColormapSpec::CoolWarm);
-    assert_eq!(ColormapSpec::parse("cool_warm").unwrap(), ColormapSpec::CoolWarm);
+    assert_eq!(
+        ColormapSpec::parse("viridis").unwrap(),
+        ColormapSpec::Viridis
+    );
+    assert_eq!(
+        ColormapSpec::parse("cool-warm").unwrap(),
+        ColormapSpec::CoolWarm
+    );
+    assert_eq!(
+        ColormapSpec::parse("cool_warm").unwrap(),
+        ColormapSpec::CoolWarm
+    );
     assert!(ColormapSpec::parse("magma").is_err());
 }
 
@@ -580,32 +598,28 @@ fn grid_data_validates() {
 
 #[test]
 fn material_and_line_defaults_via_serde() {
-    use super::line_segment_spec::LineSegmentSpec;
     use super::light_spec::LightSpec;
+    use super::line_segment_spec::LineSegmentSpec;
     use super::material_spec::MaterialSpec;
 
-    let material: MaterialSpec = serde_json::from_str("{\"color\":{\"r\":1.0,\"g\":1.0,\"b\":1.0,\"a\":1.0}}").unwrap();
+    let material: MaterialSpec =
+        serde_json::from_str("{\"color\":{\"r\":1.0,\"g\":1.0,\"b\":1.0,\"a\":1.0}}").unwrap();
     assert!(material.validate().is_ok());
     assert_eq!(material.opacity, 1.0);
 
-    let segment: LineSegmentSpec = serde_json::from_str(
-        r#"{"from":[0,0,0],"to":[1,0,0],"color":{"r":1,"g":1,"b":1,"a":1}}"#,
-    )
-    .unwrap();
+    let segment: LineSegmentSpec =
+        serde_json::from_str(r#"{"from":[0,0,0],"to":[1,0,0],"color":{"r":1,"g":1,"b":1,"a":1}}"#)
+            .unwrap();
     assert!(segment.validate().is_ok());
     assert!(segment.width > 0.0);
 
-    let light: LightSpec = serde_json::from_str(
-        r#"{"id":"light","direction":[0,-1,0]}"#,
-    )
-    .unwrap();
+    let light: LightSpec = serde_json::from_str(r#"{"id":"light","direction":[0,-1,0]}"#).unwrap();
     assert_eq!(light.intensity, 1.0);
     assert!(light.validate().is_ok());
 }
 
 #[test]
 fn hash_functions_run_without_panic() {
-    use std::collections::hash_map::DefaultHasher;
     use super::color_rgba::ColorRgba;
     use super::grid_data::GridData;
     use super::line_segment_spec::LineSegmentSpec;
@@ -616,6 +630,7 @@ fn hash_functions_run_without_panic() {
     use super::point3::Point3;
     use super::scalar_range::ScalarRange;
     use super::viewport_size::ViewportSize;
+    use std::collections::hash_map::DefaultHasher;
 
     let mut h = DefaultHasher::new();
     ColorRgba::from_rgb_u8(255, 0, 0).hash_into(&mut h);
@@ -655,7 +670,11 @@ fn hash_functions_run_without_panic() {
 
     let mesh = MeshSpec {
         id: "m".to_string(),
-        vertices: vec![Point3::new(0.0, 0.0, 0.0), Point3::new(1.0, 0.0, 0.0), Point3::new(0.0, 1.0, 0.0)],
+        vertices: vec![
+            Point3::new(0.0, 0.0, 0.0),
+            Point3::new(1.0, 0.0, 0.0),
+            Point3::new(0.0, 1.0, 0.0),
+        ],
         indices: vec![0, 1, 2],
         material: MaterialSpec::default(),
     };
@@ -698,7 +717,11 @@ fn scene_node_dispatches_all_kinds() {
 
     let mesh = SceneNode::Mesh(MeshSpec {
         id: "m".to_string(),
-        vertices: vec![Point3::new(0.0, 0.0, 0.0), Point3::new(1.0, 0.0, 0.0), Point3::new(0.0, 1.0, 0.0)],
+        vertices: vec![
+            Point3::new(0.0, 0.0, 0.0),
+            Point3::new(1.0, 0.0, 0.0),
+            Point3::new(0.0, 1.0, 0.0),
+        ],
         indices: vec![0, 1, 2],
         material: MaterialSpec::default(),
     });
@@ -758,7 +781,11 @@ fn viewport_size_and_scalar_range_edge_cases() {
     let mut h = std::collections::hash_map::DefaultHasher::new();
     ViewportSize::new(1.0, 1.0).hash_into(&mut h);
 
-    assert!(ScalarRange::new(f64::NAN, f64::NAN).validate_positive("r").is_err());
+    assert!(
+        ScalarRange::new(f64::NAN, f64::NAN)
+            .validate_positive("r")
+            .is_err()
+    );
     ScalarRange::new(1.0, 2.0).hash_into(&mut h);
 }
 

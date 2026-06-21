@@ -168,10 +168,9 @@ mod tests {
     fn input_state_count_trims_all_maps() {
         clear_all_input_states();
         TEXT_ORIGINS.with(|origins| {
-            origins.borrow_mut().insert(
-                ElementId::Name(SharedString::from("count-test")),
-                42.0,
-            );
+            origins
+                .borrow_mut()
+                .insert(ElementId::Name(SharedString::from("count-test")), 42.0);
         });
         let (focus, edit, origins) = input_state_count();
         assert_eq!(focus, 0);
@@ -179,5 +178,4 @@ mod tests {
         assert_eq!(origins, 1);
         clear_all_input_states();
     }
-
 }

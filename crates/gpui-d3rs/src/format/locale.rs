@@ -429,9 +429,18 @@ mod tests {
 
     #[test]
     fn test_format_types() {
-        assert_eq!(DEFAULT_LOCALE.format(&parse_specifier(".3e"), 1234.6), "1.235e3");
-        assert_eq!(DEFAULT_LOCALE.format(&parse_specifier(".4g"), 1.5), "1.5000");
-        assert_eq!(DEFAULT_LOCALE.format(&parse_specifier(".2r"), 1234.0), "1200");
+        assert_eq!(
+            DEFAULT_LOCALE.format(&parse_specifier(".3e"), 1234.6),
+            "1.235e3"
+        );
+        assert_eq!(
+            DEFAULT_LOCALE.format(&parse_specifier(".4g"), 1.5),
+            "1.5000"
+        );
+        assert_eq!(
+            DEFAULT_LOCALE.format(&parse_specifier(".2r"), 1234.0),
+            "1200"
+        );
         assert_eq!(DEFAULT_LOCALE.format(&parse_specifier("b"), 13.0), "1101");
         assert_eq!(DEFAULT_LOCALE.format(&parse_specifier("#o"), 9.0), "0o11");
         assert_eq!(DEFAULT_LOCALE.format(&parse_specifier("X"), 255.0), "FF");
@@ -462,10 +471,22 @@ mod tests {
 
     #[test]
     fn test_format_padding_alignments() {
-        assert_eq!(DEFAULT_LOCALE.format(&parse_specifier("<8d"), 42.0), "42      ");
-        assert_eq!(DEFAULT_LOCALE.format(&parse_specifier(">8d"), 42.0), "      42");
-        assert_eq!(DEFAULT_LOCALE.format(&parse_specifier("^8d"), 42.0), "   42   ");
-        assert_eq!(DEFAULT_LOCALE.format(&parse_specifier("=+8d"), 42.0), "+     42");
+        assert_eq!(
+            DEFAULT_LOCALE.format(&parse_specifier("<8d"), 42.0),
+            "42      "
+        );
+        assert_eq!(
+            DEFAULT_LOCALE.format(&parse_specifier(">8d"), 42.0),
+            "      42"
+        );
+        assert_eq!(
+            DEFAULT_LOCALE.format(&parse_specifier("^8d"), 42.0),
+            "   42   "
+        );
+        assert_eq!(
+            DEFAULT_LOCALE.format(&parse_specifier("=+8d"), 42.0),
+            "+     42"
+        );
     }
 
     #[test]

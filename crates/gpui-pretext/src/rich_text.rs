@@ -319,7 +319,6 @@ mod tests {
     }
 }
 
-
 #[test]
 fn variable_font_axis_rejects_infinite_values() {
     assert!(VariableFontAxis::new("wght", f32::INFINITY, 400.0, 900.0).is_err());

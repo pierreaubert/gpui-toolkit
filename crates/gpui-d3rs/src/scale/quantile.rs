@@ -304,8 +304,8 @@ mod tests {
 
     #[test]
     fn test_quantile_scale_filters_nan() {
-        let scale = QuantileScale::with_range(vec!["a", "b"])
-            .domain(vec![1.0, f64::NAN, 2.0, 3.0, 4.0]);
+        let scale =
+            QuantileScale::with_range(vec!["a", "b"]).domain(vec![1.0, f64::NAN, 2.0, 3.0, 4.0]);
         assert_eq!(scale.domain_samples(), &[1.0, 2.0, 3.0, 4.0]);
     }
 

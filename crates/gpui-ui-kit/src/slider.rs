@@ -25,7 +25,7 @@ use gpui::{
     div, px,
 };
 
-use gpui::prelude::{FluentBuilder, ParentElement};
+use gpui::prelude::ParentElement;
 use gpui_design::DesignSystem;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -287,11 +287,13 @@ impl SliderEntity {
         let id = self.props.id.clone();
 
         if let Some(ref handler) = self.props.on_drag_start {
+            _cx.stop_propagation();
             handler(click_x, self.props.value, window, _cx);
             return;
         }
 
         if let Some(ref handler) = self.props.on_change {
+            _cx.stop_propagation();
             SLIDER_DRAG_STATE.with(|s| {
                 s.borrow_mut().insert(id, (click_x, self.props.value));
             });
@@ -311,15 +313,12 @@ impl SliderEntity {
             self.focus_handle.focus(window, _cx);
         }
 
-        if event.pressed_button != Some(MouseButton::Left) {
-            return;
-        }
-
         let id = self.props.id.clone();
         let state = SLIDER_DRAG_STATE.with(|s| s.borrow().get(&id).copied());
         let Some((click_x, value_at_click)) = state else {
             return;
         };
+        _cx.stop_propagation();
 
         let current_x: f32 = event.position.x.into();
         let delta_x = current_x - click_x;
@@ -345,7 +344,9 @@ impl SliderEntity {
     ) {
         let id = self.props.id.clone();
         SLIDER_DRAG_STATE.with(|s| {
-            s.borrow_mut().remove(&id);
+            if s.borrow_mut().remove(&id).is_some() {
+                _cx.stop_propagation();
+            }
         });
     }
 
@@ -368,6 +369,7 @@ impl SliderEntity {
         window: &mut Window,
         _cx: &mut Context<Self>,
     ) {
+        _cx.stop_propagation();
         let delta = event.delta.pixel_delta(px(20.0)).y;
         if delta.abs() < px(0.01) {
             return;
@@ -421,6 +423,7 @@ impl SliderEntity {
             _ => None,
         };
         let Some(value) = new_value else { return };
+        _cx.stop_propagation();
         let snapped = if let Some(step) = self.props.step {
             let steps = ((value - self.props.min) / step).round();
             (self.props.min + steps * step).clamp(self.props.min, self.props.max)
@@ -429,13 +432,6 @@ impl SliderEntity {
         };
         if let Some(ref handler) = self.props.on_change {
             handler(snapped, window, _cx);
-        }
-    }
-
-    fn set_thumb_hovered(&mut self, hovered: bool, cx: &mut Context<Self>) {
-        if self.hovered_thumb != hovered {
-            self.hovered_thumb = hovered;
-            cx.notify();
         }
     }
 }
@@ -563,13 +559,7 @@ impl Render for SliderEntity {
                     })
                     .shadow_sm();
                 if !props.disabled {
-                    thumb = thumb
-                        .when(self.hovered_thumb, |s| s.bg(thumb_hover))
-                        .on_hover(cx.listener(
-                            |this: &mut SliderEntity, hovered: &bool, _window, cx| {
-                                this.set_thumb_hovered(*hovered, cx);
-                            },
-                        ));
+                    thumb = thumb.hover(|s| s.bg(thumb_hover));
                 }
                 thumb
             });
@@ -617,7 +607,6 @@ pub struct SliderEntity {
     props: Slider,
     focus_handle: FocusHandle,
     value_label: SharedString,
-    hovered_thumb: bool,
 }
 
 impl RenderOnce for Slider {
@@ -634,7 +623,6 @@ impl RenderOnce for Slider {
                 props: Slider::new(id.clone()),
                 focus_handle: cx.focus_handle(),
                 value_label: SharedString::default(),
-                hovered_thumb: false,
             });
             map.insert(id.clone(), entity.downgrade());
             entity

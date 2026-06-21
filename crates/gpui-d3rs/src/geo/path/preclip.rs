@@ -182,13 +182,15 @@ mod tests {
 
         assert!(stream.sink.events.contains(&"polygon_start".to_string()));
         assert!(stream.sink.events.contains(&"polygon_end".to_string()));
-        assert!(stream
-            .sink
-            .events
-            .iter()
-            .filter(|e| e == &"line_start")
-            .count()
-            >= 1);
+        assert!(
+            stream
+                .sink
+                .events
+                .iter()
+                .filter(|e| e == &"line_start")
+                .count()
+                >= 1
+        );
     }
 
     #[test]

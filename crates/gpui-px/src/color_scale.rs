@@ -382,7 +382,9 @@ mod tests {
 
     #[test]
     fn test_custom_scale_clamping() {
-        let scale = ColorScale::custom(|t| D3Color::from_hex(0x123456).interpolate(&D3Color::from_hex(0xabcdef), t as f32));
+        let scale = ColorScale::custom(|t| {
+            D3Color::from_hex(0x123456).interpolate(&D3Color::from_hex(0xabcdef), t as f32)
+        });
         let below = scale.map(-1.0);
         let above = scale.map(2.0);
         let at_zero = scale.map(0.0);

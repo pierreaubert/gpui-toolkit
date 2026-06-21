@@ -213,7 +213,6 @@ impl SpinoramaApp {
 
             match result {
                 Ok(speakers) => {
-                    println!("Loaded {} speakers", speakers.len());
                     let _ = this.update(cx, |app, cx| {
                         app.speakers = speakers;
                         app.speakers_load_state = LoadState::Loaded;
@@ -226,7 +225,6 @@ impl SpinoramaApp {
                     });
                 }
                 Err(e) => {
-                    println!("Error loading speakers: {}", e);
                     let _ = this.update(cx, |app, cx| {
                         app.speakers_load_state = LoadState::Error(e);
                         cx.notify();
@@ -271,7 +269,6 @@ impl SpinoramaApp {
 
             match result {
                 Ok(versions) => {
-                    println!("Loaded {} versions for speaker", versions.len());
                     let _ = this.update(cx, |app, cx| {
                         app.versions = versions;
                         app.versions_load_state = LoadState::Loaded;
@@ -284,7 +281,6 @@ impl SpinoramaApp {
                     });
                 }
                 Err(e) => {
-                    println!("Error loading versions: {}", e);
                     let _ = this.update(cx, |app, cx| {
                         app.versions_load_state = LoadState::Error(e);
                         cx.notify();
@@ -576,16 +572,10 @@ impl SpinoramaApp {
                             .child("▼"),
                     )
                     .on_mouse_down(MouseButton::Left, move |_, _window, cx| {
-                        println!("Speaker dropdown clicked!");
                         entity_for_toggle.update(cx, |this, cx| {
                             this.speaker_dropdown_open = !this.speaker_dropdown_open;
                             this.version_dropdown_open = false;
                             this.section_dropdown_open = false;
-                            println!(
-                                "Speaker dropdown open: {}, speakers count: {}",
-                                this.speaker_dropdown_open,
-                                this.speakers.len()
-                            );
                             cx.notify();
                         });
                     }),

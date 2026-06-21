@@ -10,17 +10,17 @@ use super::super::get::get_breakable_advance;
 use super::super::get::get_tab_advance;
 use super::super::knuth_plass_params::KnuthPlassParams;
 use super::super::layout::layout_next_line_range;
-use super::super::types::KPItem;
-use super::super::types::knuth_plass_chunk;
 use super::super::misc::badness;
 use super::super::misc::can_break_after;
 use super::super::misc::fit_soft_hyphen_break;
 use super::super::misc::is_simple_collapsible_space;
 use super::super::types::InternalLayoutLine;
+use super::super::types::KPItem;
 use super::super::types::LineBreakCursor;
 use super::super::types::PreparedLineBreakData;
 use super::super::types::PreparedLineChunk;
 use super::super::types::build_kp_items;
+use super::super::types::knuth_plass_chunk;
 use super::super::types::normalize_line_start;
 use super::super::walk::walk_prepared_lines;
 use super::super::walk::walk_prepared_lines_optimal;
@@ -499,7 +499,6 @@ fn test_kp_many_words_monotonic_widths() {
     }
 }
 
-
 #[test]
 fn test_layout_next_line_range_simple() {
     let prepared = simple_prepared(
@@ -726,7 +725,11 @@ fn test_layout_next_line_range_soft_hyphen_breakable() {
         ]),
         simple_line_walk_fast_path: false,
         breakable_widths: Cow::Owned(vec![None, None, Some(Arc::from(vec![20.0; 5]))]),
-        breakable_prefix_widths: Cow::Owned(vec![None, None, Some(Arc::from(vec![20.0, 40.0, 60.0, 80.0, 100.0]))]),
+        breakable_prefix_widths: Cow::Owned(vec![
+            None,
+            None,
+            Some(Arc::from(vec![20.0, 40.0, 60.0, 80.0, 100.0])),
+        ]),
         discretionary_hyphen_width: 5.0,
         tab_stop_advance: 0.0,
         chunks: Cow::Owned(vec![PreparedLineChunk {
@@ -990,7 +993,9 @@ fn test_can_break_after_kinds() {
 #[test]
 fn test_is_simple_collapsible_space() {
     assert!(is_simple_collapsible_space(SegmentBreakKind::Space));
-    assert!(!is_simple_collapsible_space(SegmentBreakKind::PreservedSpace));
+    assert!(!is_simple_collapsible_space(
+        SegmentBreakKind::PreservedSpace
+    ));
 }
 
 #[test]
@@ -1010,7 +1015,6 @@ fn test_badness_infinity() {
     assert_eq!(badness(f64::NEG_INFINITY), 10000.0);
 }
 
-
 #[test]
 fn test_layout_next_line_range_soft_hyphen_breakable_partial_fit() {
     // Soft hyphen followed by breakable segment; several graphemes fit.
@@ -1025,7 +1029,11 @@ fn test_layout_next_line_range_soft_hyphen_breakable_partial_fit() {
         ]),
         simple_line_walk_fast_path: false,
         breakable_widths: Cow::Owned(vec![None, None, Some(Arc::from(vec![5.0; 5]))]),
-        breakable_prefix_widths: Cow::Owned(vec![None, None, Some(Arc::from(vec![5.0, 10.0, 15.0, 20.0, 25.0]))]),
+        breakable_prefix_widths: Cow::Owned(vec![
+            None,
+            None,
+            Some(Arc::from(vec![5.0, 10.0, 15.0, 20.0, 25.0])),
+        ]),
         discretionary_hyphen_width: 5.0,
         tab_stop_advance: 0.0,
         chunks: Cow::Owned(vec![PreparedLineChunk {
@@ -1068,7 +1076,11 @@ fn test_layout_next_line_range_breakable_fits_all_after_hyphen() {
         ]),
         simple_line_walk_fast_path: false,
         breakable_widths: Cow::Owned(vec![None, None, Some(Arc::from(vec![5.0; 5]))]),
-        breakable_prefix_widths: Cow::Owned(vec![None, None, Some(Arc::from(vec![5.0, 10.0, 15.0, 20.0, 25.0]))]),
+        breakable_prefix_widths: Cow::Owned(vec![
+            None,
+            None,
+            Some(Arc::from(vec![5.0, 10.0, 15.0, 20.0, 25.0])),
+        ]),
         discretionary_hyphen_width: 5.0,
         tab_stop_advance: 0.0,
         chunks: Cow::Owned(vec![PreparedLineChunk {
@@ -1133,7 +1145,9 @@ fn test_layout_next_line_range_breakable_overflow_single_word() {
         kinds: Cow::Owned(vec![SegmentBreakKind::Text]),
         simple_line_walk_fast_path: false,
         breakable_widths: Cow::Owned(vec![Some(Arc::from(vec![10.0; 10]))]),
-        breakable_prefix_widths: Cow::Owned(vec![Some(Arc::from(vec![10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0, 90.0, 100.0]))]),
+        breakable_prefix_widths: Cow::Owned(vec![Some(Arc::from(vec![
+            10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0, 90.0, 100.0,
+        ]))]),
         discretionary_hyphen_width: 0.0,
         tab_stop_advance: 0.0,
         chunks: Cow::Owned(vec![PreparedLineChunk {
@@ -1217,7 +1231,11 @@ fn test_walk_prepared_lines_early_soft_hyphen() {
         ]),
         simple_line_walk_fast_path: false,
         breakable_widths: Cow::Owned(vec![None, None, Some(Arc::from(vec![5.0; 5]))]),
-        breakable_prefix_widths: Cow::Owned(vec![None, None, Some(Arc::from(vec![5.0, 10.0, 15.0, 20.0, 25.0]))]),
+        breakable_prefix_widths: Cow::Owned(vec![
+            None,
+            None,
+            Some(Arc::from(vec![5.0, 10.0, 15.0, 20.0, 25.0])),
+        ]),
         discretionary_hyphen_width: 5.0,
         tab_stop_advance: 0.0,
         chunks: Cow::Owned(vec![PreparedLineChunk {
@@ -1256,7 +1274,11 @@ fn test_walk_prepared_lines_soft_hyphen_breakable_continuation() {
         ]),
         simple_line_walk_fast_path: false,
         breakable_widths: Cow::Owned(vec![None, None, Some(Arc::from(vec![5.0; 5]))]),
-        breakable_prefix_widths: Cow::Owned(vec![None, None, Some(Arc::from(vec![5.0, 10.0, 15.0, 20.0, 25.0]))]),
+        breakable_prefix_widths: Cow::Owned(vec![
+            None,
+            None,
+            Some(Arc::from(vec![5.0, 10.0, 15.0, 20.0, 25.0])),
+        ]),
         discretionary_hyphen_width: 5.0,
         tab_stop_advance: 0.0,
         chunks: Cow::Owned(vec![PreparedLineChunk {
@@ -1501,7 +1523,9 @@ fn test_build_kp_items_breakable_graphemes() {
         kinds: Cow::Owned(vec![SegmentBreakKind::Text]),
         simple_line_walk_fast_path: false,
         breakable_widths: Cow::Owned(vec![Some(Arc::from(vec![10.0; 5]))]),
-        breakable_prefix_widths: Cow::Owned(vec![Some(Arc::from(vec![10.0, 20.0, 30.0, 40.0, 50.0]))]),
+        breakable_prefix_widths: Cow::Owned(vec![Some(Arc::from(vec![
+            10.0, 20.0, 30.0, 40.0, 50.0,
+        ]))]),
         discretionary_hyphen_width: 0.0,
         tab_stop_advance: 0.0,
         chunks: Cow::Owned(vec![PreparedLineChunk {
@@ -1541,7 +1565,6 @@ fn test_normalize_line_start_skip_whitespace() {
     assert!(normalized.is_some());
     assert_eq!(normalized.unwrap().segment_index, 1);
 }
-
 
 #[test]
 fn test_fit_soft_hyphen_break_cumulative() {

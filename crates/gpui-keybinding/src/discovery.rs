@@ -574,7 +574,11 @@ mod tests {
         registry.register(CountingProvider {
             documented_calls: Rc::new(Cell::new(0)),
         });
-        assert!(!registry.command_palette_entries(KeymapPreset::Default).is_empty());
+        assert!(
+            !registry
+                .command_palette_entries(KeymapPreset::Default)
+                .is_empty()
+        );
     }
 
     #[test]

@@ -9,12 +9,12 @@ use super::prepare_options::PrepareOptions;
 use super::prepare_options::prepare;
 use super::prepare_options::prepare_with_segments;
 use super::types::LayoutCursor;
+use crate::LineBreakStrategy;
+use crate::WhiteSpaceMode;
 use crate::analysis::SegmentBreakKind;
 use crate::line_break::KnuthPlassParams;
 use crate::measurement::{EngineProfile, TextMeasure};
 use crate::profile_prepare;
-use crate::LineBreakStrategy;
-use crate::WhiteSpaceMode;
 
 /// Simple test measure: each character is 10px wide.
 struct TestMeasure;
@@ -159,7 +159,6 @@ fn layout_with_lines_returns_borrowed_lines_when_possible() {
     assert_eq!(result.lines[0].text, "hello");
 }
 
-
 #[test]
 fn test_prepare_options_default() {
     let options = PrepareOptions::default();
@@ -244,7 +243,6 @@ fn test_prepare_prewrap_preserves_tabs_and_spaces() {
     assert_eq!(result.line_count, 1);
 }
 
-
 #[test]
 fn test_prepare_cjk_with_kinsoku() {
     struct CjkMeasure;
@@ -283,7 +281,6 @@ fn test_prepare_soft_hyphen() {
     assert!(result.line_count >= 2);
 }
 
-
 #[test]
 fn test_layout_with_strategy_optimal() {
     let measure = TestMeasure;
@@ -320,7 +317,6 @@ fn test_layout_with_lines_and_strategy_optimal() {
     assert!(result.line_count >= 1);
 }
 
-
 #[test]
 fn test_layout_with_lines_and_strategy_greedy() {
     let measure = TestMeasure;
@@ -346,7 +342,6 @@ fn test_build_line_text_cow_moves_long_lines() {
     let cow = crate::layout::misc::build_line_text_cow(&segments, &kinds, 0, 0, 1, 0);
     assert_eq!(cow.len(), 200);
 }
-
 
 #[test]
 fn test_walk_line_ranges_empty() {

@@ -63,7 +63,6 @@ impl NumberInputSize {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::NumberInputSize;
@@ -71,11 +70,26 @@ mod tests {
 
     #[test]
     fn number_input_size_from_component_size() {
-        assert_eq!(NumberInputSize::from(ComponentSize::Xs), NumberInputSize::Xs);
-        assert_eq!(NumberInputSize::from(ComponentSize::Sm), NumberInputSize::Sm);
-        assert_eq!(NumberInputSize::from(ComponentSize::Md), NumberInputSize::Md);
-        assert_eq!(NumberInputSize::from(ComponentSize::Lg), NumberInputSize::Lg);
-        assert_eq!(NumberInputSize::from(ComponentSize::Xl), NumberInputSize::Lg);
+        assert_eq!(
+            NumberInputSize::from(ComponentSize::Xs),
+            NumberInputSize::Xs
+        );
+        assert_eq!(
+            NumberInputSize::from(ComponentSize::Sm),
+            NumberInputSize::Sm
+        );
+        assert_eq!(
+            NumberInputSize::from(ComponentSize::Md),
+            NumberInputSize::Md
+        );
+        assert_eq!(
+            NumberInputSize::from(ComponentSize::Lg),
+            NumberInputSize::Lg
+        );
+        assert_eq!(
+            NumberInputSize::from(ComponentSize::Xl),
+            NumberInputSize::Lg
+        );
     }
 
     #[test]
@@ -86,4 +100,3 @@ mod tests {
         assert_eq!(NumberInputSize::Sm.padding(), 4.0);
     }
 }
-

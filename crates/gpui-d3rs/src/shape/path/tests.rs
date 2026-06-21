@@ -172,7 +172,16 @@ fn test_path_flatten_arc() {
     use super::flatten::flatten_arc;
 
     let mut points = Vec::new();
-    flatten_arc(0.0, 0.0, 10.0, 0.0, std::f64::consts::PI, false, 1.0, &mut points);
+    flatten_arc(
+        0.0,
+        0.0,
+        10.0,
+        0.0,
+        std::f64::consts::PI,
+        false,
+        1.0,
+        &mut points,
+    );
     assert!(!points.is_empty());
 }
 

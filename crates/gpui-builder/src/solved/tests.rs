@@ -5,7 +5,9 @@ use super::solved_node::SolvedNode;
 use super::solved_tree::SolvedTree;
 use super::types::LayoutDebugWarningKind;
 use crate::solver::solve_tree;
-use crate::types::{Axis, ContainerNode, DisplayTier, LayoutNode, LayoutPreferences, Sizing, SlotNode};
+use crate::types::{
+    Axis, ContainerNode, DisplayTier, LayoutNode, LayoutPreferences, Sizing, SlotNode,
+};
 
 fn solved_slot(id: &'static str, width: f32, height: f32) -> SolvedNode<'static> {
     SolvedNode {

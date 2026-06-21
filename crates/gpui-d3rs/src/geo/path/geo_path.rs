@@ -113,9 +113,10 @@ impl<P: Projection> GeoPath<P> {
         }
 
         if let Some(((min_lon, min_lat), (max_lon, max_lat))) = self.projection.clip_extent()
-            && (lon < min_lon || lon > max_lon || lat < min_lat || lat > max_lat) {
-                return;
-            }
+            && (lon < min_lon || lon > max_lon || lat < min_lat || lat > max_lat)
+        {
+            return;
+        }
         let (x, y) = self.projection.project(lon, lat);
         let r = self.config.point_radius;
         let d = self.config.digits;

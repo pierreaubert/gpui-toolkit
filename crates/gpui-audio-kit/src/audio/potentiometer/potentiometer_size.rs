@@ -81,10 +81,25 @@ mod tests {
 
     #[test]
     fn component_size_maps_to_potentiometer_size() {
-        assert_eq!(PotentiometerSize::from(ComponentSize::Xs), PotentiometerSize::Xs);
-        assert_eq!(PotentiometerSize::from(ComponentSize::Sm), PotentiometerSize::Sm);
-        assert_eq!(PotentiometerSize::from(ComponentSize::Md), PotentiometerSize::Md);
-        assert_eq!(PotentiometerSize::from(ComponentSize::Lg), PotentiometerSize::Lg);
-        assert_eq!(PotentiometerSize::from(ComponentSize::Xl), PotentiometerSize::Lg);
+        assert_eq!(
+            PotentiometerSize::from(ComponentSize::Xs),
+            PotentiometerSize::Xs
+        );
+        assert_eq!(
+            PotentiometerSize::from(ComponentSize::Sm),
+            PotentiometerSize::Sm
+        );
+        assert_eq!(
+            PotentiometerSize::from(ComponentSize::Md),
+            PotentiometerSize::Md
+        );
+        assert_eq!(
+            PotentiometerSize::from(ComponentSize::Lg),
+            PotentiometerSize::Lg
+        );
+        assert_eq!(
+            PotentiometerSize::from(ComponentSize::Xl),
+            PotentiometerSize::Lg
+        );
     }
 }

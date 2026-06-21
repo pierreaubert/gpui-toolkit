@@ -396,7 +396,13 @@ mod tests {
         let conn_id = conn.id;
         graph.connections.push(conn.clone());
 
-        history.execute(Box::new(RemoveNodeCommand { node, connections: vec![conn] }), &mut graph);
+        history.execute(
+            Box::new(RemoveNodeCommand {
+                node,
+                connections: vec![conn],
+            }),
+            &mut graph,
+        );
         assert!(!graph.nodes.contains_key(&id));
         assert!(graph.connections.iter().all(|c| c.id != conn_id));
 
@@ -476,10 +482,14 @@ mod tests {
     fn test_history_clear() {
         let mut graph = WorkflowGraph::new();
         let mut history = HistoryManager::new();
-        history.execute(Box::new(AddNodeCommand { node: WorkflowNodeData::new("N", Position::new(0.0, 0.0)) }), &mut graph);
+        history.execute(
+            Box::new(AddNodeCommand {
+                node: WorkflowNodeData::new("N", Position::new(0.0, 0.0)),
+            }),
+            &mut graph,
+        );
         history.clear();
         assert!(!history.can_undo());
         assert!(!history.can_redo());
     }
-
 }

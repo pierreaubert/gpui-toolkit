@@ -354,9 +354,7 @@ impl InputEntity {
         state.start_selection(char_pos);
         drop(state);
 
-        if !was_editing
-            && let Some(ref handler) = self.props.on_edit_start
-        {
+        if !was_editing && let Some(ref handler) = self.props.on_edit_start {
             handler(window, cx);
         }
         window.refresh();

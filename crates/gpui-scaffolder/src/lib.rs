@@ -455,12 +455,14 @@ mod tests {
         fs::create_dir(&output)?;
         fs::write(output.join("file.txt"), "x")?;
 
-        assert!(scaffold_app(&ScaffoldOptions {
-            name: "existing".to_owned(),
-            output_dir: dir.path().to_path_buf(),
-            force: false,
-        })
-        .is_err());
+        assert!(
+            scaffold_app(&ScaffoldOptions {
+                name: "existing".to_owned(),
+                output_dir: dir.path().to_path_buf(),
+                force: false,
+            })
+            .is_err()
+        );
 
         Ok(())
     }
@@ -487,12 +489,14 @@ mod tests {
         let output = dir.path().join("existing");
         fs::write(&output, "x")?;
 
-        assert!(scaffold_app(&ScaffoldOptions {
-            name: "existing".to_owned(),
-            output_dir: dir.path().to_path_buf(),
-            force: true,
-        })
-        .is_err());
+        assert!(
+            scaffold_app(&ScaffoldOptions {
+                name: "existing".to_owned(),
+                output_dir: dir.path().to_path_buf(),
+                force: true,
+            })
+            .is_err()
+        );
 
         Ok(())
     }

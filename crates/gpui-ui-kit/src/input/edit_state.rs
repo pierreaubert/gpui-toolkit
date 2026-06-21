@@ -43,7 +43,10 @@ impl EditState {
             return None;
         }
         let prev_byte = self.text.floor_char_boundary(byte_pos - 1);
-        self.text[prev_byte..].chars().next().map(|c| (prev_byte, c))
+        self.text[prev_byte..]
+            .chars()
+            .next()
+            .map(|c| (prev_byte, c))
     }
 
     /// Return the character immediately at/after `byte_pos`, along with the byte index just after it.
@@ -664,5 +667,4 @@ mod tests {
         assert_eq!(state.char_after_byte(0).unwrap().1, 'α');
         assert!(state.char_after_byte(4).is_none());
     }
-
 }

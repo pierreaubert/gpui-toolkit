@@ -1,7 +1,7 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use gpui_keybinding::{
-    command_palette_entries, format_key_label, search_command_palette_cached,
-    DocumentedKeybinding, KeybindingCategory,
+    DocumentedKeybinding, KeybindingCategory, command_palette_entries, format_key_label,
+    search_command_palette_cached,
 };
 use std::rc::Rc;
 
@@ -153,5 +153,9 @@ fn generate_bindings() -> Vec<DocumentedKeybinding> {
     bindings
 }
 
-criterion_group!(benches, bench_format_key_label, bench_search_command_palette_cached);
+criterion_group!(
+    benches,
+    bench_format_key_label,
+    bench_search_command_palette_cached
+);
 criterion_main!(benches);

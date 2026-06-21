@@ -63,8 +63,17 @@ mod tests {
 
     #[test]
     fn sizes_increase_monotonically() {
-        for window in [VerticalSliderSize::Sm, VerticalSliderSize::Md, VerticalSliderSize::Lg].windows(2) {
-            assert!(window[0].track_width(&Default::default()) < window[1].track_width(&Default::default()));
+        for window in [
+            VerticalSliderSize::Sm,
+            VerticalSliderSize::Md,
+            VerticalSliderSize::Lg,
+        ]
+        .windows(2)
+        {
+            assert!(
+                window[0].track_width(&Default::default())
+                    < window[1].track_width(&Default::default())
+            );
             assert!(window[0].track_height() < window[1].track_height());
             assert!(window[0].min_width() < window[1].min_width());
         }
@@ -72,10 +81,25 @@ mod tests {
 
     #[test]
     fn component_size_maps_to_slider_size() {
-        assert_eq!(VerticalSliderSize::from(ComponentSize::Xs), VerticalSliderSize::Sm);
-        assert_eq!(VerticalSliderSize::from(ComponentSize::Sm), VerticalSliderSize::Sm);
-        assert_eq!(VerticalSliderSize::from(ComponentSize::Md), VerticalSliderSize::Md);
-        assert_eq!(VerticalSliderSize::from(ComponentSize::Lg), VerticalSliderSize::Lg);
-        assert_eq!(VerticalSliderSize::from(ComponentSize::Xl), VerticalSliderSize::Lg);
+        assert_eq!(
+            VerticalSliderSize::from(ComponentSize::Xs),
+            VerticalSliderSize::Sm
+        );
+        assert_eq!(
+            VerticalSliderSize::from(ComponentSize::Sm),
+            VerticalSliderSize::Sm
+        );
+        assert_eq!(
+            VerticalSliderSize::from(ComponentSize::Md),
+            VerticalSliderSize::Md
+        );
+        assert_eq!(
+            VerticalSliderSize::from(ComponentSize::Lg),
+            VerticalSliderSize::Lg
+        );
+        assert_eq!(
+            VerticalSliderSize::from(ComponentSize::Xl),
+            VerticalSliderSize::Lg
+        );
     }
 }

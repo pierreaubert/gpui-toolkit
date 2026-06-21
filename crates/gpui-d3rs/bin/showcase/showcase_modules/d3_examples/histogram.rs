@@ -22,7 +22,7 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
     let margin_left = 50.0;
     let margin_right = 20.0;
     let margin_top = 20.0;
-    let margin_bottom = 40.0;
+    let margin_bottom = 56.0;
     let chart_width = width - margin_left - margin_right;
     let chart_height = height - margin_top - margin_bottom;
 
@@ -201,11 +201,13 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                 // X-axis labels
                 .children(x_ticks.iter().map(|&tick_val| {
                     let x = x_scale.scale(tick_val);
+                    let label_w = 40.0;
+                    let left = (x - label_w / 2.0).clamp(0.0, width - label_w);
                     div()
                         .absolute()
-                        .left(px((x - 20.0) as f32))
+                        .left(px(left as f32))
                         .top(px((margin_top + chart_height + 5.0) as f32))
-                        .w(px(40.0))
+                        .w(px(label_w as f32))
                         .flex()
                         .justify_center()
                         .text_size(px(9.0))
@@ -216,7 +218,7 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                     div()
                         .absolute()
                         .left(px(margin_left as f32))
-                        .top(px((height - 12.0) as f32))
+                        .top(px((height - 24.0) as f32))
                         .w(px(chart_width as f32))
                         .flex()
                         .justify_center()

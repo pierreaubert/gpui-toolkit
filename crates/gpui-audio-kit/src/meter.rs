@@ -663,8 +663,10 @@ mod tests {
     #[::core::prelude::v1::test]
     fn render_horizontal_meter_bar_with_clamps_ratio() {
         let theme = HorizontalMeterTheme::default();
-        let _below = render_horizontal_meter_bar_with("B", -0.5, theme.color_normal, "-50%", theme.clone());
-        let _above = render_horizontal_meter_bar_with("A", 1.5, theme.color_critical, "150%", theme);
+        let _below =
+            render_horizontal_meter_bar_with("B", -0.5, theme.color_normal, "-50%", theme.clone());
+        let _above =
+            render_horizontal_meter_bar_with("A", 1.5, theme.color_critical, "150%", theme);
     }
 
     #[::core::prelude::v1::test]

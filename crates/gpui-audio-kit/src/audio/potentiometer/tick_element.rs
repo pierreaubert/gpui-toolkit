@@ -359,14 +359,12 @@ impl Element for PotentiometerTickLinesElement {
             }
         }
 
-        if has_major
-            && let Ok(path) = major_path.build() {
-                window.paint_path(path, self.major_tick_color);
-            }
-        if has_minor
-            && let Ok(path) = minor_path.build() {
-                window.paint_path(path, self.minor_tick_color);
-            }
+        if has_major && let Ok(path) = major_path.build() {
+            window.paint_path(path, self.major_tick_color);
+        }
+        if has_minor && let Ok(path) = minor_path.build() {
+            window.paint_path(path, self.minor_tick_color);
+        }
     }
 }
 

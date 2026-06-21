@@ -241,6 +241,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                                             this.stacked_bars_layout.toggle();
                                                         this.stacked_bars_animating = true;
                                                         this.stacked_bars_animation_progress = 0.0;
+                                                        cx.notify();
                                                         start_animation_loop(entity_clone, cx);
                                                     }
                                                 });
@@ -295,6 +296,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                                                         true;
                                                                     this
                                                                         .stacked_bars_animation_progress = 0.0;
+                                                                    cx.notify();
                                                                     start_animation_loop(entity_clone, cx);
                                                                 }
                                                             });

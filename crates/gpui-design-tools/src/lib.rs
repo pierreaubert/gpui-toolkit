@@ -463,7 +463,11 @@ mod tests {
             "presets": [{"tokens": [{"name": "n", "path": [], "value": "v", "token_type": "t"}]}]
         });
         let (_, _, findings) = inspect_token_value(&raw);
-        assert!(findings.iter().any(|f| f.contains("preset_id must be a string")));
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.contains("preset_id must be a string"))
+        );
     }
 
     #[test]
@@ -472,7 +476,11 @@ mod tests {
             "presets": [{"preset_id": "test", "tokens": "nope"}]
         });
         let (_, _, findings) = inspect_token_value(&raw);
-        assert!(findings.iter().any(|f| f.contains("tokens must be an array")));
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.contains("tokens must be an array"))
+        );
         assert!(findings.iter().any(|f| f.contains("at least one token")));
     }
 
@@ -500,7 +508,11 @@ mod tests {
             "presets": [{"preset_id": "test", "tokens": [{"name": "n", "path": [], "token_type": "t"}]}]
         });
         let (_, _, findings) = inspect_token_value(&raw);
-        assert!(findings.iter().any(|f| f.contains("value must be a string")));
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.contains("value must be a string"))
+        );
     }
 
     #[test]
@@ -509,7 +521,11 @@ mod tests {
             "presets": [{"preset_id": "test", "tokens": [{"name": "n", "path": [], "value": "v"}]}]
         });
         let (_, _, findings) = inspect_token_value(&raw);
-        assert!(findings.iter().any(|f| f.contains("token_type must be a string")));
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.contains("token_type must be a string"))
+        );
     }
 
     #[test]
@@ -519,9 +535,25 @@ mod tests {
         });
         let (_, _, findings) = inspect_token_value(&raw);
         let prefix = "presets[0].tokens[0]";
-        assert!(findings.iter().any(|f| f.contains(&format!("{prefix}.name must be a string"))));
-        assert!(findings.iter().any(|f| f.contains(&format!("{prefix}.path must be an array"))));
-        assert!(findings.iter().any(|f| f.contains(&format!("{prefix}.value must be a string"))));
-        assert!(findings.iter().any(|f| f.contains(&format!("{prefix}.token_type must be a string"))));
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.contains(&format!("{prefix}.name must be a string")))
+        );
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.contains(&format!("{prefix}.path must be an array")))
+        );
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.contains(&format!("{prefix}.value must be a string")))
+        );
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.contains(&format!("{prefix}.token_type must be a string")))
+        );
     }
 }

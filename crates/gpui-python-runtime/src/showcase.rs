@@ -41,7 +41,6 @@ pub fn color_scale(value: &str) -> ColorScale {
 mod tests {
     use super::*;
     use serde::Deserialize;
-    
 
     #[derive(Debug, Deserialize, PartialEq)]
     struct Sample {

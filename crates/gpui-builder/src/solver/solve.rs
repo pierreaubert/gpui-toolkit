@@ -861,17 +861,11 @@ mod tests {
 
         // Wide → Full tier
         let solved = solve(&root, 300.0, 600.0, &LayoutPreferences::default());
-        assert_eq!(
-            solved.find("rack").unwrap().active_tier,
-            Some("Full")
-        );
+        assert_eq!(solved.find("rack").unwrap().active_tier, Some("Full"));
 
         // Medium → Mini tier
         let solved = solve(&root, 150.0, 600.0, &LayoutPreferences::default());
-        assert_eq!(
-            solved.find("rack").unwrap().active_tier,
-            Some("Mini")
-        );
+        assert_eq!(solved.find("rack").unwrap().active_tier, Some("Mini"));
 
         // Tiny → no tier
         let solved = solve(&root, 50.0, 600.0, &LayoutPreferences::default());

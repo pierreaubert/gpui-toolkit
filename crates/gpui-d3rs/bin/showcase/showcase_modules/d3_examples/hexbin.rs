@@ -140,6 +140,11 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
     // Log-scale friendly ticks
     let x_ticks: Vec<f64> = vec![0.2, 0.5, 1.0, 2.0, 5.0];
     let y_ticks: Vec<f64> = vec![500.0, 1000.0, 2000.0, 5000.0, 10000.0];
+    let x_minor_ticks: Vec<f64> = vec![0.3, 0.4, 0.6, 0.7, 0.8, 0.9, 1.5, 3.0, 4.0];
+    let y_minor_ticks: Vec<f64> = vec![
+        400.0, 600.0, 700.0, 800.0, 900.0, 1500.0, 2000.0, 3000.0, 4000.0, 6000.0, 7000.0, 8000.0,
+        9000.0, 15000.0,
+    ];
 
     let data_count = cache.data_count;
     let bin_count = cache.bin_count;
@@ -208,7 +213,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                         .absolute()
                         .left(px(margin_left as f32))
                         .top(px(margin_top as f32))
-                        .w(px(1.0))
+                        .w(px(2.0))
                         .h(px(cache.plot_h as f32))
                         .bg(ui_theme.border),
                 )
@@ -234,6 +239,17 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                         .justify_end()
                         .pr_1()
                         .child(div().text_xs().child(format!("{:.0}", val)))
+                }))
+                // Fine Y grid lines
+                .children(y_minor_ticks.iter().map(|&val| {
+                    let y = cache.y_scale.scale(val);
+                    div()
+                        .absolute()
+                        .left(px(margin_left as f32))
+                        .top(px((margin_top + y) as f32))
+                        .w(px(cache.plot_w as f32))
+                        .h(px(1.0))
+                        .bg(Hsla::from(ui_theme.border).opacity(0.12))
                 }))
                 // Y grid lines
                 .children(y_ticks.iter().map(|&val| {
@@ -261,6 +277,17 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                         } else {
                             format!("{:.0}", val)
                         }))
+                }))
+                // Fine X grid lines
+                .children(x_minor_ticks.iter().map(|&val| {
+                    let x = cache.x_scale.scale(val);
+                    div()
+                        .absolute()
+                        .left(px((margin_left + x) as f32))
+                        .top(px(margin_top as f32))
+                        .w(px(1.0))
+                        .h(px(cache.plot_h as f32))
+                        .bg(Hsla::from(ui_theme.border).opacity(0.12))
                 }))
                 // X grid lines
                 .children(x_ticks.iter().map(|&val| {

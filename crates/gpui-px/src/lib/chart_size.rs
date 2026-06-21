@@ -227,9 +227,7 @@ mod extra_tests {
 
     #[test]
     fn test_fill_preserves_aspect_ratio_on_min_size() {
-        let fill = ChartSize::fill()
-            .min_size(300.0, 200.0)
-            .aspect_ratio(2.0);
+        let fill = ChartSize::fill().min_size(300.0, 200.0).aspect_ratio(2.0);
         let resized = fill.min_size(150.0, 100.0);
         assert_eq!(
             resized,

@@ -73,11 +73,10 @@ impl Default for SemanticColors {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
-    use super::SemanticColors;
     use super::super::color_token::ColorToken;
+    use super::SemanticColors;
 
     #[test]
     fn semantic_colors_constructors() {
@@ -100,4 +99,3 @@ mod tests {
         assert_eq!(SemanticColors::default(), SemanticColors::dark());
     }
 }
-

@@ -66,7 +66,9 @@ pub(super) fn rgba(hex: u32) -> Rgba {
 
 #[cfg(test)]
 mod tests {
-    use super::{format_spectrum_frequency_label, logarithmic_frequency_position, valid_frequency_range};
+    use super::{
+        format_spectrum_frequency_label, logarithmic_frequency_position, valid_frequency_range,
+    };
 
     #[test]
     fn format_frequency_label_edge_cases() {
@@ -80,10 +82,19 @@ mod tests {
     #[test]
     fn logarithmic_frequency_position_clamps_and_handles_nan() {
         assert_eq!(logarithmic_frequency_position(20.0, 20.0, 20_000.0), 0.0);
-        assert_eq!(logarithmic_frequency_position(20_000.0, 20.0, 20_000.0), 1.0);
+        assert_eq!(
+            logarithmic_frequency_position(20_000.0, 20.0, 20_000.0),
+            1.0
+        );
         assert_eq!(logarithmic_frequency_position(10.0, 20.0, 20_000.0), 0.0);
-        assert_eq!(logarithmic_frequency_position(30_000.0, 20.0, 20_000.0), 1.0);
-        assert_eq!(logarithmic_frequency_position(f32::NAN, 20.0, 20_000.0), 0.0);
+        assert_eq!(
+            logarithmic_frequency_position(30_000.0, 20.0, 20_000.0),
+            1.0
+        );
+        assert_eq!(
+            logarithmic_frequency_position(f32::NAN, 20.0, 20_000.0),
+            0.0
+        );
     }
 
     #[test]

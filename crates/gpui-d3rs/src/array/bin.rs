@@ -451,9 +451,7 @@ mod tests {
     fn test_bin_threshold_strategies() {
         let data: Vec<f64> = (1..=100).map(|i| i as f64).collect();
 
-        let sturges = BinGenerator::new()
-            .thresholds_sturges()
-            .generate(&data);
+        let sturges = BinGenerator::new().thresholds_sturges().generate(&data);
         assert!(!sturges.is_empty());
 
         let fd = BinGenerator::new()

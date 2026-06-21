@@ -744,10 +744,7 @@ mod tests {
             (ScaleType::Linear, ScaleType::Log),
             (ScaleType::Log, ScaleType::Log),
         ] {
-            let result = boxplot(&x, &y)
-                .x_scale(x_scale)
-                .y_scale(y_scale)
-                .build();
+            let result = boxplot(&x, &y).x_scale(x_scale).y_scale(y_scale).build();
             assert!(result.is_ok(), "failed for x={x_scale:?}, y={y_scale:?}");
         }
     }
@@ -817,11 +814,7 @@ mod tests {
         let y = vec![1.0, 2.0, 3.0, 4.0, 5.0];
 
         crate::assert_default_chart_size(boxplot(&x, &y).chart_size);
-        crate::assert_fixed_chart_size(
-            boxplot(&x, &y).size(360.0, 240.0).chart_size,
-            360.0,
-            240.0,
-        );
+        crate::assert_fixed_chart_size(boxplot(&x, &y).size(360.0, 240.0).chart_size, 360.0, 240.0);
         crate::assert_fill_chart_size(
             boxplot(&x, &y)
                 .size(360.0, 240.0)

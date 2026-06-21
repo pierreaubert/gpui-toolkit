@@ -251,7 +251,7 @@ impl ShowcaseApp {
                     .await;
 
                 let still_active = this
-                    .update(cx, |app, _cx| {
+                    .update(cx, |app, cx| {
                         let active = app.current_section == DemoSection::D3Horizon
                             || app.current_section == DemoSection::D3RealtimeHorizon;
                         if !active {
@@ -266,11 +266,10 @@ impl ShowcaseApp {
                                 * 20.0
                                 + ((i as f64 * 0.03) - app.horizon_offset * 0.5).cos() * 10.0;
                         }
+                        cx.notify();
                         true
                     })
                     .unwrap_or(false);
-
-                this.update(cx, |_, cx| cx.notify()).ok();
 
                 if !still_active {
                     break;

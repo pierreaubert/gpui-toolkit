@@ -588,16 +588,19 @@ impl Surface3DElement {
         {
             let cache = self.surface_cache.borrow();
             if let Some(cache) = cache.as_ref()
-                && cache.key == key && cache.width == width_u32 && cache.height == height_u32 {
-                    let _ = window.paint_image(
-                        bounds,
-                        Corners::default(),
-                        cache.render_image.clone(),
-                        0,
-                        false,
-                    );
-                    return;
-                }
+                && cache.key == key
+                && cache.width == width_u32
+                && cache.height == height_u32
+            {
+                let _ = window.paint_image(
+                    bounds,
+                    Corners::default(),
+                    cache.render_image.clone(),
+                    0,
+                    false,
+                );
+                return;
+            }
         }
 
         // Render to texture and cache the result.
@@ -616,17 +619,18 @@ impl Surface3DElement {
             };
 
             if let Some(pixels) = renderer.render_transparent(camera, log_settings)
-                && let Some(rgba_image) = RgbaImage::from_raw(width_u32, height_u32, pixels) {
-                    let frame = Frame::new(rgba_image);
-                    let render_image = Arc::new(RenderImage::new(vec![frame]));
-                    *self.surface_cache.borrow_mut() = Some(SurfaceTextureCache {
-                        key,
-                        width: width_u32,
-                        height: height_u32,
-                        render_image: render_image.clone(),
-                    });
-                    let _ = window.paint_image(bounds, Corners::default(), render_image, 0, false);
-                }
+                && let Some(rgba_image) = RgbaImage::from_raw(width_u32, height_u32, pixels)
+            {
+                let frame = Frame::new(rgba_image);
+                let render_image = Arc::new(RenderImage::new(vec![frame]));
+                *self.surface_cache.borrow_mut() = Some(SurfaceTextureCache {
+                    key,
+                    width: width_u32,
+                    height: height_u32,
+                    render_image: render_image.clone(),
+                });
+                let _ = window.paint_image(bounds, Corners::default(), render_image, 0, false);
+            }
         }
     }
 }

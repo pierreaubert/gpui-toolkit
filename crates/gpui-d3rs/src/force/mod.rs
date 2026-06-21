@@ -298,7 +298,8 @@ impl Force for ForceManyBody {
 
                             // Never approximate a node that contains the target point,
                             // because the aggregate includes the target itself.
-                            if target_x >= x0 && target_x <= x1 && target_y >= y0 && target_y <= y1 {
+                            if target_x >= x0 && target_x <= x1 && target_y >= y0 && target_y <= y1
+                            {
                                 return true;
                             }
 

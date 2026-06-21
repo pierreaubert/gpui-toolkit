@@ -94,7 +94,6 @@ fn test_split_segment_by_break_kind_returns_slices() {
     assert_eq!(pieces[2].start, 12);
 }
 
-
 #[test]
 fn test_ends_with_closing_quote() {
     assert!(ends_with_closing_quote("hello\u{201D}"));
@@ -185,10 +184,7 @@ fn test_merge_numeric_runs() {
 fn test_merge_ascii_punctuation_chains() {
     let input = seg(
         vec!["a,", "b;"],
-        vec![
-            SegmentBreakKind::Text,
-            SegmentBreakKind::Text,
-        ],
+        vec![SegmentBreakKind::Text, SegmentBreakKind::Text],
     );
     let mut input = input;
     input.is_word_like = vec![true; 2];

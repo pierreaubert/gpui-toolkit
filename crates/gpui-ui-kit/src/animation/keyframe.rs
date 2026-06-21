@@ -30,7 +30,6 @@ impl<T> Keyframe<T> {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::{Easing, Keyframe};
@@ -47,4 +46,3 @@ mod tests {
         assert_eq!(k.easing, Easing::Linear);
     }
 }
-

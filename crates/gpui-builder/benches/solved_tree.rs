@@ -74,9 +74,8 @@ impl gpui_pretext::TextMeasure for FixedWidthMeasure {
 
 /// Build a layout tree containing `count` `Sizing::Text` children.
 fn make_text_tree(count: usize) -> LayoutNode<'static> {
-    let measure: &'static FixedWidthMeasure = Box::leak(Box::new(FixedWidthMeasure {
-        char_width: 8.0,
-    }));
+    let measure: &'static FixedWidthMeasure =
+        Box::leak(Box::new(FixedWidthMeasure { char_width: 8.0 }));
 
     let mut children = Vec::with_capacity(count);
     for i in 0..count {
@@ -193,13 +192,23 @@ fn benchmark_text_cache_hit(c: &mut Criterion) {
     let mut group = c.benchmark_group("text_cache_hit");
     group.bench_function("solve_text_cache_hit", |b| {
         b.iter(|| {
-            let solved = solve(black_box(&root), black_box(400.0), black_box(2000.0), &prefs);
+            let solved = solve(
+                black_box(&root),
+                black_box(400.0),
+                black_box(2000.0),
+                &prefs,
+            );
             black_box(solved);
         });
     });
     group.bench_function("solve_tree_text_cache_hit", |b| {
         b.iter(|| {
-            let solved = solve_tree(black_box(&root), black_box(400.0), black_box(2000.0), &prefs);
+            let solved = solve_tree(
+                black_box(&root),
+                black_box(400.0),
+                black_box(2000.0),
+                &prefs,
+            );
             black_box(solved);
         });
     });
@@ -213,5 +222,10 @@ fn collect_recursive_ids<'a>(node: &'a SolvedNode<'a>, out: &mut Vec<&'a str>) {
     }
 }
 
-criterion_group!(benches, benchmark_find, benchmark_traversal, benchmark_text_cache_hit);
+criterion_group!(
+    benches,
+    benchmark_find,
+    benchmark_traversal,
+    benchmark_text_cache_hit
+);
 criterion_main!(benches);

@@ -313,7 +313,8 @@ pub(super) fn lab_id(parts: &[&str]) -> SharedString {
             }
         }
 
-        let mut s = String::with_capacity(parts.iter().map(|p| p.len()).sum::<usize>() + parts.len());
+        let mut s =
+            String::with_capacity(parts.iter().map(|p| p.len()).sum::<usize>() + parts.len());
         s.push_str("lab");
         for part in parts {
             s.push('-');

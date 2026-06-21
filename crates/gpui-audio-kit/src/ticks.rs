@@ -466,7 +466,11 @@ mod tests {
             .with_minor_count(2)
             .with_heights(12.0, 4.0);
         let ticks = config.generate_ticks();
-        assert!(ticks.iter().any(|t| t.is_major && (t.position - 0.5).abs() < 0.01));
+        assert!(
+            ticks
+                .iter()
+                .any(|t| t.is_major && (t.position - 0.5).abs() < 0.01)
+        );
         assert!(ticks.iter().any(|t| !t.is_major));
     }
 

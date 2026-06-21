@@ -87,8 +87,8 @@ fn stream_polygon(rings: &[Vec<(f64, f64)>], stream: &mut dyn Stream) {
 
 #[cfg(test)]
 mod tests {
-    use super::stream_geojson;
     use super::Stream;
+    use super::stream_geojson;
     use crate::geo::path::GeoJsonGeometry;
 
     struct RecordingStream {
@@ -167,10 +167,7 @@ mod tests {
     fn test_stream_geojson_multi_line_string() {
         let mut stream = RecordingStream::new();
         stream_geojson(
-            &GeoJsonGeometry::MultiLineString(vec![
-                vec![(0.0, 0.0), (1.0, 1.0)],
-                vec![(2.0, 2.0)],
-            ]),
+            &GeoJsonGeometry::MultiLineString(vec![vec![(0.0, 0.0), (1.0, 1.0)], vec![(2.0, 2.0)]]),
             &mut stream,
         );
         assert_eq!(
@@ -191,12 +188,7 @@ mod tests {
     fn test_stream_geojson_polygon() {
         let mut stream = RecordingStream::new();
         stream_geojson(
-            &GeoJsonGeometry::Polygon(vec![vec![
-                (0.0, 0.0),
-                (1.0, 0.0),
-                (1.0, 1.0),
-                (0.0, 0.0),
-            ]]),
+            &GeoJsonGeometry::Polygon(vec![vec![(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 0.0)]]),
             &mut stream,
         );
         assert_eq!(
@@ -223,7 +215,14 @@ mod tests {
             ]),
             &mut stream,
         );
-        assert!(stream.events.iter().filter(|e| e == &"polygon_start").count() == 2);
+        assert!(
+            stream
+                .events
+                .iter()
+                .filter(|e| e == &"polygon_start")
+                .count()
+                == 2
+        );
         assert!(stream.events.iter().filter(|e| e == &"polygon_end").count() == 2);
     }
 
@@ -231,15 +230,14 @@ mod tests {
     fn test_stream_geojson_closed_ring_skips_last_point() {
         let mut stream = RecordingStream::new();
         stream_geojson(
-            &GeoJsonGeometry::Polygon(vec![vec![
-                (0.0, 0.0),
-                (1.0, 0.0),
-                (1.0, 1.0),
-                (0.0, 0.0),
-            ]]),
+            &GeoJsonGeometry::Polygon(vec![vec![(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 0.0)]]),
             &mut stream,
         );
-        let point_count = stream.events.iter().filter(|e| e.starts_with("point")).count();
+        let point_count = stream
+            .events
+            .iter()
+            .filter(|e| e.starts_with("point"))
+            .count();
         assert_eq!(point_count, 3);
     }
 }

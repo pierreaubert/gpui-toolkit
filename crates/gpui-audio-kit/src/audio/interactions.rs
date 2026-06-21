@@ -351,34 +351,46 @@ mod tests {
 
         assert!(handle_keyboard("pageup", &modifiers, 50.0, &config).unwrap() > 50.0);
         assert!(handle_keyboard("pagedown", &modifiers, 50.0, &config).unwrap() < 50.0);
-        assert_eq!(handle_keyboard("home", &modifiers, 50.0, &config).unwrap(), 0.0);
-        assert_eq!(handle_keyboard("end", &modifiers, 50.0, &config).unwrap(), 100.0);
+        assert_eq!(
+            handle_keyboard("home", &modifiers, 50.0, &config).unwrap(),
+            0.0
+        );
+        assert_eq!(
+            handle_keyboard("end", &modifiers, 50.0, &config).unwrap(),
+            100.0
+        );
     }
 
     #[test]
     fn handle_keyboard_media_keys_respect_enabled_flag() {
         let config_without = InteractionConfig::vertical(0.0, 100.0, Scale::Linear, 200.0);
         let modifiers = Modifiers::default();
-        assert_eq!(handle_keyboard("audioraisevolume", &modifiers, 50.0, &config_without), None);
+        assert_eq!(
+            handle_keyboard("audioraisevolume", &modifiers, 50.0, &config_without),
+            None
+        );
 
-        let config_with = InteractionConfig::vertical(0.0, 100.0, Scale::Linear, 200.0).with_media_keys();
+        let config_with =
+            InteractionConfig::vertical(0.0, 100.0, Scale::Linear, 200.0).with_media_keys();
         assert!(
-            handle_keyboard("audioraisevolume", &modifiers, 50.0, &config_with)
-                .unwrap()
-                > 50.0
+            handle_keyboard("audioraisevolume", &modifiers, 50.0, &config_with).unwrap() > 50.0
         );
         assert!(
-            handle_keyboard("audiolowervolume", &modifiers, 50.0, &config_with)
-                .unwrap()
-                < 50.0
+            handle_keyboard("audiolowervolume", &modifiers, 50.0, &config_with).unwrap() < 50.0
         );
-        assert_eq!(handle_keyboard("audiomute", &modifiers, 50.0, &config_with), None);
+        assert_eq!(
+            handle_keyboard("audiomute", &modifiers, 50.0, &config_with),
+            None
+        );
     }
 
     #[test]
     fn handle_keyboard_unknown_key_returns_none() {
         let config = InteractionConfig::vertical(0.0, 100.0, Scale::Linear, 200.0);
-        assert_eq!(handle_keyboard("space", &Modifiers::default(), 50.0, &config), None);
+        assert_eq!(
+            handle_keyboard("space", &Modifiers::default(), 50.0, &config),
+            None
+        );
     }
 
     #[test]
@@ -422,7 +434,8 @@ mod tests {
             &config,
         )
         .unwrap();
-        let fine = handle_scroll(&ScrollDelta::Lines(point(0.0, -1.0)), &shift, 50.0, &config).unwrap();
+        let fine =
+            handle_scroll(&ScrollDelta::Lines(point(0.0, -1.0)), &shift, 50.0, &config).unwrap();
         assert!(fine > 50.0 && fine < normal);
     }
 
@@ -430,7 +443,10 @@ mod tests {
     fn handle_scroll_zero_delta_returns_none() {
         let config = InteractionConfig::vertical(0.0, 100.0, Scale::Linear, 200.0);
         let delta = ScrollDelta::Pixels(point(px(0.0), px(0.0)));
-        assert_eq!(handle_scroll(&delta, &Modifiers::default(), 50.0, &config), None);
+        assert_eq!(
+            handle_scroll(&delta, &Modifiers::default(), 50.0, &config),
+            None
+        );
     }
 
     #[test]
@@ -505,7 +521,8 @@ mod tests {
         let horizontal = InteractionConfig::horizontal(0.0, 100.0, Scale::Logarithmic, 200.0);
         assert_eq!(horizontal.orientation, DragOrientation::Horizontal);
 
-        let rotational = InteractionConfig::rotational(0.0, 1.0, Scale::Linear, 100.0).with_media_keys();
+        let rotational =
+            InteractionConfig::rotational(0.0, 1.0, Scale::Linear, 100.0).with_media_keys();
         assert_eq!(rotational.orientation, DragOrientation::Rotational);
         assert!(rotational.media_keys);
     }

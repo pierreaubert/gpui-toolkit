@@ -66,9 +66,10 @@ impl Gpui3DCache {
         let update = self.resources.upsert_lines(spec)?;
 
         if update.dirty.is_unchanged()
-            && let Some(element) = self.lines.get(&spec.id) {
-                return Ok(element.clone());
-            }
+            && let Some(element) = self.lines.get(&spec.id)
+        {
+            return Ok(element.clone());
+        }
 
         let state = match self.line_states.entry(spec.id.clone()) {
             Entry::Occupied(entry) => entry.get().clone(),

@@ -1,8 +1,8 @@
 use d3rs::contour::{ContourGenerator, DensityEstimator};
 use d3rs::prelude::*;
 use d3rs::shape::contour::{
-    ContourConfig, HeatmapData, heat_color_scale, render_contour, render_heatmap,
-    viridis_color_scale,
+    ContourConfig, HeatmapData, heat_color_scale, render_contour, render_contour_bands,
+    render_heatmap, viridis_color_scale,
 };
 use gpui::prelude::FluentBuilder;
 use gpui::*;
@@ -48,6 +48,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
         .map(|i| i as f64 / (num_levels + 1) as f64)
         .collect();
     let contours = generator.contours(&values, &thresholds);
+    let contour_bands = generator.contour_bands(&values, &thresholds);
 
     // Scales for the Gaussian surface plot
     let gaussian_width = app.content_width * 0.5;
@@ -77,6 +78,11 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
             .fill_opacity(0.4)
             .color_scale(viridis_color_scale()),
     };
+    let gaussian_line_config = ContourConfig::new()
+        .stroke_width(0.75)
+        .fill(false)
+        .stroke_opacity(0.35)
+        .color_scale(viridis_color_scale());
 
     // Generate heatmap data for the Gaussian surface
     let heatmap_x_values: Vec<f64> = (0..grid_size).map(|i| i as f64).collect();
@@ -106,6 +112,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
 
     let density_thresholds: Vec<f64> = (1..=5).map(|i| density_max * (i as f64 / 6.0)).collect();
     let density_contours = density_generator.contours(&density_grid, &density_thresholds);
+    let density_bands = density_generator.contour_bands(&density_grid, &density_thresholds);
 
     // Scales for the density plot
     let density_size = (app.content_width * 0.4).min(app.content_height * 0.5);
@@ -121,6 +128,11 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
         .stroke_width(1.5)
         .fill(true)
         .fill_opacity(0.5)
+        .color_scale(heat_color_scale());
+    let density_line_config = ContourConfig::new()
+        .stroke_width(0.75)
+        .fill(false)
+        .stroke_opacity(0.45)
         .color_scale(heat_color_scale());
 
     div()
@@ -187,13 +199,33 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                 .border_1()
                                 .border_color(ui_theme.border)
                                 .relative()
-                                .when(render_mode != ContourRenderMode::Heatmap, |this| {
+                                .when(render_mode == ContourRenderMode::Isoline, |this| {
                                     this.child(
                                         render_contour(
                                             contours.clone(),
                                             &x_scale_gaussian,
                                             &y_scale_gaussian,
                                             &gaussian_config,
+                                        )
+                                        .height(px(gaussian_height)),
+                                    )
+                                })
+                                .when(render_mode == ContourRenderMode::Surface, |this| {
+                                    this.child(
+                                        render_contour_bands(
+                                            contour_bands.clone(),
+                                            &x_scale_gaussian,
+                                            &y_scale_gaussian,
+                                            &gaussian_config,
+                                        )
+                                        .height(px(gaussian_height)),
+                                    )
+                                    .child(
+                                        render_contour(
+                                            contours.clone(),
+                                            &x_scale_gaussian,
+                                            &y_scale_gaussian,
+                                            &gaussian_line_config,
                                         )
                                         .height(px(gaussian_height)),
                                     )
@@ -238,16 +270,25 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                             div()
                                 .w(px(density_size))
                                 .h(px(density_size))
-                                .bg(rgb(0x1a1a1a))
+                                .bg(ui_theme.surface)
                                 .border_1()
-                                .border_color(rgb(0x333333))
+                                .border_color(ui_theme.border)
                                 .relative()
                                 .child(
-                                    render_contour(
-                                        density_contours.into_iter().collect::<Vec<_>>(),
+                                    render_contour_bands(
+                                        density_bands,
                                         &x_scale_density,
                                         &y_scale_density,
                                         &density_config,
+                                    )
+                                    .height(px(density_size)),
+                                )
+                                .child(
+                                    render_contour(
+                                        density_contours,
+                                        &x_scale_density,
+                                        &y_scale_density,
+                                        &density_line_config,
                                     )
                                     .height(px(density_size)),
                                 )
@@ -260,7 +301,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                         .w(px(4.0))
                                         .h(px(4.0))
                                         .rounded_full()
-                                        .bg(rgba(0xffffffaa))
+                                        .bg(Hsla::from(ui_theme.text_primary).opacity(0.7))
                                 })),
                         )
                         .child(
@@ -314,8 +355,9 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                 .show_value(true)
                                 .width(220.0)
                                 .on_change(move |value, _window, cx| {
-                                    entity.update(cx, |this, _| {
+                                    entity.update(cx, |this, cx| {
                                         this.contour_grid_size = value as usize;
+                                        cx.notify();
                                     });
                                 })
                         })
@@ -330,8 +372,9 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                 .show_value(true)
                                 .width(220.0)
                                 .on_change(move |value, _window, cx| {
-                                    entity.update(cx, |this, _| {
+                                    entity.update(cx, |this, cx| {
                                         this.contour_num_levels = value as usize;
+                                        cx.notify();
                                     });
                                 })
                         })
@@ -346,8 +389,9 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                 .show_value(true)
                                 .width(220.0)
                                 .on_change(move |value, _window, cx| {
-                                    entity.update(cx, |this, _| {
+                                    entity.update(cx, |this, cx| {
                                         this.contour_peak1_x = value;
+                                        cx.notify();
                                     });
                                 })
                         })
@@ -362,8 +406,9 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                 .show_value(true)
                                 .width(220.0)
                                 .on_change(move |value, _window, cx| {
-                                    entity.update(cx, |this, _| {
+                                    entity.update(cx, |this, cx| {
                                         this.contour_peak1_y = value;
+                                        cx.notify();
                                     });
                                 })
                         })
@@ -378,8 +423,9 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                 .show_value(true)
                                 .width(220.0)
                                 .on_change(move |value, _window, cx| {
-                                    entity.update(cx, |this, _| {
+                                    entity.update(cx, |this, cx| {
                                         this.contour_peak2_x = value;
+                                        cx.notify();
                                     });
                                 })
                         })
@@ -394,8 +440,9 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                 .show_value(true)
                                 .width(220.0)
                                 .on_change(move |value, _window, cx| {
-                                    entity.update(cx, |this, _| {
+                                    entity.update(cx, |this, cx| {
                                         this.contour_peak2_y = value;
+                                        cx.notify();
                                     });
                                 })
                         }),
@@ -424,8 +471,9 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                 .show_value(true)
                                 .width(220.0)
                                 .on_change(move |value, _window, cx| {
-                                    entity.update(cx, |this, _| {
+                                    entity.update(cx, |this, cx| {
                                         this.density_bandwidth = value;
+                                        cx.notify();
                                     });
                                 })
                         })
@@ -440,8 +488,9 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                 .show_value(true)
                                 .width(220.0)
                                 .on_change(move |value, _window, cx| {
-                                    entity.update(cx, |this, _| {
+                                    entity.update(cx, |this, cx| {
                                         this.density_num_points = value as usize;
+                                        cx.notify();
                                     });
                                 })
                         }),

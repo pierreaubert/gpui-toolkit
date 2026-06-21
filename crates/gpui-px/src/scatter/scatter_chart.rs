@@ -31,12 +31,18 @@ fn cached_scatter_points(
     cache: &mut ScatterDataCache,
 ) -> Arc<[ScatterPoint]> {
     if let Some((cached_x, cached_y, cached_points)) = cache
-        && Arc::ptr_eq(x, cached_x) && Arc::ptr_eq(y, cached_y) {
-            return cached_points.clone();
-        }
+        && Arc::ptr_eq(x, cached_x)
+        && Arc::ptr_eq(y, cached_y)
+    {
+        return cached_points.clone();
+    }
 
     let mut points = Vec::with_capacity(x.len().min(y.len()));
-    points.extend(x.iter().zip(y.iter()).map(|(&x, &y)| ScatterPoint::new(x, y)));
+    points.extend(
+        x.iter()
+            .zip(y.iter())
+            .map(|(&x, &y)| ScatterPoint::new(x, y)),
+    );
     let points: Arc<[ScatterPoint]> = points.into();
     *cache = Some((x.clone(), y.clone(), points.clone()));
     points
@@ -1132,9 +1138,7 @@ mod tests {
         use crate::scatter::ScatterTheme;
         let x = vec![1.0, 2.0, 3.0];
         let y = vec![1.0, 2.0, 3.0];
-        let result = scatter(&x, &y)
-            .theme(ScatterTheme::default())
-            .build();
+        let result = scatter(&x, &y).theme(ScatterTheme::default()).build();
         assert!(result.is_ok());
     }
 

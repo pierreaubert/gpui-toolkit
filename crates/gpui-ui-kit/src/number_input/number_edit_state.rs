@@ -265,7 +265,6 @@ impl NumberEditState {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -388,4 +387,3 @@ mod tests {
         assert!(state.get_selected_text().is_none());
     }
 }
-

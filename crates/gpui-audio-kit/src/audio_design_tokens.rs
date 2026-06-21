@@ -236,20 +236,44 @@ mod tests {
 
     #[test]
     fn constants_are_distinct() {
-        assert_ne!(AudioDesignTokens::TOGGLE_SLIDING, AudioDesignTokens::TOGGLE_SEGMENTED);
-        assert_ne!(AudioDesignTokens::TOGGLE_SEGMENTED, AudioDesignTokens::TOGGLE_THUMB_ON_TRACK);
-        assert_ne!(AudioDesignTokens::TOGGLE_THUMB_ON_TRACK, AudioDesignTokens::TOGGLE_PILL);
-        assert_ne!(AudioDesignTokens::LABEL_BOXED, AudioDesignTokens::LABEL_UNDERLINED);
-        assert_ne!(AudioDesignTokens::INDICATOR_DOT, AudioDesignTokens::INDICATOR_ARROW);
-        assert_ne!(AudioDesignTokens::INDICATOR_ARROW, AudioDesignTokens::INDICATOR_TICK);
+        assert_ne!(
+            AudioDesignTokens::TOGGLE_SLIDING,
+            AudioDesignTokens::TOGGLE_SEGMENTED
+        );
+        assert_ne!(
+            AudioDesignTokens::TOGGLE_SEGMENTED,
+            AudioDesignTokens::TOGGLE_THUMB_ON_TRACK
+        );
+        assert_ne!(
+            AudioDesignTokens::TOGGLE_THUMB_ON_TRACK,
+            AudioDesignTokens::TOGGLE_PILL
+        );
+        assert_ne!(
+            AudioDesignTokens::LABEL_BOXED,
+            AudioDesignTokens::LABEL_UNDERLINED
+        );
+        assert_ne!(
+            AudioDesignTokens::INDICATOR_DOT,
+            AudioDesignTokens::INDICATOR_ARROW
+        );
+        assert_ne!(
+            AudioDesignTokens::INDICATOR_ARROW,
+            AudioDesignTokens::INDICATOR_TICK
+        );
     }
 
     #[test]
     fn from_design_system_produces_tokens() {
         let design = gpui_design::DesignSystem::neutral();
         let tokens = AudioDesignTokens::from(&design);
-        assert_eq!(tokens.knob_arc_segments, design.audio_controls.knob_arc_segments);
-        assert_eq!(tokens.slider_track_widths, design.audio_controls.slider_track_widths);
+        assert_eq!(
+            tokens.knob_arc_segments,
+            design.audio_controls.knob_arc_segments
+        );
+        assert_eq!(
+            tokens.slider_track_widths,
+            design.audio_controls.slider_track_widths
+        );
         assert_eq!(tokens.corner_radius, design.corners.md);
     }
 

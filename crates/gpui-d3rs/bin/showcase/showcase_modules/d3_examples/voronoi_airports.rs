@@ -176,7 +176,11 @@ pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                         this.last_mouse_pos = Some(event.position);
                     }
                 }))
-                .on_scroll_wheel(cx.listener(|this, event: &ScrollWheelEvent, _, _| {
+                .on_scroll_wheel(cx.listener(|this, event: &ScrollWheelEvent, _, cx| {
+                    if !event.modifiers.alt {
+                        return;
+                    }
+                    cx.stop_propagation();
                     let delta = match event.delta {
                         ScrollDelta::Lines(lines) => {
                             let y: f32 = lines.y;

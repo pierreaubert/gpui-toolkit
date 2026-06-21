@@ -378,7 +378,10 @@ mod tests {
     #[test]
     fn test_pie_empty_values() {
         let result = pie(&[]).build();
-        assert!(matches!(result, Err(ChartError::EmptyData { field: "values" })));
+        assert!(matches!(
+            result,
+            Err(ChartError::EmptyData { field: "values" })
+        ));
     }
 
     #[test]

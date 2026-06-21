@@ -25,7 +25,6 @@ impl From<crate::ComponentSize> for InputSize {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::InputSize;
@@ -40,4 +39,3 @@ mod tests {
         assert_eq!(InputSize::from(ComponentSize::Xl), InputSize::Lg);
     }
 }
-

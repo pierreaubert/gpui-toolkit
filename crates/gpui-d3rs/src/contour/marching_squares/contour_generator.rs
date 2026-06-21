@@ -739,14 +739,15 @@ impl ContourGenerator {
             for i in 0..self.width - 1 {
                 if let Some(n) =
                     self.cell_band_polygon(values, i, j, lower, upper, &mut points, &mut crossings)
-                    && n >= 3 {
-                        let mut ring = Vec::with_capacity(n + 1);
-                        ring.extend_from_slice(&points[..n]);
-                        if !points_equal(&ring[0], &ring[n - 1]) {
-                            ring.push(ring[0]);
-                        }
-                        band.polygons.push(ContourRing::new(ring));
+                    && n >= 3
+                {
+                    let mut ring = Vec::with_capacity(n + 1);
+                    ring.extend_from_slice(&points[..n]);
+                    if !points_equal(&ring[0], &ring[n - 1]) {
+                        ring.push(ring[0]);
                     }
+                    band.polygons.push(ContourRing::new(ring));
+                }
             }
         }
 

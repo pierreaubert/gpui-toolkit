@@ -555,10 +555,7 @@ mod tests {
             (ScaleType::Linear, ScaleType::Log),
             (ScaleType::Log, ScaleType::Log),
         ] {
-            let result = area(&x, &y)
-                .x_scale(x_scale)
-                .y_scale(y_scale)
-                .build();
+            let result = area(&x, &y).x_scale(x_scale).y_scale(y_scale).build();
             assert!(result.is_ok(), "failed for x={x_scale:?}, y={y_scale:?}");
         }
     }

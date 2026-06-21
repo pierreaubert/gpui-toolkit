@@ -1,4 +1,4 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use gpui_ui_kit::input::edit_state::EditState;
 
 /// Build a ~200-character string of space-separated words.
