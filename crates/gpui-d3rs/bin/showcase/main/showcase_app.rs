@@ -104,6 +104,10 @@ pub struct ShowcaseApp {
     pub last_mouse_pos: Option<Point<Pixels>>,
     // Cached expensive showcase data so it is not regenerated every render.
     pub surface_plot_cache: Option<super::showcase_modules::surface_plots::SurfacePlotCache>,
+    pub surface_plot_camera_freq_response: d3rs::surface::SurfaceCamera,
+    pub surface_plot_camera_freq_2d: d3rs::surface::SurfaceCamera,
+    pub surface_plot_camera_spectral: d3rs::surface::SurfaceCamera,
+    pub surface_plot_drag: Option<(usize, Point<Pixels>)>,
     // Allocation probe for tracking heap allocations during interactive events.
     alloc_probe: AllocProbe,
     last_render_alloc: AllocSnapshot,
@@ -202,6 +206,16 @@ impl ShowcaseApp {
             is_dragging: false,
             last_mouse_pos: None,
             surface_plot_cache: None,
+            surface_plot_camera_freq_response: d3rs::surface::SurfaceCamera::new()
+                .with_rotation(30.0, 45.0)
+                .with_zoom(1.0),
+            surface_plot_camera_freq_2d: d3rs::surface::SurfaceCamera::new()
+                .with_rotation(35.0, 50.0)
+                .with_zoom(1.0),
+            surface_plot_camera_spectral: d3rs::surface::SurfaceCamera::new()
+                .with_rotation(25.0, 40.0)
+                .with_zoom(1.0),
+            surface_plot_drag: None,
             alloc_probe: AllocProbe::new(),
             last_render_alloc: AllocSnapshot::default(),
             last_mouse_move_alloc: AllocSnapshot::default(),
