@@ -8,6 +8,9 @@ use d3rs::chord::{ChordLayout, RibbonGenerator};
 use d3rs::color::ColorScheme;
 use d3rs::shape::arc::{Arc as D3Arc, ArcDatum};
 use d3rs::shape::path::PathBuilder as D3PathBuilder;
+use d3rs::text::{
+    GlyphTextConfig, HorizontalTextAnchor, VerticalTextAnchor, render_glyph_text_anchored,
+};
 use gpui::prelude::*;
 use gpui::*;
 use gpui_ui_kit::theme::ThemeExt;
@@ -88,15 +91,37 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
         all_colors.push(lighter);
     }
 
-    // Group name labels — positioned at the midpoint angle of each arc
-    let label_positions: Vec<(String, f64, f64)> = chord_result
+    // Group name labels — positioned at the midpoint angle of each arc and
+    // rotated tangent to the circle so they read outward.
+    let label_items: Vec<Div> = chord_result
         .groups
         .iter()
         .map(|g| {
-            let mid_angle = (g.start_angle + g.end_angle) / 2.0 - half_pi;
-            let lx = cx_center + label_radius * mid_angle.cos();
-            let ly = cy_center + label_radius * mid_angle.sin();
-            (names[g.index].clone(), lx, ly)
+            let d3_mid = (g.start_angle + g.end_angle) / 2.0;
+            let std_mid = d3_mid - half_pi;
+            let lx = cx_center + label_radius * std_mid.cos();
+            let ly = cy_center + label_radius * std_mid.sin();
+
+            let on_left = d3_mid > std::f64::consts::PI;
+            let rotation = std_mid as f32 + if on_left { std::f32::consts::PI } else { 0.0 };
+            let h_anchor = if on_left {
+                HorizontalTextAnchor::Start
+            } else {
+                HorizontalTextAnchor::End
+            };
+
+            let config = GlyphTextConfig::rotated(10.0, ui_theme.text_primary, rotation);
+
+            div()
+                .absolute()
+                .left(px(lx as f32))
+                .top(px(ly as f32))
+                .child(render_glyph_text_anchored(
+                    &names[g.index],
+                    &config,
+                    h_anchor,
+                    VerticalTextAnchor::Middle,
+                ))
         })
         .collect();
 
@@ -168,21 +193,7 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                     )
                     .size_full(),
                 )
-                // Group name labels as positioned divs
-                .children(label_positions.iter().map(|(name, lx, ly)| {
-                    div()
-                        .absolute()
-                        .left(px((*lx - 20.0) as f32))
-                        .top(px((*ly - 6.0) as f32))
-                        .w(px(40.0))
-                        .flex()
-                        .justify_center()
-                        .child(
-                            div()
-                                .text_xs()
-                                .font_weight(FontWeight::MEDIUM)
-                                .child(name.clone()),
-                        )
-                })),
+                // Group name labels as rotated glyph text
+                .children(label_items),
         )
 }
