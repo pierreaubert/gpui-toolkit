@@ -36,6 +36,9 @@ fn test_all_presets_construct() {
     let _ = DesignSystem::apple_hig();
     let _ = DesignSystem::material3();
     let _ = DesignSystem::fluent();
+    let _ = DesignSystem::adwaita();
+    let _ = DesignSystem::breeze();
+    let _ = DesignSystem::carbon();
 }
 
 #[test]
@@ -47,6 +50,9 @@ fn test_platform_default_returns_valid() {
         DesignLanguage::AppleHig
             | DesignLanguage::Material3
             | DesignLanguage::Fluent
+            | DesignLanguage::Adwaita
+            | DesignLanguage::Breeze
+            | DesignLanguage::Carbon
             | DesignLanguage::Neutral
     ));
 }
@@ -71,7 +77,7 @@ fn test_platform_mapping_covers_main_os_families() {
     );
     assert_eq!(
         DesignSystem::for_platform(DesignPlatform::Linux).language,
-        DesignLanguage::Neutral
+        DesignLanguage::Adwaita
     );
     assert_eq!(
         DesignSystem::for_platform(DesignPlatform::Other).language,
@@ -85,6 +91,9 @@ fn test_design_language_ids_select_presets() {
         DesignLanguage::AppleHig,
         DesignLanguage::Material3,
         DesignLanguage::Fluent,
+        DesignLanguage::Adwaita,
+        DesignLanguage::Breeze,
+        DesignLanguage::Carbon,
         DesignLanguage::Neutral,
     ] {
         assert_eq!(DesignLanguage::from_id(language.as_str()), Some(language));
@@ -99,15 +108,30 @@ fn test_design_language_ids_select_presets() {
 
     assert_eq!(DesignLanguage::from_id("system"), None);
     assert_eq!(DesignSystem::from_language_id("system"), None);
+    assert_eq!(
+        DesignLanguage::from_id("gtk"),
+        Some(DesignLanguage::Adwaita)
+    );
+    assert_eq!(
+        DesignLanguage::from_id("gnome"),
+        Some(DesignLanguage::Adwaita)
+    );
+    assert_eq!(DesignLanguage::from_id("kde"), Some(DesignLanguage::Breeze));
 }
 
 #[test]
-fn test_presets_use_gpui_system_font_alias() {
+fn test_presets_use_origin_typography() {
     for (preset_id, system) in all_design_presets() {
-        assert_eq!(
-            system.typography.font_family, ".SystemUIFont",
-            "{preset_id} should resolve through GPUI's native system UI font alias"
-        );
+        let expected = match system.language {
+            DesignLanguage::AppleHig | DesignLanguage::Material3 | DesignLanguage::Neutral => {
+                ".SystemUIFont"
+            }
+            DesignLanguage::Fluent => "Segoe UI Variable",
+            DesignLanguage::Adwaita => "Adwaita Sans",
+            DesignLanguage::Breeze => "Noto Sans",
+            DesignLanguage::Carbon => "IBM Plex Sans",
+        };
+        assert_eq!(system.typography.font_family, expected, "{preset_id}");
     }
 }
 
@@ -117,17 +141,25 @@ fn test_presets_differ() {
     let apple = DesignSystem::apple_hig();
     let material = DesignSystem::material3();
     let fluent = DesignSystem::fluent();
+    let adwaita = DesignSystem::adwaita();
+    let breeze = DesignSystem::breeze();
+    let carbon = DesignSystem::carbon();
 
     // Each preset should have a different language
     assert_ne!(neutral.language, apple.language);
     assert_ne!(apple.language, material.language);
     assert_ne!(material.language, fluent.language);
+    assert_ne!(fluent.language, adwaita.language);
+    assert_ne!(adwaita.language, breeze.language);
+    assert_ne!(breeze.language, carbon.language);
 
     // Key differentiators
     assert_ne!(neutral.toggle_variant, material.toggle_variant);
     assert_ne!(apple.corners.style, material.corners.style);
     assert_ne!(neutral.label_position, fluent.label_position);
     assert_ne!(neutral.group_separator, material.group_separator);
+    assert_ne!(adwaita.corners.md, breeze.corners.md);
+    assert_eq!(carbon.corners.md, 0.0);
 }
 
 #[test]
@@ -135,6 +167,8 @@ fn test_apple_uses_larger_touch_targets() {
     let apple = DesignSystem::apple_hig();
     let neutral = DesignSystem::neutral();
     assert!(apple.interaction.min_touch_target > neutral.interaction.min_touch_target);
+    assert_eq!(apple.group_separator, GroupSeparatorStyle::None);
+    assert!(apple.corners.md > neutral.corners.md);
 }
 
 #[test]
@@ -149,6 +183,32 @@ fn test_fluent_is_compact() {
     let neutral = DesignSystem::neutral();
     assert!(fluent.spacing.section_gap <= neutral.spacing.section_gap);
     assert!(fluent.layout.slider_height_normal < neutral.layout.slider_height_normal);
+    assert_eq!(fluent.corners.md, 4.0);
+    assert_eq!(fluent.corners.lg, 8.0);
+    assert_eq!(fluent.typography.font_family, "Segoe UI Variable");
+}
+
+#[test]
+fn test_linux_presets_follow_adwaita_and_breeze_conventions() {
+    let adwaita = DesignSystem::adwaita();
+    let breeze = DesignSystem::breeze();
+
+    assert_eq!(adwaita.typography.font_family, "Adwaita Sans");
+    assert_eq!(breeze.typography.font_family, "Noto Sans");
+    assert!(adwaita.corners.md > breeze.corners.md);
+    assert!(adwaita.interaction.min_touch_target > breeze.interaction.min_touch_target);
+    assert_eq!(adwaita.group_separator, GroupSeparatorStyle::Divider);
+    assert_eq!(breeze.group_separator, GroupSeparatorStyle::Border);
+}
+
+#[test]
+fn test_carbon_is_square_and_flat() {
+    let carbon = DesignSystem::carbon();
+    assert_eq!(carbon.corners.sm, 0.0);
+    assert_eq!(carbon.corners.md, 0.0);
+    assert_eq!(carbon.spacing.grid_unit, 2.0);
+    assert_eq!(carbon.elevation.level_1_blur, 0.0);
+    assert!(!carbon.animation.prefer_spring);
 }
 
 #[test]
@@ -164,6 +224,9 @@ fn test_design_language_as_str() {
     assert_eq!(DesignLanguage::AppleHig.as_str(), "apple_hig");
     assert_eq!(DesignLanguage::Material3.as_str(), "material3");
     assert_eq!(DesignLanguage::Fluent.as_str(), "fluent");
+    assert_eq!(DesignLanguage::Adwaita.as_str(), "adwaita");
+    assert_eq!(DesignLanguage::Breeze.as_str(), "breeze");
+    assert_eq!(DesignLanguage::Carbon.as_str(), "carbon");
     assert_eq!(DesignLanguage::Neutral.as_str(), "neutral");
 }
 
@@ -230,7 +293,7 @@ fn conformance_and_motion_reports_are_stable() {
 fn conformance_matrix_covers_all_presets_and_motion_modes() {
     let matrix = DesignConformanceMatrix::all_presets();
 
-    assert_eq!(matrix.cases.len(), 8);
+    assert_eq!(matrix.cases.len(), all_design_presets().len() * 2);
     assert!(matrix.passed(), "{}", matrix.to_markdown_table());
     assert!(
         matrix

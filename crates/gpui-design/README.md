@@ -9,9 +9,12 @@ Defines shape, spacing, interaction, and animation rules that vary per platform 
 | Preset | Platform | Key traits |
 |--------|----------|------------|
 | `DesignSystem::neutral()` | Cross-platform default | Matches existing hardcoded values |
-| `DesignSystem::apple_hig()` | macOS / iOS | Continuous corners, 44px touch targets, spring animations |
+| `DesignSystem::apple_hig()` | macOS 26 / iOS | Liquid Glass-inspired floating controls, continuous rounded corners, 44px touch targets, fluid spring motion |
 | `DesignSystem::material3()` | Android / ChromeOS | 48px touch targets, card separators, Roboto |
-| `DesignSystem::fluent()` | Windows 10/11 | Compact spacing, pill toggles, Segoe UI Variable |
+| `DesignSystem::fluent()` | Windows 11 | 4px control corners, 8px overlay corners, compact Mica/Acrylic-inspired elevation, Segoe UI Variable |
+| `DesignSystem::adwaita()` | GNOME / GTK / Libadwaita | Adwaita Sans, broad rounded controls, accessible pointer/touch sizing |
+| `DesignSystem::breeze()` | KDE / Kirigami | Noto Sans, compact Breeze controls, border-separated groups, fast standard motion |
+| `DesignSystem::carbon()` | IBM Carbon | Square corners, productive spacing, IBM Plex, flat layered surfaces |
 | `DesignSystem::platform_default()` | Auto-detect | Selects based on `target_os` |
 
 ## Usage
@@ -69,6 +72,16 @@ fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoE
 | Animation timing, spring physics | **Design System** | `gpui-design` |
 | Typography sizes, font family | **Design System** | `gpui-design` |
 | Shadow/elevation model | **Design System** | `gpui-design` |
+
+Linux defaults to `DesignSystem::adwaita()` because GNOME's HIG is the GTK 4 /
+Libadwaita baseline. KDE-style applications can opt into
+`DesignSystem::breeze()` explicitly.
+
+Carbon is also opt-in rather than selected by `platform_default()`, because it
+is a product design language instead of an operating-system default. Pair
+`DesignSystem::carbon()` with one of the Carbon theme variants from
+`gpui-ui-kit` (`CarbonWhite`, `CarbonGray10`, `CarbonGray90`, or
+`CarbonGray100`) for the complete look.
 
 ## Conformance Gate
 

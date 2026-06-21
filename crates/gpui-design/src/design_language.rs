@@ -11,6 +11,12 @@ pub enum DesignLanguage {
     Material3,
     /// Windows Fluent Design (Windows 10/11).
     Fluent,
+    /// GNOME Adwaita / GTK 4 / libadwaita.
+    Adwaita,
+    /// KDE Breeze / Kirigami.
+    Breeze,
+    /// IBM Carbon Design System.
+    Carbon,
     /// Neutral default — no strong platform opinion. Matches current hardcoded values.
     Neutral,
 }
@@ -21,6 +27,9 @@ impl DesignLanguage {
             Self::AppleHig => "apple_hig",
             Self::Material3 => "material3",
             Self::Fluent => "fluent",
+            Self::Adwaita => "adwaita",
+            Self::Breeze => "breeze",
+            Self::Carbon => "carbon",
             Self::Neutral => "neutral",
         }
     }
@@ -30,6 +39,9 @@ impl DesignLanguage {
             "apple_hig" => Some(Self::AppleHig),
             "material3" => Some(Self::Material3),
             "fluent" => Some(Self::Fluent),
+            "adwaita" | "gtk" | "gnome" => Some(Self::Adwaita),
+            "breeze" | "kde" => Some(Self::Breeze),
+            "carbon" => Some(Self::Carbon),
             "neutral" => Some(Self::Neutral),
             _ => None,
         }
@@ -40,6 +52,9 @@ impl DesignLanguage {
             Self::AppleHig => "Apple",
             Self::Material3 => "Material",
             Self::Fluent => "Fluent",
+            Self::Adwaita => "Adwaita",
+            Self::Breeze => "Breeze",
+            Self::Carbon => "Carbon",
             Self::Neutral => "Neutral",
         }
     }

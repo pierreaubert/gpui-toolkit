@@ -16,6 +16,14 @@ pub enum ThemeVariant {
     BlackAndWhite,
     /// Onyx theme (near-black with warm amber/gold accent)
     Onyx,
+    /// Carbon White theme.
+    CarbonWhite,
+    /// Carbon Gray 10 light theme.
+    CarbonGray10,
+    /// Carbon Gray 90 dark theme.
+    CarbonGray90,
+    /// Carbon Gray 100 dark theme.
+    CarbonGray100,
 }
 
 impl ThemeVariant {
@@ -28,6 +36,10 @@ impl ThemeVariant {
             ThemeVariant::Forest,
             ThemeVariant::BlackAndWhite,
             ThemeVariant::Onyx,
+            ThemeVariant::CarbonWhite,
+            ThemeVariant::CarbonGray10,
+            ThemeVariant::CarbonGray90,
+            ThemeVariant::CarbonGray100,
         ]
     }
 
@@ -40,6 +52,10 @@ impl ThemeVariant {
             ThemeVariant::Forest => "Forest",
             ThemeVariant::BlackAndWhite => "Black & White",
             ThemeVariant::Onyx => "Onyx",
+            ThemeVariant::CarbonWhite => "Carbon White",
+            ThemeVariant::CarbonGray10 => "Carbon Gray 10",
+            ThemeVariant::CarbonGray90 => "Carbon Gray 90",
+            ThemeVariant::CarbonGray100 => "Carbon Gray 100",
         }
     }
 
@@ -51,7 +67,11 @@ impl ThemeVariant {
             ThemeVariant::Midnight => ThemeVariant::Forest,
             ThemeVariant::Forest => ThemeVariant::BlackAndWhite,
             ThemeVariant::BlackAndWhite => ThemeVariant::Onyx,
-            ThemeVariant::Onyx => ThemeVariant::Dark,
+            ThemeVariant::Onyx => ThemeVariant::CarbonWhite,
+            ThemeVariant::CarbonWhite => ThemeVariant::CarbonGray10,
+            ThemeVariant::CarbonGray10 => ThemeVariant::CarbonGray90,
+            ThemeVariant::CarbonGray90 => ThemeVariant::CarbonGray100,
+            ThemeVariant::CarbonGray100 => ThemeVariant::Dark,
         }
     }
 }

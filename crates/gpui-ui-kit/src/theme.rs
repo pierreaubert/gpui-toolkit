@@ -438,6 +438,178 @@ impl Theme {
         }
     }
 
+    /// Carbon White theme.
+    pub fn carbon_white() -> Self {
+        Self {
+            variant: ThemeVariant::CarbonWhite,
+            background: rgb(0xffffff),
+            surface: rgb(0xf4f4f4),
+            surface_hover: rgb(0xe8e8e8),
+            muted: rgb(0xe0e0e0),
+            transparent: rgba(0x00000000),
+            overlay_bg: rgba(0x00000066),
+            text_primary: rgb(0x161616),
+            text_secondary: rgb(0x525252),
+            text_muted: rgb(0xa8a8a8),
+            text_on_accent: rgb(0xffffff),
+            icon_on_accent: rgb(0xffffff),
+            accent: rgb(0x0f62fe),
+            accent_hover: rgb(0x0353e9),
+            accent_muted: rgb(0xd0e2ff),
+            success: rgb(0x24a148),
+            warning: rgb(0xf1c21b),
+            error: rgb(0xda1e28),
+            info: rgb(0x0043ce),
+            border: rgb(0xe0e0e0),
+            border_hover: rgb(0x8d8d8d),
+            font_family: "IBM Plex Sans".into(),
+            badge_primary_bg: rgb(0xd0e2ff),
+            badge_primary_text: rgb(0x0043ce),
+            badge_success_bg: rgb(0xdefbe6),
+            badge_success_text: rgb(0x0e6027),
+            badge_warning_bg: rgb(0xfcf4d6),
+            badge_warning_text: rgb(0x684e00),
+            badge_error_bg: rgb(0xffd7d9),
+            badge_error_text: rgb(0xa2191f),
+            badge_info_bg: rgb(0xd0e2ff),
+            badge_info_text: rgb(0x0043ce),
+            alert_info_bg: rgb(0xedf5ff),
+            alert_success_bg: rgb(0xdefbe6),
+            alert_warning_bg: rgb(0xfcf4d6),
+            alert_error_bg: rgb(0xffd7d9),
+            code_text: rgb(0xa56eff),
+        }
+    }
+
+    /// Carbon Gray 10 theme.
+    pub fn carbon_gray10() -> Self {
+        Self {
+            variant: ThemeVariant::CarbonGray10,
+            background: rgb(0xf4f4f4),
+            surface: rgb(0xffffff),
+            surface_hover: rgb(0xe8e8e8),
+            muted: rgb(0xe0e0e0),
+            transparent: rgba(0x00000000),
+            overlay_bg: rgba(0x00000066),
+            text_primary: rgb(0x161616),
+            text_secondary: rgb(0x525252),
+            text_muted: rgb(0xa8a8a8),
+            text_on_accent: rgb(0xffffff),
+            icon_on_accent: rgb(0xffffff),
+            accent: rgb(0x0f62fe),
+            accent_hover: rgb(0x0353e9),
+            accent_muted: rgb(0xd0e2ff),
+            success: rgb(0x24a148),
+            warning: rgb(0xf1c21b),
+            error: rgb(0xda1e28),
+            info: rgb(0x0043ce),
+            border: rgb(0xe0e0e0),
+            border_hover: rgb(0x8d8d8d),
+            font_family: "IBM Plex Sans".into(),
+            badge_primary_bg: rgb(0xd0e2ff),
+            badge_primary_text: rgb(0x0043ce),
+            badge_success_bg: rgb(0xdefbe6),
+            badge_success_text: rgb(0x0e6027),
+            badge_warning_bg: rgb(0xfcf4d6),
+            badge_warning_text: rgb(0x684e00),
+            badge_error_bg: rgb(0xffd7d9),
+            badge_error_text: rgb(0xa2191f),
+            badge_info_bg: rgb(0xd0e2ff),
+            badge_info_text: rgb(0x0043ce),
+            alert_info_bg: rgb(0xedf5ff),
+            alert_success_bg: rgb(0xdefbe6),
+            alert_warning_bg: rgb(0xfcf4d6),
+            alert_error_bg: rgb(0xffd7d9),
+            code_text: rgb(0xa56eff),
+        }
+    }
+
+    /// Carbon Gray 90 theme.
+    pub fn carbon_gray90() -> Self {
+        Self {
+            variant: ThemeVariant::CarbonGray90,
+            background: rgb(0x262626),
+            surface: rgb(0x393939),
+            surface_hover: rgb(0x474747),
+            muted: rgb(0x525252),
+            transparent: rgba(0x00000000),
+            overlay_bg: rgba(0x00000099),
+            text_primary: rgb(0xf4f4f4),
+            text_secondary: rgb(0xc6c6c6),
+            text_muted: rgb(0x6f6f6f),
+            text_on_accent: rgb(0xffffff),
+            icon_on_accent: rgb(0xffffff),
+            accent: rgb(0x4589ff),
+            accent_hover: rgb(0x78a9ff),
+            accent_muted: rgba(0x4589ff33),
+            success: rgb(0x42be65),
+            warning: rgb(0xf1c21b),
+            error: rgb(0xff8389),
+            info: rgb(0x4589ff),
+            border: rgb(0x525252),
+            border_hover: rgb(0xa8a8a8),
+            font_family: "IBM Plex Sans".into(),
+            badge_primary_bg: rgb(0x002d9c),
+            badge_primary_text: rgb(0xa6c8ff),
+            badge_success_bg: rgb(0x044317),
+            badge_success_text: rgb(0x6fdc8c),
+            badge_warning_bg: rgb(0x4d3800),
+            badge_warning_text: rgb(0xfddc69),
+            badge_error_bg: rgb(0x750e13),
+            badge_error_text: rgb(0xffb3b8),
+            badge_info_bg: rgb(0x002d9c),
+            badge_info_text: rgb(0xa6c8ff),
+            alert_info_bg: rgb(0x001d6c),
+            alert_success_bg: rgb(0x044317),
+            alert_warning_bg: rgb(0x4d3800),
+            alert_error_bg: rgb(0x750e13),
+            code_text: rgb(0xbe95ff),
+        }
+    }
+
+    /// Carbon Gray 100 theme.
+    pub fn carbon_gray100() -> Self {
+        Self {
+            variant: ThemeVariant::CarbonGray100,
+            background: rgb(0x161616),
+            surface: rgb(0x262626),
+            surface_hover: rgb(0x333333),
+            muted: rgb(0x393939),
+            transparent: rgba(0x00000000),
+            overlay_bg: rgba(0x00000099),
+            text_primary: rgb(0xf4f4f4),
+            text_secondary: rgb(0xc6c6c6),
+            text_muted: rgb(0x6f6f6f),
+            text_on_accent: rgb(0xffffff),
+            icon_on_accent: rgb(0xffffff),
+            accent: rgb(0x4589ff),
+            accent_hover: rgb(0x78a9ff),
+            accent_muted: rgba(0x4589ff33),
+            success: rgb(0x42be65),
+            warning: rgb(0xf1c21b),
+            error: rgb(0xff8389),
+            info: rgb(0x4589ff),
+            border: rgb(0x393939),
+            border_hover: rgb(0xa8a8a8),
+            font_family: "IBM Plex Sans".into(),
+            badge_primary_bg: rgb(0x002d9c),
+            badge_primary_text: rgb(0xa6c8ff),
+            badge_success_bg: rgb(0x044317),
+            badge_success_text: rgb(0x6fdc8c),
+            badge_warning_bg: rgb(0x4d3800),
+            badge_warning_text: rgb(0xfddc69),
+            badge_error_bg: rgb(0x750e13),
+            badge_error_text: rgb(0xffb3b8),
+            badge_info_bg: rgb(0x002d9c),
+            badge_info_text: rgb(0xa6c8ff),
+            alert_info_bg: rgb(0x001d6c),
+            alert_success_bg: rgb(0x044317),
+            alert_warning_bg: rgb(0x4d3800),
+            alert_error_bg: rgb(0x750e13),
+            code_text: rgb(0xbe95ff),
+        }
+    }
+
     /// Get theme for variant
     pub fn for_variant(variant: ThemeVariant) -> Self {
         match variant {
@@ -447,6 +619,10 @@ impl Theme {
             ThemeVariant::Forest => Self::forest(),
             ThemeVariant::BlackAndWhite => Self::black_and_white(),
             ThemeVariant::Onyx => Self::onyx(),
+            ThemeVariant::CarbonWhite => Self::carbon_white(),
+            ThemeVariant::CarbonGray10 => Self::carbon_gray10(),
+            ThemeVariant::CarbonGray90 => Self::carbon_gray90(),
+            ThemeVariant::CarbonGray100 => Self::carbon_gray100(),
         }
     }
 
@@ -518,11 +694,18 @@ impl Theme {
                 primary: self.text_primary_token(),
                 secondary: ColorToken::from_base(self.text_secondary),
                 muted: ColorToken::from_base(self.text_muted),
-                inverted: ColorToken::from_base(if self.variant == ThemeVariant::Light {
-                    rgb(0xffffff)
-                } else {
-                    rgb(0x1a1a1a)
-                }),
+                inverted: ColorToken::from_base(
+                    if matches!(
+                        self.variant,
+                        ThemeVariant::Light
+                            | ThemeVariant::CarbonWhite
+                            | ThemeVariant::CarbonGray10
+                    ) {
+                        rgb(0xffffff)
+                    } else {
+                        rgb(0x1a1a1a)
+                    },
+                ),
             },
             borders: BorderColors {
                 default: self.border_token(),
