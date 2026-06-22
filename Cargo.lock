@@ -3006,7 +3006,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-ui-kit"
-version = "0.8.27"
+version = "0.8.28"
 dependencies = [
  "block2",
  "criterion",
