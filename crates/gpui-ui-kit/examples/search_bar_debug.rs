@@ -10,11 +10,15 @@ use gpui_miniapp::{MiniApp, MiniAppConfig};
 use gpui_ui_kit::theme::ThemeExt;
 use gpui_ui_kit::*;
 
-pub struct SearchBarDebug;
+pub struct SearchBarDebug {
+    filled_value: SharedString,
+    entity: Entity<Self>,
+}
 
 impl Render for SearchBarDebug {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
+        let entity = self.entity.clone();
 
         div()
             .id("search-bar-debug-root")
@@ -62,9 +66,16 @@ impl Render for SearchBarDebug {
                     .gap_2()
                     .child(Text::new("Pre-filled Value").weight(TextWeight::Bold))
                     .child(
-                        div()
-                            .w(px(300.0))
-                            .child(SearchBar::new("search-filled").value("Beethoven")),
+                        div().w(px(300.0)).child(
+                            SearchBar::new("search-filled")
+                                .value(self.filled_value.clone())
+                                .on_change(move |query, _window, cx| {
+                                    let query = SharedString::from(query.to_string());
+                                    entity.update(cx, |this, _cx| {
+                                        this.filled_value = query;
+                                    });
+                                }),
+                        ),
                     ),
             )
     }
@@ -76,6 +87,11 @@ fn main() {
             .size(500.0, 500.0)
             .scrollable(true)
             .with_theme(true),
-        |cx| cx.new(|_cx| SearchBarDebug),
+        |cx| {
+            cx.new(|cx| SearchBarDebug {
+                filled_value: "Beethoven".into(),
+                entity: cx.entity().clone(),
+            })
+        },
     );
 }

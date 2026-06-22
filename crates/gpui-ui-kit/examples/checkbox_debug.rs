@@ -10,11 +10,21 @@ use gpui_miniapp::{MiniApp, MiniAppConfig};
 use gpui_ui_kit::theme::ThemeExt;
 use gpui_ui_kit::*;
 
-pub struct CheckboxDebug;
+pub struct CheckboxDebug {
+    unchecked: bool,
+    checked: bool,
+    indeterminate_checked: bool,
+    indeterminate: bool,
+    sm_checked: bool,
+    md_checked: bool,
+    lg_checked: bool,
+    entity: Entity<Self>,
+}
 
 impl Render for CheckboxDebug {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
+        let entity = self.entity.clone();
 
         div()
             .id("checkbox-debug-root")
@@ -33,12 +43,46 @@ impl Render for CheckboxDebug {
                     .flex_col()
                     .gap_3()
                     .child(Text::new("States").weight(TextWeight::Bold))
-                    .child(Checkbox::new("cb-unchecked").label("Unchecked"))
-                    .child(Checkbox::new("cb-checked").checked(true).label("Checked"))
+                    .child(
+                        Checkbox::new("cb-unchecked")
+                            .checked(self.unchecked)
+                            .label("Unchecked")
+                            .on_change({
+                                let entity = entity.clone();
+                                move |checked, _window, cx| {
+                                    entity.update(cx, |this, _cx| {
+                                        this.unchecked = checked;
+                                    });
+                                }
+                            }),
+                    )
+                    .child(
+                        Checkbox::new("cb-checked")
+                            .checked(self.checked)
+                            .label("Checked")
+                            .on_change({
+                                let entity = entity.clone();
+                                move |checked, _window, cx| {
+                                    entity.update(cx, |this, _cx| {
+                                        this.checked = checked;
+                                    });
+                                }
+                            }),
+                    )
                     .child(
                         Checkbox::new("cb-indeterminate")
-                            .indeterminate(true)
-                            .label("Indeterminate"),
+                            .checked(self.indeterminate_checked)
+                            .indeterminate(self.indeterminate)
+                            .label("Indeterminate")
+                            .on_change({
+                                let entity = entity.clone();
+                                move |checked, _window, cx| {
+                                    entity.update(cx, |this, _cx| {
+                                        this.indeterminate = false;
+                                        this.indeterminate_checked = checked;
+                                    });
+                                }
+                            }),
                     ),
             )
             // Sizes
@@ -50,21 +94,45 @@ impl Render for CheckboxDebug {
                     .child(Text::new("Sizes").weight(TextWeight::Bold))
                     .child(
                         Checkbox::new("cb-sm")
-                            .checked(true)
+                            .checked(self.sm_checked)
                             .size(CheckboxSize::Sm)
-                            .label("Small"),
+                            .label("Small")
+                            .on_change({
+                                let entity = entity.clone();
+                                move |checked, _window, cx| {
+                                    entity.update(cx, |this, _cx| {
+                                        this.sm_checked = checked;
+                                    });
+                                }
+                            }),
                     )
                     .child(
                         Checkbox::new("cb-md")
-                            .checked(true)
+                            .checked(self.md_checked)
                             .size(CheckboxSize::Md)
-                            .label("Medium"),
+                            .label("Medium")
+                            .on_change({
+                                let entity = entity.clone();
+                                move |checked, _window, cx| {
+                                    entity.update(cx, |this, _cx| {
+                                        this.md_checked = checked;
+                                    });
+                                }
+                            }),
                     )
                     .child(
                         Checkbox::new("cb-lg")
-                            .checked(true)
+                            .checked(self.lg_checked)
                             .size(CheckboxSize::Lg)
-                            .label("Large"),
+                            .label("Large")
+                            .on_change({
+                                let entity = entity.clone();
+                                move |checked, _window, cx| {
+                                    entity.update(cx, |this, _cx| {
+                                        this.lg_checked = checked;
+                                    });
+                                }
+                            }),
                     ),
             )
             // Disabled
@@ -95,6 +163,17 @@ fn main() {
             .size(500.0, 600.0)
             .scrollable(true)
             .with_theme(true),
-        |cx| cx.new(|_cx| CheckboxDebug),
+        |cx| {
+            cx.new(|cx| CheckboxDebug {
+                unchecked: false,
+                checked: true,
+                indeterminate_checked: false,
+                indeterminate: true,
+                sm_checked: true,
+                md_checked: true,
+                lg_checked: true,
+                entity: cx.entity().clone(),
+            })
+        },
     );
 }

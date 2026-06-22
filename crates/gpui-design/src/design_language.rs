@@ -22,6 +22,18 @@ pub enum DesignLanguage {
 }
 
 impl DesignLanguage {
+    pub fn all() -> &'static [Self] {
+        &[
+            Self::Neutral,
+            Self::AppleHig,
+            Self::Material3,
+            Self::Fluent,
+            Self::Adwaita,
+            Self::Breeze,
+            Self::Carbon,
+        ]
+    }
+
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::AppleHig => "apple_hig",
@@ -49,8 +61,8 @@ impl DesignLanguage {
 
     pub fn label(&self) -> &'static str {
         match self {
-            Self::AppleHig => "Apple",
-            Self::Material3 => "Material",
+            Self::AppleHig => "Apple HIG",
+            Self::Material3 => "Material 3",
             Self::Fluent => "Fluent",
             Self::Adwaita => "Adwaita",
             Self::Breeze => "Breeze",

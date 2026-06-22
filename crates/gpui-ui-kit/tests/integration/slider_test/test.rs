@@ -376,6 +376,49 @@ async fn test_slider_click_changes_value(cx: &mut TestAppContext) {
     }
 }
 
+/// Test dragging a slider changes its bound value.
+///
+/// This intentionally uses fixed coordinates in a minimal full-window view
+/// rather than `debug_bounds`, because optional debug bounds allowed the
+/// previous interaction regression to pass without exercising the slider.
+#[gpui::test]
+async fn test_slider_drag_changes_value(cx: &mut TestAppContext) {
+    let value: Rc<RefCell<f32>> = Rc::new(RefCell::new(50.0));
+    let change_count = Arc::new(AtomicUsize::new(0));
+
+    let value_clone = value.clone();
+    let change_count_clone = change_count.clone();
+
+    let window = cx.add_window(move |_window, _cx| SliderValueChangeView {
+        value: value_clone,
+        change_count: change_count_clone,
+    });
+
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    cx.run_until_parked();
+
+    let start = gpui::point(gpui::px(100.0), gpui::px(10.0));
+    let end = gpui::point(gpui::px(180.0), gpui::px(10.0));
+
+    cx.simulate_mouse_down(start, MouseButton::Left, Modifiers::default());
+    cx.run_until_parked();
+    cx.simulate_mouse_move(end, Some(MouseButton::Left), Modifiers::default());
+    cx.run_until_parked();
+    cx.simulate_mouse_up(end, MouseButton::Left, Modifiers::default());
+    cx.run_until_parked();
+
+    let new_val = *value.borrow();
+    assert!(
+        new_val > 50.0,
+        "Dragging right should increase value from 50, got {}",
+        new_val
+    );
+    assert!(
+        change_count.load(Ordering::SeqCst) > 0,
+        "on_change should have been called during drag"
+    );
+}
+
 /// Test percentage stays clamped at 100% max
 #[gpui::test]
 async fn test_slider_percentage_clamped_at_max(cx: &mut TestAppContext) {

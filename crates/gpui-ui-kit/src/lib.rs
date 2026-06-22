@@ -15,7 +15,9 @@ pub mod animation;
 pub mod color_tokens;
 pub mod design;
 pub mod i18n;
+pub mod interaction;
 pub mod mobile;
+pub mod scale;
 pub mod theme;
 
 // Core components

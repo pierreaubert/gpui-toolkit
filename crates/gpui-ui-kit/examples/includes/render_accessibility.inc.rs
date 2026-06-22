@@ -1,6 +1,7 @@
 impl Showcase {
     fn render_accessibility_section(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let section_title = cx.t(TranslationKey::SectionAccessibility);
+        let entity = self.entity.clone();
 
         VStack::new()
             .spacing(StackSpacing::Lg)
@@ -53,9 +54,17 @@ impl Showcase {
                                     .child(Text::new("Checkbox (role=checkbox)").size(TextSize::Xs))
                                     .child(
                                         Checkbox::new("a11y-terms")
-                                            .checked(true)
+                                            .checked(self.accessibility_terms)
                                             .label("Accept terms")
-                                            .aria_label("Accept terms and conditions"),
+                                            .aria_label("Accept terms and conditions")
+                                            .on_change({
+                                                let entity = entity.clone();
+                                                move |checked, _window, cx| {
+                                                    entity.update(cx, |this, _cx| {
+                                                        this.accessibility_terms = checked;
+                                                    });
+                                                }
+                                            }),
                                     ),
                             )
                             .child(
@@ -64,8 +73,16 @@ impl Showcase {
                                     .child(Text::new("Toggle (role=switch)").size(TextSize::Xs))
                                     .child(
                                         Toggle::new("a11y-dark")
-                                            .checked(true)
-                                            .label("Dark mode"),
+                                            .checked(self.accessibility_dark)
+                                            .label("Dark mode")
+                                            .on_change({
+                                                let entity = entity.clone();
+                                                move |checked, _window, cx| {
+                                                    entity.update(cx, |this, _cx| {
+                                                        this.accessibility_dark = checked;
+                                                    });
+                                                }
+                                            }),
                                     ),
                             )
                             .child(
@@ -74,9 +91,14 @@ impl Showcase {
                                     .child(Text::new("Slider (role=slider)").size(TextSize::Xs))
                                     .child(
                                         Slider::new("a11y-volume")
-                                            .value(75.0)
+                                            .value(self.accessibility_volume)
                                             .label("Volume")
-                                            .aria_label("Master volume"),
+                                            .aria_label("Master volume")
+                                            .on_change(move |value, _window, cx| {
+                                                entity.update(cx, |this, _cx| {
+                                                    this.accessibility_volume = value;
+                                                });
+                                            }),
                                     ),
                             ),
                     ),

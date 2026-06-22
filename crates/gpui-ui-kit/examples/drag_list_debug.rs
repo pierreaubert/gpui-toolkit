@@ -9,11 +9,37 @@ use gpui_miniapp::{MiniApp, MiniAppConfig};
 use gpui_ui_kit::theme::ThemeExt;
 use gpui_ui_kit::*;
 
-pub struct DragListDebug;
+pub struct DragListDebug {
+    vertical_items: Vec<SharedString>,
+    horizontal_items: Vec<SharedString>,
+    entity: Entity<Self>,
+}
+
+impl DragListDebug {
+    fn reorder(items: &mut Vec<SharedString>, from: usize, to: usize) {
+        if from >= items.len() || to >= items.len() || from == to {
+            return;
+        }
+
+        let item = items.remove(from);
+        items.insert(to, item);
+    }
+
+    fn plugin_label(id: &SharedString) -> &'static str {
+        match id.as_ref() {
+            "eq" => "Parametric EQ",
+            "comp" => "Compressor",
+            "upmix" => "Upmixer",
+            "limiter" => "Limiter",
+            _ => "Unknown",
+        }
+    }
+}
 
 impl Render for DragListDebug {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
+        let entity = self.entity.clone();
 
         div()
             .id("drag-list-debug-root")
@@ -38,27 +64,33 @@ impl Render for DragListDebug {
                             .border_color(theme.border)
                             .rounded_lg()
                             .p_4()
-                            .child(DragList::new(
-                                "drag-vert",
-                                vec![
-                                    DragItem::new(
-                                        "eq",
-                                        div().p_2().child(Text::new("1. Parametric EQ")),
-                                    ),
-                                    DragItem::new(
-                                        "comp",
-                                        div().p_2().child(Text::new("2. Compressor")),
-                                    ),
-                                    DragItem::new(
-                                        "upmix",
-                                        div().p_2().child(Text::new("3. Upmixer")),
-                                    ),
-                                    DragItem::new(
-                                        "limiter",
-                                        div().p_2().child(Text::new("4. Limiter")),
-                                    ),
-                                ],
-                            )),
+                            .child(
+                                DragList::new(
+                                    "drag-vert",
+                                    self.vertical_items
+                                        .iter()
+                                        .enumerate()
+                                        .map(|(index, id)| {
+                                            DragItem::new(
+                                                id.clone(),
+                                                div().p_2().child(Text::new(format!(
+                                                    "{}. {}",
+                                                    index + 1,
+                                                    Self::plugin_label(id)
+                                                ))),
+                                            )
+                                        })
+                                        .collect(),
+                                )
+                                .on_reorder({
+                                    let entity = entity.clone();
+                                    move |from, to, _window, cx| {
+                                        entity.update(cx, |this, _cx| {
+                                            Self::reorder(&mut this.vertical_items, from, to);
+                                        });
+                                    }
+                                }),
+                            ),
                     ),
             )
             // Horizontal
@@ -77,13 +109,24 @@ impl Render for DragListDebug {
                             .child(
                                 DragList::new(
                                     "drag-horiz",
-                                    vec![
-                                        DragItem::new("a", div().p_2().child(Text::new("A"))),
-                                        DragItem::new("b", div().p_2().child(Text::new("B"))),
-                                        DragItem::new("c", div().p_2().child(Text::new("C"))),
-                                    ],
+                                    self.horizontal_items
+                                        .iter()
+                                        .map(|id| {
+                                            DragItem::new(
+                                                id.clone(),
+                                                div().p_2().child(Text::new(id.to_string())),
+                                            )
+                                        })
+                                        .collect(),
                                 )
-                                .orientation(DragListOrientation::Horizontal),
+                                .orientation(DragListOrientation::Horizontal)
+                                .on_reorder({
+                                    move |from, to, _window, cx| {
+                                        entity.update(cx, |this, _cx| {
+                                            Self::reorder(&mut this.horizontal_items, from, to);
+                                        });
+                                    }
+                                }),
                             ),
                     ),
             )
@@ -96,6 +139,12 @@ fn main() {
             .size(600.0, 600.0)
             .scrollable(true)
             .with_theme(true),
-        |cx| cx.new(|_cx| DragListDebug),
+        |cx| {
+            cx.new(|cx| DragListDebug {
+                vertical_items: vec!["eq".into(), "comp".into(), "upmix".into(), "limiter".into()],
+                horizontal_items: vec!["A".into(), "B".into(), "C".into()],
+                entity: cx.entity().clone(),
+            })
+        },
     );
 }

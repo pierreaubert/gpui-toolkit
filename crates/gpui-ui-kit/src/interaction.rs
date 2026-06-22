@@ -1,4 +1,4 @@
-//! Shared interaction handling for audio control components
+//! Shared interaction handling for continuous value controls
 //!
 //! This module provides common interaction patterns for sliders, knobs, and potentiometers:
 //! - Keyboard navigation (arrows, page up/down, home/end, escape)
@@ -16,7 +16,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 /// Drag state that persists across re-renders
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DragState {
     pub start_pos: f32,   // Starting position (y for vertical, x for horizontal)
     pub start_value: f64, // Value when drag started
@@ -27,10 +27,10 @@ thread_local! {
 }
 
 /// Store drag state for an element (call on mouse_down)
-pub fn store_drag_state(element_id: &ElementId, start_pos: f32, start_value: f64) {
+pub fn store_drag_state(element_key: ElementId, start_pos: f32, start_value: f64) {
     DRAG_STATES.with(|states| {
         states.borrow_mut().insert(
-            element_id.clone(),
+            element_key,
             DragState {
                 start_pos,
                 start_value,
@@ -40,14 +40,14 @@ pub fn store_drag_state(element_id: &ElementId, start_pos: f32, start_value: f64
 }
 
 /// Get drag state for an element (call on mouse_move)
-pub fn get_drag_state(element_id: &ElementId) -> Option<DragState> {
-    DRAG_STATES.with(|states| states.borrow().get(element_id).copied())
+pub fn get_drag_state(element_key: &ElementId) -> Option<DragState> {
+    DRAG_STATES.with(|states| states.borrow().get(element_key).copied())
 }
 
 /// Clear drag state for an element (call on mouse_up)
-pub fn clear_drag_state(element_id: &ElementId) {
+pub fn clear_drag_state(element_key: ElementId) {
     DRAG_STATES.with(|states| {
-        states.borrow_mut().remove(element_id);
+        states.borrow_mut().remove(&element_key);
     });
 }
 
@@ -206,7 +206,7 @@ pub fn handle_scroll(
         }
         DragOrientation::Horizontal => {
             if delta_x.abs() > 0.0001 {
-                -delta_x // Positive x = right = increase
+                delta_x
             } else if delta_y.abs() > 0.0001 {
                 delta_y
             } else {
@@ -215,8 +215,16 @@ pub fn handle_scroll(
         }
     };
 
-    // Scroll up/left = negative delta = increase value
-    let direction = if scroll_delta < 0.0 { 1.0 } else { -1.0 };
+    let direction = match config.orientation {
+        DragOrientation::Horizontal => {
+            // Horizontal controls follow fader convention: right increases.
+            if scroll_delta > 0.0 { 1.0 } else { -1.0 }
+        }
+        DragOrientation::Vertical | DragOrientation::Rotational => {
+            // Scroll up/left = negative delta = increase value.
+            if scroll_delta < 0.0 { 1.0 } else { -1.0 }
+        }
+    };
     let step_size = if modifiers.shift { 0.005 } else { 0.05 };
 
     Some(
@@ -224,60 +232,6 @@ pub fn handle_scroll(
             .scale
             .step_value(current_value, config.min, config.max, direction, step_size),
     )
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn test_config() -> InteractionConfig {
-        InteractionConfig::vertical(0.0, 100.0, Scale::Linear, 100.0)
-    }
-
-    #[test]
-    fn drag_state_round_trips_with_element_id() {
-        let id = ElementId::from("drag-test");
-        let state = DragState {
-            start_pos: 10.0,
-            start_value: 42.0,
-        };
-        store_drag_state(&id, state.start_pos, state.start_value);
-        assert_eq!(get_drag_state(&id), Some(state));
-        clear_drag_state(&id);
-        assert_eq!(get_drag_state(&id), None);
-    }
-
-    #[test]
-    fn handle_drag_respects_threshold() {
-        let config = test_config();
-        let state = DragState {
-            start_pos: 50.0,
-            start_value: 50.0,
-        };
-        // Movement below 2px threshold returns None
-        assert!(handle_drag(51.0, &state, &config).is_none());
-        // Movement above threshold returns a new value
-        assert!(handle_drag(30.0, &state, &config).is_some());
-    }
-
-    #[test]
-    fn handle_keyboard_steps() {
-        let config = test_config();
-        let modifiers = Modifiers::default();
-        let up = handle_keyboard("up", &modifiers, 50.0, &config).unwrap();
-        assert!(up > 50.0);
-        let down = handle_keyboard("down", &modifiers, up, &config).unwrap();
-        assert!(down < up);
-    }
-
-    #[test]
-    fn handle_scroll_changes_value() {
-        let config = test_config();
-        let modifiers = Modifiers::default();
-        let delta = ScrollDelta::Pixels(point(gpui::px(0.0), gpui::px(-10.0)));
-        let new_value = handle_scroll(&delta, &modifiers, 50.0, &config);
-        assert!(new_value.is_some());
-    }
 }
 
 /// Handle drag movement for value adjustment

@@ -14,6 +14,7 @@
 mod button_test;
 mod checkbox_test;
 mod input_test;
+mod interaction_test;
 mod select_test;
 mod slider_test;
 mod toggle_test;

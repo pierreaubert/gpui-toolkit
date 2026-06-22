@@ -69,7 +69,7 @@ impl MiniAppConfig {
         self
     }
 
-    /// Enable theme support with light/dark switching
+    /// Enable theme variant switching
     pub fn with_theme(mut self, enabled: bool) -> Self {
         self.with_theme = enabled;
         self

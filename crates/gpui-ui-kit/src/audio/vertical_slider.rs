@@ -1017,7 +1017,7 @@ impl RenderOnce for VerticalSlider {
                 // Store drag state only if we have a change handler
                 if has_change_handler {
                     let click_pos: f32 = event.position.y.into();
-                    store_drag_state(&drag_key_down, click_pos, current_value_at_click.get());
+                    store_drag_state(drag_key_down.clone(), click_pos, current_value_at_click.get());
                 }
             });
 
@@ -1051,7 +1051,7 @@ impl RenderOnce for VerticalSlider {
 
                 // Mouse up - clear drag state
                 track = track.on_mouse_up(MouseButton::Left, move |_event, _window, _cx| {
-                    clear_drag_state(&drag_key_up);
+                    clear_drag_state(drag_key_up.clone());
                 });
 
                 // Scroll wheel handler on track

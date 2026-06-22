@@ -2,7 +2,7 @@
 //!
 //! Provides a reusable application shell with:
 //! - Standard menu bar with Quit option (Cmd+Q on macOS)
-//! - Theme switching (light/dark) with Cmd+T
+//! - Theme variant switching with Cmd+T
 //! - Language switching menu
 //! - Configurable window title and size
 //! - Builder-backed content layout and design-system defaults
@@ -37,15 +37,6 @@ actions!(
     [
         Quit,
         ToggleTheme,
-        SetThemeDark,
-        SetThemeLight,
-        SetThemeMidnight,
-        SetThemeForest,
-        SetThemeBlackAndWhite,
-        SetDesignNeutral,
-        SetDesignAppleHig,
-        SetDesignMaterial3,
-        SetDesignFluent,
         SetLanguageEnglish,
         SetLanguageFrench,
         SetLanguageGerman,

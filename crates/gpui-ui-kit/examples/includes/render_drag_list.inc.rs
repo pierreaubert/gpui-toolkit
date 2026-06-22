@@ -2,6 +2,7 @@ impl Showcase {
     fn render_drag_list_section(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let section_title = cx.t(TranslationKey::SectionDragList);
         let _theme = cx.theme();
+        let entity = self.entity.clone();
 
         VStack::new()
             .spacing(StackSpacing::Lg)
@@ -12,13 +13,34 @@ impl Showcase {
                 div().w_full().max_w(px(400.0)).child(
                     DragList::new(
                         "drag-vertical",
-                        vec![
-                            DragItem::new("eq", div().child("Parametric EQ")),
-                            DragItem::new("comp", div().child("Compressor")),
-                            DragItem::new("limiter", div().child("Limiter")),
-                            DragItem::new("upmixer", div().child("Upmixer")),
-                        ],
-                    ),
+                        self.drag_vertical_items
+                            .iter()
+                            .map(|id| {
+                                let label = match id.as_ref() {
+                                    "eq" => "Parametric EQ",
+                                    "comp" => "Compressor",
+                                    "limiter" => "Limiter",
+                                    "upmixer" => "Upmixer",
+                                    _ => "Unknown",
+                                };
+                                DragItem::new(id.clone(), div().child(label))
+                            })
+                            .collect(),
+                    )
+                    .on_reorder({
+                        let entity = entity.clone();
+                        move |from, to, _window, cx| {
+                            entity.update(cx, |this, _cx| {
+                                if from < this.drag_vertical_items.len()
+                                    && to < this.drag_vertical_items.len()
+                                    && from != to
+                                {
+                                    let item = this.drag_vertical_items.remove(from);
+                                    this.drag_vertical_items.insert(to, item);
+                                }
+                            });
+                        }
+                    }),
                 ),
             )
             // Horizontal drag list
@@ -26,13 +48,23 @@ impl Showcase {
             .child(
                 DragList::new(
                     "drag-horizontal",
-                    vec![
-                        DragItem::new("h-1", div().child("Track 1")),
-                        DragItem::new("h-2", div().child("Track 2")),
-                        DragItem::new("h-3", div().child("Track 3")),
-                    ],
+                    self.drag_horizontal_items
+                        .iter()
+                        .map(|id| DragItem::new(id.clone(), div().child(id.to_string())))
+                        .collect(),
                 )
-                .orientation(DragListOrientation::Horizontal),
+                .orientation(DragListOrientation::Horizontal)
+                .on_reorder(move |from, to, _window, cx| {
+                    entity.update(cx, |this, _cx| {
+                        if from < this.drag_horizontal_items.len()
+                            && to < this.drag_horizontal_items.len()
+                            && from != to
+                        {
+                            let item = this.drag_horizontal_items.remove(from);
+                            this.drag_horizontal_items.insert(to, item);
+                        }
+                    });
+                }),
             )
     }
 }

@@ -8,8 +8,13 @@
 //! - With handlers
 //! - Full configuration
 
-use gpui::{Context, IntoElement, ParentElement, Render, Styled, TestAppContext, Window, div};
+use gpui::{
+    Context, IntoElement, Modifiers, MouseButton, ParentElement, Render, Styled, TestAppContext,
+    VisualTestContext, Window, div, point, px,
+};
 use gpui_ui_kit::search_bar::{SearchBar, SearchBarSize};
+use std::cell::RefCell;
+use std::rc::Rc;
 
 // ============================================================================
 // Basic Rendering Tests
@@ -179,6 +184,66 @@ async fn test_search_bar_full_config(cx: &mut TestAppContext) {
     }
 
     let _window = cx.add_window(|_window, _cx| FullConfigView);
+}
+
+#[gpui::test]
+async fn test_search_bar_typing_changes_query(cx: &mut TestAppContext) {
+    struct TypingView {
+        query: Rc<RefCell<String>>,
+        changes: Rc<RefCell<Vec<String>>>,
+    }
+
+    impl Render for TypingView {
+        fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+            let query = self.query.clone();
+            let changes = self.changes.clone();
+            let value = query.borrow().clone();
+
+            div().size_full().p_4().child(div().w(px(300.)).child(
+                SearchBar::new("typing-search").value(value).on_change(
+                    move |next, _window, _cx| {
+                        *query.borrow_mut() = next.to_string();
+                        changes.borrow_mut().push(next.to_string());
+                    },
+                ),
+            ))
+        }
+    }
+
+    let query = Rc::new(RefCell::new(String::new()));
+    let changes = Rc::new(RefCell::new(Vec::new()));
+    let window = cx.add_window({
+        let query = query.clone();
+        let changes = changes.clone();
+
+        move |_window, _cx| TypingView { query, changes }
+    });
+
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    cx.run_until_parked();
+
+    let center = cx
+        .debug_bounds("typing-search")
+        .map(|bounds| bounds.center())
+        .unwrap_or_else(|| point(px(150.), px(24.)));
+
+    cx.simulate_mouse_down(center, MouseButton::Left, Modifiers::default());
+    cx.simulate_mouse_up(center, MouseButton::Left, Modifiers::default());
+    cx.run_until_parked();
+
+    cx.simulate_input("eee");
+    cx.run_until_parked();
+
+    assert_eq!(
+        query.borrow().as_str(),
+        "eee",
+        "Typing e e e into SearchBar should update the query; changes: {:?}",
+        changes.borrow().as_slice()
+    );
+    assert!(
+        !changes.borrow().is_empty(),
+        "SearchBar on_change should be called while typing"
+    );
 }
 
 #[gpui::test]

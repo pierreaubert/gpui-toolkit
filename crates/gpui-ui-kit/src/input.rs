@@ -67,12 +67,15 @@ use gpui::prelude::{
     StatefulInteractiveElement, Styled,
 };
 use gpui::{
-    App, AppContext, ClipboardItem, Context, ElementId, Entity, FocusHandle, FontWeight,
-    KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Render, Rgba,
-    SharedString, WeakEntity, Window, div, px,
+    AnyElement, App, AppContext, Bounds, ClipboardItem, Context, DispatchPhase, Element, ElementId,
+    ElementInputHandler, Entity, EntityInputHandler, FocusHandle, FontWeight, GlobalElementId,
+    InspectorElementId, KeyDownEvent, LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent,
+    MouseUpEvent, Pixels, Render, Rgba, SharedString, Subscription, UTF16Selection, WeakEntity,
+    Window, div, px,
 };
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::ops::Range;
 use std::rc::Rc;
 
 thread_local! {
@@ -83,6 +86,9 @@ thread_local! {
 }
 thread_local! {
     static TEXT_ORIGINS: RefCell<HashMap<ElementId, f32>> = RefCell::new(HashMap::new());
+}
+thread_local! {
+    static FOCUS_SUBS: RefCell<HashMap<ElementId, Subscription>> = RefCell::new(HashMap::new());
 }
 thread_local! {
     // Cached render entities so repeated renders reuse the same GPUI entity.
@@ -306,6 +312,103 @@ impl Input {
 }
 
 impl InputEntity {
+    fn char_to_utf16(text: &str, char_idx: usize) -> usize {
+        text.chars().take(char_idx).map(char::len_utf16).sum()
+    }
+
+    fn utf16_to_char(text: &str, utf16_idx: usize) -> usize {
+        let mut utf16_pos = 0;
+        for (char_idx, ch) in text.chars().enumerate() {
+            let next = utf16_pos + ch.len_utf16();
+            if utf16_idx < next {
+                return char_idx;
+            }
+            utf16_pos = next;
+        }
+        text.chars().count()
+    }
+
+    fn char_range_to_string(text: &str, range: Range<usize>) -> String {
+        let char_len = text.chars().count();
+        let start = range.start.min(char_len);
+        let end = range.end.min(char_len).max(start);
+        let start_byte = text
+            .char_indices()
+            .nth(start)
+            .map(|(idx, _)| idx)
+            .unwrap_or(text.len());
+        let end_byte = text
+            .char_indices()
+            .nth(end)
+            .map(|(idx, _)| idx)
+            .unwrap_or(text.len());
+        text[start_byte..end_byte].to_string()
+    }
+
+    fn replace_char_range(state: &mut EditState, range: Range<usize>, text: &str) {
+        let char_len = state.text.chars().count();
+        let start = range.start.min(char_len);
+        let end = range.end.min(char_len).max(start);
+        let start_byte = state
+            .text
+            .char_indices()
+            .nth(start)
+            .map(|(idx, _)| idx)
+            .unwrap_or(state.text.len());
+        let end_byte = state
+            .text
+            .char_indices()
+            .nth(end)
+            .map(|(idx, _)| idx)
+            .unwrap_or(state.text.len());
+
+        state.text.replace_range(start_byte..end_byte, text);
+        state.cursor = start + text.chars().count();
+        state.clear_selection();
+    }
+
+    fn current_selected_char_range(state: &EditState) -> Range<usize> {
+        if let Some((start, end)) = state.selection_range() {
+            start..end
+        } else {
+            state.cursor..state.cursor
+        }
+    }
+
+    fn ensure_editing_state(&mut self) {
+        let mut state = self.edit_state.borrow_mut();
+        if !state.editing {
+            *state = EditState::new(self.props.value.as_ref());
+            state.clear_selection();
+        }
+    }
+
+    fn emit_text_change(&self, text: String, window: &mut Window, cx: &mut App) {
+        if let Some(ref handler) = self.props.on_text_change {
+            handler(text, window, cx);
+        }
+    }
+
+    fn commit_edit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let mut state = self.edit_state.borrow_mut();
+        if !state.editing {
+            return;
+        }
+
+        let text = state.text.clone();
+        state.editing = false;
+        state.clear_selection();
+        drop(state);
+
+        if let Some(ref handler) = self.props.on_change {
+            handler(&text, window, cx);
+        }
+        if let Some(ref handler) = self.props.on_edit_end {
+            handler(Some(text), window, cx);
+        }
+        window.refresh();
+    }
+
     fn handle_mouse_down(
         &mut self,
         event: &MouseDownEvent,
@@ -401,7 +504,7 @@ impl InputEntity {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if !self.focus_handle.is_focused(window) {
+        if !self.focus_handle.is_focused(window) && !self.edit_state.borrow().editing {
             return;
         }
         cx.stop_propagation();
@@ -417,11 +520,12 @@ impl InputEntity {
             state.text = self.props.value.to_string();
             state.editing = true;
             state.cursor = state.text.chars().count();
-            state.selection_anchor = Some(0);
+            state.clear_selection();
         }
 
-        // cmd (macOS) or ctrl (Linux/Windows) clipboard + select-all
-        if cmd || (ctrl && matches!(key, "c" | "x" | "v" | "a")) {
+        // Platform modifier handles clipboard shortcuts and select-all. Keep
+        // ctrl+a available for the Emacs start-of-line binding below.
+        if cmd || (ctrl && matches!(key, "c" | "x" | "v")) {
             match key {
                 "c" => {
                     if let Some(selected) = state.get_selected_text() {
@@ -580,17 +684,9 @@ impl InputEntity {
 
         match key {
             "enter" => {
-                let text = state.text.clone();
-                state.editing = false;
-                state.clear_selection();
                 drop(state);
+                self.commit_edit(window, cx);
                 window.blur();
-                if let Some(ref handler) = self.props.on_change {
-                    handler(&text, window, cx);
-                }
-                if let Some(ref handler) = self.props.on_edit_end {
-                    handler(Some(text), window, cx);
-                }
             }
             "escape" => {
                 state.editing = false;
@@ -677,6 +773,234 @@ impl InputEntity {
     }
 }
 
+impl EntityInputHandler for InputEntity {
+    fn text_for_range(
+        &mut self,
+        range: Range<usize>,
+        adjusted_range: &mut Option<Range<usize>>,
+        _window: &mut Window,
+        _cx: &mut Context<Self>,
+    ) -> Option<String> {
+        let state = self.edit_state.borrow();
+        let start = Self::utf16_to_char(&state.text, range.start);
+        let end = Self::utf16_to_char(&state.text, range.end);
+        let start_byte = state
+            .text
+            .char_indices()
+            .nth(start)
+            .map(|(idx, _)| idx)
+            .unwrap_or(state.text.len());
+        let end_byte = state
+            .text
+            .char_indices()
+            .nth(end)
+            .map(|(idx, _)| idx)
+            .unwrap_or(state.text.len());
+        *adjusted_range =
+            Some(Self::char_to_utf16(&state.text, start)..Self::char_to_utf16(&state.text, end));
+        Some(state.text[start_byte..end_byte].to_string())
+    }
+
+    fn selected_text_range(
+        &mut self,
+        _ignore_disabled_input: bool,
+        _window: &mut Window,
+        _cx: &mut Context<Self>,
+    ) -> Option<UTF16Selection> {
+        if self.props.disabled || self.props.readonly {
+            return None;
+        }
+
+        self.ensure_editing_state();
+        let state = self.edit_state.borrow();
+        let range = Self::current_selected_char_range(&state);
+        Some(UTF16Selection {
+            range: Self::char_to_utf16(&state.text, range.start)
+                ..Self::char_to_utf16(&state.text, range.end),
+            reversed: state
+                .selection_anchor
+                .is_some_and(|anchor| state.cursor < anchor),
+        })
+    }
+
+    fn marked_text_range(
+        &self,
+        _window: &mut Window,
+        _cx: &mut Context<Self>,
+    ) -> Option<Range<usize>> {
+        None
+    }
+
+    fn unmark_text(&mut self, _window: &mut Window, _cx: &mut Context<Self>) {}
+
+    fn replace_text_in_range(
+        &mut self,
+        range: Option<Range<usize>>,
+        text: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.props.disabled || self.props.readonly {
+            return;
+        }
+
+        self.ensure_editing_state();
+        let mut state = self.edit_state.borrow_mut();
+        let range = range
+            .map(|range| {
+                Self::utf16_to_char(&state.text, range.start)
+                    ..Self::utf16_to_char(&state.text, range.end)
+            })
+            .unwrap_or_else(|| Self::current_selected_char_range(&state));
+        Self::replace_char_range(&mut state, range, text);
+        let changed = state.text.clone();
+        drop(state);
+        self.emit_text_change(changed, window, cx);
+        window.refresh();
+    }
+
+    fn replace_and_mark_text_in_range(
+        &mut self,
+        range: Option<Range<usize>>,
+        new_text: &str,
+        new_selected_range: Option<Range<usize>>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.props.disabled || self.props.readonly {
+            return;
+        }
+
+        self.replace_text_in_range(range, new_text, window, cx);
+        if let Some(selected_range) = new_selected_range {
+            let mut state = self.edit_state.borrow_mut();
+            let start = Self::utf16_to_char(&state.text, selected_range.start);
+            let end = Self::utf16_to_char(&state.text, selected_range.end);
+            state.selection_anchor = Some(start);
+            state.cursor = end;
+        }
+    }
+
+    fn bounds_for_range(
+        &mut self,
+        range_utf16: Range<usize>,
+        element_bounds: Bounds<Pixels>,
+        _window: &mut Window,
+        _cx: &mut Context<Self>,
+    ) -> Option<Bounds<Pixels>> {
+        let state = self.edit_state.borrow();
+        let start = Self::utf16_to_char(&state.text, range_utf16.start);
+        let end = Self::utf16_to_char(&state.text, range_utf16.end).max(start);
+        let char_width = 8.0_f32;
+        Some(Bounds {
+            origin: gpui::point(
+                element_bounds.origin.x + px(start as f32 * char_width),
+                element_bounds.origin.y,
+            ),
+            size: gpui::size(
+                px((end - start).max(1) as f32 * char_width),
+                element_bounds.size.height,
+            ),
+        })
+    }
+
+    fn character_index_for_point(
+        &mut self,
+        point: gpui::Point<Pixels>,
+        _window: &mut Window,
+        _cx: &mut Context<Self>,
+    ) -> Option<usize> {
+        let state = self.edit_state.borrow();
+        let char_width = 8.0_f32;
+        let x: f32 = point.x.into();
+        Some(((x / char_width).round().max(0.0) as usize).min(state.text.chars().count()))
+    }
+
+    fn accepts_text_input(&self, _window: &mut Window, _cx: &mut Context<Self>) -> bool {
+        !self.props.disabled && !self.props.readonly
+    }
+}
+
+struct InputElement {
+    child: AnyElement,
+    focus_handle: FocusHandle,
+    entity: Entity<InputEntity>,
+}
+
+impl Element for InputElement {
+    type RequestLayoutState = ();
+    type PrepaintState = ();
+
+    fn id(&self) -> Option<ElementId> {
+        None
+    }
+
+    fn source_location(&self) -> Option<&'static std::panic::Location<'static>> {
+        None
+    }
+
+    fn request_layout(
+        &mut self,
+        _id: Option<&GlobalElementId>,
+        _inspector_id: Option<&InspectorElementId>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> (LayoutId, Self::RequestLayoutState) {
+        (self.child.request_layout(window, cx), ())
+    }
+
+    fn prepaint(
+        &mut self,
+        _id: Option<&GlobalElementId>,
+        _inspector_id: Option<&InspectorElementId>,
+        _bounds: Bounds<Pixels>,
+        _request_layout: &mut Self::RequestLayoutState,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> Self::PrepaintState {
+        window.set_focus_handle(&self.focus_handle, cx);
+        self.child.prepaint(window, cx);
+    }
+
+    fn paint(
+        &mut self,
+        _id: Option<&GlobalElementId>,
+        _inspector_id: Option<&InspectorElementId>,
+        bounds: Bounds<Pixels>,
+        _request_layout: &mut Self::RequestLayoutState,
+        _prepaint: &mut Self::PrepaintState,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        let entity = self.entity.clone();
+        let focus_handle = self.focus_handle.clone();
+        window.on_mouse_event(move |event: &MouseDownEvent, phase, window, cx| {
+            if phase == DispatchPhase::Capture
+                && focus_handle.is_focused(window)
+                && !bounds.contains(&event.position)
+            {
+                entity.update(cx, |model, cx| {
+                    model.commit_edit(window, cx);
+                });
+            }
+        });
+        window.handle_input(
+            &self.focus_handle,
+            ElementInputHandler::new(bounds, self.entity.clone()),
+            cx,
+        );
+        self.child.paint(window, cx);
+    }
+}
+
+impl IntoElement for InputElement {
+    type Element = Self;
+
+    fn into_element(self) -> Self::Element {
+        self
+    }
+}
+
 impl Render for InputEntity {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let props = &self.props;
@@ -751,10 +1075,12 @@ impl Render for InputEntity {
         }
 
         let field_id = ElementId::from((props.id.clone(), "field"));
+        let input_debug_id = props.id.to_string();
 
         // Input wrapper
         let mut input_wrapper = div()
             .id(props.id.clone())
+            .debug_selector(move || input_debug_id)
             .font_family(global_theme.font_family.clone())
             .track_focus(&self.focus_handle)
             .flex()
@@ -866,37 +1192,48 @@ impl Render for InputEntity {
                 (cursor_pos, cursor_pos)
             };
 
-            text_el = text_el
-                .relative()
-                .text_color(text_color)
-                .child(display_text.clone());
-
-            let char_width = 8.0_f32;
+            text_el = text_el.text_color(text_color).whitespace_nowrap();
 
             if sel_start != sel_end {
-                let sel_left = char_width * sel_start as f32;
-                let sel_width = char_width * (sel_end - sel_start) as f32;
+                let text = display_text.to_string();
+                let before = Self::char_range_to_string(&text, 0..sel_start);
+                let selected = Self::char_range_to_string(&text, sel_start..sel_end);
+                let after = Self::char_range_to_string(&text, sel_end..len);
+
+                if !before.is_empty() {
+                    text_el = text_el.child(before);
+                }
+                text_el = text_el.child(div().bg(selection_bg).child(selected));
+                if !after.is_empty() {
+                    text_el = text_el.child(after);
+                }
+            } else {
+                let text = display_text.to_string();
+                let before = Self::char_range_to_string(&text, 0..cursor_pos);
+                let after = Self::char_range_to_string(&text, cursor_pos..len);
+                let cursor_debug_id = format!("{}-cursor", props.id);
+                let cursor_height = match props.size {
+                    InputSize::Xs => px(14.0),
+                    InputSize::Sm => px(14.0),
+                    InputSize::Md => px(20.0),
+                    InputSize::Lg => px(24.0),
+                };
+
+                if !before.is_empty() {
+                    text_el = text_el.child(before);
+                }
                 text_el = text_el.child(
                     div()
-                        .absolute()
-                        .left(px(sel_left))
-                        .top_0()
-                        .bottom_0()
-                        .w(px(sel_width))
-                        .bg(selection_bg),
+                        .debug_selector(move || cursor_debug_id)
+                        .flex_none()
+                        .w(px(1.5))
+                        .h(cursor_height)
+                        .bg(cursor_color),
                 );
+                if !after.is_empty() {
+                    text_el = text_el.child(after);
+                }
             }
-
-            let cursor_left = char_width * cursor_pos as f32;
-            text_el = text_el.child(
-                div()
-                    .absolute()
-                    .left(px(cursor_left))
-                    .top_0()
-                    .bottom_0()
-                    .w(px(1.5))
-                    .bg(cursor_color),
-            );
         } else if props.value.is_empty() {
             text_el = text_el.text_color(placeholder_color).child(display_text);
         } else {
@@ -932,7 +1269,7 @@ pub struct InputEntity {
 }
 
 impl RenderOnce for Input {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let id = self.id.clone();
         let focus_handle = self.focus_handle.clone().unwrap_or_else(|| {
             FOCUS_HANDLES.with(|handles| {
@@ -967,14 +1304,34 @@ impl RenderOnce for Input {
             map.insert(id.clone(), entity.downgrade());
             entity
         });
+
+        FOCUS_SUBS.with(|subs| {
+            let mut subs = subs.borrow_mut();
+            if !subs.contains_key(&id) {
+                let entity_weak = entity.downgrade();
+                let sub = window.on_focus_out(&focus_handle, cx, move |_event, window, cx| {
+                    if let Some(entity) = entity_weak.upgrade() {
+                        entity.update(cx, |model, cx| {
+                            model.commit_edit(window, cx);
+                        });
+                    }
+                });
+                subs.insert(id.clone(), sub);
+            }
+        });
+
         entity.update(cx, |model, _cx| {
             model.props = self;
             // Keep the persistent focus handle/edit state in sync with any
             // explicit ones provided on the builder.
-            model.focus_handle = focus_handle;
+            model.focus_handle = focus_handle.clone();
             model.edit_state = edit_state;
         });
-        entity
+        InputElement {
+            child: entity.clone().into_any_element(),
+            focus_handle,
+            entity,
+        }
     }
 }
 

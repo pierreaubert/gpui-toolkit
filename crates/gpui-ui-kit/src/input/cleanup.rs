@@ -2,6 +2,7 @@
 
 use super::EDIT_STATES;
 use super::FOCUS_HANDLES;
+use super::FOCUS_SUBS;
 use gpui::ElementId;
 
 /// Clean up thread-local state for an Input element.
@@ -20,6 +21,9 @@ pub fn cleanup_input_state(id: &ElementId) {
     });
     EDIT_STATES.with(|states| {
         states.borrow_mut().remove(id);
+    });
+    FOCUS_SUBS.with(|subs| {
+        subs.borrow_mut().remove(id);
     });
 }
 
@@ -47,5 +51,8 @@ pub fn cleanup_stale_input_states(retained_ids: &std::collections::HashSet<Eleme
         states
             .borrow_mut()
             .retain(|id, _| retained_ids.contains(id));
+    });
+    FOCUS_SUBS.with(|subs| {
+        subs.borrow_mut().retain(|id, _| retained_ids.contains(id));
     });
 }

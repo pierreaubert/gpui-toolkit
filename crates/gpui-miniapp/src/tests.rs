@@ -4,12 +4,34 @@ use super::mini_app::MiniApp;
 use super::mini_app_config::MiniAppConfig;
 use super::mini_app_shell::MiniAppShell;
 use super::misc::current_platform;
+use gpui::{Menu, MenuItem};
+use gpui_design::DesignLanguage;
 use gpui_ui_kit::i18n::Language;
 use gpui_ui_kit::theme::ThemeVariant;
 
 // ========================================================================
 // Basic Configuration Tests
 // ========================================================================
+
+fn find_submenu<'a>(menu: &'a Menu, name: &str) -> &'a Menu {
+    menu.items
+        .iter()
+        .find_map(|item| match item {
+            MenuItem::Submenu(submenu) if submenu.name.as_ref() == name => Some(submenu),
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("{name} submenu should exist"))
+}
+
+fn action_names(items: &[MenuItem]) -> Vec<&str> {
+    items
+        .iter()
+        .filter_map(|item| match item {
+            MenuItem::Action { name, .. } => Some(name.as_ref()),
+            _ => None,
+        })
+        .collect()
+}
 
 #[test]
 fn test_config_new() {
@@ -345,6 +367,21 @@ fn test_build_menus_with_language_basic() {
     assert_eq!(menus[0].name.as_ref(), "Menu Test");
     assert_eq!(menus[1].name.as_ref(), "View");
     assert_eq!(menus[2].name.as_ref(), "Language");
+
+    let theme_menu = find_submenu(&menus[1], "Theme");
+    let expected_theme_names = ThemeVariant::all()
+        .iter()
+        .map(ThemeVariant::name)
+        .chain(["Toggle Theme  Cmd+T"])
+        .collect::<Vec<_>>();
+    assert_eq!(action_names(&theme_menu.items), expected_theme_names);
+
+    let design_menu = find_submenu(&menus[1], "Design System");
+    let expected_design_names = DesignLanguage::all()
+        .iter()
+        .map(DesignLanguage::label)
+        .collect::<Vec<_>>();
+    assert_eq!(action_names(&design_menu.items), expected_design_names);
 
     let no_i18n = MiniApp::build_menus_with_language(
         &MiniAppConfig::new("Menu Test").with_theme(true),

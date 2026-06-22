@@ -397,7 +397,8 @@ impl Showcase {
                                                 let entity = entity.clone();
                                                 move |value, _window, cx| {
                                                     entity.update(cx, |showcase, _cx| {
-                                                        showcase.buttonset_view_mode = value.clone();
+                                                        showcase.buttonset_view_mode =
+                                                            value.clone();
                                                     });
                                                 }
                                             }),
@@ -407,7 +408,9 @@ impl Showcase {
                             .child(
                                 VStack::new()
                                     .spacing(StackSpacing::Xs)
-                                    .child(Text::new("Alignment (Sm):").size(TextSize::Xs).muted(true))
+                                    .child(
+                                        Text::new("Alignment (Sm):").size(TextSize::Xs).muted(true),
+                                    )
                                     .child(
                                         ButtonSet::new("alignment")
                                             .options(vec![
@@ -421,7 +424,8 @@ impl Showcase {
                                                 let entity = entity.clone();
                                                 move |value, _window, cx| {
                                                     entity.update(cx, |showcase, _cx| {
-                                                        showcase.buttonset_alignment = value.clone();
+                                                        showcase.buttonset_alignment =
+                                                            value.clone();
                                                     });
                                                 }
                                             }),
@@ -438,15 +442,26 @@ impl Showcase {
                                                 ButtonSetOption::new("on", "ON"),
                                                 ButtonSetOption::new("off", "OFF"),
                                             ])
-                                            .selected("on")
-                                            .size(ButtonSetSize::Lg),
+                                            .selected(self.buttonset_toggle_lg.clone())
+                                            .size(ButtonSetSize::Lg)
+                                            .on_change({
+                                                let entity = entity.clone();
+                                                move |value, _window, cx| {
+                                                    entity.update(cx, |showcase, _cx| {
+                                                        showcase.buttonset_toggle_lg =
+                                                            value.clone();
+                                                    });
+                                                }
+                                            }),
                                     ),
                             )
                             // Disabled option example
                             .child(
                                 VStack::new()
                                     .spacing(StackSpacing::Xs)
-                                    .child(Text::new("With disabled:").size(TextSize::Xs).muted(true))
+                                    .child(
+                                        Text::new("With disabled:").size(TextSize::Xs).muted(true),
+                                    )
                                     .child(
                                         ButtonSet::new("disabled-demo")
                                             .options(vec![
@@ -454,8 +469,17 @@ impl Showcase {
                                                 ButtonSetOption::new("b", "B").disabled(true),
                                                 ButtonSetOption::new("c", "C"),
                                             ])
-                                            .selected("a")
-                                            .size(ButtonSetSize::Md),
+                                            .selected(self.buttonset_disabled_demo.clone())
+                                            .size(ButtonSetSize::Md)
+                                            .on_change({
+                                                let entity = entity.clone();
+                                                move |value, _window, cx| {
+                                                    entity.update(cx, |showcase, _cx| {
+                                                        showcase.buttonset_disabled_demo =
+                                                            value.clone();
+                                                    });
+                                                }
+                                            }),
                                     ),
                             ),
                     ),
@@ -571,7 +595,7 @@ impl Showcase {
                                             .size(TextSize::Xs)
                                             .muted(true),
                                     ),
-                            )
+                            ),
                     ),
             )
     }

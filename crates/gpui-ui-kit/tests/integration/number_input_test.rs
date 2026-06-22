@@ -24,6 +24,7 @@ mod disabled_callback_test_view;
 mod global_shortcut_view;
 mod number_input_button_test_view;
 mod number_input_change_test_view;
+mod number_input_debug_regression_test;
 mod number_input_edit_test_view;
 mod number_input_test_view;
 mod test;

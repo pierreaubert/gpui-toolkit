@@ -102,6 +102,8 @@ pub struct Showcase {
     // ButtonSet states
     buttonset_view_mode: SharedString,
     buttonset_alignment: SharedString,
+    buttonset_toggle_lg: SharedString,
+    buttonset_disabled_demo: SharedString,
     // Tabs state
     selected_tab: usize,
     // Accordion states
@@ -126,6 +128,16 @@ pub struct Showcase {
     pane_dragging_left: bool,
     pane_drag_start_x: f32,
     pane_drag_start_width: f32,
+    // Search bar state
+    search_bar_value: SharedString,
+    // Drag list state
+    drag_vertical_items: Vec<SharedString>,
+    drag_horizontal_items: Vec<SharedString>,
+    // Settings/accessibility demo state
+    settings_mute: bool,
+    accessibility_terms: bool,
+    accessibility_dark: bool,
+    accessibility_volume: f32,
     // Animated QR codes
     animated_qr_tiny: Entity<AnimatedQrCode>,
     animated_qr_small: Entity<AnimatedQrCode>,
@@ -173,6 +185,8 @@ impl Showcase {
             select_highlighted: None,
             buttonset_view_mode: "grid".into(),
             buttonset_alignment: "center".into(),
+            buttonset_toggle_lg: "on".into(),
+            buttonset_disabled_demo: "a".into(),
             selected_tab: 0,
             accordion_vertical_single: vec!["v-single-1".into()],
             accordion_vertical_multiple: vec!["v-multi-1".into(), "v-multi-2".into()],
@@ -235,6 +249,18 @@ impl Showcase {
             pane_dragging_left: false,
             pane_drag_start_x: 0.0,
             pane_drag_start_width: 0.0,
+            search_bar_value: "Beethoven".into(),
+            drag_vertical_items: vec![
+                "eq".into(),
+                "comp".into(),
+                "limiter".into(),
+                "upmixer".into(),
+            ],
+            drag_horizontal_items: vec!["Track 1".into(), "Track 2".into(), "Track 3".into()],
+            settings_mute: false,
+            accessibility_terms: true,
+            accessibility_dark: true,
+            accessibility_volume: 75.0,
             animated_qr_tiny,
             animated_qr_small,
             tooltip_hovered: None,

@@ -52,7 +52,7 @@ reqwest = { version = "0.13", features = ["json"] }
 clap = { version = "4.5", features = ["derive"] }
 delaunator = "1.0"
 env_logger = "0.11"
-log = "0.4"
+log = "0.4.28"
 parking_lot = { version = "0.12", features = ["deadlock_detection"] }
 raw-window-handle = "0.6"
 regex = "1.12"
@@ -97,7 +97,7 @@ wgpu = { version = "29.0.0", git = "https://github.com/zed-industries/wgpu.git",
 
 # Utilities
 approx = "0.5"
-criterion = "0.5"
+criterion = "0.8.1"
 proptest = "1.9"
 unicode-normalization = "0.1"
 toml = "0.8"

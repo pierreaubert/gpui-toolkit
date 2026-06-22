@@ -1,6 +1,7 @@
 impl Showcase {
     fn render_search_bar_section(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let section_title = cx.t(TranslationKey::SectionSearchBar);
+        let entity = self.entity.clone();
 
         VStack::new()
             .spacing(StackSpacing::Lg)
@@ -53,15 +54,19 @@ impl Showcase {
             // With value
             .child(Text::new("With value:").weight(TextWeight::Semibold))
             .child(
-                VStack::new()
-                    .spacing(StackSpacing::Md)
-                    .child(
-                        div().w(px(300.0)).child(
-                            SearchBar::new("search-with-value")
-                                .size(SearchBarSize::Md)
-                                .value("Beethoven"),
-                        ),
+                VStack::new().spacing(StackSpacing::Md).child(
+                    div().w(px(300.0)).child(
+                        SearchBar::new("search-with-value")
+                            .size(SearchBarSize::Md)
+                            .value(self.search_bar_value.clone())
+                            .on_change(move |query, _window, cx| {
+                                let query = SharedString::from(query.to_string());
+                                entity.update(cx, |this, _cx| {
+                                    this.search_bar_value = query;
+                                });
+                            }),
                     ),
+                ),
             )
     }
 }

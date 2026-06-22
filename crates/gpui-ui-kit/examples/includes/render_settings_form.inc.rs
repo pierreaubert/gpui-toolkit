@@ -2,6 +2,7 @@ impl Showcase {
     fn render_settings_form_section(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let section_title = cx.t(TranslationKey::SectionSettingsForm);
         let theme = cx.theme();
+        let entity = self.entity.clone();
 
         VStack::new()
             .spacing(StackSpacing::Lg)
@@ -26,7 +27,15 @@ impl Showcase {
                             .row(
                                 SettingsRow::new("Mute")
                                     .description("Mute all audio output")
-                                    .control(Toggle::new("settings-mute")),
+                                    .control(
+                                        Toggle::new("settings-mute")
+                                            .checked(self.settings_mute)
+                                            .on_change(move |checked, _window, cx| {
+                                                entity.update(cx, |this, _cx| {
+                                                    this.settings_mute = checked;
+                                                });
+                                            }),
+                                    ),
                             )
                             .section("Display")
                             .row(

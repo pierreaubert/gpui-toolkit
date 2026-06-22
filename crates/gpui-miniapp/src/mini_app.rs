@@ -4,24 +4,92 @@ use super::mini_app_config::MiniAppConfig;
 use super::mini_app_shell::MiniAppShell;
 use super::misc::current_platform;
 use crate::{
-    Quit, SetDesignAppleHig, SetDesignFluent, SetDesignMaterial3, SetDesignNeutral,
-    SetLanguageEnglish, SetLanguageFrench, SetLanguageGerman, SetLanguageJapanese,
-    SetLanguageSpanish, SetThemeBlackAndWhite, SetThemeDark, SetThemeForest, SetThemeLight,
-    SetThemeMidnight, ToggleTheme,
+    Quit, SetLanguageEnglish, SetLanguageFrench, SetLanguageGerman, SetLanguageJapanese,
+    SetLanguageSpanish, ToggleTheme,
 };
 use gpui::*;
-use gpui_design::{DesignSystem, DesignSystemState};
+use gpui_design::{DesignLanguage, DesignSystem, DesignSystemState};
 use gpui_ui_kit::accessibility::AccessibilityTree;
 use gpui_ui_kit::i18n::{I18nState, Language};
 use gpui_ui_kit::theme::{ThemeState, ThemeVariant};
 use std::rc::Rc;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct SetThemeVariant {
+    variant: ThemeVariant,
+}
+
+impl Action for SetThemeVariant {
+    fn boxed_clone(&self) -> Box<dyn Action> {
+        Box::new(*self)
+    }
+
+    fn partial_eq(&self, action: &dyn Action) -> bool {
+        action.as_any().downcast_ref::<Self>() == Some(self)
+    }
+
+    fn name(&self) -> &'static str {
+        Self::name_for_type()
+    }
+
+    fn name_for_type() -> &'static str
+    where
+        Self: Sized,
+    {
+        "miniapp::SetThemeVariant"
+    }
+
+    fn build(
+        _value: gpui::private::serde_json::Value,
+    ) -> gpui::private::anyhow::Result<Box<dyn Action>>
+    where
+        Self: Sized,
+    {
+        gpui::private::anyhow::bail!("SetThemeVariant is only constructed by MiniApp menus")
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct SetDesignLanguage {
+    language: DesignLanguage,
+}
+
+impl Action for SetDesignLanguage {
+    fn boxed_clone(&self) -> Box<dyn Action> {
+        Box::new(*self)
+    }
+
+    fn partial_eq(&self, action: &dyn Action) -> bool {
+        action.as_any().downcast_ref::<Self>() == Some(self)
+    }
+
+    fn name(&self) -> &'static str {
+        Self::name_for_type()
+    }
+
+    fn name_for_type() -> &'static str
+    where
+        Self: Sized,
+    {
+        "miniapp::SetDesignLanguage"
+    }
+
+    fn build(
+        _value: gpui::private::serde_json::Value,
+    ) -> gpui::private::anyhow::Result<Box<dyn Action>>
+    where
+        Self: Sized,
+    {
+        gpui::private::anyhow::bail!("SetDesignLanguage is only constructed by MiniApp menus")
+    }
+}
 
 /// MiniApp provides a minimal application shell for GPUI examples and showcases
 ///
 /// It handles:
 /// - Application lifecycle
 /// - Standard menu bar with Quit option
-/// - Theme switching (light/dark) with menu and Cmd+T
+/// - Theme variant switching with menu and Cmd+T
 /// - Language switching menu
 /// - Window creation with configurable size
 /// - Keyboard shortcut binding (Cmd+Q to quit)
@@ -96,58 +164,14 @@ impl MiniApp {
                     cx.refresh_windows();
                 });
 
-                cx.on_action::<SetThemeDark>(|_action, cx| {
-                    cx.update_global::<ThemeState, _>(|state, _cx| {
-                        state.set_variant(ThemeVariant::Dark);
-                    });
-                    cx.refresh_windows();
-                });
-
-                cx.on_action::<SetThemeLight>(|_action, cx| {
-                    cx.update_global::<ThemeState, _>(|state, _cx| {
-                        state.set_variant(ThemeVariant::Light);
-                    });
-                    cx.refresh_windows();
-                });
-
-                cx.on_action::<SetThemeMidnight>(|_action, cx| {
-                    cx.update_global::<ThemeState, _>(|state, _cx| {
-                        state.set_variant(ThemeVariant::Midnight);
-                    });
-                    cx.refresh_windows();
-                });
-
-                cx.on_action::<SetThemeForest>(|_action, cx| {
-                    cx.update_global::<ThemeState, _>(|state, _cx| {
-                        state.set_variant(ThemeVariant::Forest);
-                    });
-                    cx.refresh_windows();
-                });
-
-                cx.on_action::<SetThemeBlackAndWhite>(|_action, cx| {
-                    cx.update_global::<ThemeState, _>(|state, _cx| {
-                        state.set_variant(ThemeVariant::BlackAndWhite);
-                    });
-                    cx.refresh_windows();
+                cx.on_action::<SetThemeVariant>(|action, cx| {
+                    Self::set_theme_variant(cx, action.variant);
                 });
             }
 
             // Register design system actions
-            cx.on_action::<SetDesignNeutral>(|_action, cx| {
-                cx.set_global(DesignSystemState::with_system(DesignSystem::neutral()));
-                cx.refresh_windows();
-            });
-            cx.on_action::<SetDesignAppleHig>(|_action, cx| {
-                cx.set_global(DesignSystemState::with_system(DesignSystem::apple_hig()));
-                cx.refresh_windows();
-            });
-            cx.on_action::<SetDesignMaterial3>(|_action, cx| {
-                cx.set_global(DesignSystemState::with_system(DesignSystem::material3()));
-                cx.refresh_windows();
-            });
-            cx.on_action::<SetDesignFluent>(|_action, cx| {
-                cx.set_global(DesignSystemState::with_system(DesignSystem::fluent()));
-                cx.refresh_windows();
+            cx.on_action::<SetDesignLanguage>(|action, cx| {
+                Self::set_design_language(cx, action.language);
             });
 
             // Register language actions if enabled
@@ -288,30 +312,29 @@ impl MiniApp {
             let mut view_items = Vec::new();
 
             if config.with_theme {
+                let mut theme_items = ThemeVariant::all()
+                    .iter()
+                    .copied()
+                    .map(Self::theme_menu_item)
+                    .collect::<Vec<_>>();
+                theme_items.push(MenuItem::separator());
+                theme_items.push(MenuItem::action("Toggle Theme  Cmd+T", ToggleTheme));
+
                 view_items.push(MenuItem::submenu(Menu {
                     name: "Theme".into(),
                     disabled: false,
-                    items: vec![
-                        MenuItem::action("Dark", SetThemeDark),
-                        MenuItem::action("Light", SetThemeLight),
-                        MenuItem::action("Midnight", SetThemeMidnight),
-                        MenuItem::action("Forest", SetThemeForest),
-                        MenuItem::action("Black & White", SetThemeBlackAndWhite),
-                        MenuItem::separator(),
-                        MenuItem::action("Toggle Theme  Cmd+T", ToggleTheme),
-                    ],
+                    items: theme_items,
                 }));
             }
 
             view_items.push(MenuItem::submenu(Menu {
                 name: "Design System".into(),
                 disabled: false,
-                items: vec![
-                    MenuItem::action("Neutral", SetDesignNeutral),
-                    MenuItem::action("Apple HIG", SetDesignAppleHig),
-                    MenuItem::action("Material 3", SetDesignMaterial3),
-                    MenuItem::action("Fluent", SetDesignFluent),
-                ],
+                items: DesignLanguage::all()
+                    .iter()
+                    .copied()
+                    .map(Self::design_menu_item)
+                    .collect(),
             }));
 
             menus.push(Menu {
@@ -346,6 +369,28 @@ impl MiniApp {
         }
 
         menus
+    }
+
+    fn theme_menu_item(variant: ThemeVariant) -> MenuItem {
+        MenuItem::action(variant.name(), SetThemeVariant { variant })
+    }
+
+    fn design_menu_item(language: DesignLanguage) -> MenuItem {
+        MenuItem::action(language.label(), SetDesignLanguage { language })
+    }
+
+    fn set_theme_variant(cx: &mut App, variant: ThemeVariant) {
+        cx.update_global::<ThemeState, _>(|state, _cx| {
+            state.set_variant(variant);
+        });
+        cx.refresh_windows();
+    }
+
+    fn set_design_language(cx: &mut App, language: DesignLanguage) {
+        cx.set_global(DesignSystemState::with_system(DesignSystem::for_language(
+            language,
+        )));
+        cx.refresh_windows();
     }
 
     /// Run a MiniApp with default configuration

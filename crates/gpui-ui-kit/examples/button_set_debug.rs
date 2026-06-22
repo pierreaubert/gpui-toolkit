@@ -12,11 +12,17 @@ use gpui_ui_kit::*;
 
 pub struct ButtonSetDebug {
     selected: SharedString,
+    xs_selected: SharedString,
+    sm_selected: SharedString,
+    lg_selected: SharedString,
+    toggle_selected: SharedString,
+    entity: Entity<Self>,
 }
 
 impl Render for ButtonSetDebug {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
+        let entity = self.entity.clone();
 
         div()
             .id("button-set-debug-root")
@@ -44,7 +50,15 @@ impl Render for ButtonSetDebug {
                                 ButtonSetOption::new("surround", "5.0 Surround"),
                                 ButtonSetOption::new("atmos", "Atmos"),
                             ])
-                            .selected(self.selected.clone()),
+                            .selected(self.selected.clone())
+                            .on_change({
+                                let entity = entity.clone();
+                                move |value, _window, cx| {
+                                    entity.update(cx, |this, _cx| {
+                                        this.selected = value.clone();
+                                    });
+                                }
+                            }),
                     ),
             )
             // Sizes
@@ -61,8 +75,16 @@ impl Render for ButtonSetDebug {
                                 ButtonSetOption::new("b", "B"),
                                 ButtonSetOption::new("c", "C"),
                             ])
-                            .selected(SharedString::from("a"))
-                            .size(ButtonSetSize::Xs),
+                            .selected(self.xs_selected.clone())
+                            .size(ButtonSetSize::Xs)
+                            .on_change({
+                                let entity = entity.clone();
+                                move |value, _window, cx| {
+                                    entity.update(cx, |this, _cx| {
+                                        this.xs_selected = value.clone();
+                                    });
+                                }
+                            }),
                     )
                     .child(
                         ButtonSet::new("bset-sm")
@@ -71,8 +93,16 @@ impl Render for ButtonSetDebug {
                                 ButtonSetOption::new("b", "B"),
                                 ButtonSetOption::new("c", "C"),
                             ])
-                            .selected(SharedString::from("b"))
-                            .size(ButtonSetSize::Sm),
+                            .selected(self.sm_selected.clone())
+                            .size(ButtonSetSize::Sm)
+                            .on_change({
+                                let entity = entity.clone();
+                                move |value, _window, cx| {
+                                    entity.update(cx, |this, _cx| {
+                                        this.sm_selected = value.clone();
+                                    });
+                                }
+                            }),
                     )
                     .child(
                         ButtonSet::new("bset-lg")
@@ -81,8 +111,32 @@ impl Render for ButtonSetDebug {
                                 ButtonSetOption::new("b", "B"),
                                 ButtonSetOption::new("c", "C"),
                             ])
-                            .selected(SharedString::from("c"))
-                            .size(ButtonSetSize::Lg),
+                            .selected(self.lg_selected.clone())
+                            .size(ButtonSetSize::Lg)
+                            .on_change({
+                                let entity = entity.clone();
+                                move |value, _window, cx| {
+                                    entity.update(cx, |this, _cx| {
+                                        this.lg_selected = value.clone();
+                                    });
+                                }
+                            }),
+                    )
+                    .child(
+                        ButtonSet::new("bset-toggle")
+                            .options(vec![
+                                ButtonSetOption::new("on", "On"),
+                                ButtonSetOption::new("off", "Off"),
+                            ])
+                            .selected(self.toggle_selected.clone())
+                            .on_change({
+                                let entity = entity.clone();
+                                move |value, _window, cx| {
+                                    entity.update(cx, |this, _cx| {
+                                        this.toggle_selected = value.clone();
+                                    });
+                                }
+                            }),
                     ),
             )
             // Disabled
@@ -114,6 +168,11 @@ fn main() {
         |cx| {
             cx.new(|_cx| ButtonSetDebug {
                 selected: "stereo".into(),
+                xs_selected: "a".into(),
+                sm_selected: "b".into(),
+                lg_selected: "c".into(),
+                toggle_selected: "on".into(),
+                entity: _cx.entity().clone(),
             })
         },
     );

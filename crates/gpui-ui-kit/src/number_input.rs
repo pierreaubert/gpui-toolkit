@@ -52,9 +52,10 @@ use gpui::prelude::{
     StatefulInteractiveElement, Styled,
 };
 use gpui::{
-    AnyElement, App, AppContext, ClipboardItem, Context, ElementId, Entity, FocusHandle,
-    FontWeight, KeyDownEvent, MouseButton, MouseDownEvent, Render, SharedString, Subscription,
-    WeakEntity, Window, div, px, rgba,
+    AnyElement, App, AppContext, Bounds, ClipboardItem, Context, DispatchPhase, Element, ElementId,
+    Entity, FocusHandle, FontWeight, GlobalElementId, InspectorElementId, KeyDownEvent, LayoutId,
+    MouseButton, MouseDownEvent, MouseUpEvent, Pixels, Render, ScrollDelta, ScrollWheelEvent,
+    SharedString, Subscription, WeakEntity, Window, div, px, rgba,
 };
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -296,32 +297,26 @@ impl NumberInput {
 }
 
 impl NumberInputEntity {
-    fn handle_dec_click(
-        &mut self,
-        _event: &MouseDownEvent,
-        window: &mut Window,
-        _cx: &mut Context<Self>,
-    ) {
-        window.blur();
-        if let Some(ref handler) = self.props.on_change {
-            let new_value =
-                (self.props.value - self.props.step).clamp(self.props.min, self.props.max);
-            handler(new_value, window, _cx);
+    fn emit_change(&mut self, value: f64, window: &mut Window, cx: &mut Context<Self>) {
+        self.props.value = value;
+        let handler = self.props.on_change.clone();
+        if let Some(handler) = handler {
+            handler(value, window, cx);
         }
+        cx.notify();
+        window.refresh();
     }
 
-    fn handle_inc_click(
-        &mut self,
-        _event: &MouseDownEvent,
-        window: &mut Window,
-        _cx: &mut Context<Self>,
-    ) {
+    fn handle_dec_click(&mut self, window: &mut Window, _cx: &mut Context<Self>) {
         window.blur();
-        if let Some(ref handler) = self.props.on_change {
-            let new_value =
-                (self.props.value + self.props.step).clamp(self.props.min, self.props.max);
-            handler(new_value, window, _cx);
-        }
+        let new_value = (self.props.value - self.props.step).clamp(self.props.min, self.props.max);
+        self.emit_change(new_value, window, _cx);
+    }
+
+    fn handle_inc_click(&mut self, window: &mut Window, _cx: &mut Context<Self>) {
+        window.blur();
+        let new_value = (self.props.value + self.props.step).clamp(self.props.min, self.props.max);
+        self.emit_change(new_value, window, _cx);
     }
 
     fn handle_value_click(
@@ -368,6 +363,8 @@ impl NumberInputEntity {
         window: &mut Window,
         _cx: &mut Context<Self>,
     ) {
+        _cx.stop_propagation();
+
         let key = event.keystroke.key.as_str();
         let ctrl = event.keystroke.modifiers.control;
         let cmd = event.keystroke.modifiers.platform;
@@ -376,6 +373,17 @@ impl NumberInputEntity {
         let mut state = self.edit_state.borrow_mut();
 
         if state.editing {
+            if matches!(key, "up" | "down") {
+                let new_value = if key == "up" {
+                    (self.props.value + self.props.step).clamp(self.props.min, self.props.max)
+                } else {
+                    (self.props.value - self.props.step).clamp(self.props.min, self.props.max)
+                };
+                drop(state);
+                self.emit_change(new_value, window, _cx);
+                return;
+            }
+
             if cmd || (ctrl && matches!(key, "c" | "x" | "v" | "a")) {
                 match key {
                     "a" => {
@@ -472,12 +480,9 @@ impl NumberInputEntity {
 
                     window.blur();
 
-                    if let Some(ref handler) = self.props.on_change
-                        && let Some(value) = parsed
-                    {
-                        handler(value, window, _cx);
+                    if let Some(value) = parsed {
+                        self.emit_change(value, window, _cx);
                     }
-                    window.refresh();
                 }
                 "escape" => {
                     state.editing = false;
@@ -537,12 +542,33 @@ impl NumberInputEntity {
             };
             drop(state);
 
-            if let Some(v) = new_value
-                && let Some(ref handler) = self.props.on_change
-            {
-                handler(v, window, _cx);
+            if let Some(value) = new_value {
+                self.emit_change(value, window, _cx);
             }
         }
+    }
+
+    fn handle_scroll_wheel(
+        &mut self,
+        event: &ScrollWheelEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        cx.stop_propagation();
+
+        let delta_y: f32 = match event.delta {
+            ScrollDelta::Pixels(point) => point.y.into(),
+            ScrollDelta::Lines(point) => point.y,
+        };
+
+        if delta_y.abs() < 0.0001 {
+            return;
+        }
+
+        let direction = if delta_y < 0.0 { 1.0 } else { -1.0 };
+        let new_value =
+            (self.props.value + self.props.step * direction).clamp(self.props.min, self.props.max);
+        self.emit_change(new_value, window, cx);
     }
 
     fn handle_blur(&mut self, window: &mut Window, _cx: &mut Context<Self>) {
@@ -559,12 +585,9 @@ impl NumberInputEntity {
             state.text_selected = false;
             drop(state);
 
-            if let Some(ref handler) = self.props.on_change
-                && let Some(value) = parsed
-            {
-                handler(value, window, _cx);
+            if let Some(value) = parsed {
+                self.emit_change(value, window, _cx);
             }
-            window.refresh();
         }
     }
 
@@ -633,6 +656,10 @@ impl Render for NumberInputEntity {
         let dec_id = ElementId::from((props.id.clone(), "dec"));
         let value_id = ElementId::from((props.id.clone(), "value"));
         let inc_id = ElementId::from((props.id.clone(), "inc"));
+        let input_debug_id = props.id.to_string();
+        let dec_debug_id = dec_id.to_string();
+        let value_debug_id = value_id.to_string();
+        let inc_debug_id = inc_id.to_string();
 
         let mut container = div().flex().flex_col().gap_1();
 
@@ -650,6 +677,7 @@ impl Render for NumberInputEntity {
         // Input row: [−] [value] [+]
         let mut input_row = div()
             .id(props.id.clone())
+            .debug_selector(move || input_debug_id)
             .flex()
             .items_center()
             .h(px(height))
@@ -669,6 +697,12 @@ impl Render for NumberInputEntity {
 
         if disabled {
             input_row = input_row.opacity(theme.disabled_opacity);
+        } else {
+            input_row = input_row.on_scroll_wheel(cx.listener(
+                |this, event: &ScrollWheelEvent, window, cx| {
+                    this.handle_scroll_wheel(event, window, cx);
+                },
+            ));
         }
 
         let button_bg = theme.button_bg;
@@ -680,6 +714,7 @@ impl Render for NumberInputEntity {
         // Decrement button (−)
         let mut dec_button = div()
             .id(dec_id)
+            .debug_selector(move || dec_debug_id)
             .flex()
             .items_center()
             .justify_center()
@@ -695,10 +730,10 @@ impl Render for NumberInputEntity {
                 .cursor_pointer()
                 .when(self.hovered_dec, |s| s.bg(button_hover))
                 .active(|s| s.bg(button_active))
-                .on_mouse_down(
+                .on_mouse_up(
                     MouseButton::Left,
-                    cx.listener(|this, event: &MouseDownEvent, window, cx| {
-                        this.handle_dec_click(event, window, cx);
+                    cx.listener(|this, _event: &MouseUpEvent, window, cx| {
+                        this.handle_dec_click(window, cx);
                     }),
                 )
                 .on_hover(cx.listener(
@@ -744,6 +779,7 @@ impl Render for NumberInputEntity {
 
         let mut value_field = div()
             .id(value_id)
+            .debug_selector(move || value_debug_id)
             .flex_1()
             .flex()
             .items_center()
@@ -780,6 +816,7 @@ impl Render for NumberInputEntity {
         // Increment button (+)
         let mut inc_button = div()
             .id(inc_id)
+            .debug_selector(move || inc_debug_id)
             .flex()
             .items_center()
             .justify_center()
@@ -795,10 +832,10 @@ impl Render for NumberInputEntity {
                 .cursor_pointer()
                 .when(self.hovered_inc, |s| s.bg(button_hover))
                 .active(|s| s.bg(button_active))
-                .on_mouse_down(
+                .on_mouse_up(
                     MouseButton::Left,
-                    cx.listener(|this, event: &MouseDownEvent, window, cx| {
-                        this.handle_inc_click(event, window, cx);
+                    cx.listener(|this, _event: &MouseUpEvent, window, cx| {
+                        this.handle_inc_click(window, cx);
                     }),
                 )
                 .on_hover(cx.listener(
@@ -824,6 +861,81 @@ pub struct NumberInputEntity {
     hovered_dec: bool,
     hovered_inc: bool,
     label: Option<SharedString>,
+}
+
+struct NumberInputElement {
+    child: AnyElement,
+    focus_handle: FocusHandle,
+    entity: Entity<NumberInputEntity>,
+}
+
+impl Element for NumberInputElement {
+    type RequestLayoutState = ();
+    type PrepaintState = ();
+
+    fn id(&self) -> Option<ElementId> {
+        None
+    }
+
+    fn source_location(&self) -> Option<&'static std::panic::Location<'static>> {
+        None
+    }
+
+    fn request_layout(
+        &mut self,
+        _id: Option<&GlobalElementId>,
+        _inspector_id: Option<&InspectorElementId>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> (LayoutId, Self::RequestLayoutState) {
+        (self.child.request_layout(window, cx), ())
+    }
+
+    fn prepaint(
+        &mut self,
+        _id: Option<&GlobalElementId>,
+        _inspector_id: Option<&InspectorElementId>,
+        _bounds: Bounds<Pixels>,
+        _request_layout: &mut Self::RequestLayoutState,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> Self::PrepaintState {
+        window.set_focus_handle(&self.focus_handle, cx);
+        self.child.prepaint(window, cx);
+    }
+
+    fn paint(
+        &mut self,
+        _id: Option<&GlobalElementId>,
+        _inspector_id: Option<&InspectorElementId>,
+        bounds: Bounds<Pixels>,
+        _request_layout: &mut Self::RequestLayoutState,
+        _prepaint: &mut Self::PrepaintState,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        let entity = self.entity.clone();
+        let focus_handle = self.focus_handle.clone();
+        window.on_mouse_event(move |event: &MouseDownEvent, phase, window, cx| {
+            if phase == DispatchPhase::Capture
+                && focus_handle.is_focused(window)
+                && !bounds.contains(&event.position)
+            {
+                entity.update(cx, |model, cx| {
+                    model.handle_blur(window, cx);
+                });
+            }
+        });
+        self.child.paint(window, cx);
+    }
+}
+
+impl IntoElement for NumberInputElement {
+    type Element = Self;
+
+    fn into_element(self) -> Self::Element {
+        self
+    }
 }
 
 impl RenderOnce for NumberInput {
@@ -887,11 +999,15 @@ impl RenderOnce for NumberInput {
             if model.props.label != self.label {
                 model.label = self.label.clone();
             }
-            model.focus_handle = focus_handle;
+            model.focus_handle = focus_handle.clone();
             model.edit_state = edit_state;
             model.props = self;
         });
-        entity
+        NumberInputElement {
+            child: entity.clone().into_any_element(),
+            focus_handle,
+            entity,
+        }
     }
 }
 

@@ -10,6 +10,7 @@ mod checkbox_test;
 mod color_picker_test;
 #[allow(clippy::arc_with_non_send_sync)]
 mod input_test;
+mod input_typing_regression_test;
 mod number_input_test;
 mod select_test;
 mod slider_test;

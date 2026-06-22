@@ -4,7 +4,7 @@
 //! frequency (Hz), gain (dB), Q factor, etc.
 
 /// Scale type for value mapping between UI position and actual value
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum Scale {
     /// Linear scale (default) - equal increments
     #[default]

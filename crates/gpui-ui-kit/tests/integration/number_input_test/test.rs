@@ -8,8 +8,8 @@ use super::number_input_change_test_view::NumberInputChangeTestView;
 use super::number_input_edit_test_view::NumberInputEditTestView;
 use super::number_input_test_view::NumberInputTestView;
 use gpui::{
-    Context, IntoElement, Modifiers, MouseButton, ParentElement, Render, Styled, TestAppContext,
-    VisualTestContext, Window, div,
+    Context, IntoElement, Modifiers, MouseButton, MouseDownEvent, ParentElement, Render, Styled,
+    TestAppContext, VisualTestContext, Window, div,
 };
 use gpui_ui_kit::number_input::{NumberInput, NumberInputSize, NumberInputTheme};
 use std::cell::RefCell;
@@ -613,13 +613,15 @@ async fn test_number_input_double_click_selects_all(cx: &mut TestAppContext) {
     if let Some(bounds) = cx.debug_bounds("edit-test-input") {
         let center = bounds.center();
 
-        // Double-click to select all
-        cx.simulate_mouse_down(center, MouseButton::Left, Modifiers::default());
-        cx.simulate_mouse_up(center, MouseButton::Left, Modifiers::default());
-        cx.run_until_parked();
-
-        cx.simulate_mouse_down(center, MouseButton::Left, Modifiers::default());
-        cx.simulate_mouse_up(center, MouseButton::Left, Modifiers::default());
+        // Double-click to select all. The GPUI mouse helpers emit click_count = 1,
+        // so send the event directly to exercise the double-click branch.
+        cx.simulate_event(MouseDownEvent {
+            button: MouseButton::Left,
+            position: center,
+            modifiers: Modifiers::default(),
+            click_count: 2,
+            first_mouse: false,
+        });
         cx.run_until_parked();
 
         // Type new value - should replace selected text

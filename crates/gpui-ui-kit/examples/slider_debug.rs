@@ -10,11 +10,32 @@ use gpui_miniapp::{MiniApp, MiniAppConfig};
 use gpui_ui_kit::theme::ThemeExt;
 use gpui_ui_kit::*;
 
-pub struct SliderDebug;
+pub struct SliderDebug {
+    volume: f32,
+    frequency: f32,
+    small: f32,
+    medium: f32,
+    large: f32,
+    entity: Entity<Self>,
+}
+
+impl SliderDebug {
+    fn new(cx: &mut Context<Self>) -> Self {
+        Self {
+            volume: 65.0,
+            frequency: 1000.0,
+            small: 30.0,
+            medium: 50.0,
+            large: 70.0,
+            entity: cx.entity().clone(),
+        }
+    }
+}
 
 impl Render for SliderDebug {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
+        let entity = self.entity.clone();
 
         div()
             .id("slider-debug-root")
@@ -35,9 +56,20 @@ impl Render for SliderDebug {
                     .child(Text::new("Default").weight(TextWeight::Bold))
                     .child(
                         Slider::new("slider-default")
-                            .value(0.65)
+                            .range(0.0, 100.0)
+                            .value(self.volume)
+                            .step(1.0)
                             .show_value(true)
-                            .label("Volume"),
+                            .label("Volume")
+                            .on_change({
+                                let entity = entity.clone();
+                                move |value, _window, cx| {
+                                    entity.update(cx, |this, cx| {
+                                        this.volume = value;
+                                        cx.notify();
+                                    });
+                                }
+                            }),
                     ),
             )
             // With range
@@ -49,10 +81,20 @@ impl Render for SliderDebug {
                     .child(Text::new("Custom Range").weight(TextWeight::Bold))
                     .child(
                         Slider::new("slider-range")
-                            .value(1000.0)
                             .range(20.0, 20000.0)
+                            .value(self.frequency)
+                            .step(10.0)
                             .show_value(true)
-                            .label("Frequency"),
+                            .label("Frequency")
+                            .on_change({
+                                let entity = entity.clone();
+                                move |value, _window, cx| {
+                                    entity.update(cx, |this, cx| {
+                                        this.frequency = value;
+                                        cx.notify();
+                                    });
+                                }
+                            }),
                     ),
             )
             // Sizes
@@ -64,21 +106,54 @@ impl Render for SliderDebug {
                     .child(Text::new("Sizes").weight(TextWeight::Bold))
                     .child(
                         Slider::new("slider-sm")
-                            .value(0.3)
+                            .range(0.0, 100.0)
+                            .value(self.small)
+                            .step(1.0)
                             .size(SliderSize::Sm)
-                            .label("Small"),
+                            .label("Small")
+                            .on_change({
+                                let entity = entity.clone();
+                                move |value, _window, cx| {
+                                    entity.update(cx, |this, cx| {
+                                        this.small = value;
+                                        cx.notify();
+                                    });
+                                }
+                            }),
                     )
                     .child(
                         Slider::new("slider-md")
-                            .value(0.5)
+                            .range(0.0, 100.0)
+                            .value(self.medium)
+                            .step(1.0)
                             .size(SliderSize::Md)
-                            .label("Medium"),
+                            .label("Medium")
+                            .on_change({
+                                let entity = entity.clone();
+                                move |value, _window, cx| {
+                                    entity.update(cx, |this, cx| {
+                                        this.medium = value;
+                                        cx.notify();
+                                    });
+                                }
+                            }),
                     )
                     .child(
                         Slider::new("slider-lg")
-                            .value(0.7)
+                            .range(0.0, 100.0)
+                            .value(self.large)
+                            .step(1.0)
                             .size(SliderSize::Lg)
-                            .label("Large"),
+                            .label("Large")
+                            .on_change({
+                                let entity = entity.clone();
+                                move |value, _window, cx| {
+                                    entity.update(cx, |this, cx| {
+                                        this.large = value;
+                                        cx.notify();
+                                    });
+                                }
+                            }),
                     ),
             )
             // Disabled
@@ -90,7 +165,8 @@ impl Render for SliderDebug {
                     .child(Text::new("Disabled").weight(TextWeight::Bold))
                     .child(
                         Slider::new("slider-disabled")
-                            .value(0.5)
+                            .range(0.0, 100.0)
+                            .value(50.0)
                             .disabled(true)
                             .label("Locked"),
                     ),
@@ -104,6 +180,6 @@ fn main() {
             .size(600.0, 700.0)
             .scrollable(true)
             .with_theme(true),
-        |cx| cx.new(|_cx| SliderDebug),
+        |cx| cx.new(SliderDebug::new),
     );
 }

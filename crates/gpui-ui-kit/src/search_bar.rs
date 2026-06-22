@@ -14,9 +14,11 @@
 
 use crate::ComponentTheme;
 use crate::accessibility::{AccessibilityExt, AccessibilityNode, AriaProps, AriaRole};
+use crate::input::{Input, InputSize, InputVariant};
 use crate::theme::ThemeExt;
 use gpui::prelude::{InteractiveElement, IntoElement, ParentElement, RenderOnce, Styled};
 use gpui::{App, Div, ElementId, MouseButton, Rgba, SharedString, Stateful, Window, div, px};
+use std::rc::Rc;
 
 /// Theme colors for search bar styling
 #[derive(Debug, Clone, ComponentTheme)]
@@ -67,9 +69,9 @@ pub struct SearchBar {
     size: SearchBarSize,
     show_icon: bool,
     show_clear: bool,
-    on_change: Option<Box<dyn Fn(&str, &mut Window, &mut App) + 'static>>,
-    on_submit: Option<Box<dyn Fn(&str, &mut Window, &mut App) + 'static>>,
-    on_escape: Option<Box<dyn Fn(&mut Window, &mut App) + 'static>>,
+    on_change: Option<Rc<dyn Fn(&str, &mut Window, &mut App) + 'static>>,
+    on_submit: Option<Rc<dyn Fn(&str, &mut Window, &mut App) + 'static>>,
+    on_escape: Option<Rc<dyn Fn(&mut Window, &mut App) + 'static>>,
     aria_label: Option<SharedString>,
     aria_role: Option<AriaRole>,
 }
@@ -124,13 +126,13 @@ impl SearchBar {
 
     /// Called on every text change (live filtering)
     pub fn on_change(mut self, handler: impl Fn(&str, &mut Window, &mut App) + 'static) -> Self {
-        self.on_change = Some(Box::new(handler));
+        self.on_change = Some(Rc::new(handler));
         self
     }
 
     /// Called when Enter is pressed
     pub fn on_submit(mut self, handler: impl Fn(&str, &mut Window, &mut App) + 'static) -> Self {
-        self.on_submit = Some(Box::new(handler));
+        self.on_submit = Some(Rc::new(handler));
         self
     }
 
@@ -148,7 +150,7 @@ impl SearchBar {
 
     /// Called when Escape is pressed
     pub fn on_escape(mut self, handler: impl Fn(&mut Window, &mut App) + 'static) -> Self {
-        self.on_escape = Some(Box::new(handler));
+        self.on_escape = Some(Rc::new(handler));
         self
     }
 
@@ -159,21 +161,21 @@ impl SearchBar {
     /// or handle text input in their own way.
     pub fn build_with_theme(self, theme: &SearchBarTheme) -> Stateful<Div> {
         let clear_id = (self.id.clone(), "search-clear");
-        let (height, text_size_class) = match self.size {
-            SearchBarSize::Sm => (px(28.0), true),
-            SearchBarSize::Md => (px(34.0), false),
-            SearchBarSize::Lg => (px(40.0), false),
+        let input_size = match self.size {
+            SearchBarSize::Sm => InputSize::Sm,
+            SearchBarSize::Md => InputSize::Md,
+            SearchBarSize::Lg => InputSize::Lg,
         };
-
         let has_value = !self.value.is_empty();
+        let on_change = self.on_change.clone();
+        let on_submit = self.on_submit.clone();
+        let on_escape = self.on_escape.clone();
 
         let mut container = div()
-            .id(self.id)
+            .id((self.id.clone(), "container"))
             .flex()
             .items_center()
             .gap_2()
-            .h(height)
-            .px_3()
             .bg(theme.background)
             .border_1()
             .border_color(theme.border)
@@ -184,22 +186,35 @@ impl SearchBar {
             container = container.child(div().text_color(theme.icon).text_sm().child("⌕"));
         }
 
-        // Text display / placeholder
-        let mut text_el = div().flex_1().overflow_hidden();
-        if text_size_class {
-            text_el = text_el.text_xs();
-        } else {
-            text_el = text_el.text_sm();
+        let mut input = Input::new(self.id.clone())
+            .value(self.value.clone())
+            .placeholder(self.placeholder.clone())
+            .size(input_size)
+            .variant(InputVariant::Flushed)
+            .bg_color(theme.background)
+            .text_color(theme.text)
+            .placeholder_color(theme.placeholder)
+            .border_color(theme.background);
+
+        if let Some(handler) = on_change.clone() {
+            input = input.on_text_change(move |query, window, cx| {
+                handler(query.as_str(), window, cx);
+            });
+        }
+        if let Some(handler) = on_submit {
+            input = input.on_change(move |query, window, cx| {
+                handler(query, window, cx);
+            });
+        }
+        if let Some(handler) = on_escape {
+            input = input.on_edit_end(move |value, window, cx| {
+                if value.is_none() {
+                    handler(window, cx);
+                }
+            });
         }
 
-        if has_value {
-            text_el = text_el.text_color(theme.text).child(self.value.clone());
-        } else {
-            text_el = text_el
-                .text_color(theme.placeholder)
-                .child(self.placeholder);
-        }
-        container = container.child(text_el);
+        container = container.child(div().flex_1().child(input));
 
         // Clear button
         if self.show_clear && has_value {
@@ -214,8 +229,7 @@ impl SearchBar {
                 .hover(move |s| s.text_color(clear_hover))
                 .child("×");
 
-            if let Some(handler) = self.on_change {
-                let handler_rc = std::rc::Rc::new(handler);
+            if let Some(handler_rc) = on_change {
                 clear_btn = clear_btn.on_mouse_up(MouseButton::Left, move |_event, window, cx| {
                     handler_rc("", window, cx);
                 });

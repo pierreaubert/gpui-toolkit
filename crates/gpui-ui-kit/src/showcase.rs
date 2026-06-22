@@ -115,6 +115,8 @@ pub struct Showcase {
     // ButtonSet states
     pub buttonset_view_mode: SharedString,
     pub buttonset_alignment: SharedString,
+    pub buttonset_toggle_lg: SharedString,
+    pub buttonset_disabled_demo: SharedString,
     // Tabs state
     pub selected_tab: usize,
     // Accordion states
@@ -139,6 +141,16 @@ pub struct Showcase {
     pub pane_dragging_left: bool,
     pub pane_drag_start_x: f32,
     pub pane_drag_start_width: f32,
+    // Search bar state
+    pub search_bar_value: SharedString,
+    // Drag list state
+    pub drag_vertical_items: Vec<SharedString>,
+    pub drag_horizontal_items: Vec<SharedString>,
+    // Settings/accessibility demo state
+    pub settings_mute: bool,
+    pub accessibility_terms: bool,
+    pub accessibility_dark: bool,
+    pub accessibility_volume: f32,
     // Tooltip hover state
     pub tooltip_hovered: Option<&'static str>,
     // Popover open state
@@ -187,6 +199,8 @@ impl Showcase {
             select_highlighted: None,
             buttonset_view_mode: "grid".into(),
             buttonset_alignment: "center".into(),
+            buttonset_toggle_lg: "on".into(),
+            buttonset_disabled_demo: "a".into(),
             selected_tab: 0,
             accordion_vertical_single: vec!["v-single-1".into()],
             accordion_vertical_multiple: vec!["v-multi-1".into(), "v-multi-2".into()],
@@ -249,6 +263,18 @@ impl Showcase {
             pane_dragging_left: false,
             pane_drag_start_x: 0.0,
             pane_drag_start_width: 0.0,
+            search_bar_value: "Beethoven".into(),
+            drag_vertical_items: vec![
+                "eq".into(),
+                "comp".into(),
+                "limiter".into(),
+                "upmixer".into(),
+            ],
+            drag_horizontal_items: vec!["Track 1".into(), "Track 2".into(), "Track 3".into()],
+            settings_mute: false,
+            accessibility_terms: true,
+            accessibility_dark: true,
+            accessibility_volume: 75.0,
             tooltip_hovered: None,
             popover_open: None,
             current_section: ShowcaseSection::default(),
