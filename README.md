@@ -6,6 +6,13 @@ tokens, and Apple mobile backends.
 
 [![License](https://img.shields.io/crates/l/gpui-ui-kit)](LICENSE)
 
+## Examples
+
+Two open source examples:
+
+- [SotF](https://github.com/pierreaubert/sotf) available in the [Apple](https://apps.apple.com/ch/app/sound-of-the-future/id6754237332) and [Windows](https://apps.microsoft.com/detail/9NXCMV37NXJ7) app stores, see GH for latest versions and Linux builds, 100% built with this toolkit. It works on ARM and X86 with iOS and macOS ports underway.
+- [StkOpt](https://github.com/pierreaubert/stkopt) is a simpler example
+
 ## Workspace Crates
 
 | Crate | Purpose |

@@ -3,6 +3,7 @@
 This tutorial builds a small dashboard app step by step with the main toolkit
 crates:
 
+- `gpui-scaffolder` to create the runnable app shell
 - `gpui-miniapp` for the application shell
 - `gpui-ui-kit` for components
 - `gpui-themes` and `gpui-design` for theme and design-system behavior
@@ -11,7 +12,7 @@ crates:
 - `gpui-design-tools` for token export and validation
 - `crates/figma/` assets for design handoff
 - `gpui-component-lab` for component conformance
-- `gpui-px` and `gpui-d3rs` for graphs
+- `gpui-px` (simple) and `gpui-d3rs` (similar to d3js) for graphs
 - `gpui-python-runtime` for retained scene demos
 
 The code snippets are intentionally small. For complete runnable examples, use
@@ -23,34 +24,71 @@ just examples
 just qa-gpui-obvious
 ```
 
-## 1. Create a Workspace App
+## 1. Scaffold an App
 
-Inside this workspace, add a new app crate or use one of the examples as a
-starting point. The minimum dependencies for a desktop app are:
+Start by generating a standalone MiniApp project from the workspace root:
+
+```bash
+cargo run -p gpui-scaffolder -- toolkit-dashboard
+cd toolkit-dashboard
+cargo run
+```
+
+The scaffolded directory contains `Cargo.toml`, `Justfile`, `README.md`,
+`src/app.rs`, `src/lib.rs`, and `src/main.rs`. It already depends on
+`gpui-miniapp` and `gpui-ui-kit`, and installs the small GPUI application shell
+used by the rest of this tutorial.
+
+Generated projects also include a `just run` recipe:
+
+```bash
+just run
+```
+
+To create the app somewhere else, pass `--output-dir`:
+
+```bash
+cargo run -p gpui-scaffolder -- toolkit-dashboard --output-dir /tmp
+```
+
+If you generated the app at the repository root, its `Cargo.toml` starts with
+these dependencies:
 
 ```toml
 [dependencies]
-gpui = { workspace = true }
-gpui-miniapp = { workspace = true }
-gpui-ui-kit = { workspace = true }
-gpui-design = { workspace = true, features = ["gpui"] }
-gpui-themes = { workspace = true }
-gpui-keybinding = { workspace = true }
-gpui-builder = { workspace = true, features = ["showcase"] }
-gpui-px = { workspace = true, features = ["gpui"] }
-gpui-d3rs = { workspace = true, features = ["gpui", "gpu-2d"] }
+gpui = { version = "0.2.2", git = "https://github.com/zed-industries/zed.git", tag = "v1.0.0" }
+gpui-miniapp = { path = "../crates/gpui-miniapp" }
+gpui-ui-kit = { path = "../crates/gpui-ui-kit" }
+
+[target.'cfg(any(target_os = "ios", target_os = "tvos"))'.dependencies]
+gpui-ios = { path = "../crates/gpui-ios" }
 ```
 
-## 2. Start with MiniApp
+For the later optional sections, add the extra toolkit crates you use:
+
+```toml
+gpui-design = { path = "../crates/gpui-design", features = ["gpui"] }
+gpui-themes = { path = "../crates/gpui-themes" }
+gpui-keybinding = { path = "../crates/gpui-keybinding" }
+gpui-builder = { path = "../crates/gpui-builder", features = ["showcase"] }
+gpui-px = { path = "../crates/gpui-px", features = ["gpui"] }
+gpui-d3rs = { path = "../crates/gpui-d3rs", features = ["gpui", "gpu-2d"] }
+```
+
+Adjust the `../crates/...` paths if you used `--output-dir`.
+
+## 2. Extend the Scaffolded MiniApp
 
 `gpui-miniapp` creates a small GPUI application with menus, theme globals,
 design-system globals, optional i18n, and the right platform backend.
+The scaffolded app keeps the shared view in `src/app.rs`, exposes the mobile
+entry point from `src/lib.rs`, and keeps `src/main.rs` as the desktop launcher.
+The shared dashboard surface looks like this:
 
 ```rust
 use gpui::*;
 use gpui_miniapp::{MiniApp, MiniAppConfig};
-use gpui_ui_kit::{Button, ButtonVariant, Heading, Text};
-use gpui_ui_kit::theme::ThemeExt;
+use gpui_ui_kit::{Button, ButtonVariant, Heading, Text, ThemeExt};
 
 struct Dashboard;
 
@@ -67,7 +105,7 @@ impl Render for Dashboard {
         div()
             .p_4()
             .bg(theme.background)
-            .text_color(theme.text)
+            .text_color(theme.text_primary)
             .child(Heading::new("GPUI Toolkit Dashboard"))
             .child(Text::new("A small app composed from toolkit crates."))
             .child(Button::new("refresh", "Refresh").variant(ButtonVariant::Primary))
@@ -103,7 +141,7 @@ let theme = cx.theme();
 div()
     .bg(theme.surface)
     .border_color(theme.border)
-    .text_color(theme.text)
+    .text_color(theme.text_primary)
 ```
 
 For a full theme editor:
@@ -357,29 +395,52 @@ Use it as a reference when building a Python-facing layer:
 
 ## 13. Mobile Extension
 
-The same component library can be shown on iOS through the bundled showcase:
+Scaffolded apps include an `ios/` XcodeGen host with `AppDelegate.swift`,
+`BridgingHeader.h`, `Info.plist`, and `Entitlements.plist`. Build the iOS
+simulator and device apps:
 
 ```bash
 just ios-sim
+just ios
 ```
 
-Build the tvOS Rust library artifacts:
+`just ios-sim` compiles the Rust static library, stages it under `ios/lib/`,
+generates the Xcode project, and runs `xcodebuild` for the simulator. `just ios`
+does the same for a device build. Set signing values when building for hardware:
+
+```bash
+IOS_DEVELOPMENT_TEAM=ABCDE12345 IOS_SIGN_IDENTITY="Apple Development: Your Name" just ios
+```
+
+To sign an already-built device app with the scaffolded entitlements:
+
+```bash
+IOS_SIGN_IDENTITY="Apple Development: Your Name" just ios-sign
+```
+
+Build the tvOS simulator and device artifacts:
 
 ```bash
 just tvos-sim
+just tvos
 ```
 
-See [crates/gpui-ui-kit/ios/TUTORIAL.md](./crates/gpui-ui-kit/ios/TUTORIAL.md)
-for mobile-specific steps.
+The tvOS recipes compile `src/lib.rs` to a static library under
+`target/mobile/...`. Link that library from your tvOS host and call the
+generated `<app_name>_ios_start` symbol. See
+[crates/gpui-ios/README.md](./crates/gpui-ios/README.md) and
+[crates/gpui-ui-kit/ios/TUTORIAL.md](./crates/gpui-ui-kit/ios/TUTORIAL.md)
+for full Swift/Xcode host steps.
 
 ## 14. Development Loop
 
 Use this loop for most feature work:
 
-1. Prototype in a MiniApp example.
-2. Extract stable UI into `gpui-ui-kit`, `gpui-audio-kit`, or `gpui-px`.
-3. Add responsive layout constraints in `gpui-builder` if the layout is shared.
-4. Add design tokens or conformance expectations in `gpui-design`.
-5. Add component-lab coverage.
-6. Run `just examples`, then `just qa-gpui-obvious`.
-7. Use iOS/tvOS recipes only after desktop checks are green.
+1. Generate a focused app with `gpui-scaffolder`.
+2. Prototype in the scaffolded MiniApp or a workspace example.
+3. Extract stable UI into `gpui-ui-kit`, `gpui-audio-kit`, or `gpui-px`.
+4. Add responsive layout constraints in `gpui-builder` if the layout is shared.
+5. Add design tokens or conformance expectations in `gpui-design`.
+6. Add component-lab coverage.
+7. Run `just examples`, then `just qa-gpui-obvious`.
+8. Use iOS/tvOS recipes only after desktop checks are green.

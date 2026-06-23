@@ -16,6 +16,7 @@ members = [
     "crates/gpui-python-runtime",
     "crates/gpui-scaffolder",
     "crates/gpui-themes",
+    "crates/gpui-toolkit",
     "crates/gpui-ui-kit",
     "crates/gpui-ui-kit/ios",
     "crates/gpui-ui-kit-macros",
@@ -83,6 +84,7 @@ gpui-px = { path = "crates/gpui-px", version = "0.8", default-features = false }
 gpui-python-runtime = { path = "crates/gpui-python-runtime", version = "0.8" }
 gpui-scaffolder = { path = "crates/gpui-scaffolder", version = "0.8" }
 gpui-themes = { path = "crates/gpui-themes", version = "0.8" }
+gpui-toolkit = { path = "crates/gpui-toolkit", version = "0.8" }
 gpui-ui-kit = { path = "crates/gpui-ui-kit", version = "0.8" }
 gpui-ui-kit-macros = { path = "crates/gpui-ui-kit-macros", version = "0.8" }
 

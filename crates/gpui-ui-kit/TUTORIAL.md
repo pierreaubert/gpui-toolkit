@@ -2,15 +2,30 @@
 
 `gpui-ui-kit` is the reusable component library for GPUI applications.
 
-## 1. Add the crate
+## 1. Scaffold a MiniApp
+
+From the repository root, create a small standalone GPUI app:
+
+```bash
+cargo run -p gpui-scaffolder -- ui-kit-demo
+cd ui-kit-demo
+cargo run
+```
+
+The generated app uses `gpui-miniapp`, which installs the GPUI application
+shell used by the UI-kit examples and demos. It also includes `gpui-ui-kit` so
+you can immediately use the component imports below.
+
+If you generated the app at the repository root, its `Cargo.toml` should include:
 
 ```toml
 [dependencies]
-gpui = { workspace = true }
-gpui-ui-kit = { workspace = true }
+gpui = { version = "0.2.2", git = "https://github.com/zed-industries/zed.git", tag = "v1.0.0" }
+gpui-miniapp = { path = "../crates/gpui-miniapp" }
+gpui-ui-kit = { path = "../crates/gpui-ui-kit" }
 ```
 
-Use `gpui-miniapp` for examples and demos.
+Adjust the `../crates/...` paths if you used `--output-dir`.
 
 ## 2. Start with a component
 
@@ -56,12 +71,14 @@ For application UI, combine:
 use gpui_ui_kit::theme::ThemeExt;
 
 let theme = cx.theme();
-div().bg(theme.surface).text_color(theme.text)
+div().bg(theme.surface).text_color(theme.text_primary)
 ```
 
 ## 6. Run examples
 
 ```bash
+cargo run
+just run
 cargo run -p gpui-ui-kit --example showcase
 cargo run -p gpui-ui-kit --example input_debug
 cargo run -p gpui-ui-kit --example workflow_debug

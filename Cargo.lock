@@ -3005,6 +3005,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "gpui-toolkit"
+version = "0.8.2"
+dependencies = [
+ "gpui-au",
+ "gpui-audio-kit",
+ "gpui-builder",
+ "gpui-component-lab",
+ "gpui-d3rs",
+ "gpui-design",
+ "gpui-design-tools",
+ "gpui-ios",
+ "gpui-keybinding",
+ "gpui-miniapp",
+ "gpui-pretext",
+ "gpui-profiler",
+ "gpui-px",
+ "gpui-python-runtime",
+ "gpui-scaffolder",
+ "gpui-themes",
+ "gpui-ui-kit",
+ "gpui-ui-kit-macros",
+]
+
+[[package]]
 name = "gpui-ui-kit"
 version = "0.8.28"
 dependencies = [
