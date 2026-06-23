@@ -1,0 +1,35 @@
+[package]
+name = "gpui-toolkit"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+description = "Convenience aggregate crate that re-exports all GPUI toolkit libraries"
+license.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+publish = false
+
+[features]
+default = []
+ios = ["dep:gpui-ios"]
+
+[dependencies]
+gpui-au = { workspace = true }
+gpui-audio-kit = { workspace = true }
+gpui-builder = { workspace = true }
+gpui-component-lab = { workspace = true }
+gpui-d3rs = { workspace = true, default-features = true }
+gpui-design = { workspace = true }
+gpui-design-tools = { workspace = true }
+gpui-ios = { workspace = true, optional = true }
+gpui-keybinding = { workspace = true }
+gpui-miniapp = { workspace = true }
+gpui-pretext = { workspace = true }
+gpui-profiler = { workspace = true }
+gpui-px = { workspace = true, default-features = true }
+gpui-python-runtime = { workspace = true }
+gpui-scaffolder = { workspace = true }
+gpui-themes = { workspace = true }
+gpui-ui-kit = { workspace = true }
+gpui-ui-kit-macros = { workspace = true }
