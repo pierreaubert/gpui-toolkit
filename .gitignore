@@ -18,6 +18,8 @@ mutants.out
 /*.json
 /*.json.bz2
 /todos.md
+/docs
+/tmp
 
 # node
 /node_modules

@@ -92,6 +92,7 @@ pub mod workflow;
 
 // Showcase (library-embeddable version)
 pub mod showcase;
+pub use showcase::Showcase;
 
 // Re-export commonly used types
 
@@ -142,7 +143,7 @@ pub use empty_state::EmptyState;
 pub use image_view::{ImageFit, ImageView, ImageViewTheme};
 pub use keyboard_shortcut_label::{KeyboardShortcutLabel, KeyboardShortcutSize};
 pub use progress::{CircularProgress, Progress, ProgressSize, ProgressVariant};
-pub use qr::QrCode;
+pub use qr::{AnimatedQrCode, QrCode};
 pub use spinner::{LoadingDots, Spinner, SpinnerSize};
 pub use step_indicator::{
     StepIndicator, StepIndicatorSize, StepIndicatorTheme, StepItem, StepItemStatus, StepOrientation,

@@ -486,6 +486,12 @@ pub(crate) fn derive_component_theme_impl(input: TokenStream) -> TokenStream {
                 Self::from(theme.as_ref())
             }
         }
+
+        impl From<&std::sync::Arc<#theme_path>> for #name {
+            fn from(theme: &std::sync::Arc<#theme_path>) -> Self {
+                Self::from(theme.as_ref())
+            }
+        }
     };
 
     expanded
@@ -596,6 +602,21 @@ mod tests {
         );
         assert!(out.contains("impl Default for MyTheme"));
         assert!(out.contains("impl From < & crate :: theme :: Theme > for MyTheme"));
+    }
+
+    #[test]
+    fn theme_generates_from_arc_and_arc_ref() {
+        let out = theme_derive(
+            r#"
+            #[derive(ComponentTheme)]
+            pub struct MyTheme {
+                #[theme(default = 0x007acc, from = accent)]
+                pub primary: u32,
+            }
+        "#,
+        );
+        assert!(out.contains("impl From < std :: sync :: Arc < crate :: theme :: Theme >> for MyTheme"));
+        assert!(out.contains("impl From < & std :: sync :: Arc < crate :: theme :: Theme >> for MyTheme"));
     }
 
     #[test]
