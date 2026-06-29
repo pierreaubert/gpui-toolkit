@@ -1,7 +1,11 @@
 [package]
-name = "gpui-ui-kit-ios-showcase"
-version = "0.7.2"
-edition = "2024"
+name = "gpui-showcase-ios"
+version = "0.8.0"
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "iOS/tvOS static library and Swift host for the GPUI showcase"
 publish = false
 
 [lib]

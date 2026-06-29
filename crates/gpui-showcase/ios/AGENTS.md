@@ -1,4 +1,4 @@
-# gpui-ui-kit-ios-showcase
+# gpui-showcase-ios
 
 iOS showcase binary for gpui-ui-kit components.
 
@@ -20,7 +20,7 @@ Static library (`crate-type = ["staticlib"]`) compiled for iOS, linked into a Sw
 This is a showcase binary — test by building and running on an iOS device/simulator.
 
 ```bash
-cargo check -p gpui-ui-kit-ios-showcase
+cargo check -p gpui-showcase-ios
 ```
 
 ## Important Notes

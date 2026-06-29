@@ -1,4 +1,4 @@
-# gpui-ui-kit-ios-showcase Tutorial
+# gpui-showcase-ios Tutorial
 
 This crate builds the `gpui-ui-kit` showcase as a static library for iOS and
 tvOS-style Apple mobile targets.
@@ -68,7 +68,7 @@ full tvOS app bundle.
 ## 6. Verify
 
 ```bash
-cargo check -p gpui-ui-kit-ios-showcase
+cargo check -p gpui-showcase-ios
 just --dry-run ios-sim
 just --dry-run tvos-sim
 ```

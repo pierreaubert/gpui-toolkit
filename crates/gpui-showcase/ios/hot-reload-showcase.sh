@@ -15,7 +15,7 @@ fi
 echo "${generation}" > "${GENERATION_FILE}"
 
 cargo build \
-  -p gpui-ui-kit-ios-showcase \
+  -p gpui-showcase-ios \
   --target aarch64-apple-ios-sim \
   --features hot-reload
 

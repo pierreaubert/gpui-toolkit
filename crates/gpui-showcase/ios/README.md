@@ -1,4 +1,4 @@
-# gpui-ui-kit-ios-showcase
+# gpui-showcase-ios
 
 iOS showcase for the gpui-ui-kit component library.
 
@@ -18,10 +18,10 @@ This crate produces a static library that must be linked into a Swift iOS projec
 
 ```bash
 # Check compilation
-cargo check -p gpui-ui-kit-ios-showcase
+cargo check -p gpui-showcase-ios
 
 # Build for iOS target
-cargo build -p gpui-ui-kit-ios-showcase --target aarch64-apple-ios
+cargo build -p gpui-showcase-ios --target aarch64-apple-ios
 ```
 
 ## Architecture

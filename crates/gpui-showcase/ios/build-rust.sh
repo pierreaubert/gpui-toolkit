@@ -37,10 +37,10 @@ echo "  Profile:   $PROFILE"
 cd "$WORKSPACE_ROOT"
 
 if [ "$PROFILE" = "release" ]; then
-    cargo build -p gpui-ui-kit-ios-showcase --target "$RUST_TARGET" --release
+    cargo build -p gpui-showcase-ios --target "$RUST_TARGET" --release
     LIB_DIR="target/$RUST_TARGET/release"
 else
-    cargo build -p gpui-ui-kit-ios-showcase --target "$RUST_TARGET"
+    cargo build -p gpui-showcase-ios --target "$RUST_TARGET"
     LIB_DIR="target/$RUST_TARGET/debug"
 fi
 
