@@ -69,7 +69,7 @@ use gpui_px::{
     isoline, line, pie, scatter, surface3d, treemap,
 };
 use gpui_ui_kit::qr::AnimatedQrCode;
-use gpui_ui_kit::showcase::{Showcase, ShowcaseSection};
+use gpui_showcase::showcase::{Showcase, ShowcaseSection};
 use gpui_ui_kit::theme::ThemeExt;
 use gpui_ui_kit::{
     Accordion, AccordionItem, Alert, Avatar, AvatarGroup, AvatarShape, AvatarSize, AvatarStatus,

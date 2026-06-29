@@ -2833,6 +2833,7 @@ dependencies = [
  "gpui-miniapp",
  "gpui-profiler",
  "gpui-px",
+ "gpui-showcase",
  "gpui-ui-kit",
  "serde",
  "serde_json",
@@ -2993,6 +2994,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "gpui-showcase"
+version = "0.8.0"
+dependencies = [
+ "gpui",
+ "gpui-design",
+ "gpui-miniapp",
+ "gpui-ui-kit",
+]
+
+[[package]]
 name = "gpui-themes"
 version = "0.8.4"
 dependencies = [
@@ -3055,6 +3066,7 @@ version = "0.7.2"
 dependencies = [
  "gpui",
  "gpui-ios",
+ "gpui-showcase",
  "gpui-ui-kit",
  "log",
  "oslog",

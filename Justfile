@@ -15,7 +15,7 @@ import 'builds/cross.just'
 # VARIABLES
 # ----------------------------------------------------------------------
 
-features := "--features autoeq,camera,gpu-2d,gpu-3d,reqwest,showcase,spinorama,tokio,urlencoding"
+features := "--features autoeq,camera,gpu-2d,gpu-3d,reqwest,spinorama,tokio,urlencoding"
 cross_packages := "-p gpui-audio-kit -p gpui-builder -p gpui-component-lab -p gpui-d3rs -p gpui-design -p gpui-design-tools -p gpui-keybinding -p gpui-miniapp -p gpui-pretext -p gpui-px -p gpui-python-runtime -p gpui-scaffolder -p gpui-themes -p gpui-ui-kit -p gpui-ui-kit-macros"
 
 # QA / coverage settings
@@ -165,7 +165,7 @@ prod-workspace:
 alias demos := demo
 
 [group('demo')]
-demo: demo-audio-kit demo-builder demo-component-lab demo-d3rs demo-px demo-python demo-themes demo-ui-kit
+demo: demo-audio-kit demo-builder demo-component-lab demo-d3rs demo-px demo-python demo-showcase demo-themes demo-ui-kit
 
 [group('demo')]
 demo-audio-kit:
@@ -177,7 +177,7 @@ demo-ui-kit:
 
 [group('demo')]
 demo-builder:
-	cargo build --release --bin layout-showcase -p gpui-builder {{features}}
+	cargo build --release --bin layout-showcase -p gpui-builder {{features}} --features showcase
 
 [group('demo')]
 demo-component-lab:
@@ -197,7 +197,11 @@ demo-px:
 
 [group('demo')]
 demo-python:
-	cargo build --release --bin gpui-python-showcase -p gpui-python-runtime {{features}}
+	cargo build --release --bin gpui-python-showcase -p gpui-python-runtime {{features}} --features showcase
+
+[group('demo')]
+demo-showcase:
+	cargo build --release --bin gpui-showcase -p gpui-showcase
 
 [group('demo')]
 demo-themes:

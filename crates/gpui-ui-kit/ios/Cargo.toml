@@ -24,6 +24,7 @@ urlencoding = []
 [dependencies]
 gpui = { workspace = true }
 gpui-ios = { workspace = true }
+gpui-showcase = { workspace = true }
 gpui-ui-kit = { workspace = true }
 log = { workspace = true }
 

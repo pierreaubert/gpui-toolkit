@@ -85,8 +85,8 @@ When adding a new component, you MUST complete ALL of the following steps. Do no
 | 7 | Register integration test module | `tests/integration/mod.rs` |
 | 8 | Create debug example | `examples/<component>_debug.rs` |
 | 9 | Register example in manifest | `Cargo.toml` (`[[example]]`) |
-| 10 | Create showcase include | `examples/includes/render_<component>.inc.rs` |
-| 11 | Register in showcase | `examples/showcase.rs` |
+| 10 | Create showcase include | `../gpui-showcase/src/showcase/sections/render_<component>.rs` |
+| 11 | Register in showcase | `../gpui-showcase/src/showcase.rs` |
 | 12 | Update README | `README.md` (component table + usage example) |
 
 ### Step 1: Component Source (`src/<component>.rs`)
@@ -333,9 +333,13 @@ Register in `tests/integration/mod.rs`:
 mod my_widget_test;
 ```
 
-### Step 6: Showcase Include (`examples/includes/render_<component>.inc.rs`)
+### Step 6: Showcase Include (`../gpui-showcase/src/showcase/sections/render_<component>.rs`)
+
+Add a new renderer module in the `gpui-showcase` crate:
 
 ```rust
+use super::prelude::*;
+
 impl Showcase {
     fn render_my_widget_section(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let section_title = cx.t(TranslationKey::SectionMyWidget);
@@ -353,9 +357,11 @@ impl Showcase {
 }
 ```
 
-### Step 7: Register in Showcase (`examples/showcase.rs`)
+Also register the module in `../gpui-showcase/src/showcase/sections/mod.rs`.
 
-Four changes needed:
+### Step 7: Register in Showcase (`../gpui-showcase/src/showcase.rs`)
+
+Three changes needed:
 
 ```rust
 // 1. Add to ShowcaseSection enum:
@@ -364,13 +370,10 @@ pub enum ShowcaseSection {
     MyWidget,
 }
 
-// 2. Add to ShowcaseSection::all():
+// 2. Add to ShowcaseGroup::sections() where the component belongs:
 ShowcaseSection::MyWidget,
 
-// 3. Add include:
-include!("includes/render_my_widget.inc.rs");
-
-// 4. Add match arm in render_content():
+// 3. Add match arm in render_section_content():
 ShowcaseSection::MyWidget => self.render_my_widget_section(cx).into_any_element(),
 ```
 
@@ -380,7 +383,7 @@ ShowcaseSection::MyWidget => self.render_my_widget_section(cx).into_any_element(
 cargo check -p gpui-ui-kit --all-targets
 cargo clippy -p gpui-ui-kit --all-targets
 cargo test -p gpui-ui-kit --lib --tests
-cargo run --example showcase -p gpui-ui-kit --release
+cargo run -p gpui-showcase --release
 cargo fmt -p gpui-ui-kit
 ```
 
@@ -465,7 +468,7 @@ Never wrap a NumberInput (or Input) in a parent `div().on_key_down(|..| cx.stop_
 ## Examples
 
 ```bash
-cargo run --release --example showcase -p gpui-ui-kit      # Component gallery
+cargo run -p gpui-showcase --release                       # Component gallery
 cargo run --release --example workflow_debug -p gpui-ui-kit # Workflow editor
 ```
 

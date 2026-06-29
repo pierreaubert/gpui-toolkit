@@ -817,8 +817,8 @@ This section is a step-by-step checklist for adding a new component to gpui-ui-k
 - [ ] **4. Write unit tests** in `tests/components/<component>_test.rs`
 - [ ] **5. Write integration tests** in `tests/integration/<component>_test.rs`
 - [ ] **6. Add a debug example** in `examples/<component>_debug.rs`
-- [ ] **7. Add a showcase section** in `examples/includes/render_<component>.inc.rs`
-- [ ] **8. Register in the showcase** in `examples/showcase.rs`
+- [ ] **7. Add a showcase section** in `../gpui-showcase/src/showcase/sections/render_<component>.rs`
+- [ ] **8. Register in the showcase** in `../gpui-showcase/src/showcase.rs`
 - [ ] **9. Update documentation** (this README + component tables)
 - [ ] **10. Verify** everything compiles and all tests pass
 
@@ -1164,7 +1164,7 @@ impl Showcase {
 
 ### Step 8: Register in the Showcase
 
-In `examples/showcase.rs`:
+In `../gpui-showcase/src/showcase.rs`:
 
 1. Add variant to `ShowcaseSection` enum:
    ```rust
@@ -1174,22 +1174,14 @@ In `examples/showcase.rs`:
    }
    ```
 
-2. Add to `ShowcaseSection::all()`:
-   ```rust
-   ShowcaseSection::MyWidget,
-   ```
+2. Add to `ShowcaseGroup::sections()` in `../gpui-showcase/src/showcase/showcase_group.rs` where the component belongs.
 
-3. Add the `include!` for the render file:
-   ```rust
-   include!("includes/render_my_widget.inc.rs");
-   ```
-
-4. Add the navigation entry with icon and translation key.
-
-5. Add the match arm in the `render_content` method:
+3. Add the match arm in the `render_section_content` method:
    ```rust
    ShowcaseSection::MyWidget => self.render_my_widget_section(cx).into_any_element(),
    ```
+
+Also register the renderer module in `../gpui-showcase/src/showcase/sections/mod.rs`.
 
 ### Step 9: Update Documentation
 
@@ -1210,7 +1202,7 @@ cargo clippy -p gpui-ui-kit --all-targets
 cargo test -p gpui-ui-kit --lib --tests
 
 # Run the showcase to visually verify
-cargo run --example showcase -p gpui-ui-kit --release
+cargo run -p gpui-showcase --release
 
 # Format
 cargo fmt -p gpui-ui-kit
@@ -1226,8 +1218,8 @@ cargo fmt -p gpui-ui-kit
 | Unit tests | `tests/components/<component>_test.rs` + `tests/components/mod.rs` |
 | Integration tests | `tests/integration/<component>_test.rs` + `tests/integration/mod.rs` |
 | Debug example | `examples/<component>_debug.rs` + `Cargo.toml` |
-| Showcase section | `examples/includes/render_<component>.inc.rs` |
-| Showcase registration | `examples/showcase.rs` (enum + all() + include + render match) |
+| Showcase section | `../gpui-showcase/src/showcase/sections/render_<component>.rs` |
+| Showcase registration | `../gpui-showcase/src/showcase.rs` (enum + sections + render match) |
 | README entry | Component table + usage example |
 
 ## License

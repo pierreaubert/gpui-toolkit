@@ -1,12 +1,12 @@
 //! UI Kit Showcase
 //!
-//! A thin example wrapper around `gpui_ui_kit::Showcase`.
+//! A thin example wrapper around `gpui_showcase::Showcase`.
 //! Use View > Theme menu or Cmd+T to toggle between light/dark themes.
 //! Use Language menu to switch between languages.
 
 use gpui::*;
 use gpui_miniapp::{MiniApp, MiniAppConfig};
-use gpui_ui_kit::Showcase;
+use gpui_showcase::Showcase;
 
 fn main() {
     MiniApp::run(

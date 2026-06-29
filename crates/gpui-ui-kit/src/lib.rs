@@ -90,10 +90,6 @@ pub mod tree_view;
 // Workflow canvas
 pub mod workflow;
 
-// Showcase (library-embeddable version)
-pub mod showcase;
-pub use showcase::Showcase;
-
 // Re-export commonly used types
 
 // Buttons

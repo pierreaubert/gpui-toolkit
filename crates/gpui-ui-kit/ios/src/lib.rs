@@ -1,4 +1,4 @@
-//! iOS showcase staticlib — bridges gpui-ui-kit showcase into the iOS app.
+//! iOS showcase staticlib — bridges gpui-showcase into the iOS app.
 //!
 //! This crate compiles to a static library (.a) that the Xcode project links.
 //! The Swift AppDelegate calls `showcase_ios_start()` to launch the GPUI app.
@@ -8,7 +8,7 @@ mod imp {
     use super::misc::ffi_guard;
     use gpui::*;
     use gpui_ui_kit::i18n::I18nState;
-    use gpui_ui_kit::showcase::Showcase;
+    use gpui_showcase::Showcase;
     use gpui_ui_kit::theme::{ThemeState, ThemeVariant};
 
     /// Called from Swift to start the GPUI application.

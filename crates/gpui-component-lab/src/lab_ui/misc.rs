@@ -3,7 +3,7 @@ use crate::{
 };
 use gpui::SharedString;
 use gpui_px::{ColorScale, Colormap, TilingMethod, TreemapNode};
-use gpui_ui_kit::showcase::ShowcaseSection;
+use gpui_showcase::showcase::ShowcaseSection;
 use gpui_ui_kit::{
     AlertVariant, BadgeVariant, ButtonVariant, ConfirmDialogVariant, DesignSystem,
     IconButtonVariant, NotificationVariant, ProgressVariant, TabVariant, TagVariant, ToastVariant,

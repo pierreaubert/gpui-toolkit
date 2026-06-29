@@ -1,0 +1,23 @@
+[package]
+name = "gpui-showcase"
+version = "0.8.0"
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Showcase application for gpui-ui-kit components"
+publish = false
+
+[dependencies]
+gpui = { workspace = true }
+gpui-ui-kit = { workspace = true }
+gpui-miniapp = { workspace = true }
+gpui-design = { workspace = true, features = ["gpui"] }
+
+[lib]
+name = "gpui_showcase"
+path = "src/lib.rs"
+
+[[bin]]
+name = "gpui-showcase"
+path = "src/main.rs"

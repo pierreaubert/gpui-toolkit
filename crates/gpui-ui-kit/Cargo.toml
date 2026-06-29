@@ -49,7 +49,6 @@ camera = ["dep:nokhwa"]
 gpu-2d = []
 gpu-3d = []
 reqwest = []
-showcase = []
 spinorama = []
 tokio = []
 urlencoding = []
@@ -160,9 +159,6 @@ name = "select_debug"
 
 [[example]]
 name = "settings_form_debug"
-
-[[example]]
-name = "showcase"
 
 [[example]]
 name = "sidebar_debug"

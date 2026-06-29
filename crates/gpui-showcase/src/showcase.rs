@@ -3,11 +3,11 @@
 //! A comprehensive demonstration of all gpui-ui-kit components with theme and i18n support.
 //! This module exposes the Showcase component for embedding in other applications.
 
-use crate::i18n::{I18nExt, TranslationKey};
-use crate::theme::ThemeExt;
-use crate::wizard::StepStatus;
-use crate::workflow::{WorkflowCanvas, WorkflowGraph};
-use crate::{
+use gpui_ui_kit::i18n::{I18nExt, TranslationKey};
+use gpui_ui_kit::theme::ThemeExt;
+use gpui_ui_kit::wizard::StepStatus;
+use gpui_ui_kit::workflow::{WorkflowCanvas, WorkflowGraph};
+use gpui_ui_kit::{
     AnimatedQrCode, Divider, Heading, PaginationState, Sidebar, SidebarSide, SortDirection,
     SortState, Text,
 };
