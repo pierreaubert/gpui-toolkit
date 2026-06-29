@@ -162,6 +162,8 @@ prod-workspace:
 # DEMOS
 # ----------------------------------------------------------------------
 
+alias demos := demo
+
 [group('demo')]
 demo: demo-audio-kit demo-builder demo-component-lab demo-d3rs demo-px demo-python demo-themes demo-ui-kit
 
@@ -427,5 +429,14 @@ update-rust:
 update-pre-commit:
 	pre-commit autoupdate
 
+[group('maintenance')]
+xcode:
+        xcodebuild -downloadComponent MetalToolchain
+
+# ----------------------------------------------------------------------
+# DOWNLOAD
+# ----------------------------------------------------------------------
+
+[group('download')]
 download-once:
 	wget -q -O crates/gpui-d3rs/bin/showcase/data/land-50m.json https://cdn.jsdelivr.net/npm/world-atlas@2/land-50m.json

@@ -46,6 +46,7 @@ impl Render for NumberInputDebugRegressionView {
     }
 }
 
+#[allow(clippy::type_complexity)]
 fn setup(cx: &mut TestAppContext) -> (VisualTestContext, Rc<RefCell<f64>>, Rc<RefCell<Vec<f64>>>) {
     let value = Rc::new(RefCell::new(50.0));
     let changes = Rc::new(RefCell::new(Vec::new()));

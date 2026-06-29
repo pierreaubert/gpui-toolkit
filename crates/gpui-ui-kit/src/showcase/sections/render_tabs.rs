@@ -8,10 +8,24 @@ impl Showcase {
         let selected_tab = self.selected_tab;
 
         // Build custom tab buttons to handle clicks properly with entity context
-        let tab_data = [("📊", "Overview", "This is the overview panel showing a summary of all activities."),
-            ("📈", "Analytics", "Here you can see detailed analytics and statistics."),
+        let tab_data = [
+            (
+                "📊",
+                "Overview",
+                "This is the overview panel showing a summary of all activities.",
+            ),
+            (
+                "📈",
+                "Analytics",
+                "Here you can see detailed analytics and statistics.",
+            ),
             ("📋", "Reports", "View and generate reports from your data."),
-            ("⚙️", "Settings", "Configure your preferences and settings here.")];
+            (
+                "⚙️",
+                "Settings",
+                "Configure your preferences and settings here.",
+            ),
+        ];
 
         VStack::new()
             .spacing(StackSpacing::Lg)

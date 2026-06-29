@@ -12,8 +12,10 @@ fn audio_toggle_ext_sets_sliding_style_by_default() {
 
 #[test]
 fn audio_toggle_ext_sets_segmented_style() {
-    let mut tokens = AudioDesignTokens::default();
-    tokens.toggle_variant = AudioDesignTokens::TOGGLE_SEGMENTED;
+    let tokens = AudioDesignTokens {
+        toggle_variant: AudioDesignTokens::TOGGLE_SEGMENTED,
+        ..Default::default()
+    };
     let toggle = Toggle::new("test-toggle").design_tokens(&tokens);
     drop(toggle);
 }

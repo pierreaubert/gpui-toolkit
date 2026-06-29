@@ -14,7 +14,11 @@ impl Showcase {
             ("right", "Right", PopoverPlacement::Right),
             ("top-start", "Top Start", PopoverPlacement::TopStart),
             ("top-end", "Top End", PopoverPlacement::TopEnd),
-            ("bottom-start", "Bottom Start", PopoverPlacement::BottomStart),
+            (
+                "bottom-start",
+                "Bottom Start",
+                PopoverPlacement::BottomStart,
+            ),
             ("bottom-end", "Bottom End", PopoverPlacement::BottomEnd),
         ];
 
@@ -91,7 +95,10 @@ impl Showcase {
             }
 
             match placement {
-                PopoverPlacement::Top | PopoverPlacement::Bottom | PopoverPlacement::Left | PopoverPlacement::Right => {
+                PopoverPlacement::Top
+                | PopoverPlacement::Bottom
+                | PopoverPlacement::Left
+                | PopoverPlacement::Right => {
                     row1 = row1.child(trigger);
                 }
                 PopoverPlacement::TopStart | PopoverPlacement::TopEnd => {

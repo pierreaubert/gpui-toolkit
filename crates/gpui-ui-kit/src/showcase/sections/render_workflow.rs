@@ -1,11 +1,10 @@
 use super::prelude::*;
 
-
 impl Showcase {
     pub(crate) fn render_workflow_section(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
         let entity = self.entity.clone();
-        
+
         // Get stats from canvas
         let (node_count, connection_count, _selected_count) = self.workflow_canvas.read(cx).stats();
 
@@ -104,16 +103,13 @@ impl Showcase {
     pub(crate) fn workflow_add_node(&mut self, cx: &mut Context<Self>) {
         self.workflow_node_counter += 1;
         let id = self.workflow_node_counter;
-        
+
         let x = 100.0 + (id as f32 * 30.0) % 400.0;
         let y = 100.0 + (id as f32 * 20.0) % 300.0;
-        
-        let node = WorkflowNodeData::new(
-            format!("Node {}", id), 
-            Position::new(x, y)
-        )
-        .with_ports(1, 1)
-        .with_size(160.0, 70.0);
+
+        let node = WorkflowNodeData::new(format!("Node {}", id), Position::new(x, y))
+            .with_ports(1, 1)
+            .with_size(160.0, 70.0);
 
         self.workflow_canvas.update(cx, |canvas, cx| {
             canvas.add_node_notify(node, cx);

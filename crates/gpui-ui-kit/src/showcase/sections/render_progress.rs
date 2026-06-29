@@ -19,36 +19,74 @@ impl Showcase {
                                 HStack::new()
                                     .spacing(StackSpacing::Md)
                                     .align(StackAlign::Center)
-                                    .child(div().w(px(35.0)).child(Text::new("0%").size(TextSize::Xs)))
-                                    .child(div().w(px(250.0)).child(Progress::new(0.0).size(ProgressSize::Md))),
+                                    .child(
+                                        div().w(px(35.0)).child(Text::new("0%").size(TextSize::Xs)),
+                                    )
+                                    .child(
+                                        div()
+                                            .w(px(250.0))
+                                            .child(Progress::new(0.0).size(ProgressSize::Md)),
+                                    ),
                             )
                             .child(
                                 HStack::new()
                                     .spacing(StackSpacing::Md)
                                     .align(StackAlign::Center)
-                                    .child(div().w(px(35.0)).child(Text::new("25%").size(TextSize::Xs)))
-                                    .child(div().w(px(250.0)).child(Progress::new(0.25).size(ProgressSize::Md))),
+                                    .child(
+                                        div()
+                                            .w(px(35.0))
+                                            .child(Text::new("25%").size(TextSize::Xs)),
+                                    )
+                                    .child(
+                                        div()
+                                            .w(px(250.0))
+                                            .child(Progress::new(0.25).size(ProgressSize::Md)),
+                                    ),
                             )
                             .child(
                                 HStack::new()
                                     .spacing(StackSpacing::Md)
                                     .align(StackAlign::Center)
-                                    .child(div().w(px(35.0)).child(Text::new("50%").size(TextSize::Xs)))
-                                    .child(div().w(px(250.0)).child(Progress::new(0.50).size(ProgressSize::Md))),
+                                    .child(
+                                        div()
+                                            .w(px(35.0))
+                                            .child(Text::new("50%").size(TextSize::Xs)),
+                                    )
+                                    .child(
+                                        div()
+                                            .w(px(250.0))
+                                            .child(Progress::new(0.50).size(ProgressSize::Md)),
+                                    ),
                             )
                             .child(
                                 HStack::new()
                                     .spacing(StackSpacing::Md)
                                     .align(StackAlign::Center)
-                                    .child(div().w(px(35.0)).child(Text::new("75%").size(TextSize::Xs)))
-                                    .child(div().w(px(250.0)).child(Progress::new(0.75).size(ProgressSize::Md))),
+                                    .child(
+                                        div()
+                                            .w(px(35.0))
+                                            .child(Text::new("75%").size(TextSize::Xs)),
+                                    )
+                                    .child(
+                                        div()
+                                            .w(px(250.0))
+                                            .child(Progress::new(0.75).size(ProgressSize::Md)),
+                                    ),
                             )
                             .child(
                                 HStack::new()
                                     .spacing(StackSpacing::Md)
                                     .align(StackAlign::Center)
-                                    .child(div().w(px(35.0)).child(Text::new("100%").size(TextSize::Xs)))
-                                    .child(div().w(px(250.0)).child(Progress::new(1.0).size(ProgressSize::Md))),
+                                    .child(
+                                        div()
+                                            .w(px(35.0))
+                                            .child(Text::new("100%").size(TextSize::Xs)),
+                                    )
+                                    .child(
+                                        div()
+                                            .w(px(250.0))
+                                            .child(Progress::new(1.0).size(ProgressSize::Md)),
+                                    ),
                             ),
                     ),
             )
@@ -64,22 +102,40 @@ impl Showcase {
                                 HStack::new()
                                     .spacing(StackSpacing::Md)
                                     .align(StackAlign::Center)
-                                    .child(div().w(px(30.0)).child(Text::new("Sm").size(TextSize::Xs)))
-                                    .child(div().w(px(250.0)).child(Progress::new(0.6).size(ProgressSize::Sm))),
+                                    .child(
+                                        div().w(px(30.0)).child(Text::new("Sm").size(TextSize::Xs)),
+                                    )
+                                    .child(
+                                        div()
+                                            .w(px(250.0))
+                                            .child(Progress::new(0.6).size(ProgressSize::Sm)),
+                                    ),
                             )
                             .child(
                                 HStack::new()
                                     .spacing(StackSpacing::Md)
                                     .align(StackAlign::Center)
-                                    .child(div().w(px(30.0)).child(Text::new("Md").size(TextSize::Xs)))
-                                    .child(div().w(px(250.0)).child(Progress::new(0.6).size(ProgressSize::Md))),
+                                    .child(
+                                        div().w(px(30.0)).child(Text::new("Md").size(TextSize::Xs)),
+                                    )
+                                    .child(
+                                        div()
+                                            .w(px(250.0))
+                                            .child(Progress::new(0.6).size(ProgressSize::Md)),
+                                    ),
                             )
                             .child(
                                 HStack::new()
                                     .spacing(StackSpacing::Md)
                                     .align(StackAlign::Center)
-                                    .child(div().w(px(30.0)).child(Text::new("Lg").size(TextSize::Xs)))
-                                    .child(div().w(px(250.0)).child(Progress::new(0.6).size(ProgressSize::Lg))),
+                                    .child(
+                                        div().w(px(30.0)).child(Text::new("Lg").size(TextSize::Xs)),
+                                    )
+                                    .child(
+                                        div()
+                                            .w(px(250.0))
+                                            .child(Progress::new(0.6).size(ProgressSize::Lg)),
+                                    ),
                             ),
                     ),
             )
@@ -95,29 +151,55 @@ impl Showcase {
                                 HStack::new()
                                     .spacing(StackSpacing::Md)
                                     .align(StackAlign::Center)
-                                    .child(div().w(px(55.0)).child(Text::new("Default").size(TextSize::Xs)))
-                                    .child(div().w(px(200.0)).child(Progress::new(0.7).variant(ProgressVariant::Default))),
+                                    .child(
+                                        div()
+                                            .w(px(55.0))
+                                            .child(Text::new("Default").size(TextSize::Xs)),
+                                    )
+                                    .child(div().w(px(200.0)).child(
+                                        Progress::new(0.7).variant(ProgressVariant::Default),
+                                    )),
                             )
                             .child(
                                 HStack::new()
                                     .spacing(StackSpacing::Md)
                                     .align(StackAlign::Center)
-                                    .child(div().w(px(55.0)).child(Text::new("Success").size(TextSize::Xs)))
-                                    .child(div().w(px(200.0)).child(Progress::new(1.0).variant(ProgressVariant::Success))),
+                                    .child(
+                                        div()
+                                            .w(px(55.0))
+                                            .child(Text::new("Success").size(TextSize::Xs)),
+                                    )
+                                    .child(div().w(px(200.0)).child(
+                                        Progress::new(1.0).variant(ProgressVariant::Success),
+                                    )),
                             )
                             .child(
                                 HStack::new()
                                     .spacing(StackSpacing::Md)
                                     .align(StackAlign::Center)
-                                    .child(div().w(px(55.0)).child(Text::new("Warning").size(TextSize::Xs)))
-                                    .child(div().w(px(200.0)).child(Progress::new(0.5).variant(ProgressVariant::Warning))),
+                                    .child(
+                                        div()
+                                            .w(px(55.0))
+                                            .child(Text::new("Warning").size(TextSize::Xs)),
+                                    )
+                                    .child(div().w(px(200.0)).child(
+                                        Progress::new(0.5).variant(ProgressVariant::Warning),
+                                    )),
                             )
                             .child(
                                 HStack::new()
                                     .spacing(StackSpacing::Md)
                                     .align(StackAlign::Center)
-                                    .child(div().w(px(55.0)).child(Text::new("Error").size(TextSize::Xs)))
-                                    .child(div().w(px(200.0)).child(Progress::new(0.3).variant(ProgressVariant::Error))),
+                                    .child(
+                                        div()
+                                            .w(px(55.0))
+                                            .child(Text::new("Error").size(TextSize::Xs)),
+                                    )
+                                    .child(
+                                        div().w(px(200.0)).child(
+                                            Progress::new(0.3).variant(ProgressVariant::Error),
+                                        ),
+                                    ),
                             ),
                     ),
             )
@@ -125,7 +207,9 @@ impl Showcase {
             .child(
                 VStack::new()
                     .spacing(StackSpacing::Sm)
-                    .child(Text::new("Circular Progress - Various Values").weight(TextWeight::Medium))
+                    .child(
+                        Text::new("Circular Progress - Various Values").weight(TextWeight::Medium),
+                    )
                     .child(
                         HStack::new()
                             .spacing(StackSpacing::Lg)
@@ -170,7 +254,10 @@ impl Showcase {
             .child(
                 VStack::new()
                     .spacing(StackSpacing::Sm)
-                    .child(Text::new("Circular Progress - Sizes & Variants").weight(TextWeight::Medium))
+                    .child(
+                        Text::new("Circular Progress - Sizes & Variants")
+                            .weight(TextWeight::Medium),
+                    )
                     .child(
                         HStack::new()
                             .spacing(StackSpacing::Lg)
@@ -200,21 +287,33 @@ impl Showcase {
                                 VStack::new()
                                     .spacing(StackSpacing::Xs)
                                     .align(StackAlign::Center)
-                                    .child(CircularProgress::new(1.0).size(px(48.0)).variant(ProgressVariant::Success))
+                                    .child(
+                                        CircularProgress::new(1.0)
+                                            .size(px(48.0))
+                                            .variant(ProgressVariant::Success),
+                                    )
                                     .child(Text::new("Success").size(TextSize::Xs).muted(true)),
                             )
                             .child(
                                 VStack::new()
                                     .spacing(StackSpacing::Xs)
                                     .align(StackAlign::Center)
-                                    .child(CircularProgress::new(0.5).size(px(48.0)).variant(ProgressVariant::Warning))
+                                    .child(
+                                        CircularProgress::new(0.5)
+                                            .size(px(48.0))
+                                            .variant(ProgressVariant::Warning),
+                                    )
                                     .child(Text::new("Warning").size(TextSize::Xs).muted(true)),
                             )
                             .child(
                                 VStack::new()
                                     .spacing(StackSpacing::Xs)
                                     .align(StackAlign::Center)
-                                    .child(CircularProgress::new(0.3).size(px(48.0)).variant(ProgressVariant::Error))
+                                    .child(
+                                        CircularProgress::new(0.3)
+                                            .size(px(48.0))
+                                            .variant(ProgressVariant::Error),
+                                    )
                                     .child(Text::new("Error").size(TextSize::Xs).muted(true)),
                             ),
                     ),

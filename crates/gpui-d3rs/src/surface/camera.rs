@@ -33,7 +33,7 @@ impl Default for SurfaceCameraLimits {
 }
 
 /// Owns the camera state for an interactive surface plot and applies pointer deltas.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct SurfaceCamera {
     pub camera: Camera2D,
     pub limits: SurfaceCameraLimits,
@@ -77,15 +77,6 @@ impl SurfaceCamera {
         let factor = self.limits.zoom_factor_per_tick.powf(delta);
         self.camera.zoom =
             (self.camera.zoom * factor).clamp(self.limits.min_zoom, self.limits.max_zoom);
-    }
-}
-
-impl Default for SurfaceCamera {
-    fn default() -> Self {
-        Self {
-            camera: Camera2D::default(),
-            limits: SurfaceCameraLimits::default(),
-        }
     }
 }
 

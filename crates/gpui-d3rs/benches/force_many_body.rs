@@ -1,4 +1,5 @@
-use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
+use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
+use std::hint::black_box;
 use d3rs::force::{Force, ForceManyBody, SimulationNode};
 use std::cell::RefCell;
 use std::rc::Rc;

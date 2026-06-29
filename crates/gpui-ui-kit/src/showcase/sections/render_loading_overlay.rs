@@ -1,7 +1,10 @@
 use super::prelude::*;
 
 impl Showcase {
-    pub(crate) fn render_loading_overlay_section(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    pub(crate) fn render_loading_overlay_section(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
         let section_title = cx.t(TranslationKey::SectionLoadingOverlay);
         let theme = cx.theme();
 

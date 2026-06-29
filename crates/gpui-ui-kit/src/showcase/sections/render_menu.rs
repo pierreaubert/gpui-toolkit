@@ -17,23 +17,26 @@ impl Showcase {
                     .spacing(StackSpacing::Sm)
                     .child(Text::new("Dropdown Menu").weight(TextWeight::Medium))
                     .child(
-                        Menu::new("example-menu", vec![
-                            MenuItem::new("new-file", "New File")
-                                .with_shortcut("Cmd+N")
-                                .with_icon("N"),
-                            MenuItem::new("open", "Open...")
-                                .with_shortcut("Cmd+O")
-                                .with_icon("O"),
-                            MenuItem::new("save", "Save")
-                                .with_shortcut("Cmd+S")
-                                .with_icon("S"),
-                            MenuItem::separator(),
-                            MenuItem::checkbox("autosave", "Auto Save", true),
-                            MenuItem::separator(),
-                            MenuItem::new("quit", "Quit")
-                                .with_shortcut("Cmd+Q")
-                                .danger(),
-                        ])
+                        Menu::new(
+                            "example-menu",
+                            vec![
+                                MenuItem::new("new-file", "New File")
+                                    .with_shortcut("Cmd+N")
+                                    .with_icon("N"),
+                                MenuItem::new("open", "Open...")
+                                    .with_shortcut("Cmd+O")
+                                    .with_icon("O"),
+                                MenuItem::new("save", "Save")
+                                    .with_shortcut("Cmd+S")
+                                    .with_icon("S"),
+                                MenuItem::separator(),
+                                MenuItem::checkbox("autosave", "Auto Save", true),
+                                MenuItem::separator(),
+                                MenuItem::new("quit", "Quit")
+                                    .with_shortcut("Cmd+Q")
+                                    .danger(),
+                            ],
+                        )
                         .min_width(px(220.0)),
                     ),
             )

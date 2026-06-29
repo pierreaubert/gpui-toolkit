@@ -141,15 +141,13 @@ fn interactive_surface_plot(
         )
         .on_mouse_move(
             cx.listener(move |this, event: &MouseMoveEvent, _window, cx| {
-                if let Some((idx, start)) = this.surface_plot_drag {
-                    if idx == plot_index {
-                        cx.stop_propagation();
-                        let dx: f64 = (event.position.x - start.x).into();
-                        let dy: f64 = (event.position.y - start.y).into();
-                        camera_for_plot(this, plot_index).apply_drag(dx, dy);
-                        this.surface_plot_drag = Some((plot_index, event.position));
-                        cx.notify();
-                    }
+                if let Some((idx, start)) = this.surface_plot_drag && idx == plot_index {
+                    cx.stop_propagation();
+                    let dx: f64 = (event.position.x - start.x).into();
+                    let dy: f64 = (event.position.y - start.y).into();
+                    camera_for_plot(this, plot_index).apply_drag(dx, dy);
+                    this.surface_plot_drag = Some((plot_index, event.position));
+                    cx.notify();
                 }
             }),
         )
@@ -158,7 +156,7 @@ fn interactive_surface_plot(
             cx.listener(move |this, _event, _window, cx| {
                 if this
                     .surface_plot_drag
-                    .map_or(false, |(idx, _)| idx == plot_index)
+                    .is_some_and(|(idx, _)| idx == plot_index)
                 {
                     cx.stop_propagation();
                     this.surface_plot_drag = None;

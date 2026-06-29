@@ -10,8 +10,10 @@ async fn test_potentiometer_underlined_label_renders(cx: &mut TestAppContext) {
 
     impl Render for UnderlinedPotView {
         fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
-            let mut tokens = AudioDesignTokens::default();
-            tokens.knob_label_style = AudioDesignTokens::LABEL_UNDERLINED;
+            let tokens = AudioDesignTokens {
+                knob_label_style: AudioDesignTokens::LABEL_UNDERLINED,
+                ..Default::default()
+            };
 
             div().child(
                 Potentiometer::new("underlined-pot")
@@ -34,10 +36,14 @@ async fn test_potentiometer_indicator_styles_renders(cx: &mut TestAppContext) {
 
     impl Render for IndicatorStylesView {
         fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
-            let mut tick_tokens = AudioDesignTokens::default();
-            tick_tokens.knob_indicator_style = AudioDesignTokens::INDICATOR_TICK;
-            let mut arrow_tokens = AudioDesignTokens::default();
-            arrow_tokens.knob_indicator_style = AudioDesignTokens::INDICATOR_ARROW;
+            let tick_tokens = AudioDesignTokens {
+                knob_indicator_style: AudioDesignTokens::INDICATOR_TICK,
+                ..Default::default()
+            };
+            let arrow_tokens = AudioDesignTokens {
+                knob_indicator_style: AudioDesignTokens::INDICATOR_ARROW,
+                ..Default::default()
+            };
 
             div()
                 .flex()
@@ -103,9 +109,11 @@ async fn test_vertical_slider_underlined_label_renders(cx: &mut TestAppContext) 
 
     impl Render for UnderlinedSliderView {
         fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
-            let mut tokens = AudioDesignTokens::default();
-            tokens.meter_label_style = AudioDesignTokens::LABEL_UNDERLINED;
-            tokens.meter_glow = 1.0;
+            let tokens = AudioDesignTokens {
+                meter_label_style: AudioDesignTokens::LABEL_UNDERLINED,
+                meter_glow: 1.0,
+                ..Default::default()
+            };
 
             div().child(
                 VerticalSlider::new("underlined-slider")

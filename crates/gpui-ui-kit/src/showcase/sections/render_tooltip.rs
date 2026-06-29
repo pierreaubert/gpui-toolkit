@@ -8,10 +8,30 @@ impl Showcase {
         let hovered = self.tooltip_hovered;
 
         let placements: &[(&str, &str, TooltipPlacement, &str)] = &[
-            ("top", "Top", TooltipPlacement::Top, "I appear above the trigger!"),
-            ("bottom", "Bottom", TooltipPlacement::Bottom, "I appear below the trigger!"),
-            ("left", "Left", TooltipPlacement::Left, "I appear to the left!"),
-            ("right", "Right", TooltipPlacement::Right, "I appear to the right!"),
+            (
+                "top",
+                "Top",
+                TooltipPlacement::Top,
+                "I appear above the trigger!",
+            ),
+            (
+                "bottom",
+                "Bottom",
+                TooltipPlacement::Bottom,
+                "I appear below the trigger!",
+            ),
+            (
+                "left",
+                "Left",
+                TooltipPlacement::Left,
+                "I appear to the left!",
+            ),
+            (
+                "right",
+                "Right",
+                TooltipPlacement::Right,
+                "I appear to the right!",
+            ),
         ];
 
         let mut buttons = HStack::new().spacing(StackSpacing::Xl);
@@ -24,7 +44,11 @@ impl Showcase {
                 .id(SharedString::from(format!("tooltip-trigger-{}", id)))
                 .px_4()
                 .py_2()
-                .bg(if is_shown { theme.accent } else { theme.surface })
+                .bg(if is_shown {
+                    theme.accent
+                } else {
+                    theme.surface
+                })
                 .border_1()
                 .border_color(if is_shown { theme.accent } else { theme.border })
                 .rounded_md()
@@ -59,8 +83,10 @@ impl Showcase {
             .spacing(StackSpacing::Lg)
             .child(self.section_header(section_title))
             .child(
-                Text::new("Click a button to toggle its tooltip. Each shows a different placement:")
-                    .muted(true),
+                Text::new(
+                    "Click a button to toggle its tooltip. Each shows a different placement:",
+                )
+                .muted(true),
             )
             .child(buttons)
     }

@@ -28,7 +28,11 @@ impl Showcase {
                             .content(
                                 VStack::new()
                                     .spacing(StackSpacing::Sm)
-                                    .child(Text::new("Navigation").weight(TextWeight::Semibold).size(TextSize::Sm))
+                                    .child(
+                                        Text::new("Navigation")
+                                            .weight(TextWeight::Semibold)
+                                            .size(TextSize::Sm),
+                                    )
                                     .child(Text::new("Home").size(TextSize::Sm))
                                     .child(Text::new("Library").size(TextSize::Sm))
                                     .child(Text::new("Settings").size(TextSize::Sm)),

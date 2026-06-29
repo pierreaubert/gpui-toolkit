@@ -1,14 +1,12 @@
 use super::prelude::*;
 
-
-
 impl Showcase {
     pub(crate) fn render_wizard_section(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
         let entity = self.entity.clone();
         let current_step = self.wizard_step;
         let statuses = self.wizard_statuses.clone();
-        
+
         let steps = vec![
             WizardStep::new("load", "Load Data").icon("📂"),
             WizardStep::new("configure", "Configure").icon("⚙️"),
@@ -16,7 +14,7 @@ impl Showcase {
             WizardStep::new("review", "Review").icon("🔍"),
             WizardStep::new("export", "Export").icon("💾"),
         ];
-        
+
         let is_first = current_step == 0;
         let is_last = current_step == steps.len() - 1;
 

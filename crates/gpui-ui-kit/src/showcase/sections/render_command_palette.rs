@@ -1,7 +1,10 @@
 use super::prelude::*;
 
 impl Showcase {
-    pub(crate) fn render_command_palette_section(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    pub(crate) fn render_command_palette_section(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
         let section_title = cx.t(TranslationKey::SectionCommandPalette);
         let _theme = cx.theme();
 
@@ -26,7 +29,10 @@ impl Showcase {
         VStack::new()
             .spacing(StackSpacing::Lg)
             .child(self.section_header(section_title))
-            .child(Text::new("Inline preview (normally rendered as overlay):").weight(TextWeight::Semibold))
+            .child(
+                Text::new("Inline preview (normally rendered as overlay):")
+                    .weight(TextWeight::Semibold),
+            )
             .child(
                 div()
                     .w_full()

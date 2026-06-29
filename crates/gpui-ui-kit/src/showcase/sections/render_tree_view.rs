@@ -6,24 +6,20 @@ impl Showcase {
         let theme = cx.theme();
 
         let nodes = vec![
-            TreeNode::new("src", "src/")
-                .icon("/")
-                .children(vec![
-                    TreeNode::new("main", "main.rs").icon("*").leaf(true),
-                    TreeNode::new("lib", "lib.rs").icon("*").leaf(true),
-                    TreeNode::new("utils", "utils/")
-                        .icon("/")
-                        .children(vec![
-                            TreeNode::new("helpers", "helpers.rs").icon("*").leaf(true),
-                        ]),
+            TreeNode::new("src", "src/").icon("/").children(vec![
+                TreeNode::new("main", "main.rs").icon("*").leaf(true),
+                TreeNode::new("lib", "lib.rs").icon("*").leaf(true),
+                TreeNode::new("utils", "utils/").icon("/").children(vec![
+                    TreeNode::new("helpers", "helpers.rs").icon("*").leaf(true),
                 ]),
-            TreeNode::new("tests", "tests/")
-                .icon("/")
-                .children(vec![
-                    TreeNode::new("test1", "test_main.rs").icon("*").leaf(true),
-                    TreeNode::new("test2", "test_lib.rs").icon("*").leaf(true),
-                ]),
-            TreeNode::new("cargo-toml", "Cargo.toml").icon("*").leaf(true),
+            ]),
+            TreeNode::new("tests", "tests/").icon("/").children(vec![
+                TreeNode::new("test1", "test_main.rs").icon("*").leaf(true),
+                TreeNode::new("test2", "test_lib.rs").icon("*").leaf(true),
+            ]),
+            TreeNode::new("cargo-toml", "Cargo.toml")
+                .icon("*")
+                .leaf(true),
         ];
 
         let mut expanded_set = HashSet::new();

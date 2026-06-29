@@ -60,7 +60,10 @@ impl Showcase {
                 HStack::new()
                     .spacing(StackSpacing::Md)
                     .child(
-                        div().flex().flex_col().gap_1()
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap_1()
                             .child(Text::new("Cover").size(TextSize::Xs))
                             .child(
                                 ImageView::new("img-cover")
@@ -71,7 +74,10 @@ impl Showcase {
                             ),
                     )
                     .child(
-                        div().flex().flex_col().gap_1()
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap_1()
                             .child(Text::new("Contain").size(TextSize::Xs))
                             .child(
                                 ImageView::new("img-contain")
@@ -82,7 +88,10 @@ impl Showcase {
                             ),
                     )
                     .child(
-                        div().flex().flex_col().gap_1()
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap_1()
                             .child(Text::new("Fill").size(TextSize::Xs))
                             .child(
                                 ImageView::new("img-fill")

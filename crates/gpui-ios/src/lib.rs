@@ -6,19 +6,6 @@
 //! This crate provides the `IosPlatform` implementation of GPUI's `Platform`
 //! trait, enabling GPUI apps to run on iOS with Metal rendering via gpui_wgpu.
 
-#![allow(
-    unexpected_cfgs,
-    reason = "the objc crate macros emit legacy cargo-clippy cfg checks on Apple targets"
-)]
-#![allow(
-    unused_imports,
-    reason = "r2factor split modules keep shared imports in generated facade files"
-)]
-#![allow(
-    hidden_glob_reexports,
-    reason = "r2factor facades re-export platform modules whose public surface changes by target"
-)]
-
 pub use gpui;
 
 pub mod accessibility;

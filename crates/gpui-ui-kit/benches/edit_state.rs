@@ -1,9 +1,10 @@
-use criterion::{Criterion, black_box, criterion_group, criterion_main};
+use criterion::{Criterion, criterion_group, criterion_main};
+use std::hint::black_box;
 use gpui_ui_kit::input::edit_state::EditState;
 
 /// Build a ~200-character string of space-separated words.
 fn words_text() -> String {
-    std::iter::repeat("word ").take(40).collect()
+    "word ".repeat(40)
 }
 
 fn bench_insert_char(c: &mut Criterion) {

@@ -336,7 +336,7 @@ fn theme_variants_and_accessors() {
     for variant in ThemeVariant::all() {
         let theme = Theme::for_variant(*variant);
         assert_eq!(theme.variant, *variant);
-        assert_eq!(theme.variant.name().len() > 0, true);
+        assert!(!theme.variant.name().is_empty());
 
         let _ = theme.accent_token();
         let _ = theme.success_token();
@@ -433,7 +433,7 @@ fn divider_builder() {
 #[test]
 fn spacer_and_stack_spacing() {
     let _ = Spacer::new().build();
-    let _ = Spacer::default().build();
+    let _ = Spacer.build();
 }
 
 // ===========================================================================

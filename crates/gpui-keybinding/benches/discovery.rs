@@ -1,4 +1,5 @@
-use criterion::{Criterion, black_box, criterion_group, criterion_main};
+use criterion::{Criterion, criterion_group, criterion_main};
+use std::hint::black_box;
 use gpui_keybinding::{
     DocumentedKeybinding, KeybindingCategory, command_palette_entries, format_key_label,
     search_command_palette_cached,

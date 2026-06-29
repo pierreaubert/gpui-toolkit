@@ -60,12 +60,7 @@ impl Showcase {
                                     .size_full()
                                     .child(Text::new("Top Panel").weight(TextWeight::Semibold)),
                             )
-                            .second(
-                                div()
-                                    .p_4()
-                                    .size_full()
-                                    .child(Text::new("Bottom Panel")),
-                            ),
+                            .second(div().p_4().size_full().child(Text::new("Bottom Panel"))),
                     ),
             )
     }

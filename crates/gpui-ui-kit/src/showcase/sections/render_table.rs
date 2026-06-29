@@ -25,9 +25,9 @@ impl Showcase {
                             .child(
                                 Table::new("showcase-table", self.users.clone())
                                     .column(
-                                        Column::new("id", "ID")
-                                            .width(px(60.0))
-                                            .cell_render(|user: &User, _, _, _| user.id.to_string()),
+                                        Column::new("id", "ID").width(px(60.0)).cell_render(
+                                            |user: &User, _, _, _| user.id.to_string(),
+                                        ),
                                     )
                                     .column(
                                         Column::new("name", "Name")
@@ -42,7 +42,10 @@ impl Showcase {
                                             .width(px(100.0))
                                             .cell_render(|user: &User, _, _, _| user.role.clone()),
                                     )
-                                    .sort(self.sort_state.clone().unwrap_or(SortState { column_id: "name".into(), direction: SortDirection::Ascending }))
+                                    .sort(self.sort_state.clone().unwrap_or(SortState {
+                                        column_id: "name".into(),
+                                        direction: SortDirection::Ascending,
+                                    }))
                                     .on_sort(cx.listener(|this, state: &SortState, _window, cx| {
                                         this.sort_state = Some(state.clone());
                                         this.users.sort_by(|a, b| {
@@ -63,22 +66,27 @@ impl Showcase {
                                     }))
                                     .selection_mode(SelectionMode::Multiple)
                                     .selected_indices(self.selected_users.clone())
-                                    .on_selection_change(cx.listener(|this, indices: &HashSet<usize>, _window, cx| {
-                                        this.selected_users = indices.clone();
-                                        cx.notify();
-                                    }))
+                                    .on_selection_change(cx.listener(
+                                        |this, indices: &HashSet<usize>, _window, cx| {
+                                            this.selected_users = indices.clone();
+                                            cx.notify();
+                                        },
+                                    ))
                                     .pagination(self.pagination.clone())
-                                    .on_page_change(cx.listener(|this, page: &usize, _window, cx| {
-                                        this.pagination.current_page = *page;
-                                        cx.notify();
-                                    }))
-                                    .show_footer(true)
+                                    .on_page_change(cx.listener(
+                                        |this, page: &usize, _window, cx| {
+                                            this.pagination.current_page = *page;
+                                            cx.notify();
+                                        },
+                                    ))
+                                    .show_footer(true),
                             ),
                     )
                     .child(
-                        HStack::new()
-                            .spacing(StackSpacing::Md)
-                            .child(Text::new(format!("Selected: {} items", self.selected_users.len())).size(TextSize::Sm))
+                        HStack::new().spacing(StackSpacing::Md).child(
+                            Text::new(format!("Selected: {} items", self.selected_users.len()))
+                                .size(TextSize::Sm),
+                        ),
                     ),
             )
     }

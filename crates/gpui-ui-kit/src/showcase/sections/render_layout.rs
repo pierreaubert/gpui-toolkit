@@ -73,7 +73,11 @@ impl Showcase {
                 VStack::new()
                     .spacing(StackSpacing::Sm)
                     .child(Text::new("Flex Grow (flex_1)").weight(TextWeight::Medium))
-                    .child(Text::new("Panels expand to fill available space equally").size(TextSize::Sm).color(theme.text_muted))
+                    .child(
+                        Text::new("Panels expand to fill available space equally")
+                            .size(TextSize::Sm)
+                            .color(theme.text_muted),
+                    )
                     .child(
                         HStack::new()
                             .width(StackSize::Fixed(px(500.0)))
@@ -85,9 +89,13 @@ impl Showcase {
                                     .height(StackSize::Full)
                                     .justify(StackJustify::Center)
                                     .align(StackAlign::Center)
-                                    .child(div().p_3().bg(theme.accent).rounded_md().child(
-                                        Text::new("flex_1").color(theme.background),
-                                    )),
+                                    .child(
+                                        div()
+                                            .p_3()
+                                            .bg(theme.accent)
+                                            .rounded_md()
+                                            .child(Text::new("flex_1").color(theme.background)),
+                                    ),
                             )
                             .child(
                                 VStack::new()
@@ -95,9 +103,13 @@ impl Showcase {
                                     .height(StackSize::Full)
                                     .justify(StackJustify::Center)
                                     .align(StackAlign::Center)
-                                    .child(div().p_3().bg(theme.success).rounded_md().child(
-                                        Text::new("flex_1").color(theme.background),
-                                    )),
+                                    .child(
+                                        div()
+                                            .p_3()
+                                            .bg(theme.success)
+                                            .rounded_md()
+                                            .child(Text::new("flex_1").color(theme.background)),
+                                    ),
                             )
                             .child(
                                 VStack::new()
@@ -105,9 +117,13 @@ impl Showcase {
                                     .height(StackSize::Full)
                                     .justify(StackJustify::Center)
                                     .align(StackAlign::Center)
-                                    .child(div().p_3().bg(theme.warning).rounded_md().child(
-                                        Text::new("flex_1").color(theme.background),
-                                    )),
+                                    .child(
+                                        div()
+                                            .p_3()
+                                            .bg(theme.warning)
+                                            .rounded_md()
+                                            .child(Text::new("flex_1").color(theme.background)),
+                                    ),
                             ),
                     ),
             )
@@ -116,43 +132,41 @@ impl Showcase {
                 VStack::new()
                     .spacing(StackSpacing::Sm)
                     .child(Text::new("Size Options").weight(TextWeight::Medium))
-                    .child(Text::new("Fixed, Fraction, and Full sizing").size(TextSize::Sm).color(theme.text_muted))
+                    .child(
+                        Text::new("Fixed, Fraction, and Full sizing")
+                            .size(TextSize::Sm)
+                            .color(theme.text_muted),
+                    )
                     .child(
                         VStack::new()
                             .width(StackSize::Fixed(px(500.0)))
                             .spacing(StackSpacing::Xs)
                             .child(
-                                HStack::new()
-                                    .width(StackSize::Full)
-                                    .child(
-                                        div()
-                                            .p_2()
-                                            .bg(theme.surface_hover)
-                                            .rounded_md()
-                                            .child(Text::new("width: Full (100%)").size(TextSize::Sm)),
-                                    ),
+                                HStack::new().width(StackSize::Full).child(
+                                    div()
+                                        .p_2()
+                                        .bg(theme.surface_hover)
+                                        .rounded_md()
+                                        .child(Text::new("width: Full (100%)").size(TextSize::Sm)),
+                                ),
                             )
                             .child(
-                                HStack::new()
-                                    .width(StackSize::Fraction(0.5))
-                                    .child(
-                                        div()
-                                            .p_2()
-                                            .bg(theme.accent)
-                                            .rounded_md()
-                                            .child(Text::new("width: 50%").size(TextSize::Sm).color(theme.background)),
+                                HStack::new().width(StackSize::Fraction(0.5)).child(
+                                    div().p_2().bg(theme.accent).rounded_md().child(
+                                        Text::new("width: 50%")
+                                            .size(TextSize::Sm)
+                                            .color(theme.background),
                                     ),
+                                ),
                             )
                             .child(
-                                HStack::new()
-                                    .width(StackSize::Fixed(px(150.0)))
-                                    .child(
-                                        div()
-                                            .p_2()
-                                            .bg(theme.success)
-                                            .rounded_md()
-                                            .child(Text::new("width: 150px").size(TextSize::Sm).color(theme.background)),
+                                HStack::new().width(StackSize::Fixed(px(150.0))).child(
+                                    div().p_2().bg(theme.success).rounded_md().child(
+                                        Text::new("width: 150px")
+                                            .size(TextSize::Sm)
+                                            .color(theme.background),
                                     ),
+                                ),
                             ),
                     ),
             )
@@ -161,18 +175,58 @@ impl Showcase {
                 VStack::new()
                     .spacing(StackSpacing::Sm)
                     .child(Text::new("Flex Wrap").weight(TextWeight::Medium))
-                    .child(Text::new("Items wrap to next line when they don't fit").size(TextSize::Sm).color(theme.text_muted))
+                    .child(
+                        Text::new("Items wrap to next line when they don't fit")
+                            .size(TextSize::Sm)
+                            .color(theme.text_muted),
+                    )
                     .child(
                         HStack::new()
                             .width(StackSize::Fixed(px(300.0)))
                             .wrap(true)
                             .spacing(StackSpacing::Xs)
-                            .child(div().px_3().py_1().bg(theme.accent).rounded_md().child(Text::new("Tag 1").size(TextSize::Sm).color(theme.background)))
-                            .child(div().px_3().py_1().bg(theme.success).rounded_md().child(Text::new("Tag 2").size(TextSize::Sm).color(theme.background)))
-                            .child(div().px_3().py_1().bg(theme.warning).rounded_md().child(Text::new("Tag 3").size(TextSize::Sm).color(theme.background)))
-                            .child(div().px_3().py_1().bg(theme.error).rounded_md().child(Text::new("Tag 4").size(TextSize::Sm).color(theme.background)))
-                            .child(div().px_3().py_1().bg(theme.accent).rounded_md().child(Text::new("Tag 5").size(TextSize::Sm).color(theme.background)))
-                            .child(div().px_3().py_1().bg(theme.success).rounded_md().child(Text::new("Tag 6").size(TextSize::Sm).color(theme.background))),
+                            .child(
+                                div().px_3().py_1().bg(theme.accent).rounded_md().child(
+                                    Text::new("Tag 1")
+                                        .size(TextSize::Sm)
+                                        .color(theme.background),
+                                ),
+                            )
+                            .child(
+                                div().px_3().py_1().bg(theme.success).rounded_md().child(
+                                    Text::new("Tag 2")
+                                        .size(TextSize::Sm)
+                                        .color(theme.background),
+                                ),
+                            )
+                            .child(
+                                div().px_3().py_1().bg(theme.warning).rounded_md().child(
+                                    Text::new("Tag 3")
+                                        .size(TextSize::Sm)
+                                        .color(theme.background),
+                                ),
+                            )
+                            .child(
+                                div().px_3().py_1().bg(theme.error).rounded_md().child(
+                                    Text::new("Tag 4")
+                                        .size(TextSize::Sm)
+                                        .color(theme.background),
+                                ),
+                            )
+                            .child(
+                                div().px_3().py_1().bg(theme.accent).rounded_md().child(
+                                    Text::new("Tag 5")
+                                        .size(TextSize::Sm)
+                                        .color(theme.background),
+                                ),
+                            )
+                            .child(
+                                div().px_3().py_1().bg(theme.success).rounded_md().child(
+                                    Text::new("Tag 6")
+                                        .size(TextSize::Sm)
+                                        .color(theme.background),
+                                ),
+                            ),
                     ),
             )
             // Justify options demonstration
@@ -189,35 +243,112 @@ impl Showcase {
                                     .width(StackSize::Full)
                                     .justify(StackJustify::Start)
                                     .spacing(StackSpacing::Xs)
-                                    .child(div().px_2().py_1().bg(theme.surface_hover).rounded_sm().child(Text::new("Start").size(TextSize::Xs)))
-                                    .child(div().px_2().py_1().bg(theme.surface_hover).rounded_sm().child(Text::new("A").size(TextSize::Xs)))
-                                    .child(div().px_2().py_1().bg(theme.surface_hover).rounded_sm().child(Text::new("B").size(TextSize::Xs))),
+                                    .child(
+                                        div()
+                                            .px_2()
+                                            .py_1()
+                                            .bg(theme.surface_hover)
+                                            .rounded_sm()
+                                            .child(Text::new("Start").size(TextSize::Xs)),
+                                    )
+                                    .child(
+                                        div()
+                                            .px_2()
+                                            .py_1()
+                                            .bg(theme.surface_hover)
+                                            .rounded_sm()
+                                            .child(Text::new("A").size(TextSize::Xs)),
+                                    )
+                                    .child(
+                                        div()
+                                            .px_2()
+                                            .py_1()
+                                            .bg(theme.surface_hover)
+                                            .rounded_sm()
+                                            .child(Text::new("B").size(TextSize::Xs)),
+                                    ),
                             )
                             .child(
                                 HStack::new()
                                     .width(StackSize::Full)
                                     .justify(StackJustify::Center)
                                     .spacing(StackSpacing::Xs)
-                                    .child(div().px_2().py_1().bg(theme.surface_hover).rounded_sm().child(Text::new("Center").size(TextSize::Xs)))
-                                    .child(div().px_2().py_1().bg(theme.surface_hover).rounded_sm().child(Text::new("A").size(TextSize::Xs)))
-                                    .child(div().px_2().py_1().bg(theme.surface_hover).rounded_sm().child(Text::new("B").size(TextSize::Xs))),
+                                    .child(
+                                        div()
+                                            .px_2()
+                                            .py_1()
+                                            .bg(theme.surface_hover)
+                                            .rounded_sm()
+                                            .child(Text::new("Center").size(TextSize::Xs)),
+                                    )
+                                    .child(
+                                        div()
+                                            .px_2()
+                                            .py_1()
+                                            .bg(theme.surface_hover)
+                                            .rounded_sm()
+                                            .child(Text::new("A").size(TextSize::Xs)),
+                                    )
+                                    .child(
+                                        div()
+                                            .px_2()
+                                            .py_1()
+                                            .bg(theme.surface_hover)
+                                            .rounded_sm()
+                                            .child(Text::new("B").size(TextSize::Xs)),
+                                    ),
                             )
                             .child(
                                 HStack::new()
                                     .width(StackSize::Full)
                                     .justify(StackJustify::End)
                                     .spacing(StackSpacing::Xs)
-                                    .child(div().px_2().py_1().bg(theme.surface_hover).rounded_sm().child(Text::new("End").size(TextSize::Xs)))
-                                    .child(div().px_2().py_1().bg(theme.surface_hover).rounded_sm().child(Text::new("A").size(TextSize::Xs)))
-                                    .child(div().px_2().py_1().bg(theme.surface_hover).rounded_sm().child(Text::new("B").size(TextSize::Xs))),
+                                    .child(
+                                        div()
+                                            .px_2()
+                                            .py_1()
+                                            .bg(theme.surface_hover)
+                                            .rounded_sm()
+                                            .child(Text::new("End").size(TextSize::Xs)),
+                                    )
+                                    .child(
+                                        div()
+                                            .px_2()
+                                            .py_1()
+                                            .bg(theme.surface_hover)
+                                            .rounded_sm()
+                                            .child(Text::new("A").size(TextSize::Xs)),
+                                    )
+                                    .child(
+                                        div()
+                                            .px_2()
+                                            .py_1()
+                                            .bg(theme.surface_hover)
+                                            .rounded_sm()
+                                            .child(Text::new("B").size(TextSize::Xs)),
+                                    ),
                             )
                             .child(
                                 HStack::new()
                                     .width(StackSize::Full)
                                     .justify(StackJustify::SpaceBetween)
-                                    .child(div().px_2().py_1().bg(theme.accent).rounded_sm().child(Text::new("Between").size(TextSize::Xs).color(theme.background)))
-                                    .child(div().px_2().py_1().bg(theme.accent).rounded_sm().child(Text::new("A").size(TextSize::Xs).color(theme.background)))
-                                    .child(div().px_2().py_1().bg(theme.accent).rounded_sm().child(Text::new("B").size(TextSize::Xs).color(theme.background))),
+                                    .child(
+                                        div().px_2().py_1().bg(theme.accent).rounded_sm().child(
+                                            Text::new("Between")
+                                                .size(TextSize::Xs)
+                                                .color(theme.background),
+                                        ),
+                                    )
+                                    .child(div().px_2().py_1().bg(theme.accent).rounded_sm().child(
+                                        Text::new("A").size(TextSize::Xs).color(theme.background),
+                                    ))
+                                    .child(
+                                        div().px_2().py_1().bg(theme.accent).rounded_sm().child(
+                                            Text::new("B")
+                                                .size(TextSize::Xs)
+                                                .color(theme.background),
+                                        ),
+                                    ),
                             ),
                     ),
             )
@@ -278,7 +409,13 @@ impl Showcase {
                 VStack::new()
                     .spacing(StackSpacing::Sm)
                     .child(Text::new("Pane Dividers").weight(TextWeight::Medium))
-                    .child(Text::new("Interactive dividers with collapse/expand and drag-to-resize support").size(TextSize::Sm).color(theme.text_muted))
+                    .child(
+                        Text::new(
+                            "Interactive dividers with collapse/expand and drag-to-resize support",
+                        )
+                        .size(TextSize::Sm)
+                        .color(theme.text_muted),
+                    )
                     .child(self.render_pane_divider_demo(cx)),
             )
     }
@@ -316,7 +453,11 @@ impl Showcase {
                         VStack::new()
                             .align(StackAlign::Center)
                             .child(Text::new("Left Panel").weight(TextWeight::Medium))
-                            .child(Text::new(format!("Width: {:.0}px", left_width)).size(TextSize::Sm).color(theme.text_muted)),
+                            .child(
+                                Text::new(format!("Width: {:.0}px", left_width))
+                                    .size(TextSize::Sm)
+                                    .color(theme.text_muted),
+                            ),
                     ),
             );
         }
@@ -356,8 +497,16 @@ impl Showcase {
                     VStack::new()
                         .align(StackAlign::Center)
                         .child(Text::new("Main Content").weight(TextWeight::Medium))
-                        .child(Text::new("Double-click divider to collapse").size(TextSize::Sm).color(theme.text_muted))
-                        .child(Text::new("Drag divider to resize").size(TextSize::Sm).color(theme.text_muted)),
+                        .child(
+                            Text::new("Double-click divider to collapse")
+                                .size(TextSize::Sm)
+                                .color(theme.text_muted),
+                        )
+                        .child(
+                            Text::new("Drag divider to resize")
+                                .size(TextSize::Sm)
+                                .color(theme.text_muted),
+                        ),
                 ),
         );
 
