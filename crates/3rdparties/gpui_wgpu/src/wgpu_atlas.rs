@@ -8,6 +8,8 @@ use gpui::{
 use parking_lot::Mutex;
 use std::{borrow::Cow, ops, sync::Arc};
 
+use crate::WgpuContext;
+
 fn device_size_to_etagere(size: Size<DevicePixels>) -> etagere::Size {
     size2(size.width.0, size.height.0)
 }
@@ -31,6 +33,7 @@ struct WgpuAtlasState {
     device: Arc<wgpu::Device>,
     queue: Arc<wgpu::Queue>,
     max_texture_size: u32,
+    color_texture_format: wgpu::TextureFormat,
     storage: WgpuAtlasStorage,
     tiles_by_key: FxHashMap<AtlasKey, AtlasTile>,
     pending_uploads: Vec<PendingUpload>,
@@ -41,16 +44,29 @@ pub struct WgpuTextureInfo {
 }
 
 impl WgpuAtlas {
-    pub fn new(device: Arc<wgpu::Device>, queue: Arc<wgpu::Queue>) -> Self {
+    pub fn new(
+        device: Arc<wgpu::Device>,
+        queue: Arc<wgpu::Queue>,
+        color_texture_format: wgpu::TextureFormat,
+    ) -> Self {
         let max_texture_size = device.limits().max_texture_dimension_2d;
         WgpuAtlas(Mutex::new(WgpuAtlasState {
             device,
             queue,
             max_texture_size,
+            color_texture_format,
             storage: WgpuAtlasStorage::default(),
             tiles_by_key: Default::default(),
             pending_uploads: Vec::new(),
         }))
+    }
+
+    pub fn from_context(context: &WgpuContext) -> Self {
+        Self::new(
+            Arc::clone(&context.device),
+            Arc::clone(&context.queue),
+            context.color_texture_format(),
+        )
     }
 
     pub fn before_frame(&self) {
@@ -165,8 +181,7 @@ impl WgpuAtlasState {
         let size = min_size.min(&max_atlas_size).max(&DEFAULT_ATLAS_SIZE);
         let format = match kind {
             AtlasTextureKind::Monochrome => wgpu::TextureFormat::R8Unorm,
-            AtlasTextureKind::Subpixel => wgpu::TextureFormat::Bgra8Unorm,
-            AtlasTextureKind::Polychrome => wgpu::TextureFormat::Bgra8Unorm,
+            AtlasTextureKind::Subpixel | AtlasTextureKind::Polychrome => self.color_texture_format,
         };
 
         let texture = self.device.create_texture(&wgpu::TextureDescriptor {
@@ -219,11 +234,14 @@ impl WgpuAtlasState {
     }
 
     fn upload_texture(&mut self, id: AtlasTextureId, bounds: Bounds<DevicePixels>, bytes: &[u8]) {
-        self.pending_uploads.push(PendingUpload {
-            id,
-            bounds,
-            data: bytes.to_vec(),
-        });
+        let data = self
+            .storage
+            .get(id)
+            .map(|texture| swizzle_upload_data(bytes, texture.format))
+            .unwrap_or_else(|| bytes.to_vec());
+
+        self.pending_uploads
+            .push(PendingUpload { id, bounds, data });
     }
 
     fn flush_uploads(&mut self) {
@@ -286,6 +304,15 @@ impl ops::IndexMut<AtlasTextureKind> for WgpuAtlasStorage {
     }
 }
 
+impl WgpuAtlasStorage {
+    fn get(&self, id: AtlasTextureId) -> Option<&WgpuAtlasTexture> {
+        self[id.kind]
+            .textures
+            .get(id.index as usize)
+            .and_then(|texture| texture.as_ref())
+    }
+}
+
 impl ops::Index<AtlasTextureId> for WgpuAtlasStorage {
     type Output = WgpuAtlasTexture;
     fn index(&self, id: AtlasTextureId) -> &Self::Output {
@@ -328,7 +355,7 @@ impl WgpuAtlasTexture {
     fn bytes_per_pixel(&self) -> u8 {
         match self.format {
             wgpu::TextureFormat::R8Unorm => 1,
-            wgpu::TextureFormat::Bgra8Unorm => 4,
+            wgpu::TextureFormat::Bgra8Unorm | wgpu::TextureFormat::Rgba8Unorm => 4,
             _ => 4,
         }
     }
@@ -339,5 +366,18 @@ impl WgpuAtlasTexture {
 
     fn is_unreferenced(&self) -> bool {
         self.live_atlas_keys == 0
+    }
+}
+
+fn swizzle_upload_data(bytes: &[u8], format: wgpu::TextureFormat) -> Vec<u8> {
+    match format {
+        wgpu::TextureFormat::Rgba8Unorm => {
+            let mut data = bytes.to_vec();
+            for pixel in data.chunks_exact_mut(4) {
+                pixel.swap(0, 2);
+            }
+            data
+        }
+        _ => bytes.to_vec(),
     }
 }

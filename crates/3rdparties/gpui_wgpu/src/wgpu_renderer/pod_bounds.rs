@@ -1,5 +1,5 @@
-use gpui :: { Bounds , ScaledPixels } ;
 use super::PodBounds;
+use gpui::{Bounds, ScaledPixels};
 
 impl From<Bounds<ScaledPixels>> for PodBounds {
     fn from(bounds: Bounds<ScaledPixels>) -> Self {
@@ -9,4 +9,3 @@ impl From<Bounds<ScaledPixels>> for PodBounds {
         }
     }
 }
-

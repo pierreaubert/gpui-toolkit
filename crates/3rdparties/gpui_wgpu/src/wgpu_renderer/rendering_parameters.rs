@@ -1,4 +1,4 @@
-use gpui :: { get_gamma_correction_ratios } ;
+use gpui::get_gamma_correction_ratios;
 
 pub(super) struct RenderingParameters {
     pub(super) path_sample_count: u32,
@@ -44,4 +44,3 @@ impl RenderingParameters {
         }
     }
 }
-

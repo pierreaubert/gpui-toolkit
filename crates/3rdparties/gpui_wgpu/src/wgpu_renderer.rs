@@ -1,9 +1,9 @@
 use crate::{CompositorGpuHint, WgpuAtlas, WgpuContext};
 use bytemuck::{Pod, Zeroable};
 use gpui::{
-    AtlasTextureId, Background, Bounds, DevicePixels, GpuSpecs,
-    MonochromeSprite, Path, Point, PolychromeSprite, PrimitiveBatch, Quad, ScaledPixels, Scene,
-    Shadow, Size, SubpixelSprite, Underline,
+    AtlasTextureId, Background, Bounds, DevicePixels, GpuSpecs, MonochromeSprite, Path, Point,
+    PolychromeSprite, PrimitiveBatch, Quad, ScaledPixels, Scene, Shadow, Size, SubpixelSprite,
+    Underline,
 };
 use log::warn;
 #[cfg(not(target_family = "wasm"))]
@@ -19,7 +19,7 @@ mod types;
 
 pub use types::*;
 
-# [cfg (not (target_family = "wasm"))]
+#[cfg(not(target_family = "wasm"))]
 use misc::create_surface;
 use rendering_parameters::RenderingParameters;
 use types::WgpuBindGroupLayouts;
@@ -168,10 +168,7 @@ impl WgpuRenderer {
             None => ctx_ref.insert(WgpuContext::new(instance, &surface, compositor_gpu)?),
         };
 
-        let atlas = Arc::new(WgpuAtlas::new(
-            Arc::clone(&context.device),
-            Arc::clone(&context.queue),
-        ));
+        let atlas = Arc::new(WgpuAtlas::from_context(context));
 
         Self::new_internal(
             Some(Rc::clone(&gpu_context)),
@@ -194,10 +191,7 @@ impl WgpuRenderer {
             .create_surface(wgpu::SurfaceTarget::Canvas(canvas.clone()))
             .map_err(|e| anyhow::anyhow!("Failed to create surface: {e}"))?;
 
-        let atlas = Arc::new(WgpuAtlas::new(
-            Arc::clone(&context.device),
-            Arc::clone(&context.queue),
-        ));
+        let atlas = Arc::new(WgpuAtlas::from_context(context));
 
         Self::new_internal(None, context, surface, config, None, atlas)
     }

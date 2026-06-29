@@ -1,8 +1,8 @@
-use crate :: { WgpuContext } ;
-use gpui :: { DevicePixels , Size } ;
+use crate::WgpuContext;
+use gpui::{DevicePixels, Size};
 use std::cell::RefCell;
 use std::rc::Rc;
-use std :: sync :: { Arc } ;
+use std::sync::Arc;
 
 pub struct WgpuSurfaceConfig {
     pub size: Size<DevicePixels>,
@@ -50,4 +50,3 @@ pub(super) struct WgpuResources {
     pub(super) path_msaa_texture: Option<wgpu::Texture>,
     pub(super) path_msaa_view: Option<wgpu::TextureView>,
 }
-

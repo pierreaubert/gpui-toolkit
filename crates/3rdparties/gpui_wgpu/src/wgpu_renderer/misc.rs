@@ -1,4 +1,3 @@
-
 #[cfg(not(target_family = "wasm"))]
 pub(super) fn create_surface(
     instance: &wgpu::Instance,
@@ -14,4 +13,3 @@ pub(super) fn create_surface(
             .map_err(|e| anyhow::anyhow!("{e}"))
     }
 }
-
