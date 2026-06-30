@@ -1,10 +1,10 @@
 use criterion::{Criterion, criterion_group, criterion_main};
-use std::hint::black_box;
 use gpui_pretext::measurement::MeasureCache;
 use gpui_pretext::{
     EngineProfile, PrepareOptions, TextMeasure, layout_optimal, layout_with_lines, prepare,
     prepare_with_segments,
 };
+use std::hint::black_box;
 
 struct FixedWidthMeasure {
     char_width: f64,

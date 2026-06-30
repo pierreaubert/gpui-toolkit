@@ -28,8 +28,8 @@ use crate::{
 };
 use gpui::SharedString;
 use gpui_px::{Colormap, ScaleType};
-use gpui_ui_kit::ButtonVariant;
 use gpui_showcase::showcase::ShowcaseSection;
+use gpui_ui_kit::ButtonVariant;
 use serde_json::json;
 use std::collections::BTreeMap;
 

@@ -2893,7 +2893,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-ios"
-version = "0.8.6"
+version = "0.8.7"
 dependencies = [
  "anyhow",
  "block2",
@@ -2995,7 +2995,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-showcase"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "gpui",
  "gpui-design",
@@ -3029,7 +3029,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-toolkit"
-version = "0.8.2"
+version = "0.8.3"
 dependencies = [
  "gpui-au",
  "gpui-audio-kit",

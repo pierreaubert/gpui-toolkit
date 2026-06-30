@@ -1,7 +1,7 @@
 use criterion::{Criterion, criterion_group, criterion_main};
-use std::hint::black_box;
 use d3rs::geo::{Equirectangular, GeoJsonGeometry, GeoPath};
 use d3rs::shape::path::PathBuilder;
+use std::hint::black_box;
 
 fn bench_path_to_svg_string(c: &mut Criterion) {
     let path = PathBuilder::new()

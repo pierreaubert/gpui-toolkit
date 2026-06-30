@@ -141,7 +141,9 @@ fn interactive_surface_plot(
         )
         .on_mouse_move(
             cx.listener(move |this, event: &MouseMoveEvent, _window, cx| {
-                if let Some((idx, start)) = this.surface_plot_drag && idx == plot_index {
+                if let Some((idx, start)) = this.surface_plot_drag
+                    && idx == plot_index
+                {
                     cx.stop_propagation();
                     let dx: f64 = (event.position.x - start.x).into();
                     let dy: f64 = (event.position.y - start.y).into();

@@ -7,6 +7,8 @@ pub(super) static METAL_VIEW_CLASS_REGISTERED: std::sync::Once = std::sync::Once
 
 pub(super) static VC_CLASS_REGISTERED: std::sync::Once = std::sync::Once::new();
 
+pub(super) static WINDOW_CLASS_REGISTERED: std::sync::Once = std::sync::Once::new();
+
 pub(super) static TEXT_INPUT_VIEW_CLASS_REGISTERED: std::sync::Once = std::sync::Once::new();
 
 pub(super) static ACCESSIBILITY_ELEMENT_CLASS_REGISTERED: std::sync::Once = std::sync::Once::new();

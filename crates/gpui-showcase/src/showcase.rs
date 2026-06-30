@@ -3,6 +3,11 @@
 //! A comprehensive demonstration of all gpui-ui-kit components with theme and i18n support.
 //! This module exposes the Showcase component for embedding in other applications.
 
+use gpui::{
+    AppContext, Context, Entity, FocusHandle, FontWeight, InteractiveElement, IntoElement,
+    KeyDownEvent, MouseButton, ParentElement, Render, ScrollHandle, SharedString,
+    StatefulInteractiveElement, Styled, WeakEntity, Window, div, px, rgba,
+};
 use gpui_ui_kit::i18n::{I18nExt, TranslationKey};
 use gpui_ui_kit::theme::ThemeExt;
 use gpui_ui_kit::wizard::StepStatus;
@@ -11,12 +16,27 @@ use gpui_ui_kit::{
     AnimatedQrCode, Divider, Heading, PaginationState, Sidebar, SidebarSide, SortDirection,
     SortState, Text,
 };
-use gpui::{
-    AppContext, Context, Entity, FocusHandle, FontWeight, InteractiveElement, IntoElement,
-    KeyDownEvent, MouseButton, ParentElement, Render, SharedString, StatefulInteractiveElement,
-    Styled, WeakEntity, Window, div, px, rgba,
-};
 use std::collections::HashSet;
+
+fn showcase_scroll_diag(message: &str) {
+    #[cfg(target_os = "ios")]
+    {
+        use std::io::Write;
+
+        eprintln!("{message}");
+        let path = std::env::temp_dir().join("gpui-ios-input-diag.log");
+        if let Ok(mut file) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+        {
+            let _ = writeln!(file, "{message}");
+        }
+    }
+
+    #[cfg(not(target_os = "ios"))]
+    let _ = message;
+}
 
 mod showcase_group;
 mod showcase_section;
@@ -317,6 +337,7 @@ impl Render for Showcase {
                     .flex_1()
                     .flex()
                     .flex_col()
+                    .min_h_0()
                     .overflow_hidden()
                     .child(self.header_entity.clone())
                     .child(self.content_entity.clone()),
@@ -530,6 +551,7 @@ struct ShowcaseSidebar {
     current_section: ShowcaseSection,
     embedded: bool,
     parent: WeakEntity<Showcase>,
+    scroll_handle: ScrollHandle,
 }
 
 impl ShowcaseSidebar {
@@ -538,6 +560,7 @@ impl ShowcaseSidebar {
             current_section: ShowcaseSection::default(),
             embedded: false,
             parent,
+            scroll_handle: ScrollHandle::new(),
         }
     }
 }
@@ -612,9 +635,28 @@ impl Render for ShowcaseSidebar {
             nav_items = nav_items.child(div().mx_4().my_1().h(px(1.0)).bg(border_color));
         }
 
+        let scroll_handle = self.scroll_handle.clone();
+        let log_handle = scroll_handle.clone();
+
         Sidebar::new("showcase-nav")
             .side(SidebarSide::Left)
             .width(px(220.0))
+            .track_scroll(&scroll_handle)
+            .on_scroll_wheel(move |event, window, _cx| {
+                let delta = event.delta.pixel_delta(window.line_height());
+                let offset = log_handle.offset();
+                let max = log_handle.max_offset();
+                showcase_scroll_diag(&format!(
+                    "showcase sidebar scroll delta=({:.2},{:.2}) offset=({:.2},{:.2}) max=({:.2},{:.2}) phase={:?}",
+                    delta.x.as_f32(),
+                    delta.y.as_f32(),
+                    offset.x.as_f32(),
+                    offset.y.as_f32(),
+                    max.x.as_f32(),
+                    max.y.as_f32(),
+                    event.touch_phase
+                ));
+            })
             .content(nav_items)
     }
 }
@@ -663,6 +705,7 @@ struct ShowcaseContent {
     current_section: ShowcaseSection,
     embedded: bool,
     parent: WeakEntity<Showcase>,
+    scroll_handle: ScrollHandle,
 }
 
 impl ShowcaseContent {
@@ -671,6 +714,7 @@ impl ShowcaseContent {
             current_section: ShowcaseSection::default(),
             embedded: false,
             parent,
+            scroll_handle: ScrollHandle::new(),
         }
     }
 }
@@ -719,14 +763,46 @@ impl Render for ShowcaseContent {
                         .child(current_group.description()),
                 );
 
+            let scroll_handle = self.scroll_handle.clone();
+            let log_handle = scroll_handle.clone();
+
             div()
                 .id("content-scroll")
                 .flex_1()
+                .min_h_0()
+                .flex()
+                .flex_col()
                 .overflow_y_scroll()
+                .track_scroll(&scroll_handle)
+                .on_scroll_wheel(move |event, window, _cx| {
+                    let delta = event.delta.pixel_delta(window.line_height());
+                    let offset = log_handle.offset();
+                    let max = log_handle.max_offset();
+                    let children = log_handle.children_count();
+                    let first = log_handle.bounds_for_item(0);
+                    let last = children
+                        .checked_sub(1)
+                        .and_then(|ix| log_handle.bounds_for_item(ix));
+                    let first_bottom = first.map_or(0.0, |bounds| bounds.bottom().as_f32());
+                    let last_bottom = last.map_or(0.0, |bounds| bounds.bottom().as_f32());
+                    showcase_scroll_diag(&format!(
+                        "showcase content scroll delta=({:.2},{:.2}) offset=({:.2},{:.2}) max=({:.2},{:.2}) children={} first_bottom={:.2} last_bottom={:.2} phase={:?}",
+                        delta.x.as_f32(),
+                        delta.y.as_f32(),
+                        offset.x.as_f32(),
+                        offset.y.as_f32(),
+                        max.x.as_f32(),
+                        max.y.as_f32(),
+                        children,
+                        first_bottom,
+                        last_bottom,
+                        event.touch_phase
+                    ));
+                })
                 .p_8()
                 .pt_4()
-                .child(group_info)
-                .child(content)
+                .child(group_info.flex_shrink_0())
+                .child(div().w_full().flex_shrink_0().child(content))
         }) {
             Ok(element) => element.into_any_element(),
             Err(_) => div().into_any_element(),

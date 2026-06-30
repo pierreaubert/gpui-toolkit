@@ -1,6 +1,6 @@
 use criterion::{Criterion, criterion_group, criterion_main};
-use std::hint::black_box;
 use gpui_ui_kit::input::edit_state::EditState;
+use std::hint::black_box;
 
 /// Build a ~200-character string of space-separated words.
 fn words_text() -> String {

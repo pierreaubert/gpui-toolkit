@@ -68,8 +68,8 @@ use gpui_px::{
     ColorScale, LegendPosition, StrokeDashArray, area, bar, boxplot, contour, donut, heatmap,
     isoline, line, pie, scatter, surface3d, treemap,
 };
-use gpui_ui_kit::qr::AnimatedQrCode;
 use gpui_showcase::showcase::{Showcase, ShowcaseSection};
+use gpui_ui_kit::qr::AnimatedQrCode;
 use gpui_ui_kit::theme::ThemeExt;
 use gpui_ui_kit::{
     Accordion, AccordionItem, Alert, Avatar, AvatarGroup, AvatarShape, AvatarSize, AvatarStatus,

@@ -7,8 +7,8 @@
 mod imp {
     use super::misc::ffi_guard;
     use gpui::*;
-    use gpui_ui_kit::i18n::I18nState;
     use gpui_showcase::Showcase;
+    use gpui_ui_kit::i18n::I18nState;
     use gpui_ui_kit::theme::{ThemeState, ThemeVariant};
 
     /// Called from Swift to start the GPUI application.

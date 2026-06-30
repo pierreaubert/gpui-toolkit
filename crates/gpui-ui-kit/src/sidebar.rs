@@ -17,7 +17,10 @@ use crate::theme::ThemeExt;
 use gpui::prelude::{
     InteractiveElement, IntoElement, ParentElement, RenderOnce, StatefulInteractiveElement, Styled,
 };
-use gpui::{AnyElement, App, Div, ElementId, Pixels, Rgba, Stateful, Window, div, px};
+use gpui::{
+    AnyElement, App, Div, ElementId, Pixels, Rgba, ScrollHandle, ScrollWheelEvent, Stateful,
+    Window, div, px,
+};
 use gpui_design::DesignSystem;
 use std::sync::Arc;
 
@@ -33,6 +36,7 @@ pub enum SidebarSide {
 
 /// Factory function for creating sidebar content with theme access
 pub type SidebarSlotFactory = Box<dyn FnOnce(&SidebarTheme) -> AnyElement>;
+type SidebarScrollListener = Box<dyn Fn(&ScrollWheelEvent, &mut Window, &mut App) + 'static>;
 
 /// Theme colors for sidebar styling
 #[derive(Debug, Clone, ComponentTheme)]
@@ -57,6 +61,8 @@ pub struct Sidebar {
     footer: Option<AnyElement>,
     show_border: bool,
     design: Option<Arc<DesignSystem>>,
+    scroll_handle: Option<ScrollHandle>,
+    scroll_listener: Option<SidebarScrollListener>,
 }
 
 impl Sidebar {
@@ -73,6 +79,8 @@ impl Sidebar {
             footer: None,
             show_border: true,
             design: None,
+            scroll_handle: None,
+            scroll_listener: None,
         }
     }
 
@@ -133,6 +141,21 @@ impl Sidebar {
         self
     }
 
+    /// Track the sidebar content scroll state.
+    pub fn track_scroll(mut self, handle: &ScrollHandle) -> Self {
+        self.scroll_handle = Some(handle.clone());
+        self
+    }
+
+    /// Listen to scroll wheel events on the sidebar content.
+    pub fn on_scroll_wheel(
+        mut self,
+        listener: impl Fn(&ScrollWheelEvent, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.scroll_listener = Some(Box::new(listener));
+        self
+    }
+
     /// Build the sidebar with theme
     pub fn build_with_theme(self, theme: &SidebarTheme) -> Stateful<Div> {
         let design = self
@@ -180,12 +203,23 @@ impl Sidebar {
         // Content (scrollable, fills remaining space)
         let content_element = self.content_factory.map(|f| f(theme)).or(self.content);
         if let Some(content) = content_element {
+            let mut content_container = div().id(content_id).flex_1().min_h_0().overflow_y_scroll();
+            if let Some(scroll_handle) = self.scroll_handle.as_ref() {
+                content_container = content_container.track_scroll(scroll_handle);
+            }
+            if let Some(scroll_listener) = self.scroll_listener {
+                content_container = content_container.on_scroll_wheel(scroll_listener);
+            }
+
             sidebar = sidebar.child(
-                div()
-                    .id(content_id)
-                    .flex_1()
-                    .overflow_y_scroll()
-                    .child(content),
+                content_container.child(
+                    div()
+                        .w_full()
+                        .flex()
+                        .flex_col()
+                        .flex_shrink_0()
+                        .child(content),
+                ),
             );
         }
 

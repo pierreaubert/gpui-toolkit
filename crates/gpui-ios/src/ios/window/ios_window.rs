@@ -16,10 +16,14 @@ use super::misc::{
     UIAccessibilityPostNotification,
 };
 use super::register;
+#[cfg(target_os = "ios")]
+use super::register::input_diag_log;
 use super::register::register_accessibility_element_class;
 use super::register::register_metal_view_class;
 use super::register::register_text_input_view_class;
 use super::register::register_view_controller_class;
+#[cfg(target_os = "ios")]
+use super::register::register_window_class;
 use super::types::{TouchState, TouchStateMap};
 use crate::momentum::{MomentumScroller, VelocityTracker};
 use crate::native::{DynamicTypeCategory, IosSceneMetrics, SizeClass};
@@ -33,7 +37,7 @@ use gpui::{
 use gpui_wgpu::{WgpuContext, WgpuRenderer, WgpuSurfaceConfig, wgpu};
 use objc::{
     Message, class, msg_send,
-    runtime::{BOOL, Object, Sel, YES},
+    runtime::{BOOL, NO, Object, Sel, YES},
     sel, sel_impl,
 };
 use parking_lot::Mutex;
@@ -173,8 +177,19 @@ impl IosWindow {
             // Create UIWindow
             let screen_obj: *mut Object = msg_send![class!(UIScreen), mainScreen];
             let screen_bounds_cg: core_graphics::geometry::CGRect = msg_send![screen_obj, bounds];
-            let window: *mut Object = msg_send![class!(UIWindow), alloc];
+            #[cfg(target_os = "ios")]
+            let window_class = register_window_class();
+            #[cfg(not(target_os = "ios"))]
+            let window_class = class!(UIWindow);
+            let window: *mut Object = msg_send![window_class, alloc];
             let window: *mut Object = msg_send![window, initWithFrame: screen_bounds_cg];
+            #[cfg(target_os = "ios")]
+            input_diag_log("window using legacy initWithFrame");
+            #[cfg(target_os = "ios")]
+            input_diag_log(&format!(
+                "window created temp_dir={}",
+                std::env::temp_dir().display()
+            ));
 
             // Create our custom UIViewController subclass that supports
             // dynamic `preferredStatusBarStyle` overrides.
@@ -200,6 +215,24 @@ impl IosWindow {
             // Enable user interaction on the Metal view for touch handling
             let _: () = msg_send![view, setUserInteractionEnabled: YES];
             let _: () = msg_send![view, setMultipleTouchEnabled: YES];
+
+            #[cfg(target_os = "ios")]
+            {
+                // iPad pointer devices and the iOS Simulator deliver trackpad
+                // and mouse-wheel scrolls through a pan recognizer configured
+                // for indirect scroll types, not through touchesMoved.
+                let recognizer: *mut Object = msg_send![class!(UIPanGestureRecognizer), alloc];
+                let recognizer: *mut Object =
+                    msg_send![recognizer, initWithTarget: view action: sel!(handleIndirectScroll:)];
+                let _: () = msg_send![recognizer, setAllowedScrollTypesMask: 3_isize];
+                let _: () = msg_send![recognizer, setDelegate: view];
+                let _: () = msg_send![recognizer, setRequiresExclusiveTouchType: NO];
+                let _: () = msg_send![recognizer, setCancelsTouchesInView: NO];
+                let _: () = msg_send![recognizer, setDelaysTouchesBegan: NO];
+                let _: () = msg_send![recognizer, setDelaysTouchesEnded: NO];
+                let _: () = msg_send![view, addGestureRecognizer: recognizer];
+                input_diag_log("installed indirect scroll pan recognizer");
+            }
 
             // Set the view as the view controller's view
             let _: () = msg_send![view_controller, setView: view];
@@ -500,6 +533,15 @@ impl IosWindow {
         }
     }
 
+    fn request_forced_frame(&self) {
+        if let Some(callback) = self.request_frame_callback.borrow_mut().as_mut() {
+            callback(RequestFrameOptions {
+                force_render: true,
+                ..Default::default()
+            });
+        }
+    }
+
     /// Handle a touch event from UIKit.
     ///
     /// Uses a state machine to distinguish **taps** from **drag gestures**:
@@ -528,7 +570,7 @@ impl IosWindow {
         self.mouse_position.set(position);
         self.dispatch_pointer_sample(touch, logical_x, logical_y);
 
-        let touch_id = touch as usize;
+        let touch_id: usize = unsafe { msg_send![touch, hash] };
         let mut callback = self.input_callback.borrow_mut();
         let mut states = self.touch_states.borrow_mut();
         let mut ts = states.get(touch_id).unwrap_or(TouchState::Idle);
@@ -556,6 +598,12 @@ impl IosWindow {
                     start_x: logical_x,
                     start_y: logical_y,
                 };
+                emit(PlatformInput::MouseMove(gpui::MouseMoveEvent {
+                    position,
+                    modifiers,
+                    pressed_button: None,
+                }));
+                self.request_forced_frame();
                 // Do NOT emit MouseDown here — wait until we know whether
                 // this is a tap or a scroll.  Emitting MouseDown immediately
                 // causes accidental navigation when the user starts scrolling
@@ -580,38 +628,24 @@ impl IosWindow {
                         let distance = (dx * dx + dy * dy).sqrt();
 
                         if distance > SCROLL_SLOP {
-                            // Before promoting to scroll, probe GPUI: send a
-                            // MouseDown at the original touch-down position.
-                            // If a drag-handler (EQ knob, slider, etc.)
-                            // consumes it, enter Dragging mode instead.
-                            let start_pos = gpui::point(gpui::px(start_x), gpui::px(start_y));
-                            let result = emit(PlatformInput::MouseDown(gpui::MouseDownEvent {
-                                button: gpui::MouseButton::Left,
-                                position: start_pos,
+                            let vertical_scroll = dy.abs() >= dx.abs();
+                            emit(PlatformInput::MouseMove(gpui::MouseMoveEvent {
+                                position,
                                 modifiers,
-                                click_count: 1,
-                                first_mouse: false,
+                                pressed_button: Some(gpui::MouseButton::Left),
                             }));
-
-                            if !result.propagate {
-                                // GPUI consumed the press (drag handler, knob,
-                                // etc.) — stay in drag mode, only emit
-                                // MouseMove so the element drives its own
-                                // interaction.
-                                ts = TouchState::Dragging;
-                            } else {
-                                // Nobody claimed the press — cancel it with a
-                                // MouseUp and fall through to normal scrolling.
-                                emit(PlatformInput::MouseUp(gpui::MouseUpEvent {
-                                    button: gpui::MouseButton::Left,
-                                    position: start_pos,
-                                    modifiers,
-                                    click_count: 1,
-                                }));
-                                ts = TouchState::Scrolling {
-                                    prev_x: logical_x,
-                                    prev_y: logical_y,
-                                };
+                            if vertical_scroll {
+                                // GPUI stores scroll offsets as negative values
+                                // once content moves upward, and its scroll
+                                // handler adds deltas directly. A finger moving
+                                // up therefore needs a negative y delta. Do not
+                                // probe with MouseDown first; menu rows and
+                                // buttons would treat the beginning of a scroll
+                                // as an activation.
+                                #[cfg(target_os = "ios")]
+                                input_diag_log(&format!(
+                                    "direct_touch scroll started dx={dx:.2} dy={dy:.2} pos=({logical_x:.2},{logical_y:.2})"
+                                ));
                                 emit(PlatformInput::ScrollWheel(gpui::ScrollWheelEvent {
                                     position,
                                     delta: gpui::ScrollDelta::Pixels(gpui::point(
@@ -621,16 +655,50 @@ impl IosWindow {
                                     modifiers,
                                     touch_phase: gpui::TouchPhase::Started,
                                 }));
+                                self.request_forced_frame();
+                                ts = TouchState::Scrolling {
+                                    prev_x: logical_x,
+                                    prev_y: logical_y,
+                                };
+                            } else {
+                                // Horizontal gestures are more likely to be
+                                // sliders, canvas tools, etc. Probe with
+                                // MouseDown so those elements can claim the
+                                // touch as a drag.
+                                let start_pos = gpui::point(gpui::px(start_x), gpui::px(start_y));
+                                let result = emit(PlatformInput::MouseDown(gpui::MouseDownEvent {
+                                    button: gpui::MouseButton::Left,
+                                    position: start_pos,
+                                    modifiers,
+                                    click_count: 1,
+                                    first_mouse: false,
+                                }));
+
+                                if !result.propagate {
+                                    ts = TouchState::Dragging;
+                                } else {
+                                    emit(PlatformInput::MouseUp(gpui::MouseUpEvent {
+                                        button: gpui::MouseButton::Left,
+                                        position: start_pos,
+                                        modifiers,
+                                        click_count: 1,
+                                    }));
+                                    ts = TouchState::Scrolling {
+                                        prev_x: logical_x,
+                                        prev_y: logical_y,
+                                    };
+                                }
                             }
                         }
-                        // Always emit MouseMove so interactive screens can
-                        // track finger position (e.g. drag line in Animations,
-                        // gradient control in Shaders).
-                        emit(PlatformInput::MouseMove(gpui::MouseMoveEvent {
-                            position,
-                            modifiers,
-                            pressed_button: Some(gpui::MouseButton::Left),
-                        }));
+                        if matches!(ts, TouchState::Pending { .. }) {
+                            // Keep GPUI's mouse hit-test under the finger while
+                            // the gesture is still inside the scroll slop.
+                            emit(PlatformInput::MouseMove(gpui::MouseMoveEvent {
+                                position,
+                                modifiers,
+                                pressed_button: Some(gpui::MouseButton::Left),
+                            }));
+                        }
                     }
                     TouchState::Dragging => {
                         // Element is driving its own drag — only emit
@@ -648,7 +716,19 @@ impl IosWindow {
                             prev_x: logical_x,
                             prev_y: logical_y,
                         };
+                        // Update GPUI's scroll target before dispatching the
+                        // wheel event; scroll hit-testing follows the current
+                        // mouse position.
+                        emit(PlatformInput::MouseMove(gpui::MouseMoveEvent {
+                            position,
+                            modifiers,
+                            pressed_button: Some(gpui::MouseButton::Left),
+                        }));
                         // Scroll event for scrollable containers.
+                        #[cfg(target_os = "ios")]
+                        input_diag_log(&format!(
+                            "direct_touch scroll moved dx={dx:.2} dy={dy:.2} pos=({logical_x:.2},{logical_y:.2})"
+                        ));
                         emit(PlatformInput::ScrollWheel(gpui::ScrollWheelEvent {
                             position,
                             delta: gpui::ScrollDelta::Pixels(gpui::point(
@@ -658,12 +738,7 @@ impl IosWindow {
                             modifiers,
                             touch_phase: gpui::TouchPhase::Moved,
                         }));
-                        // MouseMove for interactive screens.
-                        emit(PlatformInput::MouseMove(gpui::MouseMoveEvent {
-                            position,
-                            modifiers,
-                            pressed_button: Some(gpui::MouseButton::Left),
-                        }));
+                        self.request_forced_frame();
                     }
                     TouchState::Idle => {
                         // Spurious move without a preceding down — ignore.
@@ -710,6 +785,10 @@ impl IosWindow {
                         // End the active touch-scroll gesture.
                         let dx = logical_x - prev_x;
                         let dy = logical_y - prev_y;
+                        #[cfg(target_os = "ios")]
+                        input_diag_log(&format!(
+                            "direct_touch scroll ended dx={dx:.2} dy={dy:.2} pos=({logical_x:.2},{logical_y:.2})"
+                        ));
                         emit(PlatformInput::ScrollWheel(gpui::ScrollWheelEvent {
                             position,
                             delta: gpui::ScrollDelta::Pixels(gpui::point(
@@ -719,6 +798,7 @@ impl IosWindow {
                             modifiers,
                             touch_phase: gpui::TouchPhase::Ended,
                         }));
+                        self.request_forced_frame();
                         // Also emit MouseUp so interactive screens can
                         // detect the end of a drag (e.g. fling a ball).
                         emit(PlatformInput::MouseUp(gpui::MouseUpEvent {
@@ -753,6 +833,68 @@ impl IosWindow {
         }
 
         states.insert(touch_id, ts);
+    }
+
+    #[cfg(target_os = "ios")]
+    pub fn handle_indirect_scroll(&self, recognizer: *mut Object) {
+        if recognizer.is_null() {
+            return;
+        }
+
+        const GESTURE_BEGAN: i64 = 1;
+        const GESTURE_CHANGED: i64 = 2;
+        const GESTURE_ENDED: i64 = 3;
+        const GESTURE_CANCELLED: i64 = 4;
+
+        unsafe {
+            let state: i64 = msg_send![recognizer, state];
+            let touch_phase = match state {
+                GESTURE_BEGAN => gpui::TouchPhase::Started,
+                GESTURE_CHANGED => gpui::TouchPhase::Moved,
+                GESTURE_ENDED | GESTURE_CANCELLED => gpui::TouchPhase::Ended,
+                _ => return,
+            };
+
+            let translation: core_graphics::geometry::CGPoint =
+                msg_send![recognizer, translationInView: self.view];
+            let location: core_graphics::geometry::CGPoint =
+                msg_send![recognizer, locationInView: self.view];
+            let position = gpui::point(gpui::px(location.x as f32), gpui::px(location.y as f32));
+            let delta = gpui::point(
+                gpui::px(translation.x as f32),
+                gpui::px(translation.y as f32),
+            );
+            input_diag_log(&format!(
+                "indirect_scroll translation=({:.2},{:.2}) location=({:.2},{:.2}) state={state}",
+                translation.x, translation.y, location.x, location.y
+            ));
+
+            if translation.x != 0.0 || translation.y != 0.0 || state != GESTURE_CHANGED {
+                if let Some(callback) = self.input_callback.borrow_mut().as_mut() {
+                    callback(PlatformInput::ScrollWheel(gpui::ScrollWheelEvent {
+                        position,
+                        delta: gpui::ScrollDelta::Pixels(delta),
+                        modifiers: self.modifiers.get(),
+                        touch_phase,
+                    }));
+                }
+                self.request_forced_frame();
+            }
+
+            let zero = core_graphics::geometry::CGPoint { x: 0.0, y: 0.0 };
+            let _: () = msg_send![recognizer, setTranslation: zero inView: self.view];
+
+            if matches!(state, GESTURE_ENDED | GESTURE_CANCELLED) {
+                let velocity: core_graphics::geometry::CGPoint =
+                    msg_send![recognizer, velocityInView: self.view];
+                self.momentum_scroller.borrow_mut().fling(
+                    velocity.x as f32,
+                    velocity.y as f32,
+                    location.x as f32,
+                    location.y as f32,
+                );
+            }
+        }
     }
 
     pub(super) fn dispatch_pointer_sample(
@@ -1145,6 +1287,7 @@ impl IosWindow {
                         modifiers,
                         touch_phase: gpui::TouchPhase::Moved,
                     }));
+                    self.request_forced_frame();
                 }
             }
             _ => {}
@@ -1178,6 +1321,7 @@ impl IosWindow {
                     modifiers,
                     touch_phase: gpui::TouchPhase::Moved,
                 }));
+                self.request_forced_frame();
 
                 // If this was the last momentum frame, send Ended now.
                 if fling_ended {
@@ -1187,6 +1331,7 @@ impl IosWindow {
                         modifiers,
                         touch_phase: gpui::TouchPhase::Ended,
                     }));
+                    self.request_forced_frame();
                 }
             }
         } else if scroller.is_finished() {
@@ -1207,6 +1352,7 @@ impl IosWindow {
                     modifiers,
                     touch_phase: gpui::TouchPhase::Ended,
                 }));
+                self.request_forced_frame();
             }
         }
     }
@@ -1393,6 +1539,11 @@ impl IosWindow {
 
         let key = key_code_to_string(key_code);
         let modifiers = modifier_flags_to_modifiers(modifier_flags);
+        self.modifiers.set(modifiers);
+
+        if matches!(key_code, 0xE0..=0xE7) {
+            return;
+        }
 
         log::info!(
             "GPUI iOS: Key event - key: {:?}, modifiers: {:?}, down: {}",

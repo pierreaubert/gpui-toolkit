@@ -1,9 +1,9 @@
 use criterion::{Criterion, criterion_group, criterion_main};
-use std::hint::black_box;
 use gpui_builder::{
     Axis, ContainerNode, LayoutNode, LayoutPreferences, Sizing, SlotNode, SolvedNode, SolvedTree,
     solve, solve_tree,
 };
+use std::hint::black_box;
 
 fn make_balanced_tree(depth: usize, counter: &mut usize) -> LayoutNode<'static> {
     if depth == 0 {

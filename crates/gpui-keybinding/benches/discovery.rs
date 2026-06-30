@@ -1,9 +1,9 @@
 use criterion::{Criterion, criterion_group, criterion_main};
-use std::hint::black_box;
 use gpui_keybinding::{
     DocumentedKeybinding, KeybindingCategory, command_palette_entries, format_key_label,
     search_command_palette_cached,
 };
+use std::hint::black_box;
 use std::rc::Rc;
 
 fn bench_format_key_label(c: &mut Criterion) {

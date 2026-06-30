@@ -10,14 +10,11 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
     ) -> Bool {
-        // Launch the GPUI app — this creates the UIWindow, Metal view, and
-        // opens the showcase view.  It returns immediately because on iOS
-        // the run loop is managed by UIApplicationMain.
+        // Launch the GPUI app. On iOS the run loop is managed by
+        // UIApplicationMain, so this returns after registering GPUI's app
+        // callback and opening the showcase window.
         showcase_ios_start()
 
-        // Set up a CADisplayLink so GPUI gets a render tick every frame.
-        // gpui_ios_request_current_frame pumps momentum scrolling, checks for dirty
-        // text input, and invokes the GPUI render callback.
         displayLink = CADisplayLink(target: self, selector: #selector(renderFrame))
         displayLink?.add(to: .main, forMode: .common)
 

@@ -27,7 +27,10 @@ use core_text::{
 };
 use font_kit::{
     canvas::{Canvas, Format, RasterizationOptions},
-    font::Font as FontKitFont, handle::Handle, hinting::HintingOptions, source::SystemSource,
+    font::Font as FontKitFont,
+    handle::Handle,
+    hinting::HintingOptions,
+    source::SystemSource,
     sources::mem::MemSource,
 };
 use gpui::{

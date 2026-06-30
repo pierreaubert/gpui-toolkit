@@ -6,19 +6,77 @@ use super::consts::METAL_VIEW_CLASS_REGISTERED;
 use super::consts::STATUS_BAR_STYLE;
 use super::consts::TEXT_INPUT_VIEW_CLASS_REGISTERED;
 use super::consts::VC_CLASS_REGISTERED;
+use super::consts::WINDOW_CLASS_REGISTERED;
+use super::handle::handle_indirect_scroll;
 #[cfg(any(target_os = "ios", target_os = "tvos"))]
 use super::handle::handle_presses;
 use super::handle::handle_touches;
 use super::ios_window::IosWindow;
 use super::misc::dispatch_accessibility_element_action;
+#[cfg(target_os = "ios")]
+use objc::runtime::Protocol;
 use objc::{
     class,
     declare::ClassDecl,
     msg_send,
-    runtime::{BOOL, Class, Object, Sel, YES},
+    runtime::{BOOL, Class, NO, Object, Sel, YES},
     sel, sel_impl,
 };
 use std::ffi::c_void;
+#[cfg(target_os = "ios")]
+use std::io::Write;
+
+#[cfg(target_os = "ios")]
+pub(super) fn input_diag_log(message: &str) {
+    log::info!("GPUI iOS input diag: {message}");
+    eprintln!("{message}");
+    let path = std::env::temp_dir().join("gpui-ios-input-diag.log");
+    if let Ok(mut file) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+    {
+        let _ = writeln!(file, "{message}");
+    }
+}
+
+/// Register a UIWindow subclass so we can diagnose whether indirect scroll
+/// input reaches UIKit before any view or gesture recognizer filtering.
+#[cfg(target_os = "ios")]
+pub(super) fn register_window_class() -> &'static Class {
+    WINDOW_CLASS_REGISTERED.call_once(|| {
+        let superclass = class!(UIWindow);
+        let mut decl = ClassDecl::new("GPUIWindow", superclass).unwrap();
+
+        extern "C" fn send_event(this: &Object, _sel: Sel, event: *mut Object) {
+            unsafe {
+                if !event.is_null() {
+                    let event_type: i64 = msg_send![event, type];
+                    let event_subtype: i64 = msg_send![event, subtype];
+                    let modifiers: usize = msg_send![event, modifierFlags];
+                    let buttons: isize = msg_send![event, buttonMask];
+                    input_diag_log(&format!(
+                        "window sendEvent type={event_type} subtype={event_subtype} modifiers=0x{modifiers:x} buttons=0x{buttons:x}"
+                    ));
+                }
+
+                let superclass = class!(UIWindow);
+                let _: () = msg_send![super(this, superclass), sendEvent: event];
+            }
+        }
+
+        unsafe {
+            decl.add_method(
+                sel!(sendEvent:),
+                send_event as extern "C" fn(&Object, Sel, *mut Object),
+            );
+        }
+
+        decl.register();
+    });
+
+    class!(GPUIWindow)
+}
 
 /// Register a custom UIViewController subclass that allows overriding
 /// `preferredStatusBarStyle` at runtime.
@@ -84,6 +142,11 @@ pub(super) fn register_metal_view_class() -> &'static Class {
         let superclass = class!(UIView);
         let mut decl = ClassDecl::new("GPUIMetalView", superclass).unwrap();
 
+        #[cfg(target_os = "ios")]
+        if let Some(protocol) = Protocol::get("UIGestureRecognizerDelegate") {
+            decl.add_protocol(protocol);
+        }
+
         // Add ivar to store window pointer for touch handling
         decl.add_ivar::<*mut std::ffi::c_void>(GPUI_WINDOW_IVAR);
 
@@ -129,6 +192,88 @@ pub(super) fn register_metal_view_class() -> &'static Class {
             handle_touches(this, touches, event);
         }
 
+        #[cfg(target_os = "ios")]
+        extern "C" fn handle_indirect_scroll_gesture(
+            this: &mut Object,
+            _sel: Sel,
+            recognizer: *mut Object,
+        ) {
+            handle_indirect_scroll(this, recognizer);
+        }
+
+        #[cfg(target_os = "ios")]
+        extern "C" fn gesture_should_receive_event(
+            _this: &Object,
+            _sel: Sel,
+            _recognizer: *mut Object,
+            event: *mut Object,
+        ) -> BOOL {
+            if event.is_null() {
+                return NO;
+            }
+
+            unsafe {
+                let event_type: i64 = msg_send![event, type];
+                let event_subtype: i64 = msg_send![event, subtype];
+                let modifiers: usize = msg_send![event, modifierFlags];
+                let buttons: isize = msg_send![event, buttonMask];
+                input_diag_log(&format!(
+                    "indirect_scroll delegate event type={event_type} subtype={event_subtype} modifiers=0x{modifiers:x} buttons=0x{buttons:x}"
+                ));
+                YES
+            }
+        }
+
+        #[cfg(target_os = "ios")]
+        extern "C" fn gesture_should_receive_touch(
+            _this: &Object,
+            _sel: Sel,
+            _recognizer: *mut Object,
+            touch: *mut Object,
+        ) -> BOOL {
+            if touch.is_null() {
+                return NO;
+            }
+
+            unsafe {
+                let touch_type: i64 = msg_send![touch, type];
+                input_diag_log(&format!(
+                    "indirect_scroll delegate touch type={touch_type}"
+                ));
+                if touch_type == 0 { NO } else { YES }
+            }
+        }
+
+        #[cfg(target_os = "ios")]
+        extern "C" fn gesture_should_receive_press(
+            _this: &Object,
+            _sel: Sel,
+            _recognizer: *mut Object,
+            press: *mut Object,
+        ) -> BOOL {
+            if press.is_null() {
+                return NO;
+            }
+
+            unsafe {
+                let press_type: i64 = msg_send![press, type];
+                input_diag_log(&format!(
+                    "indirect_scroll delegate press type={press_type}"
+                ));
+                YES
+            }
+        }
+
+        #[cfg(target_os = "ios")]
+        extern "C" fn gesture_should_recognize_simultaneously(
+            _this: &Object,
+            _sel: Sel,
+            _recognizer: *mut Object,
+            _other: *mut Object,
+        ) -> BOOL {
+            YES
+        }
+
         // iOS/tvOS press handling — hardware keyboards on iOS and Siri Remote
         // buttons on tvOS. Maps button presses to GPUI keyboard/mouse events.
         #[cfg(any(target_os = "ios", target_os = "tvos"))]
@@ -138,7 +283,17 @@ pub(super) fn register_metal_view_class() -> &'static Class {
             presses: *mut Object,
             event: *mut Object,
         ) {
-            handle_presses(this, presses, event, true);
+            handle_presses(this, presses, event, true, "began");
+        }
+
+        #[cfg(any(target_os = "ios", target_os = "tvos"))]
+        extern "C" fn presses_changed(
+            this: &mut Object,
+            _sel: Sel,
+            presses: *mut Object,
+            event: *mut Object,
+        ) {
+            handle_presses(this, presses, event, true, "changed");
         }
 
         #[cfg(any(target_os = "ios", target_os = "tvos"))]
@@ -148,7 +303,17 @@ pub(super) fn register_metal_view_class() -> &'static Class {
             presses: *mut Object,
             event: *mut Object,
         ) {
-            handle_presses(this, presses, event, false);
+            handle_presses(this, presses, event, false, "ended");
+        }
+
+        #[cfg(any(target_os = "ios", target_os = "tvos"))]
+        extern "C" fn presses_cancelled(
+            this: &mut Object,
+            _sel: Sel,
+            presses: *mut Object,
+            event: *mut Object,
+        ) {
+            handle_presses(this, presses, event, false, "cancelled");
         }
 
         // iOS hardware keyboard events are delivered through the first
@@ -190,6 +355,36 @@ pub(super) fn register_metal_view_class() -> &'static Class {
                 touches_cancelled as extern "C" fn(&mut Object, Sel, *mut Object, *mut Object),
             );
 
+            #[cfg(target_os = "ios")]
+            decl.add_method(
+                sel!(handleIndirectScroll:),
+                handle_indirect_scroll_gesture as extern "C" fn(&mut Object, Sel, *mut Object),
+            );
+            #[cfg(target_os = "ios")]
+            decl.add_method(
+                sel!(gestureRecognizer:shouldReceiveEvent:),
+                gesture_should_receive_event
+                    as extern "C" fn(&Object, Sel, *mut Object, *mut Object) -> BOOL,
+            );
+            #[cfg(target_os = "ios")]
+            decl.add_method(
+                sel!(gestureRecognizer:shouldReceiveTouch:),
+                gesture_should_receive_touch
+                    as extern "C" fn(&Object, Sel, *mut Object, *mut Object) -> BOOL,
+            );
+            #[cfg(target_os = "ios")]
+            decl.add_method(
+                sel!(gestureRecognizer:shouldReceivePress:),
+                gesture_should_receive_press
+                    as extern "C" fn(&Object, Sel, *mut Object, *mut Object) -> BOOL,
+            );
+            #[cfg(target_os = "ios")]
+            decl.add_method(
+                sel!(gestureRecognizer:shouldRecognizeSimultaneouslyWithGestureRecognizer:),
+                gesture_should_recognize_simultaneously
+                    as extern "C" fn(&Object, Sel, *mut Object, *mut Object) -> BOOL,
+            );
+
             // iOS/tvOS: press handling for hardware keyboards and Siri Remote
             #[cfg(any(target_os = "ios", target_os = "tvos"))]
             {
@@ -198,8 +393,16 @@ pub(super) fn register_metal_view_class() -> &'static Class {
                     presses_began as extern "C" fn(&mut Object, Sel, *mut Object, *mut Object),
                 );
                 decl.add_method(
+                    sel!(pressesChanged:withEvent:),
+                    presses_changed as extern "C" fn(&mut Object, Sel, *mut Object, *mut Object),
+                );
+                decl.add_method(
                     sel!(pressesEnded:withEvent:),
                     presses_ended as extern "C" fn(&mut Object, Sel, *mut Object, *mut Object),
+                );
+                decl.add_method(
+                    sel!(pressesCancelled:withEvent:),
+                    presses_cancelled as extern "C" fn(&mut Object, Sel, *mut Object, *mut Object),
                 );
                 decl.add_method(
                     sel!(canBecomeFirstResponder),
@@ -367,7 +570,17 @@ pub(super) fn register_text_input_view_class() -> &'static Class {
             presses: *mut Object,
             event: *mut Object,
         ) {
-            handle_presses(this, presses, event, true);
+            handle_presses(this, presses, event, true, "began");
+        }
+
+        #[cfg(any(target_os = "ios", target_os = "tvos"))]
+        extern "C" fn presses_changed(
+            this: &mut Object,
+            _sel: Sel,
+            presses: *mut Object,
+            event: *mut Object,
+        ) {
+            handle_presses(this, presses, event, true, "changed");
         }
 
         #[cfg(any(target_os = "ios", target_os = "tvos"))]
@@ -377,7 +590,17 @@ pub(super) fn register_text_input_view_class() -> &'static Class {
             presses: *mut Object,
             event: *mut Object,
         ) {
-            handle_presses(this, presses, event, false);
+            handle_presses(this, presses, event, false, "ended");
+        }
+
+        #[cfg(any(target_os = "ios", target_os = "tvos"))]
+        extern "C" fn presses_cancelled(
+            this: &mut Object,
+            _sel: Sel,
+            presses: *mut Object,
+            event: *mut Object,
+        ) {
+            handle_presses(this, presses, event, false, "cancelled");
         }
 
         // --- UITextInputTraits property accessors ---
@@ -430,8 +653,16 @@ pub(super) fn register_text_input_view_class() -> &'static Class {
                     presses_began as extern "C" fn(&mut Object, Sel, *mut Object, *mut Object),
                 );
                 decl.add_method(
+                    sel!(pressesChanged:withEvent:),
+                    presses_changed as extern "C" fn(&mut Object, Sel, *mut Object, *mut Object),
+                );
+                decl.add_method(
                     sel!(pressesEnded:withEvent:),
                     presses_ended as extern "C" fn(&mut Object, Sel, *mut Object, *mut Object),
+                );
+                decl.add_method(
+                    sel!(pressesCancelled:withEvent:),
+                    presses_cancelled as extern "C" fn(&mut Object, Sel, *mut Object, *mut Object),
                 );
             }
 
