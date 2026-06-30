@@ -104,5 +104,5 @@ xcrun simctl spawn booted log stream --predicate 'subsystem == "org.spinorama.so
 
 - [gpui-mobile](https://github.com/itsbalamurali/gpui-mobile) — Original upstream
 - [Zed GPUI](https://github.com/zed-industries/zed/tree/main/crates/gpui) — Core framework
-- Showcase app: `../gpui-ui-kit/ios/` — Working iOS GPUI app example
+- Showcase app: `../gpui-showcase/ios/` — Working iOS GPUI app example
 - SotF iOS app: `../../app-ios/` — Full music player iOS app

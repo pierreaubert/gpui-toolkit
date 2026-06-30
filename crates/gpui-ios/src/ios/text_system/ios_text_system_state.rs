@@ -54,6 +54,7 @@ thread_local! {
 
 struct CachedContext {
     context: CGContext,
+    bytes: Vec<u8>,
     width: usize,
     height: usize,
     bytes_per_row: usize,
@@ -271,13 +272,25 @@ impl IosTextSystemState {
     pub(super) fn raster_bounds(&self, params: &RenderGlyphParams) -> Result<Bounds<DevicePixels>> {
         let font = &self.fonts[params.font_id.0];
         let scale = Transform2F::from_scale(params.scale_factor);
-        Ok(recti_to_bounds_device_pixels(font.raster_bounds(
+        let mut bounds = recti_to_bounds_device_pixels(font.raster_bounds(
             params.glyph_id.0,
             params.font_size.into(),
             scale,
             HintingOptions::None,
             font_kit::canvas::RasterizationOptions::GrayscaleAa,
-        )?))
+        )?);
+
+        // CoreText can draw small iOS system glyphs just outside font-kit's
+        // reported raster bounds. Add a tiny gutter while preserving the
+        // max-Y relationship used by the raster transform below.
+        let pad =
+            ((params.font_size.as_f32() * 0.25 * params.scale_factor).ceil() as i32).clamp(2, 8);
+        bounds.origin.x -= DevicePixels(pad);
+        bounds.size.width += DevicePixels(pad);
+        bounds.origin.y -= DevicePixels(pad);
+        bounds.size.height += DevicePixels(pad);
+
+        Ok(bounds)
     }
 
     pub(super) fn rasterize_glyph(
@@ -343,8 +356,9 @@ impl IosTextSystemState {
                     .as_ref()
                     .is_some_and(|c| c.width >= req_width && c.height >= req_height);
                 if !fits {
+                    let mut bytes = vec![0; req_height * out_bytes_per_row];
                     let context = CGContext::create_bitmap_context(
-                        Some(scratch.as_mut_ptr() as *mut _),
+                        Some(bytes.as_mut_ptr() as *mut _),
                         req_width,
                         req_height,
                         8,
@@ -354,6 +368,7 @@ impl IosTextSystemState {
                     );
                     *c = Some(CachedContext {
                         context,
+                        bytes,
                         width: req_width,
                         height: req_height,
                         bytes_per_row: out_bytes_per_row,
@@ -363,17 +378,16 @@ impl IosTextSystemState {
             });
 
             cache.with(|c| {
-                let cache = c.borrow();
-                let cached = cache.as_ref().expect("context cache populated above");
+                let mut cache = c.borrow_mut();
+                let cached = cache.as_mut().expect("context cache populated above");
 
                 // The cached context may be larger than the current glyph, so
-                // size the scratch buffer to match the cached context and clear
-                // it before drawing.
+                // clear its backing store before drawing.
                 let cached_bytes = cached.height * cached.bytes_per_row;
-                scratch.resize(cached_bytes, 0);
-                scratch[..cached_bytes].fill(0);
+                cached.bytes[..cached_bytes].fill(0);
 
                 let cx = &cached.context;
+                cx.save();
                 cx.translate(
                     -glyph_bounds.origin.x.0 as CGFloat,
                     (glyph_bounds.origin.y.0 + glyph_bounds.size.height.0) as CGFloat,
@@ -405,9 +419,10 @@ impl IosTextSystemState {
                         )],
                         cx.clone(),
                     );
+                cx.restore();
 
                 if is_emoji {
-                    for pixel in scratch.chunks_exact_mut(4) {
+                    for pixel in cached.bytes.chunks_exact_mut(4) {
                         gpui::swap_rgba_pa_to_bgra(pixel);
                     }
                 }
@@ -415,13 +430,14 @@ impl IosTextSystemState {
                 // Copy only the requested sub-rectangle, in case the cached
                 // context is larger than the current glyph.
                 if cached.width == req_width && cached.bytes_per_row == out_bytes_per_row {
-                    bitmap.copy_from_slice(&scratch[..needed]);
+                    bitmap.copy_from_slice(&cached.bytes[..needed]);
                 } else {
                     for y in 0..req_height {
                         let src_start = y * cached.bytes_per_row;
                         let dst_start = y * out_bytes_per_row;
-                        bitmap[dst_start..dst_start + out_bytes_per_row]
-                            .copy_from_slice(&scratch[src_start..src_start + out_bytes_per_row]);
+                        bitmap[dst_start..dst_start + out_bytes_per_row].copy_from_slice(
+                            &cached.bytes[src_start..src_start + out_bytes_per_row],
+                        );
                     }
                 }
             });
@@ -550,6 +566,8 @@ impl IosTextSystemState {
             }
         }
         let typographic_bounds = line.get_typographic_bounds();
+        max_ascent = max_ascent.max(typographic_bounds.ascent as f32);
+        max_descent = max_descent.max(typographic_bounds.descent as f32);
         LineLayout {
             runs,
             font_size,

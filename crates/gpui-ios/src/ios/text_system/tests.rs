@@ -136,7 +136,7 @@ fn rasterize_glyph_reuses_context() {
     let bounds = state.raster_bounds(&params).expect("bounds");
 
     let count_before = context_create_count();
-    let (size1, _) = state.rasterize_glyph(&params, bounds).expect("rasterize");
+    let (size1, bitmap1) = state.rasterize_glyph(&params, bounds).expect("rasterize");
     let count_after_first = context_create_count();
     assert_eq!(
         count_after_first,
@@ -144,11 +144,15 @@ fn rasterize_glyph_reuses_context() {
         "first rasterization should create a context"
     );
 
-    let (size2, _) = state
+    let (size2, bitmap2) = state
         .rasterize_glyph(&params, bounds)
         .expect("rasterize again");
     let count_after_second = context_create_count();
     assert_eq!(size1, size2);
+    assert_eq!(
+        bitmap1, bitmap2,
+        "reusing a cached glyph context must not accumulate transforms"
+    );
     assert_eq!(
         count_after_second, count_after_first,
         "second rasterization should reuse the existing context"

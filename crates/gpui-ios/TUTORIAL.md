@@ -28,7 +28,7 @@ just ios-sim
 
 ```bash
 cargo build -p gpui-ios
-cargo build -p gpui-ui-kit-ios-showcase --target aarch64-apple-ios-sim --release
+cargo build -p gpui-showcase-ios --target aarch64-apple-ios-sim --release
 ```
 
 tvOS uses nightly with `-Zbuild-std`:
