@@ -27,7 +27,7 @@ impl Showcase {
                 Text::new("A multi-step wizard component with navigation, status tracking, and flexible styling.")
                     .color(theme.text_secondary)
             )
-            
+
             // Interactive Demo
             .child(
                 div()
@@ -39,7 +39,7 @@ impl Showcase {
                     .border_1()
                     .border_color(theme.border)
                     .rounded_xl()
-                    
+
                     // Header with steps
                     .child(
                         WizardHeader::new()
@@ -47,7 +47,7 @@ impl Showcase {
                             .step_statuses(statuses.clone())
                             .current_step(current_step)
                     )
-                    
+
                     // Content Area placeholder
                     .child(
                         div()
@@ -64,7 +64,7 @@ impl Showcase {
                             .child(Text::new(steps[current_step].label.clone()).weight(TextWeight::Bold).size(TextSize::Xl))
                             .child(Text::new(format!("Step {} Content", current_step + 1)).muted(true))
                     )
-                    
+
                     // Controls
                     .child(
                         HStack::new()
@@ -111,7 +111,7 @@ impl Showcase {
                             ),
                     )
             )
-            
+
             // Example Variants
             .child(
                 div()

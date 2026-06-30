@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "crates/gpui-au",
+    "crates/gpui-android",
     "crates/gpui-audio-kit",
     "crates/gpui-builder",
     "crates/gpui-component-lab",
@@ -16,6 +17,7 @@ members = [
     "crates/gpui-python-runtime",
     "crates/gpui-scaffolder",
     "crates/gpui-showcase",
+    "crates/gpui-showcase/android",
     "crates/gpui-themes",
     "crates/gpui-toolkit",
     "crates/gpui-ui-kit",
@@ -70,6 +72,7 @@ math-delaunay = "0.5"
 
 # GPUI toolkit crates
 gpui-au = { path = "crates/gpui-au", version = "0.8" }
+gpui-android = { path = "crates/gpui-android", version = "0.8" }
 gpui-audio-kit = { path = "crates/gpui-audio-kit", version = "0.8" }
 gpui-builder = { path = "crates/gpui-builder", version = "0.8" }
 gpui-component-lab = { path = "crates/gpui-component-lab", version = "0.8" }
@@ -136,6 +139,16 @@ core-text = "=21.0.0"
 font-kit = { package = "zed-font-kit", version = "0.14.1-zed", git = "https://github.com/zed-industries/font-kit", rev = "110523127440aefb11ce0cf280ae7c5071337ec5" }
 objc = "0.2"
 oslog = "0.2"
+
+# Android platform bindings
+android-activity = { version = "0.6", features = ["native-activity"] }
+android_logger = "0.15"
+jni = "0.22"
+libc = "0.2"
+ndk = "0.9"
+ndk-context = "0.1"
+ndk-sys = "0.6"
+rustc-hash = "2"
 
 [workspace.lints.rust]
 ambiguous_negative_literals = "warn"

@@ -9,11 +9,9 @@ impl Showcase {
             TreeNode::new("src", "src/").icon("/").children(vec![
                 TreeNode::new("main", "main.rs").icon("*").leaf(true),
                 TreeNode::new("lib", "lib.rs").icon("*").leaf(true),
-                TreeNode::new("utils", "utils/")
-                    .icon("/")
-                    .children(vec![TreeNode::new("helpers", "helpers.rs")
-                        .icon("*")
-                        .leaf(true)]),
+                TreeNode::new("utils", "utils/").icon("/").children(vec![
+                    TreeNode::new("helpers", "helpers.rs").icon("*").leaf(true),
+                ]),
             ]),
             TreeNode::new("tests", "tests/").icon("/").children(vec![
                 TreeNode::new("test1", "test_main.rs").icon("*").leaf(true),

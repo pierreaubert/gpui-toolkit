@@ -85,6 +85,48 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923"
 
 [[package]]
+name = "android-activity"
+version = "0.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0f2a1bb052857d5dd49572219344a7332b31b76405648eabac5bc68978251bcd"
+dependencies = [
+ "android-properties",
+ "bitflags 2.13.0",
+ "cc",
+ "jni",
+ "libc",
+ "log",
+ "ndk",
+ "ndk-context",
+ "ndk-sys",
+ "num_enum",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "android-properties"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fc7eb209b1518d6bb87b283c20095f5228ecda460da70b44f0802523dea6da04"
+
+[[package]]
+name = "android_log-sys"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "84521a3cf562bc62942e294181d9eef17eb38ceb8c68677bc49f144e4c3d4f8d"
+
+[[package]]
+name = "android_logger"
+version = "0.15.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dbb4e440d04be07da1f1bf44fb4495ebd58669372fe0cffa6e48595ac5bd88a3"
+dependencies = [
+ "android_log-sys",
+ "env_filter 0.1.4",
+ "log",
+]
+
+[[package]]
 name = "android_system_properties"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1957,6 +1999,16 @@ dependencies = [
 
 [[package]]
 name = "env_filter"
+version = "0.1.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1bf3c259d255ca70051b30e2e95b5446cdb8949ac4cd22c0d7fd634d89f568e2"
+dependencies = [
+ "log",
+ "regex",
+]
+
+[[package]]
+name = "env_filter"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32e90c2accc4b07a8456ea0debdc2e7587bdd890680d71173a15d4ae604f6eef"
@@ -1973,7 +2025,7 @@ checksum = "0621c04f2196ac3f488dd583365b9c09be011a4ab8b9f37248ffcc8f6198b56a"
 dependencies = [
  "anstream",
  "anstyle",
- "env_filter",
+ "env_filter 1.0.1",
  "jiff",
  "log",
 ]
@@ -2773,6 +2825,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "gpui-android"
+version = "0.8.0"
+dependencies = [
+ "android-activity",
+ "android_logger",
+ "anyhow",
+ "futures",
+ "gpui",
+ "gpui_wgpu",
+ "jni",
+ "libc",
+ "log",
+ "ndk",
+ "ndk-context",
+ "ndk-sys",
+ "parking_lot",
+ "raw-window-handle",
+ "rustc-hash 2.1.2",
+ "smallvec",
+ "uuid",
+]
+
+[[package]]
 name = "gpui-au"
 version = "0.8.5"
 dependencies = [
@@ -2807,7 +2882,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-builder"
-version = "0.8.4"
+version = "0.8.5"
 dependencies = [
  "criterion",
  "gpui",
@@ -2823,7 +2898,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-component-lab"
-version = "0.8.2"
+version = "0.8.3"
 dependencies = [
  "anyhow",
  "clap",
@@ -2842,7 +2917,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-d3rs"
-version = "0.8.6"
+version = "0.8.7"
 dependencies = [
  "approx",
  "autoeq",
@@ -2893,7 +2968,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-ios"
-version = "0.8.7"
+version = "0.8.8"
 dependencies = [
  "anyhow",
  "block2",
@@ -2918,7 +2993,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-keybinding"
-version = "0.8.3"
+version = "0.8.4"
 dependencies = [
  "criterion",
  "gpui",
@@ -2930,6 +3005,7 @@ name = "gpui-miniapp"
 version = "0.8.7"
 dependencies = [
  "gpui",
+ "gpui-android",
  "gpui-builder",
  "gpui-design",
  "gpui-ios",
@@ -2941,7 +3017,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-pretext"
-version = "0.8.4"
+version = "0.8.5"
 dependencies = [
  "criterion",
  "unicode-segmentation",
@@ -2995,12 +3071,25 @@ dependencies = [
 
 [[package]]
 name = "gpui-showcase"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "gpui",
  "gpui-design",
  "gpui-miniapp",
  "gpui-ui-kit",
+]
+
+[[package]]
+name = "gpui-showcase-android"
+version = "0.8.0"
+dependencies = [
+ "android-activity",
+ "android_logger",
+ "gpui",
+ "gpui-android",
+ "gpui-showcase",
+ "gpui-ui-kit",
+ "log",
 ]
 
 [[package]]
@@ -3053,7 +3142,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-ui-kit"
-version = "0.8.28"
+version = "0.8.29"
 dependencies = [
  "block2",
  "criterion",
@@ -4562,6 +4651,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "ndk"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c3f42e7bbe13d351b6bead8286a43aac9534b82bd3cc43e47037f012ebfd62d4"
+dependencies = [
+ "bitflags 2.13.0",
+ "jni-sys 0.3.1",
+ "log",
+ "ndk-sys",
+ "num_enum",
+ "raw-window-handle",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "ndk-context"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "27b02d87554356db9e9a873add8782d4ea6e3e58ea071a9adb9a2e8ddb884a8b"
+
+[[package]]
 name = "ndk-sys"
 version = "0.6.0+11769913"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4829,6 +4939,28 @@ checksum = "91df4bbde75afed763b708b7eee1e8e7651e02d97f6d5dd763e89367e957b23b"
 dependencies = [
  "hermit-abi",
  "libc",
+]
+
+[[package]]
+name = "num_enum"
+version = "0.7.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5d0bca838442ec211fa11de3a8b0e0e8f3a4522575b5c4c06ed722e005036f26"
+dependencies = [
+ "num_enum_derive",
+ "rustversion",
+]
+
+[[package]]
+name = "num_enum_derive"
+version = "0.7.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "680998035259dcfcafe653688bf2aa6d3e2dc05e98be6ab46afb089dc84f1df8"
+dependencies = [
+ "proc-macro-crate",
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]

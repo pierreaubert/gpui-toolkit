@@ -17,10 +17,13 @@ import 'builds/cross.just'
 
 features := "--features autoeq,camera,gpu-2d,gpu-3d,reqwest,spinorama,tokio,urlencoding"
 cross_packages := "-p gpui-audio-kit -p gpui-builder -p gpui-component-lab -p gpui-d3rs -p gpui-design -p gpui-design-tools -p gpui-keybinding -p gpui-miniapp -p gpui-pretext -p gpui-px -p gpui-python-runtime -p gpui-scaffolder -p gpui-themes -p gpui-ui-kit -p gpui-ui-kit-macros"
+android_sdk_root := env_var_or_default("ANDROID_HOME", env_var_or_default("ANDROID_SDK_ROOT", "/opt/homebrew/share/android-commandlinetools"))
+android_ndk_version := env_var_or_default("ANDROID_NDK_VERSION", "27.2.12479018")
+android_java_home := env_var_or_default("JAVA_HOME", "/Applications/Android Studio.app/Contents/jbr/Contents/Home")
 
 # QA / coverage settings
 cov_threshold := "90"
-cov_ignore_regex := '.*/(tests|benches|examples|target|crates/3rdparties|crates/gpui-au|crates/gpui-ios|crates/gpui-miniapp|crates/.*/bin)/.*'
+cov_ignore_regex := '.*/(tests|benches|examples|target|crates/3rdparties|crates/gpui-au|crates/gpui-android|crates/gpui-ios|crates/gpui-miniapp|crates/.*/bin)/.*'
 cov_summary := "target/qa/cov/summary.json"
 cov_report := "target/qa/cov/report.md"
 perf_baseline := "qa/perf/baseline.json"
@@ -411,6 +414,66 @@ tvos-sim: showcase-tvos-build-rust-sim
 [group('tvos')]
 tvos-device: showcase-tvos-build-rust-device
 	@echo "tvOS device Rust library build complete"
+
+# ----------------------------------------------------------------------
+# ANDROID
+# ----------------------------------------------------------------------
+#
+# Android requires the Rust Android target plus cargo-ndk:
+#   rustup target add aarch64-linux-android
+#   cargo install cargo-ndk
+#   sdkmanager --install "platform-tools" "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018"
+# Build an APK with:
+#   just android-apk
+
+alias android-rust := showcase-android-rust
+alias android-check := showcase-android-check
+alias android-build-rust := showcase-android-build-rust
+alias android-apk := showcase-android-apk
+alias android-install := showcase-android-install
+alias android-run := showcase-android-run
+
+# Check the Showcase Android Rust crate for the arm64 Android target.
+[group('android')]
+showcase-android-check:
+	CC_aarch64_linux_android="{{android_sdk_root}}/ndk/{{android_ndk_version}}/toolchains/llvm/prebuilt/darwin-x86_64/bin/aarch64-linux-android35-clang" \
+		CXX_aarch64_linux_android="{{android_sdk_root}}/ndk/{{android_ndk_version}}/toolchains/llvm/prebuilt/darwin-x86_64/bin/aarch64-linux-android35-clang++" \
+		AR_aarch64_linux_android="{{android_sdk_root}}/ndk/{{android_ndk_version}}/toolchains/llvm/prebuilt/darwin-x86_64/bin/llvm-ar" \
+		cargo check -p gpui-showcase-android --target aarch64-linux-android {{features}}
+
+# Build Showcase Android Rust shared library for arm64 devices/emulators.
+[group('android')]
+showcase-android-rust:
+		ANDROID_HOME="{{android_sdk_root}}" \
+		ANDROID_SDK_ROOT="{{android_sdk_root}}" \
+		ANDROID_NDK_HOME="{{android_sdk_root}}/ndk/{{android_ndk_version}}" \
+		cargo ndk -t arm64-v8a -P 26 -o crates/gpui-showcase/android/gradle/app/src/main/jniLibs build -p gpui-showcase-android --release {{features}}
+
+# Build Showcase Android Rust shared library and copy it into Gradle jniLibs.
+[group('android')]
+showcase-android-build-rust: showcase-android-rust
+	@echo "Copied libshowcase_android.so to crates/gpui-showcase/android/gradle/app/src/main/jniLibs/arm64-v8a/"
+
+# Build the Showcase Android APK.
+[group('android')]
+showcase-android-apk: showcase-android-build-rust
+	#!/usr/bin/env bash
+	set -euo pipefail
+	export ANDROID_HOME="{{android_sdk_root}}"
+	export ANDROID_SDK_ROOT="{{android_sdk_root}}"
+	export JAVA_HOME="{{android_java_home}}"
+	cd crates/gpui-showcase/android/gradle
+	./gradlew assembleDebug
+
+# Install the Showcase Android APK on the connected device/emulator.
+[group('android')]
+showcase-android-install: showcase-android-apk
+	"{{android_sdk_root}}/platform-tools/adb" install -r crates/gpui-showcase/android/gradle/app/build/outputs/apk/debug/app-debug.apk
+
+# Launch the Showcase Android APK on the connected device/emulator.
+[group('android')]
+showcase-android-run: showcase-android-install
+	"{{android_sdk_root}}/platform-tools/adb" shell am start -n org.spinorama.gpui.showcase/android.app.NativeActivity
 
 # ----------------------------------------------------------------------
 # MAINTENANCE

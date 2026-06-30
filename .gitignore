@@ -8,6 +8,9 @@ mutants.out
 /tools
 /dist
 /appimage-builder-*
+**/.gradle/
+**/build/
+crates/gpui-showcase/android/gradle/app/src/main/jniLibs/
 
 # generated data
 /data

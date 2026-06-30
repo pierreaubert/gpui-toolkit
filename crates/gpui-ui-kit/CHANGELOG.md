@@ -1,3 +1,11 @@
+# Unreleased
+
+## Fixes
+
+- **Sidebar**: made sidebar content participate in GPUI scroll handling with a
+  tracked `ScrollHandle` and wheel callback support, so showcase menus can
+  scroll consistently with touch drags and mouse-wheel input.
+
 # 0.7.26
 
 ## Features

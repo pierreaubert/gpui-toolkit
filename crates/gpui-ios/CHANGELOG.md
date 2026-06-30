@@ -1,3 +1,17 @@
+# Unreleased
+
+## Fixes
+
+- Restored the iOS backend to the legacy `UIWindow` `initWithFrame` path after
+  the attempted `UIScene` migration produced a black showcase screen.
+- Added iPad pointer and Simulator wheel-scroll handling through an indirect
+  scroll pan recognizer, including frame requests for wheel, touch, and
+  momentum scroll updates.
+- Improved one-finger direct-touch scrolling so vertical drags dispatch GPUI
+  scroll-wheel events without accidentally activating menu rows or buttons.
+- Filtered modifier-only hardware key presses so iOS no longer reports
+  `unknown-e3` style key events for pure modifier changes.
+
 # 0.7.6
 
 ## Maintenance

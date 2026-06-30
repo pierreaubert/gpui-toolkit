@@ -1,0 +1,37 @@
+[package]
+name = "gpui-showcase-android"
+version = "0.8.0"
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Android native library and Gradle host for the GPUI showcase"
+publish = false
+
+[lib]
+name = "showcase_android"
+crate-type = ["cdylib"]
+
+[features]
+default = []
+autoeq = []
+camera = []
+gpu-2d = []
+gpu-3d = []
+hot-reload = []
+reqwest = []
+showcase = []
+spinorama = []
+tokio = []
+urlencoding = []
+
+[dependencies]
+gpui = { workspace = true }
+gpui-android = { workspace = true }
+gpui-showcase = { workspace = true }
+gpui-ui-kit = { workspace = true }
+log = { workspace = true }
+
+[target.'cfg(target_os = "android")'.dependencies]
+android-activity = { workspace = true }
+android_logger = { workspace = true }

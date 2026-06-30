@@ -27,12 +27,17 @@ pub fn current_platform() -> Result<Rc<dyn gpui::Platform>, String> {
     {
         Ok(gpui_ios::current_platform(false))
     }
+    #[cfg(target_os = "android")]
+    {
+        Ok(gpui_android::current_platform(false))
+    }
     #[cfg(not(any(
         target_os = "macos",
         target_os = "linux",
         target_os = "windows",
         target_os = "ios",
-        target_os = "tvos"
+        target_os = "tvos",
+        target_os = "android"
     )))]
     {
         compile_error!("unsupported platform for gpui-miniapp")

@@ -18,7 +18,7 @@ impl Showcase {
                 Text::new("A node-based workflow editor with drag-and-drop connections, panning, and zooming.")
                     .color(theme.text_secondary)
             )
-            
+
             // Canvas Container
             .child(
                 div()
@@ -27,11 +27,11 @@ impl Showcase {
                     .flex_col()
                     .bg(theme.surface)
                     .border_1()
-                    .border_color(theme.border)
+		    .border_color(theme.border)
                     .rounded_xl()
                     .overflow_hidden()
                     .h(px(500.0)) // Fixed height for the demo area
-                    
+
                     // Toolbar
                     .child(
                         div()
@@ -75,7 +75,7 @@ impl Showcase {
                                     .muted(true)
                             )
                     )
-                    
+
                     // Canvas
                     .child(
                         div()
@@ -83,7 +83,7 @@ impl Showcase {
                             .relative()
                             .child(self.workflow_canvas.clone())
                     )
-                    
+
                     // Footer instructions
                     .child(
                         div()
