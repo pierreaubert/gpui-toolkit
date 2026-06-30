@@ -6,3 +6,12 @@
   `itsbalamurali/gpui-mobile`, with NativeActivity lifecycle wiring, Android
   window/input modules, and wgpu/Vulkan surface plumbing.
 
+## Fixed
+
+- Handle NativeActivity launches where a native window is already available
+  before a fresh `InitWindow` event reaches the event loop, and mark Android
+  windows active after surface initialization.
+- Improve Android renderer startup diagnostics for emulator GPU stacks that
+  only expose GLES without the storage-buffer limits required by GPUI.
+- Resolve GPUI's `.SystemUI` virtual font family through the configured Android
+  system fallback so Android themes can use the same system font alias as iOS.

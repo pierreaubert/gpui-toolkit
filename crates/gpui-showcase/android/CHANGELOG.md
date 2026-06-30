@@ -6,3 +6,10 @@
   a Rust `cdylib` entry point and Justfile recipes for target checks, native
   library builds, APK builds, installs, and launches.
 
+## Fixed
+
+- Verified the showcase on an Android 36 ARM64 AVD with `-gpu host`, where wgpu
+  can select the emulator's Vulkan adapter instead of the GLES translator.
+- Avoid a MoltenVK shader translation failure on the Android emulator by not
+  passing fixed-size gradient color-stop arrays through the shared GPUI wgpu
+  shader helper.
