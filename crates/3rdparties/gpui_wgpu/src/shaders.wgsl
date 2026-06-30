@@ -401,15 +401,15 @@ struct GradientColor {
 }
 
 fn prepare_gradient_color(tag: u32, color_space: u32,
-    solid: Hsla, colors: array<LinearColorStop, 2>) -> GradientColor {
+    solid: Hsla, color0: Hsla, color1: Hsla) -> GradientColor {
     var result = GradientColor();
 
     if (tag == 0u || tag == 2u || tag == 3u) {
         result.solid = hsla_to_rgba(solid);
     } else if (tag == 1u) {
         // The hsla_to_rgba is returns a linear sRGB color
-        result.color0 = hsla_to_rgba(colors[0].color);
-        result.color1 = hsla_to_rgba(colors[1].color);
+        result.color0 = hsla_to_rgba(color0);
+        result.color1 = hsla_to_rgba(color1);
 
         // Prepare color space in vertex for avoid conversion
         // in fragment shader for performance reasons
@@ -550,7 +550,8 @@ fn vs_quad(@builtin(vertex_index) vertex_id: u32, @builtin(instance_index) insta
         quad.background.tag,
         quad.background.color_space,
         quad.background.solid,
-        quad.background.colors
+        quad.background.colors[0].color,
+        quad.background.colors[1].color,
     );
     out.background_solid = gradient.solid;
     out.background_color0 = gradient.color0;
@@ -1075,7 +1076,8 @@ fn fs_path_rasterization(input: PathRasterizationVarying) -> @location(0) vec4<f
         background.tag,
         background.color_space,
         background.solid,
-        background.colors,
+        background.colors[0].color,
+        background.colors[1].color,
     );
     let color = gradient_color(background, input.position.xy, bounds,
         prepared_gradient.solid, prepared_gradient.color0, prepared_gradient.color1);

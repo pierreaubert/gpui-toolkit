@@ -137,14 +137,30 @@ impl WgpuContext {
         }
 
         let color_atlas_texture_format = Self::select_color_texture_format(adapter)?;
+        let mut required_limits = wgpu::Limits::downlevel_defaults()
+            .using_resolution(adapter.limits())
+            .using_alignment(adapter.limits());
+
+        Self::check_renderer_limits(adapter, &required_limits)?;
+
+        if !adapter
+            .get_downlevel_capabilities()
+            .flags
+            .contains(wgpu::DownlevelFlags::COMPUTE_SHADERS)
+        {
+            required_limits.max_compute_workgroup_storage_size = 0;
+            required_limits.max_compute_invocations_per_workgroup = 0;
+            required_limits.max_compute_workgroup_size_x = 0;
+            required_limits.max_compute_workgroup_size_y = 0;
+            required_limits.max_compute_workgroup_size_z = 0;
+            required_limits.max_compute_workgroups_per_dimension = 0;
+        }
 
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
                 label: Some("gpui_device"),
                 required_features,
-                required_limits: wgpu::Limits::downlevel_defaults()
-                    .using_resolution(adapter.limits())
-                    .using_alignment(adapter.limits()),
+                required_limits,
                 memory_hints: wgpu::MemoryHints::MemoryUsage,
                 trace: wgpu::Trace::Off,
                 experimental_features: wgpu::ExperimentalFeatures::disabled(),
@@ -158,6 +174,35 @@ impl WgpuContext {
             dual_source_blending,
             color_atlas_texture_format,
         ))
+    }
+
+    fn check_renderer_limits(
+        adapter: &wgpu::Adapter,
+        required_limits: &wgpu::Limits,
+    ) -> anyhow::Result<()> {
+        let limits = adapter.limits();
+        let info = adapter.get_info();
+
+        if limits.max_storage_buffer_binding_size < required_limits.max_storage_buffer_binding_size
+            || limits.max_storage_buffers_per_shader_stage
+                < required_limits.max_storage_buffers_per_shader_stage
+        {
+            anyhow::bail!(
+                "Adapter {} ({:?}, device={:#06x}) does not expose storage buffers required by \
+                 the GPUI wgpu renderer. Required max_storage_buffer_binding_size >= {}, \
+                 max_storage_buffers_per_shader_stage >= {}; adapter reports \
+                 max_storage_buffer_binding_size = {}, max_storage_buffers_per_shader_stage = {}.",
+                info.name,
+                info.backend,
+                info.device,
+                required_limits.max_storage_buffer_binding_size,
+                required_limits.max_storage_buffers_per_shader_stage,
+                limits.max_storage_buffer_binding_size,
+                limits.max_storage_buffers_per_shader_stage,
+            );
+        }
+
+        Ok(())
     }
 
     #[cfg(not(target_family = "wasm"))]
@@ -281,6 +326,8 @@ impl WgpuContext {
             );
         }
 
+        let mut failures = Vec::new();
+
         // Test each adapter by creating a device and configuring the surface
         for adapter in adapters {
             let info = adapter.get_info();
@@ -302,6 +349,7 @@ impl WgpuContext {
                     ));
                 }
                 Err(e) => {
+                    failures.push(format!("{} ({:?}): {e}", info.name, info.backend));
                     log::info!(
                         "  Adapter {} ({:?}) failed: {}, trying next...",
                         info.name,
@@ -312,7 +360,10 @@ impl WgpuContext {
             }
         }
 
-        anyhow::bail!("No GPU adapter found that can configure the display surface")
+        anyhow::bail!(
+            "No GPU adapter found that can configure the display surface. Adapter failures: {}",
+            failures.join("; ")
+        )
     }
 
     /// Try to use an adapter with a surface by creating a device and testing configuration.

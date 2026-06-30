@@ -547,6 +547,7 @@ pub fn run_event_loop(app: &AndroidApp) {
     let mut iteration: u64 = 0;
     let mut last_heartbeat = std::time::Instant::now();
     let mut app_is_active = false;
+    let mut attempted_existing_window_init = false;
 
     loop {
         iteration += 1;
@@ -587,6 +588,21 @@ pub fn run_event_loop(app: &AndroidApp) {
             _ => {}
         });
 
+        // Some NativeActivity launches can enter `android_main` after the
+        // system has already installed the native window, without delivering a
+        // fresh InitWindow event to this loop.  Treat a visible native window
+        // as an init signal so GPUI can bind a renderer instead of idling on a
+        // black surface forever.
+        if !attempted_existing_window_init
+            && !INIT_WINDOW_DONE.load(Ordering::Relaxed)
+            && !INIT_WINDOW_PENDING.load(Ordering::Relaxed)
+            && app.native_window().is_some()
+        {
+            log::info!("run_event_loop: synthesizing InitWindow from existing native window");
+            INIT_WINDOW_PENDING.store(true, Ordering::Relaxed);
+            attempted_existing_window_init = true;
+        }
+
         // ── Deferred lifecycle processing ──
         //
         // Between each handler, call poll_events again to drain any
@@ -620,6 +636,7 @@ pub fn run_event_loop(app: &AndroidApp) {
         // 2. InitWindow — replace surface on existing renderer, or create new
         if INIT_WINDOW_PENDING.swap(false, Ordering::Relaxed) {
             log::info!("deferred: InitWindow (iter={})", iteration);
+            attempted_existing_window_init = true;
             if let Some(platform) = PLATFORM.get() {
                 if let Some(native_window) = app.native_window() {
                     let width = native_window.width();
@@ -638,6 +655,7 @@ pub fn run_event_loop(app: &AndroidApp) {
                         match existing.init_window(native_window, gpu_ctx) {
                             Ok(()) => {
                                 log::info!("InitWindow: reinitialised existing window");
+                                existing.set_active(true);
                             }
                             Err(e) => {
                                 log::error!("failed to reinit window surface: {e:#}");
@@ -661,6 +679,7 @@ pub fn run_event_loop(app: &AndroidApp) {
                                     win.id(),
                                     scale_factor
                                 );
+                                win.set_active(true);
 
                                 let cr = app.content_rect();
                                 win.update_safe_area_from_content_rect(

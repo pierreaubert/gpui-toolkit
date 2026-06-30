@@ -53,6 +53,10 @@ impl CosmicTextSystemState {
         features: &FontFeatures,
     ) -> Result<SmallVec<[FontId; 4]>> {
         let name = gpui::font_name_with_fallbacks(name, &self.system_font_fallback);
+        let name = match name {
+            ".SystemUI" => self.system_font_fallback.as_str(),
+            _ => name,
+        };
 
         let families = self
             .font_system
@@ -348,4 +352,3 @@ impl CosmicTextSystemState {
         }
     }
 }
-
