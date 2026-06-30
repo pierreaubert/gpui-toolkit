@@ -3004,6 +3004,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "gpui-showcase-ios"
+version = "0.8.0"
+dependencies = [
+ "gpui",
+ "gpui-ios",
+ "gpui-showcase",
+ "gpui-ui-kit",
+ "log",
+ "oslog",
+]
+
+[[package]]
 name = "gpui-themes"
 version = "0.8.4"
 dependencies = [
@@ -3058,18 +3070,6 @@ dependencies = [
  "serde_json",
  "smol",
  "uuid",
-]
-
-[[package]]
-name = "gpui-ui-kit-ios-showcase"
-version = "0.7.2"
-dependencies = [
- "gpui",
- "gpui-ios",
- "gpui-showcase",
- "gpui-ui-kit",
- "log",
- "oslog",
 ]
 
 [[package]]
@@ -3207,7 +3207,6 @@ dependencies = [
 [[package]]
 name = "gpui_wgpu"
 version = "0.1.0"
-source = "git+https://github.com/zed-industries/zed.git?tag=v1.0.0#5ec84a926ef83865afb92d2a3d1ca3b419572cf9"
 dependencies = [
  "anyhow",
  "bytemuck",

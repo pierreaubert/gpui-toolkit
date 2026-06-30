@@ -46,7 +46,7 @@ lint-host:
 
 [group('lint')]
 lint-ios-rust:
-	RUSTFLAGS="-D warnings" cargo build -p gpui-ui-kit-ios-showcase --target aarch64-apple-ios-sim --release {{features}}
+	RUSTFLAGS="-D warnings" cargo build -p gpui-showcase-ios --target aarch64-apple-ios-sim --release {{features}}
 
 alias clippy := lint
 
@@ -278,19 +278,19 @@ alias ios-hot-reload := showcase-hot-reload
 # Build Showcase iOS Rust static library for simulator.
 [group('ios')]
 showcase-rust-sim:
-	cargo build -p gpui-ui-kit-ios-showcase --target aarch64-apple-ios-sim --release {{features}}
+	cargo build -p gpui-showcase-ios --target aarch64-apple-ios-sim --release {{features}}
 
 # Build Showcase iOS Rust static library for device.
 [group('ios')]
 showcase-rust-device:
-	cargo build -p gpui-ui-kit-ios-showcase --target aarch64-apple-ios --release {{features}}
+	cargo build -p gpui-showcase-ios --target aarch64-apple-ios --release {{features}}
 
 # Build Showcase iOS Rust lib and copy it to the Xcode project.
 [group('ios')]
 showcase-build-rust-sim: showcase-rust-sim
 	#!/usr/bin/env bash
 	set -euo pipefail
-	IOS_DIR="crates/gpui-ui-kit/ios"
+	IOS_DIR="crates/gpui-showcase/ios"
 	mkdir -p "$IOS_DIR/lib"
 	cp target/aarch64-apple-ios-sim/release/libshowcase_ios.a "$IOS_DIR/lib/"
 	echo "Copied libshowcase_ios.a to $IOS_DIR/lib/"
@@ -300,7 +300,7 @@ showcase-build-rust-sim: showcase-rust-sim
 showcase-build-rust-device: showcase-rust-device
 	#!/usr/bin/env bash
 	set -euo pipefail
-	IOS_DIR="crates/gpui-ui-kit/ios"
+	IOS_DIR="crates/gpui-showcase/ios"
 	mkdir -p "$IOS_DIR/lib"
 	cp target/aarch64-apple-ios/release/libshowcase_ios.a "$IOS_DIR/lib/"
 	echo "Copied libshowcase_ios.a to $IOS_DIR/lib/"
@@ -310,7 +310,7 @@ showcase-build-rust-device: showcase-rust-device
 showcase-xcodegen:
 	#!/usr/bin/env bash
 	set -euo pipefail
-	cd crates/gpui-ui-kit/ios
+	cd crates/gpui-showcase/ios
 	if [ ! -d "GPUIShowcase.xcodeproj" ] || [ "project.yml" -nt "GPUIShowcase.xcodeproj/project.pbxproj" ]; then
 		echo "Generating Xcode project..."
 		xcodegen generate
@@ -323,7 +323,7 @@ showcase-xcodegen:
 showcase-build-sim: showcase-build-rust-sim showcase-xcodegen
 	#!/usr/bin/env bash
 	set -euo pipefail
-	cd crates/gpui-ui-kit/ios
+	cd crates/gpui-showcase/ios
 	xcodebuild -project GPUIShowcase.xcodeproj \
 		-scheme GPUIShowcase \
 		-configuration Release \
@@ -336,7 +336,7 @@ showcase-build-sim: showcase-build-rust-sim showcase-xcodegen
 showcase-build-device: showcase-build-rust-device showcase-xcodegen
 	#!/usr/bin/env bash
 	set -euo pipefail
-	cd crates/gpui-ui-kit/ios
+	cd crates/gpui-showcase/ios
 	xcodebuild -project GPUIShowcase.xcodeproj \
 		-scheme GPUIShowcase \
 		-configuration Release \
@@ -347,7 +347,7 @@ showcase-build-device: showcase-build-rust-device showcase-xcodegen
 # Build the simulator hot-reload dylib and manifest.
 [group('ios')]
 showcase-hot-reload:
-	crates/gpui-ui-kit/ios/hot-reload-showcase.sh
+	crates/gpui-showcase/ios/hot-reload-showcase.sh
 
 # Build the Showcase iOS app for simulator.
 [group('ios')]
@@ -375,19 +375,19 @@ alias tvos-build-rust-device := showcase-tvos-build-rust-device
 # Build Showcase tvOS Rust static library for simulator.
 [group('tvos')]
 showcase-tvos-rust-sim:
-	cargo +nightly build -p gpui-ui-kit-ios-showcase --target aarch64-apple-tvos-sim --release {{features}} -Zbuild-std
+	cargo +nightly build -p gpui-showcase-ios --target aarch64-apple-tvos-sim --release {{features}} -Zbuild-std
 
 # Build Showcase tvOS Rust static library for device.
 [group('tvos')]
 showcase-tvos-rust-device:
-	cargo +nightly build -p gpui-ui-kit-ios-showcase --target aarch64-apple-tvos --release {{features}} -Zbuild-std
+	cargo +nightly build -p gpui-showcase-ios --target aarch64-apple-tvos --release {{features}} -Zbuild-std
 
 # Build Showcase tvOS Rust lib and copy it next to the mobile Xcode assets.
 [group('tvos')]
 showcase-tvos-build-rust-sim: showcase-tvos-rust-sim
 	#!/usr/bin/env bash
 	set -euo pipefail
-	TVOS_DIR="crates/gpui-ui-kit/ios"
+	TVOS_DIR="crates/gpui-showcase/ios"
 	mkdir -p "$TVOS_DIR/lib"
 	cp target/aarch64-apple-tvos-sim/release/libshowcase_ios.a "$TVOS_DIR/lib/libshowcase_ios_tvos_sim.a"
 	echo "Copied libshowcase_ios_tvos_sim.a to $TVOS_DIR/lib/"
@@ -397,7 +397,7 @@ showcase-tvos-build-rust-sim: showcase-tvos-rust-sim
 showcase-tvos-build-rust-device: showcase-tvos-rust-device
 	#!/usr/bin/env bash
 	set -euo pipefail
-	TVOS_DIR="crates/gpui-ui-kit/ios"
+	TVOS_DIR="crates/gpui-showcase/ios"
 	mkdir -p "$TVOS_DIR/lib"
 	cp target/aarch64-apple-tvos/release/libshowcase_ios.a "$TVOS_DIR/lib/libshowcase_ios_tvos.a"
 	echo "Copied libshowcase_ios_tvos.a to $TVOS_DIR/lib/"

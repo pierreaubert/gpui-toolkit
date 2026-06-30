@@ -429,7 +429,7 @@ The tvOS recipes compile `src/lib.rs` to a static library under
 `target/mobile/...`. Link that library from your tvOS host and call the
 generated `<app_name>_ios_start` symbol. See
 [crates/gpui-ios/README.md](./crates/gpui-ios/README.md) and
-[crates/gpui-ui-kit/ios/TUTORIAL.md](./crates/gpui-ui-kit/ios/TUTORIAL.md)
+[crates/gpui-showcase/ios/TUTORIAL.md](./crates/gpui-showcase/ios/TUTORIAL.md)
 for full Swift/Xcode host steps.
 
 ## 14. Development Loop

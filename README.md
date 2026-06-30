@@ -34,7 +34,7 @@ Two open source examples:
 | [gpui-themes](./crates/gpui-themes/) | Theme editor and theme showcase infrastructure for GPUI applications. |
 | [gpui-ui-kit](./crates/gpui-ui-kit/) | Reusable UI component library: buttons, inputs, dialogs, menus, tabs, tables, QR, command palette, sidebar, wizard, workflow canvas, and more. |
 | [gpui-ui-kit-macros](./crates/gpui-ui-kit-macros/) | Procedural macros used by `gpui-ui-kit`, including builder and theme derivation helpers. |
-| [gpui-ui-kit-ios-showcase](./crates/gpui-ui-kit/ios/) | Static library and Swift host project for showing `gpui-ui-kit` on iOS, with tvOS Rust library build support. |
+| [gpui-showcase-ios](./crates/gpui-showcase/ios/) | Static library and Swift host project for showing `gpui-ui-kit` on iOS, with tvOS Rust library build support. |
 
 ## Related Assets
 
@@ -162,7 +162,7 @@ prompt has the right `Info.plist` metadata.
 
 ## iOS
 
-The iOS showcase lives in [crates/gpui-ui-kit/ios](./crates/gpui-ui-kit/ios/).
+The iOS showcase lives in [crates/gpui-showcase/ios](./crates/gpui-showcase/ios/).
 It builds the Rust static library and links it into the bundled Swift
 `GPUIShowcase.xcodeproj`.
 

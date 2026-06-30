@@ -149,7 +149,7 @@ just demo-audio-kit
 just demo-themes
 ```
 
-For mobile surfaces, use the iOS/tvOS recipes in `Justfile` and read `crates/gpui-ios/AGENTS.md` or `crates/gpui-ui-kit/ios/TUTORIAL.md` first.
+For mobile surfaces, use the iOS/tvOS recipes in `Justfile` and read `crates/gpui-ios/AGENTS.md` or `crates/gpui-showcase/ios/TUTORIAL.md` first.
 
 ## Avoid Reinventing
 

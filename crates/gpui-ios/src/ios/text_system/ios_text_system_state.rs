@@ -26,6 +26,7 @@ use core_text::{
     string_attributes::kCTFontAttributeName,
 };
 use font_kit::{
+    canvas::{Canvas, Format, RasterizationOptions},
     font::Font as FontKitFont, handle::Handle, hinting::HintingOptions, source::SystemSource,
     sources::mem::MemSource,
 };
@@ -34,7 +35,10 @@ use gpui::{
     Pixels, RenderGlyphParams, Result, SUBPIXEL_VARIANTS_X, ShapedGlyph, ShapedRun, Size, point,
     px, size,
 };
-use pathfinder_geometry::transform2d::Transform2F;
+use pathfinder_geometry::{
+    transform2d::Transform2F,
+    vector::{Vector2F, Vector2I},
+};
 use smallvec::SmallVec;
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
@@ -280,15 +284,12 @@ impl IosTextSystemState {
             font_kit::canvas::RasterizationOptions::GrayscaleAa,
         )?);
 
-        // CoreText can draw small iOS system glyphs just outside font-kit's
-        // reported raster bounds. Add a tiny gutter while preserving the
-        // max-Y relationship used by the raster transform below.
+        // Match the macOS rasterizer's small horizontal gutter so antialiased
+        // edges do not get cut off in the atlas.
         let pad =
-            ((params.font_size.as_f32() * 0.25 * params.scale_factor).ceil() as i32).clamp(2, 8);
+            ((params.font_size.as_f32() * 0.03 * params.scale_factor).ceil() as i32).clamp(1, 5);
         bounds.origin.x -= DevicePixels(pad);
         bounds.size.width += DevicePixels(pad);
-        bounds.origin.y -= DevicePixels(pad);
-        bounds.size.height += DevicePixels(pad);
 
         Ok(bounds)
     }
@@ -309,6 +310,30 @@ impl IosTextSystemState {
             bitmap_size.height += DevicePixels(1);
         }
         let bitmap_size = bitmap_size;
+        if !params.is_emoji {
+            let mut canvas = Canvas::new(
+                Vector2I::new(bitmap_size.width.0, bitmap_size.height.0),
+                Format::A8,
+            );
+            let subpixel_shift = params
+                .subpixel_variant
+                .map(|v| v as f32 / SUBPIXEL_VARIANTS_X as f32);
+            let scale = Transform2F::from_scale(params.scale_factor);
+            let transform = Transform2F::from_translation(Vector2F::new(
+                -glyph_bounds.origin.x.0 as f32 + subpixel_shift.x,
+                -glyph_bounds.origin.y.0 as f32 + subpixel_shift.y,
+            )) * scale;
+            self.fonts[params.font_id.0].rasterize_glyph(
+                &mut canvas,
+                params.glyph_id.0,
+                params.font_size.into(),
+                transform,
+                HintingOptions::None,
+                RasterizationOptions::GrayscaleAa,
+            )?;
+            return Ok((bitmap_size, canvas.pixels));
+        }
+
         let needed = if params.is_emoji {
             bitmap_size.width.0 as usize * 4 * bitmap_size.height.0 as usize
         } else {
