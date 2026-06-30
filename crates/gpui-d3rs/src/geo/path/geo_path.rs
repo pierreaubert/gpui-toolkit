@@ -1538,3 +1538,262 @@ fn clip_line_to_circle(
     pieces.retain(|p| p.len() >= 2);
     pieces
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const EPS: f64 = 1e-9;
+
+    fn approx_eq(a: f64, b: f64) -> bool {
+        (a - b).abs() < EPS
+    }
+
+    fn approx_point(a: (f64, f64), b: (f64, f64)) -> bool {
+        approx_eq(a.0, b.0) && approx_eq(a.1, b.1)
+    }
+
+    #[test]
+    fn principal_longitude_maps_into_visible_copy() {
+        assert!(approx_eq(principal_longitude(10.0, 0.0), 10.0));
+        assert!(approx_eq(principal_longitude(200.0, 0.0), -160.0));
+        assert!(approx_eq(principal_longitude(-200.0, 0.0), 160.0));
+        assert!(approx_eq(principal_longitude(370.0, 0.0), 10.0));
+        assert!(approx_eq(principal_longitude(-10.0, 30.0), -10.0));
+        // With center 30°, the visible copy is [-150, 210]; 200° stays inside it.
+        assert!(approx_eq(principal_longitude(200.0, 30.0), 200.0));
+        assert!(approx_eq(principal_longitude(220.0, 30.0), -140.0));
+    }
+
+    #[test]
+    fn unwrap_longitudes_keeps_short_lines_continuous() {
+        let coords = vec![(170.0, 0.0), (175.0, 0.0), (180.0, 0.0), (-175.0, 0.0)];
+        let unwrapped = unwrap_longitudes(&coords, 0.0);
+        assert_eq!(unwrapped.len(), 4);
+        assert!(approx_eq(unwrapped[0].0, 170.0));
+        assert!(approx_eq(unwrapped[1].0, 175.0));
+        assert!(approx_eq(unwrapped[2].0, 180.0));
+        assert!(approx_eq(unwrapped[3].0, 185.0));
+    }
+
+    #[test]
+    fn unwrap_longitudes_wraps_closed_rings_when_needed() {
+        let coords = vec![(170.0, 0.0), (175.0, 0.0), (-175.0, 0.0), (170.0, 0.0)];
+        let unwrapped = unwrap_longitudes(&coords, 0.0);
+        assert_eq!(unwrapped.len(), 4);
+        // The antimeridian-crossing point is unwrapped to keep the ring continuous.
+        assert!(approx_eq(unwrapped[2].0, 185.0));
+        // The closing edge stays within 180°.
+        assert!((unwrapped[0].0 - unwrapped[3].0).abs() <= 180.0);
+    }
+
+    #[test]
+    fn antimeridian_intersection_finds_boundary_crossing() {
+        let cross = antimeridian_intersection((170.0, 0.0), (190.0, 10.0), 0.0);
+        assert!(cross.is_some());
+        let (lon, lat) = cross.unwrap();
+        assert!(approx_eq(lon, 180.0));
+        assert!(approx_eq(lat, 5.0));
+    }
+
+    #[test]
+    fn antimeridian_intersection_returns_none_for_parallel_edges() {
+        assert!(antimeridian_intersection((170.0, 5.0), (170.0, 10.0), 0.0).is_none());
+        assert!(antimeridian_intersection((10.0, 0.0), (20.0, 0.0), 0.0).is_none());
+    }
+
+    #[test]
+    fn nearest_boundary_shifts_lon_to_target_copy() {
+        // Returns the longitude congruent to `lon` modulo 360° that is closest to `target`.
+        assert!(approx_eq(nearest_boundary(10.0, 0.0), 10.0));
+        assert!(approx_eq(nearest_boundary(200.0, 0.0), -160.0));
+        assert!(approx_eq(nearest_boundary(-200.0, 0.0), 160.0));
+        assert!(approx_eq(nearest_boundary(370.0, 0.0), 10.0));
+        assert!(approx_eq(nearest_boundary(10.0, 720.0), 730.0));
+    }
+
+    #[test]
+    fn is_antimeridian_boundary_detects_boundary_meridians() {
+        assert!(is_antimeridian_boundary(180.0, 0.0));
+        assert!(is_antimeridian_boundary(-180.0, 0.0));
+        assert!(!is_antimeridian_boundary(0.0, 0.0));
+        assert!(is_antimeridian_boundary(200.0, 20.0));
+    }
+
+    #[test]
+    fn cut_ring_at_antimeridian_splits_crossing_ring() {
+        let ring = vec![
+            (170.0, 60.0),
+            (175.0, 60.0),
+            (-175.0, 60.0),
+            (-170.0, 60.0),
+            (170.0, 60.0),
+        ];
+        let pieces = cut_ring_at_antimeridian(&ring, 0.0);
+        assert!(!pieces.is_empty());
+        for piece in &pieces {
+            assert!(piece.len() >= 3);
+        }
+    }
+
+    #[test]
+    fn cut_ring_at_antimeridian_keeps_non_crossing_ring_intact() {
+        let ring = vec![
+            (10.0, 50.0),
+            (10.0, 60.0),
+            (20.0, 60.0),
+            (20.0, 50.0),
+            (10.0, 50.0),
+        ];
+        let pieces = cut_ring_at_antimeridian(&ring, 0.0);
+        assert_eq!(pieces.len(), 1);
+    }
+
+    #[test]
+    fn cut_ring_at_antimeridian_rejects_degenerate_rings() {
+        assert!(cut_ring_at_antimeridian(&[(0.0, 0.0), (1.0, 0.0)], 0.0).is_empty());
+    }
+
+    #[test]
+    fn normalize_piece_longitudes_centers_on_visible_copy() {
+        let mut piece = vec![(370.0, 0.0), (380.0, 10.0)];
+        normalize_piece_longitudes(&mut piece, 0.0);
+        assert!(approx_eq(piece[0].0, 10.0));
+        assert!(approx_eq(piece[1].0, 20.0));
+    }
+
+    #[test]
+    fn clip_line_segment_liang_barsky_clips_to_rect() {
+        let extent = ((0.0, 0.0), (10.0, 10.0));
+        let clipped = clip_line_segment((-5.0, 5.0), (15.0, 5.0), extent).unwrap();
+        assert!(approx_point(clipped.0, (0.0, 5.0)));
+        assert!(approx_point(clipped.1, (10.0, 5.0)));
+    }
+
+    #[test]
+    fn clip_line_segment_rejects_outside_segments() {
+        let extent = ((0.0, 0.0), (10.0, 10.0));
+        assert!(clip_line_segment((-5.0, 5.0), (-1.0, 5.0), extent).is_none());
+        assert!(clip_line_segment((5.0, -5.0), (5.0, -1.0), extent).is_none());
+    }
+
+    #[test]
+    fn clip_line_segment_keeps_inside_segments() {
+        let extent = ((0.0, 0.0), (10.0, 10.0));
+        let clipped = clip_line_segment((2.0, 3.0), (7.0, 8.0), extent).unwrap();
+        assert!(approx_point(clipped.0, (2.0, 3.0)));
+        assert!(approx_point(clipped.1, (7.0, 8.0)));
+    }
+
+    #[test]
+    fn clip_polygon_to_rect_clips_convex_polygon() {
+        let ring = vec![
+            (-1.0, -1.0),
+            (5.0, -1.0),
+            (5.0, 5.0),
+            (-1.0, 5.0),
+            (-1.0, -1.0),
+        ];
+        let extent = ((0.0, 0.0), (10.0, 10.0));
+        let clipped = clip_polygon_to_rect(&ring, extent);
+        assert!(!clipped.is_empty());
+        // The clipped result should lie entirely inside the extent.
+        for &(x, y) in &clipped {
+            assert!(x >= -EPS && x <= 10.0 + EPS);
+            assert!(y >= -EPS && y <= 10.0 + EPS);
+        }
+    }
+
+    #[test]
+    fn clip_polygon_to_rect_rejects_outside_polygons() {
+        let ring = vec![(-5.0, -5.0), (-1.0, -5.0), (-1.0, -1.0), (-5.0, -1.0), (-5.0, -5.0)];
+        assert!(clip_polygon_to_rect(&ring, ((0.0, 0.0), (10.0, 10.0))).is_empty());
+    }
+
+    #[test]
+    fn rect_inside_and_intersection_are_consistent() {
+        let s = (0.0, 5.0);
+        let e = (10.0, 5.0);
+        assert!(rect_inside((5.0, 5.0), 0.0, true, false));
+        assert!(!rect_inside((-1.0, 5.0), 0.0, true, false));
+        let ix = rect_intersection(s, e, 3.0, false);
+        assert!(approx_point(ix, (3.0, 5.0)));
+    }
+
+    #[test]
+    fn spherical_cartesian_round_trip() {
+        let p = (45.0, 45.0);
+        let cart = spherical_to_cartesian(p.0, p.1);
+        let round = cartesian_to_spherical(cart);
+        assert!(approx_point(round, p));
+    }
+
+    #[test]
+    fn vector_math_basic_identities() {
+        let a = [1.0, 0.0, 0.0];
+        let b = [0.0, 1.0, 0.0];
+        assert!(approx_eq(vec_dot(a, b), 0.0));
+        let cross = vec_cross(a, b);
+        assert!(approx_eq(cross[0], 0.0));
+        assert!(approx_eq(cross[1], 0.0));
+        assert!(approx_eq(cross[2], 1.0));
+        let norm = vec_normalize([3.0, 0.0, 4.0]);
+        assert!(approx_eq(norm[0], 0.6));
+        assert!(approx_eq(norm[1], 0.0));
+        assert!(approx_eq(norm[2], 0.8));
+        let scaled = vec_scale(a, 2.0);
+        assert!(approx_eq(scaled[0], 2.0));
+        let diff = vec_sub(b, a);
+        assert!(approx_eq(diff[0], -1.0));
+        assert!(approx_eq(diff[1], 1.0));
+    }
+
+    #[test]
+    fn great_circle_intersection_to_plane_finds_cap_boundary() {
+        // Cap centered at (0,0) with 60° radius. Find where the edge from
+        // (0,0) to (90,0) crosses the cap boundary.
+        let center = spherical_to_cartesian(0.0, 0.0);
+        let target_dot = 60.0_f64.to_radians().cos();
+        let ix = great_circle_intersection_to_plane((0.0, 0.0), (90.0, 0.0), center, target_dot);
+        assert!((ix.0 - 60.0).abs() < 1e-3);
+        assert!((ix.1 - 0.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn sample_cap_boundary_arc_returns_interior_points() {
+        let arc = sample_cap_boundary_arc((0.0, 60.0), (90.0, 0.0), (0.0, 0.0), 90.0);
+        assert!(!arc.is_empty());
+        // Endpoints should be excluded.
+        assert!(!arc.iter().any(|p| approx_point(*p, (0.0, 90.0))));
+    }
+
+    #[test]
+    fn planar_clip_circle_rejects_zero_radius() {
+        use crate::geo::projection::Orthographic;
+        let proj = Orthographic::new().scale(100.0).translate(0.0, 0.0);
+        let circle = planar_clip_circle(&proj, 0.0);
+        assert!(circle.is_none());
+    }
+
+    #[test]
+    fn circle_segment_intersection_hits_circle() {
+        let p1 = (0.0, 0.0);
+        let p2 = (10.0, 0.0);
+        let center = (5.0, 0.0);
+        let ix = circle_segment_intersection(p1, p2, center, 2.0);
+        assert!(approx_point(ix, (3.0, 0.0)) || approx_point(ix, (7.0, 0.0)));
+    }
+
+    #[test]
+    fn sample_circle_arc_returns_points_on_circle() {
+        let from = (1.0, 0.0);
+        let to = (0.0, 1.0);
+        let center = (0.0, 0.0);
+        let arc = sample_circle_arc(from, to, center);
+        assert!(!arc.is_empty());
+        for (x, y) in arc {
+            let r = (x * x + y * y).sqrt();
+            assert!(approx_eq(r, 1.0));
+        }
+    }
+}

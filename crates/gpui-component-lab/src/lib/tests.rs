@@ -23,6 +23,7 @@ use gpui_design_tools::{DesignTokenFormat, DesignTokenValidationReport, export_d
 use std::collections::BTreeSet;
 use std::time::SystemTime;
 
+#[path = "tests/misc.rs"]
 mod misc;
 
 #[test]

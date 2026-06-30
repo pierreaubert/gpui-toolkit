@@ -82,7 +82,7 @@ just qa-prop      # property-based tests
 just qa-visual    # visual/golden/conformance checks
 just qa-perf      # benchmark non-regression against qa/perf/baseline.json
 just qa-cov       # workspace coverage report (HTML + JSON)
-just qa-cov-check # coverage gate (currently 51%, target 90%)
+just qa-cov-check # coverage gate (currently below the 90% target; see target/qa/cov/report.md)
 ```
 
 Update the committed performance baseline after intentional improvements:

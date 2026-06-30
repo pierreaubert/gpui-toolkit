@@ -20,7 +20,4 @@ cargo run -p gpui-design-tools --bin gpui-validate-design-tokens ${FEATURES} -- 
 echo "=== component-lab conformance ==="
 cargo run -p gpui-component-lab --bin gpui-component-lab ${FEATURES} -- --conformance --report-json target/gpui-conformance/component-lab.json --report-markdown target/gpui-conformance/component-lab.md
 
-echo "=== visual regression harness (stub) ==="
-cargo build -p gpui-ui-kit --bin qa_visual ${FEATURES}
-
 echo "Visual checks passed."

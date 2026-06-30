@@ -25,7 +25,22 @@
 //! ## Usage
 //!
 //! ```rust,no_run
-//! use gpui_mobile::platform_view::{PlatformViewRegistry, PlatformViewParams};
+//! use gpui_android::platform_view::{
+//!     PlatformView, PlatformViewBounds, PlatformViewFactory, PlatformViewId,
+//!     PlatformViewParams, PlatformViewRegistry,
+//! };
+//!
+//! struct MyVideoFactory;
+//!
+//! impl PlatformViewFactory for MyVideoFactory {
+//!     fn create(&self, _params: &PlatformViewParams) -> Result<Box<dyn PlatformView>, String> {
+//!         unimplemented!("native video view creation")
+//!     }
+//!
+//!     fn view_type(&self) -> &str {
+//!         "video_player"
+//!     }
+//! }
 //!
 //! // Register a factory (typically in package init)
 //! PlatformViewRegistry::global().register("video_player", Box::new(MyVideoFactory));
