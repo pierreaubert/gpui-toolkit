@@ -381,12 +381,12 @@ alias tvos-build-device := showcase-tvos-build-device
 # Build Showcase tvOS Rust static library for simulator.
 [group('tvos')]
 showcase-tvos-rust-sim:
-	cargo +nightly build -p gpui-showcase-tvos --target aarch64-apple-tvos-sim --release {{features}} -Zbuild-std
+	TVOS_DEPLOYMENT_TARGET=15.0 cargo +nightly build -p gpui-showcase-tvos --target aarch64-apple-tvos-sim --release {{features}} -Zbuild-std
 
 # Build Showcase tvOS Rust static library for device.
 [group('tvos')]
 showcase-tvos-rust-device:
-	cargo +nightly build -p gpui-showcase-tvos --target aarch64-apple-tvos --release {{features}} -Zbuild-std
+	TVOS_DEPLOYMENT_TARGET=15.0 cargo +nightly build -p gpui-showcase-tvos --target aarch64-apple-tvos --release {{features}} -Zbuild-std
 
 # Build Showcase tvOS Rust lib and copy it next to the mobile Xcode assets.
 [group('tvos')]
@@ -431,7 +431,7 @@ showcase-tvos-build-sim: showcase-tvos-build-rust-sim showcase-tvos-xcodegen
 		-scheme GPUIShowcaseTV \
 		-configuration Release \
 		-sdk appletvsimulator \
-		-arch arm64 \
+		-destination 'generic/platform=tvOS Simulator' \
 		-derivedDataPath build/DerivedData-simulator \
 		build
 
@@ -445,8 +445,9 @@ showcase-tvos-build-device: showcase-tvos-build-rust-device showcase-tvos-xcodeg
 		-scheme GPUIShowcaseTV \
 		-configuration Release \
 		-sdk appletvos \
-		-arch arm64 \
+		-destination 'generic/platform=tvOS' \
 		-derivedDataPath build/DerivedData-device \
+		CODE_SIGNING_ALLOWED=NO \
 		build
 
 # Build the Showcase tvOS app for simulator.
