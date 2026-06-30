@@ -18,6 +18,7 @@ members = [
     "crates/gpui-scaffolder",
     "crates/gpui-showcase",
     "crates/gpui-showcase/android",
+    "crates/gpui-showcase/tvos",
     "crates/gpui-themes",
     "crates/gpui-toolkit",
     "crates/gpui-ui-kit",
@@ -136,7 +137,7 @@ block2 = "0.6"
 core-foundation = "0.10"
 core-graphics = "0.24"
 core-text = "=21.0.0"
-font-kit = { package = "zed-font-kit", version = "0.14.1-zed", git = "https://github.com/zed-industries/font-kit", rev = "110523127440aefb11ce0cf280ae7c5071337ec5" }
+font-kit = { package = "zed-font-kit", version = "0.14.1-zed", git = "https://github.com/zed-industries/font-kit", rev = "110523127440aefb11ce0cf280ae7c5071337ec5", default-features = false, features = ["source"] }
 objc = "0.2"
 oslog = "0.2"
 
@@ -205,12 +206,16 @@ split-debuginfo= "packed"
 debug = 1
 codegen-units = 256
 
-# Fix: git font-kit rev has broken core-text imports; use crates.io version
+# Fix: git font-kit rev lacks tvOS target cfgs and has broken core-text imports;
+# use the vendored manifest with Apple mobile target fixes.
 [patch."https://github.com/zed-industries/font-kit"]
-zed-font-kit = "0.14.1-zed"
+zed-font-kit = { path = "crates/3rdparties/zed-font-kit" }
 
 [patch."https://github.com/zed-industries/zed.git"]
 gpui_wgpu = { path = "crates/3rdparties/gpui_wgpu" }
+
+[patch.crates-io]
+objc = { path = "crates/3rdparties/objc" }
 
 [profile.release]
 # `release` is the everyday optimised profile — used by CI, `just prod-*`,

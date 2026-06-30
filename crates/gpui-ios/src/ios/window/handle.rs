@@ -97,6 +97,7 @@ pub(super) fn handle_touches(view: &mut Object, touches: *mut Object, event: *mu
 }
 
 /// Handle indirect pointer scrolling from a trackpad or mouse wheel.
+#[cfg(target_os = "ios")]
 pub(super) fn handle_indirect_scroll(view: &mut Object, recognizer: *mut Object) {
     unsafe {
         let window_ptr: *mut std::ffi::c_void = *view.get_ivar(GPUI_WINDOW_IVAR);

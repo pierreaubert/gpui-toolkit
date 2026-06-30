@@ -7,6 +7,7 @@ use super::consts::STATUS_BAR_STYLE;
 use super::consts::TEXT_INPUT_VIEW_CLASS_REGISTERED;
 use super::consts::VC_CLASS_REGISTERED;
 use super::consts::WINDOW_CLASS_REGISTERED;
+#[cfg(target_os = "ios")]
 use super::handle::handle_indirect_scroll;
 #[cfg(any(target_os = "ios", target_os = "tvos"))]
 use super::handle::handle_presses;

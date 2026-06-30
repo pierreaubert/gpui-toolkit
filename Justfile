@@ -374,46 +374,90 @@ alias tvos-rust-sim := showcase-tvos-rust-sim
 alias tvos-rust-device := showcase-tvos-rust-device
 alias tvos-build-rust-sim := showcase-tvos-build-rust-sim
 alias tvos-build-rust-device := showcase-tvos-build-rust-device
+alias tvos-xcodegen := showcase-tvos-xcodegen
+alias tvos-build-sim := showcase-tvos-build-sim
+alias tvos-build-device := showcase-tvos-build-device
 
 # Build Showcase tvOS Rust static library for simulator.
 [group('tvos')]
 showcase-tvos-rust-sim:
-	cargo +nightly build -p gpui-showcase-ios --target aarch64-apple-tvos-sim --release {{features}} -Zbuild-std
+	cargo +nightly build -p gpui-showcase-tvos --target aarch64-apple-tvos-sim --release {{features}} -Zbuild-std
 
 # Build Showcase tvOS Rust static library for device.
 [group('tvos')]
 showcase-tvos-rust-device:
-	cargo +nightly build -p gpui-showcase-ios --target aarch64-apple-tvos --release {{features}} -Zbuild-std
+	cargo +nightly build -p gpui-showcase-tvos --target aarch64-apple-tvos --release {{features}} -Zbuild-std
 
 # Build Showcase tvOS Rust lib and copy it next to the mobile Xcode assets.
 [group('tvos')]
 showcase-tvos-build-rust-sim: showcase-tvos-rust-sim
 	#!/usr/bin/env bash
 	set -euo pipefail
-	TVOS_DIR="crates/gpui-showcase/ios"
+	TVOS_DIR="crates/gpui-showcase/tvos"
 	mkdir -p "$TVOS_DIR/lib"
-	cp target/aarch64-apple-tvos-sim/release/libshowcase_ios.a "$TVOS_DIR/lib/libshowcase_ios_tvos_sim.a"
-	echo "Copied libshowcase_ios_tvos_sim.a to $TVOS_DIR/lib/"
+	cp target/aarch64-apple-tvos-sim/release/libshowcase_tvos.a "$TVOS_DIR/lib/"
+	echo "Copied libshowcase_tvos.a to $TVOS_DIR/lib/"
 
 # Build Showcase tvOS Rust lib for device and copy it next to the mobile Xcode assets.
 [group('tvos')]
 showcase-tvos-build-rust-device: showcase-tvos-rust-device
 	#!/usr/bin/env bash
 	set -euo pipefail
-	TVOS_DIR="crates/gpui-showcase/ios"
+	TVOS_DIR="crates/gpui-showcase/tvos"
 	mkdir -p "$TVOS_DIR/lib"
-	cp target/aarch64-apple-tvos/release/libshowcase_ios.a "$TVOS_DIR/lib/libshowcase_ios_tvos.a"
-	echo "Copied libshowcase_ios_tvos.a to $TVOS_DIR/lib/"
+	cp target/aarch64-apple-tvos/release/libshowcase_tvos.a "$TVOS_DIR/lib/"
+	echo "Copied libshowcase_tvos.a to $TVOS_DIR/lib/"
 
-# Build the Showcase tvOS Rust library for simulator.
+# Generate the Showcase tvOS Xcode project with XcodeGen.
 [group('tvos')]
-tvos-sim: showcase-tvos-build-rust-sim
-	@echo "tvOS simulator Rust library build complete"
+showcase-tvos-xcodegen:
+	#!/usr/bin/env bash
+	set -euo pipefail
+	cd crates/gpui-showcase/tvos
+	if [ ! -d "GPUIShowcaseTV.xcodeproj" ] || [ "project.yml" -nt "GPUIShowcaseTV.xcodeproj/project.pbxproj" ]; then
+		echo "Generating tvOS Xcode project..."
+		xcodegen generate
+	else
+		echo "tvOS Xcode project is up to date"
+	fi
 
-# Build the Showcase tvOS Rust library for device.
+# Build Showcase tvOS app for simulator.
 [group('tvos')]
-tvos-device: showcase-tvos-build-rust-device
-	@echo "tvOS device Rust library build complete"
+showcase-tvos-build-sim: showcase-tvos-build-rust-sim showcase-tvos-xcodegen
+	#!/usr/bin/env bash
+	set -euo pipefail
+	cd crates/gpui-showcase/tvos
+	xcodebuild -project GPUIShowcaseTV.xcodeproj \
+		-scheme GPUIShowcaseTV \
+		-configuration Release \
+		-sdk appletvsimulator \
+		-arch arm64 \
+		-derivedDataPath build/DerivedData-simulator \
+		build
+
+# Build Showcase tvOS app for device.
+[group('tvos')]
+showcase-tvos-build-device: showcase-tvos-build-rust-device showcase-tvos-xcodegen
+	#!/usr/bin/env bash
+	set -euo pipefail
+	cd crates/gpui-showcase/tvos
+	xcodebuild -project GPUIShowcaseTV.xcodeproj \
+		-scheme GPUIShowcaseTV \
+		-configuration Release \
+		-sdk appletvos \
+		-arch arm64 \
+		-derivedDataPath build/DerivedData-device \
+		build
+
+# Build the Showcase tvOS app for simulator.
+[group('tvos')]
+tvos-sim: showcase-tvos-build-sim
+	@echo "tvOS simulator build complete"
+
+# Build the Showcase tvOS app for device.
+[group('tvos')]
+tvos-device: showcase-tvos-build-device
+	@echo "tvOS device build complete"
 
 # ----------------------------------------------------------------------
 # ANDROID

@@ -1,0 +1,40 @@
+name: GPUIShowcaseTV
+options:
+  bundleIdPrefix: org.spinorama
+  deploymentTarget:
+    tvOS: "15.0"
+  xcodeVersion: "15.0"
+
+settings:
+  base:
+    SWIFT_OBJC_BRIDGING_HEADER: ShowcaseTV/BridgingHeader.h
+    EXCLUDED_ARCHS[sdk=appletvsimulator*]: x86_64
+
+targets:
+  GPUIShowcaseTV:
+    type: application
+    platform: tvOS
+    sources:
+      - ShowcaseTV
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.spinorama.gpui-showcase.tv
+        INFOPLIST_FILE: ShowcaseTV/Info.plist
+        SWIFT_VERSION: "5.10"
+        LIBRARY_SEARCH_PATHS:
+          - "$(PROJECT_DIR)/lib"
+        ENABLE_USER_SCRIPT_SANDBOXING: false
+        DEAD_CODE_STRIPPING: false
+        OTHER_LDFLAGS:
+          - "-L$(PROJECT_DIR)/lib"
+          - "-force_load"
+          - "$(PROJECT_DIR)/lib/libshowcase_tvos.a"
+          - "-framework Metal"
+          - "-framework MetalKit"
+          - "-framework QuartzCore"
+          - "-framework CoreText"
+          - "-framework CoreGraphics"
+          - "-framework CoreFoundation"
+          - "-framework UIKit"
+          - "-framework Foundation"
+          - "-lc++"

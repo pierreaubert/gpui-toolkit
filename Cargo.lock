@@ -3105,6 +3105,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "gpui-showcase-tvos"
+version = "0.8.0"
+dependencies = [
+ "gpui",
+ "gpui-ios",
+ "gpui-showcase",
+ "gpui-ui-kit",
+ "log",
+ "oslog",
+]
+
+[[package]]
 name = "gpui-themes"
 version = "0.8.4"
 dependencies = [
@@ -4966,8 +4978,6 @@ dependencies = [
 [[package]]
 name = "objc"
 version = "0.2.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "915b1b472bc21c53464d6c8461c9d3af805ba1ef837e1cac254428f4a77177b1"
 dependencies = [
  "malloc_buf",
  "objc_exception",
@@ -9354,8 +9364,6 @@ dependencies = [
 [[package]]
 name = "zed-font-kit"
 version = "0.14.1-zed"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a3898e450f36f852edda72e3f985c34426042c4951790b23b107f93394f9bff5"
 dependencies = [
  "bitflags 2.13.0",
  "byteorder",
