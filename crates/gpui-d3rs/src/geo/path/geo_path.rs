@@ -1699,8 +1699,8 @@ mod tests {
         assert!(!clipped.is_empty());
         // The clipped result should lie entirely inside the extent.
         for &(x, y) in &clipped {
-            assert!(x >= -EPS && x <= 10.0 + EPS);
-            assert!(y >= -EPS && y <= 10.0 + EPS);
+            assert!((-EPS..=10.0 + EPS).contains(&x));
+            assert!((-EPS..=10.0 + EPS).contains(&y));
         }
     }
 

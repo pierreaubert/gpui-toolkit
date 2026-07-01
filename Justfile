@@ -41,11 +41,14 @@ check:
 	cargo check --workspace --all-targets {{features}}
 
 [group('lint')]
-lint: lint-host lint-ios-rust
+lint: lint-host
 
 [group('lint')]
 lint-host:
 	cargo clippy --workspace --all-targets {{features}} -- -D warnings
+
+[group('lint')]
+lint-all: lint-host lint-ios-rust
 
 [group('lint')]
 lint-ios-rust:
