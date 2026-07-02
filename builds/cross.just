@@ -16,6 +16,13 @@ linux_x86_image := "gpui-toolkit-base-linux-x86"
 windows_arm_image := "gpui-toolkit-base-windows-arm64"
 windows_x86_image := "gpui-toolkit-base-windows-x86"
 
+# Docker Desktop on macOS has a tight default memory limit. The `dist` profile
+# (fat LTO, codegen-units=1) OOM-kills the container on large crates, so
+# cross-docker builds default to `release` (thin LTO, 14 codegen units). Set
+# CROSS_DOCKER_PROFILE=dist to opt back into the shipping profile if you have
+# enough memory/swap allocated to Docker.
+cross_docker_profile := env_var_or_default("CROSS_DOCKER_PROFILE", "release")
+
 alias docker-linux-arm64 := cross-linux-arm64
 alias docker-linux-x86 := cross-linux-x86
 alias docker-windows-arm64 := cross-windows-arm64
@@ -94,10 +101,20 @@ _cross-docker-build image platform target:
 	#!/usr/bin/env bash
 	set -euo pipefail
 	mkdir -p target/cross
+	# The target is already baked into the base image, and we pin the toolchain
+	# via RUSTUP_TOOLCHAIN=stable to avoid rustup syncing/updating the toolchain
+	# on OverlayFS, which fails with "Invalid cross-device link (os error 18)"
+	# (see rust-lang/rustup#1239).
+	# We default to the `release` profile (thin LTO, 14 codegen units) because
+	# the `dist` profile's fat LTO + codegen-units=1 is too memory-hungry for
+	# Docker Desktop's default memory limit and gets OOM-killed on large crates.
+	# Use CROSS_DOCKER_PROFILE=dist if you have allocated enough Docker memory.
 	docker run --rm --platform {{platform}} \
 		-v "$(pwd)":/project \
 		-v "gpui-toolkit-target-{{target}}:/build-target" \
 		-w /project \
 		-e CARGO_TARGET_DIR=/build-target \
+		-e RUSTUP_TOOLCHAIN=stable \
+		-e CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS:-2} \
 		{{image}} \
-		bash -lc 'rustup target add {{target}} && cargo build --profile dist --target {{target}} --all-targets {{features}} {{cross_packages}}'
+		bash -lc 'cargo build --profile {{cross_docker_profile}} --target {{target}} --all-targets {{features}} {{cross_packages}}'

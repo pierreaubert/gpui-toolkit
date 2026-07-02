@@ -24,6 +24,8 @@ members = [
     "crates/gpui-ui-kit",
     "crates/gpui-showcase/ios",
     "crates/gpui-ui-kit-macros",
+    "crates/3rdparties/gpui_wgpu",
+    "crates/3rdparties/gpui_windows",
 ]
 resolver = "3"
 
@@ -103,10 +105,75 @@ gpui_windows = { version = "0.1.0", git = "https://github.com/zed-industries/zed
 gpui_wgpu = { version = "0.1.0", git = "https://github.com/zed-industries/zed.git", tag = "v1.0.0" }
 wgpu = { version = "29.0.0", git = "https://github.com/zed-industries/wgpu.git", branch = "v29" }
 
+# Zed internal crates used by vendored platform backends
+collections = { version = "0.1.0", git = "https://github.com/zed-industries/zed.git", tag = "v1.0.0" }
+util = { version = "0.1.0", git = "https://github.com/zed-industries/zed.git", tag = "v1.0.0" }
+scap = { git = "https://github.com/zed-industries/scap", rev = "4afea48c3b002197176fb19cd0f9b180dd36eaac", default-features = false, package = "zed-scap", version = "0.0.8-zed" }
+
+# Windows crate used by gpui_windows
+windows = { version = "0.61", features = [
+    "Foundation_Numerics",
+    "Globalization_DateTimeFormatting",
+    "Storage_Search",
+    "Storage_Streams",
+    "System_Threading",
+    "UI_ViewManagement",
+    "Wdk_System_SystemServices",
+    "Win32_Foundation",
+    "Win32_Globalization",
+    "Win32_Graphics_Direct3D",
+    "Win32_Graphics_Direct3D11",
+    "Win32_Graphics_Direct3D_Fxc",
+    "Win32_Graphics_DirectComposition",
+    "Win32_Graphics_DirectWrite",
+    "Win32_Graphics_DirectManipulation",
+    "Win32_Graphics_Dwm",
+    "Win32_Graphics_Dxgi",
+    "Win32_Graphics_Dxgi_Common",
+    "Win32_Graphics_Gdi",
+    "Win32_Graphics_Imaging",
+    "Win32_Graphics_Hlsl",
+    "Win32_Networking_WinSock",
+    "Win32_Security",
+    "Win32_Security_Credentials",
+    "Win32_Security_Cryptography",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Com",
+    "Win32_System_Com_StructuredStorage",
+    "Win32_System_Console",
+    "Win32_System_Diagnostics_Debug",
+    "Win32_System_DataExchange",
+    "Win32_System_IO",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Memory",
+    "Win32_System_Ole",
+    "Win32_System_Performance",
+    "Win32_System_Pipes",
+    "Win32_System_RestartManager",
+    "Win32_System_SystemInformation",
+    "Win32_System_SystemServices",
+    "Win32_System_Threading",
+    "Win32_System_Variant",
+    "Win32_System_WinRT",
+    "Win32_UI_Controls",
+    "Win32_UI_HiDpi",
+    "Win32_UI_Input_Ime",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_Input_Pointer",
+    "Win32_UI_Shell",
+    "Win32_UI_Shell_Common",
+    "Win32_UI_Shell_PropertiesSystem",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_Media",
+] }
+windows-core = "0.61"
+
 # Utilities
 approx = "0.5"
 criterion = "0.8.1"
+itertools = "0.14.0"
 proptest = "1.9"
+rand = "0.9"
 unicode-normalization = "0.1"
 toml = "0.8"
 uuid = { version = "1", features = ["v4", "v5", "serde"] }
@@ -213,6 +280,7 @@ zed-font-kit = { path = "crates/3rdparties/zed-font-kit" }
 
 [patch."https://github.com/zed-industries/zed.git"]
 gpui_wgpu = { path = "crates/3rdparties/gpui_wgpu" }
+gpui_windows = { path = "crates/3rdparties/gpui_windows" }
 
 [patch.crates-io]
 objc = { path = "crates/3rdparties/objc" }

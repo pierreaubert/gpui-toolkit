@@ -3013,6 +3013,7 @@ dependencies = [
  "gpui_linux",
  "gpui_macos",
  "gpui_windows",
+ "libsqlite3-sys",
 ]
 
 [[package]]
@@ -3335,7 +3336,6 @@ dependencies = [
 [[package]]
 name = "gpui_windows"
 version = "0.1.0"
-source = "git+https://github.com/zed-industries/zed.git?tag=v1.0.0#5ec84a926ef83865afb92d2a3d1ca3b419572cf9"
 dependencies = [
  "anyhow",
  "collections",
@@ -3355,6 +3355,7 @@ dependencies = [
  "windows-core 0.61.2",
  "windows-numerics 0.2.0",
  "windows-registry 0.5.3",
+ "zed-scap",
 ]
 
 [[package]]
@@ -4175,6 +4176,7 @@ version = "0.36.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "95b4103cffefa72eb8428cb6b47d6627161e51c2739fc5e3b734584157bc642a"
 dependencies = [
+ "cc",
  "pkg-config",
  "vcpkg",
 ]
