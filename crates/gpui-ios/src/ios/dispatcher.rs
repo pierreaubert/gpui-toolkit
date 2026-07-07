@@ -4,7 +4,7 @@
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
 
-use gpui::{PlatformDispatcher, Priority, RunnableVariant, ThreadTaskTimings};
+use gpui::{PlatformDispatcher, Priority, RunnableVariant};
 use std::thread;
 
 use objc::{
@@ -58,19 +58,6 @@ impl PlatformDispatcher for IosDispatcher {
         unsafe {
             let is_main: BOOL = msg_send![class!(NSThread), isMainThread];
             is_main == YES
-        }
-    }
-
-    fn get_all_timings(&self) -> Vec<ThreadTaskTimings> {
-        Vec::new()
-    }
-
-    fn get_current_thread_timings(&self) -> ThreadTaskTimings {
-        ThreadTaskTimings {
-            thread_name: None,
-            thread_id: thread::current().id(),
-            timings: Vec::new(),
-            total_pushed: 0,
         }
     }
 

@@ -38,7 +38,7 @@ impl AuDisplay {
 
 impl PlatformDisplay for AuDisplay {
     fn id(&self) -> DisplayId {
-        DisplayId::new(self.screen as u32)
+        DisplayId::new(self.screen as u64)
     }
 
     fn uuid(&self) -> anyhow::Result<Uuid> {

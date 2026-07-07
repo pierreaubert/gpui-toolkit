@@ -13,10 +13,10 @@ default = []
 font-kit = ["dep:font-kit"]
 
 [dependencies]
-gpui = { version = "0.2.2", git = "https://github.com/zed-industries/zed.git", tag = "v1.0.0" }
+gpui = { version = "0.2.2", git = "https://github.com/zed-industries/zed.git", tag = "v1.9.0" }
 anyhow = "1.0"
 bytemuck = "1"
-collections = { version = "0.1.0", git = "https://github.com/zed-industries/zed.git", tag = "v1.0.0" }
+collections = { version = "0.1.0", git = "https://github.com/zed-industries/zed.git", tag = "v1.9.0" }
 cosmic-text = "0.17.0"
 etagere = "0.2"
 itertools = "0.14.0"
@@ -26,7 +26,7 @@ profiling = "1"
 raw-window-handle = "0.6"
 smallvec = { version = "1.6", features = ["union", "const_new"] }
 swash = "0.2.6"
-gpui_util = { version = "0.1.0", git = "https://github.com/zed-industries/zed.git", tag = "v1.0.0" }
+gpui_util = { version = "0.1.0", git = "https://github.com/zed-industries/zed.git", tag = "v1.9.0" }
 wgpu = { version = "29.0.0", git = "https://github.com/zed-industries/wgpu.git", branch = "v29" }
 
 # Optional: only needed on platforms with multiple font sources (e.g. Linux)

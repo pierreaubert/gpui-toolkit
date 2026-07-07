@@ -97,17 +97,17 @@ gpui-ui-kit = { path = "crates/gpui-ui-kit", version = "0.8" }
 gpui-ui-kit-macros = { path = "crates/gpui-ui-kit-macros", version = "0.8" }
 
 # GPUI framework - all packages must use the same Zed tag.
-gpui = { version = "0.2.2", git = "https://github.com/zed-industries/zed.git", tag = "v1.0.0" }
-gpui_macros = { version = "0.1.0", git = "https://github.com/zed-industries/zed.git", tag = "v1.0.0" }
-gpui_macos = { version = "0.1.0", git = "https://github.com/zed-industries/zed.git", tag = "v1.0.0", features = ["font-kit"] }
-gpui_linux = { version = "0.1.0", git = "https://github.com/zed-industries/zed.git", tag = "v1.0.0" }
-gpui_windows = { version = "0.1.0", git = "https://github.com/zed-industries/zed.git", tag = "v1.0.0" }
-gpui_wgpu = { version = "0.1.0", git = "https://github.com/zed-industries/zed.git", tag = "v1.0.0" }
+gpui = { version = "0.2.2", git = "https://github.com/zed-industries/zed.git", tag = "v1.9.0" }
+gpui_macros = { version = "0.1.0", git = "https://github.com/zed-industries/zed.git", tag = "v1.9.0" }
+gpui_macos = { version = "0.1.0", git = "https://github.com/zed-industries/zed.git", tag = "v1.9.0", features = ["font-kit"] }
+gpui_linux = { version = "0.1.0", git = "https://github.com/zed-industries/zed.git", tag = "v1.9.0" }
+gpui_windows = { version = "0.1.0", git = "https://github.com/zed-industries/zed.git", tag = "v1.9.0" }
+gpui_wgpu = { version = "0.1.0", git = "https://github.com/zed-industries/zed.git", tag = "v1.9.0" }
 wgpu = { version = "29.0.0", git = "https://github.com/zed-industries/wgpu.git", branch = "v29" }
 
 # Zed internal crates used by vendored platform backends
-collections = { version = "0.1.0", git = "https://github.com/zed-industries/zed.git", tag = "v1.0.0" }
-util = { version = "0.1.0", git = "https://github.com/zed-industries/zed.git", tag = "v1.0.0" }
+collections = { version = "0.1.0", git = "https://github.com/zed-industries/zed.git", tag = "v1.9.0" }
+util = { version = "0.1.0", git = "https://github.com/zed-industries/zed.git", tag = "v1.9.0" }
 scap = { git = "https://github.com/zed-industries/scap", rev = "4afea48c3b002197176fb19cd0f9b180dd36eaac", default-features = false, package = "zed-scap", version = "0.0.8-zed" }
 
 # Windows crate used by gpui_windows
