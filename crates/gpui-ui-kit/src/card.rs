@@ -24,16 +24,28 @@
 //!     })
 //! ```
 
+use crate::mobile::is_mobile;
 use crate::theme::{Theme, ThemeExt};
-use gpui::prelude::{IntoElement, ParentElement, RenderOnce, Styled};
-use gpui::{AnyElement, App, Div, Rgba, Window, div};
+use gpui::prelude::{
+    InteractiveElement, IntoElement, ParentElement, RenderOnce, StatefulInteractiveElement, Styled,
+};
+use gpui::{AnyElement, App, Div, ElementId, Rgba, Window, div};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Factory function type for creating elements with theme access
 pub type SlotFactory = Box<dyn FnOnce(&Theme) -> AnyElement>;
 
+static CARD_COUNTER: AtomicU64 = AtomicU64::new(1);
+
+fn next_card_id() -> ElementId {
+    ElementId::Name(
+        format!("card-{}", CARD_COUNTER.fetch_add(1, Ordering::Relaxed)).into(),
+    )
+}
+
 /// A card container with optional sections
-#[derive(IntoElement)]
 pub struct Card {
+    id: ElementId,
     header: Option<AnyElement>,
     header_factory: Option<SlotFactory>,
     content: Option<AnyElement>,
@@ -48,12 +60,15 @@ pub struct Card {
     border_color: Option<Rgba>,
     /// Additional styling
     extra_classes: Vec<Box<dyn FnOnce(Div) -> Div>>,
+    /// Override mobile scroll behavior for card content.
+    scrollable_on_mobile: Option<bool>,
 }
 
 impl Card {
     /// Create a new empty card
     pub fn new() -> Self {
         Self {
+            id: next_card_id(),
             header: None,
             header_factory: None,
             content: None,
@@ -64,6 +79,7 @@ impl Card {
             header_background: None,
             border_color: None,
             extra_classes: Vec::new(),
+            scrollable_on_mobile: None,
         }
     }
 
@@ -162,8 +178,26 @@ impl Card {
         self
     }
 
+    /// Set an explicit element ID.
+    pub fn id(mut self, id: impl Into<ElementId>) -> Self {
+        self.id = id.into();
+        self
+    }
+
+    /// Override whether the card content becomes scrollable on mobile.
+    /// When `None` (the default), content scrolls on mobile.
+    pub fn scrollable_on_mobile(mut self, scrollable: bool) -> Self {
+        self.scrollable_on_mobile = Some(scrollable);
+        self
+    }
+
     /// Build the card into an element with theme
     pub fn build_with_theme(self, theme: &Theme) -> Div {
+        self.build_with_theme_and_scroll(theme, false)
+    }
+
+    fn build_with_theme_and_scroll(self, theme: &Theme, scroll_content: bool) -> Div {
+        let id = self.id.clone();
         let bg_color = self.background.unwrap_or(theme.surface);
         let border_color = self.border_color.unwrap_or(theme.border);
         let header_bg = self.header_background.unwrap_or(theme.muted);
@@ -202,13 +236,28 @@ impl Card {
         // Content section - factory takes precedence over static element
         let content_element = self.content_factory.map(|f| f(theme)).or(self.content);
         if let Some(content) = content_element {
-            card = card.child(
+            let content_container: AnyElement = if scroll_content {
                 div()
+                    .flex_1()
+                    .min_h_0()
                     .px_4()
                     .py_4()
                     .text_color(theme.text_secondary)
-                    .child(content),
-            );
+                    .id((id, "content"))
+                    .overflow_y_scroll()
+                    .child(content)
+                    .into_any_element()
+            } else {
+                div()
+                    .flex_1()
+                    .min_h_0()
+                    .px_4()
+                    .py_4()
+                    .text_color(theme.text_secondary)
+                    .child(content)
+                    .into_any_element()
+            };
+            card = card.child(content_container);
         }
 
         // Footer section - factory takes precedence over static element
@@ -237,8 +286,35 @@ impl Default for Card {
 }
 
 impl RenderOnce for Card {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let scroll_content = self.scrollable_on_mobile.unwrap_or(true) && is_mobile(window, cx);
         let theme = cx.theme();
-        self.build_with_theme(&theme)
+        self.build_with_theme_and_scroll(&theme, scroll_content)
+            .into_any_element()
+    }
+}
+
+impl IntoElement for Card {
+    type Element = gpui::Component<Self>;
+
+    fn into_element(self) -> Self::Element {
+        gpui::Component::new(self)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn scrollable_on_mobile_defaults_to_none() {
+        let card = Card::new();
+        assert!(card.scrollable_on_mobile.is_none());
+    }
+
+    #[test]
+    fn scrollable_on_mobile_builder_sets_flag() {
+        let card = Card::new().scrollable_on_mobile(false);
+        assert_eq!(card.scrollable_on_mobile, Some(false));
     }
 }

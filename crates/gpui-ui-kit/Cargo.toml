@@ -1,6 +1,6 @@
 [package]
 name = "gpui-ui-kit"
-version = "0.8.29"
+version = "0.8.30"
 authors.workspace = true
 edition.workspace = true
 keywords.workspace = true
@@ -180,6 +180,9 @@ name = "status_bar_debug"
 
 [[example]]
 name = "step_indicator_debug"
+
+[[example]]
+name = "swipe_panel_debug"
 
 [[example]]
 name = "table_debug"

@@ -1,5 +1,12 @@
 //! Mobile interaction primitives shared by GPUI components.
 
+use gpui::{App, Window};
+use gpui_design::{DesignExt, DesignPlatform};
+
+pub mod momentum;
+
+pub use momentum::{MomentumDelta, MomentumScroller, VelocityTracker};
+
 /// Edge insets in visual order.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct EdgeInsets {
@@ -152,9 +159,26 @@ impl WaveformScrubber {
     }
 }
 
+/// Returns true when the app is running in a mobile context.
+///
+/// This is true on iOS/Android builds, or on any platform when the viewport
+/// width falls below the active design system's vertical layout threshold.
+/// The threshold check also lets desktop developers preview mobile behavior
+/// by resizing the window small enough.
+pub fn is_mobile(window: &mut Window, cx: &mut App) -> bool {
+    let platform = DesignPlatform::current();
+    if matches!(platform, DesignPlatform::Ios | DesignPlatform::Android) {
+        return true;
+    }
+
+    let design = cx.design();
+    let viewport_width: f32 = window.viewport_size().width.into();
+    viewport_width < design.layout.vertical_threshold
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{ContextPreview, PullToRefreshState, WaveformScrubber};
+    use super::{ContextPreview, EdgeInsets, PullToRefreshState, WaveformScrubber};
 
     #[test]
     fn pull_to_refresh_progress_is_clamped() {
@@ -188,5 +212,12 @@ mod tests {
             preferred_height: 180.0,
         };
         assert!(preview.validate().is_ok());
+    }
+
+    #[test]
+    fn edge_insets_sum() {
+        let insets = EdgeInsets::new(1.0, 2.0, 3.0, 4.0);
+        assert_eq!(insets.horizontal(), 6.0);
+        assert_eq!(insets.vertical(), 4.0);
     }
 }

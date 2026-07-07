@@ -3,10 +3,22 @@ use super::types::StackAlign;
 use super::types::StackJustify;
 use super::types::StackOverflow;
 use super::types::StackSize;
-use gpui::prelude::{IntoElement, ParentElement, Styled};
-use gpui::{AnyElement, Div, Pixels, div, px, relative};
+use crate::mobile::is_mobile;
+use gpui::prelude::{
+    InteractiveElement, IntoElement, ParentElement, RenderOnce, StatefulInteractiveElement, Styled,
+};
+use gpui::{AnyElement, App, Div, ElementId, Pixels, Window, div, px, relative};
 use gpui_design::DesignSystem;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+static HSTACK_COUNTER: AtomicU64 = AtomicU64::new(1);
+
+fn next_hstack_id() -> ElementId {
+    ElementId::Name(
+        format!("hstack-{}", HSTACK_COUNTER.fetch_add(1, Ordering::Relaxed)).into(),
+    )
+}
 
 /// A horizontal stack (row) layout
 ///
@@ -29,6 +41,8 @@ pub struct HStack {
     pub(super) max_width: Option<Pixels>,
     pub(super) max_height: Option<Pixels>,
     pub(super) design: Option<Arc<DesignSystem>>,
+    pub(super) id: ElementId,
+    pub(super) scrollable_on_mobile: Option<bool>,
 }
 
 impl HStack {
@@ -52,6 +66,8 @@ impl HStack {
             max_width: None,
             max_height: None,
             design: None,
+            id: next_hstack_id(),
+            scrollable_on_mobile: None,
         }
     }
 
@@ -187,6 +203,20 @@ impl HStack {
         self
     }
 
+    /// Set an explicit element ID.
+    pub fn id(mut self, id: impl Into<ElementId>) -> Self {
+        self.id = id.into();
+        self
+    }
+
+    /// Override whether this stack becomes horizontally scrollable on mobile.
+    /// When `None` (the default), scrolling is enabled on mobile unless the
+    /// overflow is explicitly set to `Hidden`.
+    pub fn scrollable_on_mobile(mut self, scrollable: bool) -> Self {
+        self.scrollable_on_mobile = Some(scrollable);
+        self
+    }
+
     /// Build into element
     pub fn build(self) -> Div {
         let design = self
@@ -298,10 +328,54 @@ impl Default for HStack {
     }
 }
 
+impl RenderOnce for HStack {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let id = self.id.clone();
+        let should_scroll = self.scrollable_on_mobile.unwrap_or(true)
+            && self.overflow_x != StackOverflow::Hidden
+            && is_mobile(window, cx);
+
+        let design = self
+            .design
+            .clone()
+            .unwrap_or_else(crate::design::neutral_design);
+        let stack = self.build_with_design(&design);
+
+        if should_scroll {
+            div()
+                .id((id, "scroll"))
+                .w_full()
+                .h_full()
+                .overflow_x_scroll()
+                .child(stack)
+                .into_any_element()
+        } else {
+            stack.into_any_element()
+        }
+    }
+}
+
 impl IntoElement for HStack {
-    type Element = Div;
+    type Element = gpui::Component<Self>;
 
     fn into_element(self) -> Self::Element {
-        self.build()
+        gpui::Component::new(self)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn scrollable_on_mobile_defaults_to_none() {
+        let stack = HStack::new();
+        assert!(stack.scrollable_on_mobile.is_none());
+    }
+
+    #[test]
+    fn scrollable_on_mobile_builder_sets_flag() {
+        let stack = HStack::new().scrollable_on_mobile(false);
+        assert_eq!(stack.scrollable_on_mobile, Some(false));
     }
 }

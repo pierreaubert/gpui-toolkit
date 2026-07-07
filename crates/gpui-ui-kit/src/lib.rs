@@ -78,6 +78,7 @@ pub mod sidebar;
 pub mod split_pane;
 pub mod stack;
 pub mod status_bar;
+pub mod swipe_panel;
 
 // Tier 3 components
 pub mod command_palette;
@@ -157,6 +158,7 @@ pub use pane_divider::{CollapseDirection, PaneDivider, PaneDividerTheme};
 pub use settings_form::{SettingsForm, SettingsFormTheme, SettingsRow};
 pub use sidebar::{Sidebar, SidebarSide, SidebarSlotFactory, SidebarTheme};
 pub use split_pane::{SplitDirection, SplitPane, SplitPaneTheme};
+pub use swipe_panel::{SwipePanel, SwipePanelAnchor, SwipePanelState};
 pub use stack::{
     Divider, HStack, Spacer, StackAlign, StackJustify, StackOverflow, StackSize, StackSpacing,
     VStack,
@@ -175,8 +177,8 @@ pub use accessibility::{
 };
 pub use collection_diff::{CollectionPatch, diff_by_key, is_content_only_update};
 pub use mobile::{
-    ContextPreview, DynamicTypePolicy, EdgeInsets, PullToRefreshState, SwipeAction, SwipeDirection,
-    WaveformScrubber,
+    ContextPreview, DynamicTypePolicy, EdgeInsets, MomentumDelta, MomentumScroller,
+    PullToRefreshState, SwipeAction, SwipeDirection, VelocityTracker, WaveformScrubber, is_mobile,
 };
 // Theme and i18n
 pub use color_tokens::{

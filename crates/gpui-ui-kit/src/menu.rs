@@ -3,6 +3,8 @@
 //! Provides a complete menu system for application navigation and context menus.
 
 use crate::accessibility::{AccessibilityExt, AccessibilityNode, AriaProps, AriaRole};
+use crate::mobile::is_mobile;
+use crate::swipe_panel::{SwipePanel, SwipePanelState};
 use crate::theme::{ThemeExt, glow_shadow};
 use gpui::prelude::{
     InteractiveElement, IntoElement, ParentElement, RenderOnce, StatefulInteractiveElement, Styled,
@@ -403,16 +405,28 @@ impl Menu {
 }
 
 impl RenderOnce for Menu {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         cx.register_accessible(AccessibilityNode {
             element_id: self.id.clone(),
             label: self.aria_label.clone().unwrap_or_default(),
             props: AriaProps::with_role(self.aria_role.unwrap_or(AriaRole::Menu)),
         });
 
+        let id = self.id.clone();
         let global_theme = cx.theme();
         let menu_theme = MenuTheme::from(global_theme);
-        self.build_with_theme(&menu_theme)
+        let menu = self.build_with_theme(&menu_theme);
+
+        if is_mobile(window, cx) {
+            SwipePanel::new(id)
+                .anchor(crate::swipe_panel::SwipePanelAnchor::Bottom)
+                .state(SwipePanelState::Peek)
+                .show_backdrop(true)
+                .content(menu)
+                .into_any_element()
+        } else {
+            menu.into_any_element()
+        }
     }
 }
 
