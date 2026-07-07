@@ -224,14 +224,10 @@ impl HStack {
 
         // Apply flex properties
         if let Some(grow) = self.flex_grow {
-            stack = stack.flex_grow();
-            if grow != 1.0 {
-                // GPUI uses flex_grow() for grow=1, for other values we'd need custom styling
-                // For now, flex_grow() sets grow to 1
-            }
+            stack = stack.flex_grow(grow);
         }
-        if let Some(_shrink) = self.flex_shrink {
-            stack = stack.flex_shrink();
+        if let Some(shrink) = self.flex_shrink {
+            stack = stack.flex_shrink(shrink);
         }
         if let Some(basis) = self.flex_basis {
             stack = stack.flex_basis(basis);

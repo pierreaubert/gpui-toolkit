@@ -715,6 +715,7 @@ impl RenderOnce for VerticalSlider {
                 offset: point(px(0.0), px(0.0)),
                 blur_radius: px(8.0 * glow_intensity),
                 spread_radius: px(2.0 * glow_intensity),
+                inset: false,
             }]);
         }
         track = track.child(fill);

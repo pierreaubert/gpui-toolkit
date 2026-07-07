@@ -217,6 +217,14 @@ impl Platform for AuPlatform {
         // TODO: could set NSCursor in the AU view
     }
 
+    fn hide_cursor_until_mouse_moves(&self) {
+        // AU extensions don't control cursor visibility
+    }
+
+    fn is_cursor_visible(&self) -> bool {
+        true
+    }
+
     fn should_auto_hide_scrollbars(&self) -> bool {
         true
     }

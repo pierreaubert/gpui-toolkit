@@ -12,12 +12,14 @@ pub fn glow_shadow(color: Rgba) -> Vec<BoxShadow> {
             blur_radius: px(4.0),
             spread_radius: px(0.0),
             color: glow_inner,
+            inset: false,
         },
         BoxShadow {
             offset: point(px(0.0), px(0.0)),
             blur_radius: px(25.0),
             spread_radius: px(2.0),
             color: glow_outer,
+            inset: false,
         },
     ]
 }
