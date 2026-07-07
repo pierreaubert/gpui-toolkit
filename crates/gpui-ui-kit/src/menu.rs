@@ -420,7 +420,7 @@ impl RenderOnce for Menu {
         if is_mobile(window, cx) {
             SwipePanel::new(id)
                 .anchor(crate::swipe_panel::SwipePanelAnchor::Bottom)
-                .state(SwipePanelState::Peek)
+                .state(SwipePanelState::Expanded)
                 .show_backdrop(true)
                 .content(menu)
                 .into_any_element()

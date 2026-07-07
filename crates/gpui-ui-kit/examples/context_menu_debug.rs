@@ -7,6 +7,7 @@
 
 use gpui::*;
 use gpui_miniapp::{MiniApp, MiniAppConfig};
+use gpui_ui_kit::Text;
 use gpui_ui_kit::context_menu::ContextMenu;
 use gpui_ui_kit::menu::MenuItem;
 use gpui_ui_kit::theme::ThemeExt;

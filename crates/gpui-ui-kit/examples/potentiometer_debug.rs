@@ -13,6 +13,7 @@ use gpui_ui_kit::audio::potentiometer::{Potentiometer, PotentiometerScale, Poten
 use gpui_ui_kit::i18n::{I18nExt, TranslationKey};
 use gpui_ui_kit::theme::ThemeExt;
 use gpui_ui_kit::*;
+use gpui_ui_kit::Text;
 
 /// Demo state
 pub struct PotentiometerDebug {

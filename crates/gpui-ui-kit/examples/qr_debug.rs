@@ -11,6 +11,7 @@
 
 use gpui::*;
 use gpui_miniapp::{MiniApp, MiniAppConfig};
+use gpui_ui_kit::Text;
 use gpui_ui_kit::qr::AnimatedQrCode;
 use gpui_ui_kit::theme::ThemeExt;
 use gpui_ui_kit::*;

@@ -169,6 +169,7 @@ impl SwipePanel {
 /// Internal entity that owns the swipe panel's interactive state.
 pub struct SwipePanelEntity {
     props: SwipePanel,
+    content: Entity<SwipePanelContentEntity>,
     state: SwipePanelState,
     current_offset: f32,
     target_offset: f32,
@@ -183,9 +184,25 @@ pub struct SwipePanelEntity {
     last_anim_time: Instant,
 }
 
+struct SwipePanelContentEntity {
+    content: Option<AnyElement>,
+}
+
+impl Render for SwipePanelContentEntity {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        let mut content_area = div().flex_1().min_h_0().w_full();
+        if let Some(content) = self.content.take() {
+            content_area = content_area.child(content);
+        }
+        content_area
+    }
+}
+
 impl SwipePanelEntity {
-    fn new(props: SwipePanel) -> Self {
+    fn new(props: SwipePanel, cx: &mut Context<Self>) -> Self {
+        let content = cx.new(|_cx| SwipePanelContentEntity { content: None });
         Self {
+            content,
             state: props.state,
             current_offset: 0.0,
             target_offset: 0.0,
@@ -246,7 +263,7 @@ impl SwipePanelEntity {
             SwipePanelAnchor::Bottom => self.drag_start_pos - pos,
             SwipePanelAnchor::Top => pos - self.drag_start_pos,
         };
-        self.drag_distance += delta.abs();
+        self.drag_distance = self.drag_distance.max(delta.abs());
         let panel_height = self.panel_height(window);
         self.current_offset = (self.drag_start_offset + delta).clamp(-panel_height, 0.0);
         self.tracker.record(pos, pos);
@@ -271,11 +288,15 @@ impl SwipePanelEntity {
         }
 
         let viewport = self.viewport_height(window);
-        let peek_offset = self.props.target_offset_for_state(SwipePanelState::Peek, viewport);
-        let expanded_offset =
-            self.props.target_offset_for_state(SwipePanelState::Expanded, viewport);
-        let collapsed_offset =
-            self.props.target_offset_for_state(SwipePanelState::Collapsed, viewport);
+        let peek_offset = self
+            .props
+            .target_offset_for_state(SwipePanelState::Peek, viewport);
+        let expanded_offset = self
+            .props
+            .target_offset_for_state(SwipePanelState::Expanded, viewport);
+        let collapsed_offset = self
+            .props
+            .target_offset_for_state(SwipePanelState::Collapsed, viewport);
 
         let significant_velocity = velocity.abs() > 400.0;
         let new_state = if significant_velocity {
@@ -288,8 +309,7 @@ impl SwipePanelEntity {
                 }
             } else {
                 // Dragging toward collapsed.
-                if self.current_offset < collapsed_offset + (peek_offset - collapsed_offset) * 0.5
-                {
+                if self.current_offset < collapsed_offset + (peek_offset - collapsed_offset) * 0.5 {
                     SwipePanelState::Collapsed
                 } else {
                     SwipePanelState::Peek
@@ -405,19 +425,17 @@ impl Render for SwipePanelEntity {
                 a: backdrop_opacity,
             };
             let entity = cx.entity().clone();
-            container = container.child(
-                div()
-                    .absolute()
-                    .inset_0()
-                    .bg(backdrop_color)
-                    .on_mouse_down(MouseButton::Left, move |_event, window, cx| {
+            container =
+                container.child(div().absolute().inset_0().bg(backdrop_color).on_mouse_down(
+                    MouseButton::Left,
+                    move |_event, window, cx| {
                         entity.update(cx, |model, cx| {
                             if model.props.show_backdrop {
-                                model.set_state(SwipePanelState::Peek, window, cx);
+                                model.set_state(SwipePanelState::Collapsed, window, cx);
                             }
                         });
-                    }),
-            );
+                    },
+                ));
         }
 
         let mut panel = div()
@@ -458,23 +476,11 @@ impl Render for SwipePanelEntity {
                 .items_center()
                 .justify_center()
                 .cursor_pointer()
-                .child(
-                    div()
-                        .w(px(36.0))
-                        .h(px(4.0))
-                        .rounded(px(2.0))
-                        .bg(handle_bg),
-                );
+                .child(div().w(px(36.0)).h(px(4.0)).rounded(px(2.0)).bg(handle_bg));
             panel = panel.child(handle);
         }
 
-        // Content area. The supplied content is expected to manage its own
-        // scrolling when it overflows (e.g. a `Menu` already scrolls).
-        let mut content_area = div().flex_1().min_h_0().w_full();
-        if let Some(content) = self.props.content.take() {
-            content_area = content_area.child(content);
-        }
-        panel = panel.child(content_area);
+        panel = panel.child(self.content.clone());
 
         // Mouse-move/up handlers cover the whole window while dragging.
         let entity = cx.entity().clone();
@@ -508,13 +514,20 @@ impl RenderOnce for SwipePanel {
             }
             let mut placeholder = SwipePanel::new(id.clone());
             placeholder.state = state;
-            let entity = cx.new(|_cx| SwipePanelEntity::new(placeholder));
+            let entity = cx.new(|cx| SwipePanelEntity::new(placeholder, cx));
             map.insert(id.clone(), entity.downgrade());
             entity
         });
 
-        entity.update(cx, |model, _cx| {
-            model.props = self;
+        entity.update(cx, |model, cx| {
+            let mut props = self;
+            if let Some(content) = props.content.take() {
+                model.content.update(cx, |model, cx| {
+                    model.content = Some(content);
+                    cx.notify();
+                });
+            }
+            model.props = props;
         });
         entity.clone().into_any_element()
     }

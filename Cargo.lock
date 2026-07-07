@@ -3163,7 +3163,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-toolkit"
-version = "0.8.3"
+version = "0.8.4"
 dependencies = [
  "gpui-au",
  "gpui-audio-kit",
@@ -3187,7 +3187,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-ui-kit"
-version = "0.8.29"
+version = "0.8.30"
 dependencies = [
  "block2 0.6.2",
  "criterion",

@@ -206,6 +206,8 @@ impl MomentumScroller {
         };
         let dx = self.vx * displacement_factor;
         let dy = self.vy * displacement_factor;
+        self.last_x += dx;
+        self.last_y += dy;
         self.vx *= decay;
         self.vy *= decay;
         let speed = (self.vx * self.vx + self.vy * self.vy).sqrt();
@@ -295,6 +297,20 @@ mod tests {
         assert!(result.is_none());
         assert!(scroller.is_active(), "scroller should still be active");
         assert!(!scroller.is_finished(), "scroller should not be finished");
+    }
+
+    #[test]
+    fn step_advances_reported_position() {
+        let mut scroller = MomentumScroller::new();
+        scroller.fling(100.0, 50.0, 10.0, 20.0);
+        scroller.last_time = Instant::now() - Duration::from_millis(16);
+
+        let delta = scroller.step().expect("fling should produce a delta");
+
+        assert_eq!(delta.position_x, scroller.position_x());
+        assert_eq!(delta.position_y, scroller.position_y());
+        assert!(delta.position_x > 10.0);
+        assert!(delta.position_y > 20.0);
     }
 
     #[test]
