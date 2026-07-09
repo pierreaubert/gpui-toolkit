@@ -1,0 +1,55 @@
+# Dependency policy for the GPUI Toolkit release gate.
+#
+# This file is intentionally conservative about source origins and permissive
+# about duplicate versions for now. The workspace carries several patched Zed
+# dependencies, so release QA should run cargo-deny, review every warning, and
+# tighten this policy as the dependency graph stabilizes.
+
+[graph]
+all-features = true
+
+[advisories]
+version = 2
+db-urls = ["https://github.com/rustsec/advisory-db"]
+yanked = "warn"
+ignore = []
+
+[licenses]
+version = 2
+allow = [
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "BSL-1.0",
+    "CC0-1.0",
+    "ISC",
+    "MIT",
+    "MIT-0",
+    "MPL-2.0",
+    "Unicode-3.0",
+    "Zlib",
+]
+confidence-threshold = 0.8
+
+[bans]
+multiple-versions = "warn"
+wildcards = "warn"
+highlight = "all"
+workspace-default-features = "allow"
+external-default-features = "allow"
+allow = []
+deny = []
+skip = []
+skip-tree = []
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = [
+    "https://github.com/zed-industries/font-kit",
+    "https://github.com/zed-industries/scap",
+    "https://github.com/zed-industries/wgpu.git",
+    "https://github.com/zed-industries/zed.git",
+]

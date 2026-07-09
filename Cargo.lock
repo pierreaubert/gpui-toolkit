@@ -846,8 +846,6 @@ dependencies = [
 [[package]]
 name = "block"
 version = "0.1.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0d8c1fef690941d3e7788d328517591fecc684c084084702d6ff1641e993699a"
 
 [[package]]
 name = "block-buffer"
@@ -2942,6 +2940,7 @@ dependencies = [
  "gpui-px",
  "gpui-showcase",
  "gpui-ui-kit",
+ "image",
  "serde",
  "serde_json",
  "tempfile",
@@ -3100,6 +3099,7 @@ dependencies = [
  "anyhow",
  "clap",
  "tempfile",
+ "toml 0.8.23",
 ]
 
 [[package]]
@@ -3163,7 +3163,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-toolkit"
-version = "0.8.4"
+version = "0.8.5"
 dependencies = [
  "gpui-au",
  "gpui-audio-kit",

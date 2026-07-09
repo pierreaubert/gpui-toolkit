@@ -11,25 +11,47 @@ categories.workspace = true
 publish = false
 
 [features]
-default = []
+default = ["core"]
+core = [
+    "dep:gpui-audio-kit",
+    "dep:gpui-builder",
+    "dep:gpui-d3rs",
+    "dep:gpui-design",
+    "dep:gpui-keybinding",
+    "dep:gpui-pretext",
+    "dep:gpui-px",
+    "dep:gpui-themes",
+    "dep:gpui-ui-kit",
+    "dep:gpui-ui-kit-macros",
+]
+tooling = [
+    "dep:gpui-component-lab",
+    "dep:gpui-design-tools",
+    "dep:gpui-miniapp",
+    "dep:gpui-profiler",
+    "dep:gpui-python-runtime",
+    "dep:gpui-scaffolder",
+]
+platform = ["dep:gpui-au", "ios"]
+all = ["core", "tooling", "platform"]
 ios = ["dep:gpui-ios"]
 
 [dependencies]
-gpui-au = { workspace = true }
-gpui-audio-kit = { workspace = true }
-gpui-builder = { workspace = true }
-gpui-component-lab = { workspace = true }
-gpui-d3rs = { workspace = true, default-features = true }
-gpui-design = { workspace = true }
-gpui-design-tools = { workspace = true }
+gpui-au = { workspace = true, optional = true }
+gpui-audio-kit = { workspace = true, optional = true }
+gpui-builder = { workspace = true, optional = true }
+gpui-component-lab = { workspace = true, optional = true }
+gpui-d3rs = { workspace = true, default-features = true, optional = true }
+gpui-design = { workspace = true, optional = true }
+gpui-design-tools = { workspace = true, optional = true }
 gpui-ios = { workspace = true, optional = true }
-gpui-keybinding = { workspace = true }
-gpui-miniapp = { workspace = true }
-gpui-pretext = { workspace = true }
-gpui-profiler = { workspace = true }
-gpui-px = { workspace = true, default-features = true }
-gpui-python-runtime = { workspace = true }
-gpui-scaffolder = { workspace = true }
-gpui-themes = { workspace = true }
-gpui-ui-kit = { workspace = true }
-gpui-ui-kit-macros = { workspace = true }
+gpui-keybinding = { workspace = true, optional = true }
+gpui-miniapp = { workspace = true, optional = true }
+gpui-pretext = { workspace = true, optional = true }
+gpui-profiler = { workspace = true, optional = true }
+gpui-px = { workspace = true, default-features = true, optional = true }
+gpui-python-runtime = { workspace = true, optional = true }
+gpui-scaffolder = { workspace = true, optional = true }
+gpui-themes = { workspace = true, optional = true }
+gpui-ui-kit = { workspace = true, optional = true }
+gpui-ui-kit-macros = { workspace = true, optional = true }

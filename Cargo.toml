@@ -30,7 +30,7 @@ members = [
 resolver = "3"
 
 [workspace.package]
-version = "0.8.4"
+version = "0.8.5"
 authors = ["Pierre F. Aubert pierre@spinorama.org"]
 description = "A toolkit to build portable and fast UI"
 edition = "2024"
@@ -283,6 +283,7 @@ gpui_wgpu = { path = "crates/3rdparties/gpui_wgpu" }
 gpui_windows = { path = "crates/3rdparties/gpui_windows" }
 
 [patch.crates-io]
+block = { path = "crates/3rdparties/block" }
 objc = { path = "crates/3rdparties/objc" }
 
 [profile.release]
