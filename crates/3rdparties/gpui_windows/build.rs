@@ -12,8 +12,8 @@ fn main() {
 
 mod shader_compilation {
     use std::{
+        fmt::Write,
         fs,
-        io::Write,
         path::{Path, PathBuf},
         process::{self, Command},
     };
@@ -49,7 +49,7 @@ mod shader_compilation {
             "polychrome_sprite",
         ];
 
-        let rust_binding_path = format!("{}/shaders_bytes.rs", out_dir);
+        let rust_binding_path = format!("{out_dir}/shaders_bytes.rs");
         if Path::new(&rust_binding_path).exists() {
             fs::remove_file(&rust_binding_path)
                 .expect("Failed to remove existing Rust binding file");
@@ -159,7 +159,7 @@ mod shader_compilation {
     }
 
     fn generate_stub_shaders(out_dir: &str) {
-        let rust_binding_path = format!("{}/shaders_bytes.rs", out_dir);
+        let rust_binding_path = format!("{out_dir}/shaders_bytes.rs");
         let modules = [
             "quad",
             "shadow",
@@ -173,14 +173,16 @@ mod shader_compilation {
         ];
         let mut contents = String::new();
         for module in modules {
-            contents.push_str(&format!(
-                "const {}_VERTEX_BYTES: &[u8] = &[];\n",
+            let _ = writeln!(
+                contents,
+                "const {}_VERTEX_BYTES: &[u8] = &[];",
                 module.to_uppercase()
-            ));
-            contents.push_str(&format!(
-                "const {}_FRAGMENT_BYTES: &[u8] = &[];\n",
+            );
+            let _ = writeln!(
+                contents,
+                "const {}_FRAGMENT_BYTES: &[u8] = &[];",
                 module.to_uppercase()
-            ));
+            );
         }
         fs::write(&rust_binding_path, contents)
             .expect("Failed to write stub shader binding file");
@@ -194,7 +196,7 @@ mod shader_compilation {
         rust_binding_path: &str,
     ) {
         // Compile vertex shader
-        let output_file = format!("{}/{}_vs.h", out_dir, module);
+        let output_file = format!("{out_dir}/{module}_vs.h");
         let const_name = format!("{}_VERTEX_BYTES", module.to_uppercase());
         compile_shader_impl(
             fxc_path,
@@ -207,7 +209,7 @@ mod shader_compilation {
         generate_rust_binding(&const_name, &output_file, rust_binding_path);
 
         // Compile fragment shader
-        let output_file = format!("{}/{}_ps.h", out_dir, module);
+        let output_file = format!("{out_dir}/{module}_ps.h");
         let const_name = format!("{}_FRAGMENT_BYTES", module.to_uppercase());
         compile_shader_impl(
             fxc_path,
@@ -256,7 +258,7 @@ mod shader_compilation {
                 process::exit(1);
             }
             Err(e) => {
-                println!("cargo::error=Failed to run fxc for {}: {}", entry_point, e);
+                println!("cargo::error=Failed to run fxc for {entry_point}: {e}");
                 process::exit(1);
             }
         }
@@ -280,10 +282,7 @@ mod shader_compilation {
             .append(true)
             .open(output_path)
             .expect("Failed to open Rust binding file");
-        options
-            .write_all(rust_binding.as_bytes())
+        std::io::Write::write_all(&mut options, rust_binding.as_bytes())
             .expect("Failed to write Rust binding file");
     }
 }
-
-use shader_compilation::compile_shaders;

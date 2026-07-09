@@ -247,6 +247,7 @@ impl TreeView {
         self
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn render_visible_nodes<F>(
         nodes: &[VisibleTreeNode],
         selected: &Option<SharedString>,

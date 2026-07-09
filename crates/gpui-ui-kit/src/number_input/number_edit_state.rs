@@ -68,10 +68,8 @@ impl NumberEditState {
             })
             .unwrap_or(false);
 
-        if cache_hit {
-            if let Some(cached) = &self.last_format_value {
-                return SharedString::new(cached.clone());
-            }
+        if cache_hit && let Some(cached) = &self.last_format_value {
+            return SharedString::new(cached.clone());
         }
 
         let formatted = format!("{:.prec$}", value, prec = decimals);

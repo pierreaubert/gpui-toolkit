@@ -173,7 +173,7 @@ impl SwipePanel {
 
     fn panel_height(&self, viewport: f32) -> f32 {
         self.expanded_height
-            .map(|h| f32::from(h))
+            .map(f32::from)
             .unwrap_or(viewport * 0.85)
     }
 

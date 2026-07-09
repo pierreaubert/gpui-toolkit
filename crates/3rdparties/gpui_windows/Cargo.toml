@@ -1,6 +1,6 @@
 [package]
 name = "gpui_windows"
-version = "0.1.0"
+version = "0.1.1"
 edition.workspace = true
 publish = false
 license = "Apache-2.0"

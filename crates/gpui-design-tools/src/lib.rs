@@ -578,7 +578,7 @@ mod tests {
             Some(DESIGN_TOKEN_VALIDATION_REPORT_TYPE)
         );
         assert_eq!(json["passed"].as_bool(), Some(false));
-        assert!(json["findings"].as_array().unwrap().len() >= 1);
+        assert!(!json["findings"].as_array().unwrap().is_empty());
         assert_eq!(json["preset_count"].as_u64(), Some(0));
         assert_eq!(json["token_count"].as_u64(), Some(0));
         assert_eq!(json["conformance_markdown"].as_str(), Some(""));

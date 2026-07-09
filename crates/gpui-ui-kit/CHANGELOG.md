@@ -1,5 +1,9 @@
 # Unreleased
 
+## Features
+
+- added Multi touch support on iOS and Android
+
 ## Fixes
 
 - **Sidebar**: made sidebar content participate in GPUI scroll handling with a

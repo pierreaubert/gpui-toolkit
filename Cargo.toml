@@ -255,7 +255,6 @@ map_err_ignore = "warn"
 redundant_type_annotations = "warn"
 renamed_function_params = "warn"
 semicolon_outside_block = "warn"
-string_to_string = "warn"
 undocumented_unsafe_blocks = "warn"
 unnecessary_safety_comment = "warn"
 unnecessary_safety_doc = "warn"
@@ -265,6 +264,7 @@ unused_result_ok = "warn"
 # May cause issues with structured logging otherwise.
 literal_string_with_formatting_args = "allow"
 multiple_crate_versions = "allow"
+redundant_feature_names = "allow"
 manual_checked_ops = "allow"
 
 [profile.dev]

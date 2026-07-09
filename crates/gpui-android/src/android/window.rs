@@ -215,6 +215,122 @@ pub type RequestFrameCallback = Box<dyn FnMut() + Send + 'static>;
 /// Called when a touch event arrives.
 pub type TouchCallback = Box<dyn FnMut(TouchPoint) + Send + 'static>;
 
+const ANDROID_MAX_TOUCHES: usize = 8;
+const ANDROID_PINCH_MIN_DISTANCE: f32 = 1.0;
+const ANDROID_SCROLL_SLOP: f32 = 8.0;
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct AndroidActiveTouch {
+    id: i32,
+    x: f32,
+    y: f32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum AndroidTouchGesture {
+    Idle,
+    Pending { start_x: f32, start_y: f32 },
+    Scrolling { prev_x: f32, prev_y: f32 },
+    Pinching { last_distance: f32 },
+}
+
+impl Default for AndroidTouchGesture {
+    fn default() -> Self {
+        Self::Idle
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+struct AndroidTouchState {
+    active: [Option<AndroidActiveTouch>; ANDROID_MAX_TOUCHES],
+    gesture: AndroidTouchGesture,
+}
+
+impl AndroidTouchState {
+    fn upsert(&mut self, id: i32, x: f32, y: f32) {
+        for touch in self.active.iter_mut().flatten() {
+            if touch.id == id {
+                touch.x = x;
+                touch.y = y;
+                return;
+            }
+        }
+
+        for slot in &mut self.active {
+            if slot.is_none() {
+                *slot = Some(AndroidActiveTouch { id, x, y });
+                return;
+            }
+        }
+
+        self.active[0] = Some(AndroidActiveTouch { id, x, y });
+    }
+
+    fn remove(&mut self, id: i32) {
+        for slot in &mut self.active {
+            if slot.as_ref().is_some_and(|touch| touch.id == id) {
+                *slot = None;
+                return;
+            }
+        }
+    }
+
+    fn active_count(&self) -> usize {
+        self.active.iter().flatten().count()
+    }
+
+    fn two_active_touches(&self) -> Option<(AndroidActiveTouch, AndroidActiveTouch)> {
+        let mut touches = self.active.iter().flatten().copied();
+        let first = touches.next()?;
+        let second = touches.next()?;
+        touches.next().is_none().then_some((first, second))
+    }
+
+    fn pinch_geometry(&self) -> Option<(f32, f32, f32)> {
+        let (first, second) = self.two_active_touches()?;
+        let dx = second.x - first.x;
+        let dy = second.y - first.y;
+        let distance = (dx * dx + dy * dy).sqrt();
+        (distance > ANDROID_PINCH_MIN_DISTANCE).then_some((
+            (first.x + second.x) * 0.5,
+            (first.y + second.y) * 0.5,
+            distance,
+        ))
+    }
+
+    fn pinch_update(&mut self) -> Option<(f32, f32, f32, gpui::TouchPhase)> {
+        let (x, y, distance) = self.pinch_geometry()?;
+        match self.gesture {
+            AndroidTouchGesture::Pinching { last_distance }
+                if last_distance > f32::EPSILON && distance > f32::EPSILON =>
+            {
+                let delta = distance / last_distance - 1.0;
+                self.gesture = AndroidTouchGesture::Pinching {
+                    last_distance: distance,
+                };
+                delta
+                    .is_finite()
+                    .then_some((x, y, delta, gpui::TouchPhase::Moved))
+            }
+            _ => {
+                self.gesture = AndroidTouchGesture::Pinching {
+                    last_distance: distance,
+                };
+                Some((x, y, 0.0, gpui::TouchPhase::Started))
+            }
+        }
+    }
+
+    fn end_pinch(&mut self) -> bool {
+        if matches!(self.gesture, AndroidTouchGesture::Pinching { .. }) {
+            self.gesture = AndroidTouchGesture::Idle;
+            true
+        } else {
+            false
+        }
+    }
+}
+
 /// Called when the window's active status changes (foreground/background).
 pub type ActiveStatusCallback = Box<dyn FnMut(bool) + Send + 'static>;
 
@@ -1441,40 +1557,19 @@ impl PlatformWindow for AndroidPlatformWindow {
             let cb = Arc::clone(&input_cb);
             let scale_factor = self.window.scale_factor();
             let momentum = Arc::clone(&self.momentum);
-
-            /// Distance (logical px) the finger must travel before a touch
-            /// is promoted from a potential tap to a scroll gesture.
-            const SCROLL_SLOP: f32 = 8.0;
-
-            /// Tracks the current touch gesture.
-            #[derive(Clone, Copy, Debug)]
-            enum TouchState {
-                /// No active touch.
-                Idle,
-                /// Finger is down but hasn't moved beyond the slop threshold.
-                Pending { start_x: f32, start_y: f32 },
-                /// Finger has moved beyond the threshold — we are scrolling.
-                Scrolling { prev_x: f32, prev_y: f32 },
-            }
-
-            let state = Mutex::new(TouchState::Idle);
+            let touch_state = Mutex::new(AndroidTouchState::default());
 
             self.window.on_touch(move |touch| {
-                // Android delivers touch coordinates in physical (device)
-                // pixels, but GPUI performs layout and hit-testing in logical
-                // pixels.  Divide by scale factor.
                 let logical_x = touch.x / scale_factor;
                 let logical_y = touch.y / scale_factor;
                 let modifiers = gpui::Modifiers::default();
+                let position = gpui::point(gpui::px(logical_x), gpui::px(logical_y));
 
-                let mut ts = state.lock();
+                let mut state = touch_state.lock();
 
                 match touch.action {
-                    // ── ACTION_DOWN ──────────────────────────────────────
+                    // ACTION_DOWN / ACTION_POINTER_DOWN
                     0 => {
-                        // Cancel any active momentum fling — the user
-                        // touched the screen, so inertia must stop.
-                        // Also flush any pending coalesced scroll.
                         {
                             let mut ms = momentum.lock();
                             ms.scroller.cancel();
@@ -1483,47 +1578,68 @@ impl PlatformWindow for AndroidPlatformWindow {
                             ms.pending_scroll_dy = 0.0;
                             ms.has_pending_scroll = false;
                         }
-                        *ts = TouchState::Pending {
-                            start_x: logical_x,
-                            start_y: logical_y,
-                        };
-                        // Do NOT emit MouseDown here — wait until we know
-                        // whether this is a tap or a scroll.  Emitting
-                        // MouseDown immediately causes accidental navigation
-                        // when the user starts scrolling near a button/tab.
-                        //
-                        // - Tap (finger lifts within slop) → emit MouseDown +
-                        //   MouseUp together in ACTION_UP.
-                        // - Scroll (finger exceeds slop) → emit only
-                        //   MouseMove + ScrollWheel, no MouseDown.
+
+                        state.upsert(touch.id, logical_x, logical_y);
+                        if state.active_count() == 1 {
+                            state.gesture = AndroidTouchGesture::Pending {
+                                start_x: logical_x,
+                                start_y: logical_y,
+                            };
+                        }
+
+                        if let Some((x, y, delta, phase)) = state.pinch_update() {
+                            let mut guard = cb.lock();
+                            let _ = guard(gpui::PlatformInput::Pinch(gpui::PinchEvent {
+                                position: gpui::point(gpui::px(x), gpui::px(y)),
+                                delta,
+                                modifiers,
+                                phase,
+                            }));
+                        }
                     }
 
-                    // ── ACTION_MOVE ──────────────────────────────────────
+                    // ACTION_MOVE
                     2 => {
-                        // Instead of emitting a ScrollWheel event for every
-                        // single MOVE, accumulate the delta in MomentumState.
-                        // The frame callback will drain and emit one coalesced
-                        // ScrollWheel per frame.  This is the key optimisation
-                        // that prevents N layout passes per frame during a drag.
-                        //
-                        // We DO emit MouseMove immediately for every MOVE so
-                        // that interactive screens (Animations drag line,
-                        // Shaders touch position) update in real time.
-                        let mut ms = momentum.lock();
+                        state.upsert(touch.id, logical_x, logical_y);
 
-                        // Record every move for velocity estimation.
+                        if matches!(state.gesture, AndroidTouchGesture::Pinching { .. })
+                            || state.active_count() == 2
+                        {
+                            if let Some((x, y, delta, phase)) = state.pinch_update() {
+                                let mut ms = momentum.lock();
+                                ms.scroller.cancel();
+                                ms.velocity_tracker.reset();
+                                ms.pending_scroll_dx = 0.0;
+                                ms.pending_scroll_dy = 0.0;
+                                ms.has_pending_scroll = false;
+                                drop(ms);
+
+                                let mut guard = cb.lock();
+                                let _ = guard(gpui::PlatformInput::Pinch(gpui::PinchEvent {
+                                    position: gpui::point(gpui::px(x), gpui::px(y)),
+                                    delta,
+                                    modifiers,
+                                    phase,
+                                }));
+                                return;
+                            }
+                        }
+
+                        if state.active_count() != 1 {
+                            return;
+                        }
+
+                        let mut ms = momentum.lock();
                         ms.velocity_tracker.record(logical_x, logical_y);
 
-                        match *ts {
-                            TouchState::Pending { start_x, start_y } => {
+                        match state.gesture {
+                            AndroidTouchGesture::Pending { start_x, start_y } => {
                                 let dx = logical_x - start_x;
                                 let dy = logical_y - start_y;
                                 let distance = (dx * dx + dy * dy).sqrt();
 
-                                if distance > SCROLL_SLOP {
-                                    // Promote to scrolling — accumulate the
-                                    // first scroll delta from the start pos.
-                                    *ts = TouchState::Scrolling {
+                                if distance > ANDROID_SCROLL_SLOP {
+                                    state.gesture = AndroidTouchGesture::Scrolling {
                                         prev_x: logical_x,
                                         prev_y: logical_y,
                                     };
@@ -1531,18 +1647,16 @@ impl PlatformWindow for AndroidPlatformWindow {
                                     ms.pending_scroll_dy += dy;
                                     ms.pending_scroll_pos_x = logical_x;
                                     ms.pending_scroll_pos_y = logical_y;
-                                    // Use Started phase for the first batch.
                                     if !ms.has_pending_scroll {
                                         ms.pending_scroll_phase = gpui::TouchPhase::Started;
                                     }
                                     ms.has_pending_scroll = true;
                                 }
-                                // else: still within slop, stay Pending
                             }
-                            TouchState::Scrolling { prev_x, prev_y } => {
+                            AndroidTouchGesture::Scrolling { prev_x, prev_y } => {
                                 let dx = logical_x - prev_x;
                                 let dy = logical_y - prev_y;
-                                *ts = TouchState::Scrolling {
+                                state.gesture = AndroidTouchGesture::Scrolling {
                                     prev_x: logical_x,
                                     prev_y: logical_y,
                                 };
@@ -1555,18 +1669,10 @@ impl PlatformWindow for AndroidPlatformWindow {
                                 }
                                 ms.has_pending_scroll = true;
                             }
-                            TouchState::Idle => {
-                                // Spurious move without a preceding down — ignore.
-                            }
+                            AndroidTouchGesture::Idle | AndroidTouchGesture::Pinching { .. } => {}
                         }
-
-                        // Drop momentum lock before dispatching MouseMove.
                         drop(ms);
 
-                        // Always emit MouseMove so interactive screens can
-                        // track finger position (drag line in Animations,
-                        // gradient control in Shaders).
-                        let position = gpui::point(gpui::px(logical_x), gpui::px(logical_y));
                         let mut guard = cb.lock();
                         let _ = guard(gpui::PlatformInput::MouseMove(gpui::MouseMoveEvent {
                             position,
@@ -1575,21 +1681,38 @@ impl PlatformWindow for AndroidPlatformWindow {
                         }));
                     }
 
-                    // ── ACTION_UP / ACTION_CANCEL ────────────────────────
+                    // ACTION_UP / ACTION_CANCEL / ACTION_POINTER_UP
                     1 | 3 => {
-                        let position = gpui::point(gpui::px(logical_x), gpui::px(logical_y));
+                        if state.end_pinch() {
+                            state.remove(touch.id);
+                            let mut ms = momentum.lock();
+                            ms.scroller.cancel();
+                            ms.velocity_tracker.reset();
+                            ms.pending_scroll_dx = 0.0;
+                            ms.pending_scroll_dy = 0.0;
+                            ms.has_pending_scroll = false;
+                            drop(ms);
 
-                        match *ts {
-                            TouchState::Pending { start_x, start_y } => {
-                                // Finger lifted without exceeding slop →
-                                // this is a tap.  Emit MouseDown + MouseUp
-                                // together at the original down position so
-                                // hit-testing matches the initial touch point.
+                            let mut guard = cb.lock();
+                            let _ = guard(gpui::PlatformInput::Pinch(gpui::PinchEvent {
+                                position,
+                                delta: 0.0,
+                                modifiers,
+                                phase: gpui::TouchPhase::Ended,
+                            }));
+                            return;
+                        }
+
+                        state.remove(touch.id);
+
+                        match state.gesture {
+                            AndroidTouchGesture::Pending { start_x, start_y } => {
                                 {
                                     let mut ms = momentum.lock();
                                     ms.velocity_tracker.reset();
                                     ms.has_pending_scroll = false;
                                 }
+
                                 let tap_pos = gpui::point(gpui::px(start_x), gpui::px(start_y));
                                 let mut guard = cb.lock();
                                 let _ =
@@ -1607,34 +1730,23 @@ impl PlatformWindow for AndroidPlatformWindow {
                                     click_count: 1,
                                 }));
                             }
-                            TouchState::Scrolling { prev_x, prev_y } => {
-                                // End the active touch-scroll gesture.
-                                // Include the final delta in the coalesced
-                                // accumulator, then flush it immediately
-                                // as an Ended event so the momentum fling
-                                // starts cleanly.
+                            AndroidTouchGesture::Scrolling { prev_x, prev_y } => {
                                 let dx = logical_x - prev_x;
                                 let dy = logical_y - prev_y;
                                 let mut ms = momentum.lock();
 
-                                // Flush any accumulated delta + this final
-                                // move as a single Ended scroll event.
                                 let total_dx = ms.pending_scroll_dx + dx;
                                 let total_dy = ms.pending_scroll_dy + dy;
                                 ms.pending_scroll_dx = 0.0;
                                 ms.pending_scroll_dy = 0.0;
                                 ms.has_pending_scroll = false;
 
-                                // Compute release velocity and start fling.
                                 let (vx, vy) = ms.velocity_tracker.velocity();
                                 ms.velocity_tracker.reset();
                                 ms.scroller.fling(vx, vy, logical_x, logical_y);
-
-                                // Drop momentum lock before dispatching.
                                 drop(ms);
 
                                 let mut guard = cb.lock();
-                                // ScrollWheel Ended for scroll containers.
                                 let _ = guard(gpui::PlatformInput::ScrollWheel(
                                     gpui::ScrollWheelEvent {
                                         position,
@@ -1646,8 +1758,6 @@ impl PlatformWindow for AndroidPlatformWindow {
                                         touch_phase: gpui::TouchPhase::Ended,
                                     },
                                 ));
-                                // MouseUp for interactive screens (Animations
-                                // drag-to-throw, Shaders touch release).
                                 let _ = guard(gpui::PlatformInput::MouseUp(gpui::MouseUpEvent {
                                     button: gpui::MouseButton::Left,
                                     position,
@@ -1655,12 +1765,13 @@ impl PlatformWindow for AndroidPlatformWindow {
                                     click_count: 1,
                                 }));
                             }
-                            TouchState::Idle => {}
+                            AndroidTouchGesture::Idle | AndroidTouchGesture::Pinching { .. } => {}
                         }
-                        *ts = TouchState::Idle;
+
+                        state.gesture = AndroidTouchGesture::Idle;
                     }
 
-                    _ => {} // Unknown action, ignore
+                    _ => {}
                 }
             });
         }
@@ -2247,5 +2358,46 @@ mod tests {
     fn gpu_info_none_for_headless() {
         let w = AndroidWindow::headless(1080, 1920, 2.0);
         assert!(w.gpu_info().is_none());
+    }
+
+    #[test]
+    fn android_touch_state_reports_pinch_geometry_for_two_touches() {
+        let mut state = AndroidTouchState::default();
+        state.upsert(1, 0.0, 0.0);
+        assert_eq!(state.pinch_geometry(), None);
+
+        state.upsert(2, 6.0, 8.0);
+        let (x, y, distance) = state.pinch_geometry().unwrap();
+        assert_eq!(x, 3.0);
+        assert_eq!(y, 4.0);
+        assert_eq!(distance, 10.0);
+    }
+
+    #[test]
+    fn android_touch_state_reports_incremental_pinch_delta() {
+        let mut state = AndroidTouchState::default();
+        state.upsert(1, 0.0, 0.0);
+        state.upsert(2, 10.0, 0.0);
+
+        let (_, _, delta, phase) = state.pinch_update().unwrap();
+        assert_eq!(delta, 0.0);
+        assert_eq!(phase, gpui::TouchPhase::Started);
+
+        state.upsert(2, 15.0, 0.0);
+        let (_, _, delta, phase) = state.pinch_update().unwrap();
+        assert_eq!(delta, 0.5);
+        assert_eq!(phase, gpui::TouchPhase::Moved);
+    }
+
+    #[test]
+    fn android_touch_state_ends_active_pinch() {
+        let mut state = AndroidTouchState::default();
+        state.upsert(1, 0.0, 0.0);
+        state.upsert(2, 10.0, 0.0);
+        state.pinch_update().unwrap();
+
+        assert!(state.end_pinch());
+        assert_eq!(state.gesture, AndroidTouchGesture::Idle);
+        assert!(!state.end_pinch());
     }
 }

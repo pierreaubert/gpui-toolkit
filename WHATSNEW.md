@@ -5,6 +5,7 @@ This branch is aligned with the GPUI version of Zed 1.0.
 ## Design
 
 - Added support for the Carbon theme
+- Aligned d3rs with d3js almost everywhere
 
 ## Perf double (at lease wrt 0.7)
 

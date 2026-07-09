@@ -24,7 +24,7 @@ use super::register::register_text_input_view_class;
 use super::register::register_view_controller_class;
 #[cfg(target_os = "ios")]
 use super::register::register_window_class;
-use super::types::{TouchState, TouchStateMap};
+use super::types::{PinchState, TouchState, TouchStateMap, pinch_geometry};
 use crate::momentum::{MomentumScroller, VelocityTracker};
 use crate::native::{DynamicTypeCategory, IosSceneMetrics, SizeClass};
 use crate::platform_view::NativePlatformViewHost;
@@ -118,6 +118,8 @@ pub(crate) struct IosWindow {
     /// Per-touch gesture state machine — distinguishes taps from scroll drags.
     /// Keyed by the UITouch pointer address.
     pub(super) touch_states: RefCell<TouchStateMap>,
+    /// Active two-finger pinch recognizer state.
+    pub(super) pinch_state: RefCell<PinchState>,
     /// Velocity tracker — records recent touch samples during drag gestures
     /// so we can compute the release velocity when the finger lifts.
     pub(super) velocity_tracker: RefCell<VelocityTracker>,
@@ -337,6 +339,7 @@ impl IosWindow {
                 modifiers: Cell::new(Modifiers::default()),
                 touch_pressed: Cell::new(false),
                 touch_states: RefCell::new(TouchStateMap::new()),
+                pinch_state: RefCell::new(PinchState::default()),
                 velocity_tracker: RefCell::new(VelocityTracker::new()),
                 momentum_scroller: RefCell::new(MomentumScroller::new()),
                 keyboard_observers: RefCell::new(Vec::new()),
@@ -586,6 +589,67 @@ impl IosWindow {
         }
     }
 
+    fn emit_pinch_for_active_touches(
+        &self,
+        states: &mut TouchStateMap,
+        emit: &mut impl FnMut(PlatformInput) -> DispatchEventResult,
+        modifiers: Modifiers,
+    ) -> bool {
+        let Some((first, second)) = states.two_active_points() else {
+            return false;
+        };
+        let Some((x, y, distance)) = pinch_geometry(first, second) else {
+            return false;
+        };
+
+        self.momentum_scroller.borrow_mut().cancel();
+        self.velocity_tracker.borrow_mut().reset();
+        states.clear_states();
+
+        let mut pinch = self.pinch_state.borrow_mut();
+        let (delta, phase) = if pinch.is_active() {
+            (
+                pinch.update(distance).unwrap_or(0.0),
+                gpui::TouchPhase::Moved,
+            )
+        } else {
+            pinch.start(distance);
+            (0.0, gpui::TouchPhase::Started)
+        };
+
+        emit(PlatformInput::Pinch(gpui::PinchEvent {
+            position: gpui::point(gpui::px(x), gpui::px(y)),
+            delta,
+            modifiers,
+            phase,
+        }));
+        self.request_forced_frame();
+        true
+    }
+
+    fn end_active_pinch(
+        &self,
+        position: Point<Pixels>,
+        modifiers: Modifiers,
+        emit: &mut impl FnMut(PlatformInput) -> DispatchEventResult,
+    ) -> bool {
+        let mut pinch = self.pinch_state.borrow_mut();
+        if !pinch.is_active() {
+            return false;
+        }
+        pinch.reset();
+        self.velocity_tracker.borrow_mut().reset();
+        self.momentum_scroller.borrow_mut().cancel();
+        emit(PlatformInput::Pinch(gpui::PinchEvent {
+            position,
+            delta: 0.0,
+            modifiers,
+            phase: gpui::TouchPhase::Ended,
+        }));
+        self.request_forced_frame();
+        true
+    }
+
     /// Handle a touch event from UIKit.
     ///
     /// Uses a state machine to distinguish **taps** from **drag gestures**:
@@ -642,6 +706,10 @@ impl IosWindow {
                     start_x: logical_x,
                     start_y: logical_y,
                 };
+                states.insert(touch_id, ts, logical_x, logical_y);
+                if self.emit_pinch_for_active_touches(&mut states, &mut emit, modifiers) {
+                    return;
+                }
                 emit(PlatformInput::MouseMove(gpui::MouseMoveEvent {
                     position,
                     modifiers,
@@ -660,6 +728,10 @@ impl IosWindow {
             }
 
             UITouchPhase::Moved => {
+                states.insert(touch_id, ts, logical_x, logical_y);
+                if self.emit_pinch_for_active_touches(&mut states, &mut emit, modifiers) {
+                    return;
+                }
                 // Record every move for velocity estimation.
                 self.velocity_tracker
                     .borrow_mut()
@@ -792,6 +864,10 @@ impl IosWindow {
 
             UITouchPhase::Ended | UITouchPhase::Cancelled => {
                 self.touch_pressed.set(false);
+                if self.end_active_pinch(position, modifiers, &mut emit) {
+                    states.remove(touch_id);
+                    return;
+                }
                 match ts {
                     TouchState::Pending { start_x, start_y } => {
                         // Finger lifted without exceeding slop → tap.
@@ -876,7 +952,7 @@ impl IosWindow {
             }
         }
 
-        states.insert(touch_id, ts);
+        states.insert(touch_id, ts, logical_x, logical_y);
     }
 
     #[cfg(target_os = "ios")]
