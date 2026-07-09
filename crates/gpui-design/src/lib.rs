@@ -15,9 +15,11 @@ mod corner_radii;
 mod design_conformance_case;
 mod design_conformance_matrix;
 mod design_conformance_report;
+mod design_documentation_report;
 mod design_ext;
 mod design_language;
 mod design_platform;
+mod design_release_presentation;
 mod design_system;
 mod design_system_state;
 mod design_token;
@@ -38,10 +40,14 @@ pub use corner_radii::*;
 pub use design_conformance_case::*;
 pub use design_conformance_matrix::*;
 pub use design_conformance_report::*;
+pub use design_documentation_report::*;
+#[cfg(feature = "gpui")]
 pub use design_ext::*;
 pub use design_language::*;
 pub use design_platform::*;
+pub use design_release_presentation::*;
 pub use design_system::*;
+#[cfg(feature = "gpui")]
 pub use design_system_state::*;
 pub use design_token::*;
 pub use design_token_export::*;

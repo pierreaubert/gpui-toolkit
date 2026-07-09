@@ -1,5 +1,6 @@
 #[cfg(feature = "gpui")]
 use super::design_ext::DesignExt;
+#[cfg(feature = "gpui")]
 use super::design_system::DesignSystem;
 
 #[cfg(feature = "gpui")]

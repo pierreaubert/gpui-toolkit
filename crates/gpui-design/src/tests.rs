@@ -2,8 +2,16 @@ use super::animation_rules::AnimationRules;
 use super::audio_control_rules::AudioControlRules;
 use super::corner_radii::CornerRadii;
 use super::design_conformance_matrix::DesignConformanceMatrix;
+use super::design_documentation_report::{
+    DESIGN_DOCUMENTATION_REPORT_SCHEMA_VERSION, DESIGN_DOCUMENTATION_REPORT_TYPE,
+    DesignDocumentationReport,
+};
 use super::design_language::DesignLanguage;
 use super::design_platform::DesignPlatform;
+use super::design_release_presentation::{
+    DESIGN_RELEASE_PRESENTATION_REPORT_TYPE, DESIGN_RELEASE_PRESENTATION_SCHEMA_VERSION,
+    DesignReleaseAssetKind, DesignReleaseAssetStatus, DesignReleasePresentation,
+};
 use super::design_system::DesignSystem;
 use super::design_system::all_design_presets;
 use super::design_token_export::DesignTokenExport;
@@ -304,6 +312,81 @@ fn conformance_matrix_covers_all_presets_and_motion_modes() {
             .to_markdown_table()
             .contains("| apple_hig | reduced |")
     );
+}
+
+#[test]
+fn documentation_report_is_stable_and_ci_consumable() {
+    let report = DesignDocumentationReport::for_all_presets();
+
+    assert_eq!(
+        report.schema_version,
+        DESIGN_DOCUMENTATION_REPORT_SCHEMA_VERSION
+    );
+    assert_eq!(report.report_type, DESIGN_DOCUMENTATION_REPORT_TYPE);
+    assert_eq!(report.presets.len(), all_design_presets().len());
+    assert!(report.passed(), "{}", report.markdown);
+    assert!(report.markdown.contains("# GPUI Design Preset Report"));
+    assert!(report.markdown.contains("| apple_hig | Apple HIG |"));
+    assert!(report.markdown.contains("## Conformance"));
+    assert!(report.markdown.contains("| apple_hig | reduced |"));
+
+    let json = serde_json::to_string(&report).unwrap();
+    assert!(json.contains("\"schema_version\":1"));
+    assert!(json.contains("\"report_type\":\"gpui-design-documentation\""));
+    assert!(json.contains("\"markdown\""));
+}
+
+#[test]
+fn release_presentation_lists_report_and_screenshot_assets() {
+    let presentation = DesignReleasePresentation::for_all_presets();
+
+    assert_eq!(
+        presentation.schema_version,
+        DESIGN_RELEASE_PRESENTATION_SCHEMA_VERSION
+    );
+    assert_eq!(
+        presentation.report_type,
+        DESIGN_RELEASE_PRESENTATION_REPORT_TYPE
+    );
+    assert_eq!(
+        presentation.documentation_report_type,
+        DESIGN_DOCUMENTATION_REPORT_TYPE
+    );
+    assert!(presentation.documentation_report.passed());
+    assert_eq!(
+        presentation.blocking_assets().len(),
+        all_design_presets().len()
+    );
+    assert_eq!(presentation.generated_assets().len(), 3);
+    assert!(
+        presentation
+            .assets
+            .iter()
+            .any(|asset| asset.id == "design-documentation-json"
+                && asset.status == DesignReleaseAssetStatus::Generated)
+    );
+    assert!(
+        presentation
+            .assets
+            .iter()
+            .any(|asset| asset.id == "apple_hig-screenshot"
+                && asset.kind == DesignReleaseAssetKind::PresetScreenshot
+                && asset.status == DesignReleaseAssetStatus::CaptureRequired)
+    );
+    assert!(
+        presentation
+            .release_notes_markdown
+            .contains("# gpui-design Release Presentation")
+    );
+    assert!(
+        presentation
+            .release_notes_markdown
+            .contains("release/gpui-design/screenshots/apple_hig.png")
+    );
+
+    let json = serde_json::to_string(&presentation).unwrap();
+    assert!(json.contains("\"report_type\":\"gpui-design-release-presentation\""));
+    assert!(json.contains("\"documentation_report_type\":\"gpui-design-documentation\""));
 }
 
 #[test]

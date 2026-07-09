@@ -1,3 +1,4 @@
+#[cfg(feature = "gpui")]
 use crate::DesignSystem;
 
 /// Extension trait for easy design system access from GPUI `App`.

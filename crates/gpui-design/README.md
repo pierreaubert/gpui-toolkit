@@ -97,6 +97,32 @@ let matrix = DesignConformanceMatrix::all_presets();
 assert!(matrix.passed(), "{}", matrix.to_markdown_table());
 ```
 
+`DesignDocumentationReport::for_all_presets()` packages the same gate into a
+stable, serializable docs artifact with `schema_version = 1`,
+`report_type = "gpui-design-documentation"`, preset summaries, the full
+conformance matrix, and generated Markdown. CI can serialize this report as JSON
+for machine checks and publish the Markdown as release documentation.
+
+```rust
+use gpui_design::DesignDocumentationReport;
+
+let report = DesignDocumentationReport::for_all_presets();
+assert!(report.passed(), "{}", report.markdown);
+```
+
+`DesignReleasePresentation::for_all_presets()` records the release-note
+attachment story for those generated docs. It links the JSON report, Markdown
+report, release-note excerpt, and one screenshot slot per built-in preset under
+stable `release/gpui-design/...` paths. Generated text/report assets are marked
+ready, while screenshot rows remain explicit capture gates for release QA.
+
+```rust
+use gpui_design::DesignReleasePresentation;
+
+let presentation = DesignReleasePresentation::for_all_presets();
+assert_eq!(presentation.generated_assets().len(), 3);
+```
+
 `DesignTokenExport::for_all_presets()` returns a serializable Style
 Dictionary-friendly export for tooling and future Figma integration.
 
