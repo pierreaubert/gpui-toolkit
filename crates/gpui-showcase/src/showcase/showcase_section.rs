@@ -49,6 +49,53 @@ pub enum ShowcaseSection {
 }
 
 impl ShowcaseSection {
+    pub fn all() -> &'static [ShowcaseSection] {
+        &[
+            ShowcaseSection::Buttons,
+            ShowcaseSection::Text,
+            ShowcaseSection::Badges,
+            ShowcaseSection::Avatars,
+            ShowcaseSection::FormControls,
+            ShowcaseSection::Progress,
+            ShowcaseSection::Alerts,
+            ShowcaseSection::Tabs,
+            ShowcaseSection::Cards,
+            ShowcaseSection::Breadcrumbs,
+            ShowcaseSection::Spinners,
+            ShowcaseSection::Layout,
+            ShowcaseSection::IconButtons,
+            ShowcaseSection::Toasts,
+            ShowcaseSection::Dialog,
+            ShowcaseSection::Menu,
+            ShowcaseSection::Table,
+            ShowcaseSection::Tooltips,
+            ShowcaseSection::Accordion,
+            ShowcaseSection::Wizard,
+            ShowcaseSection::Workflow,
+            ShowcaseSection::QrCode,
+            ShowcaseSection::ContextMenu,
+            ShowcaseSection::Popover,
+            ShowcaseSection::Sidebar,
+            ShowcaseSection::StatusBar,
+            ShowcaseSection::SearchBar,
+            ShowcaseSection::KeyboardShortcut,
+            ShowcaseSection::EmptyState,
+            ShowcaseSection::ConfirmDialog,
+            ShowcaseSection::SplitPane,
+            ShowcaseSection::ImageView,
+            ShowcaseSection::SettingsForm,
+            ShowcaseSection::StepIndicator,
+            ShowcaseSection::LoadingOverlay,
+            ShowcaseSection::Tag,
+            ShowcaseSection::Toolbar,
+            ShowcaseSection::Notification,
+            ShowcaseSection::TreeView,
+            ShowcaseSection::DragList,
+            ShowcaseSection::CommandPalette,
+            ShowcaseSection::Accessibility,
+        ]
+    }
+
     pub fn label(&self) -> &'static str {
         match self {
             ShowcaseSection::Buttons => "Buttons",
