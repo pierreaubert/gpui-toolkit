@@ -22,12 +22,17 @@ mod display;
 pub mod ffi;
 mod helpers;
 mod platform;
+mod safety_report;
 mod text_system;
 mod window;
 
 pub(crate) use dispatcher::AuDispatcher;
 pub(crate) use display::AuDisplay;
 pub use platform::AuPlatform;
+pub use safety_report::{
+    AU_SAFETY_BOUNDARIES, AU_SAFETY_REPORT_SCHEMA_VERSION, AU_SAFETY_REPORT_TYPE, AuSafetyBoundary,
+    AuSafetyReport, AuSafetyStatus, au_safety_report,
+};
 pub(crate) use text_system::AuTextSystem;
 pub(crate) use window::AuWindow;
 pub use window::{PENDING_VIEW, PendingViewInfo};

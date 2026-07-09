@@ -17,6 +17,7 @@ use gpui::{
     PlatformKeyboardLayout, PlatformKeyboardMapper, PlatformTextSystem, PlatformWindow, Result,
     Task, ThermalState, WindowAppearance, WindowParams,
 };
+use objc::runtime::{Object, Sel};
 use objc::{class, msg_send, sel, sel_impl};
 use parking_lot::Mutex;
 use std::{
@@ -33,6 +34,8 @@ struct AuPlatformState {
     background_executor: BackgroundExecutor,
     foreground_executor: ForegroundExecutor,
     text_system: Arc<dyn PlatformTextSystem>,
+    cursor_style: CursorStyle,
+    cursor_visible: bool,
     _finish_launching: Option<Box<dyn FnOnce()>>,
 }
 
@@ -51,6 +54,8 @@ impl AuPlatform {
             background_executor: BackgroundExecutor::new(dispatcher.clone()),
             foreground_executor: ForegroundExecutor::new(dispatcher),
             text_system,
+            cursor_style: CursorStyle::Arrow,
+            cursor_visible: true,
             _finish_launching: None,
         }))
     }
@@ -213,16 +218,24 @@ impl Platform for AuPlatform {
         Ok(app_path.join(name))
     }
 
-    fn set_cursor_style(&self, _style: CursorStyle) {
-        // TODO: could set NSCursor in the AU view
+    fn set_cursor_style(&self, style: CursorStyle) {
+        let action = au_cursor_action(style);
+        {
+            let mut state = self.0.lock();
+            state.cursor_style = style;
+            state.cursor_visible = action != AuCursorAction::HideUntilMouseMoves;
+        }
+
+        apply_au_cursor_action(action);
     }
 
     fn hide_cursor_until_mouse_moves(&self) {
-        // AU extensions don't control cursor visibility
+        self.0.lock().cursor_visible = false;
+        apply_au_cursor_action(AuCursorAction::HideUntilMouseMoves);
     }
 
     fn is_cursor_visible(&self) -> bool {
-        true
+        self.0.lock().cursor_visible
     }
 
     fn should_auto_hide_scrollbars(&self) -> bool {
@@ -298,4 +311,144 @@ impl Platform for AuPlatform {
     }
 
     fn write_to_find_pasteboard(&self, _item: ClipboardItem) {}
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum AuCursorAction {
+    HideUntilMouseMoves,
+    Set(&'static str),
+}
+
+fn au_cursor_action(style: CursorStyle) -> AuCursorAction {
+    match style {
+        CursorStyle::Arrow => AuCursorAction::Set("arrowCursor"),
+        CursorStyle::IBeam => AuCursorAction::Set("IBeamCursor"),
+        CursorStyle::Crosshair => AuCursorAction::Set("crosshairCursor"),
+        CursorStyle::ClosedHand => AuCursorAction::Set("closedHandCursor"),
+        CursorStyle::OpenHand => AuCursorAction::Set("openHandCursor"),
+        CursorStyle::PointingHand => AuCursorAction::Set("pointingHandCursor"),
+        CursorStyle::ResizeLeftRight => AuCursorAction::Set("resizeLeftRightCursor"),
+        CursorStyle::ResizeUpDown => AuCursorAction::Set("resizeUpDownCursor"),
+        CursorStyle::ResizeLeft => AuCursorAction::Set("resizeLeftCursor"),
+        CursorStyle::ResizeRight => AuCursorAction::Set("resizeRightCursor"),
+        CursorStyle::ResizeColumn => AuCursorAction::Set("resizeLeftRightCursor"),
+        CursorStyle::ResizeRow => AuCursorAction::Set("resizeUpDownCursor"),
+        CursorStyle::ResizeUp => AuCursorAction::Set("resizeUpCursor"),
+        CursorStyle::ResizeDown => AuCursorAction::Set("resizeDownCursor"),
+        // AU extensions avoid private AppKit selectors for diagonal resize cursors.
+        CursorStyle::ResizeUpLeftDownRight => AuCursorAction::Set("resizeLeftRightCursor"),
+        CursorStyle::ResizeUpRightDownLeft => AuCursorAction::Set("resizeUpDownCursor"),
+        CursorStyle::IBeamCursorForVerticalLayout => {
+            AuCursorAction::Set("IBeamCursorForVerticalLayout")
+        }
+        CursorStyle::OperationNotAllowed => AuCursorAction::Set("operationNotAllowedCursor"),
+        CursorStyle::DragLink => AuCursorAction::Set("dragLinkCursor"),
+        CursorStyle::DragCopy => AuCursorAction::Set("dragCopyCursor"),
+        CursorStyle::ContextualMenu => AuCursorAction::Set("contextualMenuCursor"),
+    }
+}
+
+fn apply_au_cursor_action(action: AuCursorAction) {
+    unsafe {
+        match action {
+            AuCursorAction::HideUntilMouseMoves => {
+                let _: () = msg_send![class!(NSCursor), setHiddenUntilMouseMoves: true];
+            }
+            AuCursorAction::Set(selector_name) => {
+                let selector = Sel::register(selector_name);
+                let new_cursor: *mut Object =
+                    msg_send![class!(NSCursor), performSelector: selector];
+                if new_cursor.is_null() {
+                    return;
+                }
+
+                let old_cursor: *mut Object = msg_send![class!(NSCursor), currentCursor];
+                if new_cursor != old_cursor {
+                    let _: () = msg_send![new_cursor, set];
+                }
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{AuCursorAction, au_cursor_action};
+    use gpui::CursorStyle;
+
+    #[test]
+    fn cursor_style_maps_to_extension_safe_appkit_selectors() {
+        let cases = [
+            (CursorStyle::Arrow, AuCursorAction::Set("arrowCursor")),
+            (CursorStyle::IBeam, AuCursorAction::Set("IBeamCursor")),
+            (
+                CursorStyle::Crosshair,
+                AuCursorAction::Set("crosshairCursor"),
+            ),
+            (
+                CursorStyle::ClosedHand,
+                AuCursorAction::Set("closedHandCursor"),
+            ),
+            (CursorStyle::OpenHand, AuCursorAction::Set("openHandCursor")),
+            (
+                CursorStyle::PointingHand,
+                AuCursorAction::Set("pointingHandCursor"),
+            ),
+            (
+                CursorStyle::ResizeLeftRight,
+                AuCursorAction::Set("resizeLeftRightCursor"),
+            ),
+            (
+                CursorStyle::ResizeUpDown,
+                AuCursorAction::Set("resizeUpDownCursor"),
+            ),
+            (
+                CursorStyle::ResizeLeft,
+                AuCursorAction::Set("resizeLeftCursor"),
+            ),
+            (
+                CursorStyle::ResizeRight,
+                AuCursorAction::Set("resizeRightCursor"),
+            ),
+            (
+                CursorStyle::ResizeColumn,
+                AuCursorAction::Set("resizeLeftRightCursor"),
+            ),
+            (
+                CursorStyle::ResizeRow,
+                AuCursorAction::Set("resizeUpDownCursor"),
+            ),
+            (CursorStyle::ResizeUp, AuCursorAction::Set("resizeUpCursor")),
+            (
+                CursorStyle::ResizeDown,
+                AuCursorAction::Set("resizeDownCursor"),
+            ),
+            (
+                CursorStyle::ResizeUpLeftDownRight,
+                AuCursorAction::Set("resizeLeftRightCursor"),
+            ),
+            (
+                CursorStyle::ResizeUpRightDownLeft,
+                AuCursorAction::Set("resizeUpDownCursor"),
+            ),
+            (
+                CursorStyle::IBeamCursorForVerticalLayout,
+                AuCursorAction::Set("IBeamCursorForVerticalLayout"),
+            ),
+            (
+                CursorStyle::OperationNotAllowed,
+                AuCursorAction::Set("operationNotAllowedCursor"),
+            ),
+            (CursorStyle::DragLink, AuCursorAction::Set("dragLinkCursor")),
+            (CursorStyle::DragCopy, AuCursorAction::Set("dragCopyCursor")),
+            (
+                CursorStyle::ContextualMenu,
+                AuCursorAction::Set("contextualMenuCursor"),
+            ),
+        ];
+
+        for (style, expected) in cases {
+            assert_eq!(au_cursor_action(style), expected);
+        }
+    }
 }

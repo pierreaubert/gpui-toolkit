@@ -48,6 +48,7 @@ fn test_rasterize_glyph_empty_bounds_errors() {
         scale_factor: 1.0,
         is_emoji: false,
         subpixel_rendering: false,
+        dilation: 0,
     };
     let bounds = Bounds {
         origin: point(DevicePixels(0), DevicePixels(0)),
@@ -147,6 +148,7 @@ fn rasterize_glyph_reuses_context() {
         scale_factor: 1.0,
         is_emoji: false,
         subpixel_rendering: false,
+        dilation: 0,
     };
     let bounds = state.raster_bounds(&params).expect("bounds");
 
