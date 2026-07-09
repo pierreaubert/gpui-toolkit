@@ -24,7 +24,9 @@ impl<'a> BuilderField<'a> {
             .ok_or_else(|| syn::Error::new(field.span(), "expected named field"))?;
 
         let mut required = false;
+        let mut required_span = None;
         let mut optional = false;
+        let mut optional_span = None;
         let mut into = false;
         let mut generate_setter = true;
         let mut default_expr = None;
@@ -41,8 +43,10 @@ impl<'a> BuilderField<'a> {
                     Meta::Path(path) => {
                         if path.is_ident("required") {
                             required = true;
+                            required_span = Some(path.span());
                         } else if path.is_ident("optional") {
                             optional = true;
+                            optional_span = Some(path.span());
                         } else if path.is_ident("into") {
                             into = true;
                         } else if path.is_ident("skip") {
@@ -50,7 +54,7 @@ impl<'a> BuilderField<'a> {
                         } else {
                             return Err(syn::Error::new(
                                 path.span(),
-                                "unknown builder field attribute",
+                                "unknown builder field attribute; expected one of `required`, `optional`, `into`, `skip`, `builder`, `default`, `rename`, or `name`",
                             ));
                         }
                     }
@@ -73,7 +77,13 @@ impl<'a> BuilderField<'a> {
                             if let Expr::Lit(lit) = &nv.value
                                 && let Lit::Str(value) = &lit.lit
                             {
-                                default_expr = Some(value.parse()?);
+                                let expr = value.parse().map_err(|error| {
+                                    syn::Error::new(
+                                        value.span(),
+                                        format!("default must parse as a Rust expression: {error}"),
+                                    )
+                                })?;
+                                default_expr = Some(expr);
                             } else {
                                 return Err(syn::Error::new(
                                     nv.value.span(),
@@ -84,7 +94,15 @@ impl<'a> BuilderField<'a> {
                             if let Expr::Lit(lit) = &nv.value
                                 && let Lit::Str(value) = &lit.lit
                             {
-                                setter_name = Ident::new(&value.value(), value.span());
+                                setter_name =
+                                    syn::parse_str::<Ident>(&value.value()).map_err(|error| {
+                                        syn::Error::new(
+                                            value.span(),
+                                            format!(
+                                                "rename must be a valid Rust identifier: {error}"
+                                            ),
+                                        )
+                                    })?;
                             } else {
                                 return Err(syn::Error::new(
                                     nv.value.span(),
@@ -94,7 +112,7 @@ impl<'a> BuilderField<'a> {
                         } else {
                             return Err(syn::Error::new(
                                 name.span(),
-                                "unknown builder field attribute",
+                                "unknown builder field attribute; expected one of `required`, `optional`, `into`, `skip`, `builder`, `default`, `rename`, or `name`",
                             ));
                         }
                     }
@@ -109,10 +127,15 @@ impl<'a> BuilderField<'a> {
         }
 
         if required && optional {
-            return Err(syn::Error::new(
-                field.span(),
-                "field cannot be both required and optional",
+            let mut error = syn::Error::new(
+                required_span.unwrap_or_else(|| field.span()),
+                "field cannot be both required and optional; remove `required` or `optional`",
+            );
+            error.combine(syn::Error::new(
+                optional_span.unwrap_or_else(|| field.span()),
+                "`optional` conflicts with `required` on the same field",
             ));
+            return Err(error);
         }
 
         Ok(Self {
@@ -257,5 +280,61 @@ mod tests {
             Err(e) => e,
         };
         assert!(err.to_string().contains("unknown builder field attribute"));
+    }
+
+    #[test]
+    fn parse_invalid_default_expression_reports_literal_span() {
+        let src = r#"
+            #[field(default = "String::from(")]
+            pub id: String
+        "#;
+        let wrapped = format!("struct __TestStruct {{ {src} }}");
+        let input: syn::DeriveInput = syn::parse_str(&wrapped).unwrap();
+        let field = extract_field(&input);
+        let err = match BuilderField::parse(field) {
+            Ok(_) => panic!("expected an error"),
+            Err(e) => e,
+        };
+        assert!(
+            err.to_string()
+                .contains("default must parse as a Rust expression")
+        );
+    }
+
+    #[test]
+    fn parse_invalid_rename_reports_error_instead_of_panicking() {
+        let src = r#"
+            #[field(rename = "not-valid")]
+            pub id: String
+        "#;
+        let wrapped = format!("struct __TestStruct {{ {src} }}");
+        let input: syn::DeriveInput = syn::parse_str(&wrapped).unwrap();
+        let field = extract_field(&input);
+        let err = match BuilderField::parse(field) {
+            Ok(_) => panic!("expected an error"),
+            Err(e) => e,
+        };
+        assert!(
+            err.to_string()
+                .contains("rename must be a valid Rust identifier")
+        );
+    }
+
+    #[test]
+    fn parse_required_optional_reports_both_conflicting_attributes() {
+        let src = r#"
+            #[field(required, optional)]
+            pub id: String
+        "#;
+        let wrapped = format!("struct __TestStruct {{ {src} }}");
+        let input: syn::DeriveInput = syn::parse_str(&wrapped).unwrap();
+        let field = extract_field(&input);
+        let err = match BuilderField::parse(field) {
+            Ok(_) => panic!("expected an error"),
+            Err(e) => e,
+        };
+        let out = err.to_compile_error().to_string();
+        assert!(out.contains("remove `required` or `optional`"));
+        assert!(out.contains("`optional` conflicts with `required`"));
     }
 }

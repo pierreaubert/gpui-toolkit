@@ -5,6 +5,47 @@ use syn::punctuated::Punctuated;
 use syn::spanned::Spanned;
 use syn::{Data, DeriveInput, Expr, Fields, Lit, Meta, Token};
 
+fn combined_compile_error(errors: Vec<syn::Error>) -> TokenStream {
+    let mut iter = errors.into_iter();
+    let mut combined = iter.next().expect("expected at least one macro error");
+    for error in iter {
+        combined.combine(error);
+    }
+    combined.to_compile_error()
+}
+
+fn parse_string_attribute(
+    attr: &syn::Attribute,
+    attr_name: &str,
+) -> Result<Option<(String, proc_macro2::Span)>, syn::Error> {
+    if !attr.path().is_ident(attr_name) {
+        return Ok(None);
+    }
+
+    let Meta::NameValue(nv) = &attr.meta else {
+        return Err(syn::Error::new(
+            attr.span(),
+            format!("`{attr_name}` must use `#[{attr_name} = \"path\"]` syntax"),
+        ));
+    };
+
+    let Expr::Lit(lit) = &nv.value else {
+        return Err(syn::Error::new(
+            nv.value.span(),
+            format!("`{attr_name}` must be a string literal"),
+        ));
+    };
+
+    let Lit::Str(value) = &lit.lit else {
+        return Err(syn::Error::new(
+            lit.lit.span(),
+            format!("`{attr_name}` must be a string literal"),
+        ));
+    };
+
+    Ok(Some((value.value(), value.span())))
+}
+
 /// Derive macro for component themes.
 ///
 /// Generates `Default` and `From<&Theme>` implementations for theme structs,
@@ -179,63 +220,70 @@ pub(crate) fn derive_component_theme_impl(input: TokenStream) -> TokenStream {
             Fields::Named(fields) => &fields.named,
             _ => {
                 return syn::Error::new(
-                    proc_macro2::Span::call_site(),
+                    data.fields.span(),
                     "ComponentTheme only supports structs with named fields",
                 )
                 .to_compile_error();
             }
         },
         _ => {
-            return syn::Error::new(
-                proc_macro2::Span::call_site(),
-                "ComponentTheme only supports structs",
-            )
-            .to_compile_error();
+            return syn::Error::new(input.span(), "ComponentTheme only supports structs")
+                .to_compile_error();
         }
     };
 
     // Parse struct-level attributes for theme_path and gpui_path
     let mut theme_path_str = "crate::theme::Theme".to_string();
+    let mut theme_path_span = input.ident.span();
     let mut gpui_path_str = "gpui".to_string();
+    let mut gpui_path_span = input.ident.span();
+    let mut errors = Vec::new();
 
     for attr in &input.attrs {
-        if attr.path().is_ident("theme_path") {
-            if let Meta::NameValue(nv) = &attr.meta
-                && let Expr::Lit(lit) = &nv.value
-                && let Lit::Str(s) = &lit.lit
-            {
-                theme_path_str = s.value();
+        match parse_string_attribute(attr, "theme_path") {
+            Ok(Some((value, span))) => {
+                theme_path_str = value;
+                theme_path_span = span;
             }
-        } else if attr.path().is_ident("gpui_path")
-            && let Meta::NameValue(nv) = &attr.meta
-            && let Expr::Lit(lit) = &nv.value
-            && let Lit::Str(s) = &lit.lit
-        {
-            gpui_path_str = s.value();
+            Ok(None) => {}
+            Err(error) => errors.push(error),
+        }
+
+        match parse_string_attribute(attr, "gpui_path") {
+            Ok(Some((value, span))) => {
+                gpui_path_str = value;
+                gpui_path_span = span;
+            }
+            Ok(None) => {}
+            Err(error) => errors.push(error),
         }
     }
 
     let theme_path: syn::Type = match syn::parse_str(&theme_path_str) {
         Ok(t) => t,
         Err(e) => {
-            return syn::Error::new(
-                proc_macro2::Span::call_site(),
+            errors.push(syn::Error::new(
+                theme_path_span,
                 format!("Invalid theme_path: {e}"),
-            )
-            .to_compile_error();
+            ));
+            syn::parse_quote!(crate::theme::Theme)
         }
     };
 
     let gpui_path: syn::Path = match syn::parse_str(&gpui_path_str) {
         Ok(p) => p,
         Err(e) => {
-            return syn::Error::new(
-                proc_macro2::Span::call_site(),
+            errors.push(syn::Error::new(
+                gpui_path_span,
                 format!("Invalid gpui_path: {e}"),
-            )
-            .to_compile_error();
+            ));
+            syn::parse_quote!(gpui)
         }
     };
+
+    if !errors.is_empty() {
+        return combined_compile_error(errors);
+    }
 
     let field_count = fields.len();
     let mut default_fields = Vec::with_capacity(field_count);
@@ -271,10 +319,7 @@ pub(crate) fn derive_component_theme_impl(input: TokenStream) -> TokenStream {
         let nested = match attr.parse_args_with(Punctuated::<Meta, Token![,]>::parse_terminated) {
             Ok(n) => n,
             Err(e) => {
-                errors.push(syn::Error::new(
-                    attr.span(),
-                    format!("Failed to parse theme attribute: {e}"),
-                ));
+                errors.push(e);
                 continue;
             }
         };
@@ -307,6 +352,13 @@ pub(crate) fn derive_component_theme_impl(input: TokenStream) -> TokenStream {
                                     ));
                                 }
                             }
+                        } else {
+                            errors.push(syn::Error::new(
+                                nv.value.span(),
+                                format!(
+                                    "`default` for field `{field_name}` must be an integer literal such as 0x007acc or 0x007accff"
+                                ),
+                            ));
                         }
                     } else if ident == "default_f32" {
                         if let Expr::Lit(lit) = &nv.value {
@@ -336,24 +388,65 @@ pub(crate) fn derive_component_theme_impl(input: TokenStream) -> TokenStream {
                                         }
                                     }
                                 }
-                                _ => {}
+                                _ => errors.push(syn::Error::new(
+                                    lit.lit.span(),
+                                    format!(
+                                        "`default_f32` for field `{field_name}` must be an integer or float literal"
+                                    ),
+                                )),
                             }
+                        } else {
+                            errors.push(syn::Error::new(
+                                nv.value.span(),
+                                format!(
+                                    "`default_f32` for field `{field_name}` must be an integer or float literal"
+                                ),
+                            ));
                         }
                     } else if ident == "default_expr" {
                         if let Expr::Lit(lit) = &nv.value
                             && let Lit::Str(s) = &lit.lit
                         {
                             default_expr_str = Some(s.value());
+                        } else {
+                            errors.push(syn::Error::new(
+                                nv.value.span(),
+                                format!(
+                                    "`default_expr` for field `{field_name}` must be a string literal containing a Rust expression"
+                                ),
+                            ));
                         }
                     } else if ident == "from" {
                         if let Expr::Path(path) = &nv.value {
                             from_field = path.path.get_ident().cloned();
+                            if from_field.is_none() {
+                                errors.push(syn::Error::new(
+                                    path.path.span(),
+                                    format!(
+                                        "`from` for field `{field_name}` must be a single Theme field identifier"
+                                    ),
+                                ));
+                            }
+                        } else {
+                            errors.push(syn::Error::new(
+                                nv.value.span(),
+                                format!(
+                                    "`from` for field `{field_name}` must be a single Theme field identifier"
+                                ),
+                            ));
                         }
                     } else if ident == "from_expr" {
                         if let Expr::Lit(lit) = &nv.value
                             && let Lit::Str(s) = &lit.lit
                         {
                             from_expr = Some(s.value());
+                        } else {
+                            errors.push(syn::Error::new(
+                                nv.value.span(),
+                                format!(
+                                    "`from_expr` for field `{field_name}` must be a string literal containing a Rust expression"
+                                ),
+                            ));
                         }
                     } else {
                         errors.push(syn::Error::new(
@@ -376,10 +469,10 @@ pub(crate) fn derive_component_theme_impl(input: TokenStream) -> TokenStream {
             // Arbitrary expression (for Option types, nested themes, etc.)
             let expr: syn::Expr = match syn::parse_str(&expr_str) {
                 Ok(e) => e,
-                Err(_) => {
+                Err(error) => {
                     errors.push(syn::Error::new(
                         field_span,
-                        format!("Failed to parse default_expr for field `{field_name}`"),
+                        format!("Failed to parse default_expr for field `{field_name}`: {error}"),
                     ));
                     continue;
                 }
@@ -428,10 +521,10 @@ pub(crate) fn derive_component_theme_impl(input: TokenStream) -> TokenStream {
         if let Some(expr_str) = from_expr {
             let expr: syn::Expr = match syn::parse_str(&expr_str) {
                 Ok(e) => e,
-                Err(_) => {
+                Err(error) => {
                     errors.push(syn::Error::new(
                         field_span,
-                        format!("Failed to parse from_expr for field `{field_name}`"),
+                        format!("Failed to parse from_expr for field `{field_name}`: {error}"),
                     ));
                     continue;
                 }
@@ -453,12 +546,7 @@ pub(crate) fn derive_component_theme_impl(input: TokenStream) -> TokenStream {
     }
 
     if !errors.is_empty() {
-        let mut iter = errors.into_iter();
-        let mut combined = iter.next().unwrap();
-        for e in iter {
-            combined.combine(e);
-        }
-        return combined.to_compile_error();
+        return combined_compile_error(errors);
     }
 
     let expanded = quote! {
@@ -543,12 +631,7 @@ pub(crate) fn derive_component_builder_impl(input: TokenStream) -> TokenStream {
     }
 
     if !errors.is_empty() {
-        let mut iter = errors.into_iter();
-        let mut combined = iter.next().unwrap();
-        for error in iter {
-            combined.combine(error);
-        }
-        return combined.to_compile_error();
+        return combined_compile_error(errors);
     }
 
     let new_args = parsed_fields
@@ -649,6 +732,81 @@ mod tests {
         );
         assert!(out.contains("compile_error !"));
         assert!(out.contains("Unknown theme attribute"));
+    }
+
+    #[test]
+    fn theme_struct_path_attributes_require_string_literals() {
+        let out = theme_derive(
+            r#"
+            #[derive(ComponentTheme)]
+            #[theme_path = 1]
+            #[gpui_path = gpui]
+            pub struct MyTheme {
+                #[theme(default = 0x007acc, from = accent)]
+                pub primary: u32,
+            }
+        "#,
+        );
+        assert!(out.contains("compile_error !"));
+        assert!(out.contains("`theme_path` must be a string literal"));
+        assert!(out.contains("`gpui_path` must be a string literal"));
+    }
+
+    #[test]
+    fn theme_invalid_struct_paths_report_parse_errors() {
+        let out = theme_derive(
+            r#"
+            #[derive(ComponentTheme)]
+            #[theme_path = "::"]
+            #[gpui_path = "crate::"]
+            pub struct MyTheme {
+                #[theme(default = 0x007acc, from = accent)]
+                pub primary: u32,
+            }
+        "#,
+        );
+        assert!(out.contains("compile_error !"));
+        assert!(out.contains("Invalid theme_path"));
+        assert!(out.contains("Invalid gpui_path"));
+    }
+
+    #[test]
+    fn theme_field_attributes_reject_wrong_literal_shapes() {
+        let out = theme_derive(
+            r#"
+            #[derive(ComponentTheme)]
+            pub struct MyTheme {
+                #[theme(default = "blue", default_f32 = "1.0", default_expr = 1, from = theme.accent, from_expr = 1)]
+                pub primary: u32,
+            }
+        "#,
+        );
+        assert!(out.contains("compile_error !"));
+        assert!(out.contains("`default` for field `primary` must be an integer literal"));
+        assert!(
+            out.contains("`default_f32` for field `primary` must be an integer or float literal")
+        );
+        assert!(out.contains("`default_expr` for field `primary` must be a string literal"));
+        assert!(out.contains("`from` for field `primary` must be a single Theme field identifier"));
+        assert!(out.contains("`from_expr` for field `primary` must be a string literal"));
+    }
+
+    #[test]
+    fn theme_expression_parse_errors_include_field_context() {
+        let out = theme_derive(
+            r#"
+            #[derive(ComponentTheme)]
+            pub struct MyTheme {
+                #[theme(default_expr = "Some(", from_expr = "theme.accent")]
+                pub primary: u32,
+                #[theme(default_expr = "0", from_expr = "theme.")]
+                pub secondary: u32,
+            }
+        "#,
+        );
+        assert!(out.contains("compile_error !"));
+        assert!(out.contains("Failed to parse default_expr for field `primary`"));
+        assert!(out.contains("Failed to parse from_expr for field `secondary`"));
     }
 
     #[test]
