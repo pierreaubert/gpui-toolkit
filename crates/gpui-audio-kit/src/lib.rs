@@ -8,7 +8,10 @@
 #![allow(clippy::wrong_self_convention)]
 
 pub mod audio;
+mod audio_accessibility;
+mod audio_automation_patterns;
 pub mod audio_design_tokens;
+mod audio_visual_regression;
 pub mod meter;
 pub mod scale;
 pub mod spectrum;
@@ -25,10 +28,23 @@ pub use audio::{
     DragState, InteractionConfig, ValueTracker, clear_drag_state, get_drag_state, handle_drag,
     handle_keyboard, handle_scroll, store_drag_state, value_tracker,
 };
+pub use audio_accessibility::AudioAccessibilitySummary;
+pub use audio_automation_patterns::{
+    AUDIO_AUTOMATION_PATTERN_REPORT_TYPE, AUDIO_AUTOMATION_PATTERN_SCHEMA_VERSION,
+    AUDIO_AUTOMATION_PATTERNS, AudioAutomationPattern, AudioAutomationPatternReport,
+    AudioAutomationPatternStatus, audio_automation_pattern_report,
+};
 pub use audio_design_tokens::AudioDesignTokens;
+pub use audio_visual_regression::{
+    AUDIO_VISUAL_COLOR_SCHEMES, AUDIO_VISUAL_REGRESSION_REPORT_TYPE,
+    AUDIO_VISUAL_REGRESSION_SCHEMA_VERSION, AUDIO_VISUAL_STORIES, AUDIO_VISUAL_VIEWPORTS,
+    AudioVisualCapture, AudioVisualColorScheme, AudioVisualRegressionManifest, AudioVisualStory,
+    AudioVisualViewport, audio_visual_regression_manifest,
+};
 pub use meter::{
     HorizontalMeterTheme, LevelMeterElement, MeterColors, db_to_position,
-    render_horizontal_meter_bar, render_horizontal_meter_bar_with,
+    horizontal_meter_accessibility_summary, render_horizontal_meter_bar,
+    render_horizontal_meter_bar_with,
 };
 pub use scale::Scale as AudioScale;
 pub use spectrum::{

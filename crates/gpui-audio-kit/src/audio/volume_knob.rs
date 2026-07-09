@@ -20,6 +20,9 @@ use super::interactions::{
     handle_scroll, store_drag_state, value_tracker,
 };
 use crate::accessibility::{AccessibilityExt, AccessibilityNode, AriaProps, AriaRole};
+use crate::audio_accessibility::{
+    AudioAccessibilitySummary, normalized, range_description, value_text,
+};
 use crate::scale::Scale;
 use crate::theme::ThemeExt;
 use gpui::*;
@@ -168,6 +171,51 @@ impl VolumeKnob {
     pub fn aria_role(mut self, role: AriaRole) -> Self {
         self.aria_role = Some(role);
         self
+    }
+
+    /// Return non-rendering accessibility metadata for this volume control.
+    pub fn accessibility_summary(&self) -> AudioAccessibilitySummary {
+        let label = self
+            .aria_label
+            .clone()
+            .filter(|label| !label.is_empty())
+            .unwrap_or_else(|| {
+                if self.label.is_empty() {
+                    "Volume".into()
+                } else {
+                    self.label.clone()
+                }
+            });
+        let value = if self.muted {
+            0.0
+        } else {
+            self.value.clamp(0.0, 1.0) as f64
+        };
+        let unit: SharedString = "%".into();
+        let value_text = value_text(value * 100.0, &unit);
+        let mut description =
+            range_description("volume knob", &label, &value_text, 0.0, 100.0, false);
+        if self.muted {
+            description = SharedString::new(format!("{description} Muted."));
+        }
+
+        AudioAccessibilitySummary {
+            control_type: "volume_knob",
+            label,
+            role: self.aria_role.unwrap_or(AriaRole::Slider),
+            value_now: Some(value),
+            value_min: Some(0.0),
+            value_max: Some(1.0),
+            value_text: Some(value_text),
+            unit: Some(unit),
+            normalized: Some(normalized(value, 0.0, 1.0, Scale::Linear)),
+            scale: Some(Scale::Linear),
+            selected: false,
+            disabled: false,
+            muted: self.muted,
+            peak_value: None,
+            description,
+        }
     }
 }
 

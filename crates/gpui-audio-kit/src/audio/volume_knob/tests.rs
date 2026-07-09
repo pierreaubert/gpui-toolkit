@@ -41,6 +41,25 @@ fn volume_knob_builder_setters_chain() {
 }
 
 #[test]
+fn volume_knob_accessibility_summary_uses_effective_mute_value() {
+    let summary = VolumeKnob::new()
+        .label("Monitor")
+        .value(0.75)
+        .muted(true)
+        .accessibility_summary();
+
+    assert_eq!(summary.control_type, "volume_knob");
+    assert_eq!(summary.label, "Monitor");
+    assert_eq!(summary.role, gpui_ui_kit::accessibility::AriaRole::Slider);
+    assert_eq!(summary.value_now, Some(0.0));
+    assert_eq!(summary.value_min, Some(0.0));
+    assert_eq!(summary.value_max, Some(1.0));
+    assert_eq!(summary.value_text, Some("0%".into()));
+    assert!(summary.muted);
+    assert!(summary.description.contains("Muted"));
+}
+
+#[test]
 fn volume_knob_counter_increments() {
     let a = VolumeKnob::new();
     let b = VolumeKnob::new();

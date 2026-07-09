@@ -12,6 +12,7 @@ use gpui::*;
 use gpui_audio_kit::AudioScale as Scale;
 use gpui_audio_kit::audio::vertical_slider::{VerticalSlider, VerticalSliderSize};
 use gpui_miniapp::{MiniApp, MiniAppConfig};
+use gpui_ui_kit::Text;
 use gpui_ui_kit::i18n::{I18nExt, TranslationKey};
 use gpui_ui_kit::theme::ThemeExt;
 use gpui_ui_kit::*;

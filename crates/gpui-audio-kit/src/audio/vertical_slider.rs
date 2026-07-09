@@ -22,6 +22,9 @@ use super::interactions::{
     handle_scroll, store_drag_state, value_tracker,
 };
 use crate::accessibility::{AccessibilityExt, AccessibilityNode, AriaProps, AriaRole, AriaState};
+use crate::audio_accessibility::{
+    AudioAccessibilitySummary, normalized, range_description, value_text,
+};
 use crate::scale::Scale;
 use crate::theme::ThemeExt;
 use gpui::prelude::*;
@@ -273,6 +276,43 @@ impl VerticalSlider {
     pub fn aria_role(mut self, role: AriaRole) -> Self {
         self.aria_role = Some(role);
         self
+    }
+
+    /// Return non-rendering accessibility metadata for this audio parameter.
+    pub fn accessibility_summary(&self) -> AudioAccessibilitySummary {
+        let label = self
+            .aria_label
+            .clone()
+            .or_else(|| self.label.clone())
+            .unwrap_or_else(|| "Vertical slider".into());
+        let value = self.value.clamp(self.min, self.max);
+        let value_text = value_text(value, &self.unit);
+        let description = range_description(
+            "vertical slider",
+            &label,
+            &value_text,
+            self.min,
+            self.max,
+            self.disabled,
+        );
+
+        AudioAccessibilitySummary {
+            control_type: "vertical_slider",
+            label,
+            role: self.aria_role.unwrap_or(AriaRole::Slider),
+            value_now: Some(value),
+            value_min: Some(self.min),
+            value_max: Some(self.max),
+            value_text: Some(value_text),
+            unit: (!self.unit.is_empty()).then(|| self.unit.clone()),
+            normalized: Some(normalized(value, self.min, self.max, self.scale)),
+            scale: Some(self.scale),
+            selected: self.selected,
+            disabled: self.disabled,
+            muted: false,
+            peak_value: self.peak,
+            description,
+        }
     }
 
     /// Format the label with keyboard shortcut indicator
@@ -1010,6 +1050,30 @@ mod tests {
             .scale(Scale::Logarithmic);
         let norm = log.value_to_normalized(1000.0);
         assert!(norm > 0.0 && norm < 1.0);
+    }
+
+    #[test]
+    fn accessibility_summary_includes_peak_and_disabled_state() {
+        let summary = VerticalSlider::new("gain")
+            .aria_label("Input gain")
+            .value(6.0)
+            .min(-60.0)
+            .max(12.0)
+            .unit("dB")
+            .peak(Some(9.0))
+            .disabled(true)
+            .accessibility_summary();
+
+        assert_eq!(summary.control_type, "vertical_slider");
+        assert_eq!(summary.label, "Input gain");
+        assert_eq!(summary.role, crate::accessibility::AriaRole::Slider);
+        assert_eq!(summary.value_now, Some(6.0));
+        assert_eq!(summary.value_min, Some(-60.0));
+        assert_eq!(summary.value_max, Some(12.0));
+        assert_eq!(summary.value_text, Some("6.0 dB".into()));
+        assert_eq!(summary.peak_value, Some(9.0));
+        assert!(summary.disabled);
+        assert!(summary.description.contains("Disabled"));
     }
 
     #[test]

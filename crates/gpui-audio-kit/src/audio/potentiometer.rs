@@ -18,6 +18,9 @@
 
 use super::interactions::{InteractionConfig, handle_keyboard, handle_scroll, value_tracker};
 use crate::accessibility::{AccessibilityExt, AccessibilityNode, AriaProps, AriaRole, AriaState};
+use crate::audio_accessibility::{
+    AudioAccessibilitySummary, normalized, range_description, value_text,
+};
 use crate::theme::ThemeExt;
 use gpui::prelude::*;
 use gpui::*;
@@ -245,6 +248,43 @@ impl Potentiometer {
     pub fn aria_role(mut self, role: AriaRole) -> Self {
         self.aria_role = Some(role);
         self
+    }
+
+    /// Return non-rendering accessibility metadata for this audio parameter.
+    pub fn accessibility_summary(&self) -> AudioAccessibilitySummary {
+        let label = self
+            .aria_label
+            .clone()
+            .or_else(|| self.label.clone())
+            .unwrap_or_else(|| "Potentiometer".into());
+        let value = self.value.clamp(self.min, self.max);
+        let value_text = value_text(value, &self.unit);
+        let description = range_description(
+            "rotary slider",
+            &label,
+            &value_text,
+            self.min,
+            self.max,
+            self.disabled,
+        );
+
+        AudioAccessibilitySummary {
+            control_type: "potentiometer",
+            label,
+            role: self.aria_role.unwrap_or(AriaRole::Slider),
+            value_now: Some(value),
+            value_min: Some(self.min),
+            value_max: Some(self.max),
+            value_text: Some(value_text),
+            unit: (!self.unit.is_empty()).then(|| self.unit.clone()),
+            normalized: Some(normalized(value, self.min, self.max, self.scale)),
+            scale: Some(self.scale),
+            selected: self.selected,
+            disabled: self.disabled,
+            muted: false,
+            peak_value: None,
+            description,
+        }
     }
 
     /// Format the label with keyboard shortcut indicator
@@ -1000,6 +1040,30 @@ mod tests {
             .scale(Scale::Logarithmic);
         let norm = log.value_to_normalized(1000.0);
         assert!(norm > 0.0 && norm < 1.0);
+    }
+
+    #[test]
+    fn accessibility_summary_describes_parameter_range() {
+        let summary = Potentiometer::new("freq")
+            .label("Frequency")
+            .value(1000.0)
+            .min(20.0)
+            .max(20_000.0)
+            .unit("Hz")
+            .scale(Scale::Logarithmic)
+            .selected(true)
+            .accessibility_summary();
+
+        assert_eq!(summary.control_type, "potentiometer");
+        assert_eq!(summary.label, "Frequency");
+        assert_eq!(summary.role, crate::accessibility::AriaRole::Slider);
+        assert_eq!(summary.value_now, Some(1000.0));
+        assert_eq!(summary.value_min, Some(20.0));
+        assert_eq!(summary.value_max, Some(20_000.0));
+        assert_eq!(summary.value_text, Some("1000 Hz".into()));
+        assert_eq!(summary.scale, Some(Scale::Logarithmic));
+        assert!(summary.selected);
+        assert!(summary.description.contains("rotary slider"));
     }
 
     #[test]
