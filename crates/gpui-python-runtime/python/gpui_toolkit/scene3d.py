@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 from typing import Any, Iterable, Mapping, Sequence
 
 
+SCENE3D_SPEC_SCHEMA_VERSION = 1
+
 Point3 = tuple[float, float, float]
 
 
@@ -186,6 +188,7 @@ class Surface:
         if self.z_range is not None:
             z_range = {"min": float(self.z_range[0]), "max": float(self.z_range[1])}
         return {
+            "schema_version": SCENE3D_SPEC_SCHEMA_VERSION,
             "kind": "surface",
             "id": self.id,
             "z": {"values": values, "width": grid_width, "height": grid_height},
@@ -232,6 +235,7 @@ class Lines:
 
     def to_spec(self) -> dict[str, Any]:
         return {
+            "schema_version": SCENE3D_SPEC_SCHEMA_VERSION,
             "kind": "lines",
             "id": self.id,
             "strips": [strip.to_spec() for strip in self.strips],
@@ -252,6 +256,7 @@ class Mesh:
 
     def to_spec(self) -> dict[str, Any]:
         return {
+            "schema_version": SCENE3D_SPEC_SCHEMA_VERSION,
             "kind": "mesh",
             "id": self.id,
             "vertices": [_point3(vertex) for vertex in self.vertices],
@@ -289,6 +294,7 @@ class Scene:
 
     def to_spec(self) -> dict[str, Any]:
         return {
+            "schema_version": SCENE3D_SPEC_SCHEMA_VERSION,
             "id": self.id,
             "camera": self.camera.to_spec(),
             "children": [child.to_spec() for child in self.children],

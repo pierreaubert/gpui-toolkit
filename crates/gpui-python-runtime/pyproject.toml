@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gpui-toolkit"
+version = "0.8.2"
+description = "Python declarations for GPUI Toolkit apps and retained 3D scene specs"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "ISC" }
+authors = [
+    { name = "Pierre F. Aubert", email = "pierre@spinorama.org" },
+]
+keywords = ["gpui", "ui", "visualization", "scene3d"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: ISC License (ISCL)",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Software Development :: User Interfaces",
+]
+dependencies = []
+
+[project.urls]
+Repository = "https://github.com/pierreaubert/gpui-toolkit"
+Documentation = "https://docs.rs/gpui-toolkit"
+
+[tool.setuptools]
+package-dir = { "" = "python" }
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["python"]
+include = ["gpui_toolkit*"]

@@ -20,6 +20,7 @@ class Scene3DTests(unittest.TestCase):
             interactions=["orbit", "pan", "zoom", "reset"],
         ).to_spec()
 
+        self.assertEqual(spec["schema_version"], s3.SCENE3D_SPEC_SCHEMA_VERSION)
         self.assertEqual(spec["kind"], "surface")
         self.assertEqual(spec["z"], {"values": [1.0, 2.0, 3.0, 4.0], "width": 2, "height": 2})
         self.assertEqual(spec["camera"]["kind"], "orbit")
@@ -38,6 +39,7 @@ class Scene3DTests(unittest.TestCase):
             ],
         ).to_spec()
 
+        self.assertEqual(scene["schema_version"], s3.SCENE3D_SPEC_SCHEMA_VERSION)
         self.assertEqual(scene["children"][0]["kind"], "mesh")
         self.assertAlmostEqual(scene["children"][0]["material"]["color"]["b"], 1.0)
 
@@ -84,6 +86,7 @@ class Scene3DTests(unittest.TestCase):
         spec = app.to_spec()
         json.dumps(spec)
 
+        self.assertEqual(spec["schema_version"], 1)
         self.assertEqual(spec["sections"][0]["content"]["kind"], "vstack")
         chart = spec["sections"][0]["content"]["children"][1]["children"][0]
         self.assertEqual(chart["kind"], "chart")

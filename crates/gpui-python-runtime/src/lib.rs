@@ -21,4 +21,8 @@ pub use scene3d::{
     LineSegmentSpec, LineStripSpec, LinesSpec, MaterialSpec, MeshSpec, OrbitCameraSpec,
     PerspectiveCameraSpec, Point3, ScalarRange, SceneNode, SceneSpec, SurfaceSpec, ViewportSize,
 };
-pub use ui_ir::{PythonAppIr, UiIrError};
+pub use spec_cache::{
+    DEFAULT_TYPED_SPEC_CACHE_MAX_ENTRIES, SCENE3D_SPEC_SCHEMA_VERSION, scene3d_spec_schema_version,
+    validate_scene3d_spec_schema_version,
+};
+pub use ui_ir::{PYTHON_APP_IR_SCHEMA_VERSION, PythonAppIr, UiIrError};

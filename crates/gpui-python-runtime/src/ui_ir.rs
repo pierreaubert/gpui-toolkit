@@ -2,8 +2,18 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thiserror::Error;
 
+/// Current JSON schema version for Python-authored app IR payloads.
+pub const PYTHON_APP_IR_SCHEMA_VERSION: u32 = 1;
+
 #[derive(Debug, Clone, PartialEq, Error)]
 pub enum UiIrError {
+    #[error("unsupported {schema} schema version {version}; supported version is {supported}")]
+    UnsupportedSchemaVersion {
+        schema: &'static str,
+        version: u32,
+        supported: u32,
+    },
+
     #[error("app requires at least one section")]
     EmptySections,
 
@@ -34,6 +44,8 @@ pub enum UiIrError {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PythonAppIr {
+    #[serde(default = "default_python_app_ir_schema_version")]
+    pub schema_version: u32,
     pub title: String,
     #[serde(default = "default_width")]
     pub width: f32,
@@ -49,6 +61,13 @@ pub struct PythonAppIr {
 
 impl PythonAppIr {
     pub fn validate(&self) -> Result<(), UiIrError> {
+        if self.schema_version != PYTHON_APP_IR_SCHEMA_VERSION {
+            return Err(UiIrError::UnsupportedSchemaVersion {
+                schema: "python_app_ir",
+                version: self.schema_version,
+                supported: PYTHON_APP_IR_SCHEMA_VERSION,
+            });
+        }
         if self.sections.is_empty() {
             return Err(UiIrError::EmptySections);
         }
@@ -342,6 +361,10 @@ fn default_width() -> f32 {
     1240.0
 }
 
+fn default_python_app_ir_schema_version() -> u32 {
+    PYTHON_APP_IR_SCHEMA_VERSION
+}
+
 fn default_height() -> f32 {
     820.0
 }
@@ -393,8 +416,32 @@ mod tests {
         }))
         .expect("app ir");
 
+        assert_eq!(app.schema_version, PYTHON_APP_IR_SCHEMA_VERSION);
         assert_eq!(app.title, "Demo");
         app.validate().expect("valid app");
+    }
+
+    #[test]
+    fn validates_app_ir_schema_version() {
+        let app: PythonAppIr = serde_json::from_value(serde_json::json!({
+            "schema_version": 999,
+            "title": "Demo",
+            "sections": [{
+                "id": "overview",
+                "label": "Overview",
+                "content": {"kind": "text", "text": "Hello"}
+            }]
+        }))
+        .expect("app ir");
+
+        assert!(matches!(
+            app.validate(),
+            Err(UiIrError::UnsupportedSchemaVersion {
+                schema: "python_app_ir",
+                version: 999,
+                supported: PYTHON_APP_IR_SCHEMA_VERSION,
+            })
+        ));
     }
 
     #[test]

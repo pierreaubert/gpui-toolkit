@@ -17,6 +17,31 @@ shaders remain private to the renderer.
   for the lower-level scene API. Mesh rendering is intentionally not bound to a
   GPUI element yet.
 
+## JSON Schema Contract
+
+Python-authored payloads are versioned at the JSON boundary:
+
+- app IR uses `schema_version: 1`, exposed as
+  `PYTHON_APP_IR_SCHEMA_VERSION`.
+- Scene3D specs use `schema_version: 1`, exposed as
+  `SCENE3D_SPEC_SCHEMA_VERSION`.
+
+New Python emitters write the current schema version. Rust treats omitted
+`schema_version` fields as v1 so early examples and local scripts keep loading,
+but validation rejects unsupported future versions before rendering or reusing a
+cached spec.
+
+Compatibility policy:
+
+1. Additive optional fields may stay on v1 when Rust gives them safe defaults.
+2. Renaming fields, removing fields, changing data-shape semantics, or changing
+   renderer meaning requires a schema-version bump.
+3. A schema-version bump must include compatibility tests for previous v1
+   payloads and a migration path before Python emitters start writing it.
+4. Consumers should parse JSON, validate `PythonAppIr`, then parse and validate
+   Scene3D specs through `TypedSpecCache` or
+   `validate_scene3d_spec_schema_version`.
+
 ## Resource Model
 
 `RetainedSceneCache` fingerprints geometry, material, and camera state
@@ -45,6 +70,21 @@ PYTHONPATH=python python examples/mesh_scene.py
 - `lines_orbit.py` shows line strips, axis references, and a shared orbit camera.
 - `mesh_scene.py` shows the future lower-level scene shape with mesh, path, and
   light nodes.
+
+## Python Package
+
+The Python declarations are packaged as `gpui-toolkit` with the import package
+`gpui_toolkit`. The package is pure Python and intentionally has no runtime
+dependencies; Rust/GPUI remains the rendering host.
+
+```bash
+python -m pip install -e crates/gpui-python-runtime
+python -c "import gpui_toolkit; print(gpui_toolkit.__version__)"
+```
+
+The package version matches the Rust crate version. Update both
+`pyproject.toml` and `Cargo.toml` together when releasing a new Python-facing
+runtime.
 
 ## Showcase Application
 

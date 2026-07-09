@@ -7,14 +7,49 @@
 use crate::{LinesSpec, MeshSpec, SceneSpec, SurfaceSpec};
 use serde::de::DeserializeOwned;
 use serde_json::Value;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
+
+/// Current JSON schema version for Python-authored Scene3D spec payloads.
+pub const SCENE3D_SPEC_SCHEMA_VERSION: u32 = 1;
+
+/// Default maximum number of typed Scene3D specs retained by [`TypedSpecCache`].
+pub const DEFAULT_TYPED_SPEC_CACHE_MAX_ENTRIES: usize = 128;
 
 /// Deserialize `value` into `T` without taking ownership of the JSON value.
 pub fn parse_spec<T>(value: &Value) -> Result<T, String>
 where
     T: DeserializeOwned,
 {
+    validate_scene3d_spec_schema_version(value)?;
     T::deserialize(value).map_err(|error| error.to_string())
+}
+
+/// Return the schema version for a Scene3D spec payload.
+///
+/// Early v1 payloads omitted `schema_version`; those are treated as v1 for
+/// compatibility. Unsupported future versions are rejected before deserializing
+/// or reusing cached specs.
+pub fn scene3d_spec_schema_version(value: &Value) -> Result<u32, String> {
+    let Some(version) = value.get("schema_version") else {
+        return Ok(SCENE3D_SPEC_SCHEMA_VERSION);
+    };
+
+    let Some(version) = version.as_u64() else {
+        return Err("scene3d schema_version must be an integer".to_string());
+    };
+
+    u32::try_from(version).map_err(|_| "scene3d schema_version is too large".to_string())
+}
+
+/// Validate the schema version for a Scene3D spec payload.
+pub fn validate_scene3d_spec_schema_version(value: &Value) -> Result<(), String> {
+    let version = scene3d_spec_schema_version(value)?;
+    if version != SCENE3D_SPEC_SCHEMA_VERSION {
+        return Err(format!(
+            "unsupported scene3d schema version {version}; supported version is {SCENE3D_SPEC_SCHEMA_VERSION}"
+        ));
+    }
+    Ok(())
 }
 
 /// A typed 3D scene spec parsed from a JSON IR node.
@@ -30,15 +65,35 @@ pub enum TypedSceneSpec {
 ///
 /// `SurfaceSpec`/`LinesSpec`/`MeshSpec`/`SceneSpec` are deserialized and
 /// validated once per node; subsequent lookups return the cached value.
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Clone)]
 pub struct TypedSpecCache {
     specs: HashMap<String, TypedSceneSpec>,
+    lru: VecDeque<String>,
+    max_entries: usize,
+}
+
+impl Default for TypedSpecCache {
+    fn default() -> Self {
+        Self {
+            specs: HashMap::new(),
+            lru: VecDeque::new(),
+            max_entries: DEFAULT_TYPED_SPEC_CACHE_MAX_ENTRIES,
+        }
+    }
 }
 
 impl TypedSpecCache {
     #[must_use]
     pub fn new() -> Self {
         Self::default()
+    }
+
+    #[must_use]
+    pub fn with_max_entries(max_entries: usize) -> Self {
+        Self {
+            max_entries: max_entries.max(1),
+            ..Self::default()
+        }
     }
 
     #[must_use]
@@ -51,8 +106,36 @@ impl TypedSpecCache {
         self.specs.is_empty()
     }
 
+    #[must_use]
+    pub fn max_entries(&self) -> usize {
+        self.max_entries
+    }
+
+    #[must_use]
+    pub fn contains_id(&self, id: &str) -> bool {
+        self.specs.contains_key(id)
+    }
+
     pub fn clear(&mut self) {
         self.specs.clear();
+        self.lru.clear();
+    }
+
+    fn touch(&mut self, id: &str) {
+        self.lru.retain(|entry| entry != id);
+        self.lru.push_back(id.to_string());
+    }
+
+    fn insert_spec(&mut self, id: String, spec: TypedSceneSpec) {
+        while self.specs.len() >= self.max_entries {
+            let Some(evicted) = self.lru.pop_front() else {
+                break;
+            };
+            self.specs.remove(&evicted);
+        }
+
+        self.specs.insert(id.clone(), spec);
+        self.touch(&id);
     }
 
     /// Parse or return a cached `SurfaceSpec` for the given node id.
@@ -61,11 +144,14 @@ impl TypedSpecCache {
         id: impl Into<String>,
         value: &Value,
     ) -> Result<&SurfaceSpec, String> {
+        validate_scene3d_spec_schema_version(value)?;
         let id = id.into();
-        if !self.specs.contains_key(&id) {
+        if self.specs.contains_key(&id) {
+            self.touch(&id);
+        } else {
             let spec = parse_spec::<SurfaceSpec>(value)?;
             spec.validate().map_err(|error| error.to_string())?;
-            self.specs.insert(id.clone(), TypedSceneSpec::Surface(spec));
+            self.insert_spec(id.clone(), TypedSceneSpec::Surface(spec));
         }
         match self.specs.get(&id) {
             Some(TypedSceneSpec::Surface(spec)) => Ok(spec),
@@ -80,11 +166,14 @@ impl TypedSpecCache {
         id: impl Into<String>,
         value: &Value,
     ) -> Result<&LinesSpec, String> {
+        validate_scene3d_spec_schema_version(value)?;
         let id = id.into();
-        if !self.specs.contains_key(&id) {
+        if self.specs.contains_key(&id) {
+            self.touch(&id);
+        } else {
             let spec = parse_spec::<LinesSpec>(value)?;
             spec.validate().map_err(|error| error.to_string())?;
-            self.specs.insert(id.clone(), TypedSceneSpec::Lines(spec));
+            self.insert_spec(id.clone(), TypedSceneSpec::Lines(spec));
         }
         match self.specs.get(&id) {
             Some(TypedSceneSpec::Lines(spec)) => Ok(spec),
@@ -99,11 +188,14 @@ impl TypedSpecCache {
         id: impl Into<String>,
         value: &Value,
     ) -> Result<&MeshSpec, String> {
+        validate_scene3d_spec_schema_version(value)?;
         let id = id.into();
-        if !self.specs.contains_key(&id) {
+        if self.specs.contains_key(&id) {
+            self.touch(&id);
+        } else {
             let spec = parse_spec::<MeshSpec>(value)?;
             spec.validate().map_err(|error| error.to_string())?;
-            self.specs.insert(id.clone(), TypedSceneSpec::Mesh(spec));
+            self.insert_spec(id.clone(), TypedSceneSpec::Mesh(spec));
         }
         match self.specs.get(&id) {
             Some(TypedSceneSpec::Mesh(spec)) => Ok(spec),
@@ -118,11 +210,14 @@ impl TypedSpecCache {
         id: impl Into<String>,
         value: &Value,
     ) -> Result<&SceneSpec, String> {
+        validate_scene3d_spec_schema_version(value)?;
         let id = id.into();
-        if !self.specs.contains_key(&id) {
+        if self.specs.contains_key(&id) {
+            self.touch(&id);
+        } else {
             let spec = parse_spec::<SceneSpec>(value)?;
             spec.validate().map_err(|error| error.to_string())?;
-            self.specs.insert(id.clone(), TypedSceneSpec::Scene(spec));
+            self.insert_spec(id.clone(), TypedSceneSpec::Scene(spec));
         }
         match self.specs.get(&id) {
             Some(TypedSceneSpec::Scene(spec)) => Ok(spec),
@@ -140,6 +235,7 @@ mod tests {
     fn render_surface_spec_parses_once() {
         let mut cache = TypedSpecCache::new();
         let value = serde_json::json!({
+            "schema_version": SCENE3D_SPEC_SCHEMA_VERSION,
             "id": "surface",
             "z": { "values": [1.0, 2.0, 3.0, 4.0], "width": 2, "height": 2 }
         });
@@ -155,6 +251,51 @@ mod tests {
 
         assert_eq!(first, second);
         assert_eq!(cache.len(), 1);
+    }
+
+    #[test]
+    fn scene3d_schema_version_defaults_to_v1_for_legacy_specs() {
+        let value = serde_json::json!({
+            "id": "surface",
+            "z": { "values": [1.0, 2.0, 3.0, 4.0], "width": 2, "height": 2 }
+        });
+
+        assert_eq!(
+            scene3d_spec_schema_version(&value).unwrap(),
+            SCENE3D_SPEC_SCHEMA_VERSION
+        );
+        assert!(validate_scene3d_spec_schema_version(&value).is_ok());
+    }
+
+    #[test]
+    fn scene3d_schema_version_rejects_future_specs_before_cache_hit() {
+        let mut cache = TypedSpecCache::new();
+        let value = serde_json::json!({
+            "id": "surface",
+            "z": { "values": [1.0, 2.0, 3.0, 4.0], "width": 2, "height": 2 }
+        });
+        cache.parse_surface("surface", &value).unwrap();
+
+        let future = serde_json::json!({
+            "schema_version": SCENE3D_SPEC_SCHEMA_VERSION + 1,
+            "id": "surface",
+            "z": { "values": [1.0, 2.0, 3.0, 4.0], "width": 2, "height": 2 }
+        });
+
+        let error = cache.parse_surface("surface", &future).unwrap_err();
+        assert!(error.contains("unsupported scene3d schema version"));
+    }
+
+    #[test]
+    fn scene3d_schema_version_requires_integer() {
+        let value = serde_json::json!({
+            "schema_version": "1",
+            "id": "surface",
+            "z": { "values": [1.0, 2.0, 3.0, 4.0], "width": 2, "height": 2 }
+        });
+
+        let error = validate_scene3d_spec_schema_version(&value).unwrap_err();
+        assert!(error.contains("schema_version must be an integer"));
     }
 
     #[test]
@@ -180,6 +321,109 @@ mod tests {
 
         assert_ne!(a.id, b.id);
         assert_eq!(cache.len(), 2);
+    }
+
+    #[test]
+    fn spec_cache_exposes_default_capacity_policy() {
+        let cache = TypedSpecCache::new();
+
+        assert_eq!(cache.max_entries(), DEFAULT_TYPED_SPEC_CACHE_MAX_ENTRIES);
+        assert!(cache.max_entries() > 1);
+    }
+
+    #[test]
+    fn spec_cache_evictions_keep_large_scene_streams_bounded() {
+        let mut cache = TypedSpecCache::with_max_entries(3);
+
+        for index in 0..12 {
+            let value = serde_json::json!({
+                "id": format!("surface-{index}"),
+                "z": {
+                    "values": [index as f64, 1.0, 2.0, 3.0],
+                    "width": 2,
+                    "height": 2
+                }
+            });
+            cache
+                .parse_surface(format!("surface-{index}"), &value)
+                .expect("parse streamed surface");
+            assert!(
+                cache.len() <= cache.max_entries(),
+                "cache exceeded configured max entries"
+            );
+        }
+
+        assert_eq!(cache.len(), 3);
+        assert!(!cache.contains_id("surface-0"));
+        assert!(!cache.contains_id("surface-8"));
+        assert!(cache.contains_id("surface-9"));
+        assert!(cache.contains_id("surface-10"));
+        assert!(cache.contains_id("surface-11"));
+    }
+
+    #[test]
+    fn spec_cache_eviction_preserves_recently_used_entry() {
+        let mut cache = TypedSpecCache::with_max_entries(2);
+        let surface_a = serde_json::json!({
+            "id": "a",
+            "z": { "values": [1.0, 2.0, 3.0, 4.0], "width": 2, "height": 2 }
+        });
+        let surface_b = serde_json::json!({
+            "id": "b",
+            "z": { "values": [5.0, 6.0, 7.0, 8.0], "width": 2, "height": 2 }
+        });
+        let surface_c = serde_json::json!({
+            "id": "c",
+            "z": { "values": [9.0, 10.0, 11.0, 12.0], "width": 2, "height": 2 }
+        });
+
+        cache.parse_surface("a", &surface_a).unwrap();
+        cache.parse_surface("b", &surface_b).unwrap();
+        cache.parse_surface("a", &surface_a).unwrap();
+        cache.parse_surface("c", &surface_c).unwrap();
+
+        assert_eq!(cache.len(), 2);
+        assert!(cache.contains_id("a"));
+        assert!(!cache.contains_id("b"));
+        assert!(cache.contains_id("c"));
+    }
+
+    #[test]
+    fn spec_cache_clamps_zero_capacity_to_one_entry() {
+        let mut cache = TypedSpecCache::with_max_entries(0);
+        let surface_a = serde_json::json!({
+            "id": "a",
+            "z": { "values": [1.0, 2.0, 3.0, 4.0], "width": 2, "height": 2 }
+        });
+        let surface_b = serde_json::json!({
+            "id": "b",
+            "z": { "values": [5.0, 6.0, 7.0, 8.0], "width": 2, "height": 2 }
+        });
+
+        assert_eq!(cache.max_entries(), 1);
+        cache.parse_surface("a", &surface_a).unwrap();
+        cache.parse_surface("b", &surface_b).unwrap();
+
+        assert_eq!(cache.len(), 1);
+        assert!(!cache.contains_id("a"));
+        assert!(cache.contains_id("b"));
+    }
+
+    #[test]
+    fn spec_cache_clear_resets_entries_and_eviction_order() {
+        let mut cache = TypedSpecCache::with_max_entries(2);
+        let surface = serde_json::json!({
+            "id": "surface",
+            "z": { "values": [1.0, 2.0, 3.0, 4.0], "width": 2, "height": 2 }
+        });
+
+        cache.parse_surface("surface", &surface).unwrap();
+        cache.clear();
+
+        assert!(cache.is_empty());
+        assert!(!cache.contains_id("surface"));
+        cache.parse_surface("surface", &surface).unwrap();
+        assert_eq!(cache.len(), 1);
     }
 
     #[test]

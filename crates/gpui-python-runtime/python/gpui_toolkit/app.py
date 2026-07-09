@@ -11,6 +11,9 @@ from pathlib import Path
 from typing import Any, Sequence
 
 
+PYTHON_APP_IR_SCHEMA_VERSION = 1
+
+
 def _spec(value: Any) -> Any:
     if hasattr(value, "to_spec"):
         return value.to_spec()
@@ -40,6 +43,7 @@ class App:
         if not self.sections:
             raise ValueError("App requires at least one section")
         return {
+            "schema_version": PYTHON_APP_IR_SCHEMA_VERSION,
             "title": self.title,
             "width": float(self.width),
             "height": float(self.height),
