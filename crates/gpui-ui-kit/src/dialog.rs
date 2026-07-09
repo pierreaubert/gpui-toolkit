@@ -33,8 +33,8 @@ use gpui::prelude::{
     InteractiveElement, IntoElement, ParentElement, RenderOnce, StatefulInteractiveElement, Styled,
 };
 use gpui::{
-    AnyElement, App, Div, ElementId, FontWeight, MouseButton, MouseDownEvent, Rems, Rgba,
-    ScrollWheelEvent, SharedString, Window, div, px,
+    AnyElement, App, Div, ElementId, FocusHandle, FontWeight, KeyDownEvent, MouseButton,
+    MouseDownEvent, Rems, Rgba, ScrollWheelEvent, SharedString, Window, div, px,
 };
 use std::rc::Rc;
 
@@ -113,6 +113,8 @@ pub struct Dialog {
     footer_factory: Option<DialogSlotFactory>,
     show_close_button: bool,
     close_on_backdrop: bool,
+    focus_handle: Option<FocusHandle>,
+    restore_focus_to: Option<FocusHandle>,
     on_close: Option<Box<dyn Fn(&mut Window, &mut App) + 'static>>,
     aria_label: Option<SharedString>,
     aria_role: Option<AriaRole>,
@@ -131,6 +133,8 @@ impl Dialog {
             footer_factory: None,
             show_close_button: true,
             close_on_backdrop: true,
+            focus_handle: None,
+            restore_focus_to: None,
             on_close: None,
             aria_label: None,
             aria_role: None,
@@ -221,6 +225,18 @@ impl Dialog {
         self
     }
 
+    /// Set the focus handle used for dialog-level keyboard dismissal.
+    pub fn focus_handle(mut self, handle: FocusHandle) -> Self {
+        self.focus_handle = Some(handle);
+        self
+    }
+
+    /// Set the focus handle to restore before running the close callback.
+    pub fn restore_focus_to(mut self, handle: FocusHandle) -> Self {
+        self.restore_focus_to = Some(handle);
+        self
+    }
+
     /// Set the close handler
     pub fn on_close(mut self, handler: impl Fn(&mut Window, &mut App) + 'static) -> Self {
         self.on_close = Some(Box::new(handler));
@@ -243,6 +259,8 @@ impl Dialog {
     pub fn build_with_theme(self, theme: &DialogTheme) -> Div {
         let width = self.size.width();
         let close_on_backdrop = self.close_on_backdrop;
+        let focus_handle = self.focus_handle.clone();
+        let restore_focus_to = self.restore_focus_to.clone();
         // Clone ID for use in child elements (self.id is moved to dialog container)
         let close_btn_id = self.id.clone();
         let content_id = self.id.clone();
@@ -264,7 +282,11 @@ impl Dialog {
 
         // Handle backdrop click
         if close_on_backdrop && let Some(handler) = on_close.clone() {
+            let restore_focus_to = restore_focus_to.clone();
             backdrop = backdrop.on_mouse_down(MouseButton::Left, move |_event, window, cx| {
+                if let Some(ref handle) = restore_focus_to {
+                    window.focus(handle, cx);
+                }
                 handler(window, cx);
             });
         }
@@ -284,6 +306,26 @@ impl Dialog {
             .flex_col()
             // Stop propagation so clicking dialog doesn't close it
             .on_mouse_down(MouseButton::Left, ignore_mouse_down);
+
+        if let Some(handle) = focus_handle.clone() {
+            dialog = dialog.track_focus(&handle).focusable();
+            if let Some(handler) = on_close.clone() {
+                let restore_focus_to = restore_focus_to.clone();
+                dialog = dialog.on_key_down(
+                    move |event: &KeyDownEvent, window: &mut Window, cx: &mut App| {
+                        if !handle.is_focused(window) || event.keystroke.key.as_str() != "escape" {
+                            return;
+                        }
+
+                        cx.stop_propagation();
+                        if let Some(ref handle) = restore_focus_to {
+                            window.focus(handle, cx);
+                        }
+                        handler(window, cx);
+                    },
+                );
+            }
+        }
 
         // Header with title and close button
         if self.title.is_some() || self.show_close_button {
@@ -311,6 +353,7 @@ impl Dialog {
             if self.show_close_button
                 && let Some(handler) = on_close.clone()
             {
+                let restore_focus_to = restore_focus_to.clone();
                 let close_color = theme.close;
                 let close_hover = theme.close_hover;
                 let close_hover_bg = theme.close_hover_bg;
@@ -324,6 +367,9 @@ impl Dialog {
                         .text_color(close_color)
                         .hover(move |s| s.bg(close_hover_bg).text_color(close_hover))
                         .on_mouse_up(MouseButton::Left, move |_event, window, cx| {
+                            if let Some(ref handle) = restore_focus_to {
+                                window.focus(handle, cx);
+                            }
                             handler(window, cx);
                         })
                         .child("×"),
@@ -389,5 +435,26 @@ impl IntoElement for Dialog {
 
     fn into_element(self) -> Self::Element {
         gpui::Component::new(self)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Dialog, DialogSize};
+
+    #[test]
+    fn dialog_builder_records_keyboard_focus_contract() {
+        let dialog = Dialog::new("settings")
+            .title("Settings")
+            .size(DialogSize::Lg)
+            .close_on_backdrop(false)
+            .show_close_button(false)
+            .on_close(|_, _| {});
+
+        assert_eq!(dialog.title.as_deref(), Some("Settings"));
+        assert_eq!(dialog.size, DialogSize::Lg);
+        assert!(!dialog.close_on_backdrop);
+        assert!(!dialog.show_close_button);
+        assert!(dialog.on_close.is_some());
     }
 }

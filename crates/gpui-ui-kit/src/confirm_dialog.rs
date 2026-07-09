@@ -18,8 +18,13 @@ use crate::ComponentTheme;
 use crate::accessibility::{AccessibilityExt, AccessibilityNode, AriaProps, AriaRole};
 use crate::button::{Button, ButtonVariant};
 use crate::theme::ThemeExt;
-use gpui::prelude::{InteractiveElement, IntoElement, ParentElement, RenderOnce, Styled};
-use gpui::{App, Div, ElementId, FontWeight, MouseButton, Rems, Rgba, SharedString, Window, div};
+use gpui::prelude::{
+    InteractiveElement, IntoElement, ParentElement, RenderOnce, StatefulInteractiveElement, Styled,
+};
+use gpui::{
+    App, Div, ElementId, FocusHandle, FontWeight, KeyDownEvent, MouseButton, Rems, Rgba,
+    SharedString, Window, div,
+};
 use std::rc::Rc;
 
 /// Confirm dialog variant
@@ -68,6 +73,8 @@ pub struct ConfirmDialog {
     variant: ConfirmDialogVariant,
     confirm_label: SharedString,
     cancel_label: SharedString,
+    focus_handle: Option<FocusHandle>,
+    restore_focus_to: Option<FocusHandle>,
     on_confirm: Option<Box<dyn Fn(&mut Window, &mut App) + 'static>>,
     on_cancel: Option<Box<dyn Fn(&mut Window, &mut App) + 'static>>,
     aria_label: Option<SharedString>,
@@ -84,6 +91,8 @@ impl ConfirmDialog {
             variant: ConfirmDialogVariant::default(),
             confirm_label: "Confirm".into(),
             cancel_label: "Cancel".into(),
+            focus_handle: None,
+            restore_focus_to: None,
             on_confirm: None,
             on_cancel: None,
             aria_label: None,
@@ -121,6 +130,18 @@ impl ConfirmDialog {
         self
     }
 
+    /// Set the focus handle used for dialog-level keyboard dismissal.
+    pub fn focus_handle(mut self, handle: FocusHandle) -> Self {
+        self.focus_handle = Some(handle);
+        self
+    }
+
+    /// Set the focus handle to restore before confirm or cancel callbacks run.
+    pub fn restore_focus_to(mut self, handle: FocusHandle) -> Self {
+        self.restore_focus_to = Some(handle);
+        self
+    }
+
     /// Set the confirm handler
     pub fn on_confirm(mut self, handler: impl Fn(&mut Window, &mut App) + 'static) -> Self {
         self.on_confirm = Some(Box::new(handler));
@@ -147,6 +168,8 @@ impl ConfirmDialog {
 
     /// Build the confirm dialog with theme
     pub fn build_with_theme(self, theme: &ConfirmDialogTheme) -> Div {
+        let focus_handle = self.focus_handle.clone();
+        let restore_focus_to = self.restore_focus_to.clone();
         let on_confirm_rc: Option<Rc<dyn Fn(&mut Window, &mut App)>> =
             self.on_confirm.map(|f| Rc::from(f));
         let on_cancel_rc: Option<Rc<dyn Fn(&mut Window, &mut App)>> =
@@ -165,7 +188,11 @@ impl ConfirmDialog {
         // Click backdrop to cancel
         if let Some(ref handler) = on_cancel_rc {
             let handler = handler.clone();
+            let restore_focus_to = restore_focus_to.clone();
             backdrop = backdrop.on_mouse_down(MouseButton::Left, move |_event, window, cx| {
+                if let Some(ref handle) = restore_focus_to {
+                    window.focus(handle, cx);
+                }
                 handler(window, cx);
             });
         }
@@ -190,6 +217,26 @@ impl ConfirmDialog {
             .flex_col()
             .overflow_hidden()
             .on_mouse_down(MouseButton::Left, |_event, _window, _cx| {});
+
+        if let Some(handle) = focus_handle
+            && let Some(ref handler) = on_cancel_rc
+        {
+            let handler = handler.clone();
+            let restore_focus_to = restore_focus_to.clone();
+            dialog = dialog.track_focus(&handle).focusable().on_key_down(
+                move |event: &KeyDownEvent, window: &mut Window, cx: &mut App| {
+                    if !handle.is_focused(window) || event.keystroke.key.as_str() != "escape" {
+                        return;
+                    }
+
+                    cx.stop_propagation();
+                    if let Some(ref handle) = restore_focus_to {
+                        window.focus(handle, cx);
+                    }
+                    handler(window, cx);
+                },
+            );
+        }
 
         // Title
         if let Some(title) = self.title {
@@ -227,7 +274,11 @@ impl ConfirmDialog {
 
         if let Some(ref handler) = on_cancel_rc {
             let handler = handler.clone();
+            let restore_focus_to = restore_focus_to.clone();
             cancel_btn = cancel_btn.on_click(move |window, cx| {
+                if let Some(ref handle) = restore_focus_to {
+                    window.focus(handle, cx);
+                }
                 handler(window, cx);
             });
         }
@@ -237,7 +288,11 @@ impl ConfirmDialog {
 
         if let Some(ref handler) = on_confirm_rc {
             let handler = handler.clone();
+            let restore_focus_to = restore_focus_to.clone();
             confirm_btn = confirm_btn.on_click(move |window, cx| {
+                if let Some(ref handle) = restore_focus_to {
+                    window.focus(handle, cx);
+                }
                 handler(window, cx);
             });
         }
@@ -285,5 +340,30 @@ impl IntoElement for ConfirmDialog {
 
     fn into_element(self) -> Self::Element {
         gpui::Component::new(self)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ConfirmDialog, ConfirmDialogVariant};
+
+    #[test]
+    fn confirm_dialog_builder_records_keyboard_dismiss_contract() {
+        let dialog = ConfirmDialog::new("delete")
+            .title("Delete file")
+            .message("Delete this file?")
+            .variant(ConfirmDialogVariant::Destructive)
+            .confirm_label("Delete")
+            .cancel_label("Keep")
+            .on_confirm(|_, _| {})
+            .on_cancel(|_, _| {});
+
+        assert_eq!(dialog.title.as_deref(), Some("Delete file"));
+        assert_eq!(dialog.message.as_ref(), "Delete this file?");
+        assert_eq!(dialog.variant, ConfirmDialogVariant::Destructive);
+        assert_eq!(dialog.confirm_label.as_ref(), "Delete");
+        assert_eq!(dialog.cancel_label.as_ref(), "Keep");
+        assert!(dialog.on_confirm.is_some());
+        assert!(dialog.on_cancel.is_some());
     }
 }

@@ -64,6 +64,27 @@ gpui-ui-kit = { version = "0.6.12", git="https://github.com/pierreaubert/sotf/tr
 | `EmptyState` | Placeholder for empty lists/containers with icon, title, description, and action |
 | `Text` / `Heading` / `Code` / `Link` | Typography components |
 
+### Large Data Surfaces
+
+`DataVirtualWindow` provides renderer-free virtualization math for large tables
+and trees. Use `DataVirtualWindow::from_viewport(...)` to compute the visible
+item window from scroll geometry, then pass it to `Table::virtual_window(...)`
+or `TreeView::virtual_window(...)`. The window clamps invalid ranges, preserves
+original row/node ordering, and leaves keyboard navigation based on the complete
+visible data set. `Table::virtual_viewport(...)` and
+`TreeView::virtual_viewport(...)` also preserve scroll extent with fixed-height
+before/after spacers; use `virtual_window_with_row_height(...)` when supplying a
+manual window that should keep the same scroll geometry.
+
+### Visual Regression
+
+`gpui_ui_kit::ui_kit_visual_regression_manifest()` exposes the release screenshot
+inventory for the UI kit. It expands core, form, overlay, data-display,
+navigation, mobile, workflow, and feedback stories across desktop, narrow-panel,
+and mobile-preview viewports plus light, dark, and high-contrast schemes.
+Each capture has stable baseline, actual, and diff artifact paths under
+`artifacts/gpui-ui-kit/visual/` for component-lab or CI screenshot runners.
+
 ### Feedback
 
 | Component | Description |
@@ -116,6 +137,47 @@ Button::new("link-btn", "Visit website")
 // Dialog -> AriaRole::Dialog
 // Toast -> AriaRole::Status (or Alert for errors)
 ```
+
+`gpui_ui_kit::accessibility_readiness_report()` exposes a stable release-QA
+report for native accessibility bridge planning. It records implemented
+metadata/snapshot rows, tested accessible-name audit helpers, a tested
+host/native adapter payload contract, and the remaining cross-platform
+screen-reader QA gate.
+
+```rust
+use gpui_ui_kit::accessibility_readiness_report;
+
+let report = accessibility_readiness_report();
+assert!(!report.all_release_ready());
+assert!(
+    report
+        .blocking_entries()
+        .any(|entry| entry.id == "cross-platform-screen-reader-qa")
+);
+```
+
+Host adapters consume `AccessibilityTree::to_bridge_snapshot()` through
+`AccessibilityBridgeSnapshot::to_native_adapter_payload(adapter_id, target)`.
+The payload validates non-empty adapter ids and release-blocking missing
+accessible names, then exports deterministic roles, labels, descriptions,
+states, values, focusability, visibility, and action hints.
+
+### Security Surface
+
+`gpui_ui_kit::security_surface_report()` exposes a stable release-QA report for
+security-relevant dependencies and background tasks:
+
+- QR components use the `qrcode` crate in-process and do not perform camera,
+  file-system, network, or clipboard I/O.
+- The `qr_debug` camera example is opt-in behind the `camera` feature and the
+  optional `nokhwa` dependency; host apps remain responsible for OS permission
+  prompts and privacy strings.
+- `AnimatedQrCode` and `SwipePanel` use weak-entity scoped `smol::Timer` loops
+  for repaint/spring animation. The tasks exit when their entity is gone, and
+  the swipe-panel task also stops when animation completes.
+
+The report includes `schema_version`, `report_type`, stable entry ids,
+Markdown output, and blocking-entry helpers for release tooling.
 
 ## Usage Examples
 

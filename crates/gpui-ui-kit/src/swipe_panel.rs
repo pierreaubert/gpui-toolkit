@@ -18,10 +18,13 @@
 use crate::animation::Spring;
 use crate::mobile::{MomentumScroller, VelocityTracker};
 use crate::theme::ThemeExt;
-use gpui::prelude::{InteractiveElement, IntoElement, ParentElement, Render, RenderOnce, Styled};
+use gpui::prelude::{
+    InteractiveElement, IntoElement, ParentElement, Render, RenderOnce, StatefulInteractiveElement,
+    Styled,
+};
 use gpui::{
-    AnyElement, App, AppContext, Context, ElementId, Entity, MouseButton, Pixels, Rgba, WeakEntity,
-    Window, div, px,
+    AnyElement, App, AppContext, Context, ElementId, Entity, FocusHandle, KeyDownEvent,
+    MouseButton, Pixels, Rgba, WeakEntity, Window, div, px,
 };
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -63,6 +66,8 @@ pub struct SwipePanel {
     expanded_height: Option<Pixels>,
     show_handle: bool,
     show_backdrop: bool,
+    focus_handle: Option<FocusHandle>,
+    restore_focus_to: Option<FocusHandle>,
     content: Option<AnyElement>,
     on_state_change: Option<Box<dyn Fn(SwipePanelState, &mut Window, &mut App) + 'static>>,
 }
@@ -77,6 +82,8 @@ impl std::fmt::Debug for SwipePanel {
             .field("expanded_height", &self.expanded_height)
             .field("show_handle", &self.show_handle)
             .field("show_backdrop", &self.show_backdrop)
+            .field("has_focus_handle", &self.focus_handle.is_some())
+            .field("has_restore_focus_to", &self.restore_focus_to.is_some())
             .field("has_content", &self.content.is_some())
             .field("has_on_state_change", &self.on_state_change.is_some())
             .finish()
@@ -94,6 +101,8 @@ impl SwipePanel {
             expanded_height: None,
             show_handle: true,
             show_backdrop: true,
+            focus_handle: None,
+            restore_focus_to: None,
             content: None,
             on_state_change: None,
         }
@@ -135,6 +144,18 @@ impl SwipePanel {
         self
     }
 
+    /// Set the focus handle used for keyboard operation.
+    pub fn focus_handle(mut self, handle: FocusHandle) -> Self {
+        self.focus_handle = Some(handle);
+        self
+    }
+
+    /// Set the focus handle to restore when Escape or backdrop collapse hides the panel.
+    pub fn restore_focus_to(mut self, handle: FocusHandle) -> Self {
+        self.restore_focus_to = Some(handle);
+        self
+    }
+
     /// Set the panel content.
     pub fn content(mut self, content: impl IntoElement) -> Self {
         self.content = Some(content.into_any_element());
@@ -163,6 +184,58 @@ impl SwipePanel {
             SwipePanelState::Peek => f32::from(self.peek_height) - panel_height,
             SwipePanelState::Expanded => 0.0,
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SwipePanelKeyboardAction {
+    ExpandStep,
+    CollapseStep,
+    ExpandFully,
+    CollapseFully,
+    Toggle,
+}
+
+impl SwipePanelKeyboardAction {
+    fn from_key(key: &str, anchor: SwipePanelAnchor) -> Option<Self> {
+        match key {
+            "escape" | "end" => Some(Self::CollapseFully),
+            "home" => Some(Self::ExpandFully),
+            "enter" | "space" | " " => Some(Self::Toggle),
+            "up" | "arrowup" => Some(match anchor {
+                SwipePanelAnchor::Bottom => Self::ExpandStep,
+                SwipePanelAnchor::Top => Self::CollapseStep,
+            }),
+            "down" | "arrowdown" => Some(match anchor {
+                SwipePanelAnchor::Bottom => Self::CollapseStep,
+                SwipePanelAnchor::Top => Self::ExpandStep,
+            }),
+            _ => None,
+        }
+    }
+}
+
+fn keyboard_target_state(
+    anchor: SwipePanelAnchor,
+    current: SwipePanelState,
+    key: &str,
+) -> Option<SwipePanelState> {
+    match SwipePanelKeyboardAction::from_key(key, anchor)? {
+        SwipePanelKeyboardAction::ExpandStep => Some(match current {
+            SwipePanelState::Collapsed => SwipePanelState::Peek,
+            SwipePanelState::Peek | SwipePanelState::Expanded => SwipePanelState::Expanded,
+        }),
+        SwipePanelKeyboardAction::CollapseStep => Some(match current {
+            SwipePanelState::Expanded => SwipePanelState::Peek,
+            SwipePanelState::Peek | SwipePanelState::Collapsed => SwipePanelState::Collapsed,
+        }),
+        SwipePanelKeyboardAction::ExpandFully => Some(SwipePanelState::Expanded),
+        SwipePanelKeyboardAction::CollapseFully => Some(SwipePanelState::Collapsed),
+        SwipePanelKeyboardAction::Toggle => Some(match current {
+            SwipePanelState::Collapsed => SwipePanelState::Peek,
+            SwipePanelState::Peek => SwipePanelState::Expanded,
+            SwipePanelState::Expanded => SwipePanelState::Peek,
+        }),
     }
 }
 
@@ -425,10 +498,14 @@ impl Render for SwipePanelEntity {
                 a: backdrop_opacity,
             };
             let entity = cx.entity().clone();
+            let restore_focus_to = self.props.restore_focus_to.clone();
             container =
                 container.child(div().absolute().inset_0().bg(backdrop_color).on_mouse_down(
                     MouseButton::Left,
                     move |_event, window, cx| {
+                        if let Some(ref handle) = restore_focus_to {
+                            window.focus(handle, cx);
+                        }
                         entity.update(cx, |model, cx| {
                             if model.props.show_backdrop {
                                 model.set_state(SwipePanelState::Collapsed, window, cx);
@@ -439,6 +516,7 @@ impl Render for SwipePanelEntity {
         }
 
         let mut panel = div()
+            .id(self.props.id.clone())
             .absolute()
             .left_0()
             .right_0()
@@ -449,6 +527,10 @@ impl Render for SwipePanelEntity {
             .border_color(border)
             .text_color(text)
             .overflow_hidden();
+
+        if let Some(ref handle) = self.props.focus_handle {
+            panel = panel.track_focus(handle).focusable();
+        }
 
         match self.props.anchor {
             SwipePanelAnchor::Bottom => {
@@ -466,6 +548,37 @@ impl Render for SwipePanelEntity {
                 model.start_drag(pos);
             });
         });
+
+        if let Some(handle) = self.props.focus_handle.clone() {
+            let entity = cx.entity().clone();
+            let anchor = self.props.anchor;
+            let state = self.state;
+            let restore_focus_to = self.props.restore_focus_to.clone();
+            panel = panel.on_key_down(
+                move |event: &KeyDownEvent, window: &mut Window, cx: &mut App| {
+                    if !handle.is_focused(window) {
+                        return;
+                    }
+
+                    let Some(target) =
+                        keyboard_target_state(anchor, state, event.keystroke.key.as_str())
+                    else {
+                        return;
+                    };
+
+                    cx.stop_propagation();
+                    if target == SwipePanelState::Collapsed
+                        && event.keystroke.key.as_str() == "escape"
+                        && let Some(ref handle) = restore_focus_to
+                    {
+                        window.focus(handle, cx);
+                    }
+                    entity.update(cx, |model, cx| {
+                        model.set_state(target, window, cx);
+                    });
+                },
+            );
+        }
 
         // Handle bar.
         if self.props.show_handle {
@@ -555,5 +668,87 @@ mod tests {
         let expanded = panel.target_offset_for_state(SwipePanelState::Expanded, 400.0);
         assert!(collapsed < peek);
         assert!(peek < expanded);
+    }
+
+    #[test]
+    fn keyboard_target_state_steps_bottom_panel() {
+        assert_eq!(
+            keyboard_target_state(SwipePanelAnchor::Bottom, SwipePanelState::Collapsed, "up"),
+            Some(SwipePanelState::Peek)
+        );
+        assert_eq!(
+            keyboard_target_state(SwipePanelAnchor::Bottom, SwipePanelState::Peek, "up"),
+            Some(SwipePanelState::Expanded)
+        );
+        assert_eq!(
+            keyboard_target_state(SwipePanelAnchor::Bottom, SwipePanelState::Expanded, "down"),
+            Some(SwipePanelState::Peek)
+        );
+        assert_eq!(
+            keyboard_target_state(SwipePanelAnchor::Bottom, SwipePanelState::Peek, "down"),
+            Some(SwipePanelState::Collapsed)
+        );
+    }
+
+    #[test]
+    fn keyboard_target_state_steps_top_panel_by_physical_direction() {
+        assert_eq!(
+            keyboard_target_state(SwipePanelAnchor::Top, SwipePanelState::Collapsed, "down"),
+            Some(SwipePanelState::Peek)
+        );
+        assert_eq!(
+            keyboard_target_state(SwipePanelAnchor::Top, SwipePanelState::Peek, "down"),
+            Some(SwipePanelState::Expanded)
+        );
+        assert_eq!(
+            keyboard_target_state(SwipePanelAnchor::Top, SwipePanelState::Expanded, "up"),
+            Some(SwipePanelState::Peek)
+        );
+        assert_eq!(
+            keyboard_target_state(SwipePanelAnchor::Top, SwipePanelState::Peek, "up"),
+            Some(SwipePanelState::Collapsed)
+        );
+    }
+
+    #[test]
+    fn keyboard_target_state_handles_shortcuts() {
+        assert_eq!(
+            keyboard_target_state(SwipePanelAnchor::Bottom, SwipePanelState::Peek, "home"),
+            Some(SwipePanelState::Expanded)
+        );
+        assert_eq!(
+            keyboard_target_state(SwipePanelAnchor::Bottom, SwipePanelState::Expanded, "end"),
+            Some(SwipePanelState::Collapsed)
+        );
+        assert_eq!(
+            keyboard_target_state(
+                SwipePanelAnchor::Bottom,
+                SwipePanelState::Expanded,
+                "escape"
+            ),
+            Some(SwipePanelState::Collapsed)
+        );
+        assert_eq!(
+            keyboard_target_state(SwipePanelAnchor::Bottom, SwipePanelState::Peek, "space"),
+            Some(SwipePanelState::Expanded)
+        );
+        assert_eq!(
+            keyboard_target_state(SwipePanelAnchor::Bottom, SwipePanelState::Expanded, "tab"),
+            None
+        );
+    }
+
+    #[test]
+    fn swipe_panel_builder_records_keyboard_contract() {
+        let panel = SwipePanel::new("mobile-panel")
+            .anchor(SwipePanelAnchor::Top)
+            .state(SwipePanelState::Expanded)
+            .show_backdrop(false)
+            .on_state_change(|_, _, _| {});
+
+        assert_eq!(panel.anchor, SwipePanelAnchor::Top);
+        assert_eq!(panel.state, SwipePanelState::Expanded);
+        assert!(!panel.show_backdrop);
+        assert!(panel.on_state_change.is_some());
     }
 }

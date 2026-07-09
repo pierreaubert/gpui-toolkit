@@ -226,7 +226,7 @@ impl Menu {
 
         // Add focus styling if focus handle is provided
         if let Some(ref handle) = self.focus_handle {
-            menu = menu.track_focus(handle);
+            menu = menu.track_focus(handle).focusable();
         }
 
         // Pre-build the two possible hover closures once per render; both
@@ -361,7 +361,7 @@ impl Menu {
                             handler(window, cx);
                         }
                     }
-                    "enter" | " " => {
+                    "enter" | "space" | " " => {
                         // Select the focused item
                         if let Some(idx) = focused_index
                             && selectable_indices.contains(&idx)

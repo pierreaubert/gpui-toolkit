@@ -15,9 +15,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 static HSTACK_COUNTER: AtomicU64 = AtomicU64::new(1);
 
 fn next_hstack_id() -> ElementId {
-    ElementId::Name(
-        format!("hstack-{}", HSTACK_COUNTER.fetch_add(1, Ordering::Relaxed)).into(),
-    )
+    ElementId::Name(format!("hstack-{}", HSTACK_COUNTER.fetch_add(1, Ordering::Relaxed)).into())
 }
 
 /// A horizontal stack (row) layout

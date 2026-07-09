@@ -13,8 +13,13 @@
 
 use crate::ComponentTheme;
 use crate::theme::ThemeExt;
-use gpui::prelude::{InteractiveElement, IntoElement, ParentElement, RenderOnce, Styled};
-use gpui::{AnyElement, App, Div, ElementId, MouseButton, Pixels, Rgba, Window, div};
+use gpui::prelude::{
+    InteractiveElement, IntoElement, ParentElement, RenderOnce, StatefulInteractiveElement, Styled,
+};
+use gpui::{
+    AnyElement, App, Div, ElementId, FocusHandle, KeyDownEvent, MouseButton, Pixels, Rgba, Window,
+    div,
+};
 use std::rc::Rc;
 
 /// Popover placement relative to the anchor
@@ -64,6 +69,8 @@ pub struct Popover {
     content_factory: Option<PopoverSlotFactory>,
     width: Option<Pixels>,
     show_backdrop: bool,
+    focus_handle: Option<FocusHandle>,
+    restore_focus_to: Option<FocusHandle>,
     on_close: Option<Box<dyn Fn(&mut Window, &mut App) + 'static>>,
 }
 
@@ -77,6 +84,8 @@ impl Popover {
             content_factory: None,
             width: None,
             show_backdrop: true,
+            focus_handle: None,
+            restore_focus_to: None,
             on_close: None,
         }
     }
@@ -114,6 +123,18 @@ impl Popover {
         self
     }
 
+    /// Set the focus handle used for popover-level keyboard dismissal.
+    pub fn focus_handle(mut self, handle: FocusHandle) -> Self {
+        self.focus_handle = Some(handle);
+        self
+    }
+
+    /// Set the focus handle to restore before running the close callback.
+    pub fn restore_focus_to(mut self, handle: FocusHandle) -> Self {
+        self.restore_focus_to = Some(handle);
+        self
+    }
+
     /// Set close handler
     pub fn on_close(mut self, handler: impl Fn(&mut Window, &mut App) + 'static) -> Self {
         self.on_close = Some(Box::new(handler));
@@ -125,6 +146,8 @@ impl Popover {
     /// Returns a relatively-positioned container. The caller should place this
     /// as a child of the anchor element (which must also be `relative`).
     pub fn build_with_theme(self, theme: &PopoverTheme) -> Div {
+        let focus_handle = self.focus_handle.clone();
+        let restore_focus_to = self.restore_focus_to.clone();
         let on_close_rc: Option<Rc<dyn Fn(&mut Window, &mut App)>> =
             self.on_close.map(|f| Rc::from(f));
 
@@ -147,6 +170,10 @@ impl Popover {
             panel = panel.w(w);
         }
 
+        if let Some(ref handle) = focus_handle {
+            panel = panel.track_focus(handle).focusable();
+        }
+
         // Position based on placement
         panel = match self.placement {
             PopoverPlacement::Top => panel.bottom_full().left_0().mb_1(),
@@ -163,6 +190,25 @@ impl Popover {
             panel = panel.child(content);
         }
 
+        if let Some(handle) = focus_handle.clone()
+            && let Some(handler) = on_close_rc.clone()
+        {
+            let restore_focus_to = restore_focus_to.clone();
+            panel = panel.on_key_down(
+                move |event: &KeyDownEvent, window: &mut Window, cx: &mut App| {
+                    if !handle.is_focused(window) || event.keystroke.key.as_str() != "escape" {
+                        return;
+                    }
+
+                    cx.stop_propagation();
+                    if let Some(ref handle) = restore_focus_to {
+                        window.focus(handle, cx);
+                    }
+                    handler(window, cx);
+                },
+            );
+        }
+
         if self.show_backdrop {
             // Full-screen transparent backdrop behind popover
             let mut backdrop = div()
@@ -171,8 +217,12 @@ impl Popover {
                 .bg(theme.backdrop)
                 .on_scroll_wheel(|_event, _window, _cx| {});
 
-            if let Some(handler) = on_close_rc {
+            if let Some(handler) = on_close_rc.clone() {
+                let restore_focus_to = restore_focus_to.clone();
                 backdrop = backdrop.on_mouse_down(MouseButton::Left, move |_event, window, cx| {
+                    if let Some(ref handle) = restore_focus_to {
+                        window.focus(handle, cx);
+                    }
                     handler(window, cx);
                 });
             }
@@ -198,5 +248,25 @@ impl IntoElement for Popover {
 
     fn into_element(self) -> Self::Element {
         gpui::Component::new(self)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Popover, PopoverPlacement};
+    use gpui::px;
+
+    #[test]
+    fn popover_builder_records_keyboard_dismiss_contract() {
+        let popover = Popover::new("filters")
+            .placement(PopoverPlacement::BottomEnd)
+            .width(px(240.0))
+            .show_backdrop(false)
+            .on_close(|_, _| {});
+
+        assert_eq!(popover.placement, PopoverPlacement::BottomEnd);
+        assert_eq!(popover.width, Some(px(240.0)));
+        assert!(!popover.show_backdrop);
+        assert!(popover.on_close.is_some());
     }
 }

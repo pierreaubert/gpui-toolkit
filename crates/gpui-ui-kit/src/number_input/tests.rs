@@ -36,17 +36,19 @@ fn format_value_str_caches_result() {
     let unit: SharedString = "Hz".into();
 
     let first = state.format_value_str(440.0, 1, Some(&unit));
+    let first_cached = state.cached_value_ptr();
     let second = state.format_value_str(440.0, 1, Some(&unit));
 
     assert_eq!(first, "440.0 Hz");
-    // The cached SharedString should be the exact same allocation.
-    assert!(
-        std::ptr::eq(first.as_ref(), second.as_ref()),
-        "format_value_str should return the cached SharedString for identical params"
+    assert_eq!(second, first);
+    assert_eq!(
+        state.cached_value_ptr(),
+        first_cached,
+        "format_value_str should preserve the cached buffer for identical params"
     );
 
     // Changing any key field invalidates the cache.
     let third = state.format_value_str(440.0, 2, Some(&unit));
-    assert_ne!(first.as_ref(), third.as_ref());
+    assert_ne!(state.cached_value_ptr(), first_cached);
     assert_eq!(third, "440.00 Hz");
 }

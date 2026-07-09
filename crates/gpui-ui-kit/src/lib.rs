@@ -18,7 +18,9 @@ pub mod i18n;
 pub mod interaction;
 pub mod mobile;
 pub mod scale;
+pub mod security_surface;
 pub mod theme;
+pub mod visual_regression;
 
 // Core components
 pub mod button;
@@ -50,6 +52,7 @@ pub mod toggle;
 pub mod avatar;
 pub mod badge;
 pub mod collection_diff;
+pub mod data_navigation;
 pub mod empty_state;
 pub mod image_view;
 pub mod keyboard_shortcut_label;
@@ -114,9 +117,25 @@ pub use wizard::{
     StepStatus, Wizard, WizardHeader, WizardNavigation, WizardStep, WizardTheme, WizardVariant,
 };
 // Focus management
-pub use focus::{FocusDirection, FocusGroup, FocusGroupExt};
+pub use focus::{
+    FOCUS_INTEGRATION_REPORT_TYPE, FOCUS_INTEGRATION_SCHEMA_VERSION, FocusDirection, FocusGroup,
+    FocusGroupExt, FocusIntegrationEntry, FocusIntegrationReport, FocusIntegrationStatus,
+    focus_integration_entries, focus_integration_report,
+};
+pub use security_surface::{
+    SECURITY_SURFACE_REPORT_TYPE, SECURITY_SURFACE_SCHEMA_VERSION, SecuritySurfaceEntry,
+    SecuritySurfaceReport, SecuritySurfaceStatus, security_surface_entries,
+    security_surface_report,
+};
+pub use visual_regression::{
+    UI_KIT_VISUAL_COLOR_SCHEMES, UI_KIT_VISUAL_REGRESSION_REPORT_TYPE,
+    UI_KIT_VISUAL_REGRESSION_SCHEMA_VERSION, UI_KIT_VISUAL_STORIES, UI_KIT_VISUAL_VIEWPORTS,
+    UiKitVisualCapture, UiKitVisualColorScheme, UiKitVisualRegressionManifest, UiKitVisualStory,
+    UiKitVisualViewport, ui_kit_visual_regression_manifest, ui_kit_visual_stories,
+};
 // Notifications
 pub use alert::{Alert, AlertVariant, InlineAlert};
+pub use data_navigation::{DataNavigationAction, DataNavigationState, DataVirtualWindow, move_key};
 pub use toast::{Toast, ToastContainer, ToastPosition, ToastVariant};
 // Form
 pub use checkbox::{Checkbox, CheckboxSize, CheckboxTheme};
@@ -158,11 +177,11 @@ pub use pane_divider::{CollapseDirection, PaneDivider, PaneDividerTheme};
 pub use settings_form::{SettingsForm, SettingsFormTheme, SettingsRow};
 pub use sidebar::{Sidebar, SidebarSide, SidebarSlotFactory, SidebarTheme};
 pub use split_pane::{SplitDirection, SplitPane, SplitPaneTheme};
-pub use swipe_panel::{SwipePanel, SwipePanelAnchor, SwipePanelState};
 pub use stack::{
     Divider, HStack, Spacer, StackAlign, StackJustify, StackOverflow, StackSize, StackSpacing,
     VStack,
 };
+pub use swipe_panel::{SwipePanel, SwipePanelAnchor, SwipePanelState};
 // Status bar
 pub use status_bar::{StatusBar, StatusBarPosition, StatusBarTheme};
 // Animation
@@ -172,8 +191,15 @@ pub use animation::{
 };
 // Accessibility
 pub use accessibility::{
-    AccessibilityExt, AccessibilityNode, AccessibilityTree, AriaLive, AriaProps, AriaRole,
-    AriaState,
+    ACCESSIBILITY_ADAPTER_REPORT_TYPE, ACCESSIBILITY_ADAPTER_SCHEMA_VERSION,
+    ACCESSIBILITY_BRIDGE_REPORT_TYPE, ACCESSIBILITY_BRIDGE_SCHEMA_VERSION,
+    ACCESSIBILITY_READINESS_REPORT_TYPE, ACCESSIBILITY_READINESS_SCHEMA_VERSION,
+    AccessibilityBridgeNode, AccessibilityBridgeSnapshot, AccessibilityBridgeState,
+    AccessibilityBridgeValue, AccessibilityExt, AccessibilityNode, AccessibilityReadinessEntry,
+    AccessibilityReadinessReport, AccessibilityReadinessStatus, AccessibilityTree, AriaLive,
+    AriaProps, AriaRole, AriaState, NativeAccessibilityAction, NativeAccessibilityAdapterError,
+    NativeAccessibilityAdapterNode, NativeAccessibilityAdapterPayload, NativeAccessibilityTarget,
+    accessibility_readiness_entries, accessibility_readiness_report,
 };
 pub use collection_diff::{CollectionPatch, diff_by_key, is_content_only_update};
 pub use mobile::{

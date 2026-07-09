@@ -15,9 +15,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 static VSTACK_COUNTER: AtomicU64 = AtomicU64::new(1);
 
 fn next_vstack_id() -> ElementId {
-    ElementId::Name(
-        format!("vstack-{}", VSTACK_COUNTER.fetch_add(1, Ordering::Relaxed)).into(),
-    )
+    ElementId::Name(format!("vstack-{}", VSTACK_COUNTER.fetch_add(1, Ordering::Relaxed)).into())
 }
 
 /// A vertical stack (column) layout

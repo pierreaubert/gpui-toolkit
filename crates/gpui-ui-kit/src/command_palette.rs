@@ -15,10 +15,14 @@
 //! ```
 
 use crate::ComponentTheme;
+use crate::data_navigation::{DataNavigationAction, DataNavigationState};
 use crate::theme::ThemeExt;
-use gpui::prelude::{InteractiveElement, IntoElement, ParentElement, RenderOnce, Styled};
+use gpui::prelude::{
+    InteractiveElement, IntoElement, ParentElement, RenderOnce, StatefulInteractiveElement, Styled,
+};
 use gpui::{
-    App, Div, ElementId, FontWeight, MouseButton, Rgba, SharedString, Stateful, Window, div, px,
+    App, Div, ElementId, FocusHandle, FontWeight, KeyDownEvent, MouseButton, Rgba, SharedString,
+    Stateful, Window, div, px,
 };
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -196,7 +200,9 @@ pub struct CommandPalette {
     placeholder: SharedString,
     query: SharedString,
     selected_index: usize,
+    focus_handle: Option<FocusHandle>,
     max_visible: usize,
+    on_highlight_change: Option<Box<dyn Fn(usize, &mut Window, &mut App) + 'static>>,
     on_select: Option<Box<dyn Fn(SharedString, &mut Window, &mut App) + 'static>>,
     on_dismiss: Option<Box<dyn Fn(&mut Window, &mut App) + 'static>>,
 }
@@ -210,7 +216,9 @@ impl CommandPalette {
             placeholder: "Type a command...".into(),
             query: "".into(),
             selected_index: 0,
+            focus_handle: None,
             max_visible: 10,
+            on_highlight_change: None,
             on_select: None,
             on_dismiss: None,
         }
@@ -234,9 +242,24 @@ impl CommandPalette {
         self
     }
 
+    /// Set the focus handle used for keyboard navigation.
+    pub fn focus_handle(mut self, handle: FocusHandle) -> Self {
+        self.focus_handle = Some(handle);
+        self
+    }
+
     /// Set max visible items
     pub fn max_visible(mut self, max: usize) -> Self {
         self.max_visible = max;
+        self
+    }
+
+    /// Called when keyboard navigation highlights a different command.
+    pub fn on_highlight_change(
+        mut self,
+        handler: impl Fn(usize, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.on_highlight_change = Some(Box::new(handler));
         self
     }
 
@@ -290,11 +313,18 @@ impl CommandPalette {
     }
 
     /// Build with theme
-    pub fn build_with_theme(self, theme: &CommandPaletteTheme) -> Stateful<Div> {
+    pub fn build_with_theme(self, theme: &CommandPaletteTheme, cx: &mut App) -> Stateful<Div> {
         let palette_id = self.id.clone();
         let filtered = self.filtered_indices();
+        let focus_handle = self
+            .focus_handle
+            .clone()
+            .unwrap_or_else(|| cx.focus_handle());
         let hover_handler = palette_hover_handler(palette_id.clone(), theme.hover_bg);
         let dismiss_id = (palette_id.clone(), "backdrop");
+        let on_highlight_change = self.on_highlight_change.map(std::rc::Rc::new);
+        let on_select = self.on_select.map(std::rc::Rc::new);
+        let on_dismiss = self.on_dismiss.map(std::rc::Rc::new);
 
         // Backdrop
         let mut overlay = div()
@@ -306,10 +336,76 @@ impl CommandPalette {
             .items_center()
             .pt(px(80.0))
             .bg(theme.backdrop)
+            .track_focus(&focus_handle)
+            .focusable()
             .on_mouse_down(MouseButton::Left, |_event, _window, _cx| {});
 
+        if on_highlight_change.is_some() || on_select.is_some() || on_dismiss.is_some() {
+            let focus_handle_for_key = focus_handle.clone();
+            let selected_index = self.selected_index;
+            let filtered_for_key = filtered.clone();
+            let item_ids: Vec<SharedString> =
+                self.items.iter().map(|item| item.id.clone()).collect();
+            let disabled: Vec<bool> = self.items.iter().map(|item| item.disabled).collect();
+            let on_highlight_change_for_key = on_highlight_change.clone();
+            let on_select_for_key = on_select.clone();
+            let on_dismiss_for_key = on_dismiss.clone();
+
+            overlay = overlay.on_key_down(
+                move |event: &KeyDownEvent, window: &mut Window, cx: &mut App| {
+                    if !focus_handle_for_key.is_focused(window) {
+                        return;
+                    }
+
+                    let Some(action) = DataNavigationAction::from_key(event.keystroke.key.as_str())
+                    else {
+                        return;
+                    };
+
+                    match action {
+                        DataNavigationAction::Previous
+                        | DataNavigationAction::Next
+                        | DataNavigationAction::First
+                        | DataNavigationAction::Last => {
+                            let selected_visible_index = filtered_for_key
+                                .iter()
+                                .position(|index| *index == selected_index);
+                            if let Some(next_visible_index) =
+                                DataNavigationState::new(filtered_for_key.len())
+                                    .selected_index(selected_visible_index)
+                                    .move_selection(action)
+                                && let Some(&next_index) = filtered_for_key.get(next_visible_index)
+                                && next_index != selected_index
+                            {
+                                cx.stop_propagation();
+                                if let Some(ref handler) = on_highlight_change_for_key {
+                                    handler(next_index, window, cx);
+                                }
+                            }
+                        }
+                        DataNavigationAction::Activate => {
+                            if !disabled.get(selected_index).copied().unwrap_or(true)
+                                && let Some(id) = item_ids.get(selected_index).cloned()
+                                && let Some(ref handler) = on_select_for_key
+                            {
+                                cx.stop_propagation();
+                                handler(id, window, cx);
+                            }
+                        }
+                        DataNavigationAction::Dismiss => {
+                            if let Some(ref handler) = on_dismiss_for_key {
+                                cx.stop_propagation();
+                                handler(window, cx);
+                            }
+                        }
+                        _ => {}
+                    }
+                },
+            );
+        }
+
         // Dismiss on backdrop click
-        if let Some(handler) = self.on_dismiss {
+        if let Some(handler) = on_dismiss {
             overlay = overlay.on_mouse_up(MouseButton::Left, move |_event, window, cx| {
                 handler(window, cx);
             });
@@ -437,7 +533,7 @@ impl RenderOnce for CommandPalette {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let global_theme = cx.theme();
         let theme = CommandPaletteTheme::from(global_theme);
-        self.build_with_theme(&theme)
+        self.build_with_theme(&theme, cx)
     }
 }
 
@@ -451,7 +547,7 @@ impl IntoElement for CommandPalette {
 
 #[cfg(test)]
 mod tests {
-    use super::CommandItem;
+    use super::{CommandItem, CommandPalette};
 
     #[test]
     fn command_item_caches_lowercase_label() {
@@ -460,5 +556,26 @@ mod tests {
 
         let renamed = CommandItem::new("save", "Save").label("Save As...");
         assert_eq!(renamed.label_lower.as_ref(), "save as...");
+    }
+
+    #[test]
+    fn command_palette_builder_records_keyboard_navigation_handlers() {
+        let palette = CommandPalette::new(
+            "commands",
+            vec![
+                CommandItem::new("open", "Open File"),
+                CommandItem::new("save", "Save").disabled(true),
+            ],
+        )
+        .selected_index(1)
+        .on_highlight_change(|_, _, _| {})
+        .on_select(|_, _, _| {})
+        .on_dismiss(|_, _| {});
+
+        assert_eq!(palette.selected_index, 1);
+        assert!(palette.on_highlight_change.is_some());
+        assert!(palette.on_select.is_some());
+        assert!(palette.on_dismiss.is_some());
+        assert!(palette.items[1].disabled);
     }
 }

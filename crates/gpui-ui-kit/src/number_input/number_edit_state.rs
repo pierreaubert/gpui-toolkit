@@ -1,4 +1,5 @@
 use gpui::SharedString;
+use std::sync::Arc;
 
 /// Internal editing state for the number input
 #[derive(Clone, Default)]
@@ -14,7 +15,7 @@ pub(super) struct NumberEditState {
     /// Cache key for the last formatted value.
     last_format_key: Option<(f64, usize, Option<SharedString>)>,
     /// Cached formatted display value.
-    last_format_value: SharedString,
+    last_format_value: Option<Arc<str>>,
 }
 
 impl NumberEditState {
@@ -25,7 +26,7 @@ impl NumberEditState {
             cursor: value.chars().count(),
             text_selected: true,
             last_format_key: None,
-            last_format_value: SharedString::default(),
+            last_format_value: None,
         }
     }
 
@@ -34,6 +35,14 @@ impl NumberEditState {
         self.last_format_key
             .as_ref()
             .and_then(|(_, _, unit)| unit.as_ref())
+    }
+
+    /// Returns the cached formatted string buffer pointer for tests.
+    #[cfg(test)]
+    pub(super) fn cached_value_ptr(&self) -> Option<*const u8> {
+        self.last_format_value
+            .as_ref()
+            .map(|value| value.as_ref().as_ptr())
     }
 
     /// Format a numeric value as a display string, caching the result keyed by
@@ -50,24 +59,31 @@ impl NumberEditState {
             .last_format_key
             .as_ref()
             .map(|(last_value, last_decimals, last_unit)| {
-                *last_value == value && *last_decimals == decimals && last_unit.as_ref() == unit
+                let unit_matches = match (last_unit.as_ref(), unit) {
+                    (Some(last_unit), Some(unit)) => last_unit.as_str() == unit.as_str(),
+                    (None, None) => true,
+                    _ => false,
+                };
+                *last_value == value && *last_decimals == decimals && unit_matches
             })
             .unwrap_or(false);
 
         if cache_hit {
-            return self.last_format_value.clone();
+            if let Some(cached) = &self.last_format_value {
+                return SharedString::new(cached.clone());
+            }
         }
 
         let formatted = format!("{:.prec$}", value, prec = decimals);
-        let result: SharedString = if let Some(unit) = unit {
-            format!("{} {}", formatted, unit).into()
+        let result: Arc<str> = if let Some(unit) = unit {
+            Arc::from(format!("{} {}", formatted, unit))
         } else {
-            formatted.into()
+            Arc::from(formatted)
         };
 
         self.last_format_key = Some((value, decimals, unit.cloned()));
-        self.last_format_value = result.clone();
-        result
+        self.last_format_value = Some(result.clone());
+        SharedString::new(result)
     }
 
     pub(super) fn select_all(&mut self) {
@@ -285,12 +301,15 @@ mod tests {
         let first = state.format_value_str(440.0, 1, Some(&unit));
         assert_eq!(first, "440.0 Hz");
         assert_eq!(state.last_unit(), Some(&unit));
+        let first_cached = state.cached_value_ptr();
 
         let second = state.format_value_str(440.0, 1, Some(&unit));
-        assert!(std::ptr::eq(first.as_ref(), second.as_ref()));
+        assert_eq!(second, first);
+        assert_eq!(state.cached_value_ptr(), first_cached);
 
         let third = state.format_value_str(440.0, 1, None);
-        assert_ne!(first.as_ref(), third.as_ref());
+        assert_ne!(third, first);
+        assert_ne!(state.cached_value_ptr(), first_cached);
     }
 
     #[test]

@@ -38,9 +38,7 @@ pub type SlotFactory = Box<dyn FnOnce(&Theme) -> AnyElement>;
 static CARD_COUNTER: AtomicU64 = AtomicU64::new(1);
 
 fn next_card_id() -> ElementId {
-    ElementId::Name(
-        format!("card-{}", CARD_COUNTER.fetch_add(1, Ordering::Relaxed)).into(),
-    )
+    ElementId::Name(format!("card-{}", CARD_COUNTER.fetch_add(1, Ordering::Relaxed)).into())
 }
 
 /// A card container with optional sections
