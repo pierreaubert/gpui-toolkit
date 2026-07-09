@@ -51,6 +51,26 @@ use std::{
     sync::Arc,
 };
 
+fn keyboard_height_from_notification(notification: *mut Object) -> Option<f32> {
+    if notification.is_null() {
+        return None;
+    }
+
+    unsafe {
+        let user_info: *mut Object = msg_send![notification, userInfo];
+        if user_info.is_null() {
+            return None;
+        }
+        let frame_key = super::super::ns_string_from_str("UIKeyboardFrameEndUserInfoKey");
+        let frame_value: *mut Object = msg_send![user_info, objectForKey: frame_key];
+        if frame_value.is_null() {
+            return None;
+        }
+        let frame: core_graphics::geometry::CGRect = msg_send![frame_value, CGRectValue];
+        Some(frame.size.height as f32)
+    }
+}
+
 pub(crate) struct IosWindow {
     /// The UIWindow object
     pub(super) window: *mut Object,
@@ -463,34 +483,40 @@ impl IosWindow {
 
             let show_name = super::super::ns_string_from_str("UIKeyboardWillShowNotification");
             let hide_name = super::super::ns_string_from_str("UIKeyboardWillHideNotification");
+            let frame_name =
+                super::super::ns_string_from_str("UIKeyboardWillChangeFrameNotification");
+            let input_mode_name = super::super::ns_string_from_str(
+                "UITextInputCurrentInputModeDidChangeNotification",
+            );
 
-            // Block that fires when the keyboard appears — extracts the
+            // Block that fires when the keyboard appears. It extracts the
             // end-frame height and stores it in the global atomic.
             // The closure takes `*mut c_void` because block2 only encodes
             // C-ABI types; we cast back to `*mut Object` inside.
             let show_block = block2::RcBlock::new(move |notification: *mut c_void| {
-                let notification = notification as *mut Object;
-                if notification.is_null() {
-                    return;
+                if let Some(height) = keyboard_height_from_notification(notification as *mut Object)
+                {
+                    log::info!("GPUI iOS: Keyboard will show, height={}", height);
+                    crate::set_keyboard_height(height);
                 }
-                let user_info: *mut Object = msg_send![notification, userInfo];
-                if user_info.is_null() {
-                    return;
-                }
-                let frame_key = super::super::ns_string_from_str("UIKeyboardFrameEndUserInfoKey");
-                let frame_value: *mut Object = msg_send![user_info, objectForKey: frame_key];
-                if frame_value.is_null() {
-                    return;
-                }
-                let frame: core_graphics::geometry::CGRect = msg_send![frame_value, CGRectValue];
-                let height = frame.size.height as f32;
-                log::info!("GPUI iOS: Keyboard will show, height={}", height);
-                crate::set_keyboard_height(height);
             });
 
             let hide_block = block2::RcBlock::new(move |_notification: *mut c_void| {
                 log::info!("GPUI iOS: Keyboard will hide");
                 crate::set_keyboard_height(0.0);
+            });
+
+            let frame_block = block2::RcBlock::new(move |notification: *mut c_void| {
+                if let Some(height) = keyboard_height_from_notification(notification as *mut Object)
+                {
+                    log::info!("GPUI iOS: Keyboard frame changed, height={}", height);
+                    crate::set_keyboard_height(height);
+                }
+            });
+
+            let input_mode_block = block2::RcBlock::new(move |_notification: *mut c_void| {
+                log::info!("GPUI iOS: Keyboard input mode changed");
+                crate::dispatch_keyboard_layout_change();
             });
 
             let show_observer: *mut Object = msg_send![notification_center,
@@ -505,6 +531,18 @@ impl IosWindow {
                 queue: std::ptr::null::<Object>()
                 usingBlock: &*hide_block
             ];
+            let frame_observer: *mut Object = msg_send![notification_center,
+                addObserverForName: frame_name
+                object: std::ptr::null::<Object>()
+                queue: std::ptr::null::<Object>()
+                usingBlock: &*frame_block
+            ];
+            let input_mode_observer: *mut Object = msg_send![notification_center,
+                addObserverForName: input_mode_name
+                object: std::ptr::null::<Object>()
+                queue: std::ptr::null::<Object>()
+                usingBlock: &*input_mode_block
+            ];
 
             let mut observers = self.keyboard_observers.borrow_mut();
             if !show_observer.is_null() {
@@ -512,6 +550,12 @@ impl IosWindow {
             }
             if !hide_observer.is_null() {
                 observers.push(hide_observer);
+            }
+            if !frame_observer.is_null() {
+                observers.push(frame_observer);
+            }
+            if !input_mode_observer.is_null() {
+                observers.push(input_mode_observer);
             }
         }
     }

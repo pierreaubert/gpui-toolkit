@@ -13,6 +13,7 @@ mod dispatcher;
 mod display;
 mod events;
 pub mod ffi;
+mod keychain;
 mod platform;
 mod text_input;
 mod text_system;

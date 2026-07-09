@@ -222,6 +222,9 @@ View and Stage Manager.
 - `gpui_ios::{begin_metal_capture, end_metal_capture}` and
   `gpui_ios::instrumentation::emit_signpost(...)` expose debug hooks for
   Instruments-oriented tracing.
+- `gpui::Platform::{write_credentials, read_credentials, delete_credentials}`
+  are backed by iOS/tvOS Keychain internet-password items keyed by the GPUI
+  service URL.
 - `gpui_ios::hot_reload::HotReloadManifest` defines the simulator debug dylib
   reload manifest consumed by Swift shells.
 

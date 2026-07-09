@@ -268,19 +268,29 @@ impl Platform for IosPlatform {
         }
     }
 
-    fn write_credentials(&self, _url: &str, _username: &str, _password: &[u8]) -> Task<Result<()>> {
-        Task::ready(Err(anyhow!("Keychain not yet implemented for iOS")))
+    fn write_credentials(&self, url: &str, username: &str, password: &[u8]) -> Task<Result<()>> {
+        let url = url.to_string();
+        let username = username.to_string();
+        let password = password.to_vec();
+        self.background_executor()
+            .spawn(async move { super::keychain::write_credentials(&url, &username, &password) })
     }
 
-    fn read_credentials(&self, _url: &str) -> Task<Result<Option<(String, Vec<u8>)>>> {
-        Task::ready(Err(anyhow!("Keychain not yet implemented for iOS")))
+    fn read_credentials(&self, url: &str) -> Task<Result<Option<(String, Vec<u8>)>>> {
+        let url = url.to_string();
+        self.background_executor()
+            .spawn(async move { super::keychain::read_credentials(&url) })
     }
 
-    fn delete_credentials(&self, _url: &str) -> Task<Result<()>> {
-        Task::ready(Err(anyhow!("Keychain not yet implemented for iOS")))
+    fn delete_credentials(&self, url: &str) -> Task<Result<()>> {
+        let url = url.to_string();
+        self.background_executor()
+            .spawn(async move { super::keychain::delete_credentials(&url) })
     }
 
-    fn on_keyboard_layout_change(&self, _callback: Box<dyn FnMut()>) {}
+    fn on_keyboard_layout_change(&self, callback: Box<dyn FnMut()>) {
+        crate::set_keyboard_layout_change_callback(Some(callback));
+    }
 
     fn thermal_state(&self) -> ThermalState {
         ThermalState::Nominal

@@ -32,11 +32,13 @@ use std::cell::RefCell;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 type TextInputCallbackFn = Box<dyn FnMut(&str)>;
+type KeyboardLayoutCallbackFn = Box<dyn FnMut()>;
 
 pub static TEXT_INPUT_DIRTY: AtomicBool = AtomicBool::new(false);
 
 thread_local! {
     static TEXT_INPUT_CALLBACK: RefCell<Option<TextInputCallbackFn>> = RefCell::new(None);
+    static KEYBOARD_LAYOUT_CALLBACK: RefCell<Option<KeyboardLayoutCallbackFn>> = RefCell::new(None);
 }
 
 pub fn set_text_input_callback(callback: Option<TextInputCallbackFn>) {
@@ -49,6 +51,24 @@ pub fn dispatch_text_input(text: &str) -> bool {
     TEXT_INPUT_CALLBACK.with(|cb| {
         if let Some(callback) = cb.borrow_mut().as_mut() {
             callback(text);
+            TEXT_INPUT_DIRTY.store(true, Ordering::Release);
+            true
+        } else {
+            false
+        }
+    })
+}
+
+pub fn set_keyboard_layout_change_callback(callback: Option<KeyboardLayoutCallbackFn>) {
+    KEYBOARD_LAYOUT_CALLBACK.with(|cb| {
+        *cb.borrow_mut() = callback;
+    });
+}
+
+pub fn dispatch_keyboard_layout_change() -> bool {
+    KEYBOARD_LAYOUT_CALLBACK.with(|cb| {
+        if let Some(callback) = cb.borrow_mut().as_mut() {
+            callback();
             TEXT_INPUT_DIRTY.store(true, Ordering::Release);
             true
         } else {
@@ -119,6 +139,7 @@ pub fn set_keyboard_height(height: f32) {
     if (prev - height).abs() > 0.5 {
         KEYBOARD_HEIGHT_BITS.store(height.to_bits(), Ordering::Release);
         TEXT_INPUT_DIRTY.store(true, Ordering::Release);
+        dispatch_keyboard_layout_change();
     }
 }
 
@@ -178,3 +199,36 @@ pub mod ios;
 
 #[cfg(any(target_os = "ios", target_os = "tvos"))]
 pub use ios::{IosPlatform, current_platform};
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::{cell::Cell, rc::Rc};
+
+    #[test]
+    fn keyboard_layout_callback_dispatches_on_significant_height_changes() {
+        set_keyboard_height(0.0);
+        set_keyboard_layout_change_callback(None);
+
+        let calls = Rc::new(Cell::new(0));
+        let observed_height = Rc::new(Cell::new(0.0));
+        let calls_for_callback = calls.clone();
+        let height_for_callback = observed_height.clone();
+        set_keyboard_layout_change_callback(Some(Box::new(move || {
+            calls_for_callback.set(calls_for_callback.get() + 1);
+            height_for_callback.set(keyboard_height());
+        })));
+
+        set_keyboard_height(216.0);
+
+        assert_eq!(calls.get(), 1);
+        assert_eq!(observed_height.get(), 216.0);
+
+        set_keyboard_height(216.25);
+
+        assert_eq!(calls.get(), 1);
+
+        set_keyboard_layout_change_callback(None);
+        set_keyboard_height(0.0);
+    }
+}

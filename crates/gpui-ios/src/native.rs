@@ -188,6 +188,7 @@ pub enum NativeBridgeCapability {
     PencilHover,
     WidgetSnapshots,
     InstrumentsSignposts,
+    CredentialKeychain,
 }
 
 /// Current native bridge status for docs, debug panels, and CI snapshots.
@@ -208,6 +209,7 @@ impl NativeBridgeReport {
             NativeBridgeCapability::PencilHover,
             NativeBridgeCapability::WidgetSnapshots,
             NativeBridgeCapability::InstrumentsSignposts,
+            NativeBridgeCapability::CredentialKeychain,
         ])
     }
 
@@ -221,6 +223,7 @@ impl NativeBridgeReport {
             NativeBridgeCapability::PencilHover,
             NativeBridgeCapability::WidgetSnapshots,
             NativeBridgeCapability::InstrumentsSignposts,
+            NativeBridgeCapability::CredentialKeychain,
         ];
         let missing = all
             .into_iter()
@@ -334,6 +337,13 @@ mod tests {
 
     #[test]
     fn current_bridge_report_is_complete() {
-        assert!(NativeBridgeReport::current().is_complete());
+        let report = NativeBridgeReport::current();
+
+        assert!(report.is_complete());
+        assert!(
+            report
+                .implemented
+                .contains(&NativeBridgeCapability::CredentialKeychain)
+        );
     }
 }

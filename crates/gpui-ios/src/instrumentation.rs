@@ -88,13 +88,19 @@ fn now_unix_micros() -> u128 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    static SIGNPOST_TEST_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn signposts_and_capture_are_recorded() {
+        let _guard = SIGNPOST_TEST_LOCK.lock().unwrap();
         clear_signposts();
-        emit_signpost(IosSignpostCategory::Frame, "request");
-        assert_eq!(signpost_snapshot().len(), 1);
-        assert_eq!(signpost_snapshot()[0].name.as_ref(), "request");
+        emit_signpost(IosSignpostCategory::Frame, "unit-test-request");
+        assert!(signpost_snapshot().iter().any(|event| {
+            event.category == IosSignpostCategory::Frame
+                && event.name.as_ref() == "unit-test-request"
+        }));
 
         assert!(begin_metal_capture("unit-test"));
         assert!(!begin_metal_capture("second"));
@@ -105,11 +111,11 @@ mod tests {
 
     #[test]
     fn signpost_event_uses_arc_name() {
+        let _guard = SIGNPOST_TEST_LOCK.lock().unwrap();
         clear_signposts();
-        let name: Arc<str> = Arc::from("gpu-frame");
+        let name: Arc<str> = Arc::from("unit-test-gpu-frame");
         emit_signpost(IosSignpostCategory::Draw, Arc::clone(&name));
         let snapshot = signpost_snapshot();
-        assert_eq!(snapshot.len(), 1);
-        assert!(Arc::ptr_eq(&snapshot[0].name, &name));
+        assert!(snapshot.iter().any(|event| Arc::ptr_eq(&event.name, &name)));
     }
 }
