@@ -481,14 +481,12 @@ impl Platform for WindowsPlatform {
 
     fn hide(&self) {}
 
-    // todo(windows)
     fn hide_other_apps(&self) {
-        unimplemented!()
+        // No-op: Windows has no direct equivalent to macOS "Hide Others".
     }
 
-    // todo(windows)
     fn unhide_other_apps(&self) {
-        unimplemented!()
+        // No-op: Windows has no direct equivalent to macOS "Show All".
     }
 
     fn displays(&self) -> Vec<Rc<dyn PlatformDisplay>> {
