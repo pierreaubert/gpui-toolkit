@@ -1,13 +1,13 @@
 # rust
-/target
-/target-static
-/coverage
+target
+target-static
+coverage
 mutants.out
 
 # build
 /tools
-/dist
-/appimage-builder-*
+dist
+appimage-builder-*
 **/.gradle/
 **/build/
 crates/gpui-showcase/android/gradle/app/src/main/jniLibs/
@@ -35,6 +35,9 @@ crates/gpui-showcase/android/gradle/app/src/main/jniLibs/
 _site
 /README.html
 /README_files
+
+# python
+__pycache__
 
 # MCP and Agents
 /.chunkhound
