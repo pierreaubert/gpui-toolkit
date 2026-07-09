@@ -48,16 +48,16 @@ use std::{
     path::{Path, PathBuf},
     rc::Rc,
     sync::{
-        Arc,
         atomic::{AtomicBool, Ordering},
+        Arc,
     },
 };
 
 use super::{
-    AndroidBackend,
     dispatcher::AndroidDispatcher,
     display::{AndroidDisplay, DisplayList},
     window::{AndroidWindow, WindowList},
+    AndroidBackend,
 };
 use gpui_wgpu::GpuContext;
 
@@ -157,6 +157,12 @@ struct AndroidPlatformState {
 
     /// Called when the keyboard layout changes.
     keyboard_layout_callback: Option<Box<dyn FnMut() + Send>>,
+
+    /// Last known Android thermal state.
+    thermal_state: ThermalState,
+
+    /// Called when the Android thermal state changes.
+    thermal_state_callback: Option<Box<dyn FnMut() + Send>>,
 
     /// Called once when `MainEvent::InitWindow` has successfully created the
     /// native window.  This is where the user should set up their GPUI views.
@@ -412,6 +418,8 @@ impl AndroidPlatform {
                 reopen_callback: None,
                 open_urls_callback: None,
                 keyboard_layout_callback: None,
+                thermal_state: ThermalState::Nominal,
+                thermal_state_callback: None,
                 on_init_window_callback: None,
                 is_active: false,
                 headless,
@@ -800,22 +808,19 @@ impl AndroidPlatform {
     /// loop tick rather than setting up a full JNI callback bridge.  The
     /// callback is stored and invoked when the thermal state changes.
     fn register_thermal_listener(&self, callback: Box<dyn FnMut()>) {
-        // Store the callback — it will be invoked from `check_thermal_state`
-        // which is called periodically from the tick/poll loop.
-        //
-        // The actual thermal state query happens in `query_thermal_status_via_jni`.
-        // We store the callback and the last-known state; on each tick we
-        // re-query and fire the callback if the state changed.
-        //
-        // Note: A fully async approach would use `PowerManager.addThermalStatusListener`
-        // with a JNI callback proxy.  The polling approach is simpler and avoids
-        // the complexity of bridging Java→Rust callbacks.
+        // A fully async approach would use `PowerManager.addThermalStatusListener`
+        // with a JNI callback proxy. The polling approach is simpler and avoids
+        // the complexity of bridging Java-to-Rust callbacks.
         let send_callback: Box<dyn FnMut() + Send> =
             unsafe { std::mem::transmute::<Box<dyn FnMut()>, Box<dyn FnMut() + Send>>(callback) };
-        // For now we store it but the periodic check is not yet wired into
-        // the main tick.  The infrastructure is in place for future wiring.
-        let _ = send_callback;
-        log::debug!("register_thermal_listener: callback stored (polling not yet wired into tick)");
+
+        let current_state = self
+            .current_thermal_state_via_jni()
+            .unwrap_or(ThermalState::Nominal);
+        let mut state = self.state.lock();
+        state.thermal_state = current_state;
+        state.thermal_state_callback = Some(send_callback);
+        log::debug!("register_thermal_listener: polling thermal state from tick");
     }
 
     /// Query the current thermal status via JNI.
@@ -880,6 +885,45 @@ impl AndroidPlatform {
         .unwrap_or(-1)
     }
 
+    fn thermal_state_from_android_status(status: i32) -> Option<ThermalState> {
+        match status {
+            0 => Some(ThermalState::Nominal),
+            1 => Some(ThermalState::Fair),
+            2 | 3 => Some(ThermalState::Serious),
+            4..=6 => Some(ThermalState::Critical),
+            _ => None,
+        }
+    }
+
+    fn current_thermal_state_via_jni(&self) -> Option<ThermalState> {
+        Self::thermal_state_from_android_status(self.query_thermal_status_via_jni())
+    }
+
+    fn check_thermal_state(&self) {
+        let Some(next_thermal_state) = self.current_thermal_state_via_jni() else {
+            return;
+        };
+
+        let mut callback = {
+            let mut state = self.state.lock();
+            if state.thermal_state == next_thermal_state {
+                return;
+            }
+
+            state.thermal_state = next_thermal_state;
+            state.thermal_state_callback.take()
+        };
+
+        if let Some(mut callback) = callback.take() {
+            callback();
+
+            let mut state = self.state.lock();
+            if state.thermal_state_callback.is_none() {
+                state.thermal_state_callback = Some(callback);
+            }
+        }
+    }
+
     /// Preferred wgpu backend.
     pub fn preferred_backend(&self) -> AndroidBackend {
         self.state.lock().preferred_backend
@@ -931,7 +975,9 @@ impl AndroidPlatform {
     /// Should be called from the native-activity main loop on every iteration
     /// to process delayed background tasks.
     pub fn tick(&self) {
-        self.state.lock().dispatcher.tick();
+        let dispatcher = self.state.lock().dispatcher.clone();
+        dispatcher.tick();
+        self.check_thermal_state();
     }
 
     /// Drain all pending main-thread tasks synchronously.
@@ -1155,18 +1201,13 @@ impl Platform for AndroidPlatform {
     }
 
     fn thermal_state(&self) -> ThermalState {
-        ThermalState::Nominal
+        self.state.lock().thermal_state
     }
 
     fn on_thermal_state_change(&self, callback: Box<dyn FnMut()>) {
-        // Subscribe to Android thermal callbacks via PowerManager.
-        //
-        // On Android 29+ (Q), PowerManager provides `addThermalStatusListener`
-        // which delivers callbacks when the thermal state changes.  We spawn a
-        // background thread that registers the listener via JNI and relays the
-        // callback to the main thread via the dispatcher.
-        //
-        // For devices below API 29 this is a silent no-op.
+        // Poll `PowerManager.getCurrentThermalStatus()` from `tick()` and call
+        // back when the mapped GPUI thermal state changes. Devices below API 29
+        // or without a JNI environment keep the default nominal state.
         self.register_thermal_listener(callback);
     }
 
@@ -1544,11 +1585,10 @@ mod tests {
     #[test]
     fn credentials_missing_returns_none() {
         let p = headless();
-        assert!(
-            p.read_credentials("no-such-service", "user")
-                .unwrap()
-                .is_none()
-        );
+        assert!(p
+            .read_credentials("no-such-service", "user")
+            .unwrap()
+            .is_none());
     }
 
     // ── misc platform queries ─────────────────────────────────────────────────
@@ -1605,6 +1645,45 @@ mod tests {
         let p = headless();
         // Just confirm the text system can be retrieved without panicking.
         let _ts = p.text_system();
+    }
+
+    // ── thermal state ────────────────────────────────────────────────────────
+
+    #[test]
+    fn android_thermal_status_maps_to_gpui_state() {
+        assert_eq!(
+            AndroidPlatform::thermal_state_from_android_status(0),
+            Some(ThermalState::Nominal)
+        );
+        assert_eq!(
+            AndroidPlatform::thermal_state_from_android_status(1),
+            Some(ThermalState::Fair)
+        );
+        assert_eq!(
+            AndroidPlatform::thermal_state_from_android_status(2),
+            Some(ThermalState::Serious)
+        );
+        assert_eq!(
+            AndroidPlatform::thermal_state_from_android_status(3),
+            Some(ThermalState::Serious)
+        );
+        assert_eq!(
+            AndroidPlatform::thermal_state_from_android_status(4),
+            Some(ThermalState::Critical)
+        );
+        assert_eq!(
+            AndroidPlatform::thermal_state_from_android_status(6),
+            Some(ThermalState::Critical)
+        );
+        assert_eq!(AndroidPlatform::thermal_state_from_android_status(-1), None);
+        assert_eq!(AndroidPlatform::thermal_state_from_android_status(99), None);
+    }
+
+    #[test]
+    fn thermal_listener_is_retained() {
+        let p = headless();
+        p.register_thermal_listener(Box::new(|| {}));
+        assert!(p.state.lock().thermal_state_callback.is_some());
     }
 
     // ── open-URLs callback ────────────────────────────────────────────────────
