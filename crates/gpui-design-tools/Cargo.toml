@@ -8,6 +8,7 @@ categories.workspace = true
 description = "Design token and conformance tooling for gpui-toolkit"
 license.workspace = true
 repository.workspace = true
+readme = "README.md"
 
 [features]
 default = []

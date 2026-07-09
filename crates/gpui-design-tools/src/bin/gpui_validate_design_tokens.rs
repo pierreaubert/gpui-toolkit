@@ -7,16 +7,33 @@ use gpui_design_tools::{
 use std::path::PathBuf;
 
 #[derive(Parser)]
+#[command(
+    name = "gpui-validate-design-tokens",
+    about = "Validate GPUI design tokens and emit stable CI reports.",
+    long_about = "Validate GPUI design tokens in Style Dictionary JSON format. The JSON report uses the stable gpui-design-token-validation schema and is intended for CI, release gates, and downstream tooling."
+)]
 struct Args {
-    #[arg(short, long, default_value = "style-dictionary-json")]
+    #[arg(
+        short,
+        long,
+        default_value = "style-dictionary-json",
+        help = "Token wire format: style-dictionary-json, style_dictionary_json, or json"
+    )]
     format: String,
-    #[arg(short, long)]
+    #[arg(
+        short,
+        long,
+        help = "Validate this token JSON file instead of the built-in DesignSystem export"
+    )]
     input: Option<PathBuf>,
-    #[arg(long)]
+    #[arg(long, help = "Print the stable machine-readable JSON report to stdout")]
     json: bool,
-    #[arg(long)]
+    #[arg(
+        long,
+        help = "Write the stable machine-readable JSON report to this path"
+    )]
     report_json: Option<PathBuf>,
-    #[arg(long)]
+    #[arg(long, help = "Write a human-readable markdown report to this path")]
     report_markdown: Option<PathBuf>,
 }
 

@@ -7,6 +7,18 @@ use serde_json::Value;
 use std::borrow::Cow;
 use std::path::Path;
 
+/// Current schema version for `DesignTokenValidationReport` JSON output.
+pub const DESIGN_TOKEN_VALIDATION_REPORT_SCHEMA_VERSION: u32 = 1;
+
+/// Stable report discriminator for machine-readable validation output.
+pub const DESIGN_TOKEN_VALIDATION_REPORT_TYPE: &str = "gpui-design-token-validation";
+
+/// Current schema version for `DesignToolingHandoffReport` JSON output.
+pub const DESIGN_TOOLING_HANDOFF_REPORT_SCHEMA_VERSION: u32 = 1;
+
+/// Stable report discriminator for design handoff readiness output.
+pub const DESIGN_TOOLING_HANDOFF_REPORT_TYPE: &str = "gpui-design-tooling-handoff";
+
 /// Supported design token wire formats.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DesignTokenFormat {
@@ -36,12 +48,168 @@ pub struct ImportedDesignTokens {
 /// Validation report for token documents and design conformance.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct DesignTokenValidationReport {
+    pub schema_version: u32,
+    pub report_type: Cow<'static, str>,
     pub passed: bool,
     pub findings: Vec<Cow<'static, str>>,
     pub preset_count: usize,
     pub token_count: usize,
     pub conformance_markdown: String,
 }
+
+/// Release-readiness status for a design tooling handoff row.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum DesignToolingHandoffStatus {
+    Implemented,
+    Documented,
+    ExternalGate,
+}
+
+impl DesignToolingHandoffStatus {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Implemented => "implemented",
+            Self::Documented => "documented",
+            Self::ExternalGate => "external-gate",
+        }
+    }
+
+    pub fn is_release_blocking(self) -> bool {
+        !matches!(self, Self::Implemented | Self::Documented)
+    }
+}
+
+/// One design tooling handoff capability or artifact expected by release QA.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct DesignToolingHandoffItem {
+    pub id: &'static str,
+    pub title: &'static str,
+    pub artifact_type: &'static str,
+    pub path_or_command: &'static str,
+    pub status: DesignToolingHandoffStatus,
+    pub release_evidence: &'static str,
+    pub remaining_gap: &'static str,
+}
+
+impl DesignToolingHandoffItem {
+    pub fn is_release_blocking(&self) -> bool {
+        self.status.is_release_blocking()
+    }
+}
+
+/// Stable report describing design-token, Figma, and live-preview handoff state.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct DesignToolingHandoffReport {
+    pub schema_version: u32,
+    pub report_type: &'static str,
+    pub crate_name: &'static str,
+    pub crate_version: &'static str,
+    pub items: &'static [DesignToolingHandoffItem],
+}
+
+impl DesignToolingHandoffReport {
+    pub fn blocking_entries(&self) -> Vec<&'static DesignToolingHandoffItem> {
+        self.items
+            .iter()
+            .filter(|item| item.is_release_blocking())
+            .collect()
+    }
+
+    pub fn item(&self, id: &str) -> Option<&'static DesignToolingHandoffItem> {
+        self.items.iter().find(|item| item.id == id)
+    }
+
+    pub fn to_markdown(&self) -> String {
+        let mut output = String::from("# gpui-design-tools Handoff Readiness\n\n");
+        output.push_str(&format!(
+            "- schema_version: {}\n- report_type: `{}`\n- crate: `{}` {}\n\n",
+            self.schema_version, self.report_type, self.crate_name, self.crate_version
+        ));
+        output
+            .push_str("| id | status | artifact | path or command | evidence | remaining gap |\n");
+        output.push_str("| --- | --- | --- | --- | --- | --- |\n");
+        for item in self.items {
+            output.push_str(&format!(
+                "| `{}` | `{}` | {} | `{}` | {} | {} |\n",
+                item.id,
+                item.status.label(),
+                item.title,
+                item.path_or_command,
+                item.release_evidence,
+                item.remaining_gap,
+            ));
+        }
+        output
+    }
+}
+
+pub fn design_tooling_handoff_report() -> DesignToolingHandoffReport {
+    DesignToolingHandoffReport {
+        schema_version: DESIGN_TOOLING_HANDOFF_REPORT_SCHEMA_VERSION,
+        report_type: DESIGN_TOOLING_HANDOFF_REPORT_TYPE,
+        crate_name: env!("CARGO_PKG_NAME"),
+        crate_version: env!("CARGO_PKG_VERSION"),
+        items: DESIGN_TOOLING_HANDOFF_ITEMS,
+    }
+}
+
+pub const DESIGN_TOOLING_HANDOFF_ITEMS: &[DesignToolingHandoffItem] = &[
+    DesignToolingHandoffItem {
+        id: "token-export",
+        title: "Style Dictionary token export",
+        artifact_type: "cli-command",
+        path_or_command: "cargo run -p gpui-design-tools --bin gpui-export-design-tokens -- --format style-dictionary-json",
+        status: DesignToolingHandoffStatus::Implemented,
+        release_evidence: "DesignTokenExport::for_all_presets() serializes built-in presets with token names, paths, values, and token types.",
+        remaining_gap: "none for token handoff",
+    },
+    DesignToolingHandoffItem {
+        id: "token-import-validation",
+        title: "Imported token shape validation",
+        artifact_type: "cli-command",
+        path_or_command: "cargo run -p gpui-design-tools --bin gpui-import-design-tokens -- --input tokens.json",
+        status: DesignToolingHandoffStatus::Implemented,
+        release_evidence: "import_design_tokens() rejects missing presets, token arrays, names, paths, values, and token types.",
+        remaining_gap: "none for current Style Dictionary JSON shape",
+    },
+    DesignToolingHandoffItem {
+        id: "conformance-report",
+        title: "Machine-readable design conformance report",
+        artifact_type: "cli-command",
+        path_or_command: "cargo run -p gpui-design-tools --bin gpui-validate-design-tokens -- --report-json target/gpui-conformance/design-tokens.json",
+        status: DesignToolingHandoffStatus::Implemented,
+        release_evidence: "DesignTokenValidationReport exposes schema_version, report_type, pass/fail, findings, token counts, and optional Markdown.",
+        remaining_gap: "none for release-token validation",
+    },
+    DesignToolingHandoffItem {
+        id: "component-lab-preview",
+        title: "Responsive component preview handoff",
+        artifact_type: "companion-tool",
+        path_or_command: "cargo run -p gpui-component-lab",
+        status: DesignToolingHandoffStatus::Documented,
+        release_evidence: "gpui-component-lab owns responsive story metadata and visual manifest generation for design review.",
+        remaining_gap: "not a live Figma plugin or in-canvas data editor",
+    },
+    DesignToolingHandoffItem {
+        id: "figma-code-connect",
+        title: "Figma Code Connect mapping files",
+        artifact_type: "repository-artifact",
+        path_or_command: "figma/CODE_CONNECT_MAPPINGS.md",
+        status: DesignToolingHandoffStatus::Implemented,
+        release_evidence: "figma/CODE_CONNECT_MAPPINGS.md records schema-versioned component, token, and QA artifact mappings for static Figma handoff.",
+        remaining_gap: "external Figma Code Connect publication is still a release-runner artifact, not a missing repository mapping",
+    },
+    DesignToolingHandoffItem {
+        id: "live-preview-plugin",
+        title: "Live preview and token data editing",
+        artifact_type: "future-integration",
+        path_or_command: "external design-tool plugin or live preview bridge",
+        status: DesignToolingHandoffStatus::ExternalGate,
+        release_evidence: "Token CLI and component-lab previews provide static handoff but no live bidirectional design-tool session.",
+        remaining_gap: "implement Figma/live-preview bridge if Slint-level workflow parity is a release promise",
+    },
+];
 
 /// Export built-in `DesignSystem` presets as design tokens.
 pub fn export_design_tokens(format: DesignTokenFormat) -> Result<String> {
@@ -110,6 +278,8 @@ fn validate_raw_tokens(raw: &Value, render_markdown: bool) -> Result<DesignToken
     };
 
     Ok(DesignTokenValidationReport {
+        schema_version: DESIGN_TOKEN_VALIDATION_REPORT_SCHEMA_VERSION,
+        report_type: Cow::Borrowed(DESIGN_TOKEN_VALIDATION_REPORT_TYPE),
         passed: findings.is_empty(),
         findings,
         preset_count,
@@ -249,6 +419,8 @@ fn validate_design_token_export(
     };
 
     Ok(DesignTokenValidationReport {
+        schema_version: DESIGN_TOKEN_VALIDATION_REPORT_SCHEMA_VERSION,
+        report_type: Cow::Borrowed(DESIGN_TOKEN_VALIDATION_REPORT_TYPE),
         passed: findings.is_empty(),
         findings,
         preset_count,
@@ -353,6 +525,8 @@ mod tests {
     #[test]
     fn ensure_passed_respects_report_status() {
         let passing = DesignTokenValidationReport {
+            schema_version: DESIGN_TOKEN_VALIDATION_REPORT_SCHEMA_VERSION,
+            report_type: Cow::Borrowed(DESIGN_TOKEN_VALIDATION_REPORT_TYPE),
             passed: true,
             findings: Vec::new(),
             preset_count: 1,
@@ -362,6 +536,8 @@ mod tests {
         assert!(ensure_passed(&passing).is_ok());
 
         let failing = DesignTokenValidationReport {
+            schema_version: DESIGN_TOKEN_VALIDATION_REPORT_SCHEMA_VERSION,
+            report_type: Cow::Borrowed(DESIGN_TOKEN_VALIDATION_REPORT_TYPE),
             passed: false,
             findings: vec![Cow::Borrowed("bad")],
             preset_count: 0,
@@ -369,6 +545,151 @@ mod tests {
             conformance_markdown: String::new(),
         };
         assert!(ensure_passed(&failing).is_err());
+    }
+
+    #[test]
+    fn validation_report_json_contract_is_stable() {
+        let report =
+            validate_design_tokens("{}", DesignTokenFormat::StyleDictionaryJson, false).unwrap();
+        let json = serde_json::to_value(&report).unwrap();
+        let object = json.as_object().unwrap();
+        let keys: std::collections::BTreeSet<_> = object.keys().map(String::as_str).collect();
+
+        assert_eq!(
+            keys,
+            [
+                "schema_version",
+                "report_type",
+                "passed",
+                "findings",
+                "preset_count",
+                "token_count",
+                "conformance_markdown",
+            ]
+            .into_iter()
+            .collect()
+        );
+        assert_eq!(
+            json["schema_version"].as_u64(),
+            Some(DESIGN_TOKEN_VALIDATION_REPORT_SCHEMA_VERSION as u64)
+        );
+        assert_eq!(
+            json["report_type"].as_str(),
+            Some(DESIGN_TOKEN_VALIDATION_REPORT_TYPE)
+        );
+        assert_eq!(json["passed"].as_bool(), Some(false));
+        assert!(json["findings"].as_array().unwrap().len() >= 1);
+        assert_eq!(json["preset_count"].as_u64(), Some(0));
+        assert_eq!(json["token_count"].as_u64(), Some(0));
+        assert_eq!(json["conformance_markdown"].as_str(), Some(""));
+    }
+
+    #[test]
+    fn design_tooling_handoff_report_has_stable_contract() {
+        let report = design_tooling_handoff_report();
+
+        assert_eq!(
+            report.schema_version,
+            DESIGN_TOOLING_HANDOFF_REPORT_SCHEMA_VERSION
+        );
+        assert_eq!(report.report_type, DESIGN_TOOLING_HANDOFF_REPORT_TYPE);
+        assert_eq!(report.crate_name, "gpui-design-tools");
+        assert!(report.items.len() >= 6);
+        assert!(report.item("token-export").is_some());
+        assert!(report.item("figma-code-connect").is_some());
+
+        let mut ids = std::collections::HashSet::new();
+        assert!(report.items.iter().all(|item| ids.insert(item.id)));
+    }
+
+    #[test]
+    fn design_tooling_handoff_report_marks_local_and_external_gates() {
+        let report = design_tooling_handoff_report();
+
+        for id in [
+            "token-export",
+            "token-import-validation",
+            "conformance-report",
+            "figma-code-connect",
+        ] {
+            let item = report.item(id).expect("local handoff item should exist");
+            assert_eq!(item.status, DesignToolingHandoffStatus::Implemented);
+            assert!(!item.is_release_blocking());
+        }
+
+        let preview = report
+            .item("component-lab-preview")
+            .expect("component-lab preview row should exist");
+        assert_eq!(preview.status, DesignToolingHandoffStatus::Documented);
+        assert!(!preview.is_release_blocking());
+
+        let blocking_ids: std::collections::BTreeSet<_> = report
+            .blocking_entries()
+            .into_iter()
+            .map(|item| item.id)
+            .collect();
+        assert_eq!(blocking_ids, ["live-preview-plugin"].into_iter().collect());
+    }
+
+    #[test]
+    fn design_tooling_handoff_markdown_is_release_attachable() {
+        let markdown = design_tooling_handoff_report().to_markdown();
+
+        assert!(markdown.contains(DESIGN_TOOLING_HANDOFF_REPORT_TYPE));
+        assert!(markdown.contains("token-export"));
+        assert!(markdown.contains("figma-code-connect"));
+        assert!(markdown.contains("figma/CODE_CONNECT_MAPPINGS.md"));
+        assert!(markdown.contains("external-gate"));
+        assert!(markdown.contains("gpui-component-lab"));
+    }
+
+    #[test]
+    fn figma_code_connect_mapping_artifact_is_present() {
+        let mapping = include_str!("../../../figma/CODE_CONNECT_MAPPINGS.md");
+
+        assert!(mapping.contains("gpui-toolkit-figma-code-connect-mappings"));
+        assert!(mapping.contains("gpui_ui_kit::{Button, IconButton}"));
+        assert!(mapping.contains("gpui_design::DesignTokenExport"));
+        assert!(mapping.contains("ui_kit_visual_regression_manifest"));
+        assert!(mapping.contains("chart_visual_regression_manifest"));
+        assert!(mapping.contains("separate gates"));
+    }
+
+    #[test]
+    fn design_tooling_handoff_json_contract_is_stable() {
+        let report = design_tooling_handoff_report();
+        let json = serde_json::to_value(&report).unwrap();
+        let object = json.as_object().unwrap();
+        let keys: std::collections::BTreeSet<_> = object.keys().map(String::as_str).collect();
+
+        assert_eq!(
+            keys,
+            [
+                "schema_version",
+                "report_type",
+                "crate_name",
+                "crate_version",
+                "items",
+            ]
+            .into_iter()
+            .collect()
+        );
+        assert_eq!(
+            json["schema_version"].as_u64(),
+            Some(DESIGN_TOOLING_HANDOFF_REPORT_SCHEMA_VERSION as u64)
+        );
+        assert_eq!(
+            json["report_type"].as_str(),
+            Some(DESIGN_TOOLING_HANDOFF_REPORT_TYPE)
+        );
+        assert_eq!(json["items"][0]["status"].as_str(), Some("implemented"));
+        assert!(
+            json["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|item| item["status"].as_str() == Some("external-gate"))
+        );
     }
 
     #[test]
