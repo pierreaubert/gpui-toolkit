@@ -19,7 +19,13 @@ use super::story_document::StoryDocument;
 use super::story_renderer_kind::StoryRendererKind;
 use super::types::StoryPropValue;
 use super::types::reload_live_preview_state;
+use super::visual_regression_manifest::{
+    COMPONENT_LAB_VISUAL_DIFF_REPORT_TYPE, COMPONENT_LAB_VISUAL_DIFF_SCHEMA_VERSION,
+    COMPONENT_LAB_VISUAL_MANIFEST_SCHEMA_VERSION, ComponentLabVisualCase,
+    ComponentLabVisualDiffStatus, ComponentLabVisualManifest,
+};
 use gpui_design_tools::{DesignTokenFormat, DesignTokenValidationReport, export_design_tokens};
+use image::{Rgba, RgbaImage};
 use std::collections::BTreeSet;
 use std::time::SystemTime;
 
@@ -178,6 +184,152 @@ fn responsive_matrix_crosses_viewports_and_themes() {
 }
 
 #[test]
+fn visual_manifest_expands_renderer_backed_stories_for_ci_screenshots() {
+    let stories = builtin_story_registry().unwrap();
+    let renderers = builtin_story_renderers().unwrap();
+    let manifest =
+        ComponentLabVisualManifest::from_registries(&stories, &renderers, "target/lab-visual");
+
+    assert_eq!(
+        manifest.schema_version,
+        COMPONENT_LAB_VISUAL_MANIFEST_SCHEMA_VERSION
+    );
+    assert_eq!(manifest.case_count, manifest.cases.len());
+    assert!(manifest.case_count >= BUILTIN_RENDERER_STORY_IDS.len());
+
+    let button_cases = manifest
+        .cases
+        .iter()
+        .filter(|case| case.story_id == "ui-kit.button")
+        .collect::<Vec<_>>();
+    let button = stories.story("ui-kit.button").unwrap();
+    assert_eq!(
+        button_cases.len(),
+        button.viewports.len() * button.themes.len()
+    );
+    assert!(
+        button_cases
+            .iter()
+            .all(|case| case.capture_id.starts_with("ui-kit-button__"))
+    );
+    assert!(button_cases.iter().all(|case| {
+        case.baseline_path
+            .starts_with("target/lab-visual/baseline/")
+            && case.actual_path.starts_with("target/lab-visual/actual/")
+            && case.diff_path.starts_with("target/lab-visual/diff/")
+    }));
+
+    let showcase_cases = manifest
+        .cases
+        .iter()
+        .filter(|case| case.story_id == "ui-kit.table")
+        .collect::<Vec<_>>();
+    assert_eq!(showcase_cases.len(), 1);
+    assert_eq!(showcase_cases[0].renderer_kind, StoryRendererKind::Showcase);
+}
+
+#[test]
+fn visual_manifest_markdown_table_is_ci_attachable() {
+    let stories = builtin_story_registry().unwrap();
+    let renderers = builtin_story_renderers().unwrap();
+    let manifest =
+        ComponentLabVisualManifest::from_registries(&stories, &renderers, "target/lab-visual");
+    let markdown = manifest.to_markdown_table();
+
+    assert!(markdown.contains("| capture | story | viewport | theme | baseline | actual | diff |"));
+    assert!(markdown.contains("`ui-kit-button__"));
+    assert!(markdown.contains("target/lab-visual/baseline"));
+    assert!(markdown.contains("target/lab-visual/diff"));
+}
+
+#[test]
+fn visual_manifest_diff_compares_png_captures_and_writes_diff() {
+    let temp = tempfile::tempdir().unwrap();
+    let baseline_path = temp.path().join("baseline.png");
+    let actual_path = temp.path().join("actual.png");
+    let diff_path = temp.path().join("diff").join("case.png");
+
+    let baseline = RgbaImage::from_pixel(2, 2, Rgba([0, 0, 0, 255]));
+    baseline.save(&baseline_path).unwrap();
+    let mut actual = RgbaImage::from_pixel(2, 2, Rgba([0, 0, 0, 255]));
+    actual.put_pixel(1, 1, Rgba([255, 0, 0, 255]));
+    actual.save(&actual_path).unwrap();
+
+    let manifest = ComponentLabVisualManifest {
+        schema_version: COMPONENT_LAB_VISUAL_MANIFEST_SCHEMA_VERSION,
+        case_count: 1,
+        cases: vec![visual_case(&baseline_path, &actual_path, &diff_path)],
+    };
+
+    let report = manifest.diff_captures(0);
+    assert_eq!(
+        report.schema_version,
+        COMPONENT_LAB_VISUAL_DIFF_SCHEMA_VERSION
+    );
+    assert_eq!(report.report_type, COMPONENT_LAB_VISUAL_DIFF_REPORT_TYPE);
+    assert!(!report.passed);
+    assert_eq!(report.case_count, 1);
+    assert_eq!(report.compared_count, 1);
+    assert_eq!(report.failed_count, 1);
+    assert_eq!(
+        report.cases[0].status,
+        ComponentLabVisualDiffStatus::Different
+    );
+    assert_eq!(report.cases[0].changed_pixels, 1);
+    assert_eq!(report.cases[0].total_pixels, 4);
+    assert_eq!(report.cases[0].max_channel_delta, 255);
+    assert!(diff_path.exists());
+
+    let markdown = report.to_markdown_table();
+    assert!(markdown.contains(COMPONENT_LAB_VISUAL_DIFF_REPORT_TYPE));
+    assert!(markdown.contains("different"));
+}
+
+#[test]
+fn visual_manifest_diff_passes_with_threshold_and_reports_missing_actual() {
+    let temp = tempfile::tempdir().unwrap();
+    let baseline_path = temp.path().join("baseline.png");
+    let actual_path = temp.path().join("actual.png");
+    let missing_actual_path = temp.path().join("missing.png");
+    let diff_path = temp.path().join("diff").join("case.png");
+    let missing_diff_path = temp.path().join("diff").join("missing.png");
+
+    let baseline = RgbaImage::from_pixel(1, 1, Rgba([8, 8, 8, 255]));
+    baseline.save(&baseline_path).unwrap();
+    let actual = RgbaImage::from_pixel(1, 1, Rgba([9, 8, 8, 255]));
+    actual.save(&actual_path).unwrap();
+
+    let passing_manifest = ComponentLabVisualManifest {
+        schema_version: COMPONENT_LAB_VISUAL_MANIFEST_SCHEMA_VERSION,
+        case_count: 1,
+        cases: vec![visual_case(&baseline_path, &actual_path, &diff_path)],
+    };
+    let passing_report = passing_manifest.diff_captures(1);
+    assert!(passing_report.passed);
+    assert_eq!(passing_report.failed_count, 0);
+    assert_eq!(
+        passing_report.cases[0].status,
+        ComponentLabVisualDiffStatus::Passed
+    );
+
+    let missing_manifest = ComponentLabVisualManifest {
+        schema_version: COMPONENT_LAB_VISUAL_MANIFEST_SCHEMA_VERSION,
+        case_count: 1,
+        cases: vec![visual_case(
+            &baseline_path,
+            &missing_actual_path,
+            &missing_diff_path,
+        )],
+    };
+    let missing_report = missing_manifest.diff_captures(0);
+    assert!(!missing_report.passed);
+    assert_eq!(
+        missing_report.cases[0].status,
+        ComponentLabVisualDiffStatus::MissingActual
+    );
+}
+
+#[test]
 fn stories_include_motion_presets() {
     let registry = builtin_story_registry().unwrap();
     let story = registry.story("ui-kit.button").unwrap();
@@ -188,6 +340,28 @@ fn stories_include_motion_presets() {
             .iter()
             .any(|motion| motion.id == "reduced" && motion.reduced_motion)
     );
+}
+
+fn visual_case(
+    baseline_path: &std::path::Path,
+    actual_path: &std::path::Path,
+    diff_path: &std::path::Path,
+) -> ComponentLabVisualCase {
+    ComponentLabVisualCase {
+        capture_id: "fixture".to_string(),
+        story_id: "ui-kit.fixture".to_string(),
+        renderer_kind: StoryRendererKind::Component,
+        viewport_id: "desktop".to_string(),
+        viewport_width: 2,
+        viewport_height: 2,
+        theme_id: "light".to_string(),
+        design: "neutral".to_string(),
+        reduced_motion: false,
+        interactive: false,
+        baseline_path: baseline_path.to_string_lossy().to_string(),
+        actual_path: actual_path.to_string_lossy().to_string(),
+        diff_path: diff_path.to_string_lossy().to_string(),
+    }
 }
 
 #[test]
@@ -305,6 +479,10 @@ fn latest_rust_source_modified_ignores_target_dirs() {
 #[test]
 fn conformance_report_to_markdown_is_allocation_efficient() {
     let token_report = DesignTokenValidationReport {
+        schema_version: gpui_design_tools::DESIGN_TOKEN_VALIDATION_REPORT_SCHEMA_VERSION,
+        report_type: std::borrow::Cow::Borrowed(
+            gpui_design_tools::DESIGN_TOKEN_VALIDATION_REPORT_TYPE,
+        ),
         passed: true,
         findings: Vec::new(),
         preset_count: 2,
@@ -329,6 +507,10 @@ fn conformance_report_to_markdown_is_allocation_efficient() {
 #[test]
 fn ensure_conformance_passed_reports_failures() {
     let token_report = DesignTokenValidationReport {
+        schema_version: gpui_design_tools::DESIGN_TOKEN_VALIDATION_REPORT_SCHEMA_VERSION,
+        report_type: std::borrow::Cow::Borrowed(
+            gpui_design_tools::DESIGN_TOKEN_VALIDATION_REPORT_TYPE,
+        ),
         passed: true,
         findings: Vec::new(),
         preset_count: 1,

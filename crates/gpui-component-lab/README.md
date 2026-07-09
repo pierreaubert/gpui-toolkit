@@ -49,7 +49,18 @@ cargo run -p gpui-component-lab --bin gpui-component-lab -- \
   --conformance \
   --report-json target/gpui-conformance/component-lab.json \
   --report-markdown target/gpui-conformance/component-lab.md
+cargo run -p gpui-component-lab --bin gpui-component-lab -- \
+  --visual-manifest \
+  --visual-output-root target/gpui-component-lab/visual \
+  --visual-manifest-json target/gpui-component-lab/visual/manifest.json \
+  --visual-manifest-markdown target/gpui-component-lab/visual/manifest.md
 ```
+
+The visual manifest is display-server independent: it expands renderer-backed
+stories across their responsive preview matrices and writes deterministic
+baseline, actual, and diff image paths. CI screenshot runners can consume the
+JSON, capture each `actual_path`, compare it with `baseline_path`, and write the
+diff image to `diff_path`.
 
 Safe live preview launches the lab and uses in-process polling for story/token
 JSON:

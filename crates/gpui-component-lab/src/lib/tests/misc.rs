@@ -9,10 +9,16 @@ use super::super::story_registry::StoryRegistry;
 use super::super::theme_preset::ThemePreset;
 use super::super::types::StoryPropValue;
 use super::super::validate::validate_component_lab_conformance;
-use gpui_design_tools::DesignTokenValidationReport;
+use gpui_design_tools::{
+    DESIGN_TOKEN_VALIDATION_REPORT_SCHEMA_VERSION, DESIGN_TOKEN_VALIDATION_REPORT_TYPE,
+    DesignTokenValidationReport,
+};
+use std::borrow::Cow;
 
 fn passing_token_report() -> DesignTokenValidationReport {
     DesignTokenValidationReport {
+        schema_version: DESIGN_TOKEN_VALIDATION_REPORT_SCHEMA_VERSION,
+        report_type: Cow::Borrowed(DESIGN_TOKEN_VALIDATION_REPORT_TYPE),
         passed: true,
         findings: Vec::new(),
         preset_count: 4,

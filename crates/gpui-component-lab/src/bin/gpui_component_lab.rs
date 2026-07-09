@@ -2,7 +2,8 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use gpui_component_lab::lab_ui::{LabAppConfig, run_lab_app};
 use gpui_component_lab::{
-    ComponentLabConformanceReport, builtin_story_registry, ensure_component_lab_conformance_passed,
+    ComponentLabConformanceReport, ComponentLabVisualDiffReport, ComponentLabVisualManifest,
+    builtin_story_registry, builtin_story_renderers, ensure_component_lab_conformance_passed,
     latest_rust_source_modified, load_story_documents, validate_component_lab_conformance,
 };
 use gpui_design_tools::{
@@ -48,6 +49,30 @@ struct Args {
     /// Write conformance report Markdown.
     #[arg(long)]
     report_markdown: Option<PathBuf>,
+    /// Emit the visual-regression screenshot manifest as JSON.
+    #[arg(long)]
+    visual_manifest: bool,
+    /// Root used for generated baseline/actual/diff screenshot paths.
+    #[arg(long, default_value = "target/gpui-component-lab/visual")]
+    visual_output_root: PathBuf,
+    /// Write visual-regression manifest JSON.
+    #[arg(long)]
+    visual_manifest_json: Option<PathBuf>,
+    /// Write visual-regression manifest Markdown.
+    #[arg(long)]
+    visual_manifest_markdown: Option<PathBuf>,
+    /// Compare baseline and actual screenshots from the visual manifest.
+    #[arg(long)]
+    visual_diff: bool,
+    /// Maximum changed pixels allowed per capture.
+    #[arg(long, default_value_t = 0)]
+    visual_diff_max_changed_pixels: u64,
+    /// Emit visual-regression diff report as JSON.
+    #[arg(long)]
+    visual_diff_json: Option<PathBuf>,
+    /// Emit visual-regression diff report as Markdown.
+    #[arg(long)]
+    visual_diff_markdown: Option<PathBuf>,
 }
 
 fn main() -> Result<()> {
@@ -71,6 +96,47 @@ fn main() -> Result<()> {
         return ensure_component_lab_conformance_passed(&report);
     }
 
+    if args.visual_manifest
+        || args.visual_manifest_json.is_some()
+        || args.visual_manifest_markdown.is_some()
+        || args.visual_diff
+        || args.visual_diff_json.is_some()
+        || args.visual_diff_markdown.is_some()
+    {
+        let manifest = run_visual_manifest(&args.visual_output_root)?;
+        if args.visual_manifest
+            || args.visual_manifest_json.is_some()
+            || args.visual_manifest_markdown.is_some()
+        {
+            emit_visual_manifest(
+                &manifest,
+                args.visual_manifest,
+                args.visual_manifest_json.as_deref(),
+                args.visual_manifest_markdown.as_deref(),
+            )?;
+        }
+        if args.visual_diff
+            || args.visual_diff_json.is_some()
+            || args.visual_diff_markdown.is_some()
+        {
+            let report = manifest.diff_captures(args.visual_diff_max_changed_pixels);
+            emit_visual_diff(
+                &report,
+                args.visual_diff,
+                args.visual_diff_json.as_deref(),
+                args.visual_diff_markdown.as_deref(),
+            )?;
+            if !report.passed {
+                anyhow::bail!(
+                    "visual diff failed: {} of {} cases failed",
+                    report.failed_count,
+                    report.case_count
+                );
+            }
+        }
+        return Ok(());
+    }
+
     if args.json {
         let registry = builtin_story_registry()?;
         println!("{}", serde_json::to_string_pretty(&registry)?);
@@ -78,6 +144,16 @@ fn main() -> Result<()> {
     }
 
     run_lab_app(LabAppConfig::new(args.stories_dir, args.tokens).with_watch(args.watch))
+}
+
+fn run_visual_manifest(output_root: &Path) -> Result<ComponentLabVisualManifest> {
+    let stories = builtin_story_registry()?;
+    let renderers = builtin_story_renderers()?;
+    Ok(ComponentLabVisualManifest::from_registries(
+        &stories,
+        &renderers,
+        output_root,
+    ))
 }
 
 fn run_conformance(
@@ -144,6 +220,50 @@ fn emit_conformance_report(
     }
     if let Some(path) = report_markdown {
         write_report(path, report.to_markdown())?;
+    }
+
+    Ok(())
+}
+
+fn emit_visual_manifest(
+    manifest: &ComponentLabVisualManifest,
+    json_stdout: bool,
+    report_json: Option<&Path>,
+    report_markdown: Option<&Path>,
+) -> Result<()> {
+    if json_stdout {
+        println!("{}", serde_json::to_string_pretty(manifest)?);
+    } else {
+        println!("{}", manifest.to_markdown_table());
+    }
+
+    if let Some(path) = report_json {
+        write_report(path, serde_json::to_string_pretty(manifest)?)?;
+    }
+    if let Some(path) = report_markdown {
+        write_report(path, manifest.to_markdown_table())?;
+    }
+
+    Ok(())
+}
+
+fn emit_visual_diff(
+    report: &ComponentLabVisualDiffReport,
+    json_stdout: bool,
+    report_json: Option<&Path>,
+    report_markdown: Option<&Path>,
+) -> Result<()> {
+    if json_stdout {
+        println!("{}", serde_json::to_string_pretty(report)?);
+    } else {
+        println!("{}", report.to_markdown_table());
+    }
+
+    if let Some(path) = report_json {
+        write_report(path, serde_json::to_string_pretty(report)?)?;
+    }
+    if let Some(path) = report_markdown {
+        write_report(path, report.to_markdown_table())?;
     }
 
     Ok(())
