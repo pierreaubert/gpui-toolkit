@@ -20,18 +20,41 @@ Provides a structured way to define, register, and manage keyboard shortcuts in 
 ## Usage
 
 ```rust
+use gpui::KeyBinding;
 use gpui_keybinding::{
-    KeymapPreset, KeybindingProvider, KeybindingRegistry,
-    DocumentedKeybinding, KeybindingCategory,
+    DocumentedKeybinding, KeybindingCategory, KeybindingProvider, KeybindingRegistry,
+    KeymapPreset, format_key_label,
 };
 
 // Implement the provider trait for your app
 struct MyAppBindings;
 
 impl KeybindingProvider for MyAppBindings {
-    fn keybindings(&self, preset: KeymapPreset) -> Vec<DocumentedKeybinding> {
-        // Return bindings based on the active preset
-        vec![]
+    fn bindings(&self, preset: KeymapPreset) -> Vec<KeyBinding> {
+        match preset {
+            KeymapPreset::Default | KeymapPreset::VSCode => {
+                vec![KeyBinding::new("secondary-p", OpenPalette, None)]
+            }
+            KeymapPreset::Vim => vec![KeyBinding::new("space p", OpenPalette, None)],
+            KeymapPreset::Emacs => vec![KeyBinding::new("ctrl-x p", OpenPalette, None)],
+        }
+    }
+
+    fn documented_bindings(&self, preset: KeymapPreset) -> Vec<DocumentedKeybinding> {
+        let raw = match preset {
+            KeymapPreset::Default | KeymapPreset::VSCode => "secondary-p",
+            KeymapPreset::Vim => "space p",
+            KeymapPreset::Emacs => "ctrl-x p",
+        };
+
+        vec![
+            DocumentedKeybinding::new(
+                format_key_label(raw).into_owned(),
+                "Open command palette",
+                KeybindingCategory::View,
+            )
+            .with_raw_key_spec(raw),
+        ]
     }
 }
 
@@ -39,6 +62,7 @@ impl KeybindingProvider for MyAppBindings {
 let mut registry = KeybindingRegistry::new();
 registry.register(MyAppBindings);
 let bindings = registry.get_bindings(KeymapPreset::Default);
+let conflicts = registry.detect_conflicts(KeymapPreset::Default);
 ```
 
 ## Discovery UI Data
@@ -58,6 +82,60 @@ let matches = registry.search_command_palette(KeymapPreset::Default, "save");
 // Next-key hints after the user presses a chord prefix.
 let hints = registry.keybinding_hints(KeymapPreset::Default, "ctrl-k");
 ```
+
+## Conflict Resolution Workflow
+
+Every provider should return both executable `KeyBinding` values and matching
+`DocumentedKeybinding` entries. Keep the raw GPUI key spec in
+`DocumentedKeybinding::with_raw_key_spec()` so conflict detection groups by the
+actual binding instead of a platform-specific display label.
+
+Recommended release gate for each preset:
+
+```rust
+use gpui_keybinding::{KeybindingRegistry, KeymapPreset};
+
+fn assert_no_conflicts(registry: &KeybindingRegistry) {
+    for preset in [
+        KeymapPreset::Default,
+        KeymapPreset::Vim,
+        KeymapPreset::Emacs,
+        KeymapPreset::VSCode,
+    ] {
+        let conflicts = registry.detect_conflicts(preset);
+        assert!(
+            conflicts.is_empty(),
+            "{preset:?} keybinding conflicts: {conflicts:#?}",
+        );
+    }
+}
+```
+
+When a conflict appears, prefer this order:
+
+1. Give application-specific commands a narrower GPUI context if both commands
+   can share the same key in different views.
+2. Move less common commands behind a chord such as `secondary-k secondary-s`.
+3. Keep preset conventions intact. For example, do not steal Vim movement keys
+   in Vim mode for global app actions.
+4. Update the documented binding and command-palette entry in the same change
+   as the executable `KeyBinding`.
+
+## Platform Shortcut Policy
+
+Use GPUI's `secondary-` modifier for ordinary app shortcuts that should follow
+the host platform:
+
+| Raw key spec | macOS display | Windows/Linux display | Intended use |
+| --- | --- | --- | --- |
+| `secondary-s` | `⌘+S` | `Ctrl+S` | Save, open, find, palette, and other standard app commands |
+| `ctrl-s` | `Ctrl+S` | `Ctrl+S` | Literal Control shortcuts, terminal-style bindings, or Emacs presets |
+| `cmd-s` | `⌘+S` | `⌘+S` | macOS-specific docs or commands only |
+| `alt-left` | `Alt+←` | `Alt+←` | Cross-platform alternate navigation |
+
+Display labels should be produced with `format_key_label(raw_spec)` instead of
+handwritten strings. This keeps help surfaces, command palettes, and conflict
+reports aligned across macOS, Windows, and Linux.
 
 ## Built-in Presets
 

@@ -25,6 +25,7 @@ actions!(dashboard, [RefreshDashboard, ToggleSidebar]);
 use gpui::KeyBinding;
 use gpui_keybinding::{
     DocumentedKeybinding, KeybindingCategory, KeybindingProvider, KeymapPreset,
+    format_key_label,
 };
 
 struct DashboardBindings;
@@ -41,12 +42,21 @@ impl KeybindingProvider for DashboardBindings {
         }
     }
 
-    fn documented_bindings(&self, _: KeymapPreset) -> Vec<DocumentedKeybinding> {
-        vec![DocumentedKeybinding::new(
-            "Refresh",
-            "Refresh dashboard data",
-            KeybindingCategory::View,
-        )]
+    fn documented_bindings(&self, preset: KeymapPreset) -> Vec<DocumentedKeybinding> {
+        let refresh_key = match preset {
+            KeymapPreset::Default | KeymapPreset::VSCode => "secondary-r",
+            KeymapPreset::Vim => "r",
+            KeymapPreset::Emacs => "ctrl-r",
+        };
+
+        vec![
+            DocumentedKeybinding::new(
+                format_key_label(refresh_key).into_owned(),
+                "Refresh dashboard data",
+                KeybindingCategory::View,
+            )
+            .with_raw_key_spec(refresh_key),
+        ]
     }
 }
 ```
@@ -67,7 +77,42 @@ let conflicts = registry.detect_conflicts(KeymapPreset::Default);
 Bind the returned `KeyBinding` values in your GPUI app and display `docs` in a
 help surface or command palette.
 
-## 5. Verify
+## 5. Handle platform shortcuts
+
+Use `secondary-` for normal application shortcuts. GPUI maps it to Command on
+macOS and Control on Windows/Linux, while `format_key_label()` produces the
+matching user-facing label.
+
+Use literal `ctrl-`, `alt-`, and `cmd-` only when the command intentionally
+requires that physical modifier. This keeps default and VSCode-style presets
+platform-native while still allowing terminal-style and Emacs-style bindings.
+
+## 6. Resolve conflicts
+
+Run conflict detection for every preset before shipping a keymap:
+
+```rust
+for preset in [
+    KeymapPreset::Default,
+    KeymapPreset::Vim,
+    KeymapPreset::Emacs,
+    KeymapPreset::VSCode,
+] {
+    let conflicts = registry.detect_conflicts(preset);
+    assert!(
+        conflicts.is_empty(),
+        "{preset:?} keybinding conflicts: {conflicts:#?}",
+    );
+}
+```
+
+If two commands collide, first decide whether they should be separated by GPUI
+context. If they are both global commands, move the less common one behind a
+chord and update its `DocumentedKeybinding` in the same change. Keep
+`with_raw_key_spec()` populated so macOS `⌘+S` and Windows/Linux `Ctrl+S`
+display labels still compare as the same underlying `secondary-s` shortcut.
+
+## 7. Verify
 
 ```bash
 cargo test -p gpui-keybinding
