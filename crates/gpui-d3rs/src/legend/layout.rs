@@ -196,8 +196,8 @@ impl LegendLayout {
 
         let mut items = Vec::with_capacity(config.items.len());
         for (index, item) in config.items.iter().enumerate() {
-            let row = if columns == 0 { 0 } else { index / columns };
-            let column = if columns == 0 { 0 } else { index % columns };
+            let row = index.checked_div(columns).unwrap_or(0);
+            let column = index.checked_rem(columns).unwrap_or(0);
             let x = config.padding
                 + column_widths.iter().take(column).sum::<f64>()
                 + config.item_spacing * column as f64;

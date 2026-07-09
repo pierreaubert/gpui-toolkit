@@ -241,14 +241,8 @@ impl IsolineChart {
 
     /// Return structured accessibility metadata for this chart.
     pub fn accessibility_summary(&self) -> ChartAccessibilitySummary {
-        let x_range = self
-            .x_values
-            .as_ref()
-            .and_then(|values| finite_range(values));
-        let y_range = self
-            .y_values
-            .as_ref()
-            .and_then(|values| finite_range(values));
+        let x_range = self.x_values.as_ref().and_then(finite_range);
+        let y_range = self.y_values.as_ref().and_then(finite_range);
         let value_range = finite_range(&self.z);
         let title = self.title.clone();
         let name = title.as_deref().unwrap_or("Isoline chart");

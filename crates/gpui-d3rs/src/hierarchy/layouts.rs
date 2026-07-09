@@ -197,7 +197,7 @@ impl<T> TreemapLayout<T> {
         let (ix0, iy0, ix1, iy1) = inset_rect(x0, y0, x1, y1, self.padding);
         let total = positive_total(&children);
         let count = children.len() as f64;
-        let mut cursor = if depth % 2 == 0 { ix0 } else { iy0 };
+        let mut cursor = if depth.is_multiple_of(2) { ix0 } else { iy0 };
 
         for (index, child) in children.iter().enumerate() {
             let fraction = if total > 0.0 {
@@ -205,7 +205,7 @@ impl<T> TreemapLayout<T> {
             } else {
                 1.0 / count
             };
-            if depth % 2 == 0 {
+            if depth.is_multiple_of(2) {
                 let next = if index + 1 == children.len() {
                     ix1
                 } else {

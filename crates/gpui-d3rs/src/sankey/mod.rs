@@ -345,8 +345,8 @@ impl SankeyLayout {
         // Assign layers according to the configured alignment.
         let num_layers = max_depth + 1;
         let mut layer = vec![0usize; n];
-        for i in 0..n {
-            layer[i] = self
+        for (i, layer_slot) in layer.iter_mut().enumerate() {
+            *layer_slot = self
                 .aligned_layer(
                     i,
                     max_depth,
