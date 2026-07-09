@@ -59,6 +59,28 @@ impl VisualRegressionCase {
     pub fn output_path(&self) -> String {
         output_path(&self.story_id, &self.scenario_id, self.color_scheme)
     }
+
+    pub fn baseline_path(&self) -> String {
+        artifact_path(
+            "baseline",
+            &self.story_id,
+            &self.scenario_id,
+            self.color_scheme,
+        )
+    }
+
+    pub fn actual_path(&self) -> String {
+        artifact_path(
+            "actual",
+            &self.story_id,
+            &self.scenario_id,
+            self.color_scheme,
+        )
+    }
+
+    pub fn diff_path(&self) -> String {
+        artifact_path("diff", &self.story_id, &self.scenario_id, self.color_scheme)
+    }
 }
 
 impl Serialize for VisualRegressionCase {
@@ -66,7 +88,7 @@ impl Serialize for VisualRegressionCase {
     where
         S: Serializer,
     {
-        let mut state = serializer.serialize_struct("VisualRegressionCase", 8)?;
+        let mut state = serializer.serialize_struct("VisualRegressionCase", 11)?;
         state.serialize_field("id", &self.id)?;
         state.serialize_field("story_id", &self.story_id)?;
         state.serialize_field("scenario_id", &self.scenario_id)?;
@@ -74,6 +96,9 @@ impl Serialize for VisualRegressionCase {
         state.serialize_field("height", &self.height)?;
         state.serialize_field("color_scheme", &self.color_scheme)?;
         state.serialize_field("output_path", &self.output_path())?;
+        state.serialize_field("baseline_path", &self.baseline_path())?;
+        state.serialize_field("actual_path", &self.actual_path())?;
+        state.serialize_field("diff_path", &self.diff_path())?;
         state.serialize_field("solved_text", &self.solved_text)?;
         state.end()
     }
@@ -178,19 +203,21 @@ impl VisualRegressionManifest {
 
     pub fn to_markdown_table(&self) -> String {
         let mut output = String::from(
-            "| capture | story | scenario | size | scheme | output |\n\
-             | --- | --- | --- | ---: | --- | --- |\n",
+            "| capture | story | scenario | size | scheme | baseline | actual | diff |\n\
+             | --- | --- | --- | ---: | --- | --- | --- | --- |\n",
         );
         for case in &self.cases {
             output.push_str(&format!(
-                "| {} | {} | {} | {}x{} | {} | {} |\n",
+                "| {} | {} | {} | {}x{} | {} | {} | {} | {} |\n",
                 case.id,
                 case.story_id,
                 case.scenario_id,
                 format_number(case.width),
                 format_number(case.height),
                 case.color_scheme.as_str(),
-                case.output_path()
+                case.baseline_path(),
+                case.actual_path(),
+                case.diff_path()
             ));
         }
         output
@@ -202,7 +229,19 @@ fn capture_id(story_id: &str, scenario_id: &str, color_scheme: VisualColorScheme
 }
 
 fn output_path(story_id: &str, scenario_id: &str, color_scheme: VisualColorScheme) -> String {
-    format!("{story_id}/{scenario_id}/{}.png", color_scheme.as_str())
+    artifact_path("actual", story_id, scenario_id, color_scheme)
+}
+
+fn artifact_path(
+    kind: &str,
+    story_id: &str,
+    scenario_id: &str,
+    color_scheme: VisualColorScheme,
+) -> String {
+    format!(
+        "artifacts/gpui-builder/visual/{kind}/{story_id}/{scenario_id}/{}.png",
+        color_scheme.as_str()
+    )
 }
 
 #[cfg(test)]
@@ -241,6 +280,22 @@ mod tests {
         assert_eq!(manifest.cases.len(), 2);
         assert_eq!(manifest.cases[0].id, "player__phone__dark");
         assert!(manifest.to_markdown_table().contains("390x844"));
+        assert_eq!(
+            manifest.cases[0].baseline_path(),
+            "artifacts/gpui-builder/visual/baseline/player/phone/dark.png"
+        );
+        assert_eq!(
+            manifest.cases[0].actual_path(),
+            "artifacts/gpui-builder/visual/actual/player/phone/dark.png"
+        );
+        assert_eq!(
+            manifest.cases[0].output_path(),
+            manifest.cases[0].actual_path()
+        );
+        assert_eq!(
+            manifest.cases[0].diff_path(),
+            "artifacts/gpui-builder/visual/diff/player/phone/dark.png"
+        );
     }
 
     #[test]
@@ -313,5 +368,14 @@ mod tests {
         assert!(json.contains("player__phone__high_contrast"));
         assert!(json.contains("\"color_scheme\":\"high_contrast\""));
         assert!(json.contains("\"output_path\""));
+        assert!(json.contains("\"baseline_path\""));
+        assert!(json.contains("\"actual_path\""));
+        assert!(json.contains("\"diff_path\""));
+        assert!(json.contains("artifacts/gpui-builder/visual/diff/player/phone/high_contrast.png"));
+        assert!(
+            manifest
+                .to_markdown_table()
+                .contains("baseline/player/phone/high_contrast.png")
+        );
     }
 }

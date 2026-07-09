@@ -51,10 +51,23 @@ let report = solved.debug_report_with_source(&root);
 
 println!("{report}");
 assert!(report.is_clean());
+
+let summary = report.summary();
+println!("layout warnings: {}", summary.total);
+println!("{}", report.warnings_markdown_table());
 ```
 
 Reports flag suspicious output such as invalid sizes, hidden nodes without a
 collapse label, and visible children that overflow a parent axis.
+
+The structured warning API is intended for app debug panes and CI logs:
+
+- `LayoutDebugReport::summary()` groups warnings by stable category.
+- `LayoutDebugWarning::code()` returns stable ids such as
+  `main-axis-overflow` and `invalid-size`.
+- `LayoutDebugWarning::remediation()` gives a short author-facing fix hint.
+- `LayoutDebugReport::warnings_markdown_table()` emits a ready-to-attach
+  Markdown table with code, node id, diagnostic, and remediation columns.
 
 ## Layout Inspection
 
@@ -120,6 +133,26 @@ let coverage = manifest.validate_required_schemes(&[
 assert!(coverage.passed());
 println!("{}", manifest.to_markdown_table());
 ```
+
+## Benchmark Coverage
+
+Use `benchmark_report()` to expose the solver benchmark contract in release
+notes or CI artifacts. The report is schema-versioned, names the Criterion
+command to run, and lists every case covered by `benches/solved_tree.rs`:
+balanced and wide lookup paths, recursive versus flat traversal, and text
+measurement cache-hit solving.
+
+```rust
+use gpui_builder::benchmark_report;
+
+let report = benchmark_report();
+assert_eq!(report.report_type, "gpui-builder-benchmark-coverage");
+println!("{}", report.to_markdown_table());
+```
+
+The release baseline policy is to run
+`cargo bench -p gpui-builder --bench solved_tree` on the release machine and
+compare the same benchmark case ids across releases.
 
 ## Layout State
 

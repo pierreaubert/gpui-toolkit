@@ -161,6 +161,67 @@ fn debug_report_warns_for_invalid_hidden_and_overflowing_nodes() {
 }
 
 #[test]
+fn debug_report_summarizes_warning_counts_and_remediation() {
+    let solved = SolvedNode {
+        id: "root",
+        width: 100.0,
+        height: 40.0,
+        visible: true,
+        active_tier: None,
+        collapse_label: None,
+        resolved_axis: Some(Axis::Horizontal),
+        children: vec![
+            solved_slot("wide", 75.0, 45.0),
+            solved_slot("wider", 50.0, 20.0),
+            SolvedNode {
+                id: "ghost",
+                width: f32::NAN,
+                height: 0.0,
+                visible: false,
+                active_tier: None,
+                collapse_label: None,
+                resolved_axis: None,
+                children: Vec::new(),
+            },
+        ],
+    };
+
+    let report = solved.debug_report();
+    let summary = report.summary();
+
+    assert_eq!(summary.total, 4);
+    assert_eq!(summary.invalid_size, 1);
+    assert_eq!(summary.invisible_without_collapse_label, 1);
+    assert_eq!(summary.main_axis_overflow, 1);
+    assert_eq!(summary.cross_axis_overflow, 1);
+    assert!(!summary.is_clean());
+
+    let first = &report.warnings()[0];
+    assert_eq!(first.code(), "main-axis-overflow");
+    assert!(
+        first.remediation().contains("Reduce fixed/minimum sizes"),
+        "{}",
+        first.remediation()
+    );
+
+    let table = report.warnings_markdown_table();
+    assert!(table.contains("| code | node | diagnostic | remediation |"));
+    assert!(table.contains("`main-axis-overflow`"));
+    assert!(table.contains("`cross-axis-overflow`"));
+    assert!(table.contains("`invalid-size`"));
+    assert!(table.contains("`invisible-without-collapse-label`"));
+}
+
+#[test]
+fn clean_debug_report_has_empty_summary_and_plain_markdown_message() {
+    let solved = solved_slot("root", 100.0, 40.0);
+    let report = solved.debug_report();
+
+    assert!(report.summary().is_clean());
+    assert_eq!(report.warnings_markdown_table(), "No layout warnings.");
+}
+
+#[test]
 fn as_map_builds_flat_id_index() {
     let solved = SolvedNode {
         id: "root",

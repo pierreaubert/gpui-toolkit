@@ -21,6 +21,38 @@ pub struct LayoutDebugWarning<'a> {
     pub kind: LayoutDebugWarningKind<'a>,
 }
 
+impl LayoutDebugWarning<'_> {
+    /// Stable warning code for CI logs, docs, and UI filters.
+    pub fn code(&self) -> &'static str {
+        match self.kind {
+            LayoutDebugWarningKind::InvalidSize { .. } => "invalid-size",
+            LayoutDebugWarningKind::InvisibleWithoutCollapseLabel => {
+                "invisible-without-collapse-label"
+            }
+            LayoutDebugWarningKind::MainAxisOverflow { .. } => "main-axis-overflow",
+            LayoutDebugWarningKind::CrossAxisOverflow { .. } => "cross-axis-overflow",
+        }
+    }
+
+    /// Short remediation hint intended for app authors.
+    pub fn remediation(&self) -> &'static str {
+        match self.kind {
+            LayoutDebugWarningKind::InvalidSize { .. } => {
+                "Check sizing constraints for negative, NaN, or infinite values."
+            }
+            LayoutDebugWarningKind::InvisibleWithoutCollapseLabel => {
+                "Give collapsible hidden slots a label so users can restore them."
+            }
+            LayoutDebugWarningKind::MainAxisOverflow { .. } => {
+                "Reduce fixed/minimum sizes, add collapsible slots, or increase the container size."
+            }
+            LayoutDebugWarningKind::CrossAxisOverflow { .. } => {
+                "Constrain the child cross-axis size or let the parent grow on that axis."
+            }
+        }
+    }
+}
+
 impl fmt::Display for LayoutDebugWarning<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.kind {

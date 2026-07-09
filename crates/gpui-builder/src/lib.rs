@@ -49,6 +49,7 @@
 //! ```
 
 pub mod accessibility;
+pub mod benchmark_report;
 pub mod compat;
 #[macro_use]
 mod macros;
@@ -68,6 +69,10 @@ pub mod visual_regression;
 pub use accessibility::{
     AccessibilityMetadata, AccessibilityNode, AccessibilityRole, AccessibilityTree,
     accessibility_tree_from_solved,
+};
+pub use benchmark_report::{
+    BENCHMARK_REPORT_SCHEMA_VERSION, BENCHMARK_REPORT_TYPE, BenchmarkCase, BenchmarkReport,
+    benchmark_cases, benchmark_report,
 };
 pub use inspector::{
     ContainerInspection, DisplayTierInspection, LayoutInspection, LayoutInspectionKind,
