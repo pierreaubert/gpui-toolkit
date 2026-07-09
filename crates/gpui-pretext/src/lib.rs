@@ -36,6 +36,7 @@
 /// ```
 pub mod analysis;
 pub mod bidi;
+pub mod language_support;
 pub mod layout;
 #[allow(unused_assignments, unused_variables, unused_mut)]
 pub mod line_break;
@@ -44,6 +45,14 @@ pub mod rich_text;
 
 // Re-export the main public API at the crate root
 pub use analysis::{SegmentBreakKind, WhiteSpaceMode};
+pub use language_support::{
+    BENCHMARK_BASELINE_REPORT_TYPE, BENCHMARK_BASELINE_SCHEMA_VERSION, BenchmarkBaselineCase,
+    BenchmarkBaselineReport, LANGUAGE_SUPPORT_REPORT_TYPE, LANGUAGE_SUPPORT_SCHEMA_VERSION,
+    LOCALE_GOLDEN_REPORT_TYPE, LOCALE_GOLDEN_SCHEMA_VERSION, LanguageSupportLevel,
+    LanguageSupportNote, LanguageSupportReport, LocaleGoldenCase, LocaleGoldenReport,
+    PlatformTextComparator, benchmark_baseline_cases, benchmark_baseline_report,
+    language_support_notes, language_support_report, locale_golden_cases, locale_golden_report,
+};
 pub use layout::{
     LayoutCursor, LayoutLine, LayoutLineRange, LayoutLinesResult, LayoutResult, PrepareOptions,
     PrepareProfile, PreparedText, PreparedTextWithSegments, layout, layout_next_line,
