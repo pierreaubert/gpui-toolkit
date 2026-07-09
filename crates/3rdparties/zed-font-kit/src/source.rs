@@ -21,7 +21,13 @@ use crate::properties::Properties;
 use std::any::Any;
 
 #[cfg(all(
-    any(target_os = "macos", target_os = "ios", target_os = "tvos", target_os = "watchos", target_os = "visionos"),
+    any(
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "tvos",
+        target_os = "watchos",
+        target_os = "visionos"
+    ),
     not(feature = "loader-freetype-default")
 ))]
 pub use crate::sources::core_text::CoreTextSource as SystemSource;
@@ -32,7 +38,10 @@ pub use crate::sources::directwrite::DirectWriteSource as SystemSource;
         not(any(
             target_os = "android",
             target_os = "macos",
-            target_os = "ios", target_os = "tvos", target_os = "watchos", target_os = "visionos",
+            target_os = "ios",
+            target_os = "tvos",
+            target_os = "watchos",
+            target_os = "visionos",
             target_family = "windows",
             target_arch = "wasm32",
         )),
@@ -48,42 +57,103 @@ pub use crate::sources::fs::FsSource as SystemSource;
 pub use crate::sources::fs::FsSource as SystemSource;
 
 // FIXME(pcwalton): These could expand to multiple fonts, and they could be language-specific.
-#[cfg(any(target_family = "windows", target_os = "macos", target_os = "ios", target_os = "tvos", target_os = "watchos", target_os = "visionos"))]
+#[cfg(any(
+    target_family = "windows",
+    target_os = "macos",
+    target_os = "ios",
+    target_os = "tvos",
+    target_os = "watchos",
+    target_os = "visionos"
+))]
 const DEFAULT_FONT_FAMILY_SERIF: &'static str = "Times New Roman";
-#[cfg(any(target_family = "windows", target_os = "macos", target_os = "ios", target_os = "tvos", target_os = "watchos", target_os = "visionos"))]
+#[cfg(any(
+    target_family = "windows",
+    target_os = "macos",
+    target_os = "ios",
+    target_os = "tvos",
+    target_os = "watchos",
+    target_os = "visionos"
+))]
 const DEFAULT_FONT_FAMILY_SANS_SERIF: &'static str = "Arial";
 #[cfg(target_env = "ohos")]
 const DEFAULT_FONT_FAMILY_SANS_SERIF: &str = "HarmonyOS Sans";
-#[cfg(any(target_family = "windows", target_os = "macos", target_os = "ios", target_os = "tvos", target_os = "watchos", target_os = "visionos"))]
+#[cfg(any(
+    target_family = "windows",
+    target_os = "macos",
+    target_os = "ios",
+    target_os = "tvos",
+    target_os = "watchos",
+    target_os = "visionos"
+))]
 const DEFAULT_FONT_FAMILY_MONOSPACE: &'static str = "Courier New";
 #[cfg(target_env = "ohos")]
 const DEFAULT_FONT_FAMILY_MONOSPACE: &str = "HarmonyOS Sans";
-#[cfg(any(target_family = "windows", target_os = "macos", target_os = "ios", target_os = "tvos", target_os = "watchos", target_os = "visionos"))]
+#[cfg(any(
+    target_family = "windows",
+    target_os = "macos",
+    target_os = "ios",
+    target_os = "tvos",
+    target_os = "watchos",
+    target_os = "visionos"
+))]
 const DEFAULT_FONT_FAMILY_CURSIVE: &'static str = "Comic Sans MS";
 #[cfg(target_family = "windows")]
 const DEFAULT_FONT_FAMILY_FANTASY: &'static str = "Impact";
-#[cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos", target_os = "watchos", target_os = "visionos"))]
+#[cfg(any(
+    target_os = "macos",
+    target_os = "ios",
+    target_os = "tvos",
+    target_os = "watchos",
+    target_os = "visionos"
+))]
 const DEFAULT_FONT_FAMILY_FANTASY: &'static str = "Papyrus";
 
-#[cfg(not(any(target_family = "windows", target_os = "macos", target_os = "ios", target_os = "tvos", target_os = "watchos", target_os = "visionos")))]
+#[cfg(not(any(
+    target_family = "windows",
+    target_os = "macos",
+    target_os = "ios",
+    target_os = "tvos",
+    target_os = "watchos",
+    target_os = "visionos"
+)))]
 const DEFAULT_FONT_FAMILY_SERIF: &str = "serif";
 #[cfg(not(any(
     target_family = "windows",
     target_os = "macos",
-    target_os = "ios", target_os = "tvos", target_os = "watchos", target_os = "visionos",
+    target_os = "ios",
+    target_os = "tvos",
+    target_os = "watchos",
+    target_os = "visionos",
     target_env = "ohos"
 )))]
 const DEFAULT_FONT_FAMILY_SANS_SERIF: &str = "sans-serif";
 #[cfg(not(any(
     target_family = "windows",
     target_os = "macos",
-    target_os = "ios", target_os = "tvos", target_os = "watchos", target_os = "visionos",
+    target_os = "ios",
+    target_os = "tvos",
+    target_os = "watchos",
+    target_os = "visionos",
     target_env = "ohos"
 )))]
 const DEFAULT_FONT_FAMILY_MONOSPACE: &str = "monospace";
-#[cfg(not(any(target_family = "windows", target_os = "macos", target_os = "ios", target_os = "tvos", target_os = "watchos", target_os = "visionos")))]
+#[cfg(not(any(
+    target_family = "windows",
+    target_os = "macos",
+    target_os = "ios",
+    target_os = "tvos",
+    target_os = "watchos",
+    target_os = "visionos"
+)))]
 const DEFAULT_FONT_FAMILY_CURSIVE: &str = "cursive";
-#[cfg(not(any(target_family = "windows", target_os = "macos", target_os = "ios", target_os = "tvos", target_os = "watchos", target_os = "visionos")))]
+#[cfg(not(any(
+    target_family = "windows",
+    target_os = "macos",
+    target_os = "ios",
+    target_os = "tvos",
+    target_os = "watchos",
+    target_os = "visionos"
+)))]
 const DEFAULT_FONT_FAMILY_FANTASY: &str = "fantasy";
 
 /// A database of installed fonts that can be queried.
@@ -129,7 +199,22 @@ pub trait Source: Any {
         family_name: &FamilyName,
     ) -> Result<FamilyHandle, SelectionError> {
         match *family_name {
-            FamilyName::Title(ref title) => self.select_family_by_name(title),
+            FamilyName::Title(ref title) => match css_generic_title_alias(title) {
+                Some(FamilyName::Serif) => self.select_family_by_name(DEFAULT_FONT_FAMILY_SERIF),
+                Some(FamilyName::SansSerif) => {
+                    self.select_family_by_name(DEFAULT_FONT_FAMILY_SANS_SERIF)
+                }
+                Some(FamilyName::Monospace) => {
+                    self.select_family_by_name(DEFAULT_FONT_FAMILY_MONOSPACE)
+                }
+                Some(FamilyName::Cursive) => {
+                    self.select_family_by_name(DEFAULT_FONT_FAMILY_CURSIVE)
+                }
+                Some(FamilyName::Fantasy) => {
+                    self.select_family_by_name(DEFAULT_FONT_FAMILY_FANTASY)
+                }
+                Some(FamilyName::Title(_)) | None => self.select_family_by_name(title),
+            },
             FamilyName::Serif => self.select_family_by_name(DEFAULT_FONT_FAMILY_SERIF),
             FamilyName::SansSerif => self.select_family_by_name(DEFAULT_FONT_FAMILY_SANS_SERIF),
             FamilyName::Monospace => self.select_family_by_name(DEFAULT_FONT_FAMILY_MONOSPACE),
@@ -179,4 +264,120 @@ pub trait Source: Any {
     /// Accesses this `Source` as `Any`, which allows downcasting back to a concrete type from a
     /// trait object.
     fn as_mut_any(&mut self) -> &mut dyn Any;
+}
+
+fn css_generic_title_alias(title: &str) -> Option<FamilyName> {
+    let title = title.trim();
+    if title.eq_ignore_ascii_case("serif") || title.eq_ignore_ascii_case("ui-serif") {
+        Some(FamilyName::Serif)
+    } else if title.eq_ignore_ascii_case("sans-serif")
+        || title.eq_ignore_ascii_case("ui-sans-serif")
+        || title.eq_ignore_ascii_case("system-ui")
+        || title.eq_ignore_ascii_case("ui-rounded")
+    {
+        Some(FamilyName::SansSerif)
+    } else if title.eq_ignore_ascii_case("monospace") || title.eq_ignore_ascii_case("ui-monospace")
+    {
+        Some(FamilyName::Monospace)
+    } else if title.eq_ignore_ascii_case("cursive") {
+        Some(FamilyName::Cursive)
+    } else if title.eq_ignore_ascii_case("fantasy") {
+        Some(FamilyName::Fantasy)
+    } else {
+        None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::cell::RefCell;
+
+    struct RecordingSource {
+        requested_families: RefCell<Vec<String>>,
+    }
+
+    impl RecordingSource {
+        fn new() -> Self {
+            Self {
+                requested_families: RefCell::new(Vec::new()),
+            }
+        }
+
+        fn requested_families(&self) -> Vec<String> {
+            self.requested_families.borrow().clone()
+        }
+    }
+
+    impl Source for RecordingSource {
+        fn all_fonts(&self) -> Result<Vec<Handle>, SelectionError> {
+            Ok(Vec::new())
+        }
+
+        fn all_families(&self) -> Result<Vec<String>, SelectionError> {
+            Ok(Vec::new())
+        }
+
+        fn select_family_by_name(&self, family_name: &str) -> Result<FamilyHandle, SelectionError> {
+            self.requested_families
+                .borrow_mut()
+                .push(family_name.to_string());
+            Ok(FamilyHandle::new())
+        }
+
+        fn as_any(&self) -> &dyn Any {
+            self
+        }
+
+        fn as_mut_any(&mut self) -> &mut dyn Any {
+            self
+        }
+    }
+
+    #[test]
+    fn title_family_names_map_css_generic_aliases() {
+        let source = RecordingSource::new();
+
+        for title in [
+            "serif",
+            "SANS-SERIF",
+            "system-ui",
+            "ui-serif",
+            "ui-sans-serif",
+            "ui-monospace",
+            "ui-rounded",
+            " cursive ",
+            "fantasy",
+        ] {
+            source
+                .select_family_by_generic_name(&FamilyName::Title(title.to_string()))
+                .unwrap();
+        }
+
+        assert_eq!(
+            source.requested_families(),
+            vec![
+                DEFAULT_FONT_FAMILY_SERIF,
+                DEFAULT_FONT_FAMILY_SANS_SERIF,
+                DEFAULT_FONT_FAMILY_SANS_SERIF,
+                DEFAULT_FONT_FAMILY_SERIF,
+                DEFAULT_FONT_FAMILY_SANS_SERIF,
+                DEFAULT_FONT_FAMILY_MONOSPACE,
+                DEFAULT_FONT_FAMILY_SANS_SERIF,
+                DEFAULT_FONT_FAMILY_CURSIVE,
+                DEFAULT_FONT_FAMILY_FANTASY,
+            ]
+        );
+    }
+
+    #[test]
+    fn title_family_names_preserve_literal_non_generic_names() {
+        let source = RecordingSource::new();
+
+        source
+            .select_family_by_generic_name(&FamilyName::Title("SF Pro".to_string()))
+            .unwrap();
+
+        assert_eq!(source.requested_families(), vec!["SF Pro"]);
+    }
 }

@@ -29,9 +29,12 @@ features, and build behavior.
 ## Local Changes
 
 - Manifest uses workspace dependency pins for this repository.
-- Source-level differences from upstream are not yet documented. On the next
-  upgrade, compare this directory against Zed's `crates/gpui_windows` and add
-  any intentional source changes here.
+- `hide_other_apps` and `unhide_other_apps` intentionally no-op on Windows
+  instead of panicking, matching the absence of a direct Windows equivalent.
+- `gpui_toolkit::vendored_patch_manifest()` records this crate as an active
+  patch and repeats the retained-change list for release QA.
+- On upgrade, diff this directory against Zed's `crates/gpui_windows`; add any
+  newly retained source changes to this file and the manifest before release.
 
 ## Upgrade Procedure
 
@@ -39,6 +42,8 @@ features, and build behavior.
 2. Reapply workspace dependency pins and Windows feature choices.
 3. Diff local source files against upstream and document retained changes.
 4. Confirm the root `[patch]` still points to this directory.
+5. Update `gpui_toolkit::vendored_patch_manifest()` with the new upstream base,
+   retained changes, and verification gate.
 
 ## Verification
 
@@ -53,4 +58,3 @@ cargo check -p gpui-miniapp --target x86_64-pc-windows-msvc
 
 Unknown. Document source-level differences before deciding what should be
 upstreamed.
-

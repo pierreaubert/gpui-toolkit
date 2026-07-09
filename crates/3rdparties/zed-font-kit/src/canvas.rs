@@ -13,7 +13,6 @@
 use lazy_static::lazy_static;
 use pathfinder_geometry::rect::RectI;
 use pathfinder_geometry::vector::Vector2I;
-use std::cmp;
 use std::fmt;
 
 use crate::utils;
@@ -117,7 +116,12 @@ impl Canvas {
                 .blit_from_with::<BlitRgba32ToRgb24>(dst_rect, src_bytes, src_stride, src_format),
             (Format::Rgba32, Format::Rgb24) => self
                 .blit_from_with::<BlitRgb24ToRgba32>(dst_rect, src_bytes, src_stride, src_format),
-            (Format::Rgba32, Format::A8) | (Format::A8, Format::Rgba32) => unimplemented!(),
+            (Format::Rgba32, Format::A8) => {
+                self.blit_from_with::<BlitA8ToRgba32>(dst_rect, src_bytes, src_stride, src_format)
+            }
+            (Format::A8, Format::Rgba32) => {
+                self.blit_from_with::<BlitRgba32ToA8>(dst_rect, src_bytes, src_stride, src_format)
+            }
         }
     }
 
@@ -129,10 +133,6 @@ impl Canvas {
         src_size: Vector2I,
         src_stride: usize,
     ) {
-        if self.format != Format::A8 {
-            unimplemented!()
-        }
-
         let dst_rect = RectI::new(dst_point, src_size);
         let dst_rect = dst_rect.intersection(RectI::new(Vector2I::default(), self.size));
         let dst_rect = match dst_rect {
@@ -158,10 +158,27 @@ impl Canvas {
             let src_row_pixels = &src_bytes[src_row_start..src_row_end];
             for x in 0..src_row_stride {
                 let pattern = &BITMAP_1BPP_TO_8BPP_LUT[src_row_pixels[x] as usize];
-                let dest_start = x * 8;
-                let dest_end = cmp::min(dest_start + 8, dest_row_stride);
-                let src = &pattern[0..(dest_end - dest_start)];
-                dest_row_pixels[dest_start..dest_end].clone_from_slice(src);
+                for (bit, coverage) in pattern.iter().enumerate() {
+                    let pixel_x = x * 8 + bit;
+                    if pixel_x >= size.x() as usize {
+                        break;
+                    }
+                    let dest_start = pixel_x * dest_bytes_per_pixel;
+                    match self.format {
+                        Format::A8 => dest_row_pixels[dest_start] = *coverage,
+                        Format::Rgb24 => {
+                            dest_row_pixels[dest_start] = *coverage;
+                            dest_row_pixels[dest_start + 1] = *coverage;
+                            dest_row_pixels[dest_start + 2] = *coverage;
+                        }
+                        Format::Rgba32 => {
+                            dest_row_pixels[dest_start] = *coverage;
+                            dest_row_pixels[dest_start + 1] = *coverage;
+                            dest_row_pixels[dest_start + 2] = *coverage;
+                            dest_row_pixels[dest_start + 3] = 0xff;
+                        }
+                    }
+                }
             }
         }
     }
@@ -318,5 +335,93 @@ impl Blit for BlitRgb24ToRgba32 {
             dest[2] = src[2];
             dest[3] = 255;
         }
+    }
+}
+
+struct BlitA8ToRgba32;
+
+impl Blit for BlitA8ToRgba32 {
+    fn blit(dest: &mut [u8], src: &[u8]) {
+        for (dest, src) in dest.chunks_mut(4).zip(src.iter()) {
+            dest[0] = *src;
+            dest[1] = *src;
+            dest[2] = *src;
+            dest[3] = 255;
+        }
+    }
+}
+
+struct BlitRgba32ToA8;
+
+impl Blit for BlitRgba32ToA8 {
+    #[inline]
+    fn blit(dest: &mut [u8], src: &[u8]) {
+        // Match the existing RGB24 -> A8 conversion convention.
+        for (dest, src) in dest.iter_mut().zip(src.chunks(4)) {
+            *dest = src[1]
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn blit_converts_a8_to_rgba32_without_panicking() {
+        let src = [0, 64, 128, 255];
+        let mut canvas = Canvas::new(Vector2I::new(4, 1), Format::Rgba32);
+
+        canvas.blit_from(
+            Vector2I::default(),
+            &src,
+            Vector2I::new(4, 1),
+            src.len(),
+            Format::A8,
+        );
+
+        assert_eq!(
+            canvas.pixels,
+            vec![0, 0, 0, 255, 64, 64, 64, 255, 128, 128, 128, 255, 255, 255, 255, 255]
+        );
+    }
+
+    #[test]
+    fn blit_converts_rgba32_to_a8_without_panicking() {
+        let src = [10, 20, 30, 40, 50, 60, 70, 80];
+        let mut canvas = Canvas::new(Vector2I::new(2, 1), Format::A8);
+
+        canvas.blit_from(
+            Vector2I::default(),
+            &src,
+            Vector2I::new(2, 1),
+            src.len(),
+            Format::Rgba32,
+        );
+
+        assert_eq!(canvas.pixels, vec![20, 60]);
+    }
+
+    #[test]
+    fn blit_from_bitmap_1bpp_supports_all_canvas_formats() {
+        let src = [0b1010_0000];
+
+        let mut a8 = Canvas::new(Vector2I::new(4, 1), Format::A8);
+        a8.blit_from_bitmap_1bpp(Vector2I::default(), &src, Vector2I::new(4, 1), src.len());
+        assert_eq!(a8.pixels, vec![255, 0, 255, 0]);
+
+        let mut rgb = Canvas::new(Vector2I::new(4, 1), Format::Rgb24);
+        rgb.blit_from_bitmap_1bpp(Vector2I::default(), &src, Vector2I::new(4, 1), src.len());
+        assert_eq!(
+            rgb.pixels,
+            vec![255, 255, 255, 0, 0, 0, 255, 255, 255, 0, 0, 0]
+        );
+
+        let mut rgba = Canvas::new(Vector2I::new(4, 1), Format::Rgba32);
+        rgba.blit_from_bitmap_1bpp(Vector2I::default(), &src, Vector2I::new(4, 1), src.len());
+        assert_eq!(
+            rgba.pixels,
+            vec![255, 255, 255, 255, 0, 0, 0, 255, 255, 255, 255, 255, 0, 0, 0, 255]
+        );
     }
 }

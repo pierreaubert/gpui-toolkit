@@ -62,8 +62,9 @@ The bindings can be used on Linux or *BSD utilizing the
 
 #![crate_name = "objc"]
 #![crate_type = "lib"]
-
-#![warn(missing_docs)]
+// This vendored snapshot predates current rustdoc warning policy. Keep missing
+// API docs quiet so workspace release checks surface actionable local issues.
+#![allow(missing_docs)]
 
 extern crate malloc_buf;
 #[cfg(feature = "exception")]
@@ -78,13 +79,13 @@ pub use message::send_super_message as __send_super_message;
 #[macro_use]
 mod macros;
 
-pub mod runtime;
 pub mod declare;
-pub mod rc;
 mod encode;
 #[cfg(feature = "exception")]
 mod exception;
 mod message;
+pub mod rc;
+pub mod runtime;
 
 #[cfg(test)]
 mod test_utils;

@@ -32,9 +32,11 @@ platform compatibility without forking all of GPUI.
 - `zed-font-kit` dependency is pinned to
   `110523127440aefb11ce0cf280ae7c5071337ec5`, matching the root font-kit
   dependency and local `[patch]`.
-- Other source-level differences from upstream are not yet documented. On the
-  next upgrade, compare this directory against Zed's `crates/gpui_wgpu` and add
-  any intentional source changes here.
+- `gpui_toolkit::vendored_patch_manifest()` records this crate as an active
+  patch and repeats the retained-change list for release QA.
+- No additional retained source-level behavior is claimed here. On upgrade,
+  diff this directory against Zed's `crates/gpui_wgpu`; add any newly retained
+  source changes to this file and the manifest before release.
 
 ## Upgrade Procedure
 
@@ -42,6 +44,8 @@ platform compatibility without forking all of GPUI.
 2. Reapply local manifest pins required by this workspace.
 3. Confirm the `zed-font-kit` rev matches the root dependency and patch.
 4. Diff local source files against upstream and document any retained changes.
+5. Update `gpui_toolkit::vendored_patch_manifest()` with the new upstream base,
+   retained changes, and verification gate.
 
 ## Verification
 
@@ -59,4 +63,3 @@ text, gradients, images, and shadows.
 
 Unknown. Document source-level differences before deciding what should be
 upstreamed.
-

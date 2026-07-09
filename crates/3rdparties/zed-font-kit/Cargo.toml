@@ -143,3 +143,5 @@ features = [
     "winbase",
     "winnt",
 ]
+
+[workspace]
