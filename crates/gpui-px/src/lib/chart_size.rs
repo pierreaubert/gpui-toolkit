@@ -102,6 +102,7 @@ impl ChartSize {
     }
 }
 
+#[cfg(feature = "gpui")]
 pub(crate) fn apply_chart_size(mut el: gpui::Div, size: ChartSize) -> gpui::Div {
     use gpui::Styled as _;
 
@@ -123,21 +124,22 @@ pub(crate) fn apply_chart_size(mut el: gpui::Div, size: ChartSize) -> gpui::Div 
     el
 }
 
+#[cfg(feature = "gpui")]
 pub(crate) fn resolved_chart_dimensions(size: ChartSize) -> (f32, f32) {
     size.layout_dimensions()
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "gpui"))]
 pub(crate) fn assert_default_chart_size(size: ChartSize) {
     assert_eq!(size, ChartSize::default());
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "gpui"))]
 pub(crate) fn assert_fixed_chart_size(size: ChartSize, width: f32, height: f32) {
     assert_eq!(size, ChartSize::Fixed { width, height });
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "gpui"))]
 pub(crate) fn assert_fill_chart_size(
     size: ChartSize,
     min_width: f32,

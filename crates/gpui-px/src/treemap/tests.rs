@@ -4,7 +4,7 @@ use super::tile::tile_squarify;
 use super::tiling_method::treemap;
 use super::treemap_node::TreemapNode;
 use super::types::TilingMethod;
-use crate::error::ChartError;
+use crate::{StaticSvgOptions, error::ChartError};
 
 #[test]
 fn test_treemap_node_creation() {
@@ -303,6 +303,58 @@ fn test_treemap_color_scheme() {
         .color_scheme(d3rs::color::ColorScheme::category10())
         .build();
     assert!(result.is_ok());
+}
+
+#[test]
+fn treemap_static_export_writes_rects_labels_and_title() {
+    let root = TreemapNode::new("Root", 0.0)
+        .add_child(TreemapNode::new("East <A>", 30.0))
+        .add_child(TreemapNode::new("West", 70.0));
+
+    let svg = treemap(&root)
+        .title("tree <map>")
+        .padding(0.0)
+        .tiling_method(TilingMethod::Dice)
+        .to_svg_with_options(StaticSvgOptions::new(420.0, 260.0))
+        .expect("treemap svg export should succeed");
+
+    assert!(svg.contains("width=\"420\""));
+    assert!(svg.contains("tree &lt;map&gt;"));
+    assert!(svg.contains("class=\"gpui-px-treemap\""));
+    assert_eq!(svg.matches("<rect").count(), 3);
+    assert!(svg.contains("East &lt;A&gt;: 30.000"));
+    assert!(svg.contains(">West<"));
+    assert!(svg.contains("fill=\"#4e79a7\""));
+}
+
+#[test]
+fn treemap_static_export_preserves_root_validation_errors() {
+    let root = TreemapNode::new("Root", 0.0);
+    let result = treemap(&root).to_svg();
+
+    assert!(matches!(
+        result,
+        Err(ChartError::InvalidData {
+            field: "root",
+            reason: "Total value must be positive and finite"
+        })
+    ));
+}
+
+#[test]
+fn treemap_static_export_preserves_node_validation_errors() {
+    let root = TreemapNode::new("Root", 2.0)
+        .add_child(TreemapNode::new("A", 1.0))
+        .add_child(TreemapNode::new("B", -1.0));
+    let result = treemap(&root).to_svg();
+
+    assert!(matches!(
+        result,
+        Err(ChartError::InvalidData {
+            field: "node",
+            reason: "All node values must be finite and non-negative"
+        })
+    ));
 }
 
 #[test]

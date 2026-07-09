@@ -1,9 +1,10 @@
 use crate::error::ChartError;
 use crate::{
-    ChartSize, DEFAULT_COLOR, DEFAULT_HEIGHT, DEFAULT_TITLE_FONT_SIZE, DEFAULT_WIDTH, ScaleType,
-    TITLE_AREA_HEIGHT, apply_chart_size, default_design, extent_padded, resolved_chart_dimensions,
-    validate_data_array, validate_dimensions, validate_grid_dimensions, validate_monotonic,
-    validate_positive, validate_range, validate_range_log,
+    ChartAccessibilitySummary, ChartSize, DEFAULT_COLOR, DEFAULT_HEIGHT, DEFAULT_TITLE_FONT_SIZE,
+    DEFAULT_WIDTH, ScaleType, TITLE_AREA_HEIGHT, apply_chart_size, default_design, extent_padded,
+    finite_range, format_range, format_scale, resolved_chart_dimensions, validate_data_array,
+    validate_dimensions, validate_grid_dimensions, validate_monotonic, validate_positive,
+    validate_range, validate_range_log,
 };
 use d3rs::axis::{AxisConfig, DefaultAxisTheme, render_axis};
 use d3rs::color::D3Color;
@@ -19,6 +20,7 @@ use d3rs::text::{GlyphTextConfig, render_glyph_text};
 use gpui::prelude::*;
 use gpui::{AnyElement, IntoElement, div, hsla, px, rgb};
 use gpui_design::DesignSystem;
+use std::fmt::Write;
 use std::sync::Arc;
 
 /// Isoline chart builder (unfilled contour lines).
@@ -50,6 +52,237 @@ pub struct IsolineChart {
 }
 
 impl IsolineChart {
+    /// Export this isoline chart as deterministic SVG.
+    pub fn to_svg(&self) -> Result<String, ChartError> {
+        self.to_svg_with_options(crate::StaticSvgOptions::new(self.width, self.height))
+    }
+
+    /// Export this isoline chart as deterministic SVG with explicit export options.
+    pub fn to_svg_with_options(
+        &self,
+        options: crate::StaticSvgOptions,
+    ) -> Result<String, ChartError> {
+        validate_data_array(&self.z, "z")?;
+        validate_grid_dimensions(&self.z, self.grid_width, self.grid_height)?;
+        validate_dimensions(options.width, options.height)?;
+        crate::static_export::validate_plot_area(options)?;
+
+        let x_values = self.resolve_static_axis_values(
+            self.x_values.as_deref(),
+            self.grid_width,
+            self.x_scale_type,
+            "x",
+            "grid_width",
+            "log scale requires explicit positive x values",
+        )?;
+        let y_values = self.resolve_static_axis_values(
+            self.y_values.as_deref(),
+            self.grid_height,
+            self.y_scale_type,
+            "y",
+            "grid_height",
+            "log scale requires explicit positive y values",
+        )?;
+
+        if let Some([min, max]) = self.x_range {
+            if self.x_scale_type == ScaleType::Log {
+                validate_range_log(min, max, "x_range")?;
+            } else {
+                validate_range(min, max, "x_range")?;
+            }
+        }
+        if let Some([min, max]) = self.y_range {
+            if self.y_scale_type == ScaleType::Log {
+                validate_range_log(min, max, "y_range")?;
+            } else {
+                validate_range(min, max, "y_range")?;
+            }
+        }
+
+        let x_domain = self
+            .x_range
+            .map(|[min, max]| (min, max))
+            .unwrap_or_else(|| extent_padded(&x_values, 0.0));
+        let y_domain = self
+            .y_range
+            .map(|[min, max]| (min, max))
+            .unwrap_or_else(|| extent_padded(&y_values, 0.0));
+        let x_domain = if self.x_scale_type == ScaleType::Log {
+            (x_domain.0.max(1e-10), x_domain.1)
+        } else {
+            x_domain
+        };
+        let y_domain = if self.y_scale_type == ScaleType::Log {
+            (y_domain.0.max(1e-10), y_domain.1)
+        } else {
+            y_domain
+        };
+
+        let (z_min, z_max) = extent_padded(&self.z, 0.0);
+        let levels = self.levels.clone().unwrap_or_else(|| {
+            let n = 10;
+            (0..=n)
+                .map(|i| z_min + (z_max - z_min) * (i as f64) / (n as f64))
+                .collect()
+        });
+
+        let generator = ContourGenerator::new(self.grid_width, self.grid_height)
+            .x_values(x_values)
+            .y_values(y_values)
+            .upsample_factor(self.contour_upsample_factor)
+            .x_log_interpolation(self.x_scale_type == ScaleType::Log)
+            .y_log_interpolation(self.y_scale_type == ScaleType::Log);
+        let contours = generator.contours(&self.z, &levels);
+
+        let plot_left = options.margin_left;
+        let plot_top = options.margin_top;
+        let plot_right = options.width - options.margin_right;
+        let plot_bottom = options.height - options.margin_bottom;
+        if plot_right <= plot_left || plot_bottom <= plot_top {
+            return Err(ChartError::InvalidDimension {
+                field: "width",
+                value: options.width,
+            });
+        }
+
+        let mut svg = crate::static_export::svg_header(options);
+        crate::static_export::draw_title(&mut svg, self.title.as_deref(), options.width);
+        draw_static_isoline_axes(
+            &mut svg,
+            options,
+            x_domain,
+            y_domain,
+            self.x_scale_type,
+            self.y_scale_type,
+        );
+        svg.push_str("<g class=\"gpui-px-isoline\">\n");
+
+        let stroke = format!("#{:06x}", self.color & 0x00ff_ffff);
+        let opacity = self.opacity.clamp(0.0, 1.0);
+        let stroke_width = self.stroke_width.max(0.0);
+        for contour in &contours {
+            for ring in &contour.coordinates {
+                if ring.points.len() < 2 {
+                    continue;
+                }
+
+                let mut path = String::new();
+                for (index, point) in ring.points.iter().enumerate() {
+                    let x = map_static_axis_value(
+                        point.x,
+                        x_domain,
+                        self.x_scale_type,
+                        plot_left,
+                        plot_right,
+                    );
+                    let y = map_static_axis_value(
+                        point.y,
+                        y_domain,
+                        self.y_scale_type,
+                        plot_bottom,
+                        plot_top,
+                    );
+                    let command = if index == 0 { 'M' } else { 'L' };
+                    let _ = write!(path, "{command}{x:.2},{y:.2}");
+                }
+                if ring.is_closed() {
+                    path.push('Z');
+                }
+
+                let _ = writeln!(
+                    svg,
+                    "<path d=\"{path}\" fill=\"none\" stroke=\"{stroke}\" stroke-width=\"{stroke_width:.2}\" opacity=\"{opacity:.3}\"><title>level {:.3}</title></path>",
+                    contour.value
+                );
+            }
+        }
+
+        svg.push_str("</g>\n</svg>\n");
+        Ok(svg)
+    }
+
+    fn resolve_static_axis_values(
+        &self,
+        values: Option<&[f64]>,
+        expected_len: usize,
+        scale_type: ScaleType,
+        field: &'static str,
+        expected_field: &'static str,
+        log_auto_axis_reason: &'static str,
+    ) -> Result<Vec<f64>, ChartError> {
+        match values {
+            Some(values) => {
+                if values.len() != expected_len {
+                    return Err(ChartError::DataLengthMismatch {
+                        x_field: field,
+                        y_field: expected_field,
+                        x_len: values.len(),
+                        y_len: expected_len,
+                    });
+                }
+                validate_data_array(values, field)?;
+                validate_monotonic(values, field)?;
+                if scale_type == ScaleType::Log {
+                    validate_positive(values, field)?;
+                }
+                Ok(values.to_vec())
+            }
+            None => {
+                if scale_type == ScaleType::Log {
+                    return Err(ChartError::InvalidData {
+                        field,
+                        reason: log_auto_axis_reason,
+                    });
+                }
+                Ok((0..expected_len).map(|index| index as f64).collect())
+            }
+        }
+    }
+
+    /// Return structured accessibility metadata for this chart.
+    pub fn accessibility_summary(&self) -> ChartAccessibilitySummary {
+        let x_range = self
+            .x_values
+            .as_ref()
+            .and_then(|values| finite_range(values));
+        let y_range = self
+            .y_values
+            .as_ref()
+            .and_then(|values| finite_range(values));
+        let value_range = finite_range(&self.z);
+        let title = self.title.clone();
+        let name = title.as_deref().unwrap_or("Isoline chart");
+        let level_text = self.levels.as_ref().map_or_else(
+            || "automatic levels".to_string(),
+            |levels| format!("{} contour levels", levels.len()),
+        );
+        let description = format!(
+            "{name}: isoline chart with {} by {} cells, {} values, and {level_text}. {}, {}, {}. X scale {}, Y scale {}.",
+            self.grid_width,
+            self.grid_height,
+            self.z.len(),
+            format_range("X", x_range),
+            format_range("Y", y_range),
+            format_range("Value", value_range),
+            format_scale(self.x_scale_type),
+            format_scale(self.y_scale_type)
+        );
+
+        ChartAccessibilitySummary {
+            chart_type: "isoline",
+            title,
+            series_count: 1,
+            datum_count: self.z.len(),
+            x_range,
+            y_range,
+            value_range,
+            x_scale: Some(self.x_scale_type),
+            y_scale: Some(self.y_scale_type),
+            series_labels: vec!["Isoline values".to_string()],
+            description,
+        }
+    }
+
     /// Set custom x axis values.
     ///
     /// Values must be strictly monotonically increasing.
@@ -609,6 +842,101 @@ pub fn isoline(z: &[f64], grid_width: usize, grid_height: usize) -> IsolineChart
     }
 }
 
+fn draw_static_isoline_axes(
+    svg: &mut String,
+    options: crate::StaticSvgOptions,
+    x_domain: (f64, f64),
+    y_domain: (f64, f64),
+    x_scale_type: ScaleType,
+    y_scale_type: ScaleType,
+) {
+    if !options.show_axes {
+        return;
+    }
+
+    let plot_left = options.margin_left;
+    let plot_top = options.margin_top;
+    let plot_right = options.width - options.margin_right;
+    let plot_bottom = options.height - options.margin_bottom;
+    let axis_color = "#666";
+    let grid_color = "#e6e6e6";
+    for step in 0..=4 {
+        let t = step as f32 / 4.0;
+        let x = plot_left + (plot_right - plot_left) * t;
+        let y = plot_bottom + (plot_top - plot_bottom) * t;
+        let x_value = static_axis_tick_value(x_domain, x_scale_type, t as f64);
+        let y_value = static_axis_tick_value(y_domain, y_scale_type, t as f64);
+        let _ = writeln!(
+            svg,
+            "<line x1=\"{x:.2}\" y1=\"{plot_top:.2}\" x2=\"{x:.2}\" y2=\"{plot_bottom:.2}\" stroke=\"{grid_color}\" stroke-width=\"1\"/>",
+        );
+        let _ = writeln!(
+            svg,
+            "<line x1=\"{plot_left:.2}\" y1=\"{y:.2}\" x2=\"{plot_right:.2}\" y2=\"{y:.2}\" stroke=\"{grid_color}\" stroke-width=\"1\"/>",
+        );
+        let _ = writeln!(
+            svg,
+            "<text x=\"{x:.2}\" y=\"{:.2}\" text-anchor=\"middle\" font-family=\"system-ui, sans-serif\" font-size=\"10\" fill=\"{axis_color}\">{x_value:.3}</text>",
+            plot_bottom + 18.0
+        );
+        let _ = writeln!(
+            svg,
+            "<text x=\"{:.2}\" y=\"{y:.2}\" text-anchor=\"end\" font-family=\"system-ui, sans-serif\" font-size=\"10\" fill=\"{axis_color}\">{y_value:.3}</text>",
+            plot_left - 6.0
+        );
+    }
+
+    let _ = writeln!(
+        svg,
+        "<rect x=\"{plot_left:.2}\" y=\"{plot_top:.2}\" width=\"{:.2}\" height=\"{:.2}\" fill=\"none\" stroke=\"{axis_color}\" stroke-width=\"1\"/>",
+        plot_right - plot_left,
+        plot_bottom - plot_top
+    );
+}
+
+fn static_axis_tick_value(domain: (f64, f64), scale_type: ScaleType, t: f64) -> f64 {
+    match scale_type {
+        ScaleType::Linear => domain.0 + (domain.1 - domain.0) * t,
+        ScaleType::Log => {
+            let min = domain.0.log10();
+            let max = domain.1.log10();
+            10_f64.powf(min + (max - min) * t)
+        }
+    }
+}
+
+fn map_static_axis_value(
+    value: f64,
+    domain: (f64, f64),
+    scale_type: ScaleType,
+    range_start: f32,
+    range_end: f32,
+) -> f32 {
+    let value = match scale_type {
+        ScaleType::Linear => value,
+        ScaleType::Log => value.log10(),
+    };
+    let domain = match scale_type {
+        ScaleType::Linear => domain,
+        ScaleType::Log => (domain.0.log10(), domain.1.log10()),
+    };
+    map_static_linear(value, domain.0, domain.1, range_start, range_end)
+}
+
+fn map_static_linear(
+    value: f64,
+    domain_min: f64,
+    domain_max: f64,
+    range_start: f32,
+    range_end: f32,
+) -> f32 {
+    if domain_max == domain_min {
+        return (range_start + range_end) / 2.0;
+    }
+    let t = ((value - domain_min) / (domain_max - domain_min)).clamp(0.0, 1.0) as f32;
+    range_start + (range_end - range_start) * t
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -719,6 +1047,52 @@ mod tests {
     }
 
     #[test]
+    fn isoline_static_export_writes_paths_and_title() {
+        let z = vec![0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0];
+
+        let svg = isoline(&z, 3, 3)
+            .title("iso <lines>")
+            .levels(vec![0.5])
+            .color(0x123456)
+            .stroke_width(2.0)
+            .opacity(0.5)
+            .to_svg_with_options(crate::StaticSvgOptions::new(420.0, 260.0))
+            .expect("isoline svg export should succeed");
+
+        assert!(svg.contains("width=\"420\""));
+        assert!(svg.contains("iso &lt;lines&gt;"));
+        assert!(svg.contains("class=\"gpui-px-isoline\""));
+        assert!(svg.contains("<path"));
+        assert!(svg.contains("stroke=\"#123456\""));
+        assert!(svg.contains("stroke-width=\"2.00\""));
+        assert!(svg.contains("opacity=\"0.500\""));
+        assert!(svg.contains("level 0.500"));
+        assert!(!svg.contains("NaN"));
+        assert!(!svg.contains("inf"));
+    }
+
+    #[test]
+    fn isoline_static_export_supports_log_axes() {
+        let z = vec![0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0];
+        let x = vec![1.0, 10.0, 100.0];
+        let y = vec![1.0, 10.0, 100.0];
+
+        let svg = isoline(&z, 3, 3)
+            .x(&x)
+            .y(&y)
+            .x_scale(ScaleType::Log)
+            .y_scale(ScaleType::Log)
+            .levels(vec![0.5])
+            .to_svg()
+            .expect("isoline svg export with log axes should succeed");
+
+        assert!(svg.contains("class=\"gpui-px-isoline\""));
+        assert!(svg.contains("<path"));
+        assert!(!svg.contains("NaN"));
+        assert!(!svg.contains("inf"));
+    }
+
+    #[test]
     fn test_isoline_range_reversal_rejected() {
         let z = vec![1.0; 9];
         let result = isoline(&z, 3, 3).y_range(10.0, 0.0).build();
@@ -819,6 +1193,34 @@ mod tests {
         let z = vec![1.0; 9];
         let result = isoline(&z, 3, 3).x_scale(ScaleType::Log).build();
         assert!(matches!(result, Err(ChartError::InvalidData { .. })));
+    }
+
+    #[test]
+    fn isoline_static_export_preserves_log_axis_validation_errors() {
+        let z = vec![1.0; 9];
+        let result = isoline(&z, 3, 3).x_scale(ScaleType::Log).to_svg();
+
+        assert!(matches!(
+            result,
+            Err(ChartError::InvalidData {
+                field: "x",
+                reason: "log scale requires explicit positive x values"
+            })
+        ));
+    }
+
+    #[test]
+    fn isoline_static_export_preserves_range_validation_errors() {
+        let z = vec![1.0; 9];
+        let result = isoline(&z, 3, 3).y_range(10.0, 0.0).to_svg();
+
+        assert!(matches!(
+            result,
+            Err(ChartError::InvalidData {
+                field: "y_range",
+                reason: "range min must be less than max"
+            })
+        ));
     }
 
     #[test]

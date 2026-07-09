@@ -6,7 +6,7 @@ use std::sync::Arc;
 pub(super) type LineDataCache = Option<(Arc<[f64]>, Arc<[f64]>, Arc<[LinePoint]>)>;
 
 /// Position of the legend relative to the chart
-#[derive(Debug, Clone, Copy, Default, PartialEq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum LegendPosition {
     /// Legend on the right side of the chart (default)
     #[default]

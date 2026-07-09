@@ -1,5 +1,3 @@
-use d3rs::brush::{BrushConfig, BrushSelection};
-
 /// Clamp log-scale domain bounds to a small positive epsilon and ensure min < max.
 pub(super) fn clamp_log_domain(min: f64, max: f64) -> (f64, f64) {
     let epsilon = 1e-10;
@@ -22,8 +20,7 @@ pub(super) fn clamp_log_domain(min: f64, max: f64) -> (f64, f64) {
 
 #[cfg(feature = "gpui")]
 pub(super) mod gpui_render {
-    use super::*;
-
+    use d3rs::brush::{BrushConfig, BrushSelection};
     use d3rs::zoom::ZoomState;
     use gpui::prelude::*;
     use gpui::{IntoElement, div, hsla, px};

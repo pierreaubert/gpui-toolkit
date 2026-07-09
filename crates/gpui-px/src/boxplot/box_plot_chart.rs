@@ -1,8 +1,9 @@
 use super::box_stats::BoxStats;
 use crate::error::ChartError;
 use crate::{
-    ChartSize, DEFAULT_COLOR, DEFAULT_HEIGHT, DEFAULT_PADDING_FRACTION, DEFAULT_TITLE_FONT_SIZE,
-    DEFAULT_WIDTH, ScaleType, TITLE_AREA_HEIGHT, apply_chart_size, default_design, extent_padded,
+    ChartAccessibilitySummary, ChartSize, DEFAULT_COLOR, DEFAULT_HEIGHT, DEFAULT_PADDING_FRACTION,
+    DEFAULT_TITLE_FONT_SIZE, DEFAULT_WIDTH, ScaleType, TITLE_AREA_HEIGHT, apply_chart_size,
+    default_design, extent_padded, finite_range, format_range, format_scale,
     resolved_chart_dimensions, validate_data_array, validate_data_length, validate_dimensions,
     validate_positive,
 };
@@ -40,6 +41,71 @@ pub struct BoxPlotChart {
 }
 
 impl BoxPlotChart {
+    /// Export this box plot as deterministic SVG.
+    pub fn to_svg(&self) -> Result<String, ChartError> {
+        self.to_svg_with_options(crate::StaticSvgOptions::new(self.width, self.height))
+    }
+
+    /// Export this box plot as deterministic SVG with explicit export options.
+    pub fn to_svg_with_options(
+        &self,
+        options: crate::StaticSvgOptions,
+    ) -> Result<String, ChartError> {
+        crate::static_export::render_boxplot_svg(
+            self.title.as_deref(),
+            crate::static_export::StaticBoxPlotSeries {
+                x: &self.x,
+                y: &self.y,
+                x_scale_type: self.x_scale_type,
+                y_scale_type: self.y_scale_type,
+                num_bins: self.num_bins,
+                box_color: self.box_color,
+                median_color: self.median_color,
+                whisker_color: self.whisker_color,
+                outlier_color: self.outlier_color,
+                box_opacity: self.box_opacity,
+                box_width: self.box_width,
+                stroke_width: self.stroke_width,
+                outlier_radius: self.outlier_radius,
+            },
+            options,
+        )
+    }
+
+    /// Return structured accessibility metadata for this chart.
+    pub fn accessibility_summary(&self) -> ChartAccessibilitySummary {
+        let x_range = finite_range(self.x.iter());
+        let y_range = finite_range(self.y.iter());
+        let title = self.title.clone();
+        let name = title.as_deref().unwrap_or("Box plot");
+        let bins = self.num_bins.map_or_else(
+            || "automatic bins".to_string(),
+            |count| format!("{count} bins"),
+        );
+        let description = format!(
+            "{name}: box plot with {} observations grouped into {bins}. {}, {}. X scale {}, Y scale {}.",
+            self.y.len(),
+            format_range("X", x_range),
+            format_range("Y", y_range),
+            format_scale(self.x_scale_type),
+            format_scale(self.y_scale_type)
+        );
+
+        ChartAccessibilitySummary {
+            chart_type: "boxplot",
+            title,
+            series_count: 1,
+            datum_count: self.y.len(),
+            x_range,
+            y_range,
+            value_range: y_range,
+            x_scale: Some(self.x_scale_type),
+            y_scale: Some(self.y_scale_type),
+            series_labels: vec!["Box plot values".to_string()],
+            description,
+        }
+    }
+
     /// Set chart title (rendered at top of chart).
     pub fn title(mut self, title: impl Into<String>) -> Self {
         self.title = Some(title.into());

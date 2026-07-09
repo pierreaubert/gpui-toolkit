@@ -161,57 +161,121 @@
 //!     .build()?;
 //! ```
 
+#[cfg(feature = "gpui")]
 pub use area::{AreaChart, area};
+#[cfg(feature = "gpui")]
 pub use bar::{BarChart, BarTheme, bar};
+#[cfg(feature = "gpui")]
 pub use boxplot::{BoxPlotChart, boxplot};
 pub use color_scale::ColorScale;
+#[cfg(feature = "gpui")]
 pub use contour::{ContourChart, contour};
 pub use d3rs::color::D3Color;
 #[cfg(feature = "gpu-3d")]
 pub use d3rs::gpu3d::{Colormap, Surface3DState};
+#[cfg(feature = "gpui")]
 pub use d3rs::shape::{CurveType, StrokeDashArray};
 pub use error::ChartError;
+#[cfg(feature = "gpui")]
 pub use heatmap::{HeatmapChart, heatmap};
+#[cfg(feature = "gpui")]
 pub use isoline::{IsolineChart, isoline};
+#[cfg(feature = "gpui")]
 pub use line::{ChartTheme, LegendClickCallback, LegendPosition, LineChart, line};
+#[cfg(feature = "gpui")]
 pub use pie::{PieChart, donut, pie};
+#[cfg(feature = "gpui")]
 pub use scatter::{ScatterChart, ScatterTheme, scatter};
 #[cfg(feature = "gpu-3d")]
 pub use surface3d::{Surface3DChart, surface3d};
+#[cfg(feature = "gpui")]
 pub use treemap::{TilingMethod, Treemap, TreemapNode, treemap};
 
+#[cfg(feature = "gpui")]
 mod area;
+#[cfg(feature = "gpui")]
 mod bar;
+#[cfg(feature = "gpui")]
 mod boxplot;
 mod color_scale;
+#[cfg(feature = "gpui")]
 mod contour;
 mod error;
+#[cfg(feature = "gpui")]
 mod heatmap;
 pub mod interaction;
+#[cfg(feature = "gpui")]
 mod isoline;
+#[cfg(feature = "gpui")]
 mod line;
+#[cfg(feature = "gpui")]
 mod pie;
+#[cfg(feature = "gpui")]
 mod scatter;
 #[cfg(feature = "gpu-3d")]
 mod surface3d;
+#[cfg(feature = "gpui")]
 mod treemap;
 
+#[cfg(feature = "gpui")]
+#[path = "lib/accessibility.rs"]
+mod accessibility;
+#[cfg(feature = "gpui")]
+#[path = "lib/annotations.rs"]
+mod annotations;
+#[path = "lib/chart_capabilities.rs"]
+mod chart_capabilities;
 #[path = "lib/chart_size.rs"]
 mod chart_size;
 #[path = "lib/consts.rs"]
 mod consts;
+#[cfg(feature = "gpui")]
+#[path = "lib/legend.rs"]
+mod legend;
 #[path = "lib/misc.rs"]
 mod misc;
+#[cfg(feature = "gpui")]
+#[path = "lib/static_export.rs"]
+mod static_export;
 #[cfg(test)]
 #[path = "lib/tests.rs"]
 mod tests;
 #[path = "lib/types.rs"]
 mod types;
+#[cfg(any(feature = "gpui", test))]
 #[path = "lib/validate.rs"]
 mod validate;
+#[path = "lib/visual_regression.rs"]
+mod visual_regression;
 
+#[cfg(feature = "gpui")]
+pub use accessibility::ChartAccessibilitySummary;
+#[cfg(feature = "gpui")]
+pub(crate) use accessibility::{
+    finite_range, finite_range_owned, format_range, format_scale, indexed_label,
+};
+#[cfg(feature = "gpui")]
+pub use annotations::{ChartAnnotation, ChartAnnotationSummary, ChartAnnotationTarget};
+pub use chart_capabilities::{
+    CHART_CAPABILITY_REPORT_TYPE, CHART_CAPABILITY_SCHEMA_VERSION, ChartCapabilityEntry,
+    ChartCapabilityReport, ChartCapabilityStatus, chart_capability_entries,
+    chart_capability_report,
+};
 pub use chart_size::*;
+#[cfg(feature = "gpui")]
 pub(crate) use consts::*;
+#[cfg(feature = "gpui")]
+pub use legend::{ChartLegendItem, ChartLegendMarker, ChartLegendSummary};
+#[cfg(feature = "gpui")]
 pub(crate) use misc::*;
+#[cfg(feature = "gpui")]
+pub use static_export::StaticSvgOptions;
 pub use types::*;
-pub use validate::*;
+#[cfg(feature = "gpui")]
+pub(crate) use validate::*;
+pub use visual_regression::{
+    CHART_VISUAL_COLOR_SCHEMES, CHART_VISUAL_REGRESSION_REPORT_TYPE,
+    CHART_VISUAL_REGRESSION_SCHEMA_VERSION, CHART_VISUAL_STORIES, CHART_VISUAL_VIEWPORTS,
+    ChartVisualCapture, ChartVisualColorScheme, ChartVisualRegressionManifest, ChartVisualStory,
+    ChartVisualViewport, chart_visual_regression_manifest, chart_visual_stories,
+};

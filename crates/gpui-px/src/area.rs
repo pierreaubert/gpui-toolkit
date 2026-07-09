@@ -2,10 +2,11 @@
 
 use crate::error::ChartError;
 use crate::{
-    ChartSize, DEFAULT_COLOR, DEFAULT_HEIGHT, DEFAULT_PADDING_FRACTION, DEFAULT_TITLE_FONT_SIZE,
-    DEFAULT_WIDTH, ScaleType, TITLE_AREA_HEIGHT, apply_chart_size, default_design, extent_padded,
-    extent_padded_iter, resolved_chart_dimensions, validate_data_array, validate_data_length,
-    validate_dimensions, validate_positive,
+    ChartAccessibilitySummary, ChartSize, DEFAULT_COLOR, DEFAULT_HEIGHT, DEFAULT_PADDING_FRACTION,
+    DEFAULT_TITLE_FONT_SIZE, DEFAULT_WIDTH, ScaleType, TITLE_AREA_HEIGHT, apply_chart_size,
+    default_design, extent_padded, extent_padded_iter, finite_range, finite_range_owned,
+    format_range, format_scale, resolved_chart_dimensions, validate_data_array,
+    validate_data_length, validate_dimensions, validate_positive,
 };
 use d3rs::color::D3Color;
 use d3rs::scale::{LinearScale, LogScale, Scale};
@@ -35,6 +36,71 @@ pub struct AreaChart {
 }
 
 impl AreaChart {
+    /// Export this area chart as deterministic SVG.
+    pub fn to_svg(&self) -> Result<String, ChartError> {
+        self.to_svg_with_options(crate::StaticSvgOptions::new(self.width, self.height))
+    }
+
+    /// Export this area chart as deterministic SVG with explicit export options.
+    pub fn to_svg_with_options(
+        &self,
+        options: crate::StaticSvgOptions,
+    ) -> Result<String, ChartError> {
+        crate::static_export::render_area_svg(
+            self.title.as_deref(),
+            self.x_scale_type,
+            self.y_scale_type,
+            crate::static_export::StaticAreaSeries {
+                x: &self.x,
+                y: &self.y,
+                y0: self.y0.as_deref(),
+                color: self.color,
+                opacity: self.opacity,
+            },
+            options,
+        )
+    }
+
+    /// Return structured accessibility metadata for this chart.
+    pub fn accessibility_summary(&self) -> ChartAccessibilitySummary {
+        let x_range = finite_range(self.x.iter());
+        let y_range = finite_range_owned(
+            self.y
+                .iter()
+                .copied()
+                .chain(self.y0.iter().flat_map(|values| values.iter().copied())),
+        );
+        let title = self.title.clone();
+        let name = title.as_deref().unwrap_or("Area chart");
+        let baseline = if self.y0.is_some() {
+            " with an explicit baseline"
+        } else {
+            ""
+        };
+        let description = format!(
+            "{name}: area chart{baseline} with {} points. {}, {}. X scale {}, Y scale {}.",
+            self.x.len(),
+            format_range("X", x_range),
+            format_range("Y", y_range),
+            format_scale(self.x_scale_type),
+            format_scale(self.y_scale_type)
+        );
+
+        ChartAccessibilitySummary {
+            chart_type: "area",
+            title,
+            series_count: 1,
+            datum_count: self.x.len(),
+            x_range,
+            y_range,
+            value_range: y_range,
+            x_scale: Some(self.x_scale_type),
+            y_scale: Some(self.y_scale_type),
+            series_labels: vec!["Area values".to_string()],
+            description,
+        }
+    }
+
     /// Set chart title (rendered at top of chart).
     pub fn title(mut self, title: impl Into<String>) -> Self {
         self.title = Some(title.into());

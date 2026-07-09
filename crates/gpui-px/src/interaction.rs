@@ -53,6 +53,7 @@ pub use interactive_chart::{
 mod chart_interaction;
 mod misc;
 mod mouse_state;
+mod qa_report;
 #[cfg(test)]
 mod tests;
 mod types;
@@ -60,6 +61,7 @@ mod wheel_config;
 
 pub use chart_interaction::*;
 pub use mouse_state::*;
+pub use qa_report::*;
 pub use types::*;
 pub use wheel_config::*;
 

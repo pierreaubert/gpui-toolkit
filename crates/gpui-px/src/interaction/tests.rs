@@ -1,4 +1,5 @@
 use super::chart_interaction::ChartInteraction;
+use super::chart_interaction::ChartKeyboardAction;
 use super::chart_interaction::apply_wheel_zoom;
 use super::mouse_state::MouseState;
 use super::types::InteractionMode;
@@ -229,6 +230,59 @@ fn test_pan_clamps_log_scale() {
     {
         // Skip when gpui feature is not available
     }
+}
+
+#[test]
+fn test_pan_by_pixels_updates_linear_domain_without_gpui() {
+    let mut interaction = ChartInteraction::new(0.0, 100.0, 0.0, 100.0).with_size(500.0, 500.0);
+    interaction.zoom_to(25.0, 75.0, 25.0, 75.0);
+
+    interaction.pan_by_pixels(50.0, -25.0);
+
+    let (x_min, x_max) = interaction.x_domain();
+    let (y_min, y_max) = interaction.y_domain();
+    assert!(x_min < 25.0, "positive dx pans visible x domain left");
+    assert!(x_max < 75.0);
+    assert!(y_min < 25.0, "negative dy pans visible y domain down");
+    assert!(y_max < 75.0);
+}
+
+#[test]
+fn test_hover_domain_records_and_clears_pointer_state() {
+    let mut interaction = ChartInteraction::new(0.0, 100.0, -50.0, 50.0).with_size(500.0, 200.0);
+
+    let hover = interaction.update_hover_pixel(250.0, 100.0).unwrap();
+    assert!((hover.0 - 50.0).abs() < 1e-9);
+    assert!(hover.1.abs() < 1e-9);
+    assert_eq!(interaction.hover_domain(), Some(hover));
+
+    assert_eq!(interaction.update_hover_pixel(600.0, 100.0), None);
+    assert_eq!(interaction.hover_domain(), None);
+
+    interaction.update_hover_pixel(250.0, 100.0);
+    interaction.clear_hover();
+    assert_eq!(interaction.hover_domain(), None);
+}
+
+#[test]
+fn test_keyboard_actions_apply_zoom_pan_and_reset() {
+    let mut interaction = ChartInteraction::new(0.0, 100.0, 0.0, 100.0).with_size(500.0, 500.0);
+
+    interaction.apply_keyboard_action(ChartKeyboardAction::ZoomIn, 40.0, 2.0);
+    assert!(interaction.is_zoomed());
+    let zoomed_x = interaction.x_domain();
+    assert!(zoomed_x.1 - zoomed_x.0 < 100.0);
+
+    interaction.apply_keyboard_action(ChartKeyboardAction::PanRight, 50.0, 2.0);
+    let panned_x = interaction.x_domain();
+    assert!(panned_x.0 > zoomed_x.0);
+
+    interaction.apply_keyboard_action(ChartKeyboardAction::ZoomOut, 40.0, 2.0);
+    assert!(interaction.zoom_level() >= 3);
+
+    interaction.apply_keyboard_action(ChartKeyboardAction::ResetZoom, 40.0, 2.0);
+    assert!(!interaction.is_zoomed());
+    assert_eq!(interaction.x_domain(), (0.0, 100.0));
 }
 
 #[cfg(feature = "gpui")]

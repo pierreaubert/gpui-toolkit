@@ -4,10 +4,13 @@ use super::types::ScatterSeries;
 use crate::error::ChartError;
 use crate::line::LegendPosition;
 use crate::{
-    ChartSize, DEFAULT_COLOR, DEFAULT_HEIGHT, DEFAULT_PADDING_FRACTION, DEFAULT_TITLE_FONT_SIZE,
-    DEFAULT_WIDTH, ScaleType, TITLE_AREA_HEIGHT, apply_chart_size, default_design,
-    extent_padded_iter, resolved_chart_dimensions, validate_data_array, validate_data_length,
-    validate_dimensions, validate_positive, validate_range, validate_range_log,
+    ChartAccessibilitySummary, ChartAnnotation, ChartAnnotationSummary, ChartLegendItem,
+    ChartLegendMarker, ChartLegendSummary, ChartSize, DEFAULT_COLOR, DEFAULT_HEIGHT,
+    DEFAULT_PADDING_FRACTION, DEFAULT_TITLE_FONT_SIZE, DEFAULT_WIDTH, ScaleType, TITLE_AREA_HEIGHT,
+    apply_chart_size, default_design, extent_padded_iter, finite_range_owned, format_range,
+    format_scale, indexed_label, resolved_chart_dimensions, validate_data_array,
+    validate_data_length, validate_dimensions, validate_positive, validate_range,
+    validate_range_log,
 };
 use d3rs::axis::{AxisConfig, DefaultAxisTheme, render_axis};
 use d3rs::color::D3Color;
@@ -74,11 +77,161 @@ pub struct ScatterChart {
     pub(super) graph_ratio: f32,
     pub(super) theme: ScatterTheme,
     pub(super) design: Option<Arc<DesignSystem>>,
+    /// Non-rendering annotation metadata for QA and host integrations.
+    pub(super) annotations: Vec<ChartAnnotation>,
     /// Cache of mapped primary points keyed by source `(x, y)` `Arc` pointer equality.
     pub(super) primary_data_cache: ScatterDataCache,
 }
 
 impl ScatterChart {
+    /// Export this scatter chart as deterministic SVG.
+    pub fn to_svg(&self) -> Result<String, ChartError> {
+        self.to_svg_with_options(crate::StaticSvgOptions::new(self.width, self.height))
+    }
+
+    /// Export this scatter chart as deterministic SVG with explicit export options.
+    pub fn to_svg_with_options(
+        &self,
+        options: crate::StaticSvgOptions,
+    ) -> Result<String, ChartError> {
+        let mut series = Vec::with_capacity(1 + self.series.len());
+        series.push(crate::static_export::StaticXySeries {
+            x: &self.x,
+            y: &self.y,
+            label: self.label.as_deref(),
+            color: self.color,
+            opacity: self.opacity,
+            stroke_width: 0.0,
+            point_radius: self.point_radius,
+            use_secondary_y: false,
+        });
+
+        for scatter_series in &self.series {
+            series.push(crate::static_export::StaticXySeries {
+                x: &scatter_series.x,
+                y: &scatter_series.y,
+                label: scatter_series.label.as_deref(),
+                color: scatter_series.color,
+                opacity: scatter_series.opacity,
+                stroke_width: 0.0,
+                point_radius: scatter_series.point_radius,
+                use_secondary_y: false,
+            });
+        }
+
+        crate::static_export::render_scatter_svg(
+            self.title.as_deref(),
+            self.x_scale_type,
+            self.y_scale_type,
+            self.x_range,
+            self.y_range,
+            &series,
+            options,
+        )
+    }
+
+    /// Return structured native-legend metadata for this chart.
+    pub fn legend_summary(&self) -> ChartLegendSummary {
+        let mut items = Vec::new();
+
+        if self.show_legend {
+            if let Some(label) = &self.label {
+                items.push(ChartLegendItem {
+                    series_index: 0,
+                    label: label.clone(),
+                    color: self.color,
+                    marker: ChartLegendMarker::Circle,
+                    hidden: false,
+                    uses_secondary_axis: false,
+                });
+            }
+
+            items.extend(
+                self.series
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(index, series)| {
+                        series.label.as_ref().map(|label| ChartLegendItem {
+                            series_index: index + 1,
+                            label: label.clone(),
+                            color: series.color,
+                            marker: ChartLegendMarker::Circle,
+                            hidden: false,
+                            uses_secondary_axis: false,
+                        })
+                    }),
+            );
+        }
+
+        ChartLegendSummary::new(
+            "scatter",
+            self.show_legend,
+            self.legend_position,
+            self.legend_position_explicit,
+            items,
+        )
+    }
+
+    /// Return structured annotation metadata for this chart.
+    pub fn annotation_summary(&self) -> ChartAnnotationSummary {
+        ChartAnnotationSummary::new("scatter", self.annotations.clone())
+    }
+
+    /// Return structured accessibility metadata for this chart.
+    pub fn accessibility_summary(&self) -> ChartAccessibilitySummary {
+        let series_count = 1 + self.series.len();
+        let datum_count = self.x.len()
+            + self
+                .series
+                .iter()
+                .map(|series| series.x.len())
+                .sum::<usize>();
+        let x_range = finite_range_owned(
+            self.x.iter().copied().chain(
+                self.series
+                    .iter()
+                    .flat_map(|series| series.x.iter().copied()),
+            ),
+        );
+        let y_range = finite_range_owned(
+            self.y.iter().copied().chain(
+                self.series
+                    .iter()
+                    .flat_map(|series| series.y.iter().copied()),
+            ),
+        );
+        let mut series_labels = vec![indexed_label(&self.label, "Series", 0)];
+        series_labels.extend(
+            self.series
+                .iter()
+                .enumerate()
+                .map(|(index, series)| indexed_label(&series.label, "Series", index + 1)),
+        );
+        let title = self.title.clone();
+        let name = title.as_deref().unwrap_or("Scatter chart");
+        let description = format!(
+            "{name}: scatter chart with {series_count} series and {datum_count} points. {}, {}. X scale {}, Y scale {}.",
+            format_range("X", x_range),
+            format_range("Y", y_range),
+            format_scale(self.x_scale_type),
+            format_scale(self.y_scale_type)
+        );
+
+        ChartAccessibilitySummary {
+            chart_type: "scatter",
+            title,
+            series_count,
+            datum_count,
+            x_range,
+            y_range,
+            value_range: y_range,
+            x_scale: Some(self.x_scale_type),
+            y_scale: Some(self.y_scale_type),
+            series_labels,
+            description,
+        }
+    }
+
     /// Set chart title (rendered at top of chart).
     pub fn title(mut self, title: impl Into<String>) -> Self {
         self.title = Some(title.into());
@@ -108,6 +261,18 @@ impl ScatterChart {
     /// Set point opacity (0.0 - 1.0).
     pub fn opacity(mut self, opacity: f32) -> Self {
         self.opacity = opacity.clamp(0.0, 1.0);
+        self
+    }
+
+    /// Add non-rendering annotation metadata for host rendering or release QA.
+    pub fn annotation(mut self, annotation: ChartAnnotation) -> Self {
+        self.annotations.push(annotation);
+        self
+    }
+
+    /// Replace annotation metadata for this chart.
+    pub fn annotations(mut self, annotations: impl Into<Vec<ChartAnnotation>>) -> Self {
+        self.annotations = annotations.into();
         self
     }
 
@@ -816,6 +981,7 @@ pub fn scatter(x: &[f64], y: &[f64]) -> ScatterChart {
         graph_ratio: 1.414,
         theme: ScatterTheme::default(),
         design: None,
+        annotations: Vec::new(),
         primary_data_cache: None,
     }
 }

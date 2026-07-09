@@ -14,7 +14,25 @@ Built on top of [gpui-d3rs](https://crates.io/crates/gpui-d3rs) primitives.
 - **Fluent builder API**: Chain methods for easy configuration
 - **Color scales**: Viridis, Plasma, Inferno, Magma, Heat, Coolwarm, Greys, or custom
 - **Logarithmic scales**: Both axes support log scaling for multi-magnitude data
+- **Accessibility bridge payloads**: Structured chart metadata, readable descriptions, and `AccessibilityBridgeSnapshot` export for native adapters
+- **Visual regression manifest**: Stable chart capture ids and baseline/actual/diff artifact paths for release QA
 - **Validation**: Comprehensive error handling for invalid data
+
+## Release QA
+
+`gpui_px::chart_visual_regression_manifest()` exposes the release screenshot
+inventory for chart stories. It covers scatter, line, bar, area, pie/donut,
+heatmap, boxplot, treemap, isoline, contour, and optional surface3d across
+dashboard, compact panel, and mobile card viewports plus light, dark, and
+high-contrast schemes. Each generated capture has stable baseline, actual, and
+diff paths under `artifacts/gpui-px/visual/`.
+
+`ChartAccessibilitySummary::to_bridge_snapshot()` converts every public chart
+family's structured summary into the same platform-neutral
+`gpui-ui-kit::AccessibilityBridgeSnapshot` shape used by UI components. The
+snapshot preserves an image role, accessible label, readable chart
+description, finite ranges, scale types, datum counts, and series labels for
+host/native accessibility adapters.
 
 ## Installation
 
@@ -184,6 +202,22 @@ let chart = bar(&["10", "100", "1K", "10K"], &[10.0, 100.0, 1000.0, 10000.0])
 ```
 
 **Note**: Logarithmic scales require all values to be positive. Zero or negative values will cause validation errors.
+
+## Accessibility Summaries
+
+Every chart builder exposes `accessibility_summary()` before rendering. The summary includes the chart type, title, series labels, datum counts, finite data ranges, scale types, and a screen-reader-friendly description that app-level GPUI accessibility bridges can attach to rendered chart elements.
+
+```rust
+use gpui_px::line;
+
+let summary = line(&[1.0, 2.0, 3.0], &[10.0, 20.0, 15.0])
+    .title("Latency")
+    .label("p95")
+    .accessibility_summary();
+
+assert_eq!(summary.chart_type, "line");
+assert_eq!(summary.datum_count, 3);
+```
 
 ## Color Scales
 

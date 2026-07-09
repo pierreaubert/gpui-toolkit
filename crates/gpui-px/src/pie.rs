@@ -2,9 +2,9 @@
 
 use crate::error::ChartError;
 use crate::{
-    ChartSize, DEFAULT_HEIGHT, DEFAULT_TITLE_FONT_SIZE, DEFAULT_WIDTH, TITLE_AREA_HEIGHT,
-    apply_chart_size, default_design, resolved_chart_dimensions, validate_data_array,
-    validate_data_length, validate_dimensions,
+    ChartAccessibilitySummary, ChartSize, DEFAULT_HEIGHT, DEFAULT_TITLE_FONT_SIZE, DEFAULT_WIDTH,
+    TITLE_AREA_HEIGHT, apply_chart_size, default_design, finite_range, format_range,
+    resolved_chart_dimensions, validate_data_array, validate_data_length, validate_dimensions,
 };
 use d3rs::color::D3Color;
 use d3rs::shape::{Arc, Pie};
@@ -15,7 +15,7 @@ use gpui_design::DesignSystem;
 use std::sync::Arc as StdArc;
 
 /// Default color palette (Plotly)
-const DEFAULT_PALETTE: [u32; 10] = [
+pub(crate) const DEFAULT_PALETTE: [u32; 10] = [
     0x1f77b4, 0xff7f0e, 0x2ca02c, 0xd62728, 0x9467bd, 0x8c564b, 0xe377c2, 0x7f7f7f, 0xbcbd22,
     0x17becf,
 ];
@@ -38,6 +38,68 @@ pub struct PieChart {
 }
 
 impl PieChart {
+    /// Export this pie or donut chart as deterministic SVG.
+    pub fn to_svg(&self) -> Result<String, ChartError> {
+        self.to_svg_with_options(crate::StaticSvgOptions::new(self.width, self.height))
+    }
+
+    /// Export this pie or donut chart as deterministic SVG with explicit export options.
+    pub fn to_svg_with_options(
+        &self,
+        options: crate::StaticSvgOptions,
+    ) -> Result<String, ChartError> {
+        crate::static_export::render_pie_svg(
+            self.title.as_deref(),
+            crate::static_export::StaticPieSeries {
+                values: &self.values,
+                labels: self.labels.as_deref(),
+                colors: self.colors.as_deref(),
+                inner_radius_fraction: self.inner_radius_fraction,
+                pad_angle: self.pad_angle,
+                corner_radius: self.corner_radius,
+                sort: self.sort,
+            },
+            options,
+        )
+    }
+
+    /// Return structured accessibility metadata for this chart.
+    pub fn accessibility_summary(&self) -> ChartAccessibilitySummary {
+        let value_range = finite_range(self.values.iter());
+        let total: f64 = self.values.iter().filter(|value| value.is_finite()).sum();
+        let series_labels = self.labels.clone().unwrap_or_else(|| {
+            (0..self.values.len())
+                .map(|index| format!("Slice {}", index + 1))
+                .collect()
+        });
+        let title = self.title.clone();
+        let chart_kind = if self.inner_radius_fraction > 0.0 {
+            "donut"
+        } else {
+            "pie"
+        };
+        let name = title.as_deref().unwrap_or("Pie chart");
+        let description = format!(
+            "{name}: {chart_kind} chart with {} slices and total value {total:.3}. {}.",
+            self.values.len(),
+            format_range("Value", value_range)
+        );
+
+        ChartAccessibilitySummary {
+            chart_type: chart_kind,
+            title,
+            series_count: 1,
+            datum_count: self.values.len(),
+            x_range: None,
+            y_range: None,
+            value_range,
+            x_scale: None,
+            y_scale: None,
+            series_labels,
+            description,
+        }
+    }
+
     /// Set chart title (rendered at top of chart).
     pub fn title(mut self, title: impl Into<String>) -> Self {
         self.title = Some(title.into());

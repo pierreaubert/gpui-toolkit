@@ -22,10 +22,11 @@
 
 use crate::error::ChartError;
 use crate::{
-    ChartSize, DEFAULT_TITLE_FONT_SIZE, TITLE_AREA_HEIGHT, apply_chart_size, default_design,
-    resolved_chart_dimensions, validate_dimensions,
+    ChartAccessibilitySummary, ChartSize, DEFAULT_TITLE_FONT_SIZE, TITLE_AREA_HEIGHT,
+    apply_chart_size, default_design, finite_range_owned, format_range, resolved_chart_dimensions,
+    validate_dimensions,
 };
-use d3rs::color::ColorScheme;
+use d3rs::color::{ColorScheme, D3Color};
 use d3rs::text::{GlyphTextConfig, render_glyph_text};
 use gpui::prelude::*;
 use gpui::{
@@ -34,6 +35,7 @@ use gpui::{
 use gpui_design::DesignSystem;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
+use std::fmt::Write;
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -68,6 +70,163 @@ pub struct Treemap {
 }
 
 impl Treemap {
+    /// Export this treemap as deterministic SVG.
+    pub fn to_svg(&self) -> Result<String, ChartError> {
+        self.to_svg_with_options(crate::StaticSvgOptions::new(self.width, self.height))
+    }
+
+    /// Export this treemap as deterministic SVG with explicit export options.
+    pub fn to_svg_with_options(
+        &self,
+        options: crate::StaticSvgOptions,
+    ) -> Result<String, ChartError> {
+        validate_dimensions(options.width, options.height)?;
+        crate::static_export::validate_plot_area(options)?;
+
+        let total_value = self.root.total_value();
+        if !total_value.is_finite() || total_value <= 0.0 {
+            return Err(ChartError::InvalidData {
+                field: "root",
+                reason: "Total value must be positive and finite",
+            });
+        }
+
+        if !Self::validate_values(&self.root) {
+            return Err(ChartError::InvalidData {
+                field: "node",
+                reason: "All node values must be finite and non-negative",
+            });
+        }
+
+        let plot_width = (options.width - options.margin_left - options.margin_right) as f64;
+        let plot_height = (options.height - options.margin_top - options.margin_bottom) as f64;
+        if plot_width <= 0.0 || plot_height <= 0.0 {
+            return Err(ChartError::InvalidDimension {
+                field: "width",
+                value: options.width,
+            });
+        }
+
+        let mut rects = Vec::new();
+        compute_treemap(
+            &self.root,
+            0.0,
+            0.0,
+            plot_width,
+            plot_height,
+            self.tiling_method,
+            self.padding,
+            0,
+            0,
+            &mut rects,
+        );
+
+        let color_scheme = self
+            .color_scheme
+            .clone()
+            .unwrap_or_else(ColorScheme::tableau10);
+        let mut svg = crate::static_export::svg_header(options);
+        crate::static_export::draw_title(&mut svg, self.title.as_deref(), options.width);
+        svg.push_str("<g class=\"gpui-px-treemap\">\n");
+
+        for rect in rects {
+            let x = options.margin_left + rect.x0 as f32;
+            let y = options.margin_top + rect.y0 as f32;
+            let width = (rect.x1 - rect.x0).max(0.0) as f32;
+            let height = (rect.y1 - rect.y0).max(0.0) as f32;
+            if width <= 0.0 || height <= 0.0 {
+                continue;
+            }
+
+            let color = color_scheme.color(rect.category_index);
+            let fill = d3_color_to_hex(color);
+            let stroke = d3_color_to_hex(darken_d3_color(color, 0.7));
+            let escaped_name = crate::static_export::escape_xml(&rect.name);
+            let _ = writeln!(
+                svg,
+                "<rect x=\"{x:.2}\" y=\"{y:.2}\" width=\"{width:.2}\" height=\"{height:.2}\" fill=\"{fill}\" opacity=\"0.800\" stroke=\"{stroke}\" stroke-width=\"1\"><title>{escaped_name}: {:.3}</title></rect>",
+                rect.value
+            );
+
+            if width > 30.0 && height > 15.0 {
+                let luminance = 0.2126 * color.r + 0.7152 * color.g + 0.0722 * color.b;
+                let text_color = if luminance > 0.5 {
+                    "#1a1a1a"
+                } else {
+                    "#f2f2f2"
+                };
+                let font_size = (height * 0.2).clamp(8.0, 12.0);
+                let _ = writeln!(
+                    svg,
+                    "<text x=\"{:.2}\" y=\"{:.2}\" text-anchor=\"middle\" dominant-baseline=\"middle\" font-family=\"system-ui, sans-serif\" font-size=\"{font_size:.2}\" fill=\"{text_color}\">{escaped_name}</text>",
+                    x + width / 2.0,
+                    y + height / 2.0,
+                );
+            }
+        }
+
+        svg.push_str("</g>\n</svg>\n");
+        Ok(svg)
+    }
+
+    /// Return structured accessibility metadata for this chart.
+    pub fn accessibility_summary(&self) -> ChartAccessibilitySummary {
+        fn visit(
+            node: &TreemapNode,
+            node_count: &mut usize,
+            leaf_count: &mut usize,
+            values: &mut Vec<f64>,
+            labels: &mut Vec<String>,
+        ) {
+            *node_count += 1;
+            if node.is_leaf() {
+                *leaf_count += 1;
+                values.push(node.value);
+                labels.push(node.name.clone());
+            }
+
+            for child in &node.children {
+                visit(child, node_count, leaf_count, values, labels);
+            }
+        }
+
+        let mut node_count = 0;
+        let mut leaf_count = 0;
+        let mut values = Vec::new();
+        let mut series_labels = Vec::new();
+        visit(
+            &self.root,
+            &mut node_count,
+            &mut leaf_count,
+            &mut values,
+            &mut series_labels,
+        );
+
+        let value_range = finite_range_owned(values);
+        let title = self.title.clone();
+        let name = title.as_deref().unwrap_or("Treemap");
+        let description = format!(
+            "{name}: treemap with {node_count} nodes and {leaf_count} leaves using {:?} tiling. Total value {:.3}. {}.",
+            self.tiling_method,
+            self.root.total_value(),
+            format_range("Leaf value", value_range)
+        );
+
+        ChartAccessibilitySummary {
+            chart_type: "treemap",
+            title,
+            series_count: 1,
+            datum_count: node_count,
+            x_range: None,
+            y_range: None,
+            value_range,
+            x_scale: None,
+            y_scale: None,
+            series_labels,
+            description,
+        }
+    }
+
     /// Set the chart title.
     pub fn title(mut self, title: impl Into<String>) -> Self {
         self.title = Some(title.into());
@@ -431,4 +590,26 @@ pub(crate) fn add_rect_to_path(builder: &mut PathBuilder, x: f32, y: f32, width:
     builder.line_to(point(px(x + width), px(y + height)));
     builder.line_to(point(px(x), px(y + height)));
     builder.close();
+}
+
+fn d3_color_to_hex(color: D3Color) -> String {
+    format!(
+        "#{:02x}{:02x}{:02x}",
+        d3_channel_to_u8(color.r),
+        d3_channel_to_u8(color.g),
+        d3_channel_to_u8(color.b)
+    )
+}
+
+fn d3_channel_to_u8(value: f32) -> u8 {
+    (value.clamp(0.0, 1.0) * 255.0).round() as u8
+}
+
+fn darken_d3_color(color: D3Color, factor: f32) -> D3Color {
+    D3Color {
+        r: color.r * factor,
+        g: color.g * factor,
+        b: color.b * factor,
+        a: color.a,
+    }
 }

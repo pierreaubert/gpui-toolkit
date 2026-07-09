@@ -3,10 +3,13 @@ use super::types::BarSeries;
 use crate::error::ChartError;
 use crate::line::LegendPosition;
 use crate::{
-    ChartSize, DEFAULT_COLOR, DEFAULT_HEIGHT, DEFAULT_PADDING_FRACTION, DEFAULT_TITLE_FONT_SIZE,
-    DEFAULT_WIDTH, ScaleType, TITLE_AREA_HEIGHT, apply_chart_size, default_design,
-    extent_padded_iter, resolved_chart_dimensions, validate_data_array, validate_data_length,
-    validate_dimensions, validate_positive, validate_range, validate_range_log,
+    ChartAccessibilitySummary, ChartAnnotation, ChartAnnotationSummary, ChartLegendItem,
+    ChartLegendMarker, ChartLegendSummary, ChartSize, DEFAULT_COLOR, DEFAULT_HEIGHT,
+    DEFAULT_PADDING_FRACTION, DEFAULT_TITLE_FONT_SIZE, DEFAULT_WIDTH, ScaleType, TITLE_AREA_HEIGHT,
+    apply_chart_size, default_design, extent_padded_iter, finite_range_owned, format_range,
+    format_scale, indexed_label, resolved_chart_dimensions, validate_data_array,
+    validate_data_length, validate_dimensions, validate_positive, validate_range,
+    validate_range_log,
 };
 use d3rs::axis::{AxisConfig, DefaultAxisTheme, render_axis};
 use d3rs::color::D3Color;
@@ -47,9 +50,137 @@ pub struct BarChart {
     pub(super) graph_ratio: f32,
     pub(super) theme: BarTheme,
     pub(super) design: Option<Arc<DesignSystem>>,
+    /// Non-rendering annotation metadata for QA and host integrations.
+    pub(super) annotations: Vec<ChartAnnotation>,
 }
 
 impl BarChart {
+    /// Export this bar chart as deterministic SVG.
+    pub fn to_svg(&self) -> Result<String, ChartError> {
+        self.to_svg_with_options(crate::StaticSvgOptions::new(self.width, self.height))
+    }
+
+    /// Export this bar chart as deterministic SVG with explicit export options.
+    pub fn to_svg_with_options(
+        &self,
+        options: crate::StaticSvgOptions,
+    ) -> Result<String, ChartError> {
+        let mut series = Vec::with_capacity(1 + self.series.len());
+        series.push(crate::static_export::StaticBarSeries {
+            values: &self.values,
+            label: self.label.as_deref(),
+            color: self.color,
+            opacity: self.opacity,
+        });
+
+        for bar_series in &self.series {
+            series.push(crate::static_export::StaticBarSeries {
+                values: &bar_series.values,
+                label: bar_series.label.as_deref(),
+                color: bar_series.color,
+                opacity: bar_series.opacity,
+            });
+        }
+
+        crate::static_export::render_bar_svg(
+            self.title.as_deref(),
+            &self.categories,
+            self.y_scale_type,
+            self.y_range,
+            &series,
+            options,
+        )
+    }
+
+    /// Return structured native-legend metadata for this chart.
+    pub fn legend_summary(&self) -> ChartLegendSummary {
+        let mut items = Vec::new();
+
+        if self.show_legend {
+            if let Some(label) = &self.label {
+                items.push(ChartLegendItem {
+                    series_index: 0,
+                    label: label.clone(),
+                    color: self.color,
+                    marker: ChartLegendMarker::Square,
+                    hidden: false,
+                    uses_secondary_axis: false,
+                });
+            }
+
+            items.extend(
+                self.series
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(index, series)| {
+                        series.label.as_ref().map(|label| ChartLegendItem {
+                            series_index: index + 1,
+                            label: label.clone(),
+                            color: series.color,
+                            marker: ChartLegendMarker::Square,
+                            hidden: false,
+                            uses_secondary_axis: false,
+                        })
+                    }),
+            );
+        }
+
+        ChartLegendSummary::new(
+            "bar",
+            self.show_legend,
+            self.legend_position,
+            self.legend_position_explicit,
+            items,
+        )
+    }
+
+    /// Return structured annotation metadata for this chart.
+    pub fn annotation_summary(&self) -> ChartAnnotationSummary {
+        ChartAnnotationSummary::new("bar", self.annotations.clone())
+    }
+
+    /// Return structured accessibility metadata for this chart.
+    pub fn accessibility_summary(&self) -> ChartAccessibilitySummary {
+        let series_count = 1 + self.series.len();
+        let datum_count = self.categories.len() * series_count;
+        let value_range = finite_range_owned(
+            self.values.iter().copied().chain(
+                self.series
+                    .iter()
+                    .flat_map(|series| series.values.iter().copied()),
+            ),
+        );
+        let mut series_labels = vec![indexed_label(&self.label, "Series", 0)];
+        series_labels.extend(
+            self.series
+                .iter()
+                .enumerate()
+                .map(|(index, series)| indexed_label(&series.label, "Series", index + 1)),
+        );
+        let title = self.title.clone();
+        let name = title.as_deref().unwrap_or("Bar chart");
+        let description = format!(
+            "{name}: bar chart with {series_count} series across {} categories and {datum_count} bars. {}. Y scale {}.",
+            self.categories.len(),
+            format_range("Value", value_range),
+            format_scale(self.y_scale_type)
+        );
+
+        ChartAccessibilitySummary {
+            chart_type: "bar",
+            title,
+            series_count,
+            datum_count,
+            x_range: None,
+            y_range: value_range,
+            value_range,
+            x_scale: None,
+            y_scale: Some(self.y_scale_type),
+            series_labels,
+            description,
+        }
+    }
+
     /// Set chart title (rendered at top of chart).
     pub fn title(mut self, title: impl Into<String>) -> Self {
         self.title = Some(title.into());
@@ -73,6 +204,18 @@ impl BarChart {
     /// Set bar opacity (0.0 - 1.0).
     pub fn opacity(mut self, opacity: f32) -> Self {
         self.opacity = opacity.clamp(0.0, 1.0);
+        self
+    }
+
+    /// Add non-rendering annotation metadata for host rendering or release QA.
+    pub fn annotation(mut self, annotation: ChartAnnotation) -> Self {
+        self.annotations.push(annotation);
+        self
+    }
+
+    /// Replace annotation metadata for this chart.
+    pub fn annotations(mut self, annotations: impl Into<Vec<ChartAnnotation>>) -> Self {
+        self.annotations = annotations.into();
         self
     }
 
@@ -723,6 +866,7 @@ pub fn bar<S: AsRef<str>>(categories: &[S], values: &[f64]) -> BarChart {
         graph_ratio: 1.414,
         theme: BarTheme::default(),
         design: None,
+        annotations: Vec::new(),
     }
 }
 

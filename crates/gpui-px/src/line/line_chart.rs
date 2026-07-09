@@ -8,10 +8,12 @@ use super::types::LineDataCache;
 use super::types::LineSeries;
 use crate::error::ChartError;
 use crate::{
-    ChartSize, DEFAULT_PADDING_FRACTION, DEFAULT_TITLE_FONT_SIZE, ScaleType, TITLE_AREA_HEIGHT,
-    apply_chart_size, default_design, extent_padded, extent_padded_iter, resolved_chart_dimensions,
-    validate_data_array, validate_data_length, validate_dimensions, validate_positive,
-    validate_range, validate_range_log,
+    ChartAccessibilitySummary, ChartAnnotation, ChartAnnotationSummary, ChartLegendItem,
+    ChartLegendMarker, ChartLegendSummary, ChartSize, DEFAULT_PADDING_FRACTION,
+    DEFAULT_TITLE_FONT_SIZE, ScaleType, TITLE_AREA_HEIGHT, apply_chart_size, default_design,
+    extent_padded, extent_padded_iter, finite_range_owned, format_range, format_scale,
+    indexed_label, resolved_chart_dimensions, validate_data_array, validate_data_length,
+    validate_dimensions, validate_positive, validate_range, validate_range_log,
 };
 use d3rs::axis::{AxisConfig, render_axis};
 use d3rs::color::D3Color;
@@ -89,6 +91,8 @@ pub struct LineChart {
     pub(super) on_legend_click: Option<LegendClickCallback>,
     /// Optional dash pattern for the primary series
     pub(super) dash_array: Option<StrokeDashArray>,
+    /// Non-rendering annotation metadata for QA and host integrations.
+    pub(super) annotations: Vec<ChartAnnotation>,
     /// Cache of mapped primary points keyed by source `(x, y)` `Arc` pointer equality.
     pub(super) primary_data_cache: LineDataCache,
 }
@@ -106,6 +110,182 @@ impl std::fmt::Debug for LineChart {
 }
 
 impl LineChart {
+    /// Export this line chart as deterministic SVG.
+    pub fn to_svg(&self) -> Result<String, ChartError> {
+        self.to_svg_with_options(crate::StaticSvgOptions::new(self.width, self.height))
+    }
+
+    /// Export this line chart as deterministic SVG with explicit export options.
+    pub fn to_svg_with_options(
+        &self,
+        options: crate::StaticSvgOptions,
+    ) -> Result<String, ChartError> {
+        let mut series = Vec::with_capacity(1 + self.series.len());
+
+        if !self.hidden_series.contains(&0) {
+            series.push(crate::static_export::StaticXySeries {
+                x: &self.x,
+                y: &self.y,
+                label: self.label.as_deref(),
+                color: self.color,
+                opacity: self.opacity,
+                stroke_width: self.stroke_width,
+                point_radius: if self.show_points { 3.0 } else { 0.0 },
+                use_secondary_y: false,
+            });
+        }
+
+        for (index, line_series) in self.series.iter().enumerate() {
+            let series_index = index + 1;
+            if self.hidden_series.contains(&series_index) {
+                continue;
+            }
+
+            series.push(crate::static_export::StaticXySeries {
+                x: line_series.x.as_deref().unwrap_or(&self.x),
+                y: &line_series.y,
+                label: line_series.label.as_deref(),
+                color: line_series.color,
+                opacity: line_series.opacity,
+                stroke_width: line_series.stroke_width,
+                point_radius: if self.show_points { 3.0 } else { 0.0 },
+                use_secondary_y: line_series.use_secondary_axis,
+            });
+        }
+
+        crate::static_export::render_line_svg(
+            self.title.as_deref(),
+            self.x_scale_type,
+            self.y_scale_type,
+            self.x_range,
+            self.y_range,
+            self.y2_range,
+            &series,
+            options,
+        )
+    }
+
+    /// Return structured native-legend metadata for this chart.
+    pub fn legend_summary(&self) -> ChartLegendSummary {
+        let mut items = Vec::new();
+
+        if self.show_legend {
+            if let Some(label) = &self.label {
+                items.push(ChartLegendItem {
+                    series_index: 0,
+                    label: label.clone(),
+                    color: self.color,
+                    marker: ChartLegendMarker::Line,
+                    hidden: self.hidden_series.contains(&0),
+                    uses_secondary_axis: false,
+                });
+            }
+
+            items.extend(
+                self.series
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(index, series)| {
+                        series.label.as_ref().map(|label| {
+                            let series_index = index + 1;
+                            ChartLegendItem {
+                                series_index,
+                                label: label.clone(),
+                                color: series.color,
+                                marker: ChartLegendMarker::Line,
+                                hidden: self.hidden_series.contains(&series_index),
+                                uses_secondary_axis: series.use_secondary_axis,
+                            }
+                        })
+                    }),
+            );
+        }
+
+        ChartLegendSummary::new(
+            "line",
+            self.show_legend,
+            self.legend_position,
+            self.legend_position_explicit,
+            items,
+        )
+    }
+
+    /// Return structured annotation metadata for this chart.
+    pub fn annotation_summary(&self) -> ChartAnnotationSummary {
+        ChartAnnotationSummary::new("line", self.annotations.clone())
+    }
+
+    /// Return structured accessibility metadata for this chart.
+    pub fn accessibility_summary(&self) -> ChartAccessibilitySummary {
+        let series_count = 1 + self.series.len();
+        let datum_count = self.x.len()
+            + self
+                .series
+                .iter()
+                .map(|series| series.x.as_deref().unwrap_or(&self.x).len())
+                .sum::<usize>();
+        let x_range = finite_range_owned(
+            self.x.iter().copied().chain(
+                self.series
+                    .iter()
+                    .flat_map(|series| series.x.as_deref().unwrap_or(&self.x).iter().copied()),
+            ),
+        );
+        let y_range = finite_range_owned(
+            self.y.iter().copied().chain(
+                self.series
+                    .iter()
+                    .flat_map(|series| series.y.iter().copied()),
+            ),
+        );
+        let mut series_labels = vec![indexed_label(&self.label, "Series", 0)];
+        series_labels.extend(
+            self.series
+                .iter()
+                .enumerate()
+                .map(|(index, series)| indexed_label(&series.label, "Series", index + 1)),
+        );
+        let hidden_count = self.hidden_series.len();
+        let secondary_count = self
+            .series
+            .iter()
+            .filter(|series| series.use_secondary_axis)
+            .count();
+        let title = self.title.clone();
+        let name = title.as_deref().unwrap_or("Line chart");
+        let secondary = if secondary_count > 0 {
+            format!(" {secondary_count} series use the secondary Y axis.")
+        } else {
+            String::new()
+        };
+        let hidden = if hidden_count > 0 {
+            format!(" {hidden_count} series are hidden.")
+        } else {
+            String::new()
+        };
+        let description = format!(
+            "{name}: line chart with {series_count} series and {datum_count} points. {}, {}. X scale {}, Y scale {}.{secondary}{hidden}",
+            format_range("X", x_range),
+            format_range("Y", y_range),
+            format_scale(self.x_scale_type),
+            format_scale(self.y_scale_type)
+        );
+
+        ChartAccessibilitySummary {
+            chart_type: "line",
+            title,
+            series_count,
+            datum_count,
+            x_range,
+            y_range,
+            value_range: y_range,
+            x_scale: Some(self.x_scale_type),
+            y_scale: Some(self.y_scale_type),
+            series_labels,
+            description,
+        }
+    }
+
     /// Set chart title (rendered at top of chart).
     pub fn title(mut self, title: impl Into<String>) -> Self {
         self.title = Some(title.into());
@@ -164,6 +344,18 @@ impl LineChart {
     /// Set line opacity (0.0 - 1.0).
     pub fn opacity(mut self, opacity: f32) -> Self {
         self.opacity = opacity.clamp(0.0, 1.0);
+        self
+    }
+
+    /// Add non-rendering annotation metadata for host rendering or release QA.
+    pub fn annotation(mut self, annotation: ChartAnnotation) -> Self {
+        self.annotations.push(annotation);
+        self
+    }
+
+    /// Replace annotation metadata for this chart.
+    pub fn annotations(mut self, annotations: impl Into<Vec<ChartAnnotation>>) -> Self {
+        self.annotations = annotations.into();
         self
     }
 

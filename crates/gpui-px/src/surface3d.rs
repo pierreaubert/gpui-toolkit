@@ -2,9 +2,10 @@
 
 use crate::error::ChartError;
 use crate::{
-    ChartSize, DEFAULT_HEIGHT, DEFAULT_TITLE_FONT_SIZE, DEFAULT_WIDTH, TITLE_AREA_HEIGHT,
-    apply_chart_size, default_design, resolved_chart_dimensions, validate_data_array,
-    validate_dimensions, validate_grid_dimensions, validate_monotonic, validate_positive,
+    ChartAccessibilitySummary, ChartSize, DEFAULT_HEIGHT, DEFAULT_TITLE_FONT_SIZE, DEFAULT_WIDTH,
+    ScaleType, TITLE_AREA_HEIGHT, apply_chart_size, default_design, finite_range, format_range,
+    resolved_chart_dimensions, validate_data_array, validate_dimensions, validate_grid_dimensions,
+    validate_monotonic, validate_positive,
 };
 use d3rs::gpu3d::{Colormap, Surface3DConfig, Surface3DElement, Surface3DState, SurfaceData};
 use d3rs::text::{GlyphTextConfig, render_glyph_text};
@@ -12,6 +13,7 @@ use gpui::prelude::*;
 use gpui::{IntoElement, div, hsla, px};
 use gpui_design::DesignSystem;
 use std::cell::RefCell;
+use std::fmt::Write;
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -56,6 +58,224 @@ impl std::fmt::Debug for Surface3DChart {
 }
 
 impl Surface3DChart {
+    /// Export this surface chart as deterministic SVG using the chart's configured size.
+    ///
+    /// The SVG export uses a stable projected mesh instead of GPU readback, making it suitable
+    /// for CI release artifacts and documentation snapshots.
+    pub fn to_svg(&self) -> Result<String, ChartError> {
+        self.to_svg_with_options(crate::StaticSvgOptions::new(self.width, self.height))
+    }
+
+    /// Export this surface chart as deterministic SVG with explicit viewport options.
+    pub fn to_svg_with_options(
+        &self,
+        options: crate::StaticSvgOptions,
+    ) -> Result<String, ChartError> {
+        validate_data_array(&self.z, "z")?;
+        validate_grid_dimensions(&self.z, self.grid_width, self.grid_height)?;
+        validate_dimensions(options.width, options.height)?;
+        crate::static_export::validate_plot_area(options)?;
+
+        let x_values = self.resolve_static_axis_values(
+            self.x_values.as_deref(),
+            self.grid_width,
+            self.x_log,
+            "x",
+        )?;
+        let y_values = self.resolve_static_axis_values(
+            self.y_values.as_deref(),
+            self.grid_height,
+            self.y_log,
+            "y",
+        )?;
+        let z_domain = match (self.z_min, self.z_max) {
+            (Some(min), Some(max)) => {
+                crate::validate_range(min, max, "z_range")?;
+                (min, max)
+            }
+            _ => {
+                let [min, max] = finite_range(self.z.iter()).unwrap_or([0.0, 1.0]);
+                (min, max)
+            }
+        };
+
+        let plot_left = options.margin_left;
+        let plot_top = options.margin_top;
+        let plot_right = options.width - options.margin_right;
+        let plot_bottom = options.height - options.margin_bottom;
+        if plot_right <= plot_left || plot_bottom <= plot_top {
+            return Err(ChartError::InvalidDimension {
+                field: "width",
+                value: options.width,
+            });
+        }
+
+        let layout = StaticSurfaceLayout {
+            left: plot_left,
+            top: plot_top,
+            right: plot_right,
+            bottom: plot_bottom,
+        };
+        let x_domain = (*x_values.first().unwrap(), *x_values.last().unwrap());
+        let y_domain = (*y_values.first().unwrap(), *y_values.last().unwrap());
+
+        let mut svg = crate::static_export::svg_header(options);
+        crate::static_export::draw_title(&mut svg, self.title.as_deref(), options.width);
+        draw_static_surface_axes(
+            &mut svg,
+            options,
+            layout,
+            x_domain,
+            y_domain,
+            z_domain,
+            (
+                self.x_label.as_deref(),
+                self.y_label.as_deref(),
+                self.z_label.as_deref(),
+            ),
+        );
+
+        svg.push_str("<g class=\"gpui-px-surface3d\">\n");
+        if self.grid_width > 1 && self.grid_height > 1 {
+            for yi in 0..(self.grid_height - 1) {
+                for xi in 0..(self.grid_width - 1) {
+                    let corners = [(xi, yi), (xi + 1, yi), (xi + 1, yi + 1), (xi, yi + 1)];
+                    let mut points = String::new();
+                    let mut value_sum = 0.0;
+                    for (corner_x, corner_y) in corners {
+                        let z = self.z[corner_y * self.grid_width + corner_x];
+                        value_sum += z;
+                        let (x, y) = project_static_surface_point(
+                            x_values[corner_x],
+                            y_values[corner_y],
+                            z,
+                            x_domain,
+                            y_domain,
+                            z_domain,
+                            layout,
+                            self.x_log,
+                            self.y_log,
+                        );
+                        let _ = write!(points, "{x:.2},{y:.2} ");
+                    }
+                    let normalized = normalize_static_surface_z(value_sum / 4.0, z_domain);
+                    let color = static_surface_colormap_hex(self.colormap, normalized);
+                    let _ = writeln!(
+                        svg,
+                        "<polygon points=\"{}\" fill=\"{}\" stroke=\"#ffffff\" stroke-width=\"0.5\"><title>{:.3}</title></polygon>",
+                        points.trim_end(),
+                        color,
+                        value_sum / 4.0
+                    );
+                }
+            }
+        } else {
+            for (index, z) in self.z.iter().copied().enumerate() {
+                let xi = index % self.grid_width;
+                let yi = index / self.grid_width;
+                let (x, y) = project_static_surface_point(
+                    x_values[xi],
+                    y_values[yi],
+                    z,
+                    x_domain,
+                    y_domain,
+                    z_domain,
+                    layout,
+                    self.x_log,
+                    self.y_log,
+                );
+                let color = static_surface_colormap_hex(
+                    self.colormap,
+                    normalize_static_surface_z(z, z_domain),
+                );
+                let _ = writeln!(
+                    svg,
+                    "<circle cx=\"{x:.2}\" cy=\"{y:.2}\" r=\"3\" fill=\"{color}\"><title>{z:.3}</title></circle>"
+                );
+            }
+        }
+        svg.push_str("</g>\n");
+
+        if self.wireframe {
+            draw_static_surface_wireframe(
+                &mut svg,
+                layout,
+                &x_values,
+                &y_values,
+                &self.z,
+                self.grid_width,
+                self.grid_height,
+                x_domain,
+                y_domain,
+                z_domain,
+                self.x_log,
+                self.y_log,
+            );
+        }
+        draw_static_surface_colorbar(&mut svg, layout, self.colormap, z_domain);
+        svg.push_str("</svg>\n");
+        Ok(svg)
+    }
+
+    /// Return structured accessibility metadata for this chart.
+    pub fn accessibility_summary(&self) -> ChartAccessibilitySummary {
+        let x_range = self
+            .x_values
+            .as_ref()
+            .and_then(|values| finite_range(values.iter()))
+            .or_else(|| (self.grid_width > 0).then_some([0.0, (self.grid_width - 1) as f64]));
+        let y_range = self
+            .y_values
+            .as_ref()
+            .and_then(|values| finite_range(values.iter()))
+            .or_else(|| (self.grid_height > 0).then_some([0.0, (self.grid_height - 1) as f64]));
+        let value_range = finite_range(self.z.iter());
+        let title = self.title.clone();
+        let name = title.as_deref().unwrap_or("3D surface chart");
+        let z_display_range = match (self.z_min, self.z_max) {
+            (Some(min), Some(max)) => format!(" Display Z range {min:.3} to {max:.3}."),
+            _ => String::new(),
+        };
+        let wireframe = if self.wireframe {
+            " Wireframe rendering is enabled."
+        } else {
+            ""
+        };
+        let description = format!(
+            "{name}: 3D surface chart with a {} by {} grid and {} samples. {}, {}, {}. X scale {}, Y scale {}.{z_display_range}{wireframe}",
+            self.grid_width,
+            self.grid_height,
+            self.z.len(),
+            format_range("X", x_range),
+            format_range("Y", y_range),
+            format_range("Z", value_range),
+            if self.x_log { "log" } else { "linear" },
+            if self.y_log { "log" } else { "linear" }
+        );
+
+        ChartAccessibilitySummary {
+            chart_type: "surface3d",
+            title,
+            series_count: 1,
+            datum_count: self.z.len(),
+            x_range,
+            y_range,
+            value_range,
+            x_scale: Some(if self.x_log {
+                ScaleType::Log
+            } else {
+                ScaleType::Linear
+            }),
+            y_scale: Some(if self.y_log {
+                ScaleType::Log
+            } else {
+                ScaleType::Linear
+            }),
+            series_labels: vec!["Surface values".to_string()],
+            description,
+        }
+    }
+
     /// Set custom x axis values.
     ///
     /// Values must be strictly monotonically increasing.
@@ -170,6 +390,50 @@ impl Surface3DChart {
     pub fn with_state(mut self, state: Rc<RefCell<Surface3DState>>) -> Self {
         self.external_state = Some(state);
         self
+    }
+
+    fn resolve_static_axis_values(
+        &self,
+        values: Option<&[f64]>,
+        expected_len: usize,
+        is_log: bool,
+        field: &'static str,
+    ) -> Result<Vec<f64>, ChartError> {
+        match values {
+            Some(values) => {
+                if values.len() != expected_len {
+                    return Err(ChartError::DataLengthMismatch {
+                        x_field: field,
+                        y_field: if field == "x" {
+                            "grid_width"
+                        } else {
+                            "grid_height"
+                        },
+                        x_len: values.len(),
+                        y_len: expected_len,
+                    });
+                }
+                validate_data_array(values, field)?;
+                validate_monotonic(values, field)?;
+                if is_log {
+                    validate_positive(values, field)?;
+                }
+                Ok(values.to_vec())
+            }
+            None => {
+                if is_log {
+                    return Err(ChartError::InvalidData {
+                        field,
+                        reason: if field == "x" {
+                            "log scale requires explicit positive x values"
+                        } else {
+                            "log scale requires explicit positive y values"
+                        },
+                    });
+                }
+                Ok((0..expected_len).map(|index| index as f64).collect())
+            }
+        }
     }
 
     /// Build and validate the chart, returning renderable element.
@@ -372,6 +636,231 @@ pub fn surface3d(z: &[f64], grid_width: usize, grid_height: usize) -> Surface3DC
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+struct StaticSurfaceLayout {
+    left: f32,
+    top: f32,
+    right: f32,
+    bottom: f32,
+}
+
+impl StaticSurfaceLayout {
+    fn width(self) -> f32 {
+        self.right - self.left
+    }
+
+    fn height(self) -> f32 {
+        self.bottom - self.top
+    }
+}
+
+fn draw_static_surface_axes(
+    svg: &mut String,
+    options: crate::StaticSvgOptions,
+    layout: StaticSurfaceLayout,
+    x_domain: (f64, f64),
+    y_domain: (f64, f64),
+    z_domain: (f64, f64),
+    labels: (Option<&str>, Option<&str>, Option<&str>),
+) {
+    if !options.show_axes {
+        return;
+    }
+
+    let base_z = z_domain.0;
+    let origin = project_static_surface_point(
+        x_domain.0, y_domain.0, base_z, x_domain, y_domain, z_domain, layout, false, false,
+    );
+    let x_end = project_static_surface_point(
+        x_domain.1, y_domain.0, base_z, x_domain, y_domain, z_domain, layout, false, false,
+    );
+    let y_end = project_static_surface_point(
+        x_domain.0, y_domain.1, base_z, x_domain, y_domain, z_domain, layout, false, false,
+    );
+    let z_end = project_static_surface_point(
+        x_domain.0, y_domain.0, z_domain.1, x_domain, y_domain, z_domain, layout, false, false,
+    );
+
+    svg.push_str("<g class=\"gpui-px-surface3d-axes\" stroke=\"#555\" fill=\"#555\" font-family=\"system-ui, sans-serif\" font-size=\"10\">\n");
+    for (start, end) in [(origin, x_end), (origin, y_end), (origin, z_end)] {
+        let _ = writeln!(
+            svg,
+            "<line x1=\"{:.2}\" y1=\"{:.2}\" x2=\"{:.2}\" y2=\"{:.2}\" stroke-width=\"1\"/>",
+            start.0, start.1, end.0, end.1
+        );
+    }
+
+    let x_label = labels.0.unwrap_or("x");
+    let y_label = labels.1.unwrap_or("y");
+    let z_label = labels.2.unwrap_or("z");
+    for (label, end) in [(x_label, x_end), (y_label, y_end), (z_label, z_end)] {
+        let _ = writeln!(
+            svg,
+            "<text x=\"{:.2}\" y=\"{:.2}\">{}</text>",
+            end.0 + 6.0,
+            end.1,
+            crate::static_export::escape_xml(label)
+        );
+    }
+    svg.push_str("</g>\n");
+}
+
+fn draw_static_surface_wireframe(
+    svg: &mut String,
+    layout: StaticSurfaceLayout,
+    x_values: &[f64],
+    y_values: &[f64],
+    z_values: &[f64],
+    grid_width: usize,
+    grid_height: usize,
+    x_domain: (f64, f64),
+    y_domain: (f64, f64),
+    z_domain: (f64, f64),
+    x_log: bool,
+    y_log: bool,
+) {
+    svg.push_str("<g class=\"gpui-px-surface3d-wireframe\" fill=\"none\" stroke=\"#333\" stroke-width=\"0.75\" stroke-opacity=\"0.65\">\n");
+    for yi in 0..grid_height {
+        let mut points = String::new();
+        for xi in 0..grid_width {
+            let z = z_values[yi * grid_width + xi];
+            let (x, y) = project_static_surface_point(
+                x_values[xi],
+                y_values[yi],
+                z,
+                x_domain,
+                y_domain,
+                z_domain,
+                layout,
+                x_log,
+                y_log,
+            );
+            let _ = write!(points, "{x:.2},{y:.2} ");
+        }
+        let _ = writeln!(svg, "<polyline points=\"{}\"/>", points.trim_end());
+    }
+    for xi in 0..grid_width {
+        let mut points = String::new();
+        for yi in 0..grid_height {
+            let z = z_values[yi * grid_width + xi];
+            let (x, y) = project_static_surface_point(
+                x_values[xi],
+                y_values[yi],
+                z,
+                x_domain,
+                y_domain,
+                z_domain,
+                layout,
+                x_log,
+                y_log,
+            );
+            let _ = write!(points, "{x:.2},{y:.2} ");
+        }
+        let _ = writeln!(svg, "<polyline points=\"{}\"/>", points.trim_end());
+    }
+    svg.push_str("</g>\n");
+}
+
+fn draw_static_surface_colorbar(
+    svg: &mut String,
+    layout: StaticSurfaceLayout,
+    colormap: Colormap,
+    z_domain: (f64, f64),
+) {
+    let bar_width = 10.0;
+    let bar_height = layout.height().min(120.0);
+    let x = layout.right - bar_width - 6.0;
+    let y = layout.top + 8.0;
+    svg.push_str("<g class=\"gpui-px-surface3d-colorbar\">\n");
+    for step in 0..12 {
+        let t0 = step as f32 / 12.0;
+        let fill = static_surface_colormap_hex(colormap, 1.0 - t0);
+        let rect_y = y + bar_height * t0;
+        let rect_h = (bar_height / 12.0).ceil();
+        let _ = writeln!(
+            svg,
+            "<rect x=\"{x:.2}\" y=\"{rect_y:.2}\" width=\"{bar_width:.2}\" height=\"{rect_h:.2}\" fill=\"{fill}\"/>"
+        );
+    }
+    let _ = writeln!(
+        svg,
+        "<rect x=\"{x:.2}\" y=\"{y:.2}\" width=\"{bar_width:.2}\" height=\"{bar_height:.2}\" fill=\"none\" stroke=\"#555\" stroke-width=\"0.75\"/>"
+    );
+    let _ = writeln!(
+        svg,
+        "<text x=\"{:.2}\" y=\"{:.2}\" font-family=\"system-ui, sans-serif\" font-size=\"9\" fill=\"#555\">{:.3}</text>",
+        x + 14.0,
+        y + 8.0,
+        z_domain.1
+    );
+    let _ = writeln!(
+        svg,
+        "<text x=\"{:.2}\" y=\"{:.2}\" font-family=\"system-ui, sans-serif\" font-size=\"9\" fill=\"#555\">{:.3}</text>",
+        x + 14.0,
+        y + bar_height,
+        z_domain.0
+    );
+    svg.push_str("</g>\n");
+}
+
+fn project_static_surface_point(
+    x: f64,
+    y: f64,
+    z: f64,
+    x_domain: (f64, f64),
+    y_domain: (f64, f64),
+    z_domain: (f64, f64),
+    layout: StaticSurfaceLayout,
+    x_log: bool,
+    y_log: bool,
+) -> (f32, f32) {
+    let x = normalize_static_surface_axis(x, x_domain, x_log) * 2.0 - 1.0;
+    let y = normalize_static_surface_axis(y, y_domain, y_log) * 2.0 - 1.0;
+    let z = normalize_static_surface_z(z, z_domain);
+    let center_x = (layout.left + layout.right) / 2.0;
+    let origin_y = layout.top + layout.height() * 0.72;
+    let scale_x = layout.width() * 0.30;
+    let scale_y = layout.height() * 0.16;
+    let scale_z = layout.height() * 0.32;
+    (
+        center_x + (x - y) * scale_x,
+        origin_y + (x + y) * scale_y - z * scale_z,
+    )
+}
+
+fn normalize_static_surface_axis(value: f64, domain: (f64, f64), is_log: bool) -> f32 {
+    let (value, min, max) = if is_log {
+        (value.log10(), domain.0.log10(), domain.1.log10())
+    } else {
+        (value, domain.0, domain.1)
+    };
+    if max == min {
+        return 0.5;
+    }
+    ((value - min) / (max - min)).clamp(0.0, 1.0) as f32
+}
+
+fn normalize_static_surface_z(value: f64, domain: (f64, f64)) -> f32 {
+    if domain.1 == domain.0 {
+        return 0.5;
+    }
+    ((value - domain.0) / (domain.1 - domain.0)).clamp(0.0, 1.0) as f32
+}
+
+fn static_surface_colormap_hex(colormap: Colormap, t: f32) -> String {
+    let (r, g, b) = colormap.color_at(t);
+    format!(
+        "#{:02x}{:02x}{:02x}",
+        static_surface_channel_to_u8(r),
+        static_surface_channel_to_u8(g),
+        static_surface_channel_to_u8(b)
+    )
+}
+
+fn static_surface_channel_to_u8(channel: f32) -> u8 {
+    (channel.clamp(0.0, 1.0) * 255.0).round() as u8
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -426,5 +915,68 @@ mod tests {
             260.0,
             Some(1.3),
         );
+    }
+
+    #[test]
+    fn surface3d_static_export_writes_projected_mesh_title_and_colorbar() {
+        let z = vec![1.0, 2.0, 3.0, 4.0];
+        let svg = surface3d(&z, 2, 2)
+            .title("Surface")
+            .x_label("Frequency")
+            .y_label("Angle")
+            .z_label("SPL")
+            .wireframe(true)
+            .to_svg_with_options(crate::StaticSvgOptions::new(420.0, 280.0))
+            .expect("surface SVG export should succeed");
+
+        assert!(svg.contains("<title>Surface</title>"));
+        assert!(svg.contains("class=\"gpui-px-surface3d\""));
+        assert!(svg.contains("class=\"gpui-px-surface3d-wireframe\""));
+        assert!(svg.contains("class=\"gpui-px-surface3d-colorbar\""));
+        assert!(svg.contains("<polygon"));
+        assert!(svg.contains("Frequency"));
+        assert!(svg.contains("SPL"));
+    }
+
+    #[test]
+    fn surface3d_static_export_supports_log_axes() {
+        let z = vec![1.0, 2.0, 3.0, 4.0];
+        let svg = surface3d(&z, 2, 2)
+            .x(&[10.0, 1000.0])
+            .y(&[1.0, 100.0])
+            .x_log(true)
+            .y_log(true)
+            .to_svg()
+            .expect("surface SVG export should support explicit log axes");
+
+        assert!(svg.contains("gpui-px-surface3d"));
+    }
+
+    #[test]
+    fn surface3d_static_export_preserves_log_axis_validation_errors() {
+        let z = vec![1.0, 2.0, 3.0, 4.0];
+        let result = surface3d(&z, 2, 2).x_log(true).to_svg();
+
+        assert!(matches!(
+            result,
+            Err(ChartError::InvalidData {
+                field: "x",
+                reason: "log scale requires explicit positive x values"
+            })
+        ));
+    }
+
+    #[test]
+    fn surface3d_static_export_preserves_z_range_validation_errors() {
+        let z = vec![1.0, 2.0, 3.0, 4.0];
+        let result = surface3d(&z, 2, 2).z_range(4.0, 1.0).to_svg();
+
+        assert!(matches!(
+            result,
+            Err(ChartError::InvalidData {
+                field: "z_range",
+                reason: "range min must be less than max"
+            })
+        ));
     }
 }

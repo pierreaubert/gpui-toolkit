@@ -5,6 +5,25 @@ use d3rs::brush::{BrushConfig, BrushSelection, BrushState, DomainSelection};
 use d3rs::scale::{LinearScale, LogScale, Scale};
 use d3rs::zoom::{ZoomConfig, ZoomState};
 
+/// Keyboard action that can be applied to chart interaction state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChartKeyboardAction {
+    /// Zoom in around the plot center.
+    ZoomIn,
+    /// Zoom out around the plot center.
+    ZoomOut,
+    /// Pan the visible domain left.
+    PanLeft,
+    /// Pan the visible domain right.
+    PanRight,
+    /// Pan the visible domain up.
+    PanUp,
+    /// Pan the visible domain down.
+    PanDown,
+    /// Reset zoom to the original domain.
+    ResetZoom,
+}
+
 /// Chart interaction state that can be shared between components.
 ///
 /// This struct maintains the state of brush selection and zoom levels,
@@ -27,6 +46,8 @@ pub struct ChartInteraction {
     pub y_is_log: bool,
     /// Plot dimensions (width, height)
     pub plot_size: (f32, f32),
+    /// Last hovered domain coordinate, if the pointer is over the plot.
+    pub hover_domain: Option<(f64, f64)>,
 }
 
 impl Default for ChartInteraction {
@@ -40,6 +61,7 @@ impl Default for ChartInteraction {
             x_is_log: false,
             y_is_log: false,
             plot_size: (600.0, 400.0),
+            hover_domain: None,
         }
     }
 }
@@ -56,6 +78,7 @@ impl ChartInteraction {
             x_is_log: false,
             y_is_log: false,
             plot_size: (600.0, 400.0),
+            hover_domain: None,
         }
     }
 
@@ -251,6 +274,147 @@ impl ChartInteraction {
 
         (domain_x, domain_y)
     }
+
+    /// Update the retained hover coordinate from plot-relative pixel coordinates.
+    pub fn update_hover_pixel(&mut self, x: f32, y: f32) -> Option<(f64, f64)> {
+        let (width, height) = self.plot_size;
+        if !x.is_finite()
+            || !y.is_finite()
+            || width <= 0.0
+            || height <= 0.0
+            || x < 0.0
+            || y < 0.0
+            || x > width
+            || y > height
+        {
+            self.hover_domain = None;
+            return None;
+        }
+
+        let domain = self.point_to_domain(x, y);
+        self.hover_domain = Some(domain);
+        self.hover_domain
+    }
+
+    /// Clear retained hover state.
+    pub fn clear_hover(&mut self) {
+        self.hover_domain = None;
+    }
+
+    /// Return the retained hover domain coordinate.
+    pub fn hover_domain(&self) -> Option<(f64, f64)> {
+        self.hover_domain
+    }
+
+    /// Apply a pan delta in plot-relative pixels.
+    pub fn pan_by_pixels(&mut self, dx: f32, dy: f32) {
+        let (plot_width, plot_height) = self.plot_size;
+        if plot_width <= 0.0 || plot_height <= 0.0 || !dx.is_finite() || !dy.is_finite() {
+            return;
+        }
+
+        let (x_min, x_max) = self.x_domain();
+        let (y_min, y_max) = self.y_domain();
+        let x_range = x_max - x_min;
+        let y_range = y_max - y_min;
+
+        let (mut new_x_min, mut new_x_max) = if self.x_is_log {
+            let log_min = x_min.max(1e-10).log10();
+            let log_max = x_max.max(1e-10).log10();
+            let log_range = log_max - log_min;
+            let log_delta = -(dx as f64 / plot_width as f64) * log_range;
+            (
+                10_f64.powf(log_min + log_delta),
+                10_f64.powf(log_max + log_delta),
+            )
+        } else {
+            let delta = -(dx as f64 / plot_width as f64) * x_range;
+            (x_min + delta, x_max + delta)
+        };
+
+        let (mut new_y_min, mut new_y_max) = if self.y_is_log {
+            let log_min = y_min.max(1e-10).log10();
+            let log_max = y_max.max(1e-10).log10();
+            let log_range = log_max - log_min;
+            let log_delta = (dy as f64 / plot_height as f64) * log_range;
+            (
+                10_f64.powf(log_min + log_delta),
+                10_f64.powf(log_max + log_delta),
+            )
+        } else {
+            let delta = (dy as f64 / plot_height as f64) * y_range;
+            (y_min + delta, y_max + delta)
+        };
+
+        if self.x_is_log {
+            (new_x_min, new_x_max) = clamp_log_domain(new_x_min, new_x_max);
+        }
+        if self.y_is_log {
+            (new_y_min, new_y_max) = clamp_log_domain(new_y_min, new_y_max);
+        }
+
+        self.zoom_to(new_x_min, new_x_max, new_y_min, new_y_max);
+    }
+
+    /// Apply a keyboard interaction using renderer-free state transitions.
+    pub fn apply_keyboard_action(
+        &mut self,
+        action: ChartKeyboardAction,
+        pan_step_px: f32,
+        zoom_factor: f64,
+    ) {
+        let pan_step = if pan_step_px.is_finite() && pan_step_px > 0.0 {
+            pan_step_px
+        } else {
+            40.0
+        };
+        let zoom_factor = if zoom_factor.is_finite() && zoom_factor > 1.0 {
+            zoom_factor
+        } else {
+            1.1
+        };
+
+        match action {
+            ChartKeyboardAction::ZoomIn => {
+                let (width, height) = self.plot_size;
+                self.zoom_around_pixel(width * 0.5, height * 0.5, 1.0 / zoom_factor);
+            }
+            ChartKeyboardAction::ZoomOut => {
+                let (width, height) = self.plot_size;
+                self.zoom_around_pixel(width * 0.5, height * 0.5, zoom_factor);
+            }
+            ChartKeyboardAction::PanLeft => self.pan_by_pixels(pan_step, 0.0),
+            ChartKeyboardAction::PanRight => self.pan_by_pixels(-pan_step, 0.0),
+            ChartKeyboardAction::PanUp => self.pan_by_pixels(0.0, pan_step),
+            ChartKeyboardAction::PanDown => self.pan_by_pixels(0.0, -pan_step),
+            ChartKeyboardAction::ResetZoom => self.reset_zoom(),
+        }
+    }
+
+    /// Zoom around a plot-relative pixel coordinate by a scale factor.
+    pub fn zoom_around_pixel(&mut self, mouse_x: f32, mouse_y: f32, factor: f64) {
+        if !factor.is_finite() || factor <= 0.0 {
+            return;
+        }
+
+        let (x_min, x_max) = self.x_domain();
+        let (y_min, y_max) = self.y_domain();
+        let (focus_x, focus_y) = self.point_to_domain(mouse_x, mouse_y);
+
+        let mut new_x_min = focus_x - (focus_x - x_min) * factor;
+        let mut new_x_max = focus_x + (x_max - focus_x) * factor;
+        let mut new_y_min = focus_y - (focus_y - y_min) * factor;
+        let mut new_y_max = focus_y + (y_max - focus_y) * factor;
+
+        if self.x_is_log {
+            (new_x_min, new_x_max) = clamp_log_domain(new_x_min, new_x_max);
+        }
+        if self.y_is_log {
+            (new_y_min, new_y_max) = clamp_log_domain(new_y_min, new_y_max);
+        }
+
+        self.zoom_to(new_x_min, new_x_max, new_y_min, new_y_max);
+    }
 }
 
 /// Apply mouse wheel zoom to chart interaction state.
@@ -268,12 +432,6 @@ pub fn apply_wheel_zoom(
     mouse_y: f32,
     config: &WheelConfig,
 ) {
-    let (x_min, x_max) = interaction.x_domain();
-    let (y_min, y_max) = interaction.y_domain();
-
-    // Get mouse position in domain coordinates
-    let (focus_x, focus_y) = interaction.point_to_domain(mouse_x, mouse_y);
-
     // Calculate zoom factor
     let delta = if config.invert { -delta_y } else { delta_y };
     let factor = if delta > 0.0 {
@@ -282,21 +440,7 @@ pub fn apply_wheel_zoom(
         1.0 / config.zoom_factor
     };
 
-    // Apply zoom centered on mouse position
-    let mut new_x_min = focus_x - (focus_x - x_min) * factor;
-    let mut new_x_max = focus_x + (x_max - focus_x) * factor;
-    let mut new_y_min = focus_y - (focus_y - y_min) * factor;
-    let mut new_y_max = focus_y + (y_max - focus_y) * factor;
-
-    // Clamp log scale domains to stay positive
-    if interaction.x_is_log {
-        (new_x_min, new_x_max) = clamp_log_domain(new_x_min, new_x_max);
-    }
-    if interaction.y_is_log {
-        (new_y_min, new_y_max) = clamp_log_domain(new_y_min, new_y_max);
-    }
-
-    interaction.zoom_to(new_x_min, new_x_max, new_y_min, new_y_max);
+    interaction.zoom_around_pixel(mouse_x, mouse_y, factor);
 }
 
 #[cfg(feature = "gpui")]
@@ -497,54 +641,7 @@ pub(super) mod interactive_chart {
         /// Apply pan delta to the zoom state
         pub fn apply_pan(&self, dx: f32, dy: f32) {
             let mut interaction = self.interaction.borrow_mut();
-            let (plot_width, plot_height) = interaction.plot_size;
-            let (x_min, x_max) = interaction.x_domain();
-            let (y_min, y_max) = interaction.y_domain();
-
-            // Convert pixel delta to domain delta
-            let x_range = x_max - x_min;
-            let y_range = y_max - y_min;
-
-            // For log scale, we need to handle panning differently
-            let (mut new_x_min, mut new_x_max) = if interaction.x_is_log {
-                // For log scale, pan in log space
-                let log_min = x_min.log10();
-                let log_max = x_max.log10();
-                let log_range = log_max - log_min;
-                let log_delta = -(dx as f64 / plot_width as f64) * log_range;
-                (
-                    10_f64.powf(log_min + log_delta),
-                    10_f64.powf(log_max + log_delta),
-                )
-            } else {
-                let delta = -(dx as f64 / plot_width as f64) * x_range;
-                (x_min + delta, x_max + delta)
-            };
-
-            let (mut new_y_min, mut new_y_max) = if interaction.y_is_log {
-                let log_min = y_min.log10();
-                let log_max = y_max.log10();
-                let log_range = log_max - log_min;
-                let log_delta = (dy as f64 / plot_height as f64) * log_range;
-                (
-                    10_f64.powf(log_min + log_delta),
-                    10_f64.powf(log_max + log_delta),
-                )
-            } else {
-                // Y is inverted (screen coords vs domain coords)
-                let delta = (dy as f64 / plot_height as f64) * y_range;
-                (y_min + delta, y_max + delta)
-            };
-
-            // Clamp log scale domains to stay positive
-            if interaction.x_is_log {
-                (new_x_min, new_x_max) = clamp_log_domain(new_x_min, new_x_max);
-            }
-            if interaction.y_is_log {
-                (new_y_min, new_y_max) = clamp_log_domain(new_y_min, new_y_max);
-            }
-
-            interaction.zoom_to(new_x_min, new_x_max, new_y_min, new_y_max);
+            interaction.pan_by_pixels(dx, dy);
         }
     }
 

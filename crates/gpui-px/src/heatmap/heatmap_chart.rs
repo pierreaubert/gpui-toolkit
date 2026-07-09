@@ -1,10 +1,11 @@
 use crate::color_scale::ColorScale;
 use crate::error::ChartError;
 use crate::{
-    ChartSize, DEFAULT_HEIGHT, DEFAULT_TITLE_FONT_SIZE, DEFAULT_WIDTH, ScaleType,
-    TITLE_AREA_HEIGHT, apply_chart_size, default_design, extent_padded, resolved_chart_dimensions,
-    validate_data_array, validate_dimensions, validate_grid_dimensions, validate_monotonic,
-    validate_positive, validate_range, validate_range_log,
+    ChartAccessibilitySummary, ChartSize, DEFAULT_HEIGHT, DEFAULT_TITLE_FONT_SIZE, DEFAULT_WIDTH,
+    ScaleType, TITLE_AREA_HEIGHT, apply_chart_size, default_design, extent_padded, finite_range,
+    format_range, format_scale, resolved_chart_dimensions, validate_data_array,
+    validate_dimensions, validate_grid_dimensions, validate_monotonic, validate_positive,
+    validate_range, validate_range_log,
 };
 use d3rs::axis::{AxisConfig, DefaultAxisTheme, render_axis};
 #[cfg(feature = "gpu-2d")]
@@ -59,6 +60,75 @@ impl std::fmt::Debug for HeatmapChart {
 }
 
 impl HeatmapChart {
+    /// Export this heatmap chart as deterministic SVG.
+    pub fn to_svg(&self) -> Result<String, ChartError> {
+        self.to_svg_with_options(crate::StaticSvgOptions::new(self.width, self.height))
+    }
+
+    /// Export this heatmap chart as deterministic SVG with explicit export options.
+    pub fn to_svg_with_options(
+        &self,
+        options: crate::StaticSvgOptions,
+    ) -> Result<String, ChartError> {
+        crate::static_export::render_heatmap_svg(
+            self.title.as_deref(),
+            crate::static_export::StaticHeatmapSeries {
+                z: &self.z,
+                grid_width: self.grid_width,
+                grid_height: self.grid_height,
+                x_values: self.x_values.as_deref(),
+                y_values: self.y_values.as_deref(),
+                x_scale_type: self.x_scale_type,
+                y_scale_type: self.y_scale_type,
+                x_range: self.x_range,
+                y_range: self.y_range,
+                color_scale: &self.color_scale,
+                opacity: self.opacity,
+            },
+            options,
+        )
+    }
+
+    /// Return structured accessibility metadata for this chart.
+    pub fn accessibility_summary(&self) -> ChartAccessibilitySummary {
+        let x_range = self
+            .x_values
+            .as_ref()
+            .and_then(|values| finite_range(values));
+        let y_range = self
+            .y_values
+            .as_ref()
+            .and_then(|values| finite_range(values));
+        let value_range = finite_range(&self.z);
+        let title = self.title.clone();
+        let name = title.as_deref().unwrap_or("Heatmap");
+        let description = format!(
+            "{name}: heatmap with {} by {} cells, {} values. {}, {}, {}. X scale {}, Y scale {}.",
+            self.grid_width,
+            self.grid_height,
+            self.z.len(),
+            format_range("X", x_range),
+            format_range("Y", y_range),
+            format_range("Value", value_range),
+            format_scale(self.x_scale_type),
+            format_scale(self.y_scale_type)
+        );
+
+        ChartAccessibilitySummary {
+            chart_type: "heatmap",
+            title,
+            series_count: 1,
+            datum_count: self.z.len(),
+            x_range,
+            y_range,
+            value_range,
+            x_scale: Some(self.x_scale_type),
+            y_scale: Some(self.y_scale_type),
+            series_labels: vec!["Heatmap values".to_string()],
+            description,
+        }
+    }
+
     /// Set custom x axis values.
     ///
     /// Values must be strictly monotonically increasing.

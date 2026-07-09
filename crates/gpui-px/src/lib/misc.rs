@@ -1,5 +1,7 @@
+#[cfg(feature = "gpui")]
 use std::sync::Arc;
 
+#[cfg(feature = "gpui")]
 pub(crate) fn default_design() -> Arc<gpui_design::DesignSystem> {
     Arc::new(gpui_design::DesignSystem::neutral())
 }
@@ -14,6 +16,7 @@ pub(crate) fn default_design() -> Arc<gpui_design::DesignSystem> {
 /// When all values are identical (range ≈ 0), uses a **hardcoded padding of 1.0**
 /// to ensure a meaningful range for visualization. This prevents collapsed
 /// axes and ensures the constant value is visible in the chart.
+#[cfg(any(feature = "gpui", test))]
 pub(crate) fn extent_padded_iter(
     iter: impl Iterator<Item = f64>,
     padding_fraction: f64,
@@ -43,6 +46,7 @@ pub(crate) fn extent_padded_iter(
 /// axes and ensures the constant value is visible in the chart.
 ///
 /// For example, `[5.0, 5.0, 5.0]` returns `(4.0, 6.0)` instead of `(5.0, 5.0)`.
+#[cfg(any(feature = "gpui", test))]
 pub(crate) fn extent_padded(values: &[f64], padding_fraction: f64) -> (f64, f64) {
     extent_padded_iter(values.iter().copied(), padding_fraction)
 }
