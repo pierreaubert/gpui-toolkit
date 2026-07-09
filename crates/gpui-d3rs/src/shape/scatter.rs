@@ -2,8 +2,11 @@
 
 use crate::color::D3Color;
 use crate::scale::Scale;
+#[cfg(all(feature = "gpui", not(test)))]
 use gpui::prelude::*;
+#[cfg(all(feature = "gpui", not(test)))]
 use gpui::*;
+use std::fmt;
 
 /// Configuration for scatter plot rendering
 #[derive(Clone)]
@@ -109,7 +112,75 @@ impl ScatterPoint {
     }
 }
 
+/// Recoverable errors for checked scatter rendering input validation.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ScatterRenderError {
+    /// Checked scatter data coordinates must be finite before scaling.
+    NonFiniteDataCoordinate {
+        index: usize,
+        coordinate: &'static str,
+        value: f64,
+    },
+    /// Checked scatter scales must expose finite output ranges.
+    NonFiniteScaleRange {
+        axis: &'static str,
+        endpoint: &'static str,
+        value: f64,
+    },
+    /// Checked scatter scales must return finite outputs for finite data.
+    NonFiniteScaleOutput {
+        index: usize,
+        axis: &'static str,
+        value: f64,
+    },
+    /// Checked scatter numeric configuration fields must be finite.
+    NonFiniteConfigField { field: &'static str, value: f32 },
+    /// Checked scatter size configuration fields cannot be negative.
+    NegativeConfigField { field: &'static str, value: f32 },
+    /// Checked scatter opacity must stay in the normalized alpha range.
+    OpacityOutOfRange { value: f32 },
+}
+
+impl fmt::Display for ScatterRenderError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NonFiniteDataCoordinate {
+                index,
+                coordinate,
+                value,
+            } => write!(
+                f,
+                "scatter data coordinate {coordinate} at index {index} is not finite: {value}"
+            ),
+            Self::NonFiniteScaleRange {
+                axis,
+                endpoint,
+                value,
+            } => write!(
+                f,
+                "scatter {axis}-scale range {endpoint} is not finite: {value}"
+            ),
+            Self::NonFiniteScaleOutput { index, axis, value } => write!(
+                f,
+                "scatter {axis}-scale output at index {index} is not finite: {value}"
+            ),
+            Self::NonFiniteConfigField { field, value } => {
+                write!(f, "scatter config field {field} is not finite: {value}")
+            }
+            Self::NegativeConfigField { field, value } => {
+                write!(f, "scatter config field {field} is negative: {value}")
+            }
+            Self::OpacityOutOfRange { value } => {
+                write!(f, "scatter opacity is outside 0.0..=1.0: {value}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for ScatterRenderError {}
+
 /// Pre-computed screen-space point for a scatter plot.
+#[cfg(any(test, all(feature = "gpui", not(test))))]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(super) struct ScatterDrawPoint {
     pub x_rel: f32,
@@ -117,6 +188,7 @@ pub(super) struct ScatterDrawPoint {
 }
 
 /// Pre-compute normalized (0-1) point positions in a single pass.
+#[cfg(any(test, all(feature = "gpui", not(test))))]
 pub(super) fn compute_scatter_points<XS, YS>(
     x_scale: &XS,
     y_scale: &YS,
@@ -155,6 +227,132 @@ where
         .collect()
 }
 
+/// Validate scatter rendering inputs before constructing a GPUI scatter element.
+pub fn validate_scatter_inputs<XS, YS>(
+    x_scale: &XS,
+    y_scale: &YS,
+    data: &[ScatterPoint],
+    config: &ScatterConfig,
+) -> Result<(), ScatterRenderError>
+where
+    XS: Scale<f64, f64>,
+    YS: Scale<f64, f64>,
+{
+    validate_scatter_config(config)?;
+
+    let (x_min, x_max) = x_scale.range();
+    validate_scale_range("x", "min", x_min)?;
+    validate_scale_range("x", "max", x_max)?;
+
+    let (y_min, y_max) = y_scale.range();
+    validate_scale_range("y", "min", y_min)?;
+    validate_scale_range("y", "max", y_max)?;
+
+    for (index, point) in data.iter().enumerate() {
+        if !point.x.is_finite() {
+            return Err(ScatterRenderError::NonFiniteDataCoordinate {
+                index,
+                coordinate: "x",
+                value: point.x,
+            });
+        }
+        if !point.y.is_finite() {
+            return Err(ScatterRenderError::NonFiniteDataCoordinate {
+                index,
+                coordinate: "y",
+                value: point.y,
+            });
+        }
+
+        let x_output = x_scale.scale(point.x);
+        if !x_output.is_finite() {
+            return Err(ScatterRenderError::NonFiniteScaleOutput {
+                index,
+                axis: "x",
+                value: x_output,
+            });
+        }
+
+        let y_output = y_scale.scale(point.y);
+        if !y_output.is_finite() {
+            return Err(ScatterRenderError::NonFiniteScaleOutput {
+                index,
+                axis: "y",
+                value: y_output,
+            });
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_scatter_config(config: &ScatterConfig) -> Result<(), ScatterRenderError> {
+    validate_finite_f32("point_radius", config.point_radius)?;
+    if config.point_radius < 0.0 {
+        return Err(ScatterRenderError::NegativeConfigField {
+            field: "point_radius",
+            value: config.point_radius,
+        });
+    }
+
+    validate_finite_f32("stroke_width", config.stroke_width)?;
+    if config.stroke_width < 0.0 {
+        return Err(ScatterRenderError::NegativeConfigField {
+            field: "stroke_width",
+            value: config.stroke_width,
+        });
+    }
+
+    validate_finite_f32("opacity", config.opacity)?;
+    if !(0.0..=1.0).contains(&config.opacity) {
+        return Err(ScatterRenderError::OpacityOutOfRange {
+            value: config.opacity,
+        });
+    }
+
+    Ok(())
+}
+
+fn validate_finite_f32(field: &'static str, value: f32) -> Result<(), ScatterRenderError> {
+    if value.is_finite() {
+        Ok(())
+    } else {
+        Err(ScatterRenderError::NonFiniteConfigField { field, value })
+    }
+}
+
+fn validate_scale_range(
+    axis: &'static str,
+    endpoint: &'static str,
+    value: f64,
+) -> Result<(), ScatterRenderError> {
+    if value.is_finite() {
+        Ok(())
+    } else {
+        Err(ScatterRenderError::NonFiniteScaleRange {
+            axis,
+            endpoint,
+            value,
+        })
+    }
+}
+
+/// Render a scatter plot after validating data, scale outputs, and config.
+#[cfg(all(feature = "gpui", not(test)))]
+pub fn try_render_scatter<XS, YS>(
+    x_scale: &XS,
+    y_scale: &YS,
+    data: &[ScatterPoint],
+    config: &ScatterConfig,
+) -> Result<impl IntoElement + use<XS, YS>, ScatterRenderError>
+where
+    XS: Scale<f64, f64>,
+    YS: Scale<f64, f64>,
+{
+    validate_scatter_inputs(x_scale, y_scale, data, config)?;
+    Ok(render_scatter(x_scale, y_scale, data, config))
+}
+
 /// Render a scatter plot
 ///
 /// # Example
@@ -177,12 +375,13 @@ where
 ///     .point_radius(5.0);
 /// // render_scatter(&x_scale, &y_scale, &data, &config)
 /// ```
+#[cfg(all(feature = "gpui", not(test)))]
 pub fn render_scatter<XS, YS>(
     x_scale: &XS,
     y_scale: &YS,
     data: &[ScatterPoint],
     config: &ScatterConfig,
-) -> impl IntoElement
+) -> impl IntoElement + use<XS, YS>
 where
     XS: Scale<f64, f64>,
     YS: Scale<f64, f64>,
@@ -250,6 +449,7 @@ where
 }
 
 /// Append a circle outline to a GPUI path builder.
+#[cfg(all(feature = "gpui", not(test)))]
 fn add_circle_to_path(builder: &mut PathBuilder, cx: f32, cy: f32, r: f32) {
     if r <= 0.0 {
         return;
@@ -292,5 +492,93 @@ mod tests {
         );
         assert_eq!(points[0].x_rel, 0.1);
         assert_eq!(points[2].x_rel, 0.9);
+    }
+
+    #[test]
+    fn validate_scatter_inputs_accepts_valid_points() {
+        let x_scale = LinearScale::new().domain(0.0, 100.0).range(0.0, 400.0);
+        let y_scale = LinearScale::new().domain(0.0, 100.0).range(300.0, 0.0);
+        let data = vec![ScatterPoint::new(10.0, 20.0), ScatterPoint::new(90.0, 40.0)];
+        let config = ScatterConfig::new().point_radius(5.0);
+
+        validate_scatter_inputs(&x_scale, &y_scale, &data, &config).unwrap();
+    }
+
+    #[test]
+    fn validate_scatter_inputs_rejects_non_finite_data_coordinates() {
+        let x_scale = LinearScale::new().domain(0.0, 100.0).range(0.0, 400.0);
+        let y_scale = LinearScale::new().domain(0.0, 100.0).range(300.0, 0.0);
+        let data = vec![
+            ScatterPoint::new(10.0, 20.0),
+            ScatterPoint::new(90.0, f64::NAN),
+        ];
+        let config = ScatterConfig::new();
+
+        let error = validate_scatter_inputs(&x_scale, &y_scale, &data, &config).unwrap_err();
+        match error {
+            ScatterRenderError::NonFiniteDataCoordinate {
+                index,
+                coordinate,
+                value,
+            } => {
+                assert_eq!(index, 1);
+                assert_eq!(coordinate, "y");
+                assert!(value.is_nan());
+            }
+            error => panic!("unexpected error: {error:?}"),
+        }
+    }
+
+    #[test]
+    fn validate_scatter_inputs_rejects_non_finite_scale_range() {
+        let x_scale = LinearScale::new()
+            .domain(0.0, 100.0)
+            .range(f64::NEG_INFINITY, 400.0);
+        let y_scale = LinearScale::new().domain(0.0, 100.0).range(300.0, 0.0);
+        let data = vec![ScatterPoint::new(10.0, 20.0), ScatterPoint::new(90.0, 40.0)];
+        let config = ScatterConfig::new();
+
+        assert_eq!(
+            validate_scatter_inputs(&x_scale, &y_scale, &data, &config).unwrap_err(),
+            ScatterRenderError::NonFiniteScaleRange {
+                axis: "x",
+                endpoint: "min",
+                value: f64::NEG_INFINITY,
+            }
+        );
+    }
+
+    #[test]
+    fn validate_scatter_inputs_rejects_invalid_config() {
+        let x_scale = LinearScale::new().domain(0.0, 100.0).range(0.0, 400.0);
+        let y_scale = LinearScale::new().domain(0.0, 100.0).range(300.0, 0.0);
+        let data = vec![ScatterPoint::new(10.0, 20.0), ScatterPoint::new(90.0, 40.0)];
+
+        let mut config = ScatterConfig::new();
+        config.point_radius = -1.0;
+        assert_eq!(
+            validate_scatter_inputs(&x_scale, &y_scale, &data, &config).unwrap_err(),
+            ScatterRenderError::NegativeConfigField {
+                field: "point_radius",
+                value: -1.0,
+            }
+        );
+
+        let mut config = ScatterConfig::new();
+        config.stroke_width = f32::INFINITY;
+        assert_eq!(
+            validate_scatter_inputs(&x_scale, &y_scale, &data, &config).unwrap_err(),
+            ScatterRenderError::NonFiniteConfigField {
+                field: "stroke_width",
+                value: f32::INFINITY,
+            }
+        );
+
+        let mut config = ScatterConfig::new();
+        config.opacity = 1.5;
+        assert_eq!(
+            validate_scatter_inputs(&x_scale, &y_scale, &data, &config).unwrap_err(),
+            ScatterRenderError::OpacityOutOfRange { value: 1.5 }
+        );
     }
 }

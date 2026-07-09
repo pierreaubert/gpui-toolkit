@@ -1,8 +1,11 @@
 //! Chord Diagram Layout (d3-chord)
 //!
 //! Visualizes relationships or flows between a set of nodes using a circular layout.
+//! `ChordLayout::try_compute` validates user-provided matrices before layout,
+//! while `ChordLayout::compute` keeps the older panic-on-invalid-input behavior.
 
 use std::f64::consts::PI;
+use std::fmt;
 
 use crate::util::scratch::path_to_string;
 
@@ -57,6 +60,55 @@ pub struct ChordResult {
     pub groups: Vec<ChordGroup>,
 }
 
+/// Recoverable errors for chord layout input validation.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ChordLayoutError {
+    /// The matrix must be square: every row must have the same length as the
+    /// number of rows.
+    NonSquareMatrix {
+        row: usize,
+        expected: usize,
+        actual: usize,
+    },
+    /// Chord values must be finite.
+    NonFiniteValue {
+        row: usize,
+        column: usize,
+        value: f64,
+    },
+    /// Chord values must be zero or positive.
+    NegativeValue {
+        row: usize,
+        column: usize,
+        value: f64,
+    },
+}
+
+impl fmt::Display for ChordLayoutError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NonSquareMatrix {
+                row,
+                expected,
+                actual,
+            } => write!(
+                f,
+                "chord matrix row {row} has length {actual}; expected {expected}"
+            ),
+            Self::NonFiniteValue { row, column, value } => write!(
+                f,
+                "chord matrix value at row {row}, column {column} is not finite: {value}"
+            ),
+            Self::NegativeValue { row, column, value } => write!(
+                f,
+                "chord matrix value at row {row}, column {column} is negative: {value}"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for ChordLayoutError {}
+
 impl ChordLayout {
     pub fn new() -> Self {
         Self::default()
@@ -64,6 +116,11 @@ impl ChordLayout {
 
     pub fn pad_angle(mut self, angle: f64) -> Self {
         self.pad_angle = angle;
+        self
+    }
+
+    pub fn sort_groups(mut self, f: fn(f64, f64) -> std::cmp::Ordering) -> Self {
+        self.sort_groups = Some(f);
         self
     }
 
@@ -78,13 +135,20 @@ impl ChordLayout {
     }
 
     pub fn compute(&self, matrix: &[Vec<f64>]) -> ChordResult {
+        self.try_compute(matrix)
+            .expect("ChordLayout::compute requires a square matrix with finite non-negative values")
+    }
+
+    pub fn try_compute(&self, matrix: &[Vec<f64>]) -> Result<ChordResult, ChordLayoutError> {
         let n = matrix.len();
         if n == 0 {
-            return ChordResult {
+            return Ok(ChordResult {
                 chords: vec![],
                 groups: vec![],
-            };
+            });
         }
+
+        validate_matrix(matrix)?;
 
         // 1. Compute group values
         let mut group_values = vec![0.0; n];
@@ -98,8 +162,6 @@ impl ChordLayout {
         }
 
         // 2. Compute group angles
-        // TODO: Apply sort_groups if present
-
         let transform_k = if total_value > 0.0 {
             (2.0 * PI - self.pad_angle * n as f64) / total_value
         } else {
@@ -108,8 +170,14 @@ impl ChordLayout {
 
         let mut groups = Vec::with_capacity(n);
         let mut current_angle = 0.0;
+        let mut group_order: Vec<usize> = (0..n).collect();
 
-        for (i, &value) in group_values.iter().enumerate() {
+        if let Some(cmp_fn) = self.sort_groups {
+            group_order.sort_by(|&a, &b| cmp_fn(group_values[a], group_values[b]));
+        }
+
+        for &i in &group_order {
+            let value = group_values[i];
             let start_angle = current_angle;
             let end_angle = start_angle + value * transform_k;
             groups.push(ChordGroup {
@@ -120,6 +188,7 @@ impl ChordLayout {
             });
             current_angle = end_angle + self.pad_angle;
         }
+        groups.sort_by_key(|group| group.index);
 
         // 3. Determine subgroup ordering per group
         // For each group i, build the order of target indices j
@@ -188,8 +257,40 @@ impl ChordLayout {
             });
         }
 
-        ChordResult { chords, groups }
+        Ok(ChordResult { chords, groups })
     }
+}
+
+fn validate_matrix(matrix: &[Vec<f64>]) -> Result<(), ChordLayoutError> {
+    let n = matrix.len();
+    for (row_index, row) in matrix.iter().enumerate() {
+        if row.len() != n {
+            return Err(ChordLayoutError::NonSquareMatrix {
+                row: row_index,
+                expected: n,
+                actual: row.len(),
+            });
+        }
+
+        for (column_index, value) in row.iter().copied().enumerate() {
+            if !value.is_finite() {
+                return Err(ChordLayoutError::NonFiniteValue {
+                    row: row_index,
+                    column: column_index,
+                    value,
+                });
+            }
+            if value < 0.0 {
+                return Err(ChordLayoutError::NegativeValue {
+                    row: row_index,
+                    column: column_index,
+                    value,
+                });
+            }
+        }
+    }
+
+    Ok(())
 }
 
 /// Generates SVG path data for a ribbon (chord)
@@ -251,5 +352,111 @@ impl RibbonGenerator {
     // Legacy String return for compatibility
     pub fn generate(&self, chord: &Chord) -> String {
         path_to_string(&self.generate_path(chord))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ChordLayout, ChordLayoutError};
+    use std::cmp::Ordering;
+
+    fn descending(a: f64, b: f64) -> Ordering {
+        b.partial_cmp(&a).unwrap_or(Ordering::Equal)
+    }
+
+    #[test]
+    fn sort_groups_orders_group_angles_without_reindexing_results() {
+        let matrix = vec![
+            vec![1.0, 1.0, 1.0],
+            vec![4.0, 4.0, 4.0],
+            vec![2.0, 2.0, 2.0],
+        ];
+
+        let result = ChordLayout::new()
+            .sort_groups(descending)
+            .try_compute(&matrix)
+            .unwrap();
+
+        assert_eq!(
+            result.groups.iter().map(|g| g.index).collect::<Vec<_>>(),
+            [0, 1, 2]
+        );
+        assert_eq!(result.groups[1].start_angle, 0.0);
+        assert!(result.groups[2].start_angle > result.groups[1].start_angle);
+        assert!(result.groups[0].start_angle > result.groups[2].start_angle);
+    }
+
+    #[test]
+    fn sort_subgroups_uses_sorted_values_within_each_group() {
+        let matrix = vec![
+            vec![1.0, 3.0, 2.0],
+            vec![0.0, 0.0, 0.0],
+            vec![0.0, 0.0, 0.0],
+        ];
+
+        let result = ChordLayout::new()
+            .sort_subgroups(descending)
+            .try_compute(&matrix)
+            .unwrap();
+        let source_to_one = result
+            .chords
+            .iter()
+            .find(|chord| chord.source.index == 0 && chord.target.index == 1)
+            .unwrap();
+        let source_to_two = result
+            .chords
+            .iter()
+            .find(|chord| chord.source.index == 0 && chord.target.index == 2)
+            .unwrap();
+        let source_to_zero = result
+            .chords
+            .iter()
+            .find(|chord| chord.source.index == 0 && chord.target.index == 0)
+            .unwrap();
+
+        assert!(source_to_one.source.start_angle < source_to_two.source.start_angle);
+        assert!(source_to_two.source.start_angle < source_to_zero.source.start_angle);
+    }
+
+    #[test]
+    fn try_compute_rejects_ragged_matrices() {
+        let err = ChordLayout::new()
+            .try_compute(&[vec![1.0, 2.0], vec![3.0]])
+            .unwrap_err();
+
+        assert_eq!(
+            err,
+            ChordLayoutError::NonSquareMatrix {
+                row: 1,
+                expected: 2,
+                actual: 1
+            }
+        );
+    }
+
+    #[test]
+    fn try_compute_rejects_nan_and_negative_values() {
+        match ChordLayout::new()
+            .try_compute(&[vec![0.0, f64::NAN], vec![0.0, 0.0]])
+            .unwrap_err()
+        {
+            ChordLayoutError::NonFiniteValue { row, column, value } => {
+                assert_eq!(row, 0);
+                assert_eq!(column, 1);
+                assert!(value.is_nan());
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+
+        assert_eq!(
+            ChordLayout::new()
+                .try_compute(&[vec![0.0, 0.0], vec![-1.0, 0.0]])
+                .unwrap_err(),
+            ChordLayoutError::NegativeValue {
+                row: 1,
+                column: 0,
+                value: -1.0
+            }
+        );
     }
 }

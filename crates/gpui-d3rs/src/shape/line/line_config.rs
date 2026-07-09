@@ -1,5 +1,5 @@
-use super::types::CurveType;
-use super::types::StrokeDashArray;
+use super::style::CurveType;
+use super::style::StrokeDashArray;
 use crate::color::D3Color;
 
 /// Configuration for line chart rendering

@@ -10,7 +10,7 @@ use std::rc::Rc;
 
 struct HierarchyDemo {
     root: Rc<RefCell<HierarchyNode<String>>>,
-    layout: TreeLayout,
+    layout: TreeLayout<String>,
     width: f64,
     height: f64,
 }

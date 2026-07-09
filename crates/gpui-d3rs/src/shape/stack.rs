@@ -2,6 +2,8 @@
 //!
 //! Computes stacked layouts for stacked bar charts and stacked area charts.
 
+use std::fmt;
+
 mod stack_series;
 #[cfg(test)]
 mod tests;
@@ -9,6 +11,46 @@ mod types;
 
 pub use stack_series::*;
 pub use types::*;
+
+/// Recoverable errors for checked stack layout input validation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StackLayoutError {
+    /// Checked stack data must have one value per configured key in every row.
+    RowLengthMismatch {
+        row_index: usize,
+        expected: usize,
+        actual: usize,
+    },
+    /// Checked stack values must be finite.
+    NonFiniteValue {
+        row_index: usize,
+        series_index: usize,
+    },
+}
+
+impl fmt::Display for StackLayoutError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::RowLengthMismatch {
+                row_index,
+                expected,
+                actual,
+            } => write!(
+                f,
+                "stack row {row_index} has {actual} values, expected {expected}"
+            ),
+            Self::NonFiniteValue {
+                row_index,
+                series_index,
+            } => write!(
+                f,
+                "stack value at row {row_index}, series {series_index} is not finite"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for StackLayoutError {}
 
 /// Stack layout generator.
 ///
@@ -86,6 +128,24 @@ impl Stack {
             return Vec::new();
         }
 
+        self.generate_validated(data)
+    }
+
+    /// Generate stacked series from data after validating the table shape and values.
+    ///
+    /// Unlike [`Self::generate`], this checked path rejects ragged rows and
+    /// non-finite values instead of filling missing cells with zero or allowing
+    /// NaN/infinity to flow into ordering and offset math.
+    pub fn try_generate(&self, data: &[Vec<f64>]) -> Result<Vec<StackSeries>, StackLayoutError> {
+        if data.is_empty() || self.keys.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        self.validate_data(data)?;
+        Ok(self.generate_validated(data))
+    }
+
+    fn generate_validated(&self, data: &[Vec<f64>]) -> Vec<StackSeries> {
         let n = data.len(); // Number of data points
 
         // Create initial series with raw values
@@ -131,6 +191,30 @@ impl Stack {
         self.apply_offset(&mut series, n);
 
         series
+    }
+
+    fn validate_data(&self, data: &[Vec<f64>]) -> Result<(), StackLayoutError> {
+        let expected = self.keys.len();
+        for (row_index, row) in data.iter().enumerate() {
+            if row.len() != expected {
+                return Err(StackLayoutError::RowLengthMismatch {
+                    row_index,
+                    expected,
+                    actual: row.len(),
+                });
+            }
+
+            for (series_index, value) in row.iter().enumerate() {
+                if !value.is_finite() {
+                    return Err(StackLayoutError::NonFiniteValue {
+                        row_index,
+                        series_index,
+                    });
+                }
+            }
+        }
+
+        Ok(())
     }
 
     /// Compute series order based on strategy.
@@ -345,6 +429,14 @@ pub fn stack(data: &[Vec<f64>]) -> Vec<StackSeries> {
     Stack::new().keys(keys).generate(data)
 }
 
+/// Checked simple stack function for basic use cases.
+pub fn try_stack(data: &[Vec<f64>]) -> Result<Vec<StackSeries>, StackLayoutError> {
+    let num_series = data.first().map(|row| row.len()).unwrap_or(0);
+    let keys: Vec<String> = (0..num_series).map(|i| i.to_string()).collect();
+
+    Stack::new().keys(keys).try_generate(data)
+}
+
 /// Create a 100% stacked layout.
 pub fn stack_expand(data: &[Vec<f64>]) -> Vec<StackSeries> {
     let num_series = data.first().map(|row| row.len()).unwrap_or(0);
@@ -354,6 +446,17 @@ pub fn stack_expand(data: &[Vec<f64>]) -> Vec<StackSeries> {
         .keys(keys)
         .offset(StackOffset::Expand)
         .generate(data)
+}
+
+/// Create a checked 100% stacked layout.
+pub fn try_stack_expand(data: &[Vec<f64>]) -> Result<Vec<StackSeries>, StackLayoutError> {
+    let num_series = data.first().map(|row| row.len()).unwrap_or(0);
+    let keys: Vec<String> = (0..num_series).map(|i| i.to_string()).collect();
+
+    Stack::new()
+        .keys(keys)
+        .offset(StackOffset::Expand)
+        .try_generate(data)
 }
 
 /// Create a streamgraph layout (wiggle offset with inside-out ordering).
@@ -366,4 +469,16 @@ pub fn streamgraph(data: &[Vec<f64>]) -> Vec<StackSeries> {
         .order(StackOrder::InsideOut)
         .offset(StackOffset::Wiggle)
         .generate(data)
+}
+
+/// Create a checked streamgraph layout.
+pub fn try_streamgraph(data: &[Vec<f64>]) -> Result<Vec<StackSeries>, StackLayoutError> {
+    let num_series = data.first().map(|row| row.len()).unwrap_or(0);
+    let keys: Vec<String> = (0..num_series).map(|i| i.to_string()).collect();
+
+    Stack::new()
+        .keys(keys)
+        .order(StackOrder::InsideOut)
+        .offset(StackOffset::Wiggle)
+        .try_generate(data)
 }

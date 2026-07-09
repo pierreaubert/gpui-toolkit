@@ -10,6 +10,8 @@
 //! - **Nearest Neighbor Search**: Find closest point to any location
 //! - **Range Queries**: Find all points within a radius
 //! - **Tree Traversal**: Visit nodes in pre-order or post-order
+//! - **Checked Input APIs**: `try_from_data`, `try_add`, and `try_add_all`
+//!   report non-finite coordinates without mutating the tree
 //!
 //! # Example
 //!
@@ -25,6 +27,9 @@
 //!     println!("Nearest point: {:?}", point);
 //! }
 //! ```
+//!
+//! Use `QuadTree::try_from_data` when input may come from users or external
+//! files and NaN/infinite coordinates should be treated as recoverable errors.
 
 mod extent;
 mod quad_node;

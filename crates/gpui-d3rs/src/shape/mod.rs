@@ -44,6 +44,7 @@
 
 pub mod arc;
 pub mod area;
+#[cfg(any(test, all(feature = "gpui", not(test))))]
 pub(crate) mod contour_smoothing;
 pub mod curve;
 pub mod link;
@@ -57,10 +58,8 @@ pub mod symbol;
 mod bar;
 #[cfg(all(feature = "gpui", not(test)))]
 pub mod contour;
-#[cfg(all(feature = "gpui", not(test)))]
-mod line;
-#[cfg(all(feature = "gpui", not(test)))]
-mod scatter;
+pub mod line;
+pub mod scatter;
 
 // Re-export existing chart rendering functions (GPUI only)
 #[cfg(all(feature = "gpui", not(test)))]
@@ -73,23 +72,32 @@ pub use contour::{
     ContourBandElement, ContourConfig, ContourElement, HeatmapData, HeatmapElement,
     heat_color_scale, render_contour, render_contour_bands, render_heatmap, viridis_color_scale,
 };
+pub use line::{
+    CurveType, LineConfig, LinePoint, LineRenderError, StrokeDashArray, validate_line_inputs,
+};
 #[cfg(all(feature = "gpui", not(test)))]
-pub use line::{CurveType, LineConfig, LinePoint, StrokeDashArray, render_line};
+pub use line::{render_line, try_render_line};
+pub use scatter::{ScatterConfig, ScatterPoint, ScatterRenderError, validate_scatter_inputs};
 #[cfg(all(feature = "gpui", not(test)))]
-pub use scatter::{ScatterConfig, ScatterPoint, render_scatter};
+pub use scatter::{render_scatter, try_render_scatter};
 
 // Re-export new shape utilities (no GPUI dependency)
-pub use arc::{Arc, ArcDatum, arc_points};
-pub use area::{Area, SimpleArea, area_points};
+pub use arc::{Arc, ArcDatum, ArcGenerationError, arc_points, try_arc_points};
+pub use area::{Area, AreaGenerationError, SimpleArea, area_points, try_area_points};
 pub use curve::Curve;
 pub use link::{
-    Link, LinkDirection, RadialLink, link_horizontal, link_radial, link_step, link_vertical,
+    Link, LinkDirection, LinkGenerationError, RadialLink, link_horizontal, link_radial, link_step,
+    link_vertical, try_link_horizontal, try_link_radial, try_link_step, try_link_vertical,
 };
 pub use path::{Path, PathBuilder, PathCommand, Point};
-pub use pie::{Pie, PieSlice, donut, half_pie, pie};
+pub use pie::{Pie, PieSlice, donut, half_pie, pie, try_donut, try_half_pie, try_pie};
 pub use radial::{
-    RadialAreaConfig, RadialLineConfig, RadialPoint, polar_grid_circles, polar_grid_rays,
-    radial_area, radial_line,
+    RadialAreaConfig, RadialGenerationError, RadialLineConfig, RadialPoint, RadialPointField,
+    polar_grid_circles, polar_grid_rays, radial_area, radial_line, try_polar_grid_circles,
+    try_polar_grid_rays, try_radial_area, try_radial_line,
 };
-pub use stack::{Stack, StackOffset, StackOrder, StackSeries, stack, stack_expand, streamgraph};
-pub use symbol::{Symbol, SymbolType, symbol_radius};
+pub use stack::{
+    Stack, StackLayoutError, StackOffset, StackOrder, StackSeries, stack, stack_expand,
+    streamgraph, try_stack, try_stack_expand, try_streamgraph,
+};
+pub use symbol::{Symbol, SymbolGenerationError, SymbolType, symbol_radius, try_symbol_radius};

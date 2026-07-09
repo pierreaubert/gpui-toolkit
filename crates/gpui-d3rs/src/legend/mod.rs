@@ -24,9 +24,14 @@
 
 use crate::color::D3Color;
 
+mod layout;
 #[cfg(all(feature = "gpui", not(test)))]
 mod render;
 
+pub use layout::{
+    LegendItemLayout, LegendLayout, LegendLayoutError, LegendPoint, LegendRect, LegendTitleLayout,
+    legend_layout,
+};
 #[cfg(all(feature = "gpui", not(test)))]
 pub use render::render_legend;
 

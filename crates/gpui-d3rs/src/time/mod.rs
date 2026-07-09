@@ -19,6 +19,7 @@ pub mod format;
 mod interval;
 mod scale;
 
+pub use format::{TimeFormat, TimeFormatParts, format as format_time};
 pub use interval::{
     Interval, TimeInterval, time_day, time_hour, time_minute, time_monday, time_month, time_second,
     time_week, time_year,

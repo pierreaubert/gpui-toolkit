@@ -18,7 +18,11 @@
 //! ```
 
 mod config;
+mod layout;
+#[cfg(all(feature = "gpui", not(test)))]
 mod render;
 
 pub use config::GridConfig;
+pub use layout::{GridDot, GridLayout, GridLayoutError, GridLine, GridPoint, grid_layout};
+#[cfg(all(feature = "gpui", not(test)))]
 pub use render::render_grid;

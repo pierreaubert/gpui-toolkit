@@ -3,9 +3,49 @@
 //! Generates arc shapes for pie and donut charts.
 
 use std::f64::consts::PI;
+use std::fmt;
 
 use super::path::{Path, PathBuilder, Point};
 use crate::util::scratch::path_to_string;
+
+/// Recoverable errors for checked arc path input validation.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ArcGenerationError {
+    /// Arc parameters and center coordinates must be finite.
+    NonFiniteParameter { parameter: &'static str, value: f64 },
+    /// Checked radii and padding must be zero or positive.
+    NegativeParameter { parameter: &'static str, value: f64 },
+    /// Checked arcs require `inner_radius <= outer_radius`.
+    InnerRadiusExceedsOuterRadius {
+        inner_radius: f64,
+        outer_radius: f64,
+    },
+    /// Checked point sampling requires at least one segment.
+    ZeroSegments,
+}
+
+impl fmt::Display for ArcGenerationError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NonFiniteParameter { parameter, value } => {
+                write!(f, "arc parameter {parameter} is not finite: {value}")
+            }
+            Self::NegativeParameter { parameter, value } => {
+                write!(f, "arc parameter {parameter} is negative: {value}")
+            }
+            Self::InnerRadiusExceedsOuterRadius {
+                inner_radius,
+                outer_radius,
+            } => write!(
+                f,
+                "arc inner_radius {inner_radius} exceeds outer_radius {outer_radius}"
+            ),
+            Self::ZeroSegments => write!(f, "arc point sampling requires at least one segment"),
+        }
+    }
+}
+
+impl std::error::Error for ArcGenerationError {}
 
 /// Arc datum containing the angles and radii for an arc.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -206,9 +246,20 @@ impl Arc {
         builder.build()
     }
 
+    /// Generate an arc path from the given datum after validating geometry.
+    pub fn try_generate(&self, datum: &ArcDatum) -> Result<Path, ArcGenerationError> {
+        validate_arc_geometry(datum, self.center_x, self.center_y)?;
+        Ok(self.generate(datum))
+    }
+
     /// Generate an arc and return the SVG path string.
     pub fn path_string(&self, datum: &ArcDatum) -> String {
         path_to_string(&self.generate(datum))
+    }
+
+    /// Generate a checked arc and return the SVG path string.
+    pub fn try_path_string(&self, datum: &ArcDatum) -> Result<String, ArcGenerationError> {
+        Ok(path_to_string(&self.try_generate(datum)?))
     }
 }
 
@@ -260,6 +311,60 @@ pub fn arc_points(datum: &ArcDatum, segments: usize, cx: f64, cy: f64) -> Vec<Po
     }
 
     points
+}
+
+/// Generate checked points along an arc for rendering.
+pub fn try_arc_points(
+    datum: &ArcDatum,
+    segments: usize,
+    cx: f64,
+    cy: f64,
+) -> Result<Vec<Point>, ArcGenerationError> {
+    if segments == 0 {
+        return Err(ArcGenerationError::ZeroSegments);
+    }
+
+    validate_arc_geometry(datum, cx, cy)?;
+    Ok(arc_points(datum, segments, cx, cy))
+}
+
+fn validate_arc_geometry(
+    datum: &ArcDatum,
+    center_x: f64,
+    center_y: f64,
+) -> Result<(), ArcGenerationError> {
+    validate_arc_parameter("center_x", center_x, false)?;
+    validate_arc_parameter("center_y", center_y, false)?;
+    validate_arc_parameter("inner_radius", datum.inner_radius, true)?;
+    validate_arc_parameter("outer_radius", datum.outer_radius, true)?;
+    validate_arc_parameter("start_angle", datum.start_angle, false)?;
+    validate_arc_parameter("end_angle", datum.end_angle, false)?;
+    validate_arc_parameter("corner_radius", datum.corner_radius, true)?;
+    validate_arc_parameter("pad_angle", datum.pad_angle, true)?;
+
+    if datum.inner_radius > datum.outer_radius {
+        return Err(ArcGenerationError::InnerRadiusExceedsOuterRadius {
+            inner_radius: datum.inner_radius,
+            outer_radius: datum.outer_radius,
+        });
+    }
+
+    Ok(())
+}
+
+fn validate_arc_parameter(
+    parameter: &'static str,
+    value: f64,
+    non_negative: bool,
+) -> Result<(), ArcGenerationError> {
+    if !value.is_finite() {
+        return Err(ArcGenerationError::NonFiniteParameter { parameter, value });
+    }
+    if non_negative && value < 0.0 {
+        return Err(ArcGenerationError::NegativeParameter { parameter, value });
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -332,5 +437,73 @@ mod tests {
 
         let path = arc.generate(&datum);
         assert!(!path.is_empty());
+    }
+
+    #[test]
+    fn try_generate_matches_generate_for_valid_arc() {
+        let arc = Arc::new().center(10.0, 20.0);
+        let datum = ArcDatum::new()
+            .inner_radius(50.0)
+            .outer_radius(100.0)
+            .start_angle(0.0)
+            .end_angle(PI);
+
+        let permissive = arc.generate(&datum);
+        let checked = arc.try_generate(&datum).unwrap();
+
+        assert_eq!(permissive.commands(), checked.commands());
+        assert_eq!(
+            arc.path_string(&datum),
+            arc.try_path_string(&datum).unwrap()
+        );
+    }
+
+    #[test]
+    fn try_generate_rejects_invalid_arc_geometry() {
+        let arc = Arc::new().center(f64::NAN, 0.0);
+        let error = arc.try_generate(&ArcDatum::new()).unwrap_err();
+        match error {
+            ArcGenerationError::NonFiniteParameter { parameter, value } => {
+                assert_eq!(parameter, "center_x");
+                assert!(value.is_nan());
+            }
+            _ => panic!("unexpected error: {error:?}"),
+        }
+
+        let datum = ArcDatum::new().inner_radius(-1.0);
+        assert_eq!(
+            Arc::new().try_generate(&datum).unwrap_err(),
+            ArcGenerationError::NegativeParameter {
+                parameter: "inner_radius",
+                value: -1.0,
+            }
+        );
+
+        let datum = ArcDatum::new().inner_radius(100.0).outer_radius(50.0);
+        assert_eq!(
+            Arc::new().try_generate(&datum).unwrap_err(),
+            ArcGenerationError::InnerRadiusExceedsOuterRadius {
+                inner_radius: 100.0,
+                outer_radius: 50.0,
+            }
+        );
+    }
+
+    #[test]
+    fn try_arc_points_rejects_invalid_sampling_inputs() {
+        let datum = ArcDatum::new();
+        assert_eq!(
+            try_arc_points(&datum, 0, 0.0, 0.0).unwrap_err(),
+            ArcGenerationError::ZeroSegments
+        );
+
+        let datum = ArcDatum::new().outer_radius(f64::INFINITY);
+        assert_eq!(
+            try_arc_points(&datum, 4, 0.0, 0.0).unwrap_err(),
+            ArcGenerationError::NonFiniteParameter {
+                parameter: "outer_radius",
+                value: f64::INFINITY,
+            }
+        );
     }
 }

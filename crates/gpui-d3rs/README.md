@@ -52,20 +52,41 @@ Two showcases are provided that demonstrate the capabilities of the library. Her
   - Categorical schemes (Category10, Tableau10, Pastel, Set1-3)
   - GPUI `Rgba` conversion
 
-- **Axes** (`d3rs::axis`) - Cartesian coordinate system rendering
+- **Axes** (`d3rs::axis`) - Cartesian coordinate system layout and rendering
   - Four orientations: Top, Right, Bottom, Left
+  - Renderer-independent `AxisLayout` geometry for domain lines, ticks, labels, and titles
   - Custom tick formatters
   - Configurable tick size, padding, styling
   - Domain line rendering
   - Theme integration
 
 - **Grids** (`d3rs::grid`) - Background grid overlays
+  - Renderer-independent `GridLayout` geometry for checked renderer integration
   - Dot grids at tick intersections
   - Horizontal and vertical line grids
   - Configurable opacity and styling
   - Multiple preset configurations
 
+- **Legends** (`d3rs::legend`) - Chart legend metadata, layout, and rendering
+  - Renderer-independent `LegendLayout` geometry for titles, rows, symbols, and labels
+  - Vertical and horizontal orientation support with checked max-width wrapping
+  - Color, line, square, and marker symbol metadata
+
+- **Text Layout** (`d3rs::text_layout`) - Chart label measurement and layout metadata
+  - Renderer-independent `TextLayout` geometry for lines, baselines, anchors, and bounds
+  - Checked wrapping, letter spacing, line height, and rotation inputs
+  - Deterministic ASCII, wide-character, emoji, and combining-mark width heuristics
+
 ### Classical Algorithms and Plots
+
+- **Chords** (`d3rs::chord`) - Relationship/flow diagrams
+  - Group arc and ribbon layout from square matrices
+  - Group, subgroup, and chord sorting callbacks
+  - `try_compute` validation for square, finite, non-negative matrices
+
+- **Quadtrees** (`d3rs::quadtree`) - Spatial indexing and nearest-neighbor search
+  - `try_from_data`, `try_add`, and `try_add_all` reject NaN/infinite coordinates
+  - Checked batch insertion validates all points before mutating the tree
 
 - **Curves** (`d3rs::shape::curve`) - Line interpolation methods
   - Linear, Step, StepBefore, StepAfter
@@ -116,7 +137,13 @@ Two showcases are provided that demonstrate the capabilities of the library. Her
 
 - **Interaction** - User interaction primitives
   - `d3rs::brush` - 1D and 2D selection brushes
+  - `d3rs::drag` - Checked renderer-independent drag gesture state
+  - `d3rs::selection` - Keyed enter/update/exit data joins
   - `d3rs::zoom` - Pan and zoom behaviors with constraints
+
+- **Map Tiles** (`d3rs::tile`) - Slippy-map tile coverage (d3-tile)
+  - Checked viewport/scale/translate tile coordinate generation
+  - Screen-space tile bounds for renderer integration
 
 - **Data** - Data loading and parsing
   - `d3rs::fetch` - CSV/TSV/JSON utilities (d3-fetch)
@@ -324,25 +351,29 @@ gpui-d3rs is built on these principles:
 ```text
 d3rs/
 ├── array/         # d3-array: Data manipulation and statistics
-├── axis/          # d3-axis: Cartesian axes rendering
+├── axis/          # d3-axis: Cartesian axes layout and rendering
 ├── brush/         # d3-brush: Selection brushes
 ├── color/         # d3-color: Color spaces and manipulation
 ├── contour/       # d3-contour: Contour generation and density
 ├── delaunay/      # d3-delaunay: Delaunay triangulation
+├── drag/          # d3-drag: Checked drag gesture state
 ├── ease/          # d3-ease: Easing functions
 ├── fetch/         # d3-fetch: Data loading (CSV, TSV, JSON)
 ├── format/        # d3-format: Number formatting
 ├── geo/           # d3-geo: Geographic projections
-├── grid/          # Grid rendering for charts
+├── grid/          # Checked grid layout and rendering for charts
 ├── interpolate/   # d3-interpolate: Value interpolation
-├── legend/        # Legend rendering
+├── legend/        # Checked legend layout and rendering
 ├── polygon/       # d3-polygon: Polygon operations
 ├── quadtree/      # d3-quadtree: 2D spatial indexing
 ├── random/        # d3-random: Random number generators
 ├── scale/         # d3-scale: Scale functions
+├── selection/     # d3-selection: Keyed data joins
 ├── shape/         # d3-shape: Shape generators
 ├── text/          # Text rendering utilities
+├── text_layout/   # Checked chart text measurement and layout
 ├── time/          # d3-time: Time utilities
+├── tile/          # d3-tile: Slippy-map tile coverage
 ├── timer/         # d3-timer: Animation timing
 ├── transition/    # d3-transition: Value transitions
 └── zoom/          # d3-zoom: Pan and zoom behaviors
@@ -376,32 +407,36 @@ cargo clippy --all-targets
 | D3.js Module | gpui-d3rs Status | Notes |
 |--------------|------------------|-------|
 | d3-array | ✅ Complete | Statistics, binning, transformations |
-| d3-axis | ✅ Complete | All four orientations, custom formatting |
+| d3-axis | ✅ Complete | Checked renderer-independent layout plus all four orientations and custom formatting |
 | d3-brush | ✅ Complete | 1D and 2D brushes |
-| d3-chord |  ✅ Complete | Specialized layout |
+| d3-chord |  ✅ Complete | Specialized layout with group/subgroup/chord sorting and checked matrix validation |
 | d3-color | ✅ Complete | RGB, HSL with interpolation |
 | d3-contour | ✅ Complete | Marching squares, density estimation |
 | d3-delaunay | ✅ Complete | Delaunay triangulation, Voronoi |
 | d3-dispatch | ❌ Not needed | Use GPUI's event system |
-| d3-drag | ❌ Not needed | Use GPUI's mouse events |
+| d3-drag | ✅ Complete | Checked renderer-independent drag state for GPUI host events |
 | d3-dsv | ✅ Complete | CSV/TSV parsing (via d3-fetch) |
 | d3-ease | ✅ Complete | All standard easing functions |
 | d3-fetch | ✅ Complete | CSV, TSV, JSON loading |
 | d3-force | 🚧 Planned | Force-directed graphs |
 | d3-format | ✅ Complete | Number formatting, SI prefixes |
 | d3-geo | ✅ Complete | Projections, paths, graticules |
+| Cartesian grids | ✅ Complete | Checked renderer-independent vertical/horizontal line and dot layout |
 | d3-hierarchy | 🚧 Planned | Tree layouts |
 | d3-interpolate | ✅ Complete | Number, color, transform, zoom |
+| Chart legends | ✅ Complete | Checked renderer-independent title, row/column, symbol, and label layout |
 | d3-path | ✅ Integrated | Path rendering via GPUI |
 | d3-polygon | ✅ Complete | Polygon operations |
 | d3-quadtree | ✅ Complete | 2D spatial indexing |
 | d3-random | ✅ Complete | Random number generators |
 | d3-scale | ✅ Complete | Linear, log scales |
 | d3-scale-chromatic | 🚧 Planned | Color schemes |
-| d3-selection | ❌ Not needed | Use GPUI's component model |
+| d3-selection | ✅ Complete | Keyed and index-based enter/update/exit joins; GPUI owns DOM-like mutation |
 | d3-shape | ✅ Complete | Lines, areas, arcs, pies, symbols |
+| Chart text layout | ✅ Complete | Checked renderer-independent line, baseline, anchor, wrapping, and rotated-bounds geometry |
 | d3-time | ✅ Complete | Time utilities |
-| d3-time-format | 🚧 Planned | Time formatting |
+| d3-time-format | ✅ Complete | Lightweight UTC formatter for common D3/strftime tokens |
+| d3-tile | ✅ Complete | Checked slippy-map tile coordinate generation |
 | d3-timer | ✅ Complete | Animation timing |
 | d3-transition | ✅ Complete | Value transitions with easing |
 | d3-zoom | ✅ Complete | Pan and zoom behaviors |
@@ -423,9 +458,18 @@ Legend: ✅ Complete | 🚧 Planned | ❌ Not needed/planned
 - [x] Force-directed layouts
 - [x] Hierarchical layouts (tree, treemap, partition)
 - [x] Additional color schemes
-- [ ] Time formatting
+- [x] Performance benchmarks (`d3_benchmark_coverage_report()` plus Criterion
+      `force_many_body`, `path_strings`, and `d3_large_datasets` targets)
+- [x] Time formatting
 - [ ] Documentation improvements
-- [ ] Performance benchmarks
+
+## Release QA
+
+`feature_parity_report()`, `d3_option_parity_report()`, and
+`d3_benchmark_coverage_report()` provide schema-versioned release metadata for
+D3-inspired coverage, option support, and large-dataset benchmark cases. Run
+`cargo bench -p gpui-d3rs --bench d3_large_datasets` before release candidates
+and attach the Criterion artifacts when claiming performance readiness.
 
 ## Contributing
 

@@ -67,6 +67,10 @@ serde_json = { workspace = true }
 name = "force_many_body"
 harness = false
 
+[[bench]]
+name = "d3_large_datasets"
+harness = false
+
 [[bin]]
 name = "d3rs-showcase"
 path = "bin/showcase/main.rs"

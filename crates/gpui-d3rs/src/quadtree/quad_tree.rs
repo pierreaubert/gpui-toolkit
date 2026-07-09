@@ -2,6 +2,7 @@ use super::extent::Extent;
 use super::quad_node::{Aggregate, QuadNode};
 use super::quad_point::QuadPoint;
 use std::f64;
+use std::fmt;
 
 /// QuadTree for 2D spatial indexing
 ///
@@ -16,6 +17,38 @@ pub struct QuadTree<T> {
     /// Number of points in the tree
     pub(super) size: usize,
 }
+
+/// Recoverable errors for checked quadtree construction and insertion.
+#[derive(Debug, Clone, PartialEq)]
+pub enum QuadTreeError {
+    /// Quadtree coordinates must be finite before they can participate in
+    /// extent expansion or spatial search.
+    NonFiniteCoordinate {
+        /// Index in the source data slice when available.
+        index: Option<usize>,
+        x: f64,
+        y: f64,
+    },
+}
+
+impl fmt::Display for QuadTreeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NonFiniteCoordinate { index, x, y } => {
+                if let Some(index) = index {
+                    write!(
+                        f,
+                        "quadtree point at index {index} has non-finite coordinates: ({x}, {y})"
+                    )
+                } else {
+                    write!(f, "quadtree point has non-finite coordinates: ({x}, {y})")
+                }
+            }
+        }
+    }
+}
+
+impl std::error::Error for QuadTreeError {}
 
 impl<T: Clone> Default for QuadTree<T> {
     fn default() -> Self {
@@ -81,6 +114,18 @@ impl<T: Clone> QuadTree<T> {
         }
 
         tree
+    }
+
+    /// Create a quadtree from data, returning an error for the first non-finite
+    /// coordinate instead of silently skipping it.
+    pub fn try_from_data<F, G>(data: &[T], x: F, y: G) -> Result<Self, QuadTreeError>
+    where
+        F: Fn(&T) -> f64,
+        G: Fn(&T) -> f64,
+    {
+        let mut tree = Self::new();
+        tree.try_add_all(data, x, y)?;
+        Ok(tree)
     }
 
     /// Expand the extent to cover the given point
@@ -179,6 +224,13 @@ impl<T: Clone> QuadTree<T> {
         ));
 
         self
+    }
+
+    /// Add a point to the quadtree, returning an error for non-finite
+    /// coordinates instead of silently ignoring the point.
+    pub fn try_add(&mut self, x: f64, y: f64, data: T) -> Result<&mut Self, QuadTreeError> {
+        validate_coordinate(None, x, y)?;
+        Ok(self.add(x, y, data))
     }
 
     pub(super) fn add_to_node(
@@ -307,6 +359,32 @@ impl<T: Clone> QuadTree<T> {
         }
 
         self
+    }
+
+    /// Add multiple points, returning an error for the first non-finite
+    /// coordinate before mutating the tree.
+    pub fn try_add_all<F, G>(&mut self, data: &[T], x: F, y: G) -> Result<&mut Self, QuadTreeError>
+    where
+        F: Fn(&T) -> f64,
+        G: Fn(&T) -> f64,
+    {
+        let mut coordinates = Vec::with_capacity(data.len());
+        for (index, item) in data.iter().enumerate() {
+            let px = x(item);
+            let py = y(item);
+            validate_coordinate(Some(index), px, py)?;
+            coordinates.push((px, py));
+        }
+
+        for (px, py) in &coordinates {
+            self.cover(*px, *py);
+        }
+
+        for ((px, py), item) in coordinates.into_iter().zip(data) {
+            self.add(px, py, item.clone());
+        }
+
+        Ok(self)
     }
 
     /// Remove a point from the quadtree
@@ -823,6 +901,14 @@ impl<T: Clone> QuadTree<T> {
     }
 }
 
+fn validate_coordinate(index: Option<usize>, x: f64, y: f64) -> Result<(), QuadTreeError> {
+    if x.is_finite() && y.is_finite() {
+        Ok(())
+    } else {
+        Err(QuadTreeError::NonFiniteCoordinate { index, x, y })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1004,6 +1090,63 @@ mod tests {
 
         // Only valid point should be added
         assert_eq!(tree.size(), 1);
+    }
+
+    #[test]
+    fn try_add_rejects_non_finite_coordinates_without_mutating() {
+        let mut tree = QuadTree::new();
+        tree.try_add(0.0, 0.0, "valid").unwrap();
+
+        let error = tree.try_add(f64::NAN, 1.0, "invalid").unwrap_err();
+        match error {
+            QuadTreeError::NonFiniteCoordinate { index, x, y } => {
+                assert_eq!(index, None);
+                assert!(x.is_nan());
+                assert_eq!(y, 1.0);
+            }
+        }
+
+        assert_eq!(tree.size(), 1);
+        assert_eq!(tree.find(0.0, 0.0, None), Some(&"valid"));
+    }
+
+    #[test]
+    fn try_add_all_rejects_non_finite_coordinates_before_mutating() {
+        let mut tree = QuadTree::new();
+        tree.try_add(0.0, 0.0, (0.0, 0.0, "existing")).unwrap();
+        let before_extent = tree.extent();
+        let points = vec![(1.0, 1.0, "a"), (f64::INFINITY, 2.0, "b")];
+
+        let error = tree
+            .try_add_all(&points, |point| point.0, |point| point.1)
+            .unwrap_err();
+
+        match error {
+            QuadTreeError::NonFiniteCoordinate { index, x, y } => {
+                assert_eq!(index, Some(1));
+                assert!(x.is_infinite());
+                assert_eq!(y, 2.0);
+            }
+        }
+
+        assert_eq!(tree.size(), 1);
+        assert_eq!(tree.extent(), before_extent);
+        assert_eq!(tree.find(1.0, 1.0, Some(0.1)), None);
+    }
+
+    #[test]
+    fn try_from_data_reports_invalid_source_index() {
+        let points = vec![(0.0, 0.0, "a"), (1.0, f64::NEG_INFINITY, "b")];
+
+        let error = QuadTree::try_from_data(&points, |point| point.0, |point| point.1).unwrap_err();
+
+        match error {
+            QuadTreeError::NonFiniteCoordinate { index, x, y } => {
+                assert_eq!(index, Some(1));
+                assert_eq!(x, 1.0);
+                assert!(y.is_infinite());
+            }
+        }
     }
 
     #[test]

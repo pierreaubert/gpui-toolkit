@@ -1,6 +1,7 @@
 use super::line_config::LineConfig;
 use super::line_point::LinePoint;
-use super::misc::clip_line_segment;
+use super::style::StrokeDashArray;
+use super::validation::{LineRenderError, compute_line_segments, validate_line_inputs};
 use crate::scale::Scale;
 use gpui::prelude::*;
 use gpui::*;
@@ -15,87 +16,19 @@ type LinePaintInputs = (
     f32,
 );
 
-/// Curve interpolation types
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CurveType {
-    /// Linear interpolation (straight lines between points)
-    Linear,
-    /// Step function (horizontal then vertical)
-    Step,
-    /// Step before (vertical then horizontal)
-    StepBefore,
-    /// Step after (horizontal then vertical)
-    StepAfter,
-}
-
-/// Stroke dash array pattern for dashed/dotted lines.
-///
-/// Defines repeating on/off patterns for line rendering, similar to SVG's
-/// `stroke-dasharray` attribute.
-#[derive(Debug, Clone, PartialEq)]
-pub enum StrokeDashArray {
-    /// Dotted line: small dash, equal gap (e.g., 2px on, 2px off)
-    Dotted,
-    /// Dashed line: longer dash, shorter gap (e.g., 6px on, 3px off)
-    Dashed,
-    /// Dash-dot pattern (e.g., 6px dash, 3px gap, 2px dot, 3px gap)
-    DashDot,
-    /// Custom pattern: alternating on/off lengths in pixels.
-    /// Must contain an even number of elements (on, off pairs).
-    /// E.g., `vec![10.0, 5.0]` means 10px dash, 5px gap, repeating.
-    Custom(Vec<f32>),
-}
-
-/// Compute clipped line segments from relative points based on the curve type.
-fn compute_line_segments(
-    relative_points: &[(f32, f32)],
-    curve_type: CurveType,
-) -> Vec<(f32, f32, f32, f32)> {
-    if relative_points.len() < 2 {
-        return Vec::new();
-    }
-
-    match curve_type {
-        CurveType::Linear => {
-            let mut segments = Vec::with_capacity(relative_points.len() - 1);
-            for i in 1..relative_points.len() {
-                let (x0, y0) = relative_points[i - 1];
-                let (x1, y1) = relative_points[i];
-                if let Some(clipped) = clip_line_segment(x0, y0, x1, y1) {
-                    segments.push(clipped);
-                }
-            }
-            segments
-        }
-        CurveType::Step | CurveType::StepAfter => {
-            let mut segments = Vec::with_capacity((relative_points.len() - 1) * 2);
-            for i in 1..relative_points.len() {
-                let (x0, y0) = relative_points[i - 1];
-                let (x1, y1) = relative_points[i];
-                if let Some(clipped) = clip_line_segment(x0, y0, x1, y0) {
-                    segments.push(clipped);
-                }
-                if let Some(clipped) = clip_line_segment(x1, y0, x1, y1) {
-                    segments.push(clipped);
-                }
-            }
-            segments
-        }
-        CurveType::StepBefore => {
-            let mut segments = Vec::with_capacity((relative_points.len() - 1) * 2);
-            for i in 1..relative_points.len() {
-                let (x0, y0) = relative_points[i - 1];
-                let (x1, y1) = relative_points[i];
-                if let Some(clipped) = clip_line_segment(x0, y0, x0, y1) {
-                    segments.push(clipped);
-                }
-                if let Some(clipped) = clip_line_segment(x0, y1, x1, y1) {
-                    segments.push(clipped);
-                }
-            }
-            segments
-        }
-    }
+/// Render a line chart after validating data, scale outputs, and config.
+pub fn try_render_line<XS, YS>(
+    x_scale: &XS,
+    y_scale: &YS,
+    data: &[LinePoint],
+    config: &LineConfig,
+) -> Result<impl IntoElement + use<XS, YS>, LineRenderError>
+where
+    XS: Scale<f64, f64>,
+    YS: Scale<f64, f64>,
+{
+    validate_line_inputs(x_scale, y_scale, data, config)?;
+    Ok(render_line(x_scale, y_scale, data, config))
 }
 
 /// Render a line chart using GPUI's PathBuilder for proper vector line rendering
@@ -334,4 +267,3 @@ where
     .absolute()
     .inset_0()
 }
-

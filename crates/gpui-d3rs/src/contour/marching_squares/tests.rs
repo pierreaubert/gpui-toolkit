@@ -1,6 +1,7 @@
 use super::contour::contours;
 use super::contour_generator::ContourGenerator;
 use super::contour_ring::ContourRing;
+use super::contour_ring::ContourRingError;
 use super::misc::upsample_axis_values;
 use crate::shape::path::Point;
 
@@ -92,6 +93,43 @@ fn test_contour_ring_area() {
 
     // Clockwise ring should have positive area
     assert!(ring.area().abs() > 0.0);
+    assert_eq!(ring.area(), ring.try_area().unwrap());
+}
+
+#[test]
+fn test_contour_ring_try_area_rejects_non_finite_points() {
+    let ring = ContourRing::new(vec![
+        Point::new(0.0, 0.0),
+        Point::new(1.0, f64::NAN),
+        Point::new(0.0, 0.0),
+    ]);
+
+    let error = ring.try_area().unwrap_err();
+    match error {
+        ContourRingError::NonFinitePoint {
+            index,
+            coordinate,
+            value,
+        } => {
+            assert_eq!(index, 1);
+            assert_eq!(coordinate, "y");
+            assert!(value.is_nan());
+        }
+    }
+
+    let ring = ContourRing::new(vec![
+        Point::new(0.0, 0.0),
+        Point::new(f64::INFINITY, 1.0),
+        Point::new(0.0, 0.0),
+    ]);
+    assert_eq!(
+        ring.try_area().unwrap_err(),
+        ContourRingError::NonFinitePoint {
+            index: 1,
+            coordinate: "x",
+            value: f64::INFINITY,
+        }
+    );
 }
 
 #[test]

@@ -1706,7 +1706,13 @@ mod tests {
 
     #[test]
     fn clip_polygon_to_rect_rejects_outside_polygons() {
-        let ring = vec![(-5.0, -5.0), (-1.0, -5.0), (-1.0, -1.0), (-5.0, -1.0), (-5.0, -5.0)];
+        let ring = vec![
+            (-5.0, -5.0),
+            (-1.0, -5.0),
+            (-1.0, -1.0),
+            (-5.0, -1.0),
+            (-5.0, -5.0),
+        ];
         assert!(clip_polygon_to_rect(&ring, ((0.0, 0.0), (10.0, 10.0))).is_empty());
     }
 

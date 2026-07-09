@@ -124,4 +124,3 @@ pub(super) fn get_contour_color(
     };
     to_color4(&color, opacity)
 }
-

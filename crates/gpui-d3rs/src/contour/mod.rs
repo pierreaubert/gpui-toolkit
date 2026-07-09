@@ -31,6 +31,6 @@ mod thresholds;
 
 pub use density::{DensityError, DensityEstimator, density_2d, gaussian_kernel, try_density_2d};
 pub use marching_squares::{
-    Contour, ContourBand, ContourGenerator, ContourRing, contour, contours,
+    Contour, ContourBand, ContourGenerator, ContourRing, ContourRingError, contour, contours,
 };
 pub use thresholds::{threshold_freedman_diaconis, threshold_scott, threshold_sturges};

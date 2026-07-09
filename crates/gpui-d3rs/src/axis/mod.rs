@@ -1,6 +1,8 @@
-//! Axis module for rendering chart axes
+//! Axis module for chart axes
 //!
 //! Axes provide visual reference for scales, showing tick marks and labels.
+//! The [`AxisLayout`] surface is renderer-independent and available in
+//! metadata/no-default builds; [`render_axis`] is available in GPUI builds.
 //!
 //! # Example
 //!
@@ -16,11 +18,19 @@
 //! ```
 
 mod config;
+mod layout;
 mod orientation;
+#[cfg(all(feature = "gpui", not(test)))]
 mod render;
+#[cfg(feature = "gpui")]
 mod theme;
 
 pub use config::AxisConfig;
+pub use layout::{
+    AxisLayout, AxisLayoutError, AxisLine, AxisPoint, AxisTick, AxisTitle, axis_layout,
+};
 pub use orientation::AxisOrientation;
+#[cfg(all(feature = "gpui", not(test)))]
 pub use render::render_axis;
+#[cfg(feature = "gpui")]
 pub use theme::{AxisTheme, DefaultAxisTheme};

@@ -1,5 +1,33 @@
 use crate::shape::path::Point;
 
+/// Recoverable errors for checked contour ring operations.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ContourRingError {
+    /// Contour ring points must be finite for checked area computation.
+    NonFinitePoint {
+        index: usize,
+        coordinate: &'static str,
+        value: f64,
+    },
+}
+
+impl std::fmt::Display for ContourRingError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NonFinitePoint {
+                index,
+                coordinate,
+                value,
+            } => write!(
+                f,
+                "contour ring point {coordinate} at index {index} is not finite: {value}"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for ContourRingError {}
+
 /// A contour ring (polygon) representing a closed contour line.
 #[derive(Debug, Clone, Default)]
 pub struct ContourRing {
@@ -36,5 +64,31 @@ impl ContourRing {
             sum += (p1.x - p0.x) * (p1.y + p0.y);
         }
         sum / 2.0
+    }
+
+    /// Get the checked area of this ring.
+    pub fn try_area(&self) -> Result<f64, ContourRingError> {
+        self.validate_finite_points()?;
+        Ok(self.area())
+    }
+
+    fn validate_finite_points(&self) -> Result<(), ContourRingError> {
+        for (index, point) in self.points.iter().enumerate() {
+            if !point.x.is_finite() {
+                return Err(ContourRingError::NonFinitePoint {
+                    index,
+                    coordinate: "x",
+                    value: point.x,
+                });
+            }
+            if !point.y.is_finite() {
+                return Err(ContourRingError::NonFinitePoint {
+                    index,
+                    coordinate: "y",
+                    value: point.y,
+                });
+            }
+        }
+        Ok(())
     }
 }

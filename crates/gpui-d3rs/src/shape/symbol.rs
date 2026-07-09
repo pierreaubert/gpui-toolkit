@@ -4,12 +4,41 @@
 
 use super::path::{Path, PathBuilder, Point};
 use std::f64::consts::PI;
+use std::fmt;
 
 #[cfg(test)]
 mod tests;
 mod types;
 
 pub use types::*;
+
+/// Recoverable errors for checked symbol generation.
+#[derive(Debug, Clone, PartialEq)]
+pub enum SymbolGenerationError {
+    /// Symbol sizes must be finite.
+    NonFiniteSize { size: f64 },
+    /// Checked symbol sizes must be zero or positive.
+    NegativeSize { size: f64 },
+    /// Translated symbol centers must be finite.
+    NonFiniteCoordinate {
+        coordinate: &'static str,
+        value: f64,
+    },
+}
+
+impl fmt::Display for SymbolGenerationError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NonFiniteSize { size } => write!(f, "symbol size is not finite: {size}"),
+            Self::NegativeSize { size } => write!(f, "symbol size is negative: {size}"),
+            Self::NonFiniteCoordinate { coordinate, value } => {
+                write!(f, "symbol coordinate {coordinate} is not finite: {value}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for SymbolGenerationError {}
 
 /// Symbol generator.
 #[derive(Debug, Clone)]
@@ -93,6 +122,12 @@ impl Symbol {
         }
     }
 
+    /// Generate the symbol path after validating size.
+    pub fn try_generate(&self) -> Result<Path, SymbolGenerationError> {
+        validate_symbol_size(self.size)?;
+        Ok(self.generate())
+    }
+
     /// Generate the symbol centered at a specific point.
     pub fn generate_at(&self, x: f64, y: f64) -> Path {
         let base = self.generate();
@@ -133,6 +168,14 @@ impl Symbol {
         builder.build()
     }
 
+    /// Generate the symbol centered at a specific point after validating inputs.
+    pub fn try_generate_at(&self, x: f64, y: f64) -> Result<Path, SymbolGenerationError> {
+        validate_symbol_size(self.size)?;
+        validate_symbol_coordinate("x", x)?;
+        validate_symbol_coordinate("y", y)?;
+        Ok(self.generate_at(x, y))
+    }
+
     /// Generate points for the symbol outline.
     pub fn points(&self) -> Vec<Point> {
         match self.symbol_type {
@@ -156,6 +199,17 @@ impl Symbol {
             }
             SymbolType::Wye => self.wye_points(),
         }
+    }
+
+    /// Generate points for the symbol outline after validating size.
+    pub fn try_points(&self) -> Result<Vec<Point>, SymbolGenerationError> {
+        validate_symbol_size(self.size)?;
+        Ok(self.points())
+    }
+
+    /// Return the checked symbol radius for hit testing or label placement.
+    pub fn try_radius(&self) -> Result<f64, SymbolGenerationError> {
+        try_symbol_radius(self.symbol_type, self.size)
     }
 
     fn generate_circle(&self) -> Path {
@@ -395,5 +449,33 @@ impl Symbol {
             Point::new(r * c, -r),
             Point::new(0.0, -r * 2.0),
         ]
+    }
+}
+
+/// Get the checked radius for a symbol with the given size.
+pub fn try_symbol_radius(symbol_type: SymbolType, size: f64) -> Result<f64, SymbolGenerationError> {
+    validate_symbol_size(size)?;
+    Ok(symbol_radius(symbol_type, size))
+}
+
+fn validate_symbol_size(size: f64) -> Result<(), SymbolGenerationError> {
+    if !size.is_finite() {
+        return Err(SymbolGenerationError::NonFiniteSize { size });
+    }
+    if size < 0.0 {
+        return Err(SymbolGenerationError::NegativeSize { size });
+    }
+
+    Ok(())
+}
+
+fn validate_symbol_coordinate(
+    coordinate: &'static str,
+    value: f64,
+) -> Result<(), SymbolGenerationError> {
+    if value.is_finite() {
+        Ok(())
+    } else {
+        Err(SymbolGenerationError::NonFiniteCoordinate { coordinate, value })
     }
 }
