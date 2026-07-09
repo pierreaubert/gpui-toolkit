@@ -28,6 +28,7 @@ clap = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
+toml = { workspace = true }
 
 [lib]
 name = "gpui_scaffolder"
