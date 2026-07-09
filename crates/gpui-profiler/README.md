@@ -35,6 +35,55 @@ surface the delta however they want.
 When the feature is disabled, the API is still available but reports zeros, so
 instrumented code can be left in place with no overhead.
 
+## Safe enable/disable pattern
+
+Keep `AllocProbe` instrumentation in the code you care about, but expose the
+counting allocator through an opt-in feature on the final binary:
+
+```toml
+[dependencies]
+gpui-profiler = { path = "../gpui-profiler" }
+
+[features]
+profiler = ["gpui-profiler/global-allocator"]
+```
+
+Then run ordinary builds without the feature, and profiling builds with it:
+
+```bash
+cargo run -p your-app
+cargo run -p your-app --features profiler
+```
+
+Only the profiling build installs the counting global allocator. This matters
+because Rust allows a binary to define only one `#[global_allocator]`; do not
+combine `gpui-profiler/global-allocator` with other allocator/profiler crates
+such as `dhat` in the same binary.
+
+The crate includes a runnable minimal example:
+
+```bash
+cargo run -p gpui-profiler --example alloc_probe
+cargo run -p gpui-profiler --example alloc_probe --features global-allocator
+```
+
+The first command keeps the probes compiled in but reports zero allocations.
+The second command enables counting and should show allocations for the vector
+growth section.
+
+## Overhead expectations
+
+- Without `global-allocator`, `AllocSnapshot::now`, `AllocProbe::reset`, and
+  `AllocProbe::sample` return zero/default snapshots and do not install a
+  global allocator.
+- With `global-allocator`, every allocation and reallocation performs relaxed
+  atomic counter updates. This is useful for QA and interactive profiling, but
+  it should not be enabled in release hot paths unless you intentionally want
+  diagnostic overhead.
+- Samples are event-level approximations. Other threads can allocate between a
+  probe reset and sample, so treat deltas as a signal for regressions rather
+  than an exact frame budget.
+
 The instrumented showcase applications render a small in-UI overlay in the
 top-right corner. It shows the last render and mouse-move deltas, plus the most
 recent sample from any probed event (`mouse-down`, `mouse-up`, `scroll`,

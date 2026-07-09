@@ -8,6 +8,7 @@ categories.workspace = true
 description = "Minimal application shell for GPUI examples and showcases — bundles platform-backend selection so individual demos don't have to."
 license.workspace = true
 repository.workspace = true
+readme = "README.md"
 # Not publishable: depends on Zed's per-platform GPUI backends (gpui_macos,
 # gpui_linux, gpui_windows) which only exist in the zed-industries/zed git
 # tree. They have no crates.io release, so any crate that pulls them in is

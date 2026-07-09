@@ -6,6 +6,7 @@ edition.workspace = true
 description = "Theme editor and management for GPUI applications"
 license.workspace = true
 repository.workspace = true
+readme = "README.md"
 keywords = ["gpui", "theme", "ui"]
 categories = ["gui"]
 

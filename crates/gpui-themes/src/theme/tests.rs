@@ -291,6 +291,26 @@ fn test_community_theme_manifest_validation_errors() {
 }
 
 #[test]
+fn test_community_theme_bundle_accepts_implicit_v1_schema_version() {
+    let bundle = CommunityThemeBundle::from_theme(EditorTheme::nord());
+    let mut value = serde_json::to_value(&bundle).unwrap();
+    value
+        .get_mut("manifest")
+        .and_then(serde_json::Value::as_object_mut)
+        .unwrap()
+        .remove("schema_version");
+
+    let json = serde_json::to_string(&value).unwrap();
+    let loaded = CommunityThemeBundle::from_json(&json).unwrap();
+
+    assert_eq!(
+        loaded.manifest.schema_version,
+        COMMUNITY_THEME_SCHEMA_VERSION
+    );
+    assert!(loaded.validate().is_ok());
+}
+
+#[test]
 fn test_community_theme_bundle_from_theme() {
     let theme = EditorTheme::nord();
     let bundle = CommunityThemeBundle::from_theme(theme.clone());

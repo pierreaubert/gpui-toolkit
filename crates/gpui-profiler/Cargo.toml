@@ -8,6 +8,7 @@ categories.workspace = true
 description = "Lightweight allocation profiling utilities for GPUI applications"
 license.workspace = true
 repository.workspace = true
+readme = "README.md"
 
 [features]
 default = []
