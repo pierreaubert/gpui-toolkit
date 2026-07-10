@@ -1280,6 +1280,14 @@ impl Platform for AndroidPlatform {
             std::mem::transmute::<Box<dyn FnMut()>, Box<dyn FnMut() + Send>>(callback)
         });
     }
+
+    fn hide_cursor_until_mouse_moves(&self) {
+        // No-op on Android; cursor visibility is not mouse-driven.
+    }
+
+    fn is_cursor_visible(&self) -> bool {
+        true
+    }
 }
 
 // ── Android keyboard mapper (stub) ───────────────────────────────────────────
@@ -1475,6 +1483,14 @@ impl Platform for SharedPlatform {
     }
     fn on_keyboard_layout_change(&self, callback: Box<dyn FnMut()>) {
         <AndroidPlatform as Platform>::on_keyboard_layout_change(&self.0, callback)
+    }
+
+    fn hide_cursor_until_mouse_moves(&self) {
+        <AndroidPlatform as Platform>::hide_cursor_until_mouse_moves(&self.0)
+    }
+
+    fn is_cursor_visible(&self) -> bool {
+        <AndroidPlatform as Platform>::is_cursor_visible(&self.0)
     }
 }
 
