@@ -2,7 +2,6 @@ use super::app_callback_cell::AppCallbackCell;
 use super::asset_source_cell::AssetSourceCell;
 use super::ios_app_state::IosAppState;
 use super::window_list_wrapper::WindowListWrapper;
-use gpui::AppContext;
 use std::backtrace::Backtrace;
 use std::panic::{self};
 use std::sync::{Once, OnceLock, atomic::AtomicBool};

@@ -1,4 +1,3 @@
-use super::take;
 use gpui::{AppCell, RequestFrameOptions};
 use objc::{
     class, msg_send,

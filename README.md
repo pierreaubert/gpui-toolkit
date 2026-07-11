@@ -46,8 +46,8 @@ Two open source examples:
 
 ## GPUI Version
 
-This workspace is currently on the `0.7.x` GPUI toolkit line and pins GPUI
-packages to Zed `v1.0.0` through the root [Cargo.toml](./Cargo.toml).
+This workspace is currently on the `0.8.x` GPUI toolkit line and pins GPUI
+packages to Zed `v1.9.0` through the root [Cargo.toml](./Cargo.toml).
 
 The workspace uses local path dependencies for toolkit crates and git
 dependencies for GPUI platform crates from `zed-industries/zed`.

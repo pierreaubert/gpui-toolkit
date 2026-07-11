@@ -1,7 +1,4 @@
-use super::super::events::*;
-use super::accessibility;
 use crate::native::{DynamicTypeCategory, IosSceneMetrics, SafeAreaInsets, SizeClass};
-use gpui::size;
 use objc::{class, msg_send, runtime::Object, sel, sel_impl};
 use std::ffi::CStr;
 

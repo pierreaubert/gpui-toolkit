@@ -1,4 +1,3 @@
-use super::super::events::*;
 use super::misc::{
     UIAccessibilityTraitAdjustable, UIAccessibilityTraitButton, UIAccessibilityTraitHeader,
     UIAccessibilityTraitImage, UIAccessibilityTraitLink, UIAccessibilityTraitNotEnabled,

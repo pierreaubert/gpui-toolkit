@@ -26,8 +26,9 @@ upstream crate remains old and mostly stable.
 
 ## Local Changes
 
-- Declare the legacy `cargo-clippy` cfg feature used by old macros so modern
-  cfg checking stays quiet.
+- Remove the legacy `cargo-clippy` cfg feature and the stale
+  `cfg_attr(feature = "cargo-clippy", allow(replace_consts))` macro attributes
+  that trigger `unexpected_cfgs` errors on modern Rust.
 - Use explicit `extern "C"` ABI spellings for Objective-C runtime declarations,
   method implementations, message dispatch, examples, and tests.
 - Replace deprecated `trim_left_matches` with `trim_start_matches`.

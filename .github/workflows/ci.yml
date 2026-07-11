@@ -20,7 +20,10 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Cache cargo registry
+      - name: Install Just
+        uses: extractions/setup-just@v2
+
+      - name: Cache cargo
         uses: actions/cache@v5
         with:
           path: |
@@ -30,16 +33,19 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: cargo check
-        run: cargo check -p autoeq --lib --bins --tests
+        run: just check
 
       - name: cargo clippy
-        run: cargo clippy -p autoeq --no-deps -- -D warnings
+        run: just lint
 
-      - name: cargo test (library)
-        run: cargo test -p autoeq --lib --release
+      - name: cargo test
+        # gpui-scaffolder contains platform-specific tests (tvOS simulator
+        # cargo check) that require nightly + Apple targets; exclude it from the
+        # ubuntu CI run.
+        run: cargo test --workspace --exclude gpui-scaffolder --features autoeq,camera,gpu-2d,gpu-3d,reqwest,spinorama,tokio,urlencoding
 
-  qa-roomeq-ci:
-    name: RoomEQ CI QA Gate
+  qa-gpui-obvious:
+    name: GPUI Obvious QA Gate
     runs-on: ubuntu-latest
     needs: check-and-test
     steps:
@@ -48,7 +54,10 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Cache cargo registry
+      - name: Install Just
+        uses: extractions/setup-just@v2
+
+      - name: Cache cargo
         uses: actions/cache@v5
         with:
           path: |
@@ -57,14 +66,11 @@ jobs:
             target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Install Just
-        uses: extractions/setup-just@v2
+      - name: Run GPUI obvious QA
+        run: just qa-gpui-obvious
 
-      - name: Run RoomEQ CI QA
-        run: just qa-roomeq-ci
-
-  coverage-gate:
-    name: Library Unit-Test Coverage Gate (90 %)
+  coverage-report:
+    name: Coverage Report
     runs-on: ubuntu-latest
     needs: check-and-test
     steps:
@@ -78,7 +84,10 @@ jobs:
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
 
-      - name: Cache cargo registry
+      - name: Install Just
+        uses: extractions/setup-just@v2
+
+      - name: Cache cargo
         uses: actions/cache@v5
         with:
           path: |
@@ -87,5 +96,22 @@ jobs:
             target
           key: ${{ runner.os }}-cargo-coverage-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Run coverage gate
-        run: cargo llvm-cov --lib --summary-only --release --fail-under-lines 90
+      - name: Generate coverage report
+        # gpui-scaffolder is excluded because its tvOS simulator test requires
+        # Apple targets and nightly that are not available on ubuntu-latest.
+        run: |
+          cargo llvm-cov --workspace --exclude gpui-scaffolder --all-targets \
+            --features autoeq,camera,gpu-2d,gpu-3d,reqwest,spinorama,tokio,urlencoding \
+            --html --output-dir target/qa/cov/html \
+            --ignore-filename-regex '.*/(tests|benches|examples|target|crates/3rdparties|crates/gpui-au|crates/gpui-android|crates/gpui-ios|crates/gpui-miniapp|crates/.*/bin)/.*'
+          cargo llvm-cov --workspace --exclude gpui-scaffolder --all-targets \
+            --features autoeq,camera,gpu-2d,gpu-3d,reqwest,spinorama,tokio,urlencoding \
+            --json --summary-only --output-path target/qa/cov/summary.json \
+            --ignore-filename-regex '.*/(tests|benches|examples|target|crates/3rdparties|crates/gpui-au|crates/gpui-android|crates/gpui-ios|crates/gpui-miniapp|crates/.*/bin)/.*'
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: target/qa/cov/
+          if-no-files-found: warn

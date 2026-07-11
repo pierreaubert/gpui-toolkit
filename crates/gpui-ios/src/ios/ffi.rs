@@ -1,19 +1,5 @@
 //! FFI module for iOS — C-compatible functions called from Objective-C app delegate.
 
-use gpui::{App, AppCell, AppContext, RequestFrameOptions, WindowOptions};
-use objc::{
-    class, msg_send,
-    runtime::{BOOL, Object},
-    sel, sel_impl,
-};
-use std::backtrace::Backtrace;
-use std::ffi::{CStr, c_char, c_void};
-use std::panic::{self, AssertUnwindSafe};
-use std::rc::Rc;
-use std::sync::{
-    Once, OnceLock,
-    atomic::{AtomicBool, Ordering},
-};
 
 mod app_callback_cell;
 mod asset_source_cell;
@@ -28,9 +14,7 @@ mod take;
 mod tests;
 mod window_list_wrapper;
 
-pub use consts::*;
+pub(crate) use consts::*;
 pub use gpui_mod::*;
 pub use ios_app_state::*;
-pub use misc::*;
 pub use set::*;
-pub use window_list_wrapper::*;

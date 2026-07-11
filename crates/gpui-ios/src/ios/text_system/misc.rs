@@ -1,11 +1,9 @@
-use super::font;
-use anyhow::anyhow;
 use core_foundation::{base::TCFType, number::CFNumber, string::CFString};
 use core_graphics::base::CGFloat;
 use core_text::font::CTFont;
 use font_kit::{font::Font as FontKitFont, metrics::Metrics};
 use gpui::{
-    Bounds, DevicePixels, Font, FontFallbacks, FontFeatures, FontMetrics, Result, Size, point, size,
+    Bounds, DevicePixels, FontFallbacks, FontFeatures, FontMetrics, Size, point, size,
 };
 use pathfinder_geometry::{
     rect::{RectF, RectI},
@@ -175,7 +173,7 @@ pub(super) fn apply_features_and_fallbacks(
 }
 
 pub(super) mod lenient_font_attributes {
-    use super::*;
+    
     use core_foundation::{
         base::{CFRetain, CFType, TCFType},
         string::{CFString, CFStringRef},

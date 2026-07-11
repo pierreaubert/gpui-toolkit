@@ -23,7 +23,6 @@ pub(crate) use dispatcher::*;
 pub(crate) use display::*;
 pub use platform::*;
 pub(crate) use text_system::IosTextSystem;
-pub use window::set_status_bar_style;
 pub(crate) use window::*;
 
 pub(crate) unsafe fn ns_string_from_str(text: &str) -> *mut objc::runtime::Object {

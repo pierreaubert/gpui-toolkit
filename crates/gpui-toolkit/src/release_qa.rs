@@ -133,9 +133,9 @@ const RELEASE_QA_GATES: &[ReleaseQaGate] = &[
         id: "android-target",
         area: "Android target",
         command: "cargo check -p gpui-android --target aarch64-linux-android --lib",
-        status: ReleaseQaStatus::Blocked,
-        evidence: "Blocked locally by missing aarch64-linux-android-clang from the Android NDK.",
-        release_requirement: "Install/configure the NDK toolchain and record target compile plus emulator/device smoke results.",
+        status: ReleaseQaStatus::Partial,
+        evidence: "Android NDK aarch64-linux-android35-clang is installed and the target compile passes; emulator or device runtime smoke test is not yet recorded.",
+        release_requirement: "Record an Android emulator or device launch, touch, keyboard, and visual smoke pass.",
     },
     ReleaseQaGate {
         id: "tvos-simulator-device",
@@ -165,9 +165,9 @@ const RELEASE_QA_GATES: &[ReleaseQaGate] = &[
         id: "publish-dry-runs",
         area: "Crate publishing",
         command: "gpui_toolkit::publish_plan() and cargo publish --dry-run per selected public crate",
-        status: ReleaseQaStatus::Pending,
-        evidence: "Ordered publish plan exists and gpui-design dry-run passed; gpui-builder and gpui-ui-kit are blocked until predecessor crates are available on crates.io.",
-        release_requirement: "Run dry-runs in publish-plan order for selected crates and record pass/fail output.",
+        status: ReleaseQaStatus::Blocked,
+        evidence: "gpui-design, gpui-pretext, and gpui-ui-kit-macros dry-runs passed. All other selected public-core crates require the Zed GPUI crate, which is not published on crates.io, so their dry-runs cannot resolve.",
+        release_requirement: "Decide how to obtain a published GPUI dependency (wait for upstream, vendor/publish a fork, or shrink the public release set to GPUI-free crates) and rerun dry-runs.",
     },
     ReleaseQaGate {
         id: "release-notes",
@@ -192,7 +192,7 @@ pub const fn release_qa_matrix() -> ReleaseQaMatrix {
     ReleaseQaMatrix {
         schema_version: RELEASE_QA_MATRIX_SCHEMA_VERSION,
         report_type: RELEASE_QA_MATRIX_REPORT_TYPE,
-        reviewed_on: "2026-07-08",
+        reviewed_on: "2026-07-10",
         gates: RELEASE_QA_GATES,
     }
 }
@@ -212,7 +212,7 @@ mod tests {
 
         assert_eq!(matrix.schema_version, RELEASE_QA_MATRIX_SCHEMA_VERSION);
         assert_eq!(matrix.report_type, RELEASE_QA_MATRIX_REPORT_TYPE);
-        assert_eq!(matrix.reviewed_on, "2026-07-08");
+        assert_eq!(matrix.reviewed_on, "2026-07-10");
         assert!(!matrix.gates.is_empty());
 
         for gate in matrix.gates {
@@ -270,7 +270,7 @@ mod tests {
             matrix
                 .gates
                 .iter()
-                .any(|gate| gate.status == ReleaseQaStatus::Blocked)
+                .any(|gate| gate.status == ReleaseQaStatus::Partial)
         );
         assert!(
             matrix
@@ -306,7 +306,8 @@ mod tests {
 
         assert!(markdown.contains(RELEASE_QA_MATRIX_REPORT_TYPE));
         assert!(markdown.contains("cargo check --workspace --all-targets"));
-        assert!(markdown.contains("aarch64-linux-android-clang"));
+        assert!(markdown.contains("cargo check -p gpui-android --target aarch64-linux-android --lib"));
+        assert!(markdown.contains("partial"));
         assert!(markdown.contains("publish_plan"));
         assert!(markdown.contains("release_notes_report"));
         assert!(markdown.contains("dependency_hygiene_report"));

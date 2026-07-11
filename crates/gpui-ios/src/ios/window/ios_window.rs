@@ -1,12 +1,10 @@
 use super::super::IosDisplay;
 use super::super::events::*;
-use super::accessibility;
 use super::accessibility::accessibility_traits_for_node;
 use super::accessibility::accessibility_value_for_node;
 use super::consts::GPUI_WINDOW_IVAR;
 use super::consts::SCROLL_SLOP;
 use super::fallback_atlas::FallbackAtlas;
-use super::handle;
 use super::ios_raw_handles::IosRawHandles;
 use super::misc::ns_string_to_string;
 use super::misc::query_scene_metrics;
@@ -15,7 +13,6 @@ use super::misc::{
     UIAccessibilityAnnouncementNotification, UIAccessibilityLayoutChangedNotification,
     UIAccessibilityPostNotification,
 };
-use super::register;
 #[cfg(target_os = "ios")]
 use super::register::input_diag_log;
 use super::register::register_accessibility_element_class;
@@ -32,7 +29,7 @@ use gpui::{
     AnyWindowHandle, Bounds, Capslock, DevicePixels, DispatchEventResult, GpuSpecs, Modifiers,
     Pixels, PlatformAtlas, PlatformDisplay, PlatformInput, PlatformInputHandler, PlatformWindow,
     Point, PromptButton, PromptLevel, RequestFrameOptions, Scene, Size, WindowAppearance,
-    WindowBackgroundAppearance, WindowBounds, WindowControlArea, WindowParams, point, px, size,
+    WindowBackgroundAppearance, WindowBounds, WindowControlArea, WindowParams, px, size,
 };
 use gpui_wgpu::{WgpuContext, WgpuRenderer, WgpuSurfaceConfig, wgpu};
 use objc::{

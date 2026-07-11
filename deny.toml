@@ -12,7 +12,17 @@ all-features = true
 version = 2
 db-urls = ["https://github.com/rustsec/advisory-db"]
 yanked = "warn"
-ignore = []
+ignore = [
+    # Accepted quick-xml parser vulnerabilities in upstream Zed Linux platform deps.
+    "RUSTSEC-2026-0194",
+    "RUSTSEC-2026-0195",
+    # Unmaintained warnings tracked in dependency_hygiene.rs; replacements need upstream moves.
+    "RUSTSEC-2025-0141",
+    "RUSTSEC-2024-0384",
+    "RUSTSEC-2024-0436",
+    "RUSTSEC-2026-0173",
+    "RUSTSEC-2026-0192",
+]
 
 [licenses]
 version = 2
@@ -23,12 +33,16 @@ allow = [
     "BSD-3-Clause",
     "BSL-1.0",
     "CC0-1.0",
+    "CDLA-Permissive-2.0",
+    "GPL-3.0-or-later",
     "ISC",
     "MIT",
     "MIT-0",
     "MPL-2.0",
+    "NCSA",
     "Unicode-3.0",
     "Zlib",
+    "bzip2-1.0.6",
 ]
 confidence-threshold = 0.8
 
@@ -48,8 +62,10 @@ unknown-registry = "deny"
 unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
 allow-git = [
+    "https://github.com/proptest-rs/proptest",
     "https://github.com/zed-industries/font-kit",
     "https://github.com/zed-industries/scap",
     "https://github.com/zed-industries/wgpu.git",
+    "https://github.com/zed-industries/xim-rs.git",
     "https://github.com/zed-industries/zed.git",
 ]

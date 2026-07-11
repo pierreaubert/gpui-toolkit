@@ -218,18 +218,18 @@ const DEPENDENCY_HYGIENE_CHECKS: &[DependencyHygieneCheck] = &[
     DependencyHygieneCheck {
         id: "cargo-deny-tool",
         command: "cargo deny --version",
-        status: DependencyHygieneStatus::ToolMissing,
+        status: DependencyHygieneStatus::ToolAvailable,
         purpose: "Prove the deny policy can be evaluated by the release runner.",
-        evidence: "Local 2026-07-07 check failed because Cargo had no deny subcommand installed.",
-        release_requirement: "Install cargo-deny in the release runner and record the exact version used.",
+        evidence: "Local 2026-07-10 check installed cargo-deny 0.20.2.",
+        release_requirement: "Keep cargo-deny installed in the release runner and record the exact version used.",
     },
     DependencyHygieneCheck {
         id: "cargo-deny-release-run",
         command: "cargo deny check advisories bans licenses sources",
-        status: DependencyHygieneStatus::ReleaseRunPending,
+        status: DependencyHygieneStatus::AcceptedWithWarnings,
         purpose: "Evaluate advisory, license, duplicate-version, and source-origin policy for the workspace graph.",
-        evidence: "The deny run is pending because the local cargo-deny tool is missing.",
-        release_requirement: "Run after installing cargo-deny and triage or document every warning/error before release.",
+        evidence: "Local 2026-07-10 run passed all four checks after adding permissive licenses, accepting GPL-3.0-or-later for existing dependencies (autoeq, math-*, zlog/ztracing), and ignoring the tracked advisories.",
+        release_requirement: "Re-run cargo-deny before every release and review any new license or advisory findings; revisit GPL acceptance if the public release set changes.",
     },
     DependencyHygieneCheck {
         id: "future-incompat-review",
@@ -284,7 +284,7 @@ pub const fn dependency_hygiene_report() -> DependencyHygieneReport {
     DependencyHygieneReport {
         schema_version: DEPENDENCY_HYGIENE_SCHEMA_VERSION,
         report_type: DEPENDENCY_HYGIENE_REPORT_TYPE,
-        reviewed_on: "2026-07-08",
+        reviewed_on: "2026-07-10",
         cargo_deny_policy_path: "deny.toml",
         checks: DEPENDENCY_HYGIENE_CHECKS,
         advisory_triage: DEPENDENCY_ADVISORY_TRIAGE,
@@ -311,7 +311,7 @@ mod tests {
 
         assert_eq!(report.schema_version, DEPENDENCY_HYGIENE_SCHEMA_VERSION);
         assert_eq!(report.report_type, DEPENDENCY_HYGIENE_REPORT_TYPE);
-        assert_eq!(report.reviewed_on, "2026-07-08");
+        assert_eq!(report.reviewed_on, "2026-07-10");
         assert_eq!(report.cargo_deny_policy_path, "deny.toml");
         assert!(!report.checks.is_empty());
         assert!(!report.advisory_triage.is_empty());
@@ -381,17 +381,18 @@ mod tests {
     }
 
     #[test]
-    fn dependency_hygiene_report_blocks_release_until_tools_run() {
+    fn dependency_hygiene_report_is_release_ready_after_tools_run() {
         let report = dependency_hygiene_report();
         let blocking = report
             .blocking_checks()
             .map(|check| check.id)
             .collect::<Vec<_>>();
 
-        assert!(!report.all_release_ready());
+        assert!(report.all_release_ready());
+        assert!(blocking.is_empty());
         assert!(!blocking.contains(&"cargo-audit-release-run"));
-        assert!(blocking.contains(&"cargo-deny-tool"));
-        assert!(blocking.contains(&"cargo-deny-release-run"));
+        assert!(!blocking.contains(&"cargo-deny-tool"));
+        assert!(!blocking.contains(&"cargo-deny-release-run"));
         assert!(!blocking.contains(&"future-incompat-review"));
     }
 

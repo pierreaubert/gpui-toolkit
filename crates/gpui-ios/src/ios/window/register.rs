@@ -1,5 +1,3 @@
-use super::super::events::*;
-use super::accessibility;
 use super::consts::ACCESSIBILITY_ELEMENT_CLASS_REGISTERED;
 use super::consts::GPUI_WINDOW_IVAR;
 use super::consts::METAL_VIEW_CLASS_REGISTERED;
@@ -23,7 +21,6 @@ use objc::{
     runtime::{BOOL, Class, NO, Object, Sel, YES},
     sel, sel_impl,
 };
-use std::ffi::c_void;
 #[cfg(target_os = "ios")]
 use std::io::Write;
 

@@ -1,4 +1,3 @@
-use super::font;
 use super::misc::apply_features_and_fallbacks;
 use super::misc::kCGImageAlphaOnly;
 use super::misc::recti_to_bounds_device_pixels;
@@ -36,7 +35,7 @@ use font_kit::{
 use gpui::{
     Bounds, DevicePixels, Font, FontFallbacks, FontFeatures, FontId, FontRun, GlyphId, LineLayout,
     Pixels, RenderGlyphParams, Result, SUBPIXEL_VARIANTS_X, ShapedGlyph, ShapedRun, Size, point,
-    px, size,
+    px,
 };
 use pathfinder_geometry::{
     transform2d::Transform2F,

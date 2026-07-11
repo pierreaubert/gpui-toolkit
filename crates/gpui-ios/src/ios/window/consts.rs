@@ -1,4 +1,3 @@
-use super::super::events::*;
 use objc::{msg_send, sel, sel_impl};
 
 pub(super) const GPUI_WINDOW_IVAR: &str = "gpui_window_ptr";
@@ -23,6 +22,7 @@ pub(super) static STATUS_BAR_STYLE: std::sync::atomic::AtomicI32 =
 ///
 /// This updates the stored style and asks the root view controller
 /// to re-query `preferredStatusBarStyle`.
+#[allow(dead_code)]
 pub fn set_status_bar_style(style: crate::StatusBarContentStyle) {
     use crate::StatusBarContentStyle;
 

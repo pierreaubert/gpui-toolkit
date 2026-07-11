@@ -19,7 +19,6 @@ macro_rules! class {
         #[inline(always)]
         fn get_class(name: &str) -> Option<&'static $crate::runtime::Class> {
             unsafe {
-                #[cfg_attr(feature = "cargo-clippy", allow(replace_consts))]
                 static CLASS: ::std::sync::atomic::AtomicUsize =
                     ::std::sync::atomic::ATOMIC_USIZE_INIT;
                 // `Relaxed` should be fine since `objc_getClass` is thread-safe.
@@ -55,7 +54,6 @@ macro_rules! sel_impl {
         #[inline(always)]
         fn register_sel(name: &str) -> $crate::runtime::Sel {
             unsafe {
-                #[cfg_attr(feature = "cargo-clippy", allow(replace_consts))]
                 static SEL: ::std::sync::atomic::AtomicUsize =
                     ::std::sync::atomic::ATOMIC_USIZE_INIT;
                 let ptr = SEL.load(::std::sync::atomic::Ordering::Relaxed)

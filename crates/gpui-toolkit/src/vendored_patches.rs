@@ -183,7 +183,7 @@ const VENDORED_PATCHES: &[VendoredPatch] = &[
         status: VendoredPatchStatus::ActivePatch,
         reason: "Objective-C runtime binding patch point for modern Rust and Apple backend compatibility.",
         retained_changes: &[
-            "Declare the legacy cargo-clippy cfg feature used by macros.",
+            "Remove the legacy cargo-clippy cfg feature and stale replace_consts cfg_attr from macros.",
             "Use explicit extern \"C\" ABI spellings for runtime and method implementation signatures.",
             "Replace deprecated trim_left_matches and ONCE_INIT usage.",
             "Allow missing docs for the vendored upstream snapshot.",

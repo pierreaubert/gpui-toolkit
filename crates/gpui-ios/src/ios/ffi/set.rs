@@ -3,7 +3,7 @@ use super::asset_source_cell::AssetSourceCell;
 use super::consts::APP_CALLBACK;
 use super::consts::ASSET_SOURCE;
 use super::consts::IOS_APP_STATE;
-use gpui::{App, AppContext};
+use gpui::App;
 
 pub(crate) fn set_finish_launching_callback(callback: Box<dyn FnOnce()>) {
     if let Some(state) = IOS_APP_STATE.get() {

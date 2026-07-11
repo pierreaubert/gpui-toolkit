@@ -29,6 +29,5 @@ version = "0.1"
 optional = true
 
 [features]
-cargo-clippy = []
 exception = ["objc_exception"]
 verify_message = []

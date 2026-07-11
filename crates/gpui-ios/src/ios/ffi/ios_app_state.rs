@@ -2,8 +2,6 @@ use super::consts::IOS_APP_STATE;
 use super::consts::IOS_WINDOW_LIST;
 use super::consts::install_ios_panic_hook;
 use super::misc::retain_application_for_process_lifetime;
-use super::set;
-use super::take;
 use super::take::take_app_callback;
 use super::take::take_asset_source;
 use super::window_list_wrapper::WindowListWrapper;

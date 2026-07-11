@@ -1,4 +1,3 @@
-use super::font;
 use super::font::font_style_to_fontkit;
 use super::font::font_weight_to_fontkit;
 use super::ios_text_system_state::IosTextSystemState;

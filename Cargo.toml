@@ -84,7 +84,7 @@ gpui-design = { path = "crates/gpui-design", version = "0.8" }
 gpui-design-tools = { path = "crates/gpui-design-tools", version = "0.8" }
 gpui-ios = { path = "crates/gpui-ios", version = "0.8" }
 gpui-keybinding = { path = "crates/gpui-keybinding", version = "0.8" }
-gpui-miniapp = { path = "crates/gpui-miniapp" }
+gpui-miniapp = { path = "crates/gpui-miniapp", version = "0.8" }
 gpui-pretext = { path = "crates/gpui-pretext", version = "0.8" }
 gpui-profiler = { path = "crates/gpui-profiler", version = "0.8" }
 gpui-px = { path = "crates/gpui-px", version = "0.8", default-features = false }

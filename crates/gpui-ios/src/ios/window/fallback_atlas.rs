@@ -1,8 +1,7 @@
-use super::super::events::*;
 use super::types::FallbackAtlasState;
 use gpui::{
     AtlasKey, AtlasTextureId, AtlasTextureKind, AtlasTile, Bounds, DevicePixels, PlatformAtlas,
-    Size, TileId, point, size,
+    Size, TileId, point,
 };
 use parking_lot::Mutex;
 use std::collections::HashMap;

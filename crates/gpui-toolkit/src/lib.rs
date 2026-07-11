@@ -46,7 +46,7 @@
 //! };
 //!
 //! assert!(!crate_stability_manifest().is_empty());
-//! assert!(!dependency_hygiene_report().all_release_ready());
+//! assert!(dependency_hygiene_report().all_release_ready());
 //! assert!(!publish_plan().all_release_ready());
 //! assert!(!release_notes_report().all_release_ready());
 //! assert!(!release_notes_artifact_report().blocking_artifacts().collect::<Vec<_>>().is_empty());

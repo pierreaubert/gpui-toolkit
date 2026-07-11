@@ -1,4 +1,3 @@
-use super::super::events::*;
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 
 /// Lightweight, owned, `Debug + Clone + Send + Sync + 'static` wrapper around

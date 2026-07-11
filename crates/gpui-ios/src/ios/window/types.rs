@@ -1,4 +1,3 @@
-use super::super::events::*;
 use gpui::{AtlasKey, AtlasTile};
 use std::collections::HashMap;
 

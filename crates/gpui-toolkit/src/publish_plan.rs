@@ -118,7 +118,7 @@ const PUBLISH_PLAN_ENTRIES: &[PublishPlanEntry] = &[
         command: "cargo publish --dry-run -p gpui-design --allow-dirty",
         status: PublishPlanStatus::DryRunPassed,
         reason: "Leaf public-core design crate used by builder and UI kit.",
-        evidence: "Dry-run passed cleanly after optional GPUI integration re-exports were gated behind the gpui feature.",
+        evidence: "Dry-run passed cleanly with default features; the optional `gpui` feature still requires the GPUI crate, which is not on crates.io.",
         release_requirement: "Re-run immediately before publishing and remove --allow-dirty in a clean release worktree.",
     },
     PublishPlanEntry {
@@ -126,10 +126,10 @@ const PUBLISH_PLAN_ENTRIES: &[PublishPlanEntry] = &[
         order: 2,
         lane: "public-core",
         command: "cargo publish --dry-run -p gpui-pretext --allow-dirty",
-        status: PublishPlanStatus::PendingDryRun,
+        status: PublishPlanStatus::DryRunPassed,
         reason: "Leaf public-core text crate required before gpui-builder can resolve on crates.io.",
-        evidence: "No dry-run was recorded in this release report.",
-        release_requirement: "Run dry-run and publish before gpui-builder.",
+        evidence: "Dry-run passed cleanly; crate has no GPUI or other unpublished dependencies.",
+        release_requirement: "Publish before gpui-builder if the public-core lane proceeds.",
     },
     PublishPlanEntry {
         crate_name: "gpui-builder",
@@ -146,10 +146,10 @@ const PUBLISH_PLAN_ENTRIES: &[PublishPlanEntry] = &[
         order: 4,
         lane: "public-core",
         command: "cargo publish --dry-run -p gpui-ui-kit-macros --allow-dirty",
-        status: PublishPlanStatus::PendingDryRun,
+        status: PublishPlanStatus::DryRunPassed,
         reason: "Proc-macro helper should be available before gpui-ui-kit.",
-        evidence: "No dry-run was recorded in this release report.",
-        release_requirement: "Run dry-run and publish before gpui-ui-kit.",
+        evidence: "Dry-run passed cleanly; crate has no GPUI or other unpublished dependencies.",
+        release_requirement: "Publish before gpui-ui-kit if the public-core lane proceeds.",
     },
     PublishPlanEntry {
         crate_name: "gpui-ui-kit",
@@ -157,59 +157,59 @@ const PUBLISH_PLAN_ENTRIES: &[PublishPlanEntry] = &[
         lane: "public-core",
         command: "cargo publish --dry-run -p gpui-ui-kit --allow-dirty",
         status: PublishPlanStatus::BlockedByPredecessor,
-        reason: "Depends on gpui-builder, gpui-design, and gpui-ui-kit-macros from crates.io during package verification.",
-        evidence: "Dry-run failed because crates.io has no matching gpui-builder package yet.",
-        release_requirement: "Re-run after gpui-builder, gpui-design, and gpui-ui-kit-macros are available at compatible versions.",
+        reason: "Mandatory dependency on the GPUI crate, which is only available via git.",
+        evidence: "Dry-run cannot resolve `gpui` from crates.io; the Zed GPUI crate is not published.",
+        release_requirement: "Publish only after GPUI itself is available on crates.io or this crate is vendored/replaced.",
     },
     PublishPlanEntry {
         crate_name: "gpui-audio-kit",
         order: 6,
         lane: "public-core",
         command: "cargo publish --dry-run -p gpui-audio-kit --allow-dirty",
-        status: PublishPlanStatus::PendingDryRun,
-        reason: "Public-core audio controls should dry-run after the UI/design foundation is available.",
-        evidence: "No dry-run was recorded in this release report.",
-        release_requirement: "Run dry-run after UI/design dependencies are resolvable.",
+        status: PublishPlanStatus::BlockedByPredecessor,
+        reason: "Mandatory dependency on the GPUI crate, which is only available via git.",
+        evidence: "Dry-run cannot resolve `gpui` from crates.io; the Zed GPUI crate is not published.",
+        release_requirement: "Publish only after GPUI itself is available on crates.io or this crate is vendored/replaced.",
     },
     PublishPlanEntry {
         crate_name: "gpui-keybinding",
         order: 7,
         lane: "public-core",
         command: "cargo publish --dry-run -p gpui-keybinding --allow-dirty",
-        status: PublishPlanStatus::PendingDryRun,
-        reason: "Public-core keybinding crate has no known in-lane predecessor but still needs packaging verification.",
-        evidence: "No dry-run was recorded in this release report.",
-        release_requirement: "Run dry-run before release.",
+        status: PublishPlanStatus::BlockedByPredecessor,
+        reason: "Mandatory dependency on the GPUI crate, which is only available via git.",
+        evidence: "Dry-run cannot resolve `gpui` from crates.io; the Zed GPUI crate is not published.",
+        release_requirement: "Publish only after GPUI itself is available on crates.io or this crate is vendored/replaced.",
     },
     PublishPlanEntry {
         crate_name: "gpui-themes",
         order: 8,
         lane: "public-core",
         command: "cargo publish --dry-run -p gpui-themes --allow-dirty",
-        status: PublishPlanStatus::PendingDryRun,
-        reason: "Public-core theme crate needs packaging verification after schema docs landed.",
-        evidence: "No dry-run was recorded in this release report.",
-        release_requirement: "Run dry-run before release.",
+        status: PublishPlanStatus::BlockedByPredecessor,
+        reason: "Mandatory dependency on the GPUI crate and gpui-ui-kit, neither of which is resolvable on crates.io.",
+        evidence: "Dry-run cannot resolve `gpui` from crates.io; the Zed GPUI crate is not published.",
+        release_requirement: "Publish only after GPUI itself is available on crates.io or this crate is vendored/replaced.",
     },
     PublishPlanEntry {
         crate_name: "gpui-d3rs",
         order: 9,
         lane: "beta-visualization",
         command: "cargo publish --dry-run -p gpui-d3rs --allow-dirty",
-        status: PublishPlanStatus::PendingDryRun,
-        reason: "Beta visualization crate should dry-run only if included in this release.",
-        evidence: "No dry-run was recorded in this release report.",
-        release_requirement: "Run dry-run if the beta visualization lane is included.",
+        status: PublishPlanStatus::BlockedByPredecessor,
+        reason: "Default features enable the optional `gpui` feature, which requires the unpublished GPUI crate.",
+        evidence: "Dry-run cannot resolve `gpui` from crates.io; the Zed GPUI crate is not published.",
+        release_requirement: "Either make the default feature set GPUI-free or publish only after GPUI is on crates.io.",
     },
     PublishPlanEntry {
         crate_name: "gpui-px",
         order: 10,
         lane: "beta-visualization",
         command: "cargo publish --dry-run -p gpui-px --allow-dirty",
-        status: PublishPlanStatus::PendingDryRun,
-        reason: "Beta charting crate depends on visualization/foundation crates and should follow them.",
-        evidence: "No dry-run was recorded in this release report.",
-        release_requirement: "Run dry-run after required beta/public-core dependencies are resolvable if included.",
+        status: PublishPlanStatus::BlockedByPredecessor,
+        reason: "Depends on gpui-d3rs from crates.io and default features enable the optional `gpui` feature.",
+        evidence: "Dry-run cannot resolve `gpui` from crates.io and gpui-d3rs is not yet published.",
+        release_requirement: "Publish only after gpui-d3rs and GPUI itself are available on crates.io, or make the crate GPUI-free by default.",
     },
 ];
 
@@ -218,7 +218,7 @@ pub const fn publish_plan() -> PublishPlan {
     PublishPlan {
         schema_version: PUBLISH_PLAN_SCHEMA_VERSION,
         report_type: PUBLISH_PLAN_REPORT_TYPE,
-        reviewed_on: "2026-07-08",
+        reviewed_on: "2026-07-10",
         entries: PUBLISH_PLAN_ENTRIES,
     }
 }
@@ -238,7 +238,7 @@ mod tests {
 
         assert_eq!(plan.schema_version, PUBLISH_PLAN_SCHEMA_VERSION);
         assert_eq!(plan.report_type, PUBLISH_PLAN_REPORT_TYPE);
-        assert_eq!(plan.reviewed_on, "2026-07-08");
+        assert_eq!(plan.reviewed_on, "2026-07-10");
         assert!(!plan.entries.is_empty());
 
         for entry in plan.entries {
@@ -301,9 +301,11 @@ mod tests {
 
         assert!(!plan.all_release_ready());
         assert!(!blocking.contains(&"gpui-design"));
+        assert!(!blocking.contains(&"gpui-pretext"));
+        assert!(!blocking.contains(&"gpui-ui-kit-macros"));
         assert!(blocking.contains(&"gpui-builder"));
         assert!(blocking.contains(&"gpui-ui-kit"));
-        assert!(blocking.contains(&"gpui-pretext"));
+        assert!(blocking.contains(&"gpui-audio-kit"));
     }
 
     #[test]

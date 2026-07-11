@@ -1,14 +1,12 @@
-use super::super::events::*;
 use super::consts::GPUI_WINDOW_IVAR;
 use super::ios_window::IosWindow;
 use super::misc::ns_string_to_string;
 use super::register;
 use objc::{
     msg_send,
-    runtime::{Object, Sel},
+    runtime::Object,
     sel, sel_impl,
 };
-use std::ffi::c_void;
 
 #[cfg(any(target_os = "ios", target_os = "tvos"))]
 pub(super) fn handle_presses(

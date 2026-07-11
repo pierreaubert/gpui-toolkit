@@ -1,51 +1,6 @@
 //! iOS text system using CoreText.
 //! Adapted from the macOS text system since both platforms share CoreText.
 
-use anyhow::anyhow;
-use core_foundation::{
-    attributed_string::CFMutableAttributedString,
-    base::{CFRange, TCFType},
-    number::CFNumber,
-    string::CFString,
-};
-use core_graphics::{
-    base::{CGFloat, CGGlyph, kCGImageAlphaPremultipliedLast},
-    color_space::CGColorSpace,
-    context::{CGContext, CGTextDrawingMode},
-    geometry::CGPoint,
-};
-use core_text::{
-    font::CTFont,
-    font_descriptor::{
-        kCTFontSlantTrait, kCTFontSymbolicTrait, kCTFontWeightTrait, kCTFontWidthTrait,
-    },
-    line::CTLine,
-    string_attributes::kCTFontAttributeName,
-};
-use font_kit::{
-    font::Font as FontKitFont,
-    handle::Handle,
-    hinting::HintingOptions,
-    metrics::Metrics,
-    properties::{Style as FontkitStyle, Weight as FontkitWeight},
-    source::SystemSource,
-    sources::mem::MemSource,
-};
-use gpui::{
-    Bounds, DevicePixels, Font, FontFallbacks, FontFeatures, FontId, FontMetrics, FontRun,
-    FontStyle, FontWeight, GlyphId, LineLayout, Pixels, PlatformTextSystem, RenderGlyphParams,
-    Result, SUBPIXEL_VARIANTS_X, ShapedGlyph, ShapedRun, SharedString, Size, TextRenderingMode,
-    point, px, size,
-};
-use parking_lot::{RwLock, RwLockUpgradableReadGuard};
-use pathfinder_geometry::{
-    rect::{RectF, RectI},
-    transform2d::Transform2F,
-    vector::Vector2F,
-};
-use smallvec::SmallVec;
-use std::collections::HashMap;
-use std::{borrow::Cow, char, convert::TryFrom, sync::Arc};
 
 mod font;
 mod ios_text_system;
