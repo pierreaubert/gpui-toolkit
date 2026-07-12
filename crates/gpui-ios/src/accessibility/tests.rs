@@ -231,3 +231,34 @@ fn compute_accessibility_diff_reuses_flattened_map() {
     let diff2 = compute_accessibility_diff(Some(&prev), &next);
     assert_eq!(diff1, diff2);
 }
+
+#[test]
+fn reusable_diff_indices_cover_add_remove_and_reorder() {
+    let previous = IosAccessibilitySnapshot::new(
+        IosAccessibilityNode::new("root", IosAccessibilityRole::Container)
+            .child(button("a", "A"))
+            .child(button("b", "B")),
+    );
+    let next = IosAccessibilitySnapshot::new(
+        IosAccessibilityNode::new("root", IosAccessibilityRole::Container)
+            .child(button("b", "B"))
+            .child(button("c", "C")),
+    );
+    let mut scratch = AccessibilityDiffScratch::default();
+
+    compute_accessibility_diff_into(Some(&previous), &next, &mut scratch);
+
+    assert_eq!(scratch.unchanged_indices(), &[0]);
+    assert!(scratch.changed_indices().is_empty());
+    assert_eq!(scratch.added_indices(), &[1]);
+    assert_eq!(scratch.removed_indices(), &[0]);
+    assert!(scratch.order_changed);
+    assert_eq!(
+        next.flattened_node_slice()[scratch.added_indices()[0]].id,
+        "c"
+    );
+    assert_eq!(
+        previous.flattened_node_slice()[scratch.removed_indices()[0]].id,
+        "a"
+    );
+}

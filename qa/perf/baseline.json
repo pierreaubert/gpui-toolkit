@@ -102,6 +102,87 @@
       "unit": "ns"
     },
     {
+      "crate": "gpui-ios",
+      "bench": "accessibility_diff",
+      "group": "accessibility_diff",
+      "function": "size_1000_churn_0_pct_reuse",
+      "median_ns": 27621.57846003899,
+      "mean_ns": 27690.916757653828,
+      "unit": "ns"
+    },
+    {
+      "crate": "gpui-ios",
+      "bench": "accessibility_diff",
+      "group": "accessibility_diff",
+      "function": "size_1000_churn_1_pct_reuse",
+      "median_ns": 28640.535892538835,
+      "mean_ns": 28640.00307330808,
+      "unit": "ns"
+    },
+    {
+      "crate": "gpui-ios",
+      "bench": "accessibility_diff",
+      "group": "accessibility_diff",
+      "function": "size_1000_churn_5_pct_reuse",
+      "median_ns": 27030.746396396396,
+      "mean_ns": 27083.256071431213,
+      "unit": "ns"
+    },
+    {
+      "crate": "gpui-ios",
+      "bench": "accessibility_diff",
+      "group": "accessibility_diff",
+      "function": "size_100_churn_0_pct_reuse",
+      "median_ns": 2863.8104640230076,
+      "mean_ns": 2876.545993586853,
+      "unit": "ns"
+    },
+    {
+      "crate": "gpui-ios",
+      "bench": "accessibility_diff",
+      "group": "accessibility_diff",
+      "function": "size_100_churn_1_pct_reuse",
+      "median_ns": 2742.4912549073733,
+      "mean_ns": 2744.6238122398877,
+      "unit": "ns"
+    },
+    {
+      "crate": "gpui-ios",
+      "bench": "accessibility_diff",
+      "group": "accessibility_diff",
+      "function": "size_100_churn_5_pct_reuse",
+      "median_ns": 2801.415866712952,
+      "mean_ns": 2799.429825333014,
+      "unit": "ns"
+    },
+    {
+      "crate": "gpui-ios",
+      "bench": "accessibility_diff",
+      "group": "accessibility_diff",
+      "function": "size_5000_churn_0_pct_reuse",
+      "median_ns": 149642.0423878412,
+      "mean_ns": 149890.7989082643,
+      "unit": "ns"
+    },
+    {
+      "crate": "gpui-ios",
+      "bench": "accessibility_diff",
+      "group": "accessibility_diff",
+      "function": "size_5000_churn_1_pct_reuse",
+      "median_ns": 150234.93042544887,
+      "mean_ns": 150626.04263075985,
+      "unit": "ns"
+    },
+    {
+      "crate": "gpui-ios",
+      "bench": "accessibility_diff",
+      "group": "accessibility_diff",
+      "function": "size_5000_churn_5_pct_reuse",
+      "median_ns": 149596.65498542273,
+      "mean_ns": 149977.02814555692,
+      "unit": "ns"
+    },
+    {
       "crate": "gpui-ui-kit",
       "bench": "edit_state",
       "group": "backspace",

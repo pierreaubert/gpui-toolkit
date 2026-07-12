@@ -63,6 +63,7 @@ font-kit = { workspace = true }
 [dev-dependencies]
 tempfile = { workspace = true }
 criterion = { workspace = true }
+gpui-profiler = { workspace = true, features = ["global-allocator"] }
 
 [[bench]]
 name = "accessibility_diff"

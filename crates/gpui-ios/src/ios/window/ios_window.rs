@@ -41,7 +41,7 @@ use parking_lot::Mutex;
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle, UiKitDisplayHandle, UiKitWindowHandle};
 use std::{
     cell::{Cell, RefCell},
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     ffi::c_void,
     ptr::{self, NonNull},
     rc::Rc,
@@ -139,6 +139,8 @@ pub(crate) struct IosWindow {
     /// Only mutated on the main thread.
     pub(super) prev_accessibility_snapshot:
         RefCell<Option<Arc<crate::accessibility::IosAccessibilitySnapshot>>>,
+    /// Reusable index buffers for snapshot diffs; avoids per-refresh vectors.
+    pub(super) accessibility_diff_scratch: RefCell<crate::accessibility::AccessibilityDiffScratch>,
     /// Native UIKit/SwiftUI views overlaid with GPUI-managed bounds.
     pub(super) platform_view_host: NativePlatformViewHost,
 }
@@ -344,6 +346,7 @@ impl IosWindow {
                 sprite_atlas: Mutex::new(None),
                 accessibility_elements: RefCell::new(HashMap::new()),
                 prev_accessibility_snapshot: RefCell::new(None),
+                accessibility_diff_scratch: RefCell::new(Default::default()),
                 platform_view_host: NativePlatformViewHost::new(view as *mut c_void),
             };
 
@@ -1113,7 +1116,7 @@ impl IosWindow {
     }
 
     pub fn refresh_accessibility(&self) {
-        use crate::accessibility::compute_accessibility_diff;
+        use crate::accessibility::compute_accessibility_diff_into;
 
         let snapshot = crate::accessibility::accessibility_snapshot();
         let element_count = snapshot
@@ -1126,13 +1129,21 @@ impl IosWindow {
         );
 
         let prev_snapshot = self.prev_accessibility_snapshot.borrow().clone();
-        let diff = snapshot
-            .as_ref()
-            .map(|next| compute_accessibility_diff(prev_snapshot.as_deref(), next));
+        let mut diff = self.accessibility_diff_scratch.borrow_mut();
+        let has_diff = if let Some(next) = snapshot.as_ref() {
+            compute_accessibility_diff_into(prev_snapshot.as_deref(), next, &mut diff);
+            true
+        } else {
+            diff.clear();
+            false
+        };
 
         // Store the current snapshot for the next diff, even on non-Apple hosts
         // where the UIKit mutations below are a no-op.
         *self.prev_accessibility_snapshot.borrow_mut() = snapshot.clone();
+
+        #[cfg(not(any(target_os = "ios", target_os = "tvos")))]
+        let _ = has_diff;
 
         #[cfg(any(target_os = "ios", target_os = "tvos"))]
         unsafe {
@@ -1155,15 +1166,17 @@ impl IosWindow {
                 return;
             };
 
-            let Some(diff) = diff else {
+            if !has_diff {
                 return;
-            };
+            }
+            let nodes = snapshot.flattened_node_slice();
 
             let element_class = register_accessibility_element_class();
             let mut elements_map = self.accessibility_elements.borrow_mut();
 
             // Create or update elements for the current snapshot.
-            for &node in &diff.added {
+            for &idx in diff.added_indices() {
+                let node = &nodes[idx];
                 let element: *mut Object = msg_send![element_class, alloc];
                 let element: *mut Object = msg_send![
                     element,
@@ -1206,7 +1219,8 @@ impl IosWindow {
                 let _: () = msg_send![element, setAccessibilityTraits: traits];
             }
 
-            for &(node, changes) in &diff.changed {
+            for &(idx, changes) in diff.changed_indices() {
+                let node = &nodes[idx];
                 let Some(&element) = elements_map.get(&node.id) else {
                     continue;
                 };
@@ -1248,22 +1262,14 @@ impl IosWindow {
                 }
             }
 
-            // Release elements whose ids are no longer in the current snapshot.
-            // Use a `HashSet<&str>` borrowed from the snapshot rather than
-            // allocating `String`s for stale id tracking.
-            let current_ids: HashSet<&str> = snapshot
-                .flattened_node_slice()
-                .iter()
-                .map(|node| node.id.as_str())
-                .collect();
-            let stale_ids: Vec<String> = elements_map
-                .keys()
-                .filter(|id| !current_ids.contains(id.as_str()))
-                .cloned()
-                .collect();
-            for id in stale_ids {
-                if let Some(element) = elements_map.remove(&id) {
-                    let _: () = msg_send![element, release];
+            // Removed indices resolve against the previous cached snapshot,
+            // avoiding temporary HashSet/String collections.
+            if let Some(prev) = prev_snapshot.as_ref() {
+                let prev_nodes = prev.flattened_node_slice();
+                for &idx in diff.removed_indices() {
+                    if let Some(element) = elements_map.remove(&prev_nodes[idx].id) {
+                        let _: () = msg_send![element, release];
+                    }
                 }
             }
 

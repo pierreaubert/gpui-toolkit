@@ -3011,6 +3011,7 @@ dependencies = [
  "criterion",
  "futures",
  "gpui",
+ "gpui-profiler",
  "gpui_wgpu",
  "log",
  "objc",

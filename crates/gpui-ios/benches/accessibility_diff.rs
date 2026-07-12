@@ -1,7 +1,7 @@
 use criterion::{Criterion, criterion_group, criterion_main};
 use gpui_ios::accessibility::{
-    IosAccessibilityFrame, IosAccessibilityNode, IosAccessibilityRole, IosAccessibilitySnapshot,
-    compute_accessibility_diff,
+    AccessibilityDiffScratch, IosAccessibilityFrame, IosAccessibilityNode, IosAccessibilityRole,
+    IosAccessibilitySnapshot, compute_accessibility_diff, compute_accessibility_diff_into,
 };
 
 fn frame_for_index(i: usize) -> IosAccessibilityFrame {
@@ -52,6 +52,11 @@ fn bench_diff(c: &mut Criterion) {
 
             group.bench_function(format!("size_{size}_churn_{churn}_pct"), |b| {
                 b.iter(|| compute_accessibility_diff(Some(&prev), &next));
+            });
+            let mut scratch = AccessibilityDiffScratch::default();
+            compute_accessibility_diff_into(Some(&prev), &next, &mut scratch);
+            group.bench_function(format!("size_{size}_churn_{churn}_pct_reuse"), |b| {
+                b.iter(|| compute_accessibility_diff_into(Some(&prev), &next, &mut scratch));
             });
         }
     }

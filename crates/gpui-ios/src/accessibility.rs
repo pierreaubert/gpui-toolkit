@@ -280,17 +280,51 @@ pub struct AccessibilityDiff<'a> {
     pub order_changed: bool,
 }
 
-/// Host-runnable computation of the accessibility value string that UIKit would
-/// receive via `accessibilityValue`.
-fn accessibility_value_for_node(node: &IosAccessibilityNode) -> Option<String> {
-    match (node.value.as_deref(), node.expanded) {
-        (Some(value), Some(true)) if !value.is_empty() => Some(format!("{value}, expanded")),
-        (Some(value), Some(false)) if !value.is_empty() => Some(format!("{value}, collapsed")),
-        (Some(value), _) if !value.is_empty() => Some(value.to_string()),
-        (_, Some(true)) => Some("expanded".to_string()),
-        (_, Some(false)) => Some("collapsed".to_string()),
-        _ => None,
+/// Reusable, lifetime-independent storage for accessibility snapshot diffs.
+///
+/// Entries are node indices rather than references, so this buffer can live on
+/// a window and be reused safely as snapshots change between frames.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct AccessibilityDiffScratch {
+    unchanged: Vec<usize>,
+    changed: Vec<(usize, NodeChanges)>,
+    added: Vec<usize>,
+    removed: Vec<usize>,
+    pub order_changed: bool,
+}
+
+impl AccessibilityDiffScratch {
+    /// Clear entries while retaining all vector capacity for the next frame.
+    pub fn clear(&mut self) {
+        self.unchanged.clear();
+        self.changed.clear();
+        self.added.clear();
+        self.removed.clear();
+        self.order_changed = false;
     }
+
+    pub fn unchanged_indices(&self) -> &[usize] {
+        &self.unchanged
+    }
+
+    pub fn changed_indices(&self) -> &[(usize, NodeChanges)] {
+        &self.changed
+    }
+
+    pub fn added_indices(&self) -> &[usize] {
+        &self.added
+    }
+
+    pub fn removed_indices(&self) -> &[usize] {
+        &self.removed
+    }
+}
+
+fn accessibility_value_inputs(node: &IosAccessibilityNode) -> (Option<&str>, Option<bool>) {
+    (
+        node.value.as_deref().filter(|value| !value.is_empty()),
+        node.expanded,
+    )
 }
 
 /// Returns `true` if any input that contributes to `UIAccessibilityTraits` has
@@ -327,17 +361,60 @@ pub fn compute_accessibility_diff<'a>(
     prev: Option<&'a IosAccessibilitySnapshot>,
     next: &'a IosAccessibilitySnapshot,
 ) -> AccessibilityDiff<'a> {
+    let mut scratch = AccessibilityDiffScratch::default();
+    compute_accessibility_diff_into(prev, next, &mut scratch);
+    let next_nodes = next.flattened_node_slice();
+    let prev_nodes = prev.map(IosAccessibilitySnapshot::flattened_node_slice);
+
+    AccessibilityDiff {
+        unchanged: scratch
+            .unchanged
+            .iter()
+            .map(|&idx| &next_nodes[idx])
+            .collect(),
+        changed: scratch
+            .changed
+            .iter()
+            .map(|&(idx, changes)| (&next_nodes[idx], changes))
+            .collect(),
+        added: scratch.added.iter().map(|&idx| &next_nodes[idx]).collect(),
+        removed: scratch
+            .removed
+            .iter()
+            .map(|&idx| {
+                prev_nodes.expect("removed nodes require a previous snapshot")[idx]
+                    .id
+                    .as_str()
+            })
+            .collect(),
+        order_changed: scratch.order_changed,
+    }
+}
+
+/// Compare snapshots into reusable index buffers.
+///
+/// After the snapshots' flatten/id caches and this scratch object are warmed,
+/// unchanged and bounded-churn diffs perform no heap allocation.
+pub fn compute_accessibility_diff_into(
+    prev: Option<&IosAccessibilitySnapshot>,
+    next: &IosAccessibilitySnapshot,
+    scratch: &mut AccessibilityDiffScratch,
+) {
     let next_nodes = next.flattened_node_slice();
     let next_id_map = next.id_index_map();
 
     let prev_nodes = prev.map(IosAccessibilitySnapshot::flattened_node_slice);
     let prev_id_map = prev.map(IosAccessibilitySnapshot::id_index_map);
 
-    let mut unchanged = Vec::new();
-    let mut changed = Vec::new();
-    let mut added = Vec::new();
+    scratch.clear();
+    scratch.unchanged.reserve(next_nodes.len());
+    scratch.changed.reserve(next_nodes.len());
+    scratch.added.reserve(next_nodes.len());
+    scratch
+        .removed
+        .reserve(prev_nodes.map_or(0, <[IosAccessibilityNode]>::len));
 
-    for next_node in next_nodes.iter() {
+    for (next_idx, next_node) in next_nodes.iter().enumerate() {
         let maybe_prev = prev_id_map
             .as_ref()
             .and_then(|map| map.get(&next_node.id))
@@ -351,7 +428,7 @@ pub fn compute_accessibility_diff<'a>(
             if prev_node.hint != next_node.hint {
                 changes.hint_changed = true;
             }
-            if accessibility_value_for_node(prev_node) != accessibility_value_for_node(next_node) {
+            if accessibility_value_inputs(prev_node) != accessibility_value_inputs(next_node) {
                 changes.value_changed = true;
             }
             if prev_node.frame != next_node.frame {
@@ -362,25 +439,26 @@ pub fn compute_accessibility_diff<'a>(
             }
 
             if changes.any() {
-                changed.push((next_node, changes));
+                scratch.changed.push((next_idx, changes));
             } else {
-                unchanged.push(next_node);
+                scratch.unchanged.push(next_idx);
             }
         } else {
-            added.push(next_node);
+            scratch.added.push(next_idx);
         }
     }
 
-    let removed: Vec<&'a str> = prev_id_map
-        .map(|map| {
-            map.keys()
-                .filter(|id| !next_id_map.contains_key(id.as_str()))
-                .map(|id| id.as_str())
-                .collect()
-        })
-        .unwrap_or_default();
+    if let Some(prev_list) = prev_nodes {
+        scratch.removed.extend(
+            prev_list
+                .iter()
+                .enumerate()
+                .filter(|(_, node)| !next_id_map.contains_key(node.id.as_str()))
+                .map(|(idx, _)| idx),
+        );
+    }
 
-    let order_changed = match prev_nodes {
+    scratch.order_changed = match prev_nodes {
         None => true,
         Some(prev_list) => {
             next_nodes.len() != prev_list.len()
@@ -390,14 +468,6 @@ pub fn compute_accessibility_diff<'a>(
                     .any(|(next, prev)| next.id != prev.id)
         }
     };
-
-    AccessibilityDiff {
-        unchanged,
-        changed,
-        added,
-        removed,
-        order_changed,
-    }
 }
 
 static ACCESSIBILITY_SNAPSHOT: OnceLock<Mutex<Option<Arc<IosAccessibilitySnapshot>>>> =

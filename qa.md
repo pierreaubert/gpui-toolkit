@@ -87,8 +87,9 @@ audio-meter formatting, normalized keybinding search, pretext width/grapheme
 cache hits, and `gpui-builder::solve_tree_into` across 1,000 responsive nested
 resize solves (including priority collapse). UI-kit also covers 1,000 warmed
 insert/backspace, word-kill/restore, and selection replacement cycles. The
-remaining initial-set items stay release work rather than inheriting a pass
-from these contracts.
+iOS accessibility diff path covers 1,000 cached 1,000-node comparisons with
+1% churn using window-owned index scratch. The remaining initial-set items
+stay release work rather than inheriting a pass from these contracts.
 
 ## Visual and UX policy
 
