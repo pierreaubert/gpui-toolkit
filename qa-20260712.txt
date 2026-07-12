@@ -309,7 +309,7 @@ The findings above describe the reviewed baseline. The following recommendations
 - Warning-free workspace Clippy is enforced. The contour and px warning sources identified by the review were corrected.
 - cargo-deny advisory/license/source policy, Python QA-script contracts, semver checks for publishable GPUI-free crates, and Rust 1.89 MSRV checks are maintained CI jobs.
 - Performance comparison is a hard 20% material-regression gate above a 150 ns noise floor. Baselines record host/toolchain/source metadata and reject incomparable machines rather than reporting false regressions.
-- Allocation budgets are executable through `gpui-profiler`; warmed audio meter formatting, keybinding search, pretext width/grapheme cache hits, reusable nested builder resize solves, UI-kit edit cycles, and cached iOS accessibility diffs have zero-allocation integration contracts.
+- Allocation budgets are executable through `gpui-profiler`; warmed audio meter formatting, keybinding search, pretext width/grapheme cache hits, reusable nested builder resize solves, UI-kit edit cycles, cached iOS accessibility diffs, and 10,000-point line/scatter streaming preparation have zero-allocation integration contracts.
 - Renderer-independent visual/golden/conformance evidence is generated and uploaded. The report explicitly marks real renderer screenshot capture/diff as pending.
 - Machine-readable component behavior, chart capability, and platform capability/evidence matrices now prevent portable tests or implemented APIs from silently upgrading unexecuted runtime/accessibility/visual gates.
 - The stale gpui-ios revision and gpui-px version/chart-count documentation were corrected.

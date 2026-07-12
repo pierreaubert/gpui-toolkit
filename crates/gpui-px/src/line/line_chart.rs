@@ -42,11 +42,69 @@ fn cached_line_points(
         return cached_points.clone();
     }
 
-    let mut points = Vec::with_capacity(x.len().min(y.len()));
+    let point_count = x.len().min(y.len());
+    if let Some((cached_x, cached_y, cached_points)) = cache
+        && cached_points.len() == point_count
+        && Arc::strong_count(cached_points) == 1
+    {
+        for (point, (&x, &y)) in Arc::make_mut(cached_points)
+            .iter_mut()
+            .zip(x.iter().zip(y.iter()))
+        {
+            *point = LinePoint::new(x, y);
+        }
+        *cached_x = Arc::clone(x);
+        *cached_y = Arc::clone(y);
+        return Arc::clone(cached_points);
+    }
+
+    let mut points = Vec::with_capacity(point_count);
     points.extend(x.iter().zip(y.iter()).map(|(&x, &y)| LinePoint::new(x, y)));
     let points: Arc<[LinePoint]> = points.into();
     *cache = Some((x.clone(), y.clone(), points.clone()));
     points
+}
+
+#[cfg(test)]
+mod streaming_cache_tests {
+    use super::*;
+
+    #[test]
+    fn mapped_line_points_reuse_unique_storage_and_preserve_held_frames() {
+        let x1: Arc<[f64]> = Arc::from([0.0, 1.0]);
+        let y1: Arc<[f64]> = Arc::from([2.0, 3.0]);
+        let x2: Arc<[f64]> = Arc::from([4.0, 5.0]);
+        let y2: Arc<[f64]> = Arc::from([6.0, 7.0]);
+        let x3: Arc<[f64]> = Arc::from([8.0, 9.0]);
+        let y3: Arc<[f64]> = Arc::from([10.0, 11.0]);
+        let mut cache = None;
+
+        let held_first = cached_line_points(&x1, &y1, &mut cache);
+        let second = cached_line_points(&x2, &y2, &mut cache);
+        assert_eq!((held_first[0].x, held_first[0].y), (0.0, 2.0));
+        assert_eq!((second[0].x, second[0].y), (4.0, 6.0));
+        assert_ne!(Arc::as_ptr(&held_first), Arc::as_ptr(&second));
+
+        let reusable_ptr = Arc::as_ptr(&second);
+        drop(second);
+        let third = cached_line_points(&x3, &y3, &mut cache);
+        assert_eq!(Arc::as_ptr(&third), reusable_ptr);
+        assert_eq!((third[1].x, third[1].y), (9.0, 11.0));
+    }
+
+    #[test]
+    fn shared_line_replacement_validates_and_prepares_primary_data() {
+        let mut chart = crate::line(&[0.0], &[1.0]);
+        chart
+            .replace_primary_data_shared(Arc::from([2.0, 3.0]), Arc::from([4.0, 5.0]))
+            .unwrap();
+        assert_eq!(chart.prepare_primary_data(), 2);
+        assert!(
+            chart
+                .replace_primary_data_shared(Arc::from([1.0]), Arc::from([2.0, 3.0]))
+                .is_err()
+        );
+    }
 }
 
 /// Line chart builder.
@@ -110,6 +168,31 @@ impl std::fmt::Debug for LineChart {
 }
 
 impl LineChart {
+    /// Replace primary data using shared slices without copying the inputs.
+    ///
+    /// Same-length streaming updates reuse the mapped point allocation after
+    /// the previous render element releases its clone.
+    pub fn replace_primary_data_shared(
+        &mut self,
+        x: Arc<[f64]>,
+        y: Arc<[f64]>,
+    ) -> Result<&mut Self, ChartError> {
+        validate_data_array(&x, "x")?;
+        validate_data_array(&y, "y")?;
+        validate_data_length(x.len(), y.len(), "x", "y")?;
+        self.x = x;
+        self.y = y;
+        Ok(self)
+    }
+
+    /// Prepare the primary mapped-point cache ahead of rendering.
+    ///
+    /// Returns the number of prepared points. This is useful for streaming
+    /// hosts that update data before GPUI constructs the next element.
+    pub fn prepare_primary_data(&mut self) -> usize {
+        cached_line_points(&self.x, &self.y, &mut self.primary_data_cache).len()
+    }
+
     /// Export this line chart as deterministic SVG.
     pub fn to_svg(&self) -> Result<String, ChartError> {
         self.to_svg_with_options(crate::StaticSvgOptions::new(self.width, self.height))

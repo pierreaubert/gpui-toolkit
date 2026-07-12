@@ -3071,11 +3071,13 @@ name = "gpui-px"
 version = "0.8.6"
 dependencies = [
  "autoeq",
+ "criterion",
  "gpui",
  "gpui-builder",
  "gpui-d3rs",
  "gpui-design",
  "gpui-miniapp",
+ "gpui-profiler",
  "gpui-ui-kit",
  "reqwest",
  "thiserror 2.0.18",

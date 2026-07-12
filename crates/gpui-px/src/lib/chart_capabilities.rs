@@ -188,6 +188,19 @@ const CHART_CAPABILITY_ENTRIES: &[ChartCapabilityEntry] = &[
         release_requirement: "Keep static_export tests green and document broader image/PDF export as a future chart-family expansion.",
     },
     ChartCapabilityEntry {
+        id: "streaming-preparation",
+        capability: "Allocation-free same-length streaming preparation",
+        chart_families: "line, scatter",
+        story_ids: &["px.line", "px.scatter"],
+        test_contracts: &[
+            "allocation_contracts::warmed_line_and_scatter_stream_preparation_is_allocation_free",
+            "streaming_cache_tests",
+        ],
+        status: ChartCapabilityStatus::Implemented,
+        evidence: "Shared primary arrays can be replaced without copying; uniquely owned mapped point slices are updated in place and 1,000 alternating 10,000-point preparations allocate zero bytes after warm-up.",
+        release_requirement: "Keep streaming cache ownership, held-frame preservation, validation, and allocation-contract tests green.",
+    },
+    ChartCapabilityEntry {
         id: "visual-regression",
         capability: "Visual regression baselines",
         chart_families: "all rendered chart families",
@@ -285,6 +298,17 @@ mod tests {
             entry.id == "accessibility-summaries"
                 && entry.status == ChartCapabilityStatus::Implemented
         }));
+    }
+
+    #[test]
+    fn chart_capability_report_records_streaming_heap_contract() {
+        let streaming = chart_capability_entries()
+            .iter()
+            .find(|entry| entry.id == "streaming-preparation")
+            .unwrap();
+        assert_eq!(streaming.status, ChartCapabilityStatus::Implemented);
+        assert_eq!(streaming.story_ids, &["px.line", "px.scatter"]);
+        assert!(streaming.evidence.contains("10,000-point"));
     }
 
     #[test]

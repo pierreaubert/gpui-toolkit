@@ -35,6 +35,14 @@ tokio = { workspace = true, optional = true }
 reqwest = { workspace = true, optional = true }
 urlencoding = { workspace = true, optional = true }
 
+[dev-dependencies]
+gpui-profiler = { workspace = true, features = ["global-allocator"] }
+criterion = { workspace = true }
+
+[[bench]]
+name = "streaming_prepare"
+harness = false
+
 [[bin]]
 name = "px-showcase"
 path = "bin/showcase.rs"

@@ -649,6 +649,60 @@
       "median_ns": 604.9128063184429,
       "mean_ns": 614.1549070362056,
       "unit": "ns"
+    },
+    {
+      "crate": "gpui-px",
+      "bench": "streaming_prepare",
+      "group": "streaming_prepare",
+      "function": "line/10000",
+      "median_ns": 7583.124119097956,
+      "mean_ns": 7628.697957891984,
+      "unit": "ns"
+    },
+    {
+      "crate": "gpui-px",
+      "bench": "streaming_prepare",
+      "group": "streaming_prepare",
+      "function": "line/100000",
+      "median_ns": 84353.51679776562,
+      "mean_ns": 84164.49744472424,
+      "unit": "ns"
+    },
+    {
+      "crate": "gpui-px",
+      "bench": "streaming_prepare",
+      "group": "streaming_prepare",
+      "function": "line/1000000",
+      "median_ns": 791022.5665713028,
+      "mean_ns": 798681.3427950944,
+      "unit": "ns"
+    },
+    {
+      "crate": "gpui-px",
+      "bench": "streaming_prepare",
+      "group": "streaming_prepare",
+      "function": "scatter/10000",
+      "median_ns": 7559.104664812185,
+      "mean_ns": 7554.377891195198,
+      "unit": "ns"
+    },
+    {
+      "crate": "gpui-px",
+      "bench": "streaming_prepare",
+      "group": "streaming_prepare",
+      "function": "scatter/100000",
+      "median_ns": 81864.2167665403,
+      "mean_ns": 82609.65837307056,
+      "unit": "ns"
+    },
+    {
+      "crate": "gpui-px",
+      "bench": "streaming_prepare",
+      "group": "streaming_prepare",
+      "function": "scatter/1000000",
+      "median_ns": 791028.578125,
+      "mean_ns": 801179.1478224695,
+      "unit": "ns"
     }
   ]
 }

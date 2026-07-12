@@ -88,8 +88,14 @@ cache hits, and `gpui-builder::solve_tree_into` across 1,000 responsive nested
 resize solves (including priority collapse). UI-kit also covers 1,000 warmed
 insert/backspace, word-kill/restore, and selection replacement cycles. The
 iOS accessibility diff path covers 1,000 cached 1,000-node comparisons with
-1% churn using window-owned index scratch. The remaining initial-set items
-stay release work rather than inheriting a pass from these contracts.
+1% churn using window-owned index scratch. Line/scatter preparation covers
+1,000 alternating 10,000-point shared-data frames with uniquely owned mapped
+slice reuse. The remaining initial-set items stay release work rather than
+inheriting a pass from these contracts.
+
+The release-machine streaming baselines are approximately 7.6 µs at 10k,
+82–84 µs at 100k, and 0.79 ms at 1m points for both line and scatter mapped
+point preparation. These six workloads are part of the hard comparator.
 
 ## Visual and UX policy
 

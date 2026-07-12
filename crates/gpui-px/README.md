@@ -365,6 +365,30 @@ chart_type(&data)           // Create builder with required data
 
 ## Coordinate System
 
+## Streaming line and scatter data
+
+Line and scatter charts can replace shared primary arrays and prepare mapped
+points before the next GPUI element is built:
+
+```rust
+use gpui_px::line;
+use std::sync::Arc;
+
+let mut chart = line(&[0.0, 1.0], &[2.0, 3.0]);
+let x: Arc<[f64]> = Arc::from([0.5, 1.5]);
+let y: Arc<[f64]> = Arc::from([2.5, 3.5]);
+chart.replace_primary_data_shared(x, y)?;
+assert_eq!(chart.prepare_primary_data(), 2);
+# Ok::<(), gpui_px::ChartError>(())
+```
+
+When updates keep the same point count and the prior render element has
+released its point-slice clone, preparation mutates the uniquely owned mapped
+slice in place. The QA allocation contract alternates 10,000-point line and
+scatter frames 1,000 times with zero allocations after warm-up.
+
+## Coordinate System
+
 All charts use standard mathematical coordinates:
 - **Y-axis**: 0 at bottom, increases upward
 - **X-axis**: 0 at left, increases rightward

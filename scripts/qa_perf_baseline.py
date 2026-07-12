@@ -94,6 +94,12 @@ BENCHMARKS: list[BenchSpec] = [
         groups=["measurement/*", "layout/*"],
     ),
     BenchSpec(
+        "gpui-px",
+        "streaming_prepare",
+        [],
+        groups=["streaming_prepare"],
+    ),
+    BenchSpec(
         "gpui-ui-kit",
         "edit_state",
         ["bench"],
