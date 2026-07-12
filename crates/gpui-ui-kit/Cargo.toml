@@ -60,6 +60,7 @@ nokhwa = { workspace = true, features = ["input-native"], optional = true }
 gpui = { workspace = true, features = ["test-support"] }
 rqrr = { workspace = true }
 criterion = { workspace = true }
+gpui-profiler = { workspace = true, features = ["global-allocator"] }
 # Examples in `examples/` use the MiniApp shell, which lives in a workspace-
 # only crate (it transitively pulls in non-publishable platform backends).
 gpui-miniapp = { workspace = true }
@@ -220,4 +221,9 @@ name = "workflow_debug"
 [[bench]]
 name = "edit_state"
 harness = false
+required-features = ["bench"]
+
+[[test]]
+name = "allocation_contracts"
+path = "tests/allocation_contracts.rs"
 required-features = ["bench"]

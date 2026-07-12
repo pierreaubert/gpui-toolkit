@@ -88,6 +88,7 @@ qa-gpui-obvious: qa-gpui-conformance
 	cargo check -p gpui-builder {{features}}
 	cargo test -p gpui-audio-kit {{features}}
 	cargo test -p gpui-ui-kit {{features}}
+	cargo test -p gpui-ui-kit {{features}} --features bench --test allocation_contracts -- --test-threads=1
 	cargo test -p gpui-d3rs {{features}}
 	cargo test -p gpui-px {{features}}
 	cargo tree -p gpui-design-tools {{features}}
