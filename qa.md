@@ -83,7 +83,8 @@ snapshot diffs. Each contract must document warm-up, input size, allowed
 allocations, and whether retained capacity is part of the API guarantee.
 
 Implemented zero-allocation steady-state contracts currently cover cached
-audio-meter formatting, normalized keybinding search, pretext width/grapheme
+audio-meter formatting, 1,000 warmed 1,024-bin spectrum meter updates,
+normalized keybinding search, pretext width/grapheme
 cache hits, and `gpui-builder::solve_tree_into` across 1,000 responsive nested
 resize solves (including priority collapse). UI-kit also covers 1,000 warmed
 insert/backspace, word-kill/restore, and selection replacement cycles. The

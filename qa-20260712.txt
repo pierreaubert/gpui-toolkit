@@ -59,8 +59,8 @@ Recommendations: Add Gradle/emulator CI, TalkBack and IME manual scripts, lifecy
 QA readiness: High-beta (84.57% measured line coverage). It has unusually thorough unit/integration tests for knob and slider mouse, keyboard, drag, scroll, reset, disabled and logarithmic behavior, plus visual/accessibility/automation metadata.
 UX and consistency: Strong interaction breadth, but every continuous control must share identical modifier, fine-adjust, reset, scroll direction, keyboard step, focus ring, disabled and value-format semantics. Meter/spectrum semantics need screen-reader alternatives and reduced-motion behavior.
 Portability: GPUI-native and broadly portable; touch drag targets, hover-free discovery, mobile keyboard behavior and high-DPI rendering still need device evidence.
-Performance: Audio UI is not the DSP thread, but meters and spectra are frame-hot. No committed allocation or update-rate benchmark covers them.
-Recommendations: Create a shared `ContinuousControlInteraction` contract, enforce it across knob/vertical slider/volume/meter, add allocation budgets for meter/spectrum updates, and capture mobile/desktop/high-DPI goldens.
+Performance: Audio UI is not the DSP thread, but meters and spectra are frame-hot. Cached meter formatting and warmed 1,024-bin spectrum meter updates now have explicit zero-allocation contracts; update-rate and GPU upload budgets remain open.
+Recommendations: Create a shared `ContinuousControlInteraction` contract, enforce it across knob/vertical slider/volume/meter, add update-rate and GPU upload budgets, and capture mobile/desktop/high-DPI goldens.
 
 4. gpui-design
 
@@ -309,7 +309,7 @@ The findings above describe the reviewed baseline. The following recommendations
 - Warning-free workspace Clippy is enforced. The contour and px warning sources identified by the review were corrected.
 - cargo-deny advisory/license/source policy, Python QA-script contracts, semver checks for publishable GPUI-free crates, and Rust 1.89 MSRV checks are maintained CI jobs.
 - Performance comparison is a hard 20% material-regression gate above a 150 ns noise floor. Baselines record host/toolchain/source metadata and reject incomparable machines rather than reporting false regressions.
-- Allocation budgets are executable through `gpui-profiler`; warmed audio meter formatting, keybinding search, pretext width/grapheme cache hits, reusable nested builder resize solves, UI-kit edit cycles, cached iOS accessibility diffs, and 10,000-point line/scatter streaming preparation have zero-allocation integration contracts.
+- Allocation budgets are executable through `gpui-profiler`; warmed audio meter formatting, 1,024-bin spectrum meter updates, keybinding search, pretext width/grapheme cache hits, reusable nested builder resize solves, UI-kit edit cycles, cached iOS accessibility diffs, and 10,000-point line/scatter streaming preparation have zero-allocation integration contracts.
 - Renderer-independent visual/golden/conformance evidence is generated and uploaded. The report explicitly marks real renderer screenshot capture/diff as pending.
 - Machine-readable component behavior, chart capability, and platform capability/evidence matrices now prevent portable tests or implemented APIs from silently upgrading unexecuted runtime/accessibility/visual gates.
 - The stale gpui-ios revision and gpui-px version/chart-count documentation were corrected.

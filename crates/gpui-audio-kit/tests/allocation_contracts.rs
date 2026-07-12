@@ -5,6 +5,7 @@
 //! noisy. Caches are explicitly warmed before the probe baseline is reset.
 
 use gpui_audio_kit::meter::format_meter_value;
+use gpui_audio_kit::spectrum::MeterData;
 use gpui_profiler::{AllocProbe, AllocationBudget};
 use std::hint::black_box;
 
@@ -26,4 +27,28 @@ fn cached_meter_formatting_is_allocation_free() {
 
     AllocationBudget::zero("cached-meter-formatting-1000x")
         .assert_contains(probe.sample("cached-meter-formatting-1000x"));
+}
+
+#[test]
+fn warmed_spectrum_meter_updates_are_allocation_free() {
+    if std::env::var_os("CARGO_LLVM_COV").is_some() {
+        return; // Coverage instrumentation allocates inside measured operations.
+    }
+    const BINS: usize = 1_024;
+    const ITERATIONS: usize = 1_000;
+
+    let levels = vec![0.5; BINS];
+    let mut spectrum = MeterData::new(BINS);
+    spectrum.update(&levels, 0.8);
+
+    let mut probe = AllocProbe::new();
+    probe.reset();
+    for _ in 0..ITERATIONS {
+        spectrum.update(black_box(&levels), 0.8);
+    }
+
+    assert_eq!(spectrum.levels.len(), BINS);
+    assert_eq!(spectrum.peaks.len(), BINS);
+    AllocationBudget::zero("spectrum-meter-update-1024-bins-1000x")
+        .assert_contains(probe.sample("spectrum-meter-update-1024-bins-1000x"));
 }
