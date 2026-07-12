@@ -3391,7 +3391,7 @@ dependencies = [
  "uuid",
  "windows 0.61.3",
  "windows-core 0.61.2",
- "windows-numerics 0.2.0",
+ "windows-numerics 0.3.1",
  "windows-registry 0.5.3",
  "zed-scap",
 ]
