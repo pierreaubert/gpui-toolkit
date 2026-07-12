@@ -961,13 +961,13 @@ mod tests {
             (ScaleType::Linear, ScaleType::Log),
             (ScaleType::Log, ScaleType::Log),
         ] {
-            let result = heatmap(&z, 3, 3)
-                .x(&x)
-                .y(&y)
-                .x_scale(x_scale)
-                .y_scale(y_scale)
-                .build();
-            assert!(result.is_ok(), "failed for x={x_scale:?}, y={y_scale:?}");
+            assert_heatmap_builds(
+                heatmap(&z, 3, 3)
+                    .x(&x)
+                    .y(&y)
+                    .x_scale(x_scale)
+                    .y_scale(y_scale),
+            );
         }
     }
 }

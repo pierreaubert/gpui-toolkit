@@ -1,0 +1,317 @@
+GPUI TOOLKIT QA AND STATE-OF-THE-ART REVIEW
+Date: 2026-07-12
+
+SCOPE AND METHOD
+
+This review covers all 26 Cargo workspace members, including the mobile showcase hosts and the two patched third-party GPUI backends. It is based on the indexed code graph, workspace manifests and documentation, the stored coverage/performance evidence, CI and Just recipes, targeted source inspection, and a direct run of `just qa-gpui-obvious` on macOS.
+
+The most recent stored llvm-cov summary reports 75,092/101,823 lines (73.75%), 7,633/9,790 functions (77.97%), and 111,261/152,615 regions (72.90%). Platform backends, miniapp, binaries, examples, tests, and third-party code are excluded from that report, so these percentages must not be presented as workspace-wide production coverage. The direct `just qa-gpui-obvious` run passed. It validated 136 component stories, seven design-language presets (including reduced-motion variants), 224 tokens, and the main design/component/layout/chart gates. It emitted four dead-code warnings in d3rs contour smoothing and two unused-import warnings in gpui-px.
+
+OVERALL QA READINESS
+
+Verdict: strong pre-release engineering foundation, but not yet uniformly release-ready across every advertised platform. The portable core libraries are generally beta-to-production quality. gpui-builder, gpui-design, gpui-design-tools, gpui-keybinding, gpui-pretext, gpui-px, gpui-python-runtime, and the aggregate crate have high measured line coverage (90-100%). gpui-audio-kit, gpui-themes, macros, and gpui-ui-kit are credible but have remaining coverage or integration gaps. gpui-d3rs is broad and well tested but too large and performance-sensitive for its 70% measured coverage to support blanket “complete” or “zero-cost” claims. Mobile and platform backends have significant functionality and unit tests, but no comparable cross-platform CI/release evidence.
+
+What is already good:
+
+- A real QA architecture exists: unit and doc tests, property tests, compile tests, responsive component stories, visual manifests, accessibility metadata, design-token conformance, Criterion baselines, static chart export checks, and schema-versioned release reports.
+- APIs usually use typed builders, checked `Result` paths, stable IDs, serializable reports, shared `Arc` data, cache-aware methods, and renderer-independent geometry. This is much more disciplined than a typical young Rust UI toolkit.
+- UX concerns are explicitly modeled: focus and keyboard behavior, touch target conformance, reduced motion, responsive viewports, high contrast, accessible chart summaries, native accessibility bridges, safe areas, split view, and platform shortcut policy.
+- Performance work is concrete in selected areas: baselines cover builder lookup/traversal/text cache, pretext measurement/layout cache hits, d3 force/path operations, keybinding discovery, UI edit operations, and iOS accessibility diffs. gpui-profiler and allocation-focused tests provide useful local tooling.
+
+Release blockers and material risks:
+
+1. CI is Linux-only. It does not build or test macOS, Windows, iOS simulator/device, tvOS, or Android. Platform portability is therefore asserted by code and local recipes rather than continuously demonstrated.
+2. The README links to a nonexistent `qa.md` and says the full coverage gate intentionally fails below 90%. This is both stale documentation and an admission that `just qa` is not currently a green release gate.
+3. Coverage excludes the highest-risk unsafe/FFI/platform code. A 73.75% stored total cannot stand in for iOS, Android, AU, Windows, or wgpu confidence.
+4. Visual QA is rich in manifests and synthetic comparisons, but there is no evidence in the inspected CI that screenshots are captured on every target GPU/text stack. Cross-backend golden drift, font fallback, IME, high-DPI, and native accessibility still require platform runs.
+5. “No allocation in the hot path” is not established workspace-wide. Baselines measure time, and some tests verify sharing/reuse, but most crates lack allocation budgets, steady-state warm-up contracts, and per-frame/per-event heap assertions.
+6. Warning-free policy is not enforced by the maintained QA gate. The current gate passes with six warnings. Dead code in contour smoothing also makes it unclear whether the intended optimized path is actually active.
+7. Documentation has drift: gpui-ios says it was adapted to revision `dd9efd9` while the workspace pins Zed v1.9.0; gpui-px installation still shows `0.1`; its headline says six chart types while the release manifest and implementation include more; the root README omits some current workspace members.
+8. The dependency surface is operationally risky: large git-pinned Zed/wgpu dependencies plus local patches and vendored forks increase upgrade and security-review cost. There is a deny.toml, but no inspected CI job explicitly runs dependency/license/advisory checks.
+
+Recommended release definition:
+
+- Tier A (portable core): require Linux, macOS, and Windows check/test/clippy, green coverage threshold by crate, API semver checks, docs, conformance, visual and performance non-regression.
+- Tier B (platform backends): require target builds plus simulator/device smoke matrices, lifecycle/input/text/accessibility contract tests, sanitizer/Miri coverage where possible, and checked unsafe/FFI invariants.
+- Tier C (showcases/tools): require build and smoke tests but allow lower line coverage; measure story/command/manifest coverage instead.
+- Publish readiness per crate rather than one workspace-wide badge. A crate should not inherit confidence from unrelated high-coverage crates.
+
+CRATE-BY-CRATE ANALYSIS
+
+1. gpui-au (macOS Audio Unit backend)
+
+QA readiness: Medium. It has focused source tests, a safety report, text-system tests, and host/backend separation, but it is excluded from stored coverage and Linux CI cannot exercise AU lifecycle behavior.
+UX and consistency: Embedding GPUI in AUv3 is valuable, but host resizing, focus, keyboard routing, scale changes, detached windows, and host-specific lifecycle behavior need a compatibility matrix. Its public model should match gpui-ios/android window/input naming where the concepts overlap.
+Portability: Intentionally macOS/AUv3-only. Portability means host compatibility across Logic, Ableton, REAPER, GarageBand and common sandbox modes, not other OSes.
+Performance: Rendering reuse exists through wgpu/Metal infrastructure, but there is no committed host-frame allocation or resize benchmark.
+Recommendations: Add macOS CI, AU host harnesses, repeated attach/detach/resize tests, panic/FFI boundary tests, Instruments signposts, and a steady-state allocation/frame budget. Document supported hosts and failure recovery.
+
+2. gpui-android
+
+QA readiness: Medium-low. The backend has substantial window, keyboard, JNI, touch and momentum code and several test-bearing files, but no README, stored coverage, Android CI, emulator smoke gate, or accessibility evidence comparable to iOS.
+UX and consistency: Multi-touch and text dispatch exist; parity needs proof for IME composition, selection, back navigation, clipboard, accessibility, hardware keyboard, gestures, density/font scaling and lifecycle restoration. The sample platform-view API still contains an `unimplemented!` example that can normalize unsafe integration patterns.
+Portability: Android-specific, arm/device behavior not continuously checked. Ensure phone/tablet, API level, orientation, split-screen and surface recreation coverage.
+Performance: JNI/event/render paths are hot. No allocation/frame, input-latency, surface-recreation, or jank baseline was found.
+Recommendations: Add Gradle/emulator CI, TalkBack and IME manual scripts, lifecycle fuzz/state-machine tests, frame timing and JNI allocation counters, and API parity tables against gpui-ios.
+
+3. gpui-audio-kit
+
+QA readiness: High-beta (84.57% measured line coverage). It has unusually thorough unit/integration tests for knob and slider mouse, keyboard, drag, scroll, reset, disabled and logarithmic behavior, plus visual/accessibility/automation metadata.
+UX and consistency: Strong interaction breadth, but every continuous control must share identical modifier, fine-adjust, reset, scroll direction, keyboard step, focus ring, disabled and value-format semantics. Meter/spectrum semantics need screen-reader alternatives and reduced-motion behavior.
+Portability: GPUI-native and broadly portable; touch drag targets, hover-free discovery, mobile keyboard behavior and high-DPI rendering still need device evidence.
+Performance: Audio UI is not the DSP thread, but meters and spectra are frame-hot. No committed allocation or update-rate benchmark covers them.
+Recommendations: Create a shared `ContinuousControlInteraction` contract, enforce it across knob/vertical slider/volume/meter, add allocation budgets for meter/spectrum updates, and capture mobile/desktop/high-DPI goldens.
+
+4. gpui-design
+
+QA readiness: High (93.28%). Seven design-language presets and reduced-motion forms pass conformance.
+UX and consistency: Clear separation between design-system tokens and themes is a strength. Multiple platform presets can nevertheless become cosmetic skins unless semantic component behavior and density rules are also tested.
+Portability: Excellent conceptual coverage (Apple HIG, Material, Fluent, Neutral, Adwaita, Breeze, Carbon). Runtime platform selection and user override precedence should remain explicit.
+Performance: Mostly immutable token lookup; low risk. Ensure theme/preset switching does not clone large token graphs every render.
+Recommendations: Version the token schema, add contrast/APCA or WCAG checks for semantic pairs, typography/font-fallback baselines, and compile-time/exhaustive checks that all components consume semantic rather than raw values.
+
+5. gpui-ui-kit
+
+QA readiness: High-beta (77.56%). It has 100+ test-bearing files, accessibility/i18n/component/integration suites, benchmarks, a large showcase, and detailed component authoring guidance. The surface is too broad for the current coverage to imply uniform production maturity.
+UX and consistency: This is the main consistency risk. Buttons, inputs, selects, sliders, dialogs, menus, tables, virtualized surfaces, workflow canvas, QR/camera and many composites must share focus, disabled, validation, loading, dismissal, escape, outside-click, pointer capture, touch and accessibility semantics. Existing conformance catches much, but rendered/native behavior is not fully proven.
+Portability: Camera is correctly excluded on iOS/tvOS, but desktop/mobile behavior needs a capability API rather than scattered cfg surprises. Test touch-only, keyboard-only, screen-reader, large-text, RTL, IME and narrow-width behavior on real backends.
+Performance: Edit-state benchmarks are strong evidence for text operations. Large lists/tables/canvas, popovers, command palette search, QR/camera and render-heavy composites need allocation and frame-time budgets. Avoid `global_mut` as an implicit widget-state default when multiple instances/windows require isolation.
+Recommendations: Publish a component behavior matrix; centralize interaction traits/state machines; gate all public interactive components on story, focus, keyboard, touch, accessibility and responsive coverage; raise core component coverage above 90%; add heap/frame budgets for large surfaces.
+
+6. gpui-builder
+
+QA readiness: High (95.92%, 108 tests observed in the gate). Property-style width invariants, snapshots, accessibility tree, diagnostics, compatibility tests and benchmarks are excellent.
+UX and consistency: Deterministic collapse priorities, stable IDs and diagnostics make layout behavior predictable. Validate user-facing recovery when all content cannot fit and ensure collapsed controls remain discoverable.
+Portability: Pure solver logic is portable. Text metrics and pixel rounding can differ by backend, so snapshots must be parameterized by scale and text engine.
+Performance: Strong baseline for flat lookup/traversal and text cache hits. Allocation behavior of complete solves and repeated resizes is less explicit.
+Recommendations: Add proptest coverage for arbitrary trees/floats/NaN/infinity, incremental solve benchmarks, allocation budgets, and backend-specific rounding snapshots. Compare algorithms and semantics explicitly with Taffy/Cassowary/Yoga.
+
+7. gpui-pretext
+
+QA readiness: High (90.90%). It has multiple test and benchmark targets, cache-hit baselines and language/script documentation.
+UX and consistency: Text wrapping and measurement are foundational; correctness must include grapheme navigation, bidi, shaping, emoji ZWJ, combining marks, CJK, line breaking, truncation and accessibility selection bounds.
+Portability: Backend font metrics/fallback differ. Current confidence should be qualified until golden corpora run against CoreText, DirectWrite and Linux/cosmic-text stacks.
+Performance: The strongest evidence is 10-27 ns cache-hit measurements and 159 ns cached layout-with-lines in the stored baseline. Cache misses, invalidation, long text and memory growth need equal attention.
+Recommendations: Differential-test against Parley/cosmic-text/HarfBuzz/Unicode reference corpora, fuzz arbitrary UTF-8, bound caches, and add allocation/memory-retention benchmarks.
+
+8. gpui-ios
+
+QA readiness: Medium-high for an experimental backend, medium for production. It has lifecycle, touch, momentum, text, platform views, accessibility snapshots, Keychain, Pencil, WidgetKit, capture/signpost and hot-reload surfaces plus benchmarks. It is excluded from coverage and not in CI.
+UX and consistency: Safe areas and scene metrics correctly account for Split View/Stage Manager. Native bridge breadth is impressive. VoiceOver action routing, dynamic type, rotation, keyboard avoidance, selection/IME, pointer/trackpad and background/foreground state need device proof.
+Portability: arm64 iOS only; tvOS is related but Tier 3. Documentation’s old GPUI revision is stale.
+Performance: Accessibility diff baselines cover 100-5000 nodes. Add render-loop, touch latency, text input, platform-view synchronization, memory warning and background-resume benchmarks.
+Recommendations: Add simulator CI and scheduled signed-device QA; test FFI nullability/lifetime/thread affinity; automate accessibility-tree parity; run Instruments/leak checks; update the revision documentation.
+
+9. gpui-ui-kit-macros
+
+QA readiness: High-beta (82.55%). Parser tests, compile tests and diagnostic/error cases are present.
+UX and consistency: Macro diagnostics are part of developer UX; invalid combinations must point to precise spans and generated setters must match hand-written builder conventions.
+Portability: Host compiler-only; portable across targets if expansions avoid target assumptions.
+Performance: Build-time and expansion-size costs are not benchmarked.
+Recommendations: Adopt trybuild-style pass/fail snapshots, test semver-sensitive expansion behavior, add compile-time baselines, and raise coverage for malformed syntax and generic/lifetime cases.
+
+10. gpui-miniapp
+
+QA readiness: Medium. It provides a useful platform-selection boundary and verification docs, but only one test-bearing file and no stored coverage.
+UX and consistency: A single shell reduces example drift. Startup errors, backend capability reporting and logging should be uniform.
+Portability: Central responsibility; therefore it should have the strongest target matrix, not be excluded from coverage.
+Performance: Startup time, binary size and idle allocations are unmeasured.
+Recommendations: Add compile matrices for Linux/macOS/Windows/iOS/Android, capability tests, startup smoke tests, and size/startup baselines.
+
+11. gpui-component-lab
+
+QA readiness: Functionally strong but low measured coverage (37.54%). Its direct gate passes 52 tests and 136 stories with no conformance findings.
+UX and consistency: Responsive matrices, touch targets, focus metadata, renderer coverage and live preview are excellent design-system QA. The lab itself needs keyboard accessibility, persistent state and error UX testing.
+Portability: Its greatest value comes from running identical stories on every backend; currently CI only demonstrates Linux logic.
+Performance: It includes allocation-efficient report checks and cached story data, but live-preview/render scalability is unmeasured.
+Recommendations: Capture real screenshots on all backends, distinguish manifest coverage from executed visual coverage, increase logic coverage, and make missing renderer/story metadata a hard release failure.
+
+12. gpui-design-tools
+
+QA readiness: High (96.75%; 31 tests observed). Import/export/validation and machine-readable reports are well covered.
+UX and consistency: CLI error messages, stable exit codes and actionable JSON findings matter more than graphical UX. Current stable report contracts are a strength.
+Portability: Good pure CLI portability.
+Performance: Low-risk; large token sets and repeated validation are not benchmarked.
+Recommendations: Add JSON Schema files, backwards-compatibility fixtures, malformed/fuzz inputs, atomic writes, and CI artifact publication.
+
+13. gpui-profiler
+
+QA readiness: High for its small surface (100% measured lines), but line coverage is not proof that allocator instrumentation is correct under concurrency/reentrancy.
+UX and consistency: Safe enable/disable guidance is good. Reports should identify scope, warm-up and nested measurement behavior clearly.
+Portability: Allocator hooks may behave differently by platform and build profile.
+Performance: This crate measures overhead but must quantify its own observer effect.
+Recommendations: Test multithreaded/nested/panic paths, document unsupported allocators, benchmark enabled/disabled overhead, and integrate hard allocation budgets into UI/chart/audio hot-path tests.
+
+14. gpui-px
+
+QA readiness: High (90.04%; 418 library tests plus 32 passing doctests and seven ignored examples). Validation, responsive sizing, static export, accessibility summaries, interactions and visual manifests are unusually comprehensive.
+UX and consistency: Builders mostly share title/color/size/scale/build patterns. API/docs drift is visible: “six chart types” and `0.1` installation conflict with the broader 0.8 implementation. Interactivity must be consistently available across chart families, with keyboard/touch equivalents and accessible data summaries.
+Portability: Renderer-independent summaries/export help. Actual GPUI text, hover, touch and GPU rendering need backend goldens.
+Performance: Data is shared with Arc in tested paths and some caches are tested, but no gpui-px records appear in the committed performance baseline. Large series, streaming updates, legends, hit-testing and contours need budgets.
+Recommendations: Fix docs; define a common chart capability trait/report enforced by tests; benchmark 10k/100k/1m points and streaming updates; add decimation/virtualization; enforce allocation reuse; test against Plotly/Vega-Lite output and interaction semantics.
+
+15. gpui-d3rs
+
+QA readiness: Medium-high (70.02%, 130 test-bearing files). Breadth, golden tests, GPU tests, property tests and Criterion coverage are substantial, but the surface is enormous and four contour-smoothing functions are currently dead code.
+UX and consistency: Checked APIs and builder patterns are good, yet D3-inspired modules can drift in naming, mutability, error behavior and defaults. “Complete” claims conflict with a roadmap/table that has internally stale planned/completed entries.
+Portability: Core math is portable; GPUI/GPU paths depend on backend shader/text behavior. Feature combinations need a matrix.
+Performance: Baselines cover Barnes-Hut versus brute force and reusable path-string APIs. Claims of zero-cost abstractions need allocation, large-data and GPU upload/draw-call evidence for every major family.
+Recommendations: Split maturity by module, remove or activate dead paths, differential-test algorithms against d3 modules, add fuzzing and allocation budgets, benchmark selection/transition/contour/hierarchy/geo/GPU paths, and make default/error conventions uniform.
+
+16. gpui-showcase
+
+QA readiness: Low as tested code (10.41%), useful as manual evidence. A showcase is not a substitute for automated end-to-end tests.
+UX and consistency: It is the best place to spot component drift, narrow layouts, navigation/focus failures and theme inconsistencies. Its own navigation and state restoration should be tested.
+Portability: Should be the common smoke application for every supported desktop/mobile backend.
+Performance: Idle/render/scroll/update performance is unmeasured.
+Recommendations: Add scripted navigation, screenshot capture, accessibility traversal, startup/idle/frame budgets and crash-free smoke runs per platform.
+
+17. gpui-keybinding
+
+QA readiness: High (99.13%) with discovery/conflict/preset/platform-policy tests and benchmarks.
+UX and consistency: Conflict resolution and discoverability are strengths. Ensure chord timeout, repeat, layout-independent physical/logical keys, IME interaction and reserved OS shortcuts are predictable.
+Portability: Platform shortcut policy is explicit; mobile/tvOS may need capability-based disabling rather than desktop assumptions.
+Performance: Formatting and cached palette search have baselines; dispatch latency and large keymaps need coverage.
+Recommendations: Property-test conflict resolution/order independence, add OS keyboard-layout fixtures, benchmark dispatch and 10k-command search, and expose structured conflict diagnostics.
+
+18. gpui-python-runtime
+
+QA readiness: High core coverage (95.35%), but the end-to-end Python package/FFI user journey is a separate risk.
+UX and consistency: JSON schema contracts and retained scene specs are good. Python exceptions, type hints, version negotiation and diagnostics must feel native and deterministic.
+Portability: Platform notes exist; wheels, Python versions, architectures and GPU availability need CI matrices.
+Performance: Serialization, scene diffing, buffer copying and GIL behavior require benchmarks; zero-copy resource transfer is not demonstrated.
+Recommendations: Generate/validate a published JSON Schema, add Python integration tests and wheel CI, benchmark scene updates and large buffers, define resource lifetime/version compatibility, and compare with PyO3/maturin best practice.
+
+19. gpui-scaffolder
+
+QA readiness: Medium-high. The library has extensive template/name tests, but platform-specific tvOS checks are explicitly excluded from Ubuntu CI.
+UX and consistency: `dry_run`, `force`, normalized names and output-directory control are good CLI ergonomics. Generated apps must track current workspace versions and docs.
+Portability: Core purpose is portable generation, so every template should compile in CI or scheduled platform jobs.
+Performance: Not hot-path; generation time is immaterial.
+Recommendations: Golden-test generated trees, compile each generated target, validate idempotence/no overwrite, add migration/version tests, and run Apple template checks on macOS CI.
+
+20. gpui-showcase-android
+
+QA readiness: Low-medium. It supplies the native/Gradle host but no independent test target or emulator gate was found.
+UX and consistency: Must demonstrate touch, IME, back, lifecycle, density, rotation and accessibility across the shared showcase.
+Portability: Android-only host; cover multiple API levels and phone/tablet profiles.
+Performance: Add startup, frame pacing, memory and surface-recreation measurements.
+Recommendations: Make it an emulator CI smoke target with screenshots and logcat crash detection.
+
+21. gpui-showcase-tvos
+
+QA readiness: Medium-low. The docs candidly classify tvOS as Tier 3 and identify simulator/device build recipes; hardware remote focus remains manual.
+UX and consistency: Focus engine, remote directional navigation, overscan/safe areas, large-screen readability and reduced motion are the core QA needs.
+Portability: tvOS-only, nightly `-Zbuild-std` increases fragility.
+Performance: No tvOS frame/memory baseline.
+Recommendations: Add scheduled simulator builds, focus graph tests, screenshot smoke tests and a signed-device manual release checklist.
+
+22. gpui-themes
+
+QA readiness: High-beta (87.15%). Schema versioning and community JSON shape are positive; editor/showcase paths increase UI risk.
+UX and consistency: Live preview, invalid token recovery, undo/redo, contrast warnings, import conflicts and theme switching must be predictable.
+Portability: Theme data is portable; font/color rendering and native appearance synchronization need backend tests.
+Performance: Theme switching should avoid per-component clones and full unnecessary re-layout; no baseline was found.
+Recommendations: Add migration fixtures, fuzz community JSON, contrast gates, atomic import/export, undo/redo tests, and theme-switch allocation/frame benchmarks.
+
+23. gpui-toolkit aggregate crate
+
+QA readiness: High for re-export integrity (99.46%).
+UX and consistency: Convenient, but a monolithic prelude can create naming collisions and obscure feature/dependency cost.
+Portability: Re-exporting platform-specific crates must not accidentally break unsupported targets.
+Performance: Runtime-neutral; compile time and binary size are the concerns.
+Recommendations: Add public-API/semver checks, feature-minimal compile tests, re-export collision tests, and compile-time/binary-size tracking. Document when to depend on leaf crates.
+
+24. gpui-showcase-ios
+
+QA readiness: Medium. It provides Rust static/cdylib and Swift host paths but no measured coverage; host integration is the real product test.
+UX and consistency: Use it to validate safe areas, rotation, split view, keyboard, VoiceOver, dynamic type, Pencil and platform views.
+Portability: iOS host; tvOS is a separate crate and should not be implied by cdylib/staticlib success.
+Performance: Add launch, frame pacing, memory warning and background/foreground metrics.
+Recommendations: Add xcodebuild simulator CI, XCTest smoke navigation, accessibility audits, screenshots and crash/leak collection.
+
+25. gpui_wgpu (vendored patched backend)
+
+QA readiness: Medium-low locally. It is upstream-derived and patched, but has no local test/benchmark targets in metadata and no explicit renderer matrix in CI.
+UX and consistency: Text rasterization, subpixel rendering, clipping, color spaces and device-loss behavior directly affect every application.
+Portability: Potentially broad (native and wasm cfgs), but backend/adapter/browser matrices are absent.
+Performance: Atlas reuse and GPU batching are central; no committed local baseline for uploads, draw calls, atlas churn or allocations.
+Recommendations: Minimize and document patch delta, continuously rebase/test upstream, add headless pixel tests, adapter/device-loss tests, atlas stress tests, GPU timing and memory telemetry.
+
+26. gpui_windows (vendored patched backend)
+
+QA readiness: Medium-low locally. Large DirectWrite/DirectX/window/input code is outside stored coverage and Linux-only CI.
+UX and consistency: IME, clipboard, pointer, touch, DPI, window appearance, accessibility and system settings require real Windows testing.
+Portability: Windows-only; test Windows 10/11, x64/arm64 where supported, mixed-DPI multi-monitor and software/hardware adapters.
+Performance: DirectX atlas/renderer paths need frame, upload, resize and device-loss baselines.
+Recommendations: Add Windows CI, headless/render goldens, IME/accessibility/manual scripts, D3D debug-layer runs, device-loss recovery and upstream patch-delta tracking.
+
+OVERALL COMPARISON WITH STATE-OF-THE-ART LIBRARIES
+
+The toolkit’s differentiator is vertical integration: native GPUI components, audio controls, responsive solver, design tokens, chart primitives and high-level charts, text measurement, platform backends, component lab, profiling and Python scene specifications in one Rust workspace. Few Rust projects combine this breadth with explicit accessibility/conformance metadata. Against state-of-the-art libraries, however, breadth is ahead of uniform proof.
+
+Compared with mature application UI stacks (Qt, Flutter, SwiftUI/UIKit, Jetpack Compose): gpui-toolkit offers native Rust performance potential and a coherent GPUI-native API, but trails in years of device matrices, accessibility certification, IME/text maturity, localization/RTL, platform widgets, tooling, inspector depth, automated end-to-end testing and long-term API stability.
+
+Compared with Rust UI libraries (egui, iced, Slint, Dioxus, Leptos/Tauri ecosystems): the toolkit is stronger in GPUI-specific design-system conformance, audio UI, chart integration and Apple-mobile backend ambition. It trails the leaders in community size, published compatibility matrices, web support, examples/tutorial consistency, semver guarantees, backend CI and turnkey testing infrastructure. Slint’s platform/tooling integration and renderer portability, egui’s immediate-mode simplicity and mature demos, and iced’s architecture/ecosystem are useful benchmarks.
+
+Compared with component systems (Material, Fluent, Radix, React Aria, SwiftUI): token coverage and component breadth are promising, but SOTA behavior is defined by shared interaction primitives, exhaustive accessibility semantics, composability, bidirectional text, focus trapping/restoration, pointer/touch parity and browser/device-scale conformance. gpui-ui-kit should make its behavior matrix machine-enforced rather than relying on per-component convention.
+
+Compared with D3, Observable Plot, Plotly, Vega/Vega-Lite and Rust plotters/egui_plot: d3rs/px have excellent native Rust validation and broad algorithms, but do not yet match D3’s compositional ecosystem, Vega-Lite’s grammar and declarative transforms, or Plotly’s interaction/export breadth and large-data/WebGL maturity. Accessibility summaries and static exports are strong differentiators. Claims of D3 completeness should be backed by differential fixtures and module-level maturity scores.
+
+Compared with Taffy, Yoga and Cassowary-style solvers: gpui-builder’s priority collapse, diagnostics, accessibility tree and responsive snapshots are product-focused advantages. Taffy/Yoga have wider ecosystem/flex/grid compatibility and extensive conformance suites; Cassowary provides formal incremental constraint behavior. The toolkit should benchmark and document the semantic tradeoffs rather than present a generic solver as universally equivalent.
+
+Compared with Parley, cosmic-text, HarfBuzz and platform text stacks: pretext’s cache-aware measurement is fast and well tested, but SOTA text correctness is primarily Unicode shaping, bidi, fallback, line-breaking and editing interoperability, not cache-hit latency. Differential Unicode corpora are the missing proof.
+
+Compared with Criterion, dhat, Tracy, Instruments and platform profilers: gpui-profiler is admirably lightweight and product-specific, but is not a general profiler. Its best role is enforcing scoped allocation contracts while Criterion tracks latency and platform tools diagnose frames/GPU/energy.
+
+Compared with AudioKit/JUCE/nih-plug/IPlug2 for audio UI/plugin hosting: gpui-audio-kit and gpui-au offer modern Rust-native UI potential, but trail mature ecosystems in host certification, automation semantics, parameter gesture contracts, accessibility across DAWs, scaling, GPU fallback, and years of plugin-format/host compatibility testing.
+
+PRIORITIZED RECOMMENDATIONS
+
+P0 — required before calling the whole workspace release-ready:
+
+1. Add a platform CI matrix: Linux, macOS and Windows for core crates; Android emulator and iOS simulator smoke jobs; scheduled tvOS/device jobs. Publish per-platform artifacts and results.
+2. Make `just qa` green by design. Restore or remove `qa.md`, define realistic staged coverage thresholds, and fail on warnings. Never document the canonical gate as intentionally failing.
+3. Measure platform code. Add target-specific coverage or contract-test metrics for unsafe/FFI/lifecycle/input/text/accessibility paths rather than excluding them silently.
+4. Establish heap contracts. Use gpui-profiler/dhat-style tests after warm-up for render, pointer/keyboard events, meter/spectrum updates, layout solves, chart streaming, text cache hits and accessibility diffs. Time benchmarks alone do not prove reuse.
+5. Make visual QA real on each renderer. Capture and diff actual screenshots with pinned fonts, scale factors, color spaces and GPU/backend metadata; keep manifests as inventories, not proof of execution.
+
+P1 — highest leverage quality improvements:
+
+6. Create machine-readable behavior/capability matrices for components, charts and platforms. Gate every supported capability on tests/stories and clearly mark partial/unsupported behavior.
+7. Centralize interaction state machines for continuous controls, overlays, selection/focus and chart gestures. This reduces unpredictable differences between components.
+8. Add Unicode/IME/RTL/dynamic-type and native accessibility test corpora. Differential-test text against mature engines and automate accessibility-tree/action parity.
+9. Add public API/semver checking (for example cargo-semver-checks), minimal-feature builds, MSRV policy, docs builds and generated-template compile tests.
+10. Audit and reduce documentation drift: versions, chart counts, GPUI revision, supported platforms, workspace inventory, roadmap status and “complete/zero-cost” claims.
+11. Track vendored patch deltas and upstream updates. Run dependency advisory/license/source checks in CI and document an upgrade cadence for Zed, wgpu and forks.
+
+P2 — move from credible beta to SOTA contender:
+
+12. Add end-to-end scripted showcase tests with keyboard/touch/accessibility navigation, state restoration, screenshots, frame timing and crash detection.
+13. Publish performance envelopes by workload, not isolated microbenchmarks: 10k/100k/1m chart points, 1k/10k UI nodes, long/complex text, rapid resize, theme switch, streaming meter/spectrum and low-end mobile GPUs.
+14. Add fuzzing and differential testing for parsers, layout, text, D3 algorithms, chart export, themes, keymaps and FFI message/state machines.
+15. Define crate maturity tiers and support policies. The high-quality portable cores should not be held back by experimental platform hosts, and experimental backends should not inherit a production badge from core coverage.
+16. Improve developer tooling with a unified inspector: component story, tokens, focus/accessibility tree, layout diagnostics, allocations, frame timing, draw calls and platform capabilities in one view.
+
+FINAL ASSESSMENT
+
+gpui-toolkit is ahead of most young Rust UI workspaces in QA architecture and breadth. The core solver/design/chart/keybinding/text/tooling libraries show serious engineering discipline, and the component-lab/conformance approach is a strong foundation. The workspace is not yet uniformly SOTA or fully release-ready because evidence stops at the platform boundary: Linux-only CI, excluded unsafe backends, limited real-renderer visual proof, incomplete allocation contracts, warning/doc drift, and uneven coverage across the largest surfaces. Closing those evidence gaps—not adding more components—will produce the largest quality gain.
+
+TokenSave note: the code graph reduced the initial broad review queries by approximately 82,000 tokens in aggregate. It was effective for focused symbols and inventories, but repository-wide questions such as “coverage/readiness by crate” were not answered natively; those required Cargo metadata and llvm-cov JSON aggregation. Consider opening an issue at https://github.com/aovestdipaperino/tokensave requesting workspace-level QA aggregation. Strip all sensitive or proprietary code and paths from the issue description before submitting.
+
+REMEDIATION STATUS — 2026-07-12
+
+The findings above describe the reviewed baseline. The following recommendations were implemented in the same QA workstream and supersede corresponding baseline blockers:
+
+- `qa.md` now defines a canonical green gate, explicit coverage exclusions, a 73.5% portable-core ratchet, hard performance policy, visual evidence rules, platform tiers, and scoped Rust 1.89 MSRV policy.
+- Linux QA plus maintained macOS/Windows warning-free compile and portable-test jobs are defined in CI. Device/runtime claims remain separate.
+- The coverage CI ordering defect was fixed. The generated report now records the exact exclusion expression and publishes line/function coverage per crate; the current verified aggregate is 75,189/102,208 lines (73.56%).
+- Warning-free workspace Clippy is enforced. The contour and px warning sources identified by the review were corrected.
+- cargo-deny advisory/license/source policy, Python QA-script contracts, semver checks for publishable GPUI-free crates, and Rust 1.89 MSRV checks are maintained CI jobs.
+- Performance comparison is a hard 20% material-regression gate above a 150 ns noise floor. Baselines record host/toolchain/source metadata and reject incomparable machines rather than reporting false regressions.
+- Allocation budgets are executable through `gpui-profiler`; warmed audio meter formatting, keybinding search, and pretext width/grapheme cache hits have zero-allocation integration contracts.
+- Renderer-independent visual/golden/conformance evidence is generated and uploaded. The report explicitly marks real renderer screenshot capture/diff as pending.
+- Machine-readable component behavior, chart capability, and platform capability/evidence matrices now prevent portable tests or implemented APIs from silently upgrading unexecuted runtime/accessibility/visual gates.
+- The stale gpui-ios revision and gpui-px version/chart-count documentation were corrected.
+
+Residual release blockers remain intentionally visible: actual iOS/Android/tvOS simulator or device runs, named AUv3 host certification, Windows native runtime/IME/accessibility qualification, and per-renderer screenshot evidence require their corresponding external environments. These are not treated as passed by the portable-core QA suite.

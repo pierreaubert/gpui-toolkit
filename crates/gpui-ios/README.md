@@ -2,7 +2,7 @@
 
 iOS platform backend for GPUI. Enables any GPUI application to run natively on iOS with Metal rendering, touch input, momentum scrolling, and software keyboard support.
 
-Vendored from [gpui-mobile](https://github.com/itsbalamurali/gpui-mobile) and adapted to work with Zed's GPUI revision `dd9efd9`.
+Vendored from [gpui-mobile](https://github.com/itsbalamurali/gpui-mobile) and maintained against the workspace's pinned Zed GPUI release (`v1.9.0` at the time of writing).
 
 ## How It Works
 

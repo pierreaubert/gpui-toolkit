@@ -121,3 +121,22 @@ path is still allocating.
 - The counters are atomics, so allocation counting is thread-safe but not
   synchronized with `sample`; treat the numbers as approximate event-level
   totals rather than exact frame budgets.
+
+## Allocation budgets
+
+Use `AllocationBudget` to turn a warmed-up hot-path expectation into an
+executable contract:
+
+```rust
+use gpui_profiler::{AllocProbe, AllocationBudget};
+
+let mut probe = AllocProbe::new();
+// Warm caches and reserve reusable buffers first.
+probe.reset();
+// Run the steady-state operation.
+AllocationBudget::zero("meter-update").assert_contains(probe.sample("meter-update"));
+```
+
+For operations that intentionally grow bounded state, use
+`AllocationBudget::new(name, max_count, max_bytes)`. Budgets must document the
+input size and warm-up assumptions in the owning crate's test.

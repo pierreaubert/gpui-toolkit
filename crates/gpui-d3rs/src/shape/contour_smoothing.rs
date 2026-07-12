@@ -9,6 +9,7 @@ impl StrokePoint {
         Self { x, y }
     }
 
+    #[cfg(any(feature = "gpu-2d", test))]
     fn distance_to(self, other: Self) -> f32 {
         let dx = self.x - other.x;
         let dy = self.y - other.y;
@@ -16,6 +17,7 @@ impl StrokePoint {
     }
 }
 
+#[cfg(any(feature = "gpu-2d", test))]
 pub(crate) fn split_stroke_segments(
     points: &[StrokePoint],
     x_jump_threshold: f32,
@@ -76,6 +78,7 @@ pub(crate) fn smooth_stroke_segment(
     }
 }
 
+#[cfg(any(feature = "gpu-2d", test))]
 fn adaptive_distance_jump_threshold(
     points: &[StrokePoint],
     x_jump_threshold: f32,
@@ -96,6 +99,7 @@ fn adaptive_distance_jump_threshold(
     (median * 8.0).max(24.0).min(viewport_threshold.max(24.0))
 }
 
+#[cfg(any(feature = "gpu-2d", test))]
 fn is_jump(
     previous: StrokePoint,
     point: StrokePoint,

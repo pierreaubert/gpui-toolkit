@@ -444,4 +444,90 @@ mod tests {
         // Midpoint should be 50 for symmetric easing
         assert!((interp(0.5) - 50.0).abs() < 0.001);
     }
+
+    #[test]
+    fn piecewise_variants_cover_edges_and_custom_interpolation() {
+        let singleton = [7.0];
+        assert_eq!(piecewise(&singleton)(0.4), 7.0);
+        assert_eq!(piecewise(&[0.0, 10.0])(-1.0), 0.0);
+        assert_eq!(piecewise(&[0.0, 10.0])(2.0), 10.0);
+
+        let values = [0_i32, 10, 20];
+        let custom = piecewise_with(&values, |a, b, t| {
+            (*a as f64 + (*b - *a) as f64 * t).round() as i32
+        });
+        assert_eq!(custom(0.25), 5);
+        assert_eq!(custom(0.75), 15);
+        assert_eq!(piecewise_with(&[9], |_, _, _| unreachable!())(0.5), 9);
+
+        let positions = [0.0, 0.0, 1.0];
+        let domain_values = [2.0, 4.0, 8.0];
+        let domain = piecewise_domain(&positions, &domain_values);
+        assert_eq!(domain(-1.0), 2.0);
+        assert_eq!(domain(2.0), 8.0);
+        assert_eq!(piecewise_domain(&[0.0], &[3.0])(0.5), 3.0);
+
+        assert_eq!(quantize(&["a", "b"])(-1.0), "a");
+        assert_eq!(quantize(&["a", "b"])(2.0), "b");
+    }
+
+    #[test]
+    #[should_panic(expected = "piecewise requires at least one value")]
+    fn piecewise_rejects_empty_values() {
+        piecewise::<f64>(&[])(0.5);
+    }
+
+    #[test]
+    #[should_panic(expected = "piecewise requires at least one value")]
+    fn piecewise_with_rejects_empty_values() {
+        piecewise_with::<f64, _>(&[], |a, _, _| *a)(0.5);
+    }
+
+    #[test]
+    #[should_panic(expected = "piecewise_domain requires at least one value")]
+    fn piecewise_domain_rejects_empty_values() {
+        piecewise_domain::<f64>(&[], &[])(0.5);
+    }
+
+    #[test]
+    #[should_panic(expected = "quantize requires at least one value")]
+    fn quantize_rejects_empty_values() {
+        quantize::<f64>(&[])(0.5);
+    }
+
+    #[test]
+    fn every_easing_variant_is_finite_and_has_expected_endpoints() {
+        let variants = [
+            EaseFunction::Linear,
+            EaseFunction::QuadIn,
+            EaseFunction::QuadOut,
+            EaseFunction::QuadInOut,
+            EaseFunction::CubicIn,
+            EaseFunction::CubicOut,
+            EaseFunction::CubicInOut,
+            EaseFunction::SinIn,
+            EaseFunction::SinOut,
+            EaseFunction::SinInOut,
+            EaseFunction::ExpIn,
+            EaseFunction::ExpOut,
+            EaseFunction::ExpInOut,
+            EaseFunction::CircleIn,
+            EaseFunction::CircleOut,
+            EaseFunction::CircleInOut,
+            EaseFunction::ElasticIn,
+            EaseFunction::ElasticOut,
+            EaseFunction::BounceOut,
+            EaseFunction::BackIn,
+            EaseFunction::BackOut,
+            EaseFunction::BackInOut,
+        ];
+        for ease in variants {
+            assert_eq!(ease.apply(-1.0), ease.apply(0.0));
+            assert_eq!(ease.apply(2.0), ease.apply(1.0));
+            assert!(ease.apply(0.25).is_finite(), "{ease:?}");
+            assert!(ease.apply(0.75).is_finite(), "{ease:?}");
+            assert!((ease.apply(0.0)).abs() < 1e-9, "{ease:?}");
+            assert!((ease.apply(1.0) - 1.0).abs() < 1e-9, "{ease:?}");
+        }
+    }
 }

@@ -276,4 +276,65 @@ mod tests {
         assert_eq!(TimeInterval::for_span(172800), TimeInterval::Day);
         assert_eq!(TimeInterval::for_span(1209600), TimeInterval::Week);
     }
+
+    #[test]
+    fn all_intervals_expose_consistent_floor_offset_duration_and_format() {
+        let cases = [
+            (TimeInterval::Second, duration::SECOND, "%H:%M:%S"),
+            (TimeInterval::Minute, duration::MINUTE, "%H:%M"),
+            (TimeInterval::Hour, duration::HOUR, "%H:00"),
+            (TimeInterval::Day, duration::DAY, "%b %d"),
+            (TimeInterval::Week, duration::WEEK, "%b %d"),
+            (TimeInterval::Monday, duration::WEEK, "%b %d"),
+            (TimeInterval::Month, 30 * duration::DAY, "%B"),
+            (TimeInterval::Year, 365 * duration::DAY, "%Y"),
+        ];
+        let timestamp = 40 * duration::DAY + 12_345;
+        for (interval, expected_duration, pattern) in cases {
+            assert_eq!(interval.duration(), expected_duration);
+            assert_eq!(interval.format_pattern(), pattern);
+            assert_eq!(
+                interval.offset(timestamp, 2),
+                timestamp + 2 * expected_duration
+            );
+            assert!(interval.floor(timestamp) <= timestamp);
+        }
+    }
+
+    #[test]
+    fn interval_round_ceil_range_and_span_boundaries_are_deterministic() {
+        let minute = TimeInterval::Minute;
+        assert_eq!(minute.ceil(duration::MINUTE), duration::MINUTE);
+        assert_eq!(minute.ceil(duration::MINUTE + 1), 2 * duration::MINUTE);
+        assert_eq!(minute.round(duration::MINUTE + 29), duration::MINUTE);
+        assert_eq!(minute.round(duration::MINUTE + 30), 2 * duration::MINUTE);
+        assert_eq!(
+            minute.range(0, 6 * duration::MINUTE, 2),
+            vec![0, 2 * duration::MINUTE, 4 * duration::MINUTE]
+        );
+        assert_eq!(
+            minute.range(0, 3 * duration::MINUTE, 0),
+            vec![0, duration::MINUTE, 2 * duration::MINUTE]
+        );
+
+        assert_eq!(TimeInterval::for_span(59), TimeInterval::Second);
+        assert_eq!(TimeInterval::for_span(60), TimeInterval::Minute);
+        assert_eq!(TimeInterval::for_span(3_600), TimeInterval::Hour);
+        assert_eq!(TimeInterval::for_span(86_400), TimeInterval::Day);
+        assert_eq!(TimeInterval::for_span(604_800), TimeInterval::Week);
+        assert_eq!(TimeInterval::for_span(2_592_000), TimeInterval::Month);
+        assert_eq!(TimeInterval::for_span(31_536_000), TimeInterval::Year);
+    }
+
+    #[test]
+    fn shorthand_constructors_cover_every_interval() {
+        assert_eq!(time_second(), TimeInterval::Second);
+        assert_eq!(time_minute(), TimeInterval::Minute);
+        assert_eq!(time_hour(), TimeInterval::Hour);
+        assert_eq!(time_day(), TimeInterval::Day);
+        assert_eq!(time_week(), TimeInterval::Week);
+        assert_eq!(time_monday(), TimeInterval::Monday);
+        assert_eq!(time_month(), TimeInterval::Month);
+        assert_eq!(time_year(), TimeInterval::Year);
+    }
 }

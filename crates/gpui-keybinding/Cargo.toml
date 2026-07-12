@@ -28,6 +28,7 @@ serde = { workspace = true }
 
 [dev-dependencies]
 criterion = { workspace = true }
+gpui-profiler = { workspace = true, features = ["global-allocator"] }
 
 [[bench]]
 name = "discovery"

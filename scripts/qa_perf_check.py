@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
-BASELINE_VERSION = 1
+BASELINE_VERSION = 2
 
 DEFAULT_BASELINE = "qa/perf/baseline.json"
 DEFAULT_CURRENT = "target/qa/perf/current.json"
@@ -75,7 +75,42 @@ def validate_baseline(data: Any, path: Path) -> dict[str, Any]:
     if not isinstance(records, list):
         raise InputError(f"{path}: expected 'records' to be a list")
 
+    metadata = data.get("metadata")
+    if not isinstance(metadata, dict):
+        raise InputError(f"{path}: expected 'metadata' to be an object")
+    environment = metadata.get("environment")
+    if not isinstance(environment, dict):
+        raise InputError(f"{path}: expected metadata.environment to be an object")
+
     return data
+
+
+def comparable_environment(data: dict[str, Any]) -> dict[str, str]:
+    environment = data["metadata"]["environment"]
+    rustc = environment.get("rustc", {})
+    return {
+        "system": str(environment.get("system", "unknown")),
+        "machine": str(environment.get("machine", "unknown")),
+        "cpu_model": str(environment.get("cpu_model", "unknown")),
+        "rustc_release": str(rustc.get("release", "unknown")) if isinstance(rustc, dict) else "unknown",
+        "rustc_host": str(rustc.get("host", "unknown")) if isinstance(rustc, dict) else "unknown",
+    }
+
+
+def require_comparable_environments(
+    baseline_data: dict[str, Any],
+    current_data: dict[str, Any],
+    baseline_path: Path,
+    current_path: Path,
+) -> None:
+    baseline_environment = comparable_environment(baseline_data)
+    current_environment = comparable_environment(current_data)
+    if baseline_environment != current_environment:
+        raise InputError(
+            "benchmark environments are not comparable; re-baseline intentionally "
+            f"instead of interpreting host drift as a code regression: {baseline_path} "
+            f"has {baseline_environment}, {current_path} has {current_environment}"
+        )
 
 
 def parse_record(raw: dict[str, Any], path: Path) -> Record:
@@ -107,9 +142,7 @@ def parse_record(raw: dict[str, Any], path: Path) -> Record:
     )
 
 
-def load_records(path: Path) -> dict[RecordKey, Record]:
-    data = load_json(path)
-    validate_baseline(data, path)
+def records_from_data(data: dict[str, Any], path: Path) -> dict[RecordKey, Record]:
     records: dict[RecordKey, Record] = {}
     for idx, raw in enumerate(data.get("records", [])):
         if not isinstance(raw, dict):
@@ -310,8 +343,13 @@ def main(argv: list[str]) -> int:
         return 2
 
     try:
-        baseline = load_records(args.baseline)
-        current = load_records(args.current)
+        baseline_data = validate_baseline(load_json(args.baseline), args.baseline)
+        current_data = validate_baseline(load_json(args.current), args.current)
+        require_comparable_environments(
+            baseline_data, current_data, args.baseline, args.current,
+        )
+        baseline = records_from_data(baseline_data, args.baseline)
+        current = records_from_data(current_data, args.current)
     except InputError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2

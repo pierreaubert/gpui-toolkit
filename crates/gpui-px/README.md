@@ -10,7 +10,7 @@ Built on top of [gpui-d3rs](https://crates.io/crates/gpui-d3rs) primitives.
 
 ## Features
 
-- **6 chart types**: Scatter, Line, Bar, Heatmap, Contour, Isoline
+- **11 chart families**: Scatter, Line, Area, Bar, Heatmap, Contour, Isoline, Pie/Donut, Box Plot, Treemap, and optional Surface 3D
 - **Fluent builder API**: Chain methods for easy configuration
 - **Color scales**: Viridis, Plasma, Inferno, Magma, Heat, Coolwarm, Greys, or custom
 - **Logarithmic scales**: Both axes support log scaling for multi-magnitude data
@@ -38,7 +38,7 @@ host/native accessibility adapters.
 
 ```toml
 [dependencies]
-gpui-px = "0.1"
+gpui-px = "0.8"
 ```
 
 ## Quick Start

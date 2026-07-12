@@ -20,4 +20,4 @@ mod global;
 
 mod alloc_count;
 
-pub use alloc_count::{AllocProbe, AllocSnapshot};
+pub use alloc_count::{AllocProbe, AllocSnapshot, AllocationBudget};

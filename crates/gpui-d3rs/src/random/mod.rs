@@ -467,4 +467,45 @@ mod tests {
         let mean: f64 = samples.iter().sum::<f64>() / samples.len() as f64;
         assert!((mean - 0.5).abs() < 0.1);
     }
+
+    #[test]
+    fn constructors_and_defaults_produce_finite_samples() {
+        assert!((0.0..1.0).contains(&RandomUniform::unit().sample()));
+        assert!((10.0..20.0).contains(&RandomUniform::new(10.0, 20.0).sample()));
+        assert!(RandomNormal::new(3.0, 2.0).sample().is_finite());
+        assert!(RandomNormal::standard().sample().is_finite());
+        assert!(RandomLogNormal::new(0.0, 0.5).sample().is_sign_positive());
+        assert!(RandomExponential::new(2.0).sample().is_sign_positive());
+        assert!(RandomPoisson::new(2.0).sample() < u64::MAX);
+        assert!((0.0..=4.0).contains(&RandomIrwinHall::new(4).sample()));
+        assert!((0.0..=1.0).contains(&RandomBates::new(4).sample()));
+        let _ = LcgRng::default().next_f64();
+    }
+
+    #[test]
+    fn integer_generation_and_shuffle_cover_edge_cases() {
+        let rng = LcgRng::new(7);
+        assert_eq!(rng.next_u64(0), 0);
+        for _ in 0..100 {
+            assert!(rng.next_u64(3) < 3);
+        }
+
+        let mut empty: [u8; 0] = [];
+        shuffle_in_place(&rng, &mut empty);
+        let mut singleton = [1];
+        shuffle_in_place(&rng, &mut singleton);
+        assert_eq!(singleton, [1]);
+    }
+
+    #[test]
+    fn bernoulli_clamps_probability_and_poisson_is_reproducible() {
+        assert!(!(0..20).any(|_| RandomBernoulli::with_seed(-1.0, 1).sample()));
+        assert!((0..20).all(|_| RandomBernoulli::new(2.0).sample()));
+
+        let first = RandomPoisson::with_seed(3.0, 42);
+        let second = RandomPoisson::with_seed(3.0, 42);
+        for _ in 0..20 {
+            assert_eq!(first.sample(), second.sample());
+        }
+    }
 }

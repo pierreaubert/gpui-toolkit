@@ -54,11 +54,61 @@ def coverage_pct(summary: dict[str, Any]) -> dict[str, float]:
     return result
 
 
+def per_crate_coverage(summary: dict[str, Any]) -> list[dict[str, Any]]:
+    """Aggregate file coverage under crates/<crate>/ without changing totals."""
+    data = summary.get("data", [])
+    if not data:
+        raise RuntimeError("coverage summary 'data' array is empty")
+
+    crates: dict[str, dict[str, int]] = {}
+    for item in data[0].get("files", []):
+        filename = Path(item.get("filename", ""))
+        try:
+            relative = filename.resolve().relative_to(ROOT)
+        except (OSError, ValueError):
+            continue
+        if len(relative.parts) < 3 or relative.parts[0] != "crates":
+            continue
+        name = relative.parts[1]
+        row = crates.setdefault(
+            name,
+            {"lines_covered": 0, "lines_total": 0, "functions_covered": 0, "functions_total": 0},
+        )
+        file_summary = item.get("summary", {})
+        for metric, prefix in (("lines", "lines"), ("functions", "functions")):
+            values = file_summary.get(metric, {})
+            row[f"{prefix}_covered"] += int(values.get("covered", 0))
+            row[f"{prefix}_total"] += int(values.get("count", 0))
+
+    result = []
+    for name, values in sorted(crates.items()):
+        result.append(
+            {
+                "crate": name,
+                **values,
+                "lines_percent": 100.0 * values["lines_covered"] / values["lines_total"]
+                if values["lines_total"]
+                else 100.0,
+                "functions_percent": 100.0
+                * values["functions_covered"]
+                / values["functions_total"]
+                if values["functions_total"]
+                else 100.0,
+            }
+        )
+    return result
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--summary", type=Path, default=DEFAULT_SUMMARY)
     parser.add_argument("--threshold", type=float, default=90.0)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
+    parser.add_argument(
+        "--ignore-regex",
+        default="not supplied",
+        help="Exact llvm-cov exclusion expression recorded in the report",
+    )
     args = parser.parse_args(argv)
 
     try:
@@ -83,6 +133,8 @@ def main(argv: list[str]) -> int:
         f"- Threshold: **{args.threshold:.2f}%**",
         f"- Primary metric (lines): **{primary:.2f}%**",
         f"- Result: **{status}**",
+        f"- Scope: portable production library code under `crates/`",
+        f"- Exclusion expression: `{args.ignore_regex}`",
         "",
         "## Coverage Breakdown",
         "",
@@ -94,6 +146,24 @@ def main(argv: list[str]) -> int:
         covered = data.get("covered", 0)
         total = data.get("count", 0)
         lines.append(f"| {kind.capitalize()} | {covered} | {total} | {value:.2f}% |")
+    lines.append("")
+
+    lines.extend(
+        [
+            "## Per-crate Coverage",
+            "",
+            "These rows are evidence only; the enforced ratchet remains the portable-core aggregate above.",
+            "",
+            "| Crate | Lines | Line percent | Functions | Function percent |",
+            "| --- | ---: | ---: | ---: | ---: |",
+        ]
+    )
+    for row in per_crate_coverage(summary):
+        lines.append(
+            f"| {row['crate']} | {row['lines_covered']}/{row['lines_total']} | "
+            f"{row['lines_percent']:.2f}% | {row['functions_covered']}/{row['functions_total']} | "
+            f"{row['functions_percent']:.2f}% |"
+        )
     lines.append("")
 
     report = "\n".join(lines)

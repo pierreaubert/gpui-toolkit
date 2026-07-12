@@ -8,8 +8,8 @@ use crate::{
     KeymapPreset, command_palette_entries, detect_conflicts,
 };
 
-type SearchCache = HashMap<(KeymapPreset, String), Rc<[CommandPaletteEntry]>>;
-type HintsCache = HashMap<(KeymapPreset, String), Rc<[KeybindingHint]>>;
+type SearchCache = HashMap<KeymapPreset, HashMap<String, Rc<[CommandPaletteEntry]>>>;
+type HintsCache = HashMap<KeymapPreset, HashMap<String, Rc<[KeybindingHint]>>>;
 
 /// Collects keybindings from multiple providers and aggregates them.
 ///

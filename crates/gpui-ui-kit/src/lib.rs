@@ -11,6 +11,7 @@
 
 // Theme, animation, i18n, and accessibility
 pub mod accessibility;
+mod behavior_matrix;
 pub mod animation;
 pub mod color_tokens;
 pub mod design;
@@ -200,6 +201,11 @@ pub use accessibility::{
     AriaProps, AriaRole, AriaState, NativeAccessibilityAction, NativeAccessibilityAdapterError,
     NativeAccessibilityAdapterNode, NativeAccessibilityAdapterPayload, NativeAccessibilityTarget,
     accessibility_readiness_entries, accessibility_readiness_report,
+};
+pub use behavior_matrix::{
+    COMPONENT_BEHAVIOR_REPORT_TYPE, COMPONENT_BEHAVIOR_SCHEMA_VERSION, BehaviorStatus,
+    ComponentBehaviorEntry, ComponentBehaviorReport, component_behavior_entries,
+    component_behavior_report,
 };
 pub use collection_diff::{CollectionPatch, diff_by_key, is_content_only_update};
 pub use mobile::{

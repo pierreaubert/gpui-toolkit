@@ -17,6 +17,60 @@ pub struct AllocSnapshot {
     pub count: usize,
 }
 
+/// A named upper bound for allocations in a warmed-up operation.
+///
+/// Budgets make allocation expectations executable instead of leaving them as
+/// benchmark comments. Callers should warm caches and reserve reusable buffers
+/// before taking the starting snapshot.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AllocationBudget {
+    /// Stable operation name used in assertion failures and QA reports.
+    pub operation: &'static str,
+    /// Maximum allocation/reallocation calls allowed by the operation.
+    pub max_count: usize,
+    /// Maximum newly allocated bytes allowed by the operation.
+    pub max_bytes: usize,
+}
+
+impl AllocationBudget {
+    /// Require a fully allocation-free steady-state operation.
+    pub const fn zero(operation: &'static str) -> Self {
+        Self {
+            operation,
+            max_count: 0,
+            max_bytes: 0,
+        }
+    }
+
+    /// Construct an explicit allocation budget.
+    pub const fn new(operation: &'static str, max_count: usize, max_bytes: usize) -> Self {
+        Self {
+            operation,
+            max_count,
+            max_bytes,
+        }
+    }
+
+    /// Return whether a measured allocation delta is within this budget.
+    pub const fn contains(self, measured: AllocSnapshot) -> bool {
+        measured.count <= self.max_count && measured.bytes <= self.max_bytes
+    }
+
+    /// Assert that a measured allocation delta is within this budget.
+    #[track_caller]
+    pub fn assert_contains(self, measured: AllocSnapshot) {
+        assert!(
+            self.contains(measured),
+            "allocation budget '{}' exceeded: measured {} calls/{} bytes, allowed {} calls/{} bytes",
+            self.operation,
+            measured.count,
+            measured.bytes,
+            self.max_count,
+            self.max_bytes
+        );
+    }
+}
+
 impl AllocSnapshot {
     /// Capture the current allocation counters.
     ///
@@ -141,6 +195,41 @@ mod tests {
         let now = AllocSnapshot::now();
         assert_eq!(delta.bytes, now.bytes.saturating_sub(start.bytes));
         assert_eq!(delta.count, now.count.saturating_sub(start.count));
+    }
+
+    #[test]
+    fn allocation_budget_accepts_values_at_or_below_limits() {
+        let budget = AllocationBudget::new("render", 2, 128);
+        assert!(budget.contains(AllocSnapshot {
+            count: 2,
+            bytes: 128,
+        }));
+        assert!(budget.contains(AllocSnapshot {
+            count: 1,
+            bytes: 64,
+        }));
+    }
+
+    #[test]
+    fn allocation_budget_rejects_either_limit_exceeding() {
+        let budget = AllocationBudget::new("render", 2, 128);
+        assert!(!budget.contains(AllocSnapshot {
+            count: 3,
+            bytes: 64,
+        }));
+        assert!(!budget.contains(AllocSnapshot {
+            count: 1,
+            bytes: 129,
+        }));
+    }
+
+    #[test]
+    #[should_panic(expected = "allocation budget 'steady-state' exceeded")]
+    fn allocation_budget_assertion_names_the_operation() {
+        AllocationBudget::zero("steady-state").assert_contains(AllocSnapshot {
+            count: 1,
+            bytes: 8,
+        });
     }
 
     #[cfg(feature = "global-allocator")]

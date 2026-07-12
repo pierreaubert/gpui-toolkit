@@ -21,6 +21,10 @@
 //! `release_qa_matrix()` exposes the platform/release gate matrix used to keep
 //! compile checks, manual device passes, publish dry-runs, and dependency
 //! hygiene visible before an external release.
+//! `platform_capability_matrix()` separately records declared platform
+//! capabilities and executed evidence, preventing compile support or shared
+//! component tests from being mistaken for runtime, visual, accessibility, or
+//! performance qualification.
 //! `dependency_hygiene_report()` exposes the dependency security policy,
 //! required audit/deny commands, local tool availability, and remaining release
 //! blockers for dependency checks.
@@ -42,6 +46,7 @@
 //!     crate_stability_manifest, dependency_hygiene_report, publish_plan,
 //!     release_notes_artifact_report, release_notes_report, release_packaging_report,
 //!     release_qa_matrix,
+//!     platform_capability_matrix,
 //!     vendored_patch_manifest, gpui_ui_kit, gpui_design, gpui_d3rs
 //! };
 //!
@@ -52,6 +57,7 @@
 //! assert!(!release_notes_artifact_report().blocking_artifacts().collect::<Vec<_>>().is_empty());
 //! assert!(!release_packaging_report().all_release_ready());
 //! assert!(!release_qa_matrix().all_passed());
+//! assert!(!platform_capability_matrix().all_release_ready());
 //! assert!(!vendored_patch_manifest().patches.is_empty());
 //! ```
 
@@ -64,37 +70,40 @@ mod stability;
 mod vendored_patches;
 
 pub use dependency_hygiene::{
-    DEPENDENCY_HYGIENE_REPORT_TYPE, DEPENDENCY_HYGIENE_SCHEMA_VERSION, DependencyAdvisoryTriage,
-    DependencyAdvisoryTriageStatus, DependencyHygieneCheck, DependencyHygieneReport,
-    DependencyHygieneStatus, dependency_advisory_triage, dependency_hygiene_checks,
-    dependency_hygiene_report,
+    dependency_advisory_triage, dependency_hygiene_checks, dependency_hygiene_report,
+    DependencyAdvisoryTriage, DependencyAdvisoryTriageStatus, DependencyHygieneCheck,
+    DependencyHygieneReport, DependencyHygieneStatus, DEPENDENCY_HYGIENE_REPORT_TYPE,
+    DEPENDENCY_HYGIENE_SCHEMA_VERSION,
 };
 pub use publish_plan::{
-    PUBLISH_PLAN_REPORT_TYPE, PUBLISH_PLAN_SCHEMA_VERSION, PublishPlan, PublishPlanEntry,
-    PublishPlanStatus, publish_plan, publish_plan_entries,
+    publish_plan, publish_plan_entries, PublishPlan, PublishPlanEntry, PublishPlanStatus,
+    PUBLISH_PLAN_REPORT_TYPE, PUBLISH_PLAN_SCHEMA_VERSION,
 };
 pub use release_notes::{
+    release_notes_artifact_report, release_notes_artifacts, release_notes_entries,
+    release_notes_report, ReleaseNotesArtifact, ReleaseNotesArtifactReport,
+    ReleaseNotesArtifactStatus, ReleaseNotesEntry, ReleaseNotesReport, ReleaseNotesStatus,
     RELEASE_NOTES_ARTIFACT_REPORT_TYPE, RELEASE_NOTES_REPORT_TYPE, RELEASE_NOTES_SCHEMA_VERSION,
-    ReleaseNotesArtifact, ReleaseNotesArtifactReport, ReleaseNotesArtifactStatus,
-    ReleaseNotesEntry, ReleaseNotesReport, ReleaseNotesStatus, release_notes_artifact_report,
-    release_notes_artifacts, release_notes_entries, release_notes_report,
 };
 pub use release_packaging::{
-    RELEASE_PACKAGING_REPORT_TYPE, RELEASE_PACKAGING_SCHEMA_VERSION, ReleasePackagingEntry,
-    ReleasePackagingReport, ReleasePackagingStatus, release_packaging_entries,
-    release_packaging_report,
+    release_packaging_entries, release_packaging_report, ReleasePackagingEntry,
+    ReleasePackagingReport, ReleasePackagingStatus, RELEASE_PACKAGING_REPORT_TYPE,
+    RELEASE_PACKAGING_SCHEMA_VERSION,
 };
 pub use release_qa::{
-    RELEASE_QA_MATRIX_REPORT_TYPE, RELEASE_QA_MATRIX_SCHEMA_VERSION, ReleaseQaGate,
-    ReleaseQaMatrix, ReleaseQaStatus, release_qa_gates, release_qa_matrix,
+    platform_capabilities, platform_capability_matrix, release_qa_gates, release_qa_matrix,
+    PlatformCapability, PlatformCapabilityMatrix, PlatformCapabilityStatus, PlatformEvidence,
+    ReleaseQaGate, ReleaseQaMatrix, ReleaseQaStatus, PLATFORM_CAPABILITY_MATRIX_REPORT_TYPE,
+    PLATFORM_CAPABILITY_MATRIX_SCHEMA_VERSION, RELEASE_QA_MATRIX_REPORT_TYPE,
+    RELEASE_QA_MATRIX_SCHEMA_VERSION,
 };
 pub use stability::{
-    AggregateFeature, CRATE_STABILITY_MANIFEST, CrateStability, PublishDecision, StabilityLevel,
-    crate_stability_manifest,
+    crate_stability_manifest, AggregateFeature, CrateStability, PublishDecision, StabilityLevel,
+    CRATE_STABILITY_MANIFEST,
 };
 pub use vendored_patches::{
-    VENDORED_PATCH_REPORT_TYPE, VENDORED_PATCH_SCHEMA_VERSION, VendoredPatch,
-    VendoredPatchManifest, VendoredPatchStatus, vendored_patch_manifest, vendored_patches,
+    vendored_patch_manifest, vendored_patches, VendoredPatch, VendoredPatchManifest,
+    VendoredPatchStatus, VENDORED_PATCH_REPORT_TYPE, VENDORED_PATCH_SCHEMA_VERSION,
 };
 
 #[cfg(feature = "platform")]

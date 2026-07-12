@@ -11,6 +11,38 @@ env:
   RUST_BACKTRACE: 1
 
 jobs:
+  platform-check:
+    name: Platform compile (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-platform-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Check workspace targets without warnings
+        env:
+          RUSTFLAGS: -D warnings
+        run: cargo check --workspace --all-targets --features autoeq,camera,gpu-2d,gpu-3d,reqwest,spinorama,tokio,urlencoding
+
+      - name: Test portable workspace
+        # Scaffolder contract tests invoke Apple/nightly targets and belong to
+        # dedicated platform lanes, not the portable desktop matrix.
+        run: cargo test --workspace --exclude gpui-scaffolder --features autoeq,camera,gpu-2d,gpu-3d,reqwest,spinorama,tokio,urlencoding
+
   check-and-test:
     name: Check, Clippy and Unit Tests
     runs-on: ubuntu-latest
@@ -44,6 +76,47 @@ jobs:
         # ubuntu CI run.
         run: cargo test --workspace --exclude gpui-scaffolder --features autoeq,camera,gpu-2d,gpu-3d,reqwest,spinorama,tokio,urlencoding
 
+      - name: QA script contracts
+        run: just qa-scripts
+
+  dependency-policy:
+    name: Dependency, license and source policy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Check cargo-deny policy
+        uses: EmbarkStudios/cargo-deny-action@v2
+
+  public-api:
+    name: Semver (${{ matrix.package }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # These crates do not require the unpublished upstream GPUI package,
+        # so crates.io can provide a meaningful baseline comparison.
+        package: [gpui-design, gpui-pretext, gpui-ui-kit-macros]
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Check public API compatibility
+        uses: obi1kenobi/cargo-semver-checks-action@v2
+        with:
+          package: ${{ matrix.package }}
+
+  public-msrv:
+    name: Public GPUI-free MSRV (Rust 1.89)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install declared minimum Rust toolchain
+        uses: dtolnay/rust-toolchain@1.89.0
+
+      - name: Check minimal public crates and all their targets
+        run: cargo check -p gpui-design -p gpui-pretext -p gpui-ui-kit-macros --all-targets
+
   qa-gpui-obvious:
     name: GPUI Obvious QA Gate
     runs-on: ubuntu-latest
@@ -68,6 +141,38 @@ jobs:
 
       - name: Run GPUI obvious QA
         run: just qa-gpui-obvious
+
+  visual-evidence:
+    name: Renderer-independent visual evidence
+    runs-on: ubuntu-latest
+    needs: check-and-test
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Just
+        uses: extractions/setup-just@v2
+
+      - name: Cache cargo
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-visual-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Run visual manifests, goldens and conformance
+        run: just qa-visual
+
+      - name: Upload visual evidence and pending-renderer report
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-evidence
+          path: target/qa/visual/
+          if-no-files-found: error
 
   coverage-report:
     name: Coverage Report
@@ -104,10 +209,18 @@ jobs:
             --features autoeq,camera,gpu-2d,gpu-3d,reqwest,spinorama,tokio,urlencoding \
             --html --output-dir target/qa/cov/html \
             --ignore-filename-regex '.*/(tests|benches|examples|target|crates/3rdparties|crates/gpui-au|crates/gpui-android|crates/gpui-ios|crates/gpui-miniapp|crates/.*/bin)/.*'
+
+      - name: Enforce coverage ratchet
+        run: |
           cargo llvm-cov --workspace --exclude gpui-scaffolder --all-targets \
             --features autoeq,camera,gpu-2d,gpu-3d,reqwest,spinorama,tokio,urlencoding \
             --json --summary-only --output-path target/qa/cov/summary.json \
             --ignore-filename-regex '.*/(tests|benches|examples|target|crates/3rdparties|crates/gpui-au|crates/gpui-android|crates/gpui-ios|crates/gpui-miniapp|crates/.*/bin)/.*'
+          python3 scripts/qa_cov_check.py \
+            --summary target/qa/cov/summary.json \
+            --threshold 73.5 \
+            --output target/qa/cov/report.md \
+            --ignore-regex '.*/(tests|benches|examples|target|crates/3rdparties|crates/gpui-au|crates/gpui-android|crates/gpui-ios|crates/gpui-miniapp|crates/.*/bin)/.*'
 
       - name: Upload coverage report
         uses: actions/upload-artifact@v4

@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
@@ -99,14 +100,23 @@ fn hash_palette_entries(entries: &[CommandPaletteEntry]) -> u64 {
     hasher.finish()
 }
 
-type SearchKey = (u64, String);
-type HintsKey = (u64, String);
+type PaletteQueryCache = HashMap<String, Rc<[CommandPaletteEntry]>>;
+type PaletteSearchCache = HashMap<u64, PaletteQueryCache>;
+type HintPrefixCache = HashMap<String, Rc<[KeybindingHint]>>;
+type KeybindingHintsCache = HashMap<u64, HintPrefixCache>;
 
 thread_local! {
-    static SEARCH_CACHE: RefCell<HashMap<SearchKey, Rc<[CommandPaletteEntry]>>> =
-        RefCell::new(HashMap::new());
-    static HINTS_CACHE: RefCell<HashMap<HintsKey, Rc<[KeybindingHint]>>> =
-        RefCell::new(HashMap::new());
+    static SEARCH_CACHE: RefCell<PaletteSearchCache> = RefCell::new(HashMap::new());
+    static HINTS_CACHE: RefCell<KeybindingHintsCache> = RefCell::new(HashMap::new());
+}
+
+fn normalized_ascii_lowercase(value: &str) -> Cow<'_, str> {
+    let trimmed = value.trim();
+    if trimmed.bytes().any(|byte| byte.is_ascii_uppercase()) {
+        Cow::Owned(trimmed.to_ascii_lowercase())
+    } else {
+        Cow::Borrowed(trimmed)
+    }
 }
 
 /// Build deterministic command-palette entries from documented keybindings.
@@ -145,12 +155,15 @@ pub fn search_command_palette_cached(
     entries: Rc<[CommandPaletteEntry]>,
     query: &str,
 ) -> Rc<[CommandPaletteEntry]> {
-    let normalized = query.trim().to_ascii_lowercase();
+    let normalized = normalized_ascii_lowercase(query);
     let entries_hash = hash_palette_entries(&entries);
-    let key = (entries_hash, normalized.clone());
 
     SEARCH_CACHE.with(|cache| {
-        if let Some(cached) = cache.borrow().get(&key) {
+        if let Some(cached) = cache
+            .borrow()
+            .get(&entries_hash)
+            .and_then(|queries| queries.get(normalized.as_ref()))
+        {
             return Rc::clone(cached);
         }
 
@@ -160,7 +173,7 @@ pub fn search_command_palette_cached(
             let mut matches: Vec<_> = entries
                 .iter()
                 .filter_map(|entry| {
-                    score_entry(entry, &normalized, normalized.split_whitespace())
+                    score_entry(entry, normalized.as_ref(), normalized.split_whitespace())
                         .map(|score| (score, entry))
                 })
                 .collect();
@@ -180,7 +193,11 @@ pub fn search_command_palette_cached(
                 .into()
         };
 
-        cache.borrow_mut().insert(key, Rc::clone(&result));
+        cache
+            .borrow_mut()
+            .entry(entries_hash)
+            .or_default()
+            .insert(normalized.into_owned(), Rc::clone(&result));
         result
     })
 }
@@ -206,18 +223,25 @@ pub fn keybinding_hints_cached(
     bindings: &[DocumentedKeybinding],
     prefix: &str,
 ) -> Rc<[KeybindingHint]> {
-    let prefix_normalized = prefix.trim().to_ascii_lowercase();
+    let prefix_normalized = normalized_ascii_lowercase(prefix);
     let bindings_hash = hash_documented_bindings(bindings);
-    let key = (bindings_hash, prefix_normalized);
 
     HINTS_CACHE.with(|cache| {
-        if let Some(cached) = cache.borrow().get(&key) {
+        if let Some(cached) = cache
+            .borrow()
+            .get(&bindings_hash)
+            .and_then(|prefixes| prefixes.get(prefix_normalized.as_ref()))
+        {
             return Rc::clone(cached);
         }
 
         let result = build_keybinding_hints(bindings, prefix);
         let result: Rc<[KeybindingHint]> = result.into();
-        cache.borrow_mut().insert(key, Rc::clone(&result));
+        cache
+            .borrow_mut()
+            .entry(bindings_hash)
+            .or_default()
+            .insert(prefix_normalized.into_owned(), Rc::clone(&result));
         result
     })
 }
@@ -292,10 +316,14 @@ impl KeybindingRegistry {
         preset: KeymapPreset,
         query: &str,
     ) -> Rc<[CommandPaletteEntry]> {
-        let normalized = query.trim().to_ascii_lowercase();
-        let key = (preset, normalized);
+        let normalized = normalized_ascii_lowercase(query);
 
-        if let Some(cached) = self.search_cache.borrow().get(&key) {
+        if let Some(cached) = self
+            .search_cache
+            .borrow()
+            .get(&preset)
+            .and_then(|queries| queries.get(normalized.as_ref()))
+        {
             return Rc::clone(cached);
         }
 
@@ -303,7 +331,9 @@ impl KeybindingRegistry {
         let result = search_command_palette_cached(entries, query);
         self.search_cache
             .borrow_mut()
-            .insert(key, Rc::clone(&result));
+            .entry(preset)
+            .or_default()
+            .insert(normalized.into_owned(), Rc::clone(&result));
         result
     }
 
@@ -323,10 +353,14 @@ impl KeybindingRegistry {
         preset: KeymapPreset,
         prefix: &str,
     ) -> Rc<[KeybindingHint]> {
-        let prefix_normalized = prefix.trim().to_ascii_lowercase();
-        let key = (preset, prefix_normalized);
+        let prefix_normalized = normalized_ascii_lowercase(prefix);
 
-        if let Some(cached) = self.hints_cache.borrow().get(&key) {
+        if let Some(cached) = self
+            .hints_cache
+            .borrow()
+            .get(&preset)
+            .and_then(|prefixes| prefixes.get(prefix_normalized.as_ref()))
+        {
             return Rc::clone(cached);
         }
 
@@ -334,7 +368,9 @@ impl KeybindingRegistry {
         let result = keybinding_hints_cached(&docs, prefix);
         self.hints_cache
             .borrow_mut()
-            .insert(key, Rc::clone(&result));
+            .entry(preset)
+            .or_default()
+            .insert(prefix_normalized.into_owned(), Rc::clone(&result));
         result
     }
 }

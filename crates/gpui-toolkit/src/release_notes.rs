@@ -569,22 +569,18 @@ mod tests {
             .map(|artifact| artifact.source)
             .collect::<Vec<_>>();
 
-        assert!(
-            d3rs.iter()
-                .any(|source| source.contains("feature_parity_report"))
-        );
-        assert!(
-            d3rs.iter()
-                .any(|source| source.contains("d3_benchmark_coverage_report"))
-        );
-        assert!(
-            px.iter()
-                .any(|source| source.contains("chart_capability_report"))
-        );
-        assert!(
-            px.iter()
-                .any(|source| source.contains("chart_visual_regression_manifest"))
-        );
+        assert!(d3rs
+            .iter()
+            .any(|source| source.contains("feature_parity_report")));
+        assert!(d3rs
+            .iter()
+            .any(|source| source.contains("d3_benchmark_coverage_report")));
+        assert!(px
+            .iter()
+            .any(|source| source.contains("chart_capability_report")));
+        assert!(px
+            .iter()
+            .any(|source| source.contains("chart_visual_regression_manifest")));
     }
 
     #[test]

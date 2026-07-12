@@ -125,9 +125,9 @@ const CHART_CAPABILITY_ENTRIES: &[ChartCapabilityEntry] = &[
         id: "interaction-state",
         capability: "Interaction state helpers",
         chart_families: "host-rendered chart surfaces",
-        status: ChartCapabilityStatus::Implemented,
+        status: ChartCapabilityStatus::Partial,
         evidence: "ChartInteraction exposes tested renderer-free brush, zoom, wheel, pan, hover-domain, and keyboard state helpers, plus interaction_qa_report() for release evidence.",
-        release_requirement: "Keep interaction and interaction_qa tests green; attach host-app keybinding and tooltip QA before claiming product-level UX parity.",
+        release_requirement: "Keep interaction and interaction_qa tests green; attach host-app keyboard, pointer, touch, focus, and tooltip QA before claiming product-level UX parity.",
     },
     ChartCapabilityEntry {
         id: "native-legends",
@@ -157,7 +157,7 @@ const CHART_CAPABILITY_ENTRIES: &[ChartCapabilityEntry] = &[
         id: "visual-regression",
         capability: "Visual regression baselines",
         chart_families: "all rendered chart families",
-        status: ChartCapabilityStatus::Implemented,
+        status: ChartCapabilityStatus::Partial,
         evidence: "chart_visual_regression_manifest() records chart story ids, dashboard/panel/mobile viewports, light/dark/high-contrast schemes, and stable baseline/actual/diff artifact paths for every public chart family plus optional surface3d.",
         release_requirement: "Keep chart visual-regression manifest tests green and execute the listed captures through component-lab/showcase visual QA before attaching release artifacts.",
     },
@@ -165,7 +165,7 @@ const CHART_CAPABILITY_ENTRIES: &[ChartCapabilityEntry] = &[
         id: "native-accessibility-bridge",
         capability: "Native screen-reader bridge consumption",
         chart_families: "all chart families",
-        status: ChartCapabilityStatus::Implemented,
+        status: ChartCapabilityStatus::AppBridgeRequired,
         evidence: "ChartAccessibilitySummary::to_accessibility_tree() and to_bridge_snapshot() convert chart summaries into gpui-ui-kit AccessibilityTree/AccessibilityBridgeSnapshot payloads with image roles, labels, descriptions, ranges, scales, and series labels for host/native adapters.",
         release_requirement: "Keep accessibility bridge tests green and attach product-level screen-reader QA before claiming OS-level chart accessibility parity.",
     },
@@ -176,7 +176,7 @@ pub const fn chart_capability_report() -> ChartCapabilityReport {
     ChartCapabilityReport {
         schema_version: CHART_CAPABILITY_SCHEMA_VERSION,
         report_type: CHART_CAPABILITY_REPORT_TYPE,
-        reviewed_on: "2026-07-08",
+        reviewed_on: "2026-07-12",
         entries: CHART_CAPABILITY_ENTRIES,
     }
 }
@@ -196,9 +196,9 @@ mod tests {
 
         assert_eq!(report.schema_version, CHART_CAPABILITY_SCHEMA_VERSION);
         assert_eq!(report.report_type, CHART_CAPABILITY_REPORT_TYPE);
-        assert_eq!(report.reviewed_on, "2026-07-08");
+        assert_eq!(report.reviewed_on, "2026-07-12");
         assert!(!report.entries.is_empty());
-        assert!(report.all_release_ready());
+        assert!(!report.all_release_ready());
     }
 
     #[test]
@@ -234,12 +234,12 @@ mod tests {
             .map(|entry| entry.id)
             .collect::<Vec<_>>();
 
-        assert!(!blocking.contains(&"interaction-state"));
+        assert!(blocking.contains(&"interaction-state"));
         assert!(!blocking.contains(&"native-legends"));
         assert!(!blocking.contains(&"annotations"));
         assert!(!blocking.contains(&"static-export"));
-        assert!(!blocking.contains(&"visual-regression"));
-        assert!(!blocking.contains(&"native-accessibility-bridge"));
+        assert!(blocking.contains(&"visual-regression"));
+        assert!(blocking.contains(&"native-accessibility-bridge"));
     }
 
     #[test]

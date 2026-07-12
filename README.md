@@ -77,12 +77,12 @@ The full QA suite is `just qa`. It runs coverage, property tests, visual
 non-regression, performance non-regression, and the existing smoke tests:
 
 ```bash
-just qa           # full suite (coverage gate intentionally fails until 90% is reached)
+just qa           # green canonical gate; coverage floor ratchets upward
 just qa-prop      # property-based tests
 just qa-visual    # visual/golden/conformance checks
 just qa-perf      # benchmark non-regression against qa/perf/baseline.json
 just qa-cov       # workspace coverage report (HTML + JSON)
-just qa-cov-check # coverage gate (currently below the 90% target; see target/qa/cov/report.md)
+just qa-cov-check # enforced current floor; 90% remains the release target
 ```
 
 Update the committed performance baseline after intentional improvements:

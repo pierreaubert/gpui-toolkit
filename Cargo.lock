@@ -2907,6 +2907,7 @@ dependencies = [
  "gpui",
  "gpui-design",
  "gpui-miniapp",
+ "gpui-profiler",
  "gpui-ui-kit",
 ]
 
@@ -3028,6 +3029,7 @@ version = "0.8.4"
 dependencies = [
  "criterion",
  "gpui",
+ "gpui-profiler",
  "serde",
 ]
 
@@ -3052,6 +3054,7 @@ name = "gpui-pretext"
 version = "0.8.5"
 dependencies = [
  "criterion",
+ "gpui-profiler",
  "unicode-segmentation",
 ]
 

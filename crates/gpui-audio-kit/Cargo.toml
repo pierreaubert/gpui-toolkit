@@ -29,6 +29,7 @@ gpui-ui-kit = { workspace = true }
 [dev-dependencies]
 gpui = { workspace = true, features = ["test-support"] }
 gpui-miniapp = { workspace = true }
+gpui-profiler = { workspace = true, features = ["global-allocator"] }
 
 [lib]
 name = "gpui_audio_kit"

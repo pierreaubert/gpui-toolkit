@@ -3,6 +3,7 @@ name = "gpui-pretext"
 version = "0.8.5"
 authors.workspace = true
 edition.workspace = true
+rust-version = "1.89"
 keywords.workspace = true
 categories.workspace = true
 license.workspace = true
@@ -26,6 +27,7 @@ unicode-segmentation = { workspace = true }
 
 [dev-dependencies]
 criterion = { workspace = true }
+gpui-profiler = { workspace = true, features = ["global-allocator"] }
 
 [[bench]]
 name = "layout_temporaries"

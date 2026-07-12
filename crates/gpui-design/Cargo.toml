@@ -3,6 +3,7 @@ name = "gpui-design"
 version = "0.8.4"
 authors.workspace = true
 edition.workspace = true
+rust-version = "1.89"
 keywords.workspace = true
 categories.workspace = true
 license.workspace = true

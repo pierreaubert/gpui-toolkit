@@ -414,11 +414,9 @@ mod tests {
             advisory.advisory_id == "RUSTSEC-2026-0195"
                 && advisory.status == DependencyAdvisoryTriageStatus::RiskAccepted
         }));
-        assert!(
-            dependency_advisory_triage()
-                .iter()
-                .any(|advisory| advisory.status == DependencyAdvisoryTriageStatus::WarningTracked)
-        );
+        assert!(dependency_advisory_triage()
+            .iter()
+            .any(|advisory| advisory.status == DependencyAdvisoryTriageStatus::WarningTracked));
     }
 
     #[test]

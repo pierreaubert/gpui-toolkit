@@ -24,6 +24,8 @@ from __future__ import annotations
 import argparse
 import fnmatch
 import json
+import platform
+import re
 import subprocess
 import sys
 from dataclasses import dataclass, field
@@ -33,7 +35,7 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 TARGET_CRITERION = ROOT / "target" / "criterion"
-BASELINE_VERSION = 1
+BASELINE_VERSION = 2
 
 # Stable-but-reasonable Criterion settings for the non-regression suite.
 # Default settings are too slow for `just qa`; these still produce usable medians.
@@ -272,8 +274,71 @@ def build_baseline(records: list[dict[str, Any]]) -> dict[str, Any]:
         "metadata": {
             "criterion_flags": " ".join(CRITERION_FLAGS),
             "generator": "scripts/qa_perf_baseline.py",
+            "environment": environment_metadata(),
         },
         "records": records,
+    }
+
+
+def command_output(command: list[str]) -> str:
+    """Return a stable one-line command result without making QA fragile."""
+    try:
+        result = subprocess.run(
+            command,
+            cwd=ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        return "unknown"
+    return " ".join(result.stdout.strip().split()) or "unknown"
+
+
+def cpu_model() -> str:
+    """Return the most useful stable CPU identity available on this host."""
+    if sys.platform == "darwin":
+        brand = command_output(["sysctl", "-n", "machdep.cpu.brand_string"])
+        hardware = command_output(["sysctl", "-n", "hw.model"])
+        identity = " | ".join(value for value in (brand, hardware) if value != "unknown")
+        if identity:
+            return identity
+    if sys.platform.startswith("linux"):
+        try:
+            for line in Path("/proc/cpuinfo").read_text().splitlines():
+                if line.startswith(("model name", "Hardware")):
+                    return line.split(":", 1)[-1].strip()
+        except OSError:
+            pass
+    return platform.processor() or "unknown"
+
+
+def rustc_metadata() -> dict[str, str]:
+    output = command_output(["rustc", "-Vv"])
+    release = re.search(r"(?:^| )release: ([^ ]+)", output)
+    host = re.search(r"(?:^| )host: ([^ ]+)", output)
+    # `command_output` flattens lines, so retain the full value for diagnostics
+    # even when a future rustc changes the verbose layout.
+    return {
+        "release": release.group(1) if release else "unknown",
+        "host": host.group(1) if host else "unknown",
+        "verbose": output,
+    }
+
+
+def environment_metadata() -> dict[str, Any]:
+    """Describe the benchmark environment and source used for this run."""
+    source_status = command_output(["git", "status", "--porcelain"])
+    return {
+        "system": platform.system(),
+        "release": platform.release(),
+        "machine": platform.machine(),
+        "cpu_model": cpu_model(),
+        "rustc": rustc_metadata(),
+        "cargo": command_output(["cargo", "-V"]),
+        "source_revision": command_output(["git", "rev-parse", "HEAD"]),
+        "source_dirty": source_status not in ("", "unknown"),
     }
 
 
