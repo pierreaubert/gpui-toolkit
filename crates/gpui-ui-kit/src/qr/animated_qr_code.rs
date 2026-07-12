@@ -16,7 +16,7 @@ use std::time::{Duration, Instant};
 /// An animated QR code that pans a zoomed viewport when the display size is
 /// too small for modules to be individually legible.
 ///
-/// When the QR fits comfortably, it renders identically to [`QrCode`].
+/// When the QR fits comfortably, it renders identically to [`crate::QrCode`].
 ///
 /// # Example
 ///

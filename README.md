@@ -18,6 +18,7 @@ Two open source examples:
 | Crate | Purpose |
 | --- | --- |
 | [gpui-au](./crates/gpui-au/) | macOS Audio Unit platform backend for embedding GPUI rendering inside AUv3 view controllers. |
+| [gpui-android](./crates/gpui-android/) | Android platform backend and JNI integration for GPUI applications. |
 | [gpui-audio-kit](./crates/gpui-audio-kit/) | Audio-focused UI controls for plugin and playback interfaces, including knobs and vertical sliders. |
 | [gpui-builder](./crates/gpui-builder/) | Constraint-based layout solver with responsive display tiers, dividers, auto-axis behavior, and showcase examples. |
 | [gpui-component-lab](./crates/gpui-component-lab/) | Prop-driven component lab and responsive preview matrix for design-system conformance work. |
@@ -28,13 +29,18 @@ Two open source examples:
 | [gpui-keybinding](./crates/gpui-keybinding/) | Reusable keybinding framework with editor-style preset support for GPUI applications. |
 | [gpui-miniapp](./crates/gpui-miniapp/) | Small application shell used by examples and showcases to select the right GPUI platform backend. |
 | [gpui-pretext](./crates/gpui-pretext/) | High-performance text measurement and multiline layout utilities. |
+| [gpui-profiler](./crates/gpui-profiler/) | Lightweight allocation profiling and hot-path regression utilities. |
 | [gpui-px](./crates/gpui-px/) | Plotly Express-style charting API built on `gpui-d3rs` for scatter, line, bar, heatmap, contour, surface, pie, boxplot, and treemap views. |
 | [gpui-python-runtime](./crates/gpui-python-runtime/) | Retained scene specification runtime for a GPUI Python wrapper, with an optional showcase. |
 | [gpui-scaffolder](./crates/gpui-scaffolder/) | CLI for creating standalone GPUI mini-app projects backed by `gpui-miniapp`. |
 | [gpui-themes](./crates/gpui-themes/) | Theme editor and theme showcase infrastructure for GPUI applications. |
 | [gpui-ui-kit](./crates/gpui-ui-kit/) | Reusable UI component library: buttons, inputs, dialogs, menus, tabs, tables, QR, command palette, sidebar, wizard, workflow canvas, and more. |
 | [gpui-ui-kit-macros](./crates/gpui-ui-kit-macros/) | Procedural macros used by `gpui-ui-kit`, including builder and theme derivation helpers. |
+| [gpui-toolkit](./crates/gpui-toolkit/) | Aggregate crate and machine-readable release, stability, and vendored-patch policy manifests. |
+| [gpui-showcase](./crates/gpui-showcase/) | Desktop component showcase application. |
+| [gpui-showcase-android](./crates/gpui-showcase/android/) | Android native library and Gradle host for the component showcase. |
 | [gpui-showcase-ios](./crates/gpui-showcase/ios/) | Static library and Swift host project for showing `gpui-ui-kit` on iOS, with tvOS Rust library build support. |
+| [gpui-showcase-tvos](./crates/gpui-showcase/tvos/) | tvOS static library and Swift host for the component showcase. |
 
 ## Related Assets
 

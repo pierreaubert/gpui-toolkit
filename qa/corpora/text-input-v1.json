@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {"id":"latin-combining","text":"Amélie café","direction":"ltr","ime_commit":"é","dynamic_type_scale":1.0},
+    {"id":"emoji-zwj","text":"Family 👨‍👩‍👧‍👦 and astronaut 👩🏽‍🚀","direction":"ltr","ime_commit":"👩🏽‍🚀","dynamic_type_scale":1.2},
+    {"id":"arabic-rtl","text":"مرحبا بالعالم","direction":"rtl","ime_commit":"العالم","dynamic_type_scale":1.4},
+    {"id":"hebrew-mixed","text":"גרסה 2.0 — build 42","direction":"rtl","ime_commit":"שלום","dynamic_type_scale":1.0},
+    {"id":"cjk","text":"日本語の改行測定 中文换行","direction":"ltr","ime_commit":"日本語","dynamic_type_scale":1.6},
+    {"id":"devanagari","text":"नमस्ते दुनिया","direction":"ltr","ime_commit":"नमस्ते","dynamic_type_scale":1.2},
+    {"id":"thai","text":"สวัสดีชาวโลก","direction":"ltr","ime_commit":"สวัสดี","dynamic_type_scale":1.0},
+    {"id":"multiline","text":"first line\nالسطر الثاني\n第三行","direction":"mixed","ime_commit":"確定","dynamic_type_scale":2.0}
+  ]
+}

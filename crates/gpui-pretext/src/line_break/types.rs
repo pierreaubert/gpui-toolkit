@@ -46,7 +46,7 @@ pub struct LineBreakCursor {
 
 /// Zero-copy view over prepared line-break data.
 ///
-/// Uses `Cow` so production paths can borrow from [`PreparedCore`](crate::layout::PreparedCore)
+/// Uses `Cow` so production paths can borrow from the prepared-text core
 /// while tests can construct owned fixtures cheaply.
 #[derive(Debug, Clone)]
 pub struct PreparedLineBreakData<'a> {
@@ -61,7 +61,7 @@ pub struct PreparedLineBreakData<'a> {
     pub tab_stop_advance: f64,
     pub chunks: Cow<'a, [PreparedLineChunk]>,
     /// Global segment range that this view covers in the underlying
-    /// [`PreparedCore`](crate::layout::PreparedCore). Used to key caches.
+/// the prepared-text core. Used to key caches.
     pub(crate) start_segment: usize,
     pub(crate) end_segment: usize,
     /// Optional cache for Knuth-Plass breakpoint candidate lists. This is
@@ -255,7 +255,7 @@ pub(super) struct ActiveNode {
 /// Each item represents a legal breakpoint with cumulative width/stretch/shrink.
 ///
 /// The result is returned as an `Arc<[KPItem]>` and is cached on the
-/// [`PreparedCore`](crate::layout::PreparedCore) when a cache is available,
+/// the prepared-text core when a cache is available,
 /// avoiding recomputation on repeated optimal layouts of the same text with the
 /// same parameters.
 pub(super) fn build_kp_items(

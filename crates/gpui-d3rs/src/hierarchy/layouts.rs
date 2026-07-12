@@ -2,7 +2,8 @@
 //!
 //! These layouts operate on [`HierarchyNode`] trees. Rectangular layouts return
 //! explicit rectangles, packed layouts return explicit circles, and cluster
-//! layout writes coordinates to the existing node fields like [`TreeLayout`].
+//! layout writes coordinates to the existing node fields like
+//! [`TreeLayout`](crate::hierarchy::TreeLayout).
 
 use super::{HierarchyError, HierarchyNode, validate_layout_dimension, validate_layout_padding};
 use std::cell::RefCell;

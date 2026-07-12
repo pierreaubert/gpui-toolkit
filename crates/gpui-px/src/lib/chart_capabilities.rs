@@ -45,6 +45,10 @@ pub struct ChartCapabilityEntry {
     pub capability: &'static str,
     /// Chart families covered by this capability.
     pub chart_families: &'static str,
+    /// Exact component-lab story ids governed by this capability.
+    pub story_ids: &'static [&'static str],
+    /// Stable test/report contracts proving the capability status.
+    pub test_contracts: &'static [&'static str],
     /// Current readiness.
     pub status: ChartCapabilityStatus,
     /// Evidence recorded for release notes.
@@ -52,6 +56,21 @@ pub struct ChartCapabilityEntry {
     /// Requirement before claiming production-grade parity.
     pub release_requirement: &'static str,
 }
+
+pub const PUBLIC_CHART_STORY_IDS: &[&str] = &[
+    "px.line",
+    "px.bar",
+    "px.scatter",
+    "px.area",
+    "px.heatmap",
+    "px.contour",
+    "px.isoline",
+    "px.pie",
+    "px.donut",
+    "px.boxplot",
+    "px.treemap",
+    "px.surface3d",
+];
 
 /// Versioned chart capability report.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -109,6 +128,11 @@ const CHART_CAPABILITY_ENTRIES: &[ChartCapabilityEntry] = &[
         id: "chart-builders",
         capability: "Plotly Express-style chart builders",
         chart_families: "scatter, line, bar, area, boxplot, heatmap, contour, isoline, pie/donut, treemap, optional surface3d",
+        story_ids: PUBLIC_CHART_STORY_IDS,
+        test_contracts: &[
+            "component-lab:px-story-conformance",
+            "chart builder module tests",
+        ],
         status: ChartCapabilityStatus::Implemented,
         evidence: "Public builder functions exist for the listed chart families, with focused unit coverage across the chart modules.",
         release_requirement: "Keep chart builder tests green before release.",
@@ -117,6 +141,8 @@ const CHART_CAPABILITY_ENTRIES: &[ChartCapabilityEntry] = &[
         id: "accessibility-summaries",
         capability: "Non-rendering accessibility summaries",
         chart_families: "all public chart builders, including optional surface3d",
+        story_ids: PUBLIC_CHART_STORY_IDS,
+        test_contracts: &["accessibility summary tests", "accessibility bridge tests"],
         status: ChartCapabilityStatus::Implemented,
         evidence: "ChartAccessibilitySummary covers chart type, title, series labels, datum counts, finite ranges, scale types, and descriptions.",
         release_requirement: "Keep accessibility summary tests green and feed summaries into app-level native accessibility bridges.",
@@ -125,6 +151,8 @@ const CHART_CAPABILITY_ENTRIES: &[ChartCapabilityEntry] = &[
         id: "interaction-state",
         capability: "Interaction state helpers",
         chart_families: "host-rendered chart surfaces",
+        story_ids: PUBLIC_CHART_STORY_IDS,
+        test_contracts: &["interaction::tests", "interaction_qa_report"],
         status: ChartCapabilityStatus::Partial,
         evidence: "ChartInteraction exposes tested renderer-free brush, zoom, wheel, pan, hover-domain, and keyboard state helpers, plus interaction_qa_report() for release evidence.",
         release_requirement: "Keep interaction and interaction_qa tests green; attach host-app keyboard, pointer, touch, focus, and tooltip QA before claiming product-level UX parity.",
@@ -133,6 +161,8 @@ const CHART_CAPABILITY_ENTRIES: &[ChartCapabilityEntry] = &[
         id: "native-legends",
         capability: "Native rendered legends",
         chart_families: "multi-series 1D charts and categorical charts",
+        story_ids: &["px.line", "px.scatter", "px.bar"],
+        test_contracts: &["legend summary tests", "native legend build tests"],
         status: ChartCapabilityStatus::Implemented,
         evidence: "Line, scatter, and bar charts render native legends and expose ChartLegendSummary metadata with labels, colors, marker shapes, positions, hidden state, and secondary-axis state.",
         release_requirement: "Keep legend summary and native legend build tests green for line, scatter, and bar charts.",
@@ -141,6 +171,8 @@ const CHART_CAPABILITY_ENTRIES: &[ChartCapabilityEntry] = &[
         id: "annotations",
         capability: "Annotations and callouts",
         chart_families: "line, scatter, bar",
+        story_ids: &["px.line", "px.scatter", "px.bar"],
+        test_contracts: &["annotation metadata tests"],
         status: ChartCapabilityStatus::Implemented,
         evidence: "Line, scatter, and bar charts expose ChartAnnotation metadata plus annotation summaries for point, axis-value, and category targets.",
         release_requirement: "Keep annotation metadata tests green and document renderer-level callout drawing as a host/rendering follow-up.",
@@ -149,6 +181,8 @@ const CHART_CAPABILITY_ENTRIES: &[ChartCapabilityEntry] = &[
         id: "static-export",
         capability: "Static image/vector export",
         chart_families: "line, scatter, bar, area, pie/donut, heatmap, boxplot, treemap, isoline, contour, optional surface3d",
+        story_ids: PUBLIC_CHART_STORY_IDS,
+        test_contracts: &["static_export tests"],
         status: ChartCapabilityStatus::Implemented,
         evidence: "Line, scatter, bar, area, pie/donut, heatmap, boxplot, treemap, isoline, contour, and optional surface3d builders expose deterministic to_svg()/to_svg_with_options() vector export with validation and focused tests.",
         release_requirement: "Keep static_export tests green and document broader image/PDF export as a future chart-family expansion.",
@@ -157,6 +191,11 @@ const CHART_CAPABILITY_ENTRIES: &[ChartCapabilityEntry] = &[
         id: "visual-regression",
         capability: "Visual regression baselines",
         chart_families: "all rendered chart families",
+        story_ids: PUBLIC_CHART_STORY_IDS,
+        test_contracts: &[
+            "chart_visual_regression_manifest tests",
+            "component-lab:px-story-conformance",
+        ],
         status: ChartCapabilityStatus::Partial,
         evidence: "chart_visual_regression_manifest() records chart story ids, dashboard/panel/mobile viewports, light/dark/high-contrast schemes, and stable baseline/actual/diff artifact paths for every public chart family plus optional surface3d.",
         release_requirement: "Keep chart visual-regression manifest tests green and execute the listed captures through component-lab/showcase visual QA before attaching release artifacts.",
@@ -165,6 +204,11 @@ const CHART_CAPABILITY_ENTRIES: &[ChartCapabilityEntry] = &[
         id: "native-accessibility-bridge",
         capability: "Native screen-reader bridge consumption",
         chart_families: "all chart families",
+        story_ids: PUBLIC_CHART_STORY_IDS,
+        test_contracts: &[
+            "accessibility bridge snapshot tests",
+            "platform capability matrix",
+        ],
         status: ChartCapabilityStatus::AppBridgeRequired,
         evidence: "ChartAccessibilitySummary::to_accessibility_tree() and to_bridge_snapshot() convert chart summaries into gpui-ui-kit AccessibilityTree/AccessibilityBridgeSnapshot payloads with image roles, labels, descriptions, ranges, scales, and series labels for host/native adapters.",
         release_requirement: "Keep accessibility bridge tests green and attach product-level screen-reader QA before claiming OS-level chart accessibility parity.",
@@ -213,10 +257,26 @@ mod tests {
             );
             assert!(!entry.capability.is_empty());
             assert!(!entry.chart_families.is_empty());
+            assert!(!entry.story_ids.is_empty());
+            assert!(!entry.test_contracts.is_empty());
             assert!(!entry.status.as_str().is_empty());
             assert!(!entry.evidence.is_empty());
             assert!(!entry.release_requirement.is_empty());
         }
+    }
+
+    #[test]
+    fn every_public_chart_story_has_builder_capability_ownership() {
+        let builders = chart_capability_entries()
+            .iter()
+            .find(|entry| entry.id == "chart-builders")
+            .unwrap();
+        assert_eq!(builders.story_ids, PUBLIC_CHART_STORY_IDS);
+        let unique = builders
+            .story_ids
+            .iter()
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(unique.len(), builders.story_ids.len());
     }
 
     #[test]

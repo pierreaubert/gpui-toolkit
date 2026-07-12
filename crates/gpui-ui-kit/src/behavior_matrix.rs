@@ -41,6 +41,8 @@ impl BehaviorStatus {
 pub struct ComponentBehaviorEntry {
     pub id: &'static str,
     pub components: &'static str,
+    pub component_ids: &'static [&'static str],
+    pub test_contracts: &'static [&'static str],
     pub pointer: BehaviorStatus,
     pub keyboard: BehaviorStatus,
     pub touch: BehaviorStatus,
@@ -128,6 +130,18 @@ const COMPONENT_BEHAVIOR_ENTRIES: &[ComponentBehaviorEntry] = &[
     ComponentBehaviorEntry {
         id: "actions",
         components: "Button, IconButton, ButtonSet, Link, Toolbar",
+        component_ids: &[
+            "Button",
+            "IconButton",
+            "ButtonSet",
+            "Link",
+            "Toolbar",
+            "Tag",
+        ],
+        test_contracts: &[
+            "tests/component_tests.rs",
+            "component-lab:exported-story-conformance",
+        ],
         pointer: TESTED,
         keyboard: TESTED,
         touch: CONFORMANCE,
@@ -143,6 +157,21 @@ const COMPONENT_BEHAVIOR_ENTRIES: &[ComponentBehaviorEntry] = &[
     ComponentBehaviorEntry {
         id: "forms",
         components: "Input, NumberInput, Select, Slider, Checkbox, Toggle, ColorPickerView, SearchBar",
+        component_ids: &[
+            "Input",
+            "NumberInput",
+            "Select",
+            "Slider",
+            "Checkbox",
+            "Toggle",
+            "ColorPickerView",
+            "SearchBar",
+        ],
+        test_contracts: &[
+            "tests/integration_tests.rs",
+            "tests/accessibility_tests.rs",
+            "component-lab:exported-story-conformance",
+        ],
         pointer: TESTED,
         keyboard: TESTED,
         touch: CONFORMANCE,
@@ -158,6 +187,24 @@ const COMPONENT_BEHAVIOR_ENTRIES: &[ComponentBehaviorEntry] = &[
     ComponentBehaviorEntry {
         id: "overlays",
         components: "Dialog, ConfirmDialog, Popover, ContextMenu, Menu, MenuBar, Tooltip",
+        component_ids: &[
+            "Dialog",
+            "ConfirmDialog",
+            "Popover",
+            "ContextMenu",
+            "Menu",
+            "MenuBar",
+            "Tooltip",
+            "WithTooltip",
+            "Toast",
+            "ToastContainer",
+            "LoadingOverlay",
+        ],
+        test_contracts: &[
+            "tests/component_tests.rs",
+            "focus_integration_report",
+            "component-lab:exported-story-conformance",
+        ],
         pointer: TESTED,
         keyboard: TESTED,
         touch: CONFORMANCE,
@@ -173,6 +220,22 @@ const COMPONENT_BEHAVIOR_ENTRIES: &[ComponentBehaviorEntry] = &[
     ComponentBehaviorEntry {
         id: "navigation",
         components: "Tabs, Accordion, Breadcrumbs, Sidebar, Wizard, StepIndicator, FocusGroup",
+        component_ids: &[
+            "Tabs",
+            "Accordion",
+            "Breadcrumbs",
+            "Sidebar",
+            "Wizard",
+            "WizardHeader",
+            "WizardNavigation",
+            "StepIndicator",
+            "FocusGroup",
+        ],
+        test_contracts: &[
+            "focus_integration_report",
+            "tests/accessibility_tests.rs",
+            "component-lab:exported-story-conformance",
+        ],
         pointer: TESTED,
         keyboard: TESTED,
         touch: CONFORMANCE,
@@ -188,6 +251,12 @@ const COMPONENT_BEHAVIOR_ENTRIES: &[ComponentBehaviorEntry] = &[
     ComponentBehaviorEntry {
         id: "data-navigation",
         components: "Table, TreeView, CommandPalette, DragList",
+        component_ids: &["Table", "TreeView", "CommandPalette", "DragList"],
+        test_contracts: &[
+            "data_navigation::tests",
+            "tests/component_tests.rs",
+            "component-lab:exported-story-conformance",
+        ],
         pointer: TESTED,
         keyboard: TESTED,
         touch: CONFORMANCE,
@@ -203,6 +272,18 @@ const COMPONENT_BEHAVIOR_ENTRIES: &[ComponentBehaviorEntry] = &[
     ComponentBehaviorEntry {
         id: "workflow",
         components: "WorkflowCanvas, WorkflowNode, Port, PaneDivider, SplitPane",
+        component_ids: &[
+            "WorkflowCanvas",
+            "WorkflowNode",
+            "Port",
+            "PaneDivider",
+            "SplitPane",
+        ],
+        test_contracts: &[
+            "workflow::tests",
+            "tests/accessibility_tests.rs",
+            "component-lab:exported-story-conformance",
+        ],
         pointer: TESTED,
         keyboard: PLATFORM,
         touch: PLATFORM,
@@ -218,6 +299,13 @@ const COMPONENT_BEHAVIOR_ENTRIES: &[ComponentBehaviorEntry] = &[
     ComponentBehaviorEntry {
         id: "mobile-gestures",
         components: "SwipePanel, ContextPreview, PullToRefreshState, WaveformScrubber",
+        component_ids: &[
+            "SwipePanel",
+            "ContextPreview",
+            "PullToRefreshState",
+            "WaveformScrubber",
+        ],
+        test_contracts: &["mobile::tests", "platform-capability-matrix"],
         pointer: TESTED,
         keyboard: TESTED,
         touch: PLATFORM,
@@ -229,6 +317,55 @@ const COMPONENT_BEHAVIOR_ENTRIES: &[ComponentBehaviorEntry] = &[
         high_contrast: CONFORMANCE,
         evidence: "State and keyboard equivalents are component-tested; physical gesture and native accessibility behavior requires simulator/device evidence.",
         release_requirement: "Attach iOS and Android gesture, reduced-motion and screen-reader smoke results.",
+    },
+    ComponentBehaviorEntry {
+        id: "display-layout",
+        components: "Non-interactive display, feedback, status, and layout primitives",
+        component_ids: &[
+            "Card",
+            "Alert",
+            "InlineAlert",
+            "Avatar",
+            "AvatarGroup",
+            "Badge",
+            "BadgeDot",
+            "EmptyState",
+            "ImageView",
+            "KeyboardShortcutLabel",
+            "Progress",
+            "CircularProgress",
+            "QrCode",
+            "AnimatedQrCode",
+            "Spinner",
+            "LoadingDots",
+            "Text",
+            "Heading",
+            "Code",
+            "SettingsRow",
+            "SettingsForm",
+            "VStack",
+            "HStack",
+            "Spacer",
+            "Divider",
+            "StatusBar",
+            "Notification",
+        ],
+        test_contracts: &[
+            "tests/component_tests.rs",
+            "tests/accessibility_tests.rs",
+            "component-lab:exported-story-conformance",
+        ],
+        pointer: NA,
+        keyboard: NA,
+        touch: NA,
+        focus: NA,
+        disabled: NA,
+        accessibility: TESTED,
+        responsive: CONFORMANCE,
+        reduced_motion: CONFORMANCE,
+        high_contrast: CONFORMANCE,
+        evidence: "Exported display/layout primitives have first-party rendered stories plus accessibility, responsive, motion, and contrast conformance metadata.",
+        release_requirement: "Keep the exported component inventory and rendered story registry exhaustive.",
     },
 ];
 
@@ -264,6 +401,8 @@ mod tests {
                 entry.id
             );
             assert!(!entry.components.is_empty());
+            assert!(!entry.component_ids.is_empty());
+            assert!(!entry.test_contracts.is_empty());
             assert!(!entry.evidence.is_empty());
             assert!(!entry.release_requirement.is_empty());
         }
@@ -294,6 +433,7 @@ mod tests {
             "data-navigation",
             "workflow",
             "mobile-gestures",
+            "display-layout",
         ] {
             assert!(
                 ids.contains(&required),
@@ -319,5 +459,18 @@ mod tests {
             assert!(markdown.contains(heading), "missing heading {heading}");
         }
         assert!(markdown.contains("platform-qa-pending"));
+    }
+
+    #[test]
+    fn behavior_matrix_has_unique_component_ownership() {
+        let mut owners = std::collections::BTreeMap::new();
+        for entry in component_behavior_entries() {
+            for component in entry.component_ids {
+                assert!(
+                    owners.insert(*component, entry.id).is_none(),
+                    "component {component} belongs to multiple behavior rows"
+                );
+            }
+        }
     }
 }

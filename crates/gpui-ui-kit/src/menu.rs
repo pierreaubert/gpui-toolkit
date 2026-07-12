@@ -355,22 +355,27 @@ impl Menu {
 
             menu = menu.on_key_down(move |event: &KeyDownEvent, window, cx| {
                 let key = event.keystroke.key.as_str();
+                if let Some(action) = crate::interaction::overlay_key_action(key, true) {
+                    match action {
+                        crate::interaction::OverlayKeyAction::Dismiss => {
+                            if let Some(ref handler) = on_close_for_keyboard {
+                                handler(window, cx);
+                            }
+                        }
+                        crate::interaction::OverlayKeyAction::Activate => {
+                            // Select the focused item
+                            if let Some(idx) = focused_index
+                                && selectable_indices.contains(&idx)
+                                && let Some(id) = item_ids.get(idx)
+                                && let Some(ref handler) = on_select_for_keyboard
+                            {
+                                handler(id, window, cx);
+                            }
+                        }
+                    }
+                    return;
+                }
                 match key {
-                    "escape" => {
-                        if let Some(ref handler) = on_close_for_keyboard {
-                            handler(window, cx);
-                        }
-                    }
-                    "enter" | "space" | " " => {
-                        // Select the focused item
-                        if let Some(idx) = focused_index
-                            && selectable_indices.contains(&idx)
-                            && let Some(id) = item_ids.get(idx)
-                            && let Some(ref handler) = on_select_for_keyboard
-                        {
-                            handler(id, window, cx);
-                        }
-                    }
                     "down" | "arrowdown" => {
                         if let Some(ref handler) = on_focus_change_for_keyboard {
                             handler(next_index, window, cx);

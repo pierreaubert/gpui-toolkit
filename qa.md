@@ -123,6 +123,14 @@ must never silently upgrade a platform gate to `passed`.
 
 ## Release checklist
 
+The `just qa-api` lane is the documentation and public-contract authority. It
+checks no-default-feature library builds, warning-free rustdoc, generated
+project compilation, exact README workspace inventory, the Cargo-pinned GPUI
+revision, and vendored documentation/review freshness. Vendored Zed/wgpu-facing
+renderer and platform patches have a 30-day upstream review cadence; other
+vendored snapshots have a 90-day cadence. Each entry must name an owner,
+removal condition, reproducible delta command, and verification gate.
+
 1. Run `just qa` and attach coverage, performance, visual/conformance, and
    cargo-deny reports.
 2. Run the platform CI matrix and attach required simulator/device/host smoke

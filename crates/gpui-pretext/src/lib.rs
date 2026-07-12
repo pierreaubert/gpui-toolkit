@@ -10,7 +10,7 @@
 ///    Segments text, measures segment widths via a [`TextMeasure`] implementation,
 ///    and caches all width data. Run once per text block.
 ///
-/// 2. **Layout phase** ([`layout`] / [`layout_with_lines`] / [`layout_next_line`]):
+/// 2. **Layout phase** ([`layout()`] / [`layout_with_lines()`] / [`layout_next_line()`]):
 ///    Pure arithmetic line breaking using cached widths. Fast enough to run on
 ///    every resize.
 ///

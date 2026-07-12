@@ -313,5 +313,10 @@ The findings above describe the reviewed baseline. The following recommendations
 - Renderer-independent visual/golden/conformance evidence is generated and uploaded. The report explicitly marks real renderer screenshot capture/diff as pending.
 - Machine-readable component behavior, chart capability, and platform capability/evidence matrices now prevent portable tests or implemented APIs from silently upgrading unexecuted runtime/accessibility/visual gates.
 - The stale gpui-ios revision and gpui-px version/chart-count documentation were corrected.
+- P1 component and chart matrices are now exhaustive: every exported UI-kit component and public chart must have a unique capability owner, executable contract, registered story, and first-party renderer.
+- Overlay Escape/activation semantics now share one interaction contract; existing focus, selection, continuous-control, and chart gesture state machines remain the canonical reusable surfaces.
+- A versioned Unicode/IME/RTL/CJK/Indic/mixed-script/dynamic-type corpus is exercised by pretext and UI-kit, and native accessibility adapters are contract-tested for equivalent node order, Unicode labels, state, values, and actions.
+- `just qa-api` now enforces minimal-feature public-library builds, warning-free rustdoc, generated desktop scaffold compilation, README/workspace and GPUI-revision truthfulness, and vendored governance freshness. CI also compiles the generated iOS scaffold on macOS.
+- Every vendored entry now records an exact upstream base, owner, last-review date, review cadence, removal condition, retained delta, evidence command, and verification gate. Zed renderer/platform forks are reviewed every 30 days; other snapshots every 90 days.
 
 Residual release blockers remain intentionally visible: actual iOS/Android/tvOS simulator or device runs, named AUv3 host certification, Windows native runtime/IME/accessibility qualification, and per-renderer screenshot evidence require their corresponding external environments. These are not treated as passed by the portable-core QA suite.

@@ -1,6 +1,6 @@
 use crate::types::Axis;
 
-/// Warning categories emitted by [`LayoutDebugReport`].
+/// Warning categories emitted by [`crate::solved::LayoutDebugReport`].
 #[derive(Debug, Clone, PartialEq)]
 pub enum LayoutDebugWarningKind<'a> {
     /// A node has a negative, NaN, or infinite size.

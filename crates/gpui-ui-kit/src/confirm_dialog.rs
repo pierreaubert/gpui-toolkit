@@ -225,7 +225,11 @@ impl ConfirmDialog {
             let restore_focus_to = restore_focus_to.clone();
             dialog = dialog.track_focus(&handle).focusable().on_key_down(
                 move |event: &KeyDownEvent, window: &mut Window, cx: &mut App| {
-                    if !handle.is_focused(window) || event.keystroke.key.as_str() != "escape" {
+                    if crate::interaction::overlay_key_action(
+                        event.keystroke.key.as_str(),
+                        handle.is_focused(window),
+                    ) != Some(crate::interaction::OverlayKeyAction::Dismiss)
+                    {
                         return;
                     }
 

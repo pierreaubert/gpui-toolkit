@@ -3056,6 +3056,8 @@ version = "0.8.5"
 dependencies = [
  "criterion",
  "gpui-profiler",
+ "serde",
+ "serde_json",
  "unicode-segmentation",
 ]
 

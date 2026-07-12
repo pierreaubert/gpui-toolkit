@@ -37,6 +37,16 @@ pub struct VendoredPatch {
     pub upstream: &'static str,
     /// Upstream package path, crate name, tag, rev, or registry version.
     pub upstream_base: &'static str,
+    /// Team responsible for reviewing and removing the patch.
+    pub owner: &'static str,
+    /// ISO-8601 date of the most recent upstream-delta review.
+    pub last_reviewed: &'static str,
+    /// Maximum number of days between upstream-delta reviews.
+    pub review_cadence_days: u16,
+    /// Observable condition under which this local copy must be removed.
+    pub removal_condition: &'static str,
+    /// Reproducible command used to inspect the local/upstream delta.
+    pub delta_evidence_command: &'static str,
     /// Current local version/ref.
     pub local_ref: &'static str,
     /// Current dependency-resolution status.
@@ -101,6 +111,11 @@ const VENDORED_PATCHES: &[VendoredPatch] = &[
         local_path: "crates/3rdparties/block",
         upstream: "https://github.com/SSheldon/rust-block",
         upstream_base: "block 0.1.6",
+        owner: "platform-maintainers",
+        last_reviewed: "2026-07-12",
+        review_cadence_days: 90,
+        removal_condition: "Remove when upstream block supports the workspace Rust toolchain without the retained changes.",
+        delta_evidence_command: "git diff block-0.1.6 -- crates/3rdparties/block",
         local_ref: "0.1.6 active local patch",
         status: VendoredPatchStatus::ActivePatch,
         reason: "Objective-C block runtime binding patch point for current Rust compatibility.",
@@ -119,6 +134,11 @@ const VENDORED_PATCHES: &[VendoredPatch] = &[
         local_path: "crates/3rdparties/gpui_macos",
         upstream: "https://github.com/zed-industries/zed",
         upstream_base: "crates/gpui_macos at Zed v1.9.0",
+        owner: "apple-platform-maintainers",
+        last_reviewed: "2026-07-12",
+        review_cadence_days: 90,
+        removal_condition: "Remove when no planned target or root patch references this snapshot.",
+        delta_evidence_command: "git diff v1.9.0 -- crates/3rdparties/gpui_macos",
         local_ref: "0.1.0 local snapshot",
         status: VendoredPatchStatus::InactiveSnapshot,
         reason: "Retained platform snapshot for App Store/private-symbol compatibility work.",
@@ -134,6 +154,11 @@ const VENDORED_PATCHES: &[VendoredPatch] = &[
         local_path: "crates/3rdparties/gpui_wgpu",
         upstream: "https://github.com/zed-industries/zed",
         upstream_base: "crates/gpui_wgpu at Zed v1.9.0",
+        owner: "rendering-maintainers",
+        last_reviewed: "2026-07-12",
+        review_cadence_days: 30,
+        removal_condition: "Remove when the pinned Zed renderer satisfies workspace dependency and platform requirements unchanged.",
+        delta_evidence_command: "git diff v1.9.0 -- crates/3rdparties/gpui_wgpu",
         local_ref: "0.1.0 active local patch",
         status: VendoredPatchStatus::ActivePatch,
         reason: "Local GPUI WGPU renderer/backend patch point while tracking the Zed tag.",
@@ -149,6 +174,11 @@ const VENDORED_PATCHES: &[VendoredPatch] = &[
         local_path: "crates/3rdparties/gpui_windows",
         upstream: "https://github.com/zed-industries/zed",
         upstream_base: "crates/gpui_windows at Zed v1.9.0",
+        owner: "windows-platform-maintainers",
+        last_reviewed: "2026-07-12",
+        review_cadence_days: 30,
+        removal_condition: "Remove when the pinned Zed Windows backend contains the retained parity fixes.",
+        delta_evidence_command: "git diff v1.9.0 -- crates/3rdparties/gpui_windows",
         local_ref: "0.1.0 active local patch",
         status: VendoredPatchStatus::ActivePatch,
         reason: "Local GPUI Windows backend patch point for dependency features and platform parity fixes.",
@@ -164,6 +194,11 @@ const VENDORED_PATCHES: &[VendoredPatch] = &[
         local_path: "crates/3rdparties/mach2",
         upstream: "https://github.com/JohnTitor/mach2",
         upstream_base: "registry mach2 0.5.0 snapshot",
+        owner: "apple-platform-maintainers",
+        last_reviewed: "2026-07-12",
+        review_cadence_days: 90,
+        removal_condition: "Remove when no planned platform work requires the snapshot.",
+        delta_evidence_command: "git diff mach2-0.5.0 -- crates/3rdparties/mach2",
         local_ref: "0.5.0 inactive local snapshot",
         status: VendoredPatchStatus::InactiveSnapshot,
         reason: "Mach kernel bindings snapshot retained for possible platform work.",
@@ -179,6 +214,11 @@ const VENDORED_PATCHES: &[VendoredPatch] = &[
         local_path: "crates/3rdparties/objc",
         upstream: "https://github.com/SSheldon/rust-objc",
         upstream_base: "objc 0.2.7",
+        owner: "apple-platform-maintainers",
+        last_reviewed: "2026-07-12",
+        review_cadence_days: 90,
+        removal_condition: "Remove when upstream objc supports modern Rust and Apple targets without retained changes.",
+        delta_evidence_command: "git diff objc-0.2.7 -- crates/3rdparties/objc",
         local_ref: "0.2.7 active local patch",
         status: VendoredPatchStatus::ActivePatch,
         reason: "Objective-C runtime binding patch point for modern Rust and Apple backend compatibility.",
@@ -197,6 +237,11 @@ const VENDORED_PATCHES: &[VendoredPatch] = &[
         local_path: "crates/3rdparties/psm",
         upstream: "https://github.com/rust-lang/stacker",
         upstream_base: "registry psm 0.1.30 snapshot",
+        owner: "platform-maintainers",
+        last_reviewed: "2026-07-12",
+        review_cadence_days: 90,
+        removal_condition: "Remove when no planned stacker integration requires the snapshot.",
+        delta_evidence_command: "git diff psm-0.1.30 -- crates/3rdparties/psm",
         local_ref: "0.1.30 inactive local snapshot",
         status: VendoredPatchStatus::InactiveSnapshot,
         reason: "Portable stack manipulation snapshot retained for possible stacker/platform work.",
@@ -212,6 +257,11 @@ const VENDORED_PATCHES: &[VendoredPatch] = &[
         local_path: "crates/3rdparties/zed-font-kit",
         upstream: "https://github.com/zed-industries/font-kit",
         upstream_base: "rev 110523127440aefb11ce0cf280ae7c5071337ec5",
+        owner: "text-platform-maintainers",
+        last_reviewed: "2026-07-12",
+        review_cadence_days: 30,
+        removal_condition: "Remove when upstream zed-font-kit supports Apple mobile cfgs and retained bitmap behavior.",
+        delta_evidence_command: "git diff 110523127440aefb11ce0cf280ae7c5071337ec5 -- crates/3rdparties/zed-font-kit",
         local_ref: "0.14.1-zed active local patch",
         status: VendoredPatchStatus::ActivePatch,
         reason: "Apple mobile target cfg and CoreText manifest fixes while staying close to Zed's font-kit fork.",
@@ -260,6 +310,11 @@ mod tests {
             assert!(patch.local_path.starts_with("crates/3rdparties/"));
             assert!(!patch.upstream.is_empty());
             assert!(!patch.upstream_base.is_empty());
+            assert!(!patch.owner.is_empty());
+            assert_eq!(patch.last_reviewed.len(), 10);
+            assert!((1..=365).contains(&patch.review_cadence_days));
+            assert!(!patch.removal_condition.is_empty());
+            assert!(patch.delta_evidence_command.starts_with("git diff "));
             assert!(!patch.local_ref.is_empty());
             assert!(!patch.status.as_str().is_empty());
             assert!(!patch.reason.is_empty());

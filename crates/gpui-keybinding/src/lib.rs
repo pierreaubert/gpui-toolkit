@@ -9,8 +9,8 @@
 //! - [`CommandPaletteEntry`] + [`keybinding_hints`] — discovery data for
 //!   command palettes and chord hint overlays
 //! - [`NavigationAction`] + [`navigation_key`] — generic navigation presets
-//! - [`platform`] — platform-aware key label formatting
-//! - [`conflict`] — conflict detection for duplicate key+context bindings
+//! - `platform` — platform-aware key label formatting
+//! - `conflict` — conflict detection for duplicate key+context bindings
 
 mod conflict;
 mod discovery;

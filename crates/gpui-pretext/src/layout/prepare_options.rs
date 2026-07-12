@@ -20,7 +20,7 @@ impl Default for PrepareOptions {
 
 /// Prepare text for layout. Segments and measures the text once.
 ///
-/// The returned `PreparedText` can be used with [`layout`] for fast line counting.
+/// The returned `PreparedText` can be used with [`crate::layout()`] for fast line counting.
 pub fn prepare(
     text: &str,
     measure: &dyn TextMeasure,
@@ -37,7 +37,8 @@ pub fn prepare(
 
 /// Prepare text for layout, including segment strings for rich output.
 ///
-/// Use with [`layout_with_lines`], [`layout_next_line`], or [`walk_line_ranges`].
+/// Use with [`crate::layout_with_lines()`], [`crate::layout_next_line()`], or
+/// [`crate::walk_line_ranges()`].
 pub fn prepare_with_segments(
     text: &str,
     measure: &dyn TextMeasure,

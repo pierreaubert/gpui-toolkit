@@ -11,40 +11,40 @@
 //! ## Chart Types
 //!
 //! ### Scatter Charts
-//! Use [`scatter()`] for:
+//! Use `scatter()` for:
 //! - Displaying individual data points with x,y coordinates
 //! - Exploring correlations between two continuous variables
 //! - Identifying outliers or clusters in data
 //! - Showing distributions in 2D space
 //!
 //! ### Line Charts
-//! Use [`line()`] for:
+//! Use `line()` for:
 //! - Time series or sequential data
 //! - Showing trends over continuous domains
 //! - Connecting related data points with smooth or linear interpolation
 //! - Comparing multiple series over the same range
 //!
 //! ### Bar Charts
-//! Use [`bar()`] for:
+//! Use `bar()` for:
 //! - Categorical data with discrete categories
 //! - Comparing values across different groups
 //! - Displaying counts or aggregated metrics
 //! - Visualizing rankings or distributions by category
 //!
 //! ### Heatmaps
-//! Use [`heatmap()`] for:
+//! Use `heatmap()` for:
 //! - Visualizing 2D scalar fields with color
 //! - Spectrograms, correlation matrices, geographic data
 //! - Supports log scale axes and multiple color scales
 //!
 //! ### Contour Charts (Filled)
-//! Use [`contour()`] for:
+//! Use `contour()` for:
 //! - Filled bands between threshold values
 //! - Topographic-style visualizations
 //! - Density estimation results
 //!
 //! ### Isoline Charts (Unfilled)
-//! Use [`isoline()`] for:
+//! Use `isoline()` for:
 //! - Unfilled contour lines at specific levels
 //! - Elevation or pressure maps
 //! - Level curves of scalar fields
@@ -258,7 +258,7 @@ pub(crate) use accessibility::{
 pub use annotations::{ChartAnnotation, ChartAnnotationSummary, ChartAnnotationTarget};
 pub use chart_capabilities::{
     CHART_CAPABILITY_REPORT_TYPE, CHART_CAPABILITY_SCHEMA_VERSION, ChartCapabilityEntry,
-    ChartCapabilityReport, ChartCapabilityStatus, chart_capability_entries,
+    ChartCapabilityReport, ChartCapabilityStatus, PUBLIC_CHART_STORY_IDS, chart_capability_entries,
     chart_capability_report,
 };
 pub use chart_size::*;

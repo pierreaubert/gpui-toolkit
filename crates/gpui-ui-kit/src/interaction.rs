@@ -15,6 +15,28 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
+/// Shared semantic action emitted by overlay keyboard handling.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OverlayKeyAction {
+    Dismiss,
+    Activate,
+}
+
+/// Normalize overlay keyboard semantics across dialogs, menus, and popovers.
+///
+/// Unfocused overlays never consume a key. Escape dismisses; Enter and either
+/// GPUI spelling of Space activate the focused overlay item.
+pub fn overlay_key_action(key: &str, focused: bool) -> Option<OverlayKeyAction> {
+    if !focused {
+        return None;
+    }
+    match key {
+        "escape" => Some(OverlayKeyAction::Dismiss),
+        "enter" | "space" | " " => Some(OverlayKeyAction::Activate),
+        _ => None,
+    }
+}
+
 /// Drag state that persists across re-renders
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DragState {
@@ -272,4 +294,31 @@ pub fn handle_drag(
         delta_norm,
         1.0,
     ))
+}
+
+#[cfg(test)]
+mod shared_contract_tests {
+    use super::*;
+
+    #[test]
+    fn overlay_keys_are_focus_gated_and_normalized() {
+        assert_eq!(
+            overlay_key_action("escape", true),
+            Some(OverlayKeyAction::Dismiss)
+        );
+        assert_eq!(
+            overlay_key_action("enter", true),
+            Some(OverlayKeyAction::Activate)
+        );
+        assert_eq!(
+            overlay_key_action("space", true),
+            Some(OverlayKeyAction::Activate)
+        );
+        assert_eq!(
+            overlay_key_action(" ", true),
+            Some(OverlayKeyAction::Activate)
+        );
+        assert_eq!(overlay_key_action("escape", false), None);
+        assert_eq!(overlay_key_action("tab", true), None);
+    }
 }

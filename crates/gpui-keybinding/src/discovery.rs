@@ -209,7 +209,7 @@ pub fn search_command_palette_cached(
 /// but matching is necessarily based on their display string.
 ///
 /// This is the convenience wrapper that returns a [`Vec`]; prefer
-/// [`keybinding_hints_cached`] to reuse the same allocation across calls.
+/// `keybinding_hints_cached()` to reuse the same allocation across calls.
 pub fn keybinding_hints(bindings: &[DocumentedKeybinding], prefix: &str) -> Vec<KeybindingHint> {
     keybinding_hints_cached(bindings, prefix).to_vec()
 }
@@ -340,7 +340,7 @@ impl KeybindingRegistry {
     /// Build which-key-style next-key hints for a preset and chord prefix.
     ///
     /// This convenience method returns a [`Vec`]. Use
-    /// [`keybinding_hints_cached`] to reuse the same allocation.
+    /// `keybinding_hints_cached()` to reuse the same allocation.
     pub fn keybinding_hints(&self, preset: KeymapPreset, prefix: &str) -> Vec<KeybindingHint> {
         self.keybinding_hints_cached(preset, prefix).to_vec()
     }

@@ -1,6 +1,6 @@
 use super::types::SolvedSection;
 
-/// Result of solving a [`ChassisLayout`] at a specific available width.
+/// Result of solving a [`crate::plugin_chassis::ChassisLayout`] at a specific available width.
 #[derive(Debug, Clone)]
 pub struct SolvedChassis {
     /// One entry per input section, in input order.

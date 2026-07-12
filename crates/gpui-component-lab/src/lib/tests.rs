@@ -51,6 +51,54 @@ fn builtin_registry_covers_requested_crates() {
 }
 
 #[test]
+fn every_exported_ui_component_has_behavior_owner_story_and_renderer() {
+    let registry = builtin_story_registry().unwrap();
+    let behavior_owners = gpui_ui_kit::component_behavior_entries()
+        .iter()
+        .flat_map(|entry| {
+            entry
+                .component_ids
+                .iter()
+                .map(move |name| (*name, entry.id))
+        })
+        .collect::<std::collections::BTreeMap<_, _>>();
+
+    for (component, story_id) in UI_KIT_EXPORTED_COMPONENT_STORY_TYPES {
+        if *component == "Showcase" {
+            continue; // Lab host story, not an exported UI-kit component type.
+        }
+        assert!(
+            behavior_owners.contains_key(component),
+            "exported component {component} lacks behavior-matrix ownership"
+        );
+        assert!(
+            registry.story(story_id).is_some(),
+            "exported component {component} lacks registered story {story_id}"
+        );
+        assert!(
+            builtin_story_has_renderer(story_id),
+            "exported component {component} lacks first-party renderer for {story_id}"
+        );
+    }
+}
+
+#[test]
+fn every_public_chart_has_capability_owner_story_and_renderer() {
+    let registry = builtin_story_registry().unwrap();
+    assert_eq!(PX_CHART_STORY_IDS, gpui_px::PUBLIC_CHART_STORY_IDS);
+    for (_, story_id) in PX_CHART_STORY_TYPES {
+        assert!(
+            registry.story(story_id).is_some(),
+            "public chart lacks registered story {story_id}"
+        );
+        assert!(
+            builtin_story_has_renderer(story_id),
+            "public chart lacks first-party renderer {story_id}"
+        );
+    }
+}
+
+#[test]
 fn builtin_registry_has_renderer_coverage() {
     let registry = builtin_story_registry().unwrap();
     for story in registry.stories() {

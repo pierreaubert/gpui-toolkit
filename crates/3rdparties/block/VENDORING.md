@@ -6,8 +6,9 @@
 - Base crate: `block` 0.1.6 from crates.io
 - License: MIT as declared by the upstream crate manifest.
 - Local status: active `[patch.crates-io]` dependency.
+- Last reviewed: 2026-07-12
 
-## Why This Is Vendored
+## Why Vendored
 
 `block` 0.1.6 declares the Objective-C runtime symbol
 `_NSConcreteStackBlock` as a Rust static with an uninhabited `Class` type.
@@ -42,3 +43,9 @@ chain, so the release cannot leave this warning invisible.
      future-incompatibility report.
 4. Remove this vendored patch if the dependency is no longer present or the
    upstream crate carries an equivalent fix.
+
+## Verification
+
+Run the direct manifest check and dependent GPUI/toolkit check listed in the
+upgrade guidance. Review the delta with
+`git diff block-0.1.6 -- crates/3rdparties/block` before updating the base.

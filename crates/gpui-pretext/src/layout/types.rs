@@ -18,7 +18,7 @@ use crate::measurement::{EngineProfile, MeasureCache, TextMeasure};
 /// 2. **Layout**: Use cached widths for fast arithmetic-only line breaking.
 use unicode_segmentation::UnicodeSegmentation;
 
-/// Opaque handle to prepared text data. Returned by [`prepare`].
+/// Opaque handle to prepared text data. Returned by [`crate::prepare()`].
 #[derive(Debug, Clone)]
 pub struct PreparedText {
     pub(super) core: PreparedCore,
@@ -52,7 +52,7 @@ pub(super) struct PreparedCore {
     pub(super) kp_item_cache: RefCell<HashMap<KpItemCacheKey, Arc<[KPItem]>>>,
 }
 
-/// Key for caching Knuth-Plass item lists inside a [`PreparedCore`].
+/// Key for caching Knuth-Plass item lists inside the prepared-text core.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct KpItemCacheKey {
     pub start_segment: usize,

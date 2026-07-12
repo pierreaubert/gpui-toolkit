@@ -2,7 +2,7 @@
 //!
 //! Axes provide visual reference for scales, showing tick marks and labels.
 //! The [`AxisLayout`] surface is renderer-independent and available in
-//! metadata/no-default builds; [`render_axis`] is available in GPUI builds.
+//! metadata/no-default builds; `render_axis` is available in GPUI builds.
 //!
 //! # Example
 //!

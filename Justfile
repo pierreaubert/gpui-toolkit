@@ -17,6 +17,7 @@ import 'builds/cross.just'
 
 features := "--features autoeq,camera,gpu-2d,gpu-3d,reqwest,spinorama,tokio,urlencoding"
 cross_packages := "-p gpui-audio-kit -p gpui-builder -p gpui-component-lab -p gpui-d3rs -p gpui-design -p gpui-design-tools -p gpui-keybinding -p gpui-miniapp -p gpui-pretext -p gpui-px -p gpui-python-runtime -p gpui-scaffolder -p gpui-themes -p gpui-ui-kit -p gpui-ui-kit-macros"
+public_core_packages := "-p gpui-audio-kit -p gpui-builder -p gpui-d3rs -p gpui-design -p gpui-keybinding -p gpui-pretext -p gpui-px -p gpui-themes -p gpui-ui-kit -p gpui-ui-kit-macros"
 
 android_sdk_root := env_var_or_default("ANDROID_HOME", env_var_or_default("ANDROID_SDK_ROOT", "/opt/homebrew/share/android-commandlinetools"))
 android_ndk_version := env_var_or_default("ANDROID_NDK_VERSION", "27.2.12479018")
@@ -89,6 +90,7 @@ qa-gpui-obvious: qa-gpui-conformance
 	cargo test -p gpui-audio-kit {{features}}
 	cargo test -p gpui-ui-kit {{features}}
 	cargo test -p gpui-ui-kit {{features}} --features bench --test allocation_contracts -- --test-threads=1
+	cargo test -p gpui-ui-kit {{features}} --features bench --test text_input_corpus
 	cargo test -p gpui-d3rs {{features}}
 	cargo test -p gpui-px {{features}}
 	cargo tree -p gpui-design-tools {{features}}
@@ -100,12 +102,19 @@ qa-gpui-obvious: qa-gpui-conformance
 # Full QA aggregator. Runs non-coverage checks first; coverage gate is last so a
 # sub-90% report still lets the other suites exercise the code.
 [group('qa')]
-qa: lint-host qa-scripts qa-prop qa-visual qa-perf qa-gpui-obvious qa-cov-check qa-deps
+qa: lint-host qa-scripts qa-api qa-prop qa-visual qa-perf qa-gpui-obvious qa-cov-check qa-deps
 	@echo "Full QA suite passed"
 
 [group('qa')]
 qa-scripts:
 	PYTHONPATH=scripts python3 -m unittest discover -s scripts/tests -p 'test_*.py'
+
+[group('qa')]
+qa-api:
+	python3 scripts/qa_docs_policy.py
+	cargo check {{public_core_packages}} --lib --no-default-features
+	RUSTDOCFLAGS="-D warnings" cargo doc {{public_core_packages}} --lib --no-deps --no-default-features
+	cargo test -p gpui-scaffolder scaffolded_project_passes_cargo_check
 
 # Dependency, advisory, license, and source-origin policy. cargo-deny is the
 # canonical release check; keeping it in `qa` prevents the policy from becoming

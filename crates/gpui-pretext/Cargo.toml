@@ -28,6 +28,8 @@ unicode-segmentation = { workspace = true }
 [dev-dependencies]
 criterion = { workspace = true }
 gpui-profiler = { workspace = true, features = ["global-allocator"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
 
 [[bench]]
 name = "layout_temporaries"

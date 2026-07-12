@@ -1054,6 +1054,47 @@ mod tests {
     }
 
     #[test]
+    fn native_targets_preserve_tree_order_states_values_and_action_parity() {
+        let mut tree = AccessibilityTree::new();
+        tree.register(AccessibilityNode {
+            element_id: ElementId::Name("gain".into()),
+            label: "Gain مستوى".into(),
+            props: AriaProps::with_role(AriaRole::Slider)
+                .state(AriaState::Disabled)
+                .value_range(-6.0, -24.0, 12.0)
+                .value_text("−6 dB"),
+        });
+        tree.register(AccessibilityNode {
+            element_id: ElementId::Name("details".into()),
+            label: "פרטים Details".into(),
+            props: AriaProps::with_role(AriaRole::Button).state(AriaState::Expanded(true)),
+        });
+        let snapshot = tree.to_bridge_snapshot();
+        let targets = [
+            NativeAccessibilityTarget::Macos,
+            NativeAccessibilityTarget::Windows,
+            NativeAccessibilityTarget::Linux,
+            NativeAccessibilityTarget::Ios,
+            NativeAccessibilityTarget::Android,
+        ];
+        let reference = snapshot
+            .to_native_adapter_payload("reference", targets[0])
+            .unwrap();
+        for target in targets {
+            let payload = snapshot
+                .to_native_adapter_payload(target.as_str(), target)
+                .unwrap();
+            assert_eq!(
+                payload.nodes,
+                reference.nodes,
+                "{} adapter drift",
+                target.as_str()
+            );
+            assert_eq!(payload.action_labels(), reference.action_labels());
+        }
+    }
+
+    #[test]
     fn native_adapter_payload_rejects_bad_release_inputs() {
         let mut tree = AccessibilityTree::new();
         tree.register(AccessibilityNode {

@@ -9,7 +9,7 @@ use crate::types::LayoutNode;
 use crate::util::format_number;
 use std::fmt;
 
-/// A single warning emitted by a [`LayoutDebugReport`].
+/// A single warning emitted by a [`crate::solved::LayoutDebugReport`].
 ///
 /// The node identifier strings are borrowed from the source [`SolvedNode`]
 /// tree, so building a debug report never allocates ids.

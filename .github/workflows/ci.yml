@@ -43,6 +43,14 @@ jobs:
         # dedicated platform lanes, not the portable desktop matrix.
         run: cargo test --workspace --exclude gpui-scaffolder --features autoeq,camera,gpu-2d,gpu-3d,reqwest,spinorama,tokio,urlencoding
 
+      - name: Install iOS simulator Rust target
+        if: runner.os == 'macOS'
+        run: rustup target add aarch64-apple-ios-sim
+
+      - name: Check generated iOS simulator scaffold
+        if: runner.os == 'macOS'
+        run: cargo test -p gpui-scaffolder scaffolded_project_passes_ios_simulator_cargo_check
+
   check-and-test:
     name: Check, Clippy and Unit Tests
     runs-on: ubuntu-latest
@@ -116,6 +124,21 @@ jobs:
 
       - name: Check minimal public crates and all their targets
         run: cargo check -p gpui-design -p gpui-pretext -p gpui-ui-kit-macros --all-targets
+
+  public-api-contracts:
+    name: Minimal features, rustdoc and generated scaffold
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Just
+        uses: extractions/setup-just@v2
+
+      - name: Run public API contracts
+        run: just qa-api
 
   qa-gpui-obvious:
     name: GPUI Obvious QA Gate

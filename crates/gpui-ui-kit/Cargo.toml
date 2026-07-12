@@ -227,3 +227,8 @@ required-features = ["bench"]
 name = "allocation_contracts"
 path = "tests/allocation_contracts.rs"
 required-features = ["bench"]
+
+[[test]]
+name = "text_input_corpus"
+path = "tests/text_input_corpus.rs"
+required-features = ["bench"]
