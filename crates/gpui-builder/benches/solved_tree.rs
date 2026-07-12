@@ -1,7 +1,7 @@
 use criterion::{Criterion, criterion_group, criterion_main};
 use gpui_builder::{
     Axis, ContainerNode, LayoutNode, LayoutPreferences, Sizing, SlotNode, SolvedNode, SolvedTree,
-    solve, solve_tree,
+    solve, solve_tree, solve_tree_into,
 };
 use std::hint::black_box;
 
@@ -211,6 +211,20 @@ fn benchmark_text_cache_hit(c: &mut Criterion) {
                 &prefs,
             );
             black_box(solved);
+        });
+    });
+    let mut reusable = SolvedTree::with_capacity(root.node_count());
+    solve_tree_into(&root, 400.0, 2000.0, &prefs, &mut reusable);
+    group.bench_function("solve_tree_into_text_cache_hit", |b| {
+        b.iter(|| {
+            solve_tree_into(
+                black_box(&root),
+                black_box(400.0),
+                black_box(2000.0),
+                &prefs,
+                &mut reusable,
+            );
+            black_box(&reusable);
         });
     });
     group.finish();

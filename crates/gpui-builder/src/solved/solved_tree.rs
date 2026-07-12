@@ -113,6 +113,8 @@ impl<'tree, 'a> SolvedNodeRef<'tree, 'a> {
 pub struct SolvedTree<'a> {
     nodes: Vec<SolvedNodeData<'a>>,
     index: HashMap<&'a str, NodeIndex>,
+    /// Recycled child-index buffers, one per previously solved container.
+    child_index_pool: Vec<Vec<NodeIndex>>,
     /// Lazily-built id → node index map reused by [`Self::as_map`].
     cached_as_map_index: OnceLock<HashMap<&'a str, NodeIndex>>,
 }
@@ -130,8 +132,57 @@ impl<'a> SolvedTree<'a> {
         Self {
             nodes,
             index,
+            child_index_pool: Vec::new(),
             cached_as_map_index: OnceLock::new(),
         }
+    }
+
+    /// Create an empty reusable solved-tree target.
+    ///
+    /// Populate it with [`crate::solve_tree_into`] before calling [`Self::root`].
+    pub fn with_capacity(node_capacity: usize) -> Self {
+        Self {
+            nodes: Vec::with_capacity(node_capacity),
+            index: HashMap::with_capacity(node_capacity),
+            child_index_pool: Vec::new(),
+            cached_as_map_index: OnceLock::new(),
+        }
+    }
+
+    pub(crate) fn prepare_for_reuse(&mut self, node_capacity: usize) {
+        self.child_index_pool.reserve(
+            self.nodes
+                .iter()
+                .filter(|node| !node.children.is_empty())
+                .count(),
+        );
+        // Push in reverse DFS order so `pop()` returns buffers in the same
+        // parent-before-child order used by the next solve.
+        for node in self.nodes.drain(..).rev() {
+            if !node.children.is_empty() {
+                let mut children = node.children;
+                children.clear();
+                self.child_index_pool.push(children);
+            }
+        }
+        if self.nodes.capacity() < node_capacity {
+            self.nodes.reserve(node_capacity);
+        }
+        self.index.clear();
+        if self.index.capacity() < node_capacity {
+            self.index.reserve(node_capacity);
+        }
+        let _ = self.cached_as_map_index.take();
+    }
+
+    pub(crate) fn reusable_parts(
+        &mut self,
+    ) -> (
+        &mut Vec<SolvedNodeData<'a>>,
+        &mut HashMap<&'a str, NodeIndex>,
+        &mut Vec<Vec<NodeIndex>>,
+    ) {
+        (&mut self.nodes, &mut self.index, &mut self.child_index_pool)
     }
 
     /// Find a node by id in O(1).

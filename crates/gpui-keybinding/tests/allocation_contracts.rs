@@ -8,6 +8,9 @@ use std::rc::Rc;
 
 #[test]
 fn normalized_command_palette_cache_hits_are_allocation_free() {
+    if std::env::var_os("CARGO_LLVM_COV").is_some() {
+        return; // Coverage instrumentation allocates inside measured operations.
+    }
     let bindings = [DocumentedKeybinding::new(
         "Ctrl+S",
         "Save file",

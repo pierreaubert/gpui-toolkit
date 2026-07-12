@@ -2920,6 +2920,7 @@ dependencies = [
  "gpui-design",
  "gpui-ios",
  "gpui-pretext",
+ "gpui-profiler",
  "gpui_linux",
  "gpui_macos",
  "gpui_windows",

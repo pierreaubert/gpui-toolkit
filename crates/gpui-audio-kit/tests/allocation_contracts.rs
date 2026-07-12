@@ -10,6 +10,9 @@ use std::hint::black_box;
 
 #[test]
 fn cached_meter_formatting_is_allocation_free() {
+    if std::env::var_os("CARGO_LLVM_COV").is_some() {
+        return; // Coverage instrumentation allocates inside measured operations.
+    }
     const ITERATIONS: usize = 1_000;
 
     // Warm the thread-local cache and any one-time SharedString machinery.

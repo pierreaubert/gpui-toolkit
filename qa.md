@@ -49,7 +49,7 @@ tests run in the Apple platform lane; excluding them here prevents host setup
 from changing the portable-core percentage.
 
 The current enforced portable-core floor is **73.5% lines**. The latest stored
-measurement reviewed on 2026-07-12 was 73.56%. This is a ratchet: it may be
+measurement reviewed on 2026-07-12 was 73.60%. This is a ratchet: it may be
 raised after a verified report and must not be lowered to accommodate a change.
 The release target is 90%, with these per-crate priorities:
 
@@ -81,6 +81,12 @@ meter/spectrum updates, repeated layout solves, text cache hits, edit events,
 chart streaming/render preparation, key dispatch/search, and accessibility
 snapshot diffs. Each contract must document warm-up, input size, allowed
 allocations, and whether retained capacity is part of the API guarantee.
+
+Implemented zero-allocation steady-state contracts currently cover cached
+audio-meter formatting, normalized keybinding search, pretext width/grapheme
+cache hits, and `gpui-builder::solve_tree_into` across 1,000 responsive nested
+resize solves (including priority collapse). The remaining initial-set items
+stay release work rather than inheriting a pass from these contracts.
 
 ## Visual and UX policy
 

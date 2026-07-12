@@ -56,33 +56,27 @@ pub(super) fn allocate_main_axis(
 
     // Pass C: Priority-based collapse if minimums exceed remaining
     if total_minimums > space_after_fixed {
-        let collapsible_count = children
-            .iter()
-            .filter(|c| !c.user_collapsed && c.node.collapsible())
-            .count();
-        let mut collapsible_indices: Vec<usize> = Vec::with_capacity(collapsible_count);
-        collapsible_indices.extend(
-            children
+        let mut current_minimums = total_minimums;
+        while current_minimums > space_after_fixed {
+            // Select the next lowest-priority candidate in place. Typical UI
+            // sibling counts are small, and this avoids allocating/sorting an
+            // index vector in the resize hot path.
+            let Some(idx) = children
                 .iter()
                 .enumerate()
-                .filter(|(_, c)| !c.user_collapsed && c.node.collapsible())
-                .map(|(i, _)| i),
-        );
-
-        // Sort by priority ascending (lowest priority collapses first)
-        collapsible_indices.sort_by(|&a, &b| {
-            children[a]
-                .node
-                .priority()
-                .partial_cmp(&children[b].node.priority())
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
-
-        let mut current_minimums = total_minimums;
-        for idx in collapsible_indices {
-            if current_minimums <= space_after_fixed {
+                .filter(|(_, child)| {
+                    !child.user_collapsed && !child.solver_collapsed && child.node.collapsible()
+                })
+                .min_by(|(_, a), (_, b)| {
+                    a.node
+                        .priority()
+                        .partial_cmp(&b.node.priority())
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
+                .map(|(idx, _)| idx)
+            else {
                 break;
-            }
+            };
             children[idx].solver_collapsed = true;
             current_minimums -= children[idx].node.sizing().min_size();
         }
@@ -180,21 +174,14 @@ pub(super) fn distribute_remaining(
     let flex_remaining = (distributable - used_by_fractional).max(0.0);
     if flex_total_weight > 0.0 {
         // First pass: compute proportional shares with min floor.
-        let flex_count = children
-            .iter()
-            .filter(|c| !c.user_collapsed && !c.solver_collapsed)
-            .filter(|c| matches!(c.node.sizing(), Sizing::Flex { .. }))
-            .count();
-        let mut flex_shares: Vec<(usize, f32)> = Vec::with_capacity(flex_count);
         let mut total_flex = 0.0_f32;
-        for (i, child) in children.iter().enumerate() {
+        for child in children.iter() {
             if child.user_collapsed || child.solver_collapsed {
                 continue;
             }
             if let Sizing::Flex { min, weight } = child.node.sizing() {
                 let proportional = flex_remaining * (weight / flex_total_weight);
                 let share = proportional.max(min).min(flex_remaining);
-                flex_shares.push((i, share));
                 total_flex += share;
             }
         }
@@ -206,8 +193,15 @@ pub(super) fn distribute_remaining(
             1.0
         };
 
-        for (i, share) in flex_shares {
-            children[i].allocated_size = share * scale;
+        for child in children.iter_mut() {
+            if child.user_collapsed || child.solver_collapsed {
+                continue;
+            }
+            if let Sizing::Flex { min, weight } = child.node.sizing() {
+                let proportional = flex_remaining * (weight / flex_total_weight);
+                let share = proportional.max(min).min(flex_remaining);
+                child.allocated_size = share * scale;
+            }
         }
     }
 }

@@ -1,7 +1,8 @@
 use std::cell::Cell;
 
 use super::misc::clear_text_cache;
-use super::{solve, solve_tree};
+use super::{solve, solve_tree, solve_tree_into};
+use crate::solved::SolvedTree;
 use crate::types::{Axis, ContainerNode, LayoutNode, LayoutPreferences, Sizing, SlotNode};
 
 struct CountingMeasure {
@@ -34,6 +35,42 @@ fn simple_text_slot<'a>(
         display_tiers: &[],
         collapse_label: None,
     })
+}
+
+#[test]
+fn reusable_tree_replaces_old_topology_and_index_entries() {
+    let first_children = [
+        LayoutNode::slot("old-a", Sizing::Fixed(20.0)),
+        LayoutNode::slot("old-b", Sizing::flex(0.0)),
+    ];
+    let first = ContainerNode::new(
+        "first-root",
+        Axis::Horizontal,
+        Sizing::flex(0.0),
+        &first_children,
+    )
+    .into_node();
+    let second_children = [LayoutNode::slot("new", Sizing::flex(0.0))];
+    let second = ContainerNode::new(
+        "second-root",
+        Axis::Vertical,
+        Sizing::flex(0.0),
+        &second_children,
+    )
+    .into_node();
+    let prefs = LayoutPreferences::default();
+    let mut target = SolvedTree::with_capacity(1);
+
+    solve_tree_into(&first, 100.0, 50.0, &prefs, &mut target);
+    assert_eq!(target.len(), 3);
+    assert!(target.find("old-b").is_some());
+
+    solve_tree_into(&second, 80.0, 40.0, &prefs, &mut target);
+    assert_eq!(target.len(), 2);
+    assert_eq!(target.root().id(), "second-root");
+    assert_eq!(target.find("new").unwrap().height(), 40.0);
+    assert!(target.find("old-a").is_none());
+    assert!(target.find("old-b").is_none());
 }
 
 #[test]

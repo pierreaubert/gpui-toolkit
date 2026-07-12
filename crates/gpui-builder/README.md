@@ -39,6 +39,21 @@ let sidebar = solved.find("sidebar").unwrap();
 println!("sidebar: {}x{} visible={}", sidebar.width, sidebar.height, sidebar.visible);
 ```
 
+For resize or frame-rate layout, reuse the flat output storage so steady-state
+solves do not allocate:
+
+```rust
+use gpui_builder::{SolvedTree, solve_tree_into};
+
+let mut solved = SolvedTree::with_capacity(root.node_count());
+solve_tree_into(&root, 1200.0, 800.0, &LayoutPreferences::default(), &mut solved);
+solve_tree_into(&root, 900.0, 800.0, &LayoutPreferences::default(), &mut solved);
+assert_eq!(solved.root().width(), 900.0);
+```
+
+The dedicated allocation contract warms solver scratch and then requires
+1,000 nested resize solves plus indexed lookup to perform zero allocations.
+
 ## Layout Diagnostics
 
 Use `SolvedNode::debug_report()` while iterating on complex layouts. If you

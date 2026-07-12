@@ -53,7 +53,7 @@ impl BenchmarkReport {
     }
 }
 
-const BENCHMARK_CASES: [BenchmarkCase; 26] = [
+const BENCHMARK_CASES: [BenchmarkCase; 27] = [
     BenchmarkCase {
         group: "balanced_tree_find",
         id: "recursive_find_depth_6",
@@ -236,6 +236,13 @@ const BENCHMARK_CASES: [BenchmarkCase; 26] = [
         scale: "20 text-measured slots",
         purpose: "flat solver text-measure cache-hit baseline",
     },
+    BenchmarkCase {
+        group: "text_cache_hit",
+        id: "solve_tree_into_text_cache_hit",
+        operation: "solve_tree_into",
+        scale: "20 text-measured slots",
+        purpose: "reusable flat solver cache-hit and resize hot-path baseline",
+    },
 ];
 
 /// Return the current benchmark coverage report.
@@ -266,7 +273,7 @@ mod tests {
         assert_eq!(report.schema_version, BENCHMARK_REPORT_SCHEMA_VERSION);
         assert_eq!(report.report_type, BENCHMARK_REPORT_TYPE);
         assert!(report.criterion_command.contains("solved_tree"));
-        assert_eq!(report.cases.len(), 26);
+        assert_eq!(report.cases.len(), 27);
 
         for case in report.cases {
             assert!(!case.group.is_empty());
@@ -307,6 +314,7 @@ mod tests {
         assert!(markdown.contains("cargo bench -p gpui-builder --bench solved_tree"));
         assert!(markdown.contains("recursive_find_depth_10"));
         assert!(markdown.contains("solve_tree_text_cache_hit"));
+        assert!(markdown.contains("solve_tree_into_text_cache_hit"));
     }
 
     #[test]

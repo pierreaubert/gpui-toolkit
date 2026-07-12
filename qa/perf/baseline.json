@@ -482,6 +482,15 @@
     {
       "crate": "gpui-builder",
       "bench": "solved_tree",
+      "group": "text_cache_hit",
+      "function": "solve_tree_into_text_cache_hit",
+      "median_ns": 992.7701486465031,
+      "mean_ns": 997.3915794961047,
+      "unit": "ns"
+    },
+    {
+      "crate": "gpui-builder",
+      "bench": "solved_tree",
       "group": "wide_tree_find",
       "function": "as_map_get_count_200",
       "median_ns": 11.006028119049944,

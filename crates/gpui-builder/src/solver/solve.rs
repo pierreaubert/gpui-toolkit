@@ -25,8 +25,8 @@ use std::rc::Rc;
 /// This function is allocation-heavy: it builds a fresh recursive
 /// [`SolvedNode`] tree on every call, and every container allocates a new
 /// `Vec<SolvedNode>` for its children. For frame-rate layout work, prefer
-/// [`solve_tree`] / [`solve_tree_with_cache`], which stores the whole tree in a
-/// single pre-allocated arena and avoids the per-container child vectors.
+/// [`solve_tree_into`] / [`solve_tree_into_with_cache`], which retain the flat
+/// arena, id index, child-index buffers, and text cache across calls.
 pub fn solve<'a>(
     root: &LayoutNode<'a>,
     width: f32,
@@ -46,8 +46,8 @@ pub fn solve<'a>(
 ///
 /// Like [`solve`], this function builds a fresh recursive [`SolvedNode`] tree
 /// with a per-container child vector on every call. For frame-rate layout
-/// work, prefer [`solve_tree_with_cache`], which uses a single arena and
-/// avoids those allocations.
+/// work, prefer [`solve_tree_into_with_cache`], which reuses solver output and
+/// avoids those allocations after warm-up.
 pub fn solve_with_cache<'a>(
     root: &LayoutNode<'a>,
     width: f32,
@@ -85,10 +85,52 @@ pub fn solve_tree_with_cache<'a>(
     cache: Rc<RefCell<TextMeasureCache>>,
 ) -> SolvedTree<'a> {
     let estimated = root.node_count();
-    let mut nodes = Vec::with_capacity(estimated);
-    let mut index = HashMap::with_capacity(estimated);
-    solve_tree_node(root, width, height, prefs, &mut nodes, &mut index, &cache);
-    SolvedTree::from_parts(nodes, index)
+    let mut tree = SolvedTree::with_capacity(estimated);
+    solve_tree_into_with_cache(root, width, height, prefs, cache, &mut tree);
+    tree
+}
+
+/// Re-solve into an existing flat tree while retaining arena, index, and
+/// container child-buffer capacity.
+///
+/// Warm this path once before a frame/event allocation measurement. The
+/// source tree and all borrowed ids must use the same lifetime as `target`.
+pub fn solve_tree_into<'a>(
+    root: &LayoutNode<'a>,
+    width: f32,
+    height: f32,
+    prefs: &LayoutPreferences<'a>,
+    target: &mut SolvedTree<'a>,
+) {
+    solve_tree_into_with_cache(root, width, height, prefs, default_text_cache(), target);
+}
+
+/// Re-solve into reusable storage with an explicit text-measurement cache.
+pub fn solve_tree_into_with_cache<'a>(
+    root: &LayoutNode<'a>,
+    width: f32,
+    height: f32,
+    prefs: &LayoutPreferences<'a>,
+    cache: Rc<RefCell<TextMeasureCache>>,
+    target: &mut SolvedTree<'a>,
+) {
+    let estimated = root.node_count();
+    target.prepare_for_reuse(estimated);
+    let (nodes, index, child_index_pool) = target.reusable_parts();
+    let mut storage = TreeSolveStorage {
+        nodes,
+        index,
+        child_index_pool,
+        cache: &cache,
+    };
+    solve_tree_node(root, width, height, prefs, &mut storage);
+}
+
+struct TreeSolveStorage<'storage, 'a> {
+    nodes: &'storage mut Vec<SolvedNodeData<'a>>,
+    index: &'storage mut HashMap<&'a str, NodeIndex>,
+    child_index_pool: &'storage mut Vec<Vec<NodeIndex>>,
+    cache: &'storage Rc<RefCell<TextMeasureCache>>,
 }
 
 // Reusable scratch buffer pool for per-container child-info vectors.
@@ -143,14 +185,14 @@ fn solve_tree_node<'a>(
     width: f32,
     height: f32,
     prefs: &LayoutPreferences<'a>,
-    nodes: &mut Vec<SolvedNodeData<'a>>,
-    index: &mut HashMap<&'a str, NodeIndex>,
-    cache: &Rc<RefCell<TextMeasureCache>>,
+    storage: &mut TreeSolveStorage<'_, 'a>,
 ) -> NodeIndex {
     match node {
-        LayoutNode::Slot(slot) => solve_tree_slot(slot, width, height, prefs, nodes, index),
+        LayoutNode::Slot(slot) => {
+            solve_tree_slot(slot, width, height, prefs, storage.nodes, storage.index)
+        }
         LayoutNode::Container(container) => {
-            solve_tree_container(container, width, height, prefs, nodes, index, cache)
+            solve_tree_container(container, width, height, prefs, storage)
         }
     }
 }
@@ -205,9 +247,7 @@ fn solve_tree_container<'a>(
     width: f32,
     height: f32,
     prefs: &LayoutPreferences<'a>,
-    nodes: &mut Vec<SolvedNodeData<'a>>,
-    index: &mut HashMap<&'a str, NodeIndex>,
-    cache: &Rc<RefCell<TextMeasureCache>>,
+    storage: &mut TreeSolveStorage<'_, 'a>,
 ) -> NodeIndex {
     let axis = resolve_axis(container, width, height);
 
@@ -245,7 +285,7 @@ fn solve_tree_container<'a>(
                         profile: &profile,
                         options: &options,
                     },
-                    cache,
+                    storage.cache,
                 ))
             } else {
                 None
@@ -272,9 +312,9 @@ fn solve_tree_container<'a>(
 
     // Reserve the container node first so children are stored after it in
     // pre-order DFS order.
-    let container_idx = NodeIndex(nodes.len());
-    index.insert(container.id, container_idx);
-    nodes.push(SolvedNodeData {
+    let container_idx = NodeIndex(storage.nodes.len());
+    storage.index.insert(container.id, container_idx);
+    storage.nodes.push(SolvedNodeData {
         id: container.id,
         width,
         height,
@@ -282,10 +322,13 @@ fn solve_tree_container<'a>(
         active_tier: None,
         collapse_label: None,
         resolved_axis: Some(axis),
-        children: Vec::with_capacity(child_infos.len()),
+        // Filled from a recycled child-index buffer after descendants solve.
+        children: Vec::new(),
     });
 
-    let mut child_indices = Vec::with_capacity(child_infos.len());
+    let mut child_indices = storage.child_index_pool.pop().unwrap_or_default();
+    child_indices.clear();
+    child_indices.reserve(child_infos.len());
     for info in &child_infos {
         let visible = !info.user_collapsed && !info.solver_collapsed;
         if !visible {
@@ -304,8 +347,8 @@ fn solve_tree_container<'a>(
                     resolved_axis: None,
                     children: Vec::new(),
                 },
-                nodes,
-                index,
+                storage.nodes,
+                storage.index,
             );
             child_indices.push(child_idx);
             continue;
@@ -330,14 +373,13 @@ fn solve_tree_container<'a>(
                         resolved_axis: None,
                         children: Vec::new(),
                     },
-                    nodes,
-                    index,
+                    storage.nodes,
+                    storage.index,
                 );
                 child_indices.push(child_idx);
             }
             LayoutNode::Container(_) => {
-                let child_idx =
-                    solve_tree_node(info.node, child_w, child_h, prefs, nodes, index, cache);
+                let child_idx = solve_tree_node(info.node, child_w, child_h, prefs, storage);
                 child_indices.push(child_idx);
             }
         }
@@ -345,7 +387,7 @@ fn solve_tree_container<'a>(
 
     return_child_info_scratch(child_infos);
 
-    nodes[container_idx.0].children = child_indices;
+    storage.nodes[container_idx.0].children = child_indices;
     container_idx
 }
 

@@ -17,6 +17,9 @@ impl TextMeasure for FixedMeasure {
 
 #[test]
 fn warmed_measurement_cache_hits_are_allocation_free() {
+    if std::env::var_os("CARGO_LLVM_COV").is_some() {
+        return; // Coverage instrumentation allocates inside measured operations.
+    }
     const ITERATIONS: usize = 1_000;
     let mut cache = MeasureCache::new();
     let measure = FixedMeasure;
@@ -35,6 +38,9 @@ fn warmed_measurement_cache_hits_are_allocation_free() {
 
 #[test]
 fn warmed_grapheme_metric_cache_hits_are_allocation_free() {
+    if std::env::var_os("CARGO_LLVM_COV").is_some() {
+        return; // Coverage instrumentation allocates inside measured operations.
+    }
     const ITERATIONS: usize = 1_000;
     let mut cache = MeasureCache::new();
     let measure = FixedMeasure;

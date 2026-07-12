@@ -84,7 +84,10 @@ pub use solved::{
     LayoutDebugReport, LayoutDebugWarning, LayoutDebugWarningKind, NodeIndex, SolvedNode,
     SolvedNodeData, SolvedNodeRef, SolvedTree,
 };
-pub use solver::{TextMeasureCache, solve, solve_tree, solve_tree_with_cache, solve_with_cache};
+pub use solver::{
+    TextMeasureCache, solve, solve_tree, solve_tree_into, solve_tree_into_with_cache,
+    solve_tree_with_cache, solve_with_cache,
+};
 pub use state::{
     LayoutAction, LayoutCollapsedState, LayoutPreferenceSnapshot, LayoutRatioOverride, LayoutState,
 };
