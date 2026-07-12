@@ -10,7 +10,7 @@
 //! triggered by `cx.notify()`.
 
 use crate::scale::Scale;
-use gpui::*;
+use gpui::{ElementId, Modifiers, ScrollDelta};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;

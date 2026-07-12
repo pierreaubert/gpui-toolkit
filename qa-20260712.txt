@@ -305,7 +305,7 @@ The findings above describe the reviewed baseline. The following recommendations
 
 - `qa.md` now defines a canonical green gate, explicit coverage exclusions, a 73.5% portable-core ratchet, hard performance policy, visual evidence rules, platform tiers, and scoped Rust 1.89 MSRV policy.
 - Linux QA plus maintained macOS/Windows warning-free compile and portable-test jobs are defined in CI. Device/runtime claims remain separate.
-- The coverage CI ordering defect was fixed. The generated report now records the exact exclusion expression and publishes line/function coverage per crate; the current verified aggregate is 75,334/102,360 lines (73.60%).
+- The coverage CI ordering defect was fixed. The generated report now records the exact exclusion expression and publishes line/function coverage per crate; the current verified aggregate is 75,571/102,584 lines (73.67%).
 - Warning-free workspace Clippy is enforced. The contour and px warning sources identified by the review were corrected.
 - cargo-deny advisory/license/source policy, Python QA-script contracts, semver checks for publishable GPUI-free crates, and Rust 1.89 MSRV checks are maintained CI jobs.
 - Performance comparison is a hard 20% material-regression gate above a 150 ns noise floor. Baselines record host/toolchain/source metadata and reject incomparable machines rather than reporting false regressions.

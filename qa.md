@@ -49,7 +49,7 @@ tests run in the Apple platform lane; excluding them here prevents host setup
 from changing the portable-core percentage.
 
 The current enforced portable-core floor is **73.5% lines**. The latest stored
-measurement reviewed on 2026-07-12 was 73.60%. This is a ratchet: it may be
+measurement reviewed on 2026-07-12 was 73.67%. This is a ratchet: it may be
 raised after a verified report and must not be lowered to accommodate a change.
 The release target is 90%, with these per-crate priorities:
 
