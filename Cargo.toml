@@ -175,7 +175,7 @@ itertools = "0.14.0"
 proptest = "1.9"
 rand = "0.10.2"
 unicode-normalization = "0.1"
-toml = "0.8"
+toml = "1.1"
 uuid = { version = "1", features = ["v4", "v5", "serde"] }
 lazy_static = "1.4"
 bincode = { version = "2.0.1", features = ["serde"] }
