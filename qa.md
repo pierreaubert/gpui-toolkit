@@ -35,6 +35,19 @@ The currently publishable GPUI-free crates (`gpui-design`, `gpui-pretext`, and
 The remaining crates do not claim that MSRV until the unpublished GPUI
 dependency and target-specific toolchains can be validated at the same floor.
 
+## Unsafe-code policy
+
+Portable first-party code must be safe Rust. `just qa-scripts` runs
+`scripts/qa_unsafe_policy.py`, which rejects unsafe Rust constructs outside
+the explicit native boundary crates (`gpui-au`, `gpui-android`, and
+`gpui-ios`), their Android/iOS/tvOS showcase entry libraries, and the macOS
+camera-permission shim in the QR example. Generated mobile FFI attributes in
+`gpui-scaffolder` are textually exempt, while that crate itself uses
+`forbid(unsafe_code)`. Vendored third-party sources are governed separately.
+An unavoidable unsafe trait API, such as allocator instrumentation, must be
+delegated to a reviewed dependency rather than implemented in portable
+first-party code.
+
 ## Coverage policy
 
 Coverage is reported only for portable production library code. Tests,

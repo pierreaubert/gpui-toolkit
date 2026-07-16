@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 //! Lightweight allocation profiling utilities for GPUI applications.
 //!
 //! Enable the `global-allocator` feature to count every heap allocation during

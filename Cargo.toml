@@ -66,6 +66,7 @@ regex = "1.12"
 tempfile = "3.23"
 thiserror = "2.0.17"
 unicode-segmentation = "1"
+stats_alloc = "0.1.10"
 
 # Optimization and math
 ndarray = { version = "0.17", default-features = false, features = ["rayon", "blas", "serde"] }

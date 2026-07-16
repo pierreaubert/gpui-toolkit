@@ -9,7 +9,6 @@ use gpui_audio_kit::spectrum::MeterData;
 use gpui_profiler::{AllocProbe, AllocationBudget};
 use std::hint::black_box;
 
-#[test]
 fn cached_meter_formatting_is_allocation_free() {
     if std::env::var_os("CARGO_LLVM_COV").is_some() {
         return; // Coverage instrumentation allocates inside measured operations.
@@ -29,7 +28,6 @@ fn cached_meter_formatting_is_allocation_free() {
         .assert_contains(probe.sample("cached-meter-formatting-1000x"));
 }
 
-#[test]
 fn warmed_spectrum_meter_updates_are_allocation_free() {
     if std::env::var_os("CARGO_LLVM_COV").is_some() {
         return; // Coverage instrumentation allocates inside measured operations.
@@ -51,4 +49,12 @@ fn warmed_spectrum_meter_updates_are_allocation_free() {
     assert_eq!(spectrum.peaks.len(), BINS);
     AllocationBudget::zero("spectrum-meter-update-1024-bins-1000x")
         .assert_contains(probe.sample("spectrum-meter-update-1024-bins-1000x"));
+}
+
+#[test]
+fn allocation_contracts_run_serially() {
+    // Allocation counters are process-wide, so these measurements must not
+    // execute concurrently in the same integration-test binary.
+    cached_meter_formatting_is_allocation_free();
+    warmed_spectrum_meter_updates_are_allocation_free();
 }

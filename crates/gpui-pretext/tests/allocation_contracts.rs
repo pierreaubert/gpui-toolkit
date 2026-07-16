@@ -15,7 +15,6 @@ impl TextMeasure for FixedMeasure {
     }
 }
 
-#[test]
 fn warmed_measurement_cache_hits_are_allocation_free() {
     if std::env::var_os("CARGO_LLVM_COV").is_some() {
         return; // Coverage instrumentation allocates inside measured operations.
@@ -36,7 +35,6 @@ fn warmed_measurement_cache_hits_are_allocation_free() {
         .assert_contains(probe.sample("pretext-width-cache-hit-1000x"));
 }
 
-#[test]
 fn warmed_grapheme_metric_cache_hits_are_allocation_free() {
     if std::env::var_os("CARGO_LLVM_COV").is_some() {
         return; // Coverage instrumentation allocates inside measured operations.
@@ -57,4 +55,12 @@ fn warmed_grapheme_metric_cache_hits_are_allocation_free() {
 
     AllocationBudget::zero("pretext-grapheme-cache-hits-1000x")
         .assert_contains(probe.sample("pretext-grapheme-cache-hits-1000x"));
+}
+
+#[test]
+fn allocation_contracts_run_serially() {
+    // Allocation counters are process-wide, so these measurements must not
+    // execute concurrently in the same integration-test binary.
+    warmed_measurement_cache_hits_are_allocation_free();
+    warmed_grapheme_metric_cache_hits_are_allocation_free();
 }

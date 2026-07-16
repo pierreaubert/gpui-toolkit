@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 use anyhow::{Context, Result, bail};
 use std::ffi::OsString;
 use std::fs;

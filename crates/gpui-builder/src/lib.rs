@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 //! Generic constraint-based layout solver.
 //!
 //! Platform-agnostic layout system that resolves a tree of `LayoutNode`

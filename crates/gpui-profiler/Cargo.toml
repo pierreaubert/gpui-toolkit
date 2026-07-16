@@ -13,6 +13,7 @@ readme = "README.md"
 [features]
 default = []
 # Install a counting global allocator. Disable for zero-overhead builds.
-global-allocator = []
+global-allocator = ["dep:stats_alloc"]
 
 [dependencies]
+stats_alloc = { workspace = true, optional = true }

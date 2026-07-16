@@ -78,10 +78,12 @@ impl AllocSnapshot {
     pub fn now() -> Self {
         #[cfg(feature = "global-allocator")]
         {
-            use std::sync::atomic::Ordering;
+            let stats = crate::global::GLOBAL.stats();
             Self {
-                bytes: crate::global::ALLOC_BYTES.load(Ordering::Relaxed),
-                count: crate::global::ALLOC_COUNT.load(Ordering::Relaxed),
+                bytes: stats
+                    .bytes_allocated
+                    .saturating_add(stats.bytes_reallocated.max(0).unsigned_abs()),
+                count: stats.allocations.saturating_add(stats.reallocations),
             }
         }
         #[cfg(not(feature = "global-allocator"))]
@@ -226,10 +228,8 @@ mod tests {
     #[test]
     #[should_panic(expected = "allocation budget 'steady-state' exceeded")]
     fn allocation_budget_assertion_names_the_operation() {
-        AllocationBudget::zero("steady-state").assert_contains(AllocSnapshot {
-            count: 1,
-            bytes: 8,
-        });
+        AllocationBudget::zero("steady-state")
+            .assert_contains(AllocSnapshot { count: 1, bytes: 8 });
     }
 
     #[cfg(feature = "global-allocator")]
