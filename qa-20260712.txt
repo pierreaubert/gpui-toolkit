@@ -320,3 +320,10 @@ The findings above describe the reviewed baseline. The following recommendations
 - Every vendored entry now records an exact upstream base, owner, last-review date, review cadence, removal condition, retained delta, evidence command, and verification gate. Zed renderer/platform forks are reviewed every 30 days; other snapshots every 90 days.
 
 Residual release blockers remain intentionally visible: actual iOS/Android/tvOS simulator or device runs, named AUv3 host certification, Windows native runtime/IME/accessibility qualification, and per-renderer screenshot evidence require their corresponding external environments. These are not treated as passed by the portable-core QA suite.
+
+FOLLOW-UP STATUS — 2026-07-16
+
+- gpui-builder no longer uses unsafe lifetime transmutation or self-referential preference caching. Reusable solver scratch stores child indices, and LayoutState produces safe snapshot-owned lookup maps.
+- The previously vacuous property-test gate now invokes an explicit gpui-builder proptest target covering recursive/flat solver parity and feasible flexible-layout allocation bounds.
+- Maintained native desktop CI now launches the layout showcase on Linux, macOS, and Windows, verifies window creation and root-view render invocation, and uploads structured evidence.
+- Native smoke evidence deliberately records `pixel_capture: false`. Renderer pixel diffs, Windows IME/accessibility automation, and mobile/device/AUv3 host qualification remain open.

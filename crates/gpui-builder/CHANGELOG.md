@@ -1,3 +1,21 @@
+# Unreleased
+
+## Safety
+
+- Removed lifetime transmutation from reusable solver scratch storage by
+  retaining child indices instead of borrowed layout-node references.
+- Replaced the self-referential `LayoutState` preference cache with safe,
+  snapshot-owned lookup maps.
+- `LayoutPreferenceSnapshot` is no longer `Copy`; clone it explicitly when a
+  second owned snapshot value is needed.
+
+## QA
+
+- Added non-vacuous property tests for recursive/flat solver parity and
+  feasible flexible-layout allocation bounds.
+- Added native desktop UI smoke mode for maintained Linux, macOS, and Windows
+  CI jobs.
+
 # 0.7.4
 
 ## Demos

@@ -233,10 +233,10 @@ const RELEASE_QA_GATES: &[ReleaseQaGate] = &[
     ReleaseQaGate {
         id: "macos-desktop",
         area: "macOS desktop/runtime",
-        command: "cargo run --bin layout-showcase --features showcase",
-        status: ReleaseQaStatus::ManualRequired,
-        evidence: "Host compilation passed through workspace checks; runtime showcase walkthrough was not recorded.",
-        release_requirement: "Record a macOS desktop launch, keyboard, resize, and visual smoke pass.",
+        command: "layout-showcase --smoke-test --smoke-artifact <path>",
+        status: ReleaseQaStatus::Partial,
+        evidence: "Maintained native CI opens a macOS window and invokes the layout showcase renderer.",
+        release_requirement: "Add keyboard/resize automation and renderer pixel capture/diff.",
     },
     ReleaseQaGate {
         id: "au-host",
@@ -273,10 +273,10 @@ const RELEASE_QA_GATES: &[ReleaseQaGate] = &[
     ReleaseQaGate {
         id: "windows-native",
         area: "Windows native",
-        command: "cargo check --target x86_64-pc-windows-msvc plus native smoke pass",
-        status: ReleaseQaStatus::Pending,
-        evidence: "Known hide/unhide panic stubs were fixed; no native Windows target check was recorded.",
-        release_requirement: "Run Windows target compile and input/IME/accessibility smoke tests on Windows.",
+        command: "layout-showcase.exe --smoke-test --smoke-artifact <path>",
+        status: ReleaseQaStatus::Partial,
+        evidence: "Maintained native CI opens a Windows window and invokes the layout showcase renderer.",
+        release_requirement: "Add input/IME/accessibility automation and renderer pixel capture/diff.",
     },
     ReleaseQaGate {
         id: "showcase-visual",
@@ -323,12 +323,14 @@ const PLATFORM_CAPABILITIES: &[PlatformCapability] = &[
         accessibility: PlatformCapabilityStatus::Partial,
         evidence: PlatformEvidence {
             ci_compile: true,
-            runtime_smoke: false,
+            runtime_smoke: true,
             visual_diff: false,
             native_accessibility: false,
             performance: false,
         },
-        blocker: Some("No maintained runtime, renderer screenshot, native accessibility, or host-qualified performance job."),
+        blocker: Some(
+            "Renderer screenshot, native accessibility, and host-qualified performance evidence remain pending.",
+        ),
     },
     PlatformCapability {
         id: "macos-desktop",
@@ -340,12 +342,12 @@ const PLATFORM_CAPABILITIES: &[PlatformCapability] = &[
         accessibility: PlatformCapabilityStatus::Partial,
         evidence: PlatformEvidence {
             ci_compile: true,
-            runtime_smoke: false,
+            runtime_smoke: true,
             visual_diff: false,
             native_accessibility: false,
             performance: true,
         },
-        blocker: Some("Runtime, renderer screenshot, and native accessibility CI evidence are not recorded."),
+        blocker: Some("Renderer screenshot and native accessibility CI evidence remain pending."),
     },
     PlatformCapability {
         id: "windows-desktop",
@@ -357,12 +359,14 @@ const PLATFORM_CAPABILITIES: &[PlatformCapability] = &[
         accessibility: PlatformCapabilityStatus::Partial,
         evidence: PlatformEvidence {
             ci_compile: true,
-            runtime_smoke: false,
+            runtime_smoke: true,
             visual_diff: false,
             native_accessibility: false,
             performance: false,
         },
-        blocker: Some("Native runtime, IME, accessibility, renderer, and performance evidence are not recorded."),
+        blocker: Some(
+            "IME, accessibility, renderer screenshot, and performance evidence remain pending.",
+        ),
     },
     PlatformCapability {
         id: "ios",

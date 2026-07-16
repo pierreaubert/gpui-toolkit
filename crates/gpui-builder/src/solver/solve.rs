@@ -139,7 +139,7 @@ struct TreeSolveStorage<'storage, 'a> {
 // nested containers. The pool holds one vector per recursion level; vectors are
 // cleared and returned to the pool after use.
 thread_local! {
-    static CHILD_INFO_POOL: RefCell<Vec<Vec<ChildInfo<'static>>>> = const { RefCell::new(Vec::new()) };
+    static CHILD_INFO_POOL: RefCell<Vec<Vec<ChildInfo>>> = const { RefCell::new(Vec::new()) };
 }
 
 // Maximum number of child-info vectors to keep in the pool. Layout trees are
@@ -149,32 +149,21 @@ const CHILD_INFO_POOL_CAP: usize = 16;
 
 /// Take a cleared child-info vector from the thread-local pool, allocating a
 /// new one only when the pool is empty.
-///
-/// # Safety
-///
-/// The returned vector is typed with the caller's lifetime `'a`, but it may
-/// have been previously used with a different lifetime. The vector is always
-/// cleared before being returned, so no stale references survive. Callers must
-/// return the vector to the pool via [`return_child_info_scratch`] after use.
-fn take_child_info_scratch<'a>() -> Vec<ChildInfo<'a>> {
+fn take_child_info_scratch() -> Vec<ChildInfo> {
     CHILD_INFO_POOL.with(|pool| {
         let mut pool = pool.borrow_mut();
-        let mut vec: Vec<ChildInfo<'static>> = pool.pop().unwrap_or_default();
+        let mut vec = pool.pop().unwrap_or_default();
         vec.clear();
-        // SAFETY: the vector has been cleared; it contains no live references.
-        // The caller will only store references with lifetime 'a in it.
-        unsafe { std::mem::transmute(vec) }
+        vec
     })
 }
 
 /// Return a child-info vector to the thread-local pool for reuse.
-fn return_child_info_scratch<'a>(mut vec: Vec<ChildInfo<'a>>) {
+fn return_child_info_scratch(mut vec: Vec<ChildInfo>) {
     vec.clear();
     CHILD_INFO_POOL.with(|pool| {
         let mut pool = pool.borrow_mut();
         if pool.len() < CHILD_INFO_POOL_CAP {
-            // SAFETY: the vector has been cleared; it contains no live references.
-            let vec: Vec<ChildInfo<'static>> = unsafe { std::mem::transmute(vec) };
             pool.push(vec);
         }
     })
@@ -263,47 +252,54 @@ fn solve_tree_container<'a>(
     let profile = EngineProfile::default();
     let options = PrepareOptions::default();
 
-    let mut child_infos: Vec<ChildInfo<'a>> = take_child_info_scratch();
-    child_infos.extend(container.children.iter().map(|child| {
-        let user_collapsed = child.collapsible() && prefs.is_collapsed(child.id());
-        let computed_text_size = if !user_collapsed {
-            if let Sizing::Text {
-                text,
-                measure,
-                line_height,
-                min,
-            } = child.sizing()
-            {
-                Some(compute_text_size(
-                    TextSizeInput {
+    let mut child_infos: Vec<ChildInfo> = take_child_info_scratch();
+    child_infos.extend(
+        container
+            .children
+            .iter()
+            .enumerate()
+            .map(|(node_index, child)| {
+                let user_collapsed = child.collapsible() && prefs.is_collapsed(child.id());
+                let computed_text_size = if !user_collapsed {
+                    if let Sizing::Text {
                         text,
                         measure,
                         line_height,
                         min,
-                        axis,
-                        cross_size,
-                        profile: &profile,
-                        options: &options,
-                    },
-                    storage.cache,
-                ))
-            } else {
-                None
-            }
-        } else {
-            None
-        };
-        ChildInfo {
-            node: child,
-            user_collapsed,
-            solver_collapsed: false,
-            allocated_size: 0.0,
-            computed_text_size,
-        }
-    }));
+                    } = child.sizing()
+                    {
+                        Some(compute_text_size(
+                            TextSizeInput {
+                                text,
+                                measure,
+                                line_height,
+                                min,
+                                axis,
+                                cross_size,
+                                profile: &profile,
+                                options: &options,
+                            },
+                            storage.cache,
+                        ))
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+                ChildInfo {
+                    node_index,
+                    user_collapsed,
+                    solver_collapsed: false,
+                    allocated_size: 0.0,
+                    computed_text_size,
+                }
+            }),
+    );
 
     allocate_main_axis(
         &mut child_infos,
+        container.children,
         main_size,
         container.divider_size,
         axis,
@@ -330,15 +326,16 @@ fn solve_tree_container<'a>(
     child_indices.clear();
     child_indices.reserve(child_infos.len());
     for info in &child_infos {
+        let node = &container.children[info.node_index];
         let visible = !info.user_collapsed && !info.solver_collapsed;
         if !visible {
-            let collapse_label = match info.node {
+            let collapse_label = match node {
                 LayoutNode::Slot(s) => s.collapse_label,
                 LayoutNode::Container(_) => None,
             };
             let child_idx = push_solved_node(
                 SolvedNodeData {
-                    id: info.node.id(),
+                    id: node.id(),
                     width: 0.0,
                     height: 0.0,
                     visible: false,
@@ -359,7 +356,7 @@ fn solve_tree_container<'a>(
             Axis::Vertical => (cross_size, info.allocated_size),
         };
 
-        match info.node {
+        match node {
             LayoutNode::Slot(slot) => {
                 let active_tier = resolve_display_tier(slot, info.allocated_size);
                 let child_idx = push_solved_node(
@@ -379,7 +376,7 @@ fn solve_tree_container<'a>(
                 child_indices.push(child_idx);
             }
             LayoutNode::Container(_) => {
-                let child_idx = solve_tree_node(info.node, child_w, child_h, prefs, storage);
+                let child_idx = solve_tree_node(node, child_w, child_h, prefs, storage);
                 child_indices.push(child_idx);
             }
         }
@@ -476,48 +473,55 @@ fn solve_container<'a>(
     let profile = EngineProfile::default();
     let options = PrepareOptions::default();
 
-    let mut child_infos: Vec<ChildInfo<'a>> = take_child_info_scratch();
-    child_infos.extend(container.children.iter().map(|child| {
-        let user_collapsed = child.collapsible() && prefs.is_collapsed(child.id());
-        let computed_text_size = if !user_collapsed {
-            if let Sizing::Text {
-                text,
-                measure,
-                line_height,
-                min,
-            } = child.sizing()
-            {
-                Some(compute_text_size(
-                    TextSizeInput {
+    let mut child_infos: Vec<ChildInfo> = take_child_info_scratch();
+    child_infos.extend(
+        container
+            .children
+            .iter()
+            .enumerate()
+            .map(|(node_index, child)| {
+                let user_collapsed = child.collapsible() && prefs.is_collapsed(child.id());
+                let computed_text_size = if !user_collapsed {
+                    if let Sizing::Text {
                         text,
                         measure,
                         line_height,
                         min,
-                        axis,
-                        cross_size,
-                        profile: &profile,
-                        options: &options,
-                    },
-                    cache,
-                ))
-            } else {
-                None
-            }
-        } else {
-            None
-        };
-        ChildInfo {
-            node: child,
-            user_collapsed,
-            solver_collapsed: false,
-            allocated_size: 0.0,
-            computed_text_size,
-        }
-    }));
+                    } = child.sizing()
+                    {
+                        Some(compute_text_size(
+                            TextSizeInput {
+                                text,
+                                measure,
+                                line_height,
+                                min,
+                                axis,
+                                cross_size,
+                                profile: &profile,
+                                options: &options,
+                            },
+                            cache,
+                        ))
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+                ChildInfo {
+                    node_index,
+                    user_collapsed,
+                    solver_collapsed: false,
+                    allocated_size: 0.0,
+                    computed_text_size,
+                }
+            }),
+    );
 
     // Step 3: Allocate main-axis space
     allocate_main_axis(
         &mut child_infos,
+        container.children,
         main_size,
         container.divider_size,
         axis,
@@ -528,15 +532,16 @@ fn solve_container<'a>(
     let children: Vec<SolvedNode<'a>> = child_infos
         .iter()
         .map(|info| {
+            let node = &container.children[info.node_index];
             let visible = !info.user_collapsed && !info.solver_collapsed;
             if !visible {
                 // Collapsed child
-                let collapse_label = match info.node {
+                let collapse_label = match node {
                     LayoutNode::Slot(s) => s.collapse_label,
                     LayoutNode::Container(_) => None,
                 };
                 return SolvedNode {
-                    id: info.node.id(),
+                    id: node.id(),
                     width: 0.0,
                     height: 0.0,
                     visible: false,
@@ -552,7 +557,7 @@ fn solve_container<'a>(
                 Axis::Vertical => (cross_size, info.allocated_size),
             };
 
-            match info.node {
+            match node {
                 LayoutNode::Slot(slot) => {
                     let active_tier = resolve_display_tier(slot, info.allocated_size);
                     SolvedNode {
@@ -566,7 +571,7 @@ fn solve_container<'a>(
                         children: Vec::new(),
                     }
                 }
-                LayoutNode::Container(_) => solve_node(info.node, child_w, child_h, prefs, cache),
+                LayoutNode::Container(_) => solve_node(node, child_w, child_h, prefs, cache),
             }
         })
         .collect();

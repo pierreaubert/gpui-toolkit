@@ -111,6 +111,12 @@ capabilities apply.
 inventory. The report deliberately records renderer capture as pending; a
 logic-only host must not turn that state into a pass.
 
+Desktop CI separately launches the `gpui-builder` layout showcase on native
+Linux, macOS, and Windows backends. Its smoke artifact proves platform
+initialization, window creation, and root-view render invocation. It explicitly
+records `pixel_capture: false`, so this evidence does not upgrade renderer
+screenshot/diff status.
+
 ## Platform evidence
 
 Desktop core changes require Linux, macOS, and Windows compile/test evidence.

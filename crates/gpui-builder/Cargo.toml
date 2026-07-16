@@ -57,6 +57,7 @@ required-features = ["showcase"]
 serde_json = { workspace = true }
 criterion = { workspace = true }
 gpui-profiler = { workspace = true, features = ["global-allocator"] }
+proptest = { workspace = true }
 
 [[bench]]
 name = "solved_tree"

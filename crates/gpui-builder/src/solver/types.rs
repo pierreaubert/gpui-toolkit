@@ -1,7 +1,5 @@
-use crate::types::LayoutNode;
-
-pub(super) struct ChildInfo<'a> {
-    pub(super) node: &'a LayoutNode<'a>,
+pub(super) struct ChildInfo {
+    pub(super) node_index: usize,
     pub(super) user_collapsed: bool,
     pub(super) solver_collapsed: bool,
     pub(super) allocated_size: f32,

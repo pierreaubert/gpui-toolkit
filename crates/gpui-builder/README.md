@@ -343,6 +343,17 @@ Interactive demo with draggable dividers, collapsible panels, auto-axis switchin
 The right-hand inspector panel renders the solved visual tree. Click a tree row
 to select a node and highlight the matching region in the live layout.
 
+CI can exercise the native platform backend without manual interaction:
+
+```bash
+cargo run -p gpui-builder --features showcase --bin layout-showcase -- \
+  --smoke-test \
+  --smoke-artifact target/qa/native-ui/gpui-builder-smoke.json
+```
+
+Smoke mode exits after the root view renders and records window/render evidence.
+It does not claim pixel capture or visual-diff coverage.
+
 ## Testing
 
 ```bash

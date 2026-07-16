@@ -51,6 +51,69 @@ jobs:
         if: runner.os == 'macOS'
         run: cargo test -p gpui-scaffolder scaffolded_project_passes_ios_simulator_cargo_check
 
+  native-ui-smoke:
+    name: Native GPUI smoke (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-native-ui-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Install Linux virtual display and software renderer
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb xauth libgl1-mesa-dri mesa-vulkan-drivers
+
+      - name: Build layout showcase
+        run: cargo build -p gpui-builder --features showcase --bin layout-showcase
+
+      - name: Run Linux native UI smoke
+        if: runner.os == 'Linux'
+        env:
+          LIBGL_ALWAYS_SOFTWARE: "1"
+        run: |
+          xvfb-run -a target/debug/layout-showcase \
+            --smoke-test \
+            --smoke-artifact target/qa/native-ui/linux/gpui-builder-smoke.json
+
+      - name: Run macOS native UI smoke
+        if: runner.os == 'macOS'
+        run: |
+          target/debug/layout-showcase \
+            --smoke-test \
+            --smoke-artifact target/qa/native-ui/macos/gpui-builder-smoke.json
+
+      - name: Run Windows native UI smoke
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          target/debug/layout-showcase.exe `
+            --smoke-test `
+            --smoke-artifact target/qa/native-ui/windows/gpui-builder-smoke.json
+
+      - name: Upload native UI smoke evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-ui-smoke-${{ runner.os }}
+          path: target/qa/native-ui/
+          if-no-files-found: error
+
   check-and-test:
     name: Check, Clippy and Unit Tests
     runs-on: ubuntu-latest

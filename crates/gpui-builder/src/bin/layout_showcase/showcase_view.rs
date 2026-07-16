@@ -17,6 +17,10 @@ use gpui::{
 use gpui_builder::types::LayoutPreferences;
 use gpui_builder::{Axis, ContainerNode, LayoutNode, Sizing, SlotNode, SolvedTree, solve_tree};
 use gpui_design::DesignExt;
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
 
 pub(super) struct ShowcaseView {
     pub(super) sidebar_ratio_h: f32,
@@ -29,10 +33,11 @@ pub(super) struct ShowcaseView {
     pub(super) drag_moved: bool,
     pub(super) suppress_next_divider_click: bool,
     pub(super) selected_node: Option<String>,
+    pub(super) render_probe: Option<Arc<AtomicBool>>,
 }
 
 impl ShowcaseView {
-    pub(super) fn new() -> Self {
+    pub(super) fn new(render_probe: Option<Arc<AtomicBool>>) -> Self {
         Self {
             sidebar_ratio_h: 0.22,
             sidebar_ratio_v: 0.25,
@@ -44,6 +49,7 @@ impl ShowcaseView {
             drag_moved: false,
             suppress_next_divider_click: false,
             selected_node: Some("root".to_string()),
+            render_probe,
         }
     }
 
@@ -112,6 +118,9 @@ impl ShowcaseView {
 
 impl Render for ShowcaseView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if let Some(render_probe) = &self.render_probe {
+            render_probe.store(true, Ordering::Release);
+        }
         let theme = ShowcaseTheme::dark();
         let ds = cx.design();
         let bounds = window.bounds();

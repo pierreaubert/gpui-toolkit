@@ -15,6 +15,12 @@
 use gpui::AppContext;
 use gpui::{App, Bounds, TitlebarOptions, WindowBounds, WindowOptions, px, size};
 use gpui_design::DesignSystemState;
+use std::path::{Path, PathBuf};
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
+use std::time::Duration;
 
 #[path = "layout_showcase/drag_session.rs"]
 mod drag_session;
@@ -31,19 +37,25 @@ use misc::current_platform;
 use showcase_view::ShowcaseView;
 
 fn main() {
-    let platform = match current_platform() {
-        Ok(platform) => platform,
-        Err(error) => {
-            eprintln!("Layout showcase platform error: {error}");
-            return;
-        }
-    };
+    if let Err(error) = run() {
+        eprintln!("Layout showcase error: {error}");
+        std::process::exit(1);
+    }
+}
 
-    gpui::Application::with_platform(platform).run(|cx: &mut App| {
+fn run() -> Result<(), String> {
+    let platform =
+        current_platform().map_err(|error| format!("platform initialization failed: {error}"))?;
+    let (smoke_test, smoke_artifact) = smoke_options()?;
+    let render_invoked = Arc::new(AtomicBool::new(false));
+    let render_invoked_for_app = render_invoked.clone();
+
+    gpui::Application::with_platform(platform).run(move |cx: &mut App| {
         cx.set_global(DesignSystemState::new());
 
         let bounds = Bounds::centered(None, size(px(1000.0), px(700.0)), cx);
-        if let Err(error) = cx.open_window(
+        let render_probe = smoke_test.then(|| render_invoked_for_app.clone());
+        match cx.open_window(
             WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
                 titlebar: Some(TitlebarOptions {
@@ -52,12 +64,92 @@ fn main() {
                 }),
                 ..Default::default()
             },
-            |_, cx| cx.new(|_cx| ShowcaseView::new()),
+            |_, cx| cx.new(|_cx| ShowcaseView::new(render_probe)),
         ) {
-            eprintln!("Layout showcase window error: {error:?}");
-            return;
+            Ok(_) => {}
+            Err(error) => {
+                eprintln!("Layout showcase window error: {error:?}");
+                if smoke_test {
+                    std::process::exit(1);
+                }
+                cx.quit();
+                return;
+            }
         }
 
         cx.activate(true);
+
+        if smoke_test {
+            let render_invoked = render_invoked_for_app.clone();
+            let smoke_artifact = smoke_artifact.clone();
+            cx.spawn(async move |cx| {
+                let executor = cx.background_executor().clone();
+                for _ in 0..100 {
+                    if render_invoked.load(Ordering::Acquire) {
+                        executor.timer(Duration::from_millis(250)).await;
+                        break;
+                    }
+                    executor.timer(Duration::from_millis(50)).await;
+                }
+                if !render_invoked.load(Ordering::Acquire) {
+                    eprintln!("native smoke test did not invoke the root view renderer");
+                    std::process::exit(1);
+                }
+                if let Err(error) = write_smoke_artifact(smoke_artifact.as_deref()) {
+                    eprintln!("{error}");
+                    std::process::exit(1);
+                }
+                println!("GPUI_NATIVE_SMOKE_OK platform={}", std::env::consts::OS);
+                cx.update(|cx| cx.quit());
+            })
+            .detach();
+        }
     });
+
+    Ok(())
+}
+
+fn smoke_options() -> Result<(bool, Option<PathBuf>), String> {
+    let mut smoke_test = std::env::var_os("GPUI_NATIVE_SMOKE").is_some();
+    let mut artifact = std::env::var_os("GPUI_NATIVE_SMOKE_ARTIFACT").map(PathBuf::from);
+    let mut arguments = std::env::args_os().skip(1);
+    while let Some(argument) = arguments.next() {
+        if argument == "--smoke-test" {
+            smoke_test = true;
+        } else if argument == "--smoke-artifact" {
+            let Some(path) = arguments.next() else {
+                return Err("--smoke-artifact requires a path".to_string());
+            };
+            artifact = Some(path.into());
+        } else {
+            return Err(format!("unknown argument: {}", argument.to_string_lossy()));
+        }
+    }
+    Ok((smoke_test, artifact))
+}
+
+fn write_smoke_artifact(path: Option<&Path>) -> Result<(), String> {
+    let Some(path) = path else {
+        return Ok(());
+    };
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|error| format!("failed to create smoke artifact directory: {error}"))?;
+    }
+    let report = format!(
+        concat!(
+            "{{\n",
+            "  \"schema_version\": 1,\n",
+            "  \"report_type\": \"gpui-native-smoke\",\n",
+            "  \"crate\": \"gpui-builder\",\n",
+            "  \"platform\": \"{}\",\n",
+            "  \"window_opened\": true,\n",
+            "  \"render_invoked\": true,\n",
+            "  \"pixel_capture\": false\n",
+            "}}\n"
+        ),
+        std::env::consts::OS
+    );
+    std::fs::write(path, report)
+        .map_err(|error| format!("failed to write smoke artifact {}: {error}", path.display()))
 }

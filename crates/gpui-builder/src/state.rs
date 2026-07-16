@@ -5,7 +5,6 @@
 //! [`LayoutPreferences`] when calling the solver.
 
 use crate::types::{Axis, LayoutPreferences};
-use std::cell::{Cell, UnsafeCell};
 
 /// A stored fractional ratio override for a specific slot/axis pair.
 #[derive(Debug, Clone, PartialEq)]
@@ -69,58 +68,13 @@ pub enum LayoutAction {
 
 /// Mutable UI state that feeds layout preferences.
 ///
-/// [`LayoutState`] keeps a lazily-rebuilt [`LayoutPreferences`] cache so that
-/// repeated calls to [`LayoutPreferenceSnapshot::as_preferences`] or
-/// [`LayoutPreferenceSnapshot::as_preferences_ref`] avoid rebuilding the
-/// ratio/collapse hash maps from the override vectors while the state is
-/// unchanged.
-///
-/// # Soundness note
-///
-/// The cache is stored as `LayoutPreferences<'static>` but its keys are
-/// borrowed from the owned strings in `ratio_overrides` and `collapsed`. It is
-/// only exposed through methods that tie the returned references to `&self`,
-/// and it is rebuilt whenever those vectors change.
-#[derive(Debug)]
+/// [`LayoutState::preferences`] creates a lookup snapshot whose identifiers
+/// borrow from this state. The snapshot owns its hash maps, avoiding
+/// self-referential storage and lifetime extension.
+#[derive(Debug, Default, Clone, PartialEq)]
 pub struct LayoutState {
     ratio_overrides: Vec<LayoutRatioOverride>,
     collapsed: Vec<LayoutCollapsedState>,
-    /// Lazily-rebuilt solver preferences.
-    cached_preferences: UnsafeCell<LayoutPreferences<'static>>,
-    /// Whether `cached_preferences` is out of sync with the override vectors.
-    dirty: Cell<bool>,
-}
-
-impl Default for LayoutState {
-    fn default() -> Self {
-        Self {
-            ratio_overrides: Vec::new(),
-            collapsed: Vec::new(),
-            cached_preferences: UnsafeCell::new(LayoutPreferences::default()),
-            dirty: Cell::new(false),
-        }
-    }
-}
-
-impl Clone for LayoutState {
-    fn clone(&self) -> Self {
-        // Cloning the cached preferences would copy borrowed key pointers that
-        // point into the original state's owned strings, which is unsound. We
-        // therefore clone only the source vectors and mark the cache dirty so
-        // it is rebuilt on first read.
-        Self {
-            ratio_overrides: self.ratio_overrides.clone(),
-            collapsed: self.collapsed.clone(),
-            cached_preferences: UnsafeCell::new(LayoutPreferences::default()),
-            dirty: Cell::new(true),
-        }
-    }
-}
-
-impl PartialEq for LayoutState {
-    fn eq(&self, other: &Self) -> bool {
-        self.ratio_overrides == other.ratio_overrides && self.collapsed == other.collapsed
-    }
 }
 
 impl LayoutState {
@@ -134,8 +88,6 @@ impl LayoutState {
         Self {
             ratio_overrides: Vec::with_capacity(ratios),
             collapsed: Vec::with_capacity(collapsed),
-            cached_preferences: UnsafeCell::new(LayoutPreferences::default()),
-            dirty: Cell::new(false),
         }
     }
 
@@ -171,7 +123,6 @@ impl LayoutState {
             .find(|entry| entry.slot_id == slot_id && entry.axis == axis)
         {
             entry.ratio = ratio;
-            self.dirty.set(true);
             return;
         }
 
@@ -180,17 +131,12 @@ impl LayoutState {
             axis,
             ratio,
         });
-        self.dirty.set(true);
     }
 
     /// Remove a ratio override if present.
     pub fn clear_ratio(&mut self, slot_id: &str, axis: Axis) {
-        let before = self.ratio_overrides.len();
         self.ratio_overrides
             .retain(|entry| !(entry.slot_id == slot_id && entry.axis == axis));
-        if self.ratio_overrides.len() != before {
-            self.dirty.set(true);
-        }
     }
 
     /// Set explicit collapsed state.
@@ -208,7 +154,6 @@ impl LayoutState {
             slot_id: slot_id.to_string(),
             collapsed,
         });
-        self.dirty.set(true);
     }
 
     /// Toggle explicit collapsed state.
@@ -220,24 +165,18 @@ impl LayoutState {
                 slot_id: slot_id.to_string(),
                 collapsed: true,
             });
-            self.dirty.set(true);
         }
     }
 
     /// Remove any explicit collapsed state for the slot.
     pub fn clear_collapsed(&mut self, slot_id: &str) {
-        let before = self.collapsed.len();
         self.collapsed.retain(|entry| entry.slot_id != slot_id);
-        if self.collapsed.len() != before {
-            self.dirty.set(true);
-        }
     }
 
     /// Clear ratio/collapse state.
     pub fn reset(&mut self) {
         self.ratio_overrides.clear();
         self.collapsed.clear();
-        self.dirty.set(true);
     }
 
     /// Apply a state action in reducer style.
@@ -258,76 +197,53 @@ impl LayoutState {
         }
     }
 
-    /// Rebuild `cached_preferences` if the state has changed since the last
-    /// rebuild.
-    fn ensure_preferences(&self) {
-        if !self.dirty.replace(false) {
-            return;
-        }
-        // SAFETY: `cached_preferences` is only mutated through this method or
-        // through `&mut self` methods on `LayoutState`. This method is the only
-        // one that mutates via a shared reference, and it is not called
-        // re-entrantly because all mutating methods take `&mut self`. The raw
-        // pointer cast changes the lifetime from the stored `'static` marker to
-        // the borrow lifetime of `&self`; the keys inserted below are borrowed
-        // from `self`'s owned strings and are valid for that lifetime.
-        // The explicit cast shortens the `'static` lifetime marker stored in the
-        // `UnsafeCell` to the borrow lifetime of `&self`.
-        #[allow(clippy::unnecessary_cast)]
-        let prefs = unsafe { &mut *(self.cached_preferences.get() as *mut LayoutPreferences<'_>) };
-        prefs.ratios.clear();
+    /// Build solver lookups that borrow identifiers from this state.
+    fn build_preferences(&self) -> LayoutPreferences<'_> {
+        let mut prefs = LayoutPreferences::default();
         for entry in &self.ratio_overrides {
             prefs
                 .ratios
                 .insert((entry.slot_id.as_str(), entry.axis), entry.ratio);
         }
-        prefs.collapsed.clear();
         for entry in &self.collapsed {
             prefs
                 .collapsed
                 .insert(entry.slot_id.as_str(), entry.collapsed);
         }
+        prefs
     }
 
     /// Build a solver-ready preference snapshot that borrows from this state.
     pub fn preferences(&self) -> LayoutPreferenceSnapshot<'_> {
-        LayoutPreferenceSnapshot { state: self }
+        LayoutPreferenceSnapshot {
+            state: self,
+            preferences: self.build_preferences(),
+        }
     }
 }
 
 /// Borrowed preferences derived from [`LayoutState`].
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct LayoutPreferenceSnapshot<'a> {
     state: &'a LayoutState,
+    preferences: LayoutPreferences<'a>,
 }
 
 impl<'a> LayoutPreferenceSnapshot<'a> {
     /// Borrow these preferences as a solver input.
     ///
-    /// This clones the cached [`LayoutPreferences`]. For a zero-allocation
+    /// This clones the snapshot's [`LayoutPreferences`]. For a zero-allocation
     /// borrow, use [`Self::as_preferences_ref`].
     pub fn as_preferences(&self) -> LayoutPreferences<'a> {
-        self.state.ensure_preferences();
-        // SAFETY: `cached_preferences` keys are borrowed from `self.state`'s
-        // owned strings. The returned `LayoutPreferences<'a>` borrows
-        // `self.state`, keeping the keys alive.
-        unsafe {
-            std::mem::transmute::<LayoutPreferences<'static>, LayoutPreferences<'a>>(
-                (*self.state.cached_preferences.get()).clone(),
-            )
-        }
+        self.preferences.clone()
     }
 
-    /// Borrow the cached [`LayoutPreferences`] without cloning.
+    /// Borrow the snapshot's [`LayoutPreferences`] without cloning.
     ///
     /// The returned reference borrows `self.state`, so the preferences remain
     /// valid as long as the snapshot (and the reference) is alive.
     pub fn as_preferences_ref(&self) -> &LayoutPreferences<'a> {
-        self.state.ensure_preferences();
-        // SAFETY: `cached_preferences` keys borrow from `self.state`. The
-        // returned reference borrows `self.state`, preventing mutations while
-        // it is alive.
-        unsafe { &*(self.state.cached_preferences.get() as *const LayoutPreferences<'a>) }
+        &self.preferences
     }
 
     fn ratios_slice(&self) -> Vec<(&'a str, Axis, f32)> {
