@@ -235,7 +235,7 @@ const RELEASE_QA_GATES: &[ReleaseQaGate] = &[
         area: "macOS desktop/runtime",
         command: "layout-showcase --smoke-test --smoke-artifact <path>",
         status: ReleaseQaStatus::Partial,
-        evidence: "Maintained native CI opens a macOS window and invokes the layout showcase renderer.",
+        evidence: "Maintained native CI opens a macOS window, applies a sidebar state transition, and requires a second render; shared GPUI pointer contracts cover selection, collapse, and drag.",
         release_requirement: "Add keyboard/resize automation and renderer pixel capture/diff.",
     },
     ReleaseQaGate {
@@ -275,7 +275,7 @@ const RELEASE_QA_GATES: &[ReleaseQaGate] = &[
         area: "Windows native",
         command: "layout-showcase.exe --smoke-test --smoke-artifact <path>",
         status: ReleaseQaStatus::Partial,
-        evidence: "Maintained native CI opens a Windows window and invokes the layout showcase renderer.",
+        evidence: "Maintained native CI opens a Windows window, applies a sidebar state transition, and requires a second render; shared GPUI pointer contracts cover selection, collapse, and drag.",
         release_requirement: "Add input/IME/accessibility automation and renderer pixel capture/diff.",
     },
     ReleaseQaGate {
@@ -283,7 +283,7 @@ const RELEASE_QA_GATES: &[ReleaseQaGate] = &[
         area: "Showcase visual QA",
         command: "component-lab visual manifest capture and pixel diff",
         status: ReleaseQaStatus::Pending,
-        evidence: "Component-lab and builder visual manifests exist, but screenshots/diffs were not captured.",
+        evidence: "Linux CI captures and validates builder showcase pixels; component-lab and cross-renderer screenshot/diff coverage remains pending.",
         release_requirement: "Attach generated screenshots/diffs or a visual-regression report for release artifacts.",
     },
     ReleaseQaGate {

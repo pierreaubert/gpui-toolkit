@@ -78,19 +78,29 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y xvfb xauth libgl1-mesa-dri mesa-vulkan-drivers
+          sudo apt-get install -y \
+            xvfb \
+            xauth \
+            xdotool \
+            imagemagick \
+            libgl1-mesa-dri \
+            mesa-vulkan-drivers
 
       - name: Build layout showcase
         run: cargo build -p gpui-builder --features showcase --bin layout-showcase
+
+      - name: Exercise GPUI interaction contracts
+        run: cargo test -p gpui-builder --features showcase --bin layout-showcase
 
       - name: Run Linux native UI smoke
         if: runner.os == 'Linux'
         env:
           LIBGL_ALWAYS_SOFTWARE: "1"
         run: |
-          xvfb-run -a target/debug/layout-showcase \
-            --smoke-test \
-            --smoke-artifact target/qa/native-ui/linux/gpui-builder-smoke.json
+          xvfb-run -a bash scripts/run_linux_native_ui_smoke.sh \
+            target/debug/layout-showcase \
+            target/qa/native-ui/linux/gpui-builder-smoke.json \
+            target/qa/native-ui/linux/gpui-builder.png
 
       - name: Run macOS native UI smoke
         if: runner.os == 'macOS'

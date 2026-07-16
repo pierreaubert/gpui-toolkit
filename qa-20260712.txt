@@ -325,5 +325,11 @@ FOLLOW-UP STATUS — 2026-07-16
 
 - gpui-builder no longer uses unsafe lifetime transmutation or self-referential preference caching. Reusable solver scratch stores child indices, and LayoutState produces safe snapshot-owned lookup maps.
 - The previously vacuous property-test gate now invokes an explicit gpui-builder proptest target covering recursive/flat solver parity and feasible flexible-layout allocation bounds.
-- Maintained native desktop CI now launches the layout showcase on Linux, macOS, and Windows, verifies window creation and root-view render invocation, and uploads structured evidence.
-- Native smoke evidence deliberately records `pixel_capture: false`. Renderer pixel diffs, Windows IME/accessibility automation, and mobile/device/AUv3 host qualification remain open.
+- Maintained native desktop CI launches the layout showcase on Linux, macOS,
+  and Windows, verifies window creation plus a state transition and second
+  render, and uploads structured evidence. Deterministic GPUI tests exercise
+  tree selection, divider collapse, and divider drag behavior.
+- Linux Xvfb CI captures the actual showcase window and rejects blank or
+  near-uniform pixels. macOS/Windows renderer pixel diffs, Windows
+  IME/accessibility automation, and mobile/device/AUv3 host qualification
+  remain open.

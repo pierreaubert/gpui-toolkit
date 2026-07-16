@@ -19,7 +19,7 @@ use gpui_builder::{Axis, ContainerNode, LayoutNode, Sizing, SlotNode, SolvedTree
 use gpui_design::DesignExt;
 use std::sync::{
     Arc,
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicUsize, Ordering},
 };
 
 pub(super) struct ShowcaseView {
@@ -31,13 +31,12 @@ pub(super) struct ShowcaseView {
     pub(super) inspector_collapsed: bool,
     pub(super) dragging: Option<DragSession>,
     pub(super) drag_moved: bool,
-    pub(super) suppress_next_divider_click: bool,
     pub(super) selected_node: Option<String>,
-    pub(super) render_probe: Option<Arc<AtomicBool>>,
+    pub(super) render_probe: Option<Arc<AtomicUsize>>,
 }
 
 impl ShowcaseView {
-    pub(super) fn new(render_probe: Option<Arc<AtomicBool>>) -> Self {
+    pub(super) fn new(render_probe: Option<Arc<AtomicUsize>>) -> Self {
         Self {
             sidebar_ratio_h: 0.22,
             sidebar_ratio_v: 0.25,
@@ -47,7 +46,6 @@ impl ShowcaseView {
             inspector_collapsed: false,
             dragging: None,
             drag_moved: false,
-            suppress_next_divider_click: false,
             selected_node: Some("root".to_string()),
             render_probe,
         }
@@ -75,7 +73,6 @@ impl ShowcaseView {
             extent: extent.max(1.0),
         });
         self.drag_moved = false;
-        self.suppress_next_divider_click = false;
     }
 
     pub(super) fn update_drag_from_position(&mut self, position: Point<Pixels>) -> bool {
@@ -110,7 +107,12 @@ impl ShowcaseView {
             return false;
         };
         let moved = self.drag_moved || (drag.axis_position(position) - drag.start_pos).abs() > 3.0;
-        self.suppress_next_divider_click = moved;
+        if !moved {
+            match drag.target {
+                DragTarget::Sidebar => self.sidebar_collapsed = !self.sidebar_collapsed,
+                DragTarget::Inspector => self.inspector_collapsed = !self.inspector_collapsed,
+            }
+        }
         self.drag_moved = false;
         true
     }
@@ -119,7 +121,18 @@ impl ShowcaseView {
 impl Render for ShowcaseView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if let Some(render_probe) = &self.render_probe {
-            render_probe.store(true, Ordering::Release);
+            let render_index = render_probe.fetch_add(1, Ordering::Release);
+            if render_index == 0 {
+                let view = cx.entity().clone();
+                window.on_next_frame(move |window, cx| {
+                    view.update(cx, |view, cx| {
+                        view.sidebar_collapsed = true;
+                        cx.notify();
+                    });
+                    window.refresh();
+                });
+                window.request_animation_frame();
+            }
         }
         let theme = ShowcaseTheme::dark();
         let ds = cx.design();
@@ -243,6 +256,7 @@ impl Render for ShowcaseView {
 
         div()
             .id("showcase-root")
+            .debug_selector(|| "showcase-root".to_string())
             .size_full()
             .bg(theme.background)
             .text_color(fg)
@@ -398,6 +412,7 @@ impl ShowcaseView {
         let ds = cx.design();
         let base = div()
             .id("content-area")
+            .debug_selector(|| "content-area".to_string())
             .overflow_hidden()
             .min_w_0()
             .min_h_0()
@@ -766,6 +781,7 @@ impl ShowcaseView {
 
         div()
             .id(SharedString::from(format!("tree-row-{}", row.id)))
+            .debug_selector(|| format!("tree-row-{}", row.id))
             .rounded(px(ds.corners.sm))
             .px(px(ds.spacing.control_padding_x * 0.75))
             .py(px(ds.spacing.control_padding_y * 0.65))
@@ -829,10 +845,9 @@ impl ShowcaseView {
         } else {
             DragTarget::Inspector
         };
-        let panel_owned = panel.to_string();
-
         div()
             .id(id)
+            .debug_selector(|| format!("div-v-{panel}"))
             .w(px(6.0))
             .h_full()
             .flex_shrink_0()
@@ -847,19 +862,6 @@ impl ShowcaseView {
                     cx.notify();
                 }),
             )
-            .on_click(cx.listener(move |view, _: &ClickEvent, _, cx| {
-                if view.suppress_next_divider_click {
-                    view.suppress_next_divider_click = false;
-                    cx.notify();
-                    return;
-                }
-                if panel_owned == "sidebar" {
-                    view.sidebar_collapsed = !view.sidebar_collapsed;
-                } else {
-                    view.inspector_collapsed = !view.inspector_collapsed;
-                }
-                cx.notify();
-            }))
     }
 
     pub(super) fn divider_h(
@@ -877,10 +879,9 @@ impl ShowcaseView {
         } else {
             DragTarget::Inspector
         };
-        let panel_owned = panel.to_string();
-
         div()
             .id(id)
+            .debug_selector(|| format!("div-h-{panel}"))
             .h(px(6.0))
             .w_full()
             .flex_shrink_0()
@@ -895,18 +896,9 @@ impl ShowcaseView {
                     cx.notify();
                 }),
             )
-            .on_click(cx.listener(move |view, _: &ClickEvent, _, cx| {
-                if view.suppress_next_divider_click {
-                    view.suppress_next_divider_click = false;
-                    cx.notify();
-                    return;
-                }
-                if panel_owned == "sidebar" {
-                    view.sidebar_collapsed = !view.sidebar_collapsed;
-                } else {
-                    view.inspector_collapsed = !view.inspector_collapsed;
-                }
-                cx.notify();
-            }))
     }
 }
+
+#[cfg(test)]
+#[path = "showcase_view_tests.rs"]
+mod tests;

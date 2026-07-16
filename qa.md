@@ -126,9 +126,12 @@ logic-only host must not turn that state into a pass.
 
 Desktop CI separately launches the `gpui-builder` layout showcase on native
 Linux, macOS, and Windows backends. Its smoke artifact proves platform
-initialization, window creation, and root-view render invocation. It explicitly
-records `pixel_capture: false`, so this evidence does not upgrade renderer
-screenshot/diff status.
+initialization, window creation, a sidebar state transition, and a second
+root-view render. The same lane runs deterministic
+GPUI pointer contracts for tree selection, divider collapse, and divider
+dragging. Linux additionally captures the Xvfb window and rejects blank or
+near-uniform pixels. macOS and Windows still record `pixel_capture: false`;
+their hosted native backend smoke is not presented as screenshot/diff proof.
 
 ## Platform evidence
 

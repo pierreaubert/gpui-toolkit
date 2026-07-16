@@ -109,6 +109,7 @@ qa: lint-host qa-scripts qa-api qa-prop qa-visual qa-perf qa-gpui-obvious qa-cov
 qa-scripts:
     PYTHONPATH=scripts python3 -m unittest discover -s scripts/tests -p 'test_*.py'
     python3 scripts/qa_unsafe_policy.py
+    bash -n scripts/run_linux_native_ui_smoke.sh
 
 [group('qa')]
 qa-api:

@@ -54,6 +54,7 @@ path = "src/bin/layout_showcase.rs"
 required-features = ["showcase"]
 
 [dev-dependencies]
+gpui = { workspace = true, features = ["test-support"] }
 serde_json = { workspace = true }
 criterion = { workspace = true }
 gpui-profiler = { workspace = true, features = ["global-allocator"] }

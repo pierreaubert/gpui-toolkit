@@ -18,7 +18,7 @@ use gpui_design::DesignSystemState;
 use std::path::{Path, PathBuf};
 use std::sync::{
     Arc,
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicUsize, Ordering},
 };
 use std::time::Duration;
 
@@ -47,15 +47,15 @@ fn run() -> Result<(), String> {
     let platform =
         current_platform().map_err(|error| format!("platform initialization failed: {error}"))?;
     let (smoke_test, smoke_artifact) = smoke_options()?;
-    let render_invoked = Arc::new(AtomicBool::new(false));
-    let render_invoked_for_app = render_invoked.clone();
+    let render_count = Arc::new(AtomicUsize::new(0));
+    let render_count_for_app = render_count.clone();
 
     gpui::Application::with_platform(platform).run(move |cx: &mut App| {
         cx.set_global(DesignSystemState::new());
 
         let bounds = Bounds::centered(None, size(px(1000.0), px(700.0)), cx);
-        let render_probe = smoke_test.then(|| render_invoked_for_app.clone());
-        match cx.open_window(
+        let render_probe = smoke_test.then(|| render_count_for_app.clone());
+        let window = match cx.open_window(
             WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
                 titlebar: Some(TitlebarOptions {
@@ -66,7 +66,7 @@ fn run() -> Result<(), String> {
             },
             |_, cx| cx.new(|_cx| ShowcaseView::new(render_probe)),
         ) {
-            Ok(_) => {}
+            Ok(window) => window,
             Err(error) => {
                 eprintln!("Layout showcase window error: {error:?}");
                 if smoke_test {
@@ -75,31 +75,58 @@ fn run() -> Result<(), String> {
                 cx.quit();
                 return;
             }
-        }
+        };
 
         cx.activate(true);
 
         if smoke_test {
-            let render_invoked = render_invoked_for_app.clone();
+            let render_count = render_count_for_app.clone();
             let smoke_artifact = smoke_artifact.clone();
             cx.spawn(async move |cx| {
                 let executor = cx.background_executor().clone();
                 for _ in 0..100 {
-                    if render_invoked.load(Ordering::Acquire) {
-                        executor.timer(Duration::from_millis(250)).await;
+                    if render_count.load(Ordering::Acquire) >= 2 {
                         break;
                     }
                     executor.timer(Duration::from_millis(50)).await;
                 }
-                if !render_invoked.load(Ordering::Acquire) {
-                    eprintln!("native smoke test did not invoke the root view renderer");
+                let final_render_count = render_count.load(Ordering::Acquire);
+                if final_render_count < 2 {
+                    eprintln!(
+                        "native smoke state transition did not trigger a second render \
+                         (renders={final_render_count})"
+                    );
                     std::process::exit(1);
                 }
-                if let Err(error) = write_smoke_artifact(smoke_artifact.as_deref()) {
+                let transition_verified =
+                    match window.read_with(cx, |view, _| view.sidebar_collapsed) {
+                    Ok(verified) => verified,
+                    Err(error) => {
+                        eprintln!("native smoke state transition read failed: {error}");
+                        std::process::exit(1);
+                    }
+                };
+                if !transition_verified {
+                    eprintln!("native smoke second render did not retain sidebar transition");
+                    std::process::exit(1);
+                }
+                if let Some(hold_ms) = smoke_hold_millis() {
+                    executor.timer(Duration::from_millis(hold_ms)).await;
+                }
+
+                if let Err(error) = write_smoke_artifact(
+                    smoke_artifact.as_deref(),
+                    final_render_count,
+                    transition_verified,
+                ) {
                     eprintln!("{error}");
                     std::process::exit(1);
                 }
-                println!("GPUI_NATIVE_SMOKE_OK platform={}", std::env::consts::OS);
+                println!(
+                    "GPUI_NATIVE_SMOKE_OK platform={} renders={} transition={transition_verified}",
+                    std::env::consts::OS,
+                    final_render_count
+                );
                 cx.update(|cx| cx.quit());
             })
             .detach();
@@ -128,7 +155,18 @@ fn smoke_options() -> Result<(bool, Option<PathBuf>), String> {
     Ok((smoke_test, artifact))
 }
 
-fn write_smoke_artifact(path: Option<&Path>) -> Result<(), String> {
+fn smoke_hold_millis() -> Option<u64> {
+    std::env::var("GPUI_NATIVE_SMOKE_HOLD_MS")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .filter(|hold_ms| *hold_ms > 0)
+}
+
+fn write_smoke_artifact(
+    path: Option<&Path>,
+    render_count: usize,
+    transition_verified: bool,
+) -> Result<(), String> {
     let Some(path) = path else {
         return Ok(());
     };
@@ -139,16 +177,21 @@ fn write_smoke_artifact(path: Option<&Path>) -> Result<(), String> {
     let report = format!(
         concat!(
             "{{\n",
-            "  \"schema_version\": 1,\n",
+            "  \"schema_version\": 2,\n",
             "  \"report_type\": \"gpui-native-smoke\",\n",
             "  \"crate\": \"gpui-builder\",\n",
             "  \"platform\": \"{}\",\n",
             "  \"window_opened\": true,\n",
             "  \"render_invoked\": true,\n",
+            "  \"render_count\": {},\n",
+            "  \"state_transition\": \"collapse-sidebar\",\n",
+            "  \"state_transition_verified\": {},\n",
             "  \"pixel_capture\": false\n",
             "}}\n"
         ),
-        std::env::consts::OS
+        std::env::consts::OS,
+        render_count,
+        transition_verified
     );
     std::fs::write(path, report)
         .map_err(|error| format!("failed to write smoke artifact {}: {error}", path.display()))
