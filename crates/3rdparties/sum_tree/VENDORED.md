@@ -7,4 +7,6 @@
 
 ## Local patches
 
-none
+- src/cursor.rs, src/sum_tree.rs: ztracing::instrument -> tracing::instrument — ztracing is GPL-3.0; tracing was already a dep
+- src/sum_tree.rs: removed zlog::init_test() test call (and its now-empty `init_logger` ctor wrapper) — zlog is GPL-3.0
+- Cargo.toml: dropped ztracing/zlog deps (GPL-3.0)

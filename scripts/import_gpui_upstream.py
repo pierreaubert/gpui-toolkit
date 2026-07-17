@@ -15,7 +15,7 @@ from pathlib import Path
 ZED_GIT = "https://github.com/zed-industries/zed.git"
 ZED_TARBALL = "https://github.com/zed-industries/zed/archive/refs/tags/{ref}.tar.gz"
 DEFAULT_ROOTS = ["gpui", "gpui_macros", "gpui_macos", "gpui_linux", "collections", "util"]
-EXCLUDED_CRATES = {"reqwest_client", "gpui_platform", "gpui_web"}
+EXCLUDED_CRATES = {"reqwest_client", "gpui_platform", "gpui_web", "zlog", "ztracing", "ztracing_macro"}
 EXCLUDED_DIRS = {"examples", "benches"}
 VENDOR_DIR = Path("crates/3rdparties")
 CANON_KEY_ORDER = ["package", "version", "git", "tag", "rev", "branch",
@@ -268,7 +268,7 @@ def _vendored_md(name: str, path: str, ref: str, prior: str | None) -> str:
         f"- Upstream: https://github.com/zed-industries/zed/tree/{ref}/{path}\n"
         f"- Base ref: {ref}\n"
         f"- Import: scripts/import_gpui_upstream.py (history-free snapshot)\n"
-        f"- Excluded on import: examples/, benches/, dev-deps on reqwest_client, gpui_platform, gpui_web\n\n"
+        f"- Excluded on import: examples/, benches/, deps on {', '.join(sorted(EXCLUDED_CRATES))}\n\n"
         + tail
     )
 

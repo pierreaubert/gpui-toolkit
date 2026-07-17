@@ -42,9 +42,6 @@ members = [
     "crates/3rdparties/http_client",
     "crates/3rdparties/media",
     "crates/3rdparties/perf",
-    "crates/3rdparties/zlog",
-    "crates/3rdparties/ztracing",
-    "crates/3rdparties/ztracing_macro",
 ]
 resolver = "3"
 
@@ -312,9 +309,6 @@ gpui = { path = "crates/3rdparties/gpui" }
 media = { path = "crates/3rdparties/media" }
 scheduler = { path = "crates/3rdparties/scheduler" }
 sum_tree = { path = "crates/3rdparties/sum_tree" }
-zlog = { path = "crates/3rdparties/zlog" }
-ztracing = { path = "crates/3rdparties/ztracing" }
-ztracing_macro = { path = "crates/3rdparties/ztracing_macro" }
 refineable = { path = "crates/3rdparties/refineable" }
 derive_refineable = { path = "crates/3rdparties/derive_refineable" }
 gpui_shared_string = { path = "crates/3rdparties/gpui_shared_string" }
