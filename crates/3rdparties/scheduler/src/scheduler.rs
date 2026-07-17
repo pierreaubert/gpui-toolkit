@@ -1,3 +1,9 @@
+#![allow(clippy::new_without_default)]
+#![allow(clippy::nonminimal_bool)]
+#![allow(clippy::type_complexity)]
+#![allow(clippy::unnecessary_map_or)]
+#![allow(clippy::let_unit_value)]
+
 mod clock;
 mod executor;
 mod test_scheduler;

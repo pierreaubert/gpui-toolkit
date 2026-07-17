@@ -1,3 +1,5 @@
+#![allow(clippy::new_without_default)]
+
 mod async_body;
 #[cfg(not(target_family = "wasm"))]
 pub mod github;

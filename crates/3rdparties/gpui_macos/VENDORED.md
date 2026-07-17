@@ -30,3 +30,17 @@ History note: an earlier hand-refactored snapshot of this crate (which carried
 the same patch but no longer compiles against gpui v1.9.0) is fully committed
 in git history — recover it at commit e1beddc's parent
 (`git checkout e1beddc~1 -- crates/3rdparties/gpui_macos`).
+
+### Crate-root lint allows (clippy default lints, upstream code unchanged)
+
+Added at the top of `src/gpui_macos.rs` (Task 6, `just lint-host` gate with `-D warnings`):
+
+- `#![allow(unused_imports)]` — `NSEvent` in the `cocoa::appkit` import list at
+  `src/window.rs:13` (upstream-identical; known since Task 4).
+- `#![allow(clippy::collapsible_if)]` — `src/keyboard.rs:38`.
+- `#![allow(clippy::single_match)]` — `src/pasteboard.rs:193`.
+- `#![allow(clippy::needless_borrow)]` — `src/pasteboard.rs:195`.
+- `#![allow(clippy::type_complexity)]` — boxed `FnMut` fields in
+  `src/platform.rs:173,174` and `src/window.rs:487`.
+- `#![allow(clippy::new_without_default)]` — `MetalHeadlessRenderer::new()` in
+  `src/metal_renderer.rs:1775`.

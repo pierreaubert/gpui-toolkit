@@ -1,5 +1,6 @@
 #![cfg_attr(not(target_os = "windows"), allow(unused))]
 #![allow(clippy::test_attr_in_doctest)]
+#![allow(unexpected_cfgs)]
 
 use perf::*;
 use proc_macro::TokenStream;

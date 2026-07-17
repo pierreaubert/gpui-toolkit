@@ -7,4 +7,8 @@
 
 ## Local patches
 
-none
+### Crate-root lint allows (clippy default lints, upstream code unchanged)
+
+Added at the top of `src/http_client.rs` (Task 6, `just lint-host` gate with `-D warnings`):
+
+- `#![allow(clippy::new_without_default)]` — `BlockedHttpClient::new()`.

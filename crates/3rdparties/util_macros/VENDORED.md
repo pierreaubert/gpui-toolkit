@@ -7,4 +7,10 @@
 
 ## Local patches
 
-none
+### Crate-root lint allows (clippy default lints, upstream code unchanged)
+
+Added at the top of `src/util_macros.rs` (Task 6, `just lint-host` gate with `-D warnings`):
+
+- `#![allow(unexpected_cfgs)]` — upstream gates code on `cfg!(perf_enabled)` (line 204),
+  a custom cfg Zed sets via RUSTFLAGS in their own builds; not declared as a
+  Cargo feature or check-cfg here, so rustc's `unexpected_cfgs` fires.

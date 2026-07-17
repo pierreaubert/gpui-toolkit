@@ -4,6 +4,14 @@
 //! macOS screens have a y axis that goes up from the bottom of the screen and
 //! an origin at the bottom left of the main display.
 
+// Local patch (see VENDORED.md): default-lint noise under `-D warnings`; upstream code unchanged.
+#![allow(clippy::collapsible_if)]
+#![allow(clippy::needless_borrow)]
+#![allow(clippy::new_without_default)]
+#![allow(clippy::single_match)]
+#![allow(clippy::type_complexity)]
+#![allow(unused_imports)]
+
 mod dispatcher;
 mod display;
 mod display_link;

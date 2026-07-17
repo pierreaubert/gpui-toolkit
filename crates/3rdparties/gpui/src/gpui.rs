@@ -3,6 +3,36 @@
 #![allow(clippy::type_complexity)] // Not useful, GPUI makes heavy use of callbacks
 #![allow(clippy::collapsible_else_if)] // False positives in platform specific code
 #![allow(unused_mut)] // False positives in platform specific code
+// Local patch (see VENDORED.md): default-lint noise under `-D warnings`; upstream code unchanged.
+#![allow(clippy::collapsible_if)]
+#![allow(clippy::collapsible_match)]
+#![allow(clippy::doc_lazy_continuation)]
+#![allow(clippy::double_must_use)]
+#![allow(clippy::excessive_precision)]
+#![allow(clippy::field_reassign_with_default)]
+#![allow(clippy::for_kv_map)]
+#![allow(clippy::from_over_into)]
+#![allow(clippy::if_same_then_else)]
+#![allow(clippy::legacy_numeric_constants)]
+#![allow(clippy::len_without_is_empty)]
+#![allow(clippy::len_zero)]
+#![allow(clippy::let_and_return)]
+#![allow(clippy::let_unit_value)]
+#![allow(clippy::manual_async_fn)]
+#![allow(clippy::manual_map)]
+#![allow(clippy::match_like_matches_macro)]
+#![allow(clippy::mem_replace_with_default)]
+#![allow(clippy::needless_borrow)]
+#![allow(clippy::needless_borrows_for_generic_args)]
+#![allow(clippy::new_ret_no_self)]
+#![allow(clippy::new_without_default)]
+#![allow(clippy::question_mark)]
+#![allow(clippy::redundant_closure)]
+#![allow(clippy::redundant_static_lifetimes)]
+#![allow(clippy::single_match)]
+#![allow(clippy::too_many_arguments)]
+#![allow(clippy::unnecessary_map_or)]
+#![allow(unexpected_cfgs)]
 
 extern crate self as gpui;
 #[doc(hidden)]

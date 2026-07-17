@@ -1,3 +1,21 @@
+// Local patch (see VENDORED.md): default-lint noise under `-D warnings`; upstream code unchanged.
+#![allow(clippy::collapsible_if)]
+#![allow(clippy::collapsible_match)]
+#![allow(clippy::comparison_to_empty)]
+#![allow(clippy::doc_lazy_continuation)]
+#![allow(clippy::from_over_into)]
+#![allow(clippy::if_same_then_else)]
+#![allow(clippy::needless_borrow)]
+#![allow(clippy::needless_borrows_for_generic_args)]
+#![allow(clippy::new_without_default)]
+#![allow(clippy::obfuscated_if_else)]
+#![allow(clippy::redundant_closure)]
+#![allow(clippy::result_unit_err)]
+#![allow(clippy::single_char_add_str)]
+#![allow(clippy::too_many_arguments)]
+#![allow(clippy::unnecessary_lazy_evaluations)]
+#![allow(clippy::unwrap_or_default)]
+
 pub mod archive;
 pub mod command;
 pub mod disambiguate;
