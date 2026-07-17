@@ -137,5 +137,57 @@ class SerializerTests(unittest.TestCase):
         self.assertIn('authors = ["a", "b"]', out)
 
 
+class ClosureAndVendorTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.zdir = make_fake_zed(Path(self.tmp.name))
+        self.ctx = imp.load_zed(self.zdir, REF)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_closure_walks_internal_path_deps(self):
+        closure = imp.compute_closure(self.zdir, self.ctx, ["internal_a"])
+        self.assertEqual(set(closure), {"internal_a", "internal_b"})
+        self.assertEqual(self.ctx["versions"], {"internal_a": "0.1.0", "internal_b": "0.1.0"})
+
+    def test_rewrite_manifest_strips_and_rewrites(self):
+        manifest = imp.read_toml(self.zdir / "crates" / "internal_a" / "Cargo.toml")
+        imp.compute_closure(self.zdir, self.ctx, ["internal_a"])
+        out = imp.dumps_toml(imp.rewrite_manifest(manifest, self.ctx))
+        self.assertIn('version = "0.1.0"', out)          # workspace version resolved
+        self.assertIn("publish = false", out)
+        self.assertIn('path = "src/internal_a.rs"', out)  # [lib] preserved
+        self.assertIn("doctest = false", out)
+        self.assertNotIn("workspace = true", out)
+        self.assertNotIn("[lints]", out)
+        self.assertNotIn("[[example]]", out)
+        self.assertNotIn("reqwest_client", out)
+        self.assertIn('[target.\'cfg(target_os = "macos")\'.dependencies]', out)
+        self.assertIn('features = ["extra"]', out)
+
+    def test_vendor_crate_end_to_end(self):
+        imp.compute_closure(self.zdir, self.ctx, ["internal_a"])
+        dest = Path(self.tmp.name) / "out"
+        imp.vendor_crate("internal_a", self.zdir, self.ctx, dest)
+        crate = dest / "internal_a"
+        self.assertTrue((crate / "Cargo.toml").exists())
+        self.assertTrue((crate / "src" / "internal_a.rs").exists())
+        self.assertTrue((crate / "LICENSE-APACHE").exists())
+        self.assertFalse((crate / "examples").exists())
+        md = (crate / "VENDORED.md").read_text()
+        self.assertIn(f"Base ref: {REF}", md)
+        self.assertIn("## Local patches", md)
+
+    def test_vendoring_is_idempotent(self):
+        imp.compute_closure(self.zdir, self.ctx, ["internal_a"])
+        dest = Path(self.tmp.name) / "out"
+        imp.vendor_crate("internal_a", self.zdir, self.ctx, dest)
+        first = {p: (p).read_bytes() for p in sorted(dest.rglob("*")) if p.is_file()}
+        imp.vendor_crate("internal_a", self.zdir, self.ctx, dest)
+        second = {p: (p).read_bytes() for p in sorted(dest.rglob("*")) if p.is_file()}
+        self.assertEqual(first, second)
+
+
 if __name__ == "__main__":
     unittest.main()
