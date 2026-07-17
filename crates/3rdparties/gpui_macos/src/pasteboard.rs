@@ -1,26 +1,23 @@
 use core::slice;
 use std::ffi::{CStr, c_void};
 use std::path::PathBuf;
+
 use cocoa::{
     appkit::{
-        NSFilenamesPboardType, NSPasteboard, NSPasteboardTypeString,
+        NSFilenamesPboardType, NSPasteboard, NSPasteboardTypePNG, NSPasteboardTypeString,
+        NSPasteboardTypeTIFF,
     },
     base::{id, nil},
     foundation::{NSArray, NSData, NSFastEnumeration, NSString},
 };
-use objc::{msg_send, sel, sel_impl};
+use objc::{msg_send, runtime::Object, sel, sel_impl};
 use smallvec::SmallVec;
 use strum::IntoEnumIterator as _;
+
 use crate::ns_string;
 use gpui::{
     ClipboardEntry, ClipboardItem, ClipboardString, ExternalPaths, Image, ImageFormat, hash,
 };
-
-mod misc;
-mod uttype;
-
-pub use misc::*;
-pub use uttype::*;
 
 pub struct Pasteboard {
     inner: id,
@@ -258,6 +255,86 @@ impl Pasteboard {
     }
 }
 
+#[link(name = "AppKit", kind = "framework")]
+unsafe extern "C" {
+    /// [Apple's documentation](https://developer.apple.com/documentation/appkit/nspasteboardnamefind?language=objc)
+    pub static NSPasteboardNameFind: id;
+}
+
+impl From<ImageFormat> for UTType {
+    fn from(value: ImageFormat) -> Self {
+        match value {
+            ImageFormat::Png => Self::png(),
+            ImageFormat::Jpeg => Self::jpeg(),
+            ImageFormat::Tiff => Self::tiff(),
+            ImageFormat::Webp => Self::webp(),
+            ImageFormat::Gif => Self::gif(),
+            ImageFormat::Bmp => Self::bmp(),
+            ImageFormat::Svg => Self::svg(),
+            ImageFormat::Ico => Self::ico(),
+            ImageFormat::Pnm => Self::pnm(),
+        }
+    }
+}
+
+// See https://developer.apple.com/documentation/uniformtypeidentifiers/uttype-swift.struct/
+pub struct UTType(id);
+
+impl UTType {
+    pub fn png() -> Self {
+        // https://developer.apple.com/documentation/uniformtypeidentifiers/uttype-swift.struct/png
+        Self(unsafe { NSPasteboardTypePNG }) // This is a rare case where there's a built-in NSPasteboardType
+    }
+
+    pub fn jpeg() -> Self {
+        // https://developer.apple.com/documentation/uniformtypeidentifiers/uttype-swift.struct/jpeg
+        Self(unsafe { ns_string("public.jpeg") })
+    }
+
+    pub fn gif() -> Self {
+        // https://developer.apple.com/documentation/uniformtypeidentifiers/uttype-swift.struct/gif
+        Self(unsafe { ns_string("com.compuserve.gif") })
+    }
+
+    pub fn webp() -> Self {
+        // https://developer.apple.com/documentation/uniformtypeidentifiers/uttype-swift.struct/webp
+        Self(unsafe { ns_string("org.webmproject.webp") })
+    }
+
+    pub fn bmp() -> Self {
+        // https://developer.apple.com/documentation/uniformtypeidentifiers/uttype-swift.struct/bmp
+        Self(unsafe { ns_string("com.microsoft.bmp") })
+    }
+
+    pub fn svg() -> Self {
+        // https://developer.apple.com/documentation/uniformtypeidentifiers/uttype-swift.struct/svg
+        Self(unsafe { ns_string("public.svg-image") })
+    }
+
+    pub fn ico() -> Self {
+        // https://developer.apple.com/documentation/uniformtypeidentifiers/uttype-swift.struct/ico
+        Self(unsafe { ns_string("com.microsoft.ico") })
+    }
+
+    pub fn tiff() -> Self {
+        // https://developer.apple.com/documentation/uniformtypeidentifiers/uttype-swift.struct/tiff
+        Self(unsafe { NSPasteboardTypeTIFF }) // This is a rare case where there's a built-in NSPasteboardType
+    }
+
+    pub fn pnm() -> Self {
+        //https://en.wikipedia.org/w/index.php?title=Netpbm&oldid=1336679433 under Uniform Type Identifier
+        Self(unsafe { ns_string("public.pbm") })
+    }
+
+    fn inner(&self) -> *const Object {
+        self.0
+    }
+
+    pub fn inner_mut(&self) -> *mut Object {
+        self.0 as *mut _
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use cocoa::{
@@ -452,4 +529,3 @@ mod tests {
         }
     }
 }
-

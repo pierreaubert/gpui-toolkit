@@ -13,6 +13,7 @@ use gpui::{
 };
 #[cfg(any(test, feature = "test-support"))]
 use image::RgbaImage;
+
 use core_foundation::base::TCFType;
 use core_video::{
     metal_texture::CVMetalTextureGetTexture, metal_texture_cache::CVMetalTextureCache,
@@ -21,33 +22,91 @@ use core_video::{
 use foreign_types::{ForeignType, ForeignTypeRef};
 use metal::{
     CAMetalLayer, CommandQueue, MTLGPUFamily, MTLPixelFormat, MTLResourceOptions, NSRange,
+    RenderPassColorAttachmentDescriptorRef,
 };
 use objc::{self, msg_send, sel, sel_impl};
 use parking_lot::Mutex;
+
 use std::{cell::Cell, ffi::c_void, mem, ptr, sync::Arc};
 
-mod build;
-mod consts;
-mod instance_buffer_pool;
-mod metal_headless_renderer;
-mod misc;
-mod new;
-mod types;
+// Exported to metal
+pub(crate) type PointF = gpui::Point<f32>;
 
-pub(crate) use instance_buffer_pool::*;
-pub(crate) use new::*;
-pub(crate) use types::*;
+#[cfg(not(feature = "runtime_shaders"))]
+const SHADERS_METALLIB: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/shaders.metallib"));
+#[cfg(feature = "runtime_shaders")]
+const SHADERS_SOURCE_FILE: &str = include_str!(concat!(env!("OUT_DIR"), "/stitched_shaders.metal"));
+// Use 4x MSAA, all devices support it.
+// https://developer.apple.com/documentation/metal/mtldevice/1433355-supportstexturesamplecount
+const PATH_SAMPLE_COUNT: u32 = 4;
 
-use build::build_path_rasterization_pipeline_state;
-use build::build_path_sprite_pipeline_state;
-use build::build_pipeline_state;
-use consts::PATH_SAMPLE_COUNT;
-# [cfg (not (feature = "runtime_shaders"))]
-use consts::SHADERS_METALLIB;
-# [cfg (feature = "runtime_shaders")]
-use consts::SHADERS_SOURCE_FILE;
-use misc::align_offset;
-use new::new_command_encoder_for_texture;
+pub(crate) type Context = Arc<Mutex<InstanceBufferPool>>;
+pub(crate) type Renderer = MetalRenderer;
+
+pub(crate) unsafe fn new_renderer(
+    context: self::Context,
+    _native_window: *mut c_void,
+    _native_view: *mut c_void,
+    _bounds: gpui::Size<f32>,
+    transparent: bool,
+) -> Renderer {
+    MetalRenderer::new(context, transparent)
+}
+
+pub(crate) struct InstanceBufferPool {
+    buffer_size: usize,
+    buffers: Vec<metal::Buffer>,
+}
+
+impl Default for InstanceBufferPool {
+    fn default() -> Self {
+        Self {
+            buffer_size: 2 * 1024 * 1024,
+            buffers: Vec::new(),
+        }
+    }
+}
+
+pub(crate) struct InstanceBuffer {
+    metal_buffer: metal::Buffer,
+    size: usize,
+}
+
+impl InstanceBufferPool {
+    pub(crate) fn reset(&mut self, buffer_size: usize) {
+        self.buffer_size = buffer_size;
+        self.buffers.clear();
+    }
+
+    pub(crate) fn acquire(
+        &mut self,
+        device: &metal::Device,
+        unified_memory: bool,
+    ) -> InstanceBuffer {
+        let buffer = self.buffers.pop().unwrap_or_else(|| {
+            let options = if unified_memory {
+                MTLResourceOptions::StorageModeShared
+                    // Buffers are write only which can benefit from the combined cache
+                    // https://developer.apple.com/documentation/metal/mtlresourceoptions/cpucachemodewritecombined
+                    | MTLResourceOptions::CPUCacheModeWriteCombined
+            } else {
+                MTLResourceOptions::StorageModeManaged
+            };
+
+            device.new_buffer(self.buffer_size as u64, options)
+        });
+        InstanceBuffer {
+            metal_buffer: buffer,
+            size: self.buffer_size,
+        }
+    }
+
+    pub(crate) fn release(&mut self, buffer: InstanceBuffer) {
+        if buffer.size == self.buffer_size {
+            self.buffers.push(buffer.metal_buffer)
+        }
+    }
+}
 
 pub(crate) struct MetalRenderer {
     device: metal::Device,
@@ -74,6 +133,10 @@ pub(crate) struct MetalRenderer {
     path_intermediate_texture: Option<metal::Texture>,
     path_intermediate_msaa_texture: Option<metal::Texture>,
     path_sample_count: u32,
+    /// Offscreen render target reused across `render_scene` calls when
+    /// rendering headlessly without reading pixels back.
+    #[cfg(any(test, feature = "test-support"))]
+    headless_render_target: Option<metal::Texture>,
 }
 
 #[repr(C)]
@@ -288,6 +351,8 @@ impl MetalRenderer {
             path_intermediate_texture: None,
             path_intermediate_msaa_texture: None,
             path_sample_count: PATH_SAMPLE_COUNT,
+            #[cfg(any(test, feature = "test-support"))]
+            headless_render_target: None,
         }
     }
 
@@ -649,6 +714,86 @@ impl MetalRenderer {
                     return RgbaImage::from_raw(width, height, pixels).ok_or_else(|| {
                         anyhow::anyhow!("Failed to create RgbaImage from pixel data")
                     });
+                }
+                Err(err) => {
+                    log::error!(
+                        "failed to render: {}. retrying with larger instance buffer size",
+                        err
+                    );
+                    let mut instance_buffer_pool = self.instance_buffer_pool.lock();
+                    let buffer_size = instance_buffer_pool.buffer_size;
+                    if buffer_size >= 256 * 1024 * 1024 {
+                        anyhow::bail!("instance buffer size grew too large: {}", buffer_size);
+                    }
+                    instance_buffer_pool.reset(buffer_size * 2);
+                    log::info!(
+                        "increased instance buffer size to {}",
+                        instance_buffer_pool.buffer_size
+                    );
+                }
+            }
+        }
+    }
+
+    /// Renders a scene to a reused offscreen texture without reading pixels
+    /// back or blocking on GPU completion.
+    ///
+    /// This mirrors the CPU cost of presenting a frame to a window (scene
+    /// encoding, instance buffer writes, command submission) and is used by
+    /// headless benchmark rendering, where the produced pixels are never
+    /// inspected.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn render_scene(&mut self, scene: &Scene, size: Size<DevicePixels>) -> Result<()> {
+        if size.width.0 <= 0 || size.height.0 <= 0 {
+            anyhow::bail!("Invalid size for render_scene: {:?}", size);
+        }
+
+        self.update_path_intermediate_textures(size);
+
+        let needs_new_target = self.headless_render_target.as_ref().is_none_or(|texture| {
+            texture.width() != size.width.0 as u64 || texture.height() != size.height.0 as u64
+        });
+        if needs_new_target {
+            let texture_descriptor = metal::TextureDescriptor::new();
+            texture_descriptor.set_width(size.width.0 as u64);
+            texture_descriptor.set_height(size.height.0 as u64);
+            texture_descriptor.set_pixel_format(MTLPixelFormat::BGRA8Unorm);
+            texture_descriptor.set_usage(
+                metal::MTLTextureUsage::RenderTarget | metal::MTLTextureUsage::ShaderRead,
+            );
+            texture_descriptor.set_storage_mode(metal::MTLStorageMode::Private);
+            self.headless_render_target = Some(self.device.new_texture(&texture_descriptor));
+        }
+        let target_texture = self
+            .headless_render_target
+            .clone()
+            .expect("just ensured the render target exists");
+
+        loop {
+            let mut instance_buffer = self
+                .instance_buffer_pool
+                .lock()
+                .acquire(&self.device, self.is_unified_memory);
+
+            let command_buffer =
+                self.draw_primitives_to_texture(scene, &mut instance_buffer, &target_texture, size);
+
+            match command_buffer {
+                Ok(command_buffer) => {
+                    let instance_buffer_pool = self.instance_buffer_pool.clone();
+                    let instance_buffer = Cell::new(Some(instance_buffer));
+                    let block = ConcreteBlock::new(move |_| {
+                        if let Some(instance_buffer) = instance_buffer.take() {
+                            instance_buffer_pool.lock().release(instance_buffer);
+                        }
+                    });
+                    let block = block.copy();
+                    command_buffer.add_completed_handler(&block);
+
+                    // Commit without waiting, mirroring presentation to a real
+                    // window where the CPU doesn't block on the GPU.
+                    command_buffer.commit();
+                    return Ok(());
                 }
                 Err(err) => {
                     log::error!(
@@ -1422,6 +1567,145 @@ impl MetalRenderer {
     }
 }
 
+fn new_command_encoder_for_texture<'a>(
+    command_buffer: &'a metal::CommandBufferRef,
+    texture: &'a metal::TextureRef,
+    viewport_size: Size<DevicePixels>,
+    configure_color_attachment: impl Fn(&RenderPassColorAttachmentDescriptorRef),
+) -> &'a metal::RenderCommandEncoderRef {
+    let render_pass_descriptor = metal::RenderPassDescriptor::new();
+    let color_attachment = render_pass_descriptor
+        .color_attachments()
+        .object_at(0)
+        .unwrap();
+    color_attachment.set_texture(Some(texture));
+    color_attachment.set_store_action(metal::MTLStoreAction::Store);
+    configure_color_attachment(color_attachment);
+
+    let command_encoder = command_buffer.new_render_command_encoder(render_pass_descriptor);
+    command_encoder.set_viewport(metal::MTLViewport {
+        originX: 0.0,
+        originY: 0.0,
+        width: i32::from(viewport_size.width) as f64,
+        height: i32::from(viewport_size.height) as f64,
+        znear: 0.0,
+        zfar: 1.0,
+    });
+    command_encoder
+}
+
+fn build_pipeline_state(
+    device: &metal::DeviceRef,
+    library: &metal::LibraryRef,
+    label: &str,
+    vertex_fn_name: &str,
+    fragment_fn_name: &str,
+    pixel_format: metal::MTLPixelFormat,
+) -> metal::RenderPipelineState {
+    let vertex_fn = library
+        .get_function(vertex_fn_name, None)
+        .expect("error locating vertex function");
+    let fragment_fn = library
+        .get_function(fragment_fn_name, None)
+        .expect("error locating fragment function");
+
+    let descriptor = metal::RenderPipelineDescriptor::new();
+    descriptor.set_label(label);
+    descriptor.set_vertex_function(Some(vertex_fn.as_ref()));
+    descriptor.set_fragment_function(Some(fragment_fn.as_ref()));
+    let color_attachment = descriptor.color_attachments().object_at(0).unwrap();
+    color_attachment.set_pixel_format(pixel_format);
+    color_attachment.set_blending_enabled(true);
+    color_attachment.set_rgb_blend_operation(metal::MTLBlendOperation::Add);
+    color_attachment.set_alpha_blend_operation(metal::MTLBlendOperation::Add);
+    color_attachment.set_source_rgb_blend_factor(metal::MTLBlendFactor::SourceAlpha);
+    color_attachment.set_source_alpha_blend_factor(metal::MTLBlendFactor::One);
+    color_attachment.set_destination_rgb_blend_factor(metal::MTLBlendFactor::OneMinusSourceAlpha);
+    color_attachment.set_destination_alpha_blend_factor(metal::MTLBlendFactor::One);
+
+    device
+        .new_render_pipeline_state(&descriptor)
+        .expect("could not create render pipeline state")
+}
+
+fn build_path_sprite_pipeline_state(
+    device: &metal::DeviceRef,
+    library: &metal::LibraryRef,
+    label: &str,
+    vertex_fn_name: &str,
+    fragment_fn_name: &str,
+    pixel_format: metal::MTLPixelFormat,
+) -> metal::RenderPipelineState {
+    let vertex_fn = library
+        .get_function(vertex_fn_name, None)
+        .expect("error locating vertex function");
+    let fragment_fn = library
+        .get_function(fragment_fn_name, None)
+        .expect("error locating fragment function");
+
+    let descriptor = metal::RenderPipelineDescriptor::new();
+    descriptor.set_label(label);
+    descriptor.set_vertex_function(Some(vertex_fn.as_ref()));
+    descriptor.set_fragment_function(Some(fragment_fn.as_ref()));
+    let color_attachment = descriptor.color_attachments().object_at(0).unwrap();
+    color_attachment.set_pixel_format(pixel_format);
+    color_attachment.set_blending_enabled(true);
+    color_attachment.set_rgb_blend_operation(metal::MTLBlendOperation::Add);
+    color_attachment.set_alpha_blend_operation(metal::MTLBlendOperation::Add);
+    color_attachment.set_source_rgb_blend_factor(metal::MTLBlendFactor::One);
+    color_attachment.set_source_alpha_blend_factor(metal::MTLBlendFactor::One);
+    color_attachment.set_destination_rgb_blend_factor(metal::MTLBlendFactor::OneMinusSourceAlpha);
+    color_attachment.set_destination_alpha_blend_factor(metal::MTLBlendFactor::One);
+
+    device
+        .new_render_pipeline_state(&descriptor)
+        .expect("could not create render pipeline state")
+}
+
+fn build_path_rasterization_pipeline_state(
+    device: &metal::DeviceRef,
+    library: &metal::LibraryRef,
+    label: &str,
+    vertex_fn_name: &str,
+    fragment_fn_name: &str,
+    pixel_format: metal::MTLPixelFormat,
+    path_sample_count: u32,
+) -> metal::RenderPipelineState {
+    let vertex_fn = library
+        .get_function(vertex_fn_name, None)
+        .expect("error locating vertex function");
+    let fragment_fn = library
+        .get_function(fragment_fn_name, None)
+        .expect("error locating fragment function");
+
+    let descriptor = metal::RenderPipelineDescriptor::new();
+    descriptor.set_label(label);
+    descriptor.set_vertex_function(Some(vertex_fn.as_ref()));
+    descriptor.set_fragment_function(Some(fragment_fn.as_ref()));
+    if path_sample_count > 1 {
+        descriptor.set_raster_sample_count(path_sample_count as _);
+        descriptor.set_alpha_to_coverage_enabled(false);
+    }
+    let color_attachment = descriptor.color_attachments().object_at(0).unwrap();
+    color_attachment.set_pixel_format(pixel_format);
+    color_attachment.set_blending_enabled(true);
+    color_attachment.set_rgb_blend_operation(metal::MTLBlendOperation::Add);
+    color_attachment.set_alpha_blend_operation(metal::MTLBlendOperation::Add);
+    color_attachment.set_source_rgb_blend_factor(metal::MTLBlendFactor::One);
+    color_attachment.set_source_alpha_blend_factor(metal::MTLBlendFactor::One);
+    color_attachment.set_destination_rgb_blend_factor(metal::MTLBlendFactor::OneMinusSourceAlpha);
+    color_attachment.set_destination_alpha_blend_factor(metal::MTLBlendFactor::OneMinusSourceAlpha);
+
+    device
+        .new_render_pipeline_state(&descriptor)
+        .expect("could not create render pipeline state")
+}
+
+// Align to multiples of 256 make Metal happy.
+fn align_offset(offset: &mut usize) {
+    *offset = (*offset).div_ceil(256) * 256;
+}
+
 #[repr(C)]
 enum ShadowInputIndex {
     Vertices = 0,
@@ -1481,3 +1765,35 @@ pub struct SurfaceBounds {
     pub content_mask: ContentMask<ScaledPixels>,
 }
 
+#[cfg(any(test, feature = "test-support"))]
+pub struct MetalHeadlessRenderer {
+    renderer: MetalRenderer,
+}
+
+#[cfg(any(test, feature = "test-support"))]
+impl MetalHeadlessRenderer {
+    pub fn new() -> Self {
+        let instance_buffer_pool = Arc::new(Mutex::new(InstanceBufferPool::default()));
+        let renderer = MetalRenderer::new_headless(instance_buffer_pool);
+        Self { renderer }
+    }
+}
+
+#[cfg(any(test, feature = "test-support"))]
+impl gpui::PlatformHeadlessRenderer for MetalHeadlessRenderer {
+    fn render_scene_to_image(
+        &mut self,
+        scene: &Scene,
+        size: Size<DevicePixels>,
+    ) -> anyhow::Result<image::RgbaImage> {
+        self.renderer.render_scene_to_image(scene, size)
+    }
+
+    fn render_scene(&mut self, scene: &Scene, size: Size<DevicePixels>) -> anyhow::Result<()> {
+        self.renderer.render_scene(scene, size)
+    }
+
+    fn sprite_atlas(&self) -> Arc<dyn gpui::PlatformAtlas> {
+        self.renderer.sprite_atlas().clone()
+    }
+}

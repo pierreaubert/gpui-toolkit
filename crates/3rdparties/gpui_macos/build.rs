@@ -128,13 +128,6 @@ mod macos_build {
         let metallib_output_path =
             PathBuf::from(env::var("OUT_DIR").unwrap()).join("shaders.metallib");
         println!("cargo:rerun-if-changed={}", shader_path);
-        let module_cache_path = PathBuf::from(env::var("CLANG_MODULE_CACHE_PATH")
-            .unwrap_or_else(|_| format!("{}/clang-module-cache", std::env::temp_dir().display()).into()));
-        if let Err(error) = std::fs::create_dir_all(&module_cache_path) {
-            println!("cargo::error=Failed to create module cache directory '{}': {error}", module_cache_path.display());
-            process::exit(1);
-        }
-        let module_cache_arg = format!("-fmodules-cache-path={}", module_cache_path.display());
 
         let output = Command::new("xcrun")
             .args([
@@ -145,7 +138,6 @@ mod macos_build {
                 "-mmacosx-version-min=10.15.7",
                 "-MO",
                 "-c",
-                module_cache_arg.as_str(),
                 shader_path,
                 "-include",
                 (header_path.to_str().unwrap()),
