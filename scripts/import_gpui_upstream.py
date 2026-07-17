@@ -334,8 +334,15 @@ def fetch(ref: str, cache: Path) -> Path:
     return zdir
 
 
-def check(dest_root: Path, zdir: Path, ctx: dict, closure: list[str]) -> list[str]:
-    """Regenerate into a temp dir and byte-compare. Differences = drift or local patches."""
+def check(dest_root: Path, zdir: Path, ctx: dict, closure: list[str],
+          skip: set[str] | None = None) -> list[str]:
+    """Regenerate into a temp dir and byte-compare. Differences = drift or local patches.
+
+    Skipped crates (hand-maintained, e.g. gpui_wgpu, gpui_macos) are excluded
+    from checking entirely, same semantics as vendor_closure.
+    """
+    skip = skip or set()
+    closure = [name for name in closure if name not in skip]
     diffs: list[str] = []
     with tempfile.TemporaryDirectory() as tmp:
         for name in closure:
@@ -373,7 +380,7 @@ def main(argv: list[str] | None = None) -> int:
         for name in closure:
             print(f"  {name} {ctx['versions'][name]}")
     if args.check:
-        diffs = check(VENDOR_DIR, zdir, ctx, closure)
+        diffs = check(VENDOR_DIR, zdir, ctx, closure, skip=set(args.skip))
         if diffs:
             print("drift / local patch surface:")
             print("\n".join(diffs))
