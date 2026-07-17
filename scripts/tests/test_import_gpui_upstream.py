@@ -188,6 +188,13 @@ class ClosureAndVendorTests(unittest.TestCase):
         second = {p: (p).read_bytes() for p in sorted(dest.rglob("*")) if p.is_file()}
         self.assertEqual(first, second)
 
+    def test_vendor_closure_skip_leaves_destination_absent(self):
+        closure = imp.compute_closure(self.zdir, self.ctx, ["internal_a"])
+        dest = Path(self.tmp.name) / "out"
+        imp.vendor_closure(closure, self.zdir, self.ctx, dest, skip={"internal_b"})
+        self.assertTrue((dest / "internal_a" / "Cargo.toml").exists())
+        self.assertFalse((dest / "internal_b").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

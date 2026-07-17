@@ -294,6 +294,22 @@ def vendor_crate(name: str, zdir: Path, ctx: dict, dest_root: Path) -> None:
     (dst / "VENDORED.md").write_text(_vendored_md(name, path, ctx["ref"], prior_md))
 
 
+def vendor_closure(closure: list[str], zdir: Path, ctx: dict, dest_root: Path,
+                   skip: set[str] | None = None) -> None:
+    """Vendor every crate in the closure, minus the skip set.
+
+    Skipped crates are left untouched on disk (hand-maintained crates such as
+    gpui_wgpu) but stay in the closure and the printed [patch] block.
+    """
+    skip = skip or set()
+    for name in closure:
+        if name in skip:
+            print(f"skipped {name}")
+            continue
+        vendor_crate(name, zdir, ctx, dest_root)
+        print(f"vendored {name}")
+
+
 def fetch(ref: str, cache: Path) -> Path:
     """Download and partially extract the upstream tarball; return the checkout dir."""
     cache = Path(cache)
@@ -343,6 +359,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--ref", default="v1.9.0")
     parser.add_argument("--cache", default="target/zed-upstream")
     parser.add_argument("--root", action="append", default=[])
+    parser.add_argument("--skip", action="append", default=[], metavar="NAME",
+                        help="do not vendor NAME (kept in closure and [patch] block); repeatable")
     parser.add_argument("--print-closure", action="store_true")
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args(argv)
@@ -363,9 +381,7 @@ def main(argv: list[str] | None = None) -> int:
         print("ok: vendored tree matches regeneration")
         return 0
     if not args.print_closure:
-        for name in closure:
-            vendor_crate(name, zdir, ctx, VENDOR_DIR)
-            print(f"vendored {name}")
+        vendor_closure(closure, zdir, ctx, VENDOR_DIR, skip=set(args.skip))
         print("\n[patch.\"https://github.com/zed-industries/zed.git\"]")
         for name in closure:
             print(f"{name} = {{ path = \"crates/3rdparties/{name}\" }}")
