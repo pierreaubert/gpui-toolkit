@@ -4,6 +4,8 @@ set -euo pipefail
 binary="${1:-target/debug/layout-showcase}"
 artifact="${2:-target/qa/native-ui/linux/gpui-builder-smoke.json}"
 screenshot="${3:-target/qa/native-ui/linux/gpui-builder.png}"
+capture_transport="${4:-linux-x11-window}"
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 mkdir -p "$(dirname "$artifact")" "$(dirname "$screenshot")"
 
@@ -45,18 +47,11 @@ fi
 
 wait "$app_pid"
 
-python3 - "$artifact" "$screenshot" "$unique_colors" <<'PY'
-import json
-import pathlib
-import sys
-
-artifact = pathlib.Path(sys.argv[1])
-screenshot = pathlib.Path(sys.argv[2])
-report = json.loads(artifact.read_text(encoding="utf-8"))
-report["pixel_capture"] = True
-report["pixel_artifact"] = screenshot.name
-report["pixel_unique_colors"] = int(sys.argv[3])
-artifact.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
-PY
+python3 "$script_dir/qa_native_ui_evidence.py" \
+    --artifact "$artifact" \
+    --screenshot "$screenshot" \
+    --platform linux \
+    --unique-colors "$unique_colors" \
+    --capture-transport "$capture_transport"
 
 trap - EXIT

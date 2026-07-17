@@ -110,6 +110,33 @@ qa-scripts:
     PYTHONPATH=scripts python3 -m unittest discover -s scripts/tests -p 'test_*.py'
     python3 scripts/qa_unsafe_policy.py
     bash -n scripts/run_linux_native_ui_smoke.sh
+    bash -n scripts/run_macos_native_ui_smoke.sh
+    bash -n scripts/run_utm_linux_guest_native_ui_smoke.sh
+    bash -n scripts/run_utm_linux_native_ui_smoke.sh
+    bash -n scripts/run_utm_windows_native_ui_smoke.sh
+
+# Local macOS capture uses the native host directly. UTM is reserved for the
+# Linux and Windows desktop backends and is intentionally not part of hosted CI.
+[group('qa')]
+[macos]
+qa-native-ui-macos:
+	cargo build -p gpui-builder --features showcase --bin layout-showcase
+	bash scripts/run_macos_native_ui_smoke.sh
+
+[group('qa')]
+[macos]
+qa-native-ui-utm-linux:
+	bash scripts/run_utm_linux_native_ui_smoke.sh
+
+[group('qa')]
+[macos]
+qa-native-ui-utm-windows:
+	bash scripts/run_utm_windows_native_ui_smoke.sh
+
+[group('qa')]
+[macos]
+qa-native-ui-local: qa-native-ui-macos qa-native-ui-utm-linux qa-native-ui-utm-windows
+	@echo "macOS, UTM Linux, and UTM Windows native UI evidence passed"
 
 [group('qa')]
 qa-api:

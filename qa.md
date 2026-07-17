@@ -133,6 +133,31 @@ dragging. Linux additionally captures the Xvfb window and rejects blank or
 near-uniform pixels. macOS and Windows still record `pixel_capture: false`;
 their hosted native backend smoke is not presented as screenshot/diff proof.
 
+The macOS release host also provides explicit local renderer capture recipes:
+
+- `just qa-native-ui-macos` builds and captures the real macOS GPUI window
+  directly; Docker is not involved.
+- `just qa-native-ui-utm-linux` starts or resumes `Ubuntu 24.04 ARM`, syncs the
+  workspace over key-authenticated SSH, runs against the logged-in X11/XWayland
+  desktop, and copies the exact window PNG and JSON report back to the host.
+- `just qa-native-ui-utm-windows` starts or resumes `Win11 ARM AutoEQ`, uses the
+  QEMU guest agent for isolated workspace transfer/build orchestration, and
+  schedules rendering plus window capture in the logged-in `pierre` desktop.
+
+These recipes restore a VM that they started to its prior stopped/suspended
+state. Set `GPUI_UTM_KEEP_RUNNING=1` only for interactive debugging. A lock
+screen, UTM host-window capture, headless SYSTEM session, missing SSH key, or
+missing desktop login fails without changing `pixel_capture` to true. Ubuntu
+requires this Mac's SSH public key in the guest account and `xdotool` plus
+ImageMagick. Windows requires UTM guest tools, the user Rust toolchain, and an
+interactive desktop login. VM names, user/host, and dedicated guest roots can
+be overridden with the documented `GPUI_UTM_*` environment variables in the
+scripts.
+
+Local UTM evidence is a release artifact, not an ordinary GitHub-hosted job.
+Promoting it to scheduled CI requires a dedicated self-hosted macOS runner with
+screen-capture permission and provisioned, non-personal QA guest accounts.
+
 ## Platform evidence
 
 Desktop core changes require Linux, macOS, and Windows compile/test evidence.

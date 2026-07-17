@@ -354,6 +354,20 @@ cargo run -p gpui-builder --features showcase --bin layout-showcase -- \
 Smoke mode exits after the root view renders and records window/render evidence.
 It does not claim pixel capture or visual-diff coverage.
 
+On a macOS QA host, capture the real desktop windows with:
+
+```bash
+just qa-native-ui-macos
+just qa-native-ui-utm-linux
+just qa-native-ui-utm-windows
+```
+
+The macOS recipe runs directly on the host. Linux and Windows run in logged-in
+UTM desktop guests, capture the exact showcase window inside each guest, reject
+blank or near-uniform pixels, and copy the PNG plus schema-v2 smoke report back
+to `target/qa/native-ui/<platform>/`. Docker and cross-compilation are not
+treated as Windows or macOS renderer evidence.
+
 ## Testing
 
 ```bash

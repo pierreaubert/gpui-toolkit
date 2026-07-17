@@ -333,3 +333,10 @@ FOLLOW-UP STATUS — 2026-07-16
   near-uniform pixels. macOS/Windows renderer pixel diffs, Windows
   IME/accessibility automation, and mobile/device/AUv3 host qualification
   remain open.
+- Local release-host recipes now capture macOS directly and drive logged-in
+  Ubuntu/Windows desktop guests through UTM. Each recipe requires the exact
+  GPUI window, schema-v2 render/transition evidence, and non-uniform pixels;
+  lock screens and UTM chrome cannot satisfy the gate. The installed guests
+  still require one-time login/key provisioning before their first recorded
+  Linux/Windows capture, so cross-renderer visual-diff qualification remains
+  pending until those PNG/JSON artifacts are attached.

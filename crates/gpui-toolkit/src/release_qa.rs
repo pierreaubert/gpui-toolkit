@@ -233,10 +233,10 @@ const RELEASE_QA_GATES: &[ReleaseQaGate] = &[
     ReleaseQaGate {
         id: "macos-desktop",
         area: "macOS desktop/runtime",
-        command: "layout-showcase --smoke-test --smoke-artifact <path>",
+        command: "just qa-native-ui-macos",
         status: ReleaseQaStatus::Partial,
-        evidence: "Maintained native CI opens a macOS window, applies a sidebar state transition, and requires a second render; shared GPUI pointer contracts cover selection, collapse, and drag.",
-        release_requirement: "Add keyboard/resize automation and renderer pixel capture/diff.",
+        evidence: "Maintained native CI opens a macOS window, applies a sidebar state transition, and requires a second render; the local release-host recipe captures and validates the exact native window when Screen Recording permission is available.",
+        release_requirement: "Attach the local PNG/JSON renderer artifact and add keyboard/resize automation before promoting this gate.",
     },
     ReleaseQaGate {
         id: "au-host",
@@ -273,10 +273,10 @@ const RELEASE_QA_GATES: &[ReleaseQaGate] = &[
     ReleaseQaGate {
         id: "windows-native",
         area: "Windows native",
-        command: "layout-showcase.exe --smoke-test --smoke-artifact <path>",
+        command: "just qa-native-ui-utm-windows",
         status: ReleaseQaStatus::Partial,
-        evidence: "Maintained native CI opens a Windows window, applies a sidebar state transition, and requires a second render; shared GPUI pointer contracts cover selection, collapse, and drag.",
-        release_requirement: "Add input/IME/accessibility automation and renderer pixel capture/diff.",
+        evidence: "Maintained native CI opens a Windows window and verifies a second render; the local UTM driver requires a logged-in interactive desktop and captures only the exact GPUI window.",
+        release_requirement: "Provision the QA guest, attach its PNG/JSON artifact, and add input/IME/accessibility automation.",
     },
     ReleaseQaGate {
         id: "showcase-visual",
