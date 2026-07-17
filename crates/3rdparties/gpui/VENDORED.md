@@ -7,4 +7,4 @@
 
 ## Local patches
 
-none
+- `crates/assets/fonts/ibm-plex-sans/IBMPlexSans-Regular.ttf`, `crates/assets/fonts/lilex/Lilex-Regular.ttf` (new files, outside this crate): restored from zed v1.9.0 `assets/fonts/` — `src/svg_renderer.rs` test module does `include_bytes!("../../../assets/fonts/...")`; the vendored layout (`crates/3rdparties/gpui/`) is one level deeper than upstream (`crates/gpui/`), so `../../../assets` resolves to `<repo>/crates/assets`. Sources are unmodified; only the font payloads were placed at the resolved path.
