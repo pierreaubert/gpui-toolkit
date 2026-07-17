@@ -1,0 +1,24 @@
+[package]
+name = "gpui_macros"
+version = "0.1.0"
+edition = "2024"
+description = "Macros used by gpui"
+license = "Apache-2.0"
+publish = false
+
+[lib]
+path = "src/gpui_macros.rs"
+proc-macro = true
+doctest = true
+
+[features]
+inspector = []
+
+[dependencies]
+heck = "0.5"
+proc-macro2 = "1.0.93"
+quote = "1.0.9"
+syn = { version = "2.0.101", features = ["full", "extra-traits", "visit-mut"] }
+
+[dev-dependencies]
+gpui = { version = "0.2.2", git = "https://github.com/zed-industries/zed.git", tag = "v1.9.0", features = ["inspector"] }

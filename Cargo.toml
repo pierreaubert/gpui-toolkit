@@ -26,6 +26,25 @@ members = [
     "crates/gpui-ui-kit-macros",
     "crates/3rdparties/gpui_wgpu",
     "crates/3rdparties/gpui_windows",
+    "crates/3rdparties/gpui",
+    "crates/3rdparties/gpui_macros",
+    "crates/3rdparties/gpui_macos",
+    "crates/3rdparties/gpui_linux",
+    "crates/3rdparties/collections",
+    "crates/3rdparties/util",
+    "crates/3rdparties/gpui_shared_string",
+    "crates/3rdparties/gpui_util",
+    "crates/3rdparties/util_macros",
+    "crates/3rdparties/refineable",
+    "crates/3rdparties/derive_refineable",
+    "crates/3rdparties/scheduler",
+    "crates/3rdparties/sum_tree",
+    "crates/3rdparties/http_client",
+    "crates/3rdparties/media",
+    "crates/3rdparties/perf",
+    "crates/3rdparties/zlog",
+    "crates/3rdparties/ztracing",
+    "crates/3rdparties/ztracing_macro",
 ]
 resolver = "3"
 
@@ -280,8 +299,27 @@ codegen-units = 256
 zed-font-kit = { path = "crates/3rdparties/zed-font-kit" }
 
 [patch."https://github.com/zed-industries/zed.git"]
+util = { path = "crates/3rdparties/util" }
+util_macros = { path = "crates/3rdparties/util_macros" }
+perf = { path = "crates/3rdparties/perf" }
+collections = { path = "crates/3rdparties/collections" }
+gpui_util = { path = "crates/3rdparties/gpui_util" }
+gpui_linux = { path = "crates/3rdparties/gpui_linux" }
+http_client = { path = "crates/3rdparties/http_client" }
 gpui_wgpu = { path = "crates/3rdparties/gpui_wgpu" }
 gpui_windows = { path = "crates/3rdparties/gpui_windows" }
+gpui = { path = "crates/3rdparties/gpui" }
+media = { path = "crates/3rdparties/media" }
+scheduler = { path = "crates/3rdparties/scheduler" }
+sum_tree = { path = "crates/3rdparties/sum_tree" }
+zlog = { path = "crates/3rdparties/zlog" }
+ztracing = { path = "crates/3rdparties/ztracing" }
+ztracing_macro = { path = "crates/3rdparties/ztracing_macro" }
+refineable = { path = "crates/3rdparties/refineable" }
+derive_refineable = { path = "crates/3rdparties/derive_refineable" }
+gpui_shared_string = { path = "crates/3rdparties/gpui_shared_string" }
+gpui_macros = { path = "crates/3rdparties/gpui_macros" }
+gpui_macos = { path = "crates/3rdparties/gpui_macos" }
 
 [patch.crates-io]
 block = { path = "crates/3rdparties/block" }

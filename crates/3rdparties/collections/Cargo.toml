@@ -1,0 +1,19 @@
+[package]
+name = "collections"
+version = "0.1.0"
+edition = "2024"
+description = "Standard collection types used by Zed and GPUI"
+license = "Apache-2.0"
+publish = false
+
+[lib]
+path = "src/collections.rs"
+doctest = false
+
+[features]
+test-support = []
+
+[dependencies]
+indexmap = { version = "2.7.0", features = ["serde"] }
+rustc-hash = "2.1.0"
+gpui_util = { version = "0.1.0", git = "https://github.com/zed-industries/zed.git", tag = "v1.9.0" }

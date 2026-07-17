@@ -1,0 +1,145 @@
+[package]
+name = "gpui"
+version = "0.2.2"
+edition = "2024"
+description = "Zed's GPU-accelerated UI framework"
+license = "Apache-2.0"
+authors = ["Nathan Sobo <nathan@zed.dev>"]
+publish = false
+homepage = "https://gpui.rs"
+repository = "https://github.com/zed-industries/zed"
+keywords = ["desktop", "gui", "immediate"]
+categories = ["gui"]
+
+[lib]
+path = "src/gpui.rs"
+doctest = false
+
+[features]
+default = ["font-kit", "wayland", "x11", "windows-manifest"]
+test-support = ["leak-detection", "collections/test-support", "http_client/test-support", "wayland", "x11", "proptest"]
+bench = ["test-support", "dep:criterion", "dep:hdrhistogram"]
+inspector = ["gpui_macros/inspector"]
+leak-detection = ["backtrace"]
+wayland = ["bitflags"]
+x11 = ["scap?/x11"]
+screen-capture = ["scap"]
+windows-manifest = ["dep:embed-resource"]
+input-latency-histogram = ["dep:hdrhistogram"]
+profiler = []
+
+[dependencies]
+accesskit = "0.24.0"
+anyhow = "1.0.86"
+async-task = "4.7"
+backtrace = { version = "0.3", optional = true }
+bitflags = { version = "2.6.0", optional = true }
+collections = { version = "0.1.0", git = "https://github.com/zed-industries/zed.git", tag = "v1.9.0" }
+criterion = { version = "0.5", features = ["html_reports"], optional = true }
+ctor = "1.0.6"
+derive_more = { version = "2.1.1", features = ["add", "add_assign", "deref", "deref_mut", "display", "from_str", "mul", "mul_assign", "not"] }
+etagere = "0.2"
+futures = "0.3.32"
+futures-concurrency = "7.7.1"
+gpui_macros = { version = "0.1.0", git = "https://github.com/zed-industries/zed.git", tag = "v1.9.0" }
+gpui_shared_string = { version = "0.1.0", git = "https://github.com/zed-industries/zed.git", tag = "v1.9.0" }
+http_client = { version = "0.1.0", git = "https://github.com/zed-industries/zed.git", tag = "v1.9.0" }
+image = "0.25.1"
+inventory = "0.3.19"
+itertools = "0.14.0"
+log = { version = "0.4.16", features = ["kv_unstable_serde", "serde"] }
+num_cpus = "1.13"
+parking = "2.0.0"
+parking_lot = "0.12.1"
+postage = { version = "0.5", features = ["futures-traits"] }
+proptest = { git = "https://github.com/proptest-rs/proptest", rev = "3dca198a8fef1b32e3a66f1e1897c955b4dc5b5b", features = ["attr-macro"], optional = true }
+chrono = { version = "0.4", features = ["serde"] }
+profiling = "1"
+rand = "0.9"
+raw-window-handle = "0.6"
+regex = "1.5"
+refineable = { version = "0.1.0", git = "https://github.com/zed-industries/zed.git", tag = "v1.9.0" }
+scheduler = { version = "0.1.0", git = "https://github.com/zed-industries/zed.git", tag = "v1.9.0" }
+resvg = { version = "0.46.0", default-features = false, features = ["text", "system-fonts", "memmap-fonts", "raster-images"] }
+usvg = { version = "0.46.0", default-features = false }
+ttf-parser = "0.25"
+util_macros = { version = "0.1.0", git = "https://github.com/zed-industries/zed.git", tag = "v1.9.0" }
+schemars = { version = "1.0", features = ["indexmap2"] }
+seahash = "4.1"
+serde = { version = "1.0.221", features = ["derive", "rc"] }
+serde_json = { version = "1.0.144", features = ["preserve_order", "raw_value"] }
+slotmap = "1.0.6"
+smallvec = { version = "1.6", features = ["union", "const_new"] }
+async-channel = "2.5.0"
+stacksafe = "0.1"
+strum = { version = "0.27.2", features = ["derive"] }
+sum_tree = { version = "0.1.0", git = "https://github.com/zed-industries/zed.git", tag = "v1.9.0" }
+taffy = "=0.10.1"
+thiserror = "2.0.12"
+gpui_util = { version = "0.1.0", git = "https://github.com/zed-industries/zed.git", tag = "v1.9.0" }
+hdrhistogram = { version = "7", optional = true }
+waker-fn = "1.2.0"
+lyon = "1.0"
+pin-project = "1.1.10"
+spin = "0.10.0"
+pollster = "0.4.0"
+url = "2.2"
+uuid = { version = "1.1.2", features = ["v4", "v5", "v7", "serde"] }
+web-time = "1.1.0"
+heapless = "0.9.2"
+
+[dev-dependencies]
+backtrace = "0.3"
+collections = { version = "0.1.0", git = "https://github.com/zed-industries/zed.git", tag = "v1.9.0", features = ["test-support"] }
+env_logger = "0.11"
+gpui_util = { version = "0.1.0", git = "https://github.com/zed-industries/zed.git", tag = "v1.9.0" }
+lyon = { version = "1.0", features = ["extra"] }
+rand = "0.9"
+scheduler = { version = "0.1.0", git = "https://github.com/zed-industries/zed.git", tag = "v1.9.0", features = ["test-support"] }
+unicode-segmentation = "1.10"
+
+[build-dependencies]
+embed-resource = { version = "3.0", optional = true }
+
+[target.'cfg(target_family = "wasm")'.dependencies]
+getrandom = { version = "0.3.4", features = ["wasm_js"] }
+uuid = { version = "1.1.2", features = ["js"] }
+
+[target.'cfg(target_family = "wasm")'.dev-dependencies]
+wasm-bindgen = "0.2.120"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+block = "0.1"
+cocoa = "=0.26.0"
+cocoa-foundation = "=0.2.0"
+core-foundation = "=0.10.0"
+core-foundation-sys = "0.8.6"
+core-graphics = "0.24"
+core-video = { version = "0.5.2", features = ["metal"] }
+core-text = "21"
+font-kit = { package = "zed-font-kit", version = "0.14.1-zed", git = "https://github.com/zed-industries/font-kit", rev = "94b0f28166665e8fd2f53ff6d268a14955c82269", optional = true }
+foreign-types = "0.5"
+log = { version = "0.4.16", features = ["kv_unstable_serde", "serde"] }
+media = { version = "0.1.0", git = "https://github.com/zed-industries/zed.git", tag = "v1.9.0" }
+objc = "0.2"
+objc2 = { version = "0.6", optional = true }
+objc2-metal = { version = "0.3", optional = true }
+mach2 = "0.5"
+metal = "0.33"
+
+[target.'cfg(target_os = "macos")'.build-dependencies]
+bindgen = "0.71"
+cbindgen = { version = "0.28.0", default-features = false }
+
+[target.'cfg(any(target_os = "linux", target_os = "freebsd", target_os = "macos"))'.dependencies]
+pathfinder_geometry = "0.5"
+
+[target.'cfg(any(target_os = "linux", target_os = "freebsd", target_os = "windows"))'.dependencies]
+scap = { package = "zed-scap", version = "0.0.8-zed", git = "https://github.com/zed-industries/scap", rev = "4afea48c3b002197176fb19cd0f9b180dd36eaac", default-features = false, optional = true }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.61", features = ["Win32_Foundation"] }
+
+[target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
+http_client = { version = "0.1.0", git = "https://github.com/zed-industries/zed.git", tag = "v1.9.0", features = ["test-support"] }
+proptest = { git = "https://github.com/proptest-rs/proptest", rev = "3dca198a8fef1b32e3a66f1e1897c955b4dc5b5b", features = ["attr-macro"] }

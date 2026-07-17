@@ -1,0 +1,13 @@
+[package]
+name = "gpui_shared_string"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+path = "gpui_shared_string.rs"
+
+[dependencies]
+schemars = { version = "1.0", features = ["indexmap2"] }
+serde = { version = "1.0.221", features = ["derive", "rc"] }
+smol_str = "0.3.6"

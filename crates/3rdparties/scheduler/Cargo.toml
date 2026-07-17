@@ -1,0 +1,23 @@
+[package]
+name = "scheduler"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+publish = false
+
+[lib]
+path = "src/scheduler.rs"
+doctest = false
+
+[features]
+test-support = []
+
+[dependencies]
+async-task = "4.7"
+backtrace = "0.3"
+chrono = { version = "0.4", features = ["serde"] }
+flume = "0.11"
+futures = "0.3.32"
+parking_lot = "0.12.1"
+rand = "0.9"
+web-time = "1.1.0"
