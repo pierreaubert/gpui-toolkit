@@ -244,7 +244,7 @@ const DEPENDENCY_HYGIENE_CHECKS: &[DependencyHygieneCheck] = &[
         command: "gpui_toolkit::vendored_patch_manifest()",
         status: DependencyHygieneStatus::Configured,
         purpose: "Keep active and inactive vendored patch reasons, upstream bases, and verification gates visible.",
-        evidence: "The vendored patch manifest records active patches for gpui_wgpu, gpui_windows, objc, and zed-font-kit.",
+        evidence: "The vendored patch manifest records active patches for block, objc, zed-font-kit, the hand-maintained gpui_wgpu/gpui_windows backends, and the 16-crate script-vendored Zed v1.9.0 GPUI closure.",
         release_requirement: "Re-run active patch verification and update retained-change notes before upgrading vendored crates.",
     },
 ];

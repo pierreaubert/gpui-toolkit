@@ -102,8 +102,9 @@ pub use stability::{
     CRATE_STABILITY_MANIFEST,
 };
 pub use vendored_patches::{
-    vendored_patch_manifest, vendored_patches, VendoredPatch, VendoredPatchManifest,
-    VendoredPatchStatus, VENDORED_PATCH_REPORT_TYPE, VENDORED_PATCH_SCHEMA_VERSION,
+    vendored_patch_manifest, vendored_patches, VendoredPatch, VendoredPatchMaintenance,
+    VendoredPatchManifest, VendoredPatchStatus, VENDORED_PATCH_REPORT_TYPE,
+    VENDORED_PATCH_SCHEMA_VERSION,
 };
 
 #[cfg(feature = "platform")]

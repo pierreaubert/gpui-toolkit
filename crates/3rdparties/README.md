@@ -58,14 +58,9 @@ remain hand-maintained.
 `gpui_toolkit::vendored_patch_manifest()` mirrors this inventory in code. It is
 the release-facing contract for upstream refs, local paths, active/inactive
 status, retained local changes, and upgrade verification gates. Update the
-crate-specific `VENDORING.md` file and the manifest together when adding,
-removing, or changing a vendored patch.
-
-Note: the manifest currently reflects the pre-closure state — it covers only
-the original patch crates and still lists `gpui_macos` as an inactive snapshot
-(now an active pristine-plus-CGS-patch vendor). The script-vendored GPUI
-closure crates are tracked through their per-crate `VENDORED.md` files and the
-root `[patch]` table until the manifest is extended (follow-up work).
+crate-specific provenance file (`VENDORING.md` for hand-maintained crates,
+`VENDORED.md` for script-vendored crates) and the manifest together when
+adding, removing, or changing a vendored patch.
 
 ## Documentation Rules
 
