@@ -1,5 +1,40 @@
 # Changelog
 
+## Unreleased
+
+### Vendored Dependencies
+
+- Vendored the GPUI crate closure from zed-industries/zed at tag v1.9.0 into
+  crates/3rdparties as history-free snapshots (16 crates: `gpui`,
+  `gpui_macros`, `gpui_macos`, `gpui_linux`, `collections`, `util`,
+  `gpui_shared_string`, `gpui_util`, `util_macros`, `refineable`,
+  `derive_refineable`, `scheduler`, `sum_tree`, `http_client`, `media`,
+  `perf`), wired via [patch] so no dependency resolves from zed.git.
+  Dependency graph: 827 -> 822 packages. Import:
+  scripts/import_gpui_upstream.py. Platform evidence: macOS gate green
+  (just qa); iOS pass; tvOS pass; Android pass; Linux/Windows deferred to
+  platform CI ("Targets that are not available on the current host are
+  tracked in `gpui_toolkit::release_qa_matrix()` and proved by platform CI
+  or an attached manual/device report" — qa.md).
+- 15 crates are script-vendored snapshots; `gpui_macos` was re-vendored
+  pristine with a recorded CGS-symbol-removal patch (Mac App Store
+  static-analysis rejection risk), and `gpui_wgpu`/`gpui_windows` remain
+  hand-maintained.
+- Dropped the GPL-3.0 zed crates `zlog`, `ztracing`, and `ztracing_macro`
+  from the vendor set; `sum_tree` carries a small recorded patch
+  (`ztracing::instrument` -> `tracing::instrument`).
+- Import exclusions: `examples/`, `benches/`, and dev-deps on
+  `reqwest_client`/`gpui_platform`/`gpui_web`.
+- The import is re-runnable (`--skip`, `--check` drift report) via
+  `scripts/import_gpui_upstream.py`, and `scripts/qa_zed_source_check.py` is
+  wired into `just qa-deps` as a permanent source-origin gate.
+- qa-perf remains environmentally blocked on this host: the main rev fails
+  its own baseline (A/B evidence in `target/qa/perf/report-main-ab.md`,
+  26/57 benchmarks regressed up to +43%), so the baseline is untouched and
+  the block was accepted by the owner.
+- Known landmine for Linux/Windows builds: `calloop` and `windows-capture`
+  resolve from crates.io while zed patches git forks.
+
 ## 0.8.5 - 2026-07-09
 
 ### Release QA
