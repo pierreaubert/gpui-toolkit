@@ -41,22 +41,30 @@ def check() -> list[str]:
     today = dt.date.today()
     for path in paths:
         directory = ROOT / path
-        doc = directory / "VENDORING.md"
         if not directory.is_dir():
             errors.append(f"vendored path does not exist: {path}")
             continue
-        if not doc.is_file():
-            errors.append(f"vendored path lacks VENDORING.md: {path}")
-            continue
-        text = doc.read_text()
-        match = re.search(r"Last reviewed:\s*(\d{4}-\d{2}-\d{2})", text)
-        if not match:
-            errors.append(f"vendoring review date missing: {path}")
-        elif (today - dt.date.fromisoformat(match.group(1))).days > 90:
-            errors.append(f"vendoring review overdue (>90 days): {path}")
-        for heading in ("## Upstream", "## Why Vendored", "## Verification"):
-            if heading not in text:
-                errors.append(f"{path}/VENDORING.md lacks {heading}")
+        vendoring = directory / "VENDORING.md"
+        vendored = directory / "VENDORED.md"
+        if vendoring.is_file():
+            # Hand-written governance doc: full review-date and heading checks.
+            text = vendoring.read_text()
+            match = re.search(r"Last reviewed:\s*(\d{4}-\d{2}-\d{2})", text)
+            if not match:
+                errors.append(f"vendoring review date missing: {path}")
+            elif (today - dt.date.fromisoformat(match.group(1))).days > 90:
+                errors.append(f"vendoring review overdue (>90 days): {path}")
+            for heading in ("## Upstream", "## Why Vendored", "## Verification"):
+                if heading not in text:
+                    errors.append(f"{path}/VENDORING.md lacks {heading}")
+        elif vendored.is_file():
+            # Script-generated provenance record (import_gpui_upstream.py).
+            text = vendored.read_text()
+            for marker in ("- Upstream:", "- Base ref:"):
+                if marker not in text:
+                    errors.append(f"{path}/VENDORED.md lacks '{marker}' provenance")
+        else:
+            errors.append(f"vendored path lacks provenance doc (VENDORING.md or VENDORED.md): {path}")
 
     return errors
 

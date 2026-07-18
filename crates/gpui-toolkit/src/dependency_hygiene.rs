@@ -228,7 +228,7 @@ const DEPENDENCY_HYGIENE_CHECKS: &[DependencyHygieneCheck] = &[
         command: "cargo deny check advisories bans licenses sources",
         status: DependencyHygieneStatus::AcceptedWithWarnings,
         purpose: "Evaluate advisory, license, duplicate-version, and source-origin policy for the workspace graph.",
-        evidence: "Local 2026-07-10 run passed all four checks after adding permissive licenses, accepting GPL-3.0-or-later for existing dependencies (autoeq, math-*, zlog/ztracing), and ignoring the tracked advisories.",
+        evidence: "Local 2026-07-10 run passed all four checks after adding permissive licenses, accepting GPL-3.0-or-later for existing dependencies (autoeq, math-*, sofa-reader), and ignoring the tracked advisories.",
         release_requirement: "Re-run cargo-deny before every release and review any new license or advisory findings; revisit GPL acceptance if the public release set changes.",
     },
     DependencyHygieneCheck {

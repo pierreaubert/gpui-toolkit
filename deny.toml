@@ -22,6 +22,12 @@ ignore = [
     "RUSTSEC-2024-0436",
     "RUSTSEC-2026-0173",
     "RUSTSEC-2026-0192",
+    # Unmaintained async-std via vendored http_client -> async-tar (entered the lock with
+    # the Phase-1 vendored closure); no safe upgrade until upstream Zed moves off it.
+    "RUSTSEC-2025-0052",
+    # Unmaintained rustybuzz via usvg -> gpui (pre-existing upstream Zed SVG text path,
+    # flagged by a freshly published advisory); no safe upgrade available.
+    "RUSTSEC-2026-0206",
 ]
 
 [licenses]
@@ -68,4 +74,9 @@ allow-git = [
     "https://github.com/zed-industries/wgpu.git",
     "https://github.com/zed-industries/xim-rs.git",
     "https://github.com/zed-industries/zed.git",
+    # [patch.crates-io] mirrors of zed v1.9.0's own patches: the async-process fork is
+    # required to compile vendored `util` (smol::process::Child::adopt_raw_pid); the
+    # smol-rs async-task rev is pinned alongside it by the same upstream patch set.
+    "https://github.com/zed-industries/async-process.git",
+    "https://github.com/smol-rs/async-task.git",
 ]

@@ -151,6 +151,7 @@ qa-api:
 [group('qa')]
 qa-deps:
 	cargo deny check
+	python3 scripts/qa_zed_source_check.py
 
 # Property-based non-regression. If no proptest tests exist, this exits cleanly.
 [group('qa')]
