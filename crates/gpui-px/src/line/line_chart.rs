@@ -65,6 +65,53 @@ fn cached_line_points(
     points
 }
 
+/// Refill unique same-length storage while validating the new shared inputs.
+///
+/// This fuses validation with the two coordinate copies. On success the next
+/// `cached_line_points` call is a pointer-identity cache hit.
+fn refill_line_points_if_reusable(
+    x: &Arc<[f64]>,
+    y: &Arc<[f64]>,
+    cache: &mut LineDataCache,
+) -> Result<bool, ChartError> {
+    let Some((cached_x, cached_y, cached_points)) = cache else {
+        return Ok(false);
+    };
+    if x.is_empty()
+        || x.len() != y.len()
+        || cached_points.len() != x.len()
+        || Arc::strong_count(cached_points) != 1
+    {
+        return Ok(false);
+    }
+
+    let points = Arc::make_mut(cached_points);
+    if points.iter_mut().zip(x.iter()).any(|(point, &value)| {
+        point.x = value;
+        !value.is_finite()
+    }) {
+        *cache = None;
+        return Err(ChartError::InvalidData {
+            field: "x",
+            reason: "contains NaN or Infinity",
+        });
+    }
+    if points.iter_mut().zip(y.iter()).any(|(point, &value)| {
+        point.y = value;
+        !value.is_finite()
+    }) {
+        *cache = None;
+        return Err(ChartError::InvalidData {
+            field: "y",
+            reason: "contains NaN or Infinity",
+        });
+    }
+
+    *cached_x = Arc::clone(x);
+    *cached_y = Arc::clone(y);
+    Ok(true)
+}
+
 #[cfg(test)]
 mod streaming_cache_tests {
     use super::*;
@@ -104,6 +151,29 @@ mod streaming_cache_tests {
                 .replace_primary_data_shared(Arc::from([1.0]), Arc::from([2.0, 3.0]))
                 .is_err()
         );
+    }
+
+    #[test]
+    fn invalid_shared_line_replacement_does_not_poison_current_data() {
+        let original_x: Arc<[f64]> = Arc::from([0.0, 1.0]);
+        let original_y: Arc<[f64]> = Arc::from([2.0, 3.0]);
+        let mut chart = crate::line(&original_x, &original_y);
+        assert_eq!(chart.prepare_primary_data(), 2);
+
+        assert!(matches!(
+            chart.replace_primary_data_shared(Arc::from([4.0, f64::NAN]), Arc::from([5.0, 6.0]),),
+            Err(ChartError::InvalidData { field: "x", .. })
+        ));
+        assert_eq!(chart.x.as_ref(), original_x.as_ref());
+        assert_eq!(chart.y.as_ref(), original_y.as_ref());
+        assert_eq!(chart.prepare_primary_data(), 2);
+
+        let mut empty_chart = crate::line(&[], &[]);
+        empty_chart.prepare_primary_data();
+        assert!(matches!(
+            empty_chart.replace_primary_data_shared(Arc::from([]), Arc::from([])),
+            Err(ChartError::EmptyData { field: "x" })
+        ));
     }
 }
 
@@ -177,9 +247,11 @@ impl LineChart {
         x: Arc<[f64]>,
         y: Arc<[f64]>,
     ) -> Result<&mut Self, ChartError> {
-        validate_data_array(&x, "x")?;
-        validate_data_array(&y, "y")?;
-        validate_data_length(x.len(), y.len(), "x", "y")?;
+        if !refill_line_points_if_reusable(&x, &y, &mut self.primary_data_cache)? {
+            validate_data_array(&x, "x")?;
+            validate_data_array(&y, "y")?;
+            validate_data_length(x.len(), y.len(), "x", "y")?;
+        }
         self.x = x;
         self.y = y;
         Ok(self)
