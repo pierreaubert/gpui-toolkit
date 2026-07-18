@@ -277,6 +277,24 @@ const DEPENDENCY_ADVISORY_TRIAGE: &[DependencyAdvisoryTriage] = &[
         current_decision: "Tracked as unmaintained-warning debt, not the current vulnerability blocker.",
         required_action: "Review replacements during dependency upgrade work and keep warnings visible in release notes.",
     },
+    DependencyAdvisoryTriage {
+        advisory_id: "RUSTSEC-2025-0052",
+        crate_name: "async-std",
+        affected_versions: "1.13.2",
+        status: DependencyAdvisoryTriageStatus::WarningTracked,
+        affected_path: "vendored http_client -> async-tar transitive path (entered the lock with the Phase-1 vendored GPUI closure)",
+        current_decision: "Tracked as unmaintained-warning debt; no safe upgrade until upstream Zed moves http_client off async-tar/async-std.",
+        required_action: "Keep the cargo-deny ignore visible in release notes and drop it once upstream Zed removes the async-std dependency.",
+    },
+    DependencyAdvisoryTriage {
+        advisory_id: "RUSTSEC-2026-0206",
+        crate_name: "rustybuzz",
+        affected_versions: "0.20.1",
+        status: DependencyAdvisoryTriageStatus::WarningTracked,
+        affected_path: "usvg -> vendored gpui SVG text path (pre-existing upstream Zed dependency)",
+        current_decision: "Tracked as unmaintained-warning debt flagged by a freshly published advisory; no safe upgrade available.",
+        required_action: "Keep the cargo-deny ignore visible in release notes and review replacements during dependency upgrade work.",
+    },
 ];
 
 /// Return the current dependency hygiene report.
