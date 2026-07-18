@@ -18,6 +18,7 @@ DEFAULT_ROOTS = ["gpui", "gpui_macros", "gpui_macos", "gpui_linux", "collections
 EXCLUDED_CRATES = {"reqwest_client", "gpui_platform", "gpui_web", "zlog", "ztracing", "ztracing_macro"}
 EXCLUDED_DIRS = {"examples", "benches"}
 VENDOR_DIR = Path("crates/3rdparties")
+GPUI_IMAGE_FEATURES = ["bmp", "gif", "ico", "jpeg", "png", "pnm", "tiff", "webp"]
 CANON_KEY_ORDER = ["package", "version", "git", "tag", "rev", "branch",
                    "default-features", "features", "optional"]
 
@@ -255,6 +256,24 @@ def rewrite_manifest(manifest: dict, ctx: dict) -> dict:
     return doc
 
 
+def apply_local_manifest_policy(doc: dict) -> dict:
+    """Apply small, documented dependency policies to regenerated snapshots."""
+    package_name = doc["package"]["name"]
+    for deps in _iter_dep_sections(doc):
+        if package_name in {"gpui", "gpui_linux", "gpui_macos"} and "image" in deps:
+            image = deps["image"]
+            image = {"version": image} if isinstance(image, str) else dict(image)
+            image["default-features"] = False
+            image["features"] = GPUI_IMAGE_FEATURES
+            deps["image"] = InlineTable(_ordered(image))
+
+        if package_name in {"gpui_linux", "gpui_macos"} and "gpui" in deps:
+            gpui = dict(deps["gpui"])
+            gpui["default-features"] = False
+            deps["gpui"] = InlineTable(_ordered(gpui))
+    return doc
+
+
 LOCAL_PATCHES_HEADER = "## Local patches"
 
 
@@ -290,7 +309,8 @@ def vendor_crate(name: str, zdir: Path, ctx: dict, dest_root: Path) -> None:
         if not copied:
             raise SystemExit(f"error: no LICENSE file found upstream for {name}")
     manifest = read_toml(dst / "Cargo.toml")
-    (dst / "Cargo.toml").write_text(dumps_toml(rewrite_manifest(manifest, ctx)))
+    rewritten = apply_local_manifest_policy(rewrite_manifest(manifest, ctx))
+    (dst / "Cargo.toml").write_text(dumps_toml(rewritten))
     (dst / "VENDORED.md").write_text(_vendored_md(name, path, ctx["ref"], prior_md))
 
 

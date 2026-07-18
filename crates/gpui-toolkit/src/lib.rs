@@ -7,8 +7,11 @@
 //! This crate is intentionally unpublished while the workspace stabilizes. Its
 //! feature sets define the public boundary used by release QA:
 //!
-//! - `core` (default): UI, design, layout, text, keybinding, themes, audio UI,
-//!   and visualization crates considered for the public toolkit surface.
+//! - `ui` (default): UI components, design, layout, text, and keybindings.
+//! - `audio`, `charts`, and `themes`: opt-in product surfaces. Charts retain
+//!   the WGPU-backed defaults of `gpui-d3rs` and `gpui-px`.
+//! - `core`: compatibility aggregate containing `ui`, `audio`, `charts`, and
+//!   `themes`.
 //! - `tooling`: support crates for labs, design tools, scaffolding, profiling,
 //!   mini-app shells, and Python scene/runtime work.
 //! - `platform`: AU and Apple mobile platform integration crates that require
@@ -47,7 +50,7 @@
 //!     release_notes_artifact_report, release_notes_report, release_packaging_report,
 //!     release_qa_matrix,
 //!     platform_capability_matrix,
-//!     vendored_patch_manifest, gpui_ui_kit, gpui_design, gpui_d3rs
+//!     vendored_patch_manifest, gpui_ui_kit, gpui_design
 //! };
 //!
 //! assert!(!crate_stability_manifest().is_empty());
@@ -70,54 +73,54 @@ mod stability;
 mod vendored_patches;
 
 pub use dependency_hygiene::{
-    dependency_advisory_triage, dependency_hygiene_checks, dependency_hygiene_report,
-    DependencyAdvisoryTriage, DependencyAdvisoryTriageStatus, DependencyHygieneCheck,
-    DependencyHygieneReport, DependencyHygieneStatus, DEPENDENCY_HYGIENE_REPORT_TYPE,
-    DEPENDENCY_HYGIENE_SCHEMA_VERSION,
+    DEPENDENCY_HYGIENE_REPORT_TYPE, DEPENDENCY_HYGIENE_SCHEMA_VERSION, DependencyAdvisoryTriage,
+    DependencyAdvisoryTriageStatus, DependencyHygieneCheck, DependencyHygieneReport,
+    DependencyHygieneStatus, dependency_advisory_triage, dependency_hygiene_checks,
+    dependency_hygiene_report,
 };
 pub use publish_plan::{
-    publish_plan, publish_plan_entries, PublishPlan, PublishPlanEntry, PublishPlanStatus,
-    PUBLISH_PLAN_REPORT_TYPE, PUBLISH_PLAN_SCHEMA_VERSION,
+    PUBLISH_PLAN_REPORT_TYPE, PUBLISH_PLAN_SCHEMA_VERSION, PublishPlan, PublishPlanEntry,
+    PublishPlanStatus, publish_plan, publish_plan_entries,
 };
 pub use release_notes::{
-    release_notes_artifact_report, release_notes_artifacts, release_notes_entries,
-    release_notes_report, ReleaseNotesArtifact, ReleaseNotesArtifactReport,
-    ReleaseNotesArtifactStatus, ReleaseNotesEntry, ReleaseNotesReport, ReleaseNotesStatus,
     RELEASE_NOTES_ARTIFACT_REPORT_TYPE, RELEASE_NOTES_REPORT_TYPE, RELEASE_NOTES_SCHEMA_VERSION,
+    ReleaseNotesArtifact, ReleaseNotesArtifactReport, ReleaseNotesArtifactStatus,
+    ReleaseNotesEntry, ReleaseNotesReport, ReleaseNotesStatus, release_notes_artifact_report,
+    release_notes_artifacts, release_notes_entries, release_notes_report,
 };
 pub use release_packaging::{
-    release_packaging_entries, release_packaging_report, ReleasePackagingEntry,
-    ReleasePackagingReport, ReleasePackagingStatus, RELEASE_PACKAGING_REPORT_TYPE,
-    RELEASE_PACKAGING_SCHEMA_VERSION,
+    RELEASE_PACKAGING_REPORT_TYPE, RELEASE_PACKAGING_SCHEMA_VERSION, ReleasePackagingEntry,
+    ReleasePackagingReport, ReleasePackagingStatus, release_packaging_entries,
+    release_packaging_report,
 };
 pub use release_qa::{
-    platform_capabilities, platform_capability_matrix, release_qa_gates, release_qa_matrix,
+    PLATFORM_CAPABILITY_MATRIX_REPORT_TYPE, PLATFORM_CAPABILITY_MATRIX_SCHEMA_VERSION,
     PlatformCapability, PlatformCapabilityMatrix, PlatformCapabilityStatus, PlatformEvidence,
-    ReleaseQaGate, ReleaseQaMatrix, ReleaseQaStatus, PLATFORM_CAPABILITY_MATRIX_REPORT_TYPE,
-    PLATFORM_CAPABILITY_MATRIX_SCHEMA_VERSION, RELEASE_QA_MATRIX_REPORT_TYPE,
-    RELEASE_QA_MATRIX_SCHEMA_VERSION,
+    RELEASE_QA_MATRIX_REPORT_TYPE, RELEASE_QA_MATRIX_SCHEMA_VERSION, ReleaseQaGate,
+    ReleaseQaMatrix, ReleaseQaStatus, platform_capabilities, platform_capability_matrix,
+    release_qa_gates, release_qa_matrix,
 };
 pub use stability::{
-    crate_stability_manifest, AggregateFeature, CrateStability, PublishDecision, StabilityLevel,
-    CRATE_STABILITY_MANIFEST,
+    AggregateFeature, CRATE_STABILITY_MANIFEST, CrateStability, PublishDecision, StabilityLevel,
+    crate_stability_manifest,
 };
 pub use vendored_patches::{
-    vendored_patch_manifest, vendored_patches, VendoredPatch, VendoredPatchMaintenance,
-    VendoredPatchManifest, VendoredPatchStatus, VENDORED_PATCH_REPORT_TYPE,
-    VENDORED_PATCH_SCHEMA_VERSION,
+    VENDORED_PATCH_REPORT_TYPE, VENDORED_PATCH_SCHEMA_VERSION, VendoredPatch,
+    VendoredPatchMaintenance, VendoredPatchManifest, VendoredPatchStatus, vendored_patch_manifest,
+    vendored_patches,
 };
 
 #[cfg(feature = "platform")]
 pub use gpui_au;
-#[cfg(feature = "core")]
+#[cfg(feature = "audio")]
 pub use gpui_audio_kit;
-#[cfg(feature = "core")]
+#[cfg(feature = "ui")]
 pub use gpui_builder;
 #[cfg(feature = "tooling")]
 pub use gpui_component_lab;
-#[cfg(feature = "core")]
+#[cfg(feature = "charts")]
 pub extern crate d3rs as gpui_d3rs;
-#[cfg(feature = "core")]
+#[cfg(feature = "ui")]
 pub use gpui_design;
 #[cfg(feature = "tooling")]
 pub use gpui_design_tools;
@@ -125,23 +128,23 @@ pub use gpui_design_tools;
 #[cfg(feature = "ios")]
 pub use gpui_ios;
 
-#[cfg(feature = "core")]
+#[cfg(feature = "ui")]
 pub use gpui_keybinding;
 #[cfg(feature = "tooling")]
 pub use gpui_miniapp;
-#[cfg(feature = "core")]
+#[cfg(feature = "ui")]
 pub use gpui_pretext;
 #[cfg(feature = "tooling")]
 pub use gpui_profiler;
-#[cfg(feature = "core")]
+#[cfg(feature = "charts")]
 pub use gpui_px;
 #[cfg(feature = "tooling")]
 pub use gpui_python_runtime;
 #[cfg(feature = "tooling")]
 pub use gpui_scaffolder;
-#[cfg(feature = "core")]
+#[cfg(feature = "themes")]
 pub use gpui_themes;
-#[cfg(feature = "core")]
+#[cfg(feature = "ui")]
 pub use gpui_ui_kit;
-#[cfg(feature = "core")]
+#[cfg(feature = "ui")]
 pub use gpui_ui_kit_macros;

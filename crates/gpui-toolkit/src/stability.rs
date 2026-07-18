@@ -3,8 +3,16 @@
 /// Feature group that makes a crate visible through `gpui-toolkit`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AggregateFeature {
-    /// Default public toolkit surface.
+    /// Compatibility aggregate containing all product surfaces.
     Core,
+    /// Default UI, design, layout, text, and keybinding surface.
+    Ui,
+    /// Audio-oriented controls layered on the UI surface.
+    Audio,
+    /// WGPU-accelerated D3 and Plotly Express-style charts.
+    Charts,
+    /// Theme management layered on the UI surface.
+    Themes,
     /// Support, lab, scaffolding, profiling, or runtime tooling.
     Tooling,
     /// Target-specific platform integration.
@@ -18,6 +26,10 @@ impl AggregateFeature {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Core => "core",
+            Self::Ui => "ui",
+            Self::Audio => "audio",
+            Self::Charts => "charts",
+            Self::Themes => "themes",
             Self::Tooling => "tooling",
             Self::Platform => "platform",
             Self::Ios => "ios",
@@ -102,7 +114,7 @@ pub struct CrateStability {
 pub const CRATE_STABILITY_MANIFEST: &[CrateStability] = &[
     CrateStability {
         crate_name: "gpui-audio-kit",
-        aggregate_feature: AggregateFeature::Core,
+        aggregate_feature: AggregateFeature::Audio,
         stability: StabilityLevel::ReleaseCandidate,
         publish_decision: PublishDecision::PublicCoreAfterGates,
         required_gate: "cargo publish --dry-run plus focused audio-control tests and accessibility notes",
@@ -110,7 +122,7 @@ pub const CRATE_STABILITY_MANIFEST: &[CrateStability] = &[
     },
     CrateStability {
         crate_name: "gpui-builder",
-        aggregate_feature: AggregateFeature::Core,
+        aggregate_feature: AggregateFeature::Ui,
         stability: StabilityLevel::ReleaseCandidate,
         publish_decision: PublishDecision::PublicCoreAfterGates,
         required_gate: "cargo publish --dry-run plus layout diagnostics and benchmark sanity checks",
@@ -118,7 +130,7 @@ pub const CRATE_STABILITY_MANIFEST: &[CrateStability] = &[
     },
     CrateStability {
         crate_name: "gpui-d3rs",
-        aggregate_feature: AggregateFeature::Core,
+        aggregate_feature: AggregateFeature::Charts,
         stability: StabilityLevel::Beta,
         publish_decision: PublishDecision::BetaAfterGates,
         required_gate: "large-data sanity checks, NaN/empty-input behavior review, visual examples, and cargo publish --dry-run",
@@ -126,7 +138,7 @@ pub const CRATE_STABILITY_MANIFEST: &[CrateStability] = &[
     },
     CrateStability {
         crate_name: "gpui-design",
-        aggregate_feature: AggregateFeature::Core,
+        aggregate_feature: AggregateFeature::Ui,
         stability: StabilityLevel::ReleaseCandidate,
         publish_decision: PublishDecision::PublicCoreAfterGates,
         required_gate: "cargo publish --dry-run plus generated design documentation/conformance artifact",
@@ -134,7 +146,7 @@ pub const CRATE_STABILITY_MANIFEST: &[CrateStability] = &[
     },
     CrateStability {
         crate_name: "gpui-keybinding",
-        aggregate_feature: AggregateFeature::Core,
+        aggregate_feature: AggregateFeature::Ui,
         stability: StabilityLevel::ReleaseCandidate,
         publish_decision: PublishDecision::PublicCoreAfterGates,
         required_gate: "cargo publish --dry-run plus shortcut conflict examples and platform policy docs",
@@ -142,7 +154,7 @@ pub const CRATE_STABILITY_MANIFEST: &[CrateStability] = &[
     },
     CrateStability {
         crate_name: "gpui-pretext",
-        aggregate_feature: AggregateFeature::Core,
+        aggregate_feature: AggregateFeature::Ui,
         stability: StabilityLevel::ReleaseCandidate,
         publish_decision: PublishDecision::PublicCoreAfterGates,
         required_gate: "cargo publish --dry-run plus focused text-layout tests and script-limitations note",
@@ -150,7 +162,7 @@ pub const CRATE_STABILITY_MANIFEST: &[CrateStability] = &[
     },
     CrateStability {
         crate_name: "gpui-px",
-        aggregate_feature: AggregateFeature::Core,
+        aggregate_feature: AggregateFeature::Charts,
         stability: StabilityLevel::Beta,
         publish_decision: PublishDecision::BetaAfterGates,
         required_gate: "large-data sanity checks, visual examples, chart accessibility notes, and cargo publish --dry-run",
@@ -158,7 +170,7 @@ pub const CRATE_STABILITY_MANIFEST: &[CrateStability] = &[
     },
     CrateStability {
         crate_name: "gpui-themes",
-        aggregate_feature: AggregateFeature::Core,
+        aggregate_feature: AggregateFeature::Themes,
         stability: StabilityLevel::ReleaseCandidate,
         publish_decision: PublishDecision::PublicCoreAfterGates,
         required_gate: "cargo publish --dry-run plus theme schema/version compatibility tests",
@@ -166,7 +178,7 @@ pub const CRATE_STABILITY_MANIFEST: &[CrateStability] = &[
     },
     CrateStability {
         crate_name: "gpui-ui-kit",
-        aggregate_feature: AggregateFeature::Core,
+        aggregate_feature: AggregateFeature::Ui,
         stability: StabilityLevel::ReleaseCandidate,
         publish_decision: PublishDecision::PublicCoreAfterGates,
         required_gate: "cargo publish --dry-run plus keyboard/accessibility integration notes for compound widgets",
@@ -174,7 +186,7 @@ pub const CRATE_STABILITY_MANIFEST: &[CrateStability] = &[
     },
     CrateStability {
         crate_name: "gpui-ui-kit-macros",
-        aggregate_feature: AggregateFeature::Core,
+        aggregate_feature: AggregateFeature::Ui,
         stability: StabilityLevel::ReleaseCandidate,
         publish_decision: PublishDecision::PublicCoreAfterGates,
         required_gate: "cargo publish --dry-run plus proc-macro diagnostic smoke tests",

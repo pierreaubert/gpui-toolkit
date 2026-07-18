@@ -11,18 +11,22 @@ categories.workspace = true
 publish = false
 
 [features]
-default = ["core"]
-core = [
-    "dep:gpui-audio-kit",
+default = ["ui"]
+ui = [
     "dep:gpui-builder",
-    "dep:gpui-d3rs",
     "dep:gpui-design",
     "dep:gpui-keybinding",
     "dep:gpui-pretext",
-    "dep:gpui-px",
-    "dep:gpui-themes",
     "dep:gpui-ui-kit",
     "dep:gpui-ui-kit-macros",
+]
+audio = ["ui", "dep:gpui-audio-kit"]
+charts = ["ui", "dep:gpui-d3rs", "dep:gpui-px"]
+themes = ["ui", "dep:gpui-themes"]
+core = [
+    "audio",
+    "charts",
+    "themes",
 ]
 tooling = [
     "dep:gpui-component-lab",

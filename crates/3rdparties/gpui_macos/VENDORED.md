@@ -7,6 +7,14 @@
 
 ## Local patches
 
+### Preserve upstream workspace feature policy
+
+The standalone manifest sets the `gpui` dependency to
+`default-features = false`, matching Zed v1.9.0's workspace dependency policy.
+The root workspace enables `gpui_macos/font-kit` explicitly. Its `image`
+dependency is restricted to GPUI's advertised bitmap formats so the platform
+pasteboard does not restore unrelated codecs through Cargo feature unification.
+
 ### Remove private CGS symbols (Mac App Store static-analysis rejection risk)
 
 Upstream `src/window.rs` declares the private Core Graphics Services symbols

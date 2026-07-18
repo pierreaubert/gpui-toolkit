@@ -29,14 +29,19 @@ platform compatibility without forking all of GPUI.
 ## Local Changes
 
 - Manifest tracks Zed `v1.9.0` dependencies.
+- The standalone manifest sets `gpui` to `default-features = false`, matching
+  Zed v1.9.0's workspace dependency policy.
 - `zed-font-kit` dependency is pinned to
   `110523127440aefb11ce0cf280ae7c5071337ec5`, matching the root font-kit
   dependency and local `[patch]`.
 - `gpui_toolkit::vendored_patch_manifest()` records this crate as an active
   patch and repeats the retained-change list for release QA.
-- No additional retained source-level behavior is claimed here. On upgrade,
-  diff this directory against Zed's `crates/gpui_wgpu`; add any newly retained
-  source changes to this file and the manifest before release.
+- The local renderer is not source-identical to the available Zed v1.9.x
+  checkout: text-system and renderer code is split into submodules and Rust/WGSL
+  files differ. Do not replace this crate with upstream until those differences
+  are classified as mechanical or behavioral and the mobile/AU rendering gates
+  below pass. This is tracked as provenance debt rather than claiming the
+  differences are behavior-neutral.
 
 ## Upgrade Procedure
 

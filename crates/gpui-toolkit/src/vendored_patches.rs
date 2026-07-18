@@ -212,6 +212,7 @@ const VENDORED_PATCHES: &[VendoredPatch] = &[
         retained_changes: &[
             "Restored IBMPlexSans-Regular.ttf and Lilex-Regular.ttf under crates/assets/fonts/ so the svg_renderer include_bytes! paths resolve from the deeper vendored layout.",
             "Crate-root lint allows in src/gpui.rs for default clippy/rustc lints that fire on unmodified upstream code (inventory in VENDORED.md).",
+            "Restricted image crate features to GPUI's advertised bitmap formats, excluding unrelated codecs and Rayon.",
         ],
         verification_gate: "cargo check -p gpui and just lint-host; run the gpui svg_renderer font tests when renderer or font code changes.",
         vendoring_doc: "crates/3rdparties/gpui/VENDORED.md",
@@ -231,7 +232,8 @@ const VENDORED_PATCHES: &[VendoredPatch] = &[
         maintenance: VendoredPatchMaintenance::ScriptVendored,
         reason: "Linux platform backend for gpui.",
         retained_changes: &[
-            "No local patches; pristine v1.9.0 snapshot modulo the import exclusions recorded in VENDORED.md.",
+            "Standalone gpui dependency preserves Zed's default-features=false workspace policy; gpui-miniapp explicitly selects Wayland and X11.",
+            "Restricted image crate features to GPUI's advertised bitmap formats.",
         ],
         verification_gate: "cargo check -p gpui_linux and just lint-host.",
         vendoring_doc: "crates/3rdparties/gpui_linux/VENDORED.md",
@@ -253,6 +255,7 @@ const VENDORED_PATCHES: &[VendoredPatch] = &[
         retained_changes: &[
             "Removed the private CGS symbols CGSMainConnectionID and CGSSetWindowBackgroundBlurRadius and the pre-Monterey blur branch from src/window.rs (exact regions in VENDORED.md).",
             "Crate-root lint allows in src/gpui_macos.rs for default clippy/rustc lints that fire on unmodified upstream code (inventory in VENDORED.md).",
+            "Standalone gpui dependency preserves Zed's default-features=false workspace policy and image features are limited to GPUI's advertised formats.",
         ],
         verification_gate: "cargo check -p gpui_macos, just lint-host, and macOS platform smoke tests for window/appearance changes.",
         vendoring_doc: "crates/3rdparties/gpui_macos/VENDORED.md",
@@ -333,7 +336,9 @@ const VENDORED_PATCHES: &[VendoredPatch] = &[
         reason: "Local GPUI WGPU renderer/backend patch point while tracking the Zed tag.",
         retained_changes: &[
             "Manifest tracks this workspace's Zed v1.9.0 dependency set.",
+            "Standalone gpui dependency preserves Zed's default-features=false workspace policy.",
             "zed-font-kit is pinned to rev 110523127440aefb11ce0cf280ae7c5071337ec5 to match the root patch.",
+            "Local Rust and WGSL sources differ from the available Zed v1.9.x checkout and require classification plus mobile/AU rendering gates before de-vendoring.",
         ],
         verification_gate: "cargo check -p gpui_wgpu and at least one renderer/showcase smoke pass for rendering changes.",
         vendoring_doc: "crates/3rdparties/gpui_wgpu/VENDORING.md",
@@ -730,8 +735,8 @@ mod tests {
             if !directory.is_dir() {
                 continue;
             }
-            let has_provenance = directory.join("VENDORING.md").is_file()
-                || directory.join("VENDORED.md").is_file();
+            let has_provenance =
+                directory.join("VENDORING.md").is_file() || directory.join("VENDORED.md").is_file();
             if !has_provenance {
                 continue;
             }

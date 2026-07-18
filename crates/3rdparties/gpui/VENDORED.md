@@ -7,6 +7,11 @@
 
 ## Local patches
 
+- `Cargo.toml` limits `image` to the formats represented by GPUI's public
+  `ImageFormat` (`bmp`, `gif`, `ico`, `jpeg`, `png`, `pnm`, `tiff`, and
+  `webp`). This avoids compiling unrelated AVIF, DDS, EXR, farbfeld, HDR, QOI,
+  TGA, and Rayon support while preserving GPUI's advertised decoding surface.
+
 - `crates/assets/fonts/ibm-plex-sans/IBMPlexSans-Regular.ttf`, `crates/assets/fonts/lilex/Lilex-Regular.ttf` (new files, outside this crate): restored from zed v1.9.0 `assets/fonts/` — `src/svg_renderer.rs` test module does `include_bytes!("../../../assets/fonts/...")`; the vendored layout (`crates/3rdparties/gpui/`) is one level deeper than upstream (`crates/gpui/`), so `../../../assets` resolves to `<repo>/crates/assets`. Sources are unmodified; only the font payloads were placed at the resolved path.
 
 ### Crate-root lint allows (clippy default lints, upstream code unchanged)
