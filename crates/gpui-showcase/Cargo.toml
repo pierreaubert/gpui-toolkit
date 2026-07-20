@@ -1,6 +1,6 @@
 [package]
 name = "gpui-showcase"
-version = "0.8.2"
+version = "0.9.3"
 authors.workspace = true
 edition.workspace = true
 license.workspace = true

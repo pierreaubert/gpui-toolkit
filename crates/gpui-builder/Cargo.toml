@@ -1,6 +1,6 @@
 [package]
 name = "gpui-builder"
-version = "0.8.5"
+version = "0.9.6"
 authors.workspace = true
 edition.workspace = true
 keywords.workspace = true

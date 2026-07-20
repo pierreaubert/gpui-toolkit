@@ -1,8 +1,7 @@
 [package]
 name = "gpui-ui-kit-macros"
-version = "0.8.5"
+version = "0.9.6"
 edition.workspace = true
-rust-version = "1.89"
 keywords.workspace = true
 categories.workspace = true
 description = "Proc macros for gpui-ui-kit"
