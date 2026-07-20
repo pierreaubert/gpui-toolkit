@@ -29,7 +29,7 @@ collections = { version = "0.1.0", git = "https://github.com/zed-industries/zed.
 core-foundation = "=0.10.0"
 core-foundation-sys = "0.8.6"
 core-graphics = "0.24"
-core-text = "21"
+core-text = "22"
 core-video = { version = "0.5.2", features = ["metal"] }
 ctor = "1.0.6"
 derive_more = { version = "2.1.1", features = ["add", "add_assign", "deref", "deref_mut", "display", "from_str", "mul", "mul_assign", "not"] }
