@@ -28,7 +28,7 @@ cocoa = "=0.26.0"
 collections = { version = "0.1.0", git = "https://github.com/zed-industries/zed.git", tag = "v1.9.0" }
 core-foundation = "=0.10.0"
 core-foundation-sys = "0.8.6"
-core-graphics = "0.24"
+core-graphics = "0.25"
 core-text = "21"
 core-video = { version = "0.5.2", features = ["metal"] }
 ctor = "1.0.6"

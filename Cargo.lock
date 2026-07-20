@@ -1471,6 +1471,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "core-graphics"
+version = "0.25.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "064badf302c3194842cf2c5d61f56cc88e54a759313879cdf03abdd27d0c3b97"
+dependencies = [
+ "bitflags 2.13.0",
+ "core-foundation 0.10.0",
+ "core-graphics-types 0.2.0",
+ "foreign-types 0.5.0",
+ "libc",
+]
+
+[[package]]
 name = "core-graphics-helmer-fork"
 version = "0.24.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2829,7 +2842,7 @@ dependencies = [
  "collections",
  "core-foundation 0.10.0",
  "core-foundation-sys 0.8.7",
- "core-graphics 0.24.0",
+ "core-graphics 0.25.0",
  "core-text",
  "core-video",
  "criterion 0.5.1",
@@ -2929,7 +2942,7 @@ version = "0.9.6"
 dependencies = [
  "anyhow",
  "core-foundation 0.10.0",
- "core-graphics 0.24.0",
+ "core-graphics 0.25.0",
  "core-text",
  "env_logger",
  "futures",
@@ -3053,7 +3066,7 @@ dependencies = [
  "anyhow",
  "block2 0.6.2",
  "core-foundation 0.10.0",
- "core-graphics 0.24.0",
+ "core-graphics 0.25.0",
  "core-text",
  "criterion 0.8.2",
  "futures",
@@ -3339,7 +3352,7 @@ dependencies = [
  "collections",
  "core-foundation 0.10.0",
  "core-foundation-sys 0.8.7",
- "core-graphics 0.24.0",
+ "core-graphics 0.25.0",
  "core-text",
  "core-video",
  "ctor",
