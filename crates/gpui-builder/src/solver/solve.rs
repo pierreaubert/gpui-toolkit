@@ -790,6 +790,26 @@ mod tests {
     }
 
     #[test]
+    fn equal_priority_collapses_later_declarations_first() {
+        let children = [
+            collapsible_slot("first", Sizing::Fixed(100.0), 0.5, "First"),
+            collapsible_slot("second", Sizing::Fixed(100.0), 0.5, "Second"),
+            collapsible_slot("third", Sizing::Fixed(100.0), 0.5, "Third"),
+        ];
+        let root = LayoutNode::Container(ContainerNode::new(
+            "root",
+            Axis::Horizontal,
+            Sizing::flex(0.0),
+            &children,
+        ));
+
+        let solved = solve(&root, 200.0, 100.0, &LayoutPreferences::default());
+        assert!(solved.find("first").unwrap().visible);
+        assert!(solved.find("second").unwrap().visible);
+        assert!(!solved.find("third").unwrap().visible);
+    }
+
+    #[test]
     fn all_collapsible_collapse_when_very_tight() {
         let children = [
             collapsible_slot("config", Sizing::fractional(0.2, 100.0), 0.5, "Config"),

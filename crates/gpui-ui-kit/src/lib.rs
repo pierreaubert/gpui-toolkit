@@ -11,8 +11,9 @@
 
 // Theme, animation, i18n, and accessibility
 pub mod accessibility;
-mod behavior_matrix;
+pub mod adaptive_overflow;
 pub mod animation;
+mod behavior_matrix;
 pub mod color_tokens;
 pub mod design;
 pub mod i18n;
@@ -102,6 +103,7 @@ pub use button::{Button, ButtonSize, ButtonTheme, ButtonVariant};
 pub use button_set::{ButtonSet, ButtonSetOption, ButtonSetSize, ButtonSetTheme};
 pub use icon_button::{IconButton, IconButtonSize, IconButtonTheme, IconButtonVariant};
 // Containers
+pub use adaptive_overflow::{AdaptiveOverflow, AdaptiveOverflowPresentation};
 pub use card::{Card, SlotFactory};
 pub use confirm_dialog::{ConfirmDialog, ConfirmDialogTheme, ConfirmDialogVariant};
 pub use context_menu::{ContextMenu, ContextMenuTheme};
@@ -203,7 +205,7 @@ pub use accessibility::{
     accessibility_readiness_entries, accessibility_readiness_report,
 };
 pub use behavior_matrix::{
-    COMPONENT_BEHAVIOR_REPORT_TYPE, COMPONENT_BEHAVIOR_SCHEMA_VERSION, BehaviorStatus,
+    BehaviorStatus, COMPONENT_BEHAVIOR_REPORT_TYPE, COMPONENT_BEHAVIOR_SCHEMA_VERSION,
     ComponentBehaviorEntry, ComponentBehaviorReport, component_behavior_entries,
     component_behavior_report,
 };

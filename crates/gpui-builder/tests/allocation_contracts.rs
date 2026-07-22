@@ -50,6 +50,10 @@ fn warmed_reusable_layout_solves_are_allocation_free() {
             &mut target,
         );
         black_box(target.find("main").unwrap().width());
+        for slot in target.collapsed_slots() {
+            black_box(slot.id);
+            black_box(slot.label);
+        }
     }
 
     AllocationBudget::zero("builder-reusable-layout-resize-1000x")

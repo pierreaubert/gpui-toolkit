@@ -615,7 +615,7 @@ impl Render for SwipePanelEntity {
 }
 
 impl RenderOnce for SwipePanel {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let id = self.id.clone();
         let state = self.state;
         let entity: Entity<SwipePanelEntity> = SWIPE_PANEL_ENTITIES.with(|map| {
@@ -634,6 +634,7 @@ impl RenderOnce for SwipePanel {
 
         entity.update(cx, |model, cx| {
             let mut props = self;
+            let controlled_state = props.state;
             if let Some(content) = props.content.take() {
                 model.content.update(cx, |model, cx| {
                     model.content = Some(content);
@@ -641,6 +642,11 @@ impl RenderOnce for SwipePanel {
                 });
             }
             model.props = props;
+            if model.state != controlled_state {
+                model.state = controlled_state;
+                model.update_target(window);
+                model.ensure_animation(cx);
+            }
         });
         entity.clone().into_any_element()
     }

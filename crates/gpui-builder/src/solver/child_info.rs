@@ -74,11 +74,14 @@ pub(super) fn allocate_main_axis(
                         && !child.solver_collapsed
                         && nodes[child.node_index].collapsible()
                 })
-                .min_by(|(_, a), (_, b)| {
+                .min_by(|(a_index, a), (b_index, b)| {
                     nodes[a.node_index]
                         .priority()
                         .partial_cmp(&nodes[b.node_index].priority())
                         .unwrap_or(std::cmp::Ordering::Equal)
+                        // Equal priorities preserve declaration order by
+                        // overflowing later siblings first.
+                        .then_with(|| b_index.cmp(a_index))
                 })
                 .map(|(idx, _)| idx)
             else {

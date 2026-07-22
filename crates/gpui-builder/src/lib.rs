@@ -83,8 +83,8 @@ pub use inspector::{
 };
 pub use snapshots::{LayoutSnapshot, LayoutSnapshotMatrix, LayoutViewport, solve_snapshot_matrix};
 pub use solved::{
-    LayoutDebugReport, LayoutDebugWarning, LayoutDebugWarningKind, NodeIndex, SolvedNode,
-    SolvedNodeData, SolvedNodeRef, SolvedTree,
+    CollapsedSlot, LayoutDebugReport, LayoutDebugWarning, LayoutDebugWarningKind, NodeIndex,
+    SolvedNode, SolvedNodeData, SolvedNodeRef, SolvedTree,
 };
 pub use solver::{
     TextMeasureCache, solve, solve_tree, solve_tree_into, solve_tree_into_with_cache,

@@ -1,6 +1,6 @@
 use super::layout_debug_warning::LayoutDebugWarning;
 use super::solved_node::SolvedNode;
-use super::solved_tree::SolvedTree;
+use super::solved_tree::{CollapsedSlot, SolvedTree};
 use super::types::LayoutDebugWarningKind;
 use crate::solver::solve_tree;
 use crate::types::{
@@ -469,6 +469,40 @@ fn flat_tree_collapsed_tabs_match_recursive_collapsed_tabs() {
     recursive_tabs.sort_by_key(|(id, _)| *id);
     flat_tabs.sort_by_key(|(id, _)| *id);
     assert_eq!(flat_tabs, recursive_tabs);
+}
+
+#[test]
+fn collapsed_slots_preserve_stable_ids_and_declaration_order() {
+    let children = [
+        LayoutNode::Slot(SlotNode::new("first", Sizing::Fixed(100.0)).collapsible(0.5, "First")),
+        LayoutNode::slot("primary", Sizing::Fixed(200.0)),
+        LayoutNode::Slot(SlotNode::new("last", Sizing::Fixed(100.0)).collapsible(0.5, "Last")),
+    ];
+    let root =
+        ContainerNode::new("root", Axis::Horizontal, Sizing::flex(0.0), &children).into_node();
+    let solved = solve_tree(&root, 200.0, 400.0, &LayoutPreferences::default());
+
+    let collapsed: Vec<_> = solved.collapsed_slots().collect();
+    assert_eq!(
+        collapsed,
+        vec![
+            CollapsedSlot {
+                id: "first",
+                label: "First",
+            },
+            CollapsedSlot {
+                id: "last",
+                label: "Last",
+            },
+        ]
+    );
+    assert_eq!(
+        solved.collapsed_tabs(),
+        collapsed
+            .iter()
+            .map(|slot| (slot.id, slot.label))
+            .collect::<Vec<_>>()
+    );
 }
 
 #[test]

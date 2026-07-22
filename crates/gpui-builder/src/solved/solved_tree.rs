@@ -12,6 +12,18 @@ use std::sync::OnceLock;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct NodeIndex(pub usize);
 
+/// Stable identity and display label for a collapsed layout slot.
+///
+/// Both strings borrow from the source [`LayoutNode`], so iterating collapsed
+/// slots does not allocate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct CollapsedSlot<'a> {
+    /// Stable, non-localized slot identifier.
+    pub id: &'a str,
+    /// Human-readable label for an overflow trigger or surface.
+    pub label: &'a str,
+}
+
 /// A single node stored in the flat solved tree.
 #[derive(Debug, Clone)]
 pub struct SolvedNodeData<'a> {
@@ -241,17 +253,26 @@ impl<'a> SolvedTree<'a> {
         self.cached_as_map_index.get().map_or(0, |m| m.len())
     }
 
-    /// Collect all collapsed nodes with their labels.
-    pub fn collapsed_tabs(&self) -> Vec<(&str, &str)> {
+    /// Iterate over collapsed slots in stable pre-order declaration order.
+    ///
+    /// This iterator borrows the solved tree and performs no allocation.
+    pub fn collapsed_slots(&self) -> impl Iterator<Item = CollapsedSlot<'a>> + '_ {
         self.nodes
             .iter()
+            .filter(|node| !node.visible)
             .filter_map(|node| {
-                if !node.visible {
-                    node.collapse_label.map(|label| (node.id, label))
-                } else {
-                    None
-                }
+                node.collapse_label
+                    .map(|label| CollapsedSlot { id: node.id, label })
             })
+    }
+
+    /// Collect all collapsed nodes with their labels.
+    ///
+    /// Compatibility alias for callers using the original tab-shaped API.
+    /// New code should prefer the allocation-free [`Self::collapsed_slots`].
+    pub fn collapsed_tabs(&self) -> Vec<(&str, &str)> {
+        self.collapsed_slots()
+            .map(|slot| (slot.id, slot.label))
             .collect()
     }
 
