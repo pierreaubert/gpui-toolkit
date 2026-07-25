@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from unittest import mock
 
 import qa_perf_baseline
 import qa_perf_check
@@ -20,6 +21,18 @@ def fixture(environment: dict[str, object]) -> dict[str, object]:
 
 
 class PerformanceEnvironmentTests(unittest.TestCase):
+    def test_macos_arm_cpu_model_is_stable_when_sysctl_is_unavailable(self) -> None:
+        with (
+            mock.patch.object(qa_perf_baseline.sys, "platform", "darwin"),
+            mock.patch.object(
+                qa_perf_baseline.platform, "machine", return_value="arm64"
+            ),
+            mock.patch.object(qa_perf_baseline, "command_output") as command_output,
+        ):
+            self.assertEqual(qa_perf_baseline.cpu_model(), "arm64")
+
+        command_output.assert_not_called()
+
     def test_generated_baseline_records_comparable_environment(self) -> None:
         baseline = qa_perf_baseline.build_baseline([])
         self.assertEqual(baseline["version"], 2)

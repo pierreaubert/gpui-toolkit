@@ -304,6 +304,12 @@ def command_output(command: list[str]) -> str:
 
 def cpu_model() -> str:
     """Return the most useful stable CPU identity available on this host."""
+    machine = platform.machine()
+    if sys.platform == "darwin" and machine in {"arm64", "aarch64"}:
+        # macOS sandboxes can deny sysctl even on the same host.  The
+        # architecture remains available and is stable across both contexts.
+        return machine
+
     if sys.platform == "darwin":
         brand = command_output(["sysctl", "-n", "machdep.cpu.brand_string"])
         hardware = command_output(["sysctl", "-n", "hw.model"])
