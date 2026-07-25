@@ -4,6 +4,7 @@ use super::consts::METAL_VIEW_CLASS_REGISTERED;
 use super::consts::STATUS_BAR_STYLE;
 use super::consts::TEXT_INPUT_VIEW_CLASS_REGISTERED;
 use super::consts::VC_CLASS_REGISTERED;
+#[cfg(target_os = "ios")]
 use super::consts::WINDOW_CLASS_REGISTERED;
 #[cfg(target_os = "ios")]
 use super::handle::handle_indirect_scroll;
@@ -13,16 +14,36 @@ use super::handle::handle_touches;
 use super::ios_window::IosWindow;
 use super::misc::dispatch_accessibility_element_action;
 #[cfg(target_os = "ios")]
+use objc::runtime::NO;
+#[cfg(target_os = "ios")]
 use objc::runtime::Protocol;
 use objc::{
-    class,
+    Encode, Encoding, class,
     declare::ClassDecl,
     msg_send,
-    runtime::{BOOL, Class, NO, Object, Sel, YES},
+    runtime::{BOOL, Class, Object, Sel, YES},
     sel, sel_impl,
 };
 #[cfg(target_os = "ios")]
 use std::io::Write;
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct ObjcRange {
+    location: usize,
+    length: usize,
+}
+
+unsafe impl Encode for ObjcRange {
+    fn encode() -> Encoding {
+        let code = format!(
+            "{{_NSRange={}{}}}",
+            usize::encode().as_str(),
+            usize::encode().as_str()
+        );
+        unsafe { Encoding::from_str(&code) }
+    }
+}
 
 #[cfg(target_os = "ios")]
 pub(super) fn input_diag_log(message: &str) {
@@ -493,47 +514,23 @@ pub(super) fn register_accessibility_element_class() -> &'static Class {
     class!(GPUIAccessibilityElement)
 }
 
-/// Register a custom UIView subclass that implements UIKeyInput protocol.
+/// Register a small UITextView subclass used as GPUI's native text client.
 ///
-/// iOS requires the first-responder view to conform to `UIKeyInput` in order
-/// for the software keyboard to actually route typed characters back to the
-/// app.  Without this, `becomeFirstResponder` silently fails and no keyboard
-/// appears.
-///
-/// The three required methods:
-/// - `hasText` → always returns YES (simplifies things; no harm)
-/// - `insertText:` → forwards the text to `IosWindow::handle_text_input`
-/// - `deleteBackward` → dispatches a backspace via `crate::dispatch_text_input`
+/// UITextView supplies the complete UITextInput protocol implementation needed
+/// by CJK and other composing IMEs. We override only the mutation callbacks to
+/// mirror committed and marked text into GPUI's PlatformInputHandler.
 pub(super) fn register_text_input_view_class() -> &'static Class {
     TEXT_INPUT_VIEW_CLASS_REGISTERED.call_once(|| {
-        let superclass = class!(UIView);
+        let superclass = class!(UITextView);
         let mut decl = ClassDecl::new("GPUITextInputView", superclass).unwrap();
-
-        // Declare protocol conformance so iOS knows this view can receive
-        // keyboard text input.
-        if let Some(protocol) = objc::runtime::Protocol::get("UIKeyInput") {
-            decl.add_protocol(protocol);
-        }
 
         // Store the IosWindow pointer so callbacks can reach the Rust window.
         decl.add_ivar::<*mut std::ffi::c_void>(GPUI_WINDOW_IVAR);
 
-        // UITextInputTraits property storage — UIView doesn't provide these,
-        // but iOS reads them from the first responder to configure the keyboard.
-        decl.add_ivar::<isize>("_keyboardType"); // UIKeyboardType
-        decl.add_ivar::<isize>("_autocorrectionType"); // UITextAutocorrectionType
-        decl.add_ivar::<isize>("_autocapitalizationType"); // UITextAutocapitalizationType
-
-        // --- UIKeyInput protocol methods ---
-
-        // BOOL hasText
-        extern "C" fn has_text(_this: &Object, _sel: Sel) -> BOOL {
-            YES
-        }
-
         // void insertText:(NSString *)text
         extern "C" fn insert_text(this: &Object, _sel: Sel, text: *mut Object) {
             unsafe {
+                let _: () = msg_send![super(this, class!(UITextView)), insertText: text];
                 let window_ptr: *mut std::ffi::c_void = *this.get_ivar(GPUI_WINDOW_IVAR);
                 if window_ptr.is_null() || text.is_null() {
                     return;
@@ -546,12 +543,45 @@ pub(super) fn register_text_input_view_class() -> &'static Class {
         // void deleteBackward
         extern "C" fn delete_backward(this: &Object, _sel: Sel) {
             unsafe {
+                let _: () = msg_send![super(this, class!(UITextView)), deleteBackward];
                 let window_ptr: *mut std::ffi::c_void = *this.get_ivar(GPUI_WINDOW_IVAR);
                 if window_ptr.is_null() {
                     return;
                 }
                 let window = &*(window_ptr as *const IosWindow);
                 window.handle_delete_backward();
+            }
+        }
+
+        extern "C" fn set_marked_text(
+            this: &Object,
+            _sel: Sel,
+            text: *mut Object,
+            selected_range: ObjcRange,
+        ) {
+            unsafe {
+                let _: () = msg_send![
+                    super(this, class!(UITextView)),
+                    setMarkedText: text
+                    selectedRange: selected_range
+                ];
+                let window_ptr: *mut std::ffi::c_void = *this.get_ivar(GPUI_WINDOW_IVAR);
+                if window_ptr.is_null() || text.is_null() {
+                    return;
+                }
+                let window = &*(window_ptr as *const IosWindow);
+                window.handle_marked_text(text, selected_range.location, selected_range.length);
+            }
+        }
+
+        extern "C" fn unmark_text(this: &Object, _sel: Sel) {
+            unsafe {
+                let _: () = msg_send![super(this, class!(UITextView)), unmarkText];
+                let window_ptr: *mut std::ffi::c_void = *this.get_ivar(GPUI_WINDOW_IVAR);
+                if !window_ptr.is_null() {
+                    let window = &*(window_ptr as *const IosWindow);
+                    window.handle_unmark_text();
+                }
             }
         }
 
@@ -601,37 +631,7 @@ pub(super) fn register_text_input_view_class() -> &'static Class {
             handle_presses(this, presses, event, false, "cancelled");
         }
 
-        // --- UITextInputTraits property accessors ---
-        extern "C" fn get_keyboard_type(this: &Object, _sel: Sel) -> isize {
-            unsafe { *this.get_ivar::<isize>("_keyboardType") }
-        }
-        extern "C" fn set_keyboard_type(this: &mut Object, _sel: Sel, val: isize) {
-            unsafe {
-                this.set_ivar::<isize>("_keyboardType", val);
-            }
-        }
-        extern "C" fn get_autocorrection_type(this: &Object, _sel: Sel) -> isize {
-            unsafe { *this.get_ivar::<isize>("_autocorrectionType") }
-        }
-        extern "C" fn set_autocorrection_type(this: &mut Object, _sel: Sel, val: isize) {
-            unsafe {
-                this.set_ivar::<isize>("_autocorrectionType", val);
-            }
-        }
-        extern "C" fn get_autocapitalization_type(this: &Object, _sel: Sel) -> isize {
-            unsafe { *this.get_ivar::<isize>("_autocapitalizationType") }
-        }
-        extern "C" fn set_autocapitalization_type(this: &mut Object, _sel: Sel, val: isize) {
-            unsafe {
-                this.set_ivar::<isize>("_autocapitalizationType", val);
-            }
-        }
-
         unsafe {
-            decl.add_method(
-                sel!(hasText),
-                has_text as extern "C" fn(&Object, Sel) -> BOOL,
-            );
             decl.add_method(
                 sel!(insertText:),
                 insert_text as extern "C" fn(&Object, Sel, *mut Object),
@@ -640,6 +640,11 @@ pub(super) fn register_text_input_view_class() -> &'static Class {
                 sel!(deleteBackward),
                 delete_backward as extern "C" fn(&Object, Sel),
             );
+            decl.add_method(
+                sel!(setMarkedText:selectedRange:),
+                set_marked_text as extern "C" fn(&Object, Sel, *mut Object, ObjcRange),
+            );
+            decl.add_method(sel!(unmarkText), unmark_text as extern "C" fn(&Object, Sel));
             decl.add_method(
                 sel!(canBecomeFirstResponder),
                 can_become_first_responder as extern "C" fn(&Object, Sel) -> BOOL,
@@ -663,32 +668,6 @@ pub(super) fn register_text_input_view_class() -> &'static Class {
                     presses_cancelled as extern "C" fn(&mut Object, Sel, *mut Object, *mut Object),
                 );
             }
-
-            // UITextInputTraits property methods
-            decl.add_method(
-                sel!(keyboardType),
-                get_keyboard_type as extern "C" fn(&Object, Sel) -> isize,
-            );
-            decl.add_method(
-                sel!(setKeyboardType:),
-                set_keyboard_type as extern "C" fn(&mut Object, Sel, isize),
-            );
-            decl.add_method(
-                sel!(autocorrectionType),
-                get_autocorrection_type as extern "C" fn(&Object, Sel) -> isize,
-            );
-            decl.add_method(
-                sel!(setAutocorrectionType:),
-                set_autocorrection_type as extern "C" fn(&mut Object, Sel, isize),
-            );
-            decl.add_method(
-                sel!(autocapitalizationType),
-                get_autocapitalization_type as extern "C" fn(&Object, Sel) -> isize,
-            );
-            decl.add_method(
-                sel!(setAutocapitalizationType:),
-                set_autocapitalization_type as extern "C" fn(&mut Object, Sel, isize),
-            );
         }
 
         decl.register();

@@ -265,6 +265,40 @@ impl AuWindow {
             callback(event);
         }
     }
+
+    pub fn insert_text(&self, text: &str) {
+        if let Some(handler) = self.input_handler.borrow_mut().as_mut() {
+            handler.replace_text_in_range(None, text);
+        }
+    }
+
+    pub fn set_marked_text(&self, text: &str, selected_location: usize, selected_length: usize) {
+        if let Some(handler) = self.input_handler.borrow_mut().as_mut() {
+            let text_len = text.encode_utf16().count();
+            let start = selected_location.min(text_len);
+            let end = start.saturating_add(selected_length).min(text_len);
+            handler.replace_and_mark_text_in_range(None, text, Some(start..end));
+        }
+    }
+
+    pub fn unmark_text(&self) {
+        if let Some(handler) = self.input_handler.borrow_mut().as_mut() {
+            handler.unmark_text();
+        }
+    }
+
+    pub fn delete_backward(&self) {
+        if let Some(handler) = self.input_handler.borrow_mut().as_mut()
+            && let Some(selection) = handler.selected_text_range(true)
+        {
+            let start = if selection.range.is_empty() {
+                selection.range.start.saturating_sub(1)
+            } else {
+                selection.range.start
+            };
+            handler.replace_text_in_range(Some(start..selection.range.end), "");
+        }
+    }
 }
 
 impl HasWindowHandle for AuWindow {

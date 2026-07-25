@@ -24,6 +24,20 @@ pub enum ChartKeyboardAction {
     ResetZoom,
 }
 
+/// Map GPUI/platform key names to chart navigation actions.
+pub fn keyboard_action_for_key(key: &str) -> Option<ChartKeyboardAction> {
+    match key.to_ascii_lowercase().as_str() {
+        "+" | "=" | "add" => Some(ChartKeyboardAction::ZoomIn),
+        "-" | "_" | "subtract" => Some(ChartKeyboardAction::ZoomOut),
+        "left" | "arrowleft" => Some(ChartKeyboardAction::PanLeft),
+        "right" | "arrowright" => Some(ChartKeyboardAction::PanRight),
+        "up" | "arrowup" => Some(ChartKeyboardAction::PanUp),
+        "down" | "arrowdown" => Some(ChartKeyboardAction::PanDown),
+        "0" | "r" | "home" => Some(ChartKeyboardAction::ResetZoom),
+        _ => None,
+    }
+}
+
 /// Chart interaction state that can be shared between components.
 ///
 /// This struct maintains the state of brush selection and zoom levels,
@@ -449,8 +463,8 @@ pub(super) mod interactive_chart {
     use super::*;
     use gpui::prelude::*;
     use gpui::{
-        AnyElement, ClickEvent, ElementId, IntoElement, MouseButton, Pixels, Point, ScrollDelta,
-        ScrollWheelEvent, div, hsla, px,
+        AnyElement, ClickEvent, ElementId, IntoElement, KeyDownEvent, MouseButton, Pixels, Point,
+        ScrollDelta, ScrollWheelEvent, div, hsla, px,
     };
     use std::cell::RefCell;
     use std::rc::Rc;
@@ -643,6 +657,32 @@ pub(super) mod interactive_chart {
             let mut interaction = self.interaction.borrow_mut();
             interaction.pan_by_pixels(dx, dy);
         }
+
+        fn apply_keyboard_action(&self, action: ChartKeyboardAction) {
+            self.interaction
+                .borrow_mut()
+                .apply_keyboard_action(action, 40.0, 1.2);
+            if let Some(ref callback) = self.on_zoom_change {
+                let interaction = self.interaction.borrow();
+                callback(interaction.x_domain(), interaction.y_domain());
+            }
+        }
+
+        fn update_hover(&self, position: Point<Pixels>) {
+            let raw_x = f32::from(position.x);
+            let raw_y = f32::from(position.y);
+            let (plot_width, plot_height) = self.interaction.borrow().plot_size;
+            if raw_x < self.config.left_margin
+                || raw_x > self.config.left_margin + plot_width
+                || raw_y < self.config.top_margin
+                || raw_y > self.config.top_margin + plot_height
+            {
+                self.interaction.borrow_mut().clear_hover();
+                return;
+            }
+            let (x, y) = self.to_chart_coords(position);
+            self.interaction.borrow_mut().update_hover_pixel(x, y);
+        }
     }
 
     /// Builder for creating an interactive chart wrapper
@@ -678,6 +718,9 @@ pub(super) mod interactive_chart {
             let state_for_move = state.clone();
             let state_for_click = state.clone();
             let state_for_wheel = state.clone();
+            let state_for_key = state.clone();
+            let state_for_hover = state.clone();
+            let state_for_hover_change = state.clone();
 
             let is_zoomed = state.is_zoomed();
             let config = state.config.clone();
@@ -691,6 +734,7 @@ pub(super) mod interactive_chart {
             div()
                 .id(self.id)
                 .relative()
+                .focusable()
                 .cursor_grab()
                 .child(self.child)
                 // Zoom indicator
@@ -711,14 +755,24 @@ pub(super) mod interactive_chart {
                 })
                 // Mouse down - start pan
                 .on_mouse_down(MouseButton::Left, move |event, _window, _cx| {
-                    if state_for_down.config.enable_pan {
-                        let (x, y) = state_for_down.to_chart_coords(event.position);
+                    let (x, y) = state_for_down.to_chart_coords(event.position);
+                    let mode = state_for_down.interaction.borrow().mode;
+                    if mode == InteractionMode::Brush {
+                        state_for_down.interaction.borrow_mut().start_brush(x, y);
+                    } else if state_for_down.config.enable_pan {
                         *drag_start_down.borrow_mut() = Some((x, y));
                     }
                 })
                 // Mouse move - pan if dragging
                 .on_mouse_move(move |event, window, _cx| {
-                    if state_for_move.config.enable_pan
+                    state_for_hover.update_hover(event.position);
+                    if state_for_move.interaction.borrow().mode == InteractionMode::Brush {
+                        let (x, y) = state_for_move.to_chart_coords(event.position);
+                        if state_for_move.interaction.borrow().is_brushing() {
+                            state_for_move.interaction.borrow_mut().update_brush(x, y);
+                            window.refresh();
+                        }
+                    } else if state_for_move.config.enable_pan
                         && let Some((start_x, start_y)) = *drag_start_move.borrow()
                     {
                         let (x, y) = state_for_move.to_chart_coords(event.position);
@@ -735,7 +789,25 @@ pub(super) mod interactive_chart {
                 })
                 // Mouse up - end pan
                 .on_mouse_up(MouseButton::Left, move |_event, _window, _cx| {
+                    if state.interaction.borrow().mode == InteractionMode::Brush {
+                        state.interaction.borrow_mut().end_brush(false);
+                    }
                     *drag_start_up.borrow_mut() = None;
+                })
+                .on_hover(move |hovered, _window, _cx| {
+                    if !hovered {
+                        state_for_hover_change
+                            .interaction
+                            .borrow_mut()
+                            .clear_hover();
+                    }
+                })
+                .on_key_down(move |event: &KeyDownEvent, window, cx| {
+                    if let Some(action) = keyboard_action_for_key(&event.keystroke.key) {
+                        state_for_key.apply_keyboard_action(action);
+                        cx.stop_propagation();
+                        window.refresh();
+                    }
                 })
                 // Click - handle double-click reset
                 .on_click(move |event: &ClickEvent, window, _cx| {

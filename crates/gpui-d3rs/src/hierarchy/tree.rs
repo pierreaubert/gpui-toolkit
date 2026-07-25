@@ -69,31 +69,10 @@ impl<T> TreeLayout<T> {
     where
         T: Clone + 'static,
     {
-        // Simple Reingold-Tilford implementation (placeholder for now)
-        // In a real implementation this would be the full Buchheim linear time algorithm
-
-        let root_node = root.borrow();
-        let _height = root_node.height;
-        drop(root_node);
-
-        // Assign depths first
-        HierarchyNode::each(root.clone(), |_node| {
-            // Depth is already set by set_children or construction
-            // We can verify or re-compute if needed
-        });
-
-        // Basic positioning for demo
-        HierarchyNode::each(root.clone(), |node| {
-            let mut _node_mut = node.borrow_mut();
-
-            // X based on depth (horizontal layout assumption)
-            // Y based on traversal order / index
-            // Just a placeholder layout to ensure we visit nodes
-            // A real implementation requires multiple passes
-        });
-
-        // Use a simpler cluster layout logic for now as it's easier to implement first
-        // and provides visually distinct output
+        // Assign breadth in leaf order using the configured separation, then
+        // center each parent over its children. This is the tidy-tree invariant:
+        // siblings retain order, subtrees do not overlap, and parents sit at
+        // their descendants' midpoint.
         self.layout_cluster(root);
     }
 
@@ -115,52 +94,41 @@ impl<T> TreeLayout<T> {
         Ok(())
     }
 
-    // Internal: Cluster layout implementation (dendrogram)
+    // Contour-apportioned tidy tree layout.
     fn layout_cluster(&self, root: Rc<RefCell<HierarchyNode<T>>>)
     where
         T: Clone + 'static,
     {
-        // Re-compute leaf count for spacing
         HierarchyNode::count(root.clone());
+        self.position_tidy(root.clone());
 
-        let mut max_depth = 0;
-        let mut leaves = Vec::new();
-
-        // First pass: collect leaves and find max depth.
+        let mut max_depth = 0usize;
+        let mut min_breadth = f64::INFINITY;
+        let mut max_breadth = f64::NEG_INFINITY;
         HierarchyNode::each(root.clone(), |node| {
             let n = node.borrow();
-            if n.depth > max_depth {
-                max_depth = n.depth;
-            }
-
-            if n.children.is_none() || n.children.as_ref().unwrap().is_empty() {
-                leaves.push(node.clone());
-            }
+            max_depth = max_depth.max(n.depth);
+            min_breadth = min_breadth.min(n.y);
+            max_breadth = max_breadth.max(n.y);
         });
 
-        self.position_leaves(&leaves);
+        if let Some((node_width, node_height)) = self.node_size {
+            HierarchyNode::each(root, |node| {
+                let mut node = node.borrow_mut();
+                node.x = node.depth as f64 * node_width;
+                node.y *= node_height;
+            });
+            return;
+        }
 
-        // Propagate positions up for non-leaf nodes (average of children)
-        // This requires post-order traversal which isn't directly exposed yet
-        // For now, we do a recursive helper
-        Self::position_internal_cluster(root.clone());
-
-        // Scale to fit size
         let (width, height) = self.size;
-        let span = leaves
-            .last()
-            .map(|leaf| leaf.borrow().x)
-            .unwrap_or_default()
-            .max(1.0);
-        let x_scale = height / span; // Map leaves to height (typically vertical)
-        let y_scale = width / (max_depth as f64).max(1.0); // Map depth to width
+        let breadth_scale = height / (max_breadth - min_breadth).max(1.0);
+        let depth_scale = width / (max_depth as f64).max(1.0);
 
-        HierarchyNode::each(root.clone(), |node| {
+        HierarchyNode::each(root, |node| {
             let mut n = node.borrow_mut();
-            // Swap x/y for standard horizontal tree (root left)
-            let temp = n.x;
-            n.x = n.depth as f64 * y_scale; // Depth -> X
-            n.y = temp * x_scale; // Leaf index -> Y
+            n.x = n.depth as f64 * depth_scale;
+            n.y = (n.y - min_breadth) * breadth_scale;
         });
     }
 
@@ -168,68 +136,93 @@ impl<T> TreeLayout<T> {
     where
         T: Clone + 'static,
     {
-        let leaves = Self::leaves(root);
-        for pair in leaves.windows(2) {
-            let left = pair[0].borrow();
-            let right = pair[1].borrow();
-            let separation = (self.separation)(&left, &right);
-            validate_separation_value(separation)?;
+        let mut nodes = Vec::new();
+        HierarchyNode::each(root, |node| nodes.push(node));
+        for left_index in 0..nodes.len() {
+            for right in &nodes[left_index + 1..] {
+                let left = nodes[left_index].borrow();
+                let right = right.borrow();
+                validate_separation_value((self.separation)(&left, &right))?;
+                validate_separation_value((self.separation)(&right, &left))?;
+            }
         }
         Ok(())
     }
 
-    fn position_leaves(&self, leaves: &[Rc<RefCell<HierarchyNode<T>>>]) {
-        let Some(first) = leaves.first() else {
-            return;
-        };
-
-        first.borrow_mut().x = 0.0;
-        for pair in leaves.windows(2) {
-            let previous_x = pair[0].borrow().x;
-            let separation = {
-                let previous = pair[0].borrow();
-                let current = pair[1].borrow();
-                (self.separation)(&previous, &current)
-            };
-            pair[1].borrow_mut().x = previous_x + separation;
-        }
-    }
-
-    fn leaves(root: Rc<RefCell<HierarchyNode<T>>>) -> Vec<Rc<RefCell<HierarchyNode<T>>>> {
-        let mut leaves = Vec::new();
-        HierarchyNode::each(root, |node| {
-            let is_leaf = {
-                let n = node.borrow();
-                n.children.is_none() || n.children.as_ref().unwrap().is_empty()
-            };
-            if is_leaf {
-                leaves.push(node);
-            }
-        });
-        leaves
-    }
-
-    fn position_internal_cluster(node: Rc<RefCell<HierarchyNode<T>>>) -> f64 {
-        let children_opt = {
-            let n = node.borrow();
-            n.children.clone()
-        };
-
-        if let Some(children) = children_opt
-            && !children.is_empty()
-        {
-            let mut sum_x = 0.0;
-            for child in &children {
-                sum_x += Self::position_internal_cluster(child.clone());
-            }
-
-            let mut n = node.borrow_mut();
-            n.x = sum_x / children.len() as f64;
-            return n.x;
+    #[allow(clippy::type_complexity)]
+    fn position_tidy(
+        &self,
+        node: Rc<RefCell<HierarchyNode<T>>>,
+    ) -> Vec<(
+        f64,
+        Rc<RefCell<HierarchyNode<T>>>,
+        f64,
+        Rc<RefCell<HierarchyNode<T>>>,
+    )> {
+        let children = node.borrow().children.clone().unwrap_or_default();
+        if children.is_empty() {
+            node.borrow_mut().y = 0.0;
+            return vec![(0.0, node.clone(), 0.0, node)];
         }
 
-        let n = node.borrow();
-        n.x
+        let mut combined: Vec<(
+            f64,
+            Rc<RefCell<HierarchyNode<T>>>,
+            f64,
+            Rc<RefCell<HierarchyNode<T>>>,
+        )> = Vec::new();
+        for child in &children {
+            let mut contour = self.position_tidy(child.clone());
+            let shift = combined
+                .iter()
+                .zip(&contour)
+                .map(|((_, _, right, right_node), (left, left_node, _, _))| {
+                    let separation = {
+                        let right_node = right_node.borrow();
+                        let left_node = left_node.borrow();
+                        (self.separation)(&right_node, &left_node)
+                    };
+                    right + separation - left
+                })
+                .fold(0.0_f64, f64::max);
+
+            if shift > 0.0 {
+                HierarchyNode::each(child.clone(), |descendant| {
+                    descendant.borrow_mut().y += shift;
+                });
+                for (left, _, right, _) in &mut contour {
+                    *left += shift;
+                    *right += shift;
+                }
+            }
+
+            if combined.is_empty() {
+                combined = contour;
+                continue;
+            }
+            for (depth, entry) in contour.into_iter().enumerate() {
+                if let Some(existing) = combined.get_mut(depth) {
+                    if entry.0 < existing.0 {
+                        existing.0 = entry.0;
+                        existing.1 = entry.1.clone();
+                    }
+                    if entry.2 > existing.2 {
+                        existing.2 = entry.2;
+                        existing.3 = entry.3;
+                    }
+                } else {
+                    combined.push(entry);
+                }
+            }
+        }
+
+        let position =
+            (children.first().unwrap().borrow().y + children.last().unwrap().borrow().y) / 2.0;
+        node.borrow_mut().y = position;
+        let mut contour = Vec::with_capacity(combined.len() + 1);
+        contour.push((position, node.clone(), position, node));
+        contour.extend(combined);
+        contour
     }
 }
 
@@ -308,13 +301,25 @@ mod tests {
             .unwrap();
 
         assert_eq!(first_leaf.borrow().y, 0.0);
-        assert_eq!(second_leaf.borrow().y, 60.0);
+        assert_eq!(second_leaf.borrow().y, 80.0);
         assert_eq!(third_leaf.borrow().y, 120.0);
     }
 
     #[test]
     fn default_separation_keeps_non_siblings_farther_apart() {
-        let (root, first_leaf, second_leaf, third_leaf) = sample_tree();
+        let root = HierarchyNode::new(());
+        let left = HierarchyNode::new(());
+        let right = HierarchyNode::new(());
+        let first_leaf = HierarchyNode::new(());
+        let second_leaf = HierarchyNode::new(());
+        let third_leaf = HierarchyNode::new(());
+        let fourth_leaf = HierarchyNode::new(());
+        left.borrow_mut()
+            .set_children(&left, vec![first_leaf.clone(), second_leaf.clone()]);
+        right
+            .borrow_mut()
+            .set_children(&right, vec![third_leaf.clone(), fourth_leaf.clone()]);
+        root.borrow_mut().set_children(&root, vec![left, right]);
 
         TreeLayout::new()
             .size((200.0, 120.0))
@@ -322,8 +327,9 @@ mod tests {
             .unwrap();
 
         assert_eq!(first_leaf.borrow().y, 0.0);
-        assert_eq!(second_leaf.borrow().y, 40.0);
-        assert_eq!(third_leaf.borrow().y, 120.0);
+        assert_eq!(second_leaf.borrow().y, 30.0);
+        assert_eq!(third_leaf.borrow().y, 90.0);
+        assert_eq!(fourth_leaf.borrow().y, 120.0);
     }
 
     #[test]
@@ -348,6 +354,26 @@ mod tests {
 
         assert_eq!(first.borrow().y, 0.0);
         assert_eq!(second.borrow().y, 100.0);
+    }
+
+    #[test]
+    fn node_size_is_applied_per_depth_and_per_separation_unit() {
+        let (root, first_leaf, second_leaf, third_leaf) = sample_tree();
+        let group = root.borrow().children.as_ref().unwrap()[0].clone();
+
+        TreeLayout::new()
+            .node_size((40.0, 12.0))
+            .separation(|_, _| 1.0)
+            .try_layout(root.clone())
+            .unwrap();
+
+        assert_eq!(root.borrow().x, 0.0);
+        assert_eq!(group.borrow().x, 40.0);
+        assert_eq!(first_leaf.borrow().x, 80.0);
+        assert_eq!(second_leaf.borrow().x, 80.0);
+        assert_eq!(third_leaf.borrow().x, 40.0);
+        assert_eq!(second_leaf.borrow().y - first_leaf.borrow().y, 12.0);
+        assert_eq!(third_leaf.borrow().y - group.borrow().y, 12.0);
     }
 
     #[test]

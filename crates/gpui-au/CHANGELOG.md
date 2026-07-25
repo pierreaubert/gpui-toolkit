@@ -1,3 +1,17 @@
+# Unreleased
+
+# 0.9.7
+
+## New
+
+- Added key-down and key-up FFI entry points for forwarding AppKit keyboard
+  events into embedded GPUI views.
+- Added FFI entry points for UTF-8 text commits, marked-text updates,
+  composition clearing, and backward deletion.
+- Added the public C integration header at `include/gpui_au.h` and documented
+  the corresponding Swift/AppKit host wiring.
+- Added a dedicated Audio Unit build and test lane to CI.
+
 # 0.7.5
 
 ## Performance

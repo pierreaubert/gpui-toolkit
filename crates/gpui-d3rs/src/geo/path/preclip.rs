@@ -1,26 +1,23 @@
 //! Antimeridian pre-clip stream stage.
 //!
-//! Wraps the existing antimeridian cutter (`geo_path::antimeridian_clip_*`) as a
-//! `Stream` transformer so it can sit in front of the projection stage. This is a
-//! temporary bridge: once the D3-style stream clipper is fully debugged it will
-//! replace this stage, but for now it restores the cylindrical golden pass while
-//! we build out the new pipeline.
+//! Buffers polygon rings until `polygon_end`, allowing the polygon-level clipper
+//! to reconnect antimeridian segments while preserving holes and winding.
 
-use crate::geo::path::geo_path::{antimeridian_clip_line, antimeridian_clip_ring};
+use crate::geo::path::clip::clip_antimeridian_polygon;
+use crate::geo::path::geo_path::antimeridian_clip_line;
 use crate::geo::projection::SphereRotation;
 use crate::geo::stream::Stream;
 
 /// Pre-clip stream stage that cuts geometry at the antimeridian in the
 /// projection's rotated frame.
 ///
-/// This currently uses the existing per-ring antimeridian cutter as a bridge
-/// while the D3-style polygon-level clipper is being debugged.
 pub struct PreclipAntimeridianStream<S: Stream> {
     rotation: SphereRotation,
     sink: S,
     buffer: Vec<(f64, f64)>,
+    polygon_rings: Vec<Vec<(f64, f64)>>,
     in_line: bool,
-    is_ring: bool,
+    in_polygon: bool,
 }
 
 impl<S: Stream> PreclipAntimeridianStream<S> {
@@ -29,8 +26,9 @@ impl<S: Stream> PreclipAntimeridianStream<S> {
             rotation,
             sink,
             buffer: Vec::new(),
+            polygon_rings: Vec::new(),
             in_line: false,
-            is_ring: false,
+            in_polygon: false,
         }
     }
 
@@ -51,37 +49,48 @@ impl<S: Stream> Stream for PreclipAntimeridianStream<S> {
 
     fn line_start(&mut self) {
         self.in_line = true;
-        self.is_ring = false;
         self.buffer.clear();
     }
 
     fn line_end(&mut self) {
         self.in_line = false;
-        let pieces = if self.is_ring {
-            antimeridian_clip_ring(&self.buffer, &self.rotation)
+        if self.in_polygon {
+            if !self.buffer.is_empty() {
+                self.polygon_rings.push(std::mem::take(&mut self.buffer));
+            }
         } else {
-            antimeridian_clip_line(&self.buffer, &self.rotation)
-        };
-
-        for piece in pieces {
-            if piece.is_empty() {
-                continue;
+            for piece in antimeridian_clip_line(&self.buffer, &self.rotation) {
+                if piece.is_empty() {
+                    continue;
+                }
+                self.sink.line_start();
+                for &(lon, lat) in &piece {
+                    self.sink.point(lon, lat, 0);
+                }
+                self.sink.line_end();
             }
-            self.sink.line_start();
-            for &(lon, lat) in &piece {
-                self.sink.point(lon, lat, 0);
-            }
-            self.sink.line_end();
         }
     }
 
     fn polygon_start(&mut self) {
-        self.is_ring = true;
+        self.in_polygon = true;
+        self.polygon_rings.clear();
         self.sink.polygon_start();
     }
 
     fn polygon_end(&mut self) {
-        self.is_ring = false;
+        for ring in clip_antimeridian_polygon(&self.polygon_rings, &self.rotation) {
+            if ring.is_empty() {
+                continue;
+            }
+            self.sink.line_start();
+            for (lon, lat) in ring {
+                self.sink.point(lon, lat, 0);
+            }
+            self.sink.line_end();
+        }
+        self.polygon_rings.clear();
+        self.in_polygon = false;
         self.sink.polygon_end();
     }
 
@@ -188,6 +197,42 @@ mod tests {
                 .events
                 .iter()
                 .filter(|e| e == &"line_start")
+                .count()
+                >= 1
+        );
+    }
+
+    #[test]
+    fn preclip_buffers_all_polygon_rings_until_polygon_end() {
+        let rotation = SphereRotation::identity();
+        let sink = RecordingStream::new();
+        let mut stream = PreclipAntimeridianStream::new(rotation, sink);
+
+        stream.polygon_start();
+        stream.line_start();
+        stream.point(170.0, -20.0, 0);
+        stream.point(-170.0, -20.0, 0);
+        stream.point(-170.0, 20.0, 0);
+        stream.point(170.0, 20.0, 0);
+        stream.line_end();
+        assert_eq!(
+            stream
+                .sink
+                .events
+                .iter()
+                .filter(|event| event.as_str() == "line_start")
+                .count(),
+            0,
+            "polygon fragments must not be emitted before all rings are known"
+        );
+        stream.polygon_end();
+
+        assert!(
+            stream
+                .sink
+                .events
+                .iter()
+                .filter(|event| event.as_str() == "line_start")
                 .count()
                 >= 1
         );

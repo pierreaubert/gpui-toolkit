@@ -255,11 +255,64 @@ pub fn ticks_interval(start: f64, stop: f64, interval: f64) -> Vec<f64> {
     (0..n).map(|i| tick_start + interval * i as f64).collect()
 }
 
-/// Generate date/time ticks (placeholder for future implementation).
+/// Generate calendar-aware date/time ticks for Unix timestamps in seconds.
 ///
-/// For now, this just returns ticks for numeric timestamps.
+/// The selected interval is the closest common calendar interval to the
+/// requested density. Month and year ticks are generated from Gregorian
+/// boundaries rather than fixed-duration approximations.
 pub fn time_ticks(start: f64, stop: f64, count: usize) -> Vec<f64> {
-    ticks(start, stop, count)
+    use crate::time::{Interval, TimeInterval, duration};
+
+    if count == 0 || start == stop || !start.is_finite() || !stop.is_finite() {
+        return vec![start];
+    }
+
+    let (start, stop, reverse) = if start > stop {
+        (stop, start, true)
+    } else {
+        (start, stop, false)
+    };
+    let target = (stop - start) / count as f64;
+    let candidates = [
+        (TimeInterval::Second, 1, duration::SECOND),
+        (TimeInterval::Second, 5, 5 * duration::SECOND),
+        (TimeInterval::Second, 15, 15 * duration::SECOND),
+        (TimeInterval::Second, 30, 30 * duration::SECOND),
+        (TimeInterval::Minute, 1, duration::MINUTE),
+        (TimeInterval::Minute, 5, 5 * duration::MINUTE),
+        (TimeInterval::Minute, 15, 15 * duration::MINUTE),
+        (TimeInterval::Minute, 30, 30 * duration::MINUTE),
+        (TimeInterval::Hour, 1, duration::HOUR),
+        (TimeInterval::Hour, 3, 3 * duration::HOUR),
+        (TimeInterval::Hour, 6, 6 * duration::HOUR),
+        (TimeInterval::Hour, 12, 12 * duration::HOUR),
+        (TimeInterval::Day, 1, duration::DAY),
+        (TimeInterval::Day, 2, 2 * duration::DAY),
+        (TimeInterval::Week, 1, duration::WEEK),
+        (TimeInterval::Month, 1, 30 * duration::DAY),
+        (TimeInterval::Month, 3, 90 * duration::DAY),
+        (TimeInterval::Year, 1, 365 * duration::DAY),
+        (TimeInterval::Year, 5, 5 * 365 * duration::DAY),
+        (TimeInterval::Year, 10, 10 * 365 * duration::DAY),
+    ];
+    let &(interval, step, _) = candidates
+        .iter()
+        .min_by(|(_, _, left), (_, _, right)| {
+            ((*left as f64 / target).ln().abs()).total_cmp(&((*right as f64 / target).ln().abs()))
+        })
+        .expect("time interval candidates are non-empty");
+
+    let start = start.ceil().clamp(i64::MIN as f64, i64::MAX as f64) as i64;
+    let stop = stop.floor().clamp(i64::MIN as f64, i64::MAX as f64) as i64;
+    let mut result: Vec<f64> = interval
+        .range(start, stop.saturating_add(1), step)
+        .into_iter()
+        .map(|timestamp| timestamp as f64)
+        .collect();
+    if reverse {
+        result.reverse();
+    }
+    result
 }
 
 #[cfg(test)]
@@ -314,6 +367,31 @@ mod tests {
     fn test_ticks_interval() {
         let t = ticks_interval(0.0, 100.0, 20.0);
         assert_eq!(t, vec![0.0, 20.0, 40.0, 60.0, 80.0, 100.0]);
+    }
+
+    #[test]
+    fn time_ticks_use_calendar_month_boundaries() {
+        const JAN_15_2024: f64 = 1_705_276_800.0;
+        const MAY_15_2024: f64 = 1_715_731_200.0;
+        const FEB_1_2024: f64 = 1_706_745_600.0;
+        const MAR_1_2024: f64 = 1_709_251_200.0;
+        const APR_1_2024: f64 = 1_711_929_600.0;
+        const MAY_1_2024: f64 = 1_714_521_600.0;
+
+        assert_eq!(
+            time_ticks(JAN_15_2024, MAY_15_2024, 4),
+            vec![FEB_1_2024, MAR_1_2024, APR_1_2024, MAY_1_2024]
+        );
+    }
+
+    #[test]
+    fn time_ticks_preserve_reverse_domains() {
+        const JAN_15_2024: f64 = 1_705_276_800.0;
+        const MAY_15_2024: f64 = 1_715_731_200.0;
+        let forward = time_ticks(JAN_15_2024, MAY_15_2024, 4);
+        let mut reverse = time_ticks(MAY_15_2024, JAN_15_2024, 4);
+        reverse.reverse();
+        assert_eq!(reverse, forward);
     }
 
     #[test]

@@ -23,6 +23,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 DEFAULT_SUMMARY = ROOT / "target" / "qa" / "cov" / "summary.json"
 DEFAULT_OUTPUT = ROOT / "target" / "qa" / "cov" / "report.md"
+DEFAULT_CRATE_THRESHOLDS = ROOT / "qa" / "cov" / "crate-thresholds.json"
 
 
 def load_summary(path: Path) -> Any:
@@ -99,11 +100,29 @@ def per_crate_coverage(summary: dict[str, Any]) -> list[dict[str, Any]]:
     return result
 
 
+def crate_ratchet_failures(
+    rows: list[dict[str, Any]], thresholds: dict[str, float]
+) -> list[tuple[str, float, float]]:
+    measured = {row["crate"]: float(row["lines_percent"]) for row in rows}
+    failures = []
+    for crate, threshold in sorted(thresholds.items()):
+        actual = measured.get(crate, 0.0)
+        if actual < threshold:
+            failures.append((crate, actual, threshold))
+    return failures
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--summary", type=Path, default=DEFAULT_SUMMARY)
     parser.add_argument("--threshold", type=float, default=90.0)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
+    parser.add_argument(
+        "--crate-thresholds",
+        type=Path,
+        default=DEFAULT_CRATE_THRESHOLDS,
+        help="JSON object mapping crate names to minimum line percentages",
+    )
     parser.add_argument(
         "--ignore-regex",
         default="not supplied",
@@ -123,8 +142,21 @@ def main(argv: list[str]) -> int:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
 
+    try:
+        crate_thresholds = json.loads(args.crate_thresholds.read_text())
+        if not isinstance(crate_thresholds, dict):
+            raise ValueError("expected a JSON object")
+        crate_thresholds = {
+            str(crate): float(threshold) for crate, threshold in crate_thresholds.items()
+        }
+    except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
+        print(f"ERROR: invalid crate threshold file {args.crate_thresholds}: {exc}", file=sys.stderr)
+        return 2
+
+    crate_rows = per_crate_coverage(summary)
+    crate_failures = crate_ratchet_failures(crate_rows, crate_thresholds)
     primary = pct.get("lines", pct.get("functions", 0.0))
-    passed = primary >= args.threshold
+    passed = primary >= args.threshold and not crate_failures
     status = "PASSED" if passed else "FAILED"
 
     lines = [
@@ -135,6 +167,7 @@ def main(argv: list[str]) -> int:
         f"- Result: **{status}**",
         f"- Scope: portable production library code under `crates/`",
         f"- Exclusion expression: `{args.ignore_regex}`",
+        f"- Per-crate ratchets: `{args.crate_thresholds}`",
         "",
         "## Coverage Breakdown",
         "",
@@ -152,19 +185,28 @@ def main(argv: list[str]) -> int:
         [
             "## Per-crate Coverage",
             "",
-            "These rows are evidence only; the enforced ratchet remains the portable-core aggregate above.",
+            "Each configured crate floor is enforced in addition to the portable-core aggregate.",
             "",
             "| Crate | Lines | Line percent | Functions | Function percent |",
             "| --- | ---: | ---: | ---: | ---: |",
         ]
     )
-    for row in per_crate_coverage(summary):
+    for row in crate_rows:
+        threshold = crate_thresholds.get(row["crate"])
+        marker = (
+            f" (minimum {threshold:.2f}%)" if threshold is not None else " (not configured)"
+        )
         lines.append(
             f"| {row['crate']} | {row['lines_covered']}/{row['lines_total']} | "
-            f"{row['lines_percent']:.2f}% | {row['functions_covered']}/{row['functions_total']} | "
+            f"{row['lines_percent']:.2f}%{marker} | {row['functions_covered']}/{row['functions_total']} | "
             f"{row['functions_percent']:.2f}% |"
         )
     lines.append("")
+    if crate_failures:
+        lines.extend(["## Failed Per-crate Ratchets", ""])
+        for crate, actual, threshold in crate_failures:
+            lines.append(f"- `{crate}`: {actual:.2f}% < {threshold:.2f}%")
+        lines.append("")
 
     report = "\n".join(lines)
     print(f"Coverage {primary:.2f}% (threshold {args.threshold:.2f}%) - {status}")

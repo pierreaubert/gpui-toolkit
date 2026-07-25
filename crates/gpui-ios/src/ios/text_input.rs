@@ -2,6 +2,27 @@
 
 use gpui::{KeyDownEvent, Keystroke, Modifiers, PlatformInput};
 use std::borrow::Cow;
+use std::ops::Range;
+
+pub fn clamp_utf16_selection(text: &str, location: usize, length: usize) -> Range<usize> {
+    let text_len = text.encode_utf16().count();
+    let start = location.min(text_len);
+    let end = start.saturating_add(length).min(text_len);
+    start..end
+}
+
+#[cfg_attr(not(target_os = "tvos"), allow(dead_code))]
+pub fn tvos_press_key(press_type: i64) -> Option<&'static str> {
+    match press_type {
+        0 => Some("up"),
+        1 => Some("down"),
+        2 => Some("left"),
+        3 => Some("right"),
+        5 => Some("escape"),
+        6 => Some("space"),
+        _ => None,
+    }
+}
 
 pub fn key_code_to_string(code: u32) -> Cow<'static, str> {
     match code {
@@ -144,5 +165,22 @@ mod tests {
         } else {
             panic!("expected KeyDown event");
         }
+    }
+
+    #[test]
+    fn composition_selection_is_clamped_in_utf16_units() {
+        assert_eq!(clamp_utf16_selection("a😀b", 1, 2), 1..3);
+        assert_eq!(clamp_utf16_selection("a😀b", 99, 4), 4..4);
+    }
+
+    #[test]
+    fn siri_remote_presses_map_to_focus_navigation_keys() {
+        assert_eq!(tvos_press_key(0), Some("up"));
+        assert_eq!(tvos_press_key(1), Some("down"));
+        assert_eq!(tvos_press_key(2), Some("left"));
+        assert_eq!(tvos_press_key(3), Some("right"));
+        assert_eq!(tvos_press_key(4), None);
+        assert_eq!(tvos_press_key(5), Some("escape"));
+        assert_eq!(tvos_press_key(6), Some("space"));
     }
 }

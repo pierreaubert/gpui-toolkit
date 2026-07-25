@@ -93,6 +93,7 @@ fn rasterize_glyph_reuses_scratch() {
         scale_factor: 1.0,
         is_emoji: false,
         subpixel_rendering: false,
+        dilation: 0,
     };
     let bounds = state.raster_bounds(&params).expect("bounds");
     let (size1, _) = state.rasterize_glyph(&params, bounds).expect("rasterize");
@@ -132,6 +133,7 @@ fn rasterize_glyph_reuses_context() {
         scale_factor: 1.0,
         is_emoji: false,
         subpixel_rendering: false,
+        dilation: 0,
     };
     let bounds = state.raster_bounds(&params).expect("bounds");
 

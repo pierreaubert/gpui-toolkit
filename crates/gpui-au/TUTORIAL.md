@@ -42,3 +42,9 @@ cargo check -p gpui-au
 
 If you add FFI entry points, also validate the consuming Swift or Objective-C
 target because most integration failures happen at the host boundary.
+
+Use `include/gpui_au.h` as the single ABI source for lifecycle, pointer,
+keyboard, and `NSTextInputClient` forwarding. Key down/up callbacks are not a
+substitute for `insertText`, `setMarkedText`, and `unmarkText`: AppKit sends
+IME/dead-key composition through the text-input client, and forwarding both
+paths is required for international text entry.

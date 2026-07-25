@@ -1,7 +1,21 @@
 # Unreleased
 
+# 0.9.11
+
+## New
+
+- Added a `UITextView`-backed, complete `UITextInput` path for committed and
+  marked text, including composition updates and UTF-16-safe selection
+  clamping.
+- Added `UIDocumentPicker` support for opening one or many files, selecting
+  folders, and saving files.
+- Added tvOS focus-key mapping and dedicated iOS and tvOS target checks in CI.
+
 ## Fixes
 
+- Serialized document picker requests, propagated picker errors, cleaned up
+  temporary export files, and generated safe export filenames.
+- Removed warnings from supported iOS and tvOS target builds.
 - Restored the iOS backend to the legacy `UIWindow` `initWithFrame` path after
   the attempted `UIScene` migration produced a black showcase screen.
 - Added iPad pointer and Simulator wheel-scroll handling through an indirect

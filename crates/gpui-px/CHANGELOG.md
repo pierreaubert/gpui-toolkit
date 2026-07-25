@@ -1,3 +1,14 @@
+# Unreleased
+
+# 0.9.8
+
+## Features
+
+- Made interactive chart wrappers focusable and added keyboard zoom, pan, and
+  reset controls.
+- Added hover-domain tracking and clearing plus brush lifecycle wiring while
+  retaining pointer panning and wheel zoom.
+
 # 0.7.6
 
 ## Features

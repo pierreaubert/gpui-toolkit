@@ -1,11 +1,7 @@
 use super::consts::IOS_WINDOW_LIST;
 use super::consts::register_window;
 use super::consts::unregister_window;
-use super::set;
 use super::window_list_wrapper::WindowListWrapper;
-use gpui::AppContext;
-
-use super::*;
 
 #[test]
 fn test_register_and_unregister_window() {

@@ -1,0 +1,18 @@
+{
+  "gpui-audio-kit": 80.0,
+  "gpui-builder": 90.0,
+  "gpui-component-lab": 30.0,
+  "gpui-d3rs": 65.0,
+  "gpui-design": 90.0,
+  "gpui-design-tools": 90.0,
+  "gpui-keybinding": 95.0,
+  "gpui-pretext": 85.0,
+  "gpui-profiler": 95.0,
+  "gpui-px": 85.0,
+  "gpui-python-runtime": 90.0,
+  "gpui-showcase": 8.0,
+  "gpui-themes": 80.0,
+  "gpui-toolkit": 95.0,
+  "gpui-ui-kit": 70.0,
+  "gpui-ui-kit-macros": 75.0
+}

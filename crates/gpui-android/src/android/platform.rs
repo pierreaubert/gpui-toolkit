@@ -48,74 +48,314 @@ use std::{
     path::{Path, PathBuf},
     rc::Rc,
     sync::{
-        atomic::{AtomicBool, Ordering},
         Arc,
+        atomic::{AtomicBool, Ordering},
     },
 };
 
 use super::{
+    AndroidBackend,
     dispatcher::AndroidDispatcher,
     display::{AndroidDisplay, DisplayList},
     window::{AndroidWindow, WindowList},
-    AndroidBackend,
 };
 use gpui_wgpu::GpuContext;
 
-// ── stub: clipboard ───────────────────────────────────────────────────────────
-
 /// Android clipboard (thin wrapper over `ClipboardManager` via JNI).
-///
-/// A real implementation would call into Java via `jni-rs`; for now we use
-/// an in-process string store so the rest of the platform compiles.
 #[derive(Default)]
 pub struct AndroidClipboard {
+    #[cfg(not(target_os = "android"))]
     contents: Option<String>,
 }
 
 impl AndroidClipboard {
     pub fn read(&self) -> Option<String> {
-        self.contents.clone()
+        #[cfg(not(target_os = "android"))]
+        {
+            self.contents.clone()
+        }
+
+        #[cfg(target_os = "android")]
+        {
+            self.read_native()
+                .inspect_err(|error| log::warn!("failed to read Android clipboard: {error}"))
+                .ok()
+                .flatten()
+        }
     }
 
     pub fn write(&mut self, text: String) {
-        self.contents = Some(text);
+        #[cfg(not(target_os = "android"))]
+        {
+            self.contents = Some(text);
+        }
+
+        #[cfg(target_os = "android")]
+        if let Err(error) = self.write_native(&text) {
+            log::warn!("failed to write Android clipboard: {error}");
+        }
     }
 
     pub fn clear(&mut self) {
-        self.contents = None;
+        #[cfg(not(target_os = "android"))]
+        {
+            self.contents = None;
+        }
+
+        #[cfg(target_os = "android")]
+        if let Err(error) = self.write_native("") {
+            log::warn!("failed to clear Android clipboard: {error}");
+        }
+    }
+
+    #[cfg(target_os = "android")]
+    fn write_native(&self, text: &str) -> std::result::Result<(), String> {
+        use crate::android::jni::{self as jni_helpers, JniExt};
+        use jni::objects::JValue;
+
+        jni_helpers::with_env(|env| {
+            let activity = jni_helpers::activity(env)?;
+            let service_name = env.new_string("clipboard").e()?;
+            let clipboard = env
+                .call_method(
+                    &activity,
+                    jni::jni_str!("getSystemService"),
+                    jni::jni_sig!("(Ljava/lang/String;)Ljava/lang/Object;"),
+                    &[JValue::Object(&service_name)],
+                )
+                .and_then(|value| value.l())
+                .e()?;
+            if clipboard.is_null() {
+                return Err("ClipboardManager is unavailable".into());
+            }
+
+            let label = env.new_string("GPUI").e()?;
+            let value = env.new_string(text).e()?;
+            let clip_data = env
+                .call_static_method(
+                    jni::jni_str!("android/content/ClipData"),
+                    jni::jni_str!("newPlainText"),
+                    jni::jni_sig!(
+                        "(Ljava/lang/CharSequence;Ljava/lang/CharSequence;)Landroid/content/ClipData;"
+                    ),
+                    &[JValue::Object(&label), JValue::Object(&value)],
+                )
+                .and_then(|value| value.l())
+                .e()?;
+            env.call_method(
+                &clipboard,
+                jni::jni_str!("setPrimaryClip"),
+                jni::jni_sig!("(Landroid/content/ClipData;)V"),
+                &[JValue::Object(&clip_data)],
+            )
+            .e()?;
+            Ok(())
+        })
+    }
+
+    #[cfg(target_os = "android")]
+    fn read_native(&self) -> std::result::Result<Option<String>, String> {
+        use crate::android::jni::{self as jni_helpers, JniExt};
+        use jni::objects::JValue;
+
+        jni_helpers::with_env(|env| {
+            let activity = jni_helpers::activity(env)?;
+            let service_name = env.new_string("clipboard").e()?;
+            let clipboard = env
+                .call_method(
+                    &activity,
+                    jni::jni_str!("getSystemService"),
+                    jni::jni_sig!("(Ljava/lang/String;)Ljava/lang/Object;"),
+                    &[JValue::Object(&service_name)],
+                )
+                .and_then(|value| value.l())
+                .e()?;
+            if clipboard.is_null() {
+                return Ok(None);
+            }
+            let has_clip = env
+                .call_method(
+                    &clipboard,
+                    jni::jni_str!("hasPrimaryClip"),
+                    jni::jni_sig!("()Z"),
+                    &[],
+                )
+                .and_then(|value| value.z())
+                .e()?;
+            if !has_clip {
+                return Ok(None);
+            }
+            let clip = env
+                .call_method(
+                    &clipboard,
+                    jni::jni_str!("getPrimaryClip"),
+                    jni::jni_sig!("()Landroid/content/ClipData;"),
+                    &[],
+                )
+                .and_then(|value| value.l())
+                .e()?;
+            if clip.is_null() {
+                return Ok(None);
+            }
+            let item = env
+                .call_method(
+                    &clip,
+                    jni::jni_str!("getItemAt"),
+                    jni::jni_sig!("(I)Landroid/content/ClipData$Item;"),
+                    &[JValue::Int(0)],
+                )
+                .and_then(|value| value.l())
+                .e()?;
+            let text = env
+                .call_method(
+                    &item,
+                    jni::jni_str!("coerceToText"),
+                    jni::jni_sig!("(Landroid/content/Context;)Ljava/lang/CharSequence;"),
+                    &[JValue::Object(&activity)],
+                )
+                .and_then(|value| value.l())
+                .e()?;
+            if text.is_null() {
+                return Ok(None);
+            }
+            let string = env
+                .call_method(
+                    &text,
+                    jni::jni_str!("toString"),
+                    jni::jni_sig!("()Ljava/lang/String;"),
+                    &[],
+                )
+                .and_then(|value| value.l())
+                .e()?;
+            Ok(Some(jni_helpers::get_string(env, &string)))
+        })
     }
 }
 
-// ── stub: credential store ────────────────────────────────────────────────────
-
 /// Android credential store backed by the Android Keystore system.
 ///
-/// Stubbed with an in-memory map; replace with a real JNI implementation.
+/// Host builds use an in-memory test double because Android framework services
+/// are unavailable there. Android builds delegate to the platform Keystore.
 #[derive(Default)]
 pub struct AndroidCredentialStore {
+    #[cfg(not(target_os = "android"))]
     store: std::collections::HashMap<(String, String), Vec<u8>>,
 }
 
 impl AndroidCredentialStore {
     pub fn write(&mut self, service: &str, username: &str, password: &[u8]) -> Result<()> {
-        self.store.insert(
-            (service.to_string(), username.to_string()),
-            password.to_vec(),
-        );
-        Ok(())
+        #[cfg(not(target_os = "android"))]
+        {
+            self.store.insert(
+                (service.to_string(), username.to_string()),
+                password.to_vec(),
+            );
+            Ok(())
+        }
+
+        #[cfg(target_os = "android")]
+        {
+            self.write_native(&crate::credential_alias(service, username), password)
+                .map_err(anyhow::Error::msg)
+        }
     }
 
     pub fn read(&self, service: &str, username: &str) -> Result<Option<Vec<u8>>> {
-        Ok(self
-            .store
-            .get(&(service.to_string(), username.to_string()))
-            .cloned())
+        #[cfg(not(target_os = "android"))]
+        {
+            Ok(self
+                .store
+                .get(&(service.to_string(), username.to_string()))
+                .cloned())
+        }
+
+        #[cfg(target_os = "android")]
+        {
+            self.read_native(&crate::credential_alias(service, username))
+                .map_err(anyhow::Error::msg)
+        }
     }
 
     pub fn delete(&mut self, service: &str, username: &str) -> Result<()> {
-        self.store
-            .remove(&(service.to_string(), username.to_string()));
-        Ok(())
+        #[cfg(not(target_os = "android"))]
+        {
+            self.store
+                .remove(&(service.to_string(), username.to_string()));
+            Ok(())
+        }
+
+        #[cfg(target_os = "android")]
+        {
+            self.delete_native(&crate::credential_alias(service, username))
+                .map_err(anyhow::Error::msg)
+        }
+    }
+
+    #[cfg(target_os = "android")]
+    fn write_native(&self, alias: &str, secret: &[u8]) -> std::result::Result<(), String> {
+        use crate::android::jni::{self as jni_helpers, JniExt};
+        use jni::objects::JValue;
+
+        jni_helpers::with_env(|env| {
+            let activity = jni_helpers::activity(env)?;
+            let alias = env.new_string(alias).e()?;
+            let secret_array = env.new_byte_array(secret.len()).e()?;
+            let signed_secret: &[i8] =
+                unsafe { std::slice::from_raw_parts(secret.as_ptr().cast::<i8>(), secret.len()) };
+            secret_array.set_region(env, 0, signed_secret).e()?;
+            env.call_method(
+                &activity,
+                jni::jni_str!("gpuiWriteCredential"),
+                jni::jni_sig!("(Ljava/lang/String;[B)V"),
+                &[JValue::Object(&alias), JValue::Object(&secret_array)],
+            )
+            .e()?;
+            Ok(())
+        })
+    }
+
+    #[cfg(target_os = "android")]
+    fn read_native(&self, alias: &str) -> std::result::Result<Option<Vec<u8>>, String> {
+        use crate::android::jni::{self as jni_helpers, JniExt};
+        use jni::objects::{JByteArray, JValue};
+
+        jni_helpers::with_env(|env| {
+            let activity = jni_helpers::activity(env)?;
+            let alias = env.new_string(alias).e()?;
+            let value = env
+                .call_method(
+                    &activity,
+                    jni::jni_str!("gpuiReadCredential"),
+                    jni::jni_sig!("(Ljava/lang/String;)[B"),
+                    &[JValue::Object(&alias)],
+                )
+                .and_then(|value| value.l())
+                .e()?;
+            if value.is_null() {
+                return Ok(None);
+            }
+            let array = unsafe { JByteArray::from_raw(env, value.as_raw()) };
+            env.convert_byte_array(&array).map(Some).e()
+        })
+    }
+
+    #[cfg(target_os = "android")]
+    fn delete_native(&self, alias: &str) -> std::result::Result<(), String> {
+        use crate::android::jni::{self as jni_helpers, JniExt};
+        use jni::objects::JValue;
+
+        jni_helpers::with_env(|env| {
+            let activity = jni_helpers::activity(env)?;
+            let alias = env.new_string(alias).e()?;
+            env.call_method(
+                &activity,
+                jni::jni_str!("gpuiDeleteCredential"),
+                jni::jni_sig!("(Ljava/lang/String;)V"),
+                &[JValue::Object(&alias)],
+            )
+            .e()?;
+            Ok(())
+        })
     }
 }
 
@@ -1244,24 +1484,48 @@ impl Platform for AndroidPlatform {
     }
 
     fn write_credentials(&self, url: &str, username: &str, password: &[u8]) -> Task<Result<()>> {
-        let result = self.state.lock().credentials.write(url, username, password);
+        let result = (|| {
+            let mut state = self.state.lock();
+            state.credentials.write(url, username, password)?;
+            state
+                .credentials
+                .write(url, "__gpui_username_index", username.as_bytes())
+        })();
         Task::ready(result)
     }
 
     fn read_credentials(&self, url: &str) -> Task<Result<Option<(String, Vec<u8>)>>> {
-        // The credential store is keyed by (service, username) but the
-        // Platform trait only provides `url`.  Use a fixed username for now.
-        let result = self
-            .state
-            .lock()
-            .credentials
-            .read(url, "default")
-            .map(|opt| opt.map(|pw| ("default".to_string(), pw)));
+        let result = (|| {
+            let state = self.state.lock();
+            let Some(username) = state
+                .credentials
+                .read(url, "__gpui_username_index")?
+                .map(String::from_utf8)
+                .transpose()?
+            else {
+                return Ok(None);
+            };
+            Ok(state
+                .credentials
+                .read(url, &username)?
+                .map(|password| (username, password)))
+        })();
         Task::ready(result)
     }
 
     fn delete_credentials(&self, url: &str) -> Task<Result<()>> {
-        let result = self.state.lock().credentials.delete(url, "default");
+        let result = (|| {
+            let mut state = self.state.lock();
+            if let Some(username) = state
+                .credentials
+                .read(url, "__gpui_username_index")?
+                .map(String::from_utf8)
+                .transpose()?
+            {
+                state.credentials.delete(url, &username)?;
+            }
+            state.credentials.delete(url, "__gpui_username_index")
+        })();
         Task::ready(result)
     }
 
@@ -1601,10 +1865,11 @@ mod tests {
     #[test]
     fn credentials_missing_returns_none() {
         let p = headless();
-        assert!(p
-            .read_credentials("no-such-service", "user")
-            .unwrap()
-            .is_none());
+        assert!(
+            p.read_credentials("no-such-service", "user")
+                .unwrap()
+                .is_none()
+        );
     }
 
     // ── misc platform queries ─────────────────────────────────────────────────

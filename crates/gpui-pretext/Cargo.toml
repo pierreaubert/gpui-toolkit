@@ -1,6 +1,6 @@
 [package]
 name = "gpui-pretext"
-version = "0.9.6"
+version = "0.9.7"
 authors.workspace = true
 edition.workspace = true
 keywords.workspace = true
@@ -23,6 +23,7 @@ urlencoding = []
 
 [dependencies]
 unicode-segmentation = { workspace = true }
+unicode-bidi = "0.3"
 
 [dev-dependencies]
 criterion = { workspace = true }

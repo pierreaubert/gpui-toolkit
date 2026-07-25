@@ -51,6 +51,83 @@ jobs:
         if: runner.os == 'macOS'
         run: cargo test -p gpui-scaffolder scaffolded_project_passes_ios_simulator_cargo_check
 
+  mobile-platform-check:
+    name: Mobile backend compile (${{ matrix.platform }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: ios
+            os: macos-latest
+            target: aarch64-apple-ios-sim
+          - platform: android
+            os: ubuntu-latest
+            target: aarch64-linux-android
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Rust target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install Android SDK and NDK
+        if: matrix.platform == 'android'
+        uses: android-actions/setup-android@v3
+
+      - name: Install pinned Android NDK
+        if: matrix.platform == 'android'
+        run: sdkmanager "ndk;27.2.12479018"
+
+      - name: Check iOS backend and target-gated tests
+        if: matrix.platform == 'ios'
+        env:
+          RUSTFLAGS: -D warnings
+        run: cargo check -p gpui-ios --tests --target aarch64-apple-ios-sim
+
+      - name: Check Android backend and showcase host
+        if: matrix.platform == 'android'
+        env:
+          RUSTFLAGS: -D warnings
+        run: |
+          export CC_aarch64_linux_android="$ANDROID_SDK_ROOT/ndk/27.2.12479018/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android35-clang"
+          export CXX_aarch64_linux_android="$ANDROID_SDK_ROOT/ndk/27.2.12479018/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android35-clang++"
+          export AR_aarch64_linux_android="$ANDROID_SDK_ROOT/ndk/27.2.12479018/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar"
+          cargo check -p gpui-showcase-android --target aarch64-linux-android --features autoeq,camera,gpu-2d,gpu-3d,reqwest,spinorama,tokio,urlencoding
+
+      - name: Compile canonical Android Activity host
+        if: matrix.platform == 'android'
+        working-directory: crates/gpui-showcase/android/gradle
+        run: ./gradlew compileDebugJavaWithJavac
+
+  apple-extension-check:
+    name: Apple extension backend (AUv3)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Test AU rendering and keyboard/text FFI
+        env:
+          RUSTFLAGS: -D warnings
+        run: |
+          cargo test -p gpui-au
+          clang -fsyntax-only -x c crates/gpui-au/include/gpui_au.h
+
+  tvos-platform-check:
+    name: tvOS backend compile
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install nightly with Rust sources
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rust-src
+      - name: Compile tvOS simulator backend
+        env:
+          RUSTFLAGS: -D warnings
+        run: cargo +nightly check -p gpui-ios --target aarch64-apple-tvos-sim -Zbuild-std=std,panic_abort
+
   native-ui-smoke:
     name: Native GPUI smoke (${{ matrix.os }})
     strategy:
@@ -86,6 +163,10 @@ jobs:
             libgl1-mesa-dri \
             mesa-vulkan-drivers
 
+      - name: Install macOS screenshot tooling
+        if: runner.os == 'macOS'
+        run: brew install imagemagick
+
       - name: Build layout showcase
         run: cargo build -p gpui-builder --features showcase --bin layout-showcase
 
@@ -105,9 +186,10 @@ jobs:
       - name: Run macOS native UI smoke
         if: runner.os == 'macOS'
         run: |
-          target/debug/layout-showcase \
-            --smoke-test \
-            --smoke-artifact target/qa/native-ui/macos/gpui-builder-smoke.json
+          bash scripts/run_macos_native_ui_smoke.sh \
+            target/debug/layout-showcase \
+            target/qa/native-ui/macos/gpui-builder-smoke.json \
+            target/qa/native-ui/macos/gpui-builder.png
 
       - name: Run Windows native UI smoke
         if: runner.os == 'Windows'
@@ -324,3 +406,58 @@ jobs:
           name: coverage-report
           path: target/qa/cov/
           if-no-files-found: warn
+
+  performance-regression:
+    name: Performance regression (same-runner base comparison)
+    runs-on: macos-latest
+    timeout-minutes: 90
+    needs: check-and-test
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Cache cargo and Criterion data
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-${{ runner.arch }}-cargo-perf-${{ hashFiles('**/Cargo.lock') }}
+      - name: Resolve comparison revision
+        id: base
+        env:
+          EVENT_BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          base_sha="$EVENT_BASE_SHA"
+          if ! git cat-file -e "${base_sha}^{commit}" 2>/dev/null; then
+            base_sha="$(git rev-parse HEAD^)"
+          fi
+          echo "sha=$base_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Benchmark base revision on this runner
+        env:
+          BASE_SHA: ${{ steps.base.outputs.sha }}
+        run: |
+          git worktree add "$RUNNER_TEMP/gpui-perf-base" "$BASE_SHA"
+          CARGO_TARGET_DIR="$RUNNER_TEMP/gpui-perf-base-target" \
+            python3 "$RUNNER_TEMP/gpui-perf-base/scripts/qa_perf_baseline.py" \
+              --output "$GITHUB_WORKSPACE/target/qa/perf/base-current-runner.json"
+
+      - name: Benchmark candidate and enforce ratchet
+        run: |
+          python3 scripts/qa_perf_baseline.py \
+            --output target/qa/perf/current.json
+          python3 scripts/qa_perf_check.py \
+            --baseline target/qa/perf/base-current-runner.json \
+            --current target/qa/perf/current.json \
+            --threshold 20 \
+            --noise-floor-ns 150 \
+            --output target/qa/perf/report.md
+      - name: Upload performance evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-regression
+          path: target/qa/perf/
+          if-no-files-found: error

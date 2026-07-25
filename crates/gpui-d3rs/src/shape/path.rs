@@ -15,8 +15,10 @@ pub use path_builder::*;
 pub use point::*;
 pub use types::*;
 
+use flatten::elliptical_arc_center;
 use flatten::flatten_arc;
 use flatten::flatten_cubic;
+use flatten::flatten_elliptical_arc;
 use flatten::flatten_quadratic;
 
 /// A path consisting of drawing commands.
@@ -53,30 +55,48 @@ impl Path {
         let mut min_y = f64::INFINITY;
         let mut max_x = f64::NEG_INFINITY;
         let mut max_y = f64::NEG_INFINITY;
+        let mut current = Point::default();
+        let mut subpath_start = Point::default();
 
         for cmd in &self.commands {
             match *cmd {
-                PathCommand::MoveTo { x, y } | PathCommand::LineTo { x, y } => {
+                PathCommand::MoveTo { x, y } => {
                     min_x = min_x.min(x);
                     min_y = min_y.min(y);
                     max_x = max_x.max(x);
                     max_y = max_y.max(y);
+                    current = Point::new(x, y);
+                    subpath_start = current;
+                }
+                PathCommand::LineTo { x, y } => {
+                    min_x = min_x.min(x);
+                    min_y = min_y.min(y);
+                    max_x = max_x.max(x);
+                    max_y = max_y.max(y);
+                    current = Point::new(x, y);
                 }
                 PathCommand::HorizontalLineTo { x } => {
                     min_x = min_x.min(x);
                     max_x = max_x.max(x);
+                    min_y = min_y.min(current.y);
+                    max_y = max_y.max(current.y);
+                    current.x = x;
                 }
                 PathCommand::VerticalLineTo { y } => {
+                    min_x = min_x.min(current.x);
+                    max_x = max_x.max(current.x);
                     min_y = min_y.min(y);
                     max_y = max_y.max(y);
+                    current.y = y;
                 }
-                PathCommand::ClosePath => {}
+                PathCommand::ClosePath => current = subpath_start,
                 PathCommand::QuadraticCurveTo { x1, y1, x, y } => {
                     // Approximate bounds with control point and endpoint
                     min_x = min_x.min(x1).min(x);
                     min_y = min_y.min(y1).min(y);
                     max_x = max_x.max(x1).max(x);
                     max_y = max_y.max(y1).max(y);
+                    current = Point::new(x, y);
                 }
                 PathCommand::CubicCurveTo {
                     x1,
@@ -91,12 +111,14 @@ impl Path {
                     min_y = min_y.min(y1).min(y2).min(y);
                     max_x = max_x.max(x1).max(x2).max(x);
                     max_y = max_y.max(y1).max(y2).max(y);
+                    current = Point::new(x, y);
                 }
                 PathCommand::Arc {
                     x,
                     y,
                     radius,
                     start_angle,
+                    end_angle,
                     ..
                 } => {
                     // Approximate with bounding circle
@@ -111,13 +133,45 @@ impl Path {
                     min_y = min_y.min(start_y);
                     max_x = max_x.max(start_x);
                     max_y = max_y.max(start_y);
+                    current =
+                        Point::new(x + radius * end_angle.cos(), y + radius * end_angle.sin());
                 }
-                PathCommand::EllipticalArc { x, y, rx, ry, .. } => {
-                    // Conservative bounds
-                    min_x = min_x.min(x - rx);
-                    min_y = min_y.min(y - ry);
-                    max_x = max_x.max(x + rx);
-                    max_y = max_y.max(y + ry);
+                PathCommand::EllipticalArc {
+                    x,
+                    y,
+                    rx,
+                    ry,
+                    x_axis_rotation,
+                    large_arc,
+                    sweep,
+                } => {
+                    let end = Point::new(x, y);
+                    let mut candidates = vec![current, end];
+                    if let Some(arc) = elliptical_arc_center(
+                        current,
+                        end,
+                        rx,
+                        ry,
+                        x_axis_rotation,
+                        large_arc,
+                        sweep,
+                    ) {
+                        let (sin_phi, cos_phi) = arc.phi.sin_cos();
+                        let x_extreme = (-arc.ry * sin_phi).atan2(arc.rx * cos_phi);
+                        let y_extreme = (arc.ry * cos_phi).atan2(arc.rx * sin_phi);
+                        for angle in [x_extreme, x_extreme + PI, y_extreme, y_extreme + PI] {
+                            if arc.contains_angle(angle) {
+                                candidates.push(arc.point_at(angle));
+                            }
+                        }
+                    }
+                    for point in candidates {
+                        min_x = min_x.min(point.x);
+                        min_y = min_y.min(point.y);
+                        max_x = max_x.max(point.x);
+                        max_y = max_y.max(point.y);
+                    }
+                    current = end;
                 }
                 PathCommand::Rect {
                     x,
@@ -215,11 +269,28 @@ impl Path {
                     current =
                         Point::new(x + radius * end_angle.cos(), y + radius * end_angle.sin());
                 }
-                PathCommand::EllipticalArc { x, y, .. } => {
-                    // For now, just add the endpoint
-                    // Full implementation would convert to arc segments
-                    current = Point::new(x, y);
-                    points.push(current);
+                PathCommand::EllipticalArc {
+                    rx,
+                    ry,
+                    x_axis_rotation,
+                    large_arc,
+                    sweep,
+                    x,
+                    y,
+                } => {
+                    let end = Point::new(x, y);
+                    flatten_elliptical_arc(
+                        current,
+                        end,
+                        rx,
+                        ry,
+                        x_axis_rotation,
+                        large_arc,
+                        sweep,
+                        tolerance,
+                        &mut points,
+                    );
+                    current = end;
                 }
                 PathCommand::Rect {
                     x,

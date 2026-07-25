@@ -12,7 +12,6 @@ enum BidiType {
     AL,
     AN,
     EN,
-    ES,
     ET,
     CS,
     ON,
@@ -77,8 +76,6 @@ static ARABIC_TYPES: [BidiType; 256] = [
 thread_local! {
     /// Reusable scratch buffer for per-character bidi types.
     static BIDI_TYPES_SCRATCH: RefCell<Vec<BidiType>> = const { RefCell::new(Vec::new()) };
-    /// Reusable scratch buffer for per-character bidi embedding levels.
-    static BIDI_LEVELS_SCRATCH: RefCell<Vec<i8>> = const { RefCell::new(Vec::new()) };
     /// Reusable scratch buffer for byte offsets of each character start.
     static BIDI_CHAR_STARTS_SCRATCH: RefCell<Vec<usize>> = const { RefCell::new(Vec::new()) };
     /// Single-entry cache for bidi levels keyed by normalized text.
@@ -111,11 +108,8 @@ fn classify_char(code: u32) -> BidiType {
 
 /// Compute per-character bidi embedding levels.
 ///
-/// This is a simplified implementation that uses a ratio heuristic to
-/// determine the paragraph embedding level instead of the Unicode-standard
-/// first-strong-character rule. If fewer than ~30% of characters are
-/// strongly directional (R, AL, or AN), the paragraph is treated as LTR
-/// (level 0); otherwise it is treated as RTL (level 1).
+/// Uses the Unicode Bidirectional Algorithm, including explicit embeddings,
+/// isolates, neutral resolution, and the standard first-strong paragraph rule.
 ///
 /// Returns `None` if the text contains no strongly directional characters,
 /// indicating uniform LTR.
@@ -123,150 +117,26 @@ fn compute_bidi_levels(s: &str) -> Option<Vec<i8>> {
     BIDI_TYPES_SCRATCH.with(|types_scratch| {
         let mut types = types_scratch.borrow_mut();
         types.clear();
-        let mut num_bidi = 0u32;
+        let mut has_rtl = false;
 
         for ch in s.chars() {
             let t = classify_char(ch as u32);
             if t == R || t == AL || t == AN {
-                num_bidi += 1;
+                has_rtl = true;
             }
             types.push(t);
         }
 
-        let len = types.len();
-        if len == 0 || num_bidi == 0 {
+        if types.is_empty() || !has_rtl {
             return None;
         }
 
-        let start_level: i8 = if (len as f64 / num_bidi as f64) < 0.3 {
-            0
-        } else {
-            1
-        };
-
-        BIDI_LEVELS_SCRATCH.with(|levels_scratch| {
-            let mut levels = levels_scratch.borrow_mut();
-            levels.clear();
-            levels.resize(len, start_level);
-
-            let e: BidiType = if start_level & 1 != 0 { R } else { L };
-            let sor = e;
-
-            // W1-W7
-            let mut last_type = sor;
-            for t in types.iter_mut() {
-                if *t == NSM {
-                    *t = last_type;
-                } else {
-                    last_type = *t;
-                }
-            }
-            last_type = sor;
-            for t in types.iter_mut() {
-                match *t {
-                    EN if last_type == AL => {
-                        *t = AN;
-                    }
-                    R | L | AL => {
-                        last_type = *t;
-                    }
-                    _ => {}
-                }
-            }
-            for t in types.iter_mut() {
-                if *t == AL {
-                    *t = R;
-                }
-            }
-            for i in 1..len.saturating_sub(1) {
-                if types[i] == ES && types[i - 1] == EN && types[i + 1] == EN {
-                    types[i] = EN;
-                }
-                if types[i] == CS
-                    && (types[i - 1] == EN || types[i - 1] == AN)
-                    && types[i + 1] == types[i - 1]
-                {
-                    types[i] = types[i - 1];
-                }
-            }
-            for i in 0..len {
-                if types[i] != EN {
-                    continue;
-                }
-                let mut j = i as isize - 1;
-                while j >= 0 && types[j as usize] == ET {
-                    types[j as usize] = EN;
-                    j -= 1;
-                }
-                let mut j = i + 1;
-                while j < len && types[j] == ET {
-                    types[j] = EN;
-                    j += 1;
-                }
-            }
-            for t in types.iter_mut() {
-                match *t {
-                    WS | ES | ET | CS => *t = ON,
-                    _ => {}
-                }
-            }
-            last_type = sor;
-            for t in types.iter_mut() {
-                match *t {
-                    EN if last_type == L => {
-                        *t = L;
-                    }
-                    R | L => {
-                        last_type = *t;
-                    }
-                    _ => {}
-                }
-            }
-
-            // N1-N2
-            let mut i = 0;
-            while i < len {
-                if types[i] != ON {
-                    i += 1;
-                    continue;
-                }
-                let mut end = i + 1;
-                while end < len && types[end] == ON {
-                    end += 1;
-                }
-                let before = if i > 0 { types[i - 1] } else { sor };
-                let after = if end < len { types[end] } else { sor };
-                let b_dir = if before != L { R } else { L };
-                let a_dir = if after != L { R } else { L };
-                if b_dir == a_dir {
-                    for t in types[i..end].iter_mut() {
-                        *t = b_dir;
-                    }
-                }
-                i = end;
-            }
-            for t in types.iter_mut() {
-                if *t == ON {
-                    *t = e;
-                }
-            }
-
-            // I1-I2
-            for i in 0..len {
-                let t = types[i];
-                if levels[i] & 1 == 0 {
-                    if t == R {
-                        levels[i] += 1;
-                    } else if t == AN || t == EN {
-                        levels[i] += 2;
-                    }
-                } else if t == L || t == AN || t == EN {
-                    levels[i] += 1;
-                }
-            }
-
-            Some(levels.clone())
-        })
+        let bidi = unicode_bidi::BidiInfo::new(s, None);
+        Some(
+            s.char_indices()
+                .map(|(byte_index, _)| bidi.levels[byte_index].number() as i8)
+                .collect(),
+        )
     })
 }
 

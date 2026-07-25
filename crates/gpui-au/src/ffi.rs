@@ -347,6 +347,141 @@ fn dispatch_to_window(event: PlatformInput) {
     });
 }
 
+fn modifiers_from_ns_event(flags: u32) -> gpui::Modifiers {
+    gpui::Modifiers {
+        control: flags & (1 << 18) != 0,
+        alt: flags & (1 << 19) != 0,
+        shift: flags & (1 << 17) != 0,
+        platform: flags & (1 << 20) != 0,
+        function: flags & (1 << 23) != 0,
+    }
+}
+
+fn mac_key_code_to_key(key_code: u16, characters: Option<&str>) -> String {
+    let named = match key_code {
+        36 => Some("enter"),
+        48 => Some("tab"),
+        49 => Some("space"),
+        51 => Some("backspace"),
+        53 => Some("escape"),
+        115 => Some("home"),
+        116 => Some("pageup"),
+        117 => Some("delete"),
+        119 => Some("end"),
+        121 => Some("pagedown"),
+        123 => Some("left"),
+        124 => Some("right"),
+        125 => Some("down"),
+        126 => Some("up"),
+        _ => None,
+    };
+    named
+        .map(str::to_owned)
+        .or_else(|| {
+            characters
+                .filter(|value| !value.is_empty())
+                .map(str::to_owned)
+        })
+        .unwrap_or_else(|| format!("keycode-{key_code}"))
+}
+
+fn optional_c_string(value: *const c_char) -> Option<String> {
+    if value.is_null() {
+        None
+    } else {
+        unsafe { CStr::from_ptr(value).to_str().ok().map(str::to_owned) }
+    }
+}
+
+fn key_event(key_code: u16, characters: *const c_char, modifier_flags: u32) -> gpui::Keystroke {
+    let characters = optional_c_string(characters);
+    let key = mac_key_code_to_key(key_code, characters.as_deref());
+    let key_char = characters.filter(|value| !value.is_empty() && key.chars().count() == 1);
+    gpui::Keystroke {
+        modifiers: modifiers_from_ns_event(modifier_flags),
+        key,
+        key_char,
+    }
+}
+
+/// Forward an NSEvent keyDown event from the host NSView.
+#[unsafe(no_mangle)]
+pub extern "C" fn gpui_au_key_down(
+    context: *mut AuContext,
+    key_code: u16,
+    characters: *const c_char,
+    modifier_flags: u32,
+    is_repeat: bool,
+) {
+    if context.is_null() {
+        return;
+    }
+    dispatch_to_window(PlatformInput::KeyDown(gpui::KeyDownEvent {
+        keystroke: key_event(key_code, characters, modifier_flags),
+        is_held: is_repeat,
+        prefer_character_input: false,
+    }));
+}
+
+/// Forward an NSEvent keyUp event from the host NSView.
+#[unsafe(no_mangle)]
+pub extern "C" fn gpui_au_key_up(
+    context: *mut AuContext,
+    key_code: u16,
+    characters: *const c_char,
+    modifier_flags: u32,
+) {
+    if context.is_null() {
+        return;
+    }
+    dispatch_to_window(PlatformInput::KeyUp(gpui::KeyUpEvent {
+        keystroke: key_event(key_code, characters, modifier_flags),
+    }));
+}
+
+/// Commit UTF-8 text from `NSTextInputClient::insertText`.
+#[unsafe(no_mangle)]
+pub extern "C" fn gpui_au_insert_text(context: *mut AuContext, text: *const c_char) {
+    if context.is_null() {
+        return;
+    }
+    if let Some(text) = optional_c_string(text) {
+        with_au_window(|window| window.insert_text(&text));
+    }
+}
+
+/// Forward an in-progress marked-text composition from AppKit.
+#[unsafe(no_mangle)]
+pub extern "C" fn gpui_au_set_marked_text(
+    context: *mut AuContext,
+    text: *const c_char,
+    selected_location: usize,
+    selected_length: usize,
+) {
+    if context.is_null() {
+        return;
+    }
+    if let Some(text) = optional_c_string(text) {
+        with_au_window(|window| {
+            window.set_marked_text(&text, selected_location, selected_length);
+        });
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn gpui_au_unmark_text(context: *mut AuContext) {
+    if !context.is_null() {
+        with_au_window(|window| window.unmark_text());
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn gpui_au_delete_backward(context: *mut AuContext) {
+    if !context.is_null() {
+        with_au_window(|window| window.delete_backward());
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -366,5 +501,17 @@ mod tests {
         view.click_count = 3;
         view.refresh_click_label();
         assert_eq!(view.click_label.as_ref(), "Clicks: 3");
+    }
+
+    #[test]
+    fn mac_key_codes_and_modifiers_map_to_gpui_keystrokes() {
+        assert_eq!(mac_key_code_to_key(123, None), "left");
+        assert_eq!(mac_key_code_to_key(0, Some("a")), "a");
+        assert_eq!(mac_key_code_to_key(999, None), "keycode-999");
+
+        let modifiers = modifiers_from_ns_event((1 << 17) | (1 << 20));
+        assert!(modifiers.shift);
+        assert!(modifiers.platform);
+        assert!(!modifiers.control);
     }
 }

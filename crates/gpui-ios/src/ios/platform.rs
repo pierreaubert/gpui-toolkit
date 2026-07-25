@@ -171,21 +171,37 @@ impl Platform for IosPlatform {
 
     fn prompt_for_paths(
         &self,
-        _options: PathPromptOptions,
+        options: PathPromptOptions,
     ) -> oneshot::Receiver<Result<Option<Vec<PathBuf>>>> {
-        let (tx, rx) = oneshot::channel();
-        let _ = tx.send(Err(anyhow!("File picker not yet implemented for iOS")));
-        rx
+        #[cfg(target_os = "ios")]
+        {
+            super::document_picker::prompt_for_paths(options)
+        }
+        #[cfg(target_os = "tvos")]
+        {
+            let _ = options;
+            let (tx, rx) = oneshot::channel();
+            let _ = tx.send(Err(anyhow!("Document pickers are unavailable on tvOS")));
+            rx
+        }
     }
 
     fn prompt_for_new_path(
         &self,
-        _directory: &Path,
-        _suggested_name: Option<&str>,
+        directory: &Path,
+        suggested_name: Option<&str>,
     ) -> oneshot::Receiver<Result<Option<PathBuf>>> {
-        let (tx, rx) = oneshot::channel();
-        let _ = tx.send(Err(anyhow!("Save dialog not yet implemented for iOS")));
-        rx
+        #[cfg(target_os = "ios")]
+        {
+            super::document_picker::prompt_for_new_path(directory, suggested_name)
+        }
+        #[cfg(target_os = "tvos")]
+        {
+            let _ = (directory, suggested_name);
+            let (tx, rx) = oneshot::channel();
+            let _ = tx.send(Err(anyhow!("Document pickers are unavailable on tvOS")));
+            rx
+        }
     }
 
     fn can_select_mixed_files_and_dirs(&self) -> bool {

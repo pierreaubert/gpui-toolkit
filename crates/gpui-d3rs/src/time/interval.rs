@@ -2,6 +2,51 @@
 
 use super::duration;
 
+fn civil_from_days(days_since_epoch: i64) -> (i64, u32, u32) {
+    // Howard Hinnant's proleptic-Gregorian civil calendar algorithm.
+    let z = days_since_epoch as i128 + 719_468;
+    let era = z.div_euclid(146_097);
+    let day_of_era = z - era * 146_097;
+    let year_of_era =
+        (day_of_era - day_of_era / 1_460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
+    let mut year = year_of_era + era * 400;
+    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+    let month_prime = (5 * day_of_year + 2) / 153;
+    let day = day_of_year - (153 * month_prime + 2) / 5 + 1;
+    let month = month_prime + if month_prime < 10 { 3 } else { -9 };
+    year += i128::from(month <= 2);
+    (year as i64, month as u32, day as u32)
+}
+
+fn days_from_civil(mut year: i64, month: u32, day: u32) -> i64 {
+    year -= i64::from(month <= 2);
+    let era = year.div_euclid(400);
+    let year_of_era = year - era * 400;
+    let month_prime = i64::from(month) + if month > 2 { -3 } else { 9 };
+    let day_of_year = (153 * month_prime + 2) / 5 + i64::from(day) - 1;
+    let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
+    era * 146_097 + day_of_era - 719_468
+}
+
+fn is_leap_year(year: i64) -> bool {
+    year.rem_euclid(4) == 0 && (year.rem_euclid(100) != 0 || year.rem_euclid(400) == 0)
+}
+
+fn days_in_month(year: i64, month: u32) -> u32 {
+    match month {
+        2 if is_leap_year(year) => 29,
+        2 => 28,
+        4 | 6 | 9 | 11 => 30,
+        _ => 31,
+    }
+}
+
+fn timestamp_from_civil(year: i64, month: u32, day: u32, seconds_in_day: i64) -> i64 {
+    days_from_civil(year, month, day)
+        .saturating_mul(duration::DAY)
+        .saturating_add(seconds_in_day)
+}
+
 /// Common time interval operations trait
 pub trait Interval {
     /// Floor to the start of the interval containing the given timestamp
@@ -86,33 +131,28 @@ impl Interval for TimeInterval {
     fn floor(&self, timestamp: i64) -> i64 {
         match self {
             TimeInterval::Second => timestamp,
-            TimeInterval::Minute => (timestamp / duration::MINUTE) * duration::MINUTE,
-            TimeInterval::Hour => (timestamp / duration::HOUR) * duration::HOUR,
-            TimeInterval::Day => (timestamp / duration::DAY) * duration::DAY,
+            TimeInterval::Minute => timestamp.div_euclid(duration::MINUTE) * duration::MINUTE,
+            TimeInterval::Hour => timestamp.div_euclid(duration::HOUR) * duration::HOUR,
+            TimeInterval::Day => timestamp.div_euclid(duration::DAY) * duration::DAY,
             TimeInterval::Week => {
                 // Week starts on Sunday (day 4 from Unix epoch which was Thursday)
-                let days_since_epoch = timestamp / duration::DAY;
-                let day_of_week = (days_since_epoch + 4) % 7; // 0 = Sunday
+                let days_since_epoch = timestamp.div_euclid(duration::DAY);
+                let day_of_week = (days_since_epoch + 4).rem_euclid(7); // 0 = Sunday
                 (days_since_epoch - day_of_week) * duration::DAY
             }
             TimeInterval::Monday => {
-                let days_since_epoch = timestamp / duration::DAY;
-                let day_of_week = (days_since_epoch + 4) % 7;
+                let days_since_epoch = timestamp.div_euclid(duration::DAY);
+                let day_of_week = (days_since_epoch + 4).rem_euclid(7);
                 let days_to_monday = if day_of_week == 0 { 6 } else { day_of_week - 1 };
                 (days_since_epoch - days_to_monday) * duration::DAY
             }
             TimeInterval::Month => {
-                // Approximate: floor to first of month using UTC
-                let days = timestamp / duration::DAY;
-                // Very rough approximation - proper implementation needs full date library
-                let approx_months = days / 30;
-                approx_months * 30 * duration::DAY
+                let (year, month, _) = civil_from_days(timestamp.div_euclid(duration::DAY));
+                timestamp_from_civil(year, month, 1, 0)
             }
             TimeInterval::Year => {
-                // Approximate: floor to first of year using UTC
-                let days = timestamp / duration::DAY;
-                let approx_years = days / 365;
-                approx_years * 365 * duration::DAY
+                let (year, _, _) = civil_from_days(timestamp.div_euclid(duration::DAY));
+                timestamp_from_civil(year, 1, 1, 0)
             }
         }
     }
@@ -125,12 +165,30 @@ impl Interval for TimeInterval {
             TimeInterval::Day => timestamp + step * duration::DAY,
             TimeInterval::Week | TimeInterval::Monday => timestamp + step * duration::WEEK,
             TimeInterval::Month => {
-                // Approximate: add 30 days per month
-                timestamp + step * 30 * duration::DAY
+                let days = timestamp.div_euclid(duration::DAY);
+                let seconds_in_day = timestamp.rem_euclid(duration::DAY);
+                let (year, month, day) = civil_from_days(days);
+                let month_index = i128::from(year) * 12 + i128::from(month - 1) + i128::from(step);
+                let target_year = month_index.div_euclid(12) as i64;
+                let target_month = month_index.rem_euclid(12) as u32 + 1;
+                timestamp_from_civil(
+                    target_year,
+                    target_month,
+                    day.min(days_in_month(target_year, target_month)),
+                    seconds_in_day,
+                )
             }
             TimeInterval::Year => {
-                // Approximate: add 365 days per year
-                timestamp + step * 365 * duration::DAY
+                let days = timestamp.div_euclid(duration::DAY);
+                let seconds_in_day = timestamp.rem_euclid(duration::DAY);
+                let (year, month, day) = civil_from_days(days);
+                let target_year = (i128::from(year) + i128::from(step)) as i64;
+                timestamp_from_civil(
+                    target_year,
+                    month,
+                    day.min(days_in_month(target_year, month)),
+                    seconds_in_day,
+                )
             }
         }
     }
@@ -249,6 +307,57 @@ mod tests {
     }
 
     #[test]
+    fn month_floor_uses_utc_calendar_boundaries() {
+        let leap_day_noon = 1_709_210_096; // 2024-02-29 12:34:56 UTC
+        assert_eq!(
+            TimeInterval::Month.floor(leap_day_noon),
+            1_706_745_600 // 2024-02-01 00:00:00 UTC
+        );
+        assert_eq!(
+            TimeInterval::Year.floor(leap_day_noon),
+            1_704_067_200 // 2024-01-01 00:00:00 UTC
+        );
+    }
+
+    #[test]
+    fn calendar_offsets_handle_leap_years_and_clamp_month_ends() {
+        let january_31_2024 = 1_706_659_200;
+        let february_29_2024 = 1_709_164_800;
+        let february_28_2025 = 1_740_700_800;
+
+        assert_eq!(
+            TimeInterval::Month.offset(january_31_2024, 1),
+            february_29_2024
+        );
+        assert_eq!(
+            TimeInterval::Year.offset(february_29_2024, 1),
+            february_28_2025
+        );
+        assert_eq!(
+            TimeInterval::Month.offset(february_29_2024, -1),
+            1_704_067_200 + 28 * duration::DAY // 2024-01-29
+        );
+    }
+
+    #[test]
+    fn calendar_ranges_and_counts_follow_real_month_boundaries() {
+        let january_2024 = 1_704_067_200;
+        let may_2024 = 1_714_521_600;
+        assert_eq!(
+            TimeInterval::Month.range(january_2024, may_2024, 1),
+            vec![1_704_067_200, 1_706_745_600, 1_709_251_200, 1_711_929_600,]
+        );
+        assert_eq!(TimeInterval::Month.count(january_2024, may_2024), 4);
+    }
+
+    #[test]
+    fn floors_before_unix_epoch_are_calendar_correct() {
+        assert_eq!(TimeInterval::Day.floor(-1), -duration::DAY);
+        assert_eq!(TimeInterval::Month.floor(-1), -2_678_400); // 1969-12-01
+        assert_eq!(TimeInterval::Year.floor(-1), -31_536_000); // 1969-01-01
+    }
+
+    #[test]
     fn test_range() {
         let interval = TimeInterval::Day;
         let start = 1701388800; // Dec 1, 2023
@@ -293,10 +402,12 @@ mod tests {
         for (interval, expected_duration, pattern) in cases {
             assert_eq!(interval.duration(), expected_duration);
             assert_eq!(interval.format_pattern(), pattern);
-            assert_eq!(
-                interval.offset(timestamp, 2),
-                timestamp + 2 * expected_duration
-            );
+            if !matches!(interval, TimeInterval::Month | TimeInterval::Year) {
+                assert_eq!(
+                    interval.offset(timestamp, 2),
+                    timestamp + 2 * expected_duration
+                );
+            }
             assert!(interval.floor(timestamp) <= timestamp);
         }
     }

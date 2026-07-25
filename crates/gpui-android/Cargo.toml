@@ -1,6 +1,6 @@
 [package]
 name = "gpui-android"
-version = "0.9.2"
+version = "0.9.3"
 edition.workspace = true
 repository.workspace = true
 keywords.workspace = true
@@ -27,6 +27,7 @@ tokio = []
 urlencoding = []
 
 [dependencies]
+accesskit = "0.24.0"
 anyhow = { workspace = true }
 futures = { workspace = true }
 gpui = { workspace = true }
@@ -35,6 +36,7 @@ log = { workspace = true, features = ["kv_unstable_serde", "serde"] }
 parking_lot = { workspace = true }
 raw-window-handle = { workspace = true }
 smallvec = { workspace = true, features = ["union", "const_new"] }
+serde_json = { workspace = true }
 
 [target.'cfg(target_os = "android")'.dependencies]
 android-activity = { workspace = true }

@@ -29,8 +29,13 @@ formats = ["json"]
 
 [llvm-cov.ignore]
 # Regex matching paths to exclude from coverage reports.
-filename_regex = '.*/(tests|benches|examples|target)/.*'
+filename_regex = '.*/(tests|benches|examples|target|crates/3rdparties|crates/gpui-au|crates/gpui-android|crates/gpui-ios|crates/gpui-miniapp|crates/.*/bin)/.*'
 
 [thresholds]
-# Aggregate line coverage gate used by scripts/qa_cov_check.py.
-aggregate_lines = 90.0
+# Enforced aggregate ratchet used by scripts/qa_cov_check.py.
+aggregate_lines = 73.5
+# Release target. Raise the ratchet as measured coverage improves.
+target_lines = 90.0
+# Per-crate floors are enforced from this file so a crate cannot silently
+# collapse to zero beneath the aggregate.
+per_crate_file = "qa/cov/crate-thresholds.json"

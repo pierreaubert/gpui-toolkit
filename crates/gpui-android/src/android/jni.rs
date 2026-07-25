@@ -1219,30 +1219,67 @@ pub fn set_system_chrome(style: &crate::SystemChromeStyle) {
 
 // ── software keyboard (IME) control ───────────────────────────────────────────
 
-/// Show the software keyboard on Android with a specific keyboard type.
 /// Show the software keyboard on Android.
 ///
-/// Uses the NDK `ANativeActivity_showSoftInput` via `android-activity`.
-/// The previous EditText/JNI approach silently failed with
-/// `CalledFromWrongThreadException` because all JNI View operations
-/// must run on the Android UI thread, not the native Rust thread.
-/// The NDK function handles the UI-thread dispatch internally.
-///
-/// Text input arrives via `KeyEvent`s through `process_input_events()`.
-pub fn show_keyboard_android(_keyboard_type: crate::KeyboardType) {
-    if let Some(app) = android_app() {
-        log::info!("show_keyboard_android: using NDK show_soft_input");
-        app.show_soft_input(false);
+/// The activity owns a real editor view and dispatches the UI-thread work.
+pub fn show_keyboard_android(keyboard_type: crate::KeyboardType) {
+    let input_type = match keyboard_type {
+        crate::KeyboardType::Default => 1,
+        crate::KeyboardType::EmailAddress => 33,
+        crate::KeyboardType::Phone => 3,
+        crate::KeyboardType::NumberPad => 2,
+        crate::KeyboardType::URL => 17,
+        crate::KeyboardType::Decimal => 8194,
+    };
+    let result = with_env(|env| {
+        let activity = activity(env)?;
+        env.call_method(
+            &activity,
+            jni::jni_str!("gpuiShowKeyboard"),
+            jni::jni_sig!("(I)V"),
+            &[JValue::Int(input_type)],
+        )
+        .e()?;
+        Ok(())
+    });
+    if let Err(error) = result {
+        log::warn!("gpuiShowKeyboard failed: {error}");
     }
 }
 
 /// Hide the software keyboard on Android.
 ///
-/// Uses the NDK `ANativeActivity_hideSoftInput` via `android-activity`.
 pub fn hide_keyboard_android() {
-    if let Some(app) = android_app() {
-        log::info!("hide_keyboard_android: using NDK hide_soft_input");
-        app.hide_soft_input(false);
+    let result = with_env(|env| {
+        let activity = activity(env)?;
+        env.call_method(
+            &activity,
+            jni::jni_str!("gpuiHideKeyboard"),
+            jni::jni_sig!("()V"),
+            &[],
+        )
+        .e()?;
+        Ok(())
+    });
+    if let Err(error) = result {
+        log::warn!("gpuiHideKeyboard failed: {error}");
+    }
+}
+
+pub fn notify_accessibility_changed() {
+    let result = with_env(|env| {
+        let activity = activity(env)?;
+        env.call_method(
+            &activity,
+            jni::jni_str!("gpuiAccessibilityChanged"),
+            jni::jni_sig!("()V"),
+            &[],
+        )
+        .e()?;
+        Ok(())
+    });
+    if let Err(error) = result {
+        log::warn!("gpuiAccessibilityChanged failed: {error}");
     }
 }
 
@@ -1302,6 +1339,85 @@ pub unsafe extern "C" fn Java_dev_gpui_mobile_GpuiActivity_nativeOnDeepLink(
         }
         Ok(())
     });
+}
+
+fn enqueue_string_ime_event(
+    value: *mut std::ffi::c_void,
+    make_event: impl FnOnce(String) -> crate::ImeEvent,
+) {
+    let value_raw = value as jni::sys::jobject;
+    let _ = with_env(|env| {
+        let value = unsafe { JObject::from_raw(env, value_raw) };
+        crate::enqueue_ime_event(make_event(get_string(env, &value)));
+        Ok(())
+    });
+}
+
+/// Commit finalized text from Android's `InputConnection`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn Java_dev_gpui_mobile_GpuiActivity_nativeCommitText(
+    _env: *mut std::ffi::c_void,
+    _class: *mut std::ffi::c_void,
+    text: *mut std::ffi::c_void,
+) {
+    enqueue_string_ime_event(text, crate::ImeEvent::Commit);
+}
+
+/// Update the active marked/composing text.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn Java_dev_gpui_mobile_GpuiActivity_nativeSetComposingText(
+    _env: *mut std::ffi::c_void,
+    _class: *mut std::ffi::c_void,
+    text: *mut std::ffi::c_void,
+) {
+    enqueue_string_ime_event(text, crate::ImeEvent::SetComposing);
+}
+
+/// Finish the active marked-text session.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn Java_dev_gpui_mobile_GpuiActivity_nativeFinishComposingText(
+    _env: *mut std::ffi::c_void,
+    _class: *mut std::ffi::c_void,
+) {
+    crate::enqueue_ime_event(crate::ImeEvent::FinishComposing);
+}
+
+/// Delete UTF-16 code units around the current selection.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn Java_dev_gpui_mobile_GpuiActivity_nativeDeleteSurroundingText(
+    _env: *mut std::ffi::c_void,
+    _class: *mut std::ffi::c_void,
+    before: i32,
+    after: i32,
+) {
+    crate::enqueue_ime_event(crate::ImeEvent::DeleteSurrounding {
+        before: before.max(0) as usize,
+        after: after.max(0) as usize,
+    });
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn Java_dev_gpui_mobile_GpuiActivity_nativeAccessibilitySnapshot(
+    _env: *mut std::ffi::c_void,
+    _class: *mut std::ffi::c_void,
+) -> *mut std::ffi::c_void {
+    let snapshot = crate::accessibility::snapshot();
+    let mut result = std::ptr::null_mut();
+    let _ = with_env(|env| {
+        result = env.new_string(snapshot).e()?.into_raw().cast();
+        Ok(())
+    });
+    result
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn Java_dev_gpui_mobile_GpuiActivity_nativeAccessibilityAction(
+    _env: *mut std::ffi::c_void,
+    _class: *mut std::ffi::c_void,
+    node_id: i64,
+    action: i32,
+) -> u8 {
+    u8::from(node_id >= 0 && crate::accessibility::perform_action(node_id as u64, action))
 }
 
 /// JNI bridge: receive a media action from `GpuiMediaSession` system controls.

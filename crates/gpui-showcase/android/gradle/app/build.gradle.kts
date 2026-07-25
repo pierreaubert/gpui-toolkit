@@ -33,6 +33,7 @@ android {
     sourceSets {
         getByName("main") {
             jniLibs.srcDirs("src/main/jniLibs")
+            java.srcDir("../../../../gpui-android/android/src/main/java")
         }
     }
 

@@ -6,7 +6,7 @@
 use std::fmt;
 
 use super::curve::Curve;
-use super::path::PathBuilder;
+use super::path::{PathBuilder, Point};
 use crate::util::scratch::path_to_string;
 
 /// Recoverable errors for checked radial shape generation.
@@ -199,20 +199,23 @@ pub fn radial_line(points: &[RadialPoint], config: &RadialLineConfig) -> String 
         return String::new();
     }
 
-    let cartesian: Vec<(f64, f64)> = points
+    let cartesian: Vec<Point> = points
         .iter()
-        .map(|p| p.to_cartesian(config.cx, config.cy))
+        .map(|p| {
+            let (x, y) = p.to_cartesian(config.cx, config.cy);
+            Point::new(x, y)
+        })
         .collect();
+    let interpolated = config.curve.interpolate(&cartesian);
 
     let mut builder = PathBuilder::new();
 
-    // For now, use linear interpolation (can be enhanced with curve support)
-    if let Some(&(x, y)) = cartesian.first() {
-        builder = builder.move_to(x, y);
+    if let Some(point) = interpolated.first() {
+        builder = builder.move_to(point.x, point.y);
     }
 
-    for &(x, y) in cartesian.iter().skip(1) {
-        builder = builder.line_to(x, y);
+    for point in interpolated.iter().skip(1) {
+        builder = builder.line_to(point.x, point.y);
     }
 
     if config.closed {
@@ -304,30 +307,40 @@ pub fn radial_area(points: &[RadialPoint], config: &RadialAreaConfig) -> String 
     }
 
     // Outer path (clockwise)
-    let outer: Vec<(f64, f64)> = points
+    let outer: Vec<Point> = points
         .iter()
-        .map(|p| p.to_cartesian(config.cx, config.cy))
+        .map(|p| {
+            let (x, y) = p.to_cartesian(config.cx, config.cy);
+            Point::new(x, y)
+        })
         .collect();
 
     // Inner path (counter-clockwise)
-    let inner: Vec<(f64, f64)> = points
+    let inner: Vec<Point> = points
         .iter()
-        .map(|p| RadialPoint::new(p.angle, config.inner_radius).to_cartesian(config.cx, config.cy))
+        .map(|p| {
+            let (x, y) =
+                RadialPoint::new(p.angle, config.inner_radius).to_cartesian(config.cx, config.cy);
+            Point::new(x, y)
+        })
         .collect();
+    let outer = config.curve.interpolate(&outer);
+    let mut inner = config.curve.interpolate(&inner);
+    inner.reverse();
 
     let mut builder = PathBuilder::new();
 
     // Draw outer path
-    if let Some(&(x, y)) = outer.first() {
-        builder = builder.move_to(x, y);
+    if let Some(point) = outer.first() {
+        builder = builder.move_to(point.x, point.y);
     }
-    for &(x, y) in outer.iter().skip(1) {
-        builder = builder.line_to(x, y);
+    for point in outer.iter().skip(1) {
+        builder = builder.line_to(point.x, point.y);
     }
 
     // Draw inner path in reverse
-    for &(x, y) in inner.iter().rev() {
-        builder = builder.line_to(x, y);
+    for point in &inner {
+        builder = builder.line_to(point.x, point.y);
     }
 
     path_to_string(&builder.close_path().build())
@@ -553,6 +566,24 @@ mod tests {
     }
 
     #[test]
+    fn radial_line_applies_requested_curve() {
+        let points = vec![
+            RadialPoint::new(0.0, 100.0),
+            RadialPoint::new(PI / 2.0, 40.0),
+            RadialPoint::new(PI, 100.0),
+            RadialPoint::new(3.0 * PI / 2.0, 40.0),
+        ];
+        let linear = radial_line(&points, &RadialLineConfig::new(0.0, 0.0));
+        let basis = radial_line(
+            &points,
+            &RadialLineConfig::new(0.0, 0.0).curve(Curve::Basis),
+        );
+
+        assert_ne!(basis, linear);
+        assert!(basis.matches('L').count() > linear.matches('L').count());
+    }
+
+    #[test]
     fn test_radial_area() {
         let points = vec![
             RadialPoint::new(0.0, 100.0),
@@ -564,6 +595,24 @@ mod tests {
         let path = radial_area(&points, &config);
         assert!(path.starts_with("M"));
         assert!(path.ends_with("Z"));
+    }
+
+    #[test]
+    fn radial_area_applies_requested_curve_to_both_boundaries() {
+        let points = vec![
+            RadialPoint::new(0.0, 100.0),
+            RadialPoint::new(PI / 2.0, 40.0),
+            RadialPoint::new(PI, 100.0),
+            RadialPoint::new(3.0 * PI / 2.0, 40.0),
+        ];
+        let linear = radial_area(&points, &RadialAreaConfig::new(0.0, 0.0));
+        let basis = radial_area(
+            &points,
+            &RadialAreaConfig::new(0.0, 0.0).curve(Curve::Basis),
+        );
+
+        assert_ne!(basis, linear);
+        assert!(basis.matches('L').count() > linear.matches('L').count());
     }
 
     #[test]

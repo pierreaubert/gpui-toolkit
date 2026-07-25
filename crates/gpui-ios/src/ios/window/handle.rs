@@ -1,12 +1,9 @@
 use super::consts::GPUI_WINDOW_IVAR;
 use super::ios_window::IosWindow;
 use super::misc::ns_string_to_string;
+#[cfg(target_os = "ios")]
 use super::register;
-use objc::{
-    msg_send,
-    runtime::Object,
-    sel, sel_impl,
-};
+use objc::{msg_send, runtime::Object, sel, sel_impl};
 
 #[cfg(any(target_os = "ios", target_os = "tvos"))]
 pub(super) fn handle_presses(

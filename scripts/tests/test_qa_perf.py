@@ -4,6 +4,7 @@ import unittest
 
 import qa_perf_baseline
 import qa_perf_check
+import qa_perf_gate
 
 
 def fixture(environment: dict[str, object]) -> dict[str, object]:
@@ -62,6 +63,70 @@ class PerformanceEnvironmentTests(unittest.TestCase):
             qa_perf_check.validate_baseline(
                 {"version": 1, "metadata": {}, "records": []}, "legacy"
             )
+
+
+class PerformanceRetryTests(unittest.TestCase):
+    def test_retry_keys_are_sorted_and_deduplicated_by_benchmark_binary(self) -> None:
+        regressed = [
+            (
+                qa_perf_check.RecordKey("crate-b", "bench-z", "group", "one"),
+                80.0,
+            ),
+            (
+                qa_perf_check.RecordKey("crate-a", "bench-a", "group", "two"),
+                40.0,
+            ),
+            (
+                qa_perf_check.RecordKey("crate-b", "bench-z", "group", "three"),
+                20.1,
+            ),
+        ]
+
+        self.assertEqual(
+            qa_perf_gate.retry_bench_keys(regressed),
+            ["crate-a:bench-a", "crate-b:bench-z"],
+        )
+
+    def test_merge_keeps_best_measurement_only_for_retried_benchmark(self) -> None:
+        initial = fixture(
+            {
+                "system": "TestOS",
+                "machine": "arm64",
+                "cpu_model": "same",
+                "rustc": {"release": "1.90.0", "host": "arm64-test"},
+            }
+        )
+        initial["records"] = [
+            {
+                "crate": "crate-a",
+                "bench": "bench-a",
+                "group": "group",
+                "function": "function",
+                "median_ns": 200.0,
+                "mean_ns": 210.0,
+                "unit": "ns",
+            },
+            {
+                "crate": "crate-b",
+                "bench": "bench-b",
+                "group": "group",
+                "function": "function",
+                "median_ns": 300.0,
+                "mean_ns": 310.0,
+                "unit": "ns",
+            },
+        ]
+        retry = {**initial, "records": [dict(record) for record in initial["records"]]}
+        retry["records"][0].update(median_ns=150.0, mean_ns=160.0)
+        retry["records"][1].update(median_ns=100.0, mean_ns=110.0)
+
+        merged = qa_perf_gate.merge_best_records(
+            initial, retry, {"crate-a:bench-a"}
+        )
+
+        self.assertEqual(merged["records"][0]["median_ns"], 150.0)
+        self.assertEqual(merged["records"][0]["mean_ns"], 160.0)
+        self.assertEqual(merged["records"][1]["median_ns"], 300.0)
 
 
 if __name__ == "__main__":

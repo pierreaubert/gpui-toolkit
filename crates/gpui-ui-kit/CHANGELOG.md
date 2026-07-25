@@ -1,11 +1,18 @@
 # Unreleased
 
+# 0.9.34
+
 ## Features
 
+- Added real image rendering to `ImageView` for filesystem paths, remote URIs,
+  and data URIs, with `ObjectFit` mapping and ARIA alternative-text labels.
 - added Multi touch support on iOS and Android
 
 ## Fixes
 
+- Added an image load-failure placeholder.
+- Replaced fixed-width text estimates in the audio potentiometer and vertical
+  slider with platform text measurement.
 - **Sidebar**: made sidebar content participate in GPUI scroll handling with a
   tracked `ScrollHandle` and wheel callback support, so showcase menus can
   scroll consistently with touch drags and mouse-wheel input.

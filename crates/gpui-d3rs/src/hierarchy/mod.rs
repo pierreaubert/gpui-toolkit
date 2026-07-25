@@ -208,9 +208,20 @@ impl<T> HierarchyNode<T> {
     pub fn set_children(&mut self, self_rc: &Rc<RefCell<Self>>, children: Vec<Rc<RefCell<Self>>>) {
         for child in &children {
             child.borrow_mut().parent = Some(Rc::downgrade(self_rc));
-            child.borrow_mut().depth = self.depth + 1;
+            Self::set_subtree_depth(child.clone(), self.depth + 1);
         }
         self.children = Some(children);
+    }
+
+    fn set_subtree_depth(node: Rc<RefCell<Self>>, depth: usize) {
+        let children = {
+            let mut node = node.borrow_mut();
+            node.depth = depth;
+            node.children.clone().unwrap_or_default()
+        };
+        for child in children {
+            Self::set_subtree_depth(child, depth + 1);
+        }
     }
 
     fn collect_checked_sum<F>(

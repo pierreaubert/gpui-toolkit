@@ -1184,7 +1184,7 @@ impl Drop for AndroidWindow {
 pub struct AndroidPlatformWindow {
     window: Arc<AndroidWindow>,
     display: Option<Rc<dyn PlatformDisplay>>,
-    input_handler: Option<PlatformInputHandler>,
+    input_handler: Arc<Mutex<MainThreadInputHandler>>,
     title: String,
     /// Shared momentum scrolling state — used by both the touch callback
     /// (to start/cancel flings) and the frame callback (to pump inertia).
@@ -1196,6 +1196,14 @@ pub struct AndroidPlatformWindow {
         Arc<Mutex<Box<dyn FnMut(gpui::PlatformInput) -> DispatchEventResult + Send>>>,
 }
 
+struct MainThreadInputHandler(Option<PlatformInputHandler>);
+
+// SAFETY: AndroidWindow invokes request-frame callbacks only on the native
+// GPUI main thread. Other threads can enqueue plain ImeEvent values but never
+// access this handler. This wrapper exists solely because AndroidWindow's
+// callback registry uses a Send bound for all callbacks.
+unsafe impl Send for MainThreadInputHandler {}
+
 impl AndroidPlatformWindow {
     /// Create a new `AndroidPlatformWindow` wrapping an existing `AndroidWindow`.
     pub fn new(window: Arc<AndroidWindow>, display: Option<Rc<dyn PlatformDisplay>>) -> Self {
@@ -1205,7 +1213,7 @@ impl AndroidPlatformWindow {
         Self {
             window,
             display,
-            input_handler: None,
+            input_handler: Arc::new(Mutex::new(MainThreadInputHandler(None))),
             title: String::new(),
             momentum: Arc::new(Mutex::new(MomentumState {
                 velocity_tracker: VelocityTracker::new(),
@@ -1321,11 +1329,11 @@ impl PlatformWindow for AndroidPlatformWindow {
     }
 
     fn set_input_handler(&mut self, input_handler: PlatformInputHandler) {
-        self.input_handler = Some(input_handler);
+        self.input_handler.lock().0 = Some(input_handler);
     }
 
     fn take_input_handler(&mut self) -> Option<PlatformInputHandler> {
-        self.input_handler.take()
+        self.input_handler.lock().0.take()
     }
 
     fn prompt(
@@ -1404,8 +1412,41 @@ impl PlatformWindow for AndroidPlatformWindow {
         // The input_cb Arc is set up by on_input.  We store a clone of it
         // on the struct so on_request_frame can capture it.
         let input_cb = Arc::clone(&self.momentum_input_cb);
+        let input_handler = Arc::clone(&self.input_handler);
 
         self.window.on_request_frame(move || {
+            {
+                let events = crate::drain_ime_events();
+                if !events.is_empty()
+                    && let Some(handler) = input_handler.lock().0.as_mut()
+                {
+                    for event in events {
+                        match event {
+                            crate::ImeEvent::Commit(text) => {
+                                handler.replace_text_in_range(None, &text);
+                                handler.unmark_text();
+                            }
+                            crate::ImeEvent::SetComposing(text) => {
+                                let selected = text.encode_utf16().count();
+                                handler.replace_and_mark_text_in_range(
+                                    None,
+                                    &text,
+                                    Some(selected..selected),
+                                );
+                            }
+                            crate::ImeEvent::FinishComposing => handler.unmark_text(),
+                            crate::ImeEvent::DeleteSurrounding { before, after } => {
+                                if let Some(selection) = handler.selected_text_range(true) {
+                                    let start = selection.range.start.saturating_sub(before);
+                                    let end = selection.range.end.saturating_add(after);
+                                    handler.replace_text_in_range(Some(start..end), "");
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             // ── Drain coalesced touch-scroll deltas ──────────────────
             // The touch callback accumulates scroll deltas into
             // MomentumState rather than emitting ScrollWheel events
@@ -1931,6 +1972,19 @@ impl PlatformWindow for AndroidPlatformWindow {
 
     fn gpu_specs(&self) -> Option<GpuSpecs> {
         self.window.gpu_specs()
+    }
+
+    fn a11y_init(&self, callbacks: gpui::A11yCallbacks) {
+        crate::accessibility::init(callbacks);
+    }
+
+    fn a11y_tree_update(&self, tree_update: accesskit::TreeUpdate) {
+        crate::accessibility::update(tree_update);
+    }
+
+    fn a11y_update_window_bounds(&self) {
+        #[cfg(target_os = "android")]
+        crate::android::jni::notify_accessibility_changed();
     }
 
     fn update_ime_position(&self, bounds: gpui::Bounds<gpui::Pixels>) {

@@ -356,7 +356,7 @@ impl Potentiometer {
 }
 
 impl RenderOnce for Potentiometer {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let global_theme = cx.theme();
         let default_theme = PotentiometerTheme::from(global_theme);
         let theme = self.theme.clone().unwrap_or(default_theme);
@@ -841,11 +841,13 @@ impl RenderOnce for Potentiometer {
             let unit_x = knob_offset + center + label_radius * unit_angle.cos();
             let unit_y = knob_offset + center + label_radius * unit_angle.sin();
 
-            // Calculate approximate centering offset based on typical unit string lengths
-            // "%" is 1 char, "Hz" is 2 chars, "dB" is 2 chars
-            // At text_xs (12px), approximate char width is ~7px
-            let estimated_width = unit_str.len() as f32 * 7.0;
-            let center_offset_x = estimated_width / 2.0;
+            let run = window.text_style().to_run(unit_str.len());
+            let measured_width: f32 = window
+                .text_system()
+                .layout_line(unit_str.as_ref(), px(12.0), &[run], None)
+                .width()
+                .into();
+            let center_offset_x = measured_width / 2.0;
 
             knob_container = knob_container.child(
                 div()

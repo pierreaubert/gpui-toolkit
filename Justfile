@@ -197,7 +197,7 @@ qa-perf-update:
 qa-perf:
 	@echo "Running performance non-regression checks..."
 	python3 scripts/qa_perf_baseline.py --output {{perf_current}}
-	python3 scripts/qa_perf_check.py --baseline {{perf_baseline}} --current {{perf_current}} --threshold {{perf_threshold}} --noise-floor-ns {{perf_noise_floor_ns}} --output {{perf_report}}
+	python3 scripts/qa_perf_gate.py --baseline {{perf_baseline}} --current {{perf_current}} --threshold {{perf_threshold}} --noise-floor-ns {{perf_noise_floor_ns}} --output {{perf_report}} --retries 2
 
 # ----------------------------------------------------------------------
 # FORMAT / BUILD

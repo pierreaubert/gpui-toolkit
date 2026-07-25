@@ -13,8 +13,15 @@
 
 use crate::ComponentTheme;
 use crate::theme::ThemeExt;
-use gpui::prelude::{InteractiveElement, IntoElement, ParentElement, RenderOnce, Styled};
-use gpui::{App, Div, ElementId, MouseButton, Pixels, Rgba, SharedString, Stateful, Window, div};
+use gpui::prelude::{
+    InteractiveElement, IntoElement, ParentElement, RenderOnce, StatefulInteractiveElement, Styled,
+    StyledImage,
+};
+use gpui::{
+    App, Div, ElementId, MouseButton, ObjectFit, Pixels, Rgba, SharedString, Stateful, Window, div,
+    img,
+};
+use std::path::PathBuf;
 
 /// How the image should fit within its container
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -26,6 +33,16 @@ pub enum ImageFit {
     Contain,
     /// Stretch to fill exactly
     Fill,
+}
+
+impl From<ImageFit> for ObjectFit {
+    fn from(value: ImageFit) -> Self {
+        match value {
+            ImageFit::Cover => Self::Cover,
+            ImageFit::Contain => Self::Contain,
+            ImageFit::Fill => Self::Fill,
+        }
+    }
 }
 
 /// Theme colors for image view styling
@@ -136,6 +153,8 @@ impl ImageView {
 
     /// Build the image view with theme
     pub fn build_with_theme(self, theme: &ImageViewTheme) -> Stateful<Div> {
+        let image_fit = self.fit.into();
+        let placeholder_icon = self.placeholder_icon.clone();
         let mut container = div()
             .id(self.id)
             .flex()
@@ -158,13 +177,42 @@ impl ImageView {
             container = container.border_1().border_color(theme.border);
         }
 
-        // Render placeholder (image loading requires gpui::img() integration)
-        container = container.bg(theme.placeholder_bg).child(
-            div()
-                .text_3xl()
-                .text_color(theme.placeholder_text)
-                .child(self.placeholder_icon),
-        );
+        if !self.alt.is_empty() {
+            container = container.aria_label(self.alt);
+        }
+
+        container = container.bg(theme.placeholder_bg);
+        if let Some(source) = self.src {
+            let mut image = if source.contains("://") || source.starts_with("data:") {
+                img(source)
+            } else {
+                img(PathBuf::from(source.as_ref()))
+            };
+            let fallback_icon = placeholder_icon.clone();
+            let fallback_color = theme.placeholder_text;
+            image = image
+                .size_full()
+                .object_fit(image_fit)
+                .with_fallback(move || {
+                    div()
+                        .size_full()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .text_3xl()
+                        .text_color(fallback_color)
+                        .child(fallback_icon.clone())
+                        .into_any_element()
+                });
+            container = container.child(image);
+        } else {
+            container = container.child(
+                div()
+                    .text_3xl()
+                    .text_color(theme.placeholder_text)
+                    .child(placeholder_icon),
+            );
+        }
 
         if let Some(handler) = self.on_click {
             container = container.cursor_pointer().on_mouse_up(
@@ -192,5 +240,21 @@ impl IntoElement for ImageView {
 
     fn into_element(self) -> Self::Element {
         gpui::Component::new(self)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ImageFit;
+    use gpui::ObjectFit;
+
+    #[test]
+    fn image_fit_maps_to_gpui_object_fit() {
+        assert!(matches!(ObjectFit::from(ImageFit::Cover), ObjectFit::Cover));
+        assert!(matches!(
+            ObjectFit::from(ImageFit::Contain),
+            ObjectFit::Contain
+        ));
+        assert!(matches!(ObjectFit::from(ImageFit::Fill), ObjectFit::Fill));
     }
 }

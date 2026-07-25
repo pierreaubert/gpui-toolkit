@@ -11,6 +11,8 @@
 
 mod dispatcher;
 mod display;
+#[cfg(target_os = "ios")]
+mod document_picker;
 mod events;
 pub mod ffi;
 mod keychain;

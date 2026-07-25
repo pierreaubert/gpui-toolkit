@@ -273,7 +273,7 @@ fn main() {
                 titlebar: Some(TitlebarOptions {
                     title: Some(SharedString::from(format!(
                         "3D Surface Demo - {}",
-                        &demo_type
+                        demo_type
                     ))),
                     ..Default::default()
                 }),

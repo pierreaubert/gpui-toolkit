@@ -18,7 +18,7 @@
         android:supportsRtl="true"
         android:theme="@style/GpuiTheme">
         <activity
-            android:name="android.app.NativeActivity"
+            android:name="dev.gpui.mobile.GpuiActivity"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|keyboard|navigation|uiMode|density"
             android:exported="true"
             android:launchMode="singleTask"

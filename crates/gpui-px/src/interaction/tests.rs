@@ -285,6 +285,25 @@ fn test_keyboard_actions_apply_zoom_pan_and_reset() {
     assert_eq!(interaction.x_domain(), (0.0, 100.0));
 }
 
+#[test]
+fn chart_keys_map_to_navigation_actions() {
+    use super::chart_interaction::keyboard_action_for_key;
+
+    assert_eq!(
+        keyboard_action_for_key("+"),
+        Some(ChartKeyboardAction::ZoomIn)
+    );
+    assert_eq!(
+        keyboard_action_for_key("arrowleft"),
+        Some(ChartKeyboardAction::PanLeft)
+    );
+    assert_eq!(
+        keyboard_action_for_key("r"),
+        Some(ChartKeyboardAction::ResetZoom)
+    );
+    assert_eq!(keyboard_action_for_key("enter"), None);
+}
+
 #[cfg(feature = "gpui")]
 mod interactive_chart_state_tests {
     use super::super::interactive_chart::*;

@@ -49,10 +49,61 @@ src/
 - Requires GPUI framework
 - Metal-capable GPU
 
+## Host FFI
+
+The canonical C declarations are in [`include/gpui_au.h`](include/gpui_au.h).
+Import that header in the AU target's bridging header instead of duplicating
+Rust ABI declarations in Swift.
+
+Forward `NSEvent` key events and `NSTextInputClient` callbacks separately:
+key events drive shortcuts and navigation, while text callbacks carry committed
+or marked Unicode text.
+
+```swift
+override func keyDown(with event: NSEvent) {
+    let utf8 = (event.characters ?? "").utf8CString
+    utf8.withUnsafeBufferPointer { characters in
+        gpui_au_key_down(
+            context,
+            event.keyCode,
+            characters.baseAddress,
+            UInt32(truncatingIfNeeded: event.modifierFlags.rawValue),
+            event.isARepeat
+        )
+    }
+}
+
+func insertText(_ value: Any, replacementRange: NSRange) {
+    let text = (value as? NSAttributedString)?.string ?? String(describing: value)
+    text.withCString { gpui_au_insert_text(context, $0) }
+}
+
+func setMarkedText(
+    _ value: Any,
+    selectedRange: NSRange,
+    replacementRange: NSRange
+) {
+    let text = (value as? NSAttributedString)?.string ?? String(describing: value)
+    text.withCString {
+        gpui_au_set_marked_text(
+            context,
+            $0,
+            selectedRange.location,
+            selectedRange.length
+        )
+    }
+}
+
+func unmarkText() {
+    gpui_au_unmark_text(context)
+}
+```
+
 ## Testing
 
 ```bash
-cargo check -p gpui-au
+cargo test -p gpui-au
+clang -fsyntax-only -x c include/gpui_au.h
 ```
 
 ## License

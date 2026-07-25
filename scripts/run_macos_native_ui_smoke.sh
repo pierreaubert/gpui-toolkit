@@ -10,6 +10,7 @@ binary="${1:-target/debug/layout-showcase}"
 artifact="${2:-target/qa/native-ui/macos/gpui-builder-smoke.json}"
 screenshot="${3:-target/qa/native-ui/macos/gpui-builder.png}"
 window_title="${GPUI_NATIVE_SMOKE_WINDOW_TITLE:-Layout Builder Showcase}"
+window_owner="${GPUI_NATIVE_SMOKE_WINDOW_OWNER:-layout-showcase}"
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 for command in swift screencapture magick python3; do
@@ -40,11 +41,14 @@ import Darwin
 import Foundation
 
 let title = CommandLine.arguments[1]
+let owner = CommandLine.arguments[2]
 for _ in 0..<100 {
     let windows = CGWindowListCopyWindowInfo(.optionOnScreenOnly, kCGNullWindowID)
         as? [[String: Any]] ?? []
     if let window = windows.first(where: {
         ($0[kCGWindowName as String] as? String) == title
+            || (($0[kCGWindowOwnerName as String] as? String) == owner
+                && (($0[kCGWindowLayer as String] as? Int) ?? -1) == 0)
     }), let number = window[kCGWindowNumber as String] as? Int {
         print(number)
         exit(0)
@@ -53,7 +57,7 @@ for _ in 0..<100 {
 }
 fputs("native GPUI window was not discoverable: \(title)\n", stderr)
 exit(1)
-' "$window_title")"
+' "$window_title" "$window_owner")"
 
 # The smoke transition occurs after the first paint. Capture after it has had
 # enough time to produce and present the verified second frame.

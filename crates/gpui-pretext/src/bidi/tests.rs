@@ -67,6 +67,16 @@ fn test_mixed() {
 }
 
 #[test]
+fn paragraph_direction_uses_unicode_first_strong_rule() {
+    let levels = compute_bidi_levels("A مرحبا بالعالم").unwrap();
+    assert_eq!(levels[0], 0, "first strong LTR text keeps an LTR paragraph");
+    assert!(
+        levels[2..].iter().any(|level| level % 2 == 1),
+        "Arabic run receives an RTL embedding level"
+    );
+}
+
+#[test]
 fn test_segment_levels() {
     let text = "Hello world";
     let starts = vec![0, 6];

@@ -141,6 +141,20 @@ fn test_path_bounds_with_curves() {
 }
 
 #[test]
+fn elliptical_arc_bounds_use_the_resolved_svg_ellipse() {
+    let path = PathBuilder::new()
+        .move_to(0.0, 0.0)
+        .elliptical_arc(50.0, 25.0, 0.0, false, true, 100.0, 0.0)
+        .build();
+
+    let (min_x, min_y, max_x, max_y) = path.bounds().unwrap();
+    assert!((min_x - 0.0).abs() < 1e-9);
+    assert!((max_x - 100.0).abs() < 1e-9);
+    assert!((min_y + 25.0).abs() < 1e-9);
+    assert!(max_y.abs() < 1e-9);
+}
+
+#[test]
 fn test_path_flatten_quadratic() {
     use super::flatten::flatten_quadratic;
 
@@ -199,6 +213,52 @@ fn test_path_flatten_arc_anticlockwise() {
         &mut points,
     );
     assert!(!points.is_empty());
+}
+
+#[test]
+fn elliptical_arc_flattening_follows_the_curve() {
+    let path = PathBuilder::new()
+        .move_to(0.0, 0.0)
+        .elliptical_arc(50.0, 50.0, 0.0, false, true, 100.0, 0.0)
+        .build();
+
+    let points = path.flatten(0.5);
+    assert!(points.len() > 3, "an arc must not collapse to its endpoint");
+    assert_eq!(points.first().copied(), Some(Point::new(0.0, 0.0)));
+    assert_eq!(points.last().copied(), Some(Point::new(100.0, 0.0)));
+    assert!(
+        points.iter().any(|point| point.y.abs() > 49.0),
+        "semicircle must pass close to its 50px vertical extremum"
+    );
+}
+
+#[test]
+fn elliptical_arc_flattening_respects_rotation_and_tolerance() {
+    let path = PathBuilder::new()
+        .move_to(10.0, 20.0)
+        .elliptical_arc(80.0, 30.0, 35.0, true, false, 180.0, 90.0)
+        .build();
+
+    let coarse = path.flatten(4.0);
+    let fine = path.flatten(0.25);
+    assert!(fine.len() > coarse.len());
+    assert_eq!(fine.last().copied(), Some(Point::new(180.0, 90.0)));
+    assert!(
+        fine.iter()
+            .all(|point| point.x.is_finite() && point.y.is_finite())
+    );
+}
+
+#[test]
+fn elliptical_arc_with_zero_radius_is_a_line() {
+    let path = PathBuilder::new()
+        .move_to(2.0, 3.0)
+        .elliptical_arc(0.0, 20.0, 0.0, false, true, 12.0, 13.0)
+        .build();
+    assert_eq!(
+        path.flatten(0.1),
+        vec![Point::new(2.0, 3.0), Point::new(12.0, 13.0)]
+    );
 }
 
 #[test]

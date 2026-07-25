@@ -1,3 +1,14 @@
+# Unreleased
+
+# 0.9.7
+
+## Fixes
+
+- Replaced the bidi ratio heuristic with the `unicode-bidi` implementation of
+  Unicode Bidirectional Algorithm (UAX #9).
+- Corrected first-strong paragraph direction, explicit embeddings, isolates,
+  and neutral-character handling.
+
 # 0.7.4
 
 ## Performance

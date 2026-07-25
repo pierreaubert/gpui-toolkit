@@ -31,6 +31,15 @@ class CoverageReportTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "data.*empty"):
             qa_cov_check.per_crate_coverage({"data": []})
 
+    def test_crate_ratchets_fail_missing_or_regressed_crates(self):
+        rows = [{"crate": "covered", "lines_percent": 72.0}]
+        self.assertEqual(
+            qa_cov_check.crate_ratchet_failures(
+                rows, {"covered": 73.0, "missing": 1.0}
+            ),
+            [("covered", 72.0, 73.0), ("missing", 0.0, 1.0)],
+        )
+
     @staticmethod
     def file(path, lines_covered, lines_total, functions_covered, functions_total):
         return {

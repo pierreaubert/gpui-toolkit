@@ -32,9 +32,11 @@ use gpui::{
     WindowBackgroundAppearance, WindowBounds, WindowControlArea, WindowParams, px, size,
 };
 use gpui_wgpu::{WgpuContext, WgpuRenderer, WgpuSurfaceConfig, wgpu};
+#[cfg(target_os = "ios")]
+use objc::runtime::NO;
 use objc::{
     Message, class, msg_send,
-    runtime::{BOOL, NO, Object, Sel, YES},
+    runtime::{BOOL, Object, Sel, YES},
     sel, sel_impl,
 };
 use parking_lot::Mutex;
@@ -1327,7 +1329,7 @@ impl IosWindow {
     //   Select (4)    → MouseDown/MouseUp at last known position (click)
     //   Menu (5)      → Escape keystroke
     //   Play/Pause (6)→ Space keystroke
-    //   Arrows (0-3)  → ScrollWheel impulse for list navigation
+    //   Arrows (0-3)  → arrow keystrokes consumed by GPUI focus groups
     #[cfg(target_os = "tvos")]
     pub fn handle_press(&self, press_type: i64, is_down: bool) {
         let modifiers = self.modifiers.get();
@@ -1340,13 +1342,7 @@ impl IosWindow {
         };
 
         // UIPressType constants
-        const UP_ARROW: i64 = 0;
-        const DOWN_ARROW: i64 = 1;
-        const LEFT_ARROW: i64 = 2;
-        const RIGHT_ARROW: i64 = 3;
         const SELECT: i64 = 4;
-        const MENU: i64 = 5;
-        const PLAY_PAUSE: i64 = 6;
 
         match press_type {
             SELECT => {
@@ -1367,51 +1363,19 @@ impl IosWindow {
                     }));
                 }
             }
-            MENU => {
+            _ if super::super::text_input::tvos_press_key(press_type).is_some() => {
+                let key = super::super::text_input::tvos_press_key(press_type).unwrap();
+                let keystroke = gpui::Keystroke::parse(key).unwrap();
                 if is_down {
                     emit(PlatformInput::KeyDown(gpui::KeyDownEvent {
-                        keystroke: gpui::Keystroke::parse("escape").unwrap(),
+                        keystroke,
                         is_held: false,
                         prefer_character_input: false,
                     }));
                 } else {
-                    emit(PlatformInput::KeyUp(gpui::KeyUpEvent {
-                        keystroke: gpui::Keystroke::parse("escape").unwrap(),
-                    }));
+                    emit(PlatformInput::KeyUp(gpui::KeyUpEvent { keystroke }));
                 }
-            }
-            PLAY_PAUSE => {
-                if is_down {
-                    emit(PlatformInput::KeyDown(gpui::KeyDownEvent {
-                        keystroke: gpui::Keystroke::parse("space").unwrap(),
-                        is_held: false,
-                        prefer_character_input: false,
-                    }));
-                } else {
-                    emit(PlatformInput::KeyUp(gpui::KeyUpEvent {
-                        keystroke: gpui::Keystroke::parse("space").unwrap(),
-                    }));
-                }
-            }
-            UP_ARROW | DOWN_ARROW | LEFT_ARROW | RIGHT_ARROW => {
-                // Emit a scroll impulse on press-down (repeat-friendly).
-                // 60 px per press gives comfortable list scrolling.
-                if is_down {
-                    let (dx, dy) = match press_type {
-                        UP_ARROW => (0.0, 60.0),
-                        DOWN_ARROW => (0.0, -60.0),
-                        LEFT_ARROW => (60.0, 0.0),
-                        RIGHT_ARROW => (-60.0, 0.0),
-                        _ => (0.0, 0.0),
-                    };
-                    emit(PlatformInput::ScrollWheel(gpui::ScrollWheelEvent {
-                        position,
-                        delta: gpui::ScrollDelta::Pixels(gpui::point(gpui::px(dx), gpui::px(dy))),
-                        modifiers,
-                        touch_phase: gpui::TouchPhase::Moved,
-                    }));
-                    self.request_forced_frame();
-                }
+                self.request_forced_frame();
             }
             _ => {}
         }
@@ -1609,6 +1573,35 @@ impl IosWindow {
             if let Some(callback) = self.input_callback.borrow_mut().as_mut() {
                 callback(event);
             }
+        }
+    }
+
+    /// Mirror an in-progress UIKit marked-text session into GPUI.
+    pub fn handle_marked_text(
+        &self,
+        text: *mut Object,
+        selected_location: usize,
+        selected_length: usize,
+    ) {
+        if text.is_null() {
+            return;
+        }
+        if let Some(text) = ns_string_to_string(text)
+            && let Some(handler) = self.input_handler.borrow_mut().as_mut()
+        {
+            let selection = super::super::text_input::clamp_utf16_selection(
+                &text,
+                selected_location,
+                selected_length,
+            );
+            handler.replace_and_mark_text_in_range(None, &text, Some(selection));
+        }
+    }
+
+    /// Finish the active UIKit marked-text session.
+    pub fn handle_unmark_text(&self) {
+        if let Some(handler) = self.input_handler.borrow_mut().as_mut() {
+            handler.unmark_text();
         }
     }
 

@@ -1,3 +1,22 @@
+# Unreleased
+
+# 0.9.9
+
+## Features
+
+- Added Gregorian month and year interval arithmetic and calendar-aware time
+  ticks.
+- Added SVG endpoint-parameterized elliptical arc flattening with exact path
+  bounds.
+- Added radial curve interpolation.
+- Added polygon-level antimeridian preclip buffering and reconnection.
+
+## Fixes
+
+- Implemented contour-apportioned tidy-tree layout and recursive depth updates
+  for attached subtrees.
+- Updated the 3D surface example for Rust 1.97 Clippy compatibility.
+
 # 0.8.5
 
 ## Breaking Changes

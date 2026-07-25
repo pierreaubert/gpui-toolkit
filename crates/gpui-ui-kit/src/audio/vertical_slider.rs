@@ -651,7 +651,7 @@ impl VerticalSlider {
 }
 
 impl RenderOnce for VerticalSlider {
-    fn render(mut self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(mut self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         // Clamp value to min/max range now that both are set
         self.value = self.value.clamp(self.min, self.max);
 
@@ -1077,10 +1077,17 @@ impl RenderOnce for VerticalSlider {
             let label_width = ticks
                 .iter()
                 .filter_map(|t| t.label.as_ref())
-                .map(|l| l.len())
-                .max()
-                .unwrap_or(2) as f32
-                * 7.0; // Approximate character width
+                .map(|label| {
+                    let run = window.text_style().to_run(label.len());
+                    let width: f32 = window
+                        .text_system()
+                        .layout_line(label.as_ref(), px(12.0), &[run], None)
+                        .width()
+                        .into();
+                    width
+                })
+                .max_by(f32::total_cmp)
+                .unwrap_or(14.0);
 
             let tick_mark_width = 6.0_f32; // Major tick width
             let label_tick_gap = 3.0_f32; // Gap between label and tick
