@@ -33,5 +33,5 @@ url = "2.2"
 util = { version = "0.1.0", git = "https://github.com/zed-industries/zed.git", tag = "v1.9.0", optional = true }
 async-fs = { version = "2.1", optional = true }
 async-tar = { version = "0.5.1", optional = true }
-sha2 = { version = "0.10", optional = true }
+sha2 = { version = "0.11", optional = true }
 tempfile = { version = "3.20.0", optional = true }
