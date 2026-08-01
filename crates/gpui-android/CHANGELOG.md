@@ -1,5 +1,11 @@
 # Unreleased
 
+## Fixed
+
+- Removed unsound `Send` transmutes from platform callbacks. Non-`Send`
+  callbacks now remain on their owner thread, while off-thread quit requests
+  are queued for delivery by the Android event loop.
+
 # 0.9.3
 
 ## New

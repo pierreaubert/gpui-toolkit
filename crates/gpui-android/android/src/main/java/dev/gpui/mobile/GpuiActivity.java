@@ -1,9 +1,11 @@
 package dev.gpui.mobile;
 
 import android.app.NativeActivity;
+import android.content.ActivityNotFoundException;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Rect;
+import android.net.Uri;
 import android.os.Bundle;
 import android.security.keystore.KeyGenParameterSpec;
 import android.security.keystore.KeyProperties;
@@ -21,6 +23,8 @@ import android.view.accessibility.AccessibilityNodeInfo;
 import android.view.accessibility.AccessibilityNodeProvider;
 import android.widget.FrameLayout;
 
+import java.io.File;
+import java.io.IOException;
 import java.security.KeyStore;
 import java.util.HashMap;
 import java.util.Map;
@@ -112,6 +116,45 @@ public class GpuiActivity extends NativeActivity {
     public void gpuiAccessibilityChanged() {
         runOnUiThread(() -> inputView.sendAccessibilityEvent(
                 AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED));
+    }
+
+    /**
+     * Ask Android to open a local file with the user's system handler.
+     *
+     * <p>The GPUI platform thread is not guaranteed to be the Android UI
+     * thread, so the entire operation is marshalled through
+     * {@link #runOnUiThread(Runnable)}. The provider gives the receiving app a
+     * read-only, temporary content URI; a {@code file://} URI is rejected by
+     * Android 7 and later.</p>
+     */
+    public void gpuiOpenWithSystem(String path) {
+        if (path == null || path.isEmpty()) {
+            return;
+        }
+
+        runOnUiThread(() -> {
+            File file = new File(path);
+            if (!file.isFile()) {
+                return;
+            }
+
+            try {
+                Uri uri = GpuiFileProvider.registerFile(this, file);
+                String mimeType = getContentResolver().getType(uri);
+                if (mimeType == null) {
+                    mimeType = "application/octet-stream";
+                }
+
+                Intent intent = new Intent(Intent.ACTION_VIEW)
+                        .setDataAndType(uri, mimeType)
+                        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                startActivity(intent);
+            } catch (ActivityNotFoundException | IOException | SecurityException e) {
+                // No compatible handler is a normal user/device condition.
+                // Do not include the local path in logs.
+                android.util.Log.w("GpuiActivity", "Unable to open file with a system handler", e);
+            }
+        });
     }
 
     /** Encrypt and persist a credential using a non-exportable AES-GCM key. */

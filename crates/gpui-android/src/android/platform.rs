@@ -49,7 +49,7 @@ use std::{
     rc::Rc,
     sync::{
         Arc,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
 };
 
@@ -60,6 +60,26 @@ use super::{
     window::{AndroidWindow, WindowList},
 };
 use gpui_wgpu::GpuContext;
+
+type PlatformCallbackId = u64;
+
+#[derive(Default)]
+struct PlatformCallbacks {
+    finish_launching: Option<Box<dyn FnOnce()>>,
+    on_init_window: Option<Box<dyn FnOnce(Arc<AndroidWindow>)>>,
+    quit: Option<Box<dyn FnMut()>>,
+    reopen: Option<Box<dyn FnMut()>>,
+    open_urls: Option<Box<dyn FnMut(Vec<String>)>>,
+    keyboard_layout: Option<Box<dyn FnMut()>>,
+    thermal_state: Option<Box<dyn FnMut()>>,
+}
+
+static NEXT_PLATFORM_CALLBACK_ID: AtomicU64 = AtomicU64::new(1);
+
+thread_local! {
+    static PLATFORM_CALLBACKS: RefCell<HashMap<PlatformCallbackId, PlatformCallbacks>> =
+        RefCell::new(HashMap::new());
+}
 
 /// Android clipboard (thin wrapper over `ClipboardManager` via JNI).
 #[derive(Default)]
@@ -381,33 +401,8 @@ struct AndroidPlatformState {
     clipboard: AndroidClipboard,
     credentials: AndroidCredentialStore,
 
-    // ── lifecycle callbacks ───────────────────────────────────────────────────
-    /// The `on_finish_launching` closure passed to `run()`.
-    finish_launching: Option<Box<dyn FnOnce() + Send>>,
-
-    /// Called when the app is about to quit.
-    quit_callback: Option<Box<dyn FnMut() + Send>>,
-
-    /// Called when the app is re-opened (e.g. tapped in the recents screen
-    /// while already running).
-    reopen_callback: Option<Box<dyn FnMut() + Send>>,
-
-    /// Called when the OS delivers a list of URLs to open.
-    open_urls_callback: Option<Box<dyn FnMut(Vec<String>) + Send>>,
-
-    /// Called when the keyboard layout changes.
-    keyboard_layout_callback: Option<Box<dyn FnMut() + Send>>,
-
     /// Last known Android thermal state.
     thermal_state: ThermalState,
-
-    /// Called when the Android thermal state changes.
-    thermal_state_callback: Option<Box<dyn FnMut() + Send>>,
-
-    /// Called once when `MainEvent::InitWindow` has successfully created the
-    /// native window.  This is where the user should set up their GPUI views.
-    /// The callback receives the `Arc<AndroidWindow>` that was just created.
-    on_init_window_callback: Option<Box<dyn FnOnce(Arc<AndroidWindow>) + Send>>,
 
     // ── miscellaneous ─────────────────────────────────────────────────────────
     /// `true` while the app is active (foreground).
@@ -443,6 +438,11 @@ pub struct AndroidPlatform {
     state: Mutex<AndroidPlatformState>,
     /// Set to `true` when `quit()` is called; the main loop checks this.
     should_quit: AtomicBool,
+    /// Set when `quit()` is requested from another thread. The callback is
+    /// then delivered by the Android main event loop.
+    quit_callback_pending: AtomicBool,
+    callback_id: PlatformCallbackId,
+    callback_thread: std::thread::ThreadId,
 }
 
 /// Check whether a TrueType/OpenType font file contains CBDT (Color Bitmap
@@ -508,6 +508,13 @@ impl AndroidPlatform {
     /// Panics if called from a thread that is not the Android main thread
     /// (i.e. `ALooper_forThread()` returns null) — unless `headless` is `true`.
     pub fn new(headless: bool) -> Self {
+        let callback_id = NEXT_PLATFORM_CALLBACK_ID.fetch_add(1, Ordering::Relaxed);
+        PLATFORM_CALLBACKS.with(|callbacks| {
+            callbacks
+                .borrow_mut()
+                .insert(callback_id, PlatformCallbacks::default());
+        });
+
         crate::android::init_logger();
 
         // Build a dispatcher appropriate for the current context.
@@ -653,19 +660,52 @@ impl AndroidPlatform {
                 text_system,
                 clipboard: AndroidClipboard::default(),
                 credentials: AndroidCredentialStore::default(),
-                finish_launching: None,
-                quit_callback: None,
-                reopen_callback: None,
-                open_urls_callback: None,
-                keyboard_layout_callback: None,
                 thermal_state: ThermalState::Nominal,
-                thermal_state_callback: None,
-                on_init_window_callback: None,
                 is_active: false,
                 headless,
                 preferred_backend: AndroidBackend::Vulkan,
             }),
             should_quit: AtomicBool::new(false),
+            quit_callback_pending: AtomicBool::new(false),
+            callback_id,
+            callback_thread: std::thread::current().id(),
+        }
+    }
+
+    fn on_callback_thread(&self) -> bool {
+        std::thread::current().id() == self.callback_thread
+    }
+
+    fn with_callbacks<R>(&self, f: impl FnOnce(&mut PlatformCallbacks) -> R) -> R {
+        assert!(
+            self.on_callback_thread(),
+            "AndroidPlatform callbacks must be accessed on their owner thread"
+        );
+
+        PLATFORM_CALLBACKS.with(|callbacks| {
+            let mut callbacks = callbacks.borrow_mut();
+            let callbacks = callbacks
+                .get_mut(&self.callback_id)
+                .expect("AndroidPlatform callback registry entry is missing");
+            f(callbacks)
+        })
+    }
+
+    fn invoke_quit_callback(&self) {
+        self.with_callbacks(|callbacks| {
+            if let Some(callback) = callbacks.quit.as_mut() {
+                callback();
+            }
+        });
+    }
+
+    /// Deliver a quit callback requested from another thread.
+    ///
+    /// This must be called from the Android main event loop. The callback is
+    /// deliberately kept out of the `Send` state shared with other threads.
+    pub fn run_pending_quit_callback(&self) {
+        if self.quit_callback_pending.swap(false, Ordering::AcqRel) {
+            self.invoke_quit_callback();
         }
     }
 
@@ -701,18 +741,18 @@ impl AndroidPlatform {
     /// supported), the application registers its view setup here.
     pub fn set_on_init_window<F>(&self, callback: F)
     where
-        F: FnOnce(Arc<AndroidWindow>) + Send + 'static,
+        F: FnOnce(Arc<AndroidWindow>) + 'static,
     {
-        self.state.lock().on_init_window_callback = Some(Box::new(callback));
+        self.with_callbacks(|callbacks| {
+            callbacks.on_init_window = Some(Box::new(callback));
+        });
     }
 
     /// Take the `on_init_window` callback (if any).
     ///
     /// Called internally by `handle_main_event` after the window is created.
-    pub fn take_on_init_window_callback(
-        &self,
-    ) -> Option<Box<dyn FnOnce(Arc<AndroidWindow>) + Send>> {
-        self.state.lock().on_init_window_callback.take()
+    pub fn take_on_init_window_callback(&self) -> Option<Box<dyn FnOnce(Arc<AndroidWindow>)>> {
+        self.with_callbacks(|callbacks| callbacks.on_init_window.take())
     }
 
     /// Store the finish-launching callback and drive the event loop.
@@ -726,10 +766,11 @@ impl AndroidPlatform {
     /// after `MainEvent::InitWindow` has been processed and an
     /// `AndroidWindow` exists).  At that point `cx.open_window(...)` will
     /// find the existing primary window.
-    pub fn run(&self, on_finish_launching: Box<dyn FnOnce() + Send + 'static>) {
+    pub fn run(&self, on_finish_launching: Box<dyn FnOnce() + 'static>) {
         {
-            let mut state = self.state.lock();
-            state.finish_launching = Some(on_finish_launching);
+            self.with_callbacks(|callbacks| {
+                callbacks.finish_launching = Some(on_finish_launching);
+            });
         }
         log::info!("AndroidPlatform::run — callback stored, entering event loop");
 
@@ -740,7 +781,7 @@ impl AndroidPlatform {
             super::jni::run_event_loop(&app);
         } else {
             // Headless / test mode — just invoke the callback immediately.
-            let cb = self.state.lock().finish_launching.take();
+            let cb = self.take_finish_launching_callback();
             if let Some(cb) = cb {
                 cb();
             }
@@ -753,8 +794,8 @@ impl AndroidPlatform {
     ///
     /// Called by `run_event_loop` when the native window is ready so that
     /// the GPUI `Application` context can open its first window.
-    pub fn take_finish_launching_callback(&self) -> Option<Box<dyn FnOnce() + Send>> {
-        self.state.lock().finish_launching.take()
+    pub fn take_finish_launching_callback(&self) -> Option<Box<dyn FnOnce()>> {
+        self.with_callbacks(|callbacks| callbacks.finish_launching.take())
     }
 
     /// Request a graceful quit.
@@ -765,15 +806,10 @@ impl AndroidPlatform {
         log::info!("AndroidPlatform::quit");
         self.should_quit.store(true, Ordering::SeqCst);
 
-        let cb = self.state.lock().quit_callback.as_mut().map(|cb| {
-            // We cannot move out of an `&mut FnMut`, so we call it in place.
-            cb as *mut Box<dyn FnMut() + Send>
-        });
-
-        if let Some(cb_ptr) = cb {
-            // SAFETY: The pointer is valid for the duration of this call
-            // because we hold the lock-guard's lifetime indirectly.
-            unsafe { (*cb_ptr)() };
+        if self.on_callback_thread() {
+            self.invoke_quit_callback();
+        } else {
+            self.quit_callback_pending.store(true, Ordering::Release);
         }
     }
 
@@ -797,23 +833,29 @@ impl AndroidPlatform {
     /// Deliver URLs from an implicit or explicit intent.
     pub fn deliver_open_urls(&self, urls: Vec<String>) {
         log::debug!("AndroidPlatform: delivering {} URL(s)", urls.len());
-        if let Some(cb) = self.state.lock().open_urls_callback.as_mut() {
-            cb(urls);
-        }
+        self.with_callbacks(|callbacks| {
+            if let Some(callback) = callbacks.open_urls.as_mut() {
+                callback(urls);
+            }
+        });
     }
 
     /// Notify the platform that the keyboard layout has changed.
     pub fn notify_keyboard_layout_change(&self) {
-        if let Some(cb) = self.state.lock().keyboard_layout_callback.as_mut() {
-            cb();
-        }
+        self.with_callbacks(|callbacks| {
+            if let Some(callback) = callbacks.keyboard_layout.as_mut() {
+                callback();
+            }
+        });
     }
 
     /// Deliver a "reopen" event (app tapped in recents while already running).
     pub fn deliver_reopen(&self) {
-        if let Some(cb) = self.state.lock().reopen_callback.as_mut() {
-            cb();
-        }
+        self.with_callbacks(|callbacks| {
+            if let Some(callback) = callbacks.reopen.as_mut() {
+                callback();
+            }
+        });
     }
 
     // ── window management ─────────────────────────────────────────────────────
@@ -1051,15 +1093,13 @@ impl AndroidPlatform {
         // A fully async approach would use `PowerManager.addThermalStatusListener`
         // with a JNI callback proxy. The polling approach is simpler and avoids
         // the complexity of bridging Java-to-Rust callbacks.
-        let send_callback: Box<dyn FnMut() + Send> =
-            unsafe { std::mem::transmute::<Box<dyn FnMut()>, Box<dyn FnMut() + Send>>(callback) };
-
         let current_state = self
             .current_thermal_state_via_jni()
             .unwrap_or(ThermalState::Nominal);
-        let mut state = self.state.lock();
-        state.thermal_state = current_state;
-        state.thermal_state_callback = Some(send_callback);
+        self.state.lock().thermal_state = current_state;
+        self.with_callbacks(|callbacks| {
+            callbacks.thermal_state = Some(callback);
+        });
         log::debug!("register_thermal_listener: polling thermal state from tick");
     }
 
@@ -1151,16 +1191,17 @@ impl AndroidPlatform {
             }
 
             state.thermal_state = next_thermal_state;
-            state.thermal_state_callback.take()
+            self.with_callbacks(|callbacks| callbacks.thermal_state.take())
         };
 
         if let Some(mut callback) = callback.take() {
             callback();
 
-            let mut state = self.state.lock();
-            if state.thermal_state_callback.is_none() {
-                state.thermal_state_callback = Some(callback);
-            }
+            self.with_callbacks(|callbacks| {
+                if callbacks.thermal_state.is_none() {
+                    callbacks.thermal_state = Some(callback);
+                }
+            });
         }
     }
 
@@ -1179,33 +1220,41 @@ impl AndroidPlatform {
     /// Register a callback invoked when the app is about to quit.
     pub fn on_quit<F>(&self, cb: F)
     where
-        F: FnMut() + Send + 'static,
+        F: FnMut() + 'static,
     {
-        self.state.lock().quit_callback = Some(Box::new(cb));
+        self.with_callbacks(|callbacks| {
+            callbacks.quit = Some(Box::new(cb));
+        });
     }
 
     /// Register a callback invoked when the app is re-opened.
     pub fn on_reopen<F>(&self, cb: F)
     where
-        F: FnMut() + Send + 'static,
+        F: FnMut() + 'static,
     {
-        self.state.lock().reopen_callback = Some(Box::new(cb));
+        self.with_callbacks(|callbacks| {
+            callbacks.reopen = Some(Box::new(cb));
+        });
     }
 
     /// Register a callback invoked when the OS delivers URLs to open.
     pub fn on_open_urls<F>(&self, cb: F)
     where
-        F: FnMut(Vec<String>) + Send + 'static,
+        F: FnMut(Vec<String>) + 'static,
     {
-        self.state.lock().open_urls_callback = Some(Box::new(cb));
+        self.with_callbacks(|callbacks| {
+            callbacks.open_urls = Some(Box::new(cb));
+        });
     }
 
     /// Register a callback invoked when the keyboard layout changes.
     pub fn on_keyboard_layout_change<F>(&self, cb: F)
     where
-        F: FnMut() + Send + 'static,
+        F: FnMut() + 'static,
     {
-        self.state.lock().keyboard_layout_callback = Some(Box::new(cb));
+        self.with_callbacks(|callbacks| {
+            callbacks.keyboard_layout = Some(Box::new(cb));
+        });
     }
 
     // ── dispatcher tick ───────────────────────────────────────────────────────
@@ -1225,6 +1274,16 @@ impl AndroidPlatform {
     /// Useful in headless tests where there is no real ALooper.
     pub fn flush_main_thread_tasks(&self) {
         self.state.lock().dispatcher.flush_main_thread_tasks();
+    }
+}
+
+impl Drop for AndroidPlatform {
+    fn drop(&mut self) {
+        if self.on_callback_thread() {
+            PLATFORM_CALLBACKS.with(|callbacks| {
+                callbacks.borrow_mut().remove(&self.callback_id);
+            });
+        }
     }
 }
 
@@ -1252,30 +1311,11 @@ impl Platform for AndroidPlatform {
     }
 
     fn run(&self, on_finish_launching: Box<dyn 'static + FnOnce()>) {
-        // The trait gives us `Box<dyn FnOnce()>` (not Send).  On Android
-        // Platform::run is always called on the main native thread, so this
-        // transmute is safe in practice.
-        let send_callback: Box<dyn FnOnce() + Send> =
-            unsafe { std::mem::transmute(on_finish_launching) };
-        self.run(send_callback);
+        self.run(on_finish_launching);
     }
 
     fn quit(&self) {
-        log::info!("AndroidPlatform::quit");
-        self.should_quit.store(true, Ordering::SeqCst);
-
-        let cb = self
-            .state
-            .lock()
-            .quit_callback
-            .as_mut()
-            .map(|cb| cb as *mut Box<dyn FnMut() + Send>);
-
-        if let Some(cb_ptr) = cb {
-            // SAFETY: pointer is valid for the duration of this call because
-            // we hold the lock-guard's lifetime indirectly.
-            unsafe { (*cb_ptr)() };
-        }
+        AndroidPlatform::quit(self);
     }
 
     fn restart(&self, _binary_path: Option<PathBuf>) {
@@ -1363,11 +1403,8 @@ impl Platform for AndroidPlatform {
     }
 
     fn on_open_urls(&self, callback: Box<dyn FnMut(Vec<String>)>) {
-        self.state.lock().open_urls_callback = Some(unsafe {
-            // SAFETY: on Android we are single-threaded on the main thread.
-            std::mem::transmute::<Box<dyn FnMut(Vec<String>)>, Box<dyn FnMut(Vec<String>) + Send>>(
-                callback,
-            )
+        self.with_callbacks(|callbacks| {
+            callbacks.open_urls = Some(callback);
         });
     }
 
@@ -1402,21 +1439,51 @@ impl Platform for AndroidPlatform {
         log::info!("AndroidPlatform::reveal_path — not supported on Android");
     }
 
-    fn open_with_system(&self, _path: &Path) {
-        // A full implementation would call startActivity with an ACTION_VIEW
-        // Intent via JNI.  For now, log the request.
-        log::info!("AndroidPlatform::open_with_system — Intent launch not yet implemented");
+    fn open_with_system(&self, path: &Path) {
+        #[cfg(target_os = "android")]
+        {
+            use crate::android::jni::{self as jni_helpers, JniExt};
+            use jni::objects::JValue;
+
+            let Some(path) = path.to_str() else {
+                log::warn!("AndroidPlatform::open_with_system — path is not valid UTF-8");
+                return;
+            };
+
+            let result = jni_helpers::with_env(|env| {
+                let activity = jni_helpers::activity(env)?;
+                let path = env.new_string(path).e()?;
+                env.call_method(
+                    &activity,
+                    jni::jni_str!("gpuiOpenWithSystem"),
+                    jni::jni_sig!("(Ljava/lang/String;)V"),
+                    &[JValue::Object(&path)],
+                )
+                .e()?;
+                Ok(())
+            });
+
+            if let Err(error) = result {
+                log::warn!("AndroidPlatform::open_with_system failed: {error}");
+            }
+        }
+
+        #[cfg(not(target_os = "android"))]
+        {
+            let _ = path;
+            log::debug!("AndroidPlatform::open_with_system is only available on Android");
+        }
     }
 
     fn on_quit(&self, callback: Box<dyn FnMut()>) {
-        self.state.lock().quit_callback = Some(unsafe {
-            std::mem::transmute::<Box<dyn FnMut()>, Box<dyn FnMut() + Send>>(callback)
+        self.with_callbacks(|callbacks| {
+            callbacks.quit = Some(callback);
         });
     }
 
     fn on_reopen(&self, callback: Box<dyn FnMut()>) {
-        self.state.lock().reopen_callback = Some(unsafe {
-            std::mem::transmute::<Box<dyn FnMut()>, Box<dyn FnMut() + Send>>(callback)
+        self.with_callbacks(|callbacks| {
+            callbacks.reopen = Some(callback);
         });
     }
 
@@ -1540,8 +1607,8 @@ impl Platform for AndroidPlatform {
     }
 
     fn on_keyboard_layout_change(&self, callback: Box<dyn FnMut()>) {
-        self.state.lock().keyboard_layout_callback = Some(unsafe {
-            std::mem::transmute::<Box<dyn FnMut()>, Box<dyn FnMut() + Send>>(callback)
+        self.with_callbacks(|callbacks| {
+            callbacks.keyboard_layout = Some(callback);
         });
     }
 
@@ -1818,6 +1885,33 @@ mod tests {
     }
 
     #[test]
+    fn non_send_quit_callback_fires_on_owner_thread() {
+        let p = headless();
+        let fired = Rc::new(std::cell::Cell::new(false));
+        let f2 = Rc::clone(&fired);
+        p.on_quit(move || f2.set(true));
+        p.quit();
+        assert!(fired.get());
+    }
+
+    #[test]
+    fn off_thread_quit_callback_is_delivered_on_owner_thread() {
+        let p = Arc::new(headless());
+        let fired = Rc::new(std::cell::Cell::new(false));
+        let f2 = Rc::clone(&fired);
+        p.on_quit(move || f2.set(true));
+
+        let p2 = Arc::clone(&p);
+        std::thread::spawn(move || p2.quit())
+            .join()
+            .expect("quit request thread panicked");
+        assert!(!fired.get());
+
+        p.run_pending_quit_callback();
+        assert!(fired.get());
+    }
+
+    #[test]
     fn did_become_active_sets_flag() {
         let p = headless();
         p.did_become_active();
@@ -1964,7 +2058,7 @@ mod tests {
     fn thermal_listener_is_retained() {
         let p = headless();
         p.register_thermal_listener(Box::new(|| {}));
-        assert!(p.state.lock().thermal_state_callback.is_some());
+        assert!(p.with_callbacks(|callbacks| callbacks.thermal_state.is_some()));
     }
 
     // ── open-URLs callback ────────────────────────────────────────────────────

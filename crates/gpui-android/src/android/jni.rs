@@ -567,6 +567,7 @@ pub fn run_event_loop(app: &AndroidApp) {
         // Check if quit was requested.
         if let Some(platform) = PLATFORM.get() {
             if platform.should_quit() {
+                platform.run_pending_quit_callback();
                 log::info!("run_event_loop: platform requested quit");
                 dispose_all_platform_views();
                 break;
