@@ -1,42 +1,18 @@
 //! # d3-timer - Animation Timing Module
 //!
-//! This module provides efficient animation timing utilities, inspired by D3.js's d3-timer module.
-//! It uses `std::time::Instant` for high-resolution monotonic time and provides callbacks
-//! scheduled relative to an application-defined epoch.
+//! This module provides efficient animation timing utilities, inspired by
+//! D3.js's d3-timer module. Timers share one scheduler thread instead of
+//! creating an operating-system thread per timer.
 //!
-//! ## Key Features
-//!
-//! - **now()**: Returns milliseconds since the timer epoch
-//! - **Timer**: A repeating timer that calls a callback on each animation frame
-//! - **timeout()**: A one-shot timer that fires once after a delay
-//! - **interval()**: A repeating timer that fires at fixed intervals
-//!
-//! ## Example
-//!
-//! ```rust,no_run
-//! use d3rs::timer::{now, timer, timeout, interval};
-//!
-//! // Get current time in ms since epoch
-//! let t = now();
-//!
-//! // One-shot timer after 1 second
-//! timeout(|elapsed| {
-//!     println!("Fired after {} ms", elapsed);
-//! }, 1000.0, None);
-//!
-//! // Repeating every 500ms
-//! let mut count = 0;
-//! interval(move |elapsed| {
-//!     count += 1;
-//!     println!("Tick {} at {} ms", count, elapsed);
-//!     count < 10 // Return false to stop
-//! }, 500.0, None);
-//! ```
+//! Applications with a UI event loop can install a dispatcher with
+//! [`set_ui_dispatcher`]. Timer callbacks are then enqueued on that loop and
+//! the scheduler remains responsible only for deadlines and cancellation.
 
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
-use std::thread;
-use std::time::Duration;
+use std::collections::HashMap;
+use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
+use std::sync::{Arc, Condvar, Mutex, OnceLock, RwLock};
+use std::time::{Duration, Instant};
 
 mod interval;
 mod misc;
@@ -52,33 +28,246 @@ pub use types::*;
 
 use misc::TIMER_ID_COUNTER;
 
+type TimerCallback = Arc<Mutex<Box<dyn FnMut(f64) -> bool + Send>>>;
+type Completion = Arc<(Mutex<bool>, Condvar)>;
+
+/// A function that transfers a timer callback to an application's UI queue.
+///
+/// The dispatcher receives a one-shot job. It must enqueue the job and return
+/// quickly; the job sends the callback result back to the shared timer
+/// scheduler after it has run on the UI thread.
+pub type TimerDispatcher = Arc<dyn Fn(Box<dyn FnOnce() + Send>) + Send + Sync + 'static>;
+
+static UI_DISPATCHER: OnceLock<RwLock<Option<TimerDispatcher>>> = OnceLock::new();
+
+/// Register the UI-thread callback dispatcher used by all subsequently fired
+/// timers.
+///
+/// Passing a closure that forwards its argument to `cx.spawn`, an event queue,
+/// or an equivalent UI executor makes timer callbacks run on that UI thread.
+/// Call [`clear_ui_dispatcher`] when the UI loop is torn down. If no dispatcher
+/// is installed, callbacks run on the shared scheduler thread.
+pub fn set_ui_dispatcher<F>(dispatcher: F)
+where
+    F: Fn(Box<dyn FnOnce() + Send>) + Send + Sync + 'static,
+{
+    *UI_DISPATCHER
+        .get_or_init(|| RwLock::new(None))
+        .write()
+        .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(Arc::new(dispatcher));
+}
+
+/// Remove the process-wide UI-thread callback dispatcher.
+pub fn clear_ui_dispatcher() {
+    if let Some(dispatcher) = UI_DISPATCHER.get() {
+        *dispatcher
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
+    }
+}
+
+fn ui_dispatcher() -> Option<TimerDispatcher> {
+    UI_DISPATCHER.get().and_then(|dispatcher| {
+        dispatcher
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
+    })
+}
+
+#[derive(Clone)]
+struct TaskSpec {
+    id: u64,
+    callback: TimerCallback,
+    stopped: Arc<std::sync::atomic::AtomicBool>,
+    completion: Completion,
+    start_time: f64,
+    period: Duration,
+}
+
+struct ScheduledTask {
+    task: TaskSpec,
+    next_tick: Instant,
+}
+
+enum SchedulerCommand {
+    Schedule(ScheduledTask),
+    Cancel(u64),
+    CallbackResult { task: TaskSpec, keep_running: bool },
+}
+
+struct Scheduler {
+    sender: Sender<SchedulerCommand>,
+}
+
+static SCHEDULER: OnceLock<Scheduler> = OnceLock::new();
+
+fn scheduler() -> &'static Scheduler {
+    SCHEDULER.get_or_init(|| {
+        let (sender, receiver) = mpsc::channel();
+        let worker_sender = sender.clone();
+        std::thread::Builder::new()
+            .name("d3-timer-scheduler".to_string())
+            .spawn(move || scheduler_loop(receiver, worker_sender))
+            .expect("failed to start d3 timer scheduler");
+        Scheduler { sender }
+    })
+}
+
+fn scheduler_loop(receiver: Receiver<SchedulerCommand>, sender: Sender<SchedulerCommand>) {
+    let mut tasks = HashMap::<u64, ScheduledTask>::new();
+    let mut due_ids = Vec::new();
+
+    loop {
+        let wait = tasks
+            .values()
+            .map(|task| task.next_tick.saturating_duration_since(Instant::now()))
+            .min()
+            .unwrap_or(Duration::from_secs(3600));
+
+        match receiver.recv_timeout(wait) {
+            Ok(command) => handle_command(command, &mut tasks),
+            Err(RecvTimeoutError::Timeout) => {}
+            Err(RecvTimeoutError::Disconnected) => break,
+        }
+
+        let now = Instant::now();
+        due_ids.clear();
+        due_ids.extend(
+            tasks
+                .iter()
+                .filter_map(|(&id, task)| (task.next_tick <= now).then_some(id)),
+        );
+
+        for id in due_ids.drain(..) {
+            let Some(task) = tasks.remove(&id) else {
+                continue;
+            };
+            dispatch_due_task(task, &sender);
+        }
+    }
+
+    for (_, task) in tasks {
+        finish_task(&task.task);
+    }
+}
+
+fn handle_command(command: SchedulerCommand, tasks: &mut HashMap<u64, ScheduledTask>) {
+    match command {
+        SchedulerCommand::Schedule(task) => {
+            tasks.insert(task.task.id, task);
+        }
+        SchedulerCommand::Cancel(id) => {
+            if let Some(task) = tasks.remove(&id) {
+                finish_task(&task.task);
+            }
+        }
+        SchedulerCommand::CallbackResult { task, keep_running } => {
+            if keep_running && !task.stopped.load(std::sync::atomic::Ordering::Acquire) {
+                tasks.insert(
+                    task.id,
+                    ScheduledTask {
+                        next_tick: Instant::now() + task.period,
+                        task,
+                    },
+                );
+            } else {
+                task.stopped
+                    .store(true, std::sync::atomic::Ordering::Release);
+                finish_task(&task);
+            }
+        }
+    }
+}
+
+fn dispatch_due_task(task: ScheduledTask, sender: &Sender<SchedulerCommand>) {
+    let task = task.task;
+    if task.stopped.load(std::sync::atomic::Ordering::Acquire) {
+        finish_task(&task);
+        return;
+    }
+
+    if let Some(dispatcher) = ui_dispatcher() {
+        let sender = sender.clone();
+        let callback_task = task.clone();
+        dispatcher(Box::new(move || {
+            let keep_running = if callback_task
+                .stopped
+                .load(std::sync::atomic::Ordering::Acquire)
+            {
+                false
+            } else {
+                invoke_callback(&callback_task)
+            };
+            let _ = sender.send(SchedulerCommand::CallbackResult {
+                task: callback_task,
+                keep_running,
+            });
+        }));
+    } else {
+        let keep_running = invoke_callback(&task);
+        if keep_running && !task.stopped.load(std::sync::atomic::Ordering::Acquire) {
+            scheduler()
+                .sender
+                .send(SchedulerCommand::Schedule(ScheduledTask {
+                    next_tick: Instant::now() + task.period,
+                    task,
+                }))
+                .ok();
+        } else {
+            task.stopped
+                .store(true, std::sync::atomic::Ordering::Release);
+            finish_task(&task);
+        }
+    }
+}
+
+fn invoke_callback(task: &TaskSpec) -> bool {
+    let elapsed = (now() - task.start_time).max(0.0);
+    catch_unwind(AssertUnwindSafe(|| {
+        let mut callback = task
+            .callback
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        callback(elapsed)
+    }))
+    .unwrap_or(false)
+}
+
+fn finish_task(task: &TaskSpec) {
+    let (lock, condvar) = &*task.completion;
+    let mut done = lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    *done = true;
+    condvar.notify_all();
+}
+
+fn completion() -> Completion {
+    Arc::new((Mutex::new(false), Condvar::new()))
+}
+
+fn period_from_ms(milliseconds: f64, default: Duration) -> Duration {
+    if milliseconds.is_finite() && milliseconds > 0.0 {
+        Duration::from_secs_f64(milliseconds / 1000.0).max(Duration::from_millis(1))
+    } else {
+        default
+    }
+}
+
 /// A timer that invokes a callback repeatedly.
 ///
-/// The callback receives the elapsed time since the timer was started.
-/// If the callback returns `false`, the timer stops.
-///
-/// # Example
-///
-/// ```rust,no_run
-/// use d3rs::timer::Timer;
-///
-/// let timer = Timer::new(|elapsed| {
-///     println!("Elapsed: {} ms", elapsed);
-///     elapsed < 5000.0 // Stop after 5 seconds
-/// }, None, None);
-///
-/// // Timer runs in background thread
-/// // Call timer.stop() to cancel early
-/// ```
+/// The callback receives the elapsed time since the timer was started. If the
+/// callback returns `false`, the timer stops. All timers share one scheduler
+/// thread; callback execution can be moved to a UI thread with
+/// [`set_ui_dispatcher`].
 #[derive(Clone)]
 #[allow(clippy::type_complexity)]
 pub struct Timer {
     id: u64,
-    callback: Arc<Mutex<Box<dyn FnMut(f64) -> bool + Send>>>,
+    callback: TimerCallback,
     delay: f64,
     start_time: f64,
-    stopped: Arc<AtomicBool>,
-    handle: Arc<Mutex<Option<thread::JoinHandle<()>>>>,
+    stopped: Arc<std::sync::atomic::AtomicBool>,
+    completion: Completion,
 }
 
 impl std::fmt::Debug for Timer {
@@ -87,130 +276,95 @@ impl std::fmt::Debug for Timer {
             .field("id", &self.id)
             .field("delay", &self.delay)
             .field("start_time", &self.start_time)
-            .field("stopped", &self.stopped.load(Ordering::SeqCst))
+            .field(
+                "stopped",
+                &self.stopped.load(std::sync::atomic::Ordering::Acquire),
+            )
             .finish()
     }
 }
 
 impl Timer {
-    /// Creates a new timer with the given callback.
-    ///
-    /// # Arguments
-    ///
-    /// * `callback` - Function called on each tick. Receives elapsed time in ms.
-    ///   Return `false` to stop the timer.
-    /// * `delay` - Optional delay in ms before first callback (default: 0)
-    /// * `time` - Optional start time for elapsed calculation (default: now())
-    ///
-    /// # Example
-    ///
-    /// ```rust,no_run
-    /// use d3rs::timer::Timer;
-    ///
-    /// // Timer that logs elapsed time every ~16ms
-    /// let timer = Timer::new(|elapsed| {
-    ///     println!("t = {:.1} ms", elapsed);
-    ///     elapsed < 1000.0
-    /// }, None, None);
-    /// ```
+    /// Creates a new timer with the default approximately-60fps period.
     pub fn new<F>(callback: F, delay: Option<f64>, time: Option<f64>) -> Self
     where
         F: FnMut(f64) -> bool + Send + 'static,
     {
-        let id = TIMER_ID_COUNTER.fetch_add(1, Ordering::SeqCst);
+        Self::with_period(callback, delay, time, Duration::from_millis(16))
+    }
+
+    pub(super) fn with_period<F>(
+        callback: F,
+        delay: Option<f64>,
+        time: Option<f64>,
+        period: Duration,
+    ) -> Self
+    where
+        F: FnMut(f64) -> bool + Send + 'static,
+    {
+        let id = TIMER_ID_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let delay = delay.unwrap_or(0.0);
         let start_time = time.unwrap_or_else(now);
-        let stopped = Arc::new(AtomicBool::new(false));
+        let stopped = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let completion = completion();
         let callback = Arc::new(Mutex::new(
             Box::new(callback) as Box<dyn FnMut(f64) -> bool + Send>
         ));
-
-        let timer = Timer {
+        let timer = Self {
             id,
             callback: callback.clone(),
             delay,
             start_time,
             stopped: stopped.clone(),
-            handle: Arc::new(Mutex::new(None)),
+            completion: completion.clone(),
         };
 
-        // Start the timer thread
-        let stopped_clone = stopped.clone();
-        let callback_clone = callback;
-        let start = start_time;
-        let delay_ms = delay;
-
-        let handle = thread::spawn(move || {
-            // Wait for initial delay
-            if delay_ms > 0.0 {
-                thread::sleep(Duration::from_secs_f64(delay_ms / 1000.0));
-            }
-
-            // Animation loop - approximately 60fps
-            let frame_duration = Duration::from_millis(16);
-
-            while !stopped_clone.load(Ordering::SeqCst) {
-                let elapsed = now() - start;
-
-                // Call the callback
-                let should_continue = {
-                    let mut cb = callback_clone.lock().unwrap();
-                    cb(elapsed)
-                };
-
-                if !should_continue {
-                    stopped_clone.store(true, Ordering::SeqCst);
-                    break;
-                }
-
-                thread::sleep(frame_duration);
-            }
-        });
-
-        *timer.handle.lock().unwrap() = Some(handle);
+        let next_tick = Instant::now() + period_from_ms(delay, Duration::ZERO);
+        scheduler()
+            .sender
+            .send(SchedulerCommand::Schedule(ScheduledTask {
+                next_tick,
+                task: TaskSpec {
+                    id,
+                    callback,
+                    stopped,
+                    completion,
+                    start_time,
+                    period,
+                },
+            }))
+            .expect("d3 timer scheduler has stopped");
         timer
     }
 
-    /// Stops the timer.
-    ///
-    /// Once stopped, a timer cannot be restarted. Use `restart()` to
-    /// reinitialize with a new callback.
+    /// Stops the timer. Stopping is idempotent and does not block.
     pub fn stop(&self) {
-        self.stopped.store(true, Ordering::SeqCst);
+        self.stopped
+            .store(true, std::sync::atomic::Ordering::Release);
+        finish_task(&TaskSpec {
+            id: self.id,
+            callback: self.callback.clone(),
+            stopped: self.stopped.clone(),
+            completion: self.completion.clone(),
+            start_time: self.start_time,
+            period: Duration::ZERO,
+        });
+        let _ = scheduler().sender.send(SchedulerCommand::Cancel(self.id));
     }
 
-    /// Returns true if the timer has been stopped.
+    /// Returns true if the timer has been stopped or completed.
     pub fn is_stopped(&self) -> bool {
-        self.stopped.load(Ordering::SeqCst)
+        self.stopped.load(std::sync::atomic::Ordering::Acquire)
     }
 
     /// Restarts the timer with a new callback.
-    ///
-    /// # Arguments
-    ///
-    /// * `callback` - New function to call on each tick
-    /// * `delay` - Optional delay before first callback (default: 0)
-    /// * `time` - Optional start time (default: now())
     pub fn restart<F>(&mut self, callback: F, delay: Option<f64>, time: Option<f64>)
     where
         F: FnMut(f64) -> bool + Send + 'static,
     {
-        // Stop the old timer
         self.stop();
-
-        // Wait for old thread to finish
-        if let Some(handle) = self.handle.lock().unwrap().take() {
-            let _ = handle.join();
-        }
-
-        // Create new timer state
         let new_timer = Timer::new(callback, delay, time);
-        self.id = new_timer.id;
-        self.callback = new_timer.callback;
-        self.delay = new_timer.delay;
-        self.start_time = new_timer.start_time;
-        self.stopped = new_timer.stopped;
-        self.handle = new_timer.handle;
+        *self = new_timer;
     }
 
     /// Returns the timer's unique ID.
@@ -218,7 +372,7 @@ impl Timer {
         self.id
     }
 
-    /// Returns the delay before first callback.
+    /// Returns the delay before the first callback.
     pub fn delay(&self) -> f64 {
         self.delay
     }
@@ -228,37 +382,20 @@ impl Timer {
         self.start_time
     }
 
-    /// Wait for the timer to complete (blocking).
-    ///
-    /// This is useful in tests or when you need to ensure all
-    /// timer callbacks have finished.
+    /// Waits for the timer to complete. This is useful in tests or when an
+    /// application must ensure all callbacks have finished.
     pub fn join(self) {
-        if let Some(handle) = self.handle.lock().unwrap().take() {
-            let _ = handle.join();
+        let (lock, condvar) = &*self.completion;
+        let mut done = lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        while !*done {
+            done = condvar
+                .wait(done)
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
         }
     }
 }
 
-/// Creates a new timer that invokes the callback repeatedly.
-///
-/// This is a convenience function equivalent to `Timer::new()`.
-///
-/// # Arguments
-///
-/// * `callback` - Function called on each tick. Return `false` to stop.
-/// * `delay` - Optional delay in ms before first callback
-/// * `time` - Optional start time for elapsed calculation
-///
-/// # Example
-///
-/// ```rust,no_run
-/// use d3rs::timer::timer;
-///
-/// let t = timer(|elapsed| {
-///     println!("Elapsed: {} ms", elapsed);
-///     elapsed < 2000.0 // Run for 2 seconds
-/// }, None, None);
-/// ```
+/// Creates a new timer that invokes a callback repeatedly.
 pub fn timer<F>(callback: F, delay: Option<f64>, time: Option<f64>) -> Timer
 where
     F: FnMut(f64) -> bool + Send + 'static,

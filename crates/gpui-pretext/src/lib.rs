@@ -55,9 +55,11 @@ pub use language_support::{
 };
 pub use layout::{
     LayoutCursor, LayoutLine, LayoutLineRange, LayoutLinesResult, LayoutResult, PrepareOptions,
-    PrepareProfile, PreparedText, PreparedTextWithSegments, layout, layout_next_line,
-    layout_optimal, layout_with_lines, layout_with_lines_and_strategy, layout_with_lines_optimal,
-    layout_with_strategy, prepare, prepare_with_segments, profile_prepare, walk_line_ranges,
+    PrepareProfile, PreparedText, PreparedTextWithSegments, TextBudget, TextPrepareError, layout,
+    layout_next_line, layout_optimal, layout_with_lines, layout_with_lines_and_strategy,
+    layout_with_lines_optimal, layout_with_strategy, prepare, prepare_with_budget,
+    prepare_with_budget_and_cancel, prepare_with_segments, prepare_with_segments_with_budget,
+    prepare_with_segments_with_budget_and_cancel, profile_prepare, walk_line_ranges,
     walk_line_ranges_optimal,
 };
 pub use line_break::{KnuthPlassParams, LineBreakStrategy};

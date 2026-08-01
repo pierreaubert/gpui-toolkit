@@ -8,6 +8,10 @@ use std::path::{Component, Path, PathBuf};
 const GPUI_VERSION: &str = "0.2.2";
 const GPUI_ZED_TAG: &str = "v1.9.0";
 const SCAFFOLD_TEMPLATE_VERSION: &str = "1";
+const GPUI_ANDROID_ACTIVITY_JAVA: &str =
+    include_str!("../../gpui-android/android/src/main/java/dev/gpui/mobile/GpuiActivity.java");
+const GPUI_ANDROID_FILE_PROVIDER_JAVA: &str =
+    include_str!("../../gpui-android/android/src/main/java/dev/gpui/mobile/GpuiFileProvider.java");
 
 #[derive(Debug, Clone)]
 pub struct ScaffoldOptions {
@@ -75,6 +79,8 @@ pub fn scaffold_app(options: &ScaffoldOptions) -> Result<ScaffoldedApp> {
     fs::create_dir_all(app_dir.join("ios/lib"))
         .with_context(|| format!("failed to create {}", app_dir.join("ios/lib").display()))?;
     fs::create_dir_all(app_dir.join("android/gradle/app/src/main/res/values"))
+        .with_context(|| format!("failed to create {}", app_dir.join("android").display()))?;
+    fs::create_dir_all(app_dir.join("android/gradle/app/src/main/java/dev/gpui/mobile"))
         .with_context(|| format!("failed to create {}", app_dir.join("android").display()))?;
     fs::create_dir_all(app_dir.join("android/gradle/app/src/main/jniLibs/arm64-v8a"))
         .with_context(|| format!("failed to create {}", app_dir.join("android").display()))?;
@@ -167,6 +173,14 @@ pub fn scaffold_app(options: &ScaffoldOptions) -> Result<ScaffoldedApp> {
     write_file(
         &app_dir.join("android/gradle/app/src/main/res/values/styles.xml"),
         &android_styles(),
+    )?;
+    write_file(
+        &app_dir.join("android/gradle/app/src/main/java/dev/gpui/mobile/GpuiActivity.java"),
+        GPUI_ANDROID_ACTIVITY_JAVA,
+    )?;
+    write_file(
+        &app_dir.join("android/gradle/app/src/main/java/dev/gpui/mobile/GpuiFileProvider.java"),
+        GPUI_ANDROID_FILE_PROVIDER_JAVA,
     )?;
 
     Ok(ScaffoldedApp {
@@ -1016,7 +1030,7 @@ fn android_manifest() -> String {
         android:supportsRtl="true"
         android:theme="@style/GpuiTheme">
         <activity
-            android:name="android.app.NativeActivity"
+            android:name="dev.gpui.mobile.GpuiActivity"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|keyboard|navigation|uiMode|density"
             android:exported="true"
             android:launchMode="singleTask"
@@ -1030,6 +1044,11 @@ fn android_manifest() -> String {
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <provider
+            android:name="dev.gpui.mobile.GpuiFileProvider"
+            android:authorities="${applicationId}.gpui.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true" />
     </application>
 </manifest>
 "#
@@ -1180,6 +1199,26 @@ mod tests {
                 .join("android/gradle/app/src/main/res/values/strings.xml")
                 .is_file()
         );
+        assert!(
+            scaffolded
+                .app_dir
+                .join("android/gradle/app/src/main/java/dev/gpui/mobile/GpuiActivity.java")
+                .is_file()
+        );
+        assert!(
+            scaffolded
+                .app_dir
+                .join("android/gradle/app/src/main/java/dev/gpui/mobile/GpuiFileProvider.java")
+                .is_file()
+        );
+
+        let android_manifest = fs::read_to_string(
+            scaffolded
+                .app_dir
+                .join("android/gradle/app/src/main/AndroidManifest.xml"),
+        )?;
+        assert!(android_manifest.contains("dev.gpui.mobile.GpuiActivity"));
+        assert!(android_manifest.contains("dev.gpui.mobile.GpuiFileProvider"));
 
         let manifest = fs::read_to_string(scaffolded.app_dir.join("Cargo.toml"))?;
         let _: toml::Value = toml::from_str(&manifest)?;
@@ -1297,7 +1336,8 @@ mod tests {
                 .app_dir
                 .join("android/gradle/app/src/main/AndroidManifest.xml"),
         )?;
-        assert!(android_manifest.contains("android.app.NativeActivity"));
+        assert!(android_manifest.contains("dev.gpui.mobile.GpuiActivity"));
+        assert!(android_manifest.contains("dev.gpui.mobile.GpuiFileProvider"));
         assert!(android_manifest.contains("android.app.lib_name"));
         assert!(android_manifest.contains("${nativeLibraryName}"));
 

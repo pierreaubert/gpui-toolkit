@@ -87,6 +87,14 @@ impl AuSafetyReport {
 
 pub const AU_SAFETY_BOUNDARIES: &[AuSafetyBoundary] = &[
     AuSafetyBoundary {
+        id: "ffi-entrypoint-null-contract",
+        area: "C ABI null and invalid-context handling",
+        source: "ffi.rs",
+        invariant: "Every exported lifecycle, rendering, input, and text entry point returns safely when the host passes a null context or optional pointer.",
+        current_gate: "Covered by `exported_host_entry_points_are_null_safe`; keep the C header syntax check in CI.",
+        status: AuSafetyStatus::Audited,
+    },
+    AuSafetyBoundary {
         id: "host-nsview-raw-window",
         area: "Host-provided NSView raw-window handle",
         source: "window/au_raw_window.rs",
@@ -150,7 +158,7 @@ mod tests {
         assert_eq!(report.schema_version, AU_SAFETY_REPORT_SCHEMA_VERSION);
         assert_eq!(report.report_type, AU_SAFETY_REPORT_TYPE);
         assert_eq!(report.crate_name, "gpui-au");
-        assert!(report.boundaries.len() >= 5);
+        assert!(report.boundaries.len() >= 6);
     }
 
     #[test]
@@ -175,6 +183,7 @@ mod tests {
             .collect::<HashSet<_>>();
 
         assert!(ids.contains("host-nsview-raw-window"));
+        assert!(ids.contains("ffi-entrypoint-null-contract"));
         assert!(ids.contains("global-au-window-pointer"));
         assert!(ids.contains("ffi-context-lifecycle"));
         assert!(ids.contains("dispatcher-trampoline"));

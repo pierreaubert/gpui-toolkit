@@ -82,6 +82,14 @@ qa-gpui-conformance:
 	cargo run -p gpui-design-tools --bin gpui-validate-design-tokens {{features}} -- --report-json target/gpui-conformance/design-tokens.json --report-markdown target/gpui-conformance/design-tokens.md
 	cargo run -p gpui-component-lab --bin gpui-component-lab {{features}} -- --conformance --report-json target/gpui-conformance/component-lab.json --report-markdown target/gpui-conformance/component-lab.md
 
+# Compile and exercise deterministic Apple host-boundary contracts. This is
+# separate from simulator/DAW runtime gates, which still require a real host.
+[group('qa')]
+qa-apple-host-contracts:
+	cargo test -p gpui-au
+	clang -fsyntax-only -x c crates/gpui-au/include/gpui_au.h
+	cargo check -p gpui-ios --tests --target aarch64-apple-ios-sim
+
 [group('qa')]
 qa-gpui-obvious: qa-gpui-conformance
 	cargo test -p gpui-ui-kit-macros {{features}}
@@ -578,7 +586,7 @@ showcase-android-install: showcase-android-apk
 # Launch the Showcase Android APK on the connected device/emulator.
 [group('android')]
 showcase-android-run: showcase-android-install
-	"{{android_sdk_root}}/platform-tools/adb" shell am start -n org.spinorama.gpui.showcase/android.app.NativeActivity
+	"{{android_sdk_root}}/platform-tools/adb" shell am start -n org.spinorama.gpui.showcase/dev.gpui.mobile.GpuiActivity
 
 # ----------------------------------------------------------------------
 # MAINTENANCE

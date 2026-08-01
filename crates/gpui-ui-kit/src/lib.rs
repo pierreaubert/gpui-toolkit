@@ -163,7 +163,7 @@ pub use empty_state::EmptyState;
 pub use image_view::{ImageFit, ImageView, ImageViewTheme};
 pub use keyboard_shortcut_label::{KeyboardShortcutLabel, KeyboardShortcutSize};
 pub use progress::{CircularProgress, Progress, ProgressSize, ProgressVariant};
-pub use qr::{AnimatedQrCode, QrCode};
+pub use qr::{AnimatedQrCode, QrCode, QrCodeError, QrCodeLimits};
 pub use spinner::{LoadingDots, Spinner, SpinnerSize};
 pub use step_indicator::{
     StepIndicator, StepIndicatorSize, StepIndicatorTheme, StepItem, StepItemStatus, StepOrientation,

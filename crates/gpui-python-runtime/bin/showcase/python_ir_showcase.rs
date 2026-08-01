@@ -748,17 +748,10 @@ impl PythonIrShowcase {
             Ok(spec) => spec.clone(),
             Err(error) => return self.render_error(&error, theme, ds),
         };
-        self.render_spec_summary(
-            "Mesh spec",
-            &[
-                ("id", spec.id.as_str()),
-                ("vertices", &spec.vertices.len().to_string()),
-                ("indices", &spec.indices.len().to_string()),
-                ("renderer", "pending"),
-            ],
-            theme,
-            ds,
-        )
+        self.gpui_3d
+            .mesh_element(&spec)
+            .map(IntoElement::into_any_element)
+            .unwrap_or_else(|error| self.render_error(&error.to_string(), theme, ds))
     }
 
     pub(super) fn render_scene_summary(
@@ -778,7 +771,7 @@ impl PythonIrShowcase {
                 ("id", spec.id.as_str()),
                 ("children", &spec.children.len().to_string()),
                 ("camera", "orbit/perspective"),
-                ("mesh renderer", "pending"),
+                ("mesh renderer", "available for direct mesh nodes"),
             ],
             theme,
             ds,

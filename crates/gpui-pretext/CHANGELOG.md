@@ -1,5 +1,10 @@
 # Unreleased
 
+## Performance
+
+- Added bounded text preparation APIs with byte, grapheme, and segment limits
+  plus cooperative cancellation checks around analysis and measurement.
+
 # 0.9.7
 
 ## Fixes

@@ -1,5 +1,11 @@
 # Unreleased
 
+## Performance
+
+- Added `RetainedLayoutSolver`, a stateful convenience API that reuses the
+  flat solved-tree arena, child-index buffers, and text cache across frame-rate
+  layout passes.
+
 ## Safety
 
 - Removed lifetime transmutation from reusable solver scratch storage by

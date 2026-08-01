@@ -36,6 +36,8 @@ pub mod stream;
 pub mod topojson;
 pub mod versor;
 
+pub use topojson::{TopoJsonBudget, TopoJsonError, parse_land, parse_land_with_budget};
+
 mod consts;
 mod misc;
 mod rotation;

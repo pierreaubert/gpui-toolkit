@@ -239,11 +239,27 @@ const RELEASE_QA_GATES: &[ReleaseQaGate] = &[
         release_requirement: "Attach the local PNG/JSON renderer artifact and add keyboard/resize automation before promoting this gate.",
     },
     ReleaseQaGate {
+        id: "screen-reader-qa",
+        area: "Native screen-reader walkthroughs",
+        command: "Manual VoiceOver/Narrator/Orca-AT-SPI/TalkBack walkthrough on selected targets",
+        status: ReleaseQaStatus::ManualRequired,
+        evidence: "Core UI-kit controls now publish roles, labels, state/value metadata, and applicable actions through GPUI's AccessKit element API; no VoiceOver, Narrator, Orca/AT-SPI, or TalkBack walkthrough artifact is recorded.",
+        release_requirement: "Attach reproducible walkthrough evidence for every selected desktop/mobile target and record the tested control set, focus order, announcements, and activation/value actions.",
+    },
+    ReleaseQaGate {
+        id: "apple-host-contracts",
+        area: "iOS/AUv3 host ABI contracts",
+        command: "just qa-apple-host-contracts",
+        status: ReleaseQaStatus::Passed,
+        evidence: "AU exported lifecycle/render/input/text entry points are null-safe by test, the AU C header passes clang syntax validation, and the iOS target-gated FFI contract tests compile in the simulator target lane.",
+        release_requirement: "Keep the contract suite green; retain separate simulator and DAW-host runtime evidence for platform promotion.",
+    },
+    ReleaseQaGate {
         id: "au-host",
         area: "Audio Unit host embedding",
         command: "AUv3 host validation with gpui-au",
         status: ReleaseQaStatus::ManualRequired,
-        evidence: "gpui-au test targets now compile, but AUv3 host runtime validation is not recorded.",
+        evidence: "The automated AU ABI contract suite covers null/invalid host inputs and C-header compatibility; an actual AUv3 host still has not been exercised in this environment.",
         release_requirement: "Run at least one AUv3 host smoke test and text/window lifetime check.",
     },
     ReleaseQaGate {
@@ -251,7 +267,7 @@ const RELEASE_QA_GATES: &[ReleaseQaGate] = &[
         area: "iOS simulator",
         command: "cargo check --lib --target aarch64-apple-ios-sim for a generated scaffold",
         status: ReleaseQaStatus::Partial,
-        evidence: "Generated iOS simulator Rust project compile-check passed; app simulator launch/device behavior was not recorded.",
+        evidence: "The iOS simulator target-gated FFI contract tests compile and the generated simulator Rust project compile-check passed; app simulator launch/device behavior was not recorded.",
         release_requirement: "Add simulator launch plus touch, safe-area, rotation, keyboard, and VoiceOver smoke results.",
     },
     ReleaseQaGate {
@@ -571,6 +587,8 @@ mod tests {
         for expected in [
             "workspace-all-targets",
             "macos-desktop",
+            "screen-reader-qa",
+            "apple-host-contracts",
             "au-host",
             "ios-simulator",
             "android-target",
@@ -623,6 +641,8 @@ mod tests {
 
         assert!(markdown.contains(RELEASE_QA_MATRIX_REPORT_TYPE));
         assert!(markdown.contains("cargo check --workspace --all-targets"));
+        assert!(markdown.contains("screen-reader-qa"));
+        assert!(markdown.contains("apple-host-contracts"));
         assert!(
             markdown.contains("cargo check -p gpui-android --target aarch64-linux-android --lib")
         );

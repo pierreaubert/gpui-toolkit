@@ -1,4 +1,5 @@
 use super::paint::paint_qr_full_from_colors;
+use super::{QrCodeError, QrCodeLimits};
 use crate::theme::ThemeExt;
 use gpui::prelude::{IntoElement, RenderOnce, Styled};
 use gpui::{App, Pixels, Rgba, Window, canvas, px};
@@ -31,16 +32,59 @@ pub struct QrCode {
 impl QrCode {
     /// Create a new QR code component that encodes `data`.
     pub fn new(data: impl AsRef<[u8]>) -> Self {
-        let matrix = QrMatrix::new(data.as_ref()).ok();
-        let colors = matrix.as_ref().map(|m| m.to_colors()).unwrap_or_default();
-        let modules = matrix.as_ref().map_or(0, |m| m.width());
-        Self {
+        Self::try_new(data, QrCodeLimits::default()).unwrap_or_else(|_| Self {
+            colors: Vec::new(),
+            modules: 0,
+            size: px(200.0),
+            fg: None,
+            bg: None,
+        })
+    }
+
+    /// Create a QR code while enforcing input and matrix-size limits.
+    pub fn try_new(data: impl AsRef<[u8]>, limits: QrCodeLimits) -> Result<Self, QrCodeError> {
+        let data = data.as_ref();
+        if data.len() > limits.max_input_bytes {
+            return Err(QrCodeError::InputTooLarge {
+                limit: limits.max_input_bytes,
+                actual: data.len(),
+            });
+        }
+        let matrix = QrMatrix::new(data).map_err(|_| QrCodeError::MatrixTooLarge {
+            limit: limits.max_modules,
+            actual: limits.max_modules.saturating_add(1),
+        })?;
+        let modules = matrix.width();
+        if modules > limits.max_modules {
+            return Err(QrCodeError::MatrixTooLarge {
+                limit: limits.max_modules,
+                actual: modules,
+            });
+        }
+        let colors = matrix.to_colors();
+        Ok(Self {
             colors,
             modules,
             size: px(200.0),
             fg: None,
             bg: None,
+        })
+    }
+
+    /// Bounded constructor with a cooperative cancellation check.
+    pub fn try_new_with_cancel<F: FnMut() -> bool>(
+        data: impl AsRef<[u8]>,
+        limits: QrCodeLimits,
+        mut cancelled: F,
+    ) -> Result<Self, QrCodeError> {
+        if cancelled() {
+            return Err(QrCodeError::Cancelled);
         }
+        let qr = Self::try_new(data, limits)?;
+        if cancelled() {
+            return Err(QrCodeError::Cancelled);
+        }
+        Ok(qr)
     }
 
     /// Set the rendered size (both width and height) in pixels.
@@ -95,5 +139,34 @@ impl IntoElement for QrCode {
 
     fn into_element(self) -> Self::Element {
         gpui::Component::new(self)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{QrCode, QrCodeError, QrCodeLimits};
+
+    #[test]
+    fn bounded_qr_rejects_large_input() {
+        let error = QrCode::try_new(
+            "hello",
+            QrCodeLimits {
+                max_input_bytes: 4,
+                max_modules: 177,
+            },
+        )
+        .unwrap_err();
+        assert!(matches!(error, QrCodeError::InputTooLarge { .. }));
+    }
+
+    #[test]
+    fn bounded_qr_supports_cancellation() {
+        let error = QrCode::try_new_with_cancel(
+            "hello",
+            QrCodeLimits::default(),
+            || true,
+        )
+        .unwrap_err();
+        assert_eq!(error, QrCodeError::Cancelled);
     }
 }

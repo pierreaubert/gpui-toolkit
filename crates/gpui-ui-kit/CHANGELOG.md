@@ -2,6 +2,9 @@
 
 ## Features
 
+- Added bounded QR constructors with input/matrix limits and cooperative
+  cancellation checks.
+
 - Added GPUI/AccessKit accessibility bridging for UI-kit metadata, including
   native roles, labels, states, values, and actions on core controls. Platform
   screen-reader validation remains pending in release QA.
@@ -13,6 +16,8 @@
 
 - `WithTooltip` now uses GPUI's native hoverable tooltip handling and delay,
   so tooltip timing no longer depends on parent-managed hover state.
+- TreeView virtual rendering now counts expanded rows without flattening the
+  entire tree and materializes only the requested visible window.
 
 # 0.9.34
 

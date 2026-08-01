@@ -514,4 +514,23 @@ mod tests {
         assert!(modifiers.platform);
         assert!(!modifiers.control);
     }
+
+    #[test]
+    fn exported_host_entry_points_are_null_safe() {
+        let context = std::ptr::null_mut();
+        gpui_au_destroy(context);
+        gpui_au_request_frame(context);
+        gpui_au_resize(context, 320.0, 200.0, 2.0);
+        gpui_au_mouse_down(context, 0.0, 0.0, 0, 1);
+        gpui_au_mouse_up(context, 0.0, 0.0, 0);
+        gpui_au_mouse_moved(context, 0.0, 0.0);
+        gpui_au_mouse_dragged(context, 0.0, 0.0, 0);
+        gpui_au_scroll_wheel(context, 0.0, 0.0, 0.0, 0.0);
+        gpui_au_key_down(context, 0, std::ptr::null(), 0, false);
+        gpui_au_key_up(context, 0, std::ptr::null(), 0);
+        gpui_au_insert_text(context, std::ptr::null());
+        gpui_au_set_marked_text(context, std::ptr::null(), 0, 0);
+        gpui_au_unmark_text(context);
+        gpui_au_delete_backward(context);
+    }
 }

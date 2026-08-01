@@ -6,7 +6,7 @@ use super::super::mesh::SurfaceMesh;
 use super::super::renderer::Surface3DRenderer;
 use super::angle::angle_major_ticks;
 use super::cartesian::cartesian_grid_lines;
-use super::consts::MAX_SURFACE_RENDER_DIMENSION;
+use super::consts::{MAX_SURFACE_RENDER_DIMENSION, MAX_SURFACE_RENDER_PIXELS};
 use super::misc::default_frequency_ticks;
 use super::misc::project_world_to_screen;
 use super::paint::paint_depth_clipped_stroke_segment;
@@ -742,6 +742,12 @@ impl Element for Surface3DElement {
         let max_render_dimension = render_width.max(render_height);
         if max_render_dimension > MAX_SURFACE_RENDER_DIMENSION {
             let downscale = MAX_SURFACE_RENDER_DIMENSION / max_render_dimension;
+            render_width *= downscale;
+            render_height *= downscale;
+        }
+        let render_pixels = render_width * render_height;
+        if render_pixels > MAX_SURFACE_RENDER_PIXELS {
+            let downscale = (MAX_SURFACE_RENDER_PIXELS / render_pixels).sqrt();
             render_width *= downscale;
             render_height *= downscale;
         }

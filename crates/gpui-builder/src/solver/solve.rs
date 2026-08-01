@@ -25,8 +25,9 @@ use std::rc::Rc;
 /// This function is allocation-heavy: it builds a fresh recursive
 /// [`SolvedNode`] tree on every call, and every container allocates a new
 /// `Vec<SolvedNode>` for its children. For frame-rate layout work, prefer
-/// [`solve_tree_into`] / [`solve_tree_into_with_cache`], which retain the flat
-/// arena, id index, child-index buffers, and text cache across calls.
+/// [`RetainedLayoutSolver`] or [`solve_tree_into`] /
+/// [`solve_tree_into_with_cache`], which retain the flat arena, id index,
+/// child-index buffers, and text cache across calls.
 pub fn solve<'a>(
     root: &LayoutNode<'a>,
     width: f32,
@@ -124,6 +125,79 @@ pub fn solve_tree_into_with_cache<'a>(
         cache: &cache,
     };
     solve_tree_node(root, width, height, prefs, &mut storage);
+}
+
+/// Reusable frame-rate layout solver.
+///
+/// This is the convenient stateful entry point for callers that need to solve
+/// the same declaration topology repeatedly. It retains the flat solved-tree
+/// arena, child-index buffers, and text-measurement cache so a warmed solver
+/// can re-solve without rebuilding the output tree on every frame.
+///
+/// The declaration ids and text inputs borrowed by each root must outlive the
+/// solver, just as they do for [`solve_tree_into`].
+#[derive(Debug)]
+pub struct RetainedLayoutSolver<'a> {
+    cache: Rc<RefCell<TextMeasureCache>>,
+    tree: SolvedTree<'a>,
+}
+
+impl<'a> RetainedLayoutSolver<'a> {
+    /// Create an empty retained solver using the thread-local text cache.
+    pub fn new() -> Self {
+        Self::with_cache(default_text_cache())
+    }
+
+    /// Create a retained solver with preallocated solved-tree capacity.
+    pub fn with_capacity(node_capacity: usize) -> Self {
+        Self {
+            cache: default_text_cache(),
+            tree: SolvedTree::with_capacity(node_capacity),
+        }
+    }
+
+    /// Create a retained solver using an explicit shared text cache.
+    pub fn with_cache(cache: Rc<RefCell<TextMeasureCache>>) -> Self {
+        Self {
+            cache,
+            tree: SolvedTree::with_capacity(0),
+        }
+    }
+
+    /// Re-solve into retained storage and return the current flat tree.
+    pub fn solve(
+        &mut self,
+        root: &LayoutNode<'a>,
+        width: f32,
+        height: f32,
+        prefs: &LayoutPreferences<'a>,
+    ) -> &SolvedTree<'a> {
+        solve_tree_into_with_cache(
+            root,
+            width,
+            height,
+            prefs,
+            self.cache.clone(),
+            &mut self.tree,
+        );
+        &self.tree
+    }
+
+    /// Access the most recently solved tree without solving again.
+    pub fn tree(&self) -> &SolvedTree<'a> {
+        &self.tree
+    }
+
+    /// Consume the solver and return its retained tree.
+    pub fn into_tree(self) -> SolvedTree<'a> {
+        self.tree
+    }
+}
+
+impl<'a> Default for RetainedLayoutSolver<'a> {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 struct TreeSolveStorage<'storage, 'a> {

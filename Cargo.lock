@@ -2902,7 +2902,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-android"
-version = "0.9.3"
+version = "0.9.4"
 dependencies = [
  "accesskit",
  "android-activity",
@@ -3249,7 +3249,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-ui-kit"
-version = "0.9.34"
+version = "0.9.35"
 dependencies = [
  "block2 0.6.2",
  "criterion 0.8.2",

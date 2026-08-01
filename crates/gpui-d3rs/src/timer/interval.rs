@@ -1,10 +1,7 @@
 use super::Timer;
-use super::misc::TIMER_ID_COUNTER;
 use super::misc::now;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
-use std::thread;
-use std::time::{Duration, Instant};
+use super::period_from_ms;
+use std::time::Duration;
 
 /// A repeating timer that fires at fixed intervals.
 ///
@@ -46,67 +43,14 @@ impl Interval {
     where
         F: FnMut(f64) -> bool + Send + 'static,
     {
-        let id = TIMER_ID_COUNTER.fetch_add(1, Ordering::SeqCst);
         let start_time = time.unwrap_or_else(now);
-        let stopped = Arc::new(AtomicBool::new(false));
-        let callback = Arc::new(Mutex::new(
-            Box::new(callback) as Box<dyn FnMut(f64) -> bool + Send>
-        ));
-        let handle = Arc::new(Mutex::new(None));
-
-        let stopped_clone = stopped.clone();
-        let callback_clone = callback.clone();
-        let start = start_time;
-
-        let thread_handle = thread::spawn(move || {
-            let interval_duration = Duration::from_secs_f64(interval_ms / 1000.0);
-            let mut next_tick = Instant::now() + interval_duration;
-
-            while !stopped_clone.load(Ordering::SeqCst) {
-                // Wait until next tick
-                let now_instant = Instant::now();
-                if now_instant < next_tick {
-                    thread::sleep(next_tick - now_instant);
-                }
-
-                if stopped_clone.load(Ordering::SeqCst) {
-                    break;
-                }
-
-                let elapsed = now() - start;
-
-                // Call the callback
-                let should_continue = {
-                    let mut cb = callback_clone.lock().unwrap();
-                    cb(elapsed)
-                };
-
-                if !should_continue {
-                    stopped_clone.store(true, Ordering::SeqCst);
-                    break;
-                }
-
-                // Schedule next tick
-                next_tick += interval_duration;
-
-                // If we've fallen behind, catch up
-                if next_tick < Instant::now() {
-                    next_tick = Instant::now() + interval_duration;
-                }
-            }
-        });
-
-        *handle.lock().unwrap() = Some(thread_handle);
-
         Interval {
-            timer: Timer {
-                id,
+            timer: Timer::with_period(
                 callback,
-                delay: interval_ms,
-                start_time,
-                stopped,
-                handle,
-            },
+                Some(interval_ms),
+                Some(start_time),
+                period_from_ms(interval_ms, Duration::from_millis(1)),
+            ),
         }
     }
 

@@ -24,11 +24,12 @@ mod dsv;
 pub use auto_type::{AutoTyped, auto_type, auto_type_row, auto_type_rows};
 pub use csv::{
     CsvOptions, format_csv, format_tsv, parse_csv, parse_csv_lossy, parse_csv_lossy_with_options,
-    parse_csv_with_options, parse_tsv, parse_tsv_lossy, parse_tsv_lossy_with_options,
-    parse_tsv_with_options, try_parse_csv, try_parse_csv_with_options, try_parse_tsv,
-    try_parse_tsv_with_options,
+    parse_csv_with_budget, parse_csv_with_budget_and_cancel, parse_csv_with_options, parse_tsv,
+    parse_tsv_lossy, parse_tsv_lossy_with_options, parse_tsv_with_budget,
+    parse_tsv_with_budget_and_cancel, parse_tsv_with_options, try_parse_csv,
+    try_parse_csv_with_options, try_parse_tsv, try_parse_tsv_with_options,
 };
 pub use dsv::{
-    ColumnPolicy, DsvParseError, DsvParseErrorKind, DsvParser, DsvResult, DsvRow, parse_dsv,
-    parse_dsv_lossy, try_parse_dsv,
+    ColumnPolicy, DsvBudget, DsvBudgetResource, DsvParseError, DsvParseErrorKind, DsvParser,
+    DsvResult, DsvRow, parse_dsv, parse_dsv_lossy, parse_dsv_with_budget, try_parse_dsv,
 };

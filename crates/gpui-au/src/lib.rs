@@ -21,6 +21,7 @@ mod dispatcher;
 mod display;
 pub mod ffi;
 mod helpers;
+mod keychain;
 mod platform;
 mod safety_report;
 mod text_system;

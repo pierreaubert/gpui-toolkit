@@ -1,8 +1,8 @@
 use super::dsv_parse_error_kind::DsvParseErrorKind;
 use super::dsv_parser::DsvParser;
 use super::parse::parse_dsv;
-use super::types::ColumnPolicy;
 use super::types::DsvRow;
+use super::types::{ColumnPolicy, DsvBudget};
 
 #[test]
 fn test_parse_simple() {
@@ -171,4 +171,39 @@ fn test_column_policy_traits() {
     assert_ne!(policy, ColumnPolicy::Strict);
     let cloned = policy;
     assert_eq!(policy, cloned);
+}
+
+#[test]
+fn test_budget_rejects_large_input_before_scanning() {
+    let parser = DsvParser::new(',');
+    let err = parser
+        .parse_with_budget("a,b\n1,2", DsvBudget::new(3, 10, 10, 10, 100))
+        .unwrap_err();
+
+    assert!(matches!(err.kind, DsvParseErrorKind::BudgetExceeded { .. }));
+}
+
+#[test]
+fn test_budget_cancellation_is_cooperative() {
+    let parser = DsvParser::new(',');
+    let mut checks = 0;
+    let err = parser
+        .parse_with_budget_and_cancel("a,b\n1,2\n3,4", DsvBudget::unlimited(), || {
+            checks += 1;
+            checks > 1
+        })
+        .unwrap_err();
+
+    assert_eq!(err.kind, DsvParseErrorKind::Cancelled);
+    assert!(checks >= 2);
+}
+
+#[test]
+fn test_budget_limits_output_cells() {
+    let parser = DsvParser::new(',');
+    let err = parser
+        .parse_with_budget("a,b\n1,2\n3,4", DsvBudget::new(100, 10, 10, 10, 2))
+        .unwrap_err();
+
+    assert!(matches!(err.kind, DsvParseErrorKind::BudgetExceeded { .. }));
 }

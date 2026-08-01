@@ -2,7 +2,7 @@
 //!
 //! High-level functions for parsing comma-separated and tab-separated values.
 
-use super::dsv::{DsvParseError, DsvParser, DsvResult, DsvRow};
+use super::dsv::{DsvBudget, DsvParseError, DsvParser, DsvResult, DsvRow};
 
 /// Options for CSV/TSV parsing.
 #[derive(Debug, Clone)]
@@ -44,6 +44,20 @@ impl CsvOptions {
 /// ```
 pub fn parse_csv(text: &str) -> DsvResult<Vec<DsvRow>> {
     DsvParser::new(',').parse(text)
+}
+
+/// Parse CSV with explicit size, allocation, and record limits.
+pub fn parse_csv_with_budget(text: &str, budget: DsvBudget) -> DsvResult<Vec<DsvRow>> {
+    DsvParser::new(',').parse_with_budget(text, budget)
+}
+
+/// Parse CSV with limits and a cooperative cancellation callback.
+pub fn parse_csv_with_budget_and_cancel<F: FnMut() -> bool>(
+    text: &str,
+    budget: DsvBudget,
+    cancelled: F,
+) -> DsvResult<Vec<DsvRow>> {
+    DsvParser::new(',').parse_with_budget_and_cancel(text, budget, cancelled)
 }
 
 /// Parse a CSV string and return an empty vector if parsing fails.
@@ -109,6 +123,20 @@ pub fn try_parse_csv_with_options(
 /// ```
 pub fn parse_tsv(text: &str) -> DsvResult<Vec<DsvRow>> {
     DsvParser::new('\t').parse(text)
+}
+
+/// Parse TSV with explicit size, allocation, and record limits.
+pub fn parse_tsv_with_budget(text: &str, budget: DsvBudget) -> DsvResult<Vec<DsvRow>> {
+    DsvParser::new('\t').parse_with_budget(text, budget)
+}
+
+/// Parse TSV with limits and a cooperative cancellation callback.
+pub fn parse_tsv_with_budget_and_cancel<F: FnMut() -> bool>(
+    text: &str,
+    budget: DsvBudget,
+    cancelled: F,
+) -> DsvResult<Vec<DsvRow>> {
+    DsvParser::new('\t').parse_with_budget_and_cancel(text, budget, cancelled)
 }
 
 /// Parse a TSV string and return an empty vector if parsing fails.

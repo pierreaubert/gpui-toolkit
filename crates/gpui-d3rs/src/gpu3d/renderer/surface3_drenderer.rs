@@ -30,6 +30,8 @@ pub struct Surface3DRenderer {
     pub(super) depth_texture: Option<wgpu::TextureView>,
     pub(super) render_texture: Option<wgpu::Texture>,
     pub(super) render_texture_view: Option<wgpu::TextureView>,
+    pub(super) resolve_texture: Option<wgpu::Texture>,
+    pub(super) readback_buffer: Option<wgpu::Buffer>,
     pub(super) width: u32,
     pub(super) height: u32,
     pub(super) config: Surface3DConfig,
@@ -83,6 +85,8 @@ impl Surface3DRenderer {
             depth_texture: None,
             render_texture: None,
             render_texture_view: None,
+            resolve_texture: None,
+            readback_buffer: None,
             width: 0,
             height: 0,
             config,
@@ -437,6 +441,35 @@ impl Surface3DRenderer {
         });
         self.render_texture_view = Some(render_texture.create_view(&Default::default()));
         self.render_texture = Some(render_texture);
+
+        // Reuse the resolve and staging allocations across camera frames. The
+        // GPUI bridge still needs an owned CPU image at its boundary, but the
+        // expensive GPU-side resolve/readback resources no longer churn on
+        // every render.
+        self.resolve_texture = (self.config.msaa_samples > 1).then(|| {
+            self.device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("Resolve Texture"),
+                size: wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8Unorm,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+                view_formats: &[],
+            })
+        });
+
+        let bytes_per_row = (width * 4 + 255) & !255;
+        self.readback_buffer = Some(self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Surface Readback Buffer"),
+            size: (bytes_per_row * height) as u64,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        }));
     }
 
     /// Render the surface and return RGBA pixel data
@@ -480,22 +513,10 @@ impl Surface3DRenderer {
         self.queue
             .write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(&uniforms));
 
-        // Create resolve texture for MSAA
-        let resolve_texture = self.device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("Resolve Texture"),
-            size: wgpu::Extent3d {
-                width: self.width,
-                height: self.height,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
-            view_formats: &[],
-        });
-        let resolve_view = resolve_texture.create_view(&Default::default());
+        let resolve_view = self
+            .resolve_texture
+            .as_ref()
+            .map(|texture| texture.create_view(&Default::default()));
 
         // Create command encoder
         let mut encoder = self
@@ -509,7 +530,7 @@ impl Surface3DRenderer {
             let color_attachment = if self.config.msaa_samples > 1 {
                 wgpu::RenderPassColorAttachment {
                     view: self.render_texture_view.as_ref()?,
-                    resolve_target: Some(&resolve_view),
+                    resolve_target: Some(resolve_view.as_ref()?),
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(clear_color),
                         store: wgpu::StoreOp::Store,
@@ -578,17 +599,12 @@ impl Surface3DRenderer {
             }
         }
 
-        // Copy to staging buffer for readback
+        // Copy to the retained staging buffer for readback.
         let bytes_per_row = (self.width * 4 + 255) & !255; // Align to 256
-        let staging_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Staging Buffer"),
-            size: (bytes_per_row * self.height) as u64,
-            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-            mapped_at_creation: false,
-        });
+        let staging_buffer = self.readback_buffer.as_ref()?;
 
         let copy_source = if self.config.msaa_samples > 1 {
-            &resolve_texture
+            self.resolve_texture.as_ref()?
         } else {
             self.render_texture.as_ref()?
         };
@@ -660,6 +676,15 @@ impl Surface3DRenderer {
 
     /// Update configuration
     pub fn set_config(&mut self, config: Surface3DConfig) {
+        if self.config.msaa_samples != config.msaa_samples {
+            self.width = 0;
+            self.height = 0;
+            self.depth_texture = None;
+            self.render_texture = None;
+            self.render_texture_view = None;
+            self.resolve_texture = None;
+            self.readback_buffer = None;
+        }
         self.config = config;
         // Note: Full pipeline recreation would be needed for some settings
         // For now, just update the config

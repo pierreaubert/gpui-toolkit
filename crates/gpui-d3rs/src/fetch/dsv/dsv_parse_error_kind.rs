@@ -4,9 +4,32 @@ pub enum DsvParseErrorKind {
     UnterminatedQuotedField,
     UnexpectedQuote,
     InvalidDelimiter,
-    HeaderColumnMismatch { expected: usize, actual: usize },
-    EmptyHeader { index: usize },
-    DuplicateHeader { name: String },
+    HeaderColumnMismatch {
+        expected: usize,
+        actual: usize,
+    },
+    EmptyHeader {
+        index: usize,
+    },
+    DuplicateHeader {
+        name: String,
+    },
+    BudgetExceeded {
+        resource: DsvBudgetResource,
+        limit: usize,
+        actual: usize,
+    },
+    Cancelled,
+}
+
+/// Resource categories guarded by [`DsvBudget`](super::types::DsvBudget).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DsvBudgetResource {
+    InputBytes,
+    Records,
+    Columns,
+    FieldBytes,
+    Cells,
 }
 
 impl std::fmt::Display for DsvParseErrorKind {
@@ -25,6 +48,12 @@ impl std::fmt::Display for DsvParseErrorKind {
             }
             Self::EmptyHeader { index } => write!(f, "header at index {index} is empty"),
             Self::DuplicateHeader { name } => write!(f, "duplicate header {name:?}"),
+            Self::BudgetExceeded {
+                resource,
+                limit,
+                actual,
+            } => write!(f, "DSV {resource:?} budget exceeded: {actual} > {limit}"),
+            Self::Cancelled => write!(f, "DSV parsing cancelled"),
         }
     }
 }

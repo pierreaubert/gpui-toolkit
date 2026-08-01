@@ -1,6 +1,6 @@
 use super::dsv_parser::DsvParser;
-use super::types::DsvResult;
 use super::types::DsvRow;
+use super::types::{DsvBudget, DsvResult};
 
 /// Parse a DSV string with the given delimiter.
 ///
@@ -16,6 +16,15 @@ use super::types::DsvRow;
 /// ```
 pub fn parse_dsv(text: &str, delimiter: char) -> DsvResult<Vec<DsvRow>> {
     DsvParser::new(delimiter).parse(text)
+}
+
+/// Parse DSV with explicit size, allocation, and record limits.
+pub fn parse_dsv_with_budget(
+    text: &str,
+    delimiter: char,
+    budget: DsvBudget,
+) -> DsvResult<Vec<DsvRow>> {
+    DsvParser::new(delimiter).parse_with_budget(text, budget)
 }
 
 /// Parse a DSV string and return an empty vector if parsing fails.

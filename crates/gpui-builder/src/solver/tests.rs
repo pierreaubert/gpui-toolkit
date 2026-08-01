@@ -1,7 +1,7 @@
 use std::cell::Cell;
 
 use super::misc::clear_text_cache;
-use super::{solve, solve_tree, solve_tree_into};
+use super::{RetainedLayoutSolver, solve, solve_tree, solve_tree_into};
 use crate::solved::SolvedTree;
 use crate::types::{Axis, ContainerNode, LayoutNode, LayoutPreferences, Sizing, SlotNode};
 
@@ -71,6 +71,30 @@ fn reusable_tree_replaces_old_topology_and_index_entries() {
     assert_eq!(target.find("new").unwrap().height(), 40.0);
     assert!(target.find("old-a").is_none());
     assert!(target.find("old-b").is_none());
+}
+
+#[test]
+fn retained_layout_solver_reuses_flat_tree_storage() {
+    let children = [
+        LayoutNode::slot("header", Sizing::Fixed(20.0)),
+        LayoutNode::slot("content", Sizing::flex(0.0)),
+    ];
+    let root = ContainerNode::new("root", Axis::Vertical, Sizing::flex(0.0), &children).into_node();
+    let prefs = LayoutPreferences::default();
+    let mut solver = RetainedLayoutSolver::with_capacity(3);
+
+    let first_ptr = {
+        let solved = solver.solve(&root, 100.0, 80.0, &prefs);
+        assert_eq!(solved.len(), 3);
+        solved as *const _
+    };
+    let second_ptr = {
+        let solved = solver.solve(&root, 120.0, 90.0, &prefs);
+        assert_eq!(solved.find("header").unwrap().height(), 20.0);
+        solved as *const _
+    };
+
+    assert_eq!(first_ptr, second_ptr);
 }
 
 #[test]

@@ -1,5 +1,14 @@
 # Unreleased
 
+## Performance
+
+- Replaced one-thread-per-timer scheduling with a shared D3 timer scheduler;
+  applications can register a UI-thread dispatcher for timer callbacks.
+- Added a pixel-area budget to GPU 3D surface readback before creating the
+  CPU-backed `RenderImage`.
+- Reused per-size GPU resolve/readback buffers for surface frames, and added
+  bounded/cancellable CSV, TSV, DSV, and TopoJSON parsing entry points.
+
 # 0.9.9
 
 ## Features

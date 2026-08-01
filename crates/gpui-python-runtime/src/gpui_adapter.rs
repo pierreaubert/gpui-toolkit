@@ -1,10 +1,10 @@
 use crate::cache::RetainedSceneCache;
 use crate::error::Scene3DError;
 use crate::scene3d::{
-    CameraSpec, ColorRgba, ColormapSpec, LinesSpec, OrbitCameraSpec, Point3, SurfaceSpec,
+    CameraSpec, ColorRgba, ColormapSpec, LinesSpec, MeshSpec, OrbitCameraSpec, Point3, SurfaceSpec,
 };
 use d3rs::gpu3d::{
-    Colormap, Line3D, Lines3DElement, Lines3DScene, Lines3DState, Surface3DConfig,
+    Colormap, Line3D, Lines3DElement, Lines3DScene, Lines3DState, Polygon3D, Surface3DConfig,
     Surface3DElement, Surface3DState, SurfaceData,
 };
 use glam::Vec3;
@@ -19,6 +19,7 @@ pub struct Gpui3DCache {
     surfaces: HashMap<String, Surface3DElement>,
     line_states: HashMap<String, Rc<RefCell<Lines3DState>>>,
     lines: HashMap<String, Lines3DElement>,
+    meshes: HashMap<String, Lines3DElement>,
 }
 
 impl std::fmt::Debug for Gpui3DCache {
@@ -28,6 +29,7 @@ impl std::fmt::Debug for Gpui3DCache {
             .field("surface_count", &self.surfaces.len())
             .field("line_state_count", &self.line_states.len())
             .field("line_count", &self.lines.len())
+            .field("mesh_count", &self.meshes.len())
             .finish()
     }
 }
@@ -88,6 +90,54 @@ impl Gpui3DCache {
         Ok(element)
     }
 
+    /// Build a retained mesh element using the same camera and GPUI path
+    /// renderer as sparse 3D lines. Mesh vertices are normalized to a unit
+    /// cube, then emitted as filled triangle polygons with the requested
+    /// material. This is a real renderer path rather than a validation-only
+    /// summary, while keeping dense GPU surface rendering separate.
+    pub fn mesh_element(&mut self, spec: &MeshSpec) -> Result<Lines3DElement, Scene3DError> {
+        let update = self.resources.upsert_mesh(spec)?;
+        if update.dirty.is_unchanged()
+            && let Some(element) = self.meshes.get(&spec.id)
+        {
+            return Ok(element.clone());
+        }
+
+        let (min, max) = mesh_bounds(spec);
+        let center = (min + max) * 0.5;
+        let extent = (max - min).max_element().max(f32::EPSILON);
+        let scale = 2.0 / extent;
+        let normalized = |point: Point3| (vec3(point) - center) * scale;
+        let fill = Rgba {
+            r: spec.material.color.r,
+            g: spec.material.color.g,
+            b: spec.material.color.b,
+            a: spec.material.color.a * spec.material.opacity,
+        };
+        let polygons = spec
+            .indices
+            .chunks_exact(3)
+            .map(|triangle| Polygon3D {
+                vertices: triangle
+                    .iter()
+                    .map(|&index| normalized(spec.vertices[index as usize]))
+                    .collect(),
+                fill: Some(fill),
+                stroke: None,
+            })
+            .collect();
+        let element = Lines3DElement::new(
+            Rc::new(RefCell::new(Lines3DState::default())),
+            Lines3DScene {
+                background: None,
+                lines: Vec::new(),
+                polygons,
+            },
+        );
+        self.meshes.insert(spec.id.clone(), element.clone());
+        Ok(element)
+    }
+
     pub fn retain_only<I, S>(&mut self, ids: I)
     where
         I: IntoIterator<Item = S>,
@@ -99,7 +149,19 @@ impl Gpui3DCache {
         self.surfaces.retain(|id, _| live.contains(id));
         self.line_states.retain(|id, _| live.contains(id));
         self.lines.retain(|id, _| live.contains(id));
+        self.meshes.retain(|id, _| live.contains(id));
     }
+}
+
+fn mesh_bounds(spec: &MeshSpec) -> (Vec3, Vec3) {
+    let mut min = vec3(spec.vertices[0]);
+    let mut max = min;
+    for &vertex in &spec.vertices[1..] {
+        let vertex = vec3(vertex);
+        min = min.min(vertex);
+        max = max.max(vertex);
+    }
+    (min, max)
 }
 
 fn surface_data(spec: &SurfaceSpec) -> SurfaceData {
@@ -302,6 +364,25 @@ mod tests {
 
         assert_eq!(cache.lines.len(), 1);
         assert_eq!(cache.line_states.len(), 1);
+    }
+
+    #[test]
+    fn mesh_adapter_builds_and_caches_rendering_element() {
+        let mut cache = Gpui3DCache::new();
+        let spec = MeshSpec {
+            id: "mesh".to_string(),
+            vertices: vec![
+                Point3::new(-1.0, -1.0, 0.0),
+                Point3::new(1.0, -1.0, 0.0),
+                Point3::new(0.0, 1.0, 0.0),
+            ],
+            indices: vec![0, 1, 2],
+            material: crate::scene3d::MaterialSpec::default(),
+        };
+
+        let _first = cache.mesh_element(&spec).expect("first mesh");
+        let _second = cache.mesh_element(&spec).expect("cached mesh");
+        assert_eq!(cache.meshes.len(), 1);
     }
 
     #[test]

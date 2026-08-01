@@ -1,9 +1,9 @@
-use super::dsv_parse_error_kind::DsvParseErrorKind;
+use super::dsv_parse_error_kind::{DsvBudgetResource, DsvParseErrorKind};
 use super::error::DsvParseError;
-use super::types::ColumnPolicy;
 use super::types::DsvResult;
 use super::types::DsvRow;
 use super::types::ParsedRecord;
+use super::types::{ColumnPolicy, DsvBudget};
 use std::collections::HashSet;
 
 /// A DSV parser that can be configured with any delimiter.
@@ -24,6 +24,7 @@ pub struct DsvParser {
     pub(super) skip_empty_lines: bool,
     pub(super) trim_values: bool,
     pub(super) column_policy: ColumnPolicy,
+    pub(super) budget: DsvBudget,
 }
 
 impl DsvParser {
@@ -34,6 +35,7 @@ impl DsvParser {
             skip_empty_lines: true,
             trim_values: true,
             column_policy: ColumnPolicy::D3Compatible,
+            budget: DsvBudget::default(),
         }
     }
 
@@ -55,17 +57,47 @@ impl DsvParser {
         self
     }
 
+    /// Set resource limits for parses performed by this parser.
+    pub fn budget(mut self, budget: DsvBudget) -> Self {
+        self.budget = budget;
+        self
+    }
+
     /// Parse a DSV string into rows.
     ///
     /// The first record is treated as the header row.
     pub fn parse(&self, text: &str) -> DsvResult<Vec<DsvRow>> {
-        let mut records = self.parse_records(text)?;
+        self.parse_with_budget_and_cancel(text, self.budget, || false)
+    }
+
+    /// Parse with explicit resource limits.
+    pub fn parse_with_budget(&self, text: &str, budget: DsvBudget) -> DsvResult<Vec<DsvRow>> {
+        self.parse_with_budget_and_cancel(text, budget, || false)
+    }
+
+    /// Parse with resource limits and a cooperative cancellation callback.
+    ///
+    /// The callback is checked while scanning the input, so callers can abort
+    /// work on a background task without waiting for a large field or file to
+    /// finish parsing.
+    pub fn parse_with_budget_and_cancel<F: FnMut() -> bool>(
+        &self,
+        text: &str,
+        budget: DsvBudget,
+        mut cancelled: F,
+    ) -> DsvResult<Vec<DsvRow>> {
+        let mut records = self.parse_records_with_budget(text, budget, &mut cancelled)?;
         if records.is_empty() {
             return Ok(Vec::new());
         }
 
         let header = records.remove(0);
         self.validate_headers(&header.fields, header.line, header.byte_offset)?;
+
+        let cell_count = header.fields.len().saturating_mul(records.len());
+        if let Some(error) = budget.exceeded(DsvBudgetResource::Cells, cell_count, 1, 1, 0) {
+            return Err(error);
+        }
 
         let mut rows = Vec::with_capacity(records.len());
         for record in records {
@@ -110,11 +142,19 @@ impl DsvParser {
 
     /// Parse a DSV string without headers (returns arrays of strings).
     pub fn parse_rows(&self, text: &str) -> DsvResult<Vec<Vec<String>>> {
-        Ok(self
-            .parse_records(text)?
-            .into_iter()
-            .map(|record| record.fields)
-            .collect())
+        let mut cancelled = || false;
+        let records = self.parse_records_with_budget(text, self.budget, &mut cancelled)?;
+        let cells = records.iter().try_fold(0usize, |total, record| {
+            total.checked_add(record.fields.len())
+        });
+        let cells = cells.unwrap_or(usize::MAX);
+        if let Some(error) = self
+            .budget
+            .exceeded(DsvBudgetResource::Cells, cells, 1, 1, 0)
+        {
+            return Err(error);
+        }
+        Ok(records.into_iter().map(|record| record.fields).collect())
     }
 
     /// Parse rows without headers and return an empty vector if parsing fails.
@@ -127,8 +167,17 @@ impl DsvParser {
         self.parse_rows(text)
     }
 
-    pub(super) fn parse_records(&self, text: &str) -> DsvResult<Vec<ParsedRecord>> {
+    pub(super) fn parse_records_with_budget<F: FnMut() -> bool>(
+        &self,
+        text: &str,
+        budget: DsvBudget,
+        cancelled: &mut F,
+    ) -> DsvResult<Vec<ParsedRecord>> {
         self.validate_delimiter()?;
+
+        if let Some(error) = budget.exceeded(DsvBudgetResource::InputBytes, text.len(), 1, 1, 0) {
+            return Err(error);
+        }
 
         if text.is_empty() {
             return Ok(Vec::new());
@@ -150,6 +199,32 @@ impl DsvParser {
         let mut i = 0usize;
 
         while i < chars.len() {
+            if cancelled() {
+                return Err(DsvParseError::new(
+                    line,
+                    column,
+                    chars[i].0,
+                    DsvParseErrorKind::Cancelled,
+                ));
+            }
+            if let Some(error) = budget.exceeded(
+                DsvBudgetResource::FieldBytes,
+                field.len(),
+                line,
+                column,
+                chars[i].0,
+            ) {
+                return Err(error);
+            }
+            if let Some(error) = budget.exceeded(
+                DsvBudgetResource::Columns,
+                record.len() + 1,
+                line,
+                column,
+                chars[i].0,
+            ) {
+                return Err(error);
+            }
             let (byte_offset, ch) = chars[i];
             last_was_record_terminator = false;
 
@@ -205,6 +280,15 @@ impl DsvParser {
                         record_start_byte,
                         record_has_content,
                     );
+                    if let Some(error) = budget.exceeded(
+                        DsvBudgetResource::Records,
+                        records.len(),
+                        record_start_line,
+                        1,
+                        record_start_byte,
+                    ) {
+                        return Err(error);
+                    }
                     after_quote = false;
                     at_field_start = true;
                     if ch == '\r' && chars.get(i + 1).map(|(_, c)| *c) == Some('\n') {
@@ -274,6 +358,15 @@ impl DsvParser {
                     record_start_byte,
                     record_has_content,
                 );
+                if let Some(error) = budget.exceeded(
+                    DsvBudgetResource::Records,
+                    records.len(),
+                    record_start_line,
+                    1,
+                    record_start_byte,
+                ) {
+                    return Err(error);
+                }
                 at_field_start = true;
                 if ch == '\r' && chars.get(i + 1).map(|(_, c)| *c) == Some('\n') {
                     i += 2;
@@ -307,6 +400,25 @@ impl DsvParser {
             ));
         }
 
+        if let Some(error) = budget.exceeded(
+            DsvBudgetResource::FieldBytes,
+            field.len(),
+            line,
+            column,
+            text.len(),
+        ) {
+            return Err(error);
+        }
+
+        if cancelled() {
+            return Err(DsvParseError::new(
+                line,
+                column,
+                text.len(),
+                DsvParseErrorKind::Cancelled,
+            ));
+        }
+
         if !last_was_record_terminator || !record.is_empty() || !field.is_empty() {
             self.finish_field(&mut record, &mut field);
             self.finish_record(
@@ -316,6 +428,15 @@ impl DsvParser {
                 record_start_byte,
                 record_has_content,
             );
+            if let Some(error) = budget.exceeded(
+                DsvBudgetResource::Records,
+                records.len(),
+                record_start_line,
+                1,
+                record_start_byte,
+            ) {
+                return Err(error);
+            }
         }
 
         Ok(records)

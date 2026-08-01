@@ -184,7 +184,7 @@ impl TreeView {
         viewport_height: f32,
         overscan: usize,
     ) -> Self {
-        let visible_count = visible_tree_nodes(&self.nodes, &self.expanded).len();
+        let visible_count = visible_tree_node_count(&self.nodes, &self.expanded);
         self.virtual_window = Some(DataVirtualWindow::from_viewport(
             visible_count,
             scroll_offset,
@@ -321,24 +321,32 @@ impl TreeView {
             .focus_handle
             .clone()
             .unwrap_or_else(|| cx.focus_handle());
-        let visible_nodes = visible_tree_nodes(&self.nodes, &self.expanded);
-        let visible_ids: Vec<SharedString> =
-            visible_nodes.iter().map(|node| node.id.clone()).collect();
+        // Count the expanded rows without materializing the whole flattened
+        // tree. Rendering only needs the requested window; keyboard handling
+        // below retains the full list only when navigation callbacks are in
+        // use.
+        let visible_count = visible_tree_node_count(&self.nodes, &self.expanded);
+        let virtual_window = self
+            .virtual_window
+            .unwrap_or_else(|| DataVirtualWindow::full(visible_count))
+            .with_total(visible_count);
+        let visible_nodes = visible_tree_node_window(
+            &self.nodes,
+            &self.expanded,
+            virtual_window.start,
+            virtual_window.end,
+        );
         let focused = self
             .focused
             .clone()
             .or_else(|| self.selected.clone())
-            .filter(|id| visible_ids.contains(id));
-        let virtual_window = self
-            .virtual_window
-            .unwrap_or_else(|| DataVirtualWindow::full(visible_nodes.len()))
-            .with_total(visible_nodes.len());
+            .filter(|id| visible_tree_node_exists(&self.nodes, &self.expanded, id));
         let virtual_row_height = self.virtual_row_height;
         let hover_bg = theme.hover_bg;
         let apply_hover = move |s: StyleRefinement| s.bg(hover_bg);
         let mut elements = Vec::new();
         Self::render_visible_nodes(
-            &visible_nodes[virtual_window.start..virtual_window.end],
+            &visible_nodes,
             &self.selected,
             &focused,
             self.indent_size,
@@ -358,8 +366,11 @@ impl TreeView {
 
         if self.on_focus_change.is_some() || self.on_select.is_some() || self.on_toggle.is_some() {
             let focus_handle_for_key = focus_handle.clone();
-            let visible_ids_for_key = visible_ids.clone();
-            let visible_nodes_for_key = visible_nodes;
+            let visible_nodes_for_key = visible_tree_nodes(&self.nodes, &self.expanded);
+            let visible_ids_for_key: Vec<SharedString> = visible_nodes_for_key
+                .iter()
+                .map(|node| node.id.clone())
+                .collect();
             let focused_for_key = focused.clone();
             let on_focus_change = self.on_focus_change.map(std::rc::Rc::new);
             let on_select = self.on_select.map(std::rc::Rc::new);
@@ -499,6 +510,103 @@ fn visible_tree_nodes(
     out
 }
 
+/// Count rows in the expanded tree without allocating a flattened buffer.
+fn visible_tree_node_count(nodes: &[TreeNode], expanded: &HashSet<SharedString>) -> usize {
+    fn count(nodes: &[TreeNode], expanded: &HashSet<SharedString>) -> usize {
+        nodes
+            .iter()
+            .map(|node| {
+                let has_children = !node.children.is_empty() && !node.leaf;
+                1 + if has_children && expanded.contains(&node.id) {
+                    count(&node.children, expanded)
+                } else {
+                    0
+                }
+            })
+            .sum()
+    }
+
+    count(nodes, expanded)
+}
+
+/// Collect only the requested visible row range.
+///
+/// The traversal still walks expanded branches until it reaches `end`, but it
+/// does not allocate or clone rows outside the viewport. This keeps virtual
+/// rendering proportional to the visible window instead of the full expanded
+/// tree.
+fn visible_tree_node_window(
+    nodes: &[TreeNode],
+    expanded: &HashSet<SharedString>,
+    start: usize,
+    end: usize,
+) -> Vec<VisibleTreeNode> {
+    fn collect(
+        nodes: &[TreeNode],
+        expanded: &HashSet<SharedString>,
+        depth: usize,
+        start: usize,
+        end: usize,
+        index: &mut usize,
+        out: &mut Vec<VisibleTreeNode>,
+    ) {
+        for node in nodes {
+            if *index >= end {
+                return;
+            }
+
+            let row_index = *index;
+            *index += 1;
+            let has_children = !node.children.is_empty() && !node.leaf;
+            let is_expanded = expanded.contains(&node.id);
+
+            if row_index >= start {
+                out.push(VisibleTreeNode {
+                    id: node.id.clone(),
+                    label: node.label.clone(),
+                    icon: node.icon.clone(),
+                    depth,
+                    has_children,
+                    expanded: is_expanded,
+                });
+            }
+
+            if has_children && is_expanded {
+                collect(&node.children, expanded, depth + 1, start, end, index, out);
+            }
+        }
+    }
+
+    let mut out = Vec::new();
+    if start < end {
+        let mut index = 0;
+        collect(nodes, expanded, 0, start, end, &mut index, &mut out);
+    }
+    out
+}
+
+fn visible_tree_node_exists(
+    nodes: &[TreeNode],
+    expanded: &HashSet<SharedString>,
+    id: &SharedString,
+) -> bool {
+    fn contains(nodes: &[TreeNode], expanded: &HashSet<SharedString>, id: &SharedString) -> bool {
+        for node in nodes {
+            if &node.id == id {
+                return true;
+            }
+            let has_children = !node.children.is_empty() && !node.leaf;
+            if has_children && expanded.contains(&node.id) && contains(&node.children, expanded, id)
+            {
+                return true;
+            }
+        }
+        false
+    }
+
+    contains(nodes, expanded, id)
+}
+
 impl RenderOnce for TreeView {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         // Register in accessibility tree
@@ -524,7 +632,10 @@ impl IntoElement for TreeView {
 
 #[cfg(test)]
 mod tests {
-    use super::{DataVirtualWindow, TreeNode, TreeView, virtual_spacer_height, visible_tree_nodes};
+    use super::{
+        DataVirtualWindow, TreeNode, TreeView, virtual_spacer_height, visible_tree_node_count,
+        visible_tree_node_window, visible_tree_nodes,
+    };
     use gpui::{SharedString, px};
     use std::collections::HashSet;
 
@@ -601,6 +712,29 @@ mod tests {
 
         assert_eq!(tree.virtual_window, Some(DataVirtualWindow::new(3, 0, 3)));
         assert_eq!(tree.virtual_row_height, Some(10.0));
+    }
+
+    #[test]
+    fn tree_view_virtual_window_does_not_materialize_rows_outside_window() {
+        let nodes = vec![
+            TreeNode::new("root", "root").children(vec![
+                TreeNode::new("a", "a").leaf(true),
+                TreeNode::new("b", "b").leaf(true),
+                TreeNode::new("c", "c").leaf(true),
+            ]),
+            TreeNode::new("tail", "tail").leaf(true),
+        ];
+        let expanded = HashSet::from([SharedString::from("root")]);
+
+        assert_eq!(visible_tree_node_count(&nodes, &expanded), 5);
+        let window = visible_tree_node_window(&nodes, &expanded, 2, 4);
+        assert_eq!(
+            window
+                .iter()
+                .map(|node| node.id.as_ref())
+                .collect::<Vec<_>>(),
+            vec!["b", "c"]
+        );
     }
 
     #[test]

@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+### Performance and Capability
+
+- Added retained frame-rate layout solving, windowed TreeView virtualization,
+  shared D3 timer scheduling with optional UI-thread dispatch, and direct mesh
+  rendering in the Python GPUI adapter.
+- Bounded GPU 3D surface CPU readback by pixel area before creating cached
+  `RenderImage` values.
+- Reused GPU resolve and readback buffers for 3D surface frames, and added
+  bounded QR, CSV/DSV, TopoJSON, and pretext preparation entry points with
+  cooperative cancellation where the parser/layout phase can observe it.
+
+### Known Limitations
+
+- D3 interaction/animation/GPU parity remains partial; pretext bidi/shaping is
+  still backend-dependent; the GPUI surface bridge remains CPU-backed, and
+  the Python mesh path is CPU-projected GPUI polygons rather than a true GPU
+  mesh pipeline. Output formatting plus arbitrary JSON APIs do not yet share
+  the bounded resource contract.
+
 ### Vendored Dependencies
 
 - Vendored the GPUI crate closure from zed-industries/zed at tag v1.9.0 into

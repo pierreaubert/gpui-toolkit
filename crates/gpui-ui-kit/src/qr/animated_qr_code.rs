@@ -3,6 +3,7 @@ use super::misc::QUIET_ZONE;
 use super::misc::clamped_scroll_range;
 use super::misc::ease_in_out_cubic;
 use super::paint::paint_qr_static;
+use super::{QrCodeError, QrCodeLimits};
 use crate::theme::ThemeExt;
 use gpui::prelude::{Context, IntoElement, Render, Styled};
 use gpui::{
@@ -55,9 +56,46 @@ impl AnimatedQrCode {
     /// If the given `size` is too small for modules to be legible, a panning
     /// animation starts automatically. Otherwise it renders statically.
     pub fn new(data: impl AsRef<[u8]>, size: Pixels, cx: &mut Context<Self>) -> Self {
-        let matrix = QrMatrix::new(data.as_ref()).ok();
-        let colors = matrix.as_ref().map(|m| m.to_colors()).unwrap_or_default();
-        let modules = matrix.as_ref().map_or(0, |m| m.width());
+        Self::try_new(data, size, cx, QrCodeLimits::default()).unwrap_or_else(|_| Self {
+            matrix: None,
+            colors: Vec::new(),
+            modules: 0,
+            size,
+            fg: None,
+            bg: None,
+            needs_animation: false,
+            start: Instant::now(),
+            cycle_duration: Duration::ZERO,
+            zoom: 1.0,
+        })
+    }
+
+    /// Create an animated QR code while enforcing input and matrix limits.
+    pub fn try_new(
+        data: impl AsRef<[u8]>,
+        size: Pixels,
+        cx: &mut Context<Self>,
+        limits: QrCodeLimits,
+    ) -> Result<Self, QrCodeError> {
+        let data = data.as_ref();
+        if data.len() > limits.max_input_bytes {
+            return Err(QrCodeError::InputTooLarge {
+                limit: limits.max_input_bytes,
+                actual: data.len(),
+            });
+        }
+        let matrix = QrMatrix::new(data).map_err(|_| QrCodeError::MatrixTooLarge {
+            limit: limits.max_modules,
+            actual: limits.max_modules.saturating_add(1),
+        })?;
+        let modules = matrix.width();
+        if modules > limits.max_modules {
+            return Err(QrCodeError::MatrixTooLarge {
+                limit: limits.max_modules,
+                actual: modules,
+            });
+        }
+        let colors = matrix.to_colors();
         let size_f32: f32 = size.into();
         let total_modules = modules + QUIET_ZONE * 2;
         let module_px = if total_modules > 0 {
@@ -101,8 +139,8 @@ impl AnimatedQrCode {
             .detach();
         }
 
-        Self {
-            matrix,
+        Ok(Self {
+            matrix: Some(matrix),
             colors,
             modules,
             size,
@@ -112,7 +150,7 @@ impl AnimatedQrCode {
             start: Instant::now(),
             cycle_duration,
             zoom,
-        }
+        })
     }
 
     /// Override the foreground (dark module) color.
