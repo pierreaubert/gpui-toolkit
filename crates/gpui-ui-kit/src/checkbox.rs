@@ -8,9 +8,13 @@
 //! - Indeterminate state support
 
 use crate::ComponentTheme;
-use crate::accessibility::{AccessibilityExt, AccessibilityNode, AriaProps, AriaRole, AriaState};
+use crate::accessibility::{
+    AccessibilityExt, AccessibilityNode, AriaProps, AriaRole, AriaState, apply_native_accessibility,
+};
 use crate::theme::ThemeExt;
-use gpui::prelude::{InteractiveElement, IntoElement, ParentElement, RenderOnce, Styled};
+use gpui::prelude::{
+    InteractiveElement, IntoElement, ParentElement, RenderOnce, StatefulInteractiveElement, Styled,
+};
 use gpui::{
     App, Div, ElementId, FontWeight, MouseButton, Pixels, Rgba, SharedString, Stateful, Window,
     div, px,
@@ -173,6 +177,18 @@ impl Checkbox {
         theme: &CheckboxTheme,
         design: &DesignSystem,
     ) -> Stateful<Div> {
+        let effective_label = self
+            .aria_label
+            .clone()
+            .or_else(|| self.label.clone())
+            .unwrap_or_default();
+        let mut native_props = AriaProps::with_role(self.aria_role.unwrap_or(AriaRole::Checkbox))
+            .maybe_state(self.disabled, AriaState::Disabled);
+        native_props = if self.indeterminate {
+            native_props.state(AriaState::Mixed)
+        } else {
+            native_props.state(AriaState::Checked(self.checked))
+        };
         let size = self.size.size_with_design(design);
         let checked = self.checked;
         let indeterminate = self.indeterminate;
@@ -249,6 +265,17 @@ impl Checkbox {
             let handler_rc = std::rc::Rc::new(handler);
             let new_checked = !checked;
 
+            // AccessKit actions do not synthesize mouse events for handlers
+            // registered with on_mouse_up, so wire the screen-reader action
+            // explicitly alongside the existing mouse and keyboard paths.
+            let a11y_handler = handler_rc.clone();
+            container = container.on_a11y_action(
+                gpui::AccessibleAction::Click,
+                move |_data, window, cx| {
+                    a11y_handler(new_checked, window, cx);
+                },
+            );
+
             // Mouse click handler
             let click_handler = handler_rc.clone();
             container = container.on_mouse_up(MouseButton::Left, move |_event, window, cx| {
@@ -267,7 +294,7 @@ impl Checkbox {
             });
         }
 
-        container
+        apply_native_accessibility(container, effective_label, &native_props)
     }
 }
 

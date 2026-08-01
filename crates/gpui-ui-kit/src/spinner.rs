@@ -2,9 +2,17 @@
 //!
 //! Loading indicators and spinners.
 
+use crate::arc::arc_path;
 use crate::theme::{Theme, ThemeExt};
 use gpui::prelude::{IntoElement, ParentElement, RenderOnce, Styled};
-use gpui::{App, Div, Pixels, Rgba, SharedString, Window, div, px};
+use gpui::{
+    Animation, AnimationExt, App, Div, ElementId, Pixels, Rgba, SharedString, Window, canvas, div,
+    px,
+};
+use std::cell::Cell;
+use std::f32::consts::{PI, TAU};
+use std::rc::Rc;
+use std::time::Duration;
 
 /// Spinner size
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -56,8 +64,10 @@ impl From<crate::ComponentSize> for SpinnerSize {
     }
 }
 
-/// A spinner/loading indicator component
-/// Note: True animation requires GPUI animation support
+/// A spinner/loading indicator component.
+///
+/// The indicator continuously repaints a moving arc through GPUI's native
+/// animation-frame support.
 pub struct Spinner {
     size: SpinnerSize,
     color: Option<Rgba>,
@@ -97,18 +107,36 @@ impl Spinner {
         let size = self.size.size();
         let border_width = self.size.border_width();
         let color = self.color.unwrap_or(theme.accent);
+        let track_color = theme.surface;
 
         let mut container = div().flex().items_center().gap_2();
 
-        // Spinner circle
-        // Note: This is a static representation.
-        // True spinning animation requires GPUI animation APIs
-        let spinner = div()
-            .w(size)
-            .h(size)
-            .rounded_full()
-            .border(border_width)
-            .border_color(color);
+        let phase = Rc::new(Cell::new(0.0_f32));
+        let phase_for_paint = phase.clone();
+        let spinner = canvas(
+            move |_bounds, _window, _cx| (),
+            move |bounds, (), window, _cx| {
+                let phase = phase_for_paint.get();
+                if let Some(path) = arc_path(bounds, border_width, -PI / 2.0, TAU) {
+                    window.paint_path(path, track_color);
+                }
+                if let Some(path) =
+                    arc_path(bounds, border_width, phase * TAU - PI / 2.0, PI * 1.35)
+                {
+                    window.paint_path(path, color);
+                }
+            },
+        )
+        .w(size)
+        .h(size)
+        .with_animation(
+            ElementId::from(("spinner-animation", 0_u32)),
+            Animation::new(Duration::from_millis(900)).repeat(),
+            move |element, delta| {
+                phase.set(delta);
+                element
+            },
+        );
 
         container = container.child(spinner);
 

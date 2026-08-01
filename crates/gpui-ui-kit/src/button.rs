@@ -2,7 +2,9 @@
 //!
 //! Provides a flexible button component with different visual styles.
 
-use crate::accessibility::{AccessibilityExt, AccessibilityNode, AriaProps, AriaRole, AriaState};
+use crate::accessibility::{
+    AccessibilityExt, AccessibilityNode, AriaProps, AriaRole, AriaState, apply_native_accessibility,
+};
 use crate::theme::{ThemeExt, glow_shadow};
 use gpui::prelude::{
     InteractiveElement, IntoElement, ParentElement, RenderOnce, StatefulInteractiveElement, Styled,
@@ -262,6 +264,13 @@ impl Button {
         theme: &ButtonTheme,
         design: &DesignSystem,
     ) -> Stateful<Div> {
+        let native_label = self
+            .aria_label
+            .clone()
+            .unwrap_or_else(|| self.label.clone());
+        let native_props = AriaProps::with_role(self.aria_role.unwrap_or(AriaRole::Button))
+            .maybe_state(self.disabled, AriaState::Disabled)
+            .maybe_state(self.selected, AriaState::Pressed(true));
         let (bg, bg_hover, text_color, border_color) =
             Self::compute_colors(self.variant, self.selected, theme);
 
@@ -307,7 +316,7 @@ impl Button {
             el = el.child(icon);
         }
 
-        el
+        apply_native_accessibility(el, native_label, &native_props)
     }
 }
 

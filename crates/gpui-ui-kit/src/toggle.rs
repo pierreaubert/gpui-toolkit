@@ -9,9 +9,13 @@
 //! - Optional label
 //! - Two visual styles: Sliding (iOS-style) and Segmented ([OFF|ON])
 
-use crate::accessibility::{AccessibilityExt, AccessibilityNode, AriaProps, AriaRole, AriaState};
+use crate::accessibility::{
+    AccessibilityExt, AccessibilityNode, AriaProps, AriaRole, AriaState, apply_native_accessibility,
+};
 use crate::theme::ThemeExt;
-use gpui::prelude::{InteractiveElement, IntoElement, ParentElement, RenderOnce, Styled};
+use gpui::prelude::{
+    InteractiveElement, IntoElement, ParentElement, RenderOnce, StatefulInteractiveElement, Styled,
+};
 use gpui::{
     App, Div, ElementId, FontWeight, MouseButton, Rgba, SharedString, Stateful, Window, div, px,
 };
@@ -116,10 +120,18 @@ impl Toggle {
 
     /// Build into element with theme
     pub fn build_with_theme(self, global_theme: &ToggleTheme) -> Stateful<Div> {
+        let effective_label = self
+            .aria_label
+            .clone()
+            .or_else(|| self.label.clone())
+            .unwrap_or_default();
+        let native_props = AriaProps::with_role(self.aria_role.unwrap_or(AriaRole::Switch))
+            .state(AriaState::Checked(self.checked))
+            .maybe_state(self.disabled, AriaState::Disabled);
         let mut this = self;
         let style = this.style;
 
-        match this.theme.take() {
+        let element = match this.theme.take() {
             Some(ref theme) => match style {
                 ToggleStyle::Sliding => this.build_sliding(theme),
                 ToggleStyle::Segmented => this.build_segmented(theme),
@@ -128,7 +140,9 @@ impl Toggle {
                 ToggleStyle::Sliding => this.build_sliding(global_theme),
                 ToggleStyle::Segmented => this.build_segmented(global_theme),
             },
-        }
+        };
+
+        apply_native_accessibility(element, effective_label, &native_props)
     }
 
     fn build_sliding(self, theme: &ToggleTheme) -> Stateful<Div> {
@@ -235,6 +249,14 @@ impl Toggle {
         {
             let handler_rc = std::rc::Rc::new(handler);
             let new_checked = !checked;
+
+            let a11y_handler = handler_rc.clone();
+            container = container.on_a11y_action(
+                gpui::AccessibleAction::Click,
+                move |_data, window, cx| {
+                    a11y_handler(new_checked, window, cx);
+                },
+            );
 
             // Click handler
             let handler_click = handler_rc.clone();
@@ -380,6 +402,14 @@ impl Toggle {
         {
             let handler_rc = std::rc::Rc::new(handler);
             let new_checked = !checked;
+
+            let a11y_handler = handler_rc.clone();
+            container = container.on_a11y_action(
+                gpui::AccessibleAction::Click,
+                move |_data, window, cx| {
+                    a11y_handler(new_checked, window, cx);
+                },
+            );
 
             // Click handler
             let handler_click = handler_rc.clone();

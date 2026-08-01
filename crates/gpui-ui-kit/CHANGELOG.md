@@ -1,5 +1,19 @@
 # Unreleased
 
+## Features
+
+- Added GPUI/AccessKit accessibility bridging for UI-kit metadata, including
+  native roles, labels, states, values, and actions on core controls. Platform
+  screen-reader validation remains pending in release QA.
+- `Spinner` now renders an animated progress arc, `CircularProgress` paints
+  track and value arcs, and `Avatar` renders its configured image source with
+  initials as a fallback.
+
+## Fixes
+
+- `WithTooltip` now uses GPUI's native hoverable tooltip handling and delay,
+  so tooltip timing no longer depends on parent-managed hover state.
+
 # 0.9.34
 
 ## Features

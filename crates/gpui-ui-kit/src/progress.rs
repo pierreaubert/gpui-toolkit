@@ -3,11 +3,14 @@
 //! Progress bars and indicators.
 
 use crate::accessibility::{AccessibilityExt, AccessibilityNode, AriaProps, AriaRole};
+use crate::arc::arc_path;
 use crate::theme::{Theme, ThemeExt};
 use gpui::prelude::{IntoElement, ParentElement, RenderOnce, Styled};
 use gpui::{
-    App, Div, ElementId, FontWeight, Pixels, Rgba, SharedString, Window, div, px, relative,
+    App, Bounds, Div, ElementId, FontWeight, Pixels, Rgba, SharedString, Window, canvas, div, px,
+    relative,
 };
+use std::f32::consts::{PI, TAU};
 
 /// Progress variant
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -266,36 +269,44 @@ impl CircularProgress {
         self
     }
 
-    /// Build into element with theme
-    /// Note: True circular progress requires canvas/SVG rendering.
-    /// This is a simplified box-based representation where color intensity
-    /// increases with progress value.
+    /// Build into element with theme.
+    ///
+    /// The ring is painted as a real track plus a value arc. This preserves
+    /// the progress geometry instead of encoding the value only as a blended
+    /// border color.
     pub fn build_with_theme(self, theme: &Theme) -> Div {
         let percentage = (self.value / self.max * 100.0).clamp(0.0, 100.0);
         let base_color = self.variant.color(theme);
-
-        // Interpolate color intensity based on progress (0% = surface color, 100% = full color)
         let progress_ratio = percentage / 100.0;
-        let color = if percentage <= 0.0 {
-            theme.surface
-        } else {
-            // Blend between surface and full color based on progress
-            let r = theme.surface.r * (1.0 - progress_ratio) + base_color.r * progress_ratio;
-            let g = theme.surface.g * (1.0 - progress_ratio) + base_color.g * progress_ratio;
-            let b = theme.surface.b * (1.0 - progress_ratio) + base_color.b * progress_ratio;
-            Rgba { r, g, b, a: 1.0 }
-        };
+        let size = self.size;
+        let thickness = self.thickness;
+        let track_color = theme.surface;
+
+        let ring = canvas(
+            move |_bounds, _window, _cx| (),
+            move |bounds: Bounds<Pixels>, (), window, _cx| {
+                if let Some(path) = arc_path(bounds, thickness, -PI / 2.0, TAU) {
+                    window.paint_path(path, track_color);
+                }
+                if progress_ratio > 0.0
+                    && let Some(path) = arc_path(bounds, thickness, -PI / 2.0, TAU * progress_ratio)
+                {
+                    window.paint_path(path, base_color);
+                }
+            },
+        )
+        .w(size)
+        .h(size);
 
         let mut container = div()
             .flex()
             .items_center()
             .justify_center()
-            .w(self.size)
-            .h(self.size)
-            .rounded_full()
-            .border(self.thickness)
-            .border_color(color)
+            .w(size)
+            .h(size)
             .relative();
+
+        container = container.child(ring);
 
         // Center label
         if self.show_label {

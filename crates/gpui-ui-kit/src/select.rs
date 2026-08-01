@@ -12,7 +12,9 @@
 //!
 //! Note: Uses `deferred()` to ensure dropdown renders on top of other content.
 
-use crate::accessibility::{AccessibilityExt, AccessibilityNode, AriaProps, AriaRole, AriaState};
+use crate::accessibility::{
+    AccessibilityExt, AccessibilityNode, AriaProps, AriaRole, AriaState, apply_native_accessibility,
+};
 use crate::theme::ThemeExt;
 use gpui::prelude::{
     InteractiveElement, IntoElement, ParentElement, RenderOnce, StatefulInteractiveElement, Styled,
@@ -200,6 +202,15 @@ impl Select {
 
     /// Build into element
     fn build(self, theme: &SelectTheme, window: &mut Window, cx: &mut App) -> Div {
+        let native_label = self
+            .aria_label
+            .clone()
+            .or_else(|| self.label.clone())
+            .or_else(|| self.placeholder.clone())
+            .unwrap_or_default();
+        let native_props = AriaProps::with_role(self.aria_role.unwrap_or(AriaRole::Combobox))
+            .state(AriaState::Expanded(self.is_open))
+            .maybe_state(self.disabled, AriaState::Disabled);
         let (py, _text_size_class) = match self.size {
             SelectSize::Xs => (px(2.0), "xs"),
             SelectSize::Sm => (px(4.0), "sm"),
@@ -320,6 +331,14 @@ impl Select {
                 }
             });
 
+            let toggle_for_a11y = on_toggle_rc.clone();
+            trigger =
+                trigger.on_a11y_action(gpui::AccessibleAction::Click, move |_data, window, cx| {
+                    if let Some(ref handler) = toggle_for_a11y {
+                        handler(!currently_open, window, cx);
+                    }
+                });
+
             // Keyboard handler.
             // B2 fix: keyboard handling is always attached (not gated on on_toggle).
             // B3 fix: cx.stop_propagation() is only called for keys we actually handle.
@@ -402,7 +421,11 @@ impl Select {
         // Dropdown arrow
         trigger = trigger.child(div().text_xs().text_color(theme.arrow_color).child("▼"));
 
-        container = container.child(trigger);
+        container = container.child(apply_native_accessibility(
+            trigger,
+            native_label,
+            &native_props,
+        ));
 
         // Dropdown menu (only shown when open)
         // Use deferred() to ensure the dropdown renders on top of other content

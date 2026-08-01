@@ -57,7 +57,9 @@
 //! cleanup_input_state(&element_id);
 //! ```
 
-use crate::accessibility::{AccessibilityExt, AccessibilityNode, AriaProps, AriaRole, AriaState};
+use crate::accessibility::{
+    AccessibilityExt, AccessibilityNode, AriaProps, AriaRole, AriaState, apply_native_accessibility,
+};
 use crate::theme::ThemeExt;
 use gpui::prelude::{
     FluentBuilder, InteractiveElement, IntoElement, ParentElement, RenderOnce,
@@ -1009,6 +1011,10 @@ impl Render for InputEntity {
             .as_ref()
             .or(props.label.as_ref())
             .or(props.placeholder.as_ref());
+        let native_label = effective_label.cloned().unwrap_or_default();
+        let native_props = AriaProps::with_role(props.aria_role.unwrap_or(AriaRole::Textbox))
+            .maybe_state(props.disabled, AriaState::Disabled)
+            .value_text(props.value.clone());
         cx.register_accessible(AccessibilityNode {
             element_id: props.id.clone(),
             label: effective_label.cloned().unwrap_or_default(),
@@ -1245,7 +1251,11 @@ impl Render for InputEntity {
                 input_wrapper.child(div().text_color(placeholder_color).child(icon.clone()));
         }
 
-        container = container.child(input_wrapper);
+        container = container.child(apply_native_accessibility(
+            input_wrapper,
+            native_label,
+            &native_props,
+        ));
 
         // Error message
         if let Some(error) = &props.error {

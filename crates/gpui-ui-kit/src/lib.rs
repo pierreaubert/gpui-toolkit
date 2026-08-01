@@ -13,6 +13,7 @@
 pub mod accessibility;
 pub mod adaptive_overflow;
 pub mod animation;
+pub(crate) mod arc;
 mod behavior_matrix;
 pub mod color_tokens;
 pub mod design;
@@ -202,7 +203,7 @@ pub use accessibility::{
     AccessibilityReadinessReport, AccessibilityReadinessStatus, AccessibilityTree, AriaLive,
     AriaProps, AriaRole, AriaState, NativeAccessibilityAction, NativeAccessibilityAdapterError,
     NativeAccessibilityAdapterNode, NativeAccessibilityAdapterPayload, NativeAccessibilityTarget,
-    accessibility_readiness_entries, accessibility_readiness_report,
+    accessibility_readiness_entries, accessibility_readiness_report, apply_native_accessibility,
 };
 pub use behavior_matrix::{
     BehaviorStatus, COMPONENT_BEHAVIOR_REPORT_TYPE, COMPONENT_BEHAVIOR_SCHEMA_VERSION,

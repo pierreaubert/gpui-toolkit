@@ -13,7 +13,9 @@
 //!   - End: set to maximum
 //! - Value snapping with step parameter
 
-use crate::accessibility::AriaRole;
+use crate::accessibility::{
+    AccessibilityExt, AccessibilityNode, AriaProps, AriaRole, AriaState, apply_native_accessibility,
+};
 use crate::interaction::{
     InteractionConfig, clear_drag_state, get_drag_state, handle_drag, handle_keyboard,
     handle_scroll, store_drag_state,
@@ -300,6 +302,20 @@ impl RenderOnce for Slider {
     fn render(mut self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         self.value = self.clamped_value();
 
+        let native_label = self
+            .aria_label
+            .clone()
+            .or_else(|| self.label.clone())
+            .unwrap_or_default();
+        let native_props = AriaProps::with_role(self.aria_role.unwrap_or(AriaRole::Slider))
+            .maybe_state(self.disabled, AriaState::Disabled)
+            .value_range(self.value as f64, self.min as f64, self.max as f64);
+        cx.register_accessible(AccessibilityNode {
+            element_id: self.id.clone(),
+            label: native_label.clone(),
+            props: native_props.clone(),
+        });
+
         let design = crate::design::resolve_design(self.design.clone(), cx);
         let track_height = self.size.track_height_with_design(&design);
         let thumb_size = self.size.thumb_size_with_design(&design);
@@ -509,9 +525,49 @@ impl RenderOnce for Slider {
                     }
                 });
             }
+
+            let a11y_config = self.interaction_config();
+            let a11y_increment_handler = self.on_change.clone();
+            let a11y_decrement_handler = self.on_change.clone();
+            let a11y_increment_snap = self.clone_for_calculation();
+            let a11y_decrement_snap = self.clone_for_calculation();
+            let a11y_value = self.value as f64;
+            let a11y_increment_config = a11y_config.clone();
+            track = track.on_a11y_action(
+                gpui::AccessibleAction::Increment,
+                move |_data, window, cx| {
+                    if let Some(value) = handle_keyboard(
+                        "right",
+                        &gpui::Modifiers::default(),
+                        a11y_value,
+                        &a11y_increment_config,
+                    ) && let Some(ref handler) = a11y_increment_handler
+                    {
+                        handler(a11y_increment_snap.snap_value(value as f32), window, cx);
+                    }
+                },
+            );
+            track = track.on_a11y_action(
+                gpui::AccessibleAction::Decrement,
+                move |_data, window, cx| {
+                    if let Some(value) = handle_keyboard(
+                        "left",
+                        &gpui::Modifiers::default(),
+                        a11y_value,
+                        &a11y_config,
+                    ) && let Some(ref handler) = a11y_decrement_handler
+                    {
+                        handler(a11y_decrement_snap.snap_value(value as f32), window, cx);
+                    }
+                },
+            );
         }
 
-        container.child(track)
+        container.child(apply_native_accessibility(
+            track,
+            native_label,
+            &native_props,
+        ))
     }
 }
 

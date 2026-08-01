@@ -3,8 +3,12 @@
 //! User avatars and profile images.
 
 use crate::theme::{Theme, ThemeExt};
-use gpui::prelude::{IntoElement, ParentElement, RenderOnce, Styled};
-use gpui::{App, Div, FontWeight, Pixels, Rgba, SharedString, Window, div, px, rgb};
+use gpui::prelude::{IntoElement, ParentElement, RenderOnce, Styled, StyledImage};
+use gpui::{
+    App, Div, FontWeight, ImageSource, ObjectFit, Pixels, Rgba, SharedString, Window, div, img, px,
+    rgb,
+};
+use std::path::PathBuf;
 
 /// Avatar size
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -200,11 +204,31 @@ impl Avatar {
             AvatarSize::Xxl => avatar.text_lg(),
         };
 
-        // Content: image or initials
-        if let Some(_src) = self.src {
-            // Note: Image loading requires gpui::img()
-            // For now, show initials as fallback
-            avatar = avatar.child(initials);
+        // Content: load the configured image and retain initials as the image
+        // loader fallback for unavailable or invalid sources.
+        if let Some(src) = self.src {
+            let image_source = if src.contains("://") || src.starts_with("data:") {
+                ImageSource::from(src)
+            } else {
+                ImageSource::from(PathBuf::from(src.as_ref()))
+            };
+            let fallback_initials = initials.clone();
+            let fallback_color = theme.text_primary;
+            let image = img(image_source)
+                .size_full()
+                .object_fit(ObjectFit::Cover)
+                .with_fallback(move || {
+                    div()
+                        .size_full()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(fallback_color)
+                        .child(fallback_initials.clone())
+                        .into_any_element()
+                });
+            avatar = avatar.child(image);
         } else {
             avatar = avatar.font_weight(FontWeight::SEMIBOLD).child(initials);
         }

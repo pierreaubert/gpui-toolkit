@@ -42,7 +42,9 @@
 //! cleanup_number_input_state(&element_id);
 //! ```
 
-use crate::accessibility::{AccessibilityExt, AccessibilityNode, AriaProps, AriaRole, AriaState};
+use crate::accessibility::{
+    AccessibilityExt, AccessibilityNode, AriaProps, AriaRole, AriaState, apply_native_accessibility,
+};
 use crate::theme::ThemeExt;
 use gpui::prelude::{
     FluentBuilder, InteractiveElement, IntoElement, ParentElement, RenderOnce,
@@ -613,9 +615,12 @@ impl Render for NumberInputEntity {
             .clone()
             .or_else(|| self.label.clone())
             .unwrap_or_default();
+        let native_props = AriaProps::with_role(props.aria_role.unwrap_or(AriaRole::Spinbutton))
+            .maybe_state(props.disabled, AriaState::Disabled)
+            .value_range(props.value, props.min, props.max);
         cx.register_accessible(AccessibilityNode {
             element_id: props.id.clone(),
-            label: effective_label,
+            label: effective_label.clone(),
             props: AriaProps::with_role(props.aria_role.unwrap_or(AriaRole::Spinbutton))
                 .maybe_state(props.disabled, AriaState::Disabled)
                 .value_range(props.value, props.min, props.max),
@@ -808,7 +813,11 @@ impl Render for NumberInputEntity {
                 }));
         }
 
-        input_row = input_row.child(value_field);
+        input_row = input_row.child(apply_native_accessibility(
+            value_field,
+            effective_label,
+            &native_props,
+        ));
 
         // Increment button (+)
         let mut inc_button = div()

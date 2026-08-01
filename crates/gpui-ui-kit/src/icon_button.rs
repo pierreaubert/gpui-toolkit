@@ -4,7 +4,9 @@
 //! Supports both text/emoji icons and custom child elements (like SVG icons).
 
 use crate::ComponentTheme;
-use crate::accessibility::{AccessibilityExt, AccessibilityNode, AriaProps, AriaRole, AriaState};
+use crate::accessibility::{
+    AccessibilityExt, AccessibilityNode, AriaProps, AriaRole, AriaState, apply_native_accessibility,
+};
 use crate::theme::{ThemeExt, glow_shadow};
 use gpui::prelude::{
     InteractiveElement, IntoElement, ParentElement, RenderOnce, StatefulInteractiveElement, Styled,
@@ -382,6 +384,13 @@ impl IconButton {
         icon_theme: &IconButtonTheme,
         design: &DesignSystem,
     ) -> Stateful<Div> {
+        let native_label = match &self.content {
+            IconContent::Text(text) => self.aria_label.clone().unwrap_or_else(|| text.clone()),
+            IconContent::Element(_) => self.aria_label.clone().unwrap_or_default(),
+        };
+        let native_props = AriaProps::with_role(self.aria_role.unwrap_or(AriaRole::Button))
+            .maybe_state(self.disabled, AriaState::Disabled)
+            .maybe_state(self.selected, AriaState::Pressed(true));
         let size = self.size.size_with_design(design);
         let (bg, bg_hover, text_color, border) = self.compute_colors(icon_theme);
 
@@ -426,10 +435,12 @@ impl IconButton {
         }
 
         // Add content
-        match self.content {
+        let element = match self.content {
             IconContent::Text(text) => el.child(text),
             IconContent::Element(element) => el.child(element),
-        }
+        };
+
+        apply_native_accessibility(element, native_label, &native_props)
     }
 }
 

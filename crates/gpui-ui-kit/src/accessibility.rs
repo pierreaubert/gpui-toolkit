@@ -1,13 +1,13 @@
 //! Accessibility support for gpui-ui-kit
 //!
-//! Provides ARIA roles, labels, and a runtime accessibility tree.
-//! Since GPUI has no native accessibility support, this module stores
-//! accessibility metadata at the UI-kit level so that:
-//! 1. Components carry semantic meaning (role, label, description)
-//! 2. A runtime tree can be queried by external code (future bridges, tests)
-//! 3. Tooltip fallbacks can use aria_label when no tooltip is set
+//! Provides ARIA roles, labels, and accessibility-tree integration.
+//! Components register a platform-neutral UI-kit tree for audits and bridge
+//! snapshots, and apply the subset of that metadata supported by GPUI's
+//! native AccessKit element API. Platform screen-reader validation remains a
+//! separate release-QA requirement.
 
-use gpui::{App, ElementId, Global, SharedString};
+use gpui::prelude::StatefulInteractiveElement;
+use gpui::{App, Div, ElementId, Global, Role, SharedString, Stateful};
 use std::collections::HashMap;
 
 /// Schema version for platform-neutral accessibility bridge snapshots.
@@ -154,7 +154,14 @@ const ACCESSIBILITY_READINESS_ENTRIES: &[AccessibilityReadinessEntry] = &[
         surface: "Host/native adapter payload",
         status: AccessibilityReadinessStatus::ComponentTested,
         evidence: "AccessibilityBridgeSnapshot::to_native_adapter_payload() validates adapter ids and accessible names, then exports deterministic native adapter nodes with stable ids, roles, names, descriptions, states, values, focusability, visibility, and action hints.",
-        release_requirement: "Keep native adapter contract tests green and wire the payload into each selected host platform accessibility layer.",
+        release_requirement: "Keep native adapter contract tests green and retain a platform-specific adapter or GPUI AccessKit integration for each selected host.",
+    },
+    AccessibilityReadinessEntry {
+        id: "gpui-accesskit-element-bridge",
+        surface: "GPUI/AccessKit element bridge",
+        status: AccessibilityReadinessStatus::ComponentTested,
+        evidence: "apply_native_accessibility() maps UI-kit roles, labels, toggle/selection/expansion state, numeric values, and heading levels to GPUI's AccessKit element API; core buttons, form controls, selects, sliders, and numeric inputs use it.",
+        release_requirement: "Keep native element metadata and action tests green, then validate the resulting tree with the screen reader on each selected target.",
     },
     AccessibilityReadinessEntry {
         id: "cross-platform-screen-reader-qa",
@@ -222,6 +229,107 @@ pub enum AriaRole {
     Separator,
     Tooltip,
     Region,
+}
+
+impl AriaRole {
+    /// Map a UI-kit role to the corresponding GPUI/AccessKit role.
+    ///
+    /// `None` and `Separator` intentionally return `None`: AccessKit does not
+    /// expose an equivalent role that GPUI can set on a stateful `Div`.
+    pub const fn native_role(self) -> Option<Role> {
+        match self {
+            Self::None | Self::Separator => None,
+            Self::Button => Some(Role::Button),
+            Self::Checkbox => Some(Role::CheckBox),
+            Self::Radio => Some(Role::RadioButton),
+            Self::Textbox => Some(Role::TextInput),
+            Self::Spinbutton => Some(Role::SpinButton),
+            Self::Slider => Some(Role::Slider),
+            Self::Combobox => Some(Role::ComboBox),
+            Self::Listbox => Some(Role::ListBox),
+            Self::Option => Some(Role::ListBoxOption),
+            Self::Switch => Some(Role::Switch),
+            Self::Tab => Some(Role::Tab),
+            Self::Tabpanel => Some(Role::TabPanel),
+            Self::Tablist => Some(Role::TabList),
+            Self::Dialog => Some(Role::Dialog),
+            Self::Alertdialog => Some(Role::AlertDialog),
+            Self::Alert => Some(Role::Alert),
+            Self::Status => Some(Role::Status),
+            Self::Progressbar => Some(Role::ProgressIndicator),
+            Self::Menu => Some(Role::Menu),
+            Self::Menuitem => Some(Role::MenuItem),
+            Self::Menubar => Some(Role::MenuBar),
+            Self::Toolbar => Some(Role::Toolbar),
+            Self::Table => Some(Role::Table),
+            Self::Row => Some(Role::Row),
+            Self::Columnheader => Some(Role::ColumnHeader),
+            Self::Cell => Some(Role::Cell),
+            Self::Tree => Some(Role::Tree),
+            Self::Treeitem => Some(Role::TreeItem),
+            Self::Navigation => Some(Role::Navigation),
+            Self::Search => Some(Role::Search),
+            Self::Heading => Some(Role::Heading),
+            Self::Link => Some(Role::Link),
+            Self::Img => Some(Role::Image),
+            Self::Group => Some(Role::Group),
+            Self::Tooltip => Some(Role::Tooltip),
+            Self::Region => Some(Role::Region),
+        }
+    }
+}
+
+/// Apply UI-kit accessibility metadata to a native GPUI element.
+///
+/// GPUI currently exposes role, name, selection/expansion/toggle state, value
+/// metadata, and heading level. Fields such as disabled, hidden, descriptions,
+/// and live-region politeness remain in the platform-neutral tree until GPUI
+/// exposes corresponding native APIs.
+pub fn apply_native_accessibility(
+    mut element: Stateful<Div>,
+    label: impl Into<SharedString>,
+    props: &AriaProps,
+) -> Stateful<Div> {
+    if let Some(role) = props.role.native_role() {
+        element = element.role(role);
+    }
+    element = element.aria_label(label);
+
+    for state in &props.states {
+        match state {
+            AriaState::Checked(value) | AriaState::Pressed(value) => {
+                element = element.aria_toggled((*value).into());
+            }
+            AriaState::Mixed => {
+                element = element.aria_toggled(gpui::Toggled::Mixed);
+            }
+            AriaState::Expanded(value) => {
+                element = element.aria_expanded(*value);
+            }
+            AriaState::Selected(value) => {
+                element = element.aria_selected(*value);
+            }
+            AriaState::Disabled | AriaState::Hidden => {}
+        }
+    }
+
+    if let Some(value) = props.value_now {
+        element = element.aria_numeric_value(value);
+    }
+    if let Some(value) = props.value_min {
+        element = element.aria_min_numeric_value(value);
+    }
+    if let Some(value) = props.value_max {
+        element = element.aria_max_numeric_value(value);
+    }
+    if let Some(value) = &props.value_text {
+        element = element.aria_value(value.clone());
+    }
+    if let Some(level) = props.level {
+        element = element.aria_level(level as usize);
+    }
+
+    element
 }
 
 /// ARIA state for components with checked/pressed/expanded states
@@ -891,6 +999,41 @@ mod tests {
         );
         assert_eq!(AriaState::Mixed.bridge_name_value(), ("mixed", None));
         assert_eq!(AriaLive::Assertive.as_str(), "assertive");
+    }
+
+    #[test]
+    fn ui_kit_roles_map_to_native_accesskit_roles() {
+        assert_eq!(AriaRole::Button.native_role(), Some(gpui::Role::Button));
+        assert_eq!(AriaRole::Checkbox.native_role(), Some(gpui::Role::CheckBox));
+        assert_eq!(AriaRole::Textbox.native_role(), Some(gpui::Role::TextInput));
+        assert_eq!(AriaRole::Combobox.native_role(), Some(gpui::Role::ComboBox));
+        assert_eq!(
+            AriaRole::Progressbar.native_role(),
+            Some(gpui::Role::ProgressIndicator)
+        );
+        assert_eq!(AriaRole::Slider.native_role(), Some(gpui::Role::Slider));
+        assert_eq!(AriaRole::Tablist.native_role(), Some(gpui::Role::TabList));
+        assert_eq!(AriaRole::None.native_role(), None);
+        assert_eq!(AriaRole::Separator.native_role(), None);
+    }
+
+    #[test]
+    fn native_accesskit_bridge_readiness_is_component_tested_but_screen_reader_qa_is_pending() {
+        let entries = accessibility_readiness_entries();
+        let native = entries
+            .iter()
+            .find(|entry| entry.id == "gpui-accesskit-element-bridge")
+            .expect("GPUI AccessKit bridge readiness row");
+        assert_eq!(native.status, AccessibilityReadinessStatus::ComponentTested);
+
+        let screen_reader = entries
+            .iter()
+            .find(|entry| entry.id == "cross-platform-screen-reader-qa")
+            .expect("screen-reader QA readiness row");
+        assert_eq!(
+            screen_reader.status,
+            AccessibilityReadinessStatus::PlatformQaPending
+        );
     }
 
     #[test]
