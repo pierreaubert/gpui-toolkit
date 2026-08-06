@@ -5,6 +5,9 @@ import qa_cov_check
 
 
 class CoverageReportTests(unittest.TestCase):
+    def test_default_threshold_matches_enforced_ratchet(self):
+        self.assertEqual(qa_cov_check.DEFAULT_THRESHOLD, 73.5)
+
     def test_per_crate_coverage_aggregates_only_workspace_crates(self):
         root = qa_cov_check.ROOT
         summary = {

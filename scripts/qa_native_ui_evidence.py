@@ -23,13 +23,18 @@ def _require(report: dict[str, Any], key: str, expected: Any) -> None:
 
 
 def validate_smoke_report(report: dict[str, Any], platform: str | None = None) -> None:
-    _require(report, "schema_version", 2)
+    _require(report, "schema_version", 3)
     _require(report, "report_type", "gpui-native-smoke")
     _require(report, "crate", "gpui-builder")
     _require(report, "window_opened", True)
     _require(report, "render_invoked", True)
     _require(report, "state_transition", "collapse-sidebar")
     _require(report, "state_transition_verified", True)
+    _require(
+        report,
+        "interaction_scope",
+        ["window-open", "render", "collapse-sidebar"],
+    )
     if platform is not None:
         _require(report, "platform", platform)
     render_count = report.get("render_count")

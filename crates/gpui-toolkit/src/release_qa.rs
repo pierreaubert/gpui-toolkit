@@ -323,7 +323,7 @@ const RELEASE_QA_GATES: &[ReleaseQaGate] = &[
         area: "Security/dependency hygiene",
         command: "gpui_toolkit::dependency_hygiene_report(), cargo audit, and cargo deny",
         status: ReleaseQaStatus::Passed,
-        evidence: "dependency_hygiene_report() records accepted cargo-audit and cargo-deny runs; the 2026-07-12 cargo-deny run passed advisories, bans, licenses, and sources with the documented warning-class exceptions.",
+        evidence: "dependency_hygiene_report() records accepted cargo-audit and cargo-deny runs; the latest recorded cargo-deny run passed advisories, bans, licenses, and sources with the documented warning-class exceptions.",
         release_requirement: "Attach the accepted outputs, review every warning and advisory exception, and remove exceptions when upstream dependencies permit.",
     },
 ];
@@ -393,13 +393,15 @@ const PLATFORM_CAPABILITIES: &[PlatformCapability] = &[
         text_input: PlatformCapabilityStatus::Partial,
         accessibility: PlatformCapabilityStatus::Partial,
         evidence: PlatformEvidence {
-            ci_compile: false,
+            ci_compile: true,
             runtime_smoke: false,
             visual_diff: false,
             native_accessibility: false,
             performance: false,
         },
-        blocker: Some("Simulator/device compile, launch, VoiceOver, visual, and performance jobs remain external."),
+        blocker: Some(
+            "The maintained simulator compile lane is green; simulator/device launch, VoiceOver, visual, and performance evidence remain external.",
+        ),
     },
     PlatformCapability {
         id: "android",
@@ -410,13 +412,15 @@ const PLATFORM_CAPABILITIES: &[PlatformCapability] = &[
         text_input: PlatformCapabilityStatus::Partial,
         accessibility: PlatformCapabilityStatus::Unverified,
         evidence: PlatformEvidence {
-            ci_compile: false,
+            ci_compile: true,
             runtime_smoke: false,
             visual_diff: false,
             native_accessibility: false,
             performance: false,
         },
-        blocker: Some("Maintained target CI, emulator lifecycle/IME/TalkBack, visual, and performance evidence are absent."),
+        blocker: Some(
+            "The maintained target and Activity-host compile lanes are green; emulator/device lifecycle, IME/TalkBack, visual, and performance evidence remain external.",
+        ),
     },
     PlatformCapability {
         id: "tvos",
@@ -427,13 +431,15 @@ const PLATFORM_CAPABILITIES: &[PlatformCapability] = &[
         text_input: PlatformCapabilityStatus::Partial,
         accessibility: PlatformCapabilityStatus::Unverified,
         evidence: PlatformEvidence {
-            ci_compile: false,
+            ci_compile: true,
             runtime_smoke: false,
             visual_diff: false,
             native_accessibility: false,
             performance: false,
         },
-        blocker: Some("Nightly simulator/device build, remote focus, accessibility, visual, and performance evidence remain manual."),
+        blocker: Some(
+            "The maintained nightly simulator compile lane is green; simulator/device launch, remote focus, accessibility, visual, and performance evidence remain manual.",
+        ),
     },
     PlatformCapability {
         id: "auv3-host",
@@ -450,7 +456,9 @@ const PLATFORM_CAPABILITIES: &[PlatformCapability] = &[
             native_accessibility: false,
             performance: false,
         },
-        blocker: Some("No recorded DAW host attach/detach/resize, accessibility, visual, or frame-allocation matrix."),
+        blocker: Some(
+            "No recorded DAW host attach/detach/resize, accessibility, visual, or frame-allocation matrix.",
+        ),
     },
 ];
 
@@ -459,7 +467,7 @@ pub const fn platform_capability_matrix() -> PlatformCapabilityMatrix {
     PlatformCapabilityMatrix {
         schema_version: PLATFORM_CAPABILITY_MATRIX_SCHEMA_VERSION,
         report_type: PLATFORM_CAPABILITY_MATRIX_REPORT_TYPE,
-        reviewed_on: "2026-07-12",
+        reviewed_on: "2026-08-01",
         platforms: PLATFORM_CAPABILITIES,
     }
 }
@@ -474,7 +482,7 @@ pub const fn release_qa_matrix() -> ReleaseQaMatrix {
     ReleaseQaMatrix {
         schema_version: RELEASE_QA_MATRIX_SCHEMA_VERSION,
         report_type: RELEASE_QA_MATRIX_REPORT_TYPE,
-        reviewed_on: "2026-07-12",
+        reviewed_on: "2026-08-01",
         gates: RELEASE_QA_GATES,
     }
 }
@@ -494,7 +502,7 @@ mod tests {
 
         assert_eq!(matrix.schema_version, RELEASE_QA_MATRIX_SCHEMA_VERSION);
         assert_eq!(matrix.report_type, RELEASE_QA_MATRIX_REPORT_TYPE);
-        assert_eq!(matrix.reviewed_on, "2026-07-12");
+        assert_eq!(matrix.reviewed_on, "2026-08-01");
         assert!(!matrix.gates.is_empty());
 
         for gate in matrix.gates {
@@ -515,15 +523,17 @@ mod tests {
             PLATFORM_CAPABILITY_MATRIX_SCHEMA_VERSION
         );
         assert_eq!(matrix.report_type, PLATFORM_CAPABILITY_MATRIX_REPORT_TYPE);
-        assert_eq!(matrix.reviewed_on, "2026-07-12");
+        assert_eq!(matrix.reviewed_on, "2026-08-01");
 
         for (index, platform) in matrix.platforms.iter().enumerate() {
             assert!(!platform.id.is_empty());
             assert!(!platform.platform.is_empty());
             assert!(["A", "B", "C"].contains(&platform.tier));
-            assert!(!matrix.platforms[..index]
-                .iter()
-                .any(|previous| previous.id == platform.id));
+            assert!(
+                !matrix.platforms[..index]
+                    .iter()
+                    .any(|previous| previous.id == platform.id)
+            );
         }
     }
 
@@ -560,7 +570,7 @@ mod tests {
         let markdown = platform_capability_matrix().to_markdown_table();
         assert!(markdown.contains(PLATFORM_CAPABILITY_MATRIX_REPORT_TYPE));
         assert!(markdown.contains("| Platform | Tier | Pointer | Touch | Text/IME |"));
-        assert!(markdown.contains("| iOS | B | partial | supported | partial | partial | no |"));
+        assert!(markdown.contains("| iOS | B | partial | supported | partial | partial | yes |"));
         assert!(markdown.contains("TalkBack"));
         assert!(markdown.contains("DAW host attach/detach/resize"));
     }
@@ -608,18 +618,24 @@ mod tests {
         let matrix = release_qa_matrix();
 
         assert!(!matrix.all_passed());
-        assert!(matrix
-            .gates
-            .iter()
-            .any(|gate| gate.status == ReleaseQaStatus::Partial));
-        assert!(matrix
-            .gates
-            .iter()
-            .any(|gate| gate.status == ReleaseQaStatus::ManualRequired));
-        assert!(matrix
-            .gates
-            .iter()
-            .any(|gate| gate.status == ReleaseQaStatus::Pending));
+        assert!(
+            matrix
+                .gates
+                .iter()
+                .any(|gate| gate.status == ReleaseQaStatus::Partial)
+        );
+        assert!(
+            matrix
+                .gates
+                .iter()
+                .any(|gate| gate.status == ReleaseQaStatus::ManualRequired)
+        );
+        assert!(
+            matrix
+                .gates
+                .iter()
+                .any(|gate| gate.status == ReleaseQaStatus::Pending)
+        );
     }
 
     #[test]

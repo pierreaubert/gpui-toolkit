@@ -100,12 +100,12 @@ fn run() -> Result<(), String> {
                 }
                 let transition_verified =
                     match window.read_with(cx, |view, _| view.sidebar_collapsed) {
-                    Ok(verified) => verified,
-                    Err(error) => {
-                        eprintln!("native smoke state transition read failed: {error}");
-                        std::process::exit(1);
-                    }
-                };
+                        Ok(verified) => verified,
+                        Err(error) => {
+                            eprintln!("native smoke state transition read failed: {error}");
+                            std::process::exit(1);
+                        }
+                    };
                 if !transition_verified {
                     eprintln!("native smoke second render did not retain sidebar transition");
                     std::process::exit(1);
@@ -177,7 +177,7 @@ fn write_smoke_artifact(
     let report = format!(
         concat!(
             "{{\n",
-            "  \"schema_version\": 2,\n",
+            "  \"schema_version\": 3,\n",
             "  \"report_type\": \"gpui-native-smoke\",\n",
             "  \"crate\": \"gpui-builder\",\n",
             "  \"platform\": \"{}\",\n",
@@ -186,6 +186,7 @@ fn write_smoke_artifact(
             "  \"render_count\": {},\n",
             "  \"state_transition\": \"collapse-sidebar\",\n",
             "  \"state_transition_verified\": {},\n",
+            "  \"interaction_scope\": [\"window-open\", \"render\", \"collapse-sidebar\"],\n",
             "  \"pixel_capture\": false\n",
             "}}\n"
         ),

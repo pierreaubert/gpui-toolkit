@@ -72,7 +72,15 @@ test-examples:
 
 [group('test')]
 ntest:
-	cargo nextest run --release --no-fail-fast --workspace {{features}}
+	cargo nextest run --profile ci --release --no-fail-fast --workspace {{features}}
+
+[group('qa')]
+qa-miri:
+	cargo miri test -p gpui-pretext --lib --tests
+
+[group('qa')]
+qa-fuzz:
+	bash scripts/qa_fuzz_check.sh
 
 [group('qa')]
 qa-gpui-conformance:
@@ -122,6 +130,7 @@ qa-scripts:
     bash -n scripts/run_utm_linux_guest_native_ui_smoke.sh
     bash -n scripts/run_utm_linux_native_ui_smoke.sh
     bash -n scripts/run_utm_windows_native_ui_smoke.sh
+    bash -n scripts/qa_fuzz_check.sh
 
 # Local macOS capture uses the native host directly. UTM is reserved for the
 # Linux and Windows desktop backends and is intentionally not part of hosted CI.

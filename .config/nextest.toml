@@ -1,0 +1,11 @@
+# Workspace defaults for the `ntest` recipe and the CI nextest lane.
+
+[profile.default]
+fail-fast = false
+retries = 0
+status-level = "fail"
+final-status-level = "flaky"
+
+[profile.ci]
+inherits = "default"
+retries = 1

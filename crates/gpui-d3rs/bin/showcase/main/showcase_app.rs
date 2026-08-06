@@ -91,6 +91,9 @@ pub struct ShowcaseApp {
     pub hexbin_cache: Option<Rc<super::showcase_modules::d3_examples::hexbin::HexbinCache>>,
     pub force_directed_cache:
         Option<Rc<super::showcase_modules::d3_examples::force_directed::ForceDirectedCache>>,
+    /// Retained large scatter cache; both canonical normalized points and its
+    /// density pyramid survive showcase re-renders.
+    pub lod_scatter: d3rs::gpu2d::LodScatter,
     // Horizon Chart
     pub horizon_data: Vec<f64>,
     pub horizon_offset: f64,
@@ -197,6 +200,24 @@ impl ShowcaseApp {
             force_node_positions: Rc::new(RefCell::new(Vec::new())),
             hexbin_cache: None,
             force_directed_cache: None,
+            lod_scatter: {
+                let mut state = 0x9E37_79B9_u32;
+                let points = (0..80_000)
+                    .map(|index| {
+                        state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                        let x_jitter = (state as f64 / u32::MAX as f64 - 0.5) * 22.0;
+                        state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                        let y_jitter = (state as f64 / u32::MAX as f64 - 0.5) * 18.0;
+                        let (center_x, center_y) = match index % 3 {
+                            0 => (30.0, 36.0),
+                            1 => (58.0, 64.0),
+                            _ => (76.0, 28.0),
+                        };
+                        ((center_x + x_jitter) / 100.0, (center_y + y_jitter) / 100.0)
+                    })
+                    .collect();
+                d3rs::gpu2d::LodScatter::from_normalized(points, 512)
+            },
             // Horizon Chart defaults
             horizon_data: (0..200).map(|i| (i as f64 * 0.1).sin() * 20.0).collect(),
             horizon_offset: 0.0,
@@ -452,6 +473,9 @@ impl ShowcaseApp {
             DemoSection::BarCharts => super::showcase_modules::bar_charts::render(self, cx),
             DemoSection::LineCharts => super::showcase_modules::line_charts::render(self, cx),
             DemoSection::ScatterPlots => super::showcase_modules::scatter_plots::render(self, cx),
+            DemoSection::LodLargeData => {
+                super::showcase_modules::scatter_plots::render_lod(self, cx)
+            }
             DemoSection::SurfacePlots => {
                 self.ensure_surface_plot_cache();
                 super::showcase_modules::surface_plots::render(self, cx)

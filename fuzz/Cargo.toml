@@ -1,0 +1,21 @@
+[package]
+name = "gpui-toolkit-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[workspace]
+
+[dependencies]
+gpui-pretext = { path = "../crates/gpui-pretext" }
+libfuzzer-sys = "0.4"
+
+[[bin]]
+name = "pretext-layout"
+path = "fuzz_targets/pretext_layout.rs"
+test = false
+doc = false
+bench = false

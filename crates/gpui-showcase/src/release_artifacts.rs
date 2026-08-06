@@ -347,15 +347,15 @@ pub const SHOWCASE_RELEASE_ARTIFACTS: &[ShowcaseReleaseArtifact] = &[
         artifact_type: "qa-evidence",
         path_or_command: "manual release QA",
         status: ShowcaseReleaseArtifactStatus::ManualGate,
-        release_requirement: "Required before release until automated screenshot capture is wired into CI.",
+        release_requirement: "Required before release for platform-specific font, scale-factor, and interaction review; automated Linux capture now covers the native smoke path.",
     },
     ShowcaseReleaseArtifact {
         id: "visual-regression-ci-artifacts",
         title: "Screenshot baseline, actual, and diff artifacts",
         artifact_type: "ci-evidence",
-        path_or_command: "future visual regression CI job",
+        path_or_command: "scripts/qa_visual_capture.sh (component-lab manifest/diff plus platform capture artifacts)",
         status: ShowcaseReleaseArtifactStatus::ExternalGate,
-        release_requirement: "Blocks calling the showcase fully automated; tracked separately from this artifact story.",
+        release_requirement: "A complete component-lab baseline/actual image set is still required before pixel-level visual regression can be marked passed.",
     },
 ];
 

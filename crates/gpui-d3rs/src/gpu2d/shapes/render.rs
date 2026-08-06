@@ -12,6 +12,7 @@ use super::types::CellDrawData;
 use super::types::ContourDrawData;
 pub use crate::axis::{AxisConfig, AxisOrientation};
 pub use crate::contour::{Contour, ContourBand};
+use crate::lod::m4_point_indices;
 use crate::scale::Scale;
 pub use crate::shape::contour::{ContourConfig, HeatmapData};
 use crate::shape::contour_smoothing::{
@@ -254,6 +255,7 @@ where
 
     let stroke_color = to_color4(&config.stroke_color, config.opacity);
     let stroke_width = config.stroke_width;
+    let curve = config.curve;
     let show_points = config.show_points;
     let point_radius = config.point_radius;
     let point_color = config
@@ -266,21 +268,51 @@ where
         let width: f32 = bounds.size.width.into();
         let height: f32 = bounds.size.height.into();
 
+        // Lines are visually bounded by horizontal screen resolution. For a
+        // large linear trace retain extrema per pixel column instead of
+        // creating an unbounded GPU segment batch. Curved modes retain their
+        // existing exact semantics until they gain curve-aware decimation.
+        let lod_indices = (curve == CurveType::Linear
+            && relative_points.len() > width.ceil().max(1.0) as usize * 4)
+            .then(|| m4_point_indices(&relative_points, width.ceil().max(1.0) as usize));
+
         // Draw line segments
-        for &(x0, y0, x1, y1) in &segments {
-            renderer.draw_line(
-                x0 * width,
-                y0 * height,
-                x1 * width,
-                y1 * height,
-                stroke_width,
-                stroke_color,
-            );
+        if let Some(indices) = &lod_indices {
+            for pair in indices.windows(2) {
+                let (x0, y0) = relative_points[pair[0]];
+                let (x1, y1) = relative_points[pair[1]];
+                if let Some((x0, y0, x1, y1)) = clip_line_segment(x0, y0, x1, y1) {
+                    renderer.draw_line(
+                        x0 * width,
+                        y0 * height,
+                        x1 * width,
+                        y1 * height,
+                        stroke_width,
+                        stroke_color,
+                    );
+                }
+            }
+        } else {
+            for &(x0, y0, x1, y1) in &segments {
+                renderer.draw_line(
+                    x0 * width,
+                    y0 * height,
+                    x1 * width,
+                    y1 * height,
+                    stroke_width,
+                    stroke_color,
+                );
+            }
         }
 
         // Draw points if enabled
         if show_points {
-            for &(x_rel, y_rel) in &relative_points {
+            let point_indices: Box<dyn Iterator<Item = usize>> = match lod_indices {
+                Some(indices) => Box::new(indices.into_iter()),
+                None => Box::new(0..relative_points.len()),
+            };
+            for index in point_indices {
+                let (x_rel, y_rel) = relative_points[index];
                 if (0.0..=1.0).contains(&x_rel) && (0.0..=1.0).contains(&y_rel) {
                     renderer.draw_circle(x_rel * width, y_rel * height, point_radius, point_color);
                 }

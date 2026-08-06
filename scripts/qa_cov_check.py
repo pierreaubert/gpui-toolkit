@@ -4,7 +4,7 @@
 Usage:
   python3 scripts/qa_cov_check.py \
       --summary target/qa/cov/summary.json \
-      --threshold 90.00 \
+      --threshold 73.50 \
       --output target/qa/cov/report.md
 
 Reads a cargo-llvm-cov JSON summary and exits non-zero if the aggregate
@@ -24,6 +24,9 @@ ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SUMMARY = ROOT / "target" / "qa" / "cov" / "summary.json"
 DEFAULT_OUTPUT = ROOT / "target" / "qa" / "cov" / "report.md"
 DEFAULT_CRATE_THRESHOLDS = ROOT / "qa" / "cov" / "crate-thresholds.json"
+# Keep the command-line default aligned with qa/cov/config.toml and the CI
+# ratchet. The 90% value in that file is the release target, not the gate.
+DEFAULT_THRESHOLD = 73.5
 
 
 def load_summary(path: Path) -> Any:
@@ -115,7 +118,12 @@ def crate_ratchet_failures(
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--summary", type=Path, default=DEFAULT_SUMMARY)
-    parser.add_argument("--threshold", type=float, default=90.0)
+    parser.add_argument(
+        "--threshold",
+        type=float,
+        default=DEFAULT_THRESHOLD,
+        help="enforced aggregate line-coverage floor (default: 73.5; release target: 90.0)",
+    )
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument(
         "--crate-thresholds",

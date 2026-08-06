@@ -51,6 +51,7 @@ pub mod force;
 pub mod format;
 pub mod hierarchy;
 pub mod interpolate;
+pub mod lod;
 pub mod scale;
 pub mod time;
 pub mod zoom;
@@ -116,6 +117,7 @@ pub mod prelude {
         LegendOrientation, LegendPoint, LegendPosition, LegendRect, LegendSymbol,
         LegendTitleLayout, legend_layout,
     };
+    pub use crate::lod::{DensityGrid, DensityPyramid, LodBounds, LodError, m4_indices};
     pub use crate::scale::{LinearScale, LogScale, Scale};
     pub use crate::selection::{
         SelectionEnter, SelectionExit, SelectionJoin, SelectionJoinError, SelectionUpdate,

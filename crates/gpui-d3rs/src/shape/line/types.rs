@@ -1,7 +1,9 @@
 use super::line_config::LineConfig;
 use super::line_point::LinePoint;
+use super::style::CurveType;
 use super::style::StrokeDashArray;
 use super::validation::{LineRenderError, compute_line_segments, validate_line_inputs};
+use crate::lod::m4_point_indices;
 use crate::scale::Scale;
 use gpui::prelude::*;
 use gpui::*;
@@ -129,9 +131,26 @@ where
             let origin_x: f32 = bounds.origin.x.into();
             let origin_y: f32 = bounds.origin.y.into();
 
+            let use_lod = curve_type == CurveType::Linear
+                && relative_points.len() > width.ceil().max(1.0) as usize * 4;
+            let points = if use_lod {
+                m4_point_indices(&relative_points, width.ceil().max(1.0) as usize)
+                    .into_iter()
+                    .map(|index| relative_points[index])
+                    .collect::<Vec<_>>()
+                    .into()
+            } else {
+                relative_points.clone()
+            };
+            let segments = if use_lod {
+                compute_line_segments(&points, curve_type).into()
+            } else {
+                segments_to_draw.clone()
+            };
+
             (
-                relative_points.clone(),
-                segments_to_draw.clone(),
+                points,
+                segments,
                 width,
                 height,
                 origin_x,

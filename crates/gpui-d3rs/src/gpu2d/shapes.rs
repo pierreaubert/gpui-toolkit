@@ -15,10 +15,12 @@ pub use crate::shape::{
 
 mod gpu_axis_theme;
 mod gpu_grid_config;
+mod lod_scatter;
 mod misc;
 mod render;
 mod types;
 
 pub use gpu_axis_theme::*;
 pub use gpu_grid_config::*;
+pub use lod_scatter::{LodScatter, LodScatterConfig, render_lod_scatter};
 pub use render::*;

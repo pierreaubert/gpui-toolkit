@@ -12,7 +12,7 @@ from qa_native_ui_evidence import (
 
 def smoke_report() -> dict[str, object]:
     return {
-        "schema_version": 2,
+        "schema_version": 3,
         "report_type": "gpui-native-smoke",
         "crate": "gpui-builder",
         "platform": "macos",
@@ -21,6 +21,7 @@ def smoke_report() -> dict[str, object]:
         "render_count": 2,
         "state_transition": "collapse-sidebar",
         "state_transition_verified": True,
+        "interaction_scope": ["window-open", "render", "collapse-sidebar"],
         "pixel_capture": False,
     }
 

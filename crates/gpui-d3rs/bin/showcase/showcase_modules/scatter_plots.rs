@@ -1,5 +1,6 @@
 use d3rs::axis::{AxisConfig, DefaultAxisTheme, render_axis};
 use d3rs::color::{ColorScheme, D3Color};
+use d3rs::gpu2d::{LodScatterConfig, render_lod_scatter};
 use d3rs::grid::{GridConfig, render_grid};
 use d3rs::prelude::*;
 use gpui::*;
@@ -63,7 +64,7 @@ pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                         .text_sm()
                         .font_weight(FontWeight::SEMIBOLD)
                         .mb_2()
-                        .child("Simple Scatter Plot"),
+                        .child("LOD Scatter: Exact Point Tier"),
                 )
                 .child(
                     div()
@@ -94,14 +95,78 @@ pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                             height,
                                             &theme,
                                         ))
-                                        .child(render_scatter(
+                                        .child(render_lod_scatter(
                                             &x_scale,
                                             &y_scale,
                                             &data1,
-                                            &ScatterConfig::new()
-                                                .fill_color(scheme.color(0))
-                                                .point_radius(6.0)
-                                                .opacity(0.8),
+                                            &LodScatterConfig::new()
+                                                .color(scheme.color(0))
+                                                .opacity(0.8)
+                                                .direct_point_budget(20_000),
+                                        )),
+                                )
+                                .child(render_axis(
+                                    &x_scale,
+                                    &AxisConfig::bottom().with_ticks(5),
+                                    width,
+                                    &theme,
+                                )),
+                        ),
+                ),
+        )
+        // Large-data density scatter
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .child(
+                    div()
+                        .text_sm()
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .mb_1()
+                        .child("LOD Density Scatter (80,000 points)"),
+                )
+                .child(
+                    div()
+                        .text_xs()
+                        .mb_2()
+                        .child("The full dataset is cached once; the renderer composes a screen-sized density grid."),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .child(render_axis(
+                            &y_scale,
+                            &AxisConfig::left().with_ticks(5),
+                            height,
+                            &theme,
+                        ))
+                        .child(
+                            div()
+                                .flex()
+                                .flex_col()
+                                .child(
+                                    div()
+                                        .w(px(width))
+                                        .h(px(height))
+                                        .relative()
+                                        .bg(ui_theme.surface)
+                                        .border_1()
+                                        .border_color(ui_theme.border)
+                                        .child(render_grid(
+                                            &x_scale,
+                                            &y_scale,
+                                            &GridConfig::with_lines(),
+                                            width,
+                                            height,
+                                            &theme,
+                                        ))
+                                        .child(app.lod_scatter.render(
+                                            &LodScatterConfig::new()
+                                                .color(D3Color::from_hex(0x7c3aed))
+                                                .opacity(0.9)
+                                                .direct_point_budget(20_000)
+                                                .pyramid_dimension(512),
                                         )),
                                 )
                                 .child(render_axis(
@@ -182,6 +247,80 @@ pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                     &theme,
                                 )),
                         ),
+                ),
+        )
+}
+
+/// Dedicated navigation target for the screen-bounded rendering examples.
+pub fn render_lod(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
+    let ui_theme = cx.theme();
+    let theme = DefaultAxisTheme;
+    let width = app.content_width * 0.7;
+    let height = (width * 0.5).min(app.content_height * 0.55);
+    let x_scale = LinearScale::new()
+        .domain(0.0, 100.0)
+        .range(0.0, width as f64);
+    let y_scale = LinearScale::new()
+        .domain(0.0, 100.0)
+        .range(0.0, height as f64);
+
+    div()
+        .flex()
+        .flex_col()
+        .gap_3()
+        .child(
+            div()
+                .text_2xl()
+                .font_weight(FontWeight::BOLD)
+                .child("Level of Detail / Large Data"),
+        )
+        .child(
+            div()
+                .text_sm()
+                .child("80,000 points are stored in a retained density pyramid; repaint work is bounded by the plot’s pixels."),
+        )
+        .child(
+            div()
+                .flex()
+                .child(render_axis(
+                    &y_scale,
+                    &AxisConfig::left().with_ticks(5),
+                    height,
+                    &theme,
+                ))
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .child(
+                            div()
+                                .w(px(width))
+                                .h(px(height))
+                                .relative()
+                                .bg(ui_theme.surface)
+                                .border_1()
+                                .border_color(ui_theme.border)
+                                .child(render_grid(
+                                    &x_scale,
+                                    &y_scale,
+                                    &GridConfig::with_lines(),
+                                    width,
+                                    height,
+                                    &theme,
+                                ))
+                                .child(app.lod_scatter.render(
+                                    &LodScatterConfig::new()
+                                        .color(D3Color::from_hex(0x7c3aed))
+                                        .opacity(0.9)
+                                        .direct_point_budget(20_000),
+                                )),
+                        )
+                        .child(render_axis(
+                            &x_scale,
+                            &AxisConfig::bottom().with_ticks(5),
+                            width,
+                            &theme,
+                        )),
                 ),
         )
 }
