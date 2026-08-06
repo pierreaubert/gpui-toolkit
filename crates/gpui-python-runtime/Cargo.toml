@@ -1,6 +1,6 @@
 [package]
 name = "gpui-python-runtime"
-version = "0.9.4"
+version = "0.9.5"
 authors.workspace = true
 edition.workspace = true
 keywords.workspace = true
@@ -50,4 +50,9 @@ thiserror = { workspace = true }
 [[bin]]
 name = "gpui-python-showcase"
 path = "bin/showcase.rs"
+required-features = ["showcase"]
+
+[[bin]]
+name = "gpui-python-host"
+path = "bin/host.rs"
 required-features = ["showcase"]

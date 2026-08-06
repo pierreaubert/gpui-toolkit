@@ -9,6 +9,7 @@ mod error;
 #[cfg(feature = "gpui")]
 pub mod gpui_adapter;
 mod scene3d;
+pub mod session;
 #[cfg(feature = "showcase")]
 pub mod showcase;
 pub mod spec_cache;
@@ -20,6 +21,9 @@ pub use scene3d::{
     AxisLabels, CameraSpec, ColorRgba, ColormapSpec, GridData, InteractionMode, LightSpec,
     LineSegmentSpec, LineStripSpec, LinesSpec, MaterialSpec, MeshSpec, OrbitCameraSpec,
     PerspectiveCameraSpec, Point3, ScalarRange, SceneNode, SceneSpec, SurfaceSpec, ViewportSize,
+};
+pub use session::{
+    HostMessage, PYTHON_APP_SESSION_VERSION, PythonMessage, SessionError, SessionState,
 };
 pub use spec_cache::{
     DEFAULT_TYPED_SPEC_CACHE_MAX_ENTRIES, SCENE3D_SPEC_SCHEMA_VERSION, scene3d_spec_schema_version,

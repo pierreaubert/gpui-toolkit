@@ -113,6 +113,17 @@ use misc::keystroke_to_char;
 pub use misc::{clear_all_input_states, input_state_count, is_input_editing};
 pub use types::{InputTheme, InputVariant};
 
+/// The current native text selection, expressed in Unicode scalar indices.
+///
+/// Callers receive only positions, never the selected text. This makes the
+/// callback safe to use with password inputs and protocol traces.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct InputSelection {
+    pub start: usize,
+    pub end: usize,
+    pub reversed: bool,
+}
+
 /// A text input component with full keyboard editing support
 ///
 /// The Input handles all focus and keyboard events internally.
@@ -126,6 +137,7 @@ pub struct Input {
     variant: InputVariant,
     disabled: bool,
     readonly: bool,
+    password: bool,
     error: Option<SharedString>,
     icon_left: Option<SharedString>,
     icon_right: Option<SharedString>,
@@ -141,6 +153,9 @@ pub struct Input {
     on_edit_end: Option<Rc<dyn Fn(Option<String>, &mut Window, &mut App) + 'static>>,
     /// Called on every text change during editing (for live updates)
     on_text_change: Option<Rc<dyn Fn(String, &mut Window, &mut App) + 'static>>,
+    /// Called when the cursor or selected range changes. The callback exposes
+    /// positions only, never the selected value.
+    on_selection_change: Option<Rc<dyn Fn(InputSelection, &mut Window, &mut App) + 'static>>,
     /// Focus handle for this input
     focus_handle: Option<FocusHandle>,
     aria_label: Option<SharedString>,
@@ -159,6 +174,7 @@ impl Input {
             variant: InputVariant::default(),
             disabled: false,
             readonly: false,
+            password: false,
             error: None,
             icon_left: None,
             icon_right: None,
@@ -170,6 +186,7 @@ impl Input {
             on_edit_start: None,
             on_edit_end: None,
             on_text_change: None,
+            on_selection_change: None,
             focus_handle: None,
             aria_label: None,
             aria_role: None,
@@ -221,6 +238,13 @@ impl Input {
     /// Set readonly state
     pub fn readonly(mut self, readonly: bool) -> Self {
         self.readonly = readonly;
+        self
+    }
+
+    /// Mask the rendered value while preserving normal text editing and change
+    /// callbacks. The native accessibility value is masked as well.
+    pub fn password(mut self, password: bool) -> Self {
+        self.password = password;
         self
     }
 
@@ -294,6 +318,16 @@ impl Input {
         handler: impl Fn(String, &mut Window, &mut App) + 'static,
     ) -> Self {
         self.on_text_change = Some(Rc::new(handler));
+        self
+    }
+
+    /// Set a selection-change handler. Positions use Unicode scalar indices
+    /// and are suitable for serializing into application events.
+    pub fn on_selection_change(
+        mut self,
+        handler: impl Fn(InputSelection, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.on_selection_change = Some(Rc::new(handler));
         self
     }
 
@@ -388,6 +422,28 @@ impl InputEntity {
         }
     }
 
+    fn selection_from_state(state: &EditState) -> InputSelection {
+        let range = Self::current_selected_char_range(state);
+        InputSelection {
+            start: range.start,
+            end: range.end,
+            reversed: state
+                .selection_anchor
+                .is_some_and(|anchor| state.cursor < anchor),
+        }
+    }
+
+    fn emit_selection_change(
+        &self,
+        selection: InputSelection,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        if let Some(ref handler) = self.props.on_selection_change {
+            handler(selection, window, cx);
+        }
+    }
+
     fn commit_edit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let mut state = self.edit_state.borrow_mut();
         if !state.editing {
@@ -427,7 +483,9 @@ impl InputEntity {
         // Double-click: select all text
         if event.click_count == 2 {
             state.select_all();
+            let selection = Self::selection_from_state(&state);
             drop(state);
+            self.emit_selection_change(selection, window, cx);
             window.refresh();
             return;
         }
@@ -454,11 +512,13 @@ impl InputEntity {
         let was_editing = state.editing;
         state.editing = true;
         state.start_selection(char_pos);
+        let selection = Self::selection_from_state(&state);
         drop(state);
 
         if !was_editing && let Some(ref handler) = self.props.on_edit_start {
             handler(window, cx);
         }
+        self.emit_selection_change(selection, window, cx);
         window.refresh();
     }
 
@@ -478,7 +538,9 @@ impl InputEntity {
             let origin = TEXT_ORIGINS.with(|o| o.borrow().get(&id).copied().unwrap_or(0.0));
             let char_pos = (((move_x - origin) / char_width).round() as usize).min(text_len);
             state.update_selection(char_pos);
+            let selection = Self::selection_from_state(&state);
             drop(state);
+            self.emit_selection_change(selection, window, _cx);
             window.refresh();
         }
     }
@@ -492,7 +554,9 @@ impl InputEntity {
         let mut state = self.edit_state.borrow_mut();
         if state.is_dragging {
             state.end_selection();
+            let selection = Self::selection_from_state(&state);
             drop(state);
+            self.emit_selection_change(selection, window, _cx);
             window.refresh();
         }
     }
@@ -562,7 +626,9 @@ impl InputEntity {
                 }
                 "a" => {
                     state.select_all();
+                    let selection = Self::selection_from_state(&state);
                     drop(state);
+                    self.emit_selection_change(selection, window, cx);
                     window.refresh();
                     return;
                 }
@@ -585,7 +651,9 @@ impl InputEntity {
                     _ => {}
                 }
             }
+            let selection = Self::selection_from_state(&state);
             drop(state);
+            self.emit_selection_change(selection, window, cx);
             window.refresh();
             return;
         }
@@ -605,7 +673,9 @@ impl InputEntity {
                     _ => {}
                 }
             }
+            let selection = Self::selection_from_state(&state);
             drop(state);
+            self.emit_selection_change(selection, window, cx);
             window.refresh();
             return;
         }
@@ -720,7 +790,9 @@ impl InputEntity {
                 } else {
                     state.move_backward();
                 }
+                let selection = Self::selection_from_state(&state);
                 drop(state);
+                self.emit_selection_change(selection, window, cx);
                 window.refresh();
             }
             "right" => {
@@ -729,7 +801,9 @@ impl InputEntity {
                 } else {
                     state.move_forward();
                 }
+                let selection = Self::selection_from_state(&state);
                 drop(state);
+                self.emit_selection_change(selection, window, cx);
                 window.refresh();
             }
             "home" => {
@@ -738,7 +812,9 @@ impl InputEntity {
                 } else {
                     state.move_to_start();
                 }
+                let selection = Self::selection_from_state(&state);
                 drop(state);
+                self.emit_selection_change(selection, window, cx);
                 window.refresh();
             }
             "end" => {
@@ -747,7 +823,9 @@ impl InputEntity {
                 } else {
                     state.move_to_end();
                 }
+                let selection = Self::selection_from_state(&state);
                 drop(state);
+                self.emit_selection_change(selection, window, cx);
                 window.refresh();
             }
             _ => {
@@ -849,12 +927,14 @@ impl EntityInputHandler for InputEntity {
             .map(|range| {
                 Self::utf16_to_char(&state.text, range.start)
                     ..Self::utf16_to_char(&state.text, range.end)
-            })
+        })
             .unwrap_or_else(|| Self::current_selected_char_range(&state));
         Self::replace_char_range(&mut state, range, text);
         let changed = state.text.clone();
+        let selection = Self::selection_from_state(&state);
         drop(state);
         self.emit_text_change(changed, window, cx);
+        self.emit_selection_change(selection, window, cx);
         window.refresh();
     }
 
@@ -877,6 +957,9 @@ impl EntityInputHandler for InputEntity {
             let end = Self::utf16_to_char(&state.text, selected_range.end);
             state.selection_anchor = Some(start);
             state.cursor = end;
+            let selection = Self::selection_from_state(&state);
+            drop(state);
+            self.emit_selection_change(selection, window, cx);
         }
     }
 
@@ -1014,7 +1097,11 @@ impl Render for InputEntity {
         let native_label = effective_label.cloned().unwrap_or_default();
         let native_props = AriaProps::with_role(props.aria_role.unwrap_or(AriaRole::Textbox))
             .maybe_state(props.disabled, AriaState::Disabled)
-            .value_text(props.value.clone());
+            .value_text(if props.password {
+                "•".repeat(props.value.chars().count()).into()
+            } else {
+                props.value.clone()
+            });
         cx.register_accessible(AccessibilityNode {
             element_id: props.id.clone(),
             label: effective_label.cloned().unwrap_or_default(),
@@ -1166,13 +1253,20 @@ impl Render for InputEntity {
 
         // Determine display text. Keep it as a `SharedString` when it comes from
         // props so we don't allocate a new `String` on every render.
-        let display_text: SharedString = if let Some(text) = edit_text {
+        let editing_text = edit_text.is_some();
+        let clear_display_text: SharedString = if let Some(text) = edit_text {
             text
         } else if props.value.is_empty() {
             props.placeholder.clone().unwrap_or_default()
         } else {
             props.value.clone()
         };
+        let display_text: SharedString =
+            if props.password && (editing_text || !props.value.is_empty()) {
+                "•".repeat(clear_display_text.chars().count()).into()
+            } else {
+                clear_display_text
+            };
 
         // Build the text element with partial selection support
         let mut text_el = div().id(field_id).flex_1().flex().items_center();

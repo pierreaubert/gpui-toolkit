@@ -3,8 +3,47 @@
 from __future__ import annotations
 
 import math
+import time
 
-from gpui_toolkit import App, charts, scene3d as s3, section, ui
+from gpui_toolkit import App, Event, SessionContext, charts, scene3d as s3, section, ui
+
+
+class RuntimeShowcase(App):
+    """A small live-session path exercised by the bundled native showcase."""
+
+    def on_action(self, event: Event, context: SessionContext) -> None:
+        if event.action == "set_simulation_step":
+            context.acknowledge(event)
+            context.patch([
+                {"op": "set", "id": "simulation-workflow", "property": "active",
+                 "value": int(event.payload.get("index", 0))},
+            ], request_id=event.id)
+            return
+        if event.action in {"preview_drive_level", "set_frequency_start", "set_speaker_model"}:
+            context.acknowledge(event)
+            return
+        if event.action != "run-showcase-simulation":
+            context.reject(event, "unknown_action", "This showcase action is not available.")
+            return
+
+        context.acknowledge(event)
+
+        def simulate(token) -> None:
+            for completed in range(1, 6):
+                if token.cancelled:
+                    context.job_log("showcase-simulation", "Simulation cancelled by user.", "warn")
+                    return
+                context.job(
+                    "showcase-simulation", "running", completed=completed, total=5,
+                    message=f"Solving frequency band {completed} of 5",
+                )
+                context.job_log("showcase-simulation", f"Completed band {completed}/5")
+                time.sleep(0.08)
+            context.patch([
+                {"op": "set", "id": "simulation-result", "property": "value", "value": "Ready"},
+            ], request_id=event.id)
+
+        context.spawn_job("showcase-simulation", simulate, resource_tags=("simulation",))
 
 
 def build_app() -> App:
@@ -15,7 +54,7 @@ def build_app() -> App:
     heatmap_size = 24
     heatmap_z = generate_heatmap_data(heatmap_size)
 
-    return App(
+    return RuntimeShowcase(
         title="GPUI Python Runtime Showcase",
         sidebar_title="Python GPUI",
         sidebar_subtitle="Python app, Rust renderers",
@@ -27,7 +66,10 @@ def build_app() -> App:
                 "gpui-px Charts",
                 ui.vstack(
                     [
-                        ui.section_header("gpui-px Charts", "Chart specs are declared in Python"),
+                        ui.section_header(
+                            "gpui-px Charts",
+                            "Wheel zoom, drag pan, double-click reset; keyboard +/− and arrows also work.",
+                        ),
                         ui.wrap(
                             [
                                 charts.scatter(
@@ -46,6 +88,18 @@ def build_app() -> App:
                                     color="#ff7f0e",
                                     x_log=True,
                                     stroke_width=2.0,
+                                    x_label="Frequency (Hz)",
+                                    y_label="Level (dB)",
+                                    series=[
+                                        charts.Series("measured", line_x, line_y, label="Measured", color="#ff7f0e"),
+                                        charts.Series(
+                                            "target",
+                                            line_x,
+                                            [0.0 for _ in line_x],
+                                            label="Target",
+                                            color="#22c55e",
+                                        ),
+                                    ],
                                 ),
                                 charts.bar(
                                     "scene-nodes",
@@ -61,6 +115,12 @@ def build_app() -> App:
                                     heatmap_size,
                                     title="Upload Activity",
                                     color_scale="viridis",
+                                    x=[float(index) for index in range(heatmap_size)],
+                                    y=[float(index) for index in range(heatmap_size)],
+                                    color_label="Upload intensity",
+                                    color_unit="a.u.",
+                                    color_range=(0.0, 1.0),
+                                    aspect_ratio=1.0,
                                 ),
                             ],
                             gap=20.0,
@@ -227,14 +287,87 @@ def ui_kit_section() -> ui.Node:
                     ),
                     ui.card(
                         [
+                            ui.heading("Simulation inputs", level=2),
+                            ui.stepper(
+                                id="simulation-workflow",
+                                steps=["Model", "Solve", "Review"],
+                                active=0,
+                                action="set_simulation_step",
+                            ),
+                            ui.number_input(
+                                id="frequency-start",
+                                label="Start frequency",
+                                value="20e",  # Deliberately intermediate text while editing.
+                                unit="Hz",
+                                commit_action="set_frequency_start",
+                                validation={"severity": "error", "message": "Complete the exponent before running."},
+                            ),
+                            ui.slider(
+                                id="drive-level",
+                                label="Drive level",
+                                value=0.65,
+                                minimum=0.0,
+                                maximum=1.0,
+                                step=0.01,
+                                show_value=True,
+                                action="preview_drive_level",
+                                commit_action="commit_drive_level",
+                            ),
+                            ui.accordion(
+                                id="advanced-solver",
+                                expanded=["tolerance"],
+                                action="set_advanced_solver",
+                                items=[(
+                                    "tolerance", "Advanced solver settings", [
+                                        ui.text("Changes are validated by the Python session.", tone="secondary"),
+                                    ],
+                                )],
+                            ),
+                            ui.list_editor(
+                                id="evaluation-frequencies",
+                                label="Evaluation frequencies",
+                                rows=[
+                                    {"id": "frequency-100", "label": "100 Hz", "value": 100.0},
+                                    {"id": "frequency-1000", "label": "1 kHz", "value": 1000.0},
+                                ],
+                                add_action="add_evaluation_frequency",
+                                remove_action="remove_evaluation_frequency",
+                                reorder_action="reorder_evaluation_frequency",
+                            ),
+                            ui.path_input(
+                                id="speaker-model",
+                                label="Speaker model",
+                                placeholder="Choose an .mlg or .json model",
+                                value="",
+                                filters=[("Speaker models", ["mlg", "json"])],
+                                recent_values=["/models/reference.mlg", "/models/calibrated.json"],
+                                must_exist=True,
+                                commit_action="set_speaker_model",
+                            ),
+                            ui.checkbox(id="field-map", value=None, label="Generate field map"),
+                            ui.button(
+                                "Run showcase simulation", id="run-showcase-simulation",
+                                action="run-showcase-simulation", selected=True,
+                            ),
+                            ui.metric("Latest result", "Not run", id="simulation-result"),
+                        ],
+                        width=420.0,
+                    ),
+                    ui.card(
+                        [
                             ui.heading("Data", level=2),
                             ui.table(
-                                ["component", "state"],
-                                [
-                                    ["Buttons", "wrapped"],
-                                    ["Charts", "native"],
-                                    ["Scene3D", "retained"],
+                                id="runtime-capabilities",
+                                columns=[
+                                    {"id": "component", "label": "Component", "sortable": True, "width": 150},
+                                    {"id": "state", "label": "State", "sortable": True, "width": 130},
                                 ],
+                                typed_rows=[
+                                    {"id": "buttons", "cells": ["Buttons", "wrapped"]},
+                                    {"id": "charts", "cells": ["Charts", "native"]},
+                                    {"id": "scene3d", "cells": ["Scene3D", "retained"]},
+                                ],
+                                sort_action="sort_runtime_capabilities",
                             ),
                         ],
                         width=360.0,
@@ -308,6 +441,11 @@ def build_mesh_scene() -> s3.Scene:
                 vertices=[(-0.6, -0.5, 0.0), (0.6, -0.5, 0.0), (0.0, 0.7, 0.0)],
                 indices=[0, 1, 2],
                 material=s3.material("#88ccff", opacity=0.82),
+                scalar_values=[0.1, 0.65, 1.0],
+                scalar_location="vertex",
+                colormap="turbo",
+                scalar_range=(0.0, 1.0),
+                scalar_label="Normalized displacement",
             ),
             s3.light("key", direction=(1.0, -2.0, -1.0), intensity=1.3),
         ],

@@ -253,8 +253,24 @@ class Mesh:
     vertices: Sequence[Point3]
     indices: Sequence[int]
     material: Material = field(default_factory=Material)
+    scalar_values: Sequence[float] | None = None
+    scalar_location: str = "vertex"
+    colormap: str = "viridis"
+    scalar_range: tuple[float, float] | None = None
+    scalar_label: str | None = None
 
     def to_spec(self) -> dict[str, Any]:
+        scalar_field = None
+        if self.scalar_values is not None:
+            scalar_field = {
+                "values": [float(value) for value in self.scalar_values],
+                "association": self.scalar_location.strip().lower().replace("-", "_"),
+                "colormap": _colormap(self.colormap),
+                "range": None if self.scalar_range is None else {
+                    "min": float(self.scalar_range[0]), "max": float(self.scalar_range[1]),
+                },
+                "label": self.scalar_label,
+            }
         return {
             "schema_version": SCENE3D_SPEC_SCHEMA_VERSION,
             "kind": "mesh",
@@ -262,6 +278,7 @@ class Mesh:
             "vertices": [_point3(vertex) for vertex in self.vertices],
             "indices": [int(index) for index in self.indices],
             "material": self.material.to_spec(),
+            "scalar_field": scalar_field,
         }
 
 

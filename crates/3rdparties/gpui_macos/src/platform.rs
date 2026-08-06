@@ -740,6 +740,20 @@ impl Platform for MacPlatform {
 
                     panel.setCanCreateDirectories(true.to_objc());
                     panel.setResolvesAliases_(false.to_objc());
+                    if let Some(directory) = options.initial_directory.as_ref() {
+                        let path = ns_string(directory.to_string_lossy().as_ref());
+                        let url = NSURL::fileURLWithPath_isDirectory_(nil, path, true.to_objc());
+                        panel.setDirectoryURL(url);
+                    }
+                    if options.files && !options.extensions.is_empty() {
+                        let extensions: Vec<id> = options
+                            .extensions
+                            .iter()
+                            .map(|extension| ns_string(extension.trim_start_matches('.')))
+                            .collect();
+                        let extensions = NSArray::arrayWithObjects(nil, &extensions);
+                        let _: () = msg_send![panel, setAllowedFileTypes: extensions];
+                    }
                     let done_tx = Cell::new(Some(done_tx));
                     let block = ConcreteBlock::new(move |response: NSModalResponse| {
                         let result = if response == NSModalResponse::NSModalResponseOk {

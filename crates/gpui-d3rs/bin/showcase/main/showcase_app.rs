@@ -94,6 +94,8 @@ pub struct ShowcaseApp {
     /// Retained large scatter cache; both canonical normalized points and its
     /// density pyramid survive showcase re-renders.
     pub lod_scatter: d3rs::gpu2d::LodScatter,
+    /// Current normalized viewport of the interactive LOD scatter demo.
+    pub lod_zoom: d3rs::zoom::ZoomState,
     // Horizon Chart
     pub horizon_data: Vec<f64>,
     pub horizon_offset: f64,
@@ -218,6 +220,7 @@ impl ShowcaseApp {
                     .collect();
                 d3rs::gpu2d::LodScatter::from_normalized(points, 512)
             },
+            lod_zoom: d3rs::zoom::ZoomState::default(),
             // Horizon Chart defaults
             horizon_data: (0..200).map(|i| (i as f64 * 0.1).sin() * 20.0).collect(),
             horizon_offset: 0.0,

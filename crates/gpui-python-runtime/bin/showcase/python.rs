@@ -1,64 +1,329 @@
 use super::misc::default_showcase_path;
 use super::misc::repo_root;
+use gpui_python_runtime::session::{
+    parse_python_message, DEFAULT_HOST_CAPABILITIES, DEFAULT_MAX_SESSION_MESSAGE_BYTES,
+    HostMessage, PythonMessage, UiEvent,
+};
 use gpui_python_runtime::ui_ir::PythonAppIr;
 use std::env;
 use std::error::Error;
 use std::ffi::OsString;
 use std::future::Future;
+use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::mpsc::{self, Receiver};
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll, Waker};
+use std::time::{Duration, Instant};
 
 type SharedResult<T> = Arc<Mutex<Option<Result<T, Box<dyn Error + Send + Sync>>>>>;
 
-/// Load the Python app synchronously (blocks the calling thread).
-pub(super) fn load_python_app_blocking() -> Result<PythonAppIr, Box<dyn Error + Send + Sync>> {
+/// Supervised persistent Python child. Stdout and stderr are drained on helper
+/// threads, so neither a chatty application nor a stalled GPUI frame can block
+/// the child process on a full pipe.
+pub(super) struct PythonSession {
+    child: Arc<Mutex<std::process::Child>>,
+    stdin: Arc<Mutex<std::process::ChildStdin>>,
+    messages: Receiver<Result<PythonMessage, String>>,
+    pub stderr: Arc<Mutex<Vec<String>>>,
+    event_sequence: Arc<AtomicU64>,
+    wake: PythonSessionWake,
+}
+
+/// A zero-allocation bridge from the blocking stdout reader to GPUI's async
+/// executor. A notification coalesces messages; the entity drains the actual
+/// bounded channel on the foreground task.
+#[derive(Clone)]
+pub(super) struct PythonSessionWake {
+    notified: Arc<std::sync::atomic::AtomicBool>,
+    waker: Arc<Mutex<Option<Waker>>>,
+}
+
+impl PythonSessionWake {
+    fn new() -> Self {
+        Self {
+            notified: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            waker: Arc::new(Mutex::new(None)),
+        }
+    }
+
+    fn notify(&self) {
+        self.notified.store(true, Ordering::Release);
+        if let Some(waker) = self.waker.lock().ok().and_then(|mut waker| waker.take()) {
+            waker.wake();
+        }
+    }
+}
+
+impl Future for PythonSessionWake {
+    type Output = ();
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        if self.notified.swap(false, Ordering::AcqRel) {
+            return Poll::Ready(());
+        }
+        if let Ok(mut waker) = self.waker.lock() {
+            *waker = Some(cx.waker().clone());
+        }
+        if self.notified.swap(false, Ordering::AcqRel) {
+            if let Ok(mut waker) = self.waker.lock() {
+                *waker = None;
+            }
+            Poll::Ready(())
+        } else {
+            Poll::Pending
+        }
+    }
+}
+
+/// Cloneable, write-only half of a session for native UI callbacks. The
+/// receiver remains owned by `PythonSession`, while controls can emit events
+/// from their `'static` callback closures.
+#[derive(Clone)]
+pub(super) struct PythonEventSink {
+    stdin: Arc<Mutex<std::process::ChildStdin>>,
+    event_sequence: Arc<AtomicU64>,
+}
+
+impl PythonEventSink {
+    pub fn send(&self, message: &HostMessage) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let encoded = serde_json::to_vec(message)?;
+        if encoded.len() > DEFAULT_MAX_SESSION_MESSAGE_BYTES {
+            return Err("host session message exceeds maximum size".into());
+        }
+        let mut stdin = self
+            .stdin
+            .lock()
+            .map_err(|_| "python stdin lock poisoned")?;
+        stdin.write_all(&encoded)?;
+        stdin.write_all(b"\n")?;
+        stdin.flush()?;
+        Ok(())
+    }
+
+    pub fn dispatch(
+        &self,
+        node_id: impl Into<String>,
+        event: impl Into<String>,
+        action: Option<String>,
+        payload: serde_json::Value,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let sequence = self.event_sequence.fetch_add(1, Ordering::Relaxed) + 1;
+        let message = HostMessage::Event(UiEvent {
+            id: format!("event-{sequence}"),
+            sequence,
+            node_id: node_id.into(),
+            event: event.into(),
+            action,
+            payload,
+        });
+        self.send(&message)
+    }
+}
+
+impl PythonSession {
+    pub fn wake_handle(&self) -> PythonSessionWake {
+        self.wake.clone()
+    }
+
+    pub fn event_sink(&self) -> PythonEventSink {
+        PythonEventSink {
+            stdin: self.stdin.clone(),
+            event_sequence: self.event_sequence.clone(),
+        }
+    }
+
+    pub fn send(&self, message: &HostMessage) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let encoded = serde_json::to_vec(message)?;
+        if encoded.len() > DEFAULT_MAX_SESSION_MESSAGE_BYTES {
+            return Err("host session message exceeds maximum size".into());
+        }
+        let mut stdin = self
+            .stdin
+            .lock()
+            .map_err(|_| "python stdin lock poisoned")?;
+        stdin.write_all(&encoded)?;
+        stdin.write_all(b"\n")?;
+        stdin.flush()?;
+        Ok(())
+    }
+
+    pub fn try_recv(&self) -> Option<Result<PythonMessage, String>> {
+        self.messages.try_recv().ok()
+    }
+
+    pub fn stderr_diagnostics(&self) -> String {
+        self.stderr
+            .lock()
+            .map(|lines| lines.iter().rev().take(30).cloned().collect::<Vec<_>>())
+            .unwrap_or_default()
+            .into_iter()
+            .rev()
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    fn recv(&self) -> Result<PythonMessage, Box<dyn Error + Send + Sync>> {
+        self.messages
+            .recv()
+            .map_err(|error| -> Box<dyn Error + Send + Sync> { error.to_string().into() })?
+            .map_err(Into::into)
+    }
+
+    pub fn shutdown(&self) {
+        self.wake.notify();
+        let _ = self.send(&HostMessage::Shutdown(
+            gpui_python_runtime::session::Shutdown {
+                reason: "host_shutdown".into(),
+            },
+        ));
+        if let Ok(mut child) = self.child.lock() {
+            let timeout = env::var("GPUI_TOOLKIT_SHUTDOWN_TIMEOUT_MS")
+                .ok()
+                .and_then(|value| value.parse::<u64>().ok())
+                .map(Duration::from_millis)
+                .unwrap_or(Duration::from_secs(2));
+            let deadline = Instant::now() + timeout;
+            while Instant::now() < deadline {
+                match child.try_wait() {
+                    Ok(Some(_)) | Err(_) => return,
+                    Ok(None) => std::thread::sleep(Duration::from_millis(10)),
+                }
+            }
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+}
+
+impl Drop for PythonSession {
+    fn drop(&mut self) {
+        self.shutdown();
+    }
+}
+
+pub(super) fn spawn_python_session() -> Result<PythonSession, Box<dyn Error + Send + Sync>> {
     let script = env::args_os()
         .nth(1)
         .map(PathBuf::from)
         .unwrap_or_else(default_showcase_path);
-
     let mut child = Command::new(python_executable())
         .arg(&script)
-        .env("GPUI_TOOLKIT_DUMP_IR", "1")
+        .env("GPUI_TOOLKIT_SESSION", "1")
         .env("PYTHONPATH", python_path(&script))
+        .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()?;
-
+    let stdin = child.stdin.take().ok_or("failed to capture Python stdin")?;
     let stdout = child
         .stdout
         .take()
         .ok_or("failed to capture Python stdout")?;
-    let mut stderr = child
+    let stderr = child
         .stderr
         .take()
         .ok_or("failed to capture Python stderr")?;
-
-    // Drain stderr on a helper thread so the child can never block on a full
-    // stderr pipe while we stream JSON from stdout.
-    let stderr_thread = std::thread::spawn(move || {
-        let mut buf = Vec::new();
-        let _ = std::io::Read::read_to_end(&mut stderr, &mut buf);
-        String::from_utf8_lossy(&buf).to_string()
+    // Keep the render thread decoupled from a chatty child while bounding host
+    // memory. Backpressure is applied on this reader thread, never in GPUI.
+    let (tx, rx) = mpsc::sync_channel(256);
+    let wake = PythonSessionWake::new();
+    let reader_wake = wake.clone();
+    std::thread::spawn(move || {
+        for line in BufReader::new(stdout).split(b'\n') {
+            match line {
+                Ok(line) if line.is_empty() => {}
+                Ok(line) if line.len() > DEFAULT_MAX_SESSION_MESSAGE_BYTES => {
+                    let _ = tx.send(Err("Python session message exceeds maximum size".into()));
+                    reader_wake.notify();
+                    return;
+                }
+                Ok(line) => {
+                    let parsed = parse_python_message(&line, DEFAULT_MAX_SESSION_MESSAGE_BYTES)
+                        .map_err(|error| error.to_string());
+                    if tx.send(parsed).is_err() {
+                        break;
+                    }
+                    reader_wake.notify();
+                }
+                Err(error) => {
+                    let _ = tx.send(Err(error.to_string()));
+                    reader_wake.notify();
+                    return;
+                }
+            }
+        }
+        let _ = tx.send(Err("Python session stdout closed unexpectedly".into()));
+        reader_wake.notify();
     });
+    let stderr_lines = Arc::new(Mutex::new(Vec::new()));
+    let stderr_sink = stderr_lines.clone();
+    std::thread::spawn(move || {
+        for line in BufReader::new(stderr).lines().map_while(Result::ok) {
+            let mut lines = stderr_sink.lock().expect("stderr lock");
+            lines.push(line);
+            if lines.len() > 1_000 {
+                lines.remove(0);
+            }
+        }
+    });
+    Ok(PythonSession {
+        child: Arc::new(Mutex::new(child)),
+        stdin: Arc::new(Mutex::new(stdin)),
+        messages: rx,
+        stderr: stderr_lines,
+        event_sequence: Arc::new(AtomicU64::new(0)),
+        wake,
+    })
+}
 
-    let parse_result = serde_json::from_reader(std::io::BufReader::new(stdout));
-    let stderr_output = stderr_thread.join().unwrap_or_default();
-    let status = child.wait()?;
-
-    if !status.success() {
-        return Err(format!("{} exited with {stderr_output}", script.display()).into());
+pub(super) fn load_python_session_blocking()
+-> Result<(PythonAppIr, PythonSession), Box<dyn Error + Send + Sync>> {
+    let session = spawn_python_session()?;
+    session.send(&HostMessage::Initialize(
+        gpui_python_runtime::session::Initialize {
+            session_version: gpui_python_runtime::session::PYTHON_APP_SESSION_VERSION,
+            capabilities: DEFAULT_HOST_CAPABILITIES.iter().map(|value| (*value).into()).collect(),
+            platform: std::env::consts::OS.into(),
+            theme: "system".into(),
+            window: gpui_python_runtime::session::WindowMetadata {
+                width: 1240.0,
+                height: 820.0,
+                scale_factor: 1.0,
+            },
+        },
+    ))?;
+    match session.recv()? {
+        PythonMessage::Ready(ready) => {
+            gpui_python_runtime::session::SessionState::new(
+                DEFAULT_HOST_CAPABILITIES
+                    .iter()
+                    .map(|capability| (*capability).into())
+                    .collect(),
+            )
+            .validate_ready(&ready)?;
+        }
+        other => return Err(format!("expected Python session ready, received {other:?}").into()),
     }
+    match session.recv()? {
+        PythonMessage::Snapshot { app_ir } => {
+            app_ir.validate()?;
+            Ok((app_ir, session))
+        }
+        other => Err(format!("expected initial Python snapshot, received {other:?}").into()),
+    }
+}
 
-    let app: PythonAppIr = parse_result?;
-    app.validate()?;
+/// Validate the initial snapshot through the same persistent-session
+/// handshake used by the interactive host.
+pub(super) fn load_python_app_blocking() -> Result<PythonAppIr, Box<dyn Error + Send + Sync>> {
+    let (app, _session) = load_python_session_blocking()?;
     Ok(app)
 }
 
-/// Future returned by `load_python_app_async`.
 struct BackgroundFuture<T> {
     result: SharedResult<T>,
     waker: Arc<Mutex<Option<Waker>>>,
@@ -76,25 +341,19 @@ impl<T> Future for BackgroundFuture<T> {
     }
 }
 
-/// Load the Python app off the main thread.
-///
-/// The blocking Python process and JSON deserialization run on a dedicated
-/// background thread; the returned future resolves on the awaiting executor.
-pub(super) fn load_python_app_async()
--> impl Future<Output = Result<PythonAppIr, Box<dyn Error + Send + Sync>>> {
+pub(super) fn load_python_session_async()
+-> impl Future<Output = Result<(PythonAppIr, PythonSession), Box<dyn Error + Send + Sync>>> {
     let result = Arc::new(Mutex::new(None));
     let waker = Arc::new(Mutex::new(None::<Waker>));
     let result2 = result.clone();
     let waker2 = waker.clone();
-
     std::thread::spawn(move || {
-        let output = load_python_app_blocking();
+        let output = load_python_session_blocking();
         *result2.lock().unwrap() = Some(output);
         if let Some(w) = waker2.lock().unwrap().take() {
             w.wake();
         }
     });
-
     BackgroundFuture { result, waker }
 }
 

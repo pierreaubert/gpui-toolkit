@@ -29,14 +29,19 @@ use std::process::Command;
 mod misc;
 #[path = "showcase/python.rs"]
 mod python;
+#[path = "showcase/host_state.rs"]
+mod host_state;
+#[path = "showcase/credentials.rs"]
+mod credentials;
 #[path = "showcase/python_ir_showcase.rs"]
 mod python_ir_showcase;
 #[path = "showcase/types.rs"]
 mod types;
 
 use python_ir_showcase::PythonIrShowcase;
+use host_state::PresentationStore;
 
-fn main() {
+pub fn main() {
     if env::var_os("GPUI_TOOLKIT_VALIDATE_ONLY").is_some() {
         match python::load_python_app_blocking() {
             Ok(app) => {
@@ -54,10 +59,13 @@ fn main() {
         return;
     }
 
+    let presentation = PresentationStore::open();
+    let presentation_state = presentation.snapshot();
     MiniApp::run(
         MiniAppConfig::new("Python Showcase")
             .with_theme(true)
-            .scrollable(false),
-        |cx| cx.new(PythonIrShowcase::new_loading),
+            .scrollable(false)
+            .size(presentation_state.width, presentation_state.height),
+        move |cx| cx.new(|cx| PythonIrShowcase::new_loading(cx, presentation)),
     );
 }

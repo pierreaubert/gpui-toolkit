@@ -58,6 +58,7 @@ pub struct Slider {
     width: f32,
     on_change: Option<Rc<dyn Fn(f32, &mut Window, &mut App) + 'static>>,
     on_drag_start: Option<Rc<dyn Fn(f32, f32, &mut Window, &mut App) + 'static>>,
+    on_drag_end: Option<Rc<dyn Fn(f32, &mut Window, &mut App) + 'static>>,
     on_reset: Option<Rc<dyn Fn(&mut Window, &mut App) + 'static>>,
     track_color: Option<Rgba>,
     fill_color: Option<Rgba>,
@@ -84,6 +85,7 @@ impl Slider {
             width: 200.0,
             on_change: None,
             on_drag_start: None,
+            on_drag_end: None,
             on_reset: None,
             track_color: None,
             fill_color: None,
@@ -216,6 +218,12 @@ impl Slider {
         self
     }
 
+    /// Called when pointer dragging commits the slider value on mouse release.
+    pub fn on_drag_end(mut self, handler: impl Fn(f32, &mut Window, &mut App) + 'static) -> Self {
+        self.on_drag_end = Some(Rc::new(handler));
+        self
+    }
+
     /// Set reset handler (called on double-click)
     pub fn on_reset(mut self, handler: impl Fn(&mut Window, &mut App) + 'static) -> Self {
         self.on_reset = Some(Rc::new(handler));
@@ -256,6 +264,7 @@ impl Slider {
             width: self.width,
             on_change: None,
             on_drag_start: None,
+            on_drag_end: None,
             on_reset: None,
             track_color: self.track_color,
             fill_color: self.fill_color,
@@ -435,6 +444,7 @@ impl RenderOnce for Slider {
             let id_up = self.id.clone();
             let value_at_press = self.value;
             let config_drag = self.interaction_config();
+            let config_drag_end = self.interaction_config();
             let config_scroll = self.interaction_config();
             let config_key = self.interaction_config();
             let on_change_down = self.on_change.clone();
@@ -442,14 +452,18 @@ impl RenderOnce for Slider {
             let on_change_scroll = self.on_change.clone();
             let on_change_key = self.on_change.clone();
             let on_drag_start = self.on_drag_start.clone();
+            let on_drag_end = self.on_drag_end.clone();
+            let on_drag_end_down = on_drag_end.clone();
             let on_reset = self.on_reset.clone();
             let snap_slider = Slider {
                 on_change: None,
                 on_drag_start: None,
+                on_drag_end: None,
                 on_reset: None,
                 ..self.clone_for_calculation()
             };
             let snap_drag = snap_slider.clone_for_calculation();
+            let snap_drag_end = snap_slider.clone_for_calculation();
             let snap_scroll = snap_slider.clone_for_calculation();
             let snap_key = snap_slider.clone_for_calculation();
             let focus_down = focus_handle.clone();
@@ -465,7 +479,7 @@ impl RenderOnce for Slider {
                         handler(click_x, value_at_press, window, cx);
                     }
 
-                    if on_change_down.is_some() {
+                    if on_change_down.is_some() || on_drag_end_down.is_some() {
                         store_drag_state(id_down.clone(), click_x, value_at_press as f64);
                     }
                 })
@@ -489,7 +503,15 @@ impl RenderOnce for Slider {
                         handler(snap_drag.snap_value(value as f32), window, cx);
                     }
                 })
-                .on_mouse_up(MouseButton::Left, move |_event, _window, cx| {
+                .on_mouse_up(MouseButton::Left, move |event, window, cx| {
+                    if let Some(state) = get_drag_state(&id_up)
+                        && let Some(ref handler) = on_drag_end
+                    {
+                        let release_x: f32 = event.position.x.into();
+                        let value = handle_drag(release_x, &state, &config_drag_end)
+                            .unwrap_or(state.start_value) as f32;
+                        handler(snap_drag_end.snap_value(value), window, cx);
+                    }
                     clear_drag_state(id_up.clone());
                     cx.stop_propagation();
                 })

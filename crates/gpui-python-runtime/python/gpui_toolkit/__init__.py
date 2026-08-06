@@ -5,8 +5,9 @@ GPU resources private.
 """
 
 from . import charts, scene3d, ui
-from .app import App, Section, section
+from .app import App, CancellationToken, Event, Section, SessionContext, section
+from .state import StateError, StateStore, StoredState, application_data_dir
 
-__version__ = "0.8.2"
+__version__ = "0.9.4"
 
-__all__ = ["App", "Section", "__version__", "charts", "scene3d", "section", "ui"]
+__all__ = ["App", "CancellationToken", "Event", "Section", "SessionContext", "StateError", "StateStore", "StoredState", "__version__", "application_data_dir", "charts", "scene3d", "section", "ui"]

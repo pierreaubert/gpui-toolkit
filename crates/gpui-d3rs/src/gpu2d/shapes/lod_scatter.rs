@@ -165,6 +165,23 @@ fn render_cached_scatter(
             .as_ref()
             .and_then(|pyramid| pyramid.compose(viewport, grid_width, grid_height, max_upsample))
         else {
+            // The view out-resolves the finest aggregate level. Drill into
+            // canonical points in this window rather than showing a blank or
+            // blurred density image; the retained cache keeps this scan local
+            // to the visible data-space window.
+            let x_span = viewport.x1 - viewport.x0;
+            let y_span = viewport.y1 - viewport.y0;
+            for &(x, y) in normalized.iter() {
+                if x < viewport.x0 || x > viewport.x1 || y < viewport.y0 || y > viewport.y1 {
+                    continue;
+                }
+                renderer.draw_circle(
+                    ((x - viewport.x0) / x_span) as f32 * width,
+                    (1.0 - (y - viewport.y0) as f32 / y_span as f32) * height,
+                    point_radius.max(1.5),
+                    color,
+                );
+            }
             return;
         };
         let maximum = grid.values.iter().copied().fold(0.0_f32, f32::max);

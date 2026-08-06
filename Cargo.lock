@@ -2999,7 +2999,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-d3rs"
-version = "0.9.10"
+version = "0.9.11"
 dependencies = [
  "approx",
  "autoeq",

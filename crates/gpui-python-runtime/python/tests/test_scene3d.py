@@ -43,6 +43,21 @@ class Scene3DTests(unittest.TestCase):
         self.assertEqual(scene["children"][0]["kind"], "mesh")
         self.assertAlmostEqual(scene["children"][0]["material"]["color"]["b"], 1.0)
 
+    def test_mesh_scalar_field_preserves_association_and_metadata(self):
+        spec = s3.mesh(
+            "pressure",
+            vertices=[(0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (0.0, 1.0, 0.0)],
+            indices=[0, 1, 2],
+            scalar_values=[0.0, 0.5, 1.0],
+            scalar_location="vertex",
+            colormap="turbo",
+            scalar_range=(0.0, 1.0),
+            scalar_label="Pressure (Pa)",
+        ).to_spec()
+        self.assertEqual(spec["scalar_field"]["association"], "vertex")
+        self.assertEqual(spec["scalar_field"]["range"]["max"], 1.0)
+        self.assertEqual(spec["scalar_field"]["label"], "Pressure (Pa)")
+
     def test_examples_build_json_specs(self):
         examples_dir = Path(__file__).parents[1] / "examples"
         expected = {
@@ -91,6 +106,80 @@ class Scene3DTests(unittest.TestCase):
         chart = spec["sections"][0]["content"]["children"][1]["children"][0]
         self.assertEqual(chart["kind"], "chart")
         self.assertEqual(chart["chart"], "scatter")
+
+    def test_chart_series_preserve_stable_ids_and_axis_metadata(self):
+        chart = charts.line(
+            "response",
+            [20.0],
+            [0.0],
+            series=[
+                charts.Series("measured", [20.0, 100.0], [-3.0, 1.0], label="Measured"),
+                charts.Series("target", [20.0, 100.0], [0.0, 0.0], visible=False),
+            ],
+            x_label="Frequency (Hz)",
+            y_label="Level (dB)",
+            x_range=(20.0, 20000.0),
+        ).to_spec()
+        self.assertEqual(chart["series"][0]["id"], "measured")
+        self.assertFalse(chart["series"][1]["visible"])
+        self.assertEqual(chart["x_label"], "Frequency (Hz)")
+
+    def test_heatmap_coordinates_and_colorbar_metadata_are_preserved(self):
+        chart = charts.heatmap(
+            "field",
+            [0.0, 0.5, 1.0, 0.25],
+            2,
+            2,
+            x=[20.0, 100.0],
+            y=[0.0, 30.0],
+            color_label="SPL",
+            color_unit="dB",
+            color_range=(-20.0, 10.0),
+            aspect_ratio=1.0,
+        ).to_spec()
+        self.assertEqual(chart["x"], [20.0, 100.0])
+        self.assertEqual(chart["color_label"], "SPL")
+        self.assertEqual(chart["color_range"], [-20.0, 10.0])
+
+    def test_typed_table_preserves_cell_types_and_row_identity(self):
+        table = ui.table(
+            id="jobs",
+            columns=[("name", "Name"), ("progress", "Progress")],
+            typed_rows=[{"id": "solve-1", "cells": ["Solve", 0.5]}],
+            selected_row="solve-1",
+            selection_action="select_job",
+        ).to_spec()
+        self.assertEqual(table["columns"][1]["id"], "progress")
+        self.assertEqual(table["typed_rows"][0]["cells"][1], 0.5)
+        self.assertEqual(table["selection_action"], "select_job")
+
+    def test_table_window_contract_preserves_stable_rows(self):
+        table = ui.table(
+            id="results",
+            columns=[{"id": "value", "label": "Value", "sortable": True, "width": 120.0}],
+            typed_rows=[{"id": "r0", "cells": [0.0]}],
+            row_offset=500,
+            row_limit=100,
+        ).to_spec()
+        self.assertEqual(table["row_offset"], 500)
+        self.assertEqual(table["row_limit"], 100)
+        self.assertTrue(table["columns"][0]["sortable"])
+
+    def test_path_input_preserves_browse_contract_and_recents(self):
+        path = ui.path_input(
+            id="model",
+            label="Speaker model",
+            value="speaker.mlg",
+            mode="open_file",
+            filters=[("Speaker models", ["mlg", "json"])],
+            recent_values=["last-model.mlg"],
+            must_exist=True,
+            action="set-model",
+        ).to_spec()
+        self.assertEqual(path["kind"], "path_input")
+        self.assertEqual(path["filters"][0]["extensions"], ["mlg", "json"])
+        self.assertEqual(path["recent_values"], ["last-model.mlg"])
+        self.assertTrue(path["must_exist"])
 
     def test_python_showcase_is_authored_as_app_ir(self):
         showcase_path = Path(__file__).parents[1] / "showcase.py"

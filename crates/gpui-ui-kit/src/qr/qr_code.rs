@@ -16,6 +16,7 @@ use qrcode::QrCode as QrMatrix;
 /// QrCode::new("https://example.com")
 ///     .size(px(200.0))
 /// ```
+#[derive(Debug)]
 pub struct QrCode {
     /// Pre-computed module colors (empty on encode failure).
     pub(super) colors: Vec<qrcode::types::Color>,

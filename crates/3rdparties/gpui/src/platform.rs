@@ -1755,6 +1755,12 @@ pub struct PathPromptOptions {
     pub multiple: bool,
     /// The prompt to show to a user when selecting a path
     pub prompt: Option<SharedString>,
+    /// Optional directory shown when the picker first opens. Platforms that
+    /// cannot honour this retain their native last-used location.
+    pub initial_directory: Option<PathBuf>,
+    /// File extensions (without a leading dot) accepted by an open-file
+    /// picker. Directory pickers ignore this field.
+    pub extensions: Vec<SharedString>,
 }
 
 /// What kind of prompt styling to show

@@ -1,6 +1,6 @@
 [package]
 name = "gpui-ui-kit"
-version = "0.9.35"
+version = "0.9.36"
 authors.workspace = true
 edition.workspace = true
 keywords.workspace = true

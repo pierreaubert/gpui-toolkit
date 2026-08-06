@@ -257,11 +257,14 @@ pub fn render_lod(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
     let theme = DefaultAxisTheme;
     let width = app.content_width * 0.7;
     let height = (width * 0.5).min(app.content_height * 0.55);
+    let (x0, x1) = app.lod_zoom.x_domain();
+    let (y0, y1) = app.lod_zoom.y_domain();
+    let viewport = LodBounds::new(x0, x1, y0, y1).expect("showcase zoom stays valid");
     let x_scale = LinearScale::new()
-        .domain(0.0, 100.0)
+        .domain(x0 * 100.0, x1 * 100.0)
         .range(0.0, width as f64);
     let y_scale = LinearScale::new()
-        .domain(0.0, 100.0)
+        .domain(y0 * 100.0, y1 * 100.0)
         .range(0.0, height as f64);
 
     div()
@@ -277,7 +280,10 @@ pub fn render_lod(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
         .child(
             div()
                 .text_sm()
-                .child("80,000 points are stored in a retained density pyramid; repaint work is bounded by the plot’s pixels."),
+                .child(format!(
+                    "80,000 points are stored in a retained density pyramid. Scroll over the plot to zoom ({:.1}×).",
+                    1.0 / (x1 - x0)
+                )),
         )
         .child(
             div()
@@ -300,6 +306,27 @@ pub fn render_lod(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                 .bg(ui_theme.surface)
                                 .border_1()
                                 .border_color(ui_theme.border)
+                                .overflow_hidden()
+                                .on_scroll_wheel(cx.listener(
+                                    |this, event: &ScrollWheelEvent, _window, cx| {
+                                        cx.stop_propagation();
+                                        let delta_y: f32 = match event.delta {
+                                            ScrollDelta::Lines(lines) => lines.y,
+                                            ScrollDelta::Pixels(pixels) => pixels.y.into(),
+                                        };
+                                        let factor = 1.15_f64.powf((f64::from(delta_y) / 30.0).clamp(-3.0, 3.0));
+                                        let (x0, x1) = this.lod_zoom.x_domain();
+                                        let (y0, y1) = this.lod_zoom.y_domain();
+                                        let x_span = ((x1 - x0) / factor).clamp(0.002, 1.0);
+                                        let y_span = ((y1 - y0) / factor).clamp(0.002, 1.0);
+                                        this.lod_zoom.zoom_to(
+                                            0.5 - x_span / 2.0,
+                                            0.5 + x_span / 2.0,
+                                            0.5 - y_span / 2.0,
+                                            0.5 + y_span / 2.0,
+                                        );
+                                    },
+                                ))
                                 .child(render_grid(
                                     &x_scale,
                                     &y_scale,
@@ -312,7 +339,8 @@ pub fn render_lod(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                     &LodScatterConfig::new()
                                         .color(D3Color::from_hex(0x7c3aed))
                                         .opacity(0.9)
-                                        .direct_point_budget(20_000),
+                                        .direct_point_budget(20_000)
+                                        .viewport(viewport),
                                 )),
                         )
                         .child(render_axis(

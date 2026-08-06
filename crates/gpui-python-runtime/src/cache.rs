@@ -250,6 +250,7 @@ mod tests {
             vertices: vec![],
             indices: vec![],
             material: crate::scene3d::MaterialSpec::default(),
+            scalar_field: None,
         };
         assert!(cache.upsert_mesh(&bad_mesh).is_err());
     }

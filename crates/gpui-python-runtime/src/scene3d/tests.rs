@@ -107,6 +107,7 @@ fn mesh_rejects_invalid_indices() {
         ],
         indices: vec![0, 1, 3],
         material: MaterialSpec::default(),
+        scalar_field: None,
     };
 
     assert!(matches!(
@@ -424,9 +425,22 @@ fn mesh_spec_validates() {
         ],
         indices: vec![0, 1, 2],
         material: MaterialSpec::default(),
+        scalar_field: None,
     };
     assert!(valid.validate().is_ok());
     let _ = valid.fingerprints();
+
+    let mut scalar_mesh = valid.clone();
+    scalar_mesh.scalar_field = Some(super::mesh_spec::MeshScalarField {
+        values: vec![0.0, 0.5, 1.0],
+        association: super::mesh_spec::ScalarAssociation::Vertex,
+        colormap: super::colormap_spec::ColormapSpec::Turbo,
+        range: Some(super::scalar_range::ScalarRange::new(0.0, 1.0)),
+        label: Some("Pressure (Pa)".into()),
+    });
+    assert!(scalar_mesh.validate().is_ok());
+    scalar_mesh.scalar_field.as_mut().unwrap().values.pop();
+    assert!(scalar_mesh.validate().is_err());
 
     let mut bad = valid.clone();
     bad.vertices.clear();
@@ -675,6 +689,7 @@ fn hash_functions_run_without_panic() {
         ],
         indices: vec![0, 1, 2],
         material: MaterialSpec::default(),
+        scalar_field: None,
     };
     mesh.fingerprints();
 }
@@ -722,6 +737,7 @@ fn scene_node_dispatches_all_kinds() {
         ],
         indices: vec![0, 1, 2],
         material: MaterialSpec::default(),
+        scalar_field: None,
     });
     assert_eq!(mesh.id(), "m");
     assert!(mesh.validate().is_ok());

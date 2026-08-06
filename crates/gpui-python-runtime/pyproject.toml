@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "gpui-toolkit"
-version = "0.8.2"
+version = "0.9.4"
 description = "Python declarations for GPUI Toolkit apps and retained 3D scene specs"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -19,6 +19,10 @@ classifiers = [
     "License :: OSI Approved :: ISC License (ISCL)",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Software Development :: User Interfaces",
 ]
 dependencies = []
@@ -30,6 +34,9 @@ Documentation = "https://docs.rs/gpui-toolkit"
 [tool.setuptools]
 package-dir = { "" = "python" }
 include-package-data = true
+
+[tool.setuptools.package-data]
+gpui_toolkit = ["bin/gpui-python-host", "bin/gpui-python-host.exe"]
 
 [tool.setuptools.packages.find]
 where = ["python"]
