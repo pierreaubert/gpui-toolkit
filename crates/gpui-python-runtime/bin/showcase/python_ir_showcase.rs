@@ -19,7 +19,7 @@ use gpui_python_runtime::session::{
 use gpui_python_runtime::spec_cache::TypedSpecCache;
 use gpui_python_runtime::ui_ir::{
     AccordionNode, BadgeNode, BooleanInputNode, ButtonNode, CardNode, ChartKind, ChartNode,
-    FormNode, ListEditorNode, NumberInputNode,
+    ColorPickerNode, FormNode, ListEditorNode, NumberInputNode,
     PathInputNode, ProgressNode, PythonAppIr, Scene3dNode, SectionHeaderNode, SelectNode,
     SimpleNode, SliderNode, SpinnerNode, StackNode, StepperNode, TableNode, TabsNode, TextInputNode,
     TextNode, UiNode,
@@ -27,8 +27,9 @@ use gpui_python_runtime::ui_ir::{
 use gpui_ui_kit::theme::{Theme, ThemeExt};
 use gpui_ui_kit::{
     accordion::{Accordion, AccordionItem, AccordionMode}, checkbox::Checkbox, input::Input,
-    number_input::NumberInput, select::Select, slider::Slider, toggle::Toggle, DragItem, DragList,
+    number_input::NumberInput, select::Select, slider::Slider, toggle::Toggle, ColorPickerView, DragItem, DragList,
 };
+use gpui_ui_kit::color::Color;
 use gpui_ui_kit::data_navigation::{DataNavigationAction, DataNavigationState};
 use gpui_ui_kit::{apply_native_accessibility, AriaProps, AriaRole, AriaState};
 use d3rs::gpu3d::{Lines3DElement, Lines3DState, Surface3DElement, Surface3DState};
@@ -599,6 +600,9 @@ pub(super) struct PythonIrShowcase {
     pub(super) spec_cache: TypedSpecCache,
     pub(super) table_cells: HashMap<(usize, usize), (String, SharedString)>,
     form_focus: HashMap<String, FocusHandle>,
+    color_pickers: HashMap<String, Entity<ColorPickerView>>,
+    color_picker_subscriptions: HashMap<String, Subscription>,
+    color_picker_actions: HashMap<String, Option<String>>,
     tab_focus: HashMap<String, FocusHandle>,
     /// Retained per-chart interaction state. Re-renders rebuild the draw list
     /// from this state, so data patches do not discard a user's zoom or pan.
@@ -663,6 +667,9 @@ impl PythonIrShowcase {
             spec_cache: TypedSpecCache::new(),
             table_cells: HashMap::new(),
             form_focus: HashMap::new(),
+            color_pickers: HashMap::new(),
+            color_picker_subscriptions: HashMap::new(),
+            color_picker_actions: HashMap::new(),
             tab_focus: HashMap::new(),
             chart_interactions: HashMap::new(),
             chart_hidden_series: HashMap::new(),
@@ -974,6 +981,8 @@ impl PythonIrShowcase {
             UiNode::Slider(node) => self.render_slider(node, theme, ds),
             UiNode::Select(node) if !node.presentation.visible => div().into_any_element(),
             UiNode::Select(node) => self.render_select(node, theme, ds),
+            UiNode::ColorPicker(node) if !node.presentation.visible => div().into_any_element(),
+            UiNode::ColorPicker(node) => self.render_color_picker(node, theme, ds, cx),
             UiNode::PathInput(node) if !node.presentation.visible => div().into_any_element(),
             UiNode::PathInput(node) => self.render_path_input(node, theme, ds, cx),
             UiNode::Checkbox(node) if !node.presentation.visible => div().into_any_element(),
@@ -981,6 +990,34 @@ impl PythonIrShowcase {
             UiNode::Toggle(node) if !node.presentation.visible => div().into_any_element(),
             UiNode::Toggle(node) => self.render_toggle(node, theme, ds),
         }
+    }
+
+    fn render_color_picker(
+        &mut self,
+        node: &ColorPickerNode,
+        theme: &Theme,
+        ds: &DesignSystem,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let color = Color::from_hex_string(&node.value).unwrap_or_else(|| Color::from_hex(0));
+        self.color_picker_actions.insert(node.id.clone(), node.action.clone());
+        let picker = self.color_pickers.entry(node.id.clone()).or_insert_with(|| {
+            cx.new(|_| ColorPickerView::new(node.label.clone().unwrap_or_else(|| node.id.clone()), color))
+        }).clone();
+        if !self.color_picker_subscriptions.contains_key(&node.id) {
+            let id = node.id.clone();
+            let subscription = cx.observe(&picker, move |this, picker, cx| {
+                let Some(sink) = this.session.as_ref().map(|session| session.event_sink()) else { return; };
+                let color = picker.read(cx).color().to_hex_string();
+                let action = this.color_picker_actions.get(&id).cloned().flatten();
+                let _ = sink.dispatch(id.clone(), "change", action, serde_json::json!({ "value": color }));
+            });
+            self.color_picker_subscriptions.insert(node.id.clone(), subscription);
+        }
+        if node.disabled {
+            return self.present_form_control(div().text_color(theme.text_muted).child("Color picker disabled").into_any_element(), &node.presentation, theme, ds);
+        }
+        self.present_form_control(picker.into_any_element(), &node.presentation, theme, ds)
     }
 
     pub(super) fn render_stack(

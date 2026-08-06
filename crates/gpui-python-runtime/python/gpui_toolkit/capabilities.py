@@ -1,0 +1,44 @@
+"""Generated capability descriptors; do not edit by hand."""
+from __future__ import annotations
+from dataclasses import dataclass
+
+@dataclass(frozen=True)
+class Capability:
+    id: str
+    disposition: str
+    python_path: str
+
+_ENTRIES = (
+    ('gpui-python-runtime.app', 'direct', 'gpui_toolkit.App'),
+    ('gpui-ui-kit.declarative', 'declarative', 'gpui_toolkit.ui'),
+    ('gpui-px.charts', 'declarative', 'gpui_toolkit.charts'),
+    ('gpui-d3rs.scene3d', 'declarative', 'gpui_toolkit.scene3d'),
+    ('gpui-python-runtime.state', 'direct', 'gpui_toolkit.StateStore'),
+    ('gpui-python-runtime.bindings', 'direct', 'gpui_toolkit.State'),
+    ('gpui-python-runtime.resources', 'opaque', 'gpui_toolkit.resources.ResourceStore'),
+    ('gpui-python-runtime.events', 'event', 'gpui_toolkit.events.Event'),
+    ('gpui-ui-kit-macros.generated-behavior', 'non-consumer', 'gpui_toolkit.ui'),
+    ('gpui-toolkit.aggregate-host', 'host-owned', 'gpui_toolkit'),
+    ('gpui-python-runtime.host', 'command', 'gpui_toolkit.App.run'),
+    ('gpui-au.platform', 'platform-unavailable', 'gpui_toolkit.platform.AU_EMBEDDING'),
+    ('gpui-ios.platform', 'platform-unavailable', 'gpui_toolkit.platform.IOS_HOST'),
+    ('gpui-android.platform', 'platform-unavailable', 'gpui_toolkit.platform.ANDROID_HOST'),
+    ('gpui-keybinding.registry', 'direct', 'gpui_toolkit.keybindings.KeybindingRegistry'),
+    ('gpui-design.tokens-and-reports', 'declarative', 'gpui_toolkit.design.DesignLanguage'),
+    ('gpui-pretext.requests-and-results', 'declarative', 'gpui_toolkit.text.TextPreparationRequest'),
+    ('gpui-themes.selection-and-gallery', 'declarative', 'gpui_toolkit.themes.ThemeModePreference'),
+    ('gpui-component-lab.stories', 'declarative', 'gpui_toolkit.lab.ComponentStory'),
+    ('gpui-design-tools.token-operations', 'command', 'gpui_toolkit.tooling.DesignTokenOperation'),
+    ('gpui-builder.declarations', 'declarative', 'gpui_toolkit.layout.Container'),
+    ('gpui-profiler.snapshots-and-budgets', 'direct', 'gpui_toolkit.profiler.AllocationBudget'),
+    ('gpui-scaffolder.commands', 'command', 'gpui_toolkit.scaffolder.ScaffoldOptions'),
+    ('gpui-miniapp.configuration', 'command', 'gpui_toolkit.miniapp.MiniAppConfig'),
+    ('gpui-audio-kit.declarations-and-reports', 'declarative', 'gpui_toolkit.audio.TickConfig'),
+    ('gpui-toolkit.release-qa-snapshots', 'direct', 'gpui_toolkit.reports.ReleaseQaMatrix'),
+    ('gpui-python-runtime.host-effects', 'command', 'gpui_toolkit.effects.ConfirmDialog'),
+    ('gpui-ui-kit.accessibility-and-focus', 'declarative', 'gpui_toolkit.accessibility.AriaProps'),
+    ('gpui-ui-kit.i18n', 'declarative', 'gpui_toolkit.i18n.TranslationCatalog'),
+)
+
+def capabilities() -> tuple[Capability, ...]:
+    return tuple(Capability(*entry) for entry in _ENTRIES)

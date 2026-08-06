@@ -13,6 +13,7 @@ from gpui_toolkit.app import _host_binary, _negotiate_capabilities, _validate_py
 ROOT = Path(__file__).resolve().parents[2]
 PYPROJECT = ROOT / "pyproject.toml"
 CARGO_MANIFEST = ROOT / "Cargo.toml"
+WORKSPACE_MANIFEST = ROOT.parents[1] / "Cargo.toml"
 
 
 class PackagingTests(unittest.TestCase):
@@ -34,9 +35,12 @@ class PackagingTests(unittest.TestCase):
     def test_python_package_version_matches_rust_crate_version(self):
         pyproject = tomllib.loads(PYPROJECT.read_text())
         cargo = tomllib.loads(CARGO_MANIFEST.read_text())
+        workspace = tomllib.loads(WORKSPACE_MANIFEST.read_text())
+        version = workspace["workspace"]["package"]["version"]
 
-        self.assertEqual(pyproject["project"]["version"], cargo["package"]["version"])
-        self.assertEqual(gpui_toolkit.__version__, cargo["package"]["version"])
+        self.assertTrue(cargo["package"]["version"].get("workspace"))
+        self.assertEqual(pyproject["project"]["version"], version)
+        self.assertEqual(gpui_toolkit.__version__, version)
 
     def test_declared_package_import_surface_is_available(self):
         exports = set(gpui_toolkit.__all__)

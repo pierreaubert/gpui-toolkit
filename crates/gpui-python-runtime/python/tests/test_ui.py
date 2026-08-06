@@ -131,6 +131,11 @@ class UiBuilderTests(unittest.TestCase):
         self.assertFalse(spec["visible"])
         self.assertEqual(spec["width"], 240.0)
 
+    def test_color_picker_uses_native_hex_contract(self):
+        spec = ui.color_picker(id="accent", value="#ff00ffaa", label="Accent").to_spec()
+        self.assertEqual(spec["kind"], "color_picker")
+        self.assertEqual(spec["value"], "#ff00ffaa")
+
 
 if __name__ == "__main__":
     unittest.main()

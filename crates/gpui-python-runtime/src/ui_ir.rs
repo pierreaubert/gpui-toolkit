@@ -366,6 +366,7 @@ pub enum UiNode {
     NumberInput(NumberInputNode),
     Slider(SliderNode),
     Select(SelectNode),
+    ColorPicker(ColorPickerNode),
     PathInput(PathInputNode),
     Checkbox(BooleanInputNode),
     Toggle(BooleanInputNode),
@@ -403,6 +404,7 @@ impl UiNode {
             Self::Slider(node) => node.validate(),
             Self::Table(node) => node.validate(),
             Self::Select(node) => node.validate(),
+            Self::ColorPicker(node) => node.validate(),
             Self::PathInput(node) => node.validate(),
             Self::Checkbox(node) | Self::Toggle(node) => node.validate(),
             _ => Ok(()),
@@ -928,6 +930,34 @@ pub struct SelectNode {
     pub presentation: FormControlProps,
 }
 
+/// Native RGB/HSL color editor. The value is a CSS-style 6/8 digit hex
+/// string, while user interaction remains in the host's ColorPickerView.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ColorPickerNode {
+    pub id: String,
+    pub value: String,
+    pub label: Option<String>,
+    pub action: Option<String>,
+    #[serde(default)]
+    pub disabled: bool,
+    #[serde(flatten)]
+    pub presentation: FormControlProps,
+}
+
+impl ColorPickerNode {
+    fn validate(&self) -> Result<(), UiIrError> {
+        self.presentation.validate()?;
+        if self.id.trim().is_empty() {
+            return Err(UiIrError::InvalidPatch { message: "form node id is empty".into() });
+        }
+        let value = self.value.strip_prefix('#').unwrap_or(&self.value);
+        if !matches!(value.len(), 6 | 8) || !value.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            return Err(UiIrError::InvalidPatch { message: "color picker value must be #RRGGBB or #RRGGBBAA".into() });
+        }
+        Ok(())
+    }
+}
+
 /// A file-system path editor. The application remains authoritative for
 /// domain validation; `must_exist` provides a useful native preflight for the
 /// common open-file/open-directory cases.
@@ -1434,6 +1464,25 @@ fn default_stroke_width() -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn validates_native_color_picker_hex_contract() {
+        let app: PythonAppIr = serde_json::from_value(serde_json::json!({
+            "title": "Demo",
+            "sections": [{"id": "main", "label": "Main", "content": {
+                "kind": "color_picker", "id": "accent", "value": "#ff00ffaa"
+            }}]
+        })).unwrap();
+        assert!(app.validate().is_ok());
+
+        let invalid: PythonAppIr = serde_json::from_value(serde_json::json!({
+            "title": "Demo",
+            "sections": [{"id": "main", "label": "Main", "content": {
+                "kind": "color_picker", "id": "accent", "value": "not-a-color"
+            }}]
+        })).unwrap();
+        assert!(matches!(invalid.validate(), Err(UiIrError::InvalidPatch { .. })));
+    }
 
     #[test]
     fn validates_accordion_items_and_expansion() {

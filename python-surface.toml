@@ -1,0 +1,328 @@
+# Checked-in inventory for the Python parity gate described in
+# gpui-toolkit-python-full-surface-design.md.  This registry is deliberately
+# separate from the wire schema: it records the disposition that every public
+# capability must eventually receive.
+
+[surface]
+schema_version = 1
+aggregate_crate = "gpui-toolkit"
+aggregate_feature = "all"
+release_ready = false
+
+# A capability-level matrix from gpui-toolkit-python-full-surface-design.md.
+# ``capability`` is deliberately absent until that entire requirement is
+# represented by a tested, typed surface—not merely one convenient class.
+[[requirement]]
+id = "common.state-bindings-events"
+capability = "gpui-python-runtime.bindings"
+[[requirement]]
+id = "common.effects-jobs-resources"
+capability = "gpui-python-runtime.resources"
+[[requirement]]
+id = "ui.core"
+capability = "gpui-ui-kit.declarative"
+[[requirement]]
+id = "ui.overlays"
+[[requirement]]
+id = "ui.forms"
+capability = "gpui-ui-kit.declarative"
+[[requirement]]
+id = "ui.navigation-feedback-data-workflow"
+[[requirement]]
+id = "ui.infrastructure-accessibility"
+[[requirement]]
+id = "builder.full-solver-and-inspection"
+[[requirement]]
+id = "design.full-token-and-report-model"
+[[requirement]]
+id = "themes.full-palettes-and-community-import"
+[[requirement]]
+id = "pretext.full-preparation-and-layout"
+[[requirement]]
+id = "keybinding.full-registry"
+capability = "gpui-keybinding.registry"
+[[requirement]]
+id = "px.full-chart-api"
+[[requirement]]
+id = "d3.full-algorithm-and-interaction-api"
+[[requirement]]
+id = "audio.full-controls-streams-and-regression"
+[[requirement]]
+id = "tooling.full-token-operations"
+[[requirement]]
+id = "miniapp.full-shell"
+[[requirement]]
+id = "profiler.full-telemetry"
+[[requirement]]
+id = "scaffolder.full-preview-and-write"
+[[requirement]]
+id = "platform.adapters"
+capability = "gpui-au.platform"
+[[requirement]]
+id = "aggregate.release-qa-reports"
+
+[[inventory.crate]]
+id = "gpui-au"
+path = "crates/gpui-au"
+[[inventory.crate]]
+id = "gpui-android"
+path = "crates/gpui-android"
+[[inventory.crate]]
+id = "gpui-audio-kit"
+path = "crates/gpui-audio-kit"
+[[inventory.crate]]
+id = "gpui-builder"
+path = "crates/gpui-builder"
+[[inventory.crate]]
+id = "gpui-component-lab"
+path = "crates/gpui-component-lab"
+[[inventory.crate]]
+id = "gpui-d3rs"
+path = "crates/gpui-d3rs"
+[[inventory.crate]]
+id = "gpui-design"
+path = "crates/gpui-design"
+[[inventory.crate]]
+id = "gpui-design-tools"
+path = "crates/gpui-design-tools"
+[[inventory.crate]]
+id = "gpui-ios"
+path = "crates/gpui-ios"
+[[inventory.crate]]
+id = "gpui-keybinding"
+path = "crates/gpui-keybinding"
+[[inventory.crate]]
+id = "gpui-miniapp"
+path = "crates/gpui-miniapp"
+[[inventory.crate]]
+id = "gpui-pretext"
+path = "crates/gpui-pretext"
+[[inventory.crate]]
+id = "gpui-px"
+path = "crates/gpui-px"
+[[inventory.crate]]
+id = "gpui-profiler"
+path = "crates/gpui-profiler"
+[[inventory.crate]]
+id = "gpui-python-runtime"
+path = "crates/gpui-python-runtime"
+[[inventory.crate]]
+id = "gpui-scaffolder"
+path = "crates/gpui-scaffolder"
+[[inventory.crate]]
+id = "gpui-themes"
+path = "crates/gpui-themes"
+[[inventory.crate]]
+id = "gpui-toolkit"
+path = "crates/gpui-toolkit"
+[[inventory.crate]]
+id = "gpui-ui-kit"
+path = "crates/gpui-ui-kit"
+[[inventory.crate]]
+id = "gpui-ui-kit-macros"
+path = "crates/gpui-ui-kit-macros"
+
+# The initial conformance entries are the already-shipped simulation surface.
+# New public Python APIs must add their disposition and test in the same change.
+[[capability]]
+id = "gpui-python-runtime.app"
+rust_path = "gpui_python_runtime::session"
+python_path = "gpui_toolkit.App"
+disposition = "direct"
+tests = ["crates/gpui-python-runtime/python/tests/test_state.py"]
+
+[[capability]]
+id = "gpui-ui-kit.declarative"
+rust_path = "gpui_ui_kit"
+python_path = "gpui_toolkit.ui"
+disposition = "declarative"
+tests = ["crates/gpui-python-runtime/python/tests/test_ui.py"]
+
+[[capability]]
+id = "gpui-px.charts"
+rust_path = "gpui_px"
+python_path = "gpui_toolkit.charts"
+disposition = "declarative"
+tests = ["crates/gpui-python-runtime/python/tests/test_ui.py"]
+
+[[capability]]
+id = "gpui-d3rs.scene3d"
+rust_path = "gpui_d3rs::gpu3d"
+python_path = "gpui_toolkit.scene3d"
+disposition = "declarative"
+tests = ["crates/gpui-python-runtime/python/tests/test_scene3d.py"]
+
+[[capability]]
+id = "gpui-python-runtime.state"
+rust_path = "gpui_python_runtime::state"
+python_path = "gpui_toolkit.StateStore"
+disposition = "direct"
+tests = ["crates/gpui-python-runtime/python/tests/test_state.py"]
+
+[[capability]]
+id = "gpui-python-runtime.bindings"
+rust_path = "gpui_python_runtime::state"
+python_path = "gpui_toolkit.State"
+disposition = "direct"
+tests = ["crates/gpui-python-runtime/python/tests/test_state.py"]
+
+[[capability]]
+id = "gpui-python-runtime.resources"
+rust_path = "gpui_python_runtime::spec_cache"
+python_path = "gpui_toolkit.resources.ResourceStore"
+disposition = "opaque"
+tests = ["crates/gpui-python-runtime/python/tests/test_resources.py"]
+
+[[capability]]
+id = "gpui-python-runtime.events"
+rust_path = "gpui_python_runtime::session::UiEvent"
+python_path = "gpui_toolkit.events.Event"
+disposition = "event"
+tests = ["crates/gpui-python-runtime/python/tests/test_events.py"]
+
+[[capability]]
+id = "gpui-ui-kit-macros.generated-behavior"
+rust_path = "gpui_ui_kit_macros"
+python_path = "gpui_toolkit.ui"
+disposition = "non-consumer"
+tests = ["crates/gpui-python-runtime/python/tests/test_ui.py"]
+
+[[capability]]
+id = "gpui-toolkit.aggregate-host"
+rust_path = "gpui_toolkit"
+python_path = "gpui_toolkit"
+disposition = "host-owned"
+tests = ["crates/gpui-python-runtime/python/tests/test_packaging.py"]
+
+[[capability]]
+id = "gpui-python-runtime.host"
+rust_path = "gpui_python_runtime::host"
+python_path = "gpui_toolkit.App.run"
+disposition = "command"
+tests = ["crates/gpui-python-runtime/python/tests/test_packaging.py"]
+
+[[capability]]
+id = "gpui-au.platform"
+rust_path = "gpui_au"
+python_path = "gpui_toolkit.platform.AU_EMBEDDING"
+disposition = "platform-unavailable"
+tests = ["crates/gpui-python-runtime/python/tests/test_platform.py"]
+
+[[capability]]
+id = "gpui-ios.platform"
+rust_path = "gpui_ios"
+python_path = "gpui_toolkit.platform.IOS_HOST"
+disposition = "platform-unavailable"
+tests = ["crates/gpui-python-runtime/python/tests/test_platform.py"]
+
+[[capability]]
+id = "gpui-android.platform"
+rust_path = "gpui_android"
+python_path = "gpui_toolkit.platform.ANDROID_HOST"
+disposition = "platform-unavailable"
+tests = ["crates/gpui-python-runtime/python/tests/test_platform.py"]
+
+[[capability]]
+id = "gpui-keybinding.registry"
+rust_path = "gpui_keybinding::KeybindingRegistry"
+python_path = "gpui_toolkit.keybindings.KeybindingRegistry"
+disposition = "direct"
+tests = ["crates/gpui-python-runtime/python/tests/test_keybindings.py"]
+
+[[capability]]
+id = "gpui-design.tokens-and-reports"
+rust_path = "gpui_design::DesignLanguage"
+python_path = "gpui_toolkit.design.DesignLanguage"
+disposition = "declarative"
+tests = ["crates/gpui-python-runtime/python/tests/test_design.py"]
+
+[[capability]]
+id = "gpui-pretext.requests-and-results"
+rust_path = "gpui_pretext::PrepareOptions"
+python_path = "gpui_toolkit.text.TextPreparationRequest"
+disposition = "declarative"
+tests = ["crates/gpui-python-runtime/python/tests/test_text.py"]
+
+[[capability]]
+id = "gpui-themes.selection-and-gallery"
+rust_path = "gpui_themes::ThemeModePreference"
+python_path = "gpui_toolkit.themes.ThemeModePreference"
+disposition = "declarative"
+tests = ["crates/gpui-python-runtime/python/tests/test_themes.py"]
+
+[[capability]]
+id = "gpui-component-lab.stories"
+rust_path = "gpui_component_lab::ComponentStory"
+python_path = "gpui_toolkit.lab.ComponentStory"
+disposition = "declarative"
+tests = ["crates/gpui-python-runtime/python/tests/test_lab.py"]
+
+[[capability]]
+id = "gpui-design-tools.token-operations"
+rust_path = "gpui_design_tools::DesignTokenFormat"
+python_path = "gpui_toolkit.tooling.DesignTokenOperation"
+disposition = "command"
+tests = ["crates/gpui-python-runtime/python/tests/test_tooling.py"]
+
+[[capability]]
+id = "gpui-builder.declarations"
+rust_path = "gpui_builder::LayoutNode"
+python_path = "gpui_toolkit.layout.Container"
+disposition = "declarative"
+tests = ["crates/gpui-python-runtime/python/tests/test_layout.py"]
+
+[[capability]]
+id = "gpui-profiler.snapshots-and-budgets"
+rust_path = "gpui_profiler::AllocationBudget"
+python_path = "gpui_toolkit.profiler.AllocationBudget"
+disposition = "direct"
+tests = ["crates/gpui-python-runtime/python/tests/test_profiler.py"]
+
+[[capability]]
+id = "gpui-scaffolder.commands"
+rust_path = "gpui_scaffolder::ScaffoldOptions"
+python_path = "gpui_toolkit.scaffolder.ScaffoldOptions"
+disposition = "command"
+tests = ["crates/gpui-python-runtime/python/tests/test_scaffolder.py"]
+
+[[capability]]
+id = "gpui-miniapp.configuration"
+rust_path = "gpui_miniapp::MiniAppConfig"
+python_path = "gpui_toolkit.miniapp.MiniAppConfig"
+disposition = "command"
+tests = ["crates/gpui-python-runtime/python/tests/test_miniapp.py"]
+
+[[capability]]
+id = "gpui-audio-kit.declarations-and-reports"
+rust_path = "gpui_audio_kit::TickConfig"
+python_path = "gpui_toolkit.audio.TickConfig"
+disposition = "declarative"
+tests = ["crates/gpui-python-runtime/python/tests/test_audio.py"]
+
+[[capability]]
+id = "gpui-toolkit.release-qa-snapshots"
+rust_path = "gpui_toolkit::ReleaseQaMatrix"
+python_path = "gpui_toolkit.reports.ReleaseQaMatrix"
+disposition = "direct"
+tests = ["crates/gpui-python-runtime/python/tests/test_reports.py"]
+
+[[capability]]
+id = "gpui-python-runtime.host-effects"
+rust_path = "gpui_python_runtime::session::PythonMessage"
+python_path = "gpui_toolkit.effects.ConfirmDialog"
+disposition = "command"
+tests = ["crates/gpui-python-runtime/python/tests/test_effects.py"]
+
+[[capability]]
+id = "gpui-ui-kit.accessibility-and-focus"
+rust_path = "gpui_ui_kit::AriaProps"
+python_path = "gpui_toolkit.accessibility.AriaProps"
+disposition = "declarative"
+tests = ["crates/gpui-python-runtime/python/tests/test_accessibility.py"]
+
+[[capability]]
+id = "gpui-ui-kit.i18n"
+rust_path = "gpui_ui_kit::Language"
+python_path = "gpui_toolkit.i18n.TranslationCatalog"
+disposition = "declarative"
+tests = ["crates/gpui-python-runtime/python/tests/test_i18n.py"]

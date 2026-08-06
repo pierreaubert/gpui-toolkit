@@ -7,8 +7,127 @@ import os
 import re
 import tempfile
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Generic, TypeVar
+
+
+T = TypeVar("T")
+
+
+class ValidationSeverity(str, Enum):
+    INFO = "info"
+    WARNING = "warning"
+    ERROR = "error"
+
+
+@dataclass(frozen=True)
+class ValidationResult:
+    """Typed validation payload shared by fields, rows, and forms."""
+
+    severity: ValidationSeverity
+    code: str
+    message: str
+    details: Any = None
+    fix_action: str | None = None
+
+    @property
+    def valid(self) -> bool:
+        return self.severity is not ValidationSeverity.ERROR
+
+    def to_spec(self) -> dict[str, Any]:
+        return {
+            "severity": self.severity.value,
+            "code": self.code,
+            "message": self.message,
+            "details": self.details,
+            "fix_action": self.fix_action,
+        }
+
+
+class Binding(Generic[T]):
+    """Read/write typed view of a :class:`State` value.
+
+    It is JSON-safe at the declaration boundary: UI builders call ``to_spec``
+    and receive the current value, never the mutable state object itself.
+    """
+
+    def __init__(self, getter: Callable[[], T], setter: Callable[[T], None] | None = None):
+        self._getter = getter
+        self._setter = setter
+
+    @property
+    def value(self) -> T:
+        return self._getter()
+
+    def set(self, value: T) -> None:
+        if self._setter is None:
+            raise TypeError("computed bindings are read-only")
+        self._setter(value)
+
+    def to_spec(self) -> T:
+        return self.value
+
+
+class State(Generic[T]):
+    """Application-owned reactive value with explicit revision tracking."""
+
+    def __init__(self, value: T):
+        self._value = value
+        self._revision = 0
+        self._subscribers: list[Callable[[T, int], None]] = []
+
+    @property
+    def value(self) -> T:
+        return self._value
+
+    @property
+    def revision(self) -> int:
+        return self._revision
+
+    def set(self, value: T) -> None:
+        if value == self._value:
+            return
+        self._value = value
+        self._revision += 1
+        for subscriber in tuple(self._subscribers):
+            subscriber(value, self._revision)
+
+    def update(self, update: Callable[[T], T]) -> T:
+        value = update(self._value)
+        self.set(value)
+        return value
+
+    def bind(self) -> Binding[T]:
+        return Binding(lambda: self.value, self.set)
+
+    def subscribe(self, callback: Callable[[T, int], None]) -> Callable[[], None]:
+        self._subscribers.append(callback)
+
+        def unsubscribe() -> None:
+            try:
+                self._subscribers.remove(callback)
+            except ValueError:
+                pass
+
+        return unsubscribe
+
+
+class Computed(Generic[T]):
+    """Read-only derived value evaluated when a declaration is serialized."""
+
+    def __init__(self, compute: Callable[[], T]):
+        self._compute = compute
+
+    @property
+    def value(self) -> T:
+        return self._compute()
+
+    def bind(self) -> Binding[T]:
+        return Binding(lambda: self.value)
+
+    def to_spec(self) -> T:
+        return self.value
 
 
 class StateError(RuntimeError):

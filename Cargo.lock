@@ -2999,7 +2999,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-d3rs"
-version = "0.9.11"
+version = "0.9.12"
 dependencies = [
  "approx",
  "autoeq",
@@ -3140,7 +3140,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-python-runtime"
-version = "0.9.4"
+version = "0.9.6"
 dependencies = [
  "glam",
  "gpui",
@@ -3249,7 +3249,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-ui-kit"
-version = "0.9.35"
+version = "0.9.36"
 dependencies = [
  "block2 0.6.2",
  "criterion 0.8.2",

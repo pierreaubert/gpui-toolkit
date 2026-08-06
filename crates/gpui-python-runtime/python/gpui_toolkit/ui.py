@@ -235,6 +235,17 @@ def select(
                            "width": width, **props})
 
 
+def color_picker(
+    *, id: str, value: str, label: str | None = None, action: str | None = None,
+    disabled: bool = False, help: str | None = None, default_value: Any = None,
+    visible: bool = True, width: float | None = None, **props: Any,
+) -> Node:
+    """Render the native RGB/HSL color picker for ``#RRGGBB``/``#RRGGBBAA``."""
+    return Node("color_picker", {"id": id, "value": value, "label": label,
+        "action": action, "disabled": disabled, "help": help,
+        "default_value": default_value, "visible": visible, "width": width, **props})
+
+
 def path_input(
     *, id: str, value: str = "", label: str | None = None,
     placeholder: str | None = None, mode: str = "open_file",

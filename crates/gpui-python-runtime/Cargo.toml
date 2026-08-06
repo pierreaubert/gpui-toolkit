@@ -1,6 +1,6 @@
 [package]
 name = "gpui-python-runtime"
-version = "0.9.5"
+version.workspace = true
 authors.workspace = true
 edition.workspace = true
 keywords.workspace = true

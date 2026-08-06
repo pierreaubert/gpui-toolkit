@@ -10,10 +10,28 @@ from threading import Event
 from gpui_toolkit.app import MAX_SESSION_MESSAGE_BYTES, Event as AppEvent, SessionContext
 from pathlib import Path
 
-from gpui_toolkit.state import StateError, StateStore, application_data_dir
+from gpui_toolkit.state import Computed, State, StateError, StateStore, ValidationResult, ValidationSeverity, application_data_dir
 
 
 class StateStoreTests(unittest.TestCase):
+
+    def test_state_binding_and_computed_values_are_json_safe(self):
+        frequency = State(20.0)
+        changes = []
+        unsubscribe = frequency.subscribe(lambda value, revision: changes.append((value, revision)))
+        binding = frequency.bind()
+        binding.set(40.0)
+        binding.set(40.0)
+        doubled = Computed(lambda: frequency.value * 2.0)
+        self.assertEqual(binding.to_spec(), 40.0)
+        self.assertEqual(doubled.bind().to_spec(), 80.0)
+        self.assertEqual(changes, [(40.0, 1)])
+        unsubscribe()
+
+    def test_validation_result_is_typed_and_serializable(self):
+        result = ValidationResult(ValidationSeverity.ERROR, "range", "Frequency must be positive")
+        self.assertFalse(result.valid)
+        self.assertEqual(result.to_spec()["severity"], "error")
 
     def test_application_model_can_own_mutable_domain_state(self):
         from gpui_toolkit import App
