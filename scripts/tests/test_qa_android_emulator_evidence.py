@@ -41,6 +41,13 @@ def arguments(directory: Path) -> Namespace:
 
 
 class AndroidEmulatorEvidenceTests(unittest.TestCase):
+    def test_just_recipe_passes_optional_serial_without_empty_array(self) -> None:
+        justfile = Path(__file__).parents[2] / "justfile"
+        recipe = justfile.read_text().split("qa-android-emulator serial='':", 1)[1]
+        recipe = recipe.split("\n\n", 1)[0]
+        self.assertIn('"{{serial}}"', recipe)
+        self.assertNotIn("args[@]", recipe)
+
     def test_create_report_captures_touch_and_accessibility(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             args = arguments(Path(directory))

@@ -675,8 +675,6 @@ showcase-android-run: showcase-android-install
 qa-android-emulator serial='': showcase-android-apk
 	#!/usr/bin/env bash
 	set -euo pipefail
-	args=()
-	if [[ -n "{{serial}}" ]]; then args+=("{{serial}}"); fi
 	scripts/run_android_emulator_smoke.sh \
 		crates/gpui-showcase/android/gradle/app/build/outputs/apk/debug/app-debug.apk \
 		org.spinorama.gpui.showcase \
@@ -685,7 +683,7 @@ qa-android-emulator serial='': showcase-android-apk
 		target/qa/platform/android-emulator/before.png \
 		target/qa/platform/android-emulator/after.png \
 		target/qa/platform/android-emulator/accessibility.xml \
-		"${args[@]}"
+		"{{serial}}"
 
 # ----------------------------------------------------------------------
 # MAINTENANCE
