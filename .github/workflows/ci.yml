@@ -216,7 +216,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Install Just
-        uses: extractions/setup-just@v2
+        uses: extractions/setup-just@v4
 
       - name: Cache cargo
         uses: actions/cache@v5
@@ -324,7 +324,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Install Just
-        uses: extractions/setup-just@v2
+        uses: extractions/setup-just@v4
 
       - name: Run public API contracts
         run: just qa-api
@@ -340,7 +340,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Install Just
-        uses: extractions/setup-just@v2
+        uses: extractions/setup-just@v4
 
       - name: Cache cargo
         uses: actions/cache@v5
@@ -365,7 +365,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Install Just
-        uses: extractions/setup-just@v2
+        uses: extractions/setup-just@v4
 
       - name: Install Linux native visual capture tools
         run: |
@@ -409,7 +409,7 @@ jobs:
         uses: taiki-e/install-action@cargo-llvm-cov
 
       - name: Install Just
-        uses: extractions/setup-just@v2
+        uses: extractions/setup-just@v4
 
       - name: Cache cargo
         uses: actions/cache@v5
