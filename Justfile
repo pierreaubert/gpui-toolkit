@@ -128,6 +128,8 @@ qa-scripts:
     python3 scripts/qa_unsafe_policy.py
     bash -n scripts/run_linux_native_ui_smoke.sh
     bash -n scripts/run_macos_native_ui_smoke.sh
+    bash -n scripts/run_apple_simulator_smoke.sh
+    bash -n scripts/run_android_emulator_smoke.sh
     bash -n scripts/run_utm_linux_guest_native_ui_smoke.sh
     bash -n scripts/run_utm_linux_native_ui_smoke.sh
     bash -n scripts/run_utm_windows_native_ui_smoke.sh
@@ -444,6 +446,30 @@ showcase-hot-reload:
 ios-sim: showcase-build-sim
 	@echo "iOS simulator build complete"
 
+# Build, launch, and capture the Showcase in an available iOS simulator.
+# Pass an explicit simulator UDID to pin the device/runtime when required.
+[group('ios')]
+qa-ios-simulator udid='': showcase-build-sim
+	#!/usr/bin/env bash
+	set -euo pipefail
+	settings="$(cd crates/gpui-showcase/ios && xcodebuild \
+		-project GPUIShowcase.xcodeproj \
+		-scheme GPUIShowcase \
+		-configuration Release \
+		-sdk iphonesimulator \
+		-showBuildSettings)"
+	target_dir="$(awk -F ' = ' '/TARGET_BUILD_DIR = / { print $2; exit }' <<<"$settings")"
+	wrapper_name="$(awk -F ' = ' '/WRAPPER_NAME = / { print $2; exit }' <<<"$settings")"
+	args=()
+	if [[ -n "{{udid}}" ]]; then args+=("{{udid}}"); fi
+	scripts/run_apple_simulator_smoke.sh \
+		ios \
+		"$target_dir/$wrapper_name" \
+		org.spinorama.gpui-showcase \
+		target/qa/platform/ios-simulator/evidence.json \
+		target/qa/platform/ios-simulator/showcase.png \
+		"${args[@]}"
+
 # Build the Showcase iOS app for device.
 [group('ios')]
 ios-device: showcase-build-device
@@ -542,6 +568,36 @@ showcase-tvos-build-device: showcase-tvos-build-rust-device showcase-tvos-xcodeg
 tvos-sim: showcase-tvos-build-sim
 	@echo "tvOS simulator build complete"
 
+# Build, launch, and capture the Showcase in an available tvOS simulator.
+# Pass an explicit simulator UDID to pin the device/runtime when required.
+[group('tvos')]
+qa-tvos-simulator udid='': showcase-tvos-build-sim
+	#!/usr/bin/env bash
+	set -euo pipefail
+	settings="$(cd crates/gpui-showcase/tvos && xcodebuild \
+		-project GPUIShowcaseTV.xcodeproj \
+		-scheme GPUIShowcaseTV \
+		-configuration Release \
+		-sdk appletvsimulator \
+		-destination 'generic/platform=tvOS Simulator' \
+		-derivedDataPath build/DerivedData-simulator \
+		-showBuildSettings)"
+	target_dir="$(awk -F ' = ' '/TARGET_BUILD_DIR = / { print $2; exit }' <<<"$settings")"
+	wrapper_name="$(awk -F ' = ' '/WRAPPER_NAME = / { print $2; exit }' <<<"$settings")"
+	args=()
+	if [[ -n "{{udid}}" ]]; then args+=("{{udid}}"); fi
+	scripts/run_apple_simulator_smoke.sh \
+		tvos \
+		"$target_dir/$wrapper_name" \
+		org.spinorama.gpui-showcase.tv \
+		target/qa/platform/tvos-simulator/evidence.json \
+		target/qa/platform/tvos-simulator/showcase.png \
+		"${args[@]}"
+
+# Run both Apple simulator runtime/pixel gates.
+qa-apple-simulators: qa-ios-simulator qa-tvos-simulator
+	@echo "iOS and tvOS simulator runtime evidence passed"
+
 # Build the Showcase tvOS app for device.
 [group('tvos')]
 tvos-device: showcase-tvos-build-device
@@ -606,6 +662,25 @@ showcase-android-install: showcase-android-apk
 [group('android')]
 showcase-android-run: showcase-android-install
 	"{{android_sdk_root}}/platform-tools/adb" shell am start -n org.spinorama.gpui.showcase/dev.gpui.mobile.GpuiActivity
+
+# Build, install, launch, navigate, capture pixels, and export the native
+# accessibility tree from a connected Android emulator. Pass a serial when
+# more than one adb device is connected.
+[group('qa')]
+qa-android-emulator serial='': showcase-android-apk
+	#!/usr/bin/env bash
+	set -euo pipefail
+	args=()
+	if [[ -n "{{serial}}" ]]; then args+=("{{serial}}"); fi
+	scripts/run_android_emulator_smoke.sh \
+		crates/gpui-showcase/android/gradle/app/build/outputs/apk/debug/app-debug.apk \
+		org.spinorama.gpui.showcase \
+		dev.gpui.mobile.GpuiActivity \
+		target/qa/platform/android-emulator/evidence.json \
+		target/qa/platform/android-emulator/before.png \
+		target/qa/platform/android-emulator/after.png \
+		target/qa/platform/android-emulator/accessibility.xml \
+		"${args[@]}"
 
 # ----------------------------------------------------------------------
 # MAINTENANCE

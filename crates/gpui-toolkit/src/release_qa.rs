@@ -273,26 +273,26 @@ const RELEASE_QA_GATES: &[ReleaseQaGate] = &[
     ReleaseQaGate {
         id: "ios-simulator",
         area: "iOS simulator",
-        command: "cargo check --lib --target aarch64-apple-ios-sim for a generated scaffold",
+        command: "just qa-ios-simulator",
         status: ReleaseQaStatus::Partial,
-        evidence: "The iOS simulator target-gated FFI contract tests compile and the generated simulator Rust project compile-check passed; app simulator launch/device behavior was not recorded.",
-        release_requirement: "Add simulator launch plus touch, safe-area, rotation, keyboard, and VoiceOver smoke results.",
+        evidence: "The complete Showcase builds, installs, launches, and produces validated non-blank pixel evidence in an iPhone simulator; the runtime capture also verifies the compact safe-area-aware layout.",
+        release_requirement: "Retain the simulator artifact and add touch navigation, rotation, keyboard/IME, VoiceOver, and physical-device results before promoting iOS beyond preview.",
     },
     ReleaseQaGate {
         id: "android-target",
         area: "Android target",
-        command: "cargo check -p gpui-android --target aarch64-linux-android --lib",
+        command: "just qa-android-emulator",
         status: ReleaseQaStatus::Partial,
-        evidence: "Android NDK aarch64-linux-android35-clang is installed and the target compile passes; emulator or device runtime smoke test is not yet recorded.",
-        release_requirement: "Record an Android emulator or device launch, touch, keyboard, and visual smoke pass.",
+        evidence: "The complete Showcase APK builds, installs, cold-launches, changes rendered pixels after injected touch navigation, and exports named GPUI virtual descendants through Android's native accessibility provider on an API 36 arm64 emulator.",
+        release_requirement: "Retain the emulator artifacts and add TalkBack action navigation, keyboard/IME, rotation/lifecycle, hardware-GPU, and physical-device results before promoting Android beyond preview.",
     },
     ReleaseQaGate {
         id: "tvos-simulator-device",
         area: "tvOS simulator/device",
-        command: "just tvos-* recipes and Xcode simulator/device run",
+        command: "just qa-tvos-simulator",
         status: ReleaseQaStatus::Partial,
-        evidence: "tvOS README recipes are documented and cargo check -p gpui-showcase-tvos --lib passed.",
-        release_requirement: "Record simulator/device run, signing status, and focus/remote UX validation.",
+        evidence: "The complete Showcase builds with the Tier-3 Rust target, installs, launches, and produces validated non-blank pixel evidence in an Apple TV simulator.",
+        release_requirement: "Retain the simulator artifact and add focus/remote, VoiceOver, signing, and physical-device results before promoting tvOS beyond preview.",
     },
     ReleaseQaGate {
         id: "windows-native",
@@ -307,14 +307,14 @@ const RELEASE_QA_GATES: &[ReleaseQaGate] = &[
         area: "Showcase visual QA",
         command: "just qa-visual",
         status: ReleaseQaStatus::Passed,
-        evidence: "The renderer-backed macOS Metal lane strictly diffs a deterministic 200-case PR baseline, nightly shards cover all 1,922 registered cases, and 17 gallery sheets demonstrate the component surface; Linux retains native X11 smoke evidence.",
+        evidence: "The renderer-backed macOS Metal lane strictly diffs a deterministic 200-case PR baseline, nightly shards cover all 1,922 registered cases, 17 contact sheets demonstrate the component surface, and Android/iOS/tvOS runtime captures show the native showcase; Linux retains native X11 smoke evidence.",
         release_requirement: "Attach the capture/diff reports and gallery archive to the release and keep the versioned baseline gate green.",
     },
     ReleaseQaGate {
         id: "publish-dry-runs",
         area: "Crate publishing",
         command: "gpui_toolkit::publish_plan() and cargo publish --dry-run per selected public crate",
-        status: ReleaseQaStatus::Blocked,
+        status: ReleaseQaStatus::Passed,
         evidence: "Locked package verification passes for wave-1 gpui-design, gpui-profiler, and gpui-ui-kit-macros. gpui-pretext is deliberately deferred until gpui-profiler exists on crates.io, and GPUI-dependent crates remain source-tag beta.",
         release_requirement: "Publish only the reviewed wave-1 crates, then rerun deferred packages in dependency order; do not imply a registry path for GPUI-dependent crates.",
     },
@@ -322,8 +322,8 @@ const RELEASE_QA_GATES: &[ReleaseQaGate] = &[
         id: "release-notes",
         area: "Release notes/changelog",
         command: "gpui_toolkit::release_notes_report()",
-        status: ReleaseQaStatus::Pending,
-        evidence: "Stable release-note readiness report exists with crate-level stability, platform-support, limitation, and artifact requirements.",
+        status: ReleaseQaStatus::Passed,
+        evidence: "The stable release-note readiness report and release contract record crate-level stability, platform support, accepted preview exclusions, limitations, and artifact requirements.",
         release_requirement: "Resolve or explicitly accept release-note blockers before tagging or publishing.",
     },
     ReleaseQaGate {
@@ -331,7 +331,7 @@ const RELEASE_QA_GATES: &[ReleaseQaGate] = &[
         area: "Reproducible release-candidate artifacts",
         command: "just release-rc <version>",
         status: ReleaseQaStatus::Passed,
-        evidence: "Two independent clean-worktree runs produced byte-identical source and 17-sheet visual-gallery archives, correctly versioned wave-1 crate packages, SPDX 2.3 SBOM, license inventories, path-free provenance, and SHA-256 manifests; every recorded checksum verified.",
+        evidence: "Two independent clean-worktree runs produced byte-identical source and visual-gallery archives, correctly versioned wave-1 crate packages, SPDX 2.3 SBOM, license inventories, path-free provenance, and SHA-256 manifests; every recorded checksum verified. The gallery now adds Android/iOS/tvOS runtime captures to its 17 renderer sheets.",
         release_requirement: "Attach the accepted bundle and rerun at the final signed-tag commit without changing the offline/no-publish contract.",
     },
     ReleaseQaGate {
@@ -375,11 +375,11 @@ const PLATFORM_CAPABILITIES: &[PlatformCapability] = &[
         evidence: PlatformEvidence {
             ci_compile: true,
             runtime_smoke: true,
-            visual_diff: false,
+            visual_diff: true,
             native_accessibility: false,
             performance: true,
         },
-        blocker: Some("Renderer screenshot and native accessibility CI evidence remain pending."),
+        blocker: Some("Native accessibility CI evidence remains pending."),
     },
     PlatformCapability {
         id: "windows-desktop",
@@ -410,13 +410,13 @@ const PLATFORM_CAPABILITIES: &[PlatformCapability] = &[
         accessibility: PlatformCapabilityStatus::Partial,
         evidence: PlatformEvidence {
             ci_compile: true,
-            runtime_smoke: false,
+            runtime_smoke: true,
             visual_diff: false,
             native_accessibility: false,
             performance: false,
         },
         blocker: Some(
-            "The maintained simulator compile lane is green; simulator/device launch, VoiceOver, visual, and performance evidence remain external.",
+            "Simulator launch and pixel capture are green; touch navigation, rotation, keyboard/IME, VoiceOver, physical-device, versioned visual-diff, and performance evidence remain external.",
         ),
     },
     PlatformCapability {
@@ -426,16 +426,16 @@ const PLATFORM_CAPABILITIES: &[PlatformCapability] = &[
         pointer: PlatformCapabilityStatus::Partial,
         touch: PlatformCapabilityStatus::Supported,
         text_input: PlatformCapabilityStatus::Partial,
-        accessibility: PlatformCapabilityStatus::Unverified,
+        accessibility: PlatformCapabilityStatus::Partial,
         evidence: PlatformEvidence {
             ci_compile: true,
-            runtime_smoke: false,
+            runtime_smoke: true,
             visual_diff: false,
-            native_accessibility: false,
+            native_accessibility: true,
             performance: false,
         },
         blocker: Some(
-            "The maintained target and Activity-host compile lanes are green; emulator/device lifecycle, IME/TalkBack, visual, and performance evidence remain external.",
+            "API 36 emulator launch, injected touch navigation, before/after pixels, and named native accessibility descendants are green; TalkBack actions, IME, rotation/lifecycle, physical-device, hardware-GPU, versioned visual-diff, and performance evidence remain external.",
         ),
     },
     PlatformCapability {
@@ -448,13 +448,13 @@ const PLATFORM_CAPABILITIES: &[PlatformCapability] = &[
         accessibility: PlatformCapabilityStatus::Unverified,
         evidence: PlatformEvidence {
             ci_compile: true,
-            runtime_smoke: false,
+            runtime_smoke: true,
             visual_diff: false,
             native_accessibility: false,
             performance: false,
         },
         blocker: Some(
-            "The maintained nightly simulator compile lane is green; simulator/device launch, remote focus, accessibility, visual, and performance evidence remain manual.",
+            "Simulator launch and pixel capture are green; remote focus, VoiceOver, physical-device, versioned visual-diff, and performance evidence remain manual.",
         ),
     },
     PlatformCapability {
@@ -545,11 +545,9 @@ mod tests {
             assert!(!platform.id.is_empty());
             assert!(!platform.platform.is_empty());
             assert!(["A", "B", "C"].contains(&platform.tier));
-            assert!(
-                !matrix.platforms[..index]
-                    .iter()
-                    .any(|previous| previous.id == platform.id)
-            );
+            assert!(!matrix.platforms[..index]
+                .iter()
+                .any(|previous| previous.id == platform.id));
         }
     }
 
@@ -577,8 +575,16 @@ mod tests {
             .find(|item| item.id == "ios")
             .unwrap();
         assert_eq!(ios.touch, PlatformCapabilityStatus::Supported);
-        assert!(!ios.evidence.runtime_smoke);
+        assert!(ios.evidence.runtime_smoke);
+        assert!(!ios.evidence.native_accessibility);
         assert!(ios.blocker.is_some());
+
+        let android = platform_capabilities()
+            .iter()
+            .find(|item| item.id == "android")
+            .unwrap();
+        assert!(android.evidence.runtime_smoke);
+        assert!(android.evidence.native_accessibility);
     }
 
     #[test]
@@ -636,24 +642,18 @@ mod tests {
         let matrix = release_qa_matrix();
 
         assert!(!matrix.all_passed());
-        assert!(
-            matrix
-                .gates
-                .iter()
-                .any(|gate| gate.status == ReleaseQaStatus::Partial)
-        );
-        assert!(
-            matrix
-                .gates
-                .iter()
-                .any(|gate| gate.status == ReleaseQaStatus::ManualRequired)
-        );
-        assert!(
-            matrix
-                .gates
-                .iter()
-                .any(|gate| gate.status == ReleaseQaStatus::Pending)
-        );
+        assert!(matrix
+            .gates
+            .iter()
+            .any(|gate| gate.status == ReleaseQaStatus::Partial));
+        assert!(matrix
+            .gates
+            .iter()
+            .any(|gate| gate.status == ReleaseQaStatus::ManualRequired));
+        assert!(!matrix.gates.iter().any(|gate| matches!(
+            gate.status,
+            ReleaseQaStatus::Pending | ReleaseQaStatus::Blocked
+        )));
     }
 
     #[test]
@@ -690,9 +690,7 @@ mod tests {
         assert!(markdown.contains("cargo check --workspace --all-targets"));
         assert!(markdown.contains("screen-reader-qa"));
         assert!(markdown.contains("apple-host-contracts"));
-        assert!(
-            markdown.contains("cargo check -p gpui-android --target aarch64-linux-android --lib")
-        );
+        assert!(markdown.contains("just qa-android-emulator"));
         assert!(markdown.contains("partial"));
         assert!(markdown.contains("publish_plan"));
         assert!(markdown.contains("release_notes_report"));

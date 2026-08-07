@@ -44,7 +44,8 @@ contract and may only increase in a minor release with release-note notice.
 version, a version that differs from `[workspace.package]`, or an existing
 output directory. It writes `target/release/gpui-toolkit-<version>-rc/` with:
 
-- a deterministic source archive and a standalone 17-sheet visual gallery;
+- a deterministic source archive and a standalone visual gallery containing
+  17 renderer contact sheets plus Android emulator and iOS/tvOS simulator captures;
 - locked `.crate` archives for the three reviewed wave-1 packages;
 - an SPDX 2.3 JSON SBOM and JSON/Markdown license inventory;
 - path-free provenance recording the commit, lockfile digest, tool versions,

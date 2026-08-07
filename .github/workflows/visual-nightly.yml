@@ -10,6 +10,93 @@ env:
   RUST_BACKTRACE: 1
 
 jobs:
+  android-emulator-smoke:
+    name: Android emulator interaction and accessibility
+    runs-on: macos-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Rust Android target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - name: Install Android QA tools
+        run: |
+          brew install just imagemagick
+          cargo install cargo-ndk --locked
+          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018"
+
+      - name: Cache cargo and Android builds
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-nightly-android-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build, launch, navigate, and inspect Showcase
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: arm64-v8a
+          profile: pixel_6
+          disable-animations: true
+          script: just qa-android-emulator emulator-5554
+
+      - name: Upload Android emulator evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-emulator-evidence
+          path: target/qa/platform/android-emulator/
+          if-no-files-found: error
+          retention-days: 14
+
+  apple-simulator-smoke:
+    name: Apple simulator launch and pixels
+    runs-on: macos-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install stable Rust and iOS simulator target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios-sim
+
+      - name: Install nightly Rust sources for tvOS
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rust-src
+
+      - name: Install Apple simulator QA tools
+        run: brew install just xcodegen imagemagick
+
+      - name: Cache cargo and Apple simulator builds
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-nightly-apple-sim-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build, launch, and capture iOS Showcase
+        run: just qa-ios-simulator
+
+      - name: Build, launch, and capture tvOS Showcase
+        run: just qa-tvos-simulator
+
+      - name: Upload Apple simulator evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: apple-simulator-evidence
+          path: target/qa/platform/
+          if-no-files-found: error
+          retention-days: 14
+
   metal-component-matrix:
     name: Metal full matrix (shard ${{ matrix.shard }})
     runs-on: macos-latest

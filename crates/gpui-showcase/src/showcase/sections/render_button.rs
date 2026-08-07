@@ -18,15 +18,19 @@ impl Showcase {
 
         VStack::new()
             .spacing(StackSpacing::Lg)
+            .scrollable_on_mobile(false)
             .child(self.section_header(section_title))
             // Button Variants
             .child(
                 VStack::new()
                     .spacing(StackSpacing::Sm)
+                    .scrollable_on_mobile(false)
                     .child(Text::new(variants_label).weight(TextWeight::Medium))
                     .child(
                         HStack::new()
                             .spacing(StackSpacing::Md)
+                            .wrap(true)
+                            .scrollable_on_mobile(false)
                             .child(
                                 Button::new("btn-primary", primary).variant(ButtonVariant::Primary),
                             )
@@ -48,11 +52,14 @@ impl Showcase {
             .child(
                 VStack::new()
                     .spacing(StackSpacing::Sm)
+                    .scrollable_on_mobile(false)
                     .child(Text::new(sizes_label).weight(TextWeight::Medium))
                     .child(
                         HStack::new()
                             .spacing(StackSpacing::Md)
                             .align(StackAlign::End)
+                            .wrap(true)
+                            .scrollable_on_mobile(false)
                             .child(Button::new("btn-xs", "Extra Small").size(ButtonSize::Xs))
                             .child(Button::new("btn-sm", "Small").size(ButtonSize::Sm))
                             .child(Button::new("btn-md", "Medium").size(ButtonSize::Md))
@@ -63,10 +70,13 @@ impl Showcase {
             .child(
                 VStack::new()
                     .spacing(StackSpacing::Sm)
+                    .scrollable_on_mobile(false)
                     .child(Text::new(states_label).weight(TextWeight::Medium))
                     .child(
                         HStack::new()
                             .spacing(StackSpacing::Md)
+                            .wrap(true)
+                            .scrollable_on_mobile(false)
                             .child(Button::new("btn-disabled", disabled).disabled(true))
                             .child(Button::new("btn-selected", selected).selected(true))
                             .child(Button::new("btn-icon", "With Icon").icon_left("*")),

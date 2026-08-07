@@ -3054,6 +3054,7 @@ version = "0.9.3"
 dependencies = [
  "gpui",
  "gpui-design",
+ "gpui-ios",
  "gpui-miniapp",
  "gpui-ui-kit",
 ]

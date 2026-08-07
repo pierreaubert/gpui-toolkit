@@ -26,9 +26,12 @@ manual/device report.
 - cargo-deny advisory, license, duplicate, and source-origin policy.
 
 CI additionally runs workspace tests and publishes the coverage artifact. The
-platform matrix must compile on Linux, macOS, and Windows. Apple mobile,
-Android, Audio Unit, and hardware interaction gates remain explicit entries in
-the release matrix until their simulator/device/host evidence is attached.
+platform matrix must compile on Linux, macOS, and Windows. `just
+qa-apple-simulators` adds build/install/launch/pixel evidence for iOS and tvOS;
+`just qa-android-emulator` adds launch, touch-navigation, before/after pixel,
+and native accessibility-tree evidence. Native screen readers, Audio Unit,
+physical devices, and hardware interaction gates remain explicit entries until
+their device/host evidence is attached.
 
 The selected crates.io wave (`gpui-design`, `gpui-profiler`, and
 `gpui-ui-kit-macros`) declares and continuously checks Rust 1.89 as its MSRV.
@@ -182,11 +185,15 @@ screen-capture permission and provisioned, non-personal QA guest accounts.
 Desktop core changes require Linux, macOS, and Windows compile/test evidence.
 Platform backends additionally require:
 
-- iOS: simulator build/launch plus touch, safe-area, rotation, keyboard, and
-  VoiceOver smoke evidence;
-- Android: target build plus emulator/device launch, touch, IME, lifecycle,
-  density, and TalkBack evidence;
-- tvOS: simulator/device build and focus/remote walkthrough;
+- iOS: `just qa-ios-simulator` covers build/install/launch/pixel capture; touch,
+  rotation, keyboard/IME, VoiceOver, and physical-device smoke remain manual;
+- Android: `just qa-android-emulator` covers target/APK build, install, launch,
+  touch navigation, before/after pixels, and native accessibility-tree export;
+  TalkBack actions, IME, rotation/lifecycle, hardware GPU, and physical-device
+  evidence remain manual;
+- tvOS: `just qa-tvos-simulator` covers simulator build/install/launch/pixel
+  capture; focus/remote, VoiceOver, and physical-device walkthroughs remain
+  manual;
 - Audio Unit: attach/detach/resize/text smoke tests in a named AUv3 host; and
 - Windows: native DirectWrite/DirectX, IME, pointer, DPI, and accessibility
   smoke evidence.

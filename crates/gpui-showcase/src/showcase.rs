@@ -4,9 +4,9 @@
 //! This module exposes the Showcase component for embedding in other applications.
 
 use gpui::{
-    AppContext, Context, Entity, FocusHandle, FontWeight, InteractiveElement, IntoElement,
-    KeyDownEvent, MouseButton, ParentElement, Render, ScrollHandle, SharedString,
-    StatefulInteractiveElement, Styled, WeakEntity, Window, div, px, rgba,
+    div, px, rgba, AppContext, Context, Entity, FocusHandle, FontWeight, InteractiveElement,
+    IntoElement, KeyDownEvent, MouseButton, ParentElement, Render, ScrollHandle, SharedString,
+    StatefulInteractiveElement, Styled, WeakEntity, Window,
 };
 use gpui_ui_kit::i18n::{I18nExt, TranslationKey};
 use gpui_ui_kit::theme::ThemeExt;
@@ -17,6 +17,32 @@ use gpui_ui_kit::{
     SortState, Text,
 };
 use std::collections::HashSet;
+
+const SHOWCASE_COMPACT_BREAKPOINT: f32 = 600.0;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ShowcaseLayout {
+    Compact,
+    Wide,
+}
+
+fn showcase_layout_for_width(width: f32) -> ShowcaseLayout {
+    if width < SHOWCASE_COMPACT_BREAKPOINT {
+        ShowcaseLayout::Compact
+    } else {
+        ShowcaseLayout::Wide
+    }
+}
+
+#[cfg(any(target_os = "ios", target_os = "tvos"))]
+fn platform_safe_area_insets() -> (f32, f32, f32, f32) {
+    gpui_ios::safe_area_insets()
+}
+
+#[cfg(not(any(target_os = "ios", target_os = "tvos")))]
+fn platform_safe_area_insets() -> (f32, f32, f32, f32) {
+    (0.0, 0.0, 0.0, 0.0)
+}
 
 fn showcase_scroll_diag(message: &str) {
     #[cfg(target_os = "ios")]
@@ -294,18 +320,25 @@ impl Showcase {
 }
 
 impl Render for Showcase {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let current_section = self.current_section;
         let embedded = self.embedded;
+        let compact = showcase_layout_for_width(window.viewport_size().width.as_f32())
+            == ShowcaseLayout::Compact;
+        let (safe_top, safe_left, safe_bottom, safe_right) = platform_safe_area_insets();
 
         // Sync child entity state only when it changes so stable subtrees are
         // not marked dirty on every frame.
         {
             let sidebar = self.sidebar_entity.read(cx);
-            if sidebar.current_section != current_section || sidebar.embedded != embedded {
+            if sidebar.current_section != current_section
+                || sidebar.embedded != embedded
+                || sidebar.compact != compact
+            {
                 self.sidebar_entity.update(cx, |sidebar, _cx| {
                     sidebar.current_section = current_section;
                     sidebar.embedded = embedded;
+                    sidebar.compact = compact;
                 });
             }
         }
@@ -314,20 +347,25 @@ impl Render for Showcase {
         let subtitle: SharedString = cx.t(TranslationKey::AppSubtitle).into();
         {
             let header = self.header_entity.read(cx);
-            if header.title != title || header.subtitle != subtitle {
+            if header.title != title || header.subtitle != subtitle || header.compact != compact {
                 self.header_entity.update(cx, |header, _cx| {
                     header.title = title;
                     header.subtitle = subtitle;
+                    header.compact = compact;
                 });
             }
         }
 
         {
             let content = self.content_entity.read(cx);
-            if content.current_section != current_section || content.embedded != embedded {
+            if content.current_section != current_section
+                || content.embedded != embedded
+                || content.compact != compact
+            {
                 self.content_entity.update(cx, |content, _cx| {
                     content.current_section = current_section;
                     content.embedded = embedded;
+                    content.compact = compact;
                 });
             }
         }
@@ -350,7 +388,7 @@ impl Render for Showcase {
                 .child(self.content_entity.clone());
         }
 
-        div()
+        let root = div()
             .id("showcase-root")
             .track_focus(&self.focus_handle)
             .w_full()
@@ -358,18 +396,29 @@ impl Render for Showcase {
             .bg(bg_color)
             .text_color(text_color)
             .flex()
-            .on_key_down(cx.listener(Self::handle_key_down))
-            .child(self.sidebar_entity.clone())
-            .child(
-                div()
-                    .flex_1()
-                    .flex()
-                    .flex_col()
-                    .min_h_0()
-                    .overflow_hidden()
-                    .child(self.header_entity.clone())
-                    .child(self.content_entity.clone()),
-            )
+            .pt(px(safe_top))
+            .pr(px(safe_right))
+            .pb(px(safe_bottom))
+            .pl(px(safe_left))
+            .on_key_down(cx.listener(Self::handle_key_down));
+
+        let content = div()
+            .flex_1()
+            .flex()
+            .flex_col()
+            .min_w_0()
+            .min_h_0()
+            .overflow_hidden()
+            .child(self.header_entity.clone())
+            .child(self.content_entity.clone());
+
+        if compact {
+            root.flex_col()
+                .child(self.sidebar_entity.clone())
+                .child(content)
+        } else {
+            root.child(self.sidebar_entity.clone()).child(content)
+        }
     }
 }
 
@@ -578,6 +627,7 @@ impl Showcase {
 struct ShowcaseSidebar {
     current_section: ShowcaseSection,
     embedded: bool,
+    compact: bool,
     parent: WeakEntity<Showcase>,
     scroll_handle: ScrollHandle,
 }
@@ -587,6 +637,7 @@ impl ShowcaseSidebar {
         Self {
             current_section: ShowcaseSection::default(),
             embedded: false,
+            compact: false,
             parent,
             scroll_handle: ScrollHandle::new(),
         }
@@ -602,6 +653,65 @@ impl Render for ShowcaseSidebar {
         let text_muted_color = theme.text_muted;
         let surface_hover_color = theme.surface_hover;
         let border_color = theme.border;
+
+        if self.compact {
+            let mut nav_items = div()
+                .id("showcase-mobile-nav")
+                .w_full()
+                .flex()
+                .flex_none()
+                .gap_1()
+                .p_2()
+                .overflow_x_scroll();
+
+            for group in ShowcaseGroup::all() {
+                for section in group.sections() {
+                    let section = *section;
+                    let is_active = section == current_section;
+                    let parent = self.parent.clone();
+
+                    let mut item = div()
+                        .id(SharedString::from(format!("mobile-nav-{:?}", section)))
+                        .flex_none()
+                        .px_3()
+                        .py_2()
+                        .rounded_md()
+                        .cursor_pointer()
+                        .text_sm()
+                        .whitespace_nowrap();
+
+                    if is_active {
+                        item = item
+                            .bg(accent_color)
+                            .text_color(rgba(0xffffffff))
+                            .font_weight(FontWeight::SEMIBOLD);
+                    } else {
+                        item = item
+                            .text_color(text_color)
+                            .hover(move |style| style.bg(surface_hover_color));
+                    }
+
+                    nav_items = nav_items.child(item.child(section.label()).on_mouse_down(
+                        MouseButton::Left,
+                        move |_event, _window, cx| {
+                            if let Some(parent) = parent.upgrade() {
+                                parent.update(cx, |this, cx| {
+                                    this.current_section = section;
+                                    cx.notify();
+                                });
+                            }
+                        },
+                    ));
+                }
+            }
+
+            return div()
+                .flex_none()
+                .border_b_1()
+                .border_color(border_color)
+                .child(nav_items)
+                .into_any_element();
+        }
 
         let mut nav_items = div().flex().flex_col().py_4().gap_1();
 
@@ -686,6 +796,7 @@ impl Render for ShowcaseSidebar {
                 ));
             })
             .content(nav_items)
+            .into_any_element()
     }
 }
 
@@ -696,6 +807,7 @@ impl Render for ShowcaseSidebar {
 struct ShowcaseHeader {
     title: SharedString,
     subtitle: SharedString,
+    compact: bool,
 }
 
 impl ShowcaseHeader {
@@ -703,20 +815,22 @@ impl ShowcaseHeader {
         Self {
             title: SharedString::default(),
             subtitle: SharedString::default(),
+            compact: false,
         }
     }
 }
 
 impl Render for ShowcaseHeader {
     fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
-        div()
-            .flex_shrink_0()
-            .p_8()
-            .pb_0()
-            .flex()
-            .flex_col()
-            .gap_2()
-            .child(Heading::h1(self.title.clone()))
+        let header = div().flex_shrink_0().flex().flex_col().gap_2();
+
+        let header = if self.compact {
+            header.p_4().pb_0().child(Heading::h2(self.title.clone()))
+        } else {
+            header.p_8().pb_0().child(Heading::h1(self.title.clone()))
+        };
+
+        header
             .child(Text::new(self.subtitle.clone()))
             .child(Divider::new().build())
     }
@@ -732,6 +846,7 @@ impl Render for ShowcaseHeader {
 struct ShowcaseContent {
     current_section: ShowcaseSection,
     embedded: bool,
+    compact: bool,
     parent: WeakEntity<Showcase>,
     scroll_handle: ScrollHandle,
 }
@@ -741,6 +856,7 @@ impl ShowcaseContent {
         Self {
             current_section: ShowcaseSection::default(),
             embedded: false,
+            compact: false,
             parent,
             scroll_handle: ScrollHandle::new(),
         }
@@ -751,9 +867,10 @@ impl Render for ShowcaseContent {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let section = self.current_section;
         let embedded = self.embedded;
+        let compact = self.compact;
 
         match self.parent.update(cx, |parent, cx| {
-            let content = parent
+            let section_content = parent
                 .render_section_content(section, cx)
                 .into_any_element();
 
@@ -761,7 +878,7 @@ impl Render for ShowcaseContent {
                 return div()
                     .id("showcase-embedded-root")
                     .size_full()
-                    .child(content);
+                    .child(section_content);
             }
 
             let current_group = section.group();
@@ -794,7 +911,7 @@ impl Render for ShowcaseContent {
             let scroll_handle = self.scroll_handle.clone();
             let log_handle = scroll_handle.clone();
 
-            div()
+            let content = div()
                 .id("content-scroll")
                 .flex_1()
                 .min_h_0()
@@ -826,14 +943,43 @@ impl Render for ShowcaseContent {
                         last_bottom,
                         event.touch_phase
                     ));
-                })
-                .p_8()
-                .pt_4()
+                });
+
+            let content = if compact {
+                content.p_4()
+            } else {
+                content.p_8().pt_4()
+            };
+
+            content
                 .child(group_info.flex_shrink_0())
-                .child(div().w_full().flex_shrink_0().child(content))
+                .child(div().w_full().flex_shrink_0().child(section_content))
         }) {
             Ok(element) => element.into_any_element(),
             Err(_) => div().into_any_element(),
         }
+    }
+}
+
+#[cfg(test)]
+mod responsive_tests {
+    use super::*;
+
+    #[test]
+    fn showcase_uses_compact_layout_below_breakpoint() {
+        assert_eq!(showcase_layout_for_width(375.0), ShowcaseLayout::Compact);
+        assert_eq!(showcase_layout_for_width(599.0), ShowcaseLayout::Compact);
+    }
+
+    #[test]
+    fn showcase_uses_wide_layout_at_breakpoint_and_above() {
+        assert_eq!(showcase_layout_for_width(600.0), ShowcaseLayout::Wide);
+        assert_eq!(showcase_layout_for_width(1_440.0), ShowcaseLayout::Wide);
+    }
+
+    #[test]
+    fn non_mobile_platforms_have_no_synthetic_safe_area() {
+        #[cfg(not(any(target_os = "ios", target_os = "tvos")))]
+        assert_eq!(platform_safe_area_insets(), (0.0, 0.0, 0.0, 0.0));
     }
 }

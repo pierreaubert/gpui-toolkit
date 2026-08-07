@@ -4,6 +4,9 @@ import android.app.NativeActivity;
 import android.content.ActivityNotFoundException;
 import android.content.Context;
 import android.content.Intent;
+import android.content.ComponentName;
+import android.content.pm.ActivityInfo;
+import android.content.pm.PackageManager;
 import android.graphics.Rect;
 import android.net.Uri;
 import android.os.Bundle;
@@ -62,6 +65,7 @@ public class GpuiActivity extends NativeActivity {
 
     @Override
     protected void onCreate(Bundle state) {
+        ensureNativeLibraryVisibleToJvm();
         super.onCreate(state);
         inputView = new GpuiInputView(this);
         inputView.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
@@ -71,6 +75,33 @@ public class GpuiActivity extends NativeActivity {
         params.gravity = Gravity.BOTTOM | Gravity.END;
         addContentView(inputView, params);
         dispatchDeepLink(getIntent());
+    }
+
+    /**
+     * Associate NativeActivity's library with this Java class loader.
+     *
+     * <p>NativeActivity loads {@code android.app.lib_name} through its native
+     * glue. That is enough for {@code ANativeActivity_onCreate}, but Android's
+     * Java JNI resolver does not associate that dlopen handle with this class
+     * loader. Explicitly loading the same library is idempotent and makes the
+     * input, accessibility, deep-link, and credential JNI entry points
+     * resolvable before Android invokes them.</p>
+     */
+    private void ensureNativeLibraryVisibleToJvm() {
+        try {
+            ActivityInfo info = getPackageManager().getActivityInfo(
+                    new ComponentName(this, getClass()), PackageManager.GET_META_DATA);
+            String library = info.metaData == null
+                    ? null
+                    : info.metaData.getString("android.app.lib_name");
+            if (library == null || library.isEmpty()) {
+                throw new IllegalStateException(
+                        "android.app.lib_name is required for GPUI NativeActivity hosts");
+            }
+            System.loadLibrary(library);
+        } catch (PackageManager.NameNotFoundException error) {
+            throw new IllegalStateException("Unable to resolve the GPUI activity metadata", error);
+        }
     }
 
     @Override
@@ -364,11 +395,19 @@ public class GpuiActivity extends NativeActivity {
                 JSONObject snapshot = snapshot();
                 if (virtualViewId == HOST_ID) {
                     AccessibilityNodeInfo info = AccessibilityNodeInfo.obtain(host);
+                    host.onInitializeAccessibilityNodeInfo(info);
                     info.setPackageName(host.getContext().getPackageName());
                     info.setClassName(GpuiActivity.class.getName());
                     info.setSource(host);
+                    info.setVisibleToUser(true);
                     if (!snapshot.isNull("root")) {
-                        info.addChild(host, virtualId(snapshot.getLong("root")));
+                        JSONObject root = findNode(snapshot, snapshot.getLong("root"));
+                        JSONArray children = root == null ? null : root.optJSONArray("children");
+                        if (children != null) {
+                            for (int index = 0; index < children.length(); index++) {
+                                info.addChild(host, virtualId(children.getLong(index)));
+                            }
+                        }
                     }
                     return info;
                 }
@@ -386,7 +425,8 @@ public class GpuiActivity extends NativeActivity {
                 info.setPackageName(host.getContext().getPackageName());
                 info.setSource(host, virtualViewId);
                 Long parent = findParent(snapshot, nodeId);
-                if (parent == null) {
+                long rootId = snapshot.optLong("root", -1);
+                if (parent == null || parent == rootId) {
                     info.setParent(host);
                 } else {
                     info.setParent(host, virtualId(parent));
@@ -394,14 +434,17 @@ public class GpuiActivity extends NativeActivity {
 
                 String role = node.optString("role", "Unknown");
                 info.setClassName(classNameForRole(role));
-                String label = node.optString("label", "");
-                String value = node.optString("value", "");
-                String description = node.optString("description", "");
+                String label = node.isNull("label") ? "" : node.optString("label", "");
+                String value = node.isNull("value") ? "" : node.optString("value", "");
+                String description = node.isNull("description")
+                        ? ""
+                        : node.optString("description", "");
                 info.setContentDescription(label.isEmpty() ? description : label);
                 if (!value.isEmpty()) {
                     info.setText(value);
                 }
                 info.setEnabled(!node.optBoolean("disabled", false));
+                info.setVisibleToUser(true);
 
                 JSONArray bounds = node.optJSONArray("bounds");
                 if (bounds != null && bounds.length() == 4) {
