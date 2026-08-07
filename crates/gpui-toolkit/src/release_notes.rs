@@ -418,9 +418,9 @@ const RELEASE_NOTES_ARTIFACTS: &[ReleaseNotesArtifact] = &[
         crate_name: "release workspace",
         artifact: "Reproducible source/package bundle, SPDX SBOM, license inventory, provenance, and checksums",
         source: "just release-rc <version>",
-        status: ReleaseNotesArtifactStatus::PendingCommand,
-        evidence: "The offline builder has deterministic unit coverage and refuses dirty or version-mismatched worktrees.",
-        release_requirement: "Attach a twice-reproduced clean-worktree bundle before tagging.",
+        status: ReleaseNotesArtifactStatus::Available,
+        evidence: "Two clean-worktree builds were byte-identical and all artifact checksums verified; the builder refuses dirty/version-mismatched trees and performs no network publication or upload.",
+        release_requirement: "Attach the accepted bundle and repeat at the final signed-tag commit.",
     },
     ReleaseNotesArtifact {
         id: "aggregate-exclusion",
@@ -601,6 +601,7 @@ mod tests {
 
         assert!(blocking.contains(&"public-core-dry-runs"));
         assert!(blocking.contains(&"platform-qa-artifacts"));
+        assert!(!blocking.contains(&"release-candidate-bundle"));
         assert!(!blocking.contains(&"gpui-d3rs-parity-benchmarks"));
         assert!(!blocking.contains(&"gpui-px-chart-artifacts"));
     }

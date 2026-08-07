@@ -330,9 +330,9 @@ const RELEASE_QA_GATES: &[ReleaseQaGate] = &[
         id: "release-candidate-bundle",
         area: "Reproducible release-candidate artifacts",
         command: "just release-rc <version>",
-        status: ReleaseQaStatus::Pending,
-        evidence: "Offline automation and deterministic tests cover the source archive, visual gallery, wave-1 crate packages, SPDX 2.3 SBOM, license inventory, provenance, and SHA-256 manifest without publishing or uploading.",
-        release_requirement: "Run twice from a clean committed worktree, compare every artifact byte-for-byte, and attach the accepted bundle before tagging.",
+        status: ReleaseQaStatus::Passed,
+        evidence: "Two independent clean-worktree runs produced byte-identical source and 17-sheet visual-gallery archives, correctly versioned wave-1 crate packages, SPDX 2.3 SBOM, license inventories, path-free provenance, and SHA-256 manifests; every recorded checksum verified.",
+        release_requirement: "Attach the accepted bundle and rerun at the final signed-tag commit without changing the offline/no-publish contract.",
     },
     ReleaseQaGate {
         id: "dependency-hygiene",
@@ -667,6 +667,19 @@ mod tests {
         assert!(gate.evidence.contains("cargo-deny"));
         assert!(gate.evidence.contains("passed advisories"));
         assert!(gate.release_requirement.contains("review every warning"));
+    }
+
+    #[test]
+    fn release_qa_matrix_records_reproducible_rc_acceptance() {
+        let gate = release_qa_gates()
+            .iter()
+            .find(|gate| gate.id == "release-candidate-bundle")
+            .expect("release-candidate-bundle gate");
+
+        assert_eq!(gate.status, ReleaseQaStatus::Passed);
+        assert!(gate.evidence.contains("byte-identical"));
+        assert!(gate.evidence.contains("checksum verified"));
+        assert!(gate.release_requirement.contains("signed-tag commit"));
     }
 
     #[test]
