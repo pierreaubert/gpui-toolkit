@@ -200,7 +200,7 @@ jobs:
             --smoke-artifact target/qa/native-ui/windows/gpui-builder-smoke.json
 
       - name: Upload native UI smoke evidence
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: native-ui-smoke-${{ runner.os }}
           path: target/qa/native-ui/
@@ -387,7 +387,7 @@ jobs:
         run: just qa-visual
 
       - name: Upload visual evidence and pending-renderer report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: visual-evidence
           path: target/qa/visual/
@@ -442,7 +442,7 @@ jobs:
             --ignore-regex '.*/(tests|benches|examples|target|crates/3rdparties|crates/gpui-au|crates/gpui-android|crates/gpui-ios|crates/gpui-miniapp|crates/.*/bin)/.*'
 
       - name: Upload coverage report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-report
           path: target/qa/cov/
@@ -497,7 +497,7 @@ jobs:
             --noise-floor-ns 150 \
             --output target/qa/perf/report.md
       - name: Upload performance evidence
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: performance-regression
           path: target/qa/perf/
