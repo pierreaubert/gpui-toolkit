@@ -12,7 +12,6 @@ description = "High-level Plotly Express-style charting API built on d3rs and GP
 [features]
 default = ["gpui", "gpu-2d"]
 autoeq = ["dep:autoeq"]
-camera = []
 gpui = ["dep:gpui", "dep:gpui-ui-kit", "dep:gpui-miniapp", "dep:gpui-builder", "dep:gpui-design", "gpui-design/gpui", "gpui-d3rs/gpui"]
 gpu-3d = ["gpui-d3rs/gpu-3d"]
 gpu-2d = ["gpui-d3rs/gpu-2d"]

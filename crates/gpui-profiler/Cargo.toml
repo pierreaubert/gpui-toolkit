@@ -2,6 +2,7 @@
 name = "gpui-profiler"
 version = "0.9.2"
 edition.workspace = true
+rust-version = "1.89"
 authors.workspace = true
 keywords.workspace = true
 categories.workspace = true

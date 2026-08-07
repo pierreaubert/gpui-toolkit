@@ -21,11 +21,6 @@ FFI_BOUNDARY_DIRS = (
     "crates/gpui-showcase/tvos/",
 )
 
-# This example-local shim calls macOS camera authorization APIs directly.
-FFI_BOUNDARY_FILES = {
-    "crates/gpui-ui-kit/examples/qr_debug/misc.rs",
-}
-
 # This safe crate contains FFI attributes only as generated Rust source text.
 # Its crate root also uses `forbid(unsafe_code)`, so executable scaffolder code
 # cannot use this text-level exemption.
@@ -47,8 +42,7 @@ UNSAFE_CONSTRUCT = re.compile(
 
 def _is_allowed(relative_path: str) -> bool:
     return (
-        relative_path in FFI_BOUNDARY_FILES
-        or relative_path in GENERATED_FFI_TEMPLATE_FILES
+        relative_path in GENERATED_FFI_TEMPLATE_FILES
         or relative_path.startswith(FFI_BOUNDARY_DIRS)
         or relative_path.startswith(VENDORED_DIRS)
     )

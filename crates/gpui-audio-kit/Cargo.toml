@@ -12,7 +12,6 @@ repository.workspace = true
 [features]
 default = []
 autoeq = []
-camera = []
 gpu-2d = []
 gpu-3d = []
 reqwest = []

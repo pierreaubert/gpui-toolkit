@@ -16,7 +16,6 @@ name = "d3rs"
 [features]
 default = ["gpui", "gpu-2d", "gpu-3d"]
 autoeq = ["dep:autoeq"]
-camera = []
 gpui = ["dep:gpui", "dep:gpui-ui-kit", "dep:gpui-miniapp", "dep:gpui-builder", "dep:gpui-design", "gpui-design/gpui", "dep:smol", "dep:fontdue", "dep:image"]
 profiler = ["dep:gpui-profiler", "gpui-profiler/global-allocator"]
 reqwest = ["dep:reqwest"]

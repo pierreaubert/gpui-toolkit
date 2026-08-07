@@ -6,6 +6,11 @@ tokens, and Apple mobile backends.
 
 [![License](https://img.shields.io/crates/l/gpui-ui-kit)](LICENSE)
 
+This is pre-1.0 software with a deliberately narrow crates.io surface. The
+first registry wave is `gpui-design`, `gpui-profiler`, and
+`gpui-ui-kit-macros`; GPUI-dependent crates are distributed as source beta.
+See [RELEASE.md](./RELEASE.md) for exact lanes and guarantees.
+
 ## Examples
 
 Two open source examples:
@@ -48,6 +53,10 @@ Two open source examples:
 | --- | --- |
 | [figma/](./crates/figma/) | Figma-to-GPUI design-system rules and Code Connect mappings. |
 | [MIGRATION.md](./MIGRATION.md) | Migration notes for moving toolkit code out of the larger SOTF workspace. |
+| [CONTRIBUTING.md](./CONTRIBUTING.md) | Contribution, testing, public API, and vendored-code workflow. |
+| [SECURITY.md](./SECURITY.md) | Supported versions and private vulnerability reporting. |
+| [SUPPORT.md](./SUPPORT.md) | Support scope and issue-report requirements. |
+| [CODE_OF_CONDUCT.md](./CODE_OF_CONDUCT.md) | Community conduct and enforcement expectations. |
 | [AGENTS.md](./AGENTS.md) | Short working guide for agents and contributors. |
 | [Renderer gallery](./assets/component-lab-gallery/) | 200 validated Metal-rendered snapshots across the toolkit component stories. |
 
@@ -55,11 +64,12 @@ Two open source examples:
 
 ## GPUI Version
 
-This workspace is currently on the `0.8.x` GPUI toolkit line and pins GPUI
+This workspace is currently on the `0.9.x` GPUI toolkit line and pins GPUI
 packages to Zed `v1.9.0` through the root [Cargo.toml](./Cargo.toml).
 
-The workspace uses local path dependencies for toolkit crates and git
-dependencies for GPUI platform crates from `zed-industries/zed`.
+The workspace uses local path dependencies for toolkit crates and history-free
+vendored GPUI platform snapshots under `crates/3rdparties/`; the source-origin
+gate rejects dependencies that still resolve from `zed-industries/zed.git`.
 
 ## Common Commands
 
@@ -92,6 +102,7 @@ just qa-visual    # visual/golden/conformance checks
 just qa-perf      # benchmark non-regression against qa/perf/baseline.json
 just qa-cov       # workspace coverage report (HTML + JSON)
 just qa-cov-check # enforced current floor; 90% remains the release target
+just qa-release-contract # governance, MSRV metadata, packages, docs, and API policy
 ```
 
 Update the committed performance baseline after intentional improvements:
@@ -162,14 +173,14 @@ just examples-px
 just examples-ui-kit
 ```
 
-For the QR camera example:
+For the QR rendering example:
 
 ```bash
 just run-qr-debug
 ```
 
-On macOS this recipe creates a small `.app` bundle so the camera permission
-prompt has the right `Info.plist` metadata.
+Camera scanning is deliberately left to host applications so the UI kit does
+not impose a native capture backend or operating-system permission model.
 
 ## iOS
 

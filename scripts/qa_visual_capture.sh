@@ -8,7 +8,7 @@ cd "$(dirname "$0")/.."
 
 mkdir -p target/qa/visual target/gpui-conformance
 
-FEATURES="--features autoeq,camera,gpu-2d,gpu-3d,reqwest,showcase,spinorama,tokio,urlencoding"
+FEATURES="--features autoeq,gpu-2d,gpu-3d,reqwest,showcase,spinorama,tokio,urlencoding"
 
 echo "=== gpui-builder visual tests ==="
 cargo test -p gpui-builder visual --quiet
@@ -65,7 +65,7 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
         capture_args+=(--visual-update-baselines)
     fi
     cargo run -p gpui-component-lab --bin gpui-component-lab \
-        --features autoeq,camera,gpu-2d,gpu-3d,reqwest,showcase,spinorama,tokio,urlencoding,visual-capture \
+        --features autoeq,gpu-2d,gpu-3d,reqwest,showcase,spinorama,tokio,urlencoding,visual-capture \
         -- "${capture_args[@]}"
     component_capture_status="passed (${capture_limit} representative Metal captures)"
 

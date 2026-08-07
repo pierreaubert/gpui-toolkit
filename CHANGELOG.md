@@ -2,6 +2,32 @@
 
 ## Unreleased
 
+### Release Readiness
+
+- Added a three-lane public release policy, contributor/security/support
+  governance, explicit Rust 1.89 MSRV metadata, locked package verification,
+  and CI release-contract enforcement.
+- Selected `gpui-design`, `gpui-profiler`, and `gpui-ui-kit-macros` for the
+  first crates.io wave. Deferred `gpui-pretext` and `gpui-builder` until their
+  registry predecessors are available; GPUI-dependent crates remain source
+  beta.
+- Added deterministic Metal component capture for a 200-case PR profile,
+  eight-shard nightly coverage of all 1,922 registered cases, versioned
+  baselines, strict pixel validation, and 17 gallery contact sheets.
+- Raised `gpui-python-runtime` line coverage above its 90% release floor with
+  protocol, patch, validation, form, chart, and Scene3D regression tests.
+
+### Dependency and Safety Policy
+
+- Removed yanked `spin` 0.9/0.10 and future-incompatible
+  `proc-macro-error2`, made yanked crates a hard cargo-deny failure, recorded
+  missing vendored Apache-2.0 metadata, and removed stale policy allowances.
+- Replaced the optional camera-backed QR debug path with a renderer-only QR
+  example so native capture dependencies and permissions remain host-app
+  concerns.
+- Enforced safe Rust across portable first-party crates and documented the
+  remaining reviewed native FFI boundaries.
+
 ## 0.9.7 - 2026-08-07
 
 ### Python Surface

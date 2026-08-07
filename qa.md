@@ -30,18 +30,19 @@ platform matrix must compile on Linux, macOS, and Windows. Apple mobile,
 Android, Audio Unit, and hardware interaction gates remain explicit entries in
 the release matrix until their simulator/device/host evidence is attached.
 
-The currently publishable GPUI-free crates (`gpui-design`, `gpui-pretext`, and
-`gpui-ui-kit-macros`) declare and continuously check Rust 1.89 as their MSRV.
-The remaining crates do not claim that MSRV until the unpublished GPUI
-dependency and target-specific toolchains can be validated at the same floor.
+The selected crates.io wave (`gpui-design`, `gpui-profiler`, and
+`gpui-ui-kit-macros`) declares and continuously checks Rust 1.89 as its MSRV.
+`gpui-pretext` is also checked at that floor but is deferred until its
+`gpui-profiler` registry predecessor exists and a locked dry-run passes. The
+remaining crates do not claim that MSRV until the unpublished GPUI dependency
+and target-specific toolchains can be validated at the same floor.
 
 ## Unsafe-code policy
 
 Portable first-party code must be safe Rust. `just qa-scripts` runs
 `scripts/qa_unsafe_policy.py`, which rejects unsafe Rust constructs outside
 the explicit native boundary crates (`gpui-au`, `gpui-android`, and
-`gpui-ios`), their Android/iOS/tvOS showcase entry libraries, and the macOS
-camera-permission shim in the QR example. Generated mobile FFI attributes in
+`gpui-ios`) and their Android/iOS/tvOS showcase entry libraries. Generated mobile FFI attributes in
 `gpui-scaffolder` are textually exempt, while that crate itself uses
 `forbid(unsafe_code)`. Vendored third-party sources are governed separately.
 An unavoidable unsafe trait API, such as allocator instrumentation, must be
@@ -196,6 +197,11 @@ revision, and vendored documentation/review freshness. Vendored Zed/wgpu-facing
 renderer and platform patches have a 30-day upstream review cadence; other
 vendored snapshots have a 90-day cadence. Each entry must name an owner,
 removal condition, reproducible delta command, and verification gate.
+
+`just qa-release-contract` extends this with required contributor, security,
+support, conduct, changelog, release-lane, and MSRV metadata plus locked package
+verification for the three crates.io wave-one packages. Publishing or uploading
+anything remains a separate explicit maintainer action.
 
 1. Run `just qa` and attach coverage, performance, visual/conformance, and
    cargo-deny reports.

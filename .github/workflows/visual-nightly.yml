@@ -36,7 +36,7 @@ jobs:
       - name: Capture renderer pixels for full component matrix shard
         run: |
           cargo run -p gpui-component-lab --bin gpui-component-lab \
-            --features autoeq,camera,gpu-2d,gpu-3d,reqwest,showcase,spinorama,tokio,urlencoding,visual-capture \
+            --features autoeq,gpu-2d,gpu-3d,reqwest,showcase,spinorama,tokio,urlencoding,visual-capture \
             -- \
             --visual-capture-limit 0 \
             --visual-capture-shard-count 8 \

@@ -3,6 +3,7 @@ name = "gpui-pretext"
 version = "0.9.8"
 authors.workspace = true
 edition.workspace = true
+rust-version = "1.89"
 keywords.workspace = true
 categories.workspace = true
 license.workspace = true
@@ -12,7 +13,6 @@ description = "High-performance text measurement and multiline layout without DO
 [features]
 default = []
 autoeq = []
-camera = []
 gpu-2d = []
 gpu-3d = []
 reqwest = []

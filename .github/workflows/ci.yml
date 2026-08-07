@@ -36,12 +36,12 @@ jobs:
       - name: Check workspace targets without warnings
         env:
           RUSTFLAGS: -D warnings
-        run: cargo check --workspace --all-targets --features autoeq,camera,gpu-2d,gpu-3d,reqwest,spinorama,tokio,urlencoding
+        run: cargo check --workspace --all-targets --features autoeq,gpu-2d,gpu-3d,reqwest,spinorama,tokio,urlencoding
 
       - name: Test portable workspace
         # Scaffolder contract tests invoke Apple/nightly targets and belong to
         # dedicated platform lanes, not the portable desktop matrix.
-        run: cargo test --workspace --exclude gpui-scaffolder --features autoeq,camera,gpu-2d,gpu-3d,reqwest,spinorama,tokio,urlencoding
+        run: cargo test --workspace --exclude gpui-scaffolder --features autoeq,gpu-2d,gpu-3d,reqwest,spinorama,tokio,urlencoding
 
       - name: Install iOS simulator Rust target
         if: runner.os == 'macOS'
@@ -94,7 +94,7 @@ jobs:
           export CC_aarch64_linux_android="$ANDROID_SDK_ROOT/ndk/27.2.12479018/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android35-clang"
           export CXX_aarch64_linux_android="$ANDROID_SDK_ROOT/ndk/27.2.12479018/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android35-clang++"
           export AR_aarch64_linux_android="$ANDROID_SDK_ROOT/ndk/27.2.12479018/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar"
-          cargo check -p gpui-showcase-android --target aarch64-linux-android --features autoeq,camera,gpu-2d,gpu-3d,reqwest,spinorama,tokio,urlencoding
+          cargo check -p gpui-showcase-android --target aarch64-linux-android --features autoeq,gpu-2d,gpu-3d,reqwest,spinorama,tokio,urlencoding
 
       - name: Compile canonical Android Activity host
         if: matrix.platform == 'android'
@@ -237,7 +237,7 @@ jobs:
         # gpui-scaffolder contains platform-specific tests (tvOS simulator
         # cargo check) that require nightly + Apple targets; exclude it from the
         # ubuntu CI run.
-        run: cargo test --workspace --exclude gpui-scaffolder --features autoeq,camera,gpu-2d,gpu-3d,reqwest,spinorama,tokio,urlencoding
+        run: cargo test --workspace --exclude gpui-scaffolder --features autoeq,gpu-2d,gpu-3d,reqwest,spinorama,tokio,urlencoding
 
       - name: QA script contracts
         run: just qa-scripts
@@ -256,7 +256,7 @@ jobs:
         uses: taiki-e/install-action@nextest
 
       - name: Run nextest
-        run: cargo nextest run --profile ci --no-fail-fast --workspace --exclude gpui-scaffolder --features autoeq,camera,gpu-2d,gpu-3d,reqwest,spinorama,tokio,urlencoding
+        run: cargo nextest run --profile ci --no-fail-fast --workspace --exclude gpui-scaffolder --features autoeq,gpu-2d,gpu-3d,reqwest,spinorama,tokio,urlencoding
 
   miri-pretext:
     name: Miri (gpui-pretext)
@@ -293,6 +293,7 @@ jobs:
       matrix:
         # These crates do not require the unpublished upstream GPUI package,
         # so crates.io can provide a meaningful baseline comparison.
+        # gpui-profiler joins after its first registry release creates a baseline.
         package: [gpui-design, gpui-pretext, gpui-ui-kit-macros]
     steps:
       - uses: actions/checkout@v7
@@ -312,7 +313,7 @@ jobs:
         uses: dtolnay/rust-toolchain@1.89.0
 
       - name: Check minimal public crates and all their targets
-        run: cargo check -p gpui-design -p gpui-pretext -p gpui-ui-kit-macros --all-targets
+        run: cargo check -p gpui-design -p gpui-pretext -p gpui-profiler -p gpui-ui-kit-macros --all-targets
 
   public-api-contracts:
     name: Minimal features, rustdoc and generated scaffold
@@ -328,6 +329,21 @@ jobs:
 
       - name: Run public API contracts
         run: just qa-api
+
+  release-contract:
+    name: Governance and locked registry packages
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Just
+        uses: extractions/setup-just@v2
+
+      - name: Verify public release contract
+        run: just qa-release-contract
 
   qa-gpui-obvious:
     name: GPUI Obvious QA Gate
@@ -461,14 +477,14 @@ jobs:
         # Apple targets and nightly that are not available on ubuntu-latest.
         run: |
           cargo llvm-cov --workspace --exclude gpui-scaffolder --all-targets \
-            --features autoeq,camera,gpu-2d,gpu-3d,reqwest,spinorama,tokio,urlencoding \
+            --features autoeq,gpu-2d,gpu-3d,reqwest,spinorama,tokio,urlencoding \
             --html --output-dir target/qa/cov/html \
             --ignore-filename-regex '.*/(tests|benches|examples|target|crates/3rdparties|crates/gpui-au|crates/gpui-android|crates/gpui-ios|crates/gpui-miniapp|crates/.*/bin)/.*'
 
       - name: Enforce coverage ratchet
         run: |
           cargo llvm-cov --workspace --exclude gpui-scaffolder --all-targets \
-            --features autoeq,camera,gpu-2d,gpu-3d,reqwest,spinorama,tokio,urlencoding \
+            --features autoeq,gpu-2d,gpu-3d,reqwest,spinorama,tokio,urlencoding \
             --json --summary-only --output-path target/qa/cov/summary.json \
             --ignore-filename-regex '.*/(tests|benches|examples|target|crates/3rdparties|crates/gpui-au|crates/gpui-android|crates/gpui-ios|crates/gpui-miniapp|crates/.*/bin)/.*'
           python3 scripts/qa_cov_check.py \

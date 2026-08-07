@@ -13,7 +13,6 @@ readme = "README.md"
 [features]
 default = []
 autoeq = ["gpui-px?/autoeq"]
-camera = []
 gpui = [
     "dep:gpui",
     "dep:gpui-d3rs",

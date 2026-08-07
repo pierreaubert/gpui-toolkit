@@ -72,6 +72,8 @@ pub enum PublishDecision {
     PublicCoreAfterGates,
     /// Publish as beta only if release notes call out limitations.
     BetaAfterGates,
+    /// Postpone crates.io publication until named registry predecessors exist.
+    DeferredRegistry,
     /// Keep as support tooling unless the release explicitly promises stability.
     SupportToolingOnly,
     /// Hold from public release pending target-specific QA.
@@ -85,7 +87,8 @@ impl PublishDecision {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::PublicCoreAfterGates => "public-core-after-gates",
-            Self::BetaAfterGates => "beta-after-gates",
+            Self::BetaAfterGates => "source-beta-after-gates",
+            Self::DeferredRegistry => "deferred-registry",
             Self::SupportToolingOnly => "support-tooling-only",
             Self::HoldForPlatformQa => "hold-for-platform-qa",
             Self::DoNotPublish => "do-not-publish",
@@ -115,25 +118,25 @@ pub const CRATE_STABILITY_MANIFEST: &[CrateStability] = &[
     CrateStability {
         crate_name: "gpui-audio-kit",
         aggregate_feature: AggregateFeature::Audio,
-        stability: StabilityLevel::ReleaseCandidate,
-        publish_decision: PublishDecision::PublicCoreAfterGates,
-        required_gate: "cargo publish --dry-run plus focused audio-control tests and accessibility notes",
-        note: "Domain-specific audio controls; native accessibility bridge consumption remains app-level work.",
+        stability: StabilityLevel::Beta,
+        publish_decision: PublishDecision::BetaAfterGates,
+        required_gate: "source RC bundle plus focused audio-control, accessibility, and snapshot evidence",
+        note: "Source beta only: the crate depends on the unpublished GPUI runtime; native accessibility bridge consumption remains app-level work.",
     },
     CrateStability {
         crate_name: "gpui-builder",
         aggregate_feature: AggregateFeature::Ui,
         stability: StabilityLevel::ReleaseCandidate,
-        publish_decision: PublishDecision::PublicCoreAfterGates,
-        required_gate: "cargo publish --dry-run plus layout diagnostics and benchmark sanity checks",
-        note: "Layout solver diagnostics are implemented; release should attach benchmark baselines.",
+        publish_decision: PublishDecision::DeferredRegistry,
+        required_gate: "publish compatible gpui-design and gpui-pretext predecessors, then pass a locked dry-run",
+        note: "Registry publication is deferred; the tagged source includes layout diagnostics and benchmark evidence.",
     },
     CrateStability {
         crate_name: "gpui-d3rs",
         aggregate_feature: AggregateFeature::Charts,
         stability: StabilityLevel::Beta,
         publish_decision: PublishDecision::BetaAfterGates,
-        required_gate: "large-data sanity checks, NaN/empty-input behavior review, visual examples, and cargo publish --dry-run",
+        required_gate: "source RC bundle, large-data sanity checks, NaN/empty-input review, and rendered examples",
         note: "Visualization algorithms are broad; checked chord and quadtree paths exist, with more fallible APIs still to add.",
     },
     CrateStability {
@@ -147,42 +150,42 @@ pub const CRATE_STABILITY_MANIFEST: &[CrateStability] = &[
     CrateStability {
         crate_name: "gpui-keybinding",
         aggregate_feature: AggregateFeature::Ui,
-        stability: StabilityLevel::ReleaseCandidate,
-        publish_decision: PublishDecision::PublicCoreAfterGates,
-        required_gate: "cargo publish --dry-run plus shortcut conflict examples and platform policy docs",
-        note: "Conflict-resolution and platform shortcut policy are documented.",
+        stability: StabilityLevel::Beta,
+        publish_decision: PublishDecision::BetaAfterGates,
+        required_gate: "source RC bundle plus shortcut conflict examples and platform policy docs",
+        note: "Source beta only because runtime integration depends on unpublished GPUI; conflict-resolution and platform shortcut policy are documented.",
     },
     CrateStability {
         crate_name: "gpui-pretext",
         aggregate_feature: AggregateFeature::Ui,
         stability: StabilityLevel::ReleaseCandidate,
-        publish_decision: PublishDecision::PublicCoreAfterGates,
-        required_gate: "cargo publish --dry-run plus focused text-layout tests and script-limitations note",
-        note: "Text measurement is a core dependency; release notes should state script/language limitations.",
+        publish_decision: PublishDecision::DeferredRegistry,
+        required_gate: "publish gpui-profiler, then pass a clean locked cargo publish dry-run",
+        note: "GPUI-free and MSRV-tested, but its package verifier requires the unpublished gpui-profiler dev-dependency from crates.io.",
     },
     CrateStability {
         crate_name: "gpui-px",
         aggregate_feature: AggregateFeature::Charts,
         stability: StabilityLevel::Beta,
         publish_decision: PublishDecision::BetaAfterGates,
-        required_gate: "large-data sanity checks, visual examples, chart accessibility notes, and cargo publish --dry-run",
+        required_gate: "source RC bundle, large-data sanity checks, visual examples, and chart accessibility notes",
         note: "High-level charting has accessibility summaries; richer interactions and export remain beta limitations.",
     },
     CrateStability {
         crate_name: "gpui-themes",
         aggregate_feature: AggregateFeature::Themes,
-        stability: StabilityLevel::ReleaseCandidate,
-        publish_decision: PublishDecision::PublicCoreAfterGates,
-        required_gate: "cargo publish --dry-run plus theme schema/version compatibility tests",
-        note: "Community theme schema policy is documented and v1 compatibility is tested.",
+        stability: StabilityLevel::Beta,
+        publish_decision: PublishDecision::BetaAfterGates,
+        required_gate: "source RC bundle plus theme schema/version compatibility tests",
+        note: "Source beta only because GPUI and UI-kit dependencies are unpublished; community theme schema policy is documented and tested.",
     },
     CrateStability {
         crate_name: "gpui-ui-kit",
         aggregate_feature: AggregateFeature::Ui,
-        stability: StabilityLevel::ReleaseCandidate,
-        publish_decision: PublishDecision::PublicCoreAfterGates,
-        required_gate: "cargo publish --dry-run plus keyboard/accessibility integration notes for compound widgets",
-        note: "Broad component surface; FocusGroup exists, but compound-widget adoption remains a release note.",
+        stability: StabilityLevel::Beta,
+        publish_decision: PublishDecision::BetaAfterGates,
+        required_gate: "source RC bundle plus keyboard, accessibility, and renderer-backed snapshot evidence",
+        note: "Broad source-beta component surface that depends on unpublished GPUI; compound-widget accessibility limitations remain explicit.",
     },
     CrateStability {
         crate_name: "gpui-ui-kit-macros",
@@ -219,10 +222,10 @@ pub const CRATE_STABILITY_MANIFEST: &[CrateStability] = &[
     CrateStability {
         crate_name: "gpui-profiler",
         aggregate_feature: AggregateFeature::Tooling,
-        stability: StabilityLevel::SupportTooling,
-        publish_decision: PublishDecision::SupportToolingOnly,
-        required_gate: "allocator-conflict documentation and feature/no-feature smoke tests",
-        note: "Diagnostic allocator/probe tooling; runtime API stability should not be implied.",
+        stability: StabilityLevel::ReleaseCandidate,
+        publish_decision: PublishDecision::PublicCoreAfterGates,
+        required_gate: "locked dry-run, Rust 1.89 MSRV, allocator-conflict documentation, and feature/no-feature tests",
+        note: "Small GPUI-free profiling package selected for crates.io wave 1; enabling its global allocator remains opt-in.",
     },
     CrateStability {
         crate_name: "gpui-python-runtime",
@@ -302,7 +305,7 @@ mod tests {
     }
 
     #[test]
-    fn public_core_decisions_match_expected_release_set() {
+    fn public_registry_decisions_match_wave_one() {
         let public_core: Vec<_> = crate_stability_manifest()
             .iter()
             .filter(|entry| entry.publish_decision == PublishDecision::PublicCoreAfterGates)
@@ -311,16 +314,7 @@ mod tests {
 
         assert_eq!(
             public_core,
-            [
-                "gpui-audio-kit",
-                "gpui-builder",
-                "gpui-design",
-                "gpui-keybinding",
-                "gpui-pretext",
-                "gpui-themes",
-                "gpui-ui-kit",
-                "gpui-ui-kit-macros",
-            ]
+            ["gpui-design", "gpui-ui-kit-macros", "gpui-profiler"]
         );
     }
 

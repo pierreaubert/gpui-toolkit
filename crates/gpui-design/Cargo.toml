@@ -3,6 +3,7 @@ name = "gpui-design"
 version = "0.9.5"
 authors.workspace = true
 edition.workspace = true
+rust-version = "1.89"
 keywords.workspace = true
 categories.workspace = true
 license.workspace = true
@@ -12,7 +13,6 @@ description = "Platform-adaptive design system (Apple HIG, Material 3, Fluent, N
 [features]
 default = []
 autoeq = []
-camera = []
 gpui = ["dep:gpui"]
 gpu-2d = []
 gpu-3d = []

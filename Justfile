@@ -15,7 +15,7 @@ import 'builds/cross.just'
 # VARIABLES
 # ----------------------------------------------------------------------
 
-features := "--features autoeq,camera,gpu-2d,gpu-3d,reqwest,spinorama,tokio,urlencoding"
+features := "--features autoeq,gpu-2d,gpu-3d,reqwest,spinorama,tokio,urlencoding"
 cross_packages := "-p gpui-audio-kit -p gpui-builder -p gpui-component-lab -p gpui-d3rs -p gpui-design -p gpui-design-tools -p gpui-keybinding -p gpui-miniapp -p gpui-pretext -p gpui-px -p gpui-python-runtime -p gpui-scaffolder -p gpui-themes -p gpui-ui-kit -p gpui-ui-kit-macros"
 public_core_packages := "-p gpui-audio-kit -p gpui-builder -p gpui-d3rs -p gpui-design -p gpui-keybinding -p gpui-pretext -p gpui-px -p gpui-themes -p gpui-ui-kit -p gpui-ui-kit-macros"
 
@@ -161,6 +161,14 @@ qa-api:
 	cargo check {{public_core_packages}} --lib --no-default-features
 	RUSTDOCFLAGS="-D warnings" cargo doc {{public_core_packages}} --lib --no-deps --no-default-features
 	cargo test -p gpui-scaffolder scaffolded_project_passes_cargo_check
+
+# Public release contract. Registry wave 1 deliberately contains only the
+# three packages that are GPUI-free and pass a locked package verification.
+[group('qa')]
+qa-release-contract: qa-api
+	cargo package --locked -p gpui-design
+	cargo package --locked -p gpui-profiler
+	cargo package --locked -p gpui-ui-kit-macros
 
 # Dependency, advisory, license, and source-origin policy. cargo-deny is the
 # canonical release check; keeping it in `qa` prevents the policy from becoming
@@ -324,19 +332,11 @@ examples-ui-kit:
 	cargo build --examples -p gpui-ui-kit {{features}}
 	@echo "All gpui-ui-kit examples compiled successfully"
 
-# Run QR debug example. On macOS this builds a small app bundle so the camera
-# permission prompt has Info.plist metadata.
+# Run the renderer-only QR example.
 [group('examples')]
 [macos]
 run-qr-debug:
-	cargo build -p gpui-ui-kit --example qr_debug {{features}}
-	rm -rf target/debug/examples/QrDebug.app
-	mkdir -p target/debug/examples/QrDebug.app/Contents/MacOS
-	cp target/debug/examples/qr_debug target/debug/examples/QrDebug.app/Contents/MacOS/qr_debug
-	cp crates/gpui-ui-kit/examples/qr_debug.plist target/debug/examples/QrDebug.app/Contents/Info.plist
-	echo -n "APPL????" > target/debug/examples/QrDebug.app/Contents/PkgInfo
-	codesign --force --deep --sign - target/debug/examples/QrDebug.app
-	open target/debug/examples/QrDebug.app
+	cargo run -p gpui-ui-kit --example qr_debug {{features}}
 
 [group('examples')]
 [linux]

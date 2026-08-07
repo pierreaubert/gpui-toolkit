@@ -17,6 +17,39 @@ def check() -> list[str]:
     cargo = tomllib.loads(cargo_text)
     readme = (ROOT / "README.md").read_text()
 
+    governance_markers = {
+        "CONTRIBUTING.md": ("# Contributing", "just qa", "CHANGELOG.md"),
+        "SECURITY.md": ("# Security Policy", "Reporting a vulnerability", "private"),
+        "SUPPORT.md": ("# Support Policy", "GitHub Issues", "SECURITY.md"),
+        "CODE_OF_CONDUCT.md": ("# Code of Conduct", "harassment-free", "Report conduct"),
+        "RELEASE.md": ("# Release Policy", "crates.io wave 1", "source beta", "MSRV"),
+    }
+    for relative, markers in governance_markers.items():
+        path = ROOT / relative
+        if not path.is_file():
+            errors.append(f"required governance document missing: {relative}")
+            continue
+        text = path.read_text()
+        for marker in markers:
+            if marker not in text:
+                errors.append(f"{relative} lacks required marker: {marker}")
+
+    changelog = (ROOT / "CHANGELOG.md").read_text()
+    if "## Unreleased" not in changelog:
+        errors.append("CHANGELOG.md lacks an Unreleased section")
+
+    public_msrv_crates = (
+        "gpui-design",
+        "gpui-pretext",
+        "gpui-profiler",
+        "gpui-ui-kit-macros",
+    )
+    for crate in public_msrv_crates:
+        manifest_path = ROOT / "crates" / crate / "Cargo.toml"
+        manifest = tomllib.loads(manifest_path.read_text())
+        if manifest["package"].get("rust-version") != "1.89":
+            errors.append(f"{crate} must declare rust-version = 1.89")
+
     members = {
         member.rstrip("/")
         for member in cargo["workspace"]["members"]

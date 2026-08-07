@@ -123,64 +123,73 @@ const RELEASE_PACKAGING_ENTRIES: &[ReleasePackagingEntry] = &[
         id: "gpui-design-dry-run",
         crate_or_lane: "gpui-design",
         lane: "public-core",
-        command_or_action: "cargo publish --dry-run -p gpui-design --allow-dirty",
+        command_or_action: "cargo publish --dry-run --locked -p gpui-design",
         status: ReleasePackagingStatus::Passed,
-        evidence: "Dry-run passed cleanly after optional GPUI integration exports/imports were feature-gated.",
-        release_requirement: "Re-run from a clean release worktree without --allow-dirty immediately before publishing.",
+        evidence: "Locked dry-run passed from the release branch on 2026-08-07.",
+        release_requirement: "Re-run from the clean release commit immediately before publishing.",
+    },
+    ReleasePackagingEntry {
+        id: "gpui-profiler-dry-run",
+        crate_or_lane: "gpui-profiler",
+        lane: "public-core",
+        command_or_action: "cargo publish --dry-run --locked -p gpui-profiler",
+        status: ReleasePackagingStatus::Passed,
+        evidence: "Locked dry-run passed from the release branch on 2026-08-07.",
+        release_requirement: "Re-run from the clean release commit and publish before any later gpui-pretext registry wave.",
     },
     ReleasePackagingEntry {
         id: "gpui-pretext-dry-run",
         crate_or_lane: "gpui-pretext",
         lane: "public-core",
-        command_or_action: "cargo publish --dry-run -p gpui-pretext --allow-dirty",
-        status: ReleasePackagingStatus::Pending,
-        evidence: "No dry-run pass/fail output is recorded in this release report.",
-        release_requirement: "Run and attach dry-run output before publishing gpui-builder.",
+        command_or_action: "cargo publish --dry-run --locked -p gpui-pretext",
+        status: ReleasePackagingStatus::Excluded,
+        evidence: "Locked dry-run on 2026-08-07 could not resolve the unpublished gpui-profiler dev-dependency from crates.io; gpui-pretext is deferred from registry wave 1.",
+        release_requirement: "Publish gpui-profiler, then require a clean locked dry-run before a later registry wave.",
     },
     ReleasePackagingEntry {
         id: "gpui-builder-dry-run",
         crate_or_lane: "gpui-builder",
         lane: "public-core",
-        command_or_action: "cargo publish --dry-run -p gpui-builder --allow-dirty",
-        status: ReleasePackagingStatus::Blocked,
-        evidence: "Dry-run failed because crates.io did not have compatible gpui-design/gpui-pretext predecessors.",
-        release_requirement: "Publish or stage predecessors, then re-run and attach dry-run output.",
+        command_or_action: "cargo publish --dry-run --locked -p gpui-builder",
+        status: ReleasePackagingStatus::Excluded,
+        evidence: "Deferred from registry wave 1 because compatible gpui-design and gpui-pretext predecessors are not both published.",
+        release_requirement: "Publish predecessors, then require a clean locked dry-run before a later registry wave.",
     },
     ReleasePackagingEntry {
-        id: "gpui-ui-kit-foundation-dry-runs",
-        crate_or_lane: "gpui-ui-kit-macros + gpui-ui-kit",
+        id: "gpui-ui-kit-macros-dry-run",
+        crate_or_lane: "gpui-ui-kit-macros",
         lane: "public-core",
-        command_or_action: "cargo publish --dry-run -p gpui-ui-kit-macros --allow-dirty && cargo publish --dry-run -p gpui-ui-kit --allow-dirty",
-        status: ReleasePackagingStatus::Blocked,
-        evidence: "gpui-ui-kit dry-run depends on predecessor public-core crates that are not yet published/staged.",
-        release_requirement: "Run macros dry-run, publish/stage predecessors, then re-run gpui-ui-kit dry-run.",
+        command_or_action: "cargo publish --dry-run --locked -p gpui-ui-kit-macros",
+        status: ReleasePackagingStatus::Passed,
+        evidence: "Locked dry-run passed from the release branch on 2026-08-07.",
+        release_requirement: "Re-run from the clean release commit immediately before publishing.",
     },
     ReleasePackagingEntry {
-        id: "remaining-public-core-dry-runs",
-        crate_or_lane: "gpui-audio-kit + gpui-keybinding + gpui-themes",
-        lane: "public-core",
-        command_or_action: "cargo publish --dry-run per gpui_toolkit::publish_plan() order",
-        status: ReleasePackagingStatus::Pending,
-        evidence: "No dry-run pass/fail output is recorded for these selected public-core crates.",
-        release_requirement: "Run dry-runs in dependency order and attach output.",
+        id: "gpui-dependent-source-beta",
+        crate_or_lane: "gpui-ui-kit + gpui-audio-kit + gpui-keybinding + gpui-themes",
+        lane: "source-beta",
+        command_or_action: "include in signed source/RC archive; do not upload to crates.io",
+        status: ReleasePackagingStatus::Excluded,
+        evidence: "These packages depend on the vendored, unpublished GPUI runtime and are explicitly source-beta only.",
+        release_requirement: "Attach source archive QA and retain the beta limitation in release notes.",
     },
     ReleasePackagingEntry {
         id: "beta-visualization-dry-runs",
         crate_or_lane: "gpui-d3rs + gpui-px",
         lane: "beta-visualization",
         command_or_action: "cargo publish --dry-run per beta lane if included",
-        status: ReleasePackagingStatus::Pending,
-        evidence: "Feature/capability reports exist, but packaging dry-runs are not recorded.",
-        release_requirement: "Either run beta dry-runs and attach output or exclude the beta lane from the release.",
+        status: ReleasePackagingStatus::Excluded,
+        evidence: "Visualization crates are included in the tagged source beta and explicitly excluded from crates.io wave 1 because their default surface depends on GPUI.",
+        release_requirement: "Attach capability, performance, accessibility, and renderer snapshot evidence to the source release.",
     },
     ReleasePackagingEntry {
         id: "tooling-support-crates",
-        crate_or_lane: "gpui-component-lab + gpui-design-tools + gpui-profiler + gpui-python-runtime",
+        crate_or_lane: "gpui-component-lab + gpui-design-tools + gpui-python-runtime",
         lane: "support-tooling",
         command_or_action: "cargo publish --dry-run only if intentionally included",
-        status: ReleasePackagingStatus::Pending,
-        evidence: "Support/tooling crates have docs and reports, but no packaging inclusion decision or dry-run outputs are recorded.",
-        release_requirement: "Declare included tooling crates and run dry-runs, or mark them excluded in release notes.",
+        status: ReleasePackagingStatus::Excluded,
+        evidence: "Support tooling is included in the tagged source archive and excluded from registry wave 1; gpui-profiler is tracked separately as a public package.",
+        release_requirement: "Do not claim registry/API stability for these support tools.",
     },
     ReleasePackagingEntry {
         id: "internal-aggregate-and-apps",
@@ -216,7 +225,7 @@ pub const fn release_packaging_report() -> ReleasePackagingReport {
     ReleasePackagingReport {
         schema_version: RELEASE_PACKAGING_SCHEMA_VERSION,
         report_type: RELEASE_PACKAGING_REPORT_TYPE,
-        reviewed_on: "2026-07-08",
+        reviewed_on: "2026-08-07",
         entries: RELEASE_PACKAGING_ENTRIES,
     }
 }
@@ -236,7 +245,7 @@ mod tests {
 
         assert_eq!(report.schema_version, RELEASE_PACKAGING_SCHEMA_VERSION);
         assert_eq!(report.report_type, RELEASE_PACKAGING_REPORT_TYPE);
-        assert_eq!(report.reviewed_on, "2026-07-08");
+        assert_eq!(report.reviewed_on, "2026-08-07");
         assert!(!report.entries.is_empty());
         assert!(!report.all_release_ready());
 
@@ -261,17 +270,17 @@ mod tests {
     }
 
     #[test]
-    fn release_packaging_report_records_pass_block_pending_and_excluded_rows() {
+    fn release_packaging_report_records_selected_passes_and_explicit_exclusions() {
         let entries = release_packaging_entries();
 
         assert!(entries.iter().any(|entry| {
             entry.id == "gpui-design-dry-run" && entry.status == ReleasePackagingStatus::Passed
         }));
         assert!(entries.iter().any(|entry| {
-            entry.id == "gpui-builder-dry-run" && entry.status == ReleasePackagingStatus::Blocked
+            entry.id == "gpui-profiler-dry-run" && entry.status == ReleasePackagingStatus::Passed
         }));
         assert!(entries.iter().any(|entry| {
-            entry.id == "gpui-pretext-dry-run" && entry.status == ReleasePackagingStatus::Pending
+            entry.id == "gpui-pretext-dry-run" && entry.status == ReleasePackagingStatus::Excluded
         }));
         assert!(entries.iter().any(|entry| {
             entry.id == "internal-aggregate-and-apps"
@@ -293,8 +302,8 @@ mod tests {
         assert!(!blocking.contains(&"gpui-design-dry-run"));
         assert!(!blocking.contains(&"internal-aggregate-and-apps"));
         assert!(!blocking.contains(&"vendored-patches"));
-        assert!(blocking.contains(&"gpui-pretext-dry-run"));
-        assert!(blocking.contains(&"gpui-builder-dry-run"));
+        assert!(!blocking.contains(&"gpui-pretext-dry-run"));
+        assert!(!blocking.contains(&"gpui-builder-dry-run"));
         assert!(blocking.contains(&"platform-installers"));
     }
 
@@ -303,8 +312,8 @@ mod tests {
         let markdown = release_packaging_report().to_markdown_table();
 
         assert!(markdown.contains(RELEASE_PACKAGING_REPORT_TYPE));
-        assert!(markdown.contains("cargo publish --dry-run -p gpui-design"));
-        assert!(markdown.contains("blocked"));
+        assert!(markdown.contains("cargo publish --dry-run --locked -p gpui-design"));
+        assert!(markdown.contains("gpui-profiler"));
         assert!(markdown.contains("support-tooling"));
         assert!(markdown.contains("platform-delivery"));
         assert!(markdown.contains("vendored_patch_manifest"));
