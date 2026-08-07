@@ -1,0 +1,59 @@
+name: Nightly Renderer Snapshot Matrix
+
+on:
+  schedule:
+    - cron: "23 2 * * *"
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  metal-component-matrix:
+    name: Metal full matrix (shard ${{ matrix.shard }})
+    runs-on: macos-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-nightly-visual-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Capture renderer pixels for full component matrix shard
+        run: |
+          cargo run -p gpui-component-lab --bin gpui-component-lab \
+            --features autoeq,camera,gpu-2d,gpu-3d,reqwest,showcase,spinorama,tokio,urlencoding,visual-capture \
+            -- \
+            --visual-capture-limit 0 \
+            --visual-capture-shard-count 8 \
+            --visual-capture-shard-index ${{ matrix.shard }} \
+            --visual-output-root target/qa/visual/component-lab \
+            --visual-renderer metal \
+            --visual-pixel-scale 2 \
+            --visual-capture-json target/qa/visual/capture-shard-${{ matrix.shard }}.json \
+            --visual-capture-markdown target/qa/visual/capture-shard-${{ matrix.shard }}.md \
+            --visual-gallery \
+            --visual-gallery-root target/qa/visual/gallery-shard-${{ matrix.shard }} \
+            --visual-manifest-json target/qa/visual/manifest-shard-${{ matrix.shard }}.json
+
+      - name: Upload renderer shard
+        uses: actions/upload-artifact@v4
+        with:
+          name: metal-component-matrix-${{ matrix.shard }}
+          path: target/qa/visual/
+          if-no-files-found: error
+          retention-days: 14

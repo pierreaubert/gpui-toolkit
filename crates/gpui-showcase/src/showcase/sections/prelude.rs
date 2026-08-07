@@ -1,6 +1,7 @@
 //! Shared imports for all showcase section renderer modules.
 
 pub use crate::Showcase;
+pub(crate) use crate::showcase::ShowcaseHandle;
 pub use crate::showcase::User;
 pub use gpui::{
     AppContext, Context, Entity, FocusHandle, FontWeight, InteractiveElement, IntoElement,

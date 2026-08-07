@@ -6,14 +6,16 @@ use image::{Rgba, RgbaImage};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
-pub const COMPONENT_LAB_VISUAL_MANIFEST_SCHEMA_VERSION: u32 = 1;
-pub const COMPONENT_LAB_VISUAL_DIFF_SCHEMA_VERSION: u32 = 1;
+pub const COMPONENT_LAB_VISUAL_MANIFEST_SCHEMA_VERSION: u32 = 2;
+pub const COMPONENT_LAB_VISUAL_DIFF_SCHEMA_VERSION: u32 = 2;
 pub const COMPONENT_LAB_VISUAL_DIFF_REPORT_TYPE: &str = "gpui-component-lab-visual-diff";
 
 /// One deterministic screenshot capture expected by CI visual regression jobs.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ComponentLabVisualCase {
     pub capture_id: String,
+    pub renderer_id: String,
+    pub pixel_scale: u32,
     pub story_id: String,
     pub renderer_kind: StoryRendererKind,
     pub viewport_id: String,
@@ -32,6 +34,7 @@ pub struct ComponentLabVisualCase {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ComponentLabVisualManifest {
     pub schema_version: u32,
+    pub renderer_id: String,
     pub case_count: usize,
     pub cases: Vec<ComponentLabVisualCase>,
 }
@@ -44,6 +47,9 @@ pub enum ComponentLabVisualDiffStatus {
     MissingBaseline,
     MissingActual,
     SizeMismatch,
+    UnexpectedDimensions,
+    BlankBaseline,
+    BlankActual,
     DecodeFailed,
     WriteFailed,
 }
@@ -56,6 +62,9 @@ impl ComponentLabVisualDiffStatus {
             Self::MissingBaseline => "missing-baseline",
             Self::MissingActual => "missing-actual",
             Self::SizeMismatch => "size-mismatch",
+            Self::UnexpectedDimensions => "unexpected-dimensions",
+            Self::BlankBaseline => "blank-baseline",
+            Self::BlankActual => "blank-actual",
             Self::DecodeFailed => "decode-failed",
             Self::WriteFailed => "write-failed",
         }
@@ -129,7 +138,24 @@ impl ComponentLabVisualManifest {
         renderers: &StoryRendererRegistry,
         output_root: impl AsRef<Path>,
     ) -> Self {
+        Self::from_registries_for_renderer(stories, renderers, output_root, "unspecified", 1)
+    }
+
+    /// Build a manifest whose baseline namespace is tied to one renderer and
+    /// deterministic logical-to-device pixel scale.
+    pub fn from_registries_for_renderer(
+        stories: &StoryRegistry,
+        renderers: &StoryRendererRegistry,
+        output_root: impl AsRef<Path>,
+        renderer_id: impl Into<String>,
+        pixel_scale: u32,
+    ) -> Self {
         let output_root = output_root.as_ref();
+        let renderer_id = renderer_id.into();
+        assert!(
+            pixel_scale > 0,
+            "visual capture pixel scale must be positive"
+        );
         let mut cases = Vec::new();
 
         for renderer in renderers.renderers() {
@@ -152,6 +178,8 @@ impl ComponentLabVisualManifest {
 
                 cases.push(ComponentLabVisualCase {
                     capture_id: capture_id.clone(),
+                    renderer_id: renderer_id.clone(),
+                    pixel_scale,
                     story_id: renderer.story_id.clone(),
                     renderer_kind: renderer.kind,
                     viewport_id,
@@ -161,9 +189,14 @@ impl ComponentLabVisualManifest {
                     design: cell.theme.design,
                     reduced_motion: cell.theme.reduced_motion,
                     interactive: renderer.interactive,
-                    baseline_path: manifest_path(output_root, "baseline", &capture_id),
-                    actual_path: manifest_path(output_root, "actual", &capture_id),
-                    diff_path: manifest_path(output_root, "diff", &capture_id),
+                    baseline_path: manifest_path(
+                        output_root,
+                        &renderer_id,
+                        "baseline",
+                        &capture_id,
+                    ),
+                    actual_path: manifest_path(output_root, &renderer_id, "actual", &capture_id),
+                    diff_path: manifest_path(output_root, &renderer_id, "diff", &capture_id),
                 });
             }
         }
@@ -172,9 +205,65 @@ impl ComponentLabVisualManifest {
 
         Self {
             schema_version: COMPONENT_LAB_VISUAL_MANIFEST_SCHEMA_VERSION,
+            renderer_id,
             case_count: cases.len(),
             cases,
         }
+    }
+
+    /// Select a deterministic PR-sized set while retaining at least one case
+    /// per story whenever the requested limit permits it. The first pass
+    /// rotates through each story's matrix so viewport/theme coverage is not
+    /// biased toward the lexicographically first preset.
+    pub fn representative_cases(&self, limit: usize) -> Vec<ComponentLabVisualCase> {
+        use std::collections::BTreeMap;
+
+        if limit == 0 || limit >= self.cases.len() {
+            return self.cases.clone();
+        }
+
+        let mut by_story: BTreeMap<&str, Vec<&ComponentLabVisualCase>> = BTreeMap::new();
+        for case in &self.cases {
+            by_story.entry(&case.story_id).or_default().push(case);
+        }
+
+        let mut selected = Vec::with_capacity(limit);
+        let mut next_index = BTreeMap::new();
+        for (story_ordinal, (story_id, cases)) in by_story.iter().enumerate() {
+            if selected.len() == limit {
+                break;
+            }
+            let index = story_ordinal % cases.len();
+            selected.push(cases[index].clone().clone());
+            next_index.insert(*story_id, index + 1);
+        }
+
+        while selected.len() < limit {
+            let mut added = false;
+            for (story_id, cases) in &by_story {
+                if selected.len() == limit {
+                    break;
+                }
+                let cursor = next_index.entry(*story_id).or_insert(0);
+                while *cursor < cases.len()
+                    && selected
+                        .iter()
+                        .any(|selected| selected.capture_id == cases[*cursor].capture_id)
+                {
+                    *cursor += 1;
+                }
+                if *cursor < cases.len() {
+                    selected.push(cases[*cursor].clone().clone());
+                    *cursor += 1;
+                    added = true;
+                }
+            }
+            if !added {
+                break;
+            }
+        }
+        selected.sort_by(|a, b| a.capture_id.cmp(&b.capture_id));
+        selected
     }
 
     pub fn to_markdown_table(&self) -> String {
@@ -202,8 +291,15 @@ impl ComponentLabVisualManifest {
     }
 
     pub fn diff_captures(&self, max_changed_pixels: u64) -> ComponentLabVisualDiffReport {
-        let cases = self
-            .cases
+        self.diff_selected_captures(&self.cases, max_changed_pixels)
+    }
+
+    pub fn diff_selected_captures(
+        &self,
+        selected: &[ComponentLabVisualCase],
+        max_changed_pixels: u64,
+    ) -> ComponentLabVisualDiffReport {
+        let cases = selected
             .iter()
             .map(|case| diff_visual_case(case, max_changed_pixels))
             .collect::<Vec<_>>();
@@ -222,7 +318,7 @@ impl ComponentLabVisualManifest {
             schema_version: COMPONENT_LAB_VISUAL_DIFF_SCHEMA_VERSION,
             report_type: COMPONENT_LAB_VISUAL_DIFF_REPORT_TYPE.to_string(),
             passed: failed_count == 0,
-            case_count: self.cases.len(),
+            case_count: selected.len(),
             compared_count,
             failed_count,
             max_changed_pixels,
@@ -293,6 +389,42 @@ fn diff_visual_case(
                 actual.height()
             ),
         };
+    }
+
+    let expected_width = case.viewport_width.saturating_mul(case.pixel_scale);
+    let expected_height = case.viewport_height.saturating_mul(case.pixel_scale);
+    if (width, height) != (expected_width, expected_height) {
+        return ComponentLabVisualDiffCase {
+            capture_id: case.capture_id.clone(),
+            story_id: case.story_id.clone(),
+            baseline_path: case.baseline_path.clone(),
+            actual_path: case.actual_path.clone(),
+            diff_path: case.diff_path.clone(),
+            status: ComponentLabVisualDiffStatus::UnexpectedDimensions,
+            width,
+            height,
+            changed_pixels: 0,
+            total_pixels: u64::from(width) * u64::from(height),
+            max_channel_delta: 0,
+            message: format!(
+                "capture is {}x{}, manifest requires {}x{}",
+                width, height, expected_width, expected_height
+            ),
+        };
+    }
+    if image_is_blank(&baseline) {
+        return diff_case_error(
+            case,
+            ComponentLabVisualDiffStatus::BlankBaseline,
+            "baseline image contains only one RGBA value",
+        );
+    }
+    if image_is_blank(&actual) {
+        return diff_case_error(
+            case,
+            ComponentLabVisualDiffStatus::BlankActual,
+            "actual image contains only one RGBA value",
+        );
     }
 
     let mut changed_pixels = 0_u64;
@@ -406,8 +538,17 @@ fn sanitize_path_part(value: &str) -> String {
         .to_string()
 }
 
-fn manifest_path(output_root: &Path, group: &str, capture_id: &str) -> String {
+fn image_is_blank(image: &RgbaImage) -> bool {
+    let mut pixels = image.pixels();
+    let Some(first) = pixels.next() else {
+        return true;
+    };
+    pixels.all(|pixel| pixel == first)
+}
+
+fn manifest_path(output_root: &Path, renderer_id: &str, group: &str, capture_id: &str) -> String {
     output_root
+        .join(sanitize_path_part(renderer_id))
         .join(group)
         .join(format!("{capture_id}.png"))
         .to_string_lossy()

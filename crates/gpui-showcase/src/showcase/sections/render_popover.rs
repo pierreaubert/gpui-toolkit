@@ -4,7 +4,7 @@ impl Showcase {
     pub(crate) fn render_popover_section(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let section_title = cx.t(TranslationKey::SectionPopover);
         let theme = cx.theme();
-        let entity = self.entity.clone();
+        let entity = self.weak_entity_handle();
         let open = self.popover_open;
 
         let placements: &[(&str, &str, PopoverPlacement)] = &[

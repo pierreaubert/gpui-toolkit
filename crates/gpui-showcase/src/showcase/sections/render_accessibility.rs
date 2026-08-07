@@ -3,7 +3,7 @@ use super::prelude::*;
 impl Showcase {
     pub(crate) fn render_accessibility_section(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let section_title = cx.t(TranslationKey::SectionAccessibility);
-        let entity = self.entity.clone();
+        let entity = self.weak_entity_handle();
 
         VStack::new()
             .spacing(StackSpacing::Lg)

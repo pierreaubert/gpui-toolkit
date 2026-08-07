@@ -3,7 +3,7 @@ use super::prelude::*;
 impl Showcase {
     pub(crate) fn render_workflow_section(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
-        let entity = self.entity.clone();
+        let entity = self.weak_entity_handle();
 
         // Get stats from canvas
         let (node_count, connection_count, _selected_count) = self.workflow_canvas.read(cx).stats();

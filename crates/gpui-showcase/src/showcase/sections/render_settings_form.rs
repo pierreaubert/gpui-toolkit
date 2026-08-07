@@ -4,7 +4,7 @@ impl Showcase {
     pub(crate) fn render_settings_form_section(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let section_title = cx.t(TranslationKey::SectionSettingsForm);
         let theme = cx.theme();
-        let entity = self.entity.clone();
+        let entity = self.weak_entity_handle();
 
         VStack::new()
             .spacing(StackSpacing::Lg)

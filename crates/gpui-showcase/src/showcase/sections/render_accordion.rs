@@ -3,7 +3,7 @@ use super::prelude::*;
 impl Showcase {
     pub(crate) fn render_accordion_section(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let section_title = cx.t(TranslationKey::SectionAccordion);
-        let entity = self.entity.clone();
+        let entity = self.weak_entity_handle();
 
         let accordion_vertical_single = self.accordion_vertical_single.clone();
         let accordion_vertical_multiple = self.accordion_vertical_multiple.clone();

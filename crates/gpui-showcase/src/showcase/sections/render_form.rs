@@ -20,7 +20,7 @@ impl Showcase {
         _input_selected: bool,
         buttonset_view_mode: SharedString,
         buttonset_alignment: SharedString,
-        entity: Entity<Self>,
+        entity: ShowcaseHandle,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let section_title = cx.t(TranslationKey::SectionFormControls);

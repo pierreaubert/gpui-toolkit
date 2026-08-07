@@ -54,6 +54,8 @@ mod types;
 mod validate;
 #[path = "lib/viewport_preset.rs"]
 mod viewport_preset;
+#[path = "lib/visual_artifacts.rs"]
+mod visual_artifacts;
 #[path = "lib/visual_regression_manifest.rs"]
 mod visual_regression_manifest;
 
@@ -80,4 +82,5 @@ pub use theme_preset::*;
 pub use types::*;
 pub use validate::*;
 pub use viewport_preset::*;
+pub use visual_artifacts::*;
 pub use visual_regression_manifest::*;

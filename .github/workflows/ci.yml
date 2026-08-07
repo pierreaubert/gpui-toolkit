@@ -355,7 +355,7 @@ jobs:
         run: just qa-gpui-obvious
 
   visual-evidence:
-    name: Renderer-independent visual evidence
+    name: Linux visual and native evidence
     runs-on: ubuntu-latest
     needs: check-and-test
     steps:
@@ -390,6 +390,42 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: visual-evidence
+          path: target/qa/visual/
+          if-no-files-found: error
+
+  visual-renderer-metal:
+    name: Metal renderer snapshots (200 cases)
+    runs-on: macos-latest
+    timeout-minutes: 45
+    needs: check-and-test
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Just and baseline decompressor
+        run: brew install just zstd
+
+      - name: Cache cargo
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-metal-visual-${{ hashFiles('**/Cargo.lock', 'qa/visual/baselines/*') }}
+
+      - name: Capture and compare representative Metal snapshots
+        env:
+          QA_NATIVE_UI_CAPTURE: "0"
+          QA_VISUAL_CAPTURE_LIMIT: "200"
+        run: just qa-visual
+
+      - name: Upload Metal captures, diffs, reports, and contact sheets
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-evidence-metal
           path: target/qa/visual/
           if-no-files-found: error
 

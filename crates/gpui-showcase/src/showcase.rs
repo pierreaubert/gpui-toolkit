@@ -124,13 +124,28 @@ pub struct Showcase {
     // Render only the selected section when embedded in another tool.
     pub embedded: bool,
     // Entity for updating self
-    pub entity: Entity<Self>,
+    pub entity: Option<Entity<Self>>,
     // Focus handle for keyboard input
     pub focus_handle: FocusHandle,
     // Persistent child render entities to avoid rebuilding stable UI every frame.
     sidebar_entity: Entity<ShowcaseSidebar>,
     header_entity: Entity<ShowcaseHeader>,
     content_entity: Entity<ShowcaseContent>,
+}
+
+#[derive(Clone)]
+pub(crate) struct ShowcaseHandle(WeakEntity<Showcase>);
+
+impl ShowcaseHandle {
+    pub(crate) fn update<C, R>(
+        &self,
+        cx: &mut C,
+        update: impl FnOnce(&mut Showcase, &mut Context<Showcase>) -> R,
+    ) where
+        C: AppContext,
+    {
+        let _ = self.0.update(cx, update);
+    }
 }
 
 impl Showcase {
@@ -249,7 +264,7 @@ impl Showcase {
             animated_qr_small,
             current_section: ShowcaseSection::default(),
             embedded: false,
-            entity,
+            entity: Some(entity),
             focus_handle: cx.focus_handle(),
             sidebar_entity,
             header_entity,
@@ -262,6 +277,19 @@ impl Showcase {
         showcase.current_section = section;
         showcase.embedded = true;
         showcase
+    }
+
+    pub(crate) fn weak_entity_handle(&self) -> ShowcaseHandle {
+        ShowcaseHandle(
+            self.entity
+                .as_ref()
+                .expect("showcase entity handle released during teardown")
+                .downgrade(),
+        )
+    }
+
+    pub fn release_entity_handle(&mut self) {
+        self.entity = None;
     }
 }
 
@@ -352,7 +380,7 @@ impl Showcase {
         section: ShowcaseSection,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        let entity = self.entity.clone();
+        let entity = self.weak_entity_handle();
         let toggle_on = self.toggle_on;
         let checkbox_checked = self.checkbox_checked;
         let slider_value = self.slider_value;

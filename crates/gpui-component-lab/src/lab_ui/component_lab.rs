@@ -140,6 +140,7 @@ pub struct ComponentLab {
     last_mouse_move_alloc: gpui_profiler::AllocSnapshot,
     last_sample: Option<(String, gpui_profiler::AllocSnapshot)>,
     last_window_size: Option<Size<Pixels>>,
+    visual_capture_mode: bool,
 }
 
 impl ComponentLab {
@@ -159,7 +160,12 @@ impl ComponentLab {
         }
 
         let story_ids: Vec<String> = registry.stories().map(|story| story.id.clone()).collect();
-        let ui_showcases = build_ui_showcase_entities(&story_ids, cx);
+        let visual_capture = config.visual_capture.clone();
+        let showcase_story_ids = visual_capture
+            .as_ref()
+            .map(|capture| std::slice::from_ref(&capture.story_id))
+            .unwrap_or(story_ids.as_slice());
+        let ui_showcases = build_ui_showcase_entities(showcase_story_ids, cx);
         let selected_story_id = story_ids.first().cloned().unwrap_or_default();
         let selected_document = documents
             .get(&selected_story_id)
@@ -210,7 +216,19 @@ impl ComponentLab {
             last_mouse_move_alloc: gpui_profiler::AllocSnapshot::default(),
             last_sample: None,
             last_window_size: None,
+            visual_capture_mode: visual_capture.is_some(),
         };
+        if let Some(capture) = visual_capture {
+            lab.select_story(capture.story_id);
+            lab.set_viewport(capture.viewport_id);
+            lab.set_theme(capture.theme_id);
+            lab.set_motion(if capture.reduced_motion {
+                "reduced"
+            } else {
+                "system"
+            });
+            lab.matrix_mode = false;
+        }
         if lab.live_preview {
             lab.start_live_preview(cx);
         }
@@ -3008,6 +3026,16 @@ impl ComponentLab {
             )
         }
     }
+
+    #[cfg(feature = "visual-capture")]
+    pub(super) fn release_visual_capture_resources(&mut self, cx: &mut Context<Self>) {
+        for showcase in self.ui_showcases.values() {
+            showcase.update(cx, |showcase, _cx| {
+                showcase.release_entity_handle();
+            });
+        }
+        self.ui_showcases.clear();
+    }
 }
 
 fn build_ui_showcase_entities(
@@ -3094,6 +3122,40 @@ impl Render for ComponentLab {
         self.last_window_size = Some(current_size);
         if resized {
             self.record_sample("resize");
+        }
+
+        if self.visual_capture_mode {
+            let story = self.selected_story();
+            let design = design_for_theme_preset(self.selected_theme_preset());
+            let constraints = self.layout_constraints;
+            let result = div()
+                .id("gpui-component-lab-visual-capture")
+                .size_full()
+                .flex()
+                .bg(theme.background)
+                .text_color(theme.text_primary)
+                .child(
+                    apply_preview_builder_style(
+                        div()
+                            .id("gpui-component-lab-visual-capture-surface")
+                            .size_full()
+                            .flex()
+                            .gap(px(constraints.gap)),
+                        constraints,
+                        theme,
+                    )
+                    .p(px(constraints.padding))
+                    .child(self.render_story_preview(
+                        story,
+                        "visual-capture",
+                        false,
+                        design,
+                        cx,
+                    )),
+                )
+                .into_any_element();
+            self.last_render_alloc = self.record_sample("visual-capture-render");
+            return result;
         }
 
         // Sync child entity state only when it changes so stable subtrees are
@@ -3250,7 +3312,7 @@ impl Render for ComponentLab {
             .child(self.render_alloc_overlay(cx));
 
         self.last_render_alloc = self.record_sample("render");
-        result
+        result.into_any_element()
     }
 }
 

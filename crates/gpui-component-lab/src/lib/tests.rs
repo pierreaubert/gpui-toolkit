@@ -19,6 +19,7 @@ use super::story_document::StoryDocument;
 use super::story_renderer_kind::StoryRendererKind;
 use super::types::StoryPropValue;
 use super::types::reload_live_preview_state;
+use super::visual_artifacts::{generate_component_lab_gallery, promote_component_lab_baselines};
 use super::visual_regression_manifest::{
     COMPONENT_LAB_VISUAL_DIFF_REPORT_TYPE, COMPONENT_LAB_VISUAL_DIFF_SCHEMA_VERSION,
     COMPONENT_LAB_VISUAL_MANIFEST_SCHEMA_VERSION, ComponentLabVisualCase,
@@ -262,9 +263,13 @@ fn visual_manifest_expands_renderer_backed_stories_for_ci_screenshots() {
     );
     assert!(button_cases.iter().all(|case| {
         case.baseline_path
-            .starts_with("target/lab-visual/baseline/")
-            && case.actual_path.starts_with("target/lab-visual/actual/")
-            && case.diff_path.starts_with("target/lab-visual/diff/")
+            .starts_with("target/lab-visual/unspecified/baseline/")
+            && case
+                .actual_path
+                .starts_with("target/lab-visual/unspecified/actual/")
+            && case
+                .diff_path
+                .starts_with("target/lab-visual/unspecified/diff/")
     }));
 
     let showcase_cases = manifest
@@ -286,8 +291,35 @@ fn visual_manifest_markdown_table_is_ci_attachable() {
 
     assert!(markdown.contains("| capture | story | viewport | theme | baseline | actual | diff |"));
     assert!(markdown.contains("`ui-kit-button__"));
-    assert!(markdown.contains("target/lab-visual/baseline"));
-    assert!(markdown.contains("target/lab-visual/diff"));
+    assert!(markdown.contains("target/lab-visual/unspecified/baseline"));
+    assert!(markdown.contains("target/lab-visual/unspecified/diff"));
+}
+
+#[test]
+fn representative_visual_subset_keeps_every_story_at_pr_limit() {
+    let stories = builtin_story_registry().unwrap();
+    let renderers = builtin_story_renderers().unwrap();
+    let manifest = ComponentLabVisualManifest::from_registries_for_renderer(
+        &stories,
+        &renderers,
+        "target/lab-visual",
+        "metal",
+        2,
+    );
+    let subset = manifest.representative_cases(200);
+    let represented = subset
+        .iter()
+        .map(|case| case.story_id.as_str())
+        .collect::<BTreeSet<_>>();
+    let expected = renderers
+        .renderers()
+        .map(|renderer| renderer.story_id.as_str())
+        .collect::<BTreeSet<_>>();
+
+    assert_eq!(subset.len(), 200);
+    assert_eq!(represented, expected);
+    assert!(subset.iter().any(|case| case.viewport_id == "mobile"));
+    assert!(subset.iter().any(|case| case.theme_id == "material3"));
 }
 
 #[test]
@@ -297,14 +329,16 @@ fn visual_manifest_diff_compares_png_captures_and_writes_diff() {
     let actual_path = temp.path().join("actual.png");
     let diff_path = temp.path().join("diff").join("case.png");
 
-    let baseline = RgbaImage::from_pixel(2, 2, Rgba([0, 0, 0, 255]));
+    let mut baseline = RgbaImage::from_pixel(2, 1, Rgba([0, 0, 0, 255]));
+    baseline.put_pixel(0, 0, Rgba([1, 0, 0, 255]));
     baseline.save(&baseline_path).unwrap();
-    let mut actual = RgbaImage::from_pixel(2, 2, Rgba([0, 0, 0, 255]));
-    actual.put_pixel(1, 1, Rgba([255, 0, 0, 255]));
+    let mut actual = baseline.clone();
+    actual.put_pixel(1, 0, Rgba([255, 0, 0, 255]));
     actual.save(&actual_path).unwrap();
 
     let manifest = ComponentLabVisualManifest {
         schema_version: COMPONENT_LAB_VISUAL_MANIFEST_SCHEMA_VERSION,
+        renderer_id: "fixture".to_string(),
         case_count: 1,
         cases: vec![visual_case(&baseline_path, &actual_path, &diff_path)],
     };
@@ -324,7 +358,7 @@ fn visual_manifest_diff_compares_png_captures_and_writes_diff() {
         ComponentLabVisualDiffStatus::Different
     );
     assert_eq!(report.cases[0].changed_pixels, 1);
-    assert_eq!(report.cases[0].total_pixels, 4);
+    assert_eq!(report.cases[0].total_pixels, 2);
     assert_eq!(report.cases[0].max_channel_delta, 255);
     assert!(diff_path.exists());
 
@@ -342,13 +376,16 @@ fn visual_manifest_diff_passes_with_threshold_and_reports_missing_actual() {
     let diff_path = temp.path().join("diff").join("case.png");
     let missing_diff_path = temp.path().join("diff").join("missing.png");
 
-    let baseline = RgbaImage::from_pixel(1, 1, Rgba([8, 8, 8, 255]));
+    let mut baseline = RgbaImage::from_pixel(2, 1, Rgba([8, 8, 8, 255]));
+    baseline.put_pixel(1, 0, Rgba([7, 8, 8, 255]));
     baseline.save(&baseline_path).unwrap();
-    let actual = RgbaImage::from_pixel(1, 1, Rgba([9, 8, 8, 255]));
+    let mut actual = baseline.clone();
+    actual.put_pixel(0, 0, Rgba([9, 8, 8, 255]));
     actual.save(&actual_path).unwrap();
 
     let passing_manifest = ComponentLabVisualManifest {
         schema_version: COMPONENT_LAB_VISUAL_MANIFEST_SCHEMA_VERSION,
+        renderer_id: "fixture".to_string(),
         case_count: 1,
         cases: vec![visual_case(&baseline_path, &actual_path, &diff_path)],
     };
@@ -362,6 +399,7 @@ fn visual_manifest_diff_passes_with_threshold_and_reports_missing_actual() {
 
     let missing_manifest = ComponentLabVisualManifest {
         schema_version: COMPONENT_LAB_VISUAL_MANIFEST_SCHEMA_VERSION,
+        renderer_id: "fixture".to_string(),
         case_count: 1,
         cases: vec![visual_case(
             &baseline_path,
@@ -375,6 +413,69 @@ fn visual_manifest_diff_passes_with_threshold_and_reports_missing_actual() {
         missing_report.cases[0].status,
         ComponentLabVisualDiffStatus::MissingActual
     );
+}
+
+#[test]
+fn visual_diff_rejects_blank_and_wrong_sized_pixels() {
+    let temp = tempfile::tempdir().unwrap();
+    let baseline_path = temp.path().join("baseline.png");
+    let actual_path = temp.path().join("actual.png");
+    let diff_path = temp.path().join("diff.png");
+    let mut baseline = RgbaImage::from_pixel(2, 1, Rgba([1, 1, 1, 255]));
+    baseline.put_pixel(1, 0, Rgba([2, 1, 1, 255]));
+    baseline.save(&baseline_path).unwrap();
+    RgbaImage::from_pixel(2, 1, Rgba([1, 1, 1, 255]))
+        .save(&actual_path)
+        .unwrap();
+    let manifest = ComponentLabVisualManifest {
+        schema_version: COMPONENT_LAB_VISUAL_MANIFEST_SCHEMA_VERSION,
+        renderer_id: "fixture".to_string(),
+        case_count: 1,
+        cases: vec![visual_case(&baseline_path, &actual_path, &diff_path)],
+    };
+    let blank = manifest.diff_captures(0);
+    assert_eq!(
+        blank.cases[0].status,
+        ComponentLabVisualDiffStatus::BlankActual
+    );
+
+    let mut wrong_size = RgbaImage::from_pixel(3, 1, Rgba([1, 1, 1, 255]));
+    wrong_size.put_pixel(1, 0, Rgba([2, 1, 1, 255]));
+    wrong_size.save(&actual_path).unwrap();
+    let dimensions = manifest.diff_captures(0);
+    assert_eq!(
+        dimensions.cases[0].status,
+        ComponentLabVisualDiffStatus::SizeMismatch
+    );
+}
+
+#[test]
+fn validated_actuals_promote_to_baselines_and_build_contact_sheet() {
+    let temp = tempfile::tempdir().unwrap();
+    let actual_path = temp.path().join("metal/actual/fixture.png");
+    let baseline_path = temp.path().join("metal/baseline/fixture.png");
+    let diff_path = temp.path().join("metal/diff/fixture.png");
+    std::fs::create_dir_all(actual_path.parent().unwrap()).unwrap();
+    let mut actual = RgbaImage::from_pixel(2, 1, Rgba([1, 1, 1, 255]));
+    actual.put_pixel(1, 0, Rgba([2, 1, 1, 255]));
+    actual.save(&actual_path).unwrap();
+    let mut case = visual_case(&baseline_path, &actual_path, &diff_path);
+    case.renderer_id = "metal".to_string();
+    let index_path = temp.path().join("metal/baseline/index.json");
+
+    let index = promote_component_lab_baselines("metal", &[case.clone()], &index_path).unwrap();
+    assert_eq!(index.case_count, 1);
+    assert!(baseline_path.exists());
+    assert!(index_path.exists());
+    assert!(index.cases[0].rgba_checksum.starts_with("fnv1a64:"));
+
+    let gallery_root = temp.path().join("metal/gallery");
+    let gallery = generate_component_lab_gallery("metal", &[case], &gallery_root).unwrap();
+    assert_eq!(gallery.case_count, 1);
+    assert_eq!(gallery.sheet_count, 1);
+    assert!(gallery_root.join("contact-sheet-001.png").exists());
+    assert!(gallery_root.join("gallery.json").exists());
+    assert!(gallery_root.join("README.md").exists());
 }
 
 #[test]
@@ -397,11 +498,13 @@ fn visual_case(
 ) -> ComponentLabVisualCase {
     ComponentLabVisualCase {
         capture_id: "fixture".to_string(),
+        renderer_id: "fixture".to_string(),
+        pixel_scale: 1,
         story_id: "ui-kit.fixture".to_string(),
         renderer_kind: StoryRendererKind::Component,
         viewport_id: "desktop".to_string(),
         viewport_width: 2,
-        viewport_height: 2,
+        viewport_height: 1,
         theme_id: "light".to_string(),
         design: "neutral".to_string(),
         reduced_motion: false,

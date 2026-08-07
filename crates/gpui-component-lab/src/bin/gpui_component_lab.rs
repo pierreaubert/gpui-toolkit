@@ -1,10 +1,13 @@
 use anyhow::{Context, Result};
 use clap::Parser;
+#[cfg(feature = "visual-capture")]
+use gpui_component_lab::lab_ui::{ComponentLabCaptureReport, capture_component_lab_cases};
 use gpui_component_lab::lab_ui::{LabAppConfig, run_lab_app};
 use gpui_component_lab::{
     ComponentLabConformanceReport, ComponentLabVisualDiffReport, ComponentLabVisualManifest,
     builtin_story_registry, builtin_story_renderers, ensure_component_lab_conformance_passed,
-    latest_rust_source_modified, load_story_documents, validate_component_lab_conformance,
+    generate_component_lab_gallery, latest_rust_source_modified, load_story_documents,
+    promote_component_lab_baselines, validate_component_lab_conformance,
 };
 use gpui_design_tools::{
     DesignTokenFormat, DesignTokenValidationReport, validate_current_design_tokens,
@@ -55,6 +58,15 @@ struct Args {
     /// Root used for generated baseline/actual/diff screenshot paths.
     #[arg(long, default_value = "target/gpui-component-lab/visual")]
     visual_output_root: PathBuf,
+    /// Renderer namespace used for baseline, actual, and diff artifacts.
+    #[arg(long)]
+    visual_renderer: Option<String>,
+    /// Logical-to-device pixel scale encoded in capture dimensions.
+    #[arg(long)]
+    visual_pixel_scale: Option<u32>,
+    /// Restrict capture/diff to exact manifest IDs; repeat for multiple cases.
+    #[arg(long = "visual-case")]
+    visual_cases: Vec<String>,
     /// Write visual-regression manifest JSON.
     #[arg(long)]
     visual_manifest_json: Option<PathBuf>,
@@ -73,6 +85,45 @@ struct Args {
     /// Emit visual-regression diff report as Markdown.
     #[arg(long)]
     visual_diff_markdown: Option<PathBuf>,
+    /// Maximum diff cases; zero checks the full manifest.
+    #[arg(long, default_value_t = 200)]
+    visual_diff_limit: usize,
+    /// Zero-based shard selected from the diff subset.
+    #[arg(long, default_value_t = 0)]
+    visual_diff_shard_index: usize,
+    /// Number of deterministic diff shards.
+    #[arg(long, default_value_t = 1)]
+    visual_diff_shard_count: usize,
+    /// Render actual PNG pixels for a deterministic subset of the manifest.
+    #[arg(long)]
+    visual_capture: bool,
+    /// Maximum capture cases; zero captures the full manifest.
+    #[arg(long, default_value_t = 200)]
+    visual_capture_limit: usize,
+    /// Zero-based shard selected from the capture subset.
+    #[arg(long, default_value_t = 0)]
+    visual_capture_shard_index: usize,
+    /// Number of deterministic capture shards.
+    #[arg(long, default_value_t = 1)]
+    visual_capture_shard_count: usize,
+    /// Write renderer-capture report JSON.
+    #[arg(long)]
+    visual_capture_json: Option<PathBuf>,
+    /// Write renderer-capture report Markdown.
+    #[arg(long)]
+    visual_capture_markdown: Option<PathBuf>,
+    /// Explicitly promote successful actual captures to renderer baselines.
+    #[arg(long)]
+    visual_update_baselines: bool,
+    /// Override the baseline index JSON path.
+    #[arg(long)]
+    visual_baseline_index: Option<PathBuf>,
+    /// Generate PNG contact sheets and gallery indexes from successful captures.
+    #[arg(long)]
+    visual_gallery: bool,
+    /// Override the gallery output directory.
+    #[arg(long)]
+    visual_gallery_root: Option<PathBuf>,
 }
 
 fn main() -> Result<()> {
@@ -102,8 +153,22 @@ fn main() -> Result<()> {
         || args.visual_diff
         || args.visual_diff_json.is_some()
         || args.visual_diff_markdown.is_some()
+        || args.visual_capture
+        || args.visual_capture_json.is_some()
+        || args.visual_capture_markdown.is_some()
+        || args.visual_update_baselines
+        || args.visual_baseline_index.is_some()
+        || args.visual_gallery
+        || args.visual_gallery_root.is_some()
     {
-        let manifest = run_visual_manifest(&args.visual_output_root)?;
+        let renderer_id = args
+            .visual_renderer
+            .clone()
+            .unwrap_or_else(default_visual_renderer);
+        let pixel_scale = args
+            .visual_pixel_scale
+            .unwrap_or_else(default_visual_pixel_scale);
+        let manifest = run_visual_manifest(&args.visual_output_root, &renderer_id, pixel_scale)?;
         if args.visual_manifest
             || args.visual_manifest_json.is_some()
             || args.visual_manifest_markdown.is_some()
@@ -115,11 +180,78 @@ fn main() -> Result<()> {
                 args.visual_manifest_markdown.as_deref(),
             )?;
         }
+        if args.visual_baseline_index.is_some() && !args.visual_update_baselines {
+            anyhow::bail!("--visual-baseline-index requires --visual-update-baselines");
+        }
+        let renderer_capture_requested = args.visual_capture
+            || args.visual_capture_json.is_some()
+            || args.visual_capture_markdown.is_some();
+        if (args.visual_update_baselines
+            || args.visual_gallery
+            || args.visual_gallery_root.is_some())
+            && !renderer_capture_requested
+        {
+            anyhow::bail!(
+                "baseline promotion and gallery generation require --visual-capture in the same run"
+            );
+        }
+        if renderer_capture_requested {
+            let subset = select_visual_cases(
+                &manifest,
+                args.visual_capture_limit,
+                args.visual_capture_shard_index,
+                args.visual_capture_shard_count,
+                "capture",
+                &args.visual_cases,
+            )?;
+            let report =
+                run_renderer_capture(&renderer_id, &subset, &args.stories_dir, &args.tokens)?;
+            emit_capture_report(
+                &report,
+                args.visual_capture,
+                args.visual_capture_json.as_deref(),
+                args.visual_capture_markdown.as_deref(),
+            )?;
+            if !report.passed {
+                anyhow::bail!(
+                    "component-lab renderer capture failed for {} of {} cases",
+                    report.failed_count,
+                    report.requested_count
+                );
+            }
+            if args.visual_update_baselines {
+                let index_path = args.visual_baseline_index.clone().unwrap_or_else(|| {
+                    args.visual_output_root
+                        .join(&renderer_id)
+                        .join("baseline")
+                        .join("index.json")
+                });
+                let index = promote_component_lab_baselines(&renderer_id, &subset, &index_path)?;
+                let markdown_path = index_path.with_extension("md");
+                write_report(&markdown_path, index.to_markdown_table())?;
+            }
+            if args.visual_gallery || args.visual_gallery_root.is_some() {
+                let gallery_root = args
+                    .visual_gallery_root
+                    .clone()
+                    .unwrap_or_else(|| args.visual_output_root.join(&renderer_id).join("gallery"));
+                generate_component_lab_gallery(&renderer_id, &subset, &gallery_root)?;
+            }
+        }
         if args.visual_diff
             || args.visual_diff_json.is_some()
             || args.visual_diff_markdown.is_some()
         {
-            let report = manifest.diff_captures(args.visual_diff_max_changed_pixels);
+            let subset = select_visual_cases(
+                &manifest,
+                args.visual_diff_limit,
+                args.visual_diff_shard_index,
+                args.visual_diff_shard_count,
+                "diff",
+                &args.visual_cases,
+            )?;
+            let report =
+                manifest.diff_selected_captures(&subset, args.visual_diff_max_changed_pixels);
             emit_visual_diff(
                 &report,
                 args.visual_diff,
@@ -146,14 +278,127 @@ fn main() -> Result<()> {
     run_lab_app(LabAppConfig::new(args.stories_dir, args.tokens).with_watch(args.watch))
 }
 
-fn run_visual_manifest(output_root: &Path) -> Result<ComponentLabVisualManifest> {
+fn run_visual_manifest(
+    output_root: &Path,
+    renderer_id: &str,
+    pixel_scale: u32,
+) -> Result<ComponentLabVisualManifest> {
     let stories = builtin_story_registry()?;
     let renderers = builtin_story_renderers()?;
-    Ok(ComponentLabVisualManifest::from_registries(
+    Ok(ComponentLabVisualManifest::from_registries_for_renderer(
         &stories,
         &renderers,
         output_root,
+        renderer_id,
+        pixel_scale,
     ))
+}
+
+fn default_visual_renderer() -> String {
+    if cfg!(target_os = "macos") {
+        "metal".to_string()
+    } else if cfg!(target_os = "windows") {
+        "directx".to_string()
+    } else if cfg!(target_os = "linux") {
+        "wgpu-linux".to_string()
+    } else {
+        "unsupported".to_string()
+    }
+}
+
+fn select_visual_cases(
+    manifest: &ComponentLabVisualManifest,
+    limit: usize,
+    shard_index: usize,
+    shard_count: usize,
+    operation: &str,
+    requested_ids: &[String],
+) -> Result<Vec<gpui_component_lab::ComponentLabVisualCase>> {
+    if shard_count == 0 || shard_index >= shard_count {
+        anyhow::bail!(
+            "visual {operation} shard index {shard_index} is invalid for {shard_count} shards"
+        );
+    }
+    if !requested_ids.is_empty() {
+        let selected = requested_ids
+            .iter()
+            .map(|capture_id| {
+                manifest
+                    .cases
+                    .iter()
+                    .find(|case| case.capture_id == *capture_id)
+                    .cloned()
+                    .with_context(|| format!("unknown visual case `{capture_id}`"))
+            })
+            .collect::<Result<Vec<_>>>()?;
+        return Ok(selected);
+    }
+    Ok(manifest
+        .representative_cases(limit)
+        .into_iter()
+        .enumerate()
+        .filter_map(|(index, case)| (index % shard_count == shard_index).then_some(case))
+        .collect())
+}
+
+const fn default_visual_pixel_scale() -> u32 {
+    if cfg!(target_os = "macos") { 2 } else { 1 }
+}
+
+#[cfg(feature = "visual-capture")]
+fn run_renderer_capture(
+    renderer_id: &str,
+    cases: &[gpui_component_lab::ComponentLabVisualCase],
+    stories_dir: &Path,
+    token_paths: &[PathBuf],
+) -> Result<ComponentLabCaptureReport> {
+    capture_component_lab_cases(renderer_id, cases, stories_dir, token_paths)
+}
+
+#[cfg(not(feature = "visual-capture"))]
+fn run_renderer_capture(
+    _renderer_id: &str,
+    _cases: &[gpui_component_lab::ComponentLabVisualCase],
+    _stories_dir: &Path,
+    _token_paths: &[PathBuf],
+) -> Result<NeverCaptureReport> {
+    anyhow::bail!("--visual-capture requires the gpui-component-lab visual-capture feature")
+}
+
+#[cfg(not(feature = "visual-capture"))]
+struct NeverCaptureReport {
+    passed: bool,
+    failed_count: usize,
+    requested_count: usize,
+}
+
+#[cfg(feature = "visual-capture")]
+fn emit_capture_report(
+    report: &ComponentLabCaptureReport,
+    markdown_stdout: bool,
+    report_json: Option<&Path>,
+    report_markdown: Option<&Path>,
+) -> Result<()> {
+    if markdown_stdout {
+        println!("{}", report.to_markdown_table());
+    }
+    if let Some(path) = report_json {
+        write_report(path, serde_json::to_string_pretty(report)?)?;
+    }
+    if let Some(path) = report_markdown {
+        write_report(path, report.to_markdown_table())?;
+    }
+    Ok(())
+}
+
+#[cfg(not(feature = "visual-capture"))]
+fn emit_capture_report(
+    _report: &NeverCaptureReport,
+    _markdown_stdout: bool,
+    _report_json: Option<&Path>,
+    _report_markdown: Option<&Path>,
+) -> Result<()> {
+    Ok(())
 }
 
 fn run_conformance(

@@ -12,7 +12,37 @@ use gpui::{
 use std::cell::Cell;
 use std::f32::consts::{PI, TAU};
 use std::rc::Rc;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
+
+const ANIMATION_PHASE_UNFROZEN: u32 = u32::MAX;
+static VISUAL_ANIMATION_PHASE: AtomicU32 = AtomicU32::new(ANIMATION_PHASE_UNFROZEN);
+
+/// Process-scoped guard used by deterministic renderer capture harnesses.
+/// Normal applications never install this guard and retain continuous motion.
+pub struct VisualAnimationFreezeGuard {
+    previous: u32,
+}
+
+impl Drop for VisualAnimationFreezeGuard {
+    fn drop(&mut self) {
+        VISUAL_ANIMATION_PHASE.store(self.previous, Ordering::SeqCst);
+    }
+}
+
+/// Freeze UI Kit visual animations at a normalized phase until the returned
+/// guard is dropped. Capture runners are single-threaded and should keep one
+/// guard alive for their complete renderer session.
+pub fn freeze_visual_animations(phase: f32) -> VisualAnimationFreezeGuard {
+    let phase = phase.rem_euclid(1.0);
+    let previous = VISUAL_ANIMATION_PHASE.swap(phase.to_bits(), Ordering::SeqCst);
+    VisualAnimationFreezeGuard { previous }
+}
+
+fn frozen_visual_animation_phase() -> Option<f32> {
+    let bits = VISUAL_ANIMATION_PHASE.load(Ordering::SeqCst);
+    (bits != ANIMATION_PHASE_UNFROZEN).then(|| f32::from_bits(bits))
+}
 
 /// Spinner size
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -128,15 +158,22 @@ impl Spinner {
             },
         )
         .w(size)
-        .h(size)
-        .with_animation(
-            ElementId::from(("spinner-animation", 0_u32)),
-            Animation::new(Duration::from_millis(900)).repeat(),
-            move |element, delta| {
-                phase.set(delta);
-                element
-            },
-        );
+        .h(size);
+        let spinner = if let Some(frozen_phase) = frozen_visual_animation_phase() {
+            phase.set(frozen_phase);
+            spinner.into_any_element()
+        } else {
+            spinner
+                .with_animation(
+                    ElementId::from(("spinner-animation", 0_u32)),
+                    Animation::new(Duration::from_millis(900)).repeat(),
+                    move |element, delta| {
+                        phase.set(delta);
+                        element
+                    },
+                )
+                .into_any_element()
+        };
 
         container = container.child(spinner);
 

@@ -176,7 +176,9 @@ qa-prop:
 	@echo "Running property-based tests..."
 	bash scripts/qa_prop_check.sh
 
-# Visual non-regression (manifest/golden/conformance; pixel diff is a Phase 1+ stub).
+# Visual non-regression. macOS performs renderer-backed Metal capture and a
+# strict diff against the versioned PR baseline; Linux adds native X11 smoke
+# evidence while retaining renderer-independent goldens/conformance.
 [group('qa')]
 qa-visual:
 	@echo "Running visual non-regression checks..."

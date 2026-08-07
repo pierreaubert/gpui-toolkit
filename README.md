@@ -49,6 +49,9 @@ Two open source examples:
 | [figma/](./crates/figma/) | Figma-to-GPUI design-system rules and Code Connect mappings. |
 | [MIGRATION.md](./MIGRATION.md) | Migration notes for moving toolkit code out of the larger SOTF workspace. |
 | [AGENTS.md](./AGENTS.md) | Short working guide for agents and contributors. |
+| [Renderer gallery](./assets/component-lab-gallery/) | 200 validated Metal-rendered snapshots across the toolkit component stories. |
+
+![GPUI Toolkit renderer gallery](./assets/component-lab-gallery/contact-sheet-001.png)
 
 ## GPUI Version
 

@@ -17,6 +17,10 @@ mod story;
 #[cfg(test)]
 mod tests;
 mod types;
+#[cfg(feature = "visual-capture")]
+mod visual_capture;
 
 pub use component_lab::*;
 pub use lab_app_config::*;
+#[cfg(feature = "visual-capture")]
+pub use visual_capture::*;

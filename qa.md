@@ -120,9 +120,20 @@ must have machine-checked keyboard, pointer, touch, focus, disabled, reduced
 motion, high-contrast, accessibility, and narrow-layout behavior where those
 capabilities apply.
 
-`just qa-visual` writes `target/qa/visual/report.md` and the showcase capture
-inventory. The report deliberately records renderer capture as pending; a
-logic-only host must not turn that state into a pass.
+`just qa-visual` writes `target/qa/visual/report.md`, renderer-scoped component
+manifests, capture/diff reports, and the showcase inventory. On macOS it
+captures a deterministic 200-case Metal profile at 2x scale, generates contact
+sheets, extracts the versioned baseline archive from `qa/visual/baselines/`,
+and performs a strict pixel comparison. Missing, blank, undecodable,
+wrong-sized, or changed captures fail. Baseline promotion requires the explicit
+`QA_VISUAL_UPDATE_BASELINES=1` opt-in and review of the resulting gallery and
+diff evidence.
+
+The scheduled nightly workflow shards all 1,922 registered component cases
+across eight macOS jobs and uploads the actual PNGs, manifests, capture reports,
+and contact sheets for 14 days. The PR archive remains a compact 200-case
+selection with at least one capture for every story; thousands of individual
+baseline PNGs are not committed to Git.
 
 Desktop CI separately launches the `gpui-builder` layout showcase on native
 Linux, macOS, and Windows backends. Its smoke artifact proves platform

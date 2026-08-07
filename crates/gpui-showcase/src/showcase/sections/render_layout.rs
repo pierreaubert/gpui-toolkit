@@ -422,7 +422,7 @@ impl Showcase {
 
     pub(crate) fn render_pane_divider_demo(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
-        let entity = self.entity.clone();
+        let entity = self.weak_entity_handle();
         let left_collapsed = self.pane_left_collapsed;
         let left_width = self.pane_left_width;
         let dragging = self.pane_dragging_left;

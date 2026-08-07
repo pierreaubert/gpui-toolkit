@@ -3,7 +3,7 @@ use super::prelude::*;
 impl Showcase {
     pub(crate) fn render_wizard_section(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
-        let entity = self.entity.clone();
+        let entity = self.weak_entity_handle();
         let current_step = self.wizard_step;
         let statuses = self.wizard_statuses.clone();
 

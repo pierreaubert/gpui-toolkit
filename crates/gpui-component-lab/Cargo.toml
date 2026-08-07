@@ -21,6 +21,7 @@ showcase = []
 spinorama = []
 tokio = []
 urlencoding = []
+visual-capture = ["gpui/test-support", "dep:gpui_macos", "gpui_macos/test-support"]
 
 [dependencies]
 anyhow = { workspace = true }
@@ -28,6 +29,7 @@ clap = { workspace = true }
 gpui = { workspace = true }
 gpui-audio-kit = { workspace = true }
 gpui-design-tools = { workspace = true }
+gpui-design = { workspace = true }
 gpui-miniapp = { workspace = true }
 gpui-profiler = { workspace = true }
 gpui-px = { workspace = true, features = ["gpui", "gpu-3d"] }
@@ -36,6 +38,9 @@ gpui-ui-kit = { workspace = true }
 image = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+gpui_macos = { workspace = true, optional = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

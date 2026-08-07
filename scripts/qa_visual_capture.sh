@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
-# Run visual checks, generate the component-lab capture inventory, and run the
-# existing pixel diff whenever a complete baseline/actual set is available.
-# The manifest itself is not a screenshot; the report remains explicit about
-# that distinction when renderer capture or baselines are unavailable.
+# Run renderer-independent visual checks plus deterministic renderer-backed
+# component snapshots. Supported renderer lanes must provide a versioned
+# baseline archive; missing, blank, or wrong-sized pixels are hard failures.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -22,23 +21,69 @@ cargo run -p gpui-component-lab --bin gpui-component-lab ${FEATURES} -- --confor
 
 echo "=== component-lab capture inventory ==="
 visual_root="${QA_VISUAL_OUTPUT_ROOT:-target/qa/visual/component-lab}"
+capture_limit="${QA_VISUAL_CAPTURE_LIMIT:-200}"
+baseline_archive="${QA_VISUAL_BASELINE_ARCHIVE:-qa/visual/baselines/component-lab-metal-pr-v1.tar.zst}"
+case "$(uname -s)" in
+    Darwin)
+        visual_renderer="metal"
+        visual_scale="2"
+        ;;
+    Linux)
+        visual_renderer="wgpu-linux"
+        visual_scale="1"
+        ;;
+    *)
+        visual_renderer="directx"
+        visual_scale="1"
+        ;;
+esac
 mkdir -p "$visual_root"
 cargo run -p gpui-component-lab --bin gpui-component-lab ${FEATURES} -- \
     --visual-output-root "$visual_root" \
+    --visual-renderer "$visual_renderer" \
+    --visual-pixel-scale "$visual_scale" \
     --visual-manifest-json target/qa/visual/component-lab-manifest.json \
     --visual-manifest-markdown target/qa/visual/component-lab-manifest.md
 
-visual_diff_status="pending (no complete baseline/actual set)"
-if find "$visual_root/baseline" -type f -name '*.png' -print -quit 2>/dev/null | grep -q . \
-    && find "$visual_root/actual" -type f -name '*.png' -print -quit 2>/dev/null | grep -q .; then
+component_capture_status="not supported on $(uname -s)"
+visual_diff_status="not run"
+if [[ "$(uname -s)" == "Darwin" ]]; then
+    if [[ -f "$baseline_archive" && "${QA_VISUAL_UPDATE_BASELINES:-0}" != "1" ]]; then
+        tar -xf "$baseline_archive" -C "$visual_root"
+    fi
+    capture_args=(
+        --visual-capture
+        --visual-capture-limit "$capture_limit"
+        --visual-gallery
+        --visual-output-root "$visual_root"
+        --visual-renderer "$visual_renderer"
+        --visual-pixel-scale "$visual_scale"
+        --visual-capture-json target/qa/visual/component-lab-capture.json
+        --visual-capture-markdown target/qa/visual/component-lab-capture.md
+    )
+    if [[ "${QA_VISUAL_UPDATE_BASELINES:-0}" == "1" ]]; then
+        capture_args+=(--visual-update-baselines)
+    fi
+    cargo run -p gpui-component-lab --bin gpui-component-lab \
+        --features autoeq,camera,gpu-2d,gpu-3d,reqwest,showcase,spinorama,tokio,urlencoding,visual-capture \
+        -- "${capture_args[@]}"
+    component_capture_status="passed (${capture_limit} representative Metal captures)"
+
+    if ! find "$visual_root/$visual_renderer/baseline" -type f -name '*.png' -print -quit 2>/dev/null | grep -q .; then
+        echo "renderer baseline set is missing: $baseline_archive" >&2
+        echo "run with QA_VISUAL_UPDATE_BASELINES=1 to approve local captures, then package the baseline directory" >&2
+        exit 1
+    fi
     echo "=== component-lab pixel diff ==="
     cargo run -p gpui-component-lab --bin gpui-component-lab ${FEATURES} -- \
         --visual-output-root "$visual_root" \
+        --visual-renderer "$visual_renderer" \
+        --visual-pixel-scale "$visual_scale" \
+        --visual-diff \
+        --visual-diff-limit "$capture_limit" \
         --visual-diff-json target/qa/visual/component-lab-diff.json \
         --visual-diff-markdown target/qa/visual/component-lab-diff.md
-    visual_diff_status="passed"
-else
-    echo "Component-lab pixel diff pending: supply matching baseline and actual PNG captures under $visual_root."
+    visual_diff_status="passed (${capture_limit} renderer comparisons)"
 fi
 
 echo "=== showcase capture inventory ==="
@@ -81,15 +126,16 @@ cat > target/qa/visual/report.md <<EOF
 - Renderer-independent golden/GPU tests: passed
 - Design-token conformance: passed
 - Component-lab conformance: passed
-- Component-lab capture manifest: generated
+- Component-lab capture manifest: generated (${visual_renderer}, ${visual_scale}x)
+- Component-lab renderer capture: ${component_capture_status}
 - Component-lab pixel diff: ${visual_diff_status}
+- Component-lab contact-sheet gallery: generated on supported renderer lanes
 - Showcase capture inventory: generated
 - Native screenshot capture: ${native_capture_status}
 
-The component-lab manifest defines required baseline, actual, and diff paths.
-Pixel diff is a strict gate when a complete image set is present. Without
-matching renderer captures and baselines, this report remains pending and does
-not claim visual-regression coverage.
+The component-lab manifest defines renderer-specific baseline, actual, and diff
+paths. Supported capture lanes fail on missing baselines, blank images,
+dimension drift, render/write failures, or pixel differences above policy.
 EOF
 
 echo "Visual QA checks passed; component-lab diff status: ${visual_diff_status}."
