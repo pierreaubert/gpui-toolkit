@@ -7057,6 +7057,61 @@ impl PythonIrShowcase {
                     Err(error) => self.send_command_result(request_id, serde_json::json!({"ok": false, "error": error})),
                 }
             }
+            "ui.reports" => {
+                let accessibility = gpui_ui_kit::accessibility_readiness_report();
+                let focus = gpui_ui_kit::focus_integration_report();
+                let behavior = gpui_ui_kit::component_behavior_report();
+                self.send_command_result(
+                    request_id,
+                    serde_json::json!({
+                        "ok": true,
+                        "accessibility": {
+                            "schema_version": accessibility.schema_version,
+                            "report_type": accessibility.report_type,
+                            "reviewed_on": accessibility.reviewed_on,
+                            "entry_count": accessibility.entries.len(),
+                            "all_release_ready": accessibility.all_release_ready(),
+                            "markdown": accessibility.to_markdown_table(),
+                        },
+                        "focus": {
+                            "schema_version": focus.schema_version,
+                            "report_type": focus.report_type,
+                            "reviewed_on": focus.reviewed_on,
+                            "entry_count": focus.entries.len(),
+                            "all_release_ready": focus.all_release_ready(),
+                            "markdown": focus.to_markdown_table(),
+                        },
+                        "behavior": {
+                            "schema_version": behavior.schema_version,
+                            "report_type": behavior.report_type,
+                            "reviewed_on": behavior.reviewed_on,
+                            "entry_count": behavior.entries.len(),
+                            "all_release_ready": behavior.all_release_ready(),
+                            "markdown": behavior.to_markdown_table(),
+                        },
+                    }),
+                );
+            }
+            "themes.gallery" => {
+                let gallery = gpui_themes::ThemeGallery::from_built_ins();
+                let entries = gallery
+                    .entries
+                    .into_iter()
+                    .map(|entry| {
+                        serde_json::json!({
+                            "id": entry.id,
+                            "display_name": entry.display_name,
+                            "tags": entry.tags,
+                            "accessibility": entry.accessibility,
+                            "appearance": entry.appearance,
+                        })
+                    })
+                    .collect::<Vec<_>>();
+                self.send_command_result(
+                    request_id,
+                    serde_json::json!({"ok": true, "entries": entries}),
+                );
+            }
             "themes.community_validate" => {
                 let result = (|| -> Result<Value, String> {
                     let input = arguments.get("input").and_then(Value::as_str)

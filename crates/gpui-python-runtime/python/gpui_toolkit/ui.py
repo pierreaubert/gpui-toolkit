@@ -3,7 +3,54 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Iterable, Sequence
+from typing import TYPE_CHECKING, Any, Iterable, Sequence
+
+from .commands import CommandResult, CommandStatus
+
+if TYPE_CHECKING:
+    from .app import SessionContext
+
+
+@dataclass(frozen=True)
+class UiConformanceReport:
+    schema_version: int
+    report_type: str
+    reviewed_on: str
+    entry_count: int
+    all_release_ready: bool
+    markdown: str
+
+
+@dataclass(frozen=True)
+class UiReports:
+    accessibility: UiConformanceReport
+    focus: UiConformanceReport
+    behavior: UiConformanceReport
+
+
+def request_reports(context: "SessionContext", request_id: str) -> None:
+    context.command(request_id, "ui.reports")
+
+
+def reports_from_command(result: CommandResult) -> UiReports:
+    if result.status is not CommandStatus.SUCCEEDED:
+        raise RuntimeError(result.error or f"UI reports {result.status.value}")
+
+    def decode(value: dict[str, Any]) -> UiConformanceReport:
+        return UiConformanceReport(
+            schema_version=int(value["schema_version"]),
+            report_type=str(value["report_type"]),
+            reviewed_on=str(value["reviewed_on"]),
+            entry_count=int(value["entry_count"]),
+            all_release_ready=bool(value["all_release_ready"]),
+            markdown=str(value["markdown"]),
+        )
+
+    return UiReports(
+        accessibility=decode(result.data["accessibility"]),
+        focus=decode(result.data["focus"]),
+        behavior=decode(result.data["behavior"]),
+    )
 
 
 def _spec(value: Any) -> Any:

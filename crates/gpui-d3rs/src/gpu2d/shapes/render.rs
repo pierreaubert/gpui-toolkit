@@ -241,7 +241,7 @@ where
         | CurveType::CatmullRom
         | CurveType::MonotoneX
         | CurveType::Natural => {
-            crate::shape::line::compute_line_segments(&relative_points, config.curve)
+            crate::shape::line::validation::compute_line_segments(&relative_points, config.curve)
         }
         CurveType::StepBefore => {
             let mut segs = Vec::new();

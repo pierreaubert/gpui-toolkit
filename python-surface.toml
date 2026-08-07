@@ -29,8 +29,10 @@ id = "ui.forms"
 capability = "gpui-ui-kit.declarative"
 [[requirement]]
 id = "ui.navigation-feedback-data-workflow"
+capability = "gpui-ui-kit.navigation-feedback-data-workflow"
 [[requirement]]
 id = "ui.infrastructure-accessibility"
+capability = "gpui-ui-kit.infrastructure-accessibility"
 [[requirement]]
 id = "builder.full-solver-and-inspection"
 capability = "gpui-builder.full-solver-and-inspection"
@@ -39,6 +41,7 @@ id = "design.full-token-and-report-model"
 capability = "gpui-design.tokens-and-reports"
 [[requirement]]
 id = "themes.full-palettes-and-community-import"
+capability = "gpui-themes.selection-and-gallery"
 [[requirement]]
 id = "pretext.full-preparation-and-layout"
 capability = "gpui-pretext.requests-and-results"
@@ -47,6 +50,7 @@ id = "keybinding.full-registry"
 capability = "gpui-keybinding.registry"
 [[requirement]]
 id = "px.full-chart-api"
+capability = "gpui-px.full-chart-api"
 [[requirement]]
 id = "d3.full-algorithm-and-interaction-api"
 [[requirement]]
@@ -163,6 +167,20 @@ disposition = "declarative"
 tests = ["crates/gpui-python-runtime/python/tests/test_ui.py", "crates/gpui-python-runtime/src/ui_ir.rs"]
 
 [[capability]]
+id = "gpui-ui-kit.infrastructure-accessibility"
+rust_path = "gpui_ui_kit::{AriaProps,AccessibilityReadinessReport,FocusIntegrationReport,FocusGroup,ComponentBehaviorReport}"
+python_path = "gpui_toolkit.ui.UiReports"
+disposition = "command"
+tests = ["crates/gpui-python-runtime/python/tests/test_accessibility.py", "crates/gpui-python-runtime/python/tests/test_ui.py", "crates/gpui-ui-kit/src/accessibility.rs", "crates/gpui-ui-kit/src/focus.rs", "crates/gpui-python-runtime/bin/showcase/python_ir_showcase.rs"]
+
+[[capability]]
+id = "gpui-ui-kit.navigation-feedback-data-workflow"
+rust_path = "gpui_ui_kit::{Accordion,Alert,Breadcrumbs,ContextMenu,Dialog,Menu,Popover,Table,Tabs,Toast,ComponentBehaviorReport}"
+python_path = "gpui_toolkit.ui"
+disposition = "declarative"
+tests = ["crates/gpui-python-runtime/python/tests/test_ui.py", "crates/gpui-python-runtime/src/ui_ir.rs", "crates/gpui-ui-kit/src/behavior_matrix.rs", "crates/gpui-ui-kit/tests/coverage.rs"]
+
+[[capability]]
 id = "gpui-px.charts"
 rust_path = "gpui_px"
 python_path = "gpui_toolkit.charts"
@@ -182,6 +200,13 @@ rust_path = "gpui_px::{chart_capability_report,chart_visual_regression_manifest}
 python_path = "gpui_toolkit.charts.request_reports"
 disposition = "command"
 tests = ["crates/gpui-python-runtime/python/tests/test_charts.py"]
+
+[[capability]]
+id = "gpui-px.full-chart-api"
+rust_path = "gpui_px::{LineChart,ScatterChart,BarChart,AreaChart,BoxPlotChart,HeatmapChart,ContourChart,IsolineChart,PieChart,TreemapChart,Surface3DChart,ChartInteraction,ChartAnnotation,ChartAccessibilitySummary,StaticSvgOptions}"
+python_path = "gpui_toolkit.charts"
+disposition = "declarative"
+tests = ["crates/gpui-python-runtime/python/tests/test_charts.py", "crates/gpui-python-runtime/src/ui_ir.rs", "crates/gpui-python-runtime/bin/showcase/python_ir_showcase.rs", "crates/gpui-px/src/interaction/tests.rs", "crates/gpui-px/src/lib/static_export.rs"]
 
 [[capability]]
 id = "gpui-d3rs.scene3d"
@@ -318,10 +343,10 @@ tests = ["crates/gpui-python-runtime/python/tests/test_text.py", "crates/gpui-pr
 
 [[capability]]
 id = "gpui-themes.selection-and-gallery"
-rust_path = "gpui_themes::ThemeModePreference"
+rust_path = "gpui_themes::{BuiltInThemePreset,EditorTheme,ThemeGallery,CommunityThemeBundle,ThemeModePreference,ThemeTransition}"
 python_path = "gpui_toolkit.themes.CommunityThemeImport"
-disposition = "declarative"
-tests = ["crates/gpui-python-runtime/python/tests/test_themes.py"]
+disposition = "command"
+tests = ["crates/gpui-python-runtime/python/tests/test_themes.py", "crates/gpui-themes/src/theme/tests.rs", "crates/gpui-python-runtime/bin/showcase/python_ir_showcase.rs"]
 
 [[capability]]
 id = "gpui-component-lab.stories"

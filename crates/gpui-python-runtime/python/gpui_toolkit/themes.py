@@ -25,6 +25,17 @@ class AccessibilityPalette(str, Enum):
     TRITANOPIA = "tritanopia"
 
 
+class BuiltInThemePreset(str, Enum):
+    DARK = "dark"
+    LIGHT = "light"
+    HIGH_CONTRAST = "high_contrast"
+    NORD = "nord"
+    DRACULA = "dracula"
+    PROTANOPIA = "protanopia"
+    DEUTERANOPIA = "deuteranopia"
+    TRITANOPIA = "tritanopia"
+
+
 class ThemeTransitionEasing(str, Enum):
     LINEAR = "linear"
     EASE_OUT = "ease_out"
@@ -108,6 +119,35 @@ class ThemeGalleryEntry:
     def __post_init__(self) -> None:
         if not self.id or not self.display_name:
             raise ValueError("theme gallery entries require id and display_name")
+
+
+@dataclass(frozen=True)
+class ThemeGallery:
+    entries: tuple[ThemeGalleryEntry, ...]
+
+    def by_id(self, theme_id: str) -> ThemeGalleryEntry | None:
+        return next((entry for entry in self.entries if entry.id == theme_id), None)
+
+
+def request_gallery(context: "SessionContext", request_id: str) -> None:
+    context.command(request_id, "themes.gallery")
+
+
+def gallery_from_command(result: CommandResult) -> ThemeGallery:
+    if result.status is not CommandStatus.SUCCEEDED:
+        raise RuntimeError(result.error or f"theme gallery {result.status.value}")
+    return ThemeGallery(
+        tuple(
+            ThemeGalleryEntry(
+                id=str(entry["id"]),
+                display_name=str(entry["display_name"]),
+                tags=tuple(str(tag) for tag in entry.get("tags", ())),
+                accessibility=AccessibilityPalette(str(entry["accessibility"])),
+                appearance=ThemeAppearance(str(entry["appearance"])),
+            )
+            for entry in result.data.get("entries", ())
+        )
+    )
 
 
 @dataclass(frozen=True)

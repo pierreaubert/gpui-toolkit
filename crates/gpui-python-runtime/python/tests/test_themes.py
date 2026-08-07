@@ -6,11 +6,41 @@ import json
 from gpui_toolkit.commands import CommandResult
 from gpui_toolkit import SessionContext
 from gpui_toolkit.themes import (
-    CommunityThemeImport, ThemeAppearance, ThemeModePreference, ThemeSchedule, ThemeTransition, TimeOfDay,
+    BuiltInThemePreset, CommunityThemeImport, ThemeAppearance, ThemeModePreference,
+    ThemeSchedule, ThemeTransition, TimeOfDay, gallery_from_command, request_gallery,
 )
 
 
 class ThemeDeclarationsTests(unittest.TestCase):
+    def test_native_gallery_exposes_all_builtin_palettes(self):
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            request_gallery(SessionContext(), "gallery")
+        self.assertEqual(json.loads(output.getvalue())["command"], "themes.gallery")
+
+        presets = tuple(preset.value for preset in BuiltInThemePreset)
+        result = CommandResult.from_wire(
+            "gallery",
+            {
+                "ok": True,
+                "entries": [
+                    {
+                        "id": preset,
+                        "display_name": preset.replace("_", " ").title(),
+                        "tags": ["built-in"],
+                        "accessibility": preset
+                        if preset in {"high_contrast", "protanopia", "deuteranopia", "tritanopia"}
+                        else "standard",
+                        "appearance": "light" if preset == "light" else "dark",
+                    }
+                    for preset in presets
+                ],
+            },
+        )
+        gallery = gallery_from_command(result)
+        self.assertEqual(tuple(entry.id for entry in gallery.entries), presets)
+        self.assertEqual(gallery.by_id("nord").display_name, "Nord")
+
     def test_schedule_matches_host_wraparound_behavior(self):
         schedule = ThemeSchedule(TimeOfDay(20, 0), TimeOfDay(7, 0))
         self.assertEqual(schedule.resolve_at_minutes(22 * 60), ThemeAppearance.LIGHT)

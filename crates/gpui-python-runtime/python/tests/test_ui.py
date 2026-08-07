@@ -1,9 +1,38 @@
+import contextlib
+import io
+import json
 import unittest
 
+from gpui_toolkit import SessionContext
 from gpui_toolkit import ui
+from gpui_toolkit.commands import CommandResult
 
 
 class UiBuilderTests(unittest.TestCase):
+    def test_native_accessibility_focus_and_behavior_reports_are_typed(self):
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            ui.request_reports(SessionContext(), "ui-reports")
+        self.assertEqual(json.loads(output.getvalue())["command"], "ui.reports")
+
+        report = {
+            "schema_version": 1,
+            "report_type": "test",
+            "reviewed_on": "2026-08-07",
+            "entry_count": 3,
+            "all_release_ready": True,
+            "markdown": "| component | status |",
+        }
+        reports = ui.reports_from_command(
+            CommandResult.from_wire(
+                "ui-reports",
+                {"ok": True, "accessibility": report, "focus": report, "behavior": report},
+            )
+        )
+        self.assertTrue(reports.accessibility.all_release_ready)
+        self.assertEqual(reports.focus.entry_count, 3)
+        self.assertIn("component", reports.behavior.markdown)
+
     def test_accordion_normalizes_children_and_preserves_item_ids(self):
         spec = ui.accordion(
             id="advanced",
