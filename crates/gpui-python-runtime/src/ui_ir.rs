@@ -1862,6 +1862,45 @@ pub struct ChartNode {
     pub color_unit: Option<String>,
     pub color_range: Option<[f64; 2]>,
     pub aspect_ratio: Option<f32>,
+    #[serde(default)]
+    pub y0: Option<Vec<f64>>,
+    #[serde(default)]
+    pub thresholds: Option<Vec<f64>>,
+    #[serde(default)]
+    pub levels: Option<Vec<f64>>,
+    #[serde(default = "default_chart_opacity")]
+    pub opacity: f32,
+    #[serde(default)]
+    pub inner_radius: f64,
+    #[serde(default)]
+    pub num_bins: Option<usize>,
+    #[serde(default)]
+    pub treemap: Option<ChartTreemapNode>,
+    #[serde(default = "default_treemap_method")]
+    pub tiling_method: String,
+    #[serde(default = "default_treemap_padding")]
+    pub padding: f64,
+}
+
+fn default_chart_opacity() -> f32 {
+    1.0
+}
+
+fn default_treemap_method() -> String {
+    "squarify".into()
+}
+
+fn default_treemap_padding() -> f64 {
+    1.0
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ChartTreemapNode {
+    pub name: String,
+    #[serde(default)]
+    pub value: f64,
+    #[serde(default)]
+    pub children: Vec<ChartTreemapNode>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1982,7 +2021,7 @@ impl ChartNode {
                 }
                 finite("values", values)?;
             }
-            ChartKind::Heatmap => {
+            ChartKind::Heatmap | ChartKind::Contour | ChartKind::Isoline => {
                 let z = self.z.as_ref().ok_or_else(|| UiIrError::MissingChartData {
                     id: self.id.clone(),
                     field: "z",
@@ -2062,7 +2101,102 @@ impl ChartNode {
                         });
                     }
                 }
+                if self.chart == ChartKind::Contour {
+                    if let Some(thresholds) = &self.thresholds {
+                        finite("thresholds", thresholds)?;
+                    }
+                } else if self.chart == ChartKind::Isoline
+                    && let Some(levels) = &self.levels
+                {
+                    finite("levels", levels)?;
+                }
             }
+            ChartKind::Area | ChartKind::BoxPlot => {
+                let x = self.x.as_ref().ok_or_else(|| UiIrError::MissingChartData {
+                    id: self.id.clone(),
+                    field: "x",
+                })?;
+                let y = self.y.as_ref().ok_or_else(|| UiIrError::MissingChartData {
+                    id: self.id.clone(),
+                    field: "y",
+                })?;
+                if x.len() != y.len() {
+                    return Err(UiIrError::ChartLengthMismatch {
+                        id: self.id.clone(),
+                        left: "x",
+                        left_len: x.len(),
+                        right: "y",
+                        right_len: y.len(),
+                    });
+                }
+                finite("x", x)?;
+                finite("y", y)?;
+                if self.chart == ChartKind::Area
+                    && let Some(y0) = &self.y0
+                {
+                    if y0.len() != y.len() {
+                        return Err(UiIrError::ChartLengthMismatch {
+                            id: self.id.clone(),
+                            left: "y0",
+                            left_len: y0.len(),
+                            right: "y",
+                            right_len: y.len(),
+                        });
+                    }
+                    finite("y0", y0)?;
+                }
+            }
+            ChartKind::Pie | ChartKind::Donut => {
+                let values = self.values.as_ref().ok_or_else(|| UiIrError::MissingChartData {
+                    id: self.id.clone(),
+                    field: "values",
+                })?;
+                finite("values", values)?;
+                if let Some(categories) = &self.categories
+                    && categories.len() != values.len()
+                {
+                    return Err(UiIrError::ChartLengthMismatch {
+                        id: self.id.clone(),
+                        left: "categories",
+                        left_len: categories.len(),
+                        right: "values",
+                        right_len: values.len(),
+                    });
+                }
+                if !(0.0..1.0).contains(&self.inner_radius) {
+                    return Err(UiIrError::InvalidPatch {
+                        message: format!("chart {:?} has invalid inner_radius", self.id),
+                    });
+                }
+            }
+            ChartKind::Treemap => {
+                fn valid_tree(node: &ChartTreemapNode) -> bool {
+                    !node.name.trim().is_empty()
+                        && node.value.is_finite()
+                        && node.value >= 0.0
+                        && node.children.iter().all(valid_tree)
+                }
+                if !self.treemap.as_ref().is_some_and(valid_tree) {
+                    return Err(UiIrError::InvalidPatch {
+                        message: format!("chart {:?} has invalid treemap data", self.id),
+                    });
+                }
+                if !matches!(
+                    self.tiling_method.as_str(),
+                    "squarify" | "binary" | "slice" | "dice" | "slice_dice"
+                ) || !self.padding.is_finite()
+                    || self.padding < 0.0
+                {
+                    return Err(UiIrError::InvalidPatch {
+                        message: format!("chart {:?} has invalid treemap options", self.id),
+                    });
+                }
+            }
+        }
+        if !self.opacity.is_finite() || !(0.0..=1.0).contains(&self.opacity) {
+            return Err(UiIrError::InvalidPatch {
+                message: format!("chart {:?} has invalid opacity", self.id),
+            });
         }
         Ok(())
     }
@@ -2075,6 +2209,13 @@ pub enum ChartKind {
     Line,
     Bar,
     Heatmap,
+    Area,
+    BoxPlot,
+    Contour,
+    Isoline,
+    Pie,
+    Donut,
+    Treemap,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -2524,6 +2665,24 @@ mod tests {
         // JSON cannot carry IEEE NaN; malformed/non-number data is rejected at
         // deserialization before it can reach the renderer.
         assert!(nan_series.is_err());
+    }
+
+    #[test]
+    fn validates_extended_gpui_px_chart_families() {
+        let app: PythonAppIr = serde_json::from_value(serde_json::json!({
+            "title": "PX",
+            "sections": [
+                {"id": "area", "label": "Area", "content": {"kind": "chart", "id": "area", "chart": "area", "x": [1.0, 2.0], "y": [2.0, 3.0], "y0": [0.0, 0.0]}},
+                {"id": "box", "label": "Box", "content": {"kind": "chart", "id": "box", "chart": "box_plot", "x": [1.0, 1.0], "y": [2.0, 3.0], "num_bins": 1}},
+                {"id": "contour", "label": "Contour", "content": {"kind": "chart", "id": "contour", "chart": "contour", "z": [0.0, 1.0, 2.0, 3.0], "width_count": 2, "height_count": 2, "thresholds": [1.0, 2.0]}},
+                {"id": "isoline", "label": "Isoline", "content": {"kind": "chart", "id": "isoline", "chart": "isoline", "z": [0.0, 1.0, 2.0, 3.0], "width_count": 2, "height_count": 2, "levels": [1.5]}},
+                {"id": "pie", "label": "Pie", "content": {"kind": "chart", "id": "pie", "chart": "pie", "categories": ["A", "B"], "values": [1.0, 2.0]}},
+                {"id": "donut", "label": "Donut", "content": {"kind": "chart", "id": "donut", "chart": "donut", "categories": ["A", "B"], "values": [1.0, 2.0], "inner_radius": 0.5}},
+                {"id": "treemap", "label": "Treemap", "content": {"kind": "chart", "id": "treemap", "chart": "treemap", "treemap": {"name": "root", "children": [{"name": "A", "value": 1.0}]}}}
+            ]
+        }))
+        .unwrap();
+        assert!(app.validate().is_ok());
     }
 
     #[test]

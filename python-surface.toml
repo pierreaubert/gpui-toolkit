@@ -163,7 +163,21 @@ id = "gpui-px.charts"
 rust_path = "gpui_px"
 python_path = "gpui_toolkit.charts"
 disposition = "declarative"
-tests = ["crates/gpui-python-runtime/python/tests/test_ui.py"]
+tests = ["crates/gpui-python-runtime/python/tests/test_ui.py", "crates/gpui-python-runtime/python/tests/test_charts.py"]
+
+[[capability]]
+id = "gpui-px.extended-chart-families"
+rust_path = "gpui_px::{area,boxplot,contour,isoline,pie,donut,treemap}"
+python_path = "gpui_toolkit.charts.TreemapNode"
+disposition = "declarative"
+tests = ["crates/gpui-python-runtime/python/tests/test_charts.py", "crates/gpui-python-runtime/src/ui_ir.rs"]
+
+[[capability]]
+id = "gpui-px.capability-and-visual-reports"
+rust_path = "gpui_px::{chart_capability_report,chart_visual_regression_manifest}"
+python_path = "gpui_toolkit.charts.request_reports"
+disposition = "command"
+tests = ["crates/gpui-python-runtime/python/tests/test_charts.py"]
 
 [[capability]]
 id = "gpui-d3rs.scene3d"
@@ -178,6 +192,34 @@ rust_path = "gpui_d3rs::zoom::ZoomState"
 python_path = "gpui_toolkit.d3.ZoomRequest"
 disposition = "command"
 tests = ["crates/gpui-python-runtime/python/tests/test_d3.py", "crates/gpui-python-runtime/bin/showcase/python_ir_showcase.rs"]
+
+[[capability]]
+id = "gpui-d3rs.array-search-quantile"
+rust_path = "gpui_d3rs::array::{bisect_left_f64,quantile}"
+python_path = "gpui_toolkit.d3.ArrayRequest"
+disposition = "command"
+tests = ["crates/gpui-python-runtime/python/tests/test_d3.py"]
+
+[[capability]]
+id = "gpui-d3rs.scales"
+rust_path = "gpui_d3rs::scale"
+python_path = "gpui_toolkit.d3.ScaleRequest"
+disposition = "command"
+tests = ["crates/gpui-python-runtime/python/tests/test_d3.py"]
+
+[[capability]]
+id = "gpui-d3rs.statistics-and-ticks"
+rust_path = "gpui_d3rs::array::{mean,variance,ticks}"
+python_path = "gpui_toolkit.d3.StatisticsRequest"
+disposition = "command"
+tests = ["crates/gpui-python-runtime/python/tests/test_d3.py"]
+
+[[capability]]
+id = "gpui-d3rs.parity-and-benchmark-reports"
+rust_path = "gpui_d3rs::feature_parity::feature_parity_report"
+python_path = "gpui_toolkit.d3.request_reports"
+disposition = "command"
+tests = ["crates/gpui-python-runtime/python/tests/test_d3.py"]
 
 [[capability]]
 id = "gpui-python-runtime.state"
@@ -296,6 +338,20 @@ id = "gpui-builder.declarations"
 rust_path = "gpui_builder::LayoutNode"
 python_path = "gpui_toolkit.layout.Container"
 disposition = "declarative"
+tests = ["crates/gpui-python-runtime/python/tests/test_layout.py"]
+
+[[capability]]
+id = "gpui-builder.solve-validation-inspection"
+rust_path = "gpui_builder::solve"
+python_path = "gpui_toolkit.layout.solve"
+disposition = "command"
+tests = ["crates/gpui-python-runtime/python/tests/test_layout.py"]
+
+[[capability]]
+id = "gpui-builder.retained-snapshots-state-accessibility"
+rust_path = "gpui_builder::RetainedLayoutSolver"
+python_path = "gpui_toolkit.layout.solve_matrix"
+disposition = "command"
 tests = ["crates/gpui-python-runtime/python/tests/test_layout.py"]
 
 [[capability]]

@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Sequence
+from typing import Any, Sequence, TYPE_CHECKING
+from .commands import CommandResult, CommandStatus
+if TYPE_CHECKING: from .app import SessionContext
 
 
 @dataclass(frozen=True)
@@ -24,6 +26,16 @@ class Series:
             "color": self.color, "visible": self.visible,
             "stroke_width": self.stroke_width, "point_radius": self.point_radius,
         }
+
+@dataclass(frozen=True)
+class TreemapNode:
+    name: str
+    value: float = 0.0
+    children: Sequence["TreemapNode"] = ()
+    def __post_init__(self) -> None:
+        if not self.name or self.value < 0: raise ValueError("invalid treemap node")
+    def to_spec(self) -> dict[str, Any]:
+        return {"name": self.name, "value": float(self.value), "children": [child.to_spec() for child in self.children]}
 
 
 @dataclass(frozen=True)
@@ -55,6 +67,15 @@ class Chart:
     color_unit: str | None = None
     color_range: tuple[float, float] | None = None
     aspect_ratio: float | None = None
+    y0: Sequence[float] | None = None
+    thresholds: Sequence[float] | None = None
+    levels: Sequence[float] | None = None
+    opacity: float = 1.0
+    inner_radius: float = 0.0
+    num_bins: int | None = None
+    treemap: TreemapNode | None = None
+    tiling_method: str = "squarify"
+    padding: float = 1.0
 
     def to_spec(self) -> dict[str, Any]:
         return {
@@ -86,6 +107,15 @@ class Chart:
             "color_unit": self.color_unit,
             "color_range": None if self.color_range is None else [float(value) for value in self.color_range],
             "aspect_ratio": self.aspect_ratio,
+            "y0": None if self.y0 is None else [float(value) for value in self.y0],
+            "thresholds": None if self.thresholds is None else [float(value) for value in self.thresholds],
+            "levels": None if self.levels is None else [float(value) for value in self.levels],
+            "opacity": float(self.opacity),
+            "inner_radius": float(self.inner_radius),
+            "num_bins": self.num_bins,
+            "treemap": None if self.treemap is None else self.treemap.to_spec(),
+            "tiling_method": self.tiling_method,
+            "padding": float(self.padding),
         }
 
 
@@ -125,4 +155,82 @@ def heatmap(
         width_count=int(width_count),
         height_count=int(height_count),
         **kwargs,
+    )
+
+def area(id: str, x: Sequence[float], y: Sequence[float], *, title: str = "", **kwargs: Any) -> Chart:
+    return Chart("area", id=id, title=title, x=x, y=y, **kwargs)
+
+def boxplot(id: str, x: Sequence[float], y: Sequence[float], *, title: str = "", **kwargs: Any) -> Chart:
+    return Chart("box_plot", id=id, title=title, x=x, y=y, **kwargs)
+
+def contour(id: str, z: Sequence[float], width_count: int, height_count: int, *, title: str = "", **kwargs: Any) -> Chart:
+    return Chart("contour", id=id, title=title, z=z, width_count=width_count, height_count=height_count, **kwargs)
+
+def isoline(id: str, z: Sequence[float], width_count: int, height_count: int, *, title: str = "", **kwargs: Any) -> Chart:
+    return Chart("isoline", id=id, title=title, z=z, width_count=width_count, height_count=height_count, **kwargs)
+
+def pie(id: str, labels: Sequence[str], values: Sequence[float], *, title: str = "", **kwargs: Any) -> Chart:
+    return Chart("pie", id=id, title=title, categories=labels, values=values, **kwargs)
+
+def donut(id: str, labels: Sequence[str], values: Sequence[float], *, title: str = "", inner_radius: float = 0.5, **kwargs: Any) -> Chart:
+    return Chart("donut", id=id, title=title, categories=labels, values=values, inner_radius=inner_radius, **kwargs)
+
+def treemap(id: str, root: TreemapNode, *, title: str = "", **kwargs: Any) -> Chart:
+    return Chart("treemap", id=id, title=title, treemap=root, **kwargs)
+
+@dataclass(frozen=True)
+class ChartCapabilityEntry:
+    id: str
+    capability: str
+    chart_families: tuple[str, ...]
+    story_ids: tuple[str, ...]
+    test_contracts: tuple[str, ...]
+    status: str
+    evidence: str
+    release_requirement: str
+
+@dataclass(frozen=True)
+class ChartCapabilityReport:
+    schema_version: int
+    report_type: str
+    reviewed_on: str
+    all_release_ready: bool
+    entries: tuple[ChartCapabilityEntry, ...]
+    markdown: str
+
+@dataclass(frozen=True)
+class ChartVisualRegressionReport:
+    schema_version: int
+    report_type: str
+    crate_name: str
+    crate_version: str
+    capture_count: int
+    expected_capture_count: int
+    unique_capture_ids: bool
+    chart_families: tuple[str, ...]
+    markdown: str
+
+@dataclass(frozen=True)
+class ChartReports:
+    capability: ChartCapabilityReport
+    visual: ChartVisualRegressionReport
+
+def request_reports(context: "SessionContext", request_id: str) -> None:
+    context.command(request_id, "px.reports")
+
+def reports_from_command(result: CommandResult) -> ChartReports:
+    if result.status is not CommandStatus.SUCCEEDED: raise RuntimeError(result.error or "chart reports failed")
+    capability = result.data["capability"]
+    visual = result.data["visual"]
+    return ChartReports(
+        ChartCapabilityReport(
+            int(capability["schema_version"]), str(capability["report_type"]), str(capability["reviewed_on"]), bool(capability["all_release_ready"]),
+            tuple(ChartCapabilityEntry(str(entry["id"]), str(entry["capability"]), tuple(str(value) for value in entry["chart_families"]), tuple(str(value) for value in entry["story_ids"]), tuple(str(value) for value in entry["test_contracts"]), str(entry["status"]), str(entry["evidence"]), str(entry["release_requirement"])) for entry in capability["entries"]),
+            str(capability["markdown"]),
+        ),
+        ChartVisualRegressionReport(
+            int(visual["schema_version"]), str(visual["report_type"]), str(visual["crate_name"]), str(visual["crate_version"]),
+            int(visual["capture_count"]), int(visual["expected_capture_count"]), bool(visual["unique_capture_ids"]),
+            tuple(str(value) for value in visual["chart_families"]), str(visual["markdown"]),
+        ),
     )

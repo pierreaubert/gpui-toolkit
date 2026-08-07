@@ -11,7 +11,7 @@ use gpui::prelude::*;
 use gpui::*;
 use gpui_design::{DesignExt, DesignSystem};
 use gpui_px::interaction::{InteractiveChartState, interactive};
-use gpui_px::{bar, heatmap, line, scatter};
+use gpui_px::{area, bar, boxplot, contour, donut, heatmap, isoline, line, pie, scatter, treemap};
 use gpui_python_runtime::gpui_adapter::Gpui3DCache;
 use gpui_python_runtime::session::{
     HostMessage, JobLogLine, JobRegistry, JobState, JobUpdate, LogSeverity, PythonMessage,
@@ -20,7 +20,7 @@ use gpui_python_runtime::session::{
 use gpui_python_runtime::spec_cache::TypedSpecCache;
 use gpui_python_runtime::ui_ir::{
     AccordionNode, AlertNode, BadgeNode, BooleanInputNode, BreadcrumbsNode, ButtonNode, CardNode,
-    ChartKind, ChartNode, ColorPickerNode, ConfirmDialogNode, ContextMenuNode, DialogNode, EmptyStateNode, FormNode, ListEditorNode, MenuBarNode, MenuItemNode, MenuNode, NumberInputNode,
+    ChartKind, ChartNode, ChartTreemapNode, ColorPickerNode, ConfirmDialogNode, ContextMenuNode, DialogNode, EmptyStateNode, FormNode, ListEditorNode, MenuBarNode, MenuItemNode, MenuNode, NumberInputNode,
     PathInputNode, ProgressNode, PythonAppIr, Scene3dNode, SectionHeaderNode, SelectNode,
     SimpleNode, SliderNode, SpinnerNode, StackNode, StepperNode, TableNode, TabsNode, TextInputNode,
     PopoverNode, TextNode, ToastNode, TooltipNode, UiNode, MiniAppShellConfig,
@@ -42,6 +42,7 @@ use gpui_ui_kit::{
     toggle::Toggle, I18nState, Language,
 };
 use gpui_ui_kit::{AriaProps, AriaRole, AriaState, apply_native_accessibility};
+use serde::Deserialize;
 use serde_json::Value;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
@@ -101,6 +102,405 @@ struct FixedTextMeasure(f64);
 impl gpui_pretext::TextMeasure for FixedTextMeasure {
     fn measure_width(&self, text: &str) -> f64 {
         text.chars().count() as f64 * self.0
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+enum BuilderSizingSpec {
+    Fixed {
+        initial: f32,
+    },
+    Fractional {
+        initial: f32,
+        min: f32,
+        max: Option<f32>,
+    },
+    Flex {
+        min: f32,
+        weight: f32,
+    },
+    Text {
+        text: String,
+        line_height: f32,
+        min: f32,
+    },
+}
+
+#[derive(Debug, Deserialize)]
+struct BuilderDisplayTierSpec {
+    name: String,
+    min_size: f32,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum BuilderAxis {
+    Horizontal,
+    Vertical,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+enum BuilderLayoutSpec {
+    Slot {
+        id: String,
+        sizing: BuilderSizingSpec,
+        #[serde(default = "builder_default_priority")]
+        priority: f32,
+        #[serde(default)]
+        collapsible: bool,
+        #[serde(default)]
+        display_tiers: Vec<BuilderDisplayTierSpec>,
+        collapse_label: Option<String>,
+    },
+    Container {
+        id: String,
+        axis: BuilderAxis,
+        sizing: BuilderSizingSpec,
+        #[serde(default)]
+        children: Vec<BuilderLayoutSpec>,
+        auto_axis: Option<f32>,
+        #[serde(default)]
+        divider_size: f32,
+    },
+}
+
+#[derive(Debug, Deserialize)]
+struct BuilderRatioPreference {
+    id: String,
+    axis: String,
+    ratio: f32,
+}
+
+#[derive(Debug, Deserialize)]
+struct BuilderCollapsePreference {
+    id: String,
+    collapsed: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct BuilderAccessibilitySpec {
+    id: String,
+    role: Option<String>,
+    label: Option<String>,
+    description: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct BuilderViewportSpec {
+    label: String,
+    width: f32,
+    height: f32,
+}
+
+fn builder_default_priority() -> f32 {
+    1.0
+}
+
+fn builder_axis(value: BuilderAxis) -> gpui_builder::Axis {
+    match value {
+        BuilderAxis::Horizontal => gpui_builder::Axis::Horizontal,
+        BuilderAxis::Vertical => gpui_builder::Axis::Vertical,
+    }
+}
+
+fn builder_sizing<'a>(
+    spec: &'a BuilderSizingSpec,
+    measure: &'a FixedTextMeasure,
+) -> gpui_builder::Sizing<'a> {
+    match spec {
+        BuilderSizingSpec::Fixed { initial } => gpui_builder::Sizing::Fixed(*initial),
+        BuilderSizingSpec::Fractional { initial, min, max } => {
+            gpui_builder::Sizing::Fractional {
+                initial: *initial,
+                min: *min,
+                max: max.unwrap_or(f32::INFINITY),
+            }
+        }
+        BuilderSizingSpec::Flex { min, weight } => gpui_builder::Sizing::Flex {
+            min: *min,
+            weight: *weight,
+        },
+        BuilderSizingSpec::Text {
+            text,
+            line_height,
+            min,
+        } => gpui_builder::Sizing::Text {
+            text,
+            measure,
+            line_height: *line_height,
+            min: *min,
+        },
+    }
+}
+
+fn with_builder_node<R>(
+    spec: &BuilderLayoutSpec,
+    measure: &FixedTextMeasure,
+    callback: Box<dyn for<'a> FnOnce(gpui_builder::LayoutNode<'a>) -> R + '_>,
+) -> R {
+    match spec {
+        BuilderLayoutSpec::Slot {
+            id,
+            sizing,
+            priority,
+            collapsible,
+            display_tiers,
+            collapse_label,
+        } => {
+            let tiers = display_tiers
+                .iter()
+                .map(|tier| gpui_builder::DisplayTier {
+                    name: tier.name.as_str(),
+                    min_size: tier.min_size,
+                })
+                .collect::<Vec<_>>();
+            callback(gpui_builder::LayoutNode::Slot(gpui_builder::SlotNode {
+                id,
+                sizing: builder_sizing(sizing, measure),
+                priority: *priority,
+                collapsible: *collapsible,
+                display_tiers: &tiers,
+                collapse_label: collapse_label.as_deref(),
+            }))
+        }
+        BuilderLayoutSpec::Container {
+            id,
+            axis,
+            sizing,
+            children,
+            auto_axis,
+            divider_size,
+        } => {
+            let axis = builder_axis(*axis);
+            with_builder_nodes(
+                children,
+                measure,
+                Box::new(|children| {
+                    callback(gpui_builder::LayoutNode::Container(
+                        gpui_builder::ContainerNode {
+                            id,
+                            axis,
+                            auto_axis: *auto_axis,
+                            sizing: builder_sizing(sizing, measure),
+                            children,
+                            divider_size: *divider_size,
+                        },
+                    ))
+                }),
+            )
+        }
+    }
+}
+
+fn with_builder_nodes<R>(
+    specs: &[BuilderLayoutSpec],
+    measure: &FixedTextMeasure,
+    callback: Box<dyn for<'a> FnOnce(&'a [gpui_builder::LayoutNode<'a>]) -> R + '_>,
+) -> R {
+    fn next<R>(
+        remaining: &[BuilderLayoutSpec],
+        measure: &FixedTextMeasure,
+        built: Vec<gpui_builder::LayoutNode<'_>>,
+        callback: Box<dyn for<'a> FnOnce(&'a [gpui_builder::LayoutNode<'a>]) -> R + '_>,
+    ) -> R {
+        match remaining.split_first() {
+            None => callback(&built),
+            Some((head, tail)) => with_builder_node(
+                head,
+                measure,
+                Box::new(|node| {
+                    let mut built = built;
+                    built.push(node);
+                    next(tail, measure, built, callback)
+                }),
+            ),
+        }
+    }
+
+    next(specs, measure, Vec::with_capacity(specs.len()), callback)
+}
+
+fn builder_solved_node(node: &gpui_builder::SolvedNode<'_>) -> Value {
+    serde_json::json!({
+        "id": node.id,
+        "width": node.width,
+        "height": node.height,
+        "visible": node.visible,
+        "active_tier": node.active_tier,
+        "collapse_label": node.collapse_label,
+        "resolved_axis": node.resolved_axis.map(|axis| match axis {
+            gpui_builder::Axis::Horizontal => "horizontal",
+            gpui_builder::Axis::Vertical => "vertical",
+        }),
+        "children": node.children.iter().map(builder_solved_node).collect::<Vec<_>>(),
+    })
+}
+
+fn builder_issue_kind(kind: &gpui_builder::LayoutIssueKind) -> &'static str {
+    use gpui_builder::LayoutIssueKind;
+    match kind {
+        LayoutIssueKind::EmptyId => "empty_id",
+        LayoutIssueKind::DuplicateId { .. } => "duplicate_id",
+        LayoutIssueKind::InvalidSizing => "invalid_sizing",
+        LayoutIssueKind::InvalidAutoAxis => "invalid_auto_axis",
+        LayoutIssueKind::InvalidDividerSize => "invalid_divider_size",
+        LayoutIssueKind::InvalidPriority => "invalid_priority",
+        LayoutIssueKind::PriorityOutOfRange => "priority_out_of_range",
+        LayoutIssueKind::MissingCollapseLabel => "missing_collapse_label",
+        LayoutIssueKind::EmptyCollapseLabel => "empty_collapse_label",
+        LayoutIssueKind::InvalidDisplayTier => "invalid_display_tier",
+        LayoutIssueKind::DuplicateDisplayTierName { .. } => "duplicate_display_tier_name",
+        LayoutIssueKind::DuplicateDisplayTierThreshold { .. } => {
+            "duplicate_display_tier_threshold"
+        }
+        LayoutIssueKind::DisplayTiersNotDescending => "display_tiers_not_descending",
+        LayoutIssueKind::EmptyContainer => "empty_container",
+    }
+}
+
+fn builder_accessibility_role(
+    role: Option<&str>,
+) -> Result<Option<gpui_builder::AccessibilityRole>, String> {
+    match role {
+        None => Ok(None),
+        Some("none") => Ok(Some(gpui_builder::AccessibilityRole::None)),
+        Some("group") => Ok(Some(gpui_builder::AccessibilityRole::Group)),
+        Some("region") => Ok(Some(gpui_builder::AccessibilityRole::Region)),
+        Some("tab") => Ok(Some(gpui_builder::AccessibilityRole::Tab)),
+        Some(value) => Err(format!("unsupported builder accessibility role: {value}")),
+    }
+}
+
+fn builder_accessibility_node(node: &gpui_builder::AccessibilityNode) -> Value {
+    serde_json::json!({
+        "id": node.id,
+        "role": match node.role {
+            gpui_builder::AccessibilityRole::None => "none",
+            gpui_builder::AccessibilityRole::Group => "group",
+            gpui_builder::AccessibilityRole::Region => "region",
+            gpui_builder::AccessibilityRole::Tab => "tab",
+        },
+        "label": node.label,
+        "description": node.description,
+        "visible": node.visible,
+        "collapsed": node.collapsed,
+        "active_tier": node.active_tier,
+        "children": node.children.iter().map(builder_accessibility_node).collect::<Vec<_>>(),
+    })
+}
+
+fn builder_solved_ref(node: gpui_builder::SolvedNodeRef<'_, '_>) -> Value {
+    serde_json::json!({
+        "id": node.id(),
+        "width": node.width(),
+        "height": node.height(),
+        "visible": node.visible(),
+        "active_tier": node.active_tier(),
+        "collapse_label": node.collapse_label(),
+        "resolved_axis": node.resolved_axis().map(|axis| match axis {
+            gpui_builder::Axis::Horizontal => "horizontal",
+            gpui_builder::Axis::Vertical => "vertical",
+        }),
+        "children": node.children().map(builder_solved_ref).collect::<Vec<_>>(),
+    })
+}
+
+fn builder_chassis_row(value: &Value) -> Result<gpui_builder::RowSpec, String> {
+    let kind = value
+        .get("kind")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "builder chassis row requires kind".to_string())?;
+    let id = value
+        .get("id")
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| "builder chassis row requires id".to_string())?
+        .to_string();
+    let label = || {
+        value
+            .get("label")
+            .and_then(Value::as_str)
+            .ok_or_else(|| format!("builder chassis row {id} requires label"))
+            .map(str::to_string)
+    };
+    match kind {
+        "knob_row" => {
+            let knobs = value
+                .get("knobs")
+                .and_then(Value::as_array)
+                .ok_or_else(|| format!("builder knob row {id} requires knobs"))?
+                .iter()
+                .map(|knob| {
+                    let knob_id = knob
+                        .get("id")
+                        .and_then(Value::as_str)
+                        .filter(|value| !value.is_empty())
+                        .ok_or_else(|| format!("builder knob row {id} has a knob without id"))?;
+                    let param_idx = knob
+                        .get("param_idx")
+                        .and_then(Value::as_u64)
+                        .ok_or_else(|| format!("builder knob {knob_id} requires param_idx"))?
+                        as usize;
+                    let label = knob
+                        .get("label")
+                        .and_then(Value::as_str)
+                        .ok_or_else(|| format!("builder knob {knob_id} requires label"))?;
+                    let size = match knob.get("size").and_then(Value::as_str).unwrap_or("md") {
+                        "xs" => gpui_builder::KnobSize::Xs,
+                        "sm" => gpui_builder::KnobSize::Sm,
+                        "md" => gpui_builder::KnobSize::Md,
+                        other => {
+                            return Err(format!("unsupported builder knob size: {other}"));
+                        }
+                    };
+                    Ok(gpui_builder::KnobSlot {
+                        id: knob_id.to_string(),
+                        param_idx,
+                        label: label.to_string(),
+                        size,
+                        bipolar: knob
+                            .get("bipolar")
+                            .and_then(Value::as_bool)
+                            .unwrap_or(false),
+                    })
+                })
+                .collect::<Result<Vec<_>, String>>()?;
+            Ok(gpui_builder::RowSpec::KnobRow { id, knobs })
+        }
+        "band_toggle" => {
+            let label = label()?;
+            Ok(gpui_builder::RowSpec::BandToggle {
+                id,
+                label,
+                has_toggle: value
+                    .get("has_toggle")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(true),
+            })
+        }
+        "readout_tile" => {
+            let label = label()?;
+            Ok(gpui_builder::RowSpec::ReadoutTile { id, label })
+        }
+        "toggle_group" => {
+            let label = label()?;
+            Ok(gpui_builder::RowSpec::ToggleGroup { id, label })
+        }
+        other => Err(format!("unsupported builder chassis row: {other}")),
+    }
+}
+
+fn native_treemap_node(node: &ChartTreemapNode) -> gpui_px::TreemapNode {
+    if node.children.is_empty() {
+        gpui_px::TreemapNode::new(node.name.clone(), node.value)
+    } else {
+        let mut root = gpui_px::TreemapNode::new(node.name.clone(), node.value);
+        for child in &node.children {
+            root = root.add_child(native_treemap_node(child));
+        }
+        root
     }
 }
 
@@ -451,7 +851,7 @@ fn chart_inspection(
 fn chart_csv(node: &ChartNode, locally_hidden: Option<&HashSet<String>>) -> String {
     let mut csv = String::new();
     match node.chart {
-        ChartKind::Scatter | ChartKind::Line => {
+        ChartKind::Scatter | ChartKind::Line | ChartKind::Area | ChartKind::BoxPlot => {
             csv.push_str("series_id,series_label,x,y\n");
             if node.series.is_empty() {
                 for (x, y) in node
@@ -478,7 +878,7 @@ fn chart_csv(node: &ChartNode, locally_hidden: Option<&HashSet<String>>) -> Stri
                 }
             }
         }
-        ChartKind::Bar => {
+        ChartKind::Bar | ChartKind::Pie | ChartKind::Donut => {
             csv.push_str("category,value\n");
             for (category, value) in node
                 .categories
@@ -490,7 +890,7 @@ fn chart_csv(node: &ChartNode, locally_hidden: Option<&HashSet<String>>) -> Stri
                 csv.push_str(&format!("{},{}\n", csv_field(category), value));
             }
         }
-        ChartKind::Heatmap => {
+        ChartKind::Heatmap | ChartKind::Contour | ChartKind::Isoline => {
             csv.push_str("x,y,value\n");
             let width = node.width_count.unwrap_or_default();
             let x = node.x.as_deref();
@@ -509,6 +909,18 @@ fn chart_csv(node: &ChartNode, locally_hidden: Option<&HashSet<String>>) -> Stri
                         .unwrap_or(row as f64),
                     value
                 ));
+            }
+        }
+        ChartKind::Treemap => {
+            csv.push_str("name,value\n");
+            fn append(node: &ChartTreemapNode, csv: &mut String) {
+                csv.push_str(&format!("{},{}\n", csv_field(&node.name), node.value));
+                for child in &node.children {
+                    append(child, csv);
+                }
+            }
+            if let Some(root) = &node.treemap {
+                append(root, &mut csv);
             }
         }
     }
@@ -551,7 +963,7 @@ fn chart_svg(
         left + plot_width
     );
     match node.chart {
-        ChartKind::Line | ChartKind::Scatter => {
+        ChartKind::Line | ChartKind::Scatter | ChartKind::Area | ChartKind::BoxPlot => {
             let fallback_x = node.x.as_deref().unwrap_or_default();
             let fallback_y = node.y.as_deref().unwrap_or_default();
             let mut series = node
@@ -602,7 +1014,7 @@ fn chart_svg(
                 }
             }
         }
-        ChartKind::Bar => {
+        ChartKind::Bar | ChartKind::Pie | ChartKind::Donut => {
             let values = node.values.as_deref().unwrap_or_default();
             let max = values
                 .iter()
@@ -615,7 +1027,7 @@ fn chart_svg(
                 svg.push_str(&format!("<rect x=\"{:.2}\" y=\"{:.2}\" width=\"{:.2}\" height=\"{:.2}\" fill=\"#2ca02c\"/>", left + index as f32 * cell + 1.0, top + plot_height - bar_height, (cell - 2.0).max(1.0), bar_height));
             }
         }
-        ChartKind::Heatmap => {
+        ChartKind::Heatmap | ChartKind::Contour | ChartKind::Isoline => {
             let width_count = node.width_count.unwrap_or(0);
             let height_count = node.height_count.unwrap_or(0);
             let z = node.z.as_deref().unwrap_or_default();
@@ -631,6 +1043,12 @@ fn chart_svg(
                 };
                 svg.push_str(&format!("<rect x=\"{:.2}\" y=\"{:.2}\" width=\"{:.2}\" height=\"{:.2}\" fill=\"{color}\"/>", left + column as f32 * cell_width, top + (height_count.saturating_sub(row + 1)) as f32 * cell_height, cell_width, cell_height));
             }
+        }
+        ChartKind::Treemap => {
+            svg.push_str(&format!(
+                "<text x=\"{left}\" y=\"{}\" font-size=\"12\">Treemap</text>",
+                top + 16.0
+            ));
         }
     }
     svg.push_str("</svg>");
@@ -693,7 +1111,7 @@ fn chart_png(
         [(packed >> 16) as u8, (packed >> 8) as u8, packed as u8]
     };
     match node.chart {
-        ChartKind::Line | ChartKind::Scatter => {
+        ChartKind::Line | ChartKind::Scatter | ChartKind::Area | ChartKind::BoxPlot => {
             let fallback = [(
                 node.x.as_deref().unwrap_or_default(),
                 node.y.as_deref().unwrap_or_default(),
@@ -742,7 +1160,7 @@ fn chart_png(
                 }
             }
         }
-        ChartKind::Bar => {
+        ChartKind::Bar | ChartKind::Pie | ChartKind::Donut => {
             let values = node.values.as_deref().unwrap_or_default();
             let maximum = values
                 .iter()
@@ -763,7 +1181,7 @@ fn chart_png(
                 }
             }
         }
-        ChartKind::Heatmap => {
+        ChartKind::Heatmap | ChartKind::Contour | ChartKind::Isoline => {
             let columns = node.width_count.unwrap_or(0).max(1);
             let rows = node.height_count.unwrap_or(0).max(1);
             let values = node.z.as_deref().unwrap_or_default();
@@ -803,6 +1221,7 @@ fn chart_png(
                 }
             }
         }
+        ChartKind::Treemap => {}
     }
     png_encode(width as u32, height as u32, &pixels)
 }
@@ -876,6 +1295,151 @@ mod chart_export_tests {
         assert!(png.windows(4).any(|window| window == b"IHDR"));
         assert!(png.windows(4).any(|window| window == b"IDAT"));
         assert!(png.windows(4).any(|window| window == b"IEND"));
+    }
+}
+
+#[cfg(test)]
+mod builder_adapter_tests {
+    use super::{BuilderLayoutSpec, FixedTextMeasure, builder_chassis_row, with_builder_node};
+
+    #[test]
+    fn recursive_owned_tree_is_solved_and_inspected_without_leaks() {
+        let spec: BuilderLayoutSpec = serde_json::from_value(serde_json::json!({
+            "kind": "container",
+            "id": "root",
+            "axis": "horizontal",
+            "sizing": {"kind": "flex", "min": 0.0, "weight": 1.0},
+            "children": [
+                {
+                    "kind": "slot",
+                    "id": "sidebar",
+                    "sizing": {"kind": "fixed", "initial": 120.0},
+                    "collapsible": false
+                },
+                {
+                    "kind": "container",
+                    "id": "content",
+                    "axis": "vertical",
+                    "sizing": {"kind": "flex", "min": 0.0, "weight": 1.0},
+                    "children": [{
+                        "kind": "slot",
+                        "id": "copy",
+                        "sizing": {
+                            "kind": "text",
+                            "text": "two words",
+                            "line_height": 20.0,
+                            "min": 0.0
+                        },
+                        "display_tiers": [{"name": "full", "min_size": 20.0}]
+                    }]
+                }
+            ]
+        }))
+        .unwrap();
+        let measure = FixedTextMeasure(8.0);
+        let result = with_builder_node(
+            &spec,
+            &measure,
+            Box::new(|root| {
+                let validation = gpui_builder::validate_layout(&root);
+                let declaration = gpui_builder::inspect_layout(&root);
+                let solved = gpui_builder::solve(
+                    &root,
+                    500.0,
+                    300.0,
+                    &gpui_builder::LayoutPreferences::default(),
+                );
+                let debug = solved.debug_report_with_source(&root);
+                (
+                    validation.is_clean(),
+                    declaration.nodes().len(),
+                    solved.find("sidebar").map(|node| node.width),
+                    solved
+                        .find("copy")
+                        .and_then(|node| node.active_tier)
+                        .map(str::to_string),
+                    debug.tree().to_string(),
+                )
+            }),
+        );
+        assert!(result.0);
+        assert_eq!(result.1, 4);
+        assert_eq!(result.2, Some(120.0));
+        assert_eq!(result.3.as_deref(), Some("full"));
+        assert!(result.4.contains("copy"));
+    }
+
+    #[test]
+    fn snapshot_and_retained_solvers_agree_across_viewports() {
+        let spec: BuilderLayoutSpec = serde_json::from_value(serde_json::json!({
+            "kind": "container",
+            "id": "root",
+            "axis": "horizontal",
+            "sizing": {"kind": "flex", "min": 0.0, "weight": 1.0},
+            "children": [{
+                "kind": "slot",
+                "id": "body",
+                "sizing": {"kind": "flex", "min": 40.0, "weight": 1.0}
+            }]
+        }))
+        .unwrap();
+        let measure = FixedTextMeasure(8.0);
+        let widths = with_builder_node(
+            &spec,
+            &measure,
+            Box::new(|root| {
+                let viewports = [
+                    gpui_builder::LayoutViewport::new("wide", 800.0, 600.0),
+                    gpui_builder::LayoutViewport::new("narrow", 320.0, 480.0),
+                ];
+                let preferences = gpui_builder::LayoutPreferences::default();
+                let matrix =
+                    gpui_builder::solve_snapshot_matrix(&root, &viewports, &preferences);
+                let expected = matrix
+                    .snapshots
+                    .iter()
+                    .map(|snapshot| snapshot.root.width)
+                    .collect::<Vec<_>>();
+                let mut solver = gpui_builder::RetainedLayoutSolver::with_capacity(2);
+                let retained = viewports
+                    .iter()
+                    .map(|viewport| {
+                        solver
+                            .solve(&root, viewport.width, viewport.height, &preferences)
+                            .root()
+                            .width()
+                    })
+                    .collect::<Vec<_>>();
+                (expected, retained, matrix.to_markdown_table())
+            }),
+        );
+        assert_eq!(widths.0, widths.1);
+        assert_eq!(widths.0, vec![800.0, 320.0]);
+        assert!(widths.2.contains("wide"));
+    }
+
+    #[test]
+    fn full_chassis_rows_decode_to_native_specs() {
+        let row = builder_chassis_row(&serde_json::json!({
+            "kind": "knob_row",
+            "id": "controls",
+            "knobs": [{
+                "id": "gain",
+                "param_idx": 2,
+                "label": "Gain",
+                "size": "sm",
+                "bipolar": true
+            }]
+        }))
+        .unwrap();
+        let gpui_builder::RowSpec::KnobRow { id, knobs } = row else {
+            panic!("expected knob row")
+        };
+        assert_eq!(id, "controls");
+        assert_eq!(knobs[0].id, "gain");
+        assert_eq!(knobs[0].param_idx, 2);
+        assert_eq!(knobs[0].size, gpui_builder::KnobSize::Sm);
+        assert!(knobs[0].bipolar);
     }
 }
 
@@ -4010,7 +4574,15 @@ impl PythonIrShowcase {
                         .clone(),
                 )
             }
-            ChartKind::Bar | ChartKind::Heatmap => None,
+            ChartKind::Bar
+            | ChartKind::Heatmap
+            | ChartKind::Area
+            | ChartKind::BoxPlot
+            | ChartKind::Contour
+            | ChartKind::Isoline
+            | ChartKind::Pie
+            | ChartKind::Donut
+            | ChartKind::Treemap => None,
         };
         let active_domains = interaction
             .as_ref()
@@ -4233,6 +4805,155 @@ impl PythonIrShowcase {
                     }
                     container.into_any_element()
                 })
+            }
+            ChartKind::Area => {
+                let x = node.x.as_deref().unwrap_or_default();
+                let y = node.y.as_deref().unwrap_or_default();
+                let mut chart = area(x, y)
+                    .title(node.title.clone())
+                    .color(hex_color(node.color.as_deref(), 0x1f77b4))
+                    .opacity(node.opacity)
+                    .x_scale(scale_type(node.x_log))
+                    .y_scale(scale_type(node.y_log))
+                    .size(node.width, node.height);
+                if let Some(y0) = &node.y0 {
+                    chart = chart.y0(y0);
+                }
+                if let Some(aspect_ratio) = node.aspect_ratio {
+                    chart = chart.aspect_ratio(aspect_ratio);
+                }
+                chart.build().map(IntoElement::into_any_element)
+            }
+            ChartKind::BoxPlot => {
+                let mut chart = boxplot(
+                    node.x.as_deref().unwrap_or_default(),
+                    node.y.as_deref().unwrap_or_default(),
+                )
+                .title(node.title.clone())
+                .box_color(hex_color(node.color.as_deref(), 0xdddddd))
+                .box_opacity(node.opacity)
+                .stroke_width(node.stroke_width)
+                .outlier_radius(node.point_radius)
+                .x_scale(scale_type(node.x_log))
+                .y_scale(scale_type(node.y_log))
+                .size(node.width, node.height);
+                if let Some(num_bins) = node.num_bins {
+                    chart = chart.bins(num_bins);
+                }
+                if let Some(aspect_ratio) = node.aspect_ratio {
+                    chart = chart.aspect_ratio(aspect_ratio);
+                }
+                chart.build().map(IntoElement::into_any_element)
+            }
+            ChartKind::Contour => {
+                let z = node
+                    .z
+                    .as_deref()
+                    .unwrap_or_default()
+                    .iter()
+                    .map(|value| value.unwrap_or(0.0))
+                    .collect::<Vec<_>>();
+                let mut chart = contour(
+                    &z,
+                    node.width_count.unwrap_or_default(),
+                    node.height_count.unwrap_or_default(),
+                )
+                .title(node.title.clone())
+                .color_scale(color_scale(&node.color_scale))
+                .opacity(node.opacity)
+                .x_scale(scale_type(node.x_log))
+                .y_scale(scale_type(node.y_log))
+                .size(node.width, node.height);
+                if let Some(x) = &node.x {
+                    chart = chart.x(x);
+                }
+                if let Some(y) = &node.y {
+                    chart = chart.y(y);
+                }
+                if let Some(thresholds) = &node.thresholds {
+                    chart = chart.thresholds(thresholds.clone());
+                }
+                if let Some([min, max]) = node.x_range {
+                    chart = chart.x_range(min, max);
+                }
+                if let Some([min, max]) = node.y_range {
+                    chart = chart.y_range(min, max);
+                }
+                chart.build().map(IntoElement::into_any_element)
+            }
+            ChartKind::Isoline => {
+                let z = node
+                    .z
+                    .as_deref()
+                    .unwrap_or_default()
+                    .iter()
+                    .map(|value| value.unwrap_or(0.0))
+                    .collect::<Vec<_>>();
+                let mut chart = isoline(
+                    &z,
+                    node.width_count.unwrap_or_default(),
+                    node.height_count.unwrap_or_default(),
+                )
+                .title(node.title.clone())
+                .color(hex_color(node.color.as_deref(), 0x1f77b4))
+                .stroke_width(node.stroke_width)
+                .opacity(node.opacity)
+                .x_scale(scale_type(node.x_log))
+                .y_scale(scale_type(node.y_log))
+                .size(node.width, node.height);
+                if let Some(x) = &node.x {
+                    chart = chart.x(x);
+                }
+                if let Some(y) = &node.y {
+                    chart = chart.y(y);
+                }
+                if let Some(levels) = &node.levels {
+                    chart = chart.levels(levels.clone());
+                }
+                if let Some([min, max]) = node.x_range {
+                    chart = chart.x_range(min, max);
+                }
+                if let Some([min, max]) = node.y_range {
+                    chart = chart.y_range(min, max);
+                }
+                chart.build().map(IntoElement::into_any_element)
+            }
+            ChartKind::Pie | ChartKind::Donut => {
+                let values = node.values.as_deref().unwrap_or_default();
+                let mut chart = if node.chart == ChartKind::Donut {
+                    donut(values)
+                } else {
+                    pie(values)
+                }
+                .title(node.title.clone())
+                .hole(node.inner_radius)
+                .size(node.width, node.height);
+                if let Some(labels) = &node.categories {
+                    chart = chart.labels(labels);
+                }
+                if let Some(aspect_ratio) = node.aspect_ratio {
+                    chart = chart.aspect_ratio(aspect_ratio);
+                }
+                chart.build().map(IntoElement::into_any_element)
+            }
+            ChartKind::Treemap => {
+                let root = native_treemap_node(node.treemap.as_ref().expect("validated treemap"));
+                let method = match node.tiling_method.as_str() {
+                    "binary" => gpui_px::TilingMethod::Binary,
+                    "slice" => gpui_px::TilingMethod::Slice,
+                    "dice" => gpui_px::TilingMethod::Dice,
+                    "slice_dice" => gpui_px::TilingMethod::SliceDice,
+                    _ => gpui_px::TilingMethod::Squarify,
+                };
+                let mut chart = treemap(&root)
+                    .title(node.title.clone())
+                    .tiling_method(method)
+                    .padding(node.padding)
+                    .size(node.width, node.height);
+                if let Some(aspect_ratio) = node.aspect_ratio {
+                    chart = chart.aspect_ratio(aspect_ratio);
+                }
+                chart.build().map(IntoElement::into_any_element)
             }
         };
 
@@ -4790,6 +5511,271 @@ impl PythonIrShowcase {
                     Err(error) => self.send_command_result(request_id, serde_json::json!({"ok": false, "error": error})),
                 }
             }
+            "d3.scale" => {
+                let result = (|| -> Result<Value, String> {
+                    use d3rs::scale::Scale;
+                    let kind = arguments
+                        .get("kind")
+                        .and_then(Value::as_str)
+                        .ok_or_else(|| "scale requires kind".to_string())?;
+                    let numeric_values = || command_numbers(&arguments, "values");
+                    let pair = |name: &str| -> Result<(f64, f64), String> {
+                        let values = command_numbers(&arguments, name)?;
+                        match values.as_slice() {
+                            [minimum, maximum] => Ok((*minimum, *maximum)),
+                            _ => Err(format!("{name} must contain two finite numbers")),
+                        }
+                    };
+                    let strings = |name: &str| -> Result<Vec<String>, String> {
+                        arguments
+                            .get(name)
+                            .and_then(Value::as_array)
+                            .ok_or_else(|| format!("{name} must be an array"))?
+                            .iter()
+                            .map(|value| {
+                                value
+                                    .as_str()
+                                    .map(str::to_string)
+                                    .ok_or_else(|| format!("{name} values must be strings"))
+                            })
+                            .collect()
+                    };
+                    let clamped = arguments
+                        .get("clamp")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false);
+                    let count = arguments
+                        .get("tick_count")
+                        .and_then(Value::as_u64)
+                        .unwrap_or(10) as usize;
+                    let output = match kind {
+                        "linear" => {
+                            let (d0, d1) = pair("domain")?;
+                            let (r0, r1) = pair("range")?;
+                            let scale = d3rs::scale::LinearScale::new()
+                                .domain(d0, d1)
+                                .range(r0, r1)
+                                .clamp(clamped);
+                            serde_json::json!({"values": numeric_values()?.into_iter().map(|value| scale.scale(value)).collect::<Vec<_>>(), "ticks": scale.ticks(count)})
+                        }
+                        "log" => {
+                            let (d0, d1) = pair("domain")?;
+                            let (r0, r1) = pair("range")?;
+                            let scale = d3rs::scale::LogScale::new()
+                                .domain(d0, d1)
+                                .range(r0, r1)
+                                .base(arguments.get("base").and_then(Value::as_f64).unwrap_or(10.0))
+                                .clamp(clamped);
+                            serde_json::json!({"values": numeric_values()?.into_iter().map(|value| scale.scale(value)).collect::<Vec<_>>(), "ticks": scale.ticks(count)})
+                        }
+                        "power" | "sqrt" => {
+                            let (d0, d1) = pair("domain")?;
+                            let (r0, r1) = pair("range")?;
+                            let exponent = if kind == "sqrt" { 0.5 } else { arguments.get("exponent").and_then(Value::as_f64).unwrap_or(1.0) };
+                            let scale = d3rs::scale::PowScale::new().domain(d0, d1).range(r0, r1).exponent(exponent).clamp(clamped);
+                            serde_json::json!({"values": numeric_values()?.into_iter().map(|value| scale.scale(value)).collect::<Vec<_>>(), "ticks": scale.ticks(count)})
+                        }
+                        "symlog" => {
+                            let (d0, d1) = pair("domain")?;
+                            let (r0, r1) = pair("range")?;
+                            let scale = d3rs::scale::SymlogScale::new().domain(d0, d1).range(r0, r1).constant(arguments.get("constant").and_then(Value::as_f64).unwrap_or(1.0)).clamp(clamped);
+                            serde_json::json!({"values": numeric_values()?.into_iter().map(|value| scale.scale(value)).collect::<Vec<_>>(), "ticks": scale.ticks(count)})
+                        }
+                        "quantize" => {
+                            let (d0, d1) = pair("domain")?;
+                            let scale = d3rs::scale::QuantizeScale::with_range(strings("range")?).domain(d0, d1);
+                            serde_json::json!({"values": numeric_values()?.into_iter().map(|value| scale.scale(value)).collect::<Vec<_>>(), "thresholds": scale.thresholds()})
+                        }
+                        "quantile" => {
+                            let scale = d3rs::scale::QuantileScale::with_range(strings("range")?).domain(command_numbers(&arguments, "domain")?);
+                            serde_json::json!({"values": numeric_values()?.into_iter().map(|value| scale.scale(value)).collect::<Vec<_>>(), "thresholds": scale.quantiles()})
+                        }
+                        "threshold" => {
+                            let scale = d3rs::scale::ThresholdScale::with_range(strings("range")?).domain(command_numbers(&arguments, "domain")?);
+                            serde_json::json!({"values": numeric_values()?.into_iter().map(|value| scale.scale(value)).collect::<Vec<_>>(), "thresholds": scale.thresholds()})
+                        }
+                        "ordinal" => {
+                            let scale = d3rs::scale::OrdinalScale::new().domain(strings("domain")?).range(strings("range")?);
+                            serde_json::json!({"values": strings("values")?.iter().map(|value| scale.scale(value)).collect::<Vec<_>>()})
+                        }
+                        "band" => {
+                            let (r0, r1) = pair("range")?;
+                            let scale = d3rs::scale::BandScale::new().domain(strings("domain")?).range(r0, r1).padding_inner(arguments.get("padding_inner").and_then(Value::as_f64).unwrap_or(0.0)).padding_outer(arguments.get("padding_outer").and_then(Value::as_f64).unwrap_or(0.0)).align(arguments.get("align").and_then(Value::as_f64).unwrap_or(0.5)).round(arguments.get("round").and_then(Value::as_bool).unwrap_or(false));
+                            serde_json::json!({"values": strings("values")?.iter().map(|value| scale.scale(value)).collect::<Vec<_>>(), "bandwidth": scale.bandwidth(), "step": scale.step()})
+                        }
+                        "point" => {
+                            let (r0, r1) = pair("range")?;
+                            let scale = d3rs::scale::PointScale::new().domain(strings("domain")?).range(r0, r1).padding(arguments.get("padding_outer").and_then(Value::as_f64).unwrap_or(0.0)).align(arguments.get("align").and_then(Value::as_f64).unwrap_or(0.5)).round(arguments.get("round").and_then(Value::as_bool).unwrap_or(false));
+                            serde_json::json!({"values": strings("values")?.iter().map(|value| scale.scale(value)).collect::<Vec<_>>(), "step": scale.step()})
+                        }
+                        _ => return Err(format!("unsupported scale kind: {kind}")),
+                    };
+                    Ok(serde_json::json!({"ok": true, "output": output}))
+                })();
+                match result {
+                    Ok(result) => self.send_command_result(request_id, result),
+                    Err(error) => self.send_command_result(request_id, serde_json::json!({"ok": false, "error": error})),
+                }
+            }
+            "d3.statistics" => {
+                let result = (|| -> Result<Value, String> {
+                    let data = command_numbers(&arguments, "data")?;
+                    let operation = arguments
+                        .get("operation")
+                        .and_then(Value::as_str)
+                        .ok_or_else(|| "statistics requires operation".to_string())?;
+                    let value = match operation {
+                        "sum" => serde_json::json!(d3rs::array::sum(&data)),
+                        "mean" => serde_json::json!(d3rs::array::mean(&data)),
+                        "median" => {
+                            let mut values = data.clone();
+                            serde_json::json!(d3rs::array::median(&mut values))
+                        }
+                        "variance" => serde_json::json!(d3rs::array::variance(&data)),
+                        "deviation" => serde_json::json!(d3rs::array::deviation(&data)),
+                        "quantile" => {
+                            let percentile = arguments
+                                .get("percentile")
+                                .and_then(Value::as_f64)
+                                .filter(|value| (0.0..=1.0).contains(value))
+                                .ok_or_else(|| {
+                                    "quantile requires percentile in [0, 1]".to_string()
+                                })?;
+                            let mut values = data.clone();
+                            serde_json::json!(d3rs::array::quantile(&mut values, percentile))
+                        }
+                        "extent" => {
+                            let minimum = data.iter().copied().reduce(f64::min);
+                            let maximum = data.iter().copied().reduce(f64::max);
+                            serde_json::json!(minimum.zip(maximum))
+                        }
+                        "cumsum" => serde_json::json!(d3rs::array::cumsum(&data)),
+                        _ => return Err(format!("unsupported statistics operation: {operation}")),
+                    };
+                    Ok(serde_json::json!({"ok": true, "value": value}))
+                })();
+                match result {
+                    Ok(result) => self.send_command_result(request_id, result),
+                    Err(error) => self.send_command_result(
+                        request_id,
+                        serde_json::json!({"ok": false, "error": error}),
+                    ),
+                }
+            }
+            "d3.ticks" => {
+                let result = (|| -> Result<Value, String> {
+                    let operation = arguments
+                        .get("operation")
+                        .and_then(Value::as_str)
+                        .ok_or_else(|| "ticks requires operation".to_string())?;
+                    let start = arguments
+                        .get("start")
+                        .and_then(Value::as_f64)
+                        .filter(|value| value.is_finite())
+                        .ok_or_else(|| "ticks requires finite start".to_string())?;
+                    let stop = arguments
+                        .get("stop")
+                        .and_then(Value::as_f64)
+                        .filter(|value| value.is_finite())
+                        .ok_or_else(|| "ticks requires finite stop".to_string())?;
+                    let count = arguments
+                        .get("count")
+                        .and_then(Value::as_u64)
+                        .unwrap_or(10) as usize;
+                    let value = match operation {
+                        "ticks" => serde_json::json!(d3rs::array::ticks(start, stop, count)),
+                        "tick_step" => {
+                            serde_json::json!(d3rs::array::tick_step(start, stop, count))
+                        }
+                        "tick_increment" => {
+                            serde_json::json!(d3rs::array::tick_increment(start, stop, count))
+                        }
+                        "nice" => serde_json::json!(d3rs::array::nice(start, stop, count)),
+                        "time_ticks" => {
+                            serde_json::json!(d3rs::array::time_ticks(start, stop, count))
+                        }
+                        "interval" => {
+                            let interval = arguments
+                                .get("interval")
+                                .and_then(Value::as_f64)
+                                .filter(|value| value.is_finite() && *value > 0.0)
+                                .ok_or_else(|| {
+                                    "interval ticks require positive finite interval".to_string()
+                                })?;
+                            serde_json::json!(d3rs::array::ticks_interval(start, stop, interval))
+                        }
+                        "log" => {
+                            let base = arguments
+                                .get("base")
+                                .and_then(Value::as_f64)
+                                .unwrap_or(10.0);
+                            if !base.is_finite() || base <= 1.0 {
+                                return Err("log ticks require finite base > 1".into());
+                            }
+                            serde_json::json!(d3rs::array::log_ticks(
+                                start,
+                                stop,
+                                base,
+                                arguments
+                                    .get("subdivisions")
+                                    .and_then(Value::as_bool)
+                                    .unwrap_or(true),
+                            ))
+                        }
+                        _ => return Err(format!("unsupported ticks operation: {operation}")),
+                    };
+                    Ok(serde_json::json!({"ok": true, "value": value}))
+                })();
+                match result {
+                    Ok(result) => self.send_command_result(request_id, result),
+                    Err(error) => self.send_command_result(
+                        request_id,
+                        serde_json::json!({"ok": false, "error": error}),
+                    ),
+                }
+            }
+            "d3.reports" => {
+                let parity = d3rs::feature_parity::feature_parity_report();
+                let benchmark = d3rs::feature_parity::d3_benchmark_coverage_report();
+                self.send_command_result(
+                    request_id,
+                    serde_json::json!({
+                        "ok": true,
+                        "parity": {
+                            "schema_version": parity.schema_version,
+                            "report_type": parity.report_type,
+                            "reviewed_on": parity.reviewed_on,
+                            "entries": parity.entries.iter().map(|entry| serde_json::json!({
+                                "id": entry.id,
+                                "d3_area": entry.d3_area,
+                                "gpui_d3rs_modules": entry.gpui_d3rs_modules,
+                                "status": entry.status.as_str(),
+                                "evidence": entry.evidence,
+                                "release_requirement": entry.release_requirement,
+                            })).collect::<Vec<_>>(),
+                            "markdown": parity.to_markdown_table(),
+                        },
+                        "benchmark": {
+                            "schema_version": benchmark.schema_version,
+                            "report_type": benchmark.report_type,
+                            "reviewed_on": benchmark.reviewed_on,
+                            "command": benchmark.command,
+                            "baseline_policy": benchmark.baseline_policy,
+                            "case_count": benchmark.case_count(),
+                            "cases": benchmark.cases.iter().map(|case| serde_json::json!({
+                                "id": case.id,
+                                "module": case.module,
+                                "bench_target": case.bench_target,
+                                "benchmark_group": case.benchmark_group,
+                                "benchmark_id": case.benchmark_id,
+                                "dataset_scale": case.dataset_scale,
+                                "evidence": case.evidence,
+                            })).collect::<Vec<_>>(),
+                            "markdown": benchmark.to_markdown_table(),
+                        },
+                    }),
+                );
+            }
             "text.prepare_layout" => {
                 let result = (|| -> Result<Value, String> {
                     let text = arguments.get("text").and_then(Value::as_str)
@@ -4864,6 +5850,372 @@ impl PythonIrShowcase {
                     Err(error) => self.send_command_result(request_id, serde_json::json!({"ok": false, "error": error})),
                 }
             }
+            "px.reports" => {
+                let capability = gpui_px::chart_capability_report();
+                let visual = gpui_px::chart_visual_regression_manifest();
+                let result = serde_json::json!({
+                    "ok": true,
+                    "capability": {
+                        "schema_version": capability.schema_version,
+                        "report_type": capability.report_type,
+                        "reviewed_on": capability.reviewed_on,
+                        "all_release_ready": capability.all_release_ready(),
+                        "entries": capability.entries.iter().map(|entry| serde_json::json!({
+                            "id": entry.id,
+                            "capability": entry.capability,
+                            "chart_families": entry.chart_families,
+                            "story_ids": entry.story_ids,
+                            "test_contracts": entry.test_contracts,
+                            "status": entry.status.as_str(),
+                            "evidence": entry.evidence,
+                            "release_requirement": entry.release_requirement,
+                        })).collect::<Vec<_>>(),
+                        "markdown": capability.to_markdown_table(),
+                    },
+                    "visual": {
+                        "schema_version": visual.schema_version,
+                        "report_type": visual.report_type,
+                        "crate_name": visual.crate_name,
+                        "crate_version": visual.crate_version,
+                        "capture_count": visual.capture_count(),
+                        "expected_capture_count": visual.expected_capture_count(),
+                        "unique_capture_ids": visual.validate_unique_capture_ids(),
+                        "chart_families": visual.chart_families().into_iter().collect::<Vec<_>>(),
+                        "markdown": visual.to_markdown_table(),
+                    },
+                });
+                self.send_command_result(request_id, result);
+            }
+            "builder.solve_matrix" => {
+                let result = (|| -> Result<Value, String> {
+                    let root: BuilderLayoutSpec = serde_json::from_value(
+                        arguments
+                            .get("root")
+                            .cloned()
+                            .ok_or_else(|| "builder matrix requires root".to_string())?,
+                    )
+                    .map_err(|error| format!("invalid builder root: {error}"))?;
+                    let viewports = serde_json::from_value::<Vec<BuilderViewportSpec>>(
+                        arguments
+                            .get("viewports")
+                            .cloned()
+                            .ok_or_else(|| "builder matrix requires viewports".to_string())?,
+                    )
+                    .map_err(|error| format!("invalid builder viewports: {error}"))?;
+                    for viewport in &viewports {
+                        if viewport.label.is_empty()
+                            || !viewport.width.is_finite()
+                            || viewport.width < 0.0
+                            || !viewport.height.is_finite()
+                            || viewport.height < 0.0
+                        {
+                            return Err(
+                                "builder viewports require labels and finite non-negative sizes"
+                                    .into(),
+                            );
+                        }
+                    }
+                    let preference_value = arguments.get("preferences");
+                    let ratios = preference_value
+                        .and_then(|value| value.get("ratios"))
+                        .cloned()
+                        .map(serde_json::from_value::<Vec<BuilderRatioPreference>>)
+                        .transpose()
+                        .map_err(|error| format!("invalid builder ratio preferences: {error}"))?
+                        .unwrap_or_default();
+                    let collapsed = preference_value
+                        .and_then(|value| value.get("collapsed"))
+                        .cloned()
+                        .map(serde_json::from_value::<Vec<BuilderCollapsePreference>>)
+                        .transpose()
+                        .map_err(|error| {
+                            format!("invalid builder collapse preferences: {error}")
+                        })?
+                        .unwrap_or_default();
+                    let ratio_values = ratios
+                        .iter()
+                        .map(|value| {
+                            if !value.ratio.is_finite() {
+                                return Err(format!(
+                                    "builder ratio for {} must be finite",
+                                    value.id
+                                ));
+                            }
+                            let axis = match value.axis.as_str() {
+                                "horizontal" => gpui_builder::Axis::Horizontal,
+                                "vertical" => gpui_builder::Axis::Vertical,
+                                other => {
+                                    return Err(format!(
+                                        "unsupported builder preference axis: {other}"
+                                    ));
+                                }
+                            };
+                            Ok((value.id.as_str(), axis, value.ratio))
+                        })
+                        .collect::<Result<Vec<_>, String>>()?;
+                    let collapsed_values = collapsed
+                        .iter()
+                        .map(|value| (value.id.as_str(), value.collapsed))
+                        .collect::<Vec<_>>();
+                    let preferences =
+                        gpui_builder::LayoutPreferences::new(&ratio_values, &collapsed_values);
+                    let char_width = arguments
+                        .get("char_width")
+                        .and_then(Value::as_f64)
+                        .unwrap_or(8.0);
+                    if !char_width.is_finite() || char_width <= 0.0 {
+                        return Err(
+                            "builder matrix char_width must be positive and finite".into(),
+                        );
+                    }
+                    let include_retained = arguments
+                        .get("include_retained")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(true);
+                    let measure = FixedTextMeasure(char_width);
+                    with_builder_node(
+                        &root,
+                        &measure,
+                        Box::new(|root| {
+                            let native_viewports = viewports
+                                .iter()
+                                .map(|viewport| gpui_builder::LayoutViewport::new(
+                                    &viewport.label,
+                                    viewport.width,
+                                    viewport.height,
+                                ))
+                                .collect::<Vec<_>>();
+                            let matrix = gpui_builder::solve_snapshot_matrix(
+                                &root,
+                                &native_viewports,
+                                &preferences,
+                            );
+                            let snapshots = matrix
+                                .snapshots
+                                .iter()
+                                .map(|snapshot| {
+                                    serde_json::json!({
+                                        "label": snapshot.label,
+                                        "width": snapshot.width,
+                                        "height": snapshot.height,
+                                        "root": builder_solved_node(&snapshot.root),
+                                        "visible_ids": snapshot.visible_ids(),
+                                        "collapsed_labels": snapshot.collapsed_labels(),
+                                        "active_tiers": snapshot.active_tiers(),
+                                        "resolved_axes": snapshot.resolved_axes(),
+                                    })
+                                })
+                                .collect::<Vec<_>>();
+                            let retained_snapshots = if include_retained {
+                                let mut solver = gpui_builder::RetainedLayoutSolver::with_capacity(
+                                    gpui_builder::inspect_layout(&root).nodes().len(),
+                                );
+                                native_viewports
+                                    .iter()
+                                    .map(|viewport| {
+                                        let tree = solver.solve(
+                                            &root,
+                                            viewport.width,
+                                            viewport.height,
+                                            &preferences,
+                                        );
+                                        serde_json::json!({
+                                            "label": viewport.label,
+                                            "width": viewport.width,
+                                            "height": viewport.height,
+                                            "root": builder_solved_ref(tree.root()),
+                                        })
+                                    })
+                                    .collect::<Vec<_>>()
+                            } else {
+                                Vec::new()
+                            };
+                            Ok(serde_json::json!({
+                                "ok": true,
+                                "snapshots": snapshots,
+                                "retained_snapshots": retained_snapshots,
+                                "report": matrix.to_text(),
+                                "markdown": matrix.to_markdown_table(),
+                            }))
+                        }),
+                    )
+                })();
+                match result {
+                    Ok(result) => self.send_command_result(request_id, result),
+                    Err(error) => self.send_command_result(
+                        request_id,
+                        serde_json::json!({"ok": false, "error": error}),
+                    ),
+                }
+            }
+            "builder.solve" => {
+                let result = (|| -> Result<Value, String> {
+                    let width = arguments
+                        .get("width")
+                        .and_then(Value::as_f64)
+                        .filter(|value| value.is_finite() && *value >= 0.0)
+                        .ok_or_else(|| {
+                            "builder solve requires finite non-negative width".to_string()
+                        })? as f32;
+                    let height = arguments
+                        .get("height")
+                        .and_then(Value::as_f64)
+                        .filter(|value| value.is_finite() && *value >= 0.0)
+                        .ok_or_else(|| {
+                            "builder solve requires finite non-negative height".to_string()
+                        })? as f32;
+                    let char_width = arguments
+                        .get("char_width")
+                        .and_then(Value::as_f64)
+                        .unwrap_or(8.0);
+                    if !char_width.is_finite() || char_width <= 0.0 {
+                        return Err("builder solve char_width must be positive and finite".into());
+                    }
+                    let root: BuilderLayoutSpec = serde_json::from_value(
+                        arguments
+                            .get("root")
+                            .cloned()
+                            .ok_or_else(|| "builder solve requires root".to_string())?,
+                    )
+                    .map_err(|error| format!("invalid builder root: {error}"))?;
+                    let preferences = arguments.get("preferences");
+                    let ratios = preferences
+                        .and_then(|value| value.get("ratios"))
+                        .cloned()
+                        .map(serde_json::from_value::<Vec<BuilderRatioPreference>>)
+                        .transpose()
+                        .map_err(|error| format!("invalid builder ratio preferences: {error}"))?
+                        .unwrap_or_default();
+                    let collapsed = preferences
+                        .and_then(|value| value.get("collapsed"))
+                        .cloned()
+                        .map(serde_json::from_value::<Vec<BuilderCollapsePreference>>)
+                        .transpose()
+                        .map_err(|error| {
+                            format!("invalid builder collapse preferences: {error}")
+                        })?
+                        .unwrap_or_default();
+                    let accessibility = arguments
+                        .get("accessibility")
+                        .cloned()
+                        .map(serde_json::from_value::<Vec<BuilderAccessibilitySpec>>)
+                        .transpose()
+                        .map_err(|error| format!("invalid builder accessibility metadata: {error}"))?
+                        .unwrap_or_default();
+                    let ratio_values = ratios
+                        .iter()
+                        .map(|value| {
+                            if !value.ratio.is_finite() {
+                                return Err(format!(
+                                    "builder ratio for {} must be finite",
+                                    value.id
+                                ));
+                            }
+                            Ok((value.id.as_str(), builder_axis(match value.axis.as_str() {
+                                "horizontal" => BuilderAxis::Horizontal,
+                                "vertical" => BuilderAxis::Vertical,
+                                other => {
+                                    return Err(format!(
+                                        "unsupported builder preference axis: {other}"
+                                    ));
+                                }
+                            }), value.ratio))
+                        })
+                        .collect::<Result<Vec<_>, String>>()?;
+                    let collapsed_values = collapsed
+                        .iter()
+                        .map(|value| (value.id.as_str(), value.collapsed))
+                        .collect::<Vec<_>>();
+                    let preferences =
+                        gpui_builder::LayoutPreferences::new(&ratio_values, &collapsed_values);
+                    let measure = FixedTextMeasure(char_width);
+                    with_builder_node(
+                        &root,
+                        &measure,
+                        Box::new(|root| {
+                            let validation = gpui_builder::validate_layout(&root);
+                            let declaration_inspection = gpui_builder::inspect_layout(&root);
+                            let solved =
+                                gpui_builder::solve(&root, width, height, &preferences);
+                            let solved_inspection = gpui_builder::inspect_solved(&solved);
+                            let debug = solved.debug_report_with_source(&root);
+                            let accessibility_metadata = accessibility
+                                .iter()
+                                .map(|value| {
+                                    Ok((
+                                        value.id.as_str(),
+                                        gpui_builder::AccessibilityMetadata {
+                                            role: builder_accessibility_role(value.role.as_deref())?,
+                                            label: value.label.as_deref(),
+                                            description: value.description.as_deref(),
+                                        },
+                                    ))
+                                })
+                                .collect::<Result<Vec<_>, String>>()?;
+                            let accessibility = gpui_builder::accessibility_tree_from_solved(
+                                &solved,
+                                &accessibility_metadata,
+                            );
+                            let issues = validation
+                                .issues()
+                                .iter()
+                                .map(|issue| {
+                                    serde_json::json!({
+                                        "severity": match issue.severity {
+                                            gpui_builder::LayoutIssueSeverity::Error => "error",
+                                            gpui_builder::LayoutIssueSeverity::Warning => "warning",
+                                        },
+                                        "kind": builder_issue_kind(&issue.kind),
+                                        "node_id": issue.node_id,
+                                        "path": issue.path,
+                                        "message": issue.message,
+                                    })
+                                })
+                                .collect::<Vec<_>>();
+                            let warnings = debug
+                                .warnings()
+                                .iter()
+                                .map(|warning| {
+                                    serde_json::json!({
+                                        "code": warning.code(),
+                                        "node_id": warning.node_id,
+                                        "message": warning.to_string(),
+                                        "remediation": warning.remediation(),
+                                    })
+                                })
+                                .collect::<Vec<_>>();
+                            Ok(serde_json::json!({
+                                "ok": true,
+                                "solved": builder_solved_node(&solved),
+                                "collapsed_tabs": solved.collapsed_tabs().into_iter().map(|(id, label)| serde_json::json!({"id": id, "label": label})).collect::<Vec<_>>(),
+                                "accessibility": builder_accessibility_node(&accessibility.root),
+                                "validation": {
+                                    "clean": validation.is_clean(),
+                                    "error_count": validation.error_count(),
+                                    "warning_count": validation.warning_count(),
+                                    "issues": issues,
+                                    "report": validation.to_text(),
+                                },
+                                "inspection": {
+                                    "declaration_report": declaration_inspection.to_text(),
+                                    "solved_report": solved_inspection.to_text(),
+                                },
+                                "debug": {
+                                    "report": debug.to_string(),
+                                    "warnings": warnings,
+                                },
+                            }))
+                        }),
+                    )
+                })();
+                match result {
+                    Ok(result) => self.send_command_result(request_id, result),
+                    Err(error) => self.send_command_result(
+                        request_id,
+                        serde_json::json!({"ok": false, "error": error}),
+                    ),
+                }
+            }
             "builder.solve_chassis" => {
                 let result = (|| -> Result<Value, String> {
                     let width = arguments.get("width").and_then(Value::as_f64)
@@ -4883,14 +6235,28 @@ impl PythonIrShowcase {
                             let priority = section.get("priority").and_then(Value::as_f64).unwrap_or(1.0);
                             if !priority.is_finite() { return Err(format!("builder section {id} priority must be finite")); }
                             Ok(gpui_builder::plugin_chassis::SectionSpec {
-                                id, eyebrow: String::new(), title: String::new(), caption: None, rows: Vec::new(),
+                                id,
+                                eyebrow: section.get("eyebrow").and_then(Value::as_str).unwrap_or("").to_string(),
+                                title: section.get("title").and_then(Value::as_str).unwrap_or("").to_string(),
+                                caption: section.get("caption").and_then(Value::as_str).map(str::to_string),
+                                rows: section.get("rows").and_then(Value::as_array).map(|rows| rows.iter().map(builder_chassis_row).collect::<Result<Vec<_>, String>>()).transpose()?.unwrap_or_default(),
                                 min_width, preferred_width, priority: priority as f32,
                             })
                         }).collect::<Result<Vec<_>, String>>()?;
-                    let chassis = gpui_builder::plugin_chassis::ChassisLayout::new(
-                        gpui_builder::plugin_chassis::HeaderSpec { brand_mark: String::new(), title: String::new(), subtitle: String::new() },
-                        sections,
-                    );
+                    let header = arguments.get("header");
+                    let header = gpui_builder::plugin_chassis::HeaderSpec {
+                        brand_mark: header.and_then(|value| value.get("brand_mark")).and_then(Value::as_str).unwrap_or("").to_string(),
+                        title: header.and_then(|value| value.get("title")).and_then(Value::as_str).unwrap_or("").to_string(),
+                        subtitle: header.and_then(|value| value.get("subtitle")).and_then(Value::as_str).unwrap_or("").to_string(),
+                    };
+                    let mut chassis = gpui_builder::plugin_chassis::ChassisLayout::new(header, sections);
+                    if let Some(footer) = arguments.get("footer").filter(|value| !value.is_null()) {
+                        let ticks = footer.get("ticks").and_then(Value::as_array).ok_or_else(|| "builder chassis footer requires ticks".to_string())?.iter().map(|tick| tick.as_str().map(str::to_string).ok_or_else(|| "builder chassis footer ticks must be strings".to_string())).collect::<Result<Vec<_>, String>>()?;
+                        chassis = chassis.with_footer(gpui_builder::plugin_chassis::FooterSpec {
+                            ticks,
+                            serial: footer.get("serial").and_then(Value::as_str).unwrap_or("").to_string(),
+                        });
+                    }
                     let solved = chassis.solve(width);
                     Ok(serde_json::json!({"ok": true, "total_width": solved.total_width, "sections": solved.sections.into_iter().map(|section| serde_json::json!({"id": section.id, "width": section.width, "visible": section.visible})).collect::<Vec<_>>() }))
                 })();

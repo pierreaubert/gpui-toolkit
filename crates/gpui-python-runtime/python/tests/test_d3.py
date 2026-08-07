@@ -1,7 +1,11 @@
 import unittest
+import contextlib
+import io
+import json
 
+from gpui_toolkit import SessionContext
 from gpui_toolkit.commands import CommandResult
-from gpui_toolkit.d3 import ArrayOperation, ArrayRequest, ZoomOperation, ZoomRequest, ZoomResult
+from gpui_toolkit.d3 import ArrayOperation, ArrayRequest, ScaleKind, ScaleOutput, ScaleRequest, StatisticsOperation, StatisticsRequest, TickOperation, TickRequest, ZoomOperation, ZoomRequest, ZoomResult, reports_from_command, request_reports
 
 
 class D3ZoomTests(unittest.TestCase):
@@ -28,3 +32,37 @@ class D3ZoomTests(unittest.TestCase):
         self.assertEqual(ArrayRequest.value_from_command(result), 3)
         with self.assertRaises(ValueError):
             ArrayRequest(ArrayOperation.QUANTILE, [1, 2]).to_spec()
+
+    def test_statistics_and_ticks_use_typed_native_commands(self):
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            StatisticsRequest(StatisticsOperation.VARIANCE, [1, 2, 3]).send(SessionContext(), "stats")
+        self.assertEqual(json.loads(output.getvalue())["command"], "d3.statistics")
+        self.assertEqual(StatisticsRequest.value_from_command(CommandResult.from_wire("stats", {"ok": True, "value": 1.0})), 1.0)
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            TickRequest(TickOperation.LOG, 1, 1000, base=10).send(SessionContext(), "ticks")
+        self.assertEqual(json.loads(output.getvalue())["arguments"]["base"], 10)
+
+    def test_parity_and_benchmark_reports_are_typed(self):
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output): request_reports(SessionContext(), "reports")
+        self.assertEqual(json.loads(output.getvalue())["command"], "d3.reports")
+        reports = reports_from_command(CommandResult.from_wire("reports", {"ok": True,
+            "parity": {"entries": [{"id": "array", "d3_area": "d3-array", "gpui_d3rs_modules": "array", "status": "complete", "evidence": "tests", "release_requirement": "none"}], "markdown": "| area |"},
+            "benchmark": {"cases": [{"id": "force", "module": "force", "bench_target": "large", "benchmark_group": "force", "benchmark_id": "force-10k", "dataset_scale": "10k", "evidence": "criterion"}], "markdown": "| case |"},
+        }))
+        self.assertEqual(reports.parity_entries[0].d3_area, "d3-array")
+        self.assertEqual(reports.benchmark_cases[0].module, "force")
+
+    def test_continuous_and_categorical_scales_are_typed(self):
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            ScaleRequest(ScaleKind.SYMLOG, [-100, 100], [0, 1], [-10, 0, 10], constant=2).send(SessionContext(), "scale")
+        command = json.loads(output.getvalue())
+        self.assertEqual(command["command"], "d3.scale")
+        self.assertEqual(command["arguments"]["constant"], 2)
+        output = ScaleOutput.from_command(CommandResult.from_wire("scale", {"ok": True, "output": {"values": [0.25, 0.5, 0.75], "ticks": [-100, 0, 100]}}))
+        self.assertEqual(output.values[1], 0.5)
+        band = ScaleOutput.from_command(CommandResult.from_wire("band", {"ok": True, "output": {"values": [0, 50], "bandwidth": 40, "step": 50}}))
+        self.assertEqual(band.bandwidth, 40)
