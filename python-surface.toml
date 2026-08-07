@@ -33,6 +33,7 @@ id = "ui.navigation-feedback-data-workflow"
 id = "ui.infrastructure-accessibility"
 [[requirement]]
 id = "builder.full-solver-and-inspection"
+capability = "gpui-builder.full-solver-and-inspection"
 [[requirement]]
 id = "design.full-token-and-report-model"
 capability = "gpui-design.tokens-and-reports"
@@ -356,6 +357,13 @@ rust_path = "gpui_builder::RetainedLayoutSolver"
 python_path = "gpui_toolkit.layout.solve_matrix"
 disposition = "command"
 tests = ["crates/gpui-python-runtime/python/tests/test_layout.py"]
+
+[[capability]]
+id = "gpui-builder.full-solver-and-inspection"
+rust_path = "gpui_builder::{LayoutNode,LayoutState,RetainedLayoutSolver,LayoutSnapshotMatrix,LayoutValidationReport,LayoutInspection,AccessibilityTree,ChassisLayout}"
+python_path = "gpui_toolkit.layout"
+disposition = "command"
+tests = ["crates/gpui-python-runtime/python/tests/test_layout.py", "crates/gpui-builder/src/solver/tests.rs", "crates/gpui-builder/src/inspector/tests.rs", "crates/gpui-builder/src/snapshots.rs", "crates/gpui-builder/src/plugin_chassis/tests.rs"]
 
 [[capability]]
 id = "gpui-profiler.snapshots-and-budgets"

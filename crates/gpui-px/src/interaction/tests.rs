@@ -372,4 +372,18 @@ mod interactive_chart_state_tests {
         assert_eq!(state.config.left_margin, 80.0);
         assert!(!state.config.enable_pan);
     }
+
+    #[test]
+    fn interaction_coordinates_include_chart_origin() {
+        use gpui::{Bounds, point, px, size};
+
+        let state = InteractiveChartState::new(0.0, 100.0, 0.0, 100.0)
+            .with_size(300.0, 200.0);
+        let bounds = Bounds::new(point(px(100.0), px(200.0)), size(px(350.0), px(230.0)));
+        let position = point(px(175.0), px(250.0));
+
+        assert!(state.is_over_plot(position, Some(bounds)));
+        assert_eq!(state.to_chart_coords(position, Some(bounds)), (25.0, 20.0));
+        assert!(!state.is_over_plot(point(px(90.0), px(250.0)), Some(bounds)));
+    }
 }

@@ -5,12 +5,20 @@ import json
 
 from gpui_toolkit import SessionContext
 from gpui_toolkit.charts import (
+    AnnotationTarget,
+    ChartAnnotation,
+    CurveType,
+    LegendPosition,
+    Series,
+    StrokeDash,
     TreemapNode,
     area,
+    bar,
     boxplot,
     contour,
     donut,
     isoline,
+    line,
     pie,
     reports_from_command,
     request_reports,
@@ -20,6 +28,59 @@ from gpui_toolkit.commands import CommandResult
 
 
 class ExtendedChartTests(unittest.TestCase):
+    def test_line_serializes_full_native_style_and_secondary_axis_surface(self):
+        chart = line(
+            "response",
+            [20.0, 100.0, 1000.0],
+            [0.0, -1.0, 2.0],
+            curve=CurveType.MONOTONE_X,
+            dash=StrokeDash.DASHED,
+            legend_position=LegendPosition.BOTTOM,
+            y2_label="Phase",
+            y2_range=(-180.0, 180.0),
+            series=(
+                Series(
+                    "phase",
+                    [20.0, 100.0, 1000.0],
+                    [10.0, 20.0, 30.0],
+                    opacity=0.5,
+                    secondary_y=True,
+                    dash=StrokeDash.DASH_DOT,
+                ),
+            ),
+            annotations=(
+                ChartAnnotation(
+                    "crossover",
+                    "Crossover",
+                    AnnotationTarget.X_VALUE,
+                    x=1000.0,
+                ),
+            ),
+        )
+
+        spec = chart.to_spec()
+        self.assertEqual(spec["curve"], "monotone_x")
+        self.assertEqual(spec["dash"], "dashed")
+        self.assertEqual(spec["legend_position"], "bottom")
+        self.assertEqual(spec["y2_range"], [-180.0, 180.0])
+        self.assertTrue(spec["series"][0]["secondary_y"])
+        self.assertEqual(spec["series"][0]["dash"], "dash_dot")
+        self.assertEqual(spec["annotations"][0]["target"], "x_value")
+
+    def test_grouped_bar_serializes_multiple_series(self):
+        chart = bar(
+            "levels",
+            ["L", "R"],
+            [-3.0, -2.0],
+            series=(Series("peak", [0.0, 1.0], [-1.0, -0.5], opacity=0.75),),
+            legend_position=LegendPosition.TOP,
+        )
+
+        spec = chart.to_spec()
+        self.assertEqual(spec["chart"], "bar")
+        self.assertEqual(spec["series"][0]["id"], "peak")
+        self.assertEqual(spec["series"][0]["opacity"], 0.75)
+
     def test_all_native_gpui_px_families_have_typed_specs(self):
         grid = [0.0, 1.0, 2.0, 3.0]
         charts = (

@@ -68,6 +68,33 @@ fn test_compute_line_segments_linear() {
 }
 
 #[test]
+fn test_compute_line_segments_supports_smooth_curves() {
+    let points = [(0.0, 0.0), (0.5, 1.0), (1.0, 0.25), (1.5, 0.75)];
+
+    for curve in [
+        CurveType::Basis,
+        CurveType::Cardinal,
+        CurveType::CatmullRom,
+        CurveType::MonotoneX,
+        CurveType::Natural,
+    ] {
+        let segments = compute_line_segments(&points, curve);
+        assert!(
+            segments.len() > points.len() - 1,
+            "{curve:?} should generate interpolated segments"
+        );
+        assert!(
+            segments
+                .iter()
+                .all(|segment| [segment.0, segment.1, segment.2, segment.3]
+                    .into_iter()
+                    .all(f32::is_finite)),
+            "{curve:?} should generate finite geometry"
+        );
+    }
+}
+
+#[test]
 fn validate_line_inputs_accepts_valid_line() {
     let x_scale = LinearScale::new().domain(0.0, 10.0).range(0.0, 100.0);
     let y_scale = LinearScale::new().domain(0.0, 10.0).range(100.0, 0.0);

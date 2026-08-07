@@ -111,11 +111,12 @@ where
         .as_ref()
         .unwrap_or(&config.stroke_color)
         .to_rgba();
-    let dash_pattern: Option<Vec<f32>> = config.dash_array.as_ref().map(|da| match da {
-        StrokeDashArray::Dotted => vec![2.0, 2.0],
-        StrokeDashArray::Dashed => vec![6.0, 3.0],
-        StrokeDashArray::DashDot => vec![6.0, 3.0, 2.0, 3.0],
-        StrokeDashArray::Custom(v) => v.clone(),
+    let dash_pattern: Option<Vec<f32>> = config.dash_array.as_ref().and_then(|da| match da {
+        StrokeDashArray::Solid => None,
+        StrokeDashArray::Dotted => Some(vec![2.0, 2.0]),
+        StrokeDashArray::Dashed => Some(vec![6.0, 3.0]),
+        StrokeDashArray::DashDot => Some(vec![6.0, 3.0, 2.0, 3.0]),
+        StrokeDashArray::Custom(v) => Some(v.clone()),
     });
 
     // Pre-compute clipped segments once; they only depend on relative points.

@@ -41,6 +41,7 @@ _ENTRIES = (
     ('gpui-builder.declarations', 'declarative', 'gpui_toolkit.layout.Container'),
     ('gpui-builder.solve-validation-inspection', 'command', 'gpui_toolkit.layout.solve'),
     ('gpui-builder.retained-snapshots-state-accessibility', 'command', 'gpui_toolkit.layout.solve_matrix'),
+    ('gpui-builder.full-solver-and-inspection', 'command', 'gpui_toolkit.layout'),
     ('gpui-profiler.snapshots-and-budgets', 'direct', 'gpui_toolkit.profiler.AllocatorTelemetry'),
     ('gpui-scaffolder.commands', 'command', 'gpui_toolkit.scaffolder.ScaffoldOptions'),
     ('gpui-miniapp.configuration', 'command', 'gpui_toolkit.miniapp.MiniAppConfig'),

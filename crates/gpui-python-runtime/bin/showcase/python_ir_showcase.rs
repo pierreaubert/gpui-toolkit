@@ -1485,6 +1485,76 @@ fn audio_accessibility_json(summary: &gpui_audio_kit::AudioAccessibilitySummary)
     })
 }
 
+fn px_curve(value: &str) -> gpui_px::CurveType {
+    match value {
+        "step" => gpui_px::CurveType::Step,
+        "step_before" => gpui_px::CurveType::StepBefore,
+        "step_after" => gpui_px::CurveType::StepAfter,
+        "basis" => gpui_px::CurveType::Basis,
+        "cardinal" => gpui_px::CurveType::Cardinal,
+        "catmull_rom" => gpui_px::CurveType::CatmullRom,
+        "monotone_x" => gpui_px::CurveType::MonotoneX,
+        "natural" => gpui_px::CurveType::Natural,
+        _ => gpui_px::CurveType::Linear,
+    }
+}
+
+fn px_hex_color(value: &str, fallback: u32) -> u32 {
+    value
+        .trim()
+        .strip_prefix('#')
+        .and_then(|value| u32::from_str_radix(value, 16).ok())
+        .unwrap_or(fallback)
+}
+
+fn px_legend_position(value: &str) -> gpui_px::LegendPosition {
+    match value {
+        "right" => gpui_px::LegendPosition::Right,
+        "bottom" => gpui_px::LegendPosition::Bottom,
+        "top" => gpui_px::LegendPosition::Top,
+        "left" => gpui_px::LegendPosition::Left,
+        _ => gpui_px::LegendPosition::Right,
+    }
+}
+
+fn px_annotations(node: &ChartNode) -> Vec<gpui_px::ChartAnnotation> {
+    node.annotations
+        .iter()
+        .map(|annotation| {
+            let mut result = match annotation.target.as_str() {
+                "x_value" => gpui_px::ChartAnnotation::x_value(
+                    &annotation.id,
+                    &annotation.label,
+                    annotation.x.unwrap_or_default(),
+                ),
+                "y_value" => gpui_px::ChartAnnotation::y_value(
+                    &annotation.id,
+                    &annotation.label,
+                    annotation.y.unwrap_or_default(),
+                ),
+                "category" => gpui_px::ChartAnnotation::category(
+                    &annotation.id,
+                    &annotation.label,
+                    annotation.category.clone().unwrap_or_default(),
+                ),
+                _ => gpui_px::ChartAnnotation::point(
+                    &annotation.id,
+                    &annotation.label,
+                    annotation.x.unwrap_or_default(),
+                    annotation.y.unwrap_or_default(),
+                ),
+            };
+            if let Some(color) = annotation.color.as_deref() {
+                result = result.color(px_hex_color(color, 0x1f77b4));
+            }
+            if let Some(index) = annotation.series_index {
+                result = result.series_index(index);
+            }
+            result
+        })
+        .collect()
+}
+
 pub(super) struct PythonIrShowcase {
     pub(super) app: Option<PythonAppIr>,
     pub(super) load_error: Option<String>,
@@ -4983,6 +5053,7 @@ impl PythonIrShowcase {
         let interaction = match node.chart {
             ChartKind::Scatter | ChartKind::Line => {
                 let ((x_min, x_max), (y_min, y_max)) = cartesian_chart_domains(node);
+                let entity = cx.weak_entity();
                 Some(
                     self.chart_interactions
                         .entry(node.id.clone())
@@ -4991,6 +5062,9 @@ impl PythonIrShowcase {
                                 .with_log_x(node.x_log)
                                 .with_log_y(node.y_log)
                                 .with_size(node.width, node.height)
+                                .on_interaction_change(move |cx| {
+                                    let _ = entity.update(cx, |_, cx| cx.notify());
+                                })
                         })
                         .clone(),
                 )
@@ -5039,6 +5113,8 @@ impl PythonIrShowcase {
                     )
                     .x_scale(scale_type(node.x_log))
                     .y_scale(scale_type(node.y_log))
+                    .legend_position(px_legend_position(&node.legend_position))
+                    .annotations(px_annotations(node))
                     .size(node.width, node.height);
                 for series in visible_series.iter().copied().skip(1) {
                     chart = chart.add_series(
@@ -5047,7 +5123,7 @@ impl PythonIrShowcase {
                         (!series.label.is_empty()).then_some(series.label.clone()),
                         hex_color(series.color.as_deref(), 0x1f77b4),
                         series.point_radius.unwrap_or(node.point_radius),
-                        1.0,
+                        series.opacity,
                     );
                 }
                 if let Some(((min, max), _)) = active_domains {
@@ -5084,6 +5160,17 @@ impl PythonIrShowcase {
                     .x_scale(scale_type(node.x_log))
                     .y_scale(scale_type(node.y_log))
                     .size(node.width, node.height);
+                chart = chart
+                    .curve(px_curve(&node.curve))
+                    .legend_position(px_legend_position(&node.legend_position))
+                    .annotations(px_annotations(node));
+                chart = chart.dash_style(&node.dash);
+                if let Some(label) = &node.y2_label {
+                    chart = chart.y2_label(label.clone());
+                }
+                if let Some([min, max]) = node.y2_range {
+                    chart = chart.y2_range(min, max);
+                }
                 if let Some(label) = &node.x_label {
                     chart = chart.x_label(label.clone());
                 }
@@ -5094,14 +5181,26 @@ impl PythonIrShowcase {
                     chart = chart.label(series.label.clone());
                 }
                 for series in visible_series.iter().copied().skip(1) {
-                    chart = chart.add_series_with_x(
-                        &series.x,
-                        &series.y,
-                        (!series.label.is_empty()).then_some(series.label.clone()),
-                        hex_color(series.color.as_deref(), 0xff7f0e),
-                        series.stroke_width.unwrap_or(node.stroke_width),
-                        1.0,
-                    );
+                    chart = if series.secondary_y {
+                        chart.add_series_y2_with_x(
+                            &series.x,
+                            &series.y,
+                            (!series.label.is_empty()).then_some(series.label.clone()),
+                            hex_color(series.color.as_deref(), 0xff7f0e),
+                            series.stroke_width.unwrap_or(node.stroke_width),
+                            series.opacity,
+                        )
+                    } else {
+                        chart.add_series_with_x(
+                            &series.x,
+                            &series.y,
+                            (!series.label.is_empty()).then_some(series.label.clone()),
+                            hex_color(series.color.as_deref(), 0xff7f0e),
+                            series.stroke_width.unwrap_or(node.stroke_width),
+                            series.opacity,
+                        )
+                    };
+                    chart = chart.series_dash_style(&series.dash);
                 }
                 if let Some(((min, max), _)) = active_domains {
                     chart = chart.x_range(min, max);
@@ -5113,13 +5212,27 @@ impl PythonIrShowcase {
             }
             ChartKind::Bar => {
                 let categories = node.categories.as_deref().unwrap_or_default();
-                let values = node.values.as_deref().unwrap_or_default();
-                bar(categories, values)
+                let values = visible_series
+                    .first()
+                    .map(|series| series.y.as_slice())
+                    .or(node.values.as_deref())
+                    .unwrap_or_default();
+                let mut chart = bar(categories, values);
+                for series in visible_series.iter().copied().skip(1) {
+                    chart = chart.add_series(
+                        &series.y,
+                        (!series.label.is_empty()).then_some(series.label.clone()),
+                        px_hex_color(series.color.as_deref().unwrap_or(""), 0x2ca02c),
+                        series.opacity,
+                    );
+                }
+                chart = chart
                     .title(node.title.clone())
                     .color(hex_color(node.color.as_deref(), 0x2ca02c))
-                    .size(node.width, node.height)
-                    .build()
-                    .map(IntoElement::into_any_element)
+                    .legend_position(px_legend_position(&node.legend_position))
+                    .annotations(px_annotations(node))
+                    .size(node.width, node.height);
+                chart.build().map(IntoElement::into_any_element)
             }
             ChartKind::Heatmap => {
                 let raw_z = node.z.as_deref().unwrap_or_default();

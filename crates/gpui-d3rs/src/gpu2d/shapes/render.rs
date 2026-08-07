@@ -236,6 +236,13 @@ where
             }
             segs
         }
+        CurveType::Basis
+        | CurveType::Cardinal
+        | CurveType::CatmullRom
+        | CurveType::MonotoneX
+        | CurveType::Natural => {
+            crate::shape::line::compute_line_segments(&relative_points, config.curve)
+        }
         CurveType::StepBefore => {
             let mut segs = Vec::new();
             for i in 1..relative_points.len() {

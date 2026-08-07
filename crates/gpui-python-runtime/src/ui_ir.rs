@@ -2173,6 +2173,26 @@ pub struct ChartNode {
     pub tiling_method: String,
     #[serde(default = "default_treemap_padding")]
     pub padding: f64,
+    #[serde(default = "default_chart_curve")]
+    pub curve: String,
+    #[serde(default = "default_chart_dash")]
+    pub dash: String,
+    #[serde(default = "default_legend_position")]
+    pub legend_position: String,
+    pub y2_label: Option<String>,
+    pub y2_range: Option<[f64; 2]>,
+    #[serde(default)]
+    pub annotations: Vec<ChartAnnotationNode>,
+}
+
+fn default_chart_curve() -> String {
+    "linear".into()
+}
+fn default_chart_dash() -> String {
+    "solid".into()
+}
+fn default_legend_position() -> String {
+    "auto".into()
 }
 
 fn default_chart_opacity() -> f32 {
@@ -2208,6 +2228,24 @@ pub struct ChartSeries {
     pub visible: bool,
     pub stroke_width: Option<f32>,
     pub point_radius: Option<f32>,
+    #[serde(default = "default_chart_opacity")]
+    pub opacity: f32,
+    #[serde(default)]
+    pub secondary_y: bool,
+    #[serde(default = "default_chart_dash")]
+    pub dash: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ChartAnnotationNode {
+    pub id: String,
+    pub label: String,
+    pub target: String,
+    pub x: Option<f64>,
+    pub y: Option<f64>,
+    pub category: Option<String>,
+    pub color: Option<String>,
+    pub series_index: Option<usize>,
 }
 
 fn default_series_visible() -> bool {
@@ -2237,6 +2275,54 @@ impl ChartNode {
         valid_range("x_range", self.x_range)?;
         valid_range("y_range", self.y_range)?;
         valid_range("color_range", self.color_range)?;
+        valid_range("y2_range", self.y2_range)?;
+        if !matches!(
+            self.curve.as_str(),
+            "linear"
+                | "step"
+                | "step_before"
+                | "step_after"
+                | "basis"
+                | "cardinal"
+                | "catmull_rom"
+                | "monotone_x"
+                | "natural"
+        ) || !matches!(
+            self.dash.as_str(),
+            "solid" | "dashed" | "dotted" | "dash_dot"
+        ) || !matches!(
+            self.legend_position.as_str(),
+            "auto" | "right" | "bottom" | "top" | "left"
+        ) {
+            return Err(UiIrError::InvalidPatch {
+                message: format!(
+                    "chart {:?} has invalid curve, dash, or legend position",
+                    self.id
+                ),
+            });
+        }
+        for annotation in &self.annotations {
+            let target_valid = match annotation.target.as_str() {
+                "point" => annotation.x.is_some() && annotation.y.is_some(),
+                "x_value" => annotation.x.is_some(),
+                "y_value" => annotation.y.is_some(),
+                "category" => annotation
+                    .category
+                    .as_deref()
+                    .is_some_and(|value| !value.is_empty()),
+                _ => false,
+            };
+            if annotation.id.trim().is_empty()
+                || annotation.label.trim().is_empty()
+                || !target_valid
+                || annotation.x.is_some_and(|value| !value.is_finite())
+                || annotation.y.is_some_and(|value| !value.is_finite())
+            {
+                return Err(UiIrError::InvalidPatch {
+                    message: format!("chart {:?} has invalid annotation", self.id),
+                });
+            }
+        }
         if self
             .aspect_ratio
             .is_some_and(|ratio| !ratio.is_finite() || ratio <= 0.0)
@@ -2265,6 +2351,20 @@ impl ChartNode {
                         }
                         finite("series.x", &series.x)?;
                         finite("series.y", &series.y)?;
+                        if !series.opacity.is_finite()
+                            || !(0.0..=1.0).contains(&series.opacity)
+                            || !matches!(
+                                series.dash.as_str(),
+                                "solid" | "dashed" | "dotted" | "dash_dot"
+                            )
+                        {
+                            return Err(UiIrError::InvalidPatch {
+                                message: format!(
+                                    "chart {:?} series has invalid opacity or dash",
+                                    self.id
+                                ),
+                            });
+                        }
                     }
                     return Ok(());
                 }
@@ -2296,23 +2396,38 @@ impl ChartNode {
                             id: self.id.clone(),
                             field: "categories",
                         })?;
-                let values = self
-                    .values
-                    .as_ref()
-                    .ok_or_else(|| UiIrError::MissingChartData {
-                        id: self.id.clone(),
-                        field: "values",
-                    })?;
-                if categories.len() != values.len() {
-                    return Err(UiIrError::ChartLengthMismatch {
-                        id: self.id.clone(),
-                        left: "categories",
-                        left_len: categories.len(),
-                        right: "values",
-                        right_len: values.len(),
-                    });
+                if self.series.is_empty() {
+                    let values =
+                        self.values
+                            .as_ref()
+                            .ok_or_else(|| UiIrError::MissingChartData {
+                                id: self.id.clone(),
+                                field: "values",
+                            })?;
+                    if categories.len() != values.len() {
+                        return Err(UiIrError::ChartLengthMismatch {
+                            id: self.id.clone(),
+                            left: "categories",
+                            left_len: categories.len(),
+                            right: "values",
+                            right_len: values.len(),
+                        });
+                    }
+                    finite("values", values)?;
+                } else {
+                    for series in &self.series {
+                        if series.id.trim().is_empty() || series.y.len() != categories.len() {
+                            return Err(UiIrError::ChartLengthMismatch {
+                                id: self.id.clone(),
+                                left: "categories",
+                                left_len: categories.len(),
+                                right: "series.values",
+                                right_len: series.y.len(),
+                            });
+                        }
+                        finite("series.values", &series.y)?;
+                    }
                 }
-                finite("values", values)?;
             }
             ChartKind::Heatmap | ChartKind::Contour | ChartKind::Isoline => {
                 let z = self.z.as_ref().ok_or_else(|| UiIrError::MissingChartData {
@@ -3209,6 +3324,66 @@ mod tests {
             "sections": [{"id": "main", "label": "Main", "content": {
                 "kind": "confirm_dialog", "id": "delete", "message": "", "variant": "unknown"
             }}]
+        }))
+        .unwrap();
+        assert!(matches!(
+            invalid.validate(),
+            Err(UiIrError::InvalidPatch { .. })
+        ));
+    }
+
+    #[test]
+    fn validates_extended_chart_surface() {
+        let app: PythonAppIr = serde_json::from_value(serde_json::json!({
+            "title": "Charts",
+            "sections": [{
+                "id": "charts",
+                "label": "Charts",
+                "content": {
+                    "kind": "chart",
+                    "chart": "line",
+                    "id": "response",
+                    "x": [20.0, 100.0, 1000.0],
+                    "y": [0.0, -1.0, 2.0],
+                    "curve": "monotone_x",
+                    "dash": "dashed",
+                    "legend_position": "bottom",
+                    "y2_label": "Phase",
+                    "y2_range": [-180.0, 180.0],
+                    "series": [{
+                        "id": "phase",
+                        "x": [20.0, 100.0, 1000.0],
+                        "y": [10.0, 20.0, 30.0],
+                        "opacity": 0.5,
+                        "secondary_y": true,
+                        "dash": "dash_dot"
+                    }],
+                    "annotations": [{
+                        "id": "crossover",
+                        "label": "Crossover",
+                        "target": "x_value",
+                        "x": 1000.0
+                    }]
+                }
+            }]
+        }))
+        .unwrap();
+        assert!(app.validate().is_ok());
+
+        let invalid: PythonAppIr = serde_json::from_value(serde_json::json!({
+            "title": "Charts",
+            "sections": [{
+                "id": "charts",
+                "label": "Charts",
+                "content": {
+                    "kind": "chart",
+                    "chart": "line",
+                    "id": "response",
+                    "x": [0.0, 1.0],
+                    "y": [0.0, 1.0],
+                    "curve": "unsupported"
+                }
+            }]
         }))
         .unwrap();
         assert!(matches!(

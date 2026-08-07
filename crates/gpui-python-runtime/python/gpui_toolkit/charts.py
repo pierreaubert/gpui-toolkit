@@ -3,9 +3,76 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import Enum
+import math
 from typing import Any, Sequence, TYPE_CHECKING
 from .commands import CommandResult, CommandStatus
 if TYPE_CHECKING: from .app import SessionContext
+
+
+class CurveType(str, Enum):
+    LINEAR = "linear"
+    STEP = "step"
+    STEP_BEFORE = "step_before"
+    STEP_AFTER = "step_after"
+    BASIS = "basis"
+    CARDINAL = "cardinal"
+    CATMULL_ROM = "catmull_rom"
+    MONOTONE_X = "monotone_x"
+    NATURAL = "natural"
+
+
+class StrokeDash(str, Enum):
+    SOLID = "solid"
+    DASHED = "dashed"
+    DOTTED = "dotted"
+    DASH_DOT = "dash_dot"
+
+
+class LegendPosition(str, Enum):
+    AUTO = "auto"
+    RIGHT = "right"
+    BOTTOM = "bottom"
+    TOP = "top"
+    LEFT = "left"
+
+
+class AnnotationTarget(str, Enum):
+    POINT = "point"
+    X_VALUE = "x_value"
+    Y_VALUE = "y_value"
+    CATEGORY = "category"
+
+
+@dataclass(frozen=True)
+class ChartAnnotation:
+    id: str
+    label: str
+    target: AnnotationTarget
+    x: float | None = None
+    y: float | None = None
+    category: str | None = None
+    color: str | None = None
+    series_index: int | None = None
+
+    def __post_init__(self) -> None:
+        if not self.id or not self.label:
+            raise ValueError("annotation id and label cannot be empty")
+        if self.target is AnnotationTarget.POINT and (self.x is None or self.y is None):
+            raise ValueError("point annotation requires x and y")
+        if self.target is AnnotationTarget.X_VALUE and self.x is None:
+            raise ValueError("x annotation requires x")
+        if self.target is AnnotationTarget.Y_VALUE and self.y is None:
+            raise ValueError("y annotation requires y")
+        if self.target is AnnotationTarget.CATEGORY and not self.category:
+            raise ValueError("category annotation requires category")
+        if any(value is not None and not math.isfinite(value) for value in (self.x, self.y)):
+            raise ValueError("annotation coordinates must be finite")
+        if self.series_index is not None and self.series_index < 0:
+            raise ValueError("annotation series index must be non-negative")
+
+    def to_spec(self) -> dict[str, object]:
+        return {"id": self.id, "label": self.label, "target": self.target.value, "x": self.x, "y": self.y, "category": self.category, "color": self.color, "series_index": self.series_index}
 
 
 @dataclass(frozen=True)
@@ -18,6 +85,17 @@ class Series:
     visible: bool = True
     stroke_width: float | None = None
     point_radius: float | None = None
+    opacity: float = 1.0
+    secondary_y: bool = False
+    dash: StrokeDash = StrokeDash.SOLID
+
+    def __post_init__(self) -> None:
+        if not self.id or len(self.x) != len(self.y):
+            raise ValueError("series requires an id and equal x/y lengths")
+        if not all(math.isfinite(float(value)) for value in (*self.x, *self.y)):
+            raise ValueError("series values must be finite")
+        if not math.isfinite(self.opacity) or not 0.0 <= self.opacity <= 1.0:
+            raise ValueError("series opacity must be between zero and one")
 
     def to_spec(self) -> dict[str, Any]:
         return {
@@ -25,6 +103,8 @@ class Series:
             "y": [float(value) for value in self.y], "label": self.label,
             "color": self.color, "visible": self.visible,
             "stroke_width": self.stroke_width, "point_radius": self.point_radius,
+            "opacity": float(self.opacity), "secondary_y": self.secondary_y,
+            "dash": self.dash.value,
         }
 
 @dataclass(frozen=True)
@@ -76,6 +156,18 @@ class Chart:
     treemap: TreemapNode | None = None
     tiling_method: str = "squarify"
     padding: float = 1.0
+    curve: CurveType = CurveType.LINEAR
+    dash: StrokeDash = StrokeDash.SOLID
+    legend_position: LegendPosition = LegendPosition.AUTO
+    y2_label: str | None = None
+    y2_range: tuple[float, float] | None = None
+    annotations: Sequence[ChartAnnotation] = ()
+
+    def __post_init__(self) -> None:
+        if self.chart not in {"scatter", "line", "bar", "heatmap", "area", "box_plot", "contour", "isoline", "pie", "donut", "treemap"} or not self.id:
+            raise ValueError("chart kind and id are required")
+        if self.y2_range is not None and (len(self.y2_range) != 2 or not all(math.isfinite(value) for value in self.y2_range) or self.y2_range[0] == self.y2_range[1]):
+            raise ValueError("secondary y range must contain distinct finite bounds")
 
     def to_spec(self) -> dict[str, Any]:
         return {
@@ -116,6 +208,12 @@ class Chart:
             "treemap": None if self.treemap is None else self.treemap.to_spec(),
             "tiling_method": self.tiling_method,
             "padding": float(self.padding),
+            "curve": self.curve.value,
+            "dash": self.dash.value,
+            "legend_position": self.legend_position.value,
+            "y2_label": self.y2_label,
+            "y2_range": None if self.y2_range is None else [float(value) for value in self.y2_range],
+            "annotations": [annotation.to_spec() for annotation in self.annotations],
         }
 
 

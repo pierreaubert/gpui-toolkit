@@ -471,6 +471,8 @@ pub(super) mod interactive_chart {
 
     /// Callback type for when zoom state changes
     pub type OnZoomChange = Rc<dyn Fn((f64, f64), (f64, f64))>;
+    /// Callback used by host views to request a rebuild after local interaction state changes.
+    pub type OnInteractionChange = Rc<dyn Fn(&mut gpui::App)>;
 
     /// Configuration for interactive chart behavior
     #[derive(Clone)]
@@ -551,6 +553,8 @@ pub(super) mod interactive_chart {
         pub config: InteractiveChartConfig,
         /// Callback when zoom changes
         pub on_zoom_change: Option<OnZoomChange>,
+        /// Callback when hover, brush, pan, zoom, or reset changes retained state.
+        pub on_interaction_change: Option<OnInteractionChange>,
     }
 
     impl InteractiveChartState {
@@ -562,6 +566,7 @@ pub(super) mod interactive_chart {
                 ))),
                 config: InteractiveChartConfig::default(),
                 on_zoom_change: None,
+                on_interaction_change: None,
             }
         }
 
@@ -606,6 +611,21 @@ pub(super) mod interactive_chart {
             self
         }
 
+        /// Request a host-view rebuild whenever retained interaction state changes.
+        pub fn on_interaction_change<F>(mut self, callback: F) -> Self
+        where
+            F: Fn(&mut gpui::App) + 'static,
+        {
+            self.on_interaction_change = Some(Rc::new(callback));
+            self
+        }
+
+        fn notify_interaction_change(&self, cx: &mut gpui::App) {
+            if let Some(callback) = &self.on_interaction_change {
+                callback(cx);
+            }
+        }
+
         /// Get current X domain (for use in chart builders)
         pub fn x_domain(&self) -> (f64, f64) {
             self.interaction.borrow().x_domain()
@@ -637,19 +657,39 @@ pub(super) mod interactive_chart {
 
         /// Convert pixel coordinates to chart-relative coordinates
         /// Uses the configured margins to offset from the element position
-        fn to_chart_coords(&self, pos: Point<Pixels>) -> (f32, f32) {
+        pub(crate) fn to_chart_coords(
+            &self,
+            pos: Point<Pixels>,
+            bounds: Option<gpui::Bounds<Pixels>>,
+        ) -> (f32, f32) {
             let config = &self.config;
             let interaction = self.interaction.borrow();
             let (plot_width, plot_height) = interaction.plot_size;
+            let origin = bounds.map(|bounds| bounds.origin).unwrap_or_default();
 
             // Subtract margins to get chart-relative coordinates
-            let chart_x = (f32::from(pos.x) - config.left_margin)
+            let chart_x = (f32::from(pos.x) - f32::from(origin.x) - config.left_margin)
                 .max(0.0)
                 .min(plot_width);
-            let chart_y = (f32::from(pos.y) - config.top_margin)
+            let chart_y = (f32::from(pos.y) - f32::from(origin.y) - config.top_margin)
                 .max(0.0)
                 .min(plot_height);
             (chart_x, chart_y)
+        }
+
+        pub(crate) fn is_over_plot(
+            &self,
+            pos: Point<Pixels>,
+            bounds: Option<gpui::Bounds<Pixels>>,
+        ) -> bool {
+            let origin = bounds.map(|bounds| bounds.origin).unwrap_or_default();
+            let local_x = f32::from(pos.x) - f32::from(origin.x);
+            let local_y = f32::from(pos.y) - f32::from(origin.y);
+            let (plot_width, plot_height) = self.interaction.borrow().plot_size;
+            local_x >= self.config.left_margin
+                && local_x <= self.config.left_margin + plot_width
+                && local_y >= self.config.top_margin
+                && local_y <= self.config.top_margin + plot_height
         }
 
         /// Apply pan delta to the zoom state
@@ -668,19 +708,16 @@ pub(super) mod interactive_chart {
             }
         }
 
-        fn update_hover(&self, position: Point<Pixels>) {
-            let raw_x = f32::from(position.x);
-            let raw_y = f32::from(position.y);
-            let (plot_width, plot_height) = self.interaction.borrow().plot_size;
-            if raw_x < self.config.left_margin
-                || raw_x > self.config.left_margin + plot_width
-                || raw_y < self.config.top_margin
-                || raw_y > self.config.top_margin + plot_height
-            {
+        fn update_hover(
+            &self,
+            position: Point<Pixels>,
+            bounds: Option<gpui::Bounds<Pixels>>,
+        ) {
+            if !self.is_over_plot(position, bounds) {
                 self.interaction.borrow_mut().clear_hover();
                 return;
             }
-            let (x, y) = self.to_chart_coords(position);
+            let (x, y) = self.to_chart_coords(position, bounds);
             self.interaction.borrow_mut().update_hover_pixel(x, y);
         }
     }
@@ -721,6 +758,12 @@ pub(super) mod interactive_chart {
             let state_for_key = state.clone();
             let state_for_hover = state.clone();
             let state_for_hover_change = state.clone();
+            let chart_bounds: Rc<RefCell<Option<gpui::Bounds<Pixels>>>> =
+                Rc::new(RefCell::new(None));
+            let bounds_for_prepaint = chart_bounds.clone();
+            let bounds_for_down = chart_bounds.clone();
+            let bounds_for_move = chart_bounds.clone();
+            let bounds_for_wheel = chart_bounds.clone();
 
             let is_zoomed = state.is_zoomed();
             let config = state.config.clone();
@@ -732,6 +775,11 @@ pub(super) mod interactive_chart {
             let drag_start_up = drag_start.clone();
 
             div()
+                .on_children_prepainted(move |children_bounds, _window, _cx| {
+                    if let Some(bounds) = children_bounds.first() {
+                        *bounds_for_prepaint.borrow_mut() = Some(*bounds);
+                    }
+                })
                 .id(self.id)
                 .relative()
                 .focusable()
@@ -754,28 +802,34 @@ pub(super) mod interactive_chart {
                     )
                 })
                 // Mouse down - start pan
-                .on_mouse_down(MouseButton::Left, move |event, _window, _cx| {
-                    let (x, y) = state_for_down.to_chart_coords(event.position);
+                .on_mouse_down(MouseButton::Left, move |event, _window, cx| {
+                    let (x, y) = state_for_down
+                        .to_chart_coords(event.position, *bounds_for_down.borrow());
                     let mode = state_for_down.interaction.borrow().mode;
-                    if mode == InteractionMode::Brush {
+                    if event.modifiers.shift
+                        || (mode == InteractionMode::Brush
+                            && !state_for_down.config.enable_pan)
+                    {
                         state_for_down.interaction.borrow_mut().start_brush(x, y);
                     } else if state_for_down.config.enable_pan {
                         *drag_start_down.borrow_mut() = Some((x, y));
                     }
+                    state_for_down.notify_interaction_change(cx);
                 })
                 // Mouse move - pan if dragging
-                .on_mouse_move(move |event, window, _cx| {
-                    state_for_hover.update_hover(event.position);
-                    if state_for_move.interaction.borrow().mode == InteractionMode::Brush {
-                        let (x, y) = state_for_move.to_chart_coords(event.position);
-                        if state_for_move.interaction.borrow().is_brushing() {
-                            state_for_move.interaction.borrow_mut().update_brush(x, y);
-                            window.refresh();
-                        }
+                .on_mouse_move(move |event, window, cx| {
+                    state_for_hover.update_hover(event.position, *bounds_for_move.borrow());
+                    state_for_hover.notify_interaction_change(cx);
+                    if state_for_move.interaction.borrow().is_brushing() {
+                        let (x, y) = state_for_move
+                            .to_chart_coords(event.position, *bounds_for_move.borrow());
+                        state_for_move.interaction.borrow_mut().update_brush(x, y);
+                        window.refresh();
                     } else if state_for_move.config.enable_pan
                         && let Some((start_x, start_y)) = *drag_start_move.borrow()
                     {
-                        let (x, y) = state_for_move.to_chart_coords(event.position);
+                        let (x, y) = state_for_move
+                            .to_chart_coords(event.position, *bounds_for_move.borrow());
                         let dx = x - start_x;
                         let dy = y - start_y;
                         if dx.abs() > 1.0 || dy.abs() > 1.0 {
@@ -788,52 +842,48 @@ pub(super) mod interactive_chart {
                     }
                 })
                 // Mouse up - end pan
-                .on_mouse_up(MouseButton::Left, move |_event, _window, _cx| {
-                    if state.interaction.borrow().mode == InteractionMode::Brush {
+                .on_mouse_up(MouseButton::Left, move |_event, _window, cx| {
+                    if state.interaction.borrow().is_brushing() {
                         state.interaction.borrow_mut().end_brush(false);
                     }
                     *drag_start_up.borrow_mut() = None;
+                    state.notify_interaction_change(cx);
                 })
-                .on_hover(move |hovered, _window, _cx| {
+                .on_hover(move |hovered, _window, cx| {
                     if !hovered {
                         state_for_hover_change
                             .interaction
                             .borrow_mut()
                             .clear_hover();
+                        state_for_hover_change.notify_interaction_change(cx);
                     }
                 })
                 .on_key_down(move |event: &KeyDownEvent, window, cx| {
                     if let Some(action) = keyboard_action_for_key(&event.keystroke.key) {
                         state_for_key.apply_keyboard_action(action);
+                        state_for_key.notify_interaction_change(cx);
                         cx.stop_propagation();
                         window.refresh();
                     }
                 })
                 // Click - handle double-click reset
-                .on_click(move |event: &ClickEvent, window, _cx| {
+                .on_click(move |event: &ClickEvent, window, cx| {
                     if state_for_click.config.enable_double_click_reset && event.click_count() >= 2
                     {
                         state_for_click.reset_zoom();
+                        state_for_click.notify_interaction_change(cx);
                         window.refresh();
                     }
                 })
                 // Scroll wheel - zoom (only when cursor is over the plot area)
-                .on_scroll_wheel(move |event: &ScrollWheelEvent, window, _cx| {
+                .on_scroll_wheel(move |event: &ScrollWheelEvent, window, cx| {
                     if state_for_wheel.config.enable_wheel_zoom {
-                        // Check if cursor is within the chart plot area (inside margins)
-                        let raw_x = f32::from(event.position.x);
-                        let raw_y = f32::from(event.position.y);
-                        let cfg = &state_for_wheel.config;
-                        let (plot_w, plot_h) = state_for_wheel.interaction.borrow().plot_size;
-                        if raw_x < cfg.left_margin
-                            || raw_x > cfg.left_margin + plot_w
-                            || raw_y < cfg.top_margin
-                            || raw_y > cfg.top_margin + plot_h
-                        {
+                        let bounds = *bounds_for_wheel.borrow();
+                        if !state_for_wheel.is_over_plot(event.position, bounds) {
                             return; // Outside plot area — let the page scroll
                         }
 
-                        let (x, y) = state_for_wheel.to_chart_coords(event.position);
+                        let (x, y) = state_for_wheel.to_chart_coords(event.position, bounds);
                         let delta_y = match event.delta {
                             ScrollDelta::Lines(lines) => lines.y,
                             ScrollDelta::Pixels(pixels) => f32::from(pixels.y) * 0.01,
@@ -852,6 +902,7 @@ pub(super) mod interactive_chart {
                             let interaction = state_for_wheel.interaction.borrow();
                             callback(interaction.x_domain(), interaction.y_domain());
                         }
+                        state_for_wheel.notify_interaction_change(cx);
 
                         // Trigger re-render
                         window.refresh();

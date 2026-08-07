@@ -9,6 +9,16 @@ pub enum CurveType {
     StepBefore,
     /// Step after (horizontal then vertical)
     StepAfter,
+    /// Basis spline using the shared D3 curve interpolator.
+    Basis,
+    /// Cardinal spline with zero tension.
+    Cardinal,
+    /// Centripetal Catmull-Rom spline.
+    CatmullRom,
+    /// Monotone cubic interpolation in X.
+    MonotoneX,
+    /// Natural cubic spline.
+    Natural,
 }
 
 /// Stroke dash array pattern for dashed/dotted lines.
@@ -17,6 +27,8 @@ pub enum CurveType {
 /// `stroke-dasharray` attribute.
 #[derive(Debug, Clone, PartialEq)]
 pub enum StrokeDashArray {
+    /// Continuous stroke with no gaps.
+    Solid,
     /// Dotted line: small dash, equal gap (e.g., 2px on, 2px off)
     Dotted,
     /// Dashed line: longer dash, shorter gap (e.g., 6px on, 3px off)

@@ -528,6 +528,17 @@ impl LineChart {
         self
     }
 
+    /// Set a named dash style without exposing the underlying D3 type identity.
+    pub fn dash_style(mut self, style: &str) -> Self {
+        self.dash_array = match style {
+            "dotted" => Some(StrokeDashArray::Dotted),
+            "dashed" => Some(StrokeDashArray::Dashed),
+            "dash_dot" => Some(StrokeDashArray::DashDot),
+            _ => None,
+        };
+        self
+    }
+
     /// Set curve interpolation type.
     pub fn curve(mut self, curve: CurveType) -> Self {
         self.curve = curve;
@@ -811,6 +822,19 @@ impl LineChart {
     pub fn series_dash_array(mut self, pattern: StrokeDashArray) -> Self {
         if let Some(last) = self.series.last_mut() {
             last.dash_array = Some(pattern);
+        }
+        self
+    }
+
+    /// Set named dash style most recently appended series.
+    pub fn series_dash_style(mut self, style: &str) -> Self {
+        if let Some(last) = self.series.last_mut() {
+            last.dash_array = match style {
+                "dotted" => Some(StrokeDashArray::Dotted),
+                "dashed" => Some(StrokeDashArray::Dashed),
+                "dash_dot" => Some(StrokeDashArray::DashDot),
+                _ => None,
+            };
         }
         self
     }

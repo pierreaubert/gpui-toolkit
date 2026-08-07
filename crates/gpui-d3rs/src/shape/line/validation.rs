@@ -6,6 +6,10 @@ use super::misc::clip_line_segment;
 use super::style::CurveType;
 use super::style::StrokeDashArray;
 use crate::scale::Scale;
+#[cfg(any(test, all(feature = "gpui", not(test))))]
+use crate::shape::curve::Curve;
+#[cfg(any(test, all(feature = "gpui", not(test))))]
+use crate::shape::path::Point;
 use std::fmt;
 
 /// Recoverable errors for checked line rendering input validation.
@@ -86,7 +90,7 @@ impl std::error::Error for LineRenderError {}
 
 /// Compute clipped line segments from relative points based on the curve type.
 #[cfg(any(test, all(feature = "gpui", not(test))))]
-pub(super) fn compute_line_segments(
+pub(crate) fn compute_line_segments(
     relative_points: &[(f32, f32)],
     curve_type: CurveType,
 ) -> Vec<(f32, f32, f32, f32)> {
@@ -120,6 +124,15 @@ pub(super) fn compute_line_segments(
             }
             segments
         }
+        CurveType::Basis => smooth_line_segments(relative_points, Curve::Basis),
+        CurveType::Cardinal => {
+            smooth_line_segments(relative_points, Curve::Cardinal { tension: 0.0 })
+        }
+        CurveType::CatmullRom => {
+            smooth_line_segments(relative_points, Curve::CatmullRom { alpha: 0.5 })
+        }
+        CurveType::MonotoneX => smooth_line_segments(relative_points, Curve::MonotoneX),
+        CurveType::Natural => smooth_line_segments(relative_points, Curve::Natural),
         CurveType::StepBefore => {
             let mut segments = Vec::with_capacity((relative_points.len() - 1) * 2);
             for i in 1..relative_points.len() {
@@ -135,6 +148,27 @@ pub(super) fn compute_line_segments(
             segments
         }
     }
+}
+
+#[cfg(any(test, all(feature = "gpui", not(test))))]
+fn smooth_line_segments(relative_points: &[(f32, f32)], curve: Curve) -> Vec<(f32, f32, f32, f32)> {
+    let points = relative_points
+        .iter()
+        .map(|&(x, y)| Point::new(f64::from(x), f64::from(y)))
+        .collect::<Vec<_>>();
+    let interpolated = curve.interpolate(&points);
+    let mut segments = Vec::with_capacity(interpolated.len().saturating_sub(1));
+
+    for pair in interpolated.windows(2) {
+        let [start, end] = pair else { continue };
+        if let Some(clipped) =
+            clip_line_segment(start.x as f32, start.y as f32, end.x as f32, end.y as f32)
+        {
+            segments.push(clipped);
+        }
+    }
+
+    segments
 }
 
 /// Validate line rendering inputs before constructing a GPUI line element.

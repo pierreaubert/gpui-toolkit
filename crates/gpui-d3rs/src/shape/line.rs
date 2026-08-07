@@ -17,3 +17,5 @@ pub use style::*;
 #[cfg(all(feature = "gpui", not(test)))]
 pub use types::*;
 pub use validation::*;
+#[cfg(any(test, all(feature = "gpui", not(test))))]
+pub(crate) use validation::compute_line_segments;
