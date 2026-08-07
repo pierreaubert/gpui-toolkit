@@ -132,17 +132,18 @@ qa-release-evidence: qa
 
 [group('qa')]
 qa-scripts:
-    PYTHONPATH=scripts python3 -m unittest discover -s scripts/tests -p 'test_*.py'
-    python3 scripts/qa_unsafe_policy.py
-    bash -n scripts/run_linux_native_ui_smoke.sh
-    bash -n scripts/run_macos_native_ui_smoke.sh
-    bash -n scripts/run_apple_simulator_smoke.sh
-    bash -n scripts/run_android_emulator_smoke.sh
-    bash -n scripts/run_utm_linux_guest_native_ui_smoke.sh
-    bash -n scripts/run_utm_linux_native_ui_smoke.sh
-    bash -n scripts/run_utm_windows_native_ui_smoke.sh
-    bash -n scripts/qa_fuzz_check.sh
-    python3 scripts/qa_desktop_accessibility.py --output-json target/qa/accessibility/desktop-evidence.json --output-markdown target/qa/accessibility/desktop-evidence.md
+	PYTHONPATH=scripts python3 -m unittest discover -s scripts/tests -p 'test_*.py'
+	python3 scripts/qa_unsafe_policy.py
+	python3 scripts/qa_embedded_assets.py
+	bash -n scripts/run_linux_native_ui_smoke.sh
+	bash -n scripts/run_macos_native_ui_smoke.sh
+	bash -n scripts/run_apple_simulator_smoke.sh
+	bash -n scripts/run_android_emulator_smoke.sh
+	bash -n scripts/run_utm_linux_guest_native_ui_smoke.sh
+	bash -n scripts/run_utm_linux_native_ui_smoke.sh
+	bash -n scripts/run_utm_windows_native_ui_smoke.sh
+	bash -n scripts/qa_fuzz_check.sh
+	python3 scripts/qa_desktop_accessibility.py --output-json target/qa/accessibility/desktop-evidence.json --output-markdown target/qa/accessibility/desktop-evidence.md
 
 # Local macOS capture uses the native host directly. UTM is reserved for the
 # Linux and Windows desktop backends and is intentionally not part of hosted CI.

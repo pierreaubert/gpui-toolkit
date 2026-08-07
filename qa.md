@@ -24,6 +24,8 @@ manual/device report.
 - the focused GPUI component/layout/chart test matrix;
 - portable-core llvm-cov coverage; and
 - cargo-deny advisory, license, duplicate, and source-origin policy.
+- literal Rust `include_str!`/`include_bytes!` assets present in Git so clean
+  worktrees and source archives compile without developer-local downloads;
 
 CI additionally runs workspace tests and publishes the coverage artifact. The
 platform matrix must compile on Linux, macOS, and Windows. `just
