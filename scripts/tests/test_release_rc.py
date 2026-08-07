@@ -91,11 +91,11 @@ class ReleaseCandidateTests(unittest.TestCase):
             ]
         }
 
-        def fake_packages(_root, staging, version):
+        def fake_packages(_root, staging, _metadata):
             names = []
             for name in ("gpui-design", "gpui-profiler", "gpui-ui-kit-macros"):
-                artifact = staging / f"{name}-{version}.crate"
-                artifact.write_bytes(f"{name}-{version}\n".encode())
+                artifact = staging / f"{name}-1.2.3.crate"
+                artifact.write_bytes(f"{name}-1.2.3\n".encode())
                 names.append(artifact.name)
             return names
 

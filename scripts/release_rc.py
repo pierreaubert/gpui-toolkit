@@ -164,15 +164,22 @@ def render_licenses(rows: list[dict[str, str]]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def package_wave_one(root: Path, staging: Path, version: str) -> list[str]:
+def package_wave_one(root: Path, staging: Path, metadata: dict[str, Any]) -> list[str]:
+    versions = {
+        package["name"]: package["version"]
+        for package in metadata["packages"]
+        if package["name"] in WAVE_ONE_PACKAGES and package_source(package) == "workspace"
+    }
     names = []
     for package in WAVE_ONE_PACKAGES:
+        if package not in versions:
+            raise ReleaseError(f"cargo metadata does not contain workspace package {package}")
         subprocess.run(
             ["cargo", "package", "--locked", "--offline", "-p", package],
             cwd=root,
             check=True,
         )
-        source = root / "target" / "package" / f"{package}-{version}.crate"
+        source = root / "target" / "package" / f"{package}-{versions[package]}.crate"
         if not source.is_file():
             raise ReleaseError(f"cargo package did not produce {source.name}")
         destination = staging / source.name
@@ -205,7 +212,7 @@ def build(root: Path, version: str, output: Path) -> Path:
             f"gpui-toolkit-{version}/",
             ("assets/component-lab-gallery",),
         )
-        package_names = package_wave_one(root, staging, version)
+        package_names = package_wave_one(root, staging, metadata)
 
         licenses = license_inventory(metadata)
         write_json(staging / "licenses.json", {"licenses": licenses, "schema_version": 1})
