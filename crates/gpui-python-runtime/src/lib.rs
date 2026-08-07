@@ -4,6 +4,7 @@
 //! Rust owns validation, retained-resource dirty classification, and the
 //! renderer-facing adapters. Raw `wgpu` objects stay behind `gpui-d3rs`.
 
+pub mod audio_stream;
 mod cache;
 mod error;
 #[cfg(feature = "gpui")]

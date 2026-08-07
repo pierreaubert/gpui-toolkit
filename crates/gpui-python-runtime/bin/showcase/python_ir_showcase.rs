@@ -9,9 +9,13 @@ use super::types::StackDirection;
 use d3rs::gpu3d::{Lines3DElement, Lines3DState, Surface3DElement, Surface3DState};
 use gpui::prelude::*;
 use gpui::*;
+use gpui_audio_kit::{
+    LevelMeterElement, Potentiometer, SpectrumElement, VerticalSlider, VolumeKnob,
+};
 use gpui_design::{DesignExt, DesignSystem};
 use gpui_px::interaction::{InteractiveChartState, interactive};
 use gpui_px::{area, bar, boxplot, contour, donut, heatmap, isoline, line, pie, scatter, treemap};
+use gpui_python_runtime::audio_stream::{AudioFrameKind, AudioFrameStore};
 use gpui_python_runtime::gpui_adapter::Gpui3DCache;
 use gpui_python_runtime::session::{
     HostMessage, JobLogLine, JobRegistry, JobState, JobUpdate, LogSeverity, PythonMessage,
@@ -19,27 +23,29 @@ use gpui_python_runtime::session::{
 };
 use gpui_python_runtime::spec_cache::TypedSpecCache;
 use gpui_python_runtime::ui_ir::{
-    AccordionNode, AlertNode, BadgeNode, BooleanInputNode, BreadcrumbsNode, ButtonNode, CardNode,
-    ChartKind, ChartNode, ChartTreemapNode, ColorPickerNode, ConfirmDialogNode, ContextMenuNode, DialogNode, EmptyStateNode, FormNode, ListEditorNode, MenuBarNode, MenuItemNode, MenuNode, NumberInputNode,
-    PathInputNode, ProgressNode, PythonAppIr, Scene3dNode, SectionHeaderNode, SelectNode,
-    SimpleNode, SliderNode, SpinnerNode, StackNode, StepperNode, TableNode, TabsNode, TextInputNode,
-    PopoverNode, TextNode, ToastNode, TooltipNode, UiNode, MiniAppShellConfig,
+    AccordionNode, AlertNode, AudioControlNode, AudioMeterNode, AudioSpectrumNode, BadgeNode,
+    BooleanInputNode, BreadcrumbsNode, ButtonNode, CardNode, ChartKind, ChartNode,
+    ChartTreemapNode, ColorPickerNode, ConfirmDialogNode, ContextMenuNode, DialogNode,
+    EmptyStateNode, FormNode, ListEditorNode, MenuBarNode, MenuItemNode, MenuNode,
+    MiniAppShellConfig, NumberInputNode, PathInputNode, PopoverNode, ProgressNode, PythonAppIr,
+    Scene3dNode, SectionHeaderNode, SelectNode, SimpleNode, SliderNode, SpinnerNode, StackNode,
+    StepperNode, TableNode, TabsNode, TextInputNode, TextNode, ToastNode, TooltipNode, UiNode,
 };
 use gpui_ui_kit::color::Color;
 use gpui_ui_kit::data_navigation::{DataNavigationAction, DataNavigationState};
 use gpui_ui_kit::theme::{Theme, ThemeExt, ThemeState, ThemeVariant};
 use gpui_ui_kit::{
-    Alert, AlertVariant, BreadcrumbItem, BreadcrumbSeparator, Breadcrumbs, ColorPickerView, Toast,
-    ToastVariant, TooltipPlacement, WithTooltip,
-    ConfirmDialog, ConfirmDialogVariant, ContextMenu, Dialog, DialogSize, EmptyState, Menu, MenuBar, MenuBarItem, MenuItem, Popover, PopoverPlacement,
-    DragItem, DragList,
+    Alert, AlertVariant, BreadcrumbItem, BreadcrumbSeparator, Breadcrumbs, ColorPickerView,
+    ConfirmDialog, ConfirmDialogVariant, ContextMenu, Dialog, DialogSize, DragItem, DragList,
+    EmptyState, I18nState, Language, Menu, MenuBar, MenuBarItem, MenuItem, Popover,
+    PopoverPlacement, Toast, ToastVariant, TooltipPlacement, WithTooltip,
     accordion::{Accordion, AccordionItem, AccordionMode},
     checkbox::Checkbox,
     input::Input,
     number_input::NumberInput,
     select::Select,
     slider::Slider,
-    toggle::Toggle, I18nState, Language,
+    toggle::Toggle,
 };
 use gpui_ui_kit::{AriaProps, AriaRole, AriaState, apply_native_accessibility};
 use serde::Deserialize;
@@ -48,7 +54,10 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
-use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
 use std::time::Duration;
 
 fn select_wire_value(value: &Value) -> String {
@@ -76,8 +85,12 @@ fn command_domain(arguments: &Value, name: &str) -> Result<(f64, f64), String> {
     let [min, max] = values.as_slice() else {
         return Err(format!("{name} must be a two-value array"));
     };
-    let min = min.as_f64().ok_or_else(|| format!("{name} minimum must be finite"))?;
-    let max = max.as_f64().ok_or_else(|| format!("{name} maximum must be finite"))?;
+    let min = min
+        .as_f64()
+        .ok_or_else(|| format!("{name} minimum must be finite"))?;
+    let max = max
+        .as_f64()
+        .ok_or_else(|| format!("{name} maximum must be finite"))?;
     if !min.is_finite() || !max.is_finite() || min >= max {
         return Err(format!("{name} must be finite and increasing"));
     }
@@ -91,8 +104,14 @@ fn command_numbers(arguments: &Value, name: &str) -> Result<Vec<f64>, String> {
         .ok_or_else(|| format!("{name} must be an array"))?
         .iter()
         .map(|value| {
-            let value = value.as_f64().ok_or_else(|| format!("{name} values must be finite"))?;
-            if value.is_finite() { Ok(value) } else { Err(format!("{name} values must be finite")) }
+            let value = value
+                .as_f64()
+                .ok_or_else(|| format!("{name} values must be finite"))?;
+            if value.is_finite() {
+                Ok(value)
+            } else {
+                Err(format!("{name} values must be finite"))
+            }
         })
         .collect()
 }
@@ -211,13 +230,11 @@ fn builder_sizing<'a>(
 ) -> gpui_builder::Sizing<'a> {
     match spec {
         BuilderSizingSpec::Fixed { initial } => gpui_builder::Sizing::Fixed(*initial),
-        BuilderSizingSpec::Fractional { initial, min, max } => {
-            gpui_builder::Sizing::Fractional {
-                initial: *initial,
-                min: *min,
-                max: max.unwrap_or(f32::INFINITY),
-            }
-        }
+        BuilderSizingSpec::Fractional { initial, min, max } => gpui_builder::Sizing::Fractional {
+            initial: *initial,
+            min: *min,
+            max: max.unwrap_or(f32::INFINITY),
+        },
         BuilderSizingSpec::Flex { min, weight } => gpui_builder::Sizing::Flex {
             min: *min,
             weight: *weight,
@@ -352,9 +369,7 @@ fn builder_issue_kind(kind: &gpui_builder::LayoutIssueKind) -> &'static str {
         LayoutIssueKind::EmptyCollapseLabel => "empty_collapse_label",
         LayoutIssueKind::InvalidDisplayTier => "invalid_display_tier",
         LayoutIssueKind::DuplicateDisplayTierName { .. } => "duplicate_display_tier_name",
-        LayoutIssueKind::DuplicateDisplayTierThreshold { .. } => {
-            "duplicate_display_tier_threshold"
-        }
+        LayoutIssueKind::DuplicateDisplayTierThreshold { .. } => "duplicate_display_tier_threshold",
         LayoutIssueKind::DisplayTiersNotDescending => "display_tiers_not_descending",
         LayoutIssueKind::EmptyContainer => "empty_container",
     }
@@ -1393,8 +1408,7 @@ mod builder_adapter_tests {
                     gpui_builder::LayoutViewport::new("narrow", 320.0, 480.0),
                 ];
                 let preferences = gpui_builder::LayoutPreferences::default();
-                let matrix =
-                    gpui_builder::solve_snapshot_matrix(&root, &viewports, &preferences);
+                let matrix = gpui_builder::solve_snapshot_matrix(&root, &viewports, &preferences);
                 let expected = matrix
                     .snapshots
                     .iter()
@@ -1451,6 +1465,26 @@ fn csv_field(value: &str) -> String {
     }
 }
 
+fn audio_accessibility_json(summary: &gpui_audio_kit::AudioAccessibilitySummary) -> Value {
+    serde_json::json!({
+        "control_type": summary.control_type,
+        "label": summary.label,
+        "role": format!("{:?}", summary.role).to_lowercase(),
+        "value_now": summary.value_now,
+        "value_min": summary.value_min,
+        "value_max": summary.value_max,
+        "value_text": summary.value_text,
+        "unit": summary.unit,
+        "normalized": summary.normalized,
+        "scale": summary.scale.map(|scale| format!("{scale:?}").to_lowercase()),
+        "selected": summary.selected,
+        "disabled": summary.disabled,
+        "muted": summary.muted,
+        "peak_value": summary.peak_value,
+        "description": summary.description,
+    })
+}
+
 pub(super) struct PythonIrShowcase {
     pub(super) app: Option<PythonAppIr>,
     pub(super) load_error: Option<String>,
@@ -1469,6 +1503,9 @@ pub(super) struct PythonIrShowcase {
     /// Host-local legend choices. They are keyed by Python's stable series ID
     /// and intentionally survive data patches without changing Python state.
     chart_hidden_series: HashMap<String, HashSet<String>>,
+    /// Latest-only decoded binary frames. Audio rendering reads these directly
+    /// without routing high-rate decimal arrays through app patches.
+    audio_frames: AudioFrameStore,
     table_scrolls: HashMap<String, UniformListScrollHandle>,
     table_focus: HashMap<String, FocusHandle>,
     /// Anonymous legacy tables do not retain interaction state, but their
@@ -1538,6 +1575,7 @@ impl PythonIrShowcase {
             tab_focus: HashMap::new(),
             chart_interactions: HashMap::new(),
             chart_hidden_series: HashMap::new(),
+            audio_frames: AudioFrameStore::new(),
             table_scrolls: HashMap::new(),
             table_focus: HashMap::new(),
             legacy_table_id_counter: 0,
@@ -1552,7 +1590,9 @@ impl PythonIrShowcase {
             session: None,
             session_state: SessionState::new(
                 gpui_python_runtime::session::DEFAULT_HOST_CAPABILITIES
-                    .iter().map(|capability| (*capability).into()).collect(),
+                    .iter()
+                    .map(|capability| (*capability).into())
+                    .collect(),
             ),
             // Retain the required scientific-workload history while rendering
             // only the latest 200 filtered lines below. This keeps incoming
@@ -1587,7 +1627,10 @@ impl PythonIrShowcase {
         session: super::python::PythonSession,
         cx: &mut Context<Self>,
     ) {
-        if !app.sections.iter().any(|section| section.id == self.current_section)
+        if !app
+            .sections
+            .iter()
+            .any(|section| section.id == self.current_section)
             && let Some(section) = app.sections.first()
         {
             self.current_section = section.id.clone();
@@ -1804,7 +1847,9 @@ impl PythonIrShowcase {
                     .find(|section| section.id == self.current_section)
                     .or_else(|| app.sections.first())
                     .map(|section| section.content.clone()),
-                app.miniapp.as_ref().map_or(true, |config| config.scrollable),
+                app.miniapp
+                    .as_ref()
+                    .map_or(true, |config| config.scrollable),
             )
         };
 
@@ -1892,6 +1937,12 @@ impl PythonIrShowcase {
             UiNode::NumberInput(node) => self.render_number_input(node, theme, ds, cx),
             UiNode::Slider(node) if !node.presentation.visible => div().into_any_element(),
             UiNode::Slider(node) => self.render_slider(node, theme, ds),
+            UiNode::AudioPotentiometer(node) => self.render_audio_potentiometer(node),
+            UiNode::AudioVerticalSlider(node) => self.render_audio_vertical_slider(node),
+            UiNode::AudioVolumeKnob(node) => self.render_audio_volume_knob(node),
+            UiNode::AudioHorizontalMeter(node) => self.render_audio_horizontal_meter(node),
+            UiNode::AudioLevelMeter(node) => self.render_audio_level_meter(node),
+            UiNode::AudioSpectrum(node) => self.render_audio_spectrum(node),
             UiNode::Select(node) if !node.presentation.visible => div().into_any_element(),
             UiNode::Select(node) => self.render_select(node, theme, ds),
             UiNode::ColorPicker(node) if !node.presentation.visible => div().into_any_element(),
@@ -2526,6 +2577,297 @@ impl PythonIrShowcase {
             });
         }
         self.present_form_control(slider.into_any_element(), &node.presentation, theme, ds)
+    }
+
+    fn render_audio_potentiometer(&self, node: &AudioControlNode) -> AnyElement {
+        let size = match node.size.as_str() {
+            "xs" => gpui_audio_kit::PotentiometerSize::Xs,
+            "sm" => gpui_audio_kit::PotentiometerSize::Sm,
+            "lg" => gpui_audio_kit::PotentiometerSize::Lg,
+            _ => gpui_audio_kit::PotentiometerSize::Md,
+        };
+        let scale = if node.scale == "logarithmic" {
+            gpui_audio_kit::AudioScale::Logarithmic
+        } else {
+            gpui_audio_kit::AudioScale::Linear
+        };
+        let mut control = Potentiometer::new(ElementId::Name(
+            format!("python-audio-potentiometer-{}", node.id).into(),
+        ))
+        .value(node.value)
+        .min(node.minimum)
+        .max(node.maximum)
+        .label(node.label.clone())
+        .unit(node.unit.clone())
+        .size(size)
+        .scale(scale)
+        .selected(node.selected)
+        .disabled(node.disabled)
+        .aria_label(
+            node.aria_label
+                .clone()
+                .unwrap_or_else(|| node.label.clone()),
+        );
+        if let (Some(sink), Some(action)) = (
+            self.session.as_ref().map(|session| session.event_sink()),
+            node.action.clone(),
+        ) {
+            let id = node.id.clone();
+            control = control.on_change(move |value, _, _| {
+                let _ = sink.dispatch(
+                    id.clone(),
+                    "preview",
+                    Some(action.clone()),
+                    serde_json::json!({"value": value}),
+                );
+            });
+        }
+        if let (Some(sink), Some(action)) = (
+            self.session.as_ref().map(|session| session.event_sink()),
+            node.commit_action.clone(),
+        ) {
+            let id = node.id.clone();
+            control = control.on_commit(move |value, _, _| {
+                let _ = sink.dispatch(
+                    id.clone(),
+                    "commit",
+                    Some(action.clone()),
+                    serde_json::json!({"value": value}),
+                );
+            });
+        }
+        control.into_any_element()
+    }
+
+    fn render_audio_vertical_slider(&self, node: &AudioControlNode) -> AnyElement {
+        let size = match node.size.as_str() {
+            "sm" | "xs" => gpui_audio_kit::VerticalSliderSize::Sm,
+            "lg" => gpui_audio_kit::VerticalSliderSize::Lg,
+            _ => gpui_audio_kit::VerticalSliderSize::Md,
+        };
+        let scale = if node.scale == "logarithmic" {
+            gpui_audio_kit::AudioScale::Logarithmic
+        } else {
+            gpui_audio_kit::AudioScale::Linear
+        };
+        let mut control = VerticalSlider::new(ElementId::Name(
+            format!("python-audio-vertical-slider-{}", node.id).into(),
+        ))
+        .value(node.value)
+        .min(node.minimum)
+        .max(node.maximum)
+        .label(node.label.clone())
+        .unit(node.unit.clone())
+        .size(size)
+        .scale(scale)
+        .selected(node.selected)
+        .disabled(node.disabled)
+        .peak(node.peak)
+        .aria_label(
+            node.aria_label
+                .clone()
+                .unwrap_or_else(|| node.label.clone()),
+        );
+        if node.with_ticks {
+            control = control.with_ticks();
+        }
+        if let Some(height) = node.height {
+            control = control.height(height);
+        }
+        if let (Some(sink), Some(action)) = (
+            self.session.as_ref().map(|session| session.event_sink()),
+            node.action.clone(),
+        ) {
+            let id = node.id.clone();
+            control = control.on_change(move |value, _, _| {
+                let _ = sink.dispatch(
+                    id.clone(),
+                    "preview",
+                    Some(action.clone()),
+                    serde_json::json!({"value": value}),
+                );
+            });
+        }
+        if let (Some(sink), Some(action)) = (
+            self.session.as_ref().map(|session| session.event_sink()),
+            node.commit_action.clone(),
+        ) {
+            let id = node.id.clone();
+            control = control.on_commit(move |value, _, _| {
+                let _ = sink.dispatch(
+                    id.clone(),
+                    "commit",
+                    Some(action.clone()),
+                    serde_json::json!({"value": value}),
+                );
+            });
+        }
+        control.into_any_element()
+    }
+
+    fn render_audio_volume_knob(&self, node: &AudioControlNode) -> AnyElement {
+        let mut control = VolumeKnob::new()
+            .id(ElementId::Name(
+                format!("python-audio-volume-knob-{}", node.id).into(),
+            ))
+            .value(node.value as f32)
+            .label(node.label.clone())
+            .muted(node.muted)
+            .size(px(node.width.unwrap_or(80.0)))
+            .aria_label(
+                node.aria_label
+                    .clone()
+                    .unwrap_or_else(|| node.label.clone()),
+            );
+        if let (Some(sink), Some(action)) = (
+            self.session.as_ref().map(|session| session.event_sink()),
+            node.action.clone(),
+        ) {
+            let id = node.id.clone();
+            control = control.on_change(move |value, _, _| {
+                let _ = sink.dispatch(
+                    id.clone(),
+                    "preview",
+                    Some(action.clone()),
+                    serde_json::json!({"value": value}),
+                );
+            });
+        }
+        if let (Some(sink), Some(action)) = (
+            self.session.as_ref().map(|session| session.event_sink()),
+            node.commit_action.clone(),
+        ) {
+            let id = node.id.clone();
+            control = control.on_commit(move |value, _, _| {
+                let _ = sink.dispatch(
+                    id.clone(),
+                    "commit",
+                    Some(action.clone()),
+                    serde_json::json!({"value": value}),
+                );
+            });
+        }
+        if let (Some(sink), Some(action)) = (
+            self.session.as_ref().map(|session| session.event_sink()),
+            node.mute_action.clone(),
+        ) {
+            let id = node.id.clone();
+            control = control.on_mute_toggle(move |muted, _, _| {
+                let _ = sink.dispatch(
+                    id.clone(),
+                    "mute_toggle",
+                    Some(action.clone()),
+                    serde_json::json!({"muted": muted}),
+                );
+            });
+        }
+        control.into_any_element()
+    }
+
+    fn render_audio_horizontal_meter(&self, node: &AudioMeterNode) -> AnyElement {
+        let tick_config = gpui_audio_kit::TickConfig::db_linear(-60.0, 0.0);
+        let streamed = node
+            .stream_id
+            .as_deref()
+            .and_then(|id| self.audio_frames.get(id))
+            .filter(|frame| frame.frame_kind == AudioFrameKind::Meter)
+            .and_then(|frame| frame.meter_levels())
+            .map(|levels| {
+                levels
+                    .iter()
+                    .map(|value| f64::from(*value))
+                    .collect::<Vec<_>>()
+            });
+        let levels = streamed.as_deref().unwrap_or(&node.levels);
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(4.0))
+            .children(levels.iter().enumerate().map(|(index, level)| {
+                let label = node
+                    .channel_names
+                    .get(index)
+                    .cloned()
+                    .unwrap_or_else(|| format!("Channel {}", index + 1));
+                gpui_audio_kit::render_horizontal_meter_bar(
+                    label,
+                    *level,
+                    &tick_config,
+                    gpui_audio_kit::HorizontalMeterTheme::default(),
+                )
+            }))
+            .into_any_element()
+    }
+
+    fn render_audio_level_meter(&self, node: &AudioMeterNode) -> AnyElement {
+        let stream = node
+            .stream_id
+            .as_deref()
+            .and_then(|id| self.audio_frames.get(id))
+            .filter(|frame| frame.frame_kind == AudioFrameKind::Meter);
+        let streamed_levels = stream.and_then(|frame| frame.meter_levels()).map(|levels| {
+            levels
+                .iter()
+                .map(|value| f64::from(*value))
+                .collect::<Vec<_>>()
+        });
+        let streamed_peaks = stream.and_then(|frame| frame.meter_peaks()).map(|peaks| {
+            peaks
+                .iter()
+                .map(|value| f64::from(*value))
+                .collect::<Vec<_>>()
+        });
+        let levels = streamed_levels.as_deref().unwrap_or(&node.levels);
+        let peaks = streamed_peaks.as_deref().unwrap_or(&node.peaks);
+        div()
+            .flex()
+            .gap(px(8.0))
+            .children(levels.iter().enumerate().map(|(index, level)| {
+                let label = node
+                    .channel_names
+                    .get(index)
+                    .cloned()
+                    .unwrap_or_else(|| format!("Channel {}", index + 1));
+                let mut meter =
+                    LevelMeterElement::new(*level, label).width(px(node.width.unwrap_or(16.0)));
+                if let Some(peak) = peaks.get(index) {
+                    meter = meter.peak(*peak);
+                }
+                meter
+            }))
+            .into_any_element()
+    }
+
+    fn render_audio_spectrum(&self, node: &AudioSpectrumNode) -> AnyElement {
+        let stream = node
+            .stream_id
+            .as_deref()
+            .and_then(|id| self.audio_frames.get(id))
+            .filter(|frame| frame.frame_kind == AudioFrameKind::Spectrum);
+        let magnitudes = stream
+            .map(|frame| frame.values.clone())
+            .unwrap_or_else(|| node.magnitudes.clone());
+        let minimum_frequency = stream
+            .and_then(|frame| frame.minimum_frequency)
+            .map(|value| value as f32)
+            .unwrap_or(node.minimum_frequency);
+        let maximum_frequency = stream
+            .and_then(|frame| frame.maximum_frequency)
+            .map(|value| value as f32)
+            .unwrap_or(node.maximum_frequency);
+        let mut spectrum = SpectrumElement::new(Arc::<[f32]>::from(magnitudes))
+            .frequency_range(minimum_frequency, maximum_frequency)
+            .smoothing(node.smoothing);
+        if !node.previous.is_empty() {
+            spectrum = spectrum.previous(Arc::<[f32]>::from(node.previous.clone()));
+        }
+        if let Some(height) = node.height {
+            spectrum = spectrum.height(px(height));
+        }
+        if let Some(gap) = node.bar_gap {
+            spectrum = spectrum.bar_gap(px(gap));
+        }
+        spectrum.into_any_element()
     }
 
     fn render_select(&self, node: &SelectNode, theme: &Theme, ds: &DesignSystem) -> AnyElement {
@@ -3473,7 +3815,9 @@ impl PythonIrShowcase {
             self.render_node(&node.child, theme, ds, cx),
             node.content.clone(),
         )
-        .id(ElementId::Name(format!("python-tooltip-{}", node.id).into()))
+        .id(ElementId::Name(
+            format!("python-tooltip-{}", node.id).into(),
+        ))
         .placement(placement)
         .delay(node.delay_ms);
         if let Some(show) = node.show {
@@ -3517,11 +3861,19 @@ impl PythonIrShowcase {
             _ => DialogSize::Md,
         };
         let content = div().flex().flex_col().children(
-            node.content.iter().map(|child| self.render_node(child, theme, ds, cx)),
+            node.content
+                .iter()
+                .map(|child| self.render_node(child, theme, ds, cx)),
         );
-        let footer = div().flex().items_center().gap(px(ds.spacing.control_gap)).children(
-            node.footer.iter().map(|child| self.render_node(child, theme, ds, cx)),
-        );
+        let footer = div()
+            .flex()
+            .items_center()
+            .gap(px(ds.spacing.control_gap))
+            .children(
+                node.footer
+                    .iter()
+                    .map(|child| self.render_node(child, theme, ds, cx)),
+            );
         let mut dialog = Dialog::new(ElementId::Name(format!("python-dialog-{}", node.id).into()))
             .size(size)
             .content(content)
@@ -3543,29 +3895,44 @@ impl PythonIrShowcase {
         dialog.into_any_element()
     }
 
-    fn render_confirm_dialog(&self, node: &ConfirmDialogNode, cx: &mut Context<Self>) -> AnyElement {
+    fn render_confirm_dialog(
+        &self,
+        node: &ConfirmDialogNode,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let variant = match node.variant.as_str() {
             "destructive" => ConfirmDialogVariant::Destructive,
             "warning" => ConfirmDialogVariant::Warning,
             _ => ConfirmDialogVariant::Default,
         };
-        let mut dialog = ConfirmDialog::new(ElementId::Name(format!("python-confirm-dialog-{}", node.id).into()))
-            .message(node.message.clone())
-            .variant(variant)
-            .confirm_label(node.confirm_label.clone())
-            .cancel_label(node.cancel_label.clone())
-            .focus_handle(cx.focus_handle());
-        if let Some(title) = &node.title { dialog = dialog.title(title.clone()); }
+        let mut dialog = ConfirmDialog::new(ElementId::Name(
+            format!("python-confirm-dialog-{}", node.id).into(),
+        ))
+        .message(node.message.clone())
+        .variant(variant)
+        .confirm_label(node.confirm_label.clone())
+        .cancel_label(node.cancel_label.clone())
+        .focus_handle(cx.focus_handle());
+        if let Some(title) = &node.title {
+            dialog = dialog.title(title.clone());
+        }
         if let (Some(sink), Some(action)) = (
-            self.session.as_ref().map(|session| session.event_sink()), node.confirm_action.clone(),
+            self.session.as_ref().map(|session| session.event_sink()),
+            node.confirm_action.clone(),
         ) {
             let node_id = node.id.clone();
             dialog = dialog.on_confirm(move |_, _| {
-                let _ = sink.dispatch(node_id.clone(), "confirm", Some(action.clone()), Value::Null);
+                let _ = sink.dispatch(
+                    node_id.clone(),
+                    "confirm",
+                    Some(action.clone()),
+                    Value::Null,
+                );
             });
         }
         if let (Some(sink), Some(action)) = (
-            self.session.as_ref().map(|session| session.event_sink()), node.cancel_action.clone(),
+            self.session.as_ref().map(|session| session.event_sink()),
+            node.cancel_action.clone(),
         ) {
             let node_id = node.id.clone();
             dialog = dialog.on_cancel(move |_, _| {
@@ -3610,14 +3977,21 @@ impl PythonIrShowcase {
         .position(point(px(node.position[0]), px(node.position[1])))
         .min_width(px(node.min_width));
         menu = menu.focus_handle(cx.focus_handle());
-        if let Some(index) = node.focused_index { menu = menu.focused_index(index); }
+        if let Some(index) = node.focused_index {
+            menu = menu.focused_index(index);
+        }
         if let (Some(sink), Some(action)) = (
             self.session.as_ref().map(|session| session.event_sink()),
             node.action.clone(),
         ) {
             let node_id = node.id.clone();
             menu = menu.on_select(move |item_id, _, _| {
-                let _ = sink.dispatch(node_id.clone(), "select", Some(action.clone()), serde_json::json!({"item_id": item_id.as_ref()}));
+                let _ = sink.dispatch(
+                    node_id.clone(),
+                    "select",
+                    Some(action.clone()),
+                    serde_json::json!({"item_id": item_id.as_ref()}),
+                );
             });
         }
         if let (Some(sink), Some(action)) = (
@@ -3635,7 +4009,12 @@ impl PythonIrShowcase {
         ) {
             let node_id = node.id.clone();
             menu = menu.on_focus_change(move |index, _, _| {
-                let _ = sink.dispatch(node_id.clone(), "focus", Some(action.clone()), serde_json::json!({"index": index}));
+                let _ = sink.dispatch(
+                    node_id.clone(),
+                    "focus",
+                    Some(action.clone()),
+                    serde_json::json!({"index": index}),
+                );
             });
         }
         menu.into_any_element()
@@ -3648,17 +4027,26 @@ impl PythonIrShowcase {
         )
         .min_width(px(node.min_width))
         .focus_handle(cx.focus_handle());
-        if let Some(index) = node.focused_index { menu = menu.focused_index(index); }
+        if let Some(index) = node.focused_index {
+            menu = menu.focused_index(index);
+        }
         if let (Some(sink), Some(action)) = (
-            self.session.as_ref().map(|session| session.event_sink()), node.action.clone(),
+            self.session.as_ref().map(|session| session.event_sink()),
+            node.action.clone(),
         ) {
             let node_id = node.id.clone();
             menu = menu.on_select(move |item_id, _, _| {
-                let _ = sink.dispatch(node_id.clone(), "select", Some(action.clone()), serde_json::json!({"item_id": item_id.as_ref()}));
+                let _ = sink.dispatch(
+                    node_id.clone(),
+                    "select",
+                    Some(action.clone()),
+                    serde_json::json!({"item_id": item_id.as_ref()}),
+                );
             });
         }
         if let (Some(sink), Some(action)) = (
-            self.session.as_ref().map(|session| session.event_sink()), node.close_action.clone(),
+            self.session.as_ref().map(|session| session.event_sink()),
+            node.close_action.clone(),
         ) {
             let node_id = node.id.clone();
             menu = menu.on_close(move |_, _| {
@@ -3666,27 +4054,44 @@ impl PythonIrShowcase {
             });
         }
         if let (Some(sink), Some(action)) = (
-            self.session.as_ref().map(|session| session.event_sink()), node.focus_action.clone(),
+            self.session.as_ref().map(|session| session.event_sink()),
+            node.focus_action.clone(),
         ) {
             let node_id = node.id.clone();
             menu = menu.on_focus_change(move |index, _, _| {
-                let _ = sink.dispatch(node_id.clone(), "focus", Some(action.clone()), serde_json::json!({"index": index}));
+                let _ = sink.dispatch(
+                    node_id.clone(),
+                    "focus",
+                    Some(action.clone()),
+                    serde_json::json!({"index": index}),
+                );
             });
         }
         menu.into_any_element()
     }
 
     fn render_menu_bar(&self, node: &MenuBarNode, cx: &mut Context<Self>) -> AnyElement {
-        let bar_items = node.items.iter().map(|item| {
-            MenuBarItem::new(item.id.clone(), item.label.clone()).with_items(Self::menu_items(&item.items))
-        }).collect();
+        let bar_items = node
+            .items
+            .iter()
+            .map(|item| {
+                MenuBarItem::new(item.id.clone(), item.label.clone())
+                    .with_items(Self::menu_items(&item.items))
+            })
+            .collect();
         let mut bar = MenuBar::new(bar_items).active_menu(node.active_menu.clone().map(Into::into));
         if let (Some(sink), Some(action)) = (
-            self.session.as_ref().map(|session| session.event_sink()), node.toggle_action.clone(),
+            self.session.as_ref().map(|session| session.event_sink()),
+            node.toggle_action.clone(),
         ) {
             let node_id = node.id.clone();
             bar = bar.on_menu_toggle(move |menu_id, _, _| {
-                let _ = sink.dispatch(node_id.clone(), "toggle", Some(action.clone()), serde_json::json!({"menu_id": menu_id.map(|id| id.as_ref())}));
+                let _ = sink.dispatch(
+                    node_id.clone(),
+                    "toggle",
+                    Some(action.clone()),
+                    serde_json::json!({"menu_id": menu_id.map(|id| id.as_ref())}),
+                );
             });
         }
         let mut rendered = div().relative().child(bar);
@@ -3699,19 +4104,31 @@ impl PythonIrShowcase {
             )
             .focus_handle(cx.focus_handle());
             if let (Some(sink), Some(action)) = (
-                self.session.as_ref().map(|session| session.event_sink()), node.action.clone(),
+                self.session.as_ref().map(|session| session.event_sink()),
+                node.action.clone(),
             ) {
                 let node_id = node.id.clone();
                 menu = menu.on_select(move |item_id, _, _| {
-                    let _ = sink.dispatch(node_id.clone(), "select", Some(action.clone()), serde_json::json!({"item_id": item_id.as_ref()}));
+                    let _ = sink.dispatch(
+                        node_id.clone(),
+                        "select",
+                        Some(action.clone()),
+                        serde_json::json!({"item_id": item_id.as_ref()}),
+                    );
                 });
             }
             if let (Some(sink), Some(action)) = (
-                self.session.as_ref().map(|session| session.event_sink()), node.toggle_action.clone(),
+                self.session.as_ref().map(|session| session.event_sink()),
+                node.toggle_action.clone(),
             ) {
                 let node_id = node.id.clone();
                 menu = menu.on_close(move |_, _| {
-                    let _ = sink.dispatch(node_id.clone(), "toggle", Some(action.clone()), serde_json::json!({"menu_id": Value::Null}));
+                    let _ = sink.dispatch(
+                        node_id.clone(),
+                        "toggle",
+                        Some(action.clone()),
+                        serde_json::json!({"menu_id": Value::Null}),
+                    );
                 });
             }
             rendered = rendered.child(div().absolute().top_full().left_0().mt_1().child(menu));
@@ -3737,13 +4154,17 @@ impl PythonIrShowcase {
             _ => PopoverPlacement::Bottom,
         };
         let content = div().flex().flex_col().children(
-            node.content.iter().map(|child| self.render_node(child, theme, ds, cx)),
+            node.content
+                .iter()
+                .map(|child| self.render_node(child, theme, ds, cx)),
         );
-        let mut popover = Popover::new(ElementId::Name(format!("python-popover-{}", node.id).into()))
-            .placement(placement)
-            .content(content)
-            .show_backdrop(node.show_backdrop)
-            .focus_handle(cx.focus_handle());
+        let mut popover = Popover::new(ElementId::Name(
+            format!("python-popover-{}", node.id).into(),
+        ))
+        .placement(placement)
+        .content(content)
+        .show_backdrop(node.show_backdrop)
+        .focus_handle(cx.focus_handle());
         if let Some(width) = node.width {
             popover = popover.width(px(width));
         }
@@ -5427,11 +5848,19 @@ impl PythonIrShowcase {
         theme.warning = editor.warning.to_rgba();
         theme.error = editor.error.to_rgba();
         theme.info = editor.info.to_rgba();
-        cx.set_global(ThemeState { theme: Arc::new(theme) });
+        cx.set_global(ThemeState {
+            theme: Arc::new(theme),
+        });
         cx.refresh_windows();
     }
 
-    fn handle_command(&mut self, request_id: String, command: String, arguments: Value, cx: &mut Context<Self>) {
+    fn handle_command(
+        &mut self,
+        request_id: String,
+        command: String,
+        arguments: Value,
+        cx: &mut Context<Self>,
+    ) {
         match command.as_str() {
             "runtime.capabilities" => self.send_command_result(
                 request_id,
@@ -5849,6 +6278,128 @@ impl PythonIrShowcase {
                     Ok(result) => self.send_command_result(request_id, result),
                     Err(error) => self.send_command_result(request_id, serde_json::json!({"ok": false, "error": error})),
                 }
+            }
+            "audio.accessibility" => {
+                let result = arguments.get("node").cloned()
+                    .ok_or_else(|| "audio.accessibility requires node".to_string())
+                    .and_then(|value| serde_json::from_value::<UiNode>(value).map_err(|error| error.to_string()))
+                    .and_then(|node| match node {
+                        UiNode::AudioPotentiometer(node) => {
+                            let scale = if node.scale == "logarithmic" { gpui_audio_kit::AudioScale::Logarithmic } else { gpui_audio_kit::AudioScale::Linear };
+                            let summary = Potentiometer::new("audio-accessibility-potentiometer").value(node.value).min(node.minimum).max(node.maximum).label(node.label).unit(node.unit).scale(scale).selected(node.selected).disabled(node.disabled).aria_label(node.aria_label.unwrap_or(node.id)).accessibility_summary();
+                            Ok(vec![audio_accessibility_json(&summary)])
+                        }
+                        UiNode::AudioVerticalSlider(node) => {
+                            let scale = if node.scale == "logarithmic" { gpui_audio_kit::AudioScale::Logarithmic } else { gpui_audio_kit::AudioScale::Linear };
+                            let summary = VerticalSlider::new("audio-accessibility-slider").value(node.value).min(node.minimum).max(node.maximum).label(node.label).unit(node.unit).scale(scale).selected(node.selected).disabled(node.disabled).peak(node.peak).aria_label(node.aria_label.unwrap_or(node.id)).accessibility_summary();
+                            Ok(vec![audio_accessibility_json(&summary)])
+                        }
+                        UiNode::AudioVolumeKnob(node) => {
+                            let summary = VolumeKnob::new().value(node.value as f32).label(node.label).muted(node.muted).aria_label(node.aria_label.unwrap_or(node.id)).accessibility_summary();
+                            Ok(vec![audio_accessibility_json(&summary)])
+                        }
+                        UiNode::AudioHorizontalMeter(node) => {
+                            let streamed = node.stream_id.as_deref().and_then(|id| self.audio_frames.get(id)).and_then(|frame| frame.meter_levels()).map(|values| values.iter().map(|value| f64::from(*value)).collect::<Vec<_>>());
+                            let levels = streamed.as_deref().unwrap_or(&node.levels);
+                            Ok(levels.iter().enumerate().map(|(index, level)| {
+                                let label = node.channel_names.get(index).cloned().unwrap_or_else(|| format!("Channel {}", index + 1));
+                                let summary = gpui_audio_kit::horizontal_meter_accessibility_summary(label, *level, &gpui_audio_kit::TickConfig::db_linear(-60.0, 0.0));
+                                audio_accessibility_json(&summary)
+                            }).collect())
+                        }
+                        UiNode::AudioLevelMeter(node) => {
+                            let stream = node.stream_id.as_deref().and_then(|id| self.audio_frames.get(id));
+                            let streamed_levels = stream.and_then(|frame| frame.meter_levels()).map(|values| values.iter().map(|value| f64::from(*value)).collect::<Vec<_>>());
+                            let streamed_peaks = stream.and_then(|frame| frame.meter_peaks()).map(|values| values.iter().map(|value| f64::from(*value)).collect::<Vec<_>>());
+                            let levels = streamed_levels.as_deref().unwrap_or(&node.levels);
+                            let peaks = streamed_peaks.as_deref().unwrap_or(&node.peaks);
+                            Ok(levels.iter().enumerate().map(|(index, level)| {
+                                let label = node.channel_names.get(index).cloned().unwrap_or_else(|| format!("Channel {}", index + 1));
+                                let mut meter = LevelMeterElement::new(*level, label);
+                                if let Some(peak) = peaks.get(index) { meter = meter.peak(*peak); }
+                                audio_accessibility_json(&meter.accessibility_summary())
+                            }).collect())
+                        }
+                        UiNode::AudioSpectrum(node) => {
+                            let stream = node.stream_id.as_deref().and_then(|id| self.audio_frames.get(id)).filter(|frame| frame.frame_kind == AudioFrameKind::Spectrum);
+                            let bins = stream.map(|frame| frame.values.len()).unwrap_or(node.magnitudes.len());
+                            let minimum_frequency = stream.and_then(|frame| frame.minimum_frequency).unwrap_or(f64::from(node.minimum_frequency));
+                            let maximum_frequency = stream.and_then(|frame| frame.maximum_frequency).unwrap_or(f64::from(node.maximum_frequency));
+                            Ok(vec![serde_json::json!({
+                            "control_type":"spectrum", "label":node.id, "role":"img",
+                            "value_now":null, "value_min":null, "value_max":null, "value_text":null,
+                            "unit":"dB", "normalized":null, "scale":"logarithmic", "selected":false,
+                            "disabled":false, "muted":false, "peak_value":null,
+                            "description":format!("Audio spectrum with {} bins from {:.0} to {:.0} Hz", bins, minimum_frequency, maximum_frequency),
+                        })])
+                        }
+                        _ => Err("node is not an audio declaration".into()),
+                    });
+                match result {
+                    Ok(summaries) => self.send_command_result(request_id, serde_json::json!({"ok": true, "summaries": summaries})),
+                    Err(error) => self.send_command_result(request_id, serde_json::json!({"ok": false, "error": error})),
+                }
+            }
+            "audio.reports" => {
+                let automation = gpui_audio_kit::audio_automation_pattern_report();
+                let visual = gpui_audio_kit::audio_visual_regression_manifest();
+                let tokens = gpui_audio_kit::AudioDesignTokens::default();
+                self.send_command_result(request_id, serde_json::json!({
+                    "ok": true,
+                    "automation": {
+                        "schema_version": automation.schema_version,
+                        "report_type": automation.report_type,
+                        "unique_ids": automation.validate_unique_ids(),
+                        "patterns": automation.patterns.iter().map(|pattern| serde_json::json!({
+                            "id": pattern.id,
+                            "parameter_family": pattern.parameter_family,
+                            "recommended_control": pattern.recommended_control,
+                            "scale": pattern.scale,
+                            "automation_sources": pattern.automation_sources,
+                            "expected_interactions": pattern.expected_interactions,
+                            "accessibility_summary_contract": pattern.accessibility_summary_contract,
+                            "release_evidence": pattern.release_evidence,
+                            "status": pattern.status.label(),
+                        })).collect::<Vec<_>>(),
+                        "markdown": automation.to_markdown(),
+                    },
+                    "visual": {
+                        "schema_version": visual.schema_version,
+                        "report_type": visual.report_type,
+                        "crate_name": visual.crate_name,
+                        "crate_version": visual.crate_version,
+                        "capture_count": visual.capture_count(),
+                        "expected_capture_count": visual.expected_capture_count(),
+                        "unique_capture_ids": visual.validate_unique_capture_ids(),
+                        "components": visual.components().into_iter().collect::<Vec<_>>(),
+                        "markdown": visual.to_markdown_table(),
+                    },
+                    "design_tokens": {
+                        "knob_arc_start_deg": tokens.knob_arc_start_deg,
+                        "knob_arc_sweep_deg": tokens.knob_arc_sweep_deg,
+                        "knob_arc_widths": tokens.knob_arc_widths,
+                        "knob_arc_track_widths": tokens.knob_arc_track_widths,
+                        "knob_arc_glow": tokens.knob_arc_glow,
+                        "knob_arc_segments": tokens.knob_arc_segments,
+                        "knob_border_width": tokens.knob_border_width,
+                        "knob_label_style": tokens.knob_label_style,
+                        "knob_indicator_style": tokens.knob_indicator_style,
+                        "slider_track_widths": tokens.slider_track_widths,
+                        "meter_label_style": tokens.meter_label_style,
+                        "meter_use_gradient": tokens.meter_use_gradient,
+                        "meter_corner_radius": tokens.meter_corner_radius,
+                        "meter_glow": tokens.meter_glow,
+                        "toggle_variant": tokens.toggle_variant,
+                        "corner_radius": tokens.corner_radius,
+                        "min_touch_target": tokens.min_touch_target,
+                        "control_padding_x": tokens.control_padding_x,
+                        "control_padding_y": tokens.control_padding_y,
+                        "animation_duration_ms": tokens.animation_duration_ms,
+                        "prefer_spring": tokens.prefer_spring,
+                        "spring_stiffness": tokens.spring_stiffness,
+                        "spring_damping": tokens.spring_damping,
+                    },
+                }));
             }
             "px.reports" => {
                 let capability = gpui_px::chart_capability_report();
@@ -6770,6 +7321,17 @@ impl PythonIrShowcase {
                         self.load_error = Some(error.to_string());
                     }
                 }
+                Ok(PythonMessage::ResourceFrame(frame)) => {
+                    if let Err(error) = self.audio_frames.ingest(frame) {
+                        self.load_error = Some(error.to_string());
+                    }
+                }
+                Ok(PythonMessage::DropResource {
+                    resource_id,
+                    generation,
+                }) => {
+                    self.audio_frames.release(&resource_id, generation);
+                }
                 Ok(PythonMessage::Effect {
                     request_id,
                     effect,
@@ -6814,12 +7376,19 @@ impl PythonIrShowcase {
     }
 
     fn apply_miniapp_shell(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(app) = self.app.as_ref() else { return; };
-        let Some(config) = app.miniapp.clone() else { return; };
-        if self.applied_miniapp_shell.as_ref() == Some(&config) { return; }
+        let Some(app) = self.app.as_ref() else {
+            return;
+        };
+        let Some(config) = app.miniapp.clone() else {
+            return;
+        };
+        if self.applied_miniapp_shell.as_ref() == Some(&config) {
+            return;
+        }
         window.set_window_title(&config.title);
         window.resize(size(px(config.width), px(config.height)));
-        self.presentation.set_window_size(config.width, config.height);
+        self.presentation
+            .set_window_size(config.width, config.height);
         if config.with_theme {
             let variant = match config.initial_theme.to_ascii_lowercase().as_str() {
                 "light" => ThemeVariant::Light,
@@ -6858,23 +7427,35 @@ impl PythonIrShowcase {
         };
         let sink = self.session.as_ref().map(|session| session.event_sink());
         if config.with_theme {
-            if let Some(theme) = cx.try_global::<ThemeState>().map(|state| state.theme.variant)
-                && self.observed_miniapp_theme.replace(theme).is_some_and(|previous| previous != theme)
+            if let Some(theme) = cx
+                .try_global::<ThemeState>()
+                .map(|state| state.theme.variant)
+                && self
+                    .observed_miniapp_theme
+                    .replace(theme)
+                    .is_some_and(|previous| previous != theme)
                 && let Some(sink) = &sink
             {
                 let _ = sink.dispatch(
-                    "miniapp", "theme_changed", Some("miniapp_theme_changed".into()),
+                    "miniapp",
+                    "theme_changed",
+                    Some("miniapp_theme_changed".into()),
                     serde_json::json!({"theme": theme.name()}),
                 );
             }
         }
         if config.with_i18n {
             if let Some(language) = cx.try_global::<I18nState>().map(|state| state.language)
-                && self.observed_miniapp_language.replace(language).is_some_and(|previous| previous != language)
+                && self
+                    .observed_miniapp_language
+                    .replace(language)
+                    .is_some_and(|previous| previous != language)
                 && let Some(sink) = &sink
             {
                 let _ = sink.dispatch(
-                    "miniapp", "language_changed", Some("miniapp_language_changed".into()),
+                    "miniapp",
+                    "language_changed",
+                    Some("miniapp_language_changed".into()),
                     serde_json::json!({"language": language.code()}),
                 );
             }
@@ -6887,6 +7468,7 @@ impl Drop for PythonIrShowcase {
         for cancellation in self.profiler_subscriptions.values() {
             cancellation.store(true, Ordering::Release);
         }
+        self.audio_frames.clear();
     }
 }
 

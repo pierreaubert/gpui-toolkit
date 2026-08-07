@@ -3,6 +3,7 @@
 //! The UI IR describes a snapshot; this module describes the independent,
 //! newline-delimited JSON control plane used after that snapshot is rendered.
 
+use crate::audio_stream::AudioFrame;
 use crate::ui_ir::PythonAppIr;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -25,6 +26,7 @@ pub const DEFAULT_HOST_CAPABILITIES: &[&str] = &[
     "charts",
     "scene3d",
     "state_store",
+    "audio_binary_frames",
 ];
 
 #[derive(Debug, Clone, PartialEq, Error)]
@@ -87,11 +89,21 @@ pub struct Shutdown {
 pub enum HostMessage {
     Initialize(Initialize),
     Event(UiEvent),
-    Cancel { request_id: String },
+    Cancel {
+        request_id: String,
+    },
     Shutdown(Shutdown),
-    Heartbeat { id: String },
-    EffectResult { request_id: String, result: Value },
-    CommandResult { request_id: String, result: Value },
+    Heartbeat {
+        id: String,
+    },
+    EffectResult {
+        request_id: String,
+        result: Value,
+    },
+    CommandResult {
+        request_id: String,
+        result: Value,
+    },
     /// A bounded-rate, host-owned allocation sample from a subscription.
     ProfilerSample {
         subscription_id: String,
@@ -352,6 +364,13 @@ pub enum PythonMessage {
     Patch(Patch),
     Job(JobUpdate),
     JobLog(JobLog),
+    /// Header for a raw binary frame. The stdout reader fills `payload` from
+    /// the exact byte count immediately following the header line.
+    ResourceFrame(AudioFrame),
+    DropResource {
+        resource_id: String,
+        generation: u64,
+    },
     Effect {
         request_id: String,
         effect: String,
@@ -512,7 +531,10 @@ mod tests {
             sample: serde_json::json!({"mode": "zero", "bytes": 0, "count": 0}),
         };
         let text = serde_json::to_vec(&sample).unwrap();
-        assert_eq!(serde_json::from_slice::<HostMessage>(&text).unwrap(), sample);
+        assert_eq!(
+            serde_json::from_slice::<HostMessage>(&text).unwrap(),
+            sample
+        );
     }
 
     #[test]

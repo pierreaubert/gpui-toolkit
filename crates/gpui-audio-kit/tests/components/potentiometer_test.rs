@@ -74,6 +74,7 @@ fn test_potentiometer_selected() {
 fn test_potentiometer_handlers() {
     let pot = Potentiometer::new("pot")
         .on_change(|_val, _window, _cx| {})
+        .on_commit(|_val, _window, _cx| {})
         .on_drag_start(|_pos, _val, _window, _cx| {})
         .on_select(|_window, _cx| {})
         .on_reset(|_window, _cx| {});

@@ -32,6 +32,7 @@ showcase = [
     "dep:gpui-profiler",
     "dep:gpui-pretext",
     "dep:gpui-builder",
+    "dep:gpui-audio-kit",
     "dep:gpui-miniapp",
     "dep:gpui-px",
     "dep:gpui-ui-kit",
@@ -51,6 +52,7 @@ gpui-themes = { workspace = true, optional = true }
 gpui-profiler = { workspace = true, features = ["global-allocator"], optional = true }
 gpui-pretext = { workspace = true, optional = true }
 gpui-builder = { workspace = true, optional = true }
+gpui-audio-kit = { workspace = true, optional = true }
 gpui-miniapp = { workspace = true, optional = true }
 gpui-px = { workspace = true, default-features = false, optional = true }
 gpui-ui-kit = { workspace = true, optional = true }

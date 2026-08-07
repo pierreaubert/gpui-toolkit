@@ -16,7 +16,10 @@
 //! - Rotating indicator dot
 //! - Tick marks with major (labeled) and minor (unlabeled) ticks
 
-use super::interactions::{InteractionConfig, handle_keyboard, handle_scroll, value_tracker};
+use super::interactions::{
+    InteractionConfig, clear_drag_state, get_drag_state, handle_drag, handle_keyboard,
+    handle_scroll, store_drag_state, value_tracker,
+};
 use crate::accessibility::{AccessibilityExt, AccessibilityNode, AriaProps, AriaRole, AriaState};
 use crate::audio_accessibility::{
     AudioAccessibilitySummary, normalized, range_description, value_text,
@@ -56,6 +59,7 @@ pub struct Potentiometer {
     /// Platform design tokens for arc geometry and sizing.
     design_tokens: crate::audio_design_tokens::AudioDesignTokens,
     on_change: Option<Box<dyn Fn(f64, &mut Window, &mut App) + 'static>>,
+    on_commit: Option<Box<dyn Fn(f64, &mut Window, &mut App) + 'static>>,
     on_drag_start: Option<Box<dyn Fn(f32, f64, &mut Window, &mut App) + 'static>>,
     on_select: Option<Box<dyn Fn(&mut Window, &mut App) + 'static>>,
     on_reset: Option<Box<dyn Fn(&mut Window, &mut App) + 'static>>,
@@ -87,6 +91,7 @@ impl Potentiometer {
             accent_color: None,
             design_tokens: Default::default(),
             on_change: None,
+            on_commit: None,
             on_drag_start: None,
             on_select: None,
             on_reset: None,
@@ -208,6 +213,13 @@ impl Potentiometer {
     /// Scrolling will adjust the value by 5% increments.
     pub fn on_change(mut self, handler: impl Fn(f64, &mut Window, &mut App) + 'static) -> Self {
         self.on_change = Some(Box::new(handler));
+        self
+    }
+
+    /// Set a semantic commit handler. Dragging emits once on release; keyboard,
+    /// scroll, and click-step interactions emit after their preview change.
+    pub fn on_commit(mut self, handler: impl Fn(f64, &mut Window, &mut App) + 'static) -> Self {
+        self.on_commit = Some(Box::new(handler));
         self
     }
 
@@ -479,6 +491,7 @@ impl RenderOnce for Potentiometer {
         let current_value = value_tracker(value);
         // Potentiometer uses rotational config (drag distance = knob_size for full range)
         let interaction_config = InteractionConfig::rotational(min, max, scale, knob_size);
+        let drag_key = self.id.clone();
 
         // Layout style: boxed (chassis around the whole knob) vs underlined
         // (title above with a thin rule, no surrounding chassis).
@@ -536,12 +549,15 @@ impl RenderOnce for Potentiometer {
         if !disabled {
             // Wrap on_change in Rc if it exists, so we can use it in multiple handlers
             let on_change_rc = self.on_change.map(|handler| std::rc::Rc::new(handler));
+            let on_commit_rc = self.on_commit.map(|handler| std::rc::Rc::new(handler));
             let on_reset_rc = self.on_reset.map(|handler| std::rc::Rc::new(handler));
 
             // Mouse down - focus, select, and optionally start drag
             let on_select = self.on_select;
             let on_drag_start = self.on_drag_start;
             let on_change_click = on_change_rc.clone();
+            let drag_key_down = drag_key.clone();
+            let current_value_down = current_value.clone();
             let focus_handle_click = self.focus_handle.clone();
 
             container = container.on_mouse_down(MouseButton::Left, move |event, window, cx| {
@@ -559,12 +575,51 @@ impl RenderOnce for Potentiometer {
                 // Handle Drag or Click-Step
                 if let Some(ref handler) = on_drag_start {
                     handler(event.position.y.into(), value, window, cx);
-                } else if let Some(ref handler) = on_change_click {
-                    // If no drag handler, use click to step value (scale-aware)
-                    let new_value = scale.step_value(value, min, max, 1.0, 0.1);
-                    handler(new_value, window, cx);
+                } else if on_change_click.is_some() {
+                    store_drag_state(
+                        drag_key_down.clone(),
+                        event.position.y.into(),
+                        current_value_down.get(),
+                    );
                 }
             });
+
+            // Native delta drag; a release without movement retains the legacy click-step.
+            if let Some(ref handler) = on_change_rc {
+                let drag_handler = handler.clone();
+                let drag_key_move = drag_key.clone();
+                let current_value_drag = current_value.clone();
+                let config_drag = interaction_config.clone();
+                container = container.on_mouse_move(move |event, window, cx| {
+                    if event.pressed_button == Some(MouseButton::Left)
+                        && let Some(state) = get_drag_state(&drag_key_move)
+                    {
+                        let position: f32 = event.position.y.into();
+                        if let Some(new_value) = handle_drag(position, &state, &config_drag) {
+                            current_value_drag.set(new_value);
+                            drag_handler(new_value, window, cx);
+                        }
+                    }
+                });
+                let release_change = handler.clone();
+                let release_commit = on_commit_rc.clone();
+                let drag_key_up = drag_key.clone();
+                let current_value_up = current_value.clone();
+                container = container.on_mouse_up(MouseButton::Left, move |_event, window, cx| {
+                    if let Some(state) = get_drag_state(&drag_key_up) {
+                        let mut final_value = current_value_up.get();
+                        if final_value == state.start_value {
+                            final_value = scale.step_value(final_value, min, max, 1.0, 0.1);
+                            current_value_up.set(final_value);
+                            release_change(final_value, window, cx);
+                        }
+                        if let Some(ref commit) = release_commit {
+                            commit(final_value, window, cx);
+                        }
+                    }
+                    clear_drag_state(drag_key_up.clone());
+                });
+            }
 
             // Double-click - reset
             if let Some(ref reset_rc) = on_reset_rc {
@@ -583,6 +638,7 @@ impl RenderOnce for Potentiometer {
                 let reset_key = on_reset_rc.clone();
                 let current_value_key = current_value.clone();
                 let config_key = interaction_config.clone();
+                let commit_key = on_commit_rc.clone();
                 container = container.on_key_down(move |event, window, cx| {
                     cx.stop_propagation();
                     let key = event.keystroke.key.as_str();
@@ -600,6 +656,9 @@ impl RenderOnce for Potentiometer {
                     {
                         current_value_key.set(new_value);
                         handler(new_value, window, cx);
+                        if let Some(ref commit) = commit_key {
+                            commit(new_value, window, cx);
+                        }
                     }
                 });
             }
@@ -608,6 +667,7 @@ impl RenderOnce for Potentiometer {
             if let Some(handler_rc) = on_change_rc {
                 let current_value_scroll = current_value.clone();
                 let config_scroll = interaction_config.clone();
+                let commit_scroll = on_commit_rc.clone();
                 container = container.on_scroll_wheel(move |event, window, cx| {
                     cx.stop_propagation();
                     let val = current_value_scroll.get();
@@ -616,6 +676,9 @@ impl RenderOnce for Potentiometer {
                     {
                         current_value_scroll.set(new_value);
                         handler_rc(new_value, window, cx);
+                        if let Some(ref commit) = commit_scroll {
+                            commit(new_value, window, cx);
+                        }
                     }
                 });
             }
@@ -1080,6 +1143,7 @@ mod tests {
             .selected(true)
             .disabled(false)
             .on_change(|_val, _window, _cx| {})
+            .on_commit(|_val, _window, _cx| {})
             .on_drag_start(|_pos, _val, _window, _cx| {})
             .on_select(|_window, _cx| {})
             .on_reset(|_window, _cx| {});

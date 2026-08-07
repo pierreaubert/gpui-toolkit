@@ -44,6 +44,7 @@ fn test_volume_knob_handlers() {
     let knob = VolumeKnob::new()
         .id("vol")
         .on_change(|_val, _window, _cx| {})
+        .on_commit(|_val, _window, _cx| {})
         .on_mute_toggle(|_muted, _window, _cx| {});
 
     drop(knob);

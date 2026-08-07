@@ -65,9 +65,15 @@ pub struct MiniAppShellConfig {
     pub initial_language: String,
 }
 
-fn default_miniapp_scrollable() -> bool { true }
-fn default_miniapp_theme() -> String { "dark".into() }
-fn default_miniapp_language() -> String { "english".into() }
+fn default_miniapp_scrollable() -> bool {
+    true
+}
+fn default_miniapp_theme() -> String {
+    "dark".into()
+}
+fn default_miniapp_language() -> String {
+    "english".into()
+}
 
 impl MiniAppShellConfig {
     pub fn validate(&self) -> Result<(), UiIrError> {
@@ -79,15 +85,26 @@ impl MiniAppShellConfig {
             || self.app_name.trim().is_empty()
         {
             return Err(UiIrError::InvalidPatch {
-                message: "miniapp shell requires title, app name, and positive finite dimensions".into(),
+                message: "miniapp shell requires title, app name, and positive finite dimensions"
+                    .into(),
             });
         }
-        if !matches!(self.initial_theme.to_ascii_lowercase().as_str(),
-            "dark" | "light" | "midnight" | "forest" | "black_and_white" | "onyx"
-                | "carbon_white" | "carbon_gray_10" | "carbon_gray_90" | "carbon_gray_100")
-            || !matches!(self.initial_language.to_ascii_lowercase().as_str(),
-                "english" | "french" | "german" | "spanish" | "japanese")
-        {
+        if !matches!(
+            self.initial_theme.to_ascii_lowercase().as_str(),
+            "dark"
+                | "light"
+                | "midnight"
+                | "forest"
+                | "black_and_white"
+                | "onyx"
+                | "carbon_white"
+                | "carbon_gray_10"
+                | "carbon_gray_90"
+                | "carbon_gray_100"
+        ) || !matches!(
+            self.initial_language.to_ascii_lowercase().as_str(),
+            "english" | "french" | "german" | "spanish" | "japanese"
+        ) {
             return Err(UiIrError::InvalidPatch {
                 message: "miniapp shell has an unsupported theme or language".into(),
             });
@@ -450,6 +467,12 @@ pub enum UiNode {
     TextInput(TextInputNode),
     NumberInput(NumberInputNode),
     Slider(SliderNode),
+    AudioPotentiometer(AudioControlNode),
+    AudioVerticalSlider(AudioControlNode),
+    AudioVolumeKnob(AudioControlNode),
+    AudioHorizontalMeter(AudioMeterNode),
+    AudioLevelMeter(AudioMeterNode),
+    AudioSpectrum(AudioSpectrumNode),
     Select(SelectNode),
     ColorPicker(ColorPickerNode),
     PathInput(PathInputNode),
@@ -498,6 +521,11 @@ impl UiNode {
             Self::TextInput(node) => node.validate(),
             Self::NumberInput(node) => node.validate(),
             Self::Slider(node) => node.validate(),
+            Self::AudioPotentiometer(node)
+            | Self::AudioVerticalSlider(node)
+            | Self::AudioVolumeKnob(node) => node.validate(),
+            Self::AudioHorizontalMeter(node) | Self::AudioLevelMeter(node) => node.validate(),
+            Self::AudioSpectrum(node) => node.validate(),
             Self::Table(node) => node.validate(),
             Self::Select(node) => node.validate(),
             Self::ColorPicker(node) => node.validate(),
@@ -642,11 +670,13 @@ fn child_contains_id(node: &UiNode, target: &str) -> bool {
             .any(|child| child_contains_id(child, target)),
         UiNode::Popover(popover) => {
             child_contains_id(&popover.trigger, target)
-                || popover.content.iter().any(|child| child_contains_id(child, target))
+                || popover
+                    .content
+                    .iter()
+                    .any(|child| child_contains_id(child, target))
         }
         UiNode::MenuBar(menu_bar) => menu_bar.items.iter().any(|item| {
-            item.id == target
-                || item.items.iter().any(|menu_item| menu_item.id == target)
+            item.id == target || item.items.iter().any(|menu_item| menu_item.id == target)
         }),
         UiNode::TextInput(input) => input.id == target,
         UiNode::NumberInput(input) => input.id == target,
@@ -850,7 +880,10 @@ impl ToastNode {
                 message: "toast requires a stable id and non-empty message".into(),
             });
         }
-        if !matches!(self.variant.as_str(), "info" | "success" | "warning" | "error") {
+        if !matches!(
+            self.variant.as_str(),
+            "info" | "success" | "warning" | "error"
+        ) {
             return Err(UiIrError::InvalidPatch {
                 message: "toast has an unsupported variant".into(),
             });
@@ -968,10 +1001,14 @@ fn default_dialog_size() -> String {
 impl DialogNode {
     fn validate(&self) -> Result<(), UiIrError> {
         if self.id.trim().is_empty() {
-            return Err(UiIrError::InvalidPatch { message: "dialog id is empty".into() });
+            return Err(UiIrError::InvalidPatch {
+                message: "dialog id is empty".into(),
+            });
         }
         if !matches!(self.size.as_str(), "sm" | "md" | "lg" | "xl" | "full") {
-            return Err(UiIrError::InvalidPatch { message: "dialog has an unsupported size".into() });
+            return Err(UiIrError::InvalidPatch {
+                message: "dialog has an unsupported size".into(),
+            });
         }
         for child in self.content.iter().chain(self.footer.iter()) {
             child.validate()?;
@@ -1000,16 +1037,29 @@ pub struct ConfirmDialogNode {
     pub cancel_action: Option<String>,
 }
 
-fn default_confirm_variant() -> String { "default".into() }
-fn default_confirm_label() -> String { "Confirm".into() }
-fn default_cancel_label() -> String { "Cancel".into() }
+fn default_confirm_variant() -> String {
+    "default".into()
+}
+fn default_confirm_label() -> String {
+    "Confirm".into()
+}
+fn default_cancel_label() -> String {
+    "Cancel".into()
+}
 
 impl ConfirmDialogNode {
     fn validate(&self) -> Result<(), UiIrError> {
-        if self.id.trim().is_empty() || self.message.trim().is_empty()
-            || self.confirm_label.trim().is_empty() || self.cancel_label.trim().is_empty()
-            || !matches!(self.variant.as_str(), "default" | "destructive" | "warning") {
-            return Err(UiIrError::InvalidPatch { message: "confirmation dialog requires an ID, message, labels, and supported variant".into() });
+        if self.id.trim().is_empty()
+            || self.message.trim().is_empty()
+            || self.confirm_label.trim().is_empty()
+            || self.cancel_label.trim().is_empty()
+            || !matches!(self.variant.as_str(), "default" | "destructive" | "warning")
+        {
+            return Err(UiIrError::InvalidPatch {
+                message:
+                    "confirmation dialog requires an ID, message, labels, and supported variant"
+                        .into(),
+            });
         }
         Ok(())
     }
@@ -1036,11 +1086,16 @@ pub struct MenuNode {
 impl MenuNode {
     fn validate(&self) -> Result<(), UiIrError> {
         ContextMenuNode {
-            id: self.id.clone(), items: self.items.clone(), position: [0.0, 0.0],
-            min_width: self.min_width, focused_index: self.focused_index,
-            action: self.action.clone(), close_action: self.close_action.clone(),
+            id: self.id.clone(),
+            items: self.items.clone(),
+            position: [0.0, 0.0],
+            min_width: self.min_width,
+            focused_index: self.focused_index,
+            action: self.action.clone(),
+            close_action: self.close_action.clone(),
             focus_action: self.focus_action.clone(),
-        }.validate()
+        }
+        .validate()
     }
 }
 
@@ -1070,23 +1125,35 @@ pub struct MenuBarNode {
 impl MenuBarNode {
     fn validate(&self) -> Result<(), UiIrError> {
         if self.id.trim().is_empty() || self.items.is_empty() {
-            return Err(UiIrError::InvalidPatch { message: "menu bar requires an ID and at least one menu".into() });
+            return Err(UiIrError::InvalidPatch {
+                message: "menu bar requires an ID and at least one menu".into(),
+            });
         }
         let mut ids = std::collections::HashSet::new();
         for item in &self.items {
             if item.id.trim().is_empty() || item.label.trim().is_empty() || !ids.insert(&item.id) {
-                return Err(UiIrError::InvalidPatch { message: "menu bar IDs and labels must be unique and non-empty".into() });
+                return Err(UiIrError::InvalidPatch {
+                    message: "menu bar IDs and labels must be unique and non-empty".into(),
+                });
             }
             let mut item_ids = std::collections::HashSet::new();
             for menu_item in &item.items {
                 menu_item.validate()?;
                 if !menu_item.separator && !item_ids.insert(&menu_item.id) {
-                    return Err(UiIrError::InvalidPatch { message: "menu sibling IDs must be unique".into() });
+                    return Err(UiIrError::InvalidPatch {
+                        message: "menu sibling IDs must be unique".into(),
+                    });
                 }
             }
         }
-        if self.active_menu.as_ref().is_some_and(|active| !ids.contains(active)) {
-            return Err(UiIrError::InvalidPatch { message: "active menu is not declared by this menu bar".into() });
+        if self
+            .active_menu
+            .as_ref()
+            .is_some_and(|active| !ids.contains(active))
+        {
+            return Err(UiIrError::InvalidPatch {
+                message: "active menu is not declared by this menu bar".into(),
+            });
         }
         Ok(())
     }
@@ -1119,21 +1186,29 @@ impl MenuItemNode {
     fn validate(&self) -> Result<(), UiIrError> {
         if self.separator {
             if !self.id.is_empty() || !self.label.is_empty() || !self.children.is_empty() {
-                return Err(UiIrError::InvalidPatch { message: "menu separators cannot have an ID, label, or children".into() });
+                return Err(UiIrError::InvalidPatch {
+                    message: "menu separators cannot have an ID, label, or children".into(),
+                });
             }
             return Ok(());
         }
         if self.id.trim().is_empty() || self.label.trim().is_empty() {
-            return Err(UiIrError::InvalidPatch { message: "menu items require a stable ID and label".into() });
+            return Err(UiIrError::InvalidPatch {
+                message: "menu items require a stable ID and label".into(),
+            });
         }
         if self.checked && !self.checkbox {
-            return Err(UiIrError::InvalidPatch { message: "only checkbox menu items can be checked".into() });
+            return Err(UiIrError::InvalidPatch {
+                message: "only checkbox menu items can be checked".into(),
+            });
         }
         let mut ids = std::collections::HashSet::new();
         for child in &self.children {
             child.validate()?;
             if !child.separator && !ids.insert(&child.id) {
-                return Err(UiIrError::InvalidPatch { message: "menu sibling IDs must be unique".into() });
+                return Err(UiIrError::InvalidPatch {
+                    message: "menu sibling IDs must be unique".into(),
+                });
             }
         }
         Ok(())
@@ -1161,23 +1236,39 @@ pub struct ContextMenuNode {
     pub focus_action: Option<String>,
 }
 
-fn default_context_menu_width() -> f32 { 180.0 }
+fn default_context_menu_width() -> f32 {
+    180.0
+}
 
 impl ContextMenuNode {
     fn validate(&self) -> Result<(), UiIrError> {
-        if self.id.trim().is_empty() || self.items.is_empty() || !self.min_width.is_finite() || self.min_width <= 0.0
-            || self.position.iter().any(|value| !value.is_finite()) {
-            return Err(UiIrError::InvalidPatch { message: "context menu requires an ID, items, finite position, and positive width".into() });
+        if self.id.trim().is_empty()
+            || self.items.is_empty()
+            || !self.min_width.is_finite()
+            || self.min_width <= 0.0
+            || self.position.iter().any(|value| !value.is_finite())
+        {
+            return Err(UiIrError::InvalidPatch {
+                message: "context menu requires an ID, items, finite position, and positive width"
+                    .into(),
+            });
         }
         let mut ids = std::collections::HashSet::new();
         for item in &self.items {
             item.validate()?;
             if !item.separator && !ids.insert(&item.id) {
-                return Err(UiIrError::InvalidPatch { message: "menu sibling IDs must be unique".into() });
+                return Err(UiIrError::InvalidPatch {
+                    message: "menu sibling IDs must be unique".into(),
+                });
             }
         }
-        if self.focused_index.is_some_and(|index| index >= self.items.len()) {
-            return Err(UiIrError::InvalidPatch { message: "context menu focused index is out of range".into() });
+        if self
+            .focused_index
+            .is_some_and(|index| index >= self.items.len())
+        {
+            return Err(UiIrError::InvalidPatch {
+                message: "context menu focused index is out of range".into(),
+            });
         }
         Ok(())
     }
@@ -1200,17 +1291,37 @@ pub struct PopoverNode {
     pub close_action: Option<String>,
 }
 
-fn default_popover_placement() -> String { "bottom".into() }
+fn default_popover_placement() -> String {
+    "bottom".into()
+}
 
 impl PopoverNode {
     fn validate(&self) -> Result<(), UiIrError> {
         if self.id.trim().is_empty()
-            || !matches!(self.placement.as_str(), "top" | "bottom" | "left" | "right" | "top_start" | "top_end" | "bottom_start" | "bottom_end")
-            || self.width.is_some_and(|width| !width.is_finite() || width <= 0.0) {
-            return Err(UiIrError::InvalidPatch { message: "popover requires an ID, supported placement, and positive finite width".into() });
+            || !matches!(
+                self.placement.as_str(),
+                "top"
+                    | "bottom"
+                    | "left"
+                    | "right"
+                    | "top_start"
+                    | "top_end"
+                    | "bottom_start"
+                    | "bottom_end"
+            )
+            || self
+                .width
+                .is_some_and(|width| !width.is_finite() || width <= 0.0)
+        {
+            return Err(UiIrError::InvalidPatch {
+                message: "popover requires an ID, supported placement, and positive finite width"
+                    .into(),
+            });
         }
         self.trigger.validate()?;
-        for child in &self.content { child.validate()?; }
+        for child in &self.content {
+            child.validate()?;
+        }
         Ok(())
     }
 }
@@ -1523,6 +1634,188 @@ pub struct SliderNode {
     pub show_value: bool,
     #[serde(flatten)]
     pub presentation: FormControlProps,
+}
+
+/// Shared declaration for native audio controls. Pointer-rate interaction
+/// stays in Rust; `action` emits previews and `commit_action` emits releases.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AudioControlNode {
+    pub id: String,
+    pub value: f64,
+    #[serde(rename = "min", default)]
+    pub minimum: f64,
+    #[serde(rename = "max", default = "default_audio_maximum")]
+    pub maximum: f64,
+    #[serde(default)]
+    pub label: String,
+    #[serde(default)]
+    pub unit: String,
+    #[serde(default = "default_audio_control_size")]
+    pub size: String,
+    #[serde(default = "default_audio_scale")]
+    pub scale: String,
+    #[serde(default)]
+    pub selected: bool,
+    #[serde(default)]
+    pub disabled: bool,
+    #[serde(default)]
+    pub muted: bool,
+    pub peak: Option<f64>,
+    #[serde(default)]
+    pub with_ticks: bool,
+    pub action: Option<String>,
+    pub commit_action: Option<String>,
+    pub mute_action: Option<String>,
+    pub width: Option<f32>,
+    pub height: Option<f32>,
+    pub aria_label: Option<String>,
+}
+
+fn default_audio_maximum() -> f64 {
+    1.0
+}
+
+fn default_audio_control_size() -> String {
+    "md".into()
+}
+
+fn default_audio_scale() -> String {
+    "linear".into()
+}
+
+impl AudioControlNode {
+    fn validate(&self) -> Result<(), UiIrError> {
+        if self.id.trim().is_empty()
+            || !self.value.is_finite()
+            || !self.minimum.is_finite()
+            || !self.maximum.is_finite()
+            || self.maximum <= self.minimum
+            || self.value < self.minimum
+            || self.value > self.maximum
+            || self.peak.is_some_and(|value| !value.is_finite())
+            || self
+                .width
+                .is_some_and(|value| !value.is_finite() || value <= 0.0)
+            || self
+                .height
+                .is_some_and(|value| !value.is_finite() || value <= 0.0)
+        {
+            return Err(UiIrError::InvalidPatch {
+                message: format!("audio control {:?} has invalid bounds or value", self.id),
+            });
+        }
+        if !matches!(self.size.as_str(), "xs" | "sm" | "md" | "lg")
+            || !matches!(self.scale.as_str(), "linear" | "logarithmic")
+            || self.action.as_deref().is_some_and(str::is_empty)
+            || self.commit_action.as_deref().is_some_and(str::is_empty)
+            || self.mute_action.as_deref().is_some_and(str::is_empty)
+        {
+            return Err(UiIrError::InvalidPatch {
+                message: format!("audio control {:?} has invalid options", self.id),
+            });
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AudioMeterNode {
+    pub id: String,
+    #[serde(default)]
+    pub levels: Vec<f64>,
+    #[serde(default)]
+    pub peaks: Vec<f64>,
+    #[serde(default)]
+    pub channel_names: Vec<String>,
+    pub width: Option<f32>,
+    pub height: Option<f32>,
+    /// Optional host-owned binary stream; embedded values remain a first-frame fallback.
+    pub stream_id: Option<String>,
+}
+
+impl AudioMeterNode {
+    fn validate(&self) -> Result<(), UiIrError> {
+        if self.id.trim().is_empty()
+            || (self.levels.is_empty() && self.stream_id.is_none())
+            || self.stream_id.as_deref().is_some_and(str::is_empty)
+            || self.levels.iter().any(|value| !value.is_finite())
+            || self.peaks.iter().any(|value| !value.is_finite())
+            || (!self.peaks.is_empty() && self.peaks.len() != self.levels.len())
+            || (!self.channel_names.is_empty()
+                && !self.levels.is_empty()
+                && self.channel_names.len() != self.levels.len())
+            || self.channel_names.len() > crate::audio_stream::MAX_METER_CHANNELS
+            || self
+                .width
+                .is_some_and(|value| !value.is_finite() || value <= 0.0)
+            || self
+                .height
+                .is_some_and(|value| !value.is_finite() || value <= 0.0)
+        {
+            return Err(UiIrError::InvalidPatch {
+                message: format!("audio meter {:?} has invalid channels", self.id),
+            });
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AudioSpectrumNode {
+    pub id: String,
+    #[serde(default)]
+    pub magnitudes: Vec<f32>,
+    #[serde(default)]
+    pub previous: Vec<f32>,
+    #[serde(default = "default_spectrum_minimum")]
+    pub minimum_frequency: f32,
+    #[serde(default = "default_spectrum_maximum")]
+    pub maximum_frequency: f32,
+    #[serde(default = "default_spectrum_smoothing")]
+    pub smoothing: f32,
+    pub height: Option<f32>,
+    pub bar_gap: Option<f32>,
+    /// Optional host-owned binary stream; embedded values remain a first-frame fallback.
+    pub stream_id: Option<String>,
+}
+
+fn default_spectrum_minimum() -> f32 {
+    20.0
+}
+fn default_spectrum_maximum() -> f32 {
+    20_000.0
+}
+fn default_spectrum_smoothing() -> f32 {
+    0.8
+}
+
+impl AudioSpectrumNode {
+    fn validate(&self) -> Result<(), UiIrError> {
+        if self.id.trim().is_empty()
+            || (self.magnitudes.is_empty() && self.stream_id.is_none())
+            || self.stream_id.as_deref().is_some_and(str::is_empty)
+            || self.magnitudes.iter().any(|value| !value.is_finite())
+            || self.previous.iter().any(|value| !value.is_finite())
+            || (!self.previous.is_empty() && self.previous.len() != self.magnitudes.len())
+            || !self.minimum_frequency.is_finite()
+            || !self.maximum_frequency.is_finite()
+            || self.minimum_frequency <= 0.0
+            || self.maximum_frequency <= self.minimum_frequency
+            || !self.smoothing.is_finite()
+            || !(0.0..=1.0).contains(&self.smoothing)
+            || self
+                .height
+                .is_some_and(|value| !value.is_finite() || value <= 0.0)
+            || self
+                .bar_gap
+                .is_some_and(|value| !value.is_finite() || value < 0.0)
+        {
+            return Err(UiIrError::InvalidPatch {
+                message: format!("audio spectrum {:?} has invalid data", self.id),
+            });
+        }
+        Ok(())
+    }
 }
 
 impl SliderNode {
@@ -2147,10 +2440,13 @@ impl ChartNode {
                 }
             }
             ChartKind::Pie | ChartKind::Donut => {
-                let values = self.values.as_ref().ok_or_else(|| UiIrError::MissingChartData {
-                    id: self.id.clone(),
-                    field: "values",
-                })?;
+                let values = self
+                    .values
+                    .as_ref()
+                    .ok_or_else(|| UiIrError::MissingChartData {
+                        id: self.id.clone(),
+                        field: "values",
+                    })?;
                 finite("values", values)?;
                 if let Some(categories) = &self.categories
                     && categories.len() != values.len()
@@ -2826,7 +3122,10 @@ mod tests {
             }}]
         }))
         .unwrap();
-        assert!(matches!(invalid.validate(), Err(UiIrError::InvalidPatch { .. })));
+        assert!(matches!(
+            invalid.validate(),
+            Err(UiIrError::InvalidPatch { .. })
+        ));
     }
 
     #[test]
@@ -2856,7 +3155,10 @@ mod tests {
             }}]
         }))
         .unwrap();
-        assert!(matches!(invalid.validate(), Err(UiIrError::InvalidPatch { .. })));
+        assert!(matches!(
+            invalid.validate(),
+            Err(UiIrError::InvalidPatch { .. })
+        ));
     }
 
     #[test]
@@ -2883,7 +3185,10 @@ mod tests {
             }}]
         }))
         .unwrap();
-        assert!(matches!(invalid.validate(), Err(UiIrError::InvalidPatch { .. })));
+        assert!(matches!(
+            invalid.validate(),
+            Err(UiIrError::InvalidPatch { .. })
+        ));
     }
 
     #[test]
@@ -2906,7 +3211,10 @@ mod tests {
             }}]
         }))
         .unwrap();
-        assert!(matches!(invalid.validate(), Err(UiIrError::InvalidPatch { .. })));
+        assert!(matches!(
+            invalid.validate(),
+            Err(UiIrError::InvalidPatch { .. })
+        ));
     }
 
     #[test]
@@ -3022,5 +3330,37 @@ mod tests {
             Err(UiIrError::ChartLengthMismatch { .. })
         ));
         assert_eq!(app, before);
+    }
+
+    #[test]
+    fn validates_native_audio_controls_meters_and_spectrum() {
+        let app: PythonAppIr = serde_json::from_value(serde_json::json!({
+            "title": "Audio",
+            "sections": [{"id": "audio", "label": "Audio", "content": {
+                "kind": "vstack",
+                "children": [
+                    {"kind": "audio_potentiometer", "id": "gain", "value": 0.5, "min": 0.0, "max": 1.0, "label": "Gain", "action": "preview", "commit_action": "commit"},
+                    {"kind": "audio_vertical_slider", "id": "frequency", "value": 1000.0, "min": 20.0, "max": 20000.0, "scale": "logarithmic", "with_ticks": true},
+                    {"kind": "audio_volume_knob", "id": "volume", "value": 0.7, "muted": true},
+                    {"kind": "audio_horizontal_meter", "id": "hm", "levels": [-12.0, -6.0], "peaks": [-3.0, -1.0], "channel_names": ["L", "R"]},
+                    {"kind": "audio_level_meter", "id": "lm", "levels": [-12.0, -6.0], "peaks": [-3.0, -1.0], "channel_names": ["L", "R"]},
+                    {"kind": "audio_spectrum", "id": "spectrum", "magnitudes": [-80.0, -40.0], "previous": [-90.0, -50.0], "minimum_frequency": 20.0, "maximum_frequency": 20000.0}
+                ]
+            }}]
+        }))
+        .unwrap();
+        assert!(app.validate().is_ok());
+
+        let invalid: PythonAppIr = serde_json::from_value(serde_json::json!({
+            "title": "Audio",
+            "sections": [{"id": "audio", "label": "Audio", "content": {
+                "kind": "audio_level_meter", "id": "meter", "levels": [-12.0, -6.0], "peaks": [-3.0]
+            }}]
+        }))
+        .unwrap();
+        assert!(matches!(
+            invalid.validate(),
+            Err(UiIrError::InvalidPatch { .. })
+        ));
     }
 }

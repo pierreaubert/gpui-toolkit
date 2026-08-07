@@ -57,6 +57,7 @@ pub struct VolumeKnob {
     /// Override: text color
     text_color: Option<Rgba>,
     on_change: Option<Box<dyn Fn(f32, &mut Window, &mut App) + 'static>>,
+    on_commit: Option<Box<dyn Fn(f32, &mut Window, &mut App) + 'static>>,
     on_mute_toggle: Option<Box<dyn Fn(bool, &mut Window, &mut App) + 'static>>,
     focus_handle: Option<FocusHandle>,
     aria_label: Option<SharedString>,
@@ -78,6 +79,7 @@ impl VolumeKnob {
             bg_color: None,
             text_color: None,
             on_change: None,
+            on_commit: None,
             on_mute_toggle: None,
             focus_handle: None,
             aria_label: None,
@@ -143,6 +145,12 @@ impl VolumeKnob {
     /// Set value change handler (called on scroll wheel)
     pub fn on_change(mut self, handler: impl Fn(f32, &mut Window, &mut App) + 'static) -> Self {
         self.on_change = Some(Box::new(handler));
+        self
+    }
+
+    /// Set a semantic commit handler fired on drag release or after a discrete change.
+    pub fn on_commit(mut self, handler: impl Fn(f32, &mut Window, &mut App) + 'static) -> Self {
+        self.on_commit = Some(Box::new(handler));
         self
     }
 
@@ -313,6 +321,7 @@ impl RenderOnce for VolumeKnob {
 
         // Convert handlers to Rc for sharing between closures
         let on_change_rc = self.on_change.map(std::rc::Rc::new);
+        let on_commit_rc = self.on_commit.map(std::rc::Rc::new);
         let on_mute_rc = self.on_mute_toggle.map(std::rc::Rc::new);
 
         // Mouse down: focus for keyboard navigation AND capture the drag
@@ -341,6 +350,7 @@ impl RenderOnce for VolumeKnob {
             let scroll_handler = change_handler.clone();
             let current_value_scroll = current_value.clone();
             let config_scroll = interaction_config.clone();
+            let commit_scroll = on_commit_rc.clone();
             container = container.on_scroll_wheel(move |event, window, cx| {
                 cx.stop_propagation();
                 let val = current_value_scroll.get();
@@ -349,6 +359,9 @@ impl RenderOnce for VolumeKnob {
                 {
                     current_value_scroll.set(new_value);
                     scroll_handler(new_value as f32, window, cx);
+                    if let Some(ref commit) = commit_scroll {
+                        commit(new_value as f32, window, cx);
+                    }
                 }
             });
         }
@@ -386,7 +399,14 @@ impl RenderOnce for VolumeKnob {
         // Mouse up — clear drag state for the next drag.
         if on_change_rc.is_some() {
             let drag_key_up = drag_key.clone();
-            container = container.on_mouse_up(MouseButton::Left, move |_event, _window, _cx| {
+            let commit_drag = on_commit_rc.clone();
+            let current_value_up = current_value.clone();
+            container = container.on_mouse_up(MouseButton::Left, move |_event, window, cx| {
+                if get_drag_state(&drag_key_up).is_some()
+                    && let Some(ref commit) = commit_drag
+                {
+                    commit(current_value_up.get() as f32, window, cx);
+                }
                 clear_drag_state(drag_key_up.clone());
             });
         }
@@ -407,6 +427,7 @@ impl RenderOnce for VolumeKnob {
             let key_mute = on_mute_rc.clone();
             let current_value_key = current_value.clone();
             let config_key = interaction_config.clone();
+            let commit_key = on_commit_rc.clone();
 
             container = container.on_key_down(move |event, window, cx| {
                 cx.stop_propagation();
@@ -427,6 +448,9 @@ impl RenderOnce for VolumeKnob {
                     ) {
                         current_value_key.set(new_value);
                         handler(new_value as f32, window, cx);
+                        if let Some(ref commit) = commit_key {
+                            commit(new_value as f32, window, cx);
+                        }
                     }
                 }
             });

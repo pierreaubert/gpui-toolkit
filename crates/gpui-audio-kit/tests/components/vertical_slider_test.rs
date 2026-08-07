@@ -81,6 +81,7 @@ fn test_vertical_slider_selected() {
 fn test_vertical_slider_handlers() {
     let slider = VerticalSlider::new("slider")
         .on_change(|_val, _window, _cx| {})
+        .on_commit(|_val, _window, _cx| {})
         .on_drag_start(|_pos, _val, _window, _cx| {})
         .on_select(|_window, _cx| {})
         .on_reset(|_window, _cx| {});

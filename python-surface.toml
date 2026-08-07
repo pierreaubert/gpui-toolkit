@@ -48,6 +48,7 @@ id = "px.full-chart-api"
 id = "d3.full-algorithm-and-interaction-api"
 [[requirement]]
 id = "audio.full-controls-streams-and-regression"
+capability = "gpui-audio-kit.full-python-surface"
 [[requirement]]
 id = "tooling.full-token-operations"
 capability = "gpui-design-tools.token-operations"
@@ -381,6 +382,34 @@ rust_path = "gpui_audio_kit::TickConfig"
 python_path = "gpui_toolkit.audio.TickConfig"
 disposition = "declarative"
 tests = ["crates/gpui-python-runtime/python/tests/test_audio.py"]
+
+[[capability]]
+id = "gpui-audio-kit.native-controls"
+rust_path = "gpui_audio_kit::{Potentiometer,VerticalSlider,VolumeKnob,LevelMeterElement,SpectrumElement}"
+python_path = "gpui_toolkit.audio.potentiometer"
+disposition = "declarative"
+tests = ["crates/gpui-python-runtime/python/tests/test_audio.py", "crates/gpui-python-runtime/src/ui_ir.rs"]
+
+[[capability]]
+id = "gpui-audio-kit.bounded-binary-streams"
+rust_path = "gpui_python_runtime::audio_stream::AudioFrameStore"
+python_path = "gpui_toolkit.audio.MeterStream"
+disposition = "host-owned"
+tests = ["crates/gpui-python-runtime/python/tests/test_audio.py", "crates/gpui-python-runtime/src/audio_stream.rs"]
+
+[[capability]]
+id = "gpui-audio-kit.accessibility-reports-and-tokens"
+rust_path = "gpui_audio_kit::{AudioAccessibilitySummary,AudioDesignTokens,audio_automation_pattern_report,audio_visual_regression_manifest}"
+python_path = "gpui_toolkit.audio.AudioReports"
+disposition = "command"
+tests = ["crates/gpui-python-runtime/python/tests/test_audio.py"]
+
+[[capability]]
+id = "gpui-audio-kit.full-python-surface"
+rust_path = "gpui_audio_kit"
+python_path = "gpui_toolkit.audio"
+disposition = "direct"
+tests = ["crates/gpui-python-runtime/python/tests/test_audio.py", "crates/gpui-python-runtime/src/audio_stream.rs", "crates/gpui-audio-kit/src/audio/potentiometer.rs", "crates/gpui-audio-kit/src/audio/vertical_slider.rs", "crates/gpui-audio-kit/src/audio/volume_knob.rs"]
 
 [[capability]]
 id = "gpui-toolkit.release-qa-snapshots"

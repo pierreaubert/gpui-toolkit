@@ -3144,6 +3144,7 @@ version = "0.9.6"
 dependencies = [
  "glam",
  "gpui",
+ "gpui-audio-kit",
  "gpui-builder",
  "gpui-d3rs",
  "gpui-design",

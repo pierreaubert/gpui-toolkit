@@ -70,6 +70,7 @@ pub struct VerticalSlider {
     /// Platform design tokens for track sizing.
     design_tokens: crate::audio_design_tokens::AudioDesignTokens,
     on_change: Option<Box<dyn Fn(f64, &mut Window, &mut App) + 'static>>,
+    on_commit: Option<Box<dyn Fn(f64, &mut Window, &mut App) + 'static>>,
     on_drag_start: Option<Box<dyn Fn(f32, f64, &mut Window, &mut App) + 'static>>,
     on_select: Option<Box<dyn Fn(&mut Window, &mut App) + 'static>>,
     on_reset: Option<Box<dyn Fn(&mut Window, &mut App) + 'static>>,
@@ -103,6 +104,7 @@ impl VerticalSlider {
             theme: None,
             design_tokens: Default::default(),
             on_change: None,
+            on_commit: None,
             on_drag_start: None,
             on_select: None,
             on_reset: None,
@@ -236,6 +238,12 @@ impl VerticalSlider {
     /// Set value change handler (called on scroll wheel)
     pub fn on_change(mut self, handler: impl Fn(f64, &mut Window, &mut App) + 'static) -> Self {
         self.on_change = Some(Box::new(handler));
+        self
+    }
+
+    /// Set a semantic commit handler fired on drag release or after a discrete change.
+    pub fn on_commit(mut self, handler: impl Fn(f64, &mut Window, &mut App) + 'static) -> Self {
+        self.on_commit = Some(Box::new(handler));
         self
     }
 
@@ -529,6 +537,11 @@ impl RenderOnce for VerticalSlider {
             } else {
                 None
             };
+        let on_commit_rc = if !disabled {
+            self.on_commit.map(std::rc::Rc::new)
+        } else {
+            None
+        };
         let on_reset_rc: Option<std::rc::Rc<Box<dyn Fn(&mut Window, &mut App) + 'static>>> =
             if !disabled {
                 self.on_reset.map(|h| std::rc::Rc::new(h))
@@ -584,6 +597,7 @@ impl RenderOnce for VerticalSlider {
                 let handler_scroll = handler_rc.clone();
                 let current_value_scroll = current_value.clone();
                 let config_scroll = interaction_config.clone();
+                let commit_scroll = on_commit_rc.clone();
                 container = container.on_scroll_wheel(move |event, window, cx| {
                     cx.stop_propagation();
                     let val = current_value_scroll.get();
@@ -592,6 +606,9 @@ impl RenderOnce for VerticalSlider {
                     {
                         current_value_scroll.set(new_value);
                         handler_scroll(new_value, window, cx);
+                        if let Some(ref commit) = commit_scroll {
+                            commit(new_value, window, cx);
+                        }
                     }
                 });
             }
@@ -615,6 +632,7 @@ impl RenderOnce for VerticalSlider {
                 let reset_key = on_reset_rc.clone();
                 let current_value_key = current_value.clone();
                 let config_key = interaction_config.clone();
+                let commit_key = on_commit_rc.clone();
                 container = container.on_key_down(move |event, window, cx| {
                     cx.stop_propagation();
                     let key = event.keystroke.key.as_str();
@@ -635,6 +653,9 @@ impl RenderOnce for VerticalSlider {
                         {
                             current_value_key.set(new_value);
                             handler(new_value, window, cx);
+                            if let Some(ref commit) = commit_key {
+                                commit(new_value, window, cx);
+                            }
                         }
                     }
                 });
@@ -862,7 +883,14 @@ impl RenderOnce for VerticalSlider {
                 });
 
                 // Mouse up - clear drag state
-                track = track.on_mouse_up(MouseButton::Left, move |_event, _window, _cx| {
+                let commit_drag = on_commit_rc.clone();
+                let current_value_up = current_value.clone();
+                track = track.on_mouse_up(MouseButton::Left, move |_event, window, cx| {
+                    if get_drag_state(&drag_key_up).is_some()
+                        && let Some(ref commit) = commit_drag
+                    {
+                        commit(current_value_up.get(), window, cx);
+                    }
                     clear_drag_state(drag_key_up.clone());
                 });
 
@@ -870,6 +898,7 @@ impl RenderOnce for VerticalSlider {
                 let handler_scroll_track = handler_rc.clone();
                 let current_value_track_scroll = current_value.clone();
                 let config_track_scroll = interaction_config.clone();
+                let commit_track_scroll = on_commit_rc.clone();
                 track = track.on_scroll_wheel(move |event, window, cx| {
                     cx.stop_propagation();
                     let val = current_value_track_scroll.get();
@@ -878,6 +907,9 @@ impl RenderOnce for VerticalSlider {
                     {
                         current_value_track_scroll.set(new_value);
                         handler_scroll_track(new_value, window, cx);
+                        if let Some(ref commit) = commit_track_scroll {
+                            commit(new_value, window, cx);
+                        }
                     }
                 });
             }
@@ -1093,6 +1125,7 @@ mod tests {
             .disabled(false)
             .peak(Some(80.0))
             .on_change(|_val, _window, _cx| {})
+            .on_commit(|_val, _window, _cx| {})
             .on_drag_start(|_pos, _val, _window, _cx| {})
             .on_select(|_window, _cx| {})
             .on_reset(|_window, _cx| {});

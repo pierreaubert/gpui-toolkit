@@ -9,7 +9,7 @@ use std::env;
 use std::error::Error;
 use std::ffi::OsString;
 use std::future::Future;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::process::{Command, Stdio};
@@ -233,28 +233,63 @@ pub(super) fn spawn_python_session() -> Result<PythonSession, Box<dyn Error + Se
     let wake = PythonSessionWake::new();
     let reader_wake = wake.clone();
     std::thread::spawn(move || {
-        for line in BufReader::new(stdout).split(b'\n') {
-            match line {
-                Ok(line) if line.is_empty() => {}
-                Ok(line) if line.len() > DEFAULT_MAX_SESSION_MESSAGE_BYTES => {
-                    let _ = tx.send(Err("Python session message exceeds maximum size".into()));
-                    reader_wake.notify();
-                    return;
-                }
-                Ok(line) => {
-                    let parsed = parse_python_message(&line, DEFAULT_MAX_SESSION_MESSAGE_BYTES)
-                        .map_err(|error| error.to_string());
-                    if tx.send(parsed).is_err() {
-                        break;
-                    }
-                    reader_wake.notify();
-                }
+        let mut reader = BufReader::new(stdout);
+        loop {
+            let mut line = Vec::new();
+            match reader.read_until(b'\n', &mut line) {
+                Ok(0) => break,
+                Ok(_) => {}
                 Err(error) => {
                     let _ = tx.send(Err(error.to_string()));
                     reader_wake.notify();
                     return;
                 }
             }
+            if line.last() == Some(&b'\n') {
+                line.pop();
+            }
+            if line.last() == Some(&b'\r') {
+                line.pop();
+            }
+            if line.is_empty() {
+                continue;
+            }
+            if line.len() > DEFAULT_MAX_SESSION_MESSAGE_BYTES {
+                let _ = tx.send(Err("Python session message exceeds maximum size".into()));
+                reader_wake.notify();
+                return;
+            }
+            let mut parsed = match parse_python_message(&line, DEFAULT_MAX_SESSION_MESSAGE_BYTES) {
+                Ok(message) => message,
+                Err(error) => {
+                    let _ = tx.send(Err(error.to_string()));
+                    reader_wake.notify();
+                    return;
+                }
+            };
+            if let PythonMessage::ResourceFrame(frame) = &mut parsed {
+                if frame.byte_length > gpui_python_runtime::audio_stream::MAX_AUDIO_FRAME_BYTES {
+                    let _ = tx.send(Err("Python audio frame exceeds maximum size".into()));
+                    reader_wake.notify();
+                    return;
+                }
+                frame.payload.resize(frame.byte_length, 0);
+                if let Err(error) = reader.read_exact(&mut frame.payload) {
+                    let _ = tx.send(Err(format!("truncated Python audio frame: {error}")));
+                    reader_wake.notify();
+                    return;
+                }
+                let mut delimiter = [0_u8; 1];
+                if reader.read_exact(&mut delimiter).is_err() || delimiter[0] != b'\n' {
+                    let _ = tx.send(Err("Python audio frame is missing its delimiter".into()));
+                    reader_wake.notify();
+                    return;
+                }
+            }
+            if tx.send(Ok(parsed)).is_err() {
+                break;
+            }
+            reader_wake.notify();
         }
         let _ = tx.send(Err("Python session stdout closed unexpectedly".into()));
         reader_wake.notify();

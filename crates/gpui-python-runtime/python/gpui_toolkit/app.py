@@ -259,6 +259,26 @@ class SessionContext:
     def _write_locked(self, message: dict[str, Any]) -> None:
         print(self._encode_message(message), flush=True)
 
+    def resource_frame(self, header: Mapping[str, Any], payload: bytes) -> None:
+        """Write one atomic JSON-header/raw-payload frame to the native host."""
+        message = {"type": "resource_frame", **dict(header), "byte_length": len(payload)}
+        encoded = self._encode_message(message).encode("utf-8")
+        if len(payload) > 256 * 1024:
+            raise ValueError("audio resource frame exceeds 256 KiB")
+        with self._lock:
+            sys.stdout.flush()
+            stream = getattr(sys.stdout, "buffer", None)
+            if stream is None:
+                raise RuntimeError("binary resource frames require a binary stdout stream")
+            stream.write(encoded)
+            stream.write(b"\n")
+            stream.write(payload)
+            stream.write(b"\n")
+            stream.flush()
+
+    def drop_resource(self, resource_id: str, generation: int) -> None:
+        self.send({"type": "drop_resource", "resource_id": resource_id, "generation": generation})
+
     def snapshot(self, app_ir: dict[str, Any]) -> None:
         self.send({"type": "snapshot", "app_ir": app_ir})
 
