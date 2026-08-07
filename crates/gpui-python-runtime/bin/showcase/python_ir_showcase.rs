@@ -6276,6 +6276,51 @@ impl PythonIrShowcase {
                     ),
                 }
             }
+            "d3.modules" => {
+                let groups: &[(&[&str], &str, &str, &str)] = &[
+                    (
+                        &["array", "scale", "color", "format", "time", "fetch", "interpolate", "ease", "random"],
+                        "direct_command",
+                        "gpui_toolkit.d3",
+                        "renderer-independent native Rust algorithms",
+                    ),
+                    (
+                        &["axis", "grid", "legend", "text", "shape", "contour", "chord", "force", "hierarchy", "sankey", "hexbin", "delaunay", "polygon", "quadtree", "tile", "lod"],
+                        "chart_spec",
+                        "gpui_toolkit.charts",
+                        "host-native retained chart and geometry specifications",
+                    ),
+                    (
+                        &["brush", "zoom", "dispatch", "drag", "selection", "timer", "transition"],
+                        "host_interaction",
+                        "gpui_toolkit.events",
+                        "host-owned GPUI event and interaction lifecycle",
+                    ),
+                    (
+                        &["surface", "gpu2d", "gpu3d", "sphere_gallery"],
+                        "scene_spec",
+                        "gpui_toolkit.scene3d",
+                        "feature-gated native GPU scene specifications",
+                    ),
+                ];
+                let modules = groups
+                    .iter()
+                    .flat_map(|(modules, bridge, python_path, evidence)| {
+                        modules.iter().map(move |module| {
+                            serde_json::json!({
+                                "module": module,
+                                "bridge": bridge,
+                                "python_path": python_path,
+                                "evidence": evidence,
+                            })
+                        })
+                    })
+                    .collect::<Vec<_>>();
+                self.send_command_result(
+                    request_id,
+                    serde_json::json!({"ok": true, "modules": modules}),
+                );
+            }
             "d3.reports" => {
                 let parity = d3rs::feature_parity::feature_parity_report();
                 let benchmark = d3rs::feature_parity::d3_benchmark_coverage_report();

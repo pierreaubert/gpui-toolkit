@@ -5,10 +5,32 @@ import json
 
 from gpui_toolkit import SessionContext
 from gpui_toolkit.commands import CommandResult
-from gpui_toolkit.d3 import ArrayOperation, ArrayRequest, ScaleKind, ScaleOutput, ScaleRequest, StatisticsOperation, StatisticsRequest, TickOperation, TickRequest, ZoomOperation, ZoomRequest, ZoomResult, reports_from_command, request_reports
+from gpui_toolkit.d3 import ArrayOperation, ArrayRequest, D3BridgeKind, ScaleKind, ScaleOutput, ScaleRequest, StatisticsOperation, StatisticsRequest, TickOperation, TickRequest, ZoomOperation, ZoomRequest, ZoomResult, module_catalog_from_command, reports_from_command, request_module_catalog, request_reports
 
 
 class D3ZoomTests(unittest.TestCase):
+    def test_native_module_catalog_covers_algorithm_render_and_interaction_bridges(self):
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            request_module_catalog(SessionContext(), "modules")
+        self.assertEqual(json.loads(output.getvalue())["command"], "d3.modules")
+
+        result = CommandResult.from_wire(
+            "modules",
+            {
+                "ok": True,
+                "modules": [
+                    {"module": "array", "bridge": "direct_command", "python_path": "gpui_toolkit.d3", "evidence": "native"},
+                    {"module": "shape", "bridge": "chart_spec", "python_path": "gpui_toolkit.charts", "evidence": "native"},
+                    {"module": "zoom", "bridge": "host_interaction", "python_path": "gpui_toolkit.events", "evidence": "native"},
+                    {"module": "gpu3d", "bridge": "scene_spec", "python_path": "gpui_toolkit.scene3d", "evidence": "native"},
+                ],
+            },
+        )
+        catalog = module_catalog_from_command(result)
+        self.assertEqual(catalog.by_name("array").bridge, D3BridgeKind.DIRECT_COMMAND)
+        self.assertEqual(catalog.by_name("zoom").bridge, D3BridgeKind.HOST_INTERACTION)
+
     def test_zoom_request_is_typed_and_serializable(self):
         request = ZoomRequest(
             (0, 100), (-20, 20),

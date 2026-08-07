@@ -288,6 +288,49 @@ class D3Reports:
     benchmark_cases: tuple[D3BenchmarkCase, ...]
     benchmark_markdown: str
 
+
+class D3BridgeKind(str, Enum):
+    DIRECT_COMMAND = "direct_command"
+    CHART_SPEC = "chart_spec"
+    SCENE_SPEC = "scene_spec"
+    HOST_INTERACTION = "host_interaction"
+
+
+@dataclass(frozen=True)
+class D3ModuleBridge:
+    module: str
+    bridge: D3BridgeKind
+    python_path: str
+    evidence: str
+
+
+@dataclass(frozen=True)
+class D3ModuleCatalog:
+    modules: tuple[D3ModuleBridge, ...]
+
+    def by_name(self, module: str) -> D3ModuleBridge | None:
+        return next((entry for entry in self.modules if entry.module == module), None)
+
+
+def request_module_catalog(context: "SessionContext", request_id: str) -> None:
+    context.command(request_id, "d3.modules")
+
+
+def module_catalog_from_command(result: CommandResult) -> D3ModuleCatalog:
+    if result.status is not CommandStatus.SUCCEEDED:
+        raise RuntimeError(result.error or f"D3 module catalog {result.status.value}")
+    return D3ModuleCatalog(
+        tuple(
+            D3ModuleBridge(
+                module=str(entry["module"]),
+                bridge=D3BridgeKind(str(entry["bridge"])),
+                python_path=str(entry["python_path"]),
+                evidence=str(entry["evidence"]),
+            )
+            for entry in result.data.get("modules", ())
+        )
+    )
+
 def request_reports(context: "SessionContext", request_id: str) -> None:
     context.command(request_id, "d3.reports")
 
