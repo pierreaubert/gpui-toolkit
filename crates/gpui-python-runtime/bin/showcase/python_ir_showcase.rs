@@ -6205,6 +6205,51 @@ impl PythonIrShowcase {
                     }),
                 );
             }
+            "text.rich" => {
+                let result = (|| -> Result<Value, String> {
+                    let text = arguments.get("text").and_then(Value::as_str).ok_or_else(|| "text.rich requires text".to_string())?;
+                    let spans = gpui_pretext::parse_inline_markdown(text);
+                    let runs = gpui_pretext::accessibility_runs_for_spans(&spans);
+                    let mut segment_starts = Vec::with_capacity(spans.len());
+                    let mut offset = 0;
+                    for span in &spans { segment_starts.push(offset); offset += span.text.len(); }
+                    let bidi_levels = gpui_pretext::bidi::compute_segment_levels(text, &segment_starts);
+                    let mut settings = gpui_pretext::FontVariationSettings::default();
+                    let mut axes = Vec::new();
+                    for axis in arguments.get("axes").and_then(Value::as_array).into_iter().flatten() {
+                        let tag = axis.get("tag").and_then(Value::as_str).ok_or_else(|| "variable axis requires tag".to_string())?;
+                        let minimum = axis.get("min").and_then(Value::as_f64).ok_or_else(|| "variable axis requires min".to_string())? as f32;
+                        let default = axis.get("default").and_then(Value::as_f64).ok_or_else(|| "variable axis requires default".to_string())? as f32;
+                        let maximum = axis.get("max").and_then(Value::as_f64).ok_or_else(|| "variable axis requires max".to_string())? as f32;
+                        let descriptor = gpui_pretext::VariableFontAxis::new(tag, minimum, default, maximum)?;
+                        let value = axis.get("value").and_then(Value::as_f64).unwrap_or(f64::from(default)) as f32;
+                        if !value.is_finite() || value < minimum || value > maximum { return Err(format!("variable axis {tag} value is out of range")); }
+                        settings = settings.set(tag, value);
+                        axes.push(serde_json::json!({"tag": descriptor.tag, "min": descriptor.min, "default": descriptor.default, "max": descriptor.max, "value": value}));
+                    }
+                    let spans = spans.iter().map(|span| serde_json::json!({"text": span.text, "style": {"bold": span.style.bold, "italic": span.style.italic, "code": span.style.code, "link": span.style.link}})).collect::<Vec<_>>();
+                    let runs = runs.iter().map(|run| serde_json::json!({"byte_start": run.byte_range.start, "byte_end": run.byte_range.end, "label": run.label, "role": format!("{:?}", run.role).to_lowercase()})).collect::<Vec<_>>();
+                    Ok(serde_json::json!({"ok": true, "spans": spans, "accessibility_runs": runs, "bidi_levels": bidi_levels, "axes": axes, "css_settings": settings.css_settings()}))
+                })();
+                match result {
+                    Ok(result) => self.send_command_result(request_id, result),
+                    Err(error) => self.send_command_result(request_id, serde_json::json!({"ok": false, "error": error})),
+                }
+            }
+            "text.reports" => {
+                let language = gpui_pretext::language_support_report();
+                let locale = gpui_pretext::locale_golden_report();
+                let benchmark = gpui_pretext::benchmark_baseline_report();
+                let language_notes = language.notes.iter().map(|note| serde_json::json!({"category":note.category,"level":note.level.as_str(),"summary":note.summary,"recommendation":note.recommendation})).collect::<Vec<_>>();
+                let locale_cases = locale.cases.iter().map(|case| serde_json::json!({"id":case.id,"locale":case.locale,"category":case.category,"text":case.text,"white_space":format!("{:?}",case.white_space).to_lowercase(),"max_width":case.max_width,"line_height":case.line_height,"expected_lines":case.expected_lines,"note":case.note})).collect::<Vec<_>>();
+                let benchmark_cases = benchmark.cases.iter().map(|case| serde_json::json!({"id":case.id,"benchmark_id":case.benchmark_id,"focus":case.focus,"baseline_artifact":case.baseline_artifact,"comparator_artifact":case.comparator_artifact,"release_requirement":case.release_requirement})).collect::<Vec<_>>();
+                let comparators = benchmark.comparators.iter().map(|value| serde_json::json!({"id":value.id,"platform":value.platform,"backend":value.backend,"artifact":value.artifact,"requirement":value.requirement})).collect::<Vec<_>>();
+                self.send_command_result(request_id, serde_json::json!({"ok":true,
+                    "language":{"schema_version":language.schema_version,"report_type":language.report_type,"notes":language_notes},
+                    "locale":{"schema_version":locale.schema_version,"report_type":locale.report_type,"cases":locale_cases,"markdown":locale.to_markdown()},
+                    "benchmark":{"schema_version":benchmark.schema_version,"report_type":benchmark.report_type,"criterion_command":benchmark.criterion_command,"baseline_policy":benchmark.baseline_policy,"cases":benchmark_cases,"comparators":comparators,"locale_case_ids":benchmark.locale_case_ids,"markdown":benchmark.to_markdown()},
+                }));
+            }
             "text.prepare_layout" => {
                 let result = (|| -> Result<Value, String> {
                     let text = arguments.get("text").and_then(Value::as_str)
@@ -6854,6 +6899,18 @@ impl PythonIrShowcase {
                         }
                         _ => Err(format!("unsupported design-token operation: {operation}")),
                     }
+                })();
+                match result {
+                    Ok(result) => self.send_command_result(request_id, result),
+                    Err(error) => self.send_command_result(request_id, serde_json::json!({"ok": false, "error": error})),
+                }
+            }
+            "design.reports" => {
+                let result = (|| -> Result<Value, String> {
+                    let tokens = serde_json::to_value(gpui_design::DesignTokenExport::for_all_presets()).map_err(|error| error.to_string())?;
+                    let documentation = serde_json::to_value(gpui_design::DesignDocumentationReport::for_all_presets()).map_err(|error| error.to_string())?;
+                    let release = serde_json::to_value(gpui_design::DesignReleasePresentation::for_all_presets()).map_err(|error| error.to_string())?;
+                    Ok(serde_json::json!({"ok": true, "tokens": tokens, "documentation": documentation, "release": release}))
                 })();
                 match result {
                     Ok(result) => self.send_command_result(request_id, result),

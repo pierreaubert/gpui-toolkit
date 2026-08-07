@@ -9,8 +9,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
+import json
 from math import isfinite
 from typing import Any, Mapping
+from .commands import CommandResult, CommandStatus
+
+if False:
+    from .app import SessionContext
 
 
 class DesignLanguage(str, Enum):
@@ -282,3 +287,248 @@ class DesignPresetDocumentation:
     def __post_init__(self) -> None:
         if not self.preset_id or self.token_count < 0:
             raise ValueError("preset_id and a non-negative token_count are required")
+
+
+class DesignTokenFormat(str, Enum):
+    STYLE_DICTIONARY_JSON = "style-dictionary-json"
+
+
+@dataclass(frozen=True)
+class DesignTokenPreset:
+    preset_id: str
+    tokens: tuple[DesignToken, ...]
+
+    def __post_init__(self) -> None:
+        if not self.preset_id or not self.tokens:
+            raise ValueError("design token preset cannot be empty")
+
+
+@dataclass(frozen=True)
+class DesignTokenExport:
+    presets: tuple[DesignTokenPreset, ...]
+
+    @classmethod
+    def from_json(cls, source: str) -> "DesignTokenExport":
+        wire = json.loads(source)
+        return cls(tuple(
+            DesignTokenPreset(str(preset["preset_id"]), tuple(DesignToken.from_spec(token) for token in preset["tokens"]))
+            for preset in wire["presets"]
+        ))
+
+    @classmethod
+    def from_spec(cls, wire: Mapping[str, Any]) -> "DesignTokenExport":
+        return cls.from_json(json.dumps(wire))
+
+
+@dataclass(frozen=True)
+class DesignConformanceCase:
+    preset_id: str
+    reduced_motion: bool
+    report: DesignConformanceReport
+    motion: MotionSpec
+    token_count: int
+
+    @property
+    def passed(self) -> bool:
+        return self.report.passed
+
+
+@dataclass(frozen=True)
+class DesignConformanceMatrix:
+    cases: tuple[DesignConformanceCase, ...]
+
+    @property
+    def passed(self) -> bool:
+        return all(case.passed for case in self.cases)
+
+
+@dataclass(frozen=True)
+class DesignDocumentationReport:
+    schema_version: int
+    report_type: str
+    presets: tuple[DesignPresetDocumentation, ...]
+    conformance: DesignConformanceMatrix
+    markdown: str
+
+    @property
+    def passed(self) -> bool:
+        return self.conformance.passed
+
+
+@dataclass(frozen=True)
+class DesignReleaseAsset:
+    id: str
+    title: str
+    kind: str
+    path: str
+    status: str
+    release_note_use: str
+
+    @property
+    def is_release_blocking(self) -> bool:
+        return self.status == "CaptureRequired"
+
+
+@dataclass(frozen=True)
+class DesignReleasePresentation:
+    schema_version: int
+    report_type: str
+    documentation_report_type: str
+    documentation_report: DesignDocumentationReport
+    assets: tuple[DesignReleaseAsset, ...]
+    release_notes_markdown: str
+
+    @property
+    def blocking_assets(self) -> tuple[DesignReleaseAsset, ...]:
+        return tuple(asset for asset in self.assets if asset.is_release_blocking)
+
+
+@dataclass(frozen=True)
+class DesignReports:
+    tokens: DesignTokenExport
+    documentation: DesignDocumentationReport
+    release: DesignReleasePresentation
+
+
+@dataclass(frozen=True)
+class ImportedDesignTokens:
+    preset_count: int
+    token_count: int
+    raw: Mapping[str, object]
+
+
+@dataclass(frozen=True)
+class DesignTokenValidationReport:
+    schema_version: int
+    report_type: str
+    passed: bool
+    findings: tuple[str, ...]
+    preset_count: int
+    token_count: int
+    conformance_markdown: str
+
+
+@dataclass(frozen=True)
+class DesignToolingHandoffItem:
+    id: str
+    title: str
+    artifact_type: str
+    path_or_command: str
+    status: str
+    release_evidence: str
+    remaining_gap: str
+
+    @property
+    def is_release_blocking(self) -> bool:
+        return self.status not in ("implemented", "documented")
+
+
+@dataclass(frozen=True)
+class DesignToolingHandoffReport:
+    schema_version: int
+    report_type: str
+    crate_name: str
+    crate_version: str
+    items: tuple[DesignToolingHandoffItem, ...]
+
+    @property
+    def blocking_entries(self) -> tuple[DesignToolingHandoffItem, ...]:
+        return tuple(item for item in self.items if item.is_release_blocking)
+
+    def item(self, item_id: str) -> DesignToolingHandoffItem:
+        for item in self.items:
+            if item.id == item_id:
+                return item
+        raise KeyError(item_id)
+
+
+def _request(context: "SessionContext", request_id: str, operation: str, *, source: str | None = None, render_markdown: bool = False, format: DesignTokenFormat = DesignTokenFormat.STYLE_DICTIONARY_JSON) -> None:
+    arguments: dict[str, object] = {"operation": operation, "format": format.value, "render_markdown": render_markdown}
+    if source is not None:
+        arguments["input"] = source
+    context.command(request_id, "design.tokens", **arguments)
+
+
+def request_token_export(context: "SessionContext", request_id: str, *, format: DesignTokenFormat = DesignTokenFormat.STYLE_DICTIONARY_JSON) -> None:
+    _request(context, request_id, "export", format=format)
+
+
+def request_token_import(context: "SessionContext", request_id: str, source: str, *, format: DesignTokenFormat = DesignTokenFormat.STYLE_DICTIONARY_JSON) -> None:
+    _request(context, request_id, "import", source=source, format=format)
+
+
+def request_token_validation(context: "SessionContext", request_id: str, source: str, *, render_markdown: bool = True, format: DesignTokenFormat = DesignTokenFormat.STYLE_DICTIONARY_JSON) -> None:
+    _request(context, request_id, "validate", source=source, render_markdown=render_markdown, format=format)
+
+
+def request_handoff_report(context: "SessionContext", request_id: str) -> None:
+    _request(context, request_id, "handoff")
+
+
+def _data(result: CommandResult) -> Mapping[str, Any]:
+    if result.status is not CommandStatus.SUCCEEDED:
+        raise RuntimeError(result.error or "design token command failed")
+    return result.data
+
+
+def export_from_command(result: CommandResult) -> DesignTokenExport:
+    return DesignTokenExport.from_json(str(_data(result)["output"]))
+
+
+def import_from_command(result: CommandResult) -> ImportedDesignTokens:
+    data = _data(result)
+    return ImportedDesignTokens(int(data["preset_count"]), int(data["token_count"]), data["raw"])
+
+
+def validation_from_command(result: CommandResult) -> DesignTokenValidationReport:
+    report = _data(result)["report"]
+    return DesignTokenValidationReport(int(report["schema_version"]), str(report["report_type"]), bool(report["passed"]), tuple(str(value) for value in report["findings"]), int(report["preset_count"]), int(report["token_count"]), str(report["conformance_markdown"]))
+
+
+def handoff_from_command(result: CommandResult) -> DesignToolingHandoffReport:
+    report = _data(result)["report"]
+    return DesignToolingHandoffReport(int(report["schema_version"]), str(report["report_type"]), str(report["crate_name"]), str(report["crate_version"]), tuple(
+        DesignToolingHandoffItem(str(item["id"]), str(item["title"]), str(item["artifact_type"]), str(item["path_or_command"]), str(item["status"]), str(item["release_evidence"]), str(item["remaining_gap"]))
+        for item in report["items"]
+    ))
+
+
+def request_reports(context: "SessionContext", request_id: str) -> None:
+    context.command(request_id, "design.reports")
+
+
+def _language(value: str) -> DesignLanguage:
+    return {
+        "AppleHig": DesignLanguage.APPLE_HIG, "Material3": DesignLanguage.MATERIAL3,
+        "Fluent": DesignLanguage.FLUENT, "Adwaita": DesignLanguage.ADWAITA,
+        "Breeze": DesignLanguage.BREEZE, "Carbon": DesignLanguage.CARBON,
+        "Neutral": DesignLanguage.NEUTRAL,
+    }[value]
+
+
+def _documentation_from_spec(report: Mapping[str, Any]) -> DesignDocumentationReport:
+    presets = tuple(DesignPresetDocumentation(
+        str(preset["preset_id"]), str(preset["label"]), _language(str(preset["language"])), int(preset["token_count"]),
+        float(preset["grid_unit"]), float(preset["min_touch_target"]), float(preset["base_size"]),
+        CornerRadiusStyle(str(preset["corner_style"]).lower()), int(preset["motion_duration_ms"]), int(preset["reduced_motion_duration_ms"]),
+    ) for preset in report["presets"])
+    cases = tuple(DesignConformanceCase(
+        str(case["preset_id"]), bool(case["reduced_motion"]),
+        DesignConformanceReport(tuple(ConformanceFinding(str(value["id"]), str(value["message"])) for value in case["report"]["findings"])),
+        MotionSpec(int(case["motion"]["duration_ms"]), int(case["motion"]["fast_ms"]), int(case["motion"]["slow_ms"]), bool(case["motion"]["prefer_spring"]), bool(case["reduced_motion"])),
+        int(case["token_count"]),
+    ) for case in report["conformance"]["cases"])
+    return DesignDocumentationReport(int(report["schema_version"]), str(report["report_type"]), presets, DesignConformanceMatrix(cases), str(report["markdown"]))
+
+
+def reports_from_command(result: CommandResult) -> DesignReports:
+    data = _data(result)
+    documentation = _documentation_from_spec(data["documentation"])
+    release_wire = data["release"]
+    release = DesignReleasePresentation(
+        int(release_wire["schema_version"]), str(release_wire["report_type"]), str(release_wire["documentation_report_type"]),
+        _documentation_from_spec(release_wire["documentation_report"]),
+        tuple(DesignReleaseAsset(str(asset["id"]), str(asset["title"]), str(asset["kind"]), str(asset["path"]), str(asset["status"]), str(asset["release_note_use"])) for asset in release_wire["assets"]),
+        str(release_wire["release_notes_markdown"]),
+    )
+    return DesignReports(DesignTokenExport.from_spec(data["tokens"]), documentation, release)

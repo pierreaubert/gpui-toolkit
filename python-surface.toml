@@ -35,10 +35,12 @@ id = "ui.infrastructure-accessibility"
 id = "builder.full-solver-and-inspection"
 [[requirement]]
 id = "design.full-token-and-report-model"
+capability = "gpui-design.tokens-and-reports"
 [[requirement]]
 id = "themes.full-palettes-and-community-import"
 [[requirement]]
 id = "pretext.full-preparation-and-layout"
+capability = "gpui-pretext.requests-and-results"
 [[requirement]]
 id = "keybinding.full-registry"
 capability = "gpui-keybinding.registry"
@@ -301,17 +303,17 @@ tests = ["crates/gpui-python-runtime/python/tests/test_keybindings.py"]
 
 [[capability]]
 id = "gpui-design.tokens-and-reports"
-rust_path = "gpui_design::DesignLanguage"
-python_path = "gpui_toolkit.design.DesignLanguage"
-disposition = "declarative"
-tests = ["crates/gpui-python-runtime/python/tests/test_design.py"]
+rust_path = "gpui_design::{DesignTokenExport,DesignDocumentationReport,DesignReleasePresentation}"
+python_path = "gpui_toolkit.design.DesignReports"
+disposition = "direct"
+tests = ["crates/gpui-python-runtime/python/tests/test_design.py", "crates/gpui-design/src/tests.rs", "crates/gpui-design-tools/src/lib.rs"]
 
 [[capability]]
 id = "gpui-pretext.requests-and-results"
-rust_path = "gpui_pretext::PrepareOptions"
-python_path = "gpui_toolkit.text.TextPreparationRequest"
-disposition = "declarative"
-tests = ["crates/gpui-python-runtime/python/tests/test_text.py"]
+rust_path = "gpui_pretext::{PrepareOptions,RichTextSpan,VariableFontAxis,LanguageSupportReport,LocaleGoldenReport,BenchmarkBaselineReport}"
+python_path = "gpui_toolkit.text.TextReports"
+disposition = "direct"
+tests = ["crates/gpui-python-runtime/python/tests/test_text.py", "crates/gpui-pretext/src/analysis/tests.rs", "crates/gpui-pretext/src/rich_text.rs", "crates/gpui-pretext/src/language_support.rs"]
 
 [[capability]]
 id = "gpui-themes.selection-and-gallery"

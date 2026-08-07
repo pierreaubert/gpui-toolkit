@@ -1,4 +1,7 @@
 import unittest
+import json
+
+from gpui_toolkit.commands import CommandResult
 
 from gpui_toolkit.design import (
     ConformanceFinding,
@@ -20,6 +23,12 @@ from gpui_toolkit.design import (
     LabelPosition,
     GroupSeparatorStyle,
     MotionSpec,
+    export_from_command,
+    handoff_from_command,
+    import_from_command,
+    validation_from_command,
+    request_token_validation,
+    reports_from_command,
 )
 
 
@@ -55,6 +64,40 @@ class DesignDeclarationTests(unittest.TestCase):
         self.assertEqual(system.platform, DesignPlatform.LINUX)
         with self.assertRaises(ValueError):
             SpacingRules(float("nan"), 0, 0, 0, 0, 0)
+
+    def test_native_style_dictionary_export_and_import_results(self):
+        wire = {"presets": [{"preset_id": "neutral", "tokens": [{"name": "color.accent", "path": ["color", "accent"], "value": "#336699", "token_type": "color"}]}]}
+        exported = export_from_command(CommandResult.from_wire("export", {"ok": True, "output": json.dumps(wire)}))
+        self.assertEqual((exported.presets[0].preset_id, exported.presets[0].tokens[0].path), ("neutral", ("color", "accent")))
+        imported = import_from_command(CommandResult.from_wire("import", {"ok": True, "preset_count": 1, "token_count": 1, "raw": wire}))
+        self.assertEqual((imported.preset_count, imported.token_count), (1, 1))
+
+    def test_native_validation_and_handoff_reports(self):
+        validation = validation_from_command(CommandResult.from_wire("validation", {"ok": True, "report": {"schema_version": 1, "report_type": "gpui-design-token-validation", "passed": True, "findings": [], "preset_count": 4, "token_count": 200, "conformance_markdown": "# Conformance"}}))
+        self.assertTrue(validation.passed)
+        handoff = handoff_from_command(CommandResult.from_wire("handoff", {"ok": True, "report": {"schema_version": 1, "report_type": "gpui-design-tooling-handoff", "crate_name": "gpui-design-tools", "crate_version": "1.0.0", "items": [{"id": "tokens", "title": "Tokens", "artifact_type": "command", "path_or_command": "tool", "status": "implemented", "release_evidence": "tests", "remaining_gap": "none"}, {"id": "figma", "title": "Figma", "artifact_type": "external", "path_or_command": "figma", "status": "external-gate", "release_evidence": "contract", "remaining_gap": "credentials"}]}}))
+        self.assertEqual(handoff.item("tokens").status, "implemented")
+        self.assertEqual([item.id for item in handoff.blocking_entries], ["figma"])
+
+    def test_validation_request_targets_native_design_command(self):
+        class Context:
+            def command(self, request_id, command, **arguments):
+                self.value = (request_id, command, arguments)
+        context = Context()
+        request_token_validation(context, "validate", "{}", render_markdown=True)
+        self.assertEqual(context.value[1], "design.tokens")
+        self.assertEqual(context.value[2]["operation"], "validate")
+
+    def test_native_design_documentation_and_release_reports(self):
+        preset = {"preset_id": "apple-hig", "label": "Apple HIG", "language": "AppleHig", "token_count": 1, "grid_unit": 4, "min_touch_target": 44, "base_size": 13, "corner_style": "Continuous", "motion_duration_ms": 200, "reduced_motion_duration_ms": 0}
+        case = {"preset_id": "apple-hig", "reduced_motion": False, "report": {"findings": []}, "motion": {"duration_ms": 200, "fast_ms": 100, "slow_ms": 300, "prefer_spring": True}, "token_count": 1}
+        documentation = {"schema_version": 1, "report_type": "gpui-design-documentation", "presets": [preset], "conformance": {"cases": [case]}, "markdown": "# Design"}
+        token = {"name": "color.accent", "path": ["color", "accent"], "value": "#336699", "token_type": "color"}
+        release = {"schema_version": 1, "report_type": "gpui-design-release-presentation", "documentation_report_type": "gpui-design-documentation", "documentation_report": documentation, "assets": [{"id": "apple-hig-screenshot", "title": "Screenshot", "kind": "PresetScreenshot", "path": "shot.png", "status": "CaptureRequired", "release_note_use": "Visual proof"}], "release_notes_markdown": "# Release"}
+        reports = reports_from_command(CommandResult.from_wire("reports", {"ok": True, "tokens": {"presets": [{"preset_id": "apple-hig", "tokens": [token]}]}, "documentation": documentation, "release": release}))
+        self.assertTrue(reports.documentation.passed)
+        self.assertEqual(reports.tokens.presets[0].tokens[0].name, "color.accent")
+        self.assertEqual([asset.id for asset in reports.release.blocking_assets], ["apple-hig-screenshot"])
 
 
 if __name__ == "__main__":

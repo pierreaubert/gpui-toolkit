@@ -139,6 +139,129 @@ class PreparedLayout:
     segments: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class VariableFontAxis:
+    tag: str
+    minimum: float
+    default: float
+    maximum: float
+    value: float | None = None
+
+    def __post_init__(self) -> None:
+        if len(self.tag) != 4 or not self.tag.isascii() or not all(math.isfinite(value) for value in (self.minimum, self.default, self.maximum)) or not self.minimum <= self.default <= self.maximum:
+            raise ValueError("variable font axis requires a four-byte ASCII tag and ordered finite bounds")
+        if self.value is not None and (not math.isfinite(self.value) or not self.minimum <= self.value <= self.maximum):
+            raise ValueError("variable font axis value is outside its range")
+
+    def to_spec(self) -> dict[str, object]:
+        return {"tag": self.tag, "min": self.minimum, "default": self.default, "max": self.maximum, "value": self.default if self.value is None else self.value}
+
+
+@dataclass(frozen=True)
+class RichTextStyle:
+    bold: bool = False
+    italic: bool = False
+    code: bool = False
+    link: str | None = None
+
+
+@dataclass(frozen=True)
+class RichTextSpan:
+    text: str
+    style: RichTextStyle = field(default_factory=RichTextStyle)
+
+
+@dataclass(frozen=True)
+class AccessibleTextRun:
+    byte_start: int
+    byte_end: int
+    label: str
+    role: str
+
+
+@dataclass(frozen=True)
+class RichTextAnalysis:
+    spans: tuple[RichTextSpan, ...]
+    accessibility_runs: tuple[AccessibleTextRun, ...]
+    bidi_levels: tuple[int, ...] | None
+    axes: tuple[VariableFontAxis, ...]
+    css_settings: str
+
+
+@dataclass(frozen=True)
+class LanguageSupportNote:
+    category: str
+    level: str
+    summary: str
+    recommendation: str
+
+
+@dataclass(frozen=True)
+class LanguageSupportReport:
+    schema_version: int
+    report_type: str
+    notes: tuple[LanguageSupportNote, ...]
+
+
+@dataclass(frozen=True)
+class LocaleGoldenCase:
+    id: str
+    locale: str
+    category: str
+    text: str
+    white_space: str
+    max_width: float
+    line_height: float
+    expected_lines: tuple[str, ...]
+    note: str
+
+
+@dataclass(frozen=True)
+class LocaleGoldenReport:
+    schema_version: int
+    report_type: str
+    cases: tuple[LocaleGoldenCase, ...]
+    markdown: str
+
+
+@dataclass(frozen=True)
+class BenchmarkBaselineCase:
+    id: str
+    benchmark_id: str
+    focus: str
+    baseline_artifact: str
+    comparator_artifact: str
+    release_requirement: str
+
+
+@dataclass(frozen=True)
+class PlatformTextComparator:
+    id: str
+    platform: str
+    backend: str
+    artifact: str
+    requirement: str
+
+
+@dataclass(frozen=True)
+class BenchmarkBaselineReport:
+    schema_version: int
+    report_type: str
+    criterion_command: str
+    baseline_policy: str
+    cases: tuple[BenchmarkBaselineCase, ...]
+    comparators: tuple[PlatformTextComparator, ...]
+    locale_case_ids: tuple[str, ...]
+    markdown: str
+
+
+@dataclass(frozen=True)
+class TextReports:
+    language: LanguageSupportReport
+    locale: LocaleGoldenReport
+    benchmark: BenchmarkBaselineReport
+
+
 def prepare_layout(context: "SessionContext", request_id: str, text: str, *, max_width: float, line_height: float = 16.0, char_width: float = 8.0, profile: EngineProfile | None = None, options: PrepareOptions | None = None, budget: TextBudget | None = None, strategy: LineBreakStrategy = LineBreakStrategy.GREEDY, knuth_plass: KnuthPlassParams | None = None) -> None:
     """Request host-native preparation and greedy line layout with finite metrics."""
     if not text or not all(math.isfinite(value) and value > 0 for value in (max_width, line_height, char_width)):
@@ -148,6 +271,41 @@ def prepare_layout(context: "SessionContext", request_id: str, text: str, *, max
     budget = budget or TextBudget()
     knuth_plass = knuth_plass or KnuthPlassParams()
     context.command(request_id, "text.prepare_layout", text=text, max_width=max_width, line_height=line_height, char_width=char_width, profile=profile.__dict__.copy(), options={"white_space": options.white_space.value}, budget=budget.__dict__.copy(), strategy=strategy.value, knuth_plass=knuth_plass.__dict__.copy())
+
+
+def analyze_rich_text(context: "SessionContext", request_id: str, text: str, *, axes: tuple[VariableFontAxis, ...] = ()) -> None:
+    if not text:
+        raise ValueError("rich text cannot be empty")
+    context.command(request_id, "text.rich", text=text, axes=[axis.to_spec() for axis in axes])
+
+
+def rich_text_from_command(result: CommandResult) -> RichTextAnalysis:
+    if result.status is not CommandStatus.SUCCEEDED:
+        raise RuntimeError(result.error or "rich text analysis failed")
+    data = result.data
+    spans = tuple(RichTextSpan(str(span["text"]), RichTextStyle(bool(span["style"]["bold"]), bool(span["style"]["italic"]), bool(span["style"]["code"]), None if span["style"].get("link") is None else str(span["style"]["link"]))) for span in data["spans"])
+    runs = tuple(AccessibleTextRun(int(run["byte_start"]), int(run["byte_end"]), str(run["label"]), str(run["role"])) for run in data["accessibility_runs"])
+    axes = tuple(VariableFontAxis(str(axis["tag"]), float(axis["min"]), float(axis["default"]), float(axis["max"]), float(axis["value"])) for axis in data["axes"])
+    levels = None if data.get("bidi_levels") is None else tuple(int(value) for value in data["bidi_levels"])
+    return RichTextAnalysis(spans, runs, levels, axes, str(data["css_settings"]))
+
+
+def request_reports(context: "SessionContext", request_id: str) -> None:
+    context.command(request_id, "text.reports")
+
+
+def reports_from_command(result: CommandResult) -> TextReports:
+    if result.status is not CommandStatus.SUCCEEDED:
+        raise RuntimeError(result.error or "text reports failed")
+    data = result.data
+    language = data["language"]
+    locale = data["locale"]
+    benchmark = data["benchmark"]
+    return TextReports(
+        LanguageSupportReport(int(language["schema_version"]), str(language["report_type"]), tuple(LanguageSupportNote(str(note["category"]), str(note["level"]), str(note["summary"]), str(note["recommendation"])) for note in language["notes"])),
+        LocaleGoldenReport(int(locale["schema_version"]), str(locale["report_type"]), tuple(LocaleGoldenCase(str(case["id"]), str(case["locale"]), str(case["category"]), str(case["text"]), str(case["white_space"]), float(case["max_width"]), float(case["line_height"]), tuple(str(line) for line in case["expected_lines"]), str(case["note"])) for case in locale["cases"]), str(locale["markdown"])),
+        BenchmarkBaselineReport(int(benchmark["schema_version"]), str(benchmark["report_type"]), str(benchmark["criterion_command"]), str(benchmark["baseline_policy"]), tuple(BenchmarkBaselineCase(str(case["id"]), str(case["benchmark_id"]), str(case["focus"]), str(case["baseline_artifact"]), str(case["comparator_artifact"]), str(case["release_requirement"])) for case in benchmark["cases"]), tuple(PlatformTextComparator(str(value["id"]), str(value["platform"]), str(value["backend"]), str(value["artifact"]), str(value["requirement"])) for value in benchmark["comparators"]), tuple(str(value) for value in benchmark["locale_case_ids"]), str(benchmark["markdown"])),
+    )
 
 
 def prepared_layout_from_command(result: CommandResult) -> PreparedLayout:
