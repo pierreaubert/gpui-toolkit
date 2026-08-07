@@ -433,6 +433,10 @@ impl UiSection {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
+// This is the public, serde-tagged wire model. Boxing only the largest variants
+// would add per-node allocations and change the Rust construction API while
+// leaving the JSON contract unchanged; retain the explicit inline layout.
+#[allow(clippy::large_enum_variant)]
 pub enum UiNode {
     Vstack(StackNode),
     Hstack(StackNode),
@@ -2699,6 +2703,21 @@ fn default_stroke_width() -> f32 {
 mod tests {
     use super::*;
 
+    fn app_with_content(content: Value) -> PythonAppIr {
+        serde_json::from_value(serde_json::json!({
+            "title": "Contract test",
+            "sections": [{"id": "main", "label": "Main", "content": content}]
+        }))
+        .expect("valid test fixture shape")
+    }
+
+    fn assert_invalid_content(content: Value) {
+        assert!(matches!(
+            app_with_content(content).validate(),
+            Err(UiIrError::InvalidPatch { .. })
+        ));
+    }
+
     #[test]
     fn validates_native_color_picker_hex_contract() {
         let app: PythonAppIr = serde_json::from_value(serde_json::json!({
@@ -3537,5 +3556,340 @@ mod tests {
             invalid.validate(),
             Err(UiIrError::InvalidPatch { .. })
         ));
+    }
+
+    #[test]
+    fn validates_miniapp_defaults_dimensions_theme_and_language() {
+        let mut app: PythonAppIr = serde_json::from_value(serde_json::json!({
+            "title": "Mini app",
+            "miniapp": {
+                "title": "Native shell",
+                "width": 960.0,
+                "height": 640.0,
+                "app_name": "contract-test"
+            },
+            "sections": [{
+                "id": "main",
+                "label": "Main",
+                "content": {"kind": "text", "text": "Ready"}
+            }]
+        }))
+        .unwrap();
+        let miniapp = app.miniapp.as_ref().unwrap();
+        assert!(miniapp.scrollable);
+        assert_eq!(miniapp.initial_theme, "dark");
+        assert_eq!(miniapp.initial_language, "english");
+        app.validate().unwrap();
+
+        app.miniapp.as_mut().unwrap().width = 0.0;
+        assert!(matches!(
+            app.validate(),
+            Err(UiIrError::InvalidPatch { .. })
+        ));
+        app.miniapp.as_mut().unwrap().width = 960.0;
+        app.miniapp.as_mut().unwrap().initial_theme = "sepia".into();
+        assert!(matches!(
+            app.validate(),
+            Err(UiIrError::InvalidPatch { .. })
+        ));
+        app.miniapp.as_mut().unwrap().initial_theme = "carbon_gray_100".into();
+        app.miniapp.as_mut().unwrap().initial_language = "klingon".into();
+        assert!(matches!(
+            app.validate(),
+            Err(UiIrError::InvalidPatch { .. })
+        ));
+    }
+
+    #[test]
+    fn patch_operations_cover_structural_edits_and_rejections() {
+        use crate::session::PatchOp;
+
+        let mut tree = serde_json::json!({
+            "sections": [{"content": {
+                "kind": "vstack", "id": "root", "children": [
+                    {"kind": "metric", "id": "first", "label": "First", "value": "1"},
+                    {"kind": "card", "id": "nested", "children": [
+                        {"kind": "text", "id": "deep", "text": "Deep"}
+                    ]}
+                ]
+            }}]
+        });
+
+        apply_patch_op(
+            &mut tree,
+            &PatchOp::Replace {
+                id: "first".into(),
+                node: serde_json::json!({"kind": "badge", "id": "first", "text": "New"}),
+            },
+        )
+        .unwrap();
+        apply_patch_op(
+            &mut tree,
+            &PatchOp::Insert {
+                parent_id: "root".into(),
+                index: 1,
+                node: serde_json::json!({"kind": "text", "id": "middle", "text": "Middle"}),
+            },
+        )
+        .unwrap();
+        apply_patch_op(
+            &mut tree,
+            &PatchOp::Reorder {
+                parent_id: "root".into(),
+                child_ids: vec!["nested".into(), "middle".into(), "first".into()],
+            },
+        )
+        .unwrap();
+        apply_patch_op(&mut tree, &PatchOp::Remove { id: "deep".into() }).unwrap();
+        let children = tree["sections"][0]["content"]["children"]
+            .as_array()
+            .unwrap();
+        assert_eq!(node_id(&children[0]), Some("nested"));
+        assert_eq!(node_id(&children[1]), Some("middle"));
+        assert_eq!(node_id(&children[2]), Some("first"));
+        assert!(
+            tree["sections"][0]["content"]["children"][0]["children"]
+                .as_array()
+                .unwrap()
+                .is_empty()
+        );
+
+        let rejected = [
+            PatchOp::Set {
+                id: "first".into(),
+                property: "missing".into(),
+                value: Value::Null,
+            },
+            PatchOp::Replace {
+                id: "first".into(),
+                node: serde_json::json!({"id": "first"}),
+            },
+            PatchOp::Insert {
+                parent_id: "root".into(),
+                index: 99,
+                node: serde_json::json!({"kind": "text", "text": "late"}),
+            },
+            PatchOp::Insert {
+                parent_id: "first".into(),
+                index: 0,
+                node: serde_json::json!({"kind": "text", "text": "child"}),
+            },
+            PatchOp::Reorder {
+                parent_id: "root".into(),
+                child_ids: vec!["first".into()],
+            },
+            PatchOp::Reorder {
+                parent_id: "root".into(),
+                child_ids: vec!["nested".into(), "middle".into(), "unknown".into()],
+            },
+            PatchOp::Remove {
+                id: "unknown".into(),
+            },
+        ];
+        for operation in rejected {
+            assert!(apply_patch_op(&mut tree.clone(), &operation).is_err());
+        }
+
+        assert!(
+            apply_patch_op(
+                &mut tree.clone(),
+                &PatchOp::Insert {
+                    parent_id: "root".into(),
+                    index: 0,
+                    node: serde_json::json!({"id": "missing-kind"}),
+                }
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn chart_patch_operations_reject_malformed_targets_and_series() {
+        use crate::session::PatchOp;
+
+        let base = |content: Value| serde_json::json!({"sections": [{"content": content}]});
+        let replacement = |series: Value| PatchOp::ReplaceChartSeries {
+            chart_id: "chart".into(),
+            series,
+        };
+        let append = || PatchOp::AppendChartSeries {
+            chart_id: "chart".into(),
+            series_id: "series".into(),
+            x: vec![1.0],
+            y: vec![2.0],
+        };
+
+        let cases = [
+            (
+                base(serde_json::json!({"kind": "text", "id": "chart", "text": "x"})),
+                replacement(serde_json::json!({"id": "series"})),
+            ),
+            (
+                base(serde_json::json!({"kind": "chart", "id": "chart", "series": []})),
+                replacement(serde_json::json!({"x": [], "y": []})),
+            ),
+            (
+                base(serde_json::json!({"kind": "chart", "id": "chart", "series": "bad"})),
+                replacement(serde_json::json!({"id": "series"})),
+            ),
+            (
+                base(serde_json::json!({"kind": "chart", "id": "chart", "series": []})),
+                replacement(serde_json::json!({"id": "series"})),
+            ),
+            (
+                base(serde_json::json!({"kind": "text", "id": "chart", "text": "x"})),
+                append(),
+            ),
+            (
+                base(serde_json::json!({"kind": "chart", "id": "chart", "series": "bad"})),
+                append(),
+            ),
+            (
+                base(serde_json::json!({"kind": "chart", "id": "chart", "series": []})),
+                append(),
+            ),
+            (
+                base(
+                    serde_json::json!({"kind": "chart", "id": "chart", "series": [{"id": "series", "x": "bad", "y": []}]}),
+                ),
+                append(),
+            ),
+            (
+                base(
+                    serde_json::json!({"kind": "chart", "id": "chart", "series": [{"id": "series", "x": [], "y": "bad"}]}),
+                ),
+                append(),
+            ),
+        ];
+        for (mut tree, operation) in cases {
+            assert!(apply_patch_op(&mut tree, &operation).is_err());
+        }
+    }
+
+    #[test]
+    fn nested_form_targets_cover_every_retained_container_and_control() {
+        let fixtures = [
+            (
+                serde_json::json!({"kind": "vstack", "children": [{"kind": "text_input", "id": "target"}]}),
+                "target",
+            ),
+            (
+                serde_json::json!({"kind": "card", "children": [{"kind": "number_input", "id": "target", "value": 1.0}]}),
+                "target",
+            ),
+            (
+                serde_json::json!({"kind": "form", "id": "target"}),
+                "target",
+            ),
+            (
+                serde_json::json!({"kind": "accordion", "id": "a", "items": [{"id": "target", "title": "T"}]}),
+                "target",
+            ),
+            (
+                serde_json::json!({"kind": "tooltip", "id": "tip", "content": "Tip", "child": {"kind": "slider", "id": "target", "value": 1.0, "min": 0.0, "max": 2.0}}),
+                "target",
+            ),
+            (
+                serde_json::json!({"kind": "empty_state", "title": "Empty", "action": {"kind": "select", "id": "target", "value": "a", "options": [{"value": "a", "label": "A"}]}}),
+                "target",
+            ),
+            (
+                serde_json::json!({"kind": "dialog", "id": "d", "content": [{"kind": "path_input", "id": "target"}]}),
+                "target",
+            ),
+            (
+                serde_json::json!({"kind": "popover", "id": "p", "trigger": {"kind": "checkbox", "id": "target", "value": false, "label": "T"}}),
+                "target",
+            ),
+            (
+                serde_json::json!({"kind": "menu_bar", "id": "m", "items": [{"id": "target", "label": "File"}]}),
+                "target",
+            ),
+            (
+                serde_json::json!({"kind": "toggle", "id": "target", "value": true, "label": "T"}),
+                "target",
+            ),
+            (
+                serde_json::json!({"kind": "list_editor", "id": "target"}),
+                "target",
+            ),
+        ];
+        for (fixture, target) in fixtures {
+            let node: UiNode = serde_json::from_value(fixture).unwrap();
+            assert!(child_contains_id(&node, target));
+        }
+        let unrelated: UiNode = serde_json::from_value(serde_json::json!({
+            "kind": "text", "text": "no id"
+        }))
+        .unwrap();
+        assert!(!child_contains_id(&unrelated, "target"));
+    }
+
+    #[test]
+    fn rejects_invalid_component_and_form_contracts() {
+        let invalid = [
+            serde_json::json!({"kind": "button", "label": ""}),
+            serde_json::json!({"kind": "breadcrumbs", "id": "", "items": []}),
+            serde_json::json!({"kind": "breadcrumbs", "id": "b", "separator": "pipe", "items": [{"id": "a", "label": "A"}]}),
+            serde_json::json!({"kind": "breadcrumbs", "id": "b", "items": [{"id": "a", "label": "A"}, {"id": "a", "label": "Again"}]}),
+            serde_json::json!({"kind": "alert", "id": "", "message": ""}),
+            serde_json::json!({"kind": "alert", "id": "a", "message": "A", "variant": "loud"}),
+            serde_json::json!({"kind": "toast", "id": "t", "message": "T", "closeable": false, "action": "close"}),
+            serde_json::json!({"kind": "tooltip", "id": "", "content": "", "child": {"kind": "text", "text": "x"}}),
+            serde_json::json!({"kind": "dialog", "id": ""}),
+            serde_json::json!({"kind": "menu_bar", "id": "", "items": []}),
+            serde_json::json!({"kind": "menu_bar", "id": "m", "items": [{"id": "a", "label": "A"}, {"id": "a", "label": "Again"}]}),
+            serde_json::json!({"kind": "menu_bar", "id": "m", "items": [{"id": "a", "label": "A", "items": [{"id": "x", "label": "X"}, {"id": "x", "label": "Again"}]}]}),
+            serde_json::json!({"kind": "context_menu", "id": "", "items": []}),
+            serde_json::json!({"kind": "context_menu", "id": "m", "items": [{"id": "x", "label": "X"}], "focused_index": 1}),
+            serde_json::json!({"kind": "popover", "id": "", "placement": "diagonal", "trigger": {"kind": "text", "text": "x"}}),
+            serde_json::json!({"kind": "tabs", "items": [""], "active": 0}),
+            serde_json::json!({"kind": "stepper", "id": "", "steps": []}),
+            serde_json::json!({"kind": "accordion", "id": ""}),
+            serde_json::json!({"kind": "accordion", "id": "a", "multiple": false, "expanded": ["x", "y"], "items": [{"id": "x", "title": "X"}, {"id": "y", "title": "Y"}]}),
+            serde_json::json!({"kind": "list_editor", "id": ""}),
+            serde_json::json!({"kind": "text_input", "id": "", "width": -1.0}),
+            serde_json::json!({"kind": "number_input", "id": "n", "value": 1.0, "min": 2.0, "max": 1.0}),
+            serde_json::json!({"kind": "number_input", "id": "n", "value": 1.0, "step": 0.0}),
+            serde_json::json!({"kind": "select", "id": "s", "value": "a", "options": []}),
+            serde_json::json!({"kind": "checkbox", "id": "c", "value": false, "indeterminate": true, "label": ""}),
+            serde_json::json!({"kind": "path_input", "id": "p", "filters": [{"label": "", "extensions": [""]}]}),
+            serde_json::json!({"kind": "slider", "id": "", "value": 0.0, "min": 0.0, "max": 1.0}),
+            serde_json::json!({"kind": "slider", "id": "s", "value": 0.0, "min": 0.0, "max": 1.0, "step": 0.0}),
+            serde_json::json!({"kind": "audio_potentiometer", "id": "a", "value": 0.5, "min": 0.0, "max": 1.0, "size": "huge"}),
+            serde_json::json!({"kind": "audio_spectrum", "id": "s", "magnitudes": [1.0], "minimum_frequency": 100.0, "maximum_frequency": 20.0}),
+            serde_json::json!({"kind": "scene3d", "id": "", "spec": {}}),
+            serde_json::json!({"kind": "scene3d", "id": "scene", "spec": {}, "selection_action": ""}),
+        ];
+        for content in invalid {
+            assert_invalid_content(content);
+        }
+    }
+
+    #[test]
+    fn rejects_invalid_chart_shapes_annotations_and_options() {
+        let invalid = [
+            serde_json::json!({"kind": "chart", "id": "line", "chart": "line", "x": [1.0], "y": [1.0], "aspect_ratio": 0.0}),
+            serde_json::json!({"kind": "chart", "id": "line", "chart": "line", "x": [1.0], "y": [1.0], "annotations": [{"id": "a", "label": "A", "target": "x_value"}]}),
+            serde_json::json!({"kind": "chart", "id": "line", "chart": "line", "series": [{"id": "", "x": [1.0], "y": [1.0]}]}),
+            serde_json::json!({"kind": "chart", "id": "line", "chart": "line", "series": [{"id": "s", "x": [1.0], "y": []}]}),
+            serde_json::json!({"kind": "chart", "id": "line", "chart": "line", "series": [{"id": "s", "x": [1.0], "y": [1.0], "opacity": 2.0}]}),
+            serde_json::json!({"kind": "chart", "id": "bar", "chart": "bar", "categories": ["A", "B"], "series": [{"id": "s", "x": [], "y": [1.0]}]}),
+            serde_json::json!({"kind": "chart", "id": "heat", "chart": "heatmap", "z": [1.0, 2.0, 3.0, 4.0], "width_count": 2, "height_count": 2, "x": [2.0, 1.0], "y": [1.0, 2.0]}),
+            serde_json::json!({"kind": "chart", "id": "heat", "chart": "heatmap", "z": [1.0, 2.0, 3.0, 4.0], "width_count": 2, "height_count": 2, "x": [1.0, 2.0], "y": [2.0, 1.0]}),
+            serde_json::json!({"kind": "chart", "id": "area", "chart": "area", "x": [1.0, 2.0], "y": [1.0, 2.0], "y0": [0.0]}),
+            serde_json::json!({"kind": "chart", "id": "pie", "chart": "pie", "categories": ["A"], "values": [1.0, 2.0]}),
+            serde_json::json!({"kind": "chart", "id": "donut", "chart": "donut", "categories": ["A"], "values": [1.0], "inner_radius": 1.5}),
+            serde_json::json!({"kind": "chart", "id": "tree", "chart": "treemap", "treemap": {"name": "root", "value": -1.0}}),
+            serde_json::json!({"kind": "chart", "id": "tree", "chart": "treemap", "treemap": {"name": "root", "value": 1.0}, "padding": -1.0}),
+            serde_json::json!({"kind": "chart", "id": "line", "chart": "line", "x": [1.0], "y": [1.0], "opacity": 2.0}),
+        ];
+        for (index, content) in invalid.into_iter().enumerate() {
+            let result = app_with_content(content).validate();
+            assert!(
+                result.is_err(),
+                "chart fixture {index} unexpectedly returned {result:?}"
+            );
+        }
     }
 }

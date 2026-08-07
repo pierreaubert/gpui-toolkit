@@ -228,7 +228,7 @@ fn validate_header(frame: &AudioFrame) -> Result<(), AudioFrameError> {
     }
     if frame.generation == 0
         || frame.sequence == 0
-        || frame.byte_length % 4 != 0
+        || !frame.byte_length.is_multiple_of(4)
         || frame.dtype != "f32"
         || frame.byte_order != "little"
         || frame.finite_policy != "drop_frame"
