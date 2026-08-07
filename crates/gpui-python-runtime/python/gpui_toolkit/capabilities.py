@@ -25,6 +25,7 @@ _ENTRIES = (
     ('gpui-d3rs.scales', 'command', 'gpui_toolkit.d3.ScaleRequest'),
     ('gpui-d3rs.statistics-and-ticks', 'command', 'gpui_toolkit.d3.StatisticsRequest'),
     ('gpui-d3rs.parity-and-benchmark-reports', 'command', 'gpui_toolkit.d3.request_reports'),
+    ('gpui-d3rs.full-algorithm-and-interaction-api', 'command', 'gpui_toolkit.d3'),
     ('gpui-python-runtime.state', 'direct', 'gpui_toolkit.StateStore'),
     ('gpui-python-runtime.bindings', 'direct', 'gpui_toolkit.State'),
     ('gpui-python-runtime.resources', 'opaque', 'gpui_toolkit.resources.ResourceStore'),

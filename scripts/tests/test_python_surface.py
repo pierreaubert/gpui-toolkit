@@ -19,9 +19,9 @@ class PythonSurfaceRegistryTests(unittest.TestCase):
         inventory = {entry["id"] for entry in data["inventory"]["crate"]}
         self.assertEqual(inventory, surface.first_party_crates())
 
-    def test_normal_registry_check_is_green_before_full_parity_gate(self):
+    def test_normal_and_strict_registry_checks_are_green_at_full_parity(self):
         self.assertEqual(surface.main([]), 0)
-        self.assertEqual(surface.main(["--strict"]), 1)
+        self.assertEqual(surface.main(["--strict"]), 0)
 
     def test_declared_paths_resolve_without_eval(self):
         data = surface.load_manifest()

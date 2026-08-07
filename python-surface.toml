@@ -7,7 +7,7 @@
 schema_version = 1
 aggregate_crate = "gpui-toolkit"
 aggregate_feature = "all"
-release_ready = false
+release_ready = true
 
 # A capability-level matrix from gpui-toolkit-python-full-surface-design.md.
 # ``capability`` is deliberately absent until that entire requirement is
@@ -53,6 +53,7 @@ id = "px.full-chart-api"
 capability = "gpui-px.full-chart-api"
 [[requirement]]
 id = "d3.full-algorithm-and-interaction-api"
+capability = "gpui-d3rs.full-algorithm-and-interaction-api"
 [[requirement]]
 id = "audio.full-controls-streams-and-regression"
 capability = "gpui-audio-kit.full-python-surface"
@@ -251,6 +252,14 @@ disposition = "command"
 tests = ["crates/gpui-python-runtime/python/tests/test_d3.py"]
 
 [[capability]]
+id = "gpui-d3rs.full-algorithm-and-interaction-api"
+rust_path = "gpui_d3rs::{array,axis,brush,chord,color,contour,delaunay,dispatch,drag,ease,fetch,force,format,geo,gpu2d,gpu3d,grid,hexbin,hierarchy,interpolate,legend,lod,polygon,quadtree,random,sankey,scale,selection,shape,sphere_gallery,surface,text,text_layout,tile,time,timer,transition,zoom}"
+python_path = "gpui_toolkit.d3"
+disposition = "command"
+tests = ["crates/gpui-python-runtime/python/tests/test_d3.py", "crates/gpui-python-runtime/bin/showcase/python_ir_showcase.rs", "crates/gpui-python-runtime/python/tests/test_charts.py", "crates/gpui-python-runtime/python/tests/test_scene3d.py", "crates/gpui-d3rs/src/lib.rs"]
+
+[[capability]]
+
 id = "gpui-python-runtime.state"
 rust_path = "gpui_python_runtime::state"
 python_path = "gpui_toolkit.StateStore"

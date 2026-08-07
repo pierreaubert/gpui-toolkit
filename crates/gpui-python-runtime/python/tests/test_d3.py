@@ -5,7 +5,7 @@ import json
 
 from gpui_toolkit import SessionContext
 from gpui_toolkit.commands import CommandResult
-from gpui_toolkit.d3 import AlgorithmOperation, AlgorithmRequest, AlgorithmResult, ArrayOperation, ArrayRequest, D3BridgeKind, EaseKind, RandomKind, ScaleKind, ScaleOutput, ScaleRequest, StatisticsOperation, StatisticsRequest, TickOperation, TickRequest, ZoomOperation, ZoomRequest, ZoomResult, module_catalog_from_command, reports_from_command, request_module_catalog, request_reports
+from gpui_toolkit.d3 import AlgorithmOperation, AlgorithmRequest, AlgorithmResult, ArrayOperation, ArrayRequest, D3BridgeKind, EaseKind, HierarchySpec, RandomKind, SankeyLinkSpec, ScaleKind, ScaleOutput, ScaleRequest, StatisticsOperation, StatisticsRequest, TickOperation, TickRequest, ZoomOperation, ZoomRequest, ZoomResult, module_catalog_from_command, reports_from_command, request_module_catalog, request_reports
 
 
 class D3ZoomTests(unittest.TestCase):
@@ -18,7 +18,10 @@ class D3ZoomTests(unittest.TestCase):
                 "interpolate_number", "interpolate_array", "interpolate_string",
                 "interpolate_transform_css", "interpolate_transform_svg", "interpolate_zoom",
                 "ease", "selection_join", "brush_gesture", "drag_gesture",
-                "transition_sample", "random_uniform", "random", "shuffle",
+                "transition_sample", "polygon", "delaunay", "hexbin", "tiles",
+                "chord", "sankey", "force", "hierarchy_treemap",
+                "geo", "quadtree", "contour", "lod_m4",
+                "random_uniform", "random", "shuffle",
             },
         )
         self.assertEqual(len(EaseKind), 25)
@@ -49,6 +52,35 @@ class D3ZoomTests(unittest.TestCase):
             0.0, 10.0, 100.0, [25.0, 25.0, 50.0], easing=EaseKind.CUBIC_IN_OUT,
         )
         self.assertEqual(transition.arguments["kind"], "cubic_in_out")
+        polygon = AlgorithmRequest.polygon([(0.0, 0.0), (1.0, 0.0), (0.0, 1.0)])
+        self.assertEqual(polygon.operation, AlgorithmOperation.POLYGON)
+        delaunay = AlgorithmRequest.delaunay([(0.0, 0.0), (1.0, 0.0), (0.0, 1.0)])
+        self.assertEqual(len(delaunay.arguments["points"]), 3)
+        hexbin = AlgorithmRequest.hexbin([(1.0, 2.0)], radius=5.0)
+        self.assertEqual(hexbin.arguments["radius"], 5.0)
+        tiles = AlgorithmRequest.tiles(800.0, 600.0, 256.0, (400.0, 300.0))
+        self.assertEqual(tiles.arguments["translate"], [400.0, 300.0])
+        chord = AlgorithmRequest.chord([[0.0, 2.0], [1.0, 0.0]], pad_angle=0.02)
+        self.assertEqual(chord.arguments["pad_angle"], 0.02)
+        sankey = AlgorithmRequest.sankey(
+            ["a", "b"], [SankeyLinkSpec("a", "b", 3.0)], width=640.0,
+        )
+        self.assertEqual(sankey.arguments["links"][0]["value"], 3.0)
+        force = AlgorithmRequest.force([(0.0, 0.0), (10.0, 0.0)], ticks=4)
+        self.assertEqual(force.arguments["ticks"], 4)
+        hierarchy = AlgorithmRequest.hierarchy_treemap(
+            HierarchySpec("root", 0.0, (HierarchySpec("leaf", 2.0),)),
+            size=(640.0, 480.0), padding=2.0,
+        )
+        self.assertEqual(hierarchy.arguments["root"]["children"][0]["name"], "leaf")
+        geo = AlgorithmRequest.geo([(0.0, 0.0), (10.0, 0.0)], contains=(5.0, 0.0))
+        self.assertEqual(geo.operation, AlgorithmOperation.GEO)
+        quadtree = AlgorithmRequest.quadtree([(0.0, 0.0), (5.0, 5.0)], find=(4.0, 4.0), radius=3.0)
+        self.assertEqual(quadtree.arguments["radius"], 3.0)
+        contour = AlgorithmRequest.contour([0.0, 1.0, 1.0, 0.0], width=2, height=2, threshold=0.5)
+        self.assertEqual(contour.arguments["width"], 2)
+        lod = AlgorithmRequest.lod_m4([0.0, 1.0], [2.0, 3.0], x0=0.0, x1=1.0, columns=1)
+        self.assertEqual(lod.operation, AlgorithmOperation.LOD_M4)
 
         with self.assertRaises(ValueError):
             AlgorithmRequest.random(RandomKind.UNIFORM, count=-1, seed=1)
@@ -89,12 +121,14 @@ class D3ZoomTests(unittest.TestCase):
                     {"module": "shape", "bridge": "chart_spec", "python_path": "gpui_toolkit.charts", "evidence": "native"},
                     {"module": "zoom", "bridge": "host_interaction", "python_path": "gpui_toolkit.events", "evidence": "native"},
                     {"module": "gpu3d", "bridge": "scene_spec", "python_path": "gpui_toolkit.scene3d", "evidence": "native"},
+                    {"module": "prelude", "bridge": "non_consumer", "python_path": "", "evidence": "re-export only"},
                 ],
             },
         )
         catalog = module_catalog_from_command(result)
         self.assertEqual(catalog.by_name("array").bridge, D3BridgeKind.DIRECT_COMMAND)
         self.assertEqual(catalog.by_name("zoom").bridge, D3BridgeKind.HOST_INTERACTION)
+        self.assertEqual(catalog.by_name("prelude").bridge, D3BridgeKind.NON_CONSUMER)
 
     def test_zoom_request_is_typed_and_serializable(self):
         request = ZoomRequest(

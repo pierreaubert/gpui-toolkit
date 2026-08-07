@@ -116,6 +116,34 @@ fn command_numbers(arguments: &Value, name: &str) -> Result<Vec<f64>, String> {
         .collect()
 }
 
+#[derive(Clone, Deserialize)]
+struct D3HierarchySpec {
+    name: String,
+    value: f64,
+    #[serde(default)]
+    children: Vec<D3HierarchySpec>,
+}
+
+#[derive(Clone)]
+struct D3HierarchyDatum {
+    name: String,
+    value: f64,
+}
+
+fn d3_hierarchy_node(
+    spec: D3HierarchySpec,
+) -> std::rc::Rc<std::cell::RefCell<d3rs::hierarchy::HierarchyNode<D3HierarchyDatum>>> {
+    let node = d3rs::hierarchy::HierarchyNode::new(D3HierarchyDatum {
+        name: spec.name,
+        value: spec.value,
+    });
+    if !spec.children.is_empty() {
+        let children = spec.children.into_iter().map(d3_hierarchy_node).collect();
+        node.borrow_mut().set_children(&node, children);
+    }
+    node
+}
+
 fn d3_algorithm_command(arguments: &Value) -> Result<Value, String> {
     let operation = arguments
         .get("operation")
@@ -148,6 +176,49 @@ fn d3_algorithm_command(arguments: &Value) -> Result<Value, String> {
             ));
         }
         Ok(values)
+    };
+    let points = |name: &str| -> Result<Vec<(f64, f64)>, String> {
+        arguments
+            .get(name)
+            .and_then(Value::as_array)
+            .ok_or_else(|| format!("D3 algorithm field {name} must be a point array"))?
+            .iter()
+            .map(|point| {
+                let point = point
+                    .as_array()
+                    .filter(|point| point.len() == 2)
+                    .ok_or_else(|| {
+                        format!("D3 algorithm field {name} points must contain two values")
+                    })?;
+                let x = point[0]
+                    .as_f64()
+                    .filter(|value| value.is_finite())
+                    .ok_or_else(|| {
+                        format!("D3 algorithm field {name} x coordinates must be finite")
+                    })?;
+                let y = point[1]
+                    .as_f64()
+                    .filter(|value| value.is_finite())
+                    .ok_or_else(|| {
+                        format!("D3 algorithm field {name} y coordinates must be finite")
+                    })?;
+                Ok((x, y))
+            })
+            .collect()
+    };
+    let strings = |name: &str| -> Result<Vec<String>, String> {
+        arguments
+            .get(name)
+            .and_then(Value::as_array)
+            .ok_or_else(|| format!("D3 algorithm field {name} must be a string array"))?
+            .iter()
+            .map(|value| {
+                value
+                    .as_str()
+                    .map(str::to_string)
+                    .ok_or_else(|| format!("D3 algorithm field {name} values must be strings"))
+            })
+            .collect()
     };
     let samples = || {
         arguments
@@ -616,6 +687,365 @@ fn d3_algorithm_command(arguments: &Value) -> Result<Value, String> {
                     .collect::<Vec<_>>()
             )
         }
+        "contour" => {
+            let width = unsigned("width")? as usize;
+            let height = unsigned("height")? as usize;
+            let values = command_numbers(arguments, "values")?;
+            if values.len() != width.saturating_mul(height) {
+                return Err("contour values must match width times height".to_string());
+            }
+            let contour = d3rs::contour::contour(&values, width, height, number("threshold")?);
+            serde_json::json!({
+                "value": contour.value,
+                "rings": contour.coordinates.into_iter().map(|ring| {
+                    ring.points.into_iter().map(|point| [point.x, point.y]).collect::<Vec<_>>()
+                }).collect::<Vec<_>>(),
+            })
+        }
+        "lod_m4" => {
+            let x = command_numbers(arguments, "x")?;
+            let y = command_numbers(arguments, "y")?;
+            if x.len() != y.len() {
+                return Err("lod_m4 x and y must have equal lengths".to_string());
+            }
+            serde_json::json!(d3rs::lod::m4_indices(
+                &x,
+                &y,
+                number("x0")?,
+                number("x1")?,
+                unsigned("columns")? as usize,
+            ))
+        }
+        "geo" => {
+            let coordinates = points("coordinates")?;
+            let contains = arguments
+                .get("contains")
+                .map(|_| {
+                    points("contains").and_then(|points| {
+                        let point = points
+                            .first()
+                            .copied()
+                            .ok_or_else(|| "geo contains requires one point".to_string())?;
+                        Ok(d3rs::geo::geo_contains(&coordinates, point.0, point.1))
+                    })
+                })
+                .transpose()?;
+            serde_json::json!({
+                "area": d3rs::geo::geo_area(&coordinates),
+                "length": d3rs::geo::geo_length(&coordinates),
+                "bounds": d3rs::geo::geo_bounds(&coordinates),
+                "centroid": d3rs::geo::geo_centroid(&coordinates),
+                "contains": contains,
+            })
+        }
+        "quadtree" => {
+            let input = points("points")?;
+            let mut tree = d3rs::quadtree::QuadTree::new();
+            for (index, point) in input.iter().copied().enumerate() {
+                tree.try_add(point.0, point.1, index)
+                    .map_err(|error| error.to_string())?;
+            }
+            let matches = arguments
+                .get("find")
+                .map(|_| {
+                    points("find").and_then(|points| {
+                        let point = points
+                            .first()
+                            .copied()
+                            .ok_or_else(|| "quadtree find requires one point".to_string())?;
+                        let radius = arguments
+                            .get("radius")
+                            .and_then(Value::as_f64)
+                            .unwrap_or(f64::INFINITY);
+                        Ok(tree
+                            .find_all(point.0, point.1, radius)
+                            .into_iter()
+                            .copied()
+                            .collect::<Vec<_>>())
+                    })
+                })
+                .transpose()?;
+            serde_json::json!({"size": tree.size(), "data": tree.data(), "matches": matches})
+        }
+        "hierarchy_treemap" => {
+            let spec: D3HierarchySpec = serde_json::from_value(
+                arguments
+                    .get("root")
+                    .cloned()
+                    .ok_or_else(|| "hierarchy_treemap requires root".to_string())?,
+            )
+            .map_err(|error| format!("invalid hierarchy root: {error}"))?;
+            let root = d3_hierarchy_node(spec);
+            d3rs::hierarchy::HierarchyNode::try_sum(root.clone(), |datum| datum.value)
+                .map_err(|error| error.to_string())?;
+            let size = fixed_array("size", 2)?;
+            let rects = d3rs::hierarchy::TreemapLayout::new()
+                .size((size[0], size[1]))
+                .padding(
+                    arguments
+                        .get("padding")
+                        .and_then(Value::as_f64)
+                        .unwrap_or(0.0),
+                )
+                .try_layout(root)
+                .map_err(|error| error.to_string())?;
+            serde_json::json!(
+                rects
+                    .into_iter()
+                    .map(|rect| {
+                        let node = rect.node.borrow();
+                        serde_json::json!({
+                            "name": node.data.name,
+                            "x0": rect.x0, "y0": rect.y0, "x1": rect.x1, "y1": rect.y1,
+                            "depth": rect.depth, "value": rect.value,
+                        })
+                    })
+                    .collect::<Vec<_>>()
+            )
+        }
+        "force" => {
+            let nodes = points("points")?
+                .into_iter()
+                .enumerate()
+                .map(|(index, (x, y))| d3rs::force::SimulationNode::try_new(index, x, y))
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|error| error.to_string())?;
+            let center = fixed_array("center", 2)?;
+            let many_body = d3rs::force::ForceManyBody::try_new()
+                .and_then(|force| {
+                    force.try_strength(
+                        arguments
+                            .get("strength")
+                            .and_then(Value::as_f64)
+                            .unwrap_or(-30.0),
+                    )
+                })
+                .map_err(|error| error.to_string())?;
+            let center_force = d3rs::force::ForceCenter::try_new(center[0], center[1])
+                .map_err(|error| error.to_string())?;
+            let mut simulation = d3rs::force::Simulation::try_new(nodes.clone())
+                .map_err(|error| error.to_string())?
+                .force(Box::new(many_body))
+                .force(Box::new(center_force));
+            for _ in 0..arguments
+                .get("ticks")
+                .and_then(Value::as_u64)
+                .unwrap_or(1)
+                .min(10_000)
+            {
+                simulation.try_tick().map_err(|error| error.to_string())?;
+            }
+            serde_json::json!({
+                "alpha": simulation.alpha,
+                "nodes": nodes.into_iter().map(|node| {
+                    let node = node.borrow();
+                    serde_json::json!({"index": node.index, "x": node.x, "y": node.y, "vx": node.vx, "vy": node.vy})
+                }).collect::<Vec<_>>(),
+            })
+        }
+        "chord" => {
+            let matrix = arguments
+                .get("matrix")
+                .and_then(Value::as_array)
+                .ok_or_else(|| "chord matrix must be an array".to_string())?
+                .iter()
+                .map(|row| {
+                    row.as_array()
+                        .ok_or_else(|| "chord matrix rows must be arrays".to_string())?
+                        .iter()
+                        .map(|value| {
+                            value
+                                .as_f64()
+                                .filter(|value| value.is_finite())
+                                .ok_or_else(|| "chord matrix values must be finite".to_string())
+                        })
+                        .collect::<Result<Vec<_>, _>>()
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            let result = d3rs::chord::ChordLayout::new()
+                .pad_angle(
+                    arguments
+                        .get("pad_angle")
+                        .and_then(Value::as_f64)
+                        .unwrap_or(0.0),
+                )
+                .try_compute(&matrix)
+                .map_err(|error| error.to_string())?;
+            let subgroup = |subgroup: &d3rs::chord::ChordSubgroup| {
+                serde_json::json!({
+                    "index": subgroup.index,
+                    "start_angle": subgroup.start_angle,
+                    "end_angle": subgroup.end_angle,
+                    "value": subgroup.value,
+                })
+            };
+            serde_json::json!({
+                "groups": result.groups.into_iter().map(|group| serde_json::json!({
+                    "index": group.index,
+                    "start_angle": group.start_angle,
+                    "end_angle": group.end_angle,
+                    "value": group.value,
+                })).collect::<Vec<_>>(),
+                "chords": result.chords.into_iter().map(|chord| serde_json::json!({
+                    "source": subgroup(&chord.source),
+                    "target": subgroup(&chord.target),
+                })).collect::<Vec<_>>(),
+            })
+        }
+        "sankey" => {
+            let links = arguments
+                .get("links")
+                .and_then(Value::as_array)
+                .ok_or_else(|| "sankey links must be an array".to_string())?
+                .iter()
+                .map(|link| {
+                    Ok(d3rs::sankey::SankeyLinkInput {
+                        source: link
+                            .get("source")
+                            .and_then(Value::as_str)
+                            .ok_or_else(|| "sankey link source must be a string".to_string())?
+                            .to_string(),
+                        target: link
+                            .get("target")
+                            .and_then(Value::as_str)
+                            .ok_or_else(|| "sankey link target must be a string".to_string())?
+                            .to_string(),
+                        value: link
+                            .get("value")
+                            .and_then(Value::as_f64)
+                            .filter(|value| value.is_finite())
+                            .ok_or_else(|| "sankey link value must be finite".to_string())?,
+                    })
+                })
+                .collect::<Result<Vec<_>, String>>()?;
+            let result = d3rs::sankey::SankeyLayout::new()
+                .width(
+                    arguments
+                        .get("width")
+                        .and_then(Value::as_f64)
+                        .unwrap_or(960.0),
+                )
+                .height(
+                    arguments
+                        .get("height")
+                        .and_then(Value::as_f64)
+                        .unwrap_or(500.0),
+                )
+                .node_width(
+                    arguments
+                        .get("node_width")
+                        .and_then(Value::as_f64)
+                        .unwrap_or(24.0),
+                )
+                .node_padding(
+                    arguments
+                        .get("node_padding")
+                        .and_then(Value::as_f64)
+                        .unwrap_or(8.0),
+                )
+                .iterations(
+                    arguments
+                        .get("iterations")
+                        .and_then(Value::as_u64)
+                        .unwrap_or(6) as usize,
+                )
+                .try_compute(&strings("nodes")?, &links)
+                .map_err(|error| error.to_string())?;
+            serde_json::json!({
+                "nodes": result.nodes.into_iter().map(|node| serde_json::json!({
+                    "id": node.id, "index": node.index, "x0": node.x0, "x1": node.x1,
+                    "y0": node.y0, "y1": node.y1, "value": node.value,
+                    "depth": node.depth, "height": node.height, "layer": node.layer,
+                })).collect::<Vec<_>>(),
+                "links": result.links.into_iter().map(|link| serde_json::json!({
+                    "source": link.source, "target": link.target, "value": link.value,
+                    "y0": link.y0, "y1": link.y1, "width": link.width, "path": link.path,
+                })).collect::<Vec<_>>(),
+            })
+        }
+        "polygon" => {
+            let polygon = points("points")?;
+            let contains = arguments
+                .get("contains")
+                .map(|_| {
+                    points("contains").and_then(|points| {
+                        points
+                            .first()
+                            .copied()
+                            .ok_or_else(|| "polygon contains requires one point".to_string())
+                    })
+                })
+                .transpose()?
+                .map(|point| d3rs::polygon::polygon_contains(&polygon, point));
+            serde_json::json!({
+                "area": d3rs::polygon::polygon_area(&polygon),
+                "signed_area": d3rs::polygon::polygon_area_signed(&polygon),
+                "centroid": d3rs::polygon::polygon_centroid(&polygon),
+                "length": d3rs::polygon::polygon_length(&polygon),
+                "hull": d3rs::polygon::polygon_hull(&polygon),
+                "contains": contains,
+            })
+        }
+        "delaunay" => {
+            let triangulation = d3rs::delaunay::Delaunay::try_new(&points("points")?)
+                .map_err(|error| error.to_string())?;
+            let nearest = arguments
+                .get("find")
+                .map(|_| {
+                    points("find").and_then(|points| {
+                        let point = points
+                            .first()
+                            .copied()
+                            .ok_or_else(|| "delaunay find requires one point".to_string())?;
+                        triangulation
+                            .try_find(point.0, point.1, None)
+                            .map_err(|error| error.to_string())
+                    })
+                })
+                .transpose()?;
+            serde_json::json!({
+                "triangles": triangulation.triangles().collect::<Vec<_>>(),
+                "edges": triangulation.edges().collect::<Vec<_>>(),
+                "hull": triangulation.hull(),
+                "hull_polygon": triangulation.hull_polygon(),
+                "path": triangulation.render_to_path(),
+                "nearest": nearest,
+            })
+        }
+        "hexbin" => {
+            let radius = arguments
+                .get("radius")
+                .and_then(Value::as_f64)
+                .unwrap_or(1.0);
+            let hexbin = d3rs::hexbin::Hexbin::<(f64, f64)>::with_accessors(
+                |point| point.0,
+                |point| point.1,
+            )
+            .radius(radius);
+            let bins = hexbin
+                .try_bin(points("points")?)
+                .map_err(|error| error.to_string())?;
+            serde_json::json!({
+                "bins": bins.into_iter().map(|bin| serde_json::json!({"x": bin.x, "y": bin.y, "count": bin.len(), "points": bin.points})).collect::<Vec<_>>(),
+                "hexagon": hexbin.try_hexagon().map_err(|error| error.to_string())?,
+            })
+        }
+        "tiles" => {
+            let translate = fixed_array("translate", 2)?;
+            let tiles = d3rs::tile::tiles_for_viewport(
+                number("width")?,
+                number("height")?,
+                number("scale")?,
+                [translate[0], translate[1]],
+            )
+            .map_err(|error| error.to_string())?;
+            serde_json::json!({
+                "zoom": tiles.zoom,
+                "tile_screen_size": tiles.tile_screen_size,
+                "origin": tiles.origin,
+                "tiles": tiles.tiles.into_iter().map(|tile| [tile.x, tile.y, i64::from(tile.z)]).collect::<Vec<_>>(),
+            })
+        }
         "random_uniform" => {
             let distribution =
                 d3rs::random::RandomUniform::with_seed(number("min")?, number("max")?, seed);
@@ -733,9 +1163,115 @@ fn d3_algorithm_command(arguments: &Value) -> Result<Value, String> {
     Ok(serde_json::json!({"ok": true, "operation": operation, "value": value}))
 }
 
+fn d3_module_catalog() -> Value {
+    let groups: &[(&[&str], &str, &str, &str)] = &[
+        (
+            &[
+                "array",
+                "scale",
+                "color",
+                "format",
+                "time",
+                "fetch",
+                "interpolate",
+                "ease",
+                "random",
+                "brush",
+                "chord",
+                "contour",
+                "delaunay",
+                "drag",
+                "force",
+                "geo",
+                "hexbin",
+                "hierarchy",
+                "lod",
+                "polygon",
+                "quadtree",
+                "sankey",
+                "selection",
+                "tile",
+                "transition",
+            ],
+            "direct_command",
+            "gpui_toolkit.d3.AlgorithmRequest",
+            "executable renderer-independent native Rust command",
+        ),
+        (
+            &[
+                "axis",
+                "grid",
+                "legend",
+                "text",
+                "text_layout",
+                "shape",
+            ],
+            "chart_spec",
+            "gpui_toolkit.charts",
+            "host-native retained chart geometry specification",
+        ),
+        (
+            &["zoom"],
+            "host_interaction",
+            "gpui_toolkit.d3.ZoomRequest",
+            "native zoom state plus retained GPUI chart interaction",
+        ),
+        (
+            &["dispatch"],
+            "host_interaction",
+            "gpui_toolkit.events",
+            "typed host event dispatch and action correlation",
+        ),
+        (
+            &["timer"],
+            "host_interaction",
+            "gpui_toolkit.app.AppContext",
+            "host-owned task and frame scheduling lifecycle",
+        ),
+        (
+            &["surface", "gpu2d", "gpu3d", "sphere_gallery"],
+            "scene_spec",
+            "gpui_toolkit.scene3d",
+            "feature-gated native GPU scene specification",
+        ),
+        (
+            &["feature_parity"],
+            "direct_command",
+            "gpui_toolkit.d3.request_reports",
+            "native parity and benchmark report command",
+        ),
+        (
+            &["examples"],
+            "non_consumer",
+            "",
+            "Rust showcase fixtures; consumer behavior is exposed by chart and scene specifications",
+        ),
+        (
+            &["prelude"],
+            "non_consumer",
+            "",
+            "Rust-only convenience re-exports with no distinct capability",
+        ),
+    ];
+    let modules = groups
+        .iter()
+        .flat_map(|(modules, bridge, python_path, evidence)| {
+            modules.iter().map(move |module| {
+                serde_json::json!({
+                    "module": module,
+                    "bridge": bridge,
+                    "python_path": python_path,
+                    "evidence": evidence,
+                })
+            })
+        })
+        .collect::<Vec<_>>();
+    serde_json::json!({"ok": true, "modules": modules})
+}
+
 #[cfg(test)]
 mod d3_algorithm_command_tests {
-    use super::d3_algorithm_command;
+    use super::{d3_algorithm_command, d3_module_catalog};
     use serde_json::{Value, json};
 
     fn assert_succeeds(arguments: Value) -> Value {
@@ -766,6 +1302,18 @@ mod d3_algorithm_command_tests {
             json!({"operation": "brush_gesture", "points": [[10.0, 20.0], [30.0, 40.0]], "min_size": 5.0}),
             json!({"operation": "drag_gesture", "points": [[0.0, 0.0], [3.0, 4.0], [6.0, 8.0]], "click_distance": 4.0}),
             json!({"operation": "transition_sample", "start": 0.0, "end": 10.0, "duration_ms": 100.0, "delay_ms": 25.0, "delta_ms": [25.0, 25.0, 50.0], "kind": "cubic_in_out"}),
+            json!({"operation": "polygon", "points": [[0.0, 0.0], [2.0, 0.0], [0.0, 2.0]], "contains": [[0.5, 0.5]]}),
+            json!({"operation": "delaunay", "points": [[0.0, 0.0], [2.0, 0.0], [0.0, 2.0], [2.0, 2.0]], "find": [[1.8, 1.9]]}),
+            json!({"operation": "hexbin", "points": [[0.0, 0.0], [1.0, 1.0], [20.0, 20.0]], "radius": 10.0}),
+            json!({"operation": "tiles", "width": 800.0, "height": 600.0, "scale": 256.0, "translate": [400.0, 300.0]}),
+            json!({"operation": "chord", "matrix": [[0.0, 2.0], [1.0, 0.0]], "pad_angle": 0.02}),
+            json!({"operation": "sankey", "nodes": ["a", "b", "c"], "links": [{"source": "a", "target": "b", "value": 2.0}, {"source": "b", "target": "c", "value": 1.0}], "width": 640.0, "height": 400.0}),
+            json!({"operation": "force", "points": [[0.0, 0.0], [10.0, 0.0], [5.0, 8.0]], "center": [0.0, 0.0], "strength": -10.0, "ticks": 4}),
+            json!({"operation": "hierarchy_treemap", "root": {"name": "root", "value": 0.0, "children": [{"name": "a", "value": 2.0}, {"name": "b", "value": 3.0}]}, "size": [640.0, 480.0], "padding": 2.0}),
+            json!({"operation": "geo", "coordinates": [[0.0, 0.0], [10.0, 0.0], [10.0, 10.0], [0.0, 0.0]], "contains": [[5.0, 2.0]]}),
+            json!({"operation": "quadtree", "points": [[0.0, 0.0], [5.0, 5.0], [10.0, 10.0]], "find": [[6.0, 6.0]], "radius": 3.0}),
+            json!({"operation": "contour", "values": [0.0, 1.0, 1.0, 0.0], "width": 2, "height": 2, "threshold": 0.5}),
+            json!({"operation": "lod_m4", "x": [0.0, 1.0, 2.0, 3.0], "y": [0.0, 2.0, 1.0, 3.0], "x0": 0.0, "x1": 3.0, "columns": 2}),
         ];
         for request in requests {
             assert_succeeds(request);
@@ -850,6 +1398,69 @@ mod d3_algorithm_command_tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn module_catalog_dispositions_match_every_public_d3_module() {
+        let catalog = d3_module_catalog();
+        let mut actual = catalog["modules"]
+            .as_array()
+            .expect("module catalog array")
+            .iter()
+            .map(|entry| entry["module"].as_str().unwrap())
+            .collect::<Vec<_>>();
+        actual.sort_unstable();
+        let mut expected = vec![
+            "array",
+            "axis",
+            "brush",
+            "chord",
+            "color",
+            "contour",
+            "delaunay",
+            "dispatch",
+            "drag",
+            "ease",
+            "examples",
+            "feature_parity",
+            "fetch",
+            "force",
+            "format",
+            "geo",
+            "gpu2d",
+            "gpu3d",
+            "grid",
+            "hexbin",
+            "hierarchy",
+            "interpolate",
+            "legend",
+            "lod",
+            "polygon",
+            "prelude",
+            "quadtree",
+            "random",
+            "sankey",
+            "scale",
+            "selection",
+            "shape",
+            "sphere_gallery",
+            "surface",
+            "text",
+            "text_layout",
+            "tile",
+            "time",
+            "timer",
+            "transition",
+            "zoom",
+        ];
+        expected.sort_unstable();
+        assert_eq!(actual, expected);
+        assert!(catalog["modules"].as_array().unwrap().iter().all(|entry| {
+            entry["bridge"] == "non_consumer"
+                || entry["python_path"]
+                    .as_str()
+                    .is_some_and(|path| !path.is_empty())
+        }));
     }
 }
 
@@ -7047,7 +7658,7 @@ impl PythonIrShowcase {
                         "feature-gated native GPU scene specifications",
                     ),
                 ];
-                let modules = groups
+                let _modules = groups
                     .iter()
                     .flat_map(|(modules, bridge, python_path, evidence)| {
                         modules.iter().map(move |module| {
@@ -7060,10 +7671,7 @@ impl PythonIrShowcase {
                         })
                     })
                     .collect::<Vec<_>>();
-                self.send_command_result(
-                    request_id,
-                    serde_json::json!({"ok": true, "modules": modules}),
-                );
+                self.send_command_result(request_id, d3_module_catalog());
             }
             "d3.reports" => {
                 let parity = d3rs::feature_parity::feature_parity_report();

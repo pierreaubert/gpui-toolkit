@@ -294,6 +294,7 @@ class D3BridgeKind(str, Enum):
     CHART_SPEC = "chart_spec"
     SCENE_SPEC = "scene_spec"
     HOST_INTERACTION = "host_interaction"
+    NON_CONSUMER = "non_consumer"
 
 
 class AlgorithmOperation(str, Enum):
@@ -317,6 +318,18 @@ class AlgorithmOperation(str, Enum):
     BRUSH_GESTURE = "brush_gesture"
     DRAG_GESTURE = "drag_gesture"
     TRANSITION_SAMPLE = "transition_sample"
+    POLYGON = "polygon"
+    DELAUNAY = "delaunay"
+    HEXBIN = "hexbin"
+    TILES = "tiles"
+    CHORD = "chord"
+    SANKEY = "sankey"
+    FORCE = "force"
+    HIERARCHY_TREEMAP = "hierarchy_treemap"
+    GEO = "geo"
+    QUADTREE = "quadtree"
+    CONTOUR = "contour"
+    LOD_M4 = "lod_m4"
     RANDOM_UNIFORM = "random_uniform"
     RANDOM = "random"
     SHUFFLE = "shuffle"
@@ -359,6 +372,30 @@ class RandomKind(str, Enum):
     POISSON = "poisson"
     IRWIN_HALL = "irwin_hall"
     BATES = "bates"
+
+
+@dataclass(frozen=True)
+class SankeyLinkSpec:
+    source: str
+    target: str
+    value: float
+
+    def to_spec(self) -> dict[str, str | float]:
+        return {"source": self.source, "target": self.target, "value": self.value}
+
+
+@dataclass(frozen=True)
+class HierarchySpec:
+    name: str
+    value: float
+    children: tuple["HierarchySpec", ...] = ()
+
+    def to_spec(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "value": self.value,
+            "children": [child.to_spec() for child in self.children],
+        }
 
 
 @dataclass(frozen=True)
@@ -466,6 +503,192 @@ class AlgorithmRequest:
                 "delta_ms": list(delta_ms),
                 "kind": easing.value,
             },
+        )
+
+    @classmethod
+    def polygon(
+        cls,
+        points: Sequence[tuple[float, float]],
+        *,
+        contains: tuple[float, float] | None = None,
+    ) -> "AlgorithmRequest":
+        arguments: dict[str, Any] = {"points": [list(point) for point in points]}
+        if contains is not None:
+            arguments["contains"] = [list(contains)]
+        return cls(AlgorithmOperation.POLYGON, arguments)
+
+    @classmethod
+    def delaunay(
+        cls,
+        points: Sequence[tuple[float, float]],
+        *,
+        find: tuple[float, float] | None = None,
+    ) -> "AlgorithmRequest":
+        arguments: dict[str, Any] = {"points": [list(point) for point in points]}
+        if find is not None:
+            arguments["find"] = [list(find)]
+        return cls(AlgorithmOperation.DELAUNAY, arguments)
+
+    @classmethod
+    def hexbin(
+        cls, points: Sequence[tuple[float, float]], *, radius: float
+    ) -> "AlgorithmRequest":
+        return cls(
+            AlgorithmOperation.HEXBIN,
+            {"points": [list(point) for point in points], "radius": radius},
+        )
+
+    @classmethod
+    def tiles(
+        cls,
+        width: float,
+        height: float,
+        scale: float,
+        translate: tuple[float, float],
+    ) -> "AlgorithmRequest":
+        return cls(
+            AlgorithmOperation.TILES,
+            {
+                "width": width,
+                "height": height,
+                "scale": scale,
+                "translate": list(translate),
+            },
+        )
+
+    @classmethod
+    def chord(
+        cls, matrix: Sequence[Sequence[float]], *, pad_angle: float = 0.0
+    ) -> "AlgorithmRequest":
+        return cls(
+            AlgorithmOperation.CHORD,
+            {"matrix": [list(row) for row in matrix], "pad_angle": pad_angle},
+        )
+
+    @classmethod
+    def sankey(
+        cls,
+        nodes: Sequence[str],
+        links: Sequence[SankeyLinkSpec],
+        *,
+        width: float = 960.0,
+        height: float = 500.0,
+        node_width: float = 24.0,
+        node_padding: float = 8.0,
+        iterations: int = 6,
+    ) -> "AlgorithmRequest":
+        return cls(
+            AlgorithmOperation.SANKEY,
+            {
+                "nodes": list(nodes),
+                "links": [link.to_spec() for link in links],
+                "width": width,
+                "height": height,
+                "node_width": node_width,
+                "node_padding": node_padding,
+                "iterations": iterations,
+            },
+        )
+
+    @classmethod
+    def force(
+        cls,
+        points: Sequence[tuple[float, float]],
+        *,
+        center: tuple[float, float] = (0.0, 0.0),
+        strength: float = -30.0,
+        ticks: int = 1,
+    ) -> "AlgorithmRequest":
+        if ticks < 0:
+            raise ValueError("force tick count must be non-negative")
+        return cls(
+            AlgorithmOperation.FORCE,
+            {
+                "points": [list(point) for point in points],
+                "center": list(center),
+                "strength": strength,
+                "ticks": ticks,
+            },
+        )
+
+    @classmethod
+    def hierarchy_treemap(
+        cls,
+        root: HierarchySpec,
+        *,
+        size: tuple[float, float],
+        padding: float = 0.0,
+    ) -> "AlgorithmRequest":
+        return cls(
+            AlgorithmOperation.HIERARCHY_TREEMAP,
+            {"root": root.to_spec(), "size": list(size), "padding": padding},
+        )
+
+    @classmethod
+    def geo(
+        cls,
+        coordinates: Sequence[tuple[float, float]],
+        *,
+        contains: tuple[float, float] | None = None,
+    ) -> "AlgorithmRequest":
+        arguments: dict[str, Any] = {
+            "coordinates": [list(point) for point in coordinates]
+        }
+        if contains is not None:
+            arguments["contains"] = [list(contains)]
+        return cls(AlgorithmOperation.GEO, arguments)
+
+    @classmethod
+    def quadtree(
+        cls,
+        points: Sequence[tuple[float, float]],
+        *,
+        find: tuple[float, float] | None = None,
+        radius: float | None = None,
+    ) -> "AlgorithmRequest":
+        arguments: dict[str, Any] = {"points": [list(point) for point in points]}
+        if find is not None:
+            arguments["find"] = [list(find)]
+        if radius is not None:
+            arguments["radius"] = radius
+        return cls(AlgorithmOperation.QUADTREE, arguments)
+
+    @classmethod
+    def contour(
+        cls,
+        values: Sequence[float],
+        *,
+        width: int,
+        height: int,
+        threshold: float,
+    ) -> "AlgorithmRequest":
+        if len(values) != width * height:
+            raise ValueError("contour values must match width times height")
+        return cls(
+            AlgorithmOperation.CONTOUR,
+            {
+                "values": list(values),
+                "width": width,
+                "height": height,
+                "threshold": threshold,
+            },
+        )
+
+    @classmethod
+    def lod_m4(
+        cls,
+        x: Sequence[float],
+        y: Sequence[float],
+        *,
+        x0: float,
+        x1: float,
+        columns: int,
+    ) -> "AlgorithmRequest":
+        if len(x) != len(y):
+            raise ValueError("LOD x and y must have equal lengths")
+        return cls(
+            AlgorithmOperation.LOD_M4,
+            {"x": list(x), "y": list(y), "x0": x0, "x1": x1, "columns": columns},
         )
 
     def send(self, context: "SessionContext", request_id: str) -> None:
