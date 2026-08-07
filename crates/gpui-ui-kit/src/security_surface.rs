@@ -120,22 +120,6 @@ const SECURITY_SURFACE_ENTRIES: &[SecuritySurfaceEntry] = &[
         release_requirement: "Keep QR rendering tests green and document app-level size/rate limits for untrusted payloads.",
     },
     SecuritySurfaceEntry {
-        id: "camera-debug-example",
-        surface: "Camera capture for qr_debug example",
-        status: SecuritySurfaceStatus::FeatureGated,
-        dependency_or_module: "camera feature; optional nokhwa dependency; qr_debug required-features",
-        evidence: "The camera stack is off by default, excluded on iOS/tvOS by target cfg, and only required by the qr_debug example.",
-        release_requirement: "Keep camera capture out of default/library builds and require host apps or examples to handle OS permission prompts.",
-    },
-    SecuritySurfaceEntry {
-        id: "camera-permissions",
-        surface: "Camera operating-system permission flow",
-        status: SecuritySurfaceStatus::HostPermissionRequired,
-        dependency_or_module: "nokhwa/input-native behind the camera feature",
-        evidence: "The UI kit exposes no always-on camera API; OS permission prompts and privacy strings belong to the host app or opt-in example.",
-        release_requirement: "Release notes must state that camera permissions are host-app responsibility when enabling the camera feature.",
-    },
-    SecuritySurfaceEntry {
         id: "animated-qr-task",
         surface: "Animated QR repaint loop",
         status: SecuritySurfaceStatus::ScopedAsyncTask,
@@ -203,29 +187,22 @@ mod tests {
     }
 
     #[test]
-    fn security_surface_report_names_qr_camera_and_async_boundaries() {
+    fn security_surface_report_names_qr_and_async_boundaries() {
         let ids = security_surface_entries()
             .iter()
             .map(|entry| entry.id)
             .collect::<Vec<_>>();
 
         assert!(ids.contains(&"qr-encoding"));
-        assert!(ids.contains(&"camera-debug-example"));
-        assert!(ids.contains(&"camera-permissions"));
         assert!(ids.contains(&"animated-qr-task"));
         assert!(ids.contains(&"swipe-panel-task"));
     }
 
     #[test]
-    fn security_surface_report_marks_camera_as_opt_in() {
-        assert!(security_surface_entries().iter().any(|entry| {
-            entry.id == "camera-debug-example"
-                && entry.status == SecuritySurfaceStatus::FeatureGated
-        }));
-        assert!(security_surface_entries().iter().any(|entry| {
-            entry.id == "camera-permissions"
-                && entry.status == SecuritySurfaceStatus::HostPermissionRequired
-        }));
+    fn security_surface_report_keeps_camera_capture_out_of_ui_kit() {
+        let markdown = security_surface_report().to_markdown_table();
+        assert!(!markdown.contains("nokhwa"));
+        assert!(!markdown.contains("Camera operating-system permission flow"));
     }
 
     #[test]
@@ -234,8 +211,6 @@ mod tests {
 
         assert!(markdown.contains(SECURITY_SURFACE_REPORT_TYPE));
         assert!(markdown.contains("QR code generation"));
-        assert!(markdown.contains("feature-gated"));
-        assert!(markdown.contains("host-permission-required"));
         assert!(markdown.contains("scoped-async-task"));
     }
 }

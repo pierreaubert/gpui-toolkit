@@ -11,7 +11,7 @@ all-features = true
 [advisories]
 version = 2
 db-urls = ["https://github.com/rustsec/advisory-db"]
-yanked = "warn"
+yanked = "deny"
 ignore = [
     # Accepted quick-xml parser vulnerabilities in upstream Zed Linux platform deps.
     "RUSTSEC-2026-0194",
@@ -20,7 +20,6 @@ ignore = [
     "RUSTSEC-2025-0141",
     "RUSTSEC-2024-0384",
     "RUSTSEC-2024-0436",
-    "RUSTSEC-2026-0173",
     "RUSTSEC-2026-0192",
     # Unmaintained async-std via vendored http_client -> async-tar (entered the lock with
     # the Phase-1 vendored closure); no safe upgrade until upstream Zed moves off it.
@@ -45,7 +44,6 @@ allow = [
     "MIT",
     "MIT-0",
     "MPL-2.0",
-    "NCSA",
     "Unicode-3.0",
     "Zlib",
     "bzip2-1.0.6",
@@ -69,11 +67,9 @@ unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
 allow-git = [
     "https://github.com/proptest-rs/proptest",
-    "https://github.com/zed-industries/font-kit",
     "https://github.com/zed-industries/scap",
     "https://github.com/zed-industries/wgpu.git",
     "https://github.com/zed-industries/xim-rs.git",
-    "https://github.com/zed-industries/zed.git",
     # [patch.crates-io] mirrors of zed v1.9.0's own patches: the async-process fork is
     # required to compile vendored `util` (smol::process::Child::adopt_raw_pid); the
     # smol-rs async-task rev is pinned alongside it by the same upstream patch set.

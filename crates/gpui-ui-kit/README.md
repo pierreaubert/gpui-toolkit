@@ -169,9 +169,9 @@ security-relevant dependencies and background tasks:
 
 - QR components use the `qrcode` crate in-process and do not perform camera,
   file-system, network, or clipboard I/O.
-- The `qr_debug` camera example is opt-in behind the `camera` feature and the
-  optional `nokhwa` dependency; host apps remain responsible for OS permission
-  prompts and privacy strings.
+- The `qr_debug` example demonstrates in-process QR rendering only. Camera
+  scanning and operating-system permission handling remain host-app concerns,
+  keeping native capture backends out of the UI kit's dependency graph.
 - `AnimatedQrCode` and `SwipePanel` use weak-entity scoped `smol::Timer` loops
   for repaint/spring animation. The tasks exit when their entity is gone, and
   the swipe-panel task also stops when animation completes.

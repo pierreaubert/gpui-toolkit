@@ -175,8 +175,8 @@ where
     Fut: Future + 'static,
     Fut::Output: Send + 'static,
 {
-    let (runnable_sender, runnable_receiver) = flume::unbounded::<Runnable<RunnableMeta>>();
-    let (task_sender, task_receiver) = flume::bounded::<Task<Fut::Output>>(1);
+    let (runnable_sender, runnable_receiver) = std::sync::mpsc::channel::<Runnable<RunnableMeta>>();
+    let (task_sender, task_receiver) = std::sync::mpsc::sync_channel::<Task<Fut::Output>>(1);
 
     thread::Builder::new()
         .name(format!("spawn_dedicated session {:?}", session_id))

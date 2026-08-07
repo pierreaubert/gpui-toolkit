@@ -409,7 +409,7 @@ const MAX_TASK_TIMINGS: usize = (16 * 1024 * 1024) / core::mem::size_of::<TaskTi
 pub(crate) type TaskTimings = VecDeque<TaskTiming>;
 
 #[doc(hidden)]
-pub type GuardedTaskTimings = spin::Mutex<ThreadTimings>;
+pub type GuardedTaskTimings = parking_lot::Mutex<ThreadTimings>;
 
 #[doc(hidden)]
 pub struct GlobalThreadTimings {
@@ -508,8 +508,8 @@ impl TaskStatistics {
 }
 
 #[doc(hidden)]
-pub static GLOBAL_THREAD_TIMINGS: spin::Mutex<Vec<GlobalThreadTimings>> =
-    spin::Mutex::new(Vec::new());
+pub static GLOBAL_THREAD_TIMINGS: parking_lot::Mutex<Vec<GlobalThreadTimings>> =
+    parking_lot::Mutex::new(Vec::new());
 
 thread_local! {
     #[doc(hidden)]
@@ -518,7 +518,7 @@ thread_local! {
         let thread_name = current_thread.name();
         let thread_id = current_thread.id();
         let timings = ThreadTimings::new(thread_name.map(|e| e.to_string()), thread_id);
-        let timings = Arc::new(spin::Mutex::new(timings));
+        let timings = Arc::new(parking_lot::Mutex::new(timings));
 
         {
             let timings = Arc::downgrade(&timings);
@@ -734,7 +734,7 @@ struct FrameTimings {
     total_pushed: u64,
 }
 
-static FRAME_TIMINGS: spin::Mutex<FrameTimings> = spin::Mutex::new(FrameTimings {
+static FRAME_TIMINGS: parking_lot::Mutex<FrameTimings> = parking_lot::Mutex::new(FrameTimings {
     timings: VecDeque::new(),
     total_pushed: 0,
 });

@@ -175,11 +175,10 @@ impl ActionTiming {
     }
 }
 
-// The profiler is careful to never block when the lock is held, therefore a
-// spinlock is optimal.
+// The profiler never performs blocking work while this lock is held.
 #[cfg(feature = "profiler")]
-static ACTION_STATISTICS: spin::Mutex<ActionStatistics> =
-    const { spin::Mutex::new(ActionStatistics::new()) };
+static ACTION_STATISTICS: parking_lot::Mutex<ActionStatistics> =
+    const { parking_lot::Mutex::new(ActionStatistics::new()) };
 
 #[doc(hidden)]
 #[cfg(feature = "profiler")]

@@ -7,6 +7,11 @@
 
 ## Local patches
 
+- `src/executor.rs`, `src/scheduler.rs`, and `Cargo.toml` replace the three
+  blocking `flume` channels with equivalent standard-library MPSC channels.
+  This removes the transitive dependency on yanked `spin` 0.9.8 without
+  changing scheduler APIs or channel capacity.
+
 ### Crate-root lint allows (clippy default lints, upstream code unchanged)
 
 Added at the top of `src/scheduler.rs` (Task 6, `just lint-host` gate with `-D warnings`):

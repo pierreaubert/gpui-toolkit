@@ -7,6 +7,14 @@
 
 ## Local patches
 
+- `Cargo.toml` upgrades `stacksafe` from 0.1 to 1.0 to avoid the
+  future-incompatible `proc-macro-error2` 2.0.1 dependency while preserving the
+  existing `StackSafe` and `#[stacksafe]` API usage.
+
+- `src/profiler.rs`, `src/profiler/actions.rs`, and `Cargo.toml` use the
+  already-present `parking_lot::Mutex` instead of yanked `spin` 0.10.0. The
+  profiler's critical sections remain short and never perform blocking work.
+
 - `Cargo.toml` limits `image` to the formats represented by GPUI's public
   `ImageFormat` (`bmp`, `gif`, `ico`, `jpeg`, `png`, `pnm`, `tiff`, and
   `webp`). This avoids compiling unrelated AVIF, DDS, EXR, farbfeld, HDR, QOI,

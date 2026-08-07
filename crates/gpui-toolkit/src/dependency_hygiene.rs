@@ -204,7 +204,7 @@ const DEPENDENCY_HYGIENE_CHECKS: &[DependencyHygieneCheck] = &[
         command: "cargo audit --no-fetch --ignore RUSTSEC-2026-0194 --ignore RUSTSEC-2026-0195",
         status: DependencyHygieneStatus::AcceptedWithWarnings,
         purpose: "Scan the resolved lockfile for RustSec advisories and yanked crates.",
-        evidence: "Local 2026-07-08 accepted-advisory run loaded 1159 advisories, ignored the two documented quick-xml RustSec ids, found zero remaining vulnerabilities, and reported 6 warning-class unmaintained advisories.",
+        evidence: "Local 2026-08-07 accepted-advisory run loaded 1159 advisories, ignored the two documented quick-xml RustSec ids, found zero remaining vulnerabilities, and reported 6 allowed warning occurrences across 5 tracked unmaintained advisories.",
         release_requirement: "Keep the explicit quick-xml acceptance reviewed for this release scope, attach the accepted audit output, and remove the ignores after upstream dependencies move to quick-xml >=0.41.0.",
     },
     DependencyHygieneCheck {
@@ -228,7 +228,7 @@ const DEPENDENCY_HYGIENE_CHECKS: &[DependencyHygieneCheck] = &[
         command: "cargo deny check advisories bans licenses sources",
         status: DependencyHygieneStatus::AcceptedWithWarnings,
         purpose: "Evaluate advisory, license, duplicate-version, and source-origin policy for the workspace graph.",
-        evidence: "Local 2026-07-10 run passed all four checks after adding permissive licenses, accepting GPL-3.0-or-later for existing dependencies (autoeq, math-*, sofa-reader), and ignoring the tracked advisories.",
+        evidence: "Local 2026-08-07 run passed all four checks with yanked crates denied; the dependency cleanup removed spin 0.9/0.10, proc-macro-error2, nokhwa, stale source allowances, and missing vendored license metadata. Duplicate versions remain warning-level and explicitly reviewed.",
         release_requirement: "Re-run cargo-deny before every release and review any new license or advisory findings; revisit GPL acceptance if the public release set changes.",
     },
     DependencyHygieneCheck {
@@ -236,7 +236,7 @@ const DEPENDENCY_HYGIENE_CHECKS: &[DependencyHygieneCheck] = &[
         command: "cargo report future-incompatibilities --id <build-id>",
         status: DependencyHygieneStatus::Configured,
         purpose: "Catch compiler-reported dependency incompatibilities that are not RustSec advisories.",
-        evidence: "The previous block 0.1.6 uninhabited-static report was resolved by the active vendored block patch; the latest toolkit all-features check emitted no future-incompatibility report.",
+        evidence: "The previous block 0.1.6 uninhabited-static report was resolved by the active vendored block patch; stacksafe 1.0 removed the proc-macro-error2 future-incompatibility chain, and the latest toolkit all-features check emitted no future-incompatibility report.",
         release_requirement: "Review any future-incompatibility report emitted by the release build before tagging.",
     },
     DependencyHygieneCheck {
@@ -269,11 +269,11 @@ const DEPENDENCY_ADVISORY_TRIAGE: &[DependencyAdvisoryTriage] = &[
         required_action: "Carry the explicit cargo-audit --ignore entry only with release-manager approval; remove it once upstream dependencies move every resolved quick-xml copy to >=0.41.0.",
     },
     DependencyAdvisoryTriage {
-        advisory_id: "RUSTSEC-2025-0141 / RUSTSEC-2024-0384 / RUSTSEC-2024-0436 / RUSTSEC-2026-0173 / RUSTSEC-2026-0192",
-        crate_name: "bincode, instant, paste, proc-macro-error2, ttf-parser",
+        advisory_id: "RUSTSEC-2025-0141 / RUSTSEC-2024-0384 / RUSTSEC-2024-0436 / RUSTSEC-2026-0192",
+        crate_name: "bincode, instant, paste, ttf-parser",
         affected_versions: "see cargo audit --no-fetch output",
         status: DependencyAdvisoryTriageStatus::WarningTracked,
-        affected_path: "autoeq, gpui_windows, image/QR/camera, stacksafe, font rendering transitive paths",
+        affected_path: "autoeq, vendored util/gpui platform, Metal, and font rendering transitive paths",
         current_decision: "Tracked as unmaintained-warning debt, not the current vulnerability blocker.",
         required_action: "Review replacements during dependency upgrade work and keep warnings visible in release notes.",
     },
@@ -302,7 +302,7 @@ pub const fn dependency_hygiene_report() -> DependencyHygieneReport {
     DependencyHygieneReport {
         schema_version: DEPENDENCY_HYGIENE_SCHEMA_VERSION,
         report_type: DEPENDENCY_HYGIENE_REPORT_TYPE,
-        reviewed_on: "2026-07-10",
+        reviewed_on: "2026-08-07",
         cargo_deny_policy_path: "deny.toml",
         checks: DEPENDENCY_HYGIENE_CHECKS,
         advisory_triage: DEPENDENCY_ADVISORY_TRIAGE,
@@ -329,7 +329,7 @@ mod tests {
 
         assert_eq!(report.schema_version, DEPENDENCY_HYGIENE_SCHEMA_VERSION);
         assert_eq!(report.report_type, DEPENDENCY_HYGIENE_REPORT_TYPE);
-        assert_eq!(report.reviewed_on, "2026-07-10");
+        assert_eq!(report.reviewed_on, "2026-08-07");
         assert_eq!(report.cargo_deny_policy_path, "deny.toml");
         assert!(!report.checks.is_empty());
         assert!(!report.advisory_triage.is_empty());
@@ -432,9 +432,11 @@ mod tests {
             advisory.advisory_id == "RUSTSEC-2026-0195"
                 && advisory.status == DependencyAdvisoryTriageStatus::RiskAccepted
         }));
-        assert!(dependency_advisory_triage()
-            .iter()
-            .any(|advisory| advisory.status == DependencyAdvisoryTriageStatus::WarningTracked));
+        assert!(
+            dependency_advisory_triage()
+                .iter()
+                .any(|advisory| advisory.status == DependencyAdvisoryTriageStatus::WarningTracked)
+        );
     }
 
     #[test]

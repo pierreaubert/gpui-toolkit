@@ -7,4 +7,5 @@
 
 ## Local patches
 
-none
+- `Cargo.toml` records the upstream Apache-2.0 license so automated dependency
+  policy and release inventory checks can classify the vendored crate.

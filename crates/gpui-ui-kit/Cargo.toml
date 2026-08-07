@@ -42,19 +42,12 @@ gpui-ui-kit-macros = { workspace = true }
 default = []
 bench = []
 autoeq = []
-# `camera` enables the optional `nokhwa` dependency used by the qr_debug
-# example. Off by default to keep the camera-capture stack out of normal
-# builds; enable with `cargo run --example qr_debug --features camera`.
-camera = ["dep:nokhwa"]
 gpu-2d = []
 gpu-3d = []
 reqwest = []
 spinorama = []
 tokio = []
 urlencoding = []
-
-[target.'cfg(not(any(target_os = "ios", target_os = "tvos")))'.dependencies]
-nokhwa = { workspace = true, features = ["input-native"], optional = true }
 
 [dev-dependencies]
 gpui = { workspace = true, features = ["test-support"] }
@@ -150,7 +143,6 @@ name = "progress_debug"
 
 [[example]]
 name = "qr_debug"
-required-features = ["camera"]
 
 [[example]]
 name = "search_bar_debug"

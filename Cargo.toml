@@ -212,7 +212,6 @@ pathfinder_geometry = "0.5"
 smallvec = { version = "1.6", features = ["union", "const_new"] }
 
 # Camera and QR examples
-nokhwa = { version = "0.10", default-features = false }
 qrcode = "0.14"
 rqrr = "0.10.0"
 
