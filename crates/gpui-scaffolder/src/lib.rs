@@ -28,6 +28,14 @@ pub struct ScaffoldedApp {
     pub title: String,
 }
 
+/// Non-mutating scaffold plan. Paths are the exact files that a subsequent
+/// `scaffold_app` call with the same options would create.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ScaffoldPreview {
+    pub app: ScaffoldedApp,
+    pub files: Vec<PathBuf>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct AppNames {
     directory_name: String,
@@ -188,6 +196,52 @@ pub fn scaffold_app(options: &ScaffoldOptions) -> Result<ScaffoldedApp> {
         package_name: names.package_name,
         title: names.title,
     })
+}
+
+/// Validate a scaffold request and enumerate its generated files without
+/// creating, deleting, or modifying any project files.
+pub fn preview_scaffold(options: &ScaffoldOptions) -> Result<ScaffoldPreview> {
+    let names = AppNames::new(&options.name)?;
+    let mut dry_run = options.clone();
+    dry_run.dry_run = true;
+    let app = scaffold_app(&dry_run)?;
+    Ok(ScaffoldPreview {
+        files: planned_scaffold_files(&app.app_dir, &names),
+        app,
+    })
+}
+
+fn planned_scaffold_files(app_dir: &Path, names: &AppNames) -> Vec<PathBuf> {
+    [
+        "Cargo.toml",
+        "gpui-scaffold.toml",
+        "Justfile",
+        "README.md",
+        "src/app.rs",
+        "src/lib.rs",
+        "src/main.rs",
+        "ios/project.yml",
+        "android/gradle/settings.gradle.kts",
+        "android/gradle/build.gradle.kts",
+        "android/gradle/gradle.properties",
+        "android/gradle/app/build.gradle.kts",
+        "android/gradle/app/src/main/AndroidManifest.xml",
+        "android/gradle/app/src/main/res/values/strings.xml",
+        "android/gradle/app/src/main/res/values/styles.xml",
+        "android/gradle/app/src/main/java/dev/gpui/mobile/GpuiActivity.java",
+        "android/gradle/app/src/main/java/dev/gpui/mobile/GpuiFileProvider.java",
+    ]
+    .into_iter()
+    .map(|path| app_dir.join(path))
+    .chain([
+        "AppDelegate.swift",
+        "BridgingHeader.h",
+        "Info.plist",
+        "Entitlements.plist",
+    ]
+    .into_iter()
+    .map(|path| app_dir.join("ios").join(&names.ios_source_dir).join(path)))
+    .collect()
 }
 
 fn ensure_directory_is_replaceable(path: &Path) -> Result<()> {
@@ -1625,6 +1679,25 @@ mod tests {
         );
         assert!(!scaffolded.app_dir.exists());
         assert!(!scaffolded.app_dir.join("gpui-scaffold.toml").exists());
+
+        Ok(())
+    }
+
+    #[test]
+    fn preview_enumerates_exact_generated_files_without_writing() -> Result<()> {
+        let dir = tempdir()?;
+        let preview = preview_scaffold(&ScaffoldOptions {
+            name: "preview-app".to_owned(),
+            output_dir: dir.path().to_path_buf(),
+            force: false,
+            dry_run: false,
+        })?;
+
+        assert_eq!(preview.app.package_name, "preview-app");
+        assert!(preview.files.iter().any(|path| path.ends_with("Cargo.toml")));
+        assert!(preview.files.iter().any(|path| path.ends_with("ios/PreviewAppApp/AppDelegate.swift")));
+        assert!(preview.files.iter().any(|path| path.ends_with("android/gradle/app/build.gradle.kts")));
+        assert!(preview.files.iter().all(|path| !path.exists()));
 
         Ok(())
     }

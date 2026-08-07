@@ -325,6 +325,10 @@ pub fn render_lod(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                             0.5 - y_span / 2.0,
                                             0.5 + y_span / 2.0,
                                         );
+                                        // The scales, axes, and density viewport are
+                                        // derived from `lod_zoom` during render.
+                                        // Request a new frame after changing it.
+                                        cx.notify();
                                     },
                                 ))
                                 .child(render_grid(

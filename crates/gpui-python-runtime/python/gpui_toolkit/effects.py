@@ -1,8 +1,54 @@
 """Typed host effects for native overlays, files, clipboard, and URLs."""
 from __future__ import annotations
-from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from dataclasses import dataclass, field
+from enum import Enum
+from types import MappingProxyType
+from typing import TYPE_CHECKING, Any, Mapping
 if TYPE_CHECKING: from .app import SessionContext
+
+
+class EffectStatus(str, Enum):
+    SUCCEEDED = "succeeded"
+    CANCELLED = "cancelled"
+    UNSUPPORTED = "unsupported"
+    DENIED = "denied"
+    FAILED = "failed"
+
+
+@dataclass(frozen=True)
+class EffectResult:
+    """A normalized result for a consent-bearing host operation."""
+
+    request_id: str
+    status: EffectStatus
+    data: Mapping[str, Any] = field(default_factory=dict)
+    error: str | None = None
+
+    @property
+    def ok(self) -> bool:
+        return self.status is EffectStatus.SUCCEEDED
+
+    @classmethod
+    def from_wire(cls, request_id: str, value: Any) -> "EffectResult":
+        if not isinstance(value, Mapping):
+            return cls(request_id, EffectStatus.FAILED, error="host returned a non-object effect result")
+        data = {str(key): item for key, item in value.items() if key not in {"ok", "cancelled", "error", "status"}}
+        error = value.get("error")
+        error_text = error if isinstance(error, str) else None
+        explicit = value.get("status")
+        if explicit in {status.value for status in EffectStatus}:
+            status = EffectStatus(explicit)
+        elif value.get("cancelled"):
+            status = EffectStatus.CANCELLED
+        elif value.get("ok") is True:
+            status = EffectStatus.SUCCEEDED
+        elif error_text and error_text.startswith("unsupported effect:"):
+            status = EffectStatus.UNSUPPORTED
+        elif error_text and "denied" in error_text.lower():
+            status = EffectStatus.DENIED
+        else:
+            status = EffectStatus.FAILED
+        return cls(request_id, status, MappingProxyType(data), error_text)
 
 @dataclass(frozen=True)
 class Notification:

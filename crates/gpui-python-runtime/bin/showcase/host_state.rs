@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use std::env;
 use std::fs;
 use std::path::PathBuf;
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{Arc, Mutex, mpsc};
 
 const STATE_FILE: &str = "host-presentation.json";
 const STATE_VERSION: u32 = 2;
@@ -79,7 +79,10 @@ impl PresentationStore {
     }
 
     pub fn snapshot(&self) -> PresentationState {
-        self.state.lock().map(|state| state.clone()).unwrap_or_default()
+        self.state
+            .lock()
+            .map(|state| state.clone())
+            .unwrap_or_default()
     }
 
     pub fn set_section(&self, section: Option<String>) {
@@ -118,15 +121,19 @@ fn state_path() -> PathBuf {
     let app_id = env::var("GPUI_TOOLKIT_APP_ID").unwrap_or_else(|_| "gpui-python-runtime".into());
     let safe_app_id: String = app_id
         .chars()
-        .filter(|character| character.is_ascii_alphanumeric() || matches!(character, '.' | '_' | '-'))
+        .filter(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '.' | '_' | '-')
+        })
         .take(128)
         .collect();
-    let app_id = if safe_app_id.is_empty() { "gpui-python-runtime" } else { &safe_app_id };
+    let app_id = if safe_app_id.is_empty() {
+        "gpui-python-runtime"
+    } else {
+        &safe_app_id
+    };
     let root = env::var_os("GPUI_TOOLKIT_DATA_DIR")
         .map(PathBuf::from)
-        .or_else(|| {
-            env::var_os("APPDATA").map(PathBuf::from)
-        })
+        .or_else(|| env::var_os("APPDATA").map(PathBuf::from))
         .or_else(|| {
             env::var_os("HOME").map(|home| {
                 let home = PathBuf::from(home);
@@ -148,7 +155,10 @@ fn atomic_write(path: &PathBuf, state: &PresentationState) -> std::io::Result<()
         fs::create_dir_all(parent)?;
     }
     let temporary = path.with_extension("json.tmp");
-    fs::write(&temporary, serde_json::to_vec(state).expect("presentation state serializes"))?;
+    fs::write(
+        &temporary,
+        serde_json::to_vec(state).expect("presentation state serializes"),
+    )?;
     fs::rename(temporary, path)
 }
 
@@ -168,10 +178,9 @@ mod tests {
 
     #[test]
     fn older_presentation_state_migrates_with_zero_scroll() {
-        let state: PresentationState = serde_json::from_str(
-            r#"{"version":1,"width":1240.0,"height":820.0,"section":"form"}"#,
-        )
-        .unwrap();
+        let state: PresentationState =
+            serde_json::from_str(r#"{"version":1,"width":1240.0,"height":820.0,"section":"form"}"#)
+                .unwrap();
         assert!(state.is_valid());
         assert_eq!(state.scroll_y, 0.0);
     }

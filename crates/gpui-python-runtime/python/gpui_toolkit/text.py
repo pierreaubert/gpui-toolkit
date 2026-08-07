@@ -10,7 +10,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 import math
-from typing import Any
+from typing import Any, TYPE_CHECKING
+
+from .commands import CommandResult, CommandStatus
+
+if TYPE_CHECKING:
+    from .app import SessionContext
 
 
 class WhiteSpaceMode(str, Enum):
@@ -125,3 +130,34 @@ class PrepareProfile:
     def __post_init__(self) -> None:
         if min(self.analysis_segments, self.prepared_segments, self.breakable_segments) < 0:
             raise ValueError("prepare-profile counts cannot be negative")
+
+
+@dataclass(frozen=True)
+class PreparedLayout:
+    result: LayoutResult
+    lines: tuple[tuple[str, float, LayoutCursor, LayoutCursor], ...]
+    segments: tuple[str, ...]
+
+
+def prepare_layout(context: "SessionContext", request_id: str, text: str, *, max_width: float, line_height: float = 16.0, char_width: float = 8.0, profile: EngineProfile | None = None, options: PrepareOptions | None = None, budget: TextBudget | None = None, strategy: LineBreakStrategy = LineBreakStrategy.GREEDY, knuth_plass: KnuthPlassParams | None = None) -> None:
+    """Request host-native preparation and greedy line layout with finite metrics."""
+    if not text or not all(math.isfinite(value) and value > 0 for value in (max_width, line_height, char_width)):
+        raise ValueError("text and positive finite layout metrics are required")
+    profile = profile or EngineProfile()
+    options = options or PrepareOptions()
+    budget = budget or TextBudget()
+    knuth_plass = knuth_plass or KnuthPlassParams()
+    context.command(request_id, "text.prepare_layout", text=text, max_width=max_width, line_height=line_height, char_width=char_width, profile=profile.__dict__.copy(), options={"white_space": options.white_space.value}, budget=budget.__dict__.copy(), strategy=strategy.value, knuth_plass=knuth_plass.__dict__.copy())
+
+
+def prepared_layout_from_command(result: CommandResult) -> PreparedLayout:
+    if result.status is not CommandStatus.SUCCEEDED:
+        raise RuntimeError(result.error or f"text layout {result.status.value}")
+    try:
+        lines = tuple((str(line["text"]), float(line["width"]),
+            LayoutCursor(int(line["start"]["segment_index"]), int(line["start"]["grapheme_index"])),
+            LayoutCursor(int(line["end"]["segment_index"]), int(line["end"]["grapheme_index"])))
+            for line in result.data["lines"])
+        return PreparedLayout(LayoutResult(int(result.data["line_count"]), float(result.data["height"])), lines, tuple(str(value) for value in result.data["segments"]))
+    except (KeyError, TypeError, ValueError) as error:
+        raise ValueError("native text layout result has an invalid shape") from error

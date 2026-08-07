@@ -8,9 +8,14 @@ class Event:
     id: str
     sequence: int
     node_id: str
-    kind: str
+    event: str
     action: str | None = None
     payload: dict[str, Any] | None = None
+
+    @property
+    def kind(self) -> str:
+        """Canonical event discriminator; ``event`` remains wire-compatible."""
+        return self.event
 
     @classmethod
     def from_message(cls, message: dict[str, Any]) -> "Event":
@@ -36,5 +41,5 @@ class ValueChange(Event):
 
 def specialize(message: dict[str, Any]) -> Event:
     base = Event.from_message(message)
-    event_type = {"click": Click, "select": Selection, "change": ValueChange, "commit": ValueChange}.get(base.kind, Event)
+    event_type = {"click": Click, "select": Selection, "change": ValueChange, "commit": ValueChange}.get(base.event, Event)
     return event_type(**base.__dict__)

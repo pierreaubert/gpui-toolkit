@@ -81,8 +81,8 @@ class PackagingTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "does not support required"):
             _negotiate_capabilities(["events", "patches"], ["jobs"])
         self.assertEqual(
-            _negotiate_capabilities(["events", "patches", "jobs", "effects"], ["jobs"]),
-            ["effects", "events", "jobs", "patches"],
+            _negotiate_capabilities(["events", "patches", "jobs", "effects", "commands"], ["jobs"]),
+            ["commands", "effects", "events", "jobs", "patches"],
         )
 
     def test_configured_missing_host_has_a_clear_error(self):

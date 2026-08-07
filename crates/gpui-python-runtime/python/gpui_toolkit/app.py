@@ -15,11 +15,16 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
+from .events import Event, specialize as specialize_event
+from .effects import EffectResult
+from .commands import CommandResult
+from .miniapp import MiniAppConfig
+
 
 PYTHON_APP_IR_SCHEMA_VERSION = 1
 PYTHON_APP_SESSION_VERSION = 1
 MAX_SESSION_MESSAGE_BYTES = 4 * 1024 * 1024
-PYTHON_SESSION_CAPABILITIES = frozenset({"events", "patches", "jobs", "effects"})
+PYTHON_SESSION_CAPABILITIES = frozenset({"events", "patches", "jobs", "effects", "commands", "profiler_telemetry"})
 
 
 def _negotiate_capabilities(
@@ -71,18 +76,24 @@ class App:
     sidebar_title: str = "Python UI"
     sidebar_subtitle: str = "Python declarations, Rust renderers"
     required_capabilities: Sequence[str] = field(default_factory=tuple)
+    miniapp: MiniAppConfig | None = None
 
     def to_spec(self) -> dict[str, Any]:
         if not self.sections:
             raise ValueError("App requires at least one section")
+        miniapp = None if self.miniapp is None else self.miniapp.to_spec()
+        title = self.title if miniapp is None else self.miniapp.title
+        width = self.width if miniapp is None else self.miniapp.width
+        height = self.height if miniapp is None else self.miniapp.height
         return {
             "schema_version": PYTHON_APP_IR_SCHEMA_VERSION,
-            "title": self.title,
-            "width": float(self.width),
-            "height": float(self.height),
+            "title": title,
+            "width": float(width),
+            "height": float(height),
             "sidebar_title": self.sidebar_title,
             "sidebar_subtitle": self.sidebar_subtitle,
             "sections": [section.to_spec() for section in self.sections],
+            "miniapp": miniapp,
         }
 
     def run(self) -> None:
@@ -109,8 +120,14 @@ class App:
         the Python session process, never on GPUI's render thread.
         """
 
-    def on_effect_result(self, request_id: str, result: Any, context: "SessionContext") -> Any:
+    def on_effect_result(self, request_id: str, result: EffectResult, context: "SessionContext") -> Any:
         """Override to receive a typed result from a native host effect."""
+
+    def on_command_result(self, request_id: str, result: CommandResult, context: "SessionContext") -> Any:
+        """Override to receive a typed result from a native host command."""
+
+    def on_profiler_sample(self, sample: Any, context: "SessionContext") -> Any:
+        """Override to receive a bounded-rate native allocation sample."""
 
     def serve(self) -> None:
         """Run the persistent stdio session used by the native host."""
@@ -163,10 +180,21 @@ class App:
                         context,
                     )
                     continue
+                if message_type == "command_result":
+                    executor.submit(
+                        self._handle_command_result,
+                        str(message.get("request_id", "")),
+                        message.get("result"),
+                        context,
+                    )
+                    continue
+                if message_type == "profiler_sample":
+                    executor.submit(self._handle_profiler_sample, message, context)
+                    continue
                 if message_type != "event":
                     context.error(message.get("id"), "unsupported_message", f"unsupported message: {message_type}")
                     continue
-                event = Event.from_message(message)
+                event = specialize_event(message)
                 executor.submit(self._handle_action, event, context)
 
     def _handle_action(self, event: "Event", context: "SessionContext") -> None:
@@ -181,32 +209,28 @@ class App:
 
     def _handle_effect_result(self, request_id: str, result: Any, context: "SessionContext") -> None:
         try:
-            outcome = self.on_effect_result(request_id, result, context)
+            outcome = self.on_effect_result(request_id, EffectResult.from_wire(request_id, result), context)
             if inspect.isawaitable(outcome):
                 asyncio.run(outcome)
         except Exception:
             context.error(request_id, "effect_result_failed", "Python effect-result handler failed")
 
+    def _handle_command_result(self, request_id: str, result: Any, context: "SessionContext") -> None:
+        try:
+            outcome = self.on_command_result(request_id, CommandResult.from_wire(request_id, result), context)
+            if inspect.isawaitable(outcome):
+                asyncio.run(outcome)
+        except Exception:
+            context.error(request_id, "command_result_failed", "Python command-result handler failed")
 
-@dataclass(frozen=True)
-class Event:
-    id: str
-    sequence: int
-    node_id: str
-    event: str
-    action: str | None
-    payload: Any
-
-    @classmethod
-    def from_message(cls, message: dict[str, Any]) -> "Event":
-        return cls(
-            id=str(message["id"]),
-            sequence=int(message.get("sequence", 0)),
-            node_id=str(message["node_id"]),
-            event=str(message["event"]),
-            action=message.get("action"),
-            payload=message.get("payload", {}),
-        )
+    def _handle_profiler_sample(self, wire: Mapping[str, Any], context: "SessionContext") -> None:
+        try:
+            from .profiler import sample_from_wire
+            outcome = self.on_profiler_sample(sample_from_wire(wire), context)
+            if inspect.isawaitable(outcome):
+                asyncio.run(outcome)
+        except Exception:
+            context.error(None, "profiler_sample_failed", "Python profiler-sample handler failed")
 
 
 class SessionContext:
@@ -460,6 +484,20 @@ class SessionContext:
 
     def effect(self, request_id: str, effect: str, **arguments: Any) -> None:
         self.send({"type": "effect", "request_id": request_id, "effect": effect, "arguments": arguments})
+
+    def command(self, request_id: str, command: str, **arguments: Any) -> None:
+        """Request a typed host command using only JSON-safe arguments."""
+        if not request_id.strip() or not command.strip():
+            raise ValueError("commands require a request ID and command name")
+        self.send({"type": "command", "request_id": request_id, "command": command, "arguments": arguments})
+
+    def subscribe_profiler(self, request_id: str, subscription_id: str, interval_ms: int = 1_000) -> None:
+        """Ask the host for a bounded allocation-telemetry subscription."""
+        self.command(request_id, "profiler.subscribe", subscription_id=subscription_id, interval_ms=interval_ms)
+
+    def unsubscribe_profiler(self, request_id: str, subscription_id: str) -> None:
+        """Cancel a previously requested allocation-telemetry subscription."""
+        self.command(request_id, "profiler.unsubscribe", subscription_id=subscription_id)
 
     def credential_store(
         self,

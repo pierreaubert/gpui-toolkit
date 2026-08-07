@@ -1,8 +1,8 @@
 use crate::cache::RetainedSceneCache;
 use crate::error::Scene3DError;
 use crate::scene3d::{
-    CameraSpec, ColorRgba, ColormapSpec, LightSpec, LinesSpec, MeshSpec, OrbitCameraSpec,
-    Point3, ScalarAssociation, SceneNode, SceneSpec, SurfaceSpec,
+    CameraSpec, ColorRgba, ColormapSpec, LightSpec, LinesSpec, MeshSpec, OrbitCameraSpec, Point3,
+    ScalarAssociation, SceneNode, SceneSpec, SurfaceSpec,
 };
 use d3rs::gpu3d::{
     Colormap, Line3D, Lines3DElement, Lines3DScene, Lines3DState, Polygon3D, Surface3DConfig,
@@ -129,7 +129,9 @@ impl Gpui3DCache {
             .collect();
         let state = match self.mesh_states.entry(spec.id.clone()) {
             Entry::Occupied(entry) => entry.get().clone(),
-            Entry::Vacant(entry) => entry.insert(Rc::new(RefCell::new(Lines3DState::default()))).clone(),
+            Entry::Vacant(entry) => entry
+                .insert(Rc::new(RefCell::new(Lines3DState::default())))
+                .clone(),
         };
         let element = Lines3DElement::new(
             state,
@@ -310,21 +312,31 @@ fn scene_state(spec: &SceneSpec) -> Result<Lines3DState, Scene3DError> {
 }
 
 fn scene_scene(spec: &SceneSpec) -> Lines3DScene {
-    let points = spec.children.iter().flat_map(|child| match child {
-        SceneNode::Lines(lines) => lines
-            .strips
-            .iter()
-            .flat_map(|strip| strip.points.iter().copied())
-            .collect::<Vec<_>>(),
-        SceneNode::Mesh(mesh) => mesh.vertices.clone(),
-        SceneNode::Surface(surface) => surface_points(surface),
-        SceneNode::Light(_) => Vec::new(),
-    }).collect::<Vec<_>>();
-    let (min, max) = points.first().map(|point| {
-        points.iter().skip(1).fold((vec3(*point), vec3(*point)), |(min, max), point| {
-            (min.min(vec3(*point)), max.max(vec3(*point)))
+    let points = spec
+        .children
+        .iter()
+        .flat_map(|child| match child {
+            SceneNode::Lines(lines) => lines
+                .strips
+                .iter()
+                .flat_map(|strip| strip.points.iter().copied())
+                .collect::<Vec<_>>(),
+            SceneNode::Mesh(mesh) => mesh.vertices.clone(),
+            SceneNode::Surface(surface) => surface_points(surface),
+            SceneNode::Light(_) => Vec::new(),
         })
-    }).unwrap_or((Vec3::ZERO, Vec3::ONE));
+        .collect::<Vec<_>>();
+    let (min, max) = points
+        .first()
+        .map(|point| {
+            points
+                .iter()
+                .skip(1)
+                .fold((vec3(*point), vec3(*point)), |(min, max), point| {
+                    (min.min(vec3(*point)), max.max(vec3(*point)))
+                })
+        })
+        .unwrap_or((Vec3::ZERO, Vec3::ONE));
     let center = (min + max) * 0.5;
     let scale = 2.0 / (max - min).max_element().max(f32::EPSILON);
     let normalize = |point: Point3| (vec3(point) - center) * scale;
@@ -341,24 +353,38 @@ fn scene_scene(spec: &SceneSpec) -> Lines3DScene {
         .collect::<Vec<_>>();
     for child in &spec.children {
         match child {
-            SceneNode::Lines(spec) => lines.extend(spec.flattened_segments().into_iter().map(|segment| Line3D {
-                from: normalize(segment.from),
-                to: normalize(segment.to),
-                color: rgba(segment.color),
-                width: segment.width,
-            })),
-            SceneNode::Mesh(mesh) => {
-                polygons.extend(mesh.indices.chunks_exact(3).enumerate().map(|(triangle_index, triangle)| Polygon3D {
-                    vertices: triangle.iter().map(|&index| normalize(mesh.vertices[index as usize])).collect(),
-                    fill: Some(scene_lit_color(
-                        mesh_triangle_fill(mesh, triangle, triangle_index),
-                        &triangle.iter().map(|&index| mesh.vertices[index as usize]).collect::<Vec<_>>(),
-                        &lights,
-                    )),
-                    stroke: None,
-                }));
+            SceneNode::Lines(spec) => {
+                lines.extend(spec.flattened_segments().into_iter().map(|segment| Line3D {
+                    from: normalize(segment.from),
+                    to: normalize(segment.to),
+                    color: rgba(segment.color),
+                    width: segment.width,
+                }))
             }
-            SceneNode::Surface(surface) => polygons.extend(surface_polygons(surface, &normalize, &lights)),
+            SceneNode::Mesh(mesh) => {
+                polygons.extend(mesh.indices.chunks_exact(3).enumerate().map(
+                    |(triangle_index, triangle)| {
+                        Polygon3D {
+                            vertices: triangle
+                                .iter()
+                                .map(|&index| normalize(mesh.vertices[index as usize]))
+                                .collect(),
+                            fill: Some(scene_lit_color(
+                                mesh_triangle_fill(mesh, triangle, triangle_index),
+                                &triangle
+                                    .iter()
+                                    .map(|&index| mesh.vertices[index as usize])
+                                    .collect::<Vec<_>>(),
+                                &lights,
+                            )),
+                            stroke: None,
+                        }
+                    },
+                ));
+            }
+            SceneNode::Surface(surface) => {
+                polygons.extend(surface_polygons(surface, &normalize, &lights))
+            }
             SceneNode::Light(_) => {}
         }
     }
@@ -408,7 +434,10 @@ fn surface_polygons(
     for row in 0..height.saturating_sub(1) {
         for column in 0..width.saturating_sub(1) {
             let first = row * width + column;
-            for indices in [[first, first + 1, first + width], [first + 1, first + width + 1, first + width]] {
+            for indices in [
+                [first, first + 1, first + width],
+                [first + 1, first + width + 1, first + width],
+            ] {
                 let vertices = indices.map(|index| points[index]);
                 let value = vertices.iter().map(|point| point.z as f64).sum::<f64>() / 3.0;
                 let normalized_value = if maximum > minimum {
@@ -416,7 +445,11 @@ fn surface_polygons(
                 } else {
                     0.5
                 };
-                let color = scene_lit_color(scalar_color(spec.colormap, normalized_value), &vertices, lights);
+                let color = scene_lit_color(
+                    scalar_color(spec.colormap, normalized_value),
+                    &vertices,
+                    lights,
+                );
                 polygons.push(Polygon3D {
                     vertices: vertices.into_iter().map(normalize).collect(),
                     fill: (!spec.wireframe).then_some(color),
@@ -433,11 +466,16 @@ fn scene_lit_color(mut color: Rgba, vertices: &[Point3], lights: &[&LightSpec]) 
         return color;
     }
     let a = vec3(vertices[0]);
-    let normal = (vec3(vertices[1]) - a).cross(vec3(vertices[2]) - a).normalize_or_zero();
-    let illumination = lights.iter().fold(0.2, |total, light| {
-        let direction = vec3(light.direction).normalize_or_zero();
-        total + normal.dot(-direction).max(0.0) * light.intensity
-    }).min(1.5);
+    let normal = (vec3(vertices[1]) - a)
+        .cross(vec3(vertices[2]) - a)
+        .normalize_or_zero();
+    let illumination = lights
+        .iter()
+        .fold(0.2, |total, light| {
+            let direction = vec3(light.direction).normalize_or_zero();
+            total + normal.dot(-direction).max(0.0) * light.intensity
+        })
+        .min(1.5);
     color.r = (color.r * illumination).min(1.0);
     color.g = (color.g * illumination).min(1.0);
     color.b = (color.b * illumination).min(1.0);
@@ -455,18 +493,27 @@ fn mesh_triangle_fill(mesh: &MeshSpec, triangle: &[u32], triangle_index: usize) 
         };
     };
     let value = match field.association {
-        ScalarAssociation::Vertex => triangle
-            .iter()
-            .map(|index| field.values[*index as usize])
-            .sum::<f64>()
-            / triangle.len() as f64,
+        ScalarAssociation::Vertex => {
+            triangle
+                .iter()
+                .map(|index| field.values[*index as usize])
+                .sum::<f64>()
+                / triangle.len() as f64
+        }
         ScalarAssociation::Cell => field.values[triangle_index],
     };
-    let (min, max) = field.range.map(|range| (range.min, range.max)).unwrap_or_else(|| {
-        field.values.iter().copied().fold((f64::INFINITY, f64::NEG_INFINITY), |range, value| {
-            (range.0.min(value), range.1.max(value))
-        })
-    });
+    let (min, max) = field
+        .range
+        .map(|range| (range.min, range.max))
+        .unwrap_or_else(|| {
+            field
+                .values
+                .iter()
+                .copied()
+                .fold((f64::INFINITY, f64::NEG_INFINITY), |range, value| {
+                    (range.0.min(value), range.1.max(value))
+                })
+        });
     let normalized = (if max > min {
         ((value - min) / (max - min)).clamp(0.0, 1.0)
     } else {
@@ -631,7 +678,10 @@ mod tests {
         let first_state = cache.mesh_state("mesh").expect("retained mesh state");
         first_state.borrow_mut().controls.azimuth = 0.42;
         let _third = cache.mesh_element(&spec).expect("same mesh state");
-        assert!((cache.mesh_state("mesh").unwrap().borrow().controls.azimuth - 0.42).abs() < f32::EPSILON);
+        assert!(
+            (cache.mesh_state("mesh").unwrap().borrow().controls.azimuth - 0.42).abs()
+                < f32::EPSILON
+        );
     }
 
     #[test]
@@ -673,7 +723,10 @@ mod tests {
             camera: CameraSpec::Orbit(OrbitCameraSpec::new(3.5, 45.0, 25.0)),
             children: vec![
                 crate::scene3d::SceneNode::Surface(SurfaceSpec::from_flat(
-                    "field", vec![0.0, 1.0, 2.0, 3.0], 2, 2,
+                    "field",
+                    vec![0.0, 1.0, 2.0, 3.0],
+                    2,
+                    2,
                 )),
                 crate::scene3d::SceneNode::Light(LightSpec {
                     id: "key".into(),
@@ -688,7 +741,12 @@ mod tests {
         };
         let rendered = scene_scene(&scene);
         assert_eq!(rendered.polygons.len(), 2);
-        assert!(rendered.polygons.iter().all(|polygon| polygon.fill.is_some()));
+        assert!(
+            rendered
+                .polygons
+                .iter()
+                .all(|polygon| polygon.fill.is_some())
+        );
     }
 
     #[test]

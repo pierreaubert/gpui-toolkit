@@ -4,6 +4,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
+from typing import TYPE_CHECKING
+
+from .commands import CommandResult, CommandStatus
+
+if TYPE_CHECKING:
+    from .app import SessionContext
 
 
 class ThemeAppearance(str, Enum):
@@ -102,3 +108,48 @@ class ThemeGalleryEntry:
     def __post_init__(self) -> None:
         if not self.id or not self.display_name:
             raise ValueError("theme gallery entries require id and display_name")
+
+
+@dataclass(frozen=True)
+class ActiveTheme:
+    """A community theme validated and applied by the native host."""
+
+    entry: ThemeGalleryEntry
+    active: bool = True
+
+
+@dataclass(frozen=True)
+class CommunityThemeImport:
+    """A JSON community bundle validated by the native theme crate."""
+
+    json: str
+
+    def __post_init__(self) -> None:
+        if not self.json.strip():
+            raise ValueError("community theme JSON cannot be empty")
+
+    def validate(self, context: "SessionContext", request_id: str) -> None:
+        context.command(request_id, "themes.community_validate", input=self.json)
+
+    def activate(self, context: "SessionContext", request_id: str) -> None:
+        """Validate then apply this theme to the host-owned live palette."""
+        context.command(request_id, "themes.community_activate", input=self.json)
+
+    @staticmethod
+    def gallery_entry_from_command(result: CommandResult) -> ThemeGalleryEntry:
+        if result.status is not CommandStatus.SUCCEEDED:
+            raise RuntimeError(result.error or f"community theme validation {result.status.value}")
+        try:
+            return ThemeGalleryEntry(
+                str(result.data["id"]), str(result.data["display_name"]),
+                tuple(str(item) for item in result.data["tags"]),
+                AccessibilityPalette(str(result.data["accessibility"])),
+                ThemeAppearance(str(result.data["appearance"])),
+            )
+        except (KeyError, TypeError, ValueError) as error:
+            raise ValueError("native community theme result has an invalid gallery entry") from error
+
+    @staticmethod
+    def active_theme_from_command(result: CommandResult) -> ActiveTheme:
+        entry = CommunityThemeImport.gallery_entry_from_command(result)
+        return ActiveTheme(entry, bool(result.data.get("active", False)))

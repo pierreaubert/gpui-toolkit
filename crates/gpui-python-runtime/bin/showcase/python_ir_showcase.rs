@@ -1,16 +1,17 @@
-use super::misc::apply_size;
 use super::host_state::PresentationStore;
+use super::misc::apply_size;
 use super::misc::badge_colors;
 use super::misc::color_scale;
 use super::misc::hex_color;
 use super::misc::scale_type;
 use super::misc::tone_color;
 use super::types::StackDirection;
-use gpui::*;
+use d3rs::gpu3d::{Lines3DElement, Lines3DState, Surface3DElement, Surface3DState};
 use gpui::prelude::*;
+use gpui::*;
 use gpui_design::{DesignExt, DesignSystem};
-use gpui_px::{bar, heatmap, line, scatter};
 use gpui_px::interaction::{InteractiveChartState, interactive};
+use gpui_px::{bar, heatmap, line, scatter};
 use gpui_python_runtime::gpui_adapter::Gpui3DCache;
 use gpui_python_runtime::session::{
     HostMessage, JobLogLine, JobRegistry, JobState, JobUpdate, LogSeverity, PythonMessage,
@@ -18,26 +19,36 @@ use gpui_python_runtime::session::{
 };
 use gpui_python_runtime::spec_cache::TypedSpecCache;
 use gpui_python_runtime::ui_ir::{
-    AccordionNode, BadgeNode, BooleanInputNode, ButtonNode, CardNode, ChartKind, ChartNode,
-    ColorPickerNode, FormNode, ListEditorNode, NumberInputNode,
+    AccordionNode, AlertNode, BadgeNode, BooleanInputNode, BreadcrumbsNode, ButtonNode, CardNode,
+    ChartKind, ChartNode, ColorPickerNode, ConfirmDialogNode, ContextMenuNode, DialogNode, EmptyStateNode, FormNode, ListEditorNode, MenuBarNode, MenuItemNode, MenuNode, NumberInputNode,
     PathInputNode, ProgressNode, PythonAppIr, Scene3dNode, SectionHeaderNode, SelectNode,
     SimpleNode, SliderNode, SpinnerNode, StackNode, StepperNode, TableNode, TabsNode, TextInputNode,
-    TextNode, UiNode,
-};
-use gpui_ui_kit::theme::{Theme, ThemeExt};
-use gpui_ui_kit::{
-    accordion::{Accordion, AccordionItem, AccordionMode}, checkbox::Checkbox, input::Input,
-    number_input::NumberInput, select::Select, slider::Slider, toggle::Toggle, ColorPickerView, DragItem, DragList,
+    PopoverNode, TextNode, ToastNode, TooltipNode, UiNode, MiniAppShellConfig,
 };
 use gpui_ui_kit::color::Color;
 use gpui_ui_kit::data_navigation::{DataNavigationAction, DataNavigationState};
-use gpui_ui_kit::{apply_native_accessibility, AriaProps, AriaRole, AriaState};
-use d3rs::gpu3d::{Lines3DElement, Lines3DState, Surface3DElement, Surface3DState};
+use gpui_ui_kit::theme::{Theme, ThemeExt, ThemeState, ThemeVariant};
+use gpui_ui_kit::{
+    Alert, AlertVariant, BreadcrumbItem, BreadcrumbSeparator, Breadcrumbs, ColorPickerView, Toast,
+    ToastVariant, TooltipPlacement, WithTooltip,
+    ConfirmDialog, ConfirmDialogVariant, ContextMenu, Dialog, DialogSize, EmptyState, Menu, MenuBar, MenuBarItem, MenuItem, Popover, PopoverPlacement,
+    DragItem, DragList,
+    accordion::{Accordion, AccordionItem, AccordionMode},
+    checkbox::Checkbox,
+    input::Input,
+    number_input::NumberInput,
+    select::Select,
+    slider::Slider,
+    toggle::Toggle, I18nState, Language,
+};
+use gpui_ui_kit::{AriaProps, AriaRole, AriaState, apply_native_accessibility};
 use serde_json::Value;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
+use std::time::Duration;
 
 fn select_wire_value(value: &Value) -> String {
     match value {
@@ -53,6 +64,43 @@ fn table_cell_text(value: &Value) -> String {
         Value::Bool(value) => value.to_string(),
         Value::Number(value) => value.to_string(),
         value => value.to_string(),
+    }
+}
+
+fn command_domain(arguments: &Value, name: &str) -> Result<(f64, f64), String> {
+    let values = arguments
+        .get(name)
+        .and_then(Value::as_array)
+        .ok_or_else(|| format!("{name} must be a two-value array"))?;
+    let [min, max] = values.as_slice() else {
+        return Err(format!("{name} must be a two-value array"));
+    };
+    let min = min.as_f64().ok_or_else(|| format!("{name} minimum must be finite"))?;
+    let max = max.as_f64().ok_or_else(|| format!("{name} maximum must be finite"))?;
+    if !min.is_finite() || !max.is_finite() || min >= max {
+        return Err(format!("{name} must be finite and increasing"));
+    }
+    Ok((min, max))
+}
+
+fn command_numbers(arguments: &Value, name: &str) -> Result<Vec<f64>, String> {
+    arguments
+        .get(name)
+        .and_then(Value::as_array)
+        .ok_or_else(|| format!("{name} must be an array"))?
+        .iter()
+        .map(|value| {
+            let value = value.as_f64().ok_or_else(|| format!("{name} values must be finite"))?;
+            if value.is_finite() { Ok(value) } else { Err(format!("{name} values must be finite")) }
+        })
+        .collect()
+}
+
+struct FixedTextMeasure(f64);
+
+impl gpui_pretext::TextMeasure for FixedTextMeasure {
+    fn measure_width(&self, text: &str) -> f64 {
+        text.chars().count() as f64 * self.0
     }
 }
 
@@ -75,7 +123,9 @@ fn path_event_payload(
         let matches_filter = extension.is_some_and(|extension| {
             filters.iter().any(|filter| {
                 filter.extensions.iter().any(|allowed| {
-                    allowed.trim_start_matches('.').eq_ignore_ascii_case(extension)
+                    allowed
+                        .trim_start_matches('.')
+                        .eq_ignore_ascii_case(extension)
                 })
             })
         });
@@ -104,10 +154,18 @@ trait InteractiveOrbitState {
 macro_rules! impl_interactive_orbit_state {
     ($type:ty) => {
         impl InteractiveOrbitState for $type {
-            fn begin_orbit(&mut self, position: Point<Pixels>) { self.dragging = true; self.last_mouse = Some(position); }
-            fn begin_pan(&mut self, position: Point<Pixels>) { self.panning = true; self.last_mouse = Some(position); }
+            fn begin_orbit(&mut self, position: Point<Pixels>) {
+                self.dragging = true;
+                self.last_mouse = Some(position);
+            }
+            fn begin_pan(&mut self, position: Point<Pixels>) {
+                self.panning = true;
+                self.last_mouse = Some(position);
+            }
             fn move_camera(&mut self, position: Point<Pixels>, orbit: bool, pan: bool) -> bool {
-                let Some(previous) = self.last_mouse else { return false };
+                let Some(previous) = self.last_mouse else {
+                    return false;
+                };
                 let dx = (position.x - previous.x).as_f32();
                 let dy = (position.y - previous.y).as_f32();
                 if self.dragging && orbit {
@@ -115,14 +173,26 @@ macro_rules! impl_interactive_orbit_state {
                 } else if self.panning && pan {
                     let camera = self.camera.clone();
                     self.controls.pan(dx, dy, &camera);
-                } else { return false; }
+                } else {
+                    return false;
+                }
                 self.update_camera();
                 self.last_mouse = Some(position);
                 true
             }
-            fn end_orbit(&mut self) { self.dragging = false; self.panning = false; self.last_mouse = None; }
-            fn zoom_camera(&mut self, delta: f32) { self.controls.zoom(delta); self.update_camera(); }
-            fn reset_camera(&mut self) { self.controls.reset(); self.update_camera(); }
+            fn end_orbit(&mut self) {
+                self.dragging = false;
+                self.panning = false;
+                self.last_mouse = None;
+            }
+            fn zoom_camera(&mut self, delta: f32) {
+                self.controls.zoom(delta);
+                self.update_camera();
+            }
+            fn reset_camera(&mut self) {
+                self.controls.reset();
+                self.update_camera();
+            }
         }
     };
 }
@@ -150,7 +220,9 @@ fn interactive_3d_view<S: InteractiveOrbitState + 'static>(
     let wheel_state = state.clone();
     let reset_state = state.clone();
     let mut viewport = div()
-        .id(ElementId::Name(format!("python-scene-controls-{id}").into()))
+        .id(ElementId::Name(
+            format!("python-scene-controls-{id}").into(),
+        ))
         .size_full()
         .relative()
         .cursor_pointer()
@@ -166,14 +238,21 @@ fn interactive_3d_view<S: InteractiveOrbitState + 'static>(
             }
         })
         .on_mouse_move(move |event, window, _cx| {
-            if move_state.borrow_mut().move_camera(event.position, orbit, pan) { window.refresh(); }
+            if move_state
+                .borrow_mut()
+                .move_camera(event.position, orbit, pan)
+            {
+                window.refresh();
+            }
         })
         .on_mouse_up(MouseButton::Left, move |_event, _window, _cx| {
             up_state.borrow_mut().end_orbit();
         })
         .on_scroll_wheel(move |event, window, _cx| {
             if zoom {
-                wheel_state.borrow_mut().zoom_camera(event.delta.pixel_delta(window.line_height()).y.as_f32() * 0.01);
+                wheel_state
+                    .borrow_mut()
+                    .zoom_camera(event.delta.pixel_delta(window.line_height()).y.as_f32() * 0.01);
                 window.refresh();
             }
         });
@@ -217,11 +296,12 @@ fn scalar_colorbar(
         .text_color(theme.text_muted)
         .child(label.unwrap_or("Scalar").to_string())
         .child(
-            div()
-                .h(px(120.0))
-                .flex()
-                .flex_col()
-                .children(colors.into_iter().rev().map(|color| div().flex_1().bg(rgb(color)))),
+            div().h(px(120.0)).flex().flex_col().children(
+                colors
+                    .into_iter()
+                    .rev()
+                    .map(|color| div().flex_1().bg(rgb(color))),
+            ),
         )
         .child(format!("{:.4}", range.1))
         .child(format!("{:.4}", range.0))
@@ -230,15 +310,24 @@ fn scalar_colorbar(
 
 fn chart_domain(values: impl Iterator<Item = f64>, fallback: (f64, f64), log: bool) -> (f64, f64) {
     let values = values.filter(|value| value.is_finite() && (!log || *value > 0.0));
-    let (mut minimum, mut maximum) = values.fold((f64::INFINITY, f64::NEG_INFINITY), |range, value| {
-        (range.0.min(value), range.1.max(value))
-    });
+    let (mut minimum, mut maximum) = values
+        .fold((f64::INFINITY, f64::NEG_INFINITY), |range, value| {
+            (range.0.min(value), range.1.max(value))
+        });
     if !minimum.is_finite() || !maximum.is_finite() {
         return fallback;
     }
     if minimum == maximum {
-        let padding = if log { minimum.abs().max(1.0) * 0.1 } else { minimum.abs().max(1.0) * 0.05 };
-        minimum = (minimum - padding).max(if log { f64::MIN_POSITIVE } else { f64::NEG_INFINITY });
+        let padding = if log {
+            minimum.abs().max(1.0) * 0.1
+        } else {
+            minimum.abs().max(1.0) * 0.05
+        };
+        minimum = (minimum - padding).max(if log {
+            f64::MIN_POSITIVE
+        } else {
+            f64::NEG_INFINITY
+        });
         maximum += padding;
     }
     (minimum, maximum)
@@ -246,18 +335,45 @@ fn chart_domain(values: impl Iterator<Item = f64>, fallback: (f64, f64), log: bo
 
 fn cartesian_chart_domains(node: &ChartNode) -> ((f64, f64), (f64, f64)) {
     let series = if node.series.is_empty() {
-        vec![(node.x.as_deref().unwrap_or_default(), node.y.as_deref().unwrap_or_default())]
+        vec![(
+            node.x.as_deref().unwrap_or_default(),
+            node.y.as_deref().unwrap_or_default(),
+        )]
     } else {
-        node.series.iter().filter(|series| series.visible).map(|series| (series.x.as_slice(), series.y.as_slice())).collect()
+        node.series
+            .iter()
+            .filter(|series| series.visible)
+            .map(|series| (series.x.as_slice(), series.y.as_slice()))
+            .collect()
     };
-    let x_fallback = node.x_range.map(|range| (range[0], range[1])).unwrap_or((0.0, 1.0));
-    let y_fallback = node.y_range.map(|range| (range[0], range[1])).unwrap_or((0.0, 1.0));
-    let x = node.x_range.map(|range| (range[0], range[1])).unwrap_or_else(|| {
-        chart_domain(series.iter().flat_map(|(x, _)| x.iter().copied()), x_fallback, node.x_log)
-    });
-    let y = node.y_range.map(|range| (range[0], range[1])).unwrap_or_else(|| {
-        chart_domain(series.iter().flat_map(|(_, y)| y.iter().copied()), y_fallback, node.y_log)
-    });
+    let x_fallback = node
+        .x_range
+        .map(|range| (range[0], range[1]))
+        .unwrap_or((0.0, 1.0));
+    let y_fallback = node
+        .y_range
+        .map(|range| (range[0], range[1]))
+        .unwrap_or((0.0, 1.0));
+    let x = node
+        .x_range
+        .map(|range| (range[0], range[1]))
+        .unwrap_or_else(|| {
+            chart_domain(
+                series.iter().flat_map(|(x, _)| x.iter().copied()),
+                x_fallback,
+                node.x_log,
+            )
+        });
+    let y = node
+        .y_range
+        .map(|range| (range[0], range[1]))
+        .unwrap_or_else(|| {
+            chart_domain(
+                series.iter().flat_map(|(_, y)| y.iter().copied()),
+                y_fallback,
+                node.y_log,
+            )
+        });
     (x, y)
 }
 
@@ -294,25 +410,30 @@ fn chart_inspection(
             let dx = ratio(point_x, x_min, x_max, node.x_log) - hover_x_ratio;
             let dy = ratio(point_y, y_min, y_max, node.y_log) - hover_y_ratio;
             let distance = dx * dx + dy * dy;
-            if nearest.as_ref().is_none_or(|(_, _, _, best)| distance < *best) {
+            if nearest
+                .as_ref()
+                .is_none_or(|(_, _, _, best)| distance < *best)
+            {
                 nearest = Some((label.clone(), point_x, point_y, distance));
             }
         }
     };
     if node.series.is_empty() {
-        inspect("Series".into(), node.x.as_deref().unwrap_or_default(), node.y.as_deref().unwrap_or_default());
+        inspect(
+            "Series".into(),
+            node.x.as_deref().unwrap_or_default(),
+            node.y.as_deref().unwrap_or_default(),
+        );
     } else {
-        for (index, series) in node
-            .series
-            .iter()
-            .enumerate()
-            .filter(|(_, series)| {
-                series.visible
-                    && !locally_hidden.is_some_and(|hidden| hidden.contains(&series.id))
-            })
-        {
+        for (index, series) in node.series.iter().enumerate().filter(|(_, series)| {
+            series.visible && !locally_hidden.is_some_and(|hidden| hidden.contains(&series.id))
+        }) {
             inspect(
-                if series.label.is_empty() { format!("Series {}", index + 1) } else { series.label.clone() },
+                if series.label.is_empty() {
+                    format!("Series {}", index + 1)
+                } else {
+                    series.label.clone()
+                },
                 &series.x,
                 &series.y,
             );
@@ -333,22 +454,39 @@ fn chart_csv(node: &ChartNode, locally_hidden: Option<&HashSet<String>>) -> Stri
         ChartKind::Scatter | ChartKind::Line => {
             csv.push_str("series_id,series_label,x,y\n");
             if node.series.is_empty() {
-                for (x, y) in node.x.as_deref().unwrap_or_default().iter().zip(node.y.as_deref().unwrap_or_default()) {
+                for (x, y) in node
+                    .x
+                    .as_deref()
+                    .unwrap_or_default()
+                    .iter()
+                    .zip(node.y.as_deref().unwrap_or_default())
+                {
                     csv.push_str(&format!("default,,{x},{y}\n"));
                 }
             } else {
                 for series in node.series.iter().filter(|series| {
-                    series.visible && !locally_hidden.is_some_and(|hidden| hidden.contains(&series.id))
+                    series.visible
+                        && !locally_hidden.is_some_and(|hidden| hidden.contains(&series.id))
                 }) {
                     for (x, y) in series.x.iter().zip(&series.y) {
-                        csv.push_str(&format!("{},{},{x},{y}\n", csv_field(&series.id), csv_field(&series.label)));
+                        csv.push_str(&format!(
+                            "{},{},{x},{y}\n",
+                            csv_field(&series.id),
+                            csv_field(&series.label)
+                        ));
                     }
                 }
             }
         }
         ChartKind::Bar => {
             csv.push_str("category,value\n");
-            for (category, value) in node.categories.as_deref().unwrap_or_default().iter().zip(node.values.as_deref().unwrap_or_default()) {
+            for (category, value) in node
+                .categories
+                .as_deref()
+                .unwrap_or_default()
+                .iter()
+                .zip(node.values.as_deref().unwrap_or_default())
+            {
                 csv.push_str(&format!("{},{}\n", csv_field(category), value));
             }
         }
@@ -361,7 +499,16 @@ fn chart_csv(node: &ChartNode, locally_hidden: Option<&HashSet<String>>) -> Stri
                 let column = index % width;
                 let row = index / width;
                 let value = value.map_or_else(String::new, |value| value.to_string());
-                csv.push_str(&format!("{},{},{}\n", x.and_then(|values| values.get(column)).copied().unwrap_or(column as f64), y.and_then(|values| values.get(row)).copied().unwrap_or(row as f64), value));
+                csv.push_str(&format!(
+                    "{},{},{}\n",
+                    x.and_then(|values| values.get(column))
+                        .copied()
+                        .unwrap_or(column as f64),
+                    y.and_then(|values| values.get(row))
+                        .copied()
+                        .unwrap_or(row as f64),
+                    value
+                ));
             }
         }
     }
@@ -369,7 +516,11 @@ fn chart_csv(node: &ChartNode, locally_hidden: Option<&HashSet<String>>) -> Stri
 }
 
 fn svg_escape(value: &str) -> String {
-    value.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
 }
 
 /// Dependency-free portable visual export. It deliberately mirrors the
@@ -387,33 +538,82 @@ fn chart_svg(
     let plot_width = (width - left - 12.0).max(1.0);
     let plot_height = (height - top - 26.0).max(1.0);
     let ((x_min, x_max), (y_min, y_max)) = domains.unwrap_or_else(|| cartesian_chart_domains(node));
-    let x_pixel = |value: f64| left + ((value - x_min) / (x_max - x_min).max(f64::EPSILON)) as f32 * plot_width;
-    let y_pixel = |value: f64| top + (1.0 - ((value - y_min) / (y_max - y_min).max(f64::EPSILON)) as f32) * plot_height;
-    let mut svg = format!("<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{width}\" height=\"{height}\" viewBox=\"0 0 {width} {height}\"><rect width=\"100%\" height=\"100%\" fill=\"#ffffff\"/><text x=\"{left}\" y=\"18\" font-family=\"sans-serif\" font-size=\"14\">{}</text><path d=\"M {left} {top} V {} H {}\" fill=\"none\" stroke=\"#666\"/>", svg_escape(&node.title), top + plot_height, left + plot_width);
+    let x_pixel = |value: f64| {
+        left + ((value - x_min) / (x_max - x_min).max(f64::EPSILON)) as f32 * plot_width
+    };
+    let y_pixel = |value: f64| {
+        top + (1.0 - ((value - y_min) / (y_max - y_min).max(f64::EPSILON)) as f32) * plot_height
+    };
+    let mut svg = format!(
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{width}\" height=\"{height}\" viewBox=\"0 0 {width} {height}\"><rect width=\"100%\" height=\"100%\" fill=\"#ffffff\"/><text x=\"{left}\" y=\"18\" font-family=\"sans-serif\" font-size=\"14\">{}</text><path d=\"M {left} {top} V {} H {}\" fill=\"none\" stroke=\"#666\"/>",
+        svg_escape(&node.title),
+        top + plot_height,
+        left + plot_width
+    );
     match node.chart {
         ChartKind::Line | ChartKind::Scatter => {
             let fallback_x = node.x.as_deref().unwrap_or_default();
             let fallback_y = node.y.as_deref().unwrap_or_default();
-            let mut series = node.series.iter().filter(|series| {
-                series.visible && !locally_hidden.is_some_and(|hidden| hidden.contains(&series.id))
-            }).map(|series| (series.label.as_str(), series.x.as_slice(), series.y.as_slice(), series.color.as_deref())).collect::<Vec<_>>();
-            if series.is_empty() { series.push(("Series", fallback_x, fallback_y, node.color.as_deref())); }
+            let mut series = node
+                .series
+                .iter()
+                .filter(|series| {
+                    series.visible
+                        && !locally_hidden.is_some_and(|hidden| hidden.contains(&series.id))
+                })
+                .map(|series| {
+                    (
+                        series.label.as_str(),
+                        series.x.as_slice(),
+                        series.y.as_slice(),
+                        series.color.as_deref(),
+                    )
+                })
+                .collect::<Vec<_>>();
+            if series.is_empty() {
+                series.push(("Series", fallback_x, fallback_y, node.color.as_deref()));
+            }
             for (index, (label, x, y, color)) in series.into_iter().enumerate() {
                 let color = color.unwrap_or(if index == 0 { "#1f77b4" } else { "#ff7f0e" });
                 if matches!(node.chart, ChartKind::Line) {
-                    let points = x.iter().zip(y).map(|(&x, &y)| format!("{:.2},{:.2}", x_pixel(x), y_pixel(y))).collect::<Vec<_>>().join(" ");
+                    let points = x
+                        .iter()
+                        .zip(y)
+                        .map(|(&x, &y)| format!("{:.2},{:.2}", x_pixel(x), y_pixel(y)))
+                        .collect::<Vec<_>>()
+                        .join(" ");
                     svg.push_str(&format!("<polyline points=\"{points}\" fill=\"none\" stroke=\"{color}\" stroke-width=\"2\"/>"));
                 } else {
-                    for (&x, &y) in x.iter().zip(y) { svg.push_str(&format!("<circle cx=\"{:.2}\" cy=\"{:.2}\" r=\"3\" fill=\"{color}\"/>", x_pixel(x), y_pixel(y))); }
+                    for (&x, &y) in x.iter().zip(y) {
+                        svg.push_str(&format!(
+                            "<circle cx=\"{:.2}\" cy=\"{:.2}\" r=\"3\" fill=\"{color}\"/>",
+                            x_pixel(x),
+                            y_pixel(y)
+                        ));
+                    }
                 }
-                if !label.is_empty() { svg.push_str(&format!("<text x=\"{}\" y=\"{}\" font-size=\"10\" fill=\"{color}\">{}</text>", left + plot_width - 100.0, top + 14.0 + index as f32 * 12.0, svg_escape(label))); }
+                if !label.is_empty() {
+                    svg.push_str(&format!(
+                        "<text x=\"{}\" y=\"{}\" font-size=\"10\" fill=\"{color}\">{}</text>",
+                        left + plot_width - 100.0,
+                        top + 14.0 + index as f32 * 12.0,
+                        svg_escape(label)
+                    ));
+                }
             }
         }
         ChartKind::Bar => {
             let values = node.values.as_deref().unwrap_or_default();
-            let max = values.iter().copied().fold(0.0_f64, f64::max).max(f64::EPSILON);
+            let max = values
+                .iter()
+                .copied()
+                .fold(0.0_f64, f64::max)
+                .max(f64::EPSILON);
             let cell = plot_width / values.len().max(1) as f32;
-            for (index, value) in values.iter().enumerate() { let bar_height = (*value / max) as f32 * plot_height; svg.push_str(&format!("<rect x=\"{:.2}\" y=\"{:.2}\" width=\"{:.2}\" height=\"{:.2}\" fill=\"#2ca02c\"/>", left + index as f32 * cell + 1.0, top + plot_height - bar_height, (cell - 2.0).max(1.0), bar_height)); }
+            for (index, value) in values.iter().enumerate() {
+                let bar_height = (*value / max) as f32 * plot_height;
+                svg.push_str(&format!("<rect x=\"{:.2}\" y=\"{:.2}\" width=\"{:.2}\" height=\"{:.2}\" fill=\"#2ca02c\"/>", left + index as f32 * cell + 1.0, top + plot_height - bar_height, (cell - 2.0).max(1.0), bar_height));
+            }
         }
         ChartKind::Heatmap => {
             let width_count = node.width_count.unwrap_or(0);
@@ -422,8 +622,13 @@ fn chart_svg(
             let cell_width = plot_width / width_count.max(1) as f32;
             let cell_height = plot_height / height_count.max(1) as f32;
             for (index, value) in z.iter().enumerate() {
-                let column = index % width_count.max(1); let row = index / width_count.max(1);
-                let color = if value.is_none() { "#9ca3af" } else { "#1f77b4" };
+                let column = index % width_count.max(1);
+                let row = index / width_count.max(1);
+                let color = if value.is_none() {
+                    "#9ca3af"
+                } else {
+                    "#1f77b4"
+                };
                 svg.push_str(&format!("<rect x=\"{:.2}\" y=\"{:.2}\" width=\"{:.2}\" height=\"{:.2}\" fill=\"{color}\"/>", left + column as f32 * cell_width, top + (height_count.saturating_sub(row + 1)) as f32 * cell_height, cell_width, cell_height));
             }
         }
@@ -450,7 +655,9 @@ fn chart_png(
         }
     };
     let line = |pixels: &mut Vec<u8>, from: (i32, i32), to: (i32, i32), color: [u8; 3]| {
-        let steps = (from.0.abs_diff(to.0).max(from.1.abs_diff(to.1))).max(1).min(8192);
+        let steps = (from.0.abs_diff(to.0).max(from.1.abs_diff(to.1)))
+            .max(1)
+            .min(8192);
         for step in 0..=steps {
             let ratio = step as f32 / steps as f32;
             set(
@@ -487,35 +694,72 @@ fn chart_png(
     };
     match node.chart {
         ChartKind::Line | ChartKind::Scatter => {
-            let fallback = [(node.x.as_deref().unwrap_or_default(), node.y.as_deref().unwrap_or_default(), node.color.as_deref())];
+            let fallback = [(
+                node.x.as_deref().unwrap_or_default(),
+                node.y.as_deref().unwrap_or_default(),
+                node.color.as_deref(),
+            )];
             let series = if node.series.is_empty() {
                 fallback.into_iter().collect::<Vec<_>>()
             } else {
-                node.series.iter().filter(|series| {
-                    series.visible && !locally_hidden.is_some_and(|hidden| hidden.contains(&series.id))
-                }).map(|series| (series.x.as_slice(), series.y.as_slice(), series.color.as_deref())).collect()
+                node.series
+                    .iter()
+                    .filter(|series| {
+                        series.visible
+                            && !locally_hidden.is_some_and(|hidden| hidden.contains(&series.id))
+                    })
+                    .map(|series| {
+                        (
+                            series.x.as_slice(),
+                            series.y.as_slice(),
+                            series.color.as_deref(),
+                        )
+                    })
+                    .collect()
             };
             for (index, (x, y, series_color)) in series.into_iter().enumerate() {
-                let series_color = color(series_color, if index == 0 { 0x1f77b4 } else { 0xff7f0e });
-                let points = x.iter().zip(y).map(|(&x, &y)| point(x, y)).collect::<Vec<_>>();
+                let series_color =
+                    color(series_color, if index == 0 { 0x1f77b4 } else { 0xff7f0e });
+                let points = x
+                    .iter()
+                    .zip(y)
+                    .map(|(&x, &y)| point(x, y))
+                    .collect::<Vec<_>>();
                 if matches!(node.chart, ChartKind::Line) {
-                    for pair in points.windows(2) { line(&mut pixels, pair[0], pair[1], series_color); }
+                    for pair in points.windows(2) {
+                        line(&mut pixels, pair[0], pair[1], series_color);
+                    }
                 } else {
                     for (x, y) in points {
-                        for dy in -2..=2 { for dx in -2..=2 { if dx * dx + dy * dy <= 4 { set(&mut pixels, x + dx, y + dy, series_color); } } }
+                        for dy in -2..=2 {
+                            for dx in -2..=2 {
+                                if dx * dx + dy * dy <= 4 {
+                                    set(&mut pixels, x + dx, y + dy, series_color);
+                                }
+                            }
+                        }
                     }
                 }
             }
         }
         ChartKind::Bar => {
             let values = node.values.as_deref().unwrap_or_default();
-            let maximum = values.iter().copied().fold(0.0_f64, f64::max).max(f64::EPSILON);
+            let maximum = values
+                .iter()
+                .copied()
+                .fold(0.0_f64, f64::max)
+                .max(f64::EPSILON);
             let cell = (right - left).max(1) as f64 / values.len().max(1) as f64;
             let bar_color = color(node.color.as_deref(), 0x2ca02c);
             for (index, value) in values.iter().enumerate() {
-                let bar_top = bottom - ((*value / maximum).clamp(0.0, 1.0) * (bottom - top) as f64).round() as i32;
-                for x in (left + (index as f64 * cell).round() as i32 + 1)..(left + ((index + 1) as f64 * cell).round() as i32 - 1) {
-                    for y in bar_top..bottom { set(&mut pixels, x, y, bar_color); }
+                let bar_top = bottom
+                    - ((*value / maximum).clamp(0.0, 1.0) * (bottom - top) as f64).round() as i32;
+                for x in (left + (index as f64 * cell).round() as i32 + 1)
+                    ..(left + ((index + 1) as f64 * cell).round() as i32 - 1)
+                {
+                    for y in bar_top..bottom {
+                        set(&mut pixels, x, y, bar_color);
+                    }
                 }
             }
         }
@@ -523,18 +767,40 @@ fn chart_png(
             let columns = node.width_count.unwrap_or(0).max(1);
             let rows = node.height_count.unwrap_or(0).max(1);
             let values = node.z.as_deref().unwrap_or_default();
-            let min = values.iter().flatten().copied().fold(f64::INFINITY, f64::min);
-            let max = values.iter().flatten().copied().fold(f64::NEG_INFINITY, f64::max);
+            let min = values
+                .iter()
+                .flatten()
+                .copied()
+                .fold(f64::INFINITY, f64::min);
+            let max = values
+                .iter()
+                .flatten()
+                .copied()
+                .fold(f64::NEG_INFINITY, f64::max);
             for (index, value) in values.iter().enumerate() {
                 let column = index % columns;
                 let row = index / columns;
-                let t = value.map(|value| ((value - min) / (max - min).max(f64::EPSILON)).clamp(0.0, 1.0));
-                let cell_color = t.map(|t| [(32.0 + 220.0 * t) as u8, (60.0 + 120.0 * (1.0 - t)) as u8, (210.0 - 160.0 * t) as u8]).unwrap_or([156, 163, 175]);
+                let t = value
+                    .map(|value| ((value - min) / (max - min).max(f64::EPSILON)).clamp(0.0, 1.0));
+                let cell_color = t
+                    .map(|t| {
+                        [
+                            (32.0 + 220.0 * t) as u8,
+                            (60.0 + 120.0 * (1.0 - t)) as u8,
+                            (210.0 - 160.0 * t) as u8,
+                        ]
+                    })
+                    .unwrap_or([156, 163, 175]);
                 let x0 = left + (column as i32 * (right - left) / columns as i32);
                 let x1 = left + ((column + 1) as i32 * (right - left) / columns as i32);
-                let y0 = top + ((rows.saturating_sub(row + 1)) as i32 * (bottom - top) / rows as i32);
+                let y0 =
+                    top + ((rows.saturating_sub(row + 1)) as i32 * (bottom - top) / rows as i32);
                 let y1 = top + ((rows - row) as i32 * (bottom - top) / rows as i32);
-                for y in y0..y1 { for x in x0..x1 { set(&mut pixels, x, y, cell_color); } }
+                for y in y0..y1 {
+                    for x in x0..x1 {
+                        set(&mut pixels, x, y, cell_color);
+                    }
+                }
             }
         }
     }
@@ -544,30 +810,59 @@ fn chart_png(
 fn png_encode(width: u32, height: u32, pixels: &[u8]) -> Vec<u8> {
     fn adler32(bytes: &[u8]) -> u32 {
         let (mut a, mut b) = (1_u32, 0_u32);
-        for byte in bytes { a = (a + *byte as u32) % 65521; b = (b + a) % 65521; }
+        for byte in bytes {
+            a = (a + *byte as u32) % 65521;
+            b = (b + a) % 65521;
+        }
         (b << 16) | a
     }
     fn crc32(bytes: &[u8]) -> u32 {
         let mut crc = !0_u32;
-        for byte in bytes { crc ^= *byte as u32; for _ in 0..8 { crc = (crc >> 1) ^ (0xedb8_8320 & (0_u32.wrapping_sub(crc & 1))); } }
+        for byte in bytes {
+            crc ^= *byte as u32;
+            for _ in 0..8 {
+                crc = (crc >> 1) ^ (0xedb8_8320 & (0_u32.wrapping_sub(crc & 1)));
+            }
+        }
         !crc
     }
     fn chunk(output: &mut Vec<u8>, kind: &[u8; 4], data: &[u8]) {
-        output.extend_from_slice(&(data.len() as u32).to_be_bytes()); output.extend_from_slice(kind); output.extend_from_slice(data);
-        let mut crc_input = Vec::with_capacity(kind.len() + data.len()); crc_input.extend_from_slice(kind); crc_input.extend_from_slice(data);
+        output.extend_from_slice(&(data.len() as u32).to_be_bytes());
+        output.extend_from_slice(kind);
+        output.extend_from_slice(data);
+        let mut crc_input = Vec::with_capacity(kind.len() + data.len());
+        crc_input.extend_from_slice(kind);
+        crc_input.extend_from_slice(data);
         output.extend_from_slice(&crc32(&crc_input).to_be_bytes());
     }
     let mut raw = Vec::with_capacity((width as usize * 3 + 1) * height as usize);
-    for row in pixels.chunks_exact(width as usize * 3) { raw.push(0); raw.extend_from_slice(row); }
+    for row in pixels.chunks_exact(width as usize * 3) {
+        raw.push(0);
+        raw.extend_from_slice(row);
+    }
     let mut compressed = vec![0x78, 0x01];
     for (index, block) in raw.chunks(65_535).enumerate() {
-        compressed.push(if (index + 1) * 65_535 >= raw.len() { 1 } else { 0 });
-        let length = block.len() as u16; compressed.extend_from_slice(&length.to_le_bytes()); compressed.extend_from_slice(&(!length).to_le_bytes()); compressed.extend_from_slice(block);
+        compressed.push(if (index + 1) * 65_535 >= raw.len() {
+            1
+        } else {
+            0
+        });
+        let length = block.len() as u16;
+        compressed.extend_from_slice(&length.to_le_bytes());
+        compressed.extend_from_slice(&(!length).to_le_bytes());
+        compressed.extend_from_slice(block);
     }
     compressed.extend_from_slice(&adler32(&raw).to_be_bytes());
-    let mut output = Vec::new(); output.extend_from_slice(b"\x89PNG\r\n\x1a\n");
-    let mut header = Vec::new(); header.extend_from_slice(&width.to_be_bytes()); header.extend_from_slice(&height.to_be_bytes()); header.extend_from_slice(&[8, 2, 0, 0, 0]);
-    chunk(&mut output, b"IHDR", &header); chunk(&mut output, b"IDAT", &compressed); chunk(&mut output, b"IEND", &[]); output
+    let mut output = Vec::new();
+    output.extend_from_slice(b"\x89PNG\r\n\x1a\n");
+    let mut header = Vec::new();
+    header.extend_from_slice(&width.to_be_bytes());
+    header.extend_from_slice(&height.to_be_bytes());
+    header.extend_from_slice(&[8, 2, 0, 0, 0]);
+    chunk(&mut output, b"IHDR", &header);
+    chunk(&mut output, b"IDAT", &compressed);
+    chunk(&mut output, b"IEND", &[]);
+    output
 }
 
 #[cfg(test)]
@@ -619,6 +914,12 @@ pub(super) struct PythonIrShowcase {
     table_resize: Rc<RefCell<Option<TableResize>>>,
     job_log_scrolls: HashMap<String, UniformListScrollHandle>,
     superseded_requests: HashSet<String>,
+    /// Cancellation flags for bounded host telemetry streams. The sender runs
+    /// off the render thread and communicates only through the session pipe.
+    profiler_subscriptions: HashMap<String, Arc<AtomicBool>>,
+    applied_miniapp_shell: Option<MiniAppShellConfig>,
+    observed_miniapp_theme: Option<ThemeVariant>,
+    observed_miniapp_language: Option<Language>,
     pub(super) session: Option<super::python::PythonSession>,
     pub(super) session_state: SessionState,
     pub(super) jobs: JobRegistry,
@@ -655,11 +956,11 @@ struct TableResize {
 }
 
 impl PythonIrShowcase {
-    pub(super) fn new_loading(cx: &mut Context<Self>, presentation: PresentationStore) -> Self {
+    fn new_empty(presentation: PresentationStore) -> Self {
         let presentation_state = presentation.snapshot();
         let content_scroll = ScrollHandle::new();
         content_scroll.set_offset(point(px(0.0), px(-presentation_state.scroll_y)));
-        let mut showcase = Self {
+        Self {
             app: None,
             load_error: None,
             current_section: presentation_state.section.unwrap_or_default(),
@@ -680,13 +981,15 @@ impl PythonIrShowcase {
             table_resize: Rc::new(RefCell::new(None)),
             job_log_scrolls: HashMap::new(),
             superseded_requests: HashSet::new(),
+            profiler_subscriptions: HashMap::new(),
+            applied_miniapp_shell: None,
+            observed_miniapp_theme: None,
+            observed_miniapp_language: None,
             session: None,
-            session_state: SessionState::new(vec![
-                "events".into(),
-                "patches".into(),
-                "jobs".into(),
-                "effects".into(),
-            ]),
+            session_state: SessionState::new(
+                gpui_python_runtime::session::DEFAULT_HOST_CAPABILITIES
+                    .iter().map(|capability| (*capability).into()).collect(),
+            ),
             // Retain the required scientific-workload history while rendering
             // only the latest 200 filtered lines below. This keeps incoming
             // log updates bounded and avoids rebuilding a 10k-row view.
@@ -700,9 +1003,35 @@ impl PythonIrShowcase {
             content_scroll,
             close_handler_installed: false,
             close_approved: false,
-        };
-        showcase.load_session(cx);
+        }
+    }
+
+    pub(super) fn new_ready(
+        cx: &mut Context<Self>,
+        presentation: PresentationStore,
+        app: PythonAppIr,
+        session: super::python::PythonSession,
+    ) -> Self {
+        let mut showcase = Self::new_empty(presentation);
+        showcase.install_loaded_session(app, session, cx);
         showcase
+    }
+
+    fn install_loaded_session(
+        &mut self,
+        app: PythonAppIr,
+        session: super::python::PythonSession,
+        cx: &mut Context<Self>,
+    ) {
+        if !app.sections.iter().any(|section| section.id == self.current_section)
+            && let Some(section) = app.sections.first()
+        {
+            self.current_section = section.id.clone();
+            self.presentation.set_section(Some(section.id.clone()));
+        }
+        self.app = Some(app);
+        self.session = Some(session);
+        self.start_session_updates(cx);
     }
 
     fn load_session(&mut self, cx: &mut Context<Self>) {
@@ -714,15 +1043,7 @@ impl PythonIrShowcase {
             let _ = this.update(cx, |this, cx| {
                 match result {
                     Ok((app, session)) => {
-                        if !app.sections.iter().any(|section| section.id == this.current_section)
-                            && let Some(section) = app.sections.first()
-                        {
-                            this.current_section = section.id.clone();
-                            this.presentation.set_section(Some(section.id.clone()));
-                        }
-                        this.app = Some(app);
-                        this.session = Some(session);
-                        this.start_session_updates(cx);
+                        this.install_loaded_session(app, session, cx);
                     }
                     Err(error) => {
                         this.load_error = Some(error.to_string());
@@ -739,7 +1060,11 @@ impl PythonIrShowcase {
         self.presentation.set_section(Some(section));
     }
 
-    fn chart_series_is_visible(&self, chart_id: &str, series: &gpui_python_runtime::ui_ir::ChartSeries) -> bool {
+    fn chart_series_is_visible(
+        &self,
+        chart_id: &str,
+        series: &gpui_python_runtime::ui_ir::ChartSeries,
+    ) -> bool {
         series.visible
             && !self
                 .chart_hidden_series
@@ -748,7 +1073,10 @@ impl PythonIrShowcase {
     }
 
     fn toggle_chart_series(&mut self, chart_id: &str, series_id: &str) {
-        let hidden = self.chart_hidden_series.entry(chart_id.to_string()).or_default();
+        let hidden = self
+            .chart_hidden_series
+            .entry(chart_id.to_string())
+            .or_default();
         if !hidden.insert(series_id.to_string()) {
             hidden.remove(series_id);
         }
@@ -758,11 +1086,12 @@ impl PythonIrShowcase {
         if self.presentation_subscription.is_some() {
             return;
         }
-        self.presentation_subscription = Some(cx.observe_window_bounds(window, |this, window, _| {
-            let bounds = window.bounds();
-            this.presentation
-                .set_window_size(bounds.size.width.into(), bounds.size.height.into());
-        }));
+        self.presentation_subscription =
+            Some(cx.observe_window_bounds(window, |this, window, _| {
+                let bounds = window.bounds();
+                this.presentation
+                    .set_window_size(bounds.size.width.into(), bounds.size.height.into());
+            }));
     }
 
     fn observe_window_close(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -903,13 +1232,17 @@ impl PythonIrShowcase {
         ds: &DesignSystem,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        let app = self.app.as_ref().expect("render_content called after load");
-        let content = app
-            .sections
-            .iter()
-            .find(|section| section.id == self.current_section)
-            .or_else(|| app.sections.first())
-            .map(|section| section.content.clone());
+        let (content, scrollable) = {
+            let app = self.app.as_ref().expect("render_content called after load");
+            (
+                app.sections
+                    .iter()
+                    .find(|section| section.id == self.current_section)
+                    .or_else(|| app.sections.first())
+                    .map(|section| section.content.clone()),
+                app.miniapp.as_ref().map_or(true, |config| config.scrollable),
+            )
+        };
 
         let content = content
             .as_ref()
@@ -921,21 +1254,26 @@ impl PythonIrShowcase {
         let jobs = self.render_job_panel(theme, ds, cx);
         let scroll_handle = self.content_scroll.clone();
         let persisted_scroll = self.presentation.clone();
-        div()
+        let content = div()
             .id("python-showcase-content")
             .flex_1()
             .h_full()
-            .overflow_y_scroll()
-            .track_scroll(&scroll_handle)
-            .on_scroll_wheel(move |event, window, _cx| {
-                let delta = event.delta.pixel_delta(window.line_height());
-                let next_y = scroll_handle.offset().y - delta.y;
-                persisted_scroll.set_scroll_y((-next_y.as_f32()).max(0.0));
-            })
             .bg(theme.background)
             .p(px(ds.spacing.section_gap * 1.5))
             .child(content)
-            .children(jobs)
+            .children(jobs);
+        if scrollable {
+            content
+                .overflow_y_scroll()
+                .track_scroll(&scroll_handle)
+                .on_scroll_wheel(move |event, window, _cx| {
+                    let delta = event.delta.pixel_delta(window.line_height());
+                    let next_y = scroll_handle.offset().y - delta.y;
+                    persisted_scroll.set_scroll_y((-next_y.as_f32()).max(0.0));
+                })
+        } else {
+            content
+        }
     }
 
     pub(super) fn render_node(
@@ -964,6 +1302,17 @@ impl PythonIrShowcase {
             UiNode::Metric(node) => self.render_metric(node, theme, ds),
             UiNode::Progress(node) => self.render_progress(node, theme, ds),
             UiNode::Spinner(node) => self.render_spinner(node, theme, ds),
+            UiNode::Breadcrumbs(node) => self.render_breadcrumbs(node),
+            UiNode::Alert(node) => self.render_alert(node),
+            UiNode::Toast(node) => self.render_toast(node),
+            UiNode::Tooltip(node) => self.render_tooltip(node, theme, ds, cx),
+            UiNode::EmptyState(node) => self.render_empty_state(node, theme, ds, cx),
+            UiNode::Dialog(node) => self.render_dialog(node, theme, ds, cx),
+            UiNode::ConfirmDialog(node) => self.render_confirm_dialog(node, cx),
+            UiNode::Menu(node) => self.render_menu(node, cx),
+            UiNode::MenuBar(node) => self.render_menu_bar(node, cx),
+            UiNode::ContextMenu(node) => self.render_context_menu(node, cx),
+            UiNode::Popover(node) => self.render_popover(node, theme, ds, cx),
             UiNode::Tabs(node) => self.render_tabs(node, theme, ds, cx),
             UiNode::Stepper(node) => self.render_stepper(node, theme, ds),
             UiNode::Accordion(node) => self.render_accordion(node, theme, ds, cx),
@@ -1000,22 +1349,48 @@ impl PythonIrShowcase {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let color = Color::from_hex_string(&node.value).unwrap_or_else(|| Color::from_hex(0));
-        self.color_picker_actions.insert(node.id.clone(), node.action.clone());
-        let picker = self.color_pickers.entry(node.id.clone()).or_insert_with(|| {
-            cx.new(|_| ColorPickerView::new(node.label.clone().unwrap_or_else(|| node.id.clone()), color))
-        }).clone();
+        self.color_picker_actions
+            .insert(node.id.clone(), node.action.clone());
+        let picker = self
+            .color_pickers
+            .entry(node.id.clone())
+            .or_insert_with(|| {
+                cx.new(|_| {
+                    ColorPickerView::new(
+                        node.label.clone().unwrap_or_else(|| node.id.clone()),
+                        color,
+                    )
+                })
+            })
+            .clone();
         if !self.color_picker_subscriptions.contains_key(&node.id) {
             let id = node.id.clone();
             let subscription = cx.observe(&picker, move |this, picker, cx| {
-                let Some(sink) = this.session.as_ref().map(|session| session.event_sink()) else { return; };
+                let Some(sink) = this.session.as_ref().map(|session| session.event_sink()) else {
+                    return;
+                };
                 let color = picker.read(cx).color().to_hex_string();
                 let action = this.color_picker_actions.get(&id).cloned().flatten();
-                let _ = sink.dispatch(id.clone(), "change", action, serde_json::json!({ "value": color }));
+                let _ = sink.dispatch(
+                    id.clone(),
+                    "change",
+                    action,
+                    serde_json::json!({ "value": color }),
+                );
             });
-            self.color_picker_subscriptions.insert(node.id.clone(), subscription);
+            self.color_picker_subscriptions
+                .insert(node.id.clone(), subscription);
         }
         if node.disabled {
-            return self.present_form_control(div().text_color(theme.text_muted).child("Color picker disabled").into_any_element(), &node.presentation, theme, ds);
+            return self.present_form_control(
+                div()
+                    .text_color(theme.text_muted)
+                    .child("Color picker disabled")
+                    .into_any_element(),
+                &node.presentation,
+                theme,
+                ds,
+            );
         }
         self.present_form_control(picker.into_any_element(), &node.presentation, theme, ds)
     }
@@ -1075,11 +1450,22 @@ impl PythonIrShowcase {
                 .rounded(px(ds.corners.sm))
                 .bg(theme.alert_error_bg)
                 .text_color(theme.error)
-                .child(format!("{} validation issue{}", node.errors.len(), if node.errors.len() == 1 { "" } else { "s" }));
-            if let Some(handle) = node.errors.first().and_then(|error| self.form_focus.get(&error.control_id)).cloned() {
+                .child(format!(
+                    "{} validation issue{}",
+                    node.errors.len(),
+                    if node.errors.len() == 1 { "" } else { "s" }
+                ));
+            if let Some(handle) = node
+                .errors
+                .first()
+                .and_then(|error| self.form_focus.get(&error.control_id))
+                .cloned()
+            {
                 summary = summary.child(
                     div()
-                        .id(ElementId::Name(format!("python-form-focus-first-{}", node.id).into()))
+                        .id(ElementId::Name(
+                            format!("python-form-focus-first-{}", node.id).into(),
+                        ))
                         .cursor_pointer()
                         .child("Focus first invalid control")
                         .on_click(move |_, window, cx| handle.focus(window, cx)),
@@ -1087,7 +1473,9 @@ impl PythonIrShowcase {
             }
             for (index, error) in node.errors.iter().enumerate() {
                 let entry = div()
-                    .id(ElementId::Name(format!("python-form-error-{}-{index}", node.id).into()))
+                    .id(ElementId::Name(
+                        format!("python-form-error-{}-{index}", node.id).into(),
+                    ))
                     .cursor_pointer()
                     .child(format!("{}: {}", error.control_id, error.message));
                 summary = if let Some(handle) = self.form_focus.get(&error.control_id).cloned() {
@@ -1244,14 +1632,14 @@ impl PythonIrShowcase {
                 .maybe_state(node.disabled, AriaState::Disabled)
                 .maybe_state(node.selected, AriaState::Pressed(true)),
         )
-            .focusable()
-            .px(px(ds.spacing.control_padding_x))
-            .py(px(ds.spacing.control_padding_y))
-            .rounded(px(ds.corners.md))
-            .bg(bg)
-            .text_color(text)
-            .cursor_pointer()
-            .child(node.label.clone());
+        .focusable()
+        .px(px(ds.spacing.control_padding_x))
+        .py(px(ds.spacing.control_padding_y))
+        .rounded(px(ds.corners.md))
+        .bg(bg)
+        .text_color(text)
+        .cursor_pointer()
+        .child(node.label.clone());
 
         if node.disabled {
             return element.into_any_element();
@@ -1401,9 +1789,17 @@ impl PythonIrShowcase {
                 );
             });
         }
-        self.present_form_control(self.wrap_form_control(
-            input.into_any_element(), node.validation.as_ref(), theme, ds,
-        ), &node.presentation, theme, ds)
+        self.present_form_control(
+            self.wrap_form_control(
+                input.into_any_element(),
+                node.validation.as_ref(),
+                theme,
+                ds,
+            ),
+            &node.presentation,
+            theme,
+            ds,
+        )
     }
 
     fn render_number_input(
@@ -1427,30 +1823,58 @@ impl PythonIrShowcase {
                 .focus_handle(focus_handle.clone())
                 .aria_label(node.label.clone().unwrap_or_else(|| id.clone()));
             if let Some(label) = &node.label {
-                input = input.label(if node.required { format!("{label} *") } else { label.clone() });
+                input = input.label(if node.required {
+                    format!("{label} *")
+                } else {
+                    label.clone()
+                });
             }
             if let Some(sink) = self.session.as_ref().map(|session| session.event_sink()) {
                 let node_id = node.id.clone();
                 let action = node.action.clone();
                 input = input.on_text_change(move |value, _, _| {
-                    let _ = sink.dispatch(node_id.clone(), "change", action.clone(), serde_json::json!({ "value": value, "intermediate": true }));
+                    let _ = sink.dispatch(
+                        node_id.clone(),
+                        "change",
+                        action.clone(),
+                        serde_json::json!({ "value": value, "intermediate": true }),
+                    );
                 });
             }
             if let Some(sink) = self.session.as_ref().map(|session| session.event_sink()) {
                 let node_id = node.id.clone();
                 let action = node.commit_action.clone();
                 input = input.on_change(move |value, _, _| {
-                    let _ = sink.dispatch(node_id.clone(), "commit", action.clone(), serde_json::json!({ "value": value }));
+                    let _ = sink.dispatch(
+                        node_id.clone(),
+                        "commit",
+                        action.clone(),
+                        serde_json::json!({ "value": value }),
+                    );
                 });
             }
             let control = if let Some(unit) = &node.unit {
-                div().flex().items_end().gap(px(ds.spacing.control_gap)).child(input).child(
-                    div().pb(px(ds.spacing.control_padding_y)).text_color(theme.text_muted).child(unit.clone()),
-                ).into_any_element()
+                div()
+                    .flex()
+                    .items_end()
+                    .gap(px(ds.spacing.control_gap))
+                    .child(input)
+                    .child(
+                        div()
+                            .pb(px(ds.spacing.control_padding_y))
+                            .text_color(theme.text_muted)
+                            .child(unit.clone()),
+                    )
+                    .into_any_element()
             } else {
                 input.into_any_element()
             };
-            return self.present_form_control(self.wrap_form_control(control, node.validation.as_ref(), theme, ds), &node.presentation, theme, ds);
+            return self.present_form_control(
+                self.wrap_form_control(control, node.validation.as_ref(), theme, ds),
+                &node.presentation,
+                theme,
+                ds,
+            );
         }
         let mut input = NumberInput::new(ElementId::Name(format!("python-form-{id}").into()))
             .range(
@@ -1483,9 +1907,17 @@ impl PythonIrShowcase {
                 );
             });
         }
-        self.present_form_control(self.wrap_form_control(
-            input.into_any_element(), node.validation.as_ref(), theme, ds,
-        ), &node.presentation, theme, ds)
+        self.present_form_control(
+            self.wrap_form_control(
+                input.into_any_element(),
+                node.validation.as_ref(),
+                theme,
+                ds,
+            ),
+            &node.presentation,
+            theme,
+            ds,
+        )
     }
 
     fn render_slider(&self, node: &SliderNode, theme: &Theme, ds: &DesignSystem) -> AnyElement {
@@ -1575,7 +2007,12 @@ impl PythonIrShowcase {
                 );
             });
         }
-        self.present_form_control(self.wrap_form_control(select.into_any_element(), None, theme, ds), &node.presentation, theme, ds)
+        self.present_form_control(
+            self.wrap_form_control(select.into_any_element(), None, theme, ds),
+            &node.presentation,
+            theme,
+            ds,
+        )
     }
 
     fn render_path_input(
@@ -1635,7 +2072,11 @@ impl PythonIrShowcase {
             });
         }
 
-        let mut row = div().flex().items_end().gap(px(ds.spacing.control_gap)).child(input);
+        let mut row = div()
+            .flex()
+            .items_end()
+            .gap(px(ds.spacing.control_gap))
+            .child(input);
         if !node.disabled {
             let node_id = node.id.clone();
             let mode = node.mode.clone();
@@ -1646,7 +2087,9 @@ impl PythonIrShowcase {
             let sink = self.session.as_ref().map(|session| session.event_sink());
             row = row.child(
                 div()
-                    .id(ElementId::Name(format!("python-path-browse-{node_id}").into()))
+                    .id(ElementId::Name(
+                        format!("python-path-browse-{node_id}").into(),
+                    ))
                     .px(px(ds.spacing.control_padding_x))
                     .py(px(ds.spacing.control_padding_y))
                     .rounded(px(ds.corners.md))
@@ -1666,7 +2109,10 @@ impl PythonIrShowcase {
                             let directory = if initial.is_dir() {
                                 initial
                             } else {
-                                initial.parent().map(Path::to_path_buf).unwrap_or_else(|| PathBuf::from("."))
+                                initial
+                                    .parent()
+                                    .map(Path::to_path_buf)
+                                    .unwrap_or_else(|| PathBuf::from("."))
                             };
                             let suggested_name = Path::new(&picked_initial_path)
                                 .file_name()
@@ -1685,16 +2131,29 @@ impl PythonIrShowcase {
                                 extensions: picked_filters
                                     .iter()
                                     .flat_map(|filter| filter.extensions.iter())
-                                    .map(|extension| SharedString::from(extension.trim_start_matches('.')))
+                                    .map(|extension| {
+                                        SharedString::from(extension.trim_start_matches('.'))
+                                    })
                                     .collect(),
                             });
                             cx.spawn(async move |_, _| {
                                 let payload = match receiver.await {
-                                    Ok(Ok(Some(paths))) => paths.first().map(|path| {
-                                        path_event_payload(path, &picked_mode, &picked_filters, must_exist, "browse")
-                                    }).unwrap_or_else(|| serde_json::json!({"cancelled": true})),
+                                    Ok(Ok(Some(paths))) => paths
+                                        .first()
+                                        .map(|path| {
+                                            path_event_payload(
+                                                path,
+                                                &picked_mode,
+                                                &picked_filters,
+                                                must_exist,
+                                                "browse",
+                                            )
+                                        })
+                                        .unwrap_or_else(|| serde_json::json!({"cancelled": true})),
                                     Ok(Ok(None)) => serde_json::json!({"cancelled": true}),
-                                    Ok(Err(error)) => serde_json::json!({"error": error.to_string()}),
+                                    Ok(Err(error)) => {
+                                        serde_json::json!({"error": error.to_string()})
+                                    }
                                     Err(error) => serde_json::json!({"error": error.to_string()}),
                                 };
                                 let event = if payload.get("valid") == Some(&Value::Bool(false)) {
@@ -1704,13 +2163,21 @@ impl PythonIrShowcase {
                                 } else {
                                     "change"
                                 };
-                                let _ = sink.dispatch(picked_node_id, event, picked_action, payload);
-                            }).detach();
+                                let _ =
+                                    sink.dispatch(picked_node_id, event, picked_action, payload);
+                            })
+                            .detach();
                             return;
                         };
                         cx.spawn(async move |_, _| {
                             let payload = match receiver.await {
-                                Ok(Ok(Some(path))) => path_event_payload(&path, &picked_mode, &picked_filters, must_exist, "browse"),
+                                Ok(Ok(Some(path))) => path_event_payload(
+                                    &path,
+                                    &picked_mode,
+                                    &picked_filters,
+                                    must_exist,
+                                    "browse",
+                                ),
                                 Ok(Ok(None)) => serde_json::json!({"cancelled": true}),
                                 Ok(Err(error)) => serde_json::json!({"error": error.to_string()}),
                                 Err(error) => serde_json::json!({"error": error.to_string()}),
@@ -1723,25 +2190,35 @@ impl PythonIrShowcase {
                                 "change"
                             };
                             let _ = sink.dispatch(picked_node_id, event, picked_action, payload);
-                        }).detach();
+                        })
+                        .detach();
                     })),
             );
         }
 
-        let mut field = div().flex().flex_col().gap(px(ds.spacing.grid_unit)).child(row);
+        let mut field = div()
+            .flex()
+            .flex_col()
+            .gap(px(ds.spacing.grid_unit))
+            .child(row);
         if !node.recent_values.is_empty() {
             let action = node.action.clone();
             let node_id = node.id.clone();
             let sink = self.session.as_ref().map(|session| session.event_sink());
             field = field.child(
-                div().flex().flex_wrap().gap(px(ds.spacing.grid_unit)).children(
-                    node.recent_values.iter().enumerate().map(|(index, path)| {
+                div()
+                    .flex()
+                    .flex_wrap()
+                    .gap(px(ds.spacing.grid_unit))
+                    .children(node.recent_values.iter().enumerate().map(|(index, path)| {
                         let path = path.clone();
                         let sink = sink.clone();
                         let action = action.clone();
                         let node_id = node_id.clone();
                         div()
-                            .id(ElementId::Name(format!("python-path-recent-{node_id}-{index}").into()))
+                            .id(ElementId::Name(
+                                format!("python-path-recent-{node_id}-{index}").into(),
+                            ))
                             .px(px(ds.spacing.grid_unit))
                             .py(px(ds.spacing.grid_unit / 2.0))
                             .rounded(px(ds.corners.sm))
@@ -1751,22 +2228,36 @@ impl PythonIrShowcase {
                             .child(path.clone())
                             .on_click(move |_, _, _| {
                                 if let Some(sink) = &sink {
-                                    let _ = sink.dispatch(node_id.clone(), "change", action.clone(), serde_json::json!({"value": path, "source": "recent"}));
+                                    let _ = sink.dispatch(
+                                        node_id.clone(),
+                                        "change",
+                                        action.clone(),
+                                        serde_json::json!({"value": path, "source": "recent"}),
+                                    );
                                 }
                             })
-                    }),
-                ),
+                    })),
             );
         }
         self.present_form_control(
-            self.wrap_form_control(field.into_any_element(), node.validation.as_ref(), theme, ds),
+            self.wrap_form_control(
+                field.into_any_element(),
+                node.validation.as_ref(),
+                theme,
+                ds,
+            ),
             &node.presentation,
             theme,
             ds,
         )
     }
 
-    fn render_checkbox(&self, node: &BooleanInputNode, theme: &Theme, ds: &DesignSystem) -> AnyElement {
+    fn render_checkbox(
+        &self,
+        node: &BooleanInputNode,
+        theme: &Theme,
+        ds: &DesignSystem,
+    ) -> AnyElement {
         let mut checkbox =
             Checkbox::new(ElementId::Name(format!("python-form-{}", node.id).into()))
                 .checked(node.value)
@@ -1789,7 +2280,12 @@ impl PythonIrShowcase {
         self.present_form_control(checkbox.into_any_element(), &node.presentation, theme, ds)
     }
 
-    fn render_toggle(&self, node: &BooleanInputNode, theme: &Theme, ds: &DesignSystem) -> AnyElement {
+    fn render_toggle(
+        &self,
+        node: &BooleanInputNode,
+        theme: &Theme,
+        ds: &DesignSystem,
+    ) -> AnyElement {
         let mut toggle = Toggle::new(ElementId::Name(format!("python-form-{}", node.id).into()))
             .checked(node.value)
             .label(node.label.clone())
@@ -1884,12 +2380,22 @@ impl PythonIrShowcase {
         let filter_button = |label: &'static str, filter: Option<LogSeverity>| {
             let selected = self.job_log_filter == filter;
             div()
-                .id(ElementId::Name(format!("python-job-log-filter-{label}").into()))
+                .id(ElementId::Name(
+                    format!("python-job-log-filter-{label}").into(),
+                ))
                 .px(px(ds.spacing.grid_unit))
                 .py(px(ds.spacing.grid_unit / 2.0))
                 .rounded(px(ds.corners.sm))
-                .bg(if selected { theme.accent } else { theme.surface_hover })
-                .text_color(if selected { theme.text_on_accent } else { theme.text_secondary })
+                .bg(if selected {
+                    theme.accent
+                } else {
+                    theme.surface_hover
+                })
+                .text_color(if selected {
+                    theme.text_on_accent
+                } else {
+                    theme.text_secondary
+                })
                 .cursor_pointer()
                 .child(label)
                 .on_click(cx.listener(move |this, _, _, cx| {
@@ -1910,20 +2416,31 @@ impl PythonIrShowcase {
                 .border_1()
                 .border_color(theme.border)
                 .child(
-                    div().flex().items_center().justify_between().child(
-                        div()
-                            .font_weight(FontWeight::BOLD)
-                            .text_color(theme.text_primary)
-                            .child("Simulation jobs"),
-                    ).child(
-                        div().flex().items_center().gap(px(ds.spacing.grid_unit))
-                            .text_size(px(ds.typography.small_size))
-                            .text_color(theme.text_muted)
-                            .child(format!("Log filter: {filter_label}")),
-                    ),
+                    div()
+                        .flex()
+                        .items_center()
+                        .justify_between()
+                        .child(
+                            div()
+                                .font_weight(FontWeight::BOLD)
+                                .text_color(theme.text_primary)
+                                .child("Simulation jobs"),
+                        )
+                        .child(
+                            div()
+                                .flex()
+                                .items_center()
+                                .gap(px(ds.spacing.grid_unit))
+                                .text_size(px(ds.typography.small_size))
+                                .text_color(theme.text_muted)
+                                .child(format!("Log filter: {filter_label}")),
+                        ),
                 )
                 .child(
-                    div().flex().flex_wrap().gap(px(ds.spacing.grid_unit))
+                    div()
+                        .flex()
+                        .flex_wrap()
+                        .gap(px(ds.spacing.grid_unit))
                         .child(filter_button("All", None))
                         .child(filter_button("Errors", Some(LogSeverity::Error)))
                         .child(filter_button("Warnings", Some(LogSeverity::Warn)))
@@ -1950,7 +2467,11 @@ impl PythonIrShowcase {
                         .unwrap_or_else(|| job.logs().cloned().collect::<Vec<_>>());
                     let visible_logs = visible_logs
                         .into_iter()
-                        .filter(|line| self.job_log_filter.as_ref().is_none_or(|filter| line.severity == *filter))
+                        .filter(|line| {
+                            self.job_log_filter
+                                .as_ref()
+                                .is_none_or(|filter| line.severity == *filter)
+                        })
                         .collect::<Vec<_>>();
                     let copied_logs = visible_logs
                         .iter()
@@ -2001,10 +2522,15 @@ impl PythonIrShowcase {
                                 .child(status),
                         )
                         .child(
-                            div().flex().flex_wrap().gap(px(ds.spacing.grid_unit))
+                            div()
+                                .flex()
+                                .flex_wrap()
+                                .gap(px(ds.spacing.grid_unit))
                                 .child(
                                     div()
-                                        .id(ElementId::Name(format!("python-job-log-pause-{job_id}").into()))
+                                        .id(ElementId::Name(
+                                            format!("python-job-log-pause-{job_id}").into(),
+                                        ))
                                         .px(px(ds.spacing.grid_unit))
                                         .py(px(ds.spacing.grid_unit / 2.0))
                                         .rounded(px(ds.corners.sm))
@@ -2013,9 +2539,13 @@ impl PythonIrShowcase {
                                         .cursor_pointer()
                                         .child(if is_paused { "Follow tail" } else { "Pause" })
                                         .on_click(cx.listener(move |this, _, _, cx| {
-                                            if this.paused_job_logs.remove(&pause_job_id).is_none() {
+                                            if this.paused_job_logs.remove(&pause_job_id).is_none()
+                                            {
                                                 if let Some(job) = this.jobs.get(&pause_job_id) {
-                                                    this.paused_job_logs.insert(pause_job_id.clone(), job.logs().cloned().collect());
+                                                    this.paused_job_logs.insert(
+                                                        pause_job_id.clone(),
+                                                        job.logs().cloned().collect(),
+                                                    );
                                                 }
                                             }
                                             cx.notify();
@@ -2024,7 +2554,9 @@ impl PythonIrShowcase {
                                 .child({
                                     let copied_logs = copied_logs.clone();
                                     div()
-                                        .id(ElementId::Name(format!("python-job-log-copy-{}", job.id).into()))
+                                        .id(ElementId::Name(
+                                            format!("python-job-log-copy-{}", job.id).into(),
+                                        ))
                                         .px(px(ds.spacing.grid_unit))
                                         .py(px(ds.spacing.grid_unit / 2.0))
                                         .rounded(px(ds.corners.sm))
@@ -2032,12 +2564,18 @@ impl PythonIrShowcase {
                                         .text_color(theme.text_secondary)
                                         .cursor_pointer()
                                         .child("Copy")
-                                        .on_click(move |_, _, cx| cx.write_to_clipboard(ClipboardItem::new_string(copied_logs.clone())))
+                                        .on_click(move |_, _, cx| {
+                                            cx.write_to_clipboard(ClipboardItem::new_string(
+                                                copied_logs.clone(),
+                                            ))
+                                        })
                                 })
                                 .child({
                                     let job_id = job.id.clone();
                                     div()
-                                        .id(ElementId::Name(format!("python-job-log-clear-{job_id}").into()))
+                                        .id(ElementId::Name(
+                                            format!("python-job-log-clear-{job_id}").into(),
+                                        ))
                                         .px(px(ds.spacing.grid_unit))
                                         .py(px(ds.spacing.grid_unit / 2.0))
                                         .rounded(px(ds.corners.sm))
@@ -2056,7 +2594,9 @@ impl PythonIrShowcase {
                                 .child({
                                     let copied_logs = copied_logs.clone();
                                     div()
-                                        .id(ElementId::Name(format!("python-job-log-export-{}", job.id).into()))
+                                        .id(ElementId::Name(
+                                            format!("python-job-log-export-{}", job.id).into(),
+                                        ))
                                         .px(px(ds.spacing.grid_unit))
                                         .py(px(ds.spacing.grid_unit / 2.0))
                                         .rounded(px(ds.corners.sm))
@@ -2065,13 +2605,19 @@ impl PythonIrShowcase {
                                         .cursor_pointer()
                                         .child("Export…")
                                         .on_click(cx.listener(move |_, _, _, cx| {
-                                            let receiver = cx.prompt_for_new_path(Path::new("."), Some("simulation-job.log"));
+                                            let receiver = cx.prompt_for_new_path(
+                                                Path::new("."),
+                                                Some("simulation-job.log"),
+                                            );
                                             let copied_logs = copied_logs.clone();
                                             cx.spawn(async move |_, _| {
                                                 if let Ok(Ok(Some(path))) = receiver.await {
-                                                    std::thread::spawn(move || { let _ = std::fs::write(path, copied_logs); });
+                                                    std::thread::spawn(move || {
+                                                        let _ = std::fs::write(path, copied_logs);
+                                                    });
                                                 }
-                                            }).detach();
+                                            })
+                                            .detach();
                                         }))
                                 }),
                         )
@@ -2086,11 +2632,13 @@ impl PythonIrShowcase {
                                             div()
                                                 .h(px(20.0))
                                                 .text_size(px(log_text_size))
-                                                .text_color(if matches!(line.severity, LogSeverity::Error) {
-                                                    log_error
-                                                } else {
-                                                    log_text
-                                                })
+                                                .text_color(
+                                                    if matches!(line.severity, LogSeverity::Error) {
+                                                        log_error
+                                                    } else {
+                                                        log_text
+                                                    },
+                                                )
                                                 .child(line.message.clone())
                                         })
                                         .collect::<Vec<_>>()
@@ -2249,6 +2797,408 @@ impl PythonIrShowcase {
             .into_any_element()
     }
 
+    fn render_breadcrumbs(&self, node: &BreadcrumbsNode) -> AnyElement {
+        let separator = match node.separator.as_str() {
+            "chevron" => BreadcrumbSeparator::Chevron,
+            "dot" => BreadcrumbSeparator::Dot,
+            _ => BreadcrumbSeparator::Slash,
+        };
+        let items = node
+            .items
+            .iter()
+            .map(|source| {
+                let mut item = BreadcrumbItem::new(source.id.clone(), source.label.clone());
+                if let Some(icon) = &source.icon {
+                    item = item.icon(icon.clone());
+                }
+                if let Some(href) = &source.href {
+                    item = item.href(href.clone());
+                }
+                item
+            })
+            .collect();
+        let mut breadcrumbs = Breadcrumbs::new().items(items).separator(separator);
+        if let (Some(sink), Some(action)) = (
+            self.session.as_ref().map(|session| session.event_sink()),
+            node.action.clone(),
+        ) {
+            let node_id = node.id.clone();
+            breadcrumbs = breadcrumbs.on_click(move |item_id, _, _| {
+                let _ = sink.dispatch(
+                    node_id.clone(),
+                    "change",
+                    Some(action.clone()),
+                    serde_json::json!({"item_id": item_id.as_ref()}),
+                );
+            });
+        }
+        breadcrumbs.into_any_element()
+    }
+
+    fn render_alert(&self, node: &AlertNode) -> AnyElement {
+        let variant = match node.variant.as_str() {
+            "success" => AlertVariant::Success,
+            "warning" => AlertVariant::Warning,
+            "error" => AlertVariant::Error,
+            _ => AlertVariant::Info,
+        };
+        let mut alert = Alert::new(
+            ElementId::Name(format!("python-alert-{}", node.id).into()),
+            node.message.clone(),
+        )
+        .variant(variant)
+        .closeable(node.closeable);
+        if let Some(title) = &node.title {
+            alert = alert.title(title.clone());
+        }
+        if let (Some(sink), Some(action)) = (
+            self.session.as_ref().map(|session| session.event_sink()),
+            node.action.clone(),
+        ) {
+            let node_id = node.id.clone();
+            alert = alert.on_close(move |_, _| {
+                let _ = sink.dispatch(node_id.clone(), "close", Some(action.clone()), Value::Null);
+            });
+        }
+        alert.into_any_element()
+    }
+
+    fn render_toast(&self, node: &ToastNode) -> AnyElement {
+        let variant = match node.variant.as_str() {
+            "success" => ToastVariant::Success,
+            "warning" => ToastVariant::Warning,
+            "error" => ToastVariant::Error,
+            _ => ToastVariant::Info,
+        };
+        let mut toast = Toast::new(
+            ElementId::Name(format!("python-toast-{}", node.id).into()),
+            node.message.clone(),
+        )
+        .variant(variant)
+        .closeable(node.closeable)
+        .duration_secs(node.duration_secs);
+        if let Some(title) = &node.title {
+            toast = toast.title(title.clone());
+        }
+        if let (Some(sink), Some(action)) = (
+            self.session.as_ref().map(|session| session.event_sink()),
+            node.action.clone(),
+        ) {
+            let node_id = node.id.clone();
+            toast = toast.on_close(move |_, _| {
+                let _ = sink.dispatch(node_id.clone(), "close", Some(action.clone()), Value::Null);
+            });
+        }
+        toast.into_any_element()
+    }
+
+    fn render_tooltip(
+        &mut self,
+        node: &TooltipNode,
+        theme: &Theme,
+        ds: &DesignSystem,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let placement = match node.placement.as_str() {
+            "bottom" => TooltipPlacement::Bottom,
+            "left" => TooltipPlacement::Left,
+            "right" => TooltipPlacement::Right,
+            _ => TooltipPlacement::Top,
+        };
+        let mut tooltip = WithTooltip::new(
+            self.render_node(&node.child, theme, ds, cx),
+            node.content.clone(),
+        )
+        .id(ElementId::Name(format!("python-tooltip-{}", node.id).into()))
+        .placement(placement)
+        .delay(node.delay_ms);
+        if let Some(show) = node.show {
+            tooltip = tooltip.show(show);
+        }
+        tooltip.into_any_element()
+    }
+
+    fn render_empty_state(
+        &mut self,
+        node: &EmptyStateNode,
+        theme: &Theme,
+        ds: &DesignSystem,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let mut empty = EmptyState::new(node.title.clone());
+        if let Some(description) = &node.description {
+            empty = empty.description(description.clone());
+        }
+        if let Some(icon) = &node.icon {
+            empty = empty.icon(icon.clone());
+        }
+        if let Some(action) = &node.action {
+            empty = empty.action(self.render_node(action, theme, ds, cx));
+        }
+        empty.into_any_element()
+    }
+
+    fn render_dialog(
+        &mut self,
+        node: &DialogNode,
+        theme: &Theme,
+        ds: &DesignSystem,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let size = match node.size.as_str() {
+            "sm" => DialogSize::Sm,
+            "lg" => DialogSize::Lg,
+            "xl" => DialogSize::Xl,
+            "full" => DialogSize::Full,
+            _ => DialogSize::Md,
+        };
+        let content = div().flex().flex_col().children(
+            node.content.iter().map(|child| self.render_node(child, theme, ds, cx)),
+        );
+        let footer = div().flex().items_center().gap(px(ds.spacing.control_gap)).children(
+            node.footer.iter().map(|child| self.render_node(child, theme, ds, cx)),
+        );
+        let mut dialog = Dialog::new(ElementId::Name(format!("python-dialog-{}", node.id).into()))
+            .size(size)
+            .content(content)
+            .footer(footer)
+            .show_close_button(node.show_close_button)
+            .close_on_backdrop(node.close_on_backdrop);
+        if let Some(title) = &node.title {
+            dialog = dialog.title(title.clone());
+        }
+        if let (Some(sink), Some(action)) = (
+            self.session.as_ref().map(|session| session.event_sink()),
+            node.close_action.clone(),
+        ) {
+            let node_id = node.id.clone();
+            dialog = dialog.on_close(move |_, _| {
+                let _ = sink.dispatch(node_id.clone(), "close", Some(action.clone()), Value::Null);
+            });
+        }
+        dialog.into_any_element()
+    }
+
+    fn render_confirm_dialog(&self, node: &ConfirmDialogNode, cx: &mut Context<Self>) -> AnyElement {
+        let variant = match node.variant.as_str() {
+            "destructive" => ConfirmDialogVariant::Destructive,
+            "warning" => ConfirmDialogVariant::Warning,
+            _ => ConfirmDialogVariant::Default,
+        };
+        let mut dialog = ConfirmDialog::new(ElementId::Name(format!("python-confirm-dialog-{}", node.id).into()))
+            .message(node.message.clone())
+            .variant(variant)
+            .confirm_label(node.confirm_label.clone())
+            .cancel_label(node.cancel_label.clone())
+            .focus_handle(cx.focus_handle());
+        if let Some(title) = &node.title { dialog = dialog.title(title.clone()); }
+        if let (Some(sink), Some(action)) = (
+            self.session.as_ref().map(|session| session.event_sink()), node.confirm_action.clone(),
+        ) {
+            let node_id = node.id.clone();
+            dialog = dialog.on_confirm(move |_, _| {
+                let _ = sink.dispatch(node_id.clone(), "confirm", Some(action.clone()), Value::Null);
+            });
+        }
+        if let (Some(sink), Some(action)) = (
+            self.session.as_ref().map(|session| session.event_sink()), node.cancel_action.clone(),
+        ) {
+            let node_id = node.id.clone();
+            dialog = dialog.on_cancel(move |_, _| {
+                let _ = sink.dispatch(node_id.clone(), "cancel", Some(action.clone()), Value::Null);
+            });
+        }
+        dialog.into_any_element()
+    }
+
+    fn menu_items(items: &[MenuItemNode]) -> Vec<MenuItem> {
+        items
+            .iter()
+            .map(|item| {
+                if item.separator {
+                    return MenuItem::separator();
+                }
+                let mut rendered = if item.checkbox {
+                    MenuItem::checkbox(item.id.clone(), item.label.clone(), item.checked)
+                } else {
+                    MenuItem::new(item.id.clone(), item.label.clone())
+                }
+                .disabled(item.disabled);
+                if let Some(shortcut) = &item.shortcut {
+                    rendered = rendered.with_shortcut(shortcut.clone());
+                }
+                if item.danger {
+                    rendered = rendered.danger();
+                }
+                if !item.children.is_empty() {
+                    rendered = rendered.with_children(Self::menu_items(&item.children));
+                }
+                rendered
+            })
+            .collect()
+    }
+
+    fn render_context_menu(&self, node: &ContextMenuNode, cx: &mut Context<Self>) -> AnyElement {
+        let mut menu = ContextMenu::new(
+            ElementId::Name(format!("python-context-menu-{}", node.id).into()),
+            Self::menu_items(&node.items),
+        )
+        .position(point(px(node.position[0]), px(node.position[1])))
+        .min_width(px(node.min_width));
+        menu = menu.focus_handle(cx.focus_handle());
+        if let Some(index) = node.focused_index { menu = menu.focused_index(index); }
+        if let (Some(sink), Some(action)) = (
+            self.session.as_ref().map(|session| session.event_sink()),
+            node.action.clone(),
+        ) {
+            let node_id = node.id.clone();
+            menu = menu.on_select(move |item_id, _, _| {
+                let _ = sink.dispatch(node_id.clone(), "select", Some(action.clone()), serde_json::json!({"item_id": item_id.as_ref()}));
+            });
+        }
+        if let (Some(sink), Some(action)) = (
+            self.session.as_ref().map(|session| session.event_sink()),
+            node.close_action.clone(),
+        ) {
+            let node_id = node.id.clone();
+            menu = menu.on_close(move |_, _| {
+                let _ = sink.dispatch(node_id.clone(), "close", Some(action.clone()), Value::Null);
+            });
+        }
+        if let (Some(sink), Some(action)) = (
+            self.session.as_ref().map(|session| session.event_sink()),
+            node.focus_action.clone(),
+        ) {
+            let node_id = node.id.clone();
+            menu = menu.on_focus_change(move |index, _, _| {
+                let _ = sink.dispatch(node_id.clone(), "focus", Some(action.clone()), serde_json::json!({"index": index}));
+            });
+        }
+        menu.into_any_element()
+    }
+
+    fn render_menu(&self, node: &MenuNode, cx: &mut Context<Self>) -> AnyElement {
+        let mut menu = Menu::new(
+            ElementId::Name(format!("python-menu-{}", node.id).into()),
+            Self::menu_items(&node.items),
+        )
+        .min_width(px(node.min_width))
+        .focus_handle(cx.focus_handle());
+        if let Some(index) = node.focused_index { menu = menu.focused_index(index); }
+        if let (Some(sink), Some(action)) = (
+            self.session.as_ref().map(|session| session.event_sink()), node.action.clone(),
+        ) {
+            let node_id = node.id.clone();
+            menu = menu.on_select(move |item_id, _, _| {
+                let _ = sink.dispatch(node_id.clone(), "select", Some(action.clone()), serde_json::json!({"item_id": item_id.as_ref()}));
+            });
+        }
+        if let (Some(sink), Some(action)) = (
+            self.session.as_ref().map(|session| session.event_sink()), node.close_action.clone(),
+        ) {
+            let node_id = node.id.clone();
+            menu = menu.on_close(move |_, _| {
+                let _ = sink.dispatch(node_id.clone(), "close", Some(action.clone()), Value::Null);
+            });
+        }
+        if let (Some(sink), Some(action)) = (
+            self.session.as_ref().map(|session| session.event_sink()), node.focus_action.clone(),
+        ) {
+            let node_id = node.id.clone();
+            menu = menu.on_focus_change(move |index, _, _| {
+                let _ = sink.dispatch(node_id.clone(), "focus", Some(action.clone()), serde_json::json!({"index": index}));
+            });
+        }
+        menu.into_any_element()
+    }
+
+    fn render_menu_bar(&self, node: &MenuBarNode, cx: &mut Context<Self>) -> AnyElement {
+        let bar_items = node.items.iter().map(|item| {
+            MenuBarItem::new(item.id.clone(), item.label.clone()).with_items(Self::menu_items(&item.items))
+        }).collect();
+        let mut bar = MenuBar::new(bar_items).active_menu(node.active_menu.clone().map(Into::into));
+        if let (Some(sink), Some(action)) = (
+            self.session.as_ref().map(|session| session.event_sink()), node.toggle_action.clone(),
+        ) {
+            let node_id = node.id.clone();
+            bar = bar.on_menu_toggle(move |menu_id, _, _| {
+                let _ = sink.dispatch(node_id.clone(), "toggle", Some(action.clone()), serde_json::json!({"menu_id": menu_id.map(|id| id.as_ref())}));
+            });
+        }
+        let mut rendered = div().relative().child(bar);
+        if let Some(active_id) = &node.active_menu
+            && let Some(active) = node.items.iter().find(|item| &item.id == active_id)
+        {
+            let mut menu = Menu::new(
+                ElementId::Name(format!("python-menu-bar-{}-{active_id}", node.id).into()),
+                Self::menu_items(&active.items),
+            )
+            .focus_handle(cx.focus_handle());
+            if let (Some(sink), Some(action)) = (
+                self.session.as_ref().map(|session| session.event_sink()), node.action.clone(),
+            ) {
+                let node_id = node.id.clone();
+                menu = menu.on_select(move |item_id, _, _| {
+                    let _ = sink.dispatch(node_id.clone(), "select", Some(action.clone()), serde_json::json!({"item_id": item_id.as_ref()}));
+                });
+            }
+            if let (Some(sink), Some(action)) = (
+                self.session.as_ref().map(|session| session.event_sink()), node.toggle_action.clone(),
+            ) {
+                let node_id = node.id.clone();
+                menu = menu.on_close(move |_, _| {
+                    let _ = sink.dispatch(node_id.clone(), "toggle", Some(action.clone()), serde_json::json!({"menu_id": Value::Null}));
+                });
+            }
+            rendered = rendered.child(div().absolute().top_full().left_0().mt_1().child(menu));
+        }
+        rendered.into_any_element()
+    }
+
+    fn render_popover(
+        &mut self,
+        node: &PopoverNode,
+        theme: &Theme,
+        ds: &DesignSystem,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let placement = match node.placement.as_str() {
+            "top" => PopoverPlacement::Top,
+            "left" => PopoverPlacement::Left,
+            "right" => PopoverPlacement::Right,
+            "top_start" => PopoverPlacement::TopStart,
+            "top_end" => PopoverPlacement::TopEnd,
+            "bottom_start" => PopoverPlacement::BottomStart,
+            "bottom_end" => PopoverPlacement::BottomEnd,
+            _ => PopoverPlacement::Bottom,
+        };
+        let content = div().flex().flex_col().children(
+            node.content.iter().map(|child| self.render_node(child, theme, ds, cx)),
+        );
+        let mut popover = Popover::new(ElementId::Name(format!("python-popover-{}", node.id).into()))
+            .placement(placement)
+            .content(content)
+            .show_backdrop(node.show_backdrop)
+            .focus_handle(cx.focus_handle());
+        if let Some(width) = node.width {
+            popover = popover.width(px(width));
+        }
+        if let (Some(sink), Some(action)) = (
+            self.session.as_ref().map(|session| session.event_sink()),
+            node.close_action.clone(),
+        ) {
+            let node_id = node.id.clone();
+            popover = popover.on_close(move |_, _| {
+                let _ = sink.dispatch(node_id.clone(), "close", Some(action.clone()), Value::Null);
+            });
+        }
+        div()
+            .relative()
+            .child(self.render_node(&node.trigger, theme, ds, cx))
+            .child(popover)
+            .into_any_element()
+    }
+
     pub(super) fn render_tabs(
         &mut self,
         node: &TabsNode,
@@ -2272,14 +3222,15 @@ impl PythonIrShowcase {
             format!("Tabs {tab_id}"),
             &AriaProps::with_role(AriaRole::Tablist),
         )
-            .track_focus(&focus_handle)
-            .focusable()
-            .flex()
-            .gap(px(ds.spacing.grid_unit))
-            .children(node.items.iter().enumerate().map(|(index, item)| {
-                let active = index == node.active;
-                let tab = apply_native_accessibility(
-                    div().id(ElementId::Name(
+        .track_focus(&focus_handle)
+        .focusable()
+        .flex()
+        .gap(px(ds.spacing.grid_unit))
+        .children(node.items.iter().enumerate().map(|(index, item)| {
+            let active = index == node.active;
+            let tab = apply_native_accessibility(
+                div()
+                    .id(ElementId::Name(
                         format!(
                             "python-tab-{}-{index}",
                             node.id.as_deref().unwrap_or("unbound")
@@ -2300,52 +3251,48 @@ impl PythonIrShowcase {
                         theme.text_primary
                     })
                     .child(item.clone()),
-                    item.clone(),
-                    &AriaProps::with_role(AriaRole::Tab)
-                        .maybe_state(active, AriaState::Selected(true)),
-                );
-                if let (Some(sink), Some(node_id)) = (
-                    sink.clone(),
-                    node_id.clone(),
-                ) {
-                    let action = node.action.clone();
-                    let item = item.clone();
-                    let click_focus = focus_handle.clone();
-                    tab.cursor_pointer().on_click(move |_, window, cx| {
-                        click_focus.focus(window, cx);
-                        let _ = sink.dispatch(
-                            node_id.clone(),
-                            "change",
-                            action.clone(),
-                            serde_json::json!({"index": index, "item": item}),
-                        );
-                    })
-                } else {
-                    tab
-                }
-            }))
-            .on_key_down(move |event: &KeyDownEvent, window, cx| {
-                if !focus_handle.is_focused(window) || items.is_empty() {
-                    return;
-                }
-                let next = match event.keystroke.key.as_str() {
-                    "left" => active.saturating_sub(1),
-                    "right" => (active + 1).min(items.len() - 1),
-                    "home" => 0,
-                    "end" => items.len() - 1,
-                    _ => return,
-                };
-                if let (Some(sink), Some(node_id)) = (&sink, node_id.as_ref()) {
+                item.clone(),
+                &AriaProps::with_role(AriaRole::Tab).maybe_state(active, AriaState::Selected(true)),
+            );
+            if let (Some(sink), Some(node_id)) = (sink.clone(), node_id.clone()) {
+                let action = node.action.clone();
+                let item = item.clone();
+                let click_focus = focus_handle.clone();
+                tab.cursor_pointer().on_click(move |_, window, cx| {
+                    click_focus.focus(window, cx);
                     let _ = sink.dispatch(
                         node_id.clone(),
                         "change",
                         action.clone(),
-                        serde_json::json!({"index": next, "item": items[next].clone()}),
+                        serde_json::json!({"index": index, "item": item}),
                     );
-                    cx.stop_propagation();
-                }
-            })
-            .into_any_element()
+                })
+            } else {
+                tab
+            }
+        }))
+        .on_key_down(move |event: &KeyDownEvent, window, cx| {
+            if !focus_handle.is_focused(window) || items.is_empty() {
+                return;
+            }
+            let next = match event.keystroke.key.as_str() {
+                "left" => active.saturating_sub(1),
+                "right" => (active + 1).min(items.len() - 1),
+                "home" => 0,
+                "end" => items.len() - 1,
+                _ => return,
+            };
+            if let (Some(sink), Some(node_id)) = (&sink, node_id.as_ref()) {
+                let _ = sink.dispatch(
+                    node_id.clone(),
+                    "change",
+                    action.clone(),
+                    serde_json::json!({"index": next, "item": items[next].clone()}),
+                );
+                cx.stop_propagation();
+            }
+        })
+        .into_any_element()
     }
 
     fn render_stepper(&self, node: &StepperNode, theme: &Theme, ds: &DesignSystem) -> AnyElement {
@@ -2356,19 +3303,32 @@ impl PythonIrShowcase {
                 let active = index == node.active;
                 let disabled = node.disabled_steps.contains(&index);
                 let mut item = div()
-                    .id(ElementId::Name(format!("python-stepper-{}-{index}", node.id).into()))
+                    .id(ElementId::Name(
+                        format!("python-stepper-{}-{index}", node.id).into(),
+                    ))
                     .flex()
                     .items_center()
                     .gap(px(ds.spacing.grid_unit))
                     .px(px(ds.spacing.control_padding_x))
                     .py(px(ds.spacing.control_padding_y))
                     .rounded(px(ds.corners.md))
-                    .bg(if active { theme.accent } else { theme.surface_hover })
-                    .text_color(if active { theme.text_on_accent } else if disabled { theme.text_muted } else { theme.text_primary })
+                    .bg(if active {
+                        theme.accent
+                    } else {
+                        theme.surface_hover
+                    })
+                    .text_color(if active {
+                        theme.text_on_accent
+                    } else if disabled {
+                        theme.text_muted
+                    } else {
+                        theme.text_primary
+                    })
                     .child(format!("{}  {}", index + 1, step));
                 if disabled {
                     item = item.cursor_not_allowed();
-                } else if let Some(sink) = self.session.as_ref().map(|session| session.event_sink()) {
+                } else if let Some(sink) = self.session.as_ref().map(|session| session.event_sink())
+                {
                     let node_id = node.id.clone();
                     let action = node.action.clone();
                     let step = step.clone();
@@ -2402,7 +3362,8 @@ impl PythonIrShowcase {
                         .iter()
                         .map(|child| self.render_node(child, theme, ds, cx)),
                 );
-                let mut native = AccordionItem::new(item.id.clone(), item.title.clone()).content(content);
+                let mut native =
+                    AccordionItem::new(item.id.clone(), item.title.clone()).content(content);
                 if item.disabled {
                     native = native.disabled(true);
                 }
@@ -2412,9 +3373,13 @@ impl PythonIrShowcase {
                 native
             })
             .collect();
-        let mut accordion = Accordion::new()
-            .items(items)
-            .expanded(node.expanded.iter().cloned().map(SharedString::from).collect());
+        let mut accordion = Accordion::new().items(items).expanded(
+            node.expanded
+                .iter()
+                .cloned()
+                .map(SharedString::from)
+                .collect(),
+        );
         if node.multiple {
             accordion = accordion.mode(AccordionMode::Multiple);
         }
@@ -2445,14 +3410,18 @@ impl PythonIrShowcase {
             let row_value = row.value.clone();
             let remove = if node.disabled || row.disabled || node.remove_action.is_none() {
                 div()
-                    .id(ElementId::Name(format!("python-list-remove-{}-{}", node.id, row.id).into()))
+                    .id(ElementId::Name(
+                        format!("python-list-remove-{}-{}", node.id, row.id).into(),
+                    ))
                     .text_color(theme.text_muted)
                     .child("Remove")
             } else if let Some(sink) = self.session.as_ref().map(|session| session.event_sink()) {
                 let list_id = node.id.clone();
                 let action = node.remove_action.clone();
                 div()
-                    .id(ElementId::Name(format!("python-list-remove-{}-{}", node.id, row.id).into()))
+                    .id(ElementId::Name(
+                        format!("python-list-remove-{}-{}", node.id, row.id).into(),
+                    ))
                     .px(px(ds.spacing.grid_unit))
                     .py(px(ds.spacing.grid_unit / 2.0))
                     .rounded(px(ds.corners.sm))
@@ -2470,7 +3439,9 @@ impl PythonIrShowcase {
                     })
             } else {
                 div()
-                    .id(ElementId::Name(format!("python-list-remove-{}-{}", node.id, row.id).into()))
+                    .id(ElementId::Name(
+                        format!("python-list-remove-{}-{}", node.id, row.id).into(),
+                    ))
                     .text_color(theme.text_muted)
                     .child("Remove")
             };
@@ -2479,18 +3450,18 @@ impl PythonIrShowcase {
                 .items_center()
                 .justify_between()
                 .gap(px(ds.spacing.control_gap))
-                .child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .child(row.label.clone())
-                        .children(row.validation.as_ref().map(|validation| {
-                            div()
-                                .text_size(px(ds.typography.small_size))
-                                .text_color(if validation.severity == "error" { theme.error } else { theme.warning })
-                                .child(validation.message.clone())
-                        })),
-                )
+                .child(div().flex().flex_col().child(row.label.clone()).children(
+                    row.validation.as_ref().map(|validation| {
+                        div()
+                            .text_size(px(ds.typography.small_size))
+                            .text_color(if validation.severity == "error" {
+                                theme.error
+                            } else {
+                                theme.warning
+                            })
+                            .child(validation.message.clone())
+                    }),
+                ))
                 .child(remove);
             if row.disabled {
                 content = content.opacity(0.5);
@@ -2507,7 +3478,11 @@ impl PythonIrShowcase {
             if let Some(sink) = self.session.as_ref().map(|session| session.event_sink()) {
                 let list_id = node.id.clone();
                 let action = node.reorder_action.clone();
-                let row_ids = node.rows.iter().map(|row| row.id.clone()).collect::<Vec<_>>();
+                let row_ids = node
+                    .rows
+                    .iter()
+                    .map(|row| row.id.clone())
+                    .collect::<Vec<_>>();
                 list = list.on_reorder(move |from, to, _, _| {
                     let _ = sink.dispatch(
                         list_id.clone(),
@@ -2542,7 +3517,9 @@ impl PythonIrShowcase {
                 let list_id = node.id.clone();
                 editor = editor.child(
                     div()
-                        .id(ElementId::Name(format!("python-list-add-{}", node.id).into()))
+                        .id(ElementId::Name(
+                            format!("python-list-add-{}", node.id).into(),
+                        ))
                         .px(px(ds.spacing.control_padding_x))
                         .py(px(ds.spacing.control_padding_y))
                         .rounded(px(ds.corners.sm))
@@ -2551,7 +3528,12 @@ impl PythonIrShowcase {
                         .cursor_pointer()
                         .child(node.add_label.clone().unwrap_or_else(|| "Add row".into()))
                         .on_click(move |_, _, _| {
-                            let _ = sink.dispatch(list_id.clone(), "add", Some(action.clone()), Value::Null);
+                            let _ = sink.dispatch(
+                                list_id.clone(),
+                                "add",
+                                Some(action.clone()),
+                                Value::Null,
+                            );
                         }),
                 );
             }
@@ -2575,12 +3557,12 @@ impl PythonIrShowcase {
             format!("Table {dom_id}"),
             &AriaProps::with_role(AriaRole::Table),
         )
-            .flex()
-            .flex_col()
-            .rounded(px(ds.corners.md))
-            .border_1()
-            .border_color(theme.border)
-            .overflow_hidden();
+        .flex()
+        .flex_col()
+        .rounded(px(ds.corners.md))
+        .border_1()
+        .border_color(theme.border)
+        .overflow_hidden();
 
         if node.columns.is_empty() {
             if !node.headers.is_empty() {
@@ -2591,7 +3573,11 @@ impl PythonIrShowcase {
         }
 
         let offset = node.row_offset;
-        let total_rows = if node.typed_rows.is_empty() { node.rows.len() } else { node.typed_rows.len() };
+        let total_rows = if node.typed_rows.is_empty() {
+            node.rows.len()
+        } else {
+            node.typed_rows.len()
+        };
         let available = total_rows.saturating_sub(offset);
         // A supplied row limit remains useful for remote/application-windowed
         // tables. Otherwise UniformList virtualizes the whole retained data
@@ -2605,7 +3591,10 @@ impl PythonIrShowcase {
                     .skip(offset)
                     .take(visible_count)
                     .map(|(index, cells)| {
-                        let cells = cells.iter().map(|cell| Value::String(cell.clone())).collect::<Vec<_>>();
+                        let cells = cells
+                            .iter()
+                            .map(|cell| Value::String(cell.clone()))
+                            .collect::<Vec<_>>();
                         (format!("row-{index}"), cells, false)
                     })
                     .collect::<Vec<_>>()
@@ -2637,7 +3626,10 @@ impl PythonIrShowcase {
             columns.sort_by_key(|(_, column)| !column.pinned);
             let column_widths = self.table_column_widths.clone();
             let table_id = table_id.clone();
-            let action = node.selection_action.clone().or_else(|| node.row_action.clone());
+            let action = node
+                .selection_action
+                .clone()
+                .or_else(|| node.row_action.clone());
             let sink = self.session.as_ref().map(|session| session.event_sink());
             let keyboard_rows = rows
                 .iter()
@@ -2721,28 +3713,32 @@ impl PythonIrShowcase {
                     keyboard_rows.iter().position(|row_id| row_id == selected)
                 });
                 let key_focus = focus_handle.clone();
-                table = table
-                    .track_focus(&focus_handle)
-                    .focusable()
-                    .on_key_down(move |event: &KeyDownEvent, window, cx| {
+                table = table.track_focus(&focus_handle).focusable().on_key_down(
+                    move |event: &KeyDownEvent, window, cx| {
                         if !key_focus.is_focused(window) {
                             return;
                         }
-                        let Some(navigation) = DataNavigationAction::from_key(event.keystroke.key.as_str()) else {
+                        let Some(navigation) =
+                            DataNavigationAction::from_key(event.keystroke.key.as_str())
+                        else {
                             return;
                         };
                         let next = match navigation {
                             DataNavigationAction::Previous
                             | DataNavigationAction::Next
                             | DataNavigationAction::First
-                            | DataNavigationAction::Last => DataNavigationState::new(keyboard_rows.len())
-                                .selected_index(selected_index)
-                                .move_selection(navigation),
+                            | DataNavigationAction::Last => {
+                                DataNavigationState::new(keyboard_rows.len())
+                                    .selected_index(selected_index)
+                                    .move_selection(navigation)
+                            }
                             DataNavigationAction::Activate => selected_index,
                             _ => None,
                         };
                         let Some(index) = next else { return };
-                        let Some(row_id) = keyboard_rows.get(index) else { return };
+                        let Some(row_id) = keyboard_rows.get(index) else {
+                            return;
+                        };
                         if let Some(sink) = &sink {
                             let _ = sink.dispatch(
                                 table_id.clone(),
@@ -2752,7 +3748,8 @@ impl PythonIrShowcase {
                             );
                             cx.stop_propagation();
                         }
-                    });
+                    },
+                );
             }
             if total_rows > visible_count {
                 table = table.child(
@@ -2761,20 +3758,44 @@ impl PythonIrShowcase {
                         .py(px(ds.spacing.grid_unit))
                         .text_size(px(ds.typography.small_size))
                         .text_color(theme.text_muted)
-                        .child(format!("Virtualized rows {}–{} of {total_rows}", offset + 1, offset + visible_count)),
+                        .child(format!(
+                            "Virtualized rows {}–{} of {total_rows}",
+                            offset + 1,
+                            offset + visible_count
+                        )),
                 );
             }
         } else {
             // Legacy tables without stable IDs cannot safely preserve native
             // scroll/selection state, so retain the bounded static renderer.
             if node.typed_rows.is_empty() {
-                for (index, row) in node.rows.iter().enumerate().skip(offset).take(visible_count) {
-                    table = table.child(self.render_table_row(row, index + 1, false, &node.columns, theme, ds));
+                for (index, row) in node
+                    .rows
+                    .iter()
+                    .enumerate()
+                    .skip(offset)
+                    .take(visible_count)
+                {
+                    table = table.child(self.render_table_row(
+                        row,
+                        index + 1,
+                        false,
+                        &node.columns,
+                        theme,
+                        ds,
+                    ));
                 }
             } else {
                 for row in node.typed_rows.iter().skip(offset).take(visible_count) {
                     let cells = row.cells.iter().map(table_cell_text).collect::<Vec<_>>();
-                    table = table.child(self.render_table_row(&cells, 0, false, &node.columns, theme, ds));
+                    table = table.child(self.render_table_row(
+                        &cells,
+                        0,
+                        false,
+                        &node.columns,
+                        theme,
+                        ds,
+                    ));
                 }
             }
         }
@@ -2977,16 +3998,23 @@ impl PythonIrShowcase {
         let interaction = match node.chart {
             ChartKind::Scatter | ChartKind::Line => {
                 let ((x_min, x_max), (y_min, y_max)) = cartesian_chart_domains(node);
-                Some(self.chart_interactions.entry(node.id.clone()).or_insert_with(|| {
-                    InteractiveChartState::new(x_min, x_max, y_min, y_max)
-                        .with_log_x(node.x_log)
-                        .with_log_y(node.y_log)
-                        .with_size(node.width, node.height)
-                }).clone())
+                Some(
+                    self.chart_interactions
+                        .entry(node.id.clone())
+                        .or_insert_with(|| {
+                            InteractiveChartState::new(x_min, x_max, y_min, y_max)
+                                .with_log_x(node.x_log)
+                                .with_log_y(node.y_log)
+                                .with_size(node.width, node.height)
+                        })
+                        .clone(),
+                )
             }
             ChartKind::Bar | ChartKind::Heatmap => None,
         };
-        let active_domains = interaction.as_ref().map(|state| (state.x_domain(), state.y_domain()));
+        let active_domains = interaction
+            .as_ref()
+            .map(|state| (state.x_domain(), state.y_domain()));
         let visible_series = node
             .series
             .iter()
@@ -3103,7 +4131,11 @@ impl PythonIrShowcase {
             ChartKind::Heatmap => {
                 let raw_z = node.z.as_deref().unwrap_or_default();
                 let missing_count = raw_z.iter().filter(|value| value.is_none()).count();
-                let fallback = raw_z.iter().flatten().copied().fold(f64::INFINITY, f64::min);
+                let fallback = raw_z
+                    .iter()
+                    .flatten()
+                    .copied()
+                    .fold(f64::INFINITY, f64::min);
                 let z = raw_z
                     .iter()
                     .map(|value| value.unwrap_or(fallback))
@@ -3148,7 +4180,11 @@ impl PythonIrShowcase {
                         let top = if node.title.is_empty() { 10.0 } else { 34.0 };
                         let cell_width = ((node.width - left - 20.0) / width as f32).max(1.0);
                         let cell_height = ((node.height - top - 30.0) / height as f32).max(1.0);
-                        for (index, _value) in raw_z.iter().enumerate().filter(|(_, value)| value.is_none()) {
+                        for (index, _value) in raw_z
+                            .iter()
+                            .enumerate()
+                            .filter(|(_, value)| value.is_none())
+                        {
                             let column = index % width;
                             let row = index / width;
                             heatmap_element = heatmap_element.child(
@@ -3189,7 +4225,10 @@ impl PythonIrShowcase {
                             div()
                                 .text_size(px(ds.typography.small_size))
                                 .text_color(theme.text_muted)
-                                .child(format!("{missing_count} missing cell{} shown in neutral gray", if missing_count == 1 { "" } else { "s" })),
+                                .child(format!(
+                                    "{missing_count} missing cell{} shown in neutral gray",
+                                    if missing_count == 1 { "" } else { "s" }
+                                )),
                         );
                     }
                     container.into_any_element()
@@ -3200,9 +4239,9 @@ impl PythonIrShowcase {
         let chart = result.unwrap_or_else(|error| {
             self.render_error(&format!("chart {}: {error}", node.id), theme, ds)
         });
-        let inspection = interaction
-            .as_ref()
-            .and_then(|state| chart_inspection(node, state, self.chart_hidden_series.get(&node.id)));
+        let inspection = interaction.as_ref().and_then(|state| {
+            chart_inspection(node, state, self.chart_hidden_series.get(&node.id))
+        });
         let chart = match interaction {
             Some(state) => interactive(
                 ElementId::Name(format!("python-chart-{}", node.id).into()),
@@ -3256,7 +4295,10 @@ impl PythonIrShowcase {
                         .border_color(theme.border)
                         .text_size(px(ds.typography.small_size))
                         .text_color(theme.text_primary)
-                        .child(format!("{}: x={:.5}, y={:.5}", inspection.series, inspection.x, inspection.y)),
+                        .child(format!(
+                            "{}: x={:.5}, y={:.5}",
+                            inspection.series, inspection.x, inspection.y
+                        )),
                 )
                 .into_any_element()
         } else {
@@ -3266,36 +4308,56 @@ impl PythonIrShowcase {
         let csv = chart_csv(node, locally_hidden);
         let svg = chart_svg(node, active_domains, locally_hidden);
         let png = chart_png(node, active_domains, locally_hidden);
-        let legend = matches!(node.chart, ChartKind::Scatter | ChartKind::Line)
-            .then(|| {
-                div()
-                    .flex()
-                    .flex_wrap()
-                    .gap(px(ds.spacing.grid_unit))
-                    .children(node.series.iter().map(|series| {
-                        let chart_id = node.id.clone();
-                        let series_id = series.id.clone();
-                        let selected = self.chart_series_is_visible(&chart_id, series);
-                        let color = rgb(hex_color(series.color.as_deref(), if matches!(node.chart, ChartKind::Line) { 0xff7f0e } else { 0x1f77b4 }));
-                        div()
-                            .id(ElementId::Name(format!("python-chart-legend-{chart_id}-{series_id}").into()))
-                            .flex()
-                            .items_center()
-                            .gap(px(ds.spacing.grid_unit / 2.0))
-                            .px(px(ds.spacing.grid_unit))
-                            .py(px(ds.spacing.grid_unit / 2.0))
-                            .rounded(px(ds.corners.sm))
-                            .cursor_pointer()
-                            .bg(if selected { theme.surface_hover } else { theme.muted })
-                            .text_color(if selected { theme.text_primary } else { theme.text_muted })
-                            .child(div().w(px(10.0)).h(px(10.0)).rounded_full().bg(color))
-                            .child(if series.label.is_empty() { series.id.clone() } else { series.label.clone() })
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.toggle_chart_series(&chart_id, &series_id);
-                                cx.notify();
-                            }))
-                    }))
-            });
+        let legend = matches!(node.chart, ChartKind::Scatter | ChartKind::Line).then(|| {
+            div()
+                .flex()
+                .flex_wrap()
+                .gap(px(ds.spacing.grid_unit))
+                .children(node.series.iter().map(|series| {
+                    let chart_id = node.id.clone();
+                    let series_id = series.id.clone();
+                    let selected = self.chart_series_is_visible(&chart_id, series);
+                    let color = rgb(hex_color(
+                        series.color.as_deref(),
+                        if matches!(node.chart, ChartKind::Line) {
+                            0xff7f0e
+                        } else {
+                            0x1f77b4
+                        },
+                    ));
+                    div()
+                        .id(ElementId::Name(
+                            format!("python-chart-legend-{chart_id}-{series_id}").into(),
+                        ))
+                        .flex()
+                        .items_center()
+                        .gap(px(ds.spacing.grid_unit / 2.0))
+                        .px(px(ds.spacing.grid_unit))
+                        .py(px(ds.spacing.grid_unit / 2.0))
+                        .rounded(px(ds.corners.sm))
+                        .cursor_pointer()
+                        .bg(if selected {
+                            theme.surface_hover
+                        } else {
+                            theme.muted
+                        })
+                        .text_color(if selected {
+                            theme.text_primary
+                        } else {
+                            theme.text_muted
+                        })
+                        .child(div().w(px(10.0)).h(px(10.0)).rounded_full().bg(color))
+                        .child(if series.label.is_empty() {
+                            series.id.clone()
+                        } else {
+                            series.label.clone()
+                        })
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.toggle_chart_series(&chart_id, &series_id);
+                            cx.notify();
+                        }))
+                }))
+        });
         div()
             .flex()
             .flex_col()
@@ -3304,7 +4366,9 @@ impl PythonIrShowcase {
             .children(legend)
             .child(
                 div()
-                    .id(ElementId::Name(format!("python-chart-export-{}", node.id).into()))
+                    .id(ElementId::Name(
+                        format!("python-chart-export-{}", node.id).into(),
+                    ))
                     .self_start()
                     .px(px(ds.spacing.grid_unit))
                     .py(px(ds.spacing.grid_unit / 2.0))
@@ -3319,14 +4383,19 @@ impl PythonIrShowcase {
                         let csv = csv.clone();
                         cx.spawn(async move |_, _| {
                             if let Ok(Ok(Some(path))) = receiver.await {
-                                std::thread::spawn(move || { let _ = std::fs::write(path, csv); });
+                                std::thread::spawn(move || {
+                                    let _ = std::fs::write(path, csv);
+                                });
                             }
-                        }).detach();
+                        })
+                        .detach();
                     })),
             )
             .child(
                 div()
-                    .id(ElementId::Name(format!("python-chart-export-svg-{}", node.id).into()))
+                    .id(ElementId::Name(
+                        format!("python-chart-export-svg-{}", node.id).into(),
+                    ))
                     .self_start()
                     .px(px(ds.spacing.grid_unit))
                     .py(px(ds.spacing.grid_unit / 2.0))
@@ -3341,14 +4410,19 @@ impl PythonIrShowcase {
                         let svg = svg.clone();
                         cx.spawn(async move |_, _| {
                             if let Ok(Ok(Some(path))) = receiver.await {
-                                std::thread::spawn(move || { let _ = std::fs::write(path, svg); });
+                                std::thread::spawn(move || {
+                                    let _ = std::fs::write(path, svg);
+                                });
                             }
-                        }).detach();
+                        })
+                        .detach();
                     })),
             )
             .child(
                 div()
-                    .id(ElementId::Name(format!("python-chart-export-png-{}", node.id).into()))
+                    .id(ElementId::Name(
+                        format!("python-chart-export-png-{}", node.id).into(),
+                    ))
                     .self_start()
                     .px(px(ds.spacing.grid_unit))
                     .py(px(ds.spacing.grid_unit / 2.0))
@@ -3363,9 +4437,12 @@ impl PythonIrShowcase {
                         let png = png.clone();
                         cx.spawn(async move |_, _| {
                             if let Ok(Ok(Some(path))) = receiver.await {
-                                std::thread::spawn(move || { let _ = std::fs::write(path, png); });
+                                std::thread::spawn(move || {
+                                    let _ = std::fs::write(path, png);
+                                });
                             }
-                        }).detach();
+                        })
+                        .detach();
                     })),
             )
             .into_any_element()
@@ -3440,13 +4517,29 @@ impl PythonIrShowcase {
 
         match self.gpui_3d.surface_element(&spec) {
             Ok(element) => {
-                let range = spec.z_range.map(|range| (range.min, range.max)).unwrap_or_else(|| {
-                    spec.z.values.iter().copied().fold((f64::INFINITY, f64::NEG_INFINITY), |(min, max), value| (min.min(value), max.max(value)))
-                });
+                let range = spec
+                    .z_range
+                    .map(|range| (range.min, range.max))
+                    .unwrap_or_else(|| {
+                        spec.z
+                            .values
+                            .iter()
+                            .copied()
+                            .fold((f64::INFINITY, f64::NEG_INFINITY), |(min, max), value| {
+                                (min.min(value), max.max(value))
+                            })
+                    });
                 div()
                     .size_full()
                     .flex()
-                    .child(div().flex_1().child(interactive_3d_view(&spec.id, element.clone(), element.state(), &spec.interactions, theme, ds)))
+                    .child(div().flex_1().child(interactive_3d_view(
+                        &spec.id,
+                        element.clone(),
+                        element.state(),
+                        &spec.interactions,
+                        theme,
+                        ds,
+                    )))
                     .child(scalar_colorbar(spec.labels.z.as_deref(), range, theme, ds))
                     .into_any_element()
             }
@@ -3470,7 +4563,16 @@ impl PythonIrShowcase {
             Ok(element) => self
                 .gpui_3d
                 .lines_state(&spec.id)
-                .map(|state| interactive_3d_view(&spec.id, element.clone(), state, &spec.interactions, theme, ds))
+                .map(|state| {
+                    interactive_3d_view(
+                        &spec.id,
+                        element.clone(),
+                        state,
+                        &spec.interactions,
+                        theme,
+                        ds,
+                    )
+                })
                 .unwrap_or_else(|| element.into_any_element()),
             Err(error) => self.render_error(&error.to_string(), theme, ds),
         }
@@ -3492,14 +4594,30 @@ impl PythonIrShowcase {
                 let viewport = self
                     .gpui_3d
                     .mesh_state(&spec.id)
-                    .map(|state| interactive_3d_view(&spec.id, element.clone(), state, &[], theme, ds))
+                    .map(|state| {
+                        interactive_3d_view(&spec.id, element.clone(), state, &[], theme, ds)
+                    })
                     .unwrap_or_else(|| element.into_any_element());
                 if let Some(field) = &spec.scalar_field {
-                    let range = field.range.map(|range| (range.min, range.max)).unwrap_or_else(|| {
-                        field.values.iter().copied().fold((f64::INFINITY, f64::NEG_INFINITY), |(min, max), value| (min.min(value), max.max(value)))
-                    });
-                    div().size_full().flex().child(div().flex_1().child(viewport)).child(scalar_colorbar(Some("Scalar"), range, theme, ds)).into_any_element()
-                } else { viewport }
+                    let range =
+                        field
+                            .range
+                            .map(|range| (range.min, range.max))
+                            .unwrap_or_else(|| {
+                                field.values.iter().copied().fold(
+                                    (f64::INFINITY, f64::NEG_INFINITY),
+                                    |(min, max), value| (min.min(value), max.max(value)),
+                                )
+                            });
+                    div()
+                        .size_full()
+                        .flex()
+                        .child(div().flex_1().child(viewport))
+                        .child(scalar_colorbar(Some("Scalar"), range, theme, ds))
+                        .into_any_element()
+                } else {
+                    viewport
+                }
             }
             Err(error) => self.render_error(&error.to_string(), theme, ds),
         }
@@ -3520,7 +4638,16 @@ impl PythonIrShowcase {
             Ok(element) => self
                 .gpui_3d
                 .scene_state(&spec.id)
-                .map(|state| interactive_3d_view(&spec.id, element.clone(), state, &spec.interactions, theme, ds))
+                .map(|state| {
+                    interactive_3d_view(
+                        &spec.id,
+                        element.clone(),
+                        state,
+                        &spec.interactions,
+                        theme,
+                        ds,
+                    )
+                })
                 .unwrap_or_else(|| element.into_any_element()),
             Err(error) => self.render_error(&error.to_string(), theme, ds),
         }
@@ -3546,6 +4673,411 @@ impl PythonIrShowcase {
             && let Err(error) = session.send(&HostMessage::EffectResult { request_id, result })
         {
             self.load_error = Some(error.to_string());
+        }
+    }
+
+    fn send_command_result(&mut self, request_id: String, result: Value) {
+        if let Some(session) = &self.session
+            && let Err(error) = session.send(&HostMessage::CommandResult { request_id, result })
+        {
+            self.load_error = Some(format!("failed to send command result: {error}"));
+        }
+    }
+
+    fn apply_editor_theme(&mut self, editor: &gpui_themes::EditorTheme, cx: &mut Context<Self>) {
+        // gpui-themes owns the complete editor/audio palette. GPUI widgets use
+        // this shared core palette, so map the corresponding tokens rather
+        // than reimplementing community-theme parsing in Python.
+        let mut theme = (*cx.theme()).clone();
+        theme.background = editor.background.to_rgba();
+        theme.surface = editor.surface.to_rgba();
+        theme.surface_hover = editor.surface_hover.to_rgba();
+        theme.muted = editor.background_secondary.to_rgba();
+        theme.text_primary = editor.text_primary.to_rgba();
+        theme.text_secondary = editor.text_secondary.to_rgba();
+        theme.text_muted = editor.text_muted.to_rgba();
+        theme.text_on_accent = editor.text_on_accent.to_rgba();
+        theme.border = editor.border.to_rgba();
+        theme.border_hover = editor.border_focused.to_rgba();
+        theme.accent = editor.accent.to_rgba();
+        theme.accent_hover = editor.accent_hover.to_rgba();
+        theme.accent_muted = editor.accent_muted.to_rgba();
+        theme.success = editor.success.to_rgba();
+        theme.warning = editor.warning.to_rgba();
+        theme.error = editor.error.to_rgba();
+        theme.info = editor.info.to_rgba();
+        cx.set_global(ThemeState { theme: Arc::new(theme) });
+        cx.refresh_windows();
+    }
+
+    fn handle_command(&mut self, request_id: String, command: String, arguments: Value, cx: &mut Context<Self>) {
+        match command.as_str() {
+            "runtime.capabilities" => self.send_command_result(
+                request_id,
+                serde_json::json!({
+                    "ok": true,
+                    "session_version": gpui_python_runtime::session::PYTHON_APP_SESSION_VERSION,
+                    "capabilities": gpui_python_runtime::session::DEFAULT_HOST_CAPABILITIES,
+                }),
+            ),
+            "d3.zoom" => {
+                let result = (|| -> Result<Value, String> {
+                    let original_x = command_domain(&arguments, "original_x")?;
+                    let original_y = command_domain(&arguments, "original_y")?;
+                    let mut zoom = d3rs::zoom::ZoomState::new(
+                        original_x.0, original_x.1, original_y.0, original_y.1,
+                    )
+                    .with_log_x(arguments.get("log_x").and_then(Value::as_bool).unwrap_or(false))
+                    .with_log_y(arguments.get("log_y").and_then(Value::as_bool).unwrap_or(false));
+                    let mut back_results = Vec::new();
+                    for operation in arguments.get("operations").and_then(Value::as_array).into_iter().flatten() {
+                        let kind = operation.get("kind").and_then(Value::as_str)
+                            .ok_or_else(|| "zoom operation requires kind".to_string())?;
+                        match kind {
+                            "zoom_to" => {
+                                let x = command_domain(operation, "x")?;
+                                let y = command_domain(operation, "y")?;
+                                zoom.zoom_to(x.0, x.1, y.0, y.1);
+                            }
+                            "reset" => zoom.reset(),
+                            "back" => back_results.push(zoom.zoom_back()),
+                            _ => return Err(format!("unsupported zoom operation: {kind}")),
+                        }
+                    }
+                    let x = zoom.x_domain();
+                    let y = zoom.y_domain();
+                    Ok(serde_json::json!({
+                        "ok": true, "x": [x.0, x.1], "y": [y.0, y.1],
+                        "zoomed": zoom.is_zoomed(), "level": zoom.zoom_level(),
+                        "back_results": back_results,
+                    }))
+                })();
+                match result {
+                    Ok(result) => self.send_command_result(request_id, result),
+                    Err(error) => self.send_command_result(request_id, serde_json::json!({"ok": false, "error": error})),
+                }
+            }
+            "d3.array" => {
+                let result = (|| -> Result<Value, String> {
+                    let data = command_numbers(&arguments, "data")?;
+                    let operation = arguments.get("operation").and_then(Value::as_str)
+                        .ok_or_else(|| "array command requires operation".to_string())?;
+                    let value = match operation {
+                        "bisect_left" => {
+                            let needle = arguments.get("value").and_then(Value::as_f64)
+                                .filter(|value| value.is_finite())
+                                .ok_or_else(|| "bisect requires a finite value".to_string())?;
+                            serde_json::json!(d3rs::array::bisect_left_f64(&data, needle))
+                        }
+                        "bisect_right" => {
+                            let needle = arguments.get("value").and_then(Value::as_f64)
+                                .filter(|value| value.is_finite())
+                                .ok_or_else(|| "bisect requires a finite value".to_string())?;
+                            serde_json::json!(d3rs::array::bisect_right_f64(&data, needle))
+                        }
+                        "quantile" => {
+                            let percentile = arguments.get("percentile").and_then(Value::as_f64)
+                                .ok_or_else(|| "quantile requires percentile".to_string())?;
+                            let mut sorted = data.clone();
+                            serde_json::json!(d3rs::array::quantile(&mut sorted, percentile))
+                        }
+                        _ => return Err(format!("unsupported array operation: {operation}")),
+                    };
+                    Ok(serde_json::json!({"ok": true, "value": value}))
+                })();
+                match result {
+                    Ok(result) => self.send_command_result(request_id, result),
+                    Err(error) => self.send_command_result(request_id, serde_json::json!({"ok": false, "error": error})),
+                }
+            }
+            "text.prepare_layout" => {
+                let result = (|| -> Result<Value, String> {
+                    let text = arguments.get("text").and_then(Value::as_str)
+                        .ok_or_else(|| "text layout requires text".to_string())?;
+                    let max_width = arguments.get("max_width").and_then(Value::as_f64)
+                        .filter(|value| value.is_finite() && *value > 0.0)
+                        .ok_or_else(|| "text layout requires positive finite max_width".to_string())?;
+                    let line_height = arguments.get("line_height").and_then(Value::as_f64).unwrap_or(16.0);
+                    let char_width = arguments.get("char_width").and_then(Value::as_f64).unwrap_or(8.0);
+                    if !line_height.is_finite() || line_height <= 0.0 || !char_width.is_finite() || char_width <= 0.0 {
+                        return Err("text layout line_height and char_width must be positive finite".into());
+                    }
+                    let measure = FixedTextMeasure(char_width);
+                    let mut profile = gpui_pretext::EngineProfile::default();
+                    if let Some(value) = arguments.get("profile").and_then(Value::as_object) {
+                        profile.line_fit_epsilon = value.get("line_fit_epsilon").and_then(Value::as_f64).unwrap_or(profile.line_fit_epsilon);
+                        profile.carry_cjk_after_closing_quote = value.get("carry_cjk_after_closing_quote").and_then(Value::as_bool).unwrap_or(profile.carry_cjk_after_closing_quote);
+                        profile.prefer_prefix_widths_for_breakable_runs = value.get("prefer_prefix_widths_for_breakable_runs").and_then(Value::as_bool).unwrap_or(profile.prefer_prefix_widths_for_breakable_runs);
+                        profile.prefer_early_soft_hyphen_break = value.get("prefer_early_soft_hyphen_break").and_then(Value::as_bool).unwrap_or(profile.prefer_early_soft_hyphen_break);
+                    }
+                    if !profile.line_fit_epsilon.is_finite() || profile.line_fit_epsilon < 0.0 {
+                        return Err("text layout profile line_fit_epsilon must be finite and non-negative".into());
+                    }
+                    let white_space = match arguments.get("options").and_then(|value| value.get("white_space")).and_then(Value::as_str).unwrap_or("normal") {
+                        "normal" => gpui_pretext::WhiteSpaceMode::Normal,
+                        "pre_wrap" => gpui_pretext::WhiteSpaceMode::PreWrap,
+                        _ => return Err("text layout white_space must be normal or pre_wrap".into()),
+                    };
+                    let mut options = gpui_pretext::PrepareOptions::default();
+                    options.white_space = white_space;
+                    let budget_value = arguments.get("budget").and_then(Value::as_object);
+                    let budget = gpui_pretext::TextBudget::new(
+                        budget_value.and_then(|value| value.get("max_input_bytes")).and_then(Value::as_u64).unwrap_or(16 * 1024 * 1024) as usize,
+                        budget_value.and_then(|value| value.get("max_graphemes")).and_then(Value::as_u64).unwrap_or(4_000_000) as usize,
+                        budget_value.and_then(|value| value.get("max_segments")).and_then(Value::as_u64).unwrap_or(1_000_000) as usize,
+                    );
+                    let prepared = gpui_pretext::prepare_with_segments_with_budget(
+                        text, &measure, &profile, &options, budget,
+                    ).map_err(|error| error.to_string())?;
+                    let mut kp = gpui_pretext::KnuthPlassParams::default();
+                    if let Some(value) = arguments.get("knuth_plass").and_then(Value::as_object) {
+                        kp.line_penalty = value.get("line_penalty").and_then(Value::as_f64).unwrap_or(kp.line_penalty);
+                        kp.hyphen_penalty = value.get("hyphen_penalty").and_then(Value::as_f64).unwrap_or(kp.hyphen_penalty);
+                        kp.flagged_demerits = value.get("flagged_demerits").and_then(Value::as_f64).unwrap_or(kp.flagged_demerits);
+                        kp.fitness_demerits = value.get("fitness_demerits").and_then(Value::as_f64).unwrap_or(kp.fitness_demerits);
+                        kp.tolerance = value.get("tolerance").and_then(Value::as_f64).unwrap_or(kp.tolerance);
+                        kp.looseness_recovery = value.get("looseness_recovery").and_then(Value::as_bool).unwrap_or(kp.looseness_recovery);
+                    }
+                    if ![kp.line_penalty, kp.hyphen_penalty, kp.flagged_demerits, kp.fitness_demerits, kp.tolerance].into_iter().all(f64::is_finite) || kp.tolerance < 0.0 {
+                        return Err("text layout Knuth-Plass parameters must be finite with non-negative tolerance".into());
+                    }
+                    let strategy = match arguments.get("strategy").and_then(Value::as_str).unwrap_or("greedy") {
+                        "greedy" => gpui_pretext::LineBreakStrategy::Greedy,
+                        "optimal" => gpui_pretext::LineBreakStrategy::Optimal,
+                        _ => return Err("text layout strategy must be greedy or optimal".into()),
+                    };
+                    let layout = gpui_pretext::layout_with_lines_and_strategy(
+                        &prepared, max_width, line_height, &profile, strategy, &kp,
+                    );
+                    let lines = layout.lines.into_iter().map(|line| serde_json::json!({
+                        "text": line.text, "width": line.width,
+                        "start": {"segment_index": line.start.segment_index, "grapheme_index": line.start.grapheme_index},
+                        "end": {"segment_index": line.end.segment_index, "grapheme_index": line.end.grapheme_index},
+                    })).collect::<Vec<_>>();
+                    Ok(serde_json::json!({
+                        "ok": true, "line_count": layout.line_count, "height": layout.height,
+                        "lines": lines, "segments": prepared.segments,
+                    }))
+                })();
+                match result {
+                    Ok(result) => self.send_command_result(request_id, result),
+                    Err(error) => self.send_command_result(request_id, serde_json::json!({"ok": false, "error": error})),
+                }
+            }
+            "builder.solve_chassis" => {
+                let result = (|| -> Result<Value, String> {
+                    let width = arguments.get("width").and_then(Value::as_f64)
+                        .filter(|value| value.is_finite() && *value >= 0.0)
+                        .ok_or_else(|| "builder chassis requires finite non-negative width".to_string())? as f32;
+                    let sections = arguments.get("sections").and_then(Value::as_array)
+                        .ok_or_else(|| "builder chassis requires sections".to_string())?
+                        .iter().map(|section| {
+                            let id = section.get("id").and_then(Value::as_str).filter(|value| !value.is_empty())
+                                .ok_or_else(|| "builder section requires id".to_string())?.to_string();
+                            let min_width = section.get("min_width").and_then(Value::as_f64)
+                                .filter(|value| value.is_finite() && *value >= 0.0)
+                                .ok_or_else(|| format!("builder section {id} requires min_width"))? as f32;
+                            let preferred_width = section.get("preferred_width").and_then(Value::as_f64)
+                                .filter(|value| value.is_finite() && *value >= min_width as f64)
+                                .ok_or_else(|| format!("builder section {id} requires preferred_width >= min_width"))? as f32;
+                            let priority = section.get("priority").and_then(Value::as_f64).unwrap_or(1.0);
+                            if !priority.is_finite() { return Err(format!("builder section {id} priority must be finite")); }
+                            Ok(gpui_builder::plugin_chassis::SectionSpec {
+                                id, eyebrow: String::new(), title: String::new(), caption: None, rows: Vec::new(),
+                                min_width, preferred_width, priority: priority as f32,
+                            })
+                        }).collect::<Result<Vec<_>, String>>()?;
+                    let chassis = gpui_builder::plugin_chassis::ChassisLayout::new(
+                        gpui_builder::plugin_chassis::HeaderSpec { brand_mark: String::new(), title: String::new(), subtitle: String::new() },
+                        sections,
+                    );
+                    let solved = chassis.solve(width);
+                    Ok(serde_json::json!({"ok": true, "total_width": solved.total_width, "sections": solved.sections.into_iter().map(|section| serde_json::json!({"id": section.id, "width": section.width, "visible": section.visible})).collect::<Vec<_>>() }))
+                })();
+                match result { Ok(result) => self.send_command_result(request_id, result), Err(error) => self.send_command_result(request_id, serde_json::json!({"ok": false, "error": error})) }
+            }
+            "design.tokens" => {
+                let result = (|| -> Result<Value, String> {
+                    let format = arguments.get("format").and_then(Value::as_str)
+                        .ok_or_else(|| "design-token command requires format".to_string())?;
+                    let format = gpui_design_tools::DesignTokenFormat::parse(format)
+                        .map_err(|error| error.to_string())?;
+                    let operation = arguments.get("operation").and_then(Value::as_str)
+                        .ok_or_else(|| "design-token command requires operation".to_string())?;
+                    match operation {
+                        "export" => Ok(serde_json::json!({
+                            "ok": true,
+                            "output": gpui_design_tools::export_design_tokens(format)
+                                .map_err(|error| error.to_string())?,
+                        })),
+                        "import" => {
+                            let input = arguments.get("input").and_then(Value::as_str)
+                                .ok_or_else(|| "design-token import requires input".to_string())?;
+                            let imported = gpui_design_tools::import_design_tokens(input, format)
+                                .map_err(|error| error.to_string())?;
+                            Ok(serde_json::json!({
+                                "ok": true, "preset_count": imported.preset_count,
+                                "token_count": imported.token_count, "raw": imported.raw,
+                            }))
+                        }
+                        "validate" => {
+                            let input = arguments.get("input").and_then(Value::as_str)
+                                .ok_or_else(|| "design-token validation requires input".to_string())?;
+                            let report = gpui_design_tools::validate_design_tokens(
+                                input, format,
+                                arguments.get("render_markdown").and_then(Value::as_bool).unwrap_or(false),
+                            ).map_err(|error| error.to_string())?;
+                            let report = serde_json::to_value(report).map_err(|error| error.to_string())?;
+                            Ok(serde_json::json!({"ok": true, "report": report}))
+                        }
+                        "handoff" => {
+                            let report = gpui_design_tools::design_tooling_handoff_report();
+                            let report = serde_json::to_value(report).map_err(|error| error.to_string())?;
+                            Ok(serde_json::json!({"ok": true, "report": report}))
+                        }
+                        _ => Err(format!("unsupported design-token operation: {operation}")),
+                    }
+                })();
+                match result {
+                    Ok(result) => self.send_command_result(request_id, result),
+                    Err(error) => self.send_command_result(request_id, serde_json::json!({"ok": false, "error": error})),
+                }
+            }
+            "scaffolder.preview" | "scaffolder.write" => {
+                let result = (|| -> Result<Value, String> {
+                    let name = arguments.get("name").and_then(Value::as_str)
+                        .ok_or_else(|| "scaffolder command requires name".to_string())?;
+                    let output_dir = arguments.get("output_dir").and_then(Value::as_str)
+                        .ok_or_else(|| "scaffolder command requires output_dir".to_string())?;
+                    let options = gpui_scaffolder::ScaffoldOptions {
+                        name: name.into(), output_dir: PathBuf::from(output_dir),
+                        force: arguments.get("force").and_then(Value::as_bool).unwrap_or(false),
+                        dry_run: arguments.get("dry_run").and_then(Value::as_bool).unwrap_or(false),
+                    };
+                    if command == "scaffolder.preview" {
+                        let preview = gpui_scaffolder::preview_scaffold(&options).map_err(|error| error.to_string())?;
+                        Ok(serde_json::json!({
+                            "ok": true, "app_dir": preview.app.app_dir, "package_name": preview.app.package_name,
+                            "title": preview.app.title, "files": preview.files,
+                        }))
+                    } else {
+                        let app = gpui_scaffolder::scaffold_app(&options).map_err(|error| error.to_string())?;
+                        Ok(serde_json::json!({"ok": true, "app_dir": app.app_dir, "package_name": app.package_name, "title": app.title}))
+                    }
+                })();
+                match result {
+                    Ok(result) => self.send_command_result(request_id, result),
+                    Err(error) => self.send_command_result(request_id, serde_json::json!({"ok": false, "error": error})),
+                }
+            }
+            "themes.community_validate" => {
+                let result = (|| -> Result<Value, String> {
+                    let input = arguments.get("input").and_then(Value::as_str)
+                        .ok_or_else(|| "community-theme validation requires input".to_string())?;
+                    let bundle = gpui_themes::CommunityThemeBundle::from_json(input)
+                        .map_err(|error| error.to_string())?;
+                    bundle.validate()?;
+                    let gallery = gpui_themes::ThemeGallery::from_built_ins().with_community_bundle(&bundle);
+                    let entry = gallery.entries.into_iter().find(|entry| entry.id == bundle.manifest.id)
+                        .ok_or_else(|| "validated community theme was not added to gallery".to_string())?;
+                    Ok(serde_json::json!({
+                        "ok": true, "id": entry.id, "display_name": entry.display_name,
+                        "tags": entry.tags, "accessibility": entry.accessibility,
+                        "appearance": entry.appearance,
+                    }))
+                })();
+                match result {
+                    Ok(result) => self.send_command_result(request_id, result),
+                    Err(error) => self.send_command_result(request_id, serde_json::json!({"ok": false, "error": error})),
+                }
+            }
+            "themes.community_activate" => {
+                let result = (|| -> Result<Value, String> {
+                    let input = arguments.get("input").and_then(Value::as_str)
+                        .ok_or_else(|| "community-theme activation requires input".to_string())?;
+                    let bundle = gpui_themes::CommunityThemeBundle::from_json(input)
+                        .map_err(|error| error.to_string())?;
+                    bundle.validate()?;
+                    let gallery = gpui_themes::ThemeGallery::from_built_ins().with_community_bundle(&bundle);
+                    let entry = gallery.entries.into_iter().find(|entry| entry.id == bundle.manifest.id)
+                        .ok_or_else(|| "validated community theme was not added to gallery".to_string())?;
+                    self.apply_editor_theme(&bundle.theme, cx);
+                    Ok(serde_json::json!({
+                        "ok": true, "id": entry.id, "display_name": entry.display_name,
+                        "tags": entry.tags, "accessibility": entry.accessibility,
+                        "appearance": entry.appearance, "active": true,
+                    }))
+                })();
+                match result {
+                    Ok(result) => self.send_command_result(request_id, result),
+                    Err(error) => self.send_command_result(request_id, serde_json::json!({"ok": false, "error": error})),
+                }
+            }
+            "profiler.snapshot" => {
+                let sample = gpui_profiler::AllocSnapshot::now();
+                self.send_command_result(request_id, serde_json::json!({
+                    "ok": true, "mode": "counting_allocator", "bytes": sample.bytes, "count": sample.count,
+                }));
+            }
+            "profiler.subscribe" => {
+                let result = (|| -> Result<Value, String> {
+                    let subscription_id = arguments.get("subscription_id").and_then(Value::as_str)
+                        .filter(|id| !id.trim().is_empty())
+                        .ok_or_else(|| "profiler subscription requires subscription_id".to_string())?
+                        .to_string();
+                    let interval_ms = arguments.get("interval_ms").and_then(Value::as_u64).unwrap_or(1_000);
+                    if !(50..=60_000).contains(&interval_ms) {
+                        return Err("profiler interval_ms must be between 50 and 60000".into());
+                    }
+                    let sink = self.session.as_ref()
+                        .ok_or_else(|| "profiler subscription requires an active Python session".to_string())?
+                        .event_sink();
+                    if let Some(previous) = self.profiler_subscriptions.remove(&subscription_id) {
+                        previous.store(true, Ordering::Release);
+                    }
+                    let cancelled = Arc::new(AtomicBool::new(false));
+                    self.profiler_subscriptions.insert(subscription_id.clone(), cancelled.clone());
+                    let stream_id = subscription_id.clone();
+                    std::thread::spawn(move || {
+                        let mut sequence = 0_u64;
+                        while !cancelled.load(Ordering::Acquire) {
+                            std::thread::sleep(Duration::from_millis(interval_ms));
+                            if cancelled.load(Ordering::Acquire) { break; }
+                            sequence = sequence.saturating_add(1);
+                            let snapshot = gpui_profiler::AllocSnapshot::now();
+                            let message = HostMessage::ProfilerSample {
+                                subscription_id: stream_id.clone(), sequence,
+                                sample: serde_json::json!({
+                                    "mode": "counting_allocator", "bytes": snapshot.bytes, "count": snapshot.count,
+                                }),
+                            };
+                            if sink.send(&message).is_err() { break; }
+                        }
+                    });
+                    Ok(serde_json::json!({
+                        "ok": true, "subscription_id": subscription_id,
+                        "interval_ms": interval_ms, "mode": "counting_allocator",
+                    }))
+                })();
+                match result {
+                    Ok(result) => self.send_command_result(request_id, result),
+                    Err(error) => self.send_command_result(request_id, serde_json::json!({"ok": false, "error": error})),
+                }
+            }
+            "profiler.unsubscribe" => {
+                let subscription_id = arguments.get("subscription_id").and_then(Value::as_str).unwrap_or("");
+                let cancelled = self.profiler_subscriptions.remove(subscription_id).is_some_and(|flag| {
+                    flag.store(true, Ordering::Release);
+                    true
+                });
+                self.send_command_result(request_id, serde_json::json!({
+                    "ok": true, "subscription_id": subscription_id, "cancelled": cancelled,
+                }));
+            }
+            _ => self.send_command_result(
+                request_id,
+                serde_json::json!({"ok": false, "unsupported": true, "error": format!("unsupported command: {command}")}),
+            ),
         }
     }
 
@@ -3611,7 +5143,10 @@ impl PythonIrShowcase {
             }
             "credential_store" => match super::credentials::handle(&arguments) {
                 Ok(result) => self.send_effect_result(request_id, result),
-                Err(error) => self.send_effect_result(request_id, serde_json::json!({"ok": false, "error": error})),
+                Err(error) => self.send_effect_result(
+                    request_id,
+                    serde_json::json!({"ok": false, "error": error}),
+                ),
             },
             "open_url" => match arguments.get("url").and_then(Value::as_str) {
                 Some(url) => {
@@ -3774,7 +5309,9 @@ impl PythonIrShowcase {
                 }));
             elements.push(
                 div()
-                    .id(ElementId::Name(format!("python-confirm-overlay-{request_id}").into()))
+                    .id(ElementId::Name(
+                        format!("python-confirm-overlay-{request_id}").into(),
+                    ))
                     .absolute()
                     .inset_0()
                     .flex()
@@ -3872,6 +5409,11 @@ impl PythonIrShowcase {
                     effect,
                     arguments,
                 }) => self.handle_effect(request_id, effect, arguments, cx),
+                Ok(PythonMessage::Command {
+                    request_id,
+                    command,
+                    arguments,
+                }) => self.handle_command(request_id, command, arguments, cx),
                 Ok(PythonMessage::Rejected(error)) => {
                     if !error
                         .request_id
@@ -3904,6 +5446,82 @@ impl PythonIrShowcase {
             }
         }
     }
+
+    fn apply_miniapp_shell(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(app) = self.app.as_ref() else { return; };
+        let Some(config) = app.miniapp.clone() else { return; };
+        if self.applied_miniapp_shell.as_ref() == Some(&config) { return; }
+        window.set_window_title(&config.title);
+        window.resize(size(px(config.width), px(config.height)));
+        self.presentation.set_window_size(config.width, config.height);
+        if config.with_theme {
+            let variant = match config.initial_theme.to_ascii_lowercase().as_str() {
+                "light" => ThemeVariant::Light,
+                "midnight" => ThemeVariant::Midnight,
+                "forest" => ThemeVariant::Forest,
+                "black_and_white" => ThemeVariant::BlackAndWhite,
+                "onyx" => ThemeVariant::Onyx,
+                "carbon_white" => ThemeVariant::CarbonWhite,
+                "carbon_gray_10" => ThemeVariant::CarbonGray10,
+                "carbon_gray_90" => ThemeVariant::CarbonGray90,
+                "carbon_gray_100" => ThemeVariant::CarbonGray100,
+                _ => ThemeVariant::Dark,
+            };
+            cx.set_global(ThemeState::with_variant(variant));
+            self.observed_miniapp_theme = Some(variant);
+        }
+        if config.with_i18n {
+            let language = match config.initial_language.to_ascii_lowercase().as_str() {
+                "french" => Language::French,
+                "german" => Language::German,
+                "spanish" => Language::Spanish,
+                "japanese" => Language::Japanese,
+                _ => Language::English,
+            };
+            let mut i18n = I18nState::new();
+            i18n.set_language(language);
+            cx.set_global(i18n);
+            self.observed_miniapp_language = Some(language);
+        }
+        self.applied_miniapp_shell = Some(config);
+    }
+
+    fn observe_miniapp_shell_state(&mut self, cx: &mut Context<Self>) {
+        let Some(config) = self.app.as_ref().and_then(|app| app.miniapp.as_ref()) else {
+            return;
+        };
+        let sink = self.session.as_ref().map(|session| session.event_sink());
+        if config.with_theme {
+            if let Some(theme) = cx.try_global::<ThemeState>().map(|state| state.theme.variant)
+                && self.observed_miniapp_theme.replace(theme).is_some_and(|previous| previous != theme)
+                && let Some(sink) = &sink
+            {
+                let _ = sink.dispatch(
+                    "miniapp", "theme_changed", Some("miniapp_theme_changed".into()),
+                    serde_json::json!({"theme": theme.name()}),
+                );
+            }
+        }
+        if config.with_i18n {
+            if let Some(language) = cx.try_global::<I18nState>().map(|state| state.language)
+                && self.observed_miniapp_language.replace(language).is_some_and(|previous| previous != language)
+                && let Some(sink) = &sink
+            {
+                let _ = sink.dispatch(
+                    "miniapp", "language_changed", Some("miniapp_language_changed".into()),
+                    serde_json::json!({"language": language.code()}),
+                );
+            }
+        }
+    }
+}
+
+impl Drop for PythonIrShowcase {
+    fn drop(&mut self) {
+        for cancellation in self.profiler_subscriptions.values() {
+            cancellation.store(true, Ordering::Release);
+        }
+    }
 }
 
 impl Render for PythonIrShowcase {
@@ -3911,6 +5529,8 @@ impl Render for PythonIrShowcase {
         self.observe_presentation(window, cx);
         self.observe_window_close(window, cx);
         self.drain_session(cx);
+        self.apply_miniapp_shell(window, cx);
+        self.observe_miniapp_shell_state(cx);
         let theme = cx.theme();
         let ds = cx.design();
 
@@ -3934,27 +5554,27 @@ impl Render for PythonIrShowcase {
                                 "Restart Python application",
                                 &AriaProps::with_role(AriaRole::Button),
                             )
-                                .focusable()
-                                .px(px(ds.spacing.control_padding_x))
-                                .py(px(ds.spacing.control_padding_y))
-                                .rounded(px(ds.corners.md))
-                                .bg(theme.accent)
-                                .text_color(theme.text_on_accent)
-                                .cursor_pointer()
-                                .child("Restart Python application")
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.load_session(cx);
-                                    cx.notify();
-                                }))
-                                .on_key_down(cx.listener(
-                                    |this, event: &KeyDownEvent, _, cx| {
-                                        if matches!(event.keystroke.key.as_str(), "enter" | "space") {
-                                            this.load_session(cx);
-                                            cx.stop_propagation();
-                                            cx.notify();
-                                        }
-                                    },
-                                )),
+                            .focusable()
+                            .px(px(ds.spacing.control_padding_x))
+                            .py(px(ds.spacing.control_padding_y))
+                            .rounded(px(ds.corners.md))
+                            .bg(theme.accent)
+                            .text_color(theme.text_on_accent)
+                            .cursor_pointer()
+                            .child("Restart Python application")
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.load_session(cx);
+                                cx.notify();
+                            }))
+                            .on_key_down(cx.listener(
+                                |this, event: &KeyDownEvent, _, cx| {
+                                    if matches!(event.keystroke.key.as_str(), "enter" | "space") {
+                                        this.load_session(cx);
+                                        cx.stop_propagation();
+                                        cx.notify();
+                                    }
+                                },
+                            )),
                         ),
                 );
         }

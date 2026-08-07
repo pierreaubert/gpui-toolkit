@@ -72,8 +72,7 @@ impl MeshSpec {
                 });
             }
         }
-        self.material.validate()
-            ?;
+        self.material.validate()?;
         if let Some(field) = &self.scalar_field {
             let expected = match field.association {
                 ScalarAssociation::Vertex => self.vertices.len(),

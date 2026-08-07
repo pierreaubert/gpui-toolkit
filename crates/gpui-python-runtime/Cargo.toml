@@ -26,6 +26,12 @@ reqwest = ["gpui-px?/reqwest"]
 showcase = [
     "gpui",
     "dep:gpui-design",
+    "dep:gpui-design-tools",
+    "dep:gpui-scaffolder",
+    "dep:gpui-themes",
+    "dep:gpui-profiler",
+    "dep:gpui-pretext",
+    "dep:gpui-builder",
     "dep:gpui-miniapp",
     "dep:gpui-px",
     "dep:gpui-ui-kit",
@@ -39,6 +45,12 @@ urlencoding = ["gpui-px?/urlencoding"]
 gpui = { workspace = true, optional = true }
 gpui-d3rs = { workspace = true, optional = true }
 gpui-design = { workspace = true, optional = true }
+gpui-design-tools = { workspace = true, optional = true }
+gpui-scaffolder = { workspace = true, optional = true }
+gpui-themes = { workspace = true, optional = true }
+gpui-profiler = { workspace = true, features = ["global-allocator"], optional = true }
+gpui-pretext = { workspace = true, optional = true }
+gpui-builder = { workspace = true, optional = true }
 gpui-miniapp = { workspace = true, optional = true }
 gpui-px = { workspace = true, default-features = false, optional = true }
 gpui-ui-kit = { workspace = true, optional = true }

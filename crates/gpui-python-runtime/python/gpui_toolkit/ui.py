@@ -97,6 +97,181 @@ def spinner(label: str | None = None, **props: Any) -> Node:
     return Node("spinner", {"label": label, **props})
 
 
+def breadcrumbs(
+    *, id: str, items: Sequence[dict[str, Any] | tuple[str, str]],
+    separator: str = "slash", action: str | None = None, **props: Any,
+) -> Node:
+    """Render native breadcrumbs and emit a semantic item-id change event."""
+    normalized = [
+        item if isinstance(item, dict) else {"id": item[0], "label": item[1]}
+        for item in items
+    ]
+    return Node("breadcrumbs", {
+        "id": id, "items": normalized, "separator": separator, "action": action, **props,
+    })
+
+
+def alert(
+    message: str, *, id: str, title: str | None = None, variant: str = "info",
+    closeable: bool = False, action: str | None = None, **props: Any,
+) -> Node:
+    """Render a native alert; ``action`` receives its semantic close event."""
+    return Node("alert", {
+        "id": id, "message": message, "title": title, "variant": variant,
+        "closeable": closeable, "action": action, **props,
+    })
+
+
+def toast(
+    message: str, *, id: str, title: str | None = None, variant: str = "info",
+    closeable: bool = True, duration_secs: float | None = 5.0,
+    action: str | None = None, **props: Any,
+) -> Node:
+    """Render a native accessibility-announced toast with a close event."""
+    return Node("toast", {
+        "id": id, "message": message, "title": title, "variant": variant,
+        "closeable": closeable, "duration_secs": duration_secs, "action": action, **props,
+    })
+
+
+def tooltip(
+    child: Any, content: str, *, id: str, placement: str = "top", delay_ms: int = 200,
+    show: bool | None = None, **props: Any,
+) -> Node:
+    """Wrap one node with native hover/focus tooltip behavior."""
+    return Node("tooltip", {
+        "id": id, "content": content, "placement": placement, "delay_ms": int(delay_ms),
+        "show": show, "child": _spec(child), **props,
+    })
+
+
+def empty_state(
+    title: str, *, description: str | None = None, icon: str | None = None,
+    action: Any | None = None, **props: Any,
+) -> Node:
+    """Render the host-native empty-state layout with an optional action node."""
+    return Node("empty_state", {
+        "title": title, "description": description, "icon": icon,
+        "action": None if action is None else _spec(action), **props,
+    })
+
+
+def dialog(
+    *, id: str, content: Sequence[Any], title: str | None = None, footer: Sequence[Any] = (),
+    size: str = "md", show_close_button: bool = True, close_on_backdrop: bool = True,
+    close_action: str | None = None, **props: Any,
+) -> Node:
+    """Render a retained native modal dialog with typed content/footer slots."""
+    return Node("dialog", {
+        "id": id, "title": title, "size": size, "content": _children(content),
+        "footer": _children(footer), "show_close_button": show_close_button,
+        "close_on_backdrop": close_on_backdrop, "close_action": close_action, **props,
+    })
+
+
+def confirm_dialog(
+    *, id: str, message: str, title: str | None = None, variant: str = "default",
+    confirm_label: str = "Confirm", cancel_label: str = "Cancel",
+    confirm_action: str | None = None, cancel_action: str | None = None, **props: Any,
+) -> Node:
+    """Render a host-native confirmation dialog with semantic outcomes."""
+    return Node("confirm_dialog", {
+        "id": id, "message": message, "title": title, "variant": variant,
+        "confirm_label": confirm_label, "cancel_label": cancel_label,
+        "confirm_action": confirm_action, "cancel_action": cancel_action, **props,
+    })
+
+
+@dataclass(frozen=True)
+class MenuItem:
+    """A typed native-menu item, including nested submenus."""
+
+    id: str = ""
+    label: str = ""
+    shortcut: str | None = None
+    disabled: bool = False
+    checkbox: bool = False
+    checked: bool = False
+    danger: bool = False
+    separator: bool = False
+    children: Sequence["MenuItem"] = ()
+
+    @classmethod
+    def divider(cls) -> "MenuItem":
+        return cls(separator=True)
+
+    def to_spec(self) -> dict[str, Any]:
+        return {
+            "id": self.id, "label": self.label, "shortcut": self.shortcut,
+            "disabled": self.disabled, "checkbox": self.checkbox,
+            "checked": self.checked, "danger": self.danger,
+            "separator": self.separator, "children": _children(self.children),
+        }
+
+
+def context_menu(
+    *, id: str, items: Sequence[MenuItem], position: tuple[float, float] = (0.0, 0.0),
+    min_width: float = 180.0, focused_index: int | None = None,
+    action: str | None = None, close_action: str | None = None,
+    focus_action: str | None = None, **props: Any,
+) -> Node:
+    """Render a native contextual menu with semantic selection and close events."""
+    return Node("context_menu", {
+        "id": id, "items": _children(items), "position": [float(position[0]), float(position[1])],
+        "min_width": float(min_width), "focused_index": focused_index, "action": action,
+        "close_action": close_action, "focus_action": focus_action, **props,
+    })
+
+
+def menu(
+    *, id: str, items: Sequence[MenuItem], min_width: float = 180.0,
+    focused_index: int | None = None, action: str | None = None,
+    close_action: str | None = None, focus_action: str | None = None, **props: Any,
+) -> Node:
+    """Render an inline native menu with keyboard selection semantics."""
+    return Node("menu", {
+        "id": id, "items": _children(items), "min_width": float(min_width),
+        "focused_index": focused_index, "action": action, "close_action": close_action,
+        "focus_action": focus_action, **props,
+    })
+
+
+@dataclass(frozen=True)
+class MenuBarItem:
+    """One typed top-level menu, with stable menu and item IDs."""
+
+    id: str
+    label: str
+    items: Sequence[MenuItem] = ()
+
+    def to_spec(self) -> dict[str, Any]:
+        return {"id": self.id, "label": self.label, "items": _children(self.items)}
+
+
+def menu_bar(
+    *, id: str, items: Sequence[MenuBarItem], active_menu: str | None = None,
+    action: str | None = None, toggle_action: str | None = None, **props: Any,
+) -> Node:
+    """Render a host-native menu bar and its retained active drop-down menu."""
+    return Node("menu_bar", {
+        "id": id, "items": _children(items), "active_menu": active_menu,
+        "action": action, "toggle_action": toggle_action, **props,
+    })
+
+
+def popover(
+    trigger: Any, *, id: str, content: Sequence[Any], placement: str = "bottom",
+    width: float | None = None, show_backdrop: bool = True,
+    close_action: str | None = None, **props: Any,
+) -> Node:
+    """Anchor native popover content to one retained trigger element."""
+    return Node("popover", {
+        "id": id, "trigger": _spec(trigger), "content": _children(content),
+        "placement": placement, "width": width, "show_backdrop": show_backdrop,
+        "close_action": close_action, **props,
+    })
+
+
 def tabs(
     items: Sequence[str], *, active: int = 0, id: str | None = None,
     action: str | None = None, **props: Any,

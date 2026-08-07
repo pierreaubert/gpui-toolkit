@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
+from math import isfinite
 from typing import Any, Mapping
 
 
@@ -44,6 +45,172 @@ class DesignLanguage(str, Enum):
 class CornerRadiusStyle(str, Enum):
     CONTINUOUS = "continuous"
     CIRCULAR = "circular"
+
+
+class DesignPlatform(str, Enum):
+    MACOS = "macos"
+    IOS = "ios"
+    WINDOWS = "windows"
+    ANDROID = "android"
+    LINUX = "linux"
+    OTHER = "other"
+
+
+class ToggleVariant(str, Enum):
+    CAPSULE = "capsule"
+    SWITCH = "switch"
+    CHECKBOX = "checkbox"
+
+
+class LabelPosition(str, Enum):
+    ABOVE = "above"
+    BELOW = "below"
+    LEFT = "left"
+    RIGHT = "right"
+
+
+class GroupSeparatorStyle(str, Enum):
+    NONE = "none"
+    DIVIDER = "divider"
+    CARD = "card"
+
+
+def _finite_nonnegative(*values: float) -> None:
+    if any(not isfinite(value) or value < 0.0 for value in values):
+        raise ValueError("design dimensions must be finite and non-negative")
+
+
+@dataclass(frozen=True)
+class CornerRadii:
+    sm: float
+    md: float
+    lg: float
+    xl: float
+    style: CornerRadiusStyle
+
+    def __post_init__(self) -> None:
+        _finite_nonnegative(self.sm, self.md, self.lg, self.xl)
+        if not isinstance(self.style, CornerRadiusStyle):
+            raise ValueError("corner style must be a CornerRadiusStyle")
+
+
+@dataclass(frozen=True)
+class SpacingRules:
+    grid_unit: float
+    control_padding_x: float
+    control_padding_y: float
+    control_gap: float
+    section_gap: float
+    card_padding: float
+
+    def __post_init__(self) -> None:
+        _finite_nonnegative(*self.__dict__.values())
+
+
+@dataclass(frozen=True)
+class InteractionRules:
+    min_touch_target: float
+    border_width: float
+    focus_ring_width: float
+    focus_ring_offset: float
+
+    def __post_init__(self) -> None:
+        _finite_nonnegative(*self.__dict__.values())
+
+
+@dataclass(frozen=True)
+class ElevationRules:
+    level_0_blur: float
+    level_1_blur: float
+    level_2_blur: float
+    shadow_opacity: float
+    shadow_y_offset: float
+
+    def __post_init__(self) -> None:
+        _finite_nonnegative(self.level_0_blur, self.level_1_blur, self.level_2_blur)
+        if not isfinite(self.shadow_opacity) or not 0.0 <= self.shadow_opacity <= 1.0:
+            raise ValueError("shadow_opacity must be finite and in [0, 1]")
+        if not isfinite(self.shadow_y_offset):
+            raise ValueError("shadow_y_offset must be finite")
+
+
+@dataclass(frozen=True)
+class TypographyRules:
+    font_family: str
+    dynamic_sizing: bool
+    base_size: float
+    small_size: float
+    large_size: float
+
+    def __post_init__(self) -> None:
+        if not self.font_family.strip() or any(not isfinite(value) or value <= 0.0 for value in (self.base_size, self.small_size, self.large_size)):
+            raise ValueError("typography requires a family and positive finite sizes")
+
+
+@dataclass(frozen=True)
+class AnimationRules:
+    duration_ms: int
+    fast_ms: int
+    slow_ms: int
+    prefer_spring: bool
+    spring_stiffness: float
+    spring_damping: float
+
+    def __post_init__(self) -> None:
+        if min(self.duration_ms, self.fast_ms, self.slow_ms) <= 0 or not all(isfinite(value) and value > 0.0 for value in (self.spring_stiffness, self.spring_damping)):
+            raise ValueError("animation rules require positive durations and spring values")
+
+
+@dataclass(frozen=True)
+class AudioControlRules:
+    knob_arc_start_deg: float
+    knob_arc_sweep_deg: float
+    knob_arc_width: float
+    knob_arc_segments: int
+    knob_border_width: float
+    slider_track_widths: tuple[float, float, float]
+
+    def __post_init__(self) -> None:
+        if self.knob_arc_segments <= 0:
+            raise ValueError("knob_arc_segments must be positive")
+        _finite_nonnegative(self.knob_arc_width, self.knob_border_width, *self.slider_track_widths)
+
+
+@dataclass(frozen=True)
+class LayoutThresholds:
+    vertical_threshold: float
+    group_stack_threshold: float
+    compact_slider_threshold: float
+    hide_viz_threshold: float
+    compact_knob_threshold: float
+    large_knob_threshold: float
+    slider_height_normal: float
+    slider_height_compact: float
+
+    def __post_init__(self) -> None:
+        if any(not isfinite(value) or value <= 0.0 for value in self.__dict__.values()):
+            raise ValueError("layout thresholds must be positive and finite")
+
+
+@dataclass(frozen=True)
+class DesignSystemSnapshot:
+    language: DesignLanguage
+    platform: DesignPlatform
+    corners: CornerRadii
+    spacing: SpacingRules
+    interaction: InteractionRules
+    elevation: ElevationRules
+    animation: AnimationRules
+    typography: TypographyRules
+    layout: LayoutThresholds
+    audio_controls: AudioControlRules
+    toggle_variant: ToggleVariant
+    label_position: LabelPosition
+    group_separator: GroupSeparatorStyle
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.language, DesignLanguage) or not isinstance(self.platform, DesignPlatform):
+            raise ValueError("design system language and platform must be typed enums")
 
 
 @dataclass(frozen=True)

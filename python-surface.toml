@@ -23,6 +23,7 @@ id = "ui.core"
 capability = "gpui-ui-kit.declarative"
 [[requirement]]
 id = "ui.overlays"
+capability = "gpui-ui-kit.overlays"
 [[requirement]]
 id = "ui.forms"
 capability = "gpui-ui-kit.declarative"
@@ -49,17 +50,22 @@ id = "d3.full-algorithm-and-interaction-api"
 id = "audio.full-controls-streams-and-regression"
 [[requirement]]
 id = "tooling.full-token-operations"
+capability = "gpui-design-tools.token-operations"
 [[requirement]]
 id = "miniapp.full-shell"
+capability = "gpui-miniapp.configuration"
 [[requirement]]
 id = "profiler.full-telemetry"
+capability = "gpui-profiler.snapshots-and-budgets"
 [[requirement]]
 id = "scaffolder.full-preview-and-write"
+capability = "gpui-scaffolder.commands"
 [[requirement]]
 id = "platform.adapters"
 capability = "gpui-au.platform"
 [[requirement]]
 id = "aggregate.release-qa-reports"
+capability = "gpui-toolkit.aggregate-reports"
 
 [[inventory.crate]]
 id = "gpui-au"
@@ -139,6 +145,20 @@ disposition = "declarative"
 tests = ["crates/gpui-python-runtime/python/tests/test_ui.py"]
 
 [[capability]]
+id = "gpui-ui-kit.navigation-and-feedback"
+rust_path = "gpui_ui_kit::{Breadcrumbs,Alert}"
+python_path = "gpui_toolkit.ui.breadcrumbs"
+disposition = "declarative"
+tests = ["crates/gpui-python-runtime/python/tests/test_ui.py", "crates/gpui-python-runtime/src/ui_ir.rs"]
+
+[[capability]]
+id = "gpui-ui-kit.overlays"
+rust_path = "gpui_ui_kit::{ContextMenu,Dialog,Popover,Tooltip,Toast}"
+python_path = "gpui_toolkit.ui.popover"
+disposition = "declarative"
+tests = ["crates/gpui-python-runtime/python/tests/test_ui.py", "crates/gpui-python-runtime/src/ui_ir.rs"]
+
+[[capability]]
 id = "gpui-px.charts"
 rust_path = "gpui_px"
 python_path = "gpui_toolkit.charts"
@@ -151,6 +171,13 @@ rust_path = "gpui_d3rs::gpu3d"
 python_path = "gpui_toolkit.scene3d"
 disposition = "declarative"
 tests = ["crates/gpui-python-runtime/python/tests/test_scene3d.py"]
+
+[[capability]]
+id = "gpui-d3rs.zoom-command"
+rust_path = "gpui_d3rs::zoom::ZoomState"
+python_path = "gpui_toolkit.d3.ZoomRequest"
+disposition = "command"
+tests = ["crates/gpui-python-runtime/python/tests/test_d3.py", "crates/gpui-python-runtime/bin/showcase/python_ir_showcase.rs"]
 
 [[capability]]
 id = "gpui-python-runtime.state"
@@ -246,7 +273,7 @@ tests = ["crates/gpui-python-runtime/python/tests/test_text.py"]
 [[capability]]
 id = "gpui-themes.selection-and-gallery"
 rust_path = "gpui_themes::ThemeModePreference"
-python_path = "gpui_toolkit.themes.ThemeModePreference"
+python_path = "gpui_toolkit.themes.CommunityThemeImport"
 disposition = "declarative"
 tests = ["crates/gpui-python-runtime/python/tests/test_themes.py"]
 
@@ -274,7 +301,7 @@ tests = ["crates/gpui-python-runtime/python/tests/test_layout.py"]
 [[capability]]
 id = "gpui-profiler.snapshots-and-budgets"
 rust_path = "gpui_profiler::AllocationBudget"
-python_path = "gpui_toolkit.profiler.AllocationBudget"
+python_path = "gpui_toolkit.profiler.AllocatorTelemetry"
 disposition = "direct"
 tests = ["crates/gpui-python-runtime/python/tests/test_profiler.py"]
 
@@ -307,11 +334,25 @@ disposition = "direct"
 tests = ["crates/gpui-python-runtime/python/tests/test_reports.py"]
 
 [[capability]]
+id = "gpui-toolkit.aggregate-reports"
+rust_path = "gpui_toolkit::{stability,dependency_hygiene,publish_plan,release_notes,release_packaging,vendored_patches}"
+python_path = "gpui_toolkit.reports.StabilityReport"
+disposition = "direct"
+tests = ["crates/gpui-python-runtime/python/tests/test_reports.py"]
+
+[[capability]]
 id = "gpui-python-runtime.host-effects"
 rust_path = "gpui_python_runtime::session::PythonMessage"
 python_path = "gpui_toolkit.effects.ConfirmDialog"
 disposition = "command"
 tests = ["crates/gpui-python-runtime/python/tests/test_effects.py"]
+
+[[capability]]
+id = "gpui-python-runtime.commands"
+rust_path = "gpui_python_runtime::session::{HostMessage,PythonMessage}"
+python_path = "gpui_toolkit.commands.CommandResult"
+disposition = "command"
+tests = ["crates/gpui-python-runtime/python/tests/test_commands.py", "crates/gpui-python-runtime/src/session.rs"]
 
 [[capability]]
 id = "gpui-ui-kit.accessibility-and-focus"

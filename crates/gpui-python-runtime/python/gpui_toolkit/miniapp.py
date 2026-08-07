@@ -3,6 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+_THEMES = frozenset({"dark", "light", "midnight", "forest", "black_and_white", "onyx", "carbon_white", "carbon_gray_10", "carbon_gray_90", "carbon_gray_100"})
+_LANGUAGES = frozenset({"english", "french", "german", "spanish", "japanese"})
+
 @dataclass(frozen=True)
 class MiniAppConfig:
     title: str = "MiniApp"
@@ -17,6 +20,7 @@ class MiniAppConfig:
     def __post_init__(self) -> None:
         if not self.title.strip() or self.width <= 0 or self.height <= 0: raise ValueError("miniapp requires title and positive window dimensions")
         if self.app_name is not None and not self.app_name.strip(): raise ValueError("app_name cannot be blank")
+        if self.initial_theme not in _THEMES or self.initial_language not in _LANGUAGES: raise ValueError("miniapp theme or language is unsupported by the native host")
     def to_spec(self) -> dict[str, Any]:
         return {"title": self.title, "width": self.width, "height": self.height, "app_name": self.app_name or self.title, "scrollable": self.scrollable, "with_theme": self.with_theme, "with_i18n": self.with_i18n, "initial_theme": self.initial_theme, "initial_language": self.initial_language}
 

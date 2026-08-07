@@ -47,6 +47,56 @@ pub enum UiIrError {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MiniAppShellConfig {
+    pub title: String,
+    pub width: f32,
+    pub height: f32,
+    #[serde(default)]
+    pub app_name: String,
+    #[serde(default = "default_miniapp_scrollable")]
+    pub scrollable: bool,
+    #[serde(default)]
+    pub with_theme: bool,
+    #[serde(default)]
+    pub with_i18n: bool,
+    #[serde(default = "default_miniapp_theme")]
+    pub initial_theme: String,
+    #[serde(default = "default_miniapp_language")]
+    pub initial_language: String,
+}
+
+fn default_miniapp_scrollable() -> bool { true }
+fn default_miniapp_theme() -> String { "dark".into() }
+fn default_miniapp_language() -> String { "english".into() }
+
+impl MiniAppShellConfig {
+    pub fn validate(&self) -> Result<(), UiIrError> {
+        if self.title.trim().is_empty()
+            || !self.width.is_finite()
+            || !self.height.is_finite()
+            || self.width <= 0.0
+            || self.height <= 0.0
+            || self.app_name.trim().is_empty()
+        {
+            return Err(UiIrError::InvalidPatch {
+                message: "miniapp shell requires title, app name, and positive finite dimensions".into(),
+            });
+        }
+        if !matches!(self.initial_theme.to_ascii_lowercase().as_str(),
+            "dark" | "light" | "midnight" | "forest" | "black_and_white" | "onyx"
+                | "carbon_white" | "carbon_gray_10" | "carbon_gray_90" | "carbon_gray_100")
+            || !matches!(self.initial_language.to_ascii_lowercase().as_str(),
+                "english" | "french" | "german" | "spanish" | "japanese")
+        {
+            return Err(UiIrError::InvalidPatch {
+                message: "miniapp shell has an unsupported theme or language".into(),
+            });
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PythonAppIr {
     #[serde(default = "default_python_app_ir_schema_version")]
     pub schema_version: u32,
@@ -59,6 +109,10 @@ pub struct PythonAppIr {
     pub sidebar_title: String,
     #[serde(default)]
     pub sidebar_subtitle: String,
+    /// Optional native mini-app shell configuration. The host applies this to
+    /// its existing window; Python never receives a raw window handle.
+    #[serde(default)]
+    pub miniapp: Option<MiniAppShellConfig>,
     #[serde(default)]
     pub sections: Vec<UiSection>,
 }
@@ -74,6 +128,9 @@ impl PythonAppIr {
         }
         if self.sections.is_empty() {
             return Err(UiIrError::EmptySections);
+        }
+        if let Some(miniapp) = &self.miniapp {
+            miniapp.validate()?;
         }
         for section in &self.sections {
             section.validate()?;
@@ -245,31 +302,38 @@ fn apply_patch_op(tree: &mut Value, op: &crate::session::PatchOp) -> Result<(), 
             *children = ordered;
             Ok(())
         }),
-        PatchOp::ReplaceChartSeries { chart_id, series } => with_node_mut(tree, chart_id, |chart| {
-            if chart.get("kind").and_then(Value::as_str) != Some("chart") {
-                return Err(UiIrError::InvalidPatch {
-                    message: format!("node {chart_id:?} is not a chart"),
-                });
-            }
-            let replacement_id = node_id(series).ok_or_else(|| UiIrError::InvalidPatch {
-                message: "replacement chart series needs an id".into(),
-            })?;
-            let series_values = chart
-                .get_mut("series")
-                .and_then(Value::as_array_mut)
-                .ok_or_else(|| UiIrError::InvalidPatch {
-                    message: format!("chart {chart_id:?} has invalid series data"),
+        PatchOp::ReplaceChartSeries { chart_id, series } => {
+            with_node_mut(tree, chart_id, |chart| {
+                if chart.get("kind").and_then(Value::as_str) != Some("chart") {
+                    return Err(UiIrError::InvalidPatch {
+                        message: format!("node {chart_id:?} is not a chart"),
+                    });
+                }
+                let replacement_id = node_id(series).ok_or_else(|| UiIrError::InvalidPatch {
+                    message: "replacement chart series needs an id".into(),
                 })?;
-            let index = series_values
-                .iter()
-                .position(|candidate| node_id(candidate) == Some(replacement_id))
-                .ok_or_else(|| UiIrError::InvalidPatch {
-                    message: format!("chart {chart_id:?} has no series {replacement_id:?}"),
-                })?;
-            series_values[index] = series.clone();
-            Ok(())
-        }),
-        PatchOp::AppendChartSeries { chart_id, series_id, x, y } => {
+                let series_values = chart
+                    .get_mut("series")
+                    .and_then(Value::as_array_mut)
+                    .ok_or_else(|| UiIrError::InvalidPatch {
+                        message: format!("chart {chart_id:?} has invalid series data"),
+                    })?;
+                let index = series_values
+                    .iter()
+                    .position(|candidate| node_id(candidate) == Some(replacement_id))
+                    .ok_or_else(|| UiIrError::InvalidPatch {
+                        message: format!("chart {chart_id:?} has no series {replacement_id:?}"),
+                    })?;
+                series_values[index] = series.clone();
+                Ok(())
+            })
+        }
+        PatchOp::AppendChartSeries {
+            chart_id,
+            series_id,
+            x,
+            y,
+        } => {
             if x.len() != y.len() {
                 return Err(UiIrError::ChartLengthMismatch {
                     id: format!("{chart_id}:{series_id}"),
@@ -297,13 +361,23 @@ fn apply_patch_op(tree: &mut Value, op: &crate::session::PatchOp) -> Result<(), 
                     .ok_or_else(|| UiIrError::InvalidPatch {
                         message: format!("chart {chart_id:?} has no series {series_id:?}"),
                     })?;
-                let series_x = series.get_mut("x").and_then(Value::as_array_mut).ok_or_else(|| UiIrError::InvalidPatch {
-                    message: format!("chart {chart_id:?} series {series_id:?} has invalid x data"),
-                })?;
+                let series_x = series
+                    .get_mut("x")
+                    .and_then(Value::as_array_mut)
+                    .ok_or_else(|| UiIrError::InvalidPatch {
+                        message: format!(
+                            "chart {chart_id:?} series {series_id:?} has invalid x data"
+                        ),
+                    })?;
                 series_x.extend(x.iter().map(|value| serde_json::json!(value)));
-                let series_y = series.get_mut("y").and_then(Value::as_array_mut).ok_or_else(|| UiIrError::InvalidPatch {
-                    message: format!("chart {chart_id:?} series {series_id:?} has invalid y data"),
-                })?;
+                let series_y = series
+                    .get_mut("y")
+                    .and_then(Value::as_array_mut)
+                    .ok_or_else(|| UiIrError::InvalidPatch {
+                        message: format!(
+                            "chart {chart_id:?} series {series_id:?} has invalid y data"
+                        ),
+                    })?;
                 series_y.extend(y.iter().map(|value| serde_json::json!(value)));
                 Ok(())
             })
@@ -357,6 +431,17 @@ pub enum UiNode {
     Metric(MetricNode),
     Progress(ProgressNode),
     Spinner(SpinnerNode),
+    Breadcrumbs(BreadcrumbsNode),
+    Alert(AlertNode),
+    Toast(ToastNode),
+    Tooltip(TooltipNode),
+    EmptyState(EmptyStateNode),
+    Dialog(DialogNode),
+    ConfirmDialog(ConfirmDialogNode),
+    Menu(MenuNode),
+    MenuBar(MenuBarNode),
+    ContextMenu(ContextMenuNode),
+    Popover(PopoverNode),
     Tabs(TabsNode),
     Stepper(StepperNode),
     Accordion(AccordionNode),
@@ -393,6 +478,17 @@ impl UiNode {
             }
             Self::Form(node) => node.validate(),
             Self::Button(node) => node.validate(),
+            Self::Breadcrumbs(node) => node.validate(),
+            Self::Alert(node) => node.validate(),
+            Self::Toast(node) => node.validate(),
+            Self::Tooltip(node) => node.validate(),
+            Self::EmptyState(node) => node.validate(),
+            Self::Dialog(node) => node.validate(),
+            Self::ConfirmDialog(node) => node.validate(),
+            Self::Menu(node) => node.validate(),
+            Self::MenuBar(node) => node.validate(),
+            Self::ContextMenu(node) => node.validate(),
+            Self::Popover(node) => node.validate(),
             Self::Tabs(node) => node.validate(),
             Self::Accordion(node) => node.validate(),
             Self::ListEditor(node) => node.validate(),
@@ -487,7 +583,9 @@ fn default_validation_severity() -> String {
 impl FormNode {
     fn validate(&self) -> Result<(), UiIrError> {
         if self.id.trim().is_empty() {
-            return Err(UiIrError::InvalidPatch { message: "form id is empty".into() });
+            return Err(UiIrError::InvalidPatch {
+                message: "form id is empty".into(),
+            });
         }
         for child in &self.children {
             child.validate()?;
@@ -495,7 +593,10 @@ impl FormNode {
         if self.errors.iter().any(|error| {
             error.control_id.trim().is_empty()
                 || error.message.trim().is_empty()
-                || !self.children.iter().any(|child| child_contains_id(child, &error.control_id))
+                || !self
+                    .children
+                    .iter()
+                    .any(|child| child_contains_id(child, &error.control_id))
         }) {
             return Err(UiIrError::InvalidPatch {
                 message: "form validation errors require an existing control ID and message".into(),
@@ -507,13 +608,45 @@ impl FormNode {
 
 fn child_contains_id(node: &UiNode, target: &str) -> bool {
     match node {
-        UiNode::Vstack(stack) | UiNode::Hstack(stack) | UiNode::Wrap(stack) => {
-            stack.children.iter().any(|child| child_contains_id(child, target))
+        UiNode::Vstack(stack) | UiNode::Hstack(stack) | UiNode::Wrap(stack) => stack
+            .children
+            .iter()
+            .any(|child| child_contains_id(child, target)),
+        UiNode::Card(card) => card
+            .children
+            .iter()
+            .any(|child| child_contains_id(child, target)),
+        UiNode::Form(form) => {
+            form.id == target
+                || form
+                    .children
+                    .iter()
+                    .any(|child| child_contains_id(child, target))
         }
-        UiNode::Card(card) => card.children.iter().any(|child| child_contains_id(child, target)),
-        UiNode::Form(form) => form.id == target || form.children.iter().any(|child| child_contains_id(child, target)),
         UiNode::Accordion(accordion) => accordion.items.iter().any(|item| {
-            item.id == target || item.children.iter().any(|child| child_contains_id(child, target))
+            item.id == target
+                || item
+                    .children
+                    .iter()
+                    .any(|child| child_contains_id(child, target))
+        }),
+        UiNode::Tooltip(tooltip) => child_contains_id(&tooltip.child, target),
+        UiNode::EmptyState(empty) => empty
+            .action
+            .as_ref()
+            .is_some_and(|action| child_contains_id(action, target)),
+        UiNode::Dialog(dialog) => dialog
+            .content
+            .iter()
+            .chain(dialog.footer.iter())
+            .any(|child| child_contains_id(child, target)),
+        UiNode::Popover(popover) => {
+            child_contains_id(&popover.trigger, target)
+                || popover.content.iter().any(|child| child_contains_id(child, target))
+        }
+        UiNode::MenuBar(menu_bar) => menu_bar.items.iter().any(|item| {
+            item.id == target
+                || item.items.iter().any(|menu_item| menu_item.id == target)
         }),
         UiNode::TextInput(input) => input.id == target,
         UiNode::NumberInput(input) => input.id == target,
@@ -593,6 +726,495 @@ pub struct SpinnerNode {
     pub label: Option<String>,
 }
 
+/// Native navigation breadcrumbs.  Items use application-stable IDs so the
+/// host can return semantic navigation events without exposing pointer data.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BreadcrumbItemNode {
+    pub id: String,
+    pub label: String,
+    #[serde(default)]
+    pub icon: Option<String>,
+    #[serde(default)]
+    pub href: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BreadcrumbsNode {
+    pub id: String,
+    #[serde(default)]
+    pub items: Vec<BreadcrumbItemNode>,
+    #[serde(default = "default_breadcrumb_separator")]
+    pub separator: String,
+    #[serde(default)]
+    pub action: Option<String>,
+}
+
+fn default_breadcrumb_separator() -> String {
+    "chevron".into()
+}
+
+impl BreadcrumbsNode {
+    fn validate(&self) -> Result<(), UiIrError> {
+        if self.id.trim().is_empty() || self.items.is_empty() {
+            return Err(UiIrError::InvalidPatch {
+                message: "breadcrumbs require an id and at least one item".into(),
+            });
+        }
+        if !matches!(self.separator.as_str(), "slash" | "chevron" | "dot") {
+            return Err(UiIrError::InvalidPatch {
+                message: "breadcrumbs have an unsupported separator".into(),
+            });
+        }
+        let mut ids = std::collections::HashSet::new();
+        if self.items.iter().any(|item| {
+            item.id.trim().is_empty() || item.label.trim().is_empty() || !ids.insert(&item.id)
+        }) {
+            return Err(UiIrError::InvalidPatch {
+                message: "breadcrumb item IDs and labels must be unique and non-empty".into(),
+            });
+        }
+        Ok(())
+    }
+}
+
+/// Native contextual feedback. Close events are correlated to the declared
+/// alert ID and never leak raw window handles into the Python session.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AlertNode {
+    pub id: String,
+    pub message: String,
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default = "default_alert_variant")]
+    pub variant: String,
+    #[serde(default)]
+    pub closeable: bool,
+    #[serde(default)]
+    pub action: Option<String>,
+}
+
+fn default_alert_variant() -> String {
+    "info".into()
+}
+
+impl AlertNode {
+    fn validate(&self) -> Result<(), UiIrError> {
+        if self.id.trim().is_empty() || self.message.trim().is_empty() {
+            return Err(UiIrError::InvalidPatch {
+                message: "alert requires a stable id and non-empty message".into(),
+            });
+        }
+        if !matches!(
+            self.variant.as_str(),
+            "info" | "success" | "warning" | "error"
+        ) {
+            return Err(UiIrError::InvalidPatch {
+                message: "alert has an unsupported variant".into(),
+            });
+        }
+        if self.action.is_some() && !self.closeable {
+            return Err(UiIrError::InvalidPatch {
+                message: "an alert action requires a closeable alert".into(),
+            });
+        }
+        Ok(())
+    }
+}
+
+/// A native non-blocking feedback item. The host owns visual rendering and
+/// accessibility announcement; Python only receives an explicit close event.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ToastNode {
+    pub id: String,
+    pub message: String,
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default = "default_alert_variant")]
+    pub variant: String,
+    #[serde(default = "default_true")]
+    pub closeable: bool,
+    #[serde(default)]
+    pub duration_secs: Option<f32>,
+    #[serde(default)]
+    pub action: Option<String>,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+impl ToastNode {
+    fn validate(&self) -> Result<(), UiIrError> {
+        if self.id.trim().is_empty() || self.message.trim().is_empty() {
+            return Err(UiIrError::InvalidPatch {
+                message: "toast requires a stable id and non-empty message".into(),
+            });
+        }
+        if !matches!(self.variant.as_str(), "info" | "success" | "warning" | "error") {
+            return Err(UiIrError::InvalidPatch {
+                message: "toast has an unsupported variant".into(),
+            });
+        }
+        if self
+            .duration_secs
+            .is_some_and(|duration| !duration.is_finite() || duration <= 0.0)
+        {
+            return Err(UiIrError::InvalidPatch {
+                message: "toast duration must be positive and finite".into(),
+            });
+        }
+        if self.action.is_some() && !self.closeable {
+            return Err(UiIrError::InvalidPatch {
+                message: "a toast action requires a closeable toast".into(),
+            });
+        }
+        Ok(())
+    }
+}
+
+/// Native hover/focus tooltip around exactly one retained child. The host owns
+/// timing and placement, so pointer-rate hover state never crosses the wire.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TooltipNode {
+    pub id: String,
+    pub content: String,
+    #[serde(default = "default_tooltip_placement")]
+    pub placement: String,
+    #[serde(default = "default_tooltip_delay")]
+    pub delay_ms: u32,
+    #[serde(default)]
+    pub show: Option<bool>,
+    pub child: Box<UiNode>,
+}
+
+fn default_tooltip_placement() -> String {
+    "top".into()
+}
+
+fn default_tooltip_delay() -> u32 {
+    200
+}
+
+impl TooltipNode {
+    fn validate(&self) -> Result<(), UiIrError> {
+        if self.id.trim().is_empty() || self.content.trim().is_empty() {
+            return Err(UiIrError::InvalidPatch {
+                message: "tooltip requires a stable id and non-empty content".into(),
+            });
+        }
+        if !matches!(self.placement.as_str(), "top" | "bottom" | "left" | "right") {
+            return Err(UiIrError::InvalidPatch {
+                message: "tooltip has an unsupported placement".into(),
+            });
+        }
+        self.child.validate()
+    }
+}
+
+/// Host-rendered empty-state presentation, optionally with one declarative
+/// action element such as a Python-directed button.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EmptyStateNode {
+    #[serde(default)]
+    pub id: Option<String>,
+    pub title: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub icon: Option<String>,
+    #[serde(default)]
+    pub action: Option<Box<UiNode>>,
+}
+
+impl EmptyStateNode {
+    fn validate(&self) -> Result<(), UiIrError> {
+        if self.title.trim().is_empty() {
+            return Err(UiIrError::InvalidPatch {
+                message: "empty state title is empty".into(),
+            });
+        }
+        if let Some(action) = &self.action {
+            action.validate()?;
+        }
+        Ok(())
+    }
+}
+
+/// Retained native dialog with typed content/footer slots. Backdrop, escape,
+/// focus restoration and modal accessibility are owned by gpui-ui-kit.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DialogNode {
+    pub id: String,
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default = "default_dialog_size")]
+    pub size: String,
+    #[serde(default)]
+    pub content: Vec<UiNode>,
+    #[serde(default)]
+    pub footer: Vec<UiNode>,
+    #[serde(default = "default_true")]
+    pub show_close_button: bool,
+    #[serde(default = "default_true")]
+    pub close_on_backdrop: bool,
+    #[serde(default)]
+    pub close_action: Option<String>,
+}
+
+fn default_dialog_size() -> String {
+    "md".into()
+}
+
+impl DialogNode {
+    fn validate(&self) -> Result<(), UiIrError> {
+        if self.id.trim().is_empty() {
+            return Err(UiIrError::InvalidPatch { message: "dialog id is empty".into() });
+        }
+        if !matches!(self.size.as_str(), "sm" | "md" | "lg" | "xl" | "full") {
+            return Err(UiIrError::InvalidPatch { message: "dialog has an unsupported size".into() });
+        }
+        for child in self.content.iter().chain(self.footer.iter()) {
+            child.validate()?;
+        }
+        Ok(())
+    }
+}
+
+/// Native confirmation dialog; keyboard dismissal and focus restoration remain
+/// host-owned while Python receives typed confirm or cancel actions.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConfirmDialogNode {
+    pub id: String,
+    pub message: String,
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default = "default_confirm_variant")]
+    pub variant: String,
+    #[serde(default = "default_confirm_label")]
+    pub confirm_label: String,
+    #[serde(default = "default_cancel_label")]
+    pub cancel_label: String,
+    #[serde(default)]
+    pub confirm_action: Option<String>,
+    #[serde(default)]
+    pub cancel_action: Option<String>,
+}
+
+fn default_confirm_variant() -> String { "default".into() }
+fn default_confirm_label() -> String { "Confirm".into() }
+fn default_cancel_label() -> String { "Cancel".into() }
+
+impl ConfirmDialogNode {
+    fn validate(&self) -> Result<(), UiIrError> {
+        if self.id.trim().is_empty() || self.message.trim().is_empty()
+            || self.confirm_label.trim().is_empty() || self.cancel_label.trim().is_empty()
+            || !matches!(self.variant.as_str(), "default" | "destructive" | "warning") {
+            return Err(UiIrError::InvalidPatch { message: "confirmation dialog requires an ID, message, labels, and supported variant".into() });
+        }
+        Ok(())
+    }
+}
+
+/// Inline native menu with semantic selection and normalized keyboard events.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MenuNode {
+    pub id: String,
+    #[serde(default)]
+    pub items: Vec<MenuItemNode>,
+    #[serde(default = "default_context_menu_width")]
+    pub min_width: f32,
+    #[serde(default)]
+    pub focused_index: Option<usize>,
+    #[serde(default)]
+    pub action: Option<String>,
+    #[serde(default)]
+    pub close_action: Option<String>,
+    #[serde(default)]
+    pub focus_action: Option<String>,
+}
+
+impl MenuNode {
+    fn validate(&self) -> Result<(), UiIrError> {
+        ContextMenuNode {
+            id: self.id.clone(), items: self.items.clone(), position: [0.0, 0.0],
+            min_width: self.min_width, focused_index: self.focused_index,
+            action: self.action.clone(), close_action: self.close_action.clone(),
+            focus_action: self.focus_action.clone(),
+        }.validate()
+    }
+}
+
+/// Typed top-level menu bar and child menus. The active menu is application
+/// state; host pointer and keyboard interactions emit semantic IDs only.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MenuBarItemNode {
+    pub id: String,
+    pub label: String,
+    #[serde(default)]
+    pub items: Vec<MenuItemNode>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MenuBarNode {
+    pub id: String,
+    #[serde(default)]
+    pub items: Vec<MenuBarItemNode>,
+    #[serde(default)]
+    pub active_menu: Option<String>,
+    #[serde(default)]
+    pub action: Option<String>,
+    #[serde(default)]
+    pub toggle_action: Option<String>,
+}
+
+impl MenuBarNode {
+    fn validate(&self) -> Result<(), UiIrError> {
+        if self.id.trim().is_empty() || self.items.is_empty() {
+            return Err(UiIrError::InvalidPatch { message: "menu bar requires an ID and at least one menu".into() });
+        }
+        let mut ids = std::collections::HashSet::new();
+        for item in &self.items {
+            if item.id.trim().is_empty() || item.label.trim().is_empty() || !ids.insert(&item.id) {
+                return Err(UiIrError::InvalidPatch { message: "menu bar IDs and labels must be unique and non-empty".into() });
+            }
+            let mut item_ids = std::collections::HashSet::new();
+            for menu_item in &item.items {
+                menu_item.validate()?;
+                if !menu_item.separator && !item_ids.insert(&menu_item.id) {
+                    return Err(UiIrError::InvalidPatch { message: "menu sibling IDs must be unique".into() });
+                }
+            }
+        }
+        if self.active_menu.as_ref().is_some_and(|active| !ids.contains(active)) {
+            return Err(UiIrError::InvalidPatch { message: "active menu is not declared by this menu bar".into() });
+        }
+        Ok(())
+    }
+}
+
+/// One semantic item in a native menu or context menu.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MenuItemNode {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub label: String,
+    #[serde(default)]
+    pub shortcut: Option<String>,
+    #[serde(default)]
+    pub disabled: bool,
+    #[serde(default)]
+    pub checkbox: bool,
+    #[serde(default)]
+    pub checked: bool,
+    #[serde(default)]
+    pub danger: bool,
+    #[serde(default)]
+    pub separator: bool,
+    #[serde(default)]
+    pub children: Vec<MenuItemNode>,
+}
+
+impl MenuItemNode {
+    fn validate(&self) -> Result<(), UiIrError> {
+        if self.separator {
+            if !self.id.is_empty() || !self.label.is_empty() || !self.children.is_empty() {
+                return Err(UiIrError::InvalidPatch { message: "menu separators cannot have an ID, label, or children".into() });
+            }
+            return Ok(());
+        }
+        if self.id.trim().is_empty() || self.label.trim().is_empty() {
+            return Err(UiIrError::InvalidPatch { message: "menu items require a stable ID and label".into() });
+        }
+        if self.checked && !self.checkbox {
+            return Err(UiIrError::InvalidPatch { message: "only checkbox menu items can be checked".into() });
+        }
+        let mut ids = std::collections::HashSet::new();
+        for child in &self.children {
+            child.validate()?;
+            if !child.separator && !ids.insert(&child.id) {
+                return Err(UiIrError::InvalidPatch { message: "menu sibling IDs must be unique".into() });
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Retained host-native context menu. Pointer coordinates and focus stay in
+/// Rust; Python receives only semantic item, close, and focus events.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ContextMenuNode {
+    pub id: String,
+    #[serde(default)]
+    pub items: Vec<MenuItemNode>,
+    #[serde(default)]
+    pub position: [f32; 2],
+    #[serde(default = "default_context_menu_width")]
+    pub min_width: f32,
+    #[serde(default)]
+    pub focused_index: Option<usize>,
+    #[serde(default)]
+    pub action: Option<String>,
+    #[serde(default)]
+    pub close_action: Option<String>,
+    #[serde(default)]
+    pub focus_action: Option<String>,
+}
+
+fn default_context_menu_width() -> f32 { 180.0 }
+
+impl ContextMenuNode {
+    fn validate(&self) -> Result<(), UiIrError> {
+        if self.id.trim().is_empty() || self.items.is_empty() || !self.min_width.is_finite() || self.min_width <= 0.0
+            || self.position.iter().any(|value| !value.is_finite()) {
+            return Err(UiIrError::InvalidPatch { message: "context menu requires an ID, items, finite position, and positive width".into() });
+        }
+        let mut ids = std::collections::HashSet::new();
+        for item in &self.items {
+            item.validate()?;
+            if !item.separator && !ids.insert(&item.id) {
+                return Err(UiIrError::InvalidPatch { message: "menu sibling IDs must be unique".into() });
+            }
+        }
+        if self.focused_index.is_some_and(|index| index >= self.items.len()) {
+            return Err(UiIrError::InvalidPatch { message: "context menu focused index is out of range".into() });
+        }
+        Ok(())
+    }
+}
+
+/// Anchored native popover with explicit trigger and content slots.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PopoverNode {
+    pub id: String,
+    pub trigger: Box<UiNode>,
+    #[serde(default)]
+    pub content: Vec<UiNode>,
+    #[serde(default = "default_popover_placement")]
+    pub placement: String,
+    #[serde(default)]
+    pub width: Option<f32>,
+    #[serde(default = "default_true")]
+    pub show_backdrop: bool,
+    #[serde(default)]
+    pub close_action: Option<String>,
+}
+
+fn default_popover_placement() -> String { "bottom".into() }
+
+impl PopoverNode {
+    fn validate(&self) -> Result<(), UiIrError> {
+        if self.id.trim().is_empty()
+            || !matches!(self.placement.as_str(), "top" | "bottom" | "left" | "right" | "top_start" | "top_end" | "bottom_start" | "bottom_end")
+            || self.width.is_some_and(|width| !width.is_finite() || width <= 0.0) {
+            return Err(UiIrError::InvalidPatch { message: "popover requires an ID, supported placement, and positive finite width".into() });
+        }
+        self.trigger.validate()?;
+        for child in &self.content { child.validate()?; }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TabsNode {
     #[serde(default)]
@@ -637,13 +1259,20 @@ pub struct StepperNode {
 impl StepperNode {
     fn validate(&self) -> Result<(), UiIrError> {
         if self.id.trim().is_empty() || self.steps.is_empty() {
-            return Err(UiIrError::InvalidPatch { message: "stepper requires an id and at least one step".into() });
+            return Err(UiIrError::InvalidPatch {
+                message: "stepper requires an id and at least one step".into(),
+            });
         }
         if self.active >= self.steps.len()
             || self.steps.iter().any(|step| step.trim().is_empty())
-            || self.disabled_steps.iter().any(|index| *index >= self.steps.len())
+            || self
+                .disabled_steps
+                .iter()
+                .any(|index| *index >= self.steps.len())
         {
-            return Err(UiIrError::InvalidPatch { message: "stepper has invalid active, label, or disabled step".into() });
+            return Err(UiIrError::InvalidPatch {
+                message: "stepper has invalid active, label, or disabled step".into(),
+            });
         }
         Ok(())
     }
@@ -675,7 +1304,9 @@ pub struct AccordionNode {
 impl AccordionNode {
     fn validate(&self) -> Result<(), UiIrError> {
         if self.id.trim().is_empty() {
-            return Err(UiIrError::InvalidPatch { message: "accordion id is empty".into() });
+            return Err(UiIrError::InvalidPatch {
+                message: "accordion id is empty".into(),
+            });
         }
         let mut ids = std::collections::HashSet::new();
         for item in &self.items {
@@ -689,10 +1320,14 @@ impl AccordionNode {
             }
         }
         if !self.multiple && self.expanded.len() > 1 {
-            return Err(UiIrError::InvalidPatch { message: "single accordion may only expand one item".into() });
+            return Err(UiIrError::InvalidPatch {
+                message: "single accordion may only expand one item".into(),
+            });
         }
         if self.expanded.iter().any(|id| !ids.contains(id)) {
-            return Err(UiIrError::InvalidPatch { message: "accordion expanded item does not exist".into() });
+            return Err(UiIrError::InvalidPatch {
+                message: "accordion expanded item does not exist".into(),
+            });
         }
         Ok(())
     }
@@ -727,7 +1362,9 @@ pub struct ListEditorRow {
 impl ListEditorNode {
     fn validate(&self) -> Result<(), UiIrError> {
         if self.id.trim().is_empty() {
-            return Err(UiIrError::InvalidPatch { message: "list editor id is empty".into() });
+            return Err(UiIrError::InvalidPatch {
+                message: "list editor id is empty".into(),
+            });
         }
         let mut ids = std::collections::HashSet::new();
         for row in &self.rows {
@@ -759,12 +1396,19 @@ pub struct FormControlProps {
     pub width: Option<f32>,
 }
 
-fn default_visible() -> bool { true }
+fn default_visible() -> bool {
+    true
+}
 
 impl FormControlProps {
     fn validate(&self) -> Result<(), UiIrError> {
-        if self.width.is_some_and(|width| !width.is_finite() || width <= 0.0) {
-            return Err(UiIrError::InvalidPatch { message: "form control width must be positive and finite".into() });
+        if self
+            .width
+            .is_some_and(|width| !width.is_finite() || width <= 0.0)
+        {
+            return Err(UiIrError::InvalidPatch {
+                message: "form control width must be positive and finite".into(),
+            });
         }
         Ok(())
     }
@@ -899,7 +1543,10 @@ impl SliderNode {
                 message: "slider minimum exceeds maximum".into(),
             });
         }
-        if self.step.is_some_and(|step| !step.is_finite() || step <= 0.0) {
+        if self
+            .step
+            .is_some_and(|step| !step.is_finite() || step <= 0.0)
+        {
             return Err(UiIrError::InvalidPatch {
                 message: "slider step must be positive and finite".into(),
             });
@@ -948,11 +1595,15 @@ impl ColorPickerNode {
     fn validate(&self) -> Result<(), UiIrError> {
         self.presentation.validate()?;
         if self.id.trim().is_empty() {
-            return Err(UiIrError::InvalidPatch { message: "form node id is empty".into() });
+            return Err(UiIrError::InvalidPatch {
+                message: "form node id is empty".into(),
+            });
         }
         let value = self.value.strip_prefix('#').unwrap_or(&self.value);
         if !matches!(value.len(), 6 | 8) || !value.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-            return Err(UiIrError::InvalidPatch { message: "color picker value must be #RRGGBB or #RRGGBBAA".into() });
+            return Err(UiIrError::InvalidPatch {
+                message: "color picker value must be #RRGGBB or #RRGGBBAA".into(),
+            });
         }
         Ok(())
     }
@@ -1134,10 +1785,13 @@ impl TableNode {
             if column.id.trim().is_empty()
                 || column.label.trim().is_empty()
                 || !column_ids.insert(&column.id)
-                || column.width.is_some_and(|width| !width.is_finite() || width <= 0.0)
+                || column
+                    .width
+                    .is_some_and(|width| !width.is_finite() || width <= 0.0)
             {
                 return Err(UiIrError::InvalidPatch {
-                    message: "table columns require unique IDs, labels, and positive finite widths".into(),
+                    message: "table columns require unique IDs, labels, and positive finite widths"
+                        .into(),
                 });
             }
         }
@@ -1156,7 +1810,11 @@ impl TableNode {
                 message: "interactive table requires a stable table id".into(),
             });
         }
-        if self.sort_column.as_ref().is_some_and(|id| !column_ids.contains(id)) {
+        if self
+            .sort_column
+            .as_ref()
+            .is_some_and(|id| !column_ids.contains(id))
+        {
             return Err(UiIrError::InvalidPatch {
                 message: "table sort column does not exist".into(),
             });
@@ -1247,7 +1905,10 @@ impl ChartNode {
         valid_range("x_range", self.x_range)?;
         valid_range("y_range", self.y_range)?;
         valid_range("color_range", self.color_range)?;
-        if self.aspect_ratio.is_some_and(|ratio| !ratio.is_finite() || ratio <= 0.0) {
+        if self
+            .aspect_ratio
+            .is_some_and(|ratio| !ratio.is_finite() || ratio <= 0.0)
+        {
             return Err(UiIrError::InvalidPatch {
                 message: format!("chart {:?} has invalid aspect_ratio", self.id),
             });
@@ -1355,25 +2016,50 @@ impl ChartNode {
                 }
                 if z.iter().all(Option::is_none) {
                     return Err(UiIrError::InvalidPatch {
-                        message: format!("chart {:?} heatmap requires a non-missing z value", self.id),
+                        message: format!(
+                            "chart {:?} heatmap requires a non-missing z value",
+                            self.id
+                        ),
                     });
                 }
                 if let Some(x) = &self.x {
                     if x.len() != width {
-                        return Err(UiIrError::ChartLengthMismatch { id: self.id.clone(), left: "x", left_len: x.len(), right: "width_count", right_len: width });
+                        return Err(UiIrError::ChartLengthMismatch {
+                            id: self.id.clone(),
+                            left: "x",
+                            left_len: x.len(),
+                            right: "width_count",
+                            right_len: width,
+                        });
                     }
                     finite("x", x)?;
                     if x.windows(2).any(|pair| pair[0] >= pair[1]) {
-                        return Err(UiIrError::InvalidPatch { message: format!("chart {:?} heatmap x coordinates must increase", self.id) });
+                        return Err(UiIrError::InvalidPatch {
+                            message: format!(
+                                "chart {:?} heatmap x coordinates must increase",
+                                self.id
+                            ),
+                        });
                     }
                 }
                 if let Some(y) = &self.y {
                     if y.len() != height {
-                        return Err(UiIrError::ChartLengthMismatch { id: self.id.clone(), left: "y", left_len: y.len(), right: "height_count", right_len: height });
+                        return Err(UiIrError::ChartLengthMismatch {
+                            id: self.id.clone(),
+                            left: "y",
+                            left_len: y.len(),
+                            right: "height_count",
+                            right_len: height,
+                        });
                     }
                     finite("y", y)?;
                     if y.windows(2).any(|pair| pair[0] >= pair[1]) {
-                        return Err(UiIrError::InvalidPatch { message: format!("chart {:?} heatmap y coordinates must increase", self.id) });
+                        return Err(UiIrError::InvalidPatch {
+                            message: format!(
+                                "chart {:?} heatmap y coordinates must increase",
+                                self.id
+                            ),
+                        });
                     }
                 }
             }
@@ -1408,11 +2094,7 @@ impl Scene3dNode {
                 message: "scene3d requires a stable id".into(),
             });
         }
-        if self
-            .selection_action
-            .as_deref()
-            .is_some_and(str::is_empty)
-        {
+        if self.selection_action.as_deref().is_some_and(str::is_empty) {
             return Err(UiIrError::InvalidPatch {
                 message: "scene3d selection action is empty".into(),
             });
@@ -1472,7 +2154,8 @@ mod tests {
             "sections": [{"id": "main", "label": "Main", "content": {
                 "kind": "color_picker", "id": "accent", "value": "#ff00ffaa"
             }}]
-        })).unwrap();
+        }))
+        .unwrap();
         assert!(app.validate().is_ok());
 
         let invalid: PythonAppIr = serde_json::from_value(serde_json::json!({
@@ -1480,8 +2163,12 @@ mod tests {
             "sections": [{"id": "main", "label": "Main", "content": {
                 "kind": "color_picker", "id": "accent", "value": "not-a-color"
             }}]
-        })).unwrap();
-        assert!(matches!(invalid.validate(), Err(UiIrError::InvalidPatch { .. })));
+        }))
+        .unwrap();
+        assert!(matches!(
+            invalid.validate(),
+            Err(UiIrError::InvalidPatch { .. })
+        ));
     }
 
     #[test]
@@ -1506,7 +2193,10 @@ mod tests {
             }}]
         }))
         .unwrap();
-        assert!(matches!(invalid.validate(), Err(UiIrError::InvalidPatch { .. })));
+        assert!(matches!(
+            invalid.validate(),
+            Err(UiIrError::InvalidPatch { .. })
+        ));
     }
 
     #[test]
@@ -1530,7 +2220,10 @@ mod tests {
             }}]
         }))
         .unwrap();
-        assert!(matches!(invalid.validate(), Err(UiIrError::InvalidPatch { .. })));
+        assert!(matches!(
+            invalid.validate(),
+            Err(UiIrError::InvalidPatch { .. })
+        ));
 
         let invalid_resize: PythonAppIr = serde_json::from_value(serde_json::json!({
             "title": "Demo",
@@ -1540,7 +2233,10 @@ mod tests {
             }}]
         }))
         .unwrap();
-        assert!(matches!(invalid_resize.validate(), Err(UiIrError::InvalidPatch { .. })));
+        assert!(matches!(
+            invalid_resize.validate(),
+            Err(UiIrError::InvalidPatch { .. })
+        ));
     }
 
     #[test]
@@ -1552,7 +2248,10 @@ mod tests {
             }}]
         }))
         .unwrap();
-        assert!(matches!(invalid_button.validate(), Err(UiIrError::InvalidPatch { .. })));
+        assert!(matches!(
+            invalid_button.validate(),
+            Err(UiIrError::InvalidPatch { .. })
+        ));
 
         let invalid_tabs: PythonAppIr = serde_json::from_value(serde_json::json!({
             "title": "Demo",
@@ -1561,7 +2260,10 @@ mod tests {
             }}]
         }))
         .unwrap();
-        assert!(matches!(invalid_tabs.validate(), Err(UiIrError::InvalidPatch { .. })));
+        assert!(matches!(
+            invalid_tabs.validate(),
+            Err(UiIrError::InvalidPatch { .. })
+        ));
     }
 
     #[test]
@@ -1584,7 +2286,10 @@ mod tests {
             }}]
         }))
         .unwrap();
-        assert!(matches!(invalid.validate(), Err(UiIrError::InvalidPatch { .. })));
+        assert!(matches!(
+            invalid.validate(),
+            Err(UiIrError::InvalidPatch { .. })
+        ));
     }
 
     #[test]
@@ -1608,7 +2313,10 @@ mod tests {
             }}]
         }))
         .unwrap();
-        assert!(matches!(invalid.validate(), Err(UiIrError::InvalidPatch { .. })));
+        assert!(matches!(
+            invalid.validate(),
+            Err(UiIrError::InvalidPatch { .. })
+        ));
     }
 
     #[test]
@@ -1631,7 +2339,10 @@ mod tests {
             }}]
         }))
         .unwrap();
-        assert!(matches!(all_missing.validate(), Err(UiIrError::InvalidPatch { .. })));
+        assert!(matches!(
+            all_missing.validate(),
+            Err(UiIrError::InvalidPatch { .. })
+        ));
     }
 
     #[test]
@@ -1651,7 +2362,10 @@ mod tests {
             }}]
         }))
         .unwrap();
-        assert!(matches!(invalid.validate(), Err(UiIrError::InvalidPatch { .. })));
+        assert!(matches!(
+            invalid.validate(),
+            Err(UiIrError::InvalidPatch { .. })
+        ));
     }
 
     #[test]
@@ -1796,7 +2510,10 @@ mod tests {
             }}]
         }))
         .unwrap();
-        assert!(matches!(heatmap_coordinates.validate(), Err(UiIrError::ChartLengthMismatch { .. })));
+        assert!(matches!(
+            heatmap_coordinates.validate(),
+            Err(UiIrError::ChartLengthMismatch { .. })
+        ));
 
         let nan_series = serde_json::from_value::<PythonAppIr>(serde_json::json!({
             "title": "Demo",
@@ -1849,7 +2566,188 @@ mod tests {
             }}]
         }))
         .unwrap();
-        assert!(matches!(invalid_mode.validate(), Err(UiIrError::InvalidPatch { .. })));
+        assert!(matches!(
+            invalid_mode.validate(),
+            Err(UiIrError::InvalidPatch { .. })
+        ));
+    }
+
+    #[test]
+    fn validates_native_breadcrumb_and_alert_contracts() {
+        let app: PythonAppIr = serde_json::from_value(serde_json::json!({
+            "title": "Demo",
+            "sections": [{"id": "main", "label": "Main", "content": {
+                "kind": "vstack", "children": [
+                    {"kind": "breadcrumbs", "id": "location", "separator": "chevron",
+                     "action": "navigate", "items": [
+                        {"id": "home", "label": "Home"}, {"id": "run", "label": "Run"}
+                     ]},
+                    {"kind": "alert", "id": "saved", "message": "Saved", "variant": "success",
+                     "closeable": true, "action": "dismiss"},
+                    {"kind": "toast", "id": "queued", "message": "Queued", "duration_secs": 3.0}
+                    ,{"kind": "tooltip", "id": "help-tip", "content": "Explain this",
+                      "placement": "bottom", "child": {"kind": "button", "id": "help", "label": "Help"}},
+                    {"kind": "empty_state", "title": "No runs", "action": {
+                        "kind": "button", "id": "create", "label": "Create"
+                    }}
+                ]
+            }}]
+        }))
+        .unwrap();
+        assert!(app.validate().is_ok());
+
+        let invalid: PythonAppIr = serde_json::from_value(serde_json::json!({
+            "title": "Demo",
+            "sections": [{"id": "main", "label": "Main", "content": {
+                "kind": "alert", "id": "saved", "message": "Saved", "action": "dismiss"
+            }}]
+        }))
+        .unwrap();
+        assert!(matches!(
+            invalid.validate(),
+            Err(UiIrError::InvalidPatch { .. })
+        ));
+
+        let invalid_duration: PythonAppIr = serde_json::from_value(serde_json::json!({
+            "title": "Demo",
+            "sections": [{"id": "main", "label": "Main", "content": {
+                "kind": "toast", "id": "queued", "message": "Queued", "duration_secs": 0.0
+            }}]
+        }))
+        .unwrap();
+        assert!(matches!(
+            invalid_duration.validate(),
+            Err(UiIrError::InvalidPatch { .. })
+        ));
+
+        let invalid_tooltip: PythonAppIr = serde_json::from_value(serde_json::json!({
+            "title": "Demo",
+            "sections": [{"id": "main", "label": "Main", "content": {
+                "kind": "tooltip", "id": "help-tip", "content": "Explain", "placement": "diagonal",
+                "child": {"kind": "text", "text": "Help"}
+            }}]
+        }))
+        .unwrap();
+        assert!(matches!(
+            invalid_tooltip.validate(),
+            Err(UiIrError::InvalidPatch { .. })
+        ));
+
+        let invalid_empty: PythonAppIr = serde_json::from_value(serde_json::json!({
+            "title": "Demo",
+            "sections": [{"id": "main", "label": "Main", "content": {
+                "kind": "empty_state", "title": ""
+            }}]
+        }))
+        .unwrap();
+        assert!(matches!(
+            invalid_empty.validate(),
+            Err(UiIrError::InvalidPatch { .. })
+        ));
+    }
+
+    #[test]
+    fn validates_native_dialog_slots_and_size() {
+        let app: PythonAppIr = serde_json::from_value(serde_json::json!({
+            "title": "Demo",
+            "sections": [{"id": "main", "label": "Main", "content": {
+                "kind": "dialog", "id": "details", "title": "Details", "size": "lg",
+                "content": [{"kind": "text", "text": "Ready"}],
+                "footer": [{"kind": "button", "id": "close", "label": "Close", "action": "close"}],
+                "close_action": "dismiss"
+            }}]
+        }))
+        .unwrap();
+        assert!(app.validate().is_ok());
+
+        let invalid: PythonAppIr = serde_json::from_value(serde_json::json!({
+            "title": "Demo",
+            "sections": [{"id": "main", "label": "Main", "content": {
+                "kind": "dialog", "id": "details", "size": "giant"
+            }}]
+        }))
+        .unwrap();
+        assert!(matches!(invalid.validate(), Err(UiIrError::InvalidPatch { .. })));
+    }
+
+    #[test]
+    fn validates_native_context_menu_and_popover_slots() {
+        let app: PythonAppIr = serde_json::from_value(serde_json::json!({
+            "title": "Demo",
+            "sections": [{"id": "main", "label": "Main", "content": {
+                "kind": "vstack", "children": [
+                    {"kind": "context_menu", "id": "actions", "position": [12.0, 24.0],
+                     "items": [{"id": "run", "label": "Run"}, {"separator": true}],
+                     "action": "select_action", "close_action": "close_actions"},
+                    {"kind": "popover", "id": "details", "placement": "bottom_end", "width": 220.0,
+                     "trigger": {"kind": "button", "id": "more", "label": "More"},
+                     "content": [{"kind": "text", "text": "Details"}]}
+                ]
+            }}]
+        }))
+        .unwrap();
+        assert!(app.validate().is_ok());
+
+        let invalid: PythonAppIr = serde_json::from_value(serde_json::json!({
+            "title": "Demo",
+            "sections": [{"id": "main", "label": "Main", "content": {
+                "kind": "context_menu", "id": "actions", "items": [
+                    {"id": "run", "label": "Run", "checked": true}
+                ]
+            }}]
+        }))
+        .unwrap();
+        assert!(matches!(invalid.validate(), Err(UiIrError::InvalidPatch { .. })));
+    }
+
+    #[test]
+    fn validates_native_menu_and_menu_bar_state() {
+        let app: PythonAppIr = serde_json::from_value(serde_json::json!({
+            "title": "Demo",
+            "sections": [{"id": "main", "label": "Main", "content": {
+                "kind": "vstack", "children": [
+                    {"kind": "menu", "id": "actions", "focused_index": 0,
+                     "items": [{"id": "run", "label": "Run"}]},
+                    {"kind": "menu_bar", "id": "app-menu", "active_menu": "file",
+                     "items": [{"id": "file", "label": "File", "items": [{"id": "quit", "label": "Quit"}]}]}
+                ]
+            }}]
+        }))
+        .unwrap();
+        assert!(app.validate().is_ok());
+
+        let invalid: PythonAppIr = serde_json::from_value(serde_json::json!({
+            "title": "Demo",
+            "sections": [{"id": "main", "label": "Main", "content": {
+                "kind": "menu_bar", "id": "app-menu", "active_menu": "unknown",
+                "items": [{"id": "file", "label": "File"}]
+            }}]
+        }))
+        .unwrap();
+        assert!(matches!(invalid.validate(), Err(UiIrError::InvalidPatch { .. })));
+    }
+
+    #[test]
+    fn validates_native_confirmation_dialog_actions() {
+        let app: PythonAppIr = serde_json::from_value(serde_json::json!({
+            "title": "Demo",
+            "sections": [{"id": "main", "label": "Main", "content": {
+                "kind": "confirm_dialog", "id": "delete", "title": "Delete?",
+                "message": "This cannot be undone.", "variant": "destructive",
+                "confirm_action": "delete", "cancel_action": "keep"
+            }}]
+        }))
+        .unwrap();
+        assert!(app.validate().is_ok());
+
+        let invalid: PythonAppIr = serde_json::from_value(serde_json::json!({
+            "title": "Demo",
+            "sections": [{"id": "main", "label": "Main", "content": {
+                "kind": "confirm_dialog", "id": "delete", "message": "", "variant": "unknown"
+            }}]
+        }))
+        .unwrap();
+        assert!(matches!(invalid.validate(), Err(UiIrError::InvalidPatch { .. })));
     }
 
     #[test]
@@ -1873,7 +2771,10 @@ mod tests {
             }}]
         }))
         .unwrap();
-        assert!(matches!(invalid.validate(), Err(UiIrError::InvalidPatch { .. })));
+        assert!(matches!(
+            invalid.validate(),
+            Err(UiIrError::InvalidPatch { .. })
+        ));
     }
 
     #[test]
@@ -1935,7 +2836,10 @@ mod tests {
         }])
         .unwrap();
         let json = serde_json::to_value(&app).unwrap();
-        assert_eq!(json["sections"][0]["content"]["series"][0]["x"], serde_json::json!([20.0, 100.0]));
+        assert_eq!(
+            json["sections"][0]["content"]["series"][0]["x"],
+            serde_json::json!([20.0, 100.0])
+        );
 
         app.apply_patch_ops(&[crate::session::PatchOp::ReplaceChartSeries {
             chart_id: "response".into(),
@@ -1943,7 +2847,10 @@ mod tests {
         }])
         .unwrap();
         let json = serde_json::to_value(&app).unwrap();
-        assert_eq!(json["sections"][0]["content"]["series"][0]["label"], "Latest");
+        assert_eq!(
+            json["sections"][0]["content"]["series"][0]["label"],
+            "Latest"
+        );
 
         let before = app.clone();
         assert!(matches!(

@@ -1,8 +1,8 @@
 use super::misc::default_showcase_path;
 use super::misc::repo_root;
 use gpui_python_runtime::session::{
-    parse_python_message, DEFAULT_HOST_CAPABILITIES, DEFAULT_MAX_SESSION_MESSAGE_BYTES,
-    HostMessage, PythonMessage, UiEvent,
+    DEFAULT_HOST_CAPABILITIES, DEFAULT_MAX_SESSION_MESSAGE_BYTES, HostMessage, PythonMessage,
+    UiEvent, parse_python_message,
 };
 use gpui_python_runtime::ui_ir::PythonAppIr;
 use std::env;
@@ -286,7 +286,10 @@ pub(super) fn load_python_session_blocking()
     session.send(&HostMessage::Initialize(
         gpui_python_runtime::session::Initialize {
             session_version: gpui_python_runtime::session::PYTHON_APP_SESSION_VERSION,
-            capabilities: DEFAULT_HOST_CAPABILITIES.iter().map(|value| (*value).into()).collect(),
+            capabilities: DEFAULT_HOST_CAPABILITIES
+                .iter()
+                .map(|value| (*value).into())
+                .collect(),
             platform: std::env::consts::OS.into(),
             theme: "system".into(),
             window: gpui_python_runtime::session::WindowMetadata {

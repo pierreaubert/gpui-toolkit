@@ -1,8 +1,13 @@
 import unittest
+import contextlib
+import io
+import json
 
+from gpui_toolkit import SessionContext
+from gpui_toolkit.commands import CommandResult
 from gpui_toolkit.text import (
     EngineProfile, KnuthPlassParams, LayoutCursor, PrepareProfile,
-    TextBudget, TextPreparationRequest, WhiteSpaceMode,
+    TextBudget, TextPreparationRequest, WhiteSpaceMode, prepare_layout, prepared_layout_from_command,
 )
 
 
@@ -26,6 +31,20 @@ class TextDeclarationsTests(unittest.TestCase):
         self.assertEqual(PrepareProfile(3, 2, 1).breakable_segments, 1)
         with self.assertRaises(ValueError):
             LayoutCursor(-1, 0)
+
+    def test_native_prepare_layout_command_and_result_are_typed(self):
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            prepare_layout(SessionContext(), "layout", "one two", max_width=24, char_width=8)
+        self.assertEqual(json.loads(output.getvalue())["command"], "text.prepare_layout")
+        layout = prepared_layout_from_command(CommandResult.from_wire("layout", {
+            "ok": True, "line_count": 2, "height": 32.0, "segments": ["one", " ", "two"],
+            "lines": [{"text": "one", "width": 24.0,
+                "start": {"segment_index": 0, "grapheme_index": 0},
+                "end": {"segment_index": 1, "grapheme_index": 0}}],
+        }))
+        self.assertEqual(layout.result.line_count, 2)
+        self.assertEqual(layout.lines[0][0], "one")
 
 
 if __name__ == "__main__":

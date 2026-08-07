@@ -17,6 +17,58 @@ class UiBuilderTests(unittest.TestCase):
         self.assertEqual(spec["items"][0]["children"][0]["kind"], "text")
         self.assertEqual(spec["action"], "set_advanced")
 
+    def test_context_menu_uses_typed_items_and_semantic_actions(self):
+        spec = ui.context_menu(
+            id="run-menu",
+            items=[ui.MenuItem("run", "Run", shortcut="cmd-r"), ui.MenuItem.divider()],
+            position=(24, 36),
+            action="select_run_action",
+            close_action="close_run_menu",
+        ).to_spec()
+
+        self.assertEqual(spec["kind"], "context_menu")
+        self.assertEqual(spec["items"][0]["shortcut"], "cmd-r")
+        self.assertTrue(spec["items"][1]["separator"])
+        self.assertEqual(spec["position"], [24.0, 36.0])
+
+    def test_menu_and_menu_bar_keep_stable_selection_contracts(self):
+        menu = ui.menu(
+            id="actions", items=[ui.MenuItem("run", "Run")],
+            focused_index=0, action="select_action", focus_action="focus_action",
+        ).to_spec()
+        bar = ui.menu_bar(
+            id="application-menu",
+            items=[ui.MenuBarItem("file", "File", [ui.MenuItem("quit", "Quit")])],
+            active_menu="file", action="select_menu_item", toggle_action="toggle_menu",
+        ).to_spec()
+
+        self.assertEqual(menu["kind"], "menu")
+        self.assertEqual(menu["items"][0]["id"], "run")
+        self.assertEqual(bar["items"][0]["items"][0]["id"], "quit")
+        self.assertEqual(bar["active_menu"], "file")
+
+    def test_popover_retains_typed_trigger_and_content_slots(self):
+        spec = ui.popover(
+            ui.button("More", id="more"), id="more-popover",
+            content=[ui.text("Details")], placement="bottom_end", width=240,
+            close_action="close_more",
+        ).to_spec()
+
+        self.assertEqual(spec["kind"], "popover")
+        self.assertEqual(spec["trigger"]["id"], "more")
+        self.assertEqual(spec["content"][0]["kind"], "text")
+        self.assertEqual(spec["placement"], "bottom_end")
+
+    def test_confirmation_dialog_has_explicit_outcome_actions(self):
+        spec = ui.confirm_dialog(
+            id="delete-run", title="Delete run?", message="This cannot be undone.",
+            variant="destructive", confirm_action="delete", cancel_action="keep",
+        ).to_spec()
+
+        self.assertEqual(spec["kind"], "confirm_dialog")
+        self.assertEqual(spec["variant"], "destructive")
+        self.assertEqual(spec["confirm_action"], "delete")
+
     def test_table_preserves_sorting_contract(self):
         spec = ui.table(
             id="runs",
@@ -135,6 +187,36 @@ class UiBuilderTests(unittest.TestCase):
         spec = ui.color_picker(id="accent", value="#ff00ffaa", label="Accent").to_spec()
         self.assertEqual(spec["kind"], "color_picker")
         self.assertEqual(spec["value"], "#ff00ffaa")
+
+    def test_navigation_and_feedback_nodes_preserve_native_event_contracts(self):
+        crumbs = ui.breadcrumbs(
+            id="location", items=[("home", "Home"), {"id": "run", "label": "Run"}],
+            separator="chevron", action="navigate",
+        ).to_spec()
+        notice = ui.alert(
+            "Model saved", id="saved", variant="success", closeable=True, action="dismiss",
+        ).to_spec()
+
+        self.assertEqual(crumbs["items"][1]["id"], "run")
+        self.assertEqual(crumbs["separator"], "chevron")
+        self.assertEqual(crumbs["action"], "navigate")
+        self.assertTrue(notice["closeable"])
+        self.assertEqual(notice["action"], "dismiss")
+
+        toast = ui.toast("Queued", id="queue", duration_secs=3.0, action="dismiss_toast").to_spec()
+        self.assertEqual(toast["duration_secs"], 3.0)
+        self.assertEqual(toast["action"], "dismiss_toast")
+
+        tip = ui.tooltip(ui.button("Help", id="help"), "Explain this", id="help-tip").to_spec()
+        self.assertEqual(tip["child"]["kind"], "button")
+        self.assertEqual(tip["delay_ms"], 200)
+
+        empty = ui.empty_state("No runs", action=ui.button("Create", id="create")).to_spec()
+        self.assertEqual(empty["action"]["kind"], "button")
+
+        modal = ui.dialog(id="details", title="Details", content=[ui.text("Ready")], close_action="close").to_spec()
+        self.assertEqual(modal["content"][0]["kind"], "text")
+        self.assertEqual(modal["close_action"], "close")
 
 
 if __name__ == "__main__":

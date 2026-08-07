@@ -3,7 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 import math
-from typing import Any
+from typing import Any, TYPE_CHECKING
+from .commands import CommandResult, CommandStatus
+if TYPE_CHECKING: from .app import SessionContext
 
 class Axis(str, Enum):
     HORIZONTAL = "horizontal"
@@ -75,3 +77,24 @@ def to_spec(node: LayoutNode) -> dict[str, Any]:
     if isinstance(node, Slot):
         return {"kind": "slot", "id": node.id, "sizing": node.sizing.to_spec(), "priority": node.priority, "collapsible": node.collapsible, "display_tiers": [tier.__dict__.copy() for tier in node.display_tiers], "collapse_label": node.collapse_label}
     return {"kind": "container", "id": node.id, "axis": node.axis.value, "sizing": node.sizing.to_spec(), "children": [to_spec(child) for child in node.children], "auto_axis": node.auto_axis, "divider_size": node.divider_size}
+
+@dataclass(frozen=True)
+class ChassisSection:
+    id: str
+    min_width: float
+    preferred_width: float
+    priority: float = 1.0
+
+@dataclass(frozen=True)
+class SolvedChassisSection:
+    id: str
+    width: float
+    visible: bool
+
+def solve_chassis(context: "SessionContext", request_id: str, width: float, sections: tuple[ChassisSection, ...]) -> None:
+    if not math.isfinite(width) or width < 0: raise ValueError("chassis width must be finite and non-negative")
+    context.command(request_id, "builder.solve_chassis", width=width, sections=[section.__dict__.copy() for section in sections])
+
+def solved_chassis_from_command(result: CommandResult) -> tuple[SolvedChassisSection, ...]:
+    if result.status is not CommandStatus.SUCCEEDED: raise RuntimeError(result.error or "builder chassis solve failed")
+    return tuple(SolvedChassisSection(str(section["id"]), float(section["width"]), bool(section["visible"])) for section in result.data["sections"])

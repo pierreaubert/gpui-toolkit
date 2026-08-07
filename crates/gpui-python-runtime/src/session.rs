@@ -18,6 +18,8 @@ pub const DEFAULT_HOST_CAPABILITIES: &[&str] = &[
     "patches",
     "jobs",
     "effects",
+    "commands",
+    "profiler_telemetry",
     "forms",
     "tables",
     "charts",
@@ -89,6 +91,13 @@ pub enum HostMessage {
     Shutdown(Shutdown),
     Heartbeat { id: String },
     EffectResult { request_id: String, result: Value },
+    CommandResult { request_id: String, result: Value },
+    /// A bounded-rate, host-owned allocation sample from a subscription.
+    ProfilerSample {
+        subscription_id: String,
+        sequence: u64,
+        sample: Value,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -349,7 +358,15 @@ pub enum PythonMessage {
         #[serde(default)]
         arguments: Value,
     },
-    Acknowledged { request_id: String },
+    Command {
+        request_id: String,
+        command: String,
+        #[serde(default)]
+        arguments: Value,
+    },
+    Acknowledged {
+        request_id: String,
+    },
     Rejected(ProtocolError),
     Superseded(ActionSuperseded),
     Error(ProtocolError),
@@ -478,6 +495,24 @@ mod tests {
             serde_json::from_slice::<HostMessage>(&text).unwrap(),
             effect_result
         );
+
+        let command_result = HostMessage::CommandResult {
+            request_id: "host-capabilities".into(),
+            result: serde_json::json!({"ok": true, "capabilities": ["commands"]}),
+        };
+        let text = serde_json::to_vec(&command_result).unwrap();
+        assert_eq!(
+            serde_json::from_slice::<HostMessage>(&text).unwrap(),
+            command_result
+        );
+
+        let sample = HostMessage::ProfilerSample {
+            subscription_id: "render".into(),
+            sequence: 1,
+            sample: serde_json::json!({"mode": "zero", "bytes": 0, "count": 0}),
+        };
+        let text = serde_json::to_vec(&sample).unwrap();
+        assert_eq!(serde_json::from_slice::<HostMessage>(&text).unwrap(), sample);
     }
 
     #[test]
