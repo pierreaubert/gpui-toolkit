@@ -30,13 +30,19 @@ contract and may only increase in a minor release with release-note notice.
 1. Start from a clean worktree and reviewed release issue.
 2. Run narrow tests, then `just qa`; attach coverage, dependency, performance,
    snapshot/gallery, and platform reports.
+   The final QA step writes `target/qa/release-evidence.{json,md}`, which binds
+   the required reports and comparator inputs to their source revision, host,
+   toolchains, sizes, and SHA-256 digests.
 3. Run `just qa-release-contract` and the locked publish dry-runs in the
    machine-readable order. Never use `--allow-dirty` for final evidence.
 4. Generate the reproducible RC bundle, SBOM/license inventory, provenance,
    and SHA-256 checksums with `just release-rc <version>`.
 5. Review `CHANGELOG.md`, `WHATSNEW.md`, known limitations, support scope, and
    every accepted advisory or manual platform gate.
-6. Create and verify a signed tag. Publishing packages or uploading release
+6. Run `just qa-release-evidence` from the final clean commit. Require any
+   attached mobile lane with `scripts/qa_release_evidence.py --require-clean
+   --require-platform <lane>` so stale or dirty platform captures are rejected.
+7. Create and verify a signed tag. Publishing packages or uploading release
    assets is a separate, explicit maintainer action; the automation does not
    publish to crates.io or create a remote release by itself.
 

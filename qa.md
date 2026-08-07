@@ -217,6 +217,15 @@ support, conduct, changelog, release-lane, and MSRV metadata plus locked package
 verification for the three crates.io wave-one packages. Publishing or uploading
 anything remains a separate explicit maintainer action.
 
+The final `just qa` step emits `target/qa/release-evidence.json` and Markdown.
+This manifest hashes every required coverage, performance, conformance,
+accessibility, and visual report plus its comparator inputs and records the
+source revision, dirty state, commit timestamp, host, and toolchains. Use
+`just qa-release-evidence` for an RC: it repeats the full gate and refuses a
+dirty worktree. Platform evidence can be made mandatory with repeated
+`--require-platform` arguments; the generator rejects captures made from a
+different revision or a dirty tree.
+
 `just release-rc <version>` is the offline artifact authority. It refuses a
 dirty or version-mismatched worktree and emits the source and visual-gallery
 archives, locked wave-one crate packages, SPDX 2.3 SBOM, license inventory,

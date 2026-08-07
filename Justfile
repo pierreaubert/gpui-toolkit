@@ -120,7 +120,15 @@ qa-gpui-obvious: qa-gpui-conformance
 # sub-90% report still lets the other suites exercise the code.
 [group('qa')]
 qa: lint-host qa-scripts qa-api qa-prop qa-visual qa-perf qa-gpui-obvious qa-cov-check qa-deps
+	python3 scripts/qa_release_evidence.py
 	@echo "Full QA suite passed"
+
+# Repeat the full QA suite and reject evidence that is not tied to a clean
+# source revision. Platform recipes can be run first and required explicitly
+# with scripts/qa_release_evidence.py --require-platform <lane>.
+[group('release')]
+qa-release-evidence: qa
+	python3 scripts/qa_release_evidence.py --require-clean
 
 [group('qa')]
 qa-scripts:
