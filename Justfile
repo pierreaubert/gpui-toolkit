@@ -469,15 +469,13 @@ qa-ios-simulator udid='': showcase-build-sim
 		-showBuildSettings)"
 	target_dir="$(awk -F ' = ' '/TARGET_BUILD_DIR = / { print $2; exit }' <<<"$settings")"
 	wrapper_name="$(awk -F ' = ' '/WRAPPER_NAME = / { print $2; exit }' <<<"$settings")"
-	args=()
-	if [[ -n "{{udid}}" ]]; then args+=("{{udid}}"); fi
 	scripts/run_apple_simulator_smoke.sh \
 		ios \
 		"$target_dir/$wrapper_name" \
 		org.spinorama.gpui-showcase \
 		target/qa/platform/ios-simulator/evidence.json \
 		target/qa/platform/ios-simulator/showcase.png \
-		"${args[@]}"
+		"{{udid}}"
 
 # Build the Showcase iOS app for device.
 [group('ios')]
@@ -593,15 +591,13 @@ qa-tvos-simulator udid='': showcase-tvos-build-sim
 		-showBuildSettings)"
 	target_dir="$(awk -F ' = ' '/TARGET_BUILD_DIR = / { print $2; exit }' <<<"$settings")"
 	wrapper_name="$(awk -F ' = ' '/WRAPPER_NAME = / { print $2; exit }' <<<"$settings")"
-	args=()
-	if [[ -n "{{udid}}" ]]; then args+=("{{udid}}"); fi
 	scripts/run_apple_simulator_smoke.sh \
 		tvos \
 		"$target_dir/$wrapper_name" \
 		org.spinorama.gpui-showcase.tv \
 		target/qa/platform/tvos-simulator/evidence.json \
 		target/qa/platform/tvos-simulator/showcase.png \
-		"${args[@]}"
+		"{{udid}}"
 
 # Run both Apple simulator runtime/pixel gates.
 qa-apple-simulators: qa-ios-simulator qa-tvos-simulator
