@@ -2950,7 +2950,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-audio-kit"
-version = "0.9.4"
+version = "0.9.5"
 dependencies = [
  "gpui",
  "gpui-design",
@@ -2999,7 +2999,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-d3rs"
-version = "0.9.12"
+version = "0.9.13"
 dependencies = [
  "approx",
  "autoeq",
@@ -3121,7 +3121,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-px"
-version = "0.9.8"
+version = "0.9.9"
 dependencies = [
  "autoeq",
  "criterion 0.8.2",
@@ -3140,7 +3140,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-python-runtime"
-version = "0.9.6"
+version = "0.9.7"
 dependencies = [
  "glam",
  "gpui",
@@ -3163,7 +3163,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-scaffolder"
-version = "0.9.2"
+version = "0.9.3"
 dependencies = [
  "anyhow",
  "clap",
@@ -3232,7 +3232,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-toolkit"
-version = "0.9.6"
+version = "0.9.7"
 dependencies = [
  "gpui-au",
  "gpui-audio-kit",

@@ -1,3 +1,12 @@
+# Unreleased
+
+# 0.9.5
+
+## Features
+
+- Added semantic `on_commit` handlers to potentiometers, vertical sliders, and volume knobs for drag-release and discrete keyboard/scroll changes.
+- Added native delta dragging to potentiometers while preserving click-step behavior for releases without movement.
+
 # 0.7.3
 
 ## Features

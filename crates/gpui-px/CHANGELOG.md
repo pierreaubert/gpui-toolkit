@@ -1,5 +1,16 @@
 # Unreleased
 
+# 0.9.9
+
+## Features
+
+- Added smooth curve selection, stroke dashes, grouped bars, annotations, per-series opacity, secondary Y axes, nearest-point inspection, legend toggling, brushing, and SVG/PNG/CSV export to the Python chart surface.
+
+## Fixes
+
+- Fixed wheel zoom, drag pan, hover, and brush hit testing by retaining the actual painted bounds and converting window coordinates to chart-local coordinates.
+- Added interaction invalidation callbacks so native state changes rebuild host chart geometry instead of repainting stale content.
+
 # 0.9.8
 
 ## Features

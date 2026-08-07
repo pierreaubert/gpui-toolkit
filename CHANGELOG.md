@@ -33,7 +33,7 @@
 
 ### Known Limitations
 
-- D3 interaction/animation/GPU parity remains partial; pretext bidi/shaping is
+- Full D3.js semantic parity beyond the current Rust API remains partial; pretext bidi/shaping is
   still backend-dependent; the GPUI surface bridge remains CPU-backed, and
   the Python mesh path is CPU-projected GPUI polygons rather than a true GPU
   mesh pipeline. Output formatting plus arbitrary JSON APIs do not yet share

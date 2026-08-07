@@ -1,5 +1,16 @@
 # Unreleased
 
+# 0.9.13
+
+## Features
+
+- Added basis, cardinal, Catmull-Rom, monotone-X, and natural line curves with validated configuration and native Python bridge coverage.
+- Exposed executable native command coverage for the current public algorithm and interaction modules, including geometry, layouts, selection, brush, drag, transition, and zoom state.
+
+## Fixes
+
+- Preserved line style and curve configuration through GPU 2D rendering and showcase paths.
+
 ## Performance
 
 - Replaced one-thread-per-timer scheduling with a shared D3 timer scheduler;
