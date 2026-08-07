@@ -1,6 +1,6 @@
 [package]
 name = "gpui-d3rs"
-version = "0.9.12"
+version = "0.9.13"
 edition.workspace = true
 repository.workspace = true
 authors.workspace = true

@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+## 0.9.7 - 2026-08-07
+
+### Python Surface
+
+- Completed the typed Python surface registry for all 20 first-party consumer crates, with 51 capability dispositions and a green strict parity gate.
+- Added native Rust-backed Python commands for builder solving, design/pretext reports, themes, UI conformance, audio controls, scaffolding, and the full current `gpui-d3rs` algorithm and interaction surface.
+- Added typed Python declarations and retained GPUI rendering for charts, accessibility, events/effects, resources, platform services, tooling, audio streams, and 3D scenes.
+
+### Charts and Interaction
+
+- Fixed Python chart wheel zoom and drag interaction by retaining painted bounds, converting window coordinates to chart-local coordinates, and invalidating the host view when interaction state changes.
+- Added native line curves, dash styles, grouped bars, annotations, per-series opacity, secondary axes, nearest-point inspection, legend toggling, brushing, keyboard navigation, and SVG/PNG/CSV export.
+
+### Audio and Tooling
+
+- Added semantic preview/commit behavior to potentiometers, vertical sliders, and volume knobs, including native delta dragging.
+- Added non-mutating scaffold previews with the exact generated-file inventory.
+
 ### Performance and Capability
 
 - Added retained frame-rate layout solving, windowed TreeView virtualization,
