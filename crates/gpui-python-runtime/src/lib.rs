@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 //! Retained scene specifications for the GPUI Python wrapper.
 //!
 //! Python owns declarations: stable ids, arrays, cameras, and callbacks.

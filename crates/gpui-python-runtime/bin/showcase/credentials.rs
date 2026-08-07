@@ -43,143 +43,24 @@ fn service_name() -> String {
 }
 
 #[cfg(target_os = "macos")]
-mod macos {
-    use std::ffi::{c_char, c_void};
-    type Item = *mut c_void;
-    const ITEM_NOT_FOUND: i32 = -25300;
-    const DUPLICATE_ITEM: i32 = -25299;
-    #[link(name = "Security", kind = "framework")]
-    unsafe extern "C" {
-        fn SecKeychainAddGenericPassword(
-            keychain: *mut c_void,
-            service_len: u32,
-            service: *const c_char,
-            account_len: u32,
-            account: *const c_char,
-            password_len: u32,
-            password: *const c_void,
-            item: *mut Item,
-        ) -> i32;
-        fn SecKeychainFindGenericPassword(
-            keychain: *mut c_void,
-            service_len: u32,
-            service: *const c_char,
-            account_len: u32,
-            account: *const c_char,
-            password_len: *mut u32,
-            password: *mut *mut c_void,
-            item: *mut Item,
-        ) -> i32;
-        fn SecKeychainItemModifyAttributesAndData(
-            item: Item,
-            attributes: *const c_void,
-            password_len: u32,
-            password: *const c_void,
-        ) -> i32;
-        fn SecKeychainItemDelete(item: Item) -> i32;
-        fn CFRelease(value: *const c_void);
-    }
-    fn args<'a, 'b>(service: &'a str, reference: &'b str) -> Result<(&'a [u8], &'b [u8]), String> {
-        if service.as_bytes().len() > u32::MAX as usize
-            || reference.as_bytes().len() > u32::MAX as usize
-        {
-            return Err("credential reference too long".into());
-        }
-        Ok((service.as_bytes(), reference.as_bytes()))
-    }
-    pub(super) fn store(service: &str, reference: &str, secret: &str) -> Result<(), String> {
-        let (service, account) = args(service, reference)?;
-        let secret = secret.as_bytes();
-        let mut item: Item = std::ptr::null_mut();
-        let status = unsafe {
-            SecKeychainAddGenericPassword(
-                std::ptr::null_mut(),
-                service.len() as u32,
-                service.as_ptr().cast(),
-                account.len() as u32,
-                account.as_ptr().cast(),
-                secret.len() as u32,
-                secret.as_ptr().cast(),
-                &mut item,
-            )
-        };
-        if status == 0 {
-            if !item.is_null() {
-                unsafe { CFRelease(item) };
-            }
-            return Ok(());
-        }
-        if status != DUPLICATE_ITEM {
-            return Err(format!("Keychain store failed ({status})"));
-        }
-        let status = unsafe {
-            SecKeychainFindGenericPassword(
-                std::ptr::null_mut(),
-                service.len() as u32,
-                service.as_ptr().cast(),
-                account.len() as u32,
-                account.as_ptr().cast(),
-                std::ptr::null_mut(),
-                std::ptr::null_mut(),
-                &mut item,
-            )
-        };
-        if status != 0 {
-            return Err(format!("Keychain lookup failed ({status})"));
-        }
-        let status = unsafe {
-            SecKeychainItemModifyAttributesAndData(
-                item,
-                std::ptr::null(),
-                secret.len() as u32,
-                secret.as_ptr().cast(),
-            )
-        };
-        unsafe { CFRelease(item) };
-        if status == 0 {
-            Ok(())
-        } else {
-            Err(format!("Keychain update failed ({status})"))
-        }
-    }
-    pub(super) fn delete(service: &str, reference: &str) -> Result<(), String> {
-        let (service, account) = args(service, reference)?;
-        let mut item: Item = std::ptr::null_mut();
-        let status = unsafe {
-            SecKeychainFindGenericPassword(
-                std::ptr::null_mut(),
-                service.len() as u32,
-                service.as_ptr().cast(),
-                account.len() as u32,
-                account.as_ptr().cast(),
-                std::ptr::null_mut(),
-                std::ptr::null_mut(),
-                &mut item,
-            )
-        };
-        if status == ITEM_NOT_FOUND {
-            return Ok(());
-        }
-        if status != 0 {
-            return Err(format!("Keychain lookup failed ({status})"));
-        }
-        let status = unsafe { SecKeychainItemDelete(item) };
-        unsafe { CFRelease(item) };
-        if status == 0 {
-            Ok(())
-        } else {
-            Err(format!("Keychain delete failed ({status})"))
-        }
-    }
+fn store(reference: &str, secret: &str) -> Result<(), String> {
+    security_framework::passwords::set_generic_password(
+        &service_name(),
+        reference,
+        secret.as_bytes(),
+    )
+    .map_err(|error| format!("Keychain store failed ({})", error.code()))
 }
 
 #[cfg(target_os = "macos")]
-fn store(reference: &str, secret: &str) -> Result<(), String> {
-    macos::store(&service_name(), reference, secret)
-}
-#[cfg(target_os = "macos")]
 fn delete(reference: &str) -> Result<(), String> {
-    macos::delete(&service_name(), reference)
+    const ITEM_NOT_FOUND: i32 = -25300;
+
+    match security_framework::passwords::delete_generic_password(&service_name(), reference) {
+        Ok(()) => Ok(()),
+        Err(error) if error.code() == ITEM_NOT_FOUND => Ok(()),
+        Err(error) => Err(format!("Keychain delete failed ({})", error.code())),
+    }
 }
 #[cfg(not(target_os = "macos"))]
 fn store(_: &str, _: &str) -> Result<(), String> {

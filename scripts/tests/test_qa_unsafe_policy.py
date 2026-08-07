@@ -26,6 +26,23 @@ class UnsafePolicyTests(unittest.TestCase):
             self.assertEqual(len(errors), 1)
             self.assertIn("crates/gpui-core/src/lib.rs:2", errors[0])
 
+    def test_rejects_direct_ffi_in_python_runtime(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            source = root / "crates/gpui-python-runtime/src/keychain.rs"
+            source.parent.mkdir(parents=True)
+            source.write_text(
+                'unsafe extern "C" { fn SecItemAdd(); }\n',
+                encoding="utf-8",
+            )
+
+            errors = qa_unsafe_policy.check(root)
+
+            self.assertEqual(len(errors), 1)
+            self.assertIn(
+                "crates/gpui-python-runtime/src/keychain.rs:1", errors[0]
+            )
+
     def test_allows_native_ffi_boundary(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)

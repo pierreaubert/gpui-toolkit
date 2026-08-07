@@ -100,7 +100,9 @@ Update the committed performance baseline after intentional improvements:
 just qa-perf-update
 ```
 
-See [`qa.md`](./qa.md) for the detailed coverage and non-regression plan.
+See [`qa.md`](./qa.md) for the detailed coverage and non-regression plan, and
+[`docs/safety.md`](./docs/safety.md) for the enforced unsafe-Rust boundaries
+and review requirements.
 
 If the pinned Rust toolchain is unavailable locally, use an installed toolchain
 explicitly:

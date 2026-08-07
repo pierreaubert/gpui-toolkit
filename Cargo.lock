@@ -3157,6 +3157,7 @@ dependencies = [
  "gpui-scaffolder",
  "gpui-themes",
  "gpui-ui-kit",
+ "security-framework",
  "serde",
  "serde_json",
  "thiserror 2.0.18",

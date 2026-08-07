@@ -224,6 +224,7 @@ core-text = "=21.0.0"
 font-kit = { package = "zed-font-kit", version = "0.14.1-zed", git = "https://github.com/zed-industries/font-kit", rev = "94b0f28166665e8fd2f53ff6d268a14955c82269", default-features = false, features = ["source"] }
 objc = "0.2"
 oslog = "0.2"
+security-framework = "3.7"
 
 # Android platform bindings
 android-activity = { version = "0.6", features = ["native-activity"] }

@@ -1,4 +1,5 @@
 #![recursion_limit = "512"]
+#![forbid(unsafe_code)]
 #![allow(
     unused_imports,
     reason = "r2factor facade keeps shared imports for split showcase modules"
