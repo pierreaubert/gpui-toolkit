@@ -40,6 +40,20 @@ contract and may only increase in a minor release with release-note notice.
    assets is a separate, explicit maintainer action; the automation does not
    publish to crates.io or create a remote release by itself.
 
+`release-rc` is deliberately offline and refuses a dirty worktree, an invalid
+version, a version that differs from `[workspace.package]`, or an existing
+output directory. It writes `target/release/gpui-toolkit-<version>-rc/` with:
+
+- a deterministic source archive and a standalone 17-sheet visual gallery;
+- locked `.crate` archives for the three reviewed wave-1 packages;
+- an SPDX 2.3 JSON SBOM and JSON/Markdown license inventory;
+- path-free provenance recording the commit, lockfile digest, tool versions,
+  and source epoch; and
+- `SHA256SUMS` covering every other artifact.
+
+For final evidence, run the command in two fresh worktrees at the same commit
+with different output directories and compare every file byte-for-byte.
+
 ## Rollback and yanking
 
 Prefer a fixed patch release. Yank a crate version only when it is unusable,

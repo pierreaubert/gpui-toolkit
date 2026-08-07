@@ -370,6 +370,13 @@ jobs:
       - name: Run GPUI obvious QA
         run: just qa-gpui-obvious
 
+      - name: Upload desktop accessibility evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-accessibility-evidence
+          path: target/qa/accessibility/
+          if-no-files-found: error
+
   visual-evidence:
     name: Linux visual and native evidence
     runs-on: ubuntu-latest

@@ -110,6 +110,7 @@ qa-gpui-obvious: qa-gpui-conformance
 	cargo test -p gpui-d3rs {{features}}
 	cargo test -p gpui-px {{features}}
 	cargo tree -p gpui-design-tools {{features}}
+	python3 scripts/qa_desktop_accessibility.py --output-json target/qa/accessibility/desktop-evidence.json --output-markdown target/qa/accessibility/desktop-evidence.md
 
 # ----------------------------------------------------------------------
 # QA SUITE
@@ -131,6 +132,7 @@ qa-scripts:
     bash -n scripts/run_utm_linux_native_ui_smoke.sh
     bash -n scripts/run_utm_windows_native_ui_smoke.sh
     bash -n scripts/qa_fuzz_check.sh
+    python3 scripts/qa_desktop_accessibility.py --output-json target/qa/accessibility/desktop-evidence.json --output-markdown target/qa/accessibility/desktop-evidence.md
 
 # Local macOS capture uses the native host directly. UTM is reserved for the
 # Linux and Windows desktop backends and is intentionally not part of hosted CI.
@@ -169,6 +171,12 @@ qa-release-contract: qa-api
 	cargo package --locked -p gpui-design
 	cargo package --locked -p gpui-profiler
 	cargo package --locked -p gpui-ui-kit-macros
+
+# Build release assets locally and offline. This never tags, pushes, publishes,
+# signs, or uploads; those remain explicit maintainer actions.
+[group('release')]
+release-rc version:
+	python3 scripts/release_rc.py {{version}}
 
 # Dependency, advisory, license, and source-origin policy. cargo-deny is the
 # canonical release check; keeping it in `qa` prevents the policy from becoming

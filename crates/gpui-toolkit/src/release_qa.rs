@@ -247,6 +247,14 @@ const RELEASE_QA_GATES: &[ReleaseQaGate] = &[
         release_requirement: "Attach reproducible walkthrough evidence for every selected desktop/mobile target and record the tested control set, focus order, announcements, and activation/value actions.",
     },
     ReleaseQaGate {
+        id: "desktop-interaction-accessibility",
+        area: "Portable desktop interaction/accessibility contracts",
+        command: "just qa-gpui-obvious and scripts/qa_desktop_accessibility.py",
+        status: ReleaseQaStatus::Passed,
+        evidence: "The deterministic JSON/Markdown artifact links passing pointer, keyboard, focus-order/restoration, disabled-state, accessible-name/action, native-adapter parity, reduced-motion, and high-contrast contracts.",
+        release_requirement: "Keep the artifact and referenced suites green while retaining native screen-reader walkthroughs as a separate manual gate.",
+    },
+    ReleaseQaGate {
         id: "apple-host-contracts",
         area: "iOS/AUv3 host ABI contracts",
         command: "just qa-apple-host-contracts",
@@ -297,18 +305,18 @@ const RELEASE_QA_GATES: &[ReleaseQaGate] = &[
     ReleaseQaGate {
         id: "showcase-visual",
         area: "Showcase visual QA",
-        command: "component-lab visual manifest capture and pixel diff",
-        status: ReleaseQaStatus::Pending,
-        evidence: "Linux CI captures and validates builder showcase pixels; component-lab and cross-renderer screenshot/diff coverage remains pending.",
-        release_requirement: "Attach generated screenshots/diffs or a visual-regression report for release artifacts.",
+        command: "just qa-visual",
+        status: ReleaseQaStatus::Passed,
+        evidence: "The renderer-backed macOS Metal lane strictly diffs a deterministic 200-case PR baseline, nightly shards cover all 1,922 registered cases, and 17 gallery sheets demonstrate the component surface; Linux retains native X11 smoke evidence.",
+        release_requirement: "Attach the capture/diff reports and gallery archive to the release and keep the versioned baseline gate green.",
     },
     ReleaseQaGate {
         id: "publish-dry-runs",
         area: "Crate publishing",
         command: "gpui_toolkit::publish_plan() and cargo publish --dry-run per selected public crate",
         status: ReleaseQaStatus::Blocked,
-        evidence: "gpui-design, gpui-pretext, and gpui-ui-kit-macros dry-runs passed. All other selected public-core crates require the Zed GPUI crate, which is not published on crates.io, so their dry-runs cannot resolve.",
-        release_requirement: "Decide how to obtain a published GPUI dependency (wait for upstream, vendor/publish a fork, or shrink the public release set to GPUI-free crates) and rerun dry-runs.",
+        evidence: "Locked package verification passes for wave-1 gpui-design, gpui-profiler, and gpui-ui-kit-macros. gpui-pretext is deliberately deferred until gpui-profiler exists on crates.io, and GPUI-dependent crates remain source-tag beta.",
+        release_requirement: "Publish only the reviewed wave-1 crates, then rerun deferred packages in dependency order; do not imply a registry path for GPUI-dependent crates.",
     },
     ReleaseQaGate {
         id: "release-notes",
@@ -317,6 +325,14 @@ const RELEASE_QA_GATES: &[ReleaseQaGate] = &[
         status: ReleaseQaStatus::Pending,
         evidence: "Stable release-note readiness report exists with crate-level stability, platform-support, limitation, and artifact requirements.",
         release_requirement: "Resolve or explicitly accept release-note blockers before tagging or publishing.",
+    },
+    ReleaseQaGate {
+        id: "release-candidate-bundle",
+        area: "Reproducible release-candidate artifacts",
+        command: "just release-rc <version>",
+        status: ReleaseQaStatus::Pending,
+        evidence: "Offline automation and deterministic tests cover the source archive, visual gallery, wave-1 crate packages, SPDX 2.3 SBOM, license inventory, provenance, and SHA-256 manifest without publishing or uploading.",
+        release_requirement: "Run twice from a clean committed worktree, compare every artifact byte-for-byte, and attach the accepted bundle before tagging.",
     },
     ReleaseQaGate {
         id: "dependency-hygiene",
@@ -467,7 +483,7 @@ pub const fn platform_capability_matrix() -> PlatformCapabilityMatrix {
     PlatformCapabilityMatrix {
         schema_version: PLATFORM_CAPABILITY_MATRIX_SCHEMA_VERSION,
         report_type: PLATFORM_CAPABILITY_MATRIX_REPORT_TYPE,
-        reviewed_on: "2026-08-01",
+        reviewed_on: "2026-08-07",
         platforms: PLATFORM_CAPABILITIES,
     }
 }
@@ -482,7 +498,7 @@ pub const fn release_qa_matrix() -> ReleaseQaMatrix {
     ReleaseQaMatrix {
         schema_version: RELEASE_QA_MATRIX_SCHEMA_VERSION,
         report_type: RELEASE_QA_MATRIX_REPORT_TYPE,
-        reviewed_on: "2026-08-01",
+        reviewed_on: "2026-08-07",
         gates: RELEASE_QA_GATES,
     }
 }
@@ -502,7 +518,7 @@ mod tests {
 
         assert_eq!(matrix.schema_version, RELEASE_QA_MATRIX_SCHEMA_VERSION);
         assert_eq!(matrix.report_type, RELEASE_QA_MATRIX_REPORT_TYPE);
-        assert_eq!(matrix.reviewed_on, "2026-08-01");
+        assert_eq!(matrix.reviewed_on, "2026-08-07");
         assert!(!matrix.gates.is_empty());
 
         for gate in matrix.gates {
@@ -523,7 +539,7 @@ mod tests {
             PLATFORM_CAPABILITY_MATRIX_SCHEMA_VERSION
         );
         assert_eq!(matrix.report_type, PLATFORM_CAPABILITY_MATRIX_REPORT_TYPE);
-        assert_eq!(matrix.reviewed_on, "2026-08-01");
+        assert_eq!(matrix.reviewed_on, "2026-08-07");
 
         for (index, platform) in matrix.platforms.iter().enumerate() {
             assert!(!platform.id.is_empty());
@@ -598,6 +614,7 @@ mod tests {
             "workspace-all-targets",
             "macos-desktop",
             "screen-reader-qa",
+            "desktop-interaction-accessibility",
             "apple-host-contracts",
             "au-host",
             "ios-simulator",
@@ -607,6 +624,7 @@ mod tests {
             "showcase-visual",
             "publish-dry-runs",
             "release-notes",
+            "release-candidate-bundle",
             "dependency-hygiene",
         ] {
             assert!(ids.contains(&expected), "missing gate {expected}");

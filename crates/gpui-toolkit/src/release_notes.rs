@@ -246,8 +246,8 @@ const RELEASE_NOTES_ENTRIES: &[ReleaseNotesEntry] = &[
         stability: "release-candidate with keyboard/accessibility caveats",
         platform_support: "desktop GPUI first; mobile surfaces require simulator/device QA",
         required_sections: "stability, focus integration report, accessibility limitations, publish dry-run",
-        evidence: "Focus integration report exists and records compound-widget/native-accessibility blockers.",
-        release_requirement: "Resolve or explicitly release-note pending focus integration entries before publication.",
+        evidence: "Focus/behavior/accessibility reports and deterministic desktop evidence cover pointer, keyboard, focus, disabled state, names/actions, native-adapter parity, reduced motion, and high contrast; workflow/mobile/native screen-reader gates remain explicit.",
+        release_requirement: "Keep workflow/mobile limitations explicit and attach native screen-reader evidence before claiming platform accessibility parity.",
     },
     ReleaseNotesEntry {
         crate_name: "gpui-audio-kit",
@@ -256,8 +256,8 @@ const RELEASE_NOTES_ENTRIES: &[ReleaseNotesEntry] = &[
         stability: "release-candidate",
         platform_support: "desktop GPUI controls; native accessibility bridge remains app-level",
         required_sections: "stability, audio-control accessibility summaries, visual QA, publish dry-run",
-        evidence: "Audio accessibility summaries exist; visual QA and publish dry-run are not recorded.",
-        release_requirement: "Attach dense-panel visual QA and run publish dry-run.",
+        evidence: "Audio accessibility summaries and renderer-backed component-lab visual captures exist; registry publication remains outside wave 1.",
+        release_requirement: "Attach dense-panel gallery evidence and retain the source-beta distribution caveat.",
     },
     ReleaseNotesEntry {
         crate_name: "gpui-pretext",
@@ -306,8 +306,8 @@ const RELEASE_NOTES_ENTRIES: &[ReleaseNotesEntry] = &[
         stability: "beta",
         platform_support: "high-level chart specs; native screen-reader and interaction bridges remain app-level",
         required_sections: "beta limitations, chart capability report, accessibility summaries, interaction/static-export notes, visual QA, publish dry-run",
-        evidence: "Chart capability, interaction QA, static SVG export, visual-regression inventory, and accessibility summary metadata exist; native accessibility bridge consumption, executed visual captures, and publish dry-run are not recorded.",
-        release_requirement: "Attach chart capability/visual manifest artifacts, document native accessibility and non-SVG export limitations, and run visual/publish gates if included.",
+        evidence: "Chart capability, interaction QA, static SVG export, accessibility summaries, and renderer-backed visual captures exist; native screen-reader consumption and non-SVG export remain limited.",
+        release_requirement: "Attach chart gallery/diff artifacts and document native accessibility and non-SVG export limitations for the source beta.",
     },
     ReleaseNotesEntry {
         crate_name: "gpui-toolkit",
@@ -356,8 +356,8 @@ const RELEASE_NOTES_ARTIFACTS: &[ReleaseNotesArtifact] = &[
         artifact: "Focus, accessibility, security, and visual manifests",
         source: "gpui_ui_kit::{focus_integration_report, accessibility_readiness_report, security_surface_report, ui_kit_visual_regression_manifest}",
         status: ReleaseNotesArtifactStatus::Available,
-        evidence: "Stable metadata reports exist for component readiness and release screenshot inventory.",
-        release_requirement: "Attach reports and keep native screen-reader adapter limitations explicit.",
+        evidence: "Stable readiness reports, deterministic desktop evidence, and renderer-backed screenshot/diff artifacts exist.",
+        release_requirement: "Attach reports/gallery and keep native screen-reader walkthrough limitations explicit.",
     },
     ReleaseNotesArtifact {
         id: "gpui-audio-kit-control-artifacts",
@@ -365,8 +365,8 @@ const RELEASE_NOTES_ARTIFACTS: &[ReleaseNotesArtifact] = &[
         artifact: "Audio control accessibility, automation, and visual manifests",
         source: "gpui_audio_kit::{AudioAccessibilitySummary, audio_automation_pattern_report, audio_visual_regression_manifest}",
         status: ReleaseNotesArtifactStatus::Available,
-        evidence: "Audio-control metadata and visual capture inventory are implemented.",
-        release_requirement: "Attach reports and execute screenshot captures for final visual evidence.",
+        evidence: "Audio-control metadata and renderer-backed visual captures are implemented.",
+        release_requirement: "Attach reports and dense-panel gallery captures as final visual evidence.",
     },
     ReleaseNotesArtifact {
         id: "gpui-pretext-i18n-benchmarks",
@@ -392,8 +392,8 @@ const RELEASE_NOTES_ARTIFACTS: &[ReleaseNotesArtifact] = &[
         artifact: "Chart capabilities, interaction QA, static SVG export, and visual manifest",
         source: "gpui_px::{chart_capability_report, interaction_qa_report, chart_visual_regression_manifest}",
         status: ReleaseNotesArtifactStatus::Available,
-        evidence: "Chart metadata, interaction, static export, and visual inventory reports are implemented.",
-        release_requirement: "Attach reports and keep native accessibility bridge and non-SVG export limitations explicit.",
+        evidence: "Chart metadata, interaction, static export, and renderer-backed visual reports are implemented.",
+        release_requirement: "Attach reports/gallery and keep native screen-reader and non-SVG export limitations explicit.",
     },
     ReleaseNotesArtifact {
         id: "public-core-dry-runs",
@@ -414,6 +414,15 @@ const RELEASE_NOTES_ARTIFACTS: &[ReleaseNotesArtifact] = &[
         release_requirement: "Attach platform/device/manual QA artifacts or keep these lanes internal.",
     },
     ReleaseNotesArtifact {
+        id: "release-candidate-bundle",
+        crate_name: "release workspace",
+        artifact: "Reproducible source/package bundle, SPDX SBOM, license inventory, provenance, and checksums",
+        source: "just release-rc <version>",
+        status: ReleaseNotesArtifactStatus::PendingCommand,
+        evidence: "The offline builder has deterministic unit coverage and refuses dirty or version-mismatched worktrees.",
+        release_requirement: "Attach a twice-reproduced clean-worktree bundle before tagging.",
+    },
+    ReleaseNotesArtifact {
         id: "aggregate-exclusion",
         crate_name: "gpui-toolkit",
         artifact: "Aggregate crate exclusion rationale",
@@ -429,7 +438,7 @@ pub const fn release_notes_report() -> ReleaseNotesReport {
     ReleaseNotesReport {
         schema_version: RELEASE_NOTES_SCHEMA_VERSION,
         report_type: RELEASE_NOTES_REPORT_TYPE,
-        reviewed_on: "2026-07-08",
+        reviewed_on: "2026-08-07",
         entries: RELEASE_NOTES_ENTRIES,
     }
 }
@@ -444,7 +453,7 @@ pub const fn release_notes_artifact_report() -> ReleaseNotesArtifactReport {
     ReleaseNotesArtifactReport {
         schema_version: RELEASE_NOTES_SCHEMA_VERSION,
         report_type: RELEASE_NOTES_ARTIFACT_REPORT_TYPE,
-        reviewed_on: "2026-07-08",
+        reviewed_on: "2026-08-07",
         artifacts: RELEASE_NOTES_ARTIFACTS,
     }
 }
@@ -464,7 +473,7 @@ mod tests {
 
         assert_eq!(report.schema_version, RELEASE_NOTES_SCHEMA_VERSION);
         assert_eq!(report.report_type, RELEASE_NOTES_REPORT_TYPE);
-        assert_eq!(report.reviewed_on, "2026-07-08");
+        assert_eq!(report.reviewed_on, "2026-08-07");
         assert!(!report.entries.is_empty());
         assert!(!report.all_release_ready());
     }
@@ -534,7 +543,7 @@ mod tests {
 
         assert_eq!(report.schema_version, RELEASE_NOTES_SCHEMA_VERSION);
         assert_eq!(report.report_type, RELEASE_NOTES_ARTIFACT_REPORT_TYPE);
-        assert_eq!(report.reviewed_on, "2026-07-08");
+        assert_eq!(report.reviewed_on, "2026-08-07");
         assert!(!report.artifacts.is_empty());
     }
 

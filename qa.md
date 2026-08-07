@@ -63,7 +63,7 @@ tests run in the Apple platform lane; excluding them here prevents host setup
 from changing the portable-core percentage.
 
 The current enforced portable-core floor is **73.5% lines**. The latest stored
-measurement reviewed on 2026-07-12 was 73.67%. This is a ratchet: it may be
+measurement reviewed on 2026-08-07 was 74.76%. This is a ratchet: it may be
 raised after a verified report and must not be lowered to accommodate a change.
 The release target is 90%, with these per-crate priorities:
 
@@ -136,6 +136,13 @@ and contact sheets for 14 days. The PR archive remains a compact 200-case
 selection with at least one capture for every story; thousands of individual
 baseline PNGs are not committed to Git.
 
+`just qa-gpui-obvious` also writes deterministic desktop interaction and
+accessibility evidence to `target/qa/accessibility/`. The JSON/Markdown report
+links the exact pointer, keyboard, focus order/restoration, disabled-state,
+accessible-name/action, native-adapter parity, reduced-motion, and
+high-contrast contracts. It is portable component/renderer proof, not evidence
+that VoiceOver, Narrator, Orca/AT-SPI, or TalkBack was executed.
+
 Desktop CI separately launches the `gpui-builder` layout showcase on native
 Linux, macOS, and Windows backends. Its smoke artifact proves platform
 initialization, window creation, a sidebar state transition, and a second
@@ -202,6 +209,13 @@ removal condition, reproducible delta command, and verification gate.
 support, conduct, changelog, release-lane, and MSRV metadata plus locked package
 verification for the three crates.io wave-one packages. Publishing or uploading
 anything remains a separate explicit maintainer action.
+
+`just release-rc <version>` is the offline artifact authority. It refuses a
+dirty or version-mismatched worktree and emits the source and visual-gallery
+archives, locked wave-one crate packages, SPDX 2.3 SBOM, license inventory,
+path-free provenance, and SHA-256 manifest. Final release evidence requires
+two clean-worktree runs at the same commit with byte-identical outputs. The
+recipe never tags, signs, pushes, publishes, or uploads.
 
 1. Run `just qa` and attach coverage, performance, visual/conformance, and
    cargo-deny reports.

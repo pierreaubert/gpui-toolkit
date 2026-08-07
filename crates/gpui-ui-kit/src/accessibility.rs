@@ -150,6 +150,13 @@ const ACCESSIBILITY_READINESS_ENTRIES: &[AccessibilityReadinessEntry] = &[
         release_requirement: "Attach product-level keyboard-only walkthrough evidence before claiming end-to-end accessibility parity.",
     },
     AccessibilityReadinessEntry {
+        id: "desktop-interaction-evidence",
+        surface: "Desktop interaction and accessibility evidence",
+        status: AccessibilityReadinessStatus::ComponentTested,
+        evidence: "scripts/qa_desktop_accessibility.py validates and exports the tested pointer, keyboard, focus, disabled-state, accessible-name/action, native-adapter, reduced-motion, and high-contrast contracts as deterministic JSON and Markdown.",
+        release_requirement: "Keep the evidence artifact and its referenced component, conformance, and renderer tests green; do not treat it as a native screen-reader walkthrough.",
+    },
+    AccessibilityReadinessEntry {
         id: "native-host-adapter",
         surface: "Host/native adapter payload",
         status: AccessibilityReadinessStatus::ComponentTested,
@@ -177,7 +184,7 @@ pub const fn accessibility_readiness_report() -> AccessibilityReadinessReport {
     AccessibilityReadinessReport {
         schema_version: ACCESSIBILITY_READINESS_SCHEMA_VERSION,
         report_type: ACCESSIBILITY_READINESS_REPORT_TYPE,
-        reviewed_on: "2026-07-08",
+        reviewed_on: "2026-08-07",
         entries: ACCESSIBILITY_READINESS_ENTRIES,
     }
 }
@@ -1278,7 +1285,7 @@ mod tests {
             ACCESSIBILITY_READINESS_SCHEMA_VERSION
         );
         assert_eq!(report.report_type, ACCESSIBILITY_READINESS_REPORT_TYPE);
-        assert_eq!(report.reviewed_on, "2026-07-08");
+        assert_eq!(report.reviewed_on, "2026-08-07");
         assert!(!report.entries.is_empty());
         assert!(!report.all_release_ready());
     }

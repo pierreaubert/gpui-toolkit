@@ -151,7 +151,7 @@ const COMPONENT_BEHAVIOR_ENTRIES: &[ComponentBehaviorEntry] = &[
         responsive: CONFORMANCE,
         reduced_motion: CONFORMANCE,
         high_contrast: CONFORMANCE,
-        evidence: "Component tests cover activation/focus/disabled semantics; component-lab covers touch targets, viewports, reduced motion, and high-contrast themes.",
+        evidence: "Component tests cover activation/focus/disabled semantics; component-lab covers touch targets, viewports, reduced motion, and high-contrast themes; the deterministic desktop accessibility evidence report links the exact contracts.",
         release_requirement: "Keep action component and component-lab conformance tests green.",
     },
     ComponentBehaviorEntry {
@@ -373,7 +373,7 @@ pub const fn component_behavior_report() -> ComponentBehaviorReport {
     ComponentBehaviorReport {
         schema_version: COMPONENT_BEHAVIOR_SCHEMA_VERSION,
         report_type: COMPONENT_BEHAVIOR_REPORT_TYPE,
-        reviewed_on: "2026-07-12",
+        reviewed_on: "2026-08-07",
         entries: COMPONENT_BEHAVIOR_ENTRIES,
     }
 }
@@ -391,7 +391,7 @@ mod tests {
         let report = component_behavior_report();
         assert_eq!(report.schema_version, COMPONENT_BEHAVIOR_SCHEMA_VERSION);
         assert_eq!(report.report_type, COMPONENT_BEHAVIOR_REPORT_TYPE);
-        assert_eq!(report.reviewed_on, "2026-07-12");
+        assert_eq!(report.reviewed_on, "2026-08-07");
 
         let mut ids = std::collections::BTreeSet::new();
         for entry in report.entries {
