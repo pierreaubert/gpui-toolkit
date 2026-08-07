@@ -326,7 +326,7 @@ const RELEASE_NOTES_ENTRIES: &[ReleaseNotesEntry] = &[
         stability: "experimental/manual-qa",
         platform_support: "AU, iOS, Android, tvOS, Windows, and showcases require target/runtime validation",
         required_sections: "platform support matrix, manual QA evidence, known unsafe/native bridge risks",
-        evidence: "Release QA matrix records pending/manual/blocked platform gates.",
+        evidence: "The release matrix records iOS/tvOS simulator launch-and-pixel evidence and Android emulator launch, touch-navigation, pixel, and native accessibility-tree evidence; AU hosts, native screen readers, physical devices, and remaining desktop walkthroughs stay external.",
         release_requirement: "Attach platform QA artifacts or keep these lanes out of the public release.",
     },
 ];
@@ -410,7 +410,7 @@ const RELEASE_NOTES_ARTIFACTS: &[ReleaseNotesArtifact] = &[
         artifact: "Platform runtime, simulator/device, and showcase visual QA evidence",
         source: "gpui_toolkit::release_qa_matrix()",
         status: ReleaseNotesArtifactStatus::ExternalGate,
-        evidence: "Release QA matrix records macOS, AU, iOS, Android, tvOS, Windows, and visual gates.",
+        evidence: "The matrix links automated Android/iOS/tvOS runtime and visual artifacts while retaining macOS, AU, Windows, native screen-reader, and physical-device manual gates.",
         release_requirement: "Attach platform/device/manual QA artifacts or keep these lanes internal.",
     },
     ReleaseNotesArtifact {
