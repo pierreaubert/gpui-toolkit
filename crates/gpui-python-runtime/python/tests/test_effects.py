@@ -1,5 +1,5 @@
 import unittest
-from gpui_toolkit.effects import ConfirmDialog, EffectResult, EffectStatus, Notification, choose_file, open_url
+from gpui_toolkit.effects import ConfirmDialog, EffectResult, EffectStatus, Notification, choose_file, open_url, open_with_system, reveal_path
 from gpui_toolkit.app import App, SessionContext
 class Context:
  def __init__(self): self.calls=[]
@@ -12,6 +12,9 @@ class EffectTests(unittest.TestCase):
   cx=Context(); choose_file(cx,"f",filters=("wav",)); open_url(cx,"u","https://example.test")
   self.assertEqual(cx.calls[0][2]["filters"],["wav"])
   with self.assertRaises(ValueError): open_url(cx,"u","")
+ def test_path_effects_are_typed(self):
+  cx=Context(); open_with_system(cx,"open","/tmp/result.json"); reveal_path(cx,"reveal","/tmp")
+  self.assertEqual(cx.calls[-2:],[("open","open_with_system",{"path":"/tmp/result.json"}),("reveal","reveal_path",{"path":"/tmp"})])
  def test_host_outcomes_are_normalized_to_typed_statuses(self):
   success = EffectResult.from_wire("copy", {"ok": True, "text": "copied"})
   cancelled = EffectResult.from_wire("open", {"ok": True, "cancelled": True})

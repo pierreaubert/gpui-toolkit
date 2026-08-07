@@ -81,5 +81,13 @@ def choose_directory(context: "SessionContext", request_id: str, *, prompt: str 
     context.effect(request_id, "open_directory", prompt=prompt, multiple=multiple, initial_directory=initial_directory)
 def save_file(context: "SessionContext", request_id: str, *, initial_directory: str | None = None, suggested_name: str | None = None) -> None:
     context.effect(request_id, "save_file", initial_directory=initial_directory, suggested_name=suggested_name)
+def open_with_system(context: "SessionContext", request_id: str, path: str) -> None:
+    """Open a validated local path with the platform's associated app."""
+    if not path.strip(): raise ValueError("path cannot be empty")
+    context.effect(request_id, "open_with_system", path=path)
+def reveal_path(context: "SessionContext", request_id: str, path: str) -> None:
+    """Reveal a validated local path in the platform file browser."""
+    if not path.strip(): raise ValueError("path cannot be empty")
+    context.effect(request_id, "reveal_path", path=path)
 def close_window(context: "SessionContext", request_id: str) -> None:
     context.effect(request_id, "close_window")

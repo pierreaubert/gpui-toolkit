@@ -22,6 +22,16 @@ class CommandResult:
     data: Mapping[str, Any] = field(default_factory=dict)
     error: str | None = None
 
+    @property
+    def ok(self) -> bool:
+        """Whether the native command completed successfully.
+
+        Effects have exposed this convenience predicate since the first typed
+        host API. Keeping commands symmetrical lets application callbacks use
+        one success check while retaining the richer ``CommandStatus`` enum.
+        """
+        return self.status is CommandStatus.SUCCEEDED
+
     @classmethod
     def from_wire(cls, request_id: str, value: Any) -> "CommandResult":
         payload = value if isinstance(value, dict) else {}

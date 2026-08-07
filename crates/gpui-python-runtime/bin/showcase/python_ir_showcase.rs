@@ -116,6 +116,208 @@ fn command_numbers(arguments: &Value, name: &str) -> Result<Vec<f64>, String> {
         .collect()
 }
 
+fn validate_chart_export_node(node: &ChartNode) -> Result<(), String> {
+    if node.id.trim().is_empty() {
+        return Err("chart export requires a stable chart id".into());
+    }
+    if !node.width.is_finite() || !node.height.is_finite() {
+        return Err("chart export width and height must be finite".into());
+    }
+    if !(16.0..=4096.0).contains(&node.width) || !(16.0..=4096.0).contains(&node.height) {
+        return Err("chart export width and height must be between 16 and 4096".into());
+    }
+    let finite = |field: &str, values: &[f64]| {
+        if values.len() > 200_000 {
+            return Err(format!(
+                "chart export {field} exceeds the 200000-point limit"
+            ));
+        }
+        if values.iter().any(|value| !value.is_finite()) {
+            return Err(format!("chart export {field} contains NaN or Infinity"));
+        }
+        Ok(())
+    };
+    match node.chart {
+        ChartKind::Line | ChartKind::Scatter => {
+            if node.series.is_empty() {
+                let x = node.x.as_deref().ok_or("chart export is missing x data")?;
+                let y = node.y.as_deref().ok_or("chart export is missing y data")?;
+                if x.len() != y.len() {
+                    return Err("chart export x and y lengths differ".into());
+                }
+                finite("x", x)?;
+                finite("y", y)?;
+            } else {
+                for series in &node.series {
+                    if series.id.trim().is_empty() {
+                        return Err("chart export series id is empty".into());
+                    }
+                    if series.x.len() != series.y.len() {
+                        return Err(format!(
+                            "chart export series {} x and y lengths differ",
+                            series.id
+                        ));
+                    }
+                    finite("series.x", &series.x)?;
+                    finite("series.y", &series.y)?;
+                }
+            }
+        }
+        _ => return Err(format!("chart export does not support {:?}", node.chart)),
+    }
+    Ok(())
+}
+
+fn native_chart_svg(
+    node: &ChartNode,
+    domains: Option<((f64, f64), (f64, f64))>,
+    locally_hidden: Option<&HashSet<String>>,
+) -> Result<String, String> {
+    validate_chart_export_node(node)?;
+    let visible_series = node
+        .series
+        .iter()
+        .filter(|series| {
+            series.visible && !locally_hidden.is_some_and(|hidden| hidden.contains(&series.id))
+        })
+        .collect::<Vec<_>>();
+    if visible_series.is_empty() && (node.x.is_none() || node.y.is_none()) {
+        return Err("chart export has no visible data series".into());
+    }
+    match node.chart {
+        ChartKind::Line => {
+            let primary = visible_series.first().copied();
+            let x = primary
+                .map(|series| series.x.as_slice())
+                .or(node.x.as_deref())
+                .unwrap_or_default();
+            let y = primary
+                .map(|series| series.y.as_slice())
+                .or(node.y.as_deref())
+                .unwrap_or_default();
+            let mut chart = line(x, y)
+                .title(node.title.clone())
+                .color(hex_color(
+                    primary
+                        .and_then(|series| series.color.as_deref())
+                        .or(node.color.as_deref()),
+                    0xff7f0e,
+                ))
+                .stroke_width(
+                    primary
+                        .and_then(|series| series.stroke_width)
+                        .unwrap_or(node.stroke_width),
+                )
+                .x_scale(scale_type(node.x_log))
+                .y_scale(scale_type(node.y_log))
+                .size(node.width, node.height)
+                .curve(px_curve(&node.curve))
+                .legend_position(px_legend_position(&node.legend_position))
+                .annotations(px_annotations(node))
+                .dash_style(&node.dash);
+            if let Some(label) = &node.x_label {
+                chart = chart.x_label(label.clone());
+            }
+            if let Some(label) = &node.y_label {
+                chart = chart.y_label(label.clone());
+            }
+            if let Some(label) = &node.y2_label {
+                chart = chart.y2_label(label.clone());
+            }
+            if let Some([min, max]) = node.y2_range {
+                chart = chart.y2_range(min, max);
+            }
+            if let Some(series) = primary.filter(|series| !series.label.is_empty()) {
+                chart = chart.label(series.label.clone());
+            }
+            for series in visible_series.iter().copied().skip(1) {
+                chart = if series.secondary_y {
+                    chart.add_series_y2_with_x(
+                        &series.x,
+                        &series.y,
+                        (!series.label.is_empty()).then_some(series.label.clone()),
+                        hex_color(series.color.as_deref(), 0xff7f0e),
+                        series.stroke_width.unwrap_or(node.stroke_width),
+                        series.opacity,
+                    )
+                } else {
+                    chart.add_series_with_x(
+                        &series.x,
+                        &series.y,
+                        (!series.label.is_empty()).then_some(series.label.clone()),
+                        hex_color(series.color.as_deref(), 0xff7f0e),
+                        series.stroke_width.unwrap_or(node.stroke_width),
+                        series.opacity,
+                    )
+                };
+                chart = chart.series_dash_style(&series.dash);
+            }
+            if let Some(((min, max), _)) = domains {
+                chart = chart.x_range(min, max);
+            } else if let Some([min, max]) = node.x_range {
+                chart = chart.x_range(min, max);
+            }
+            if let Some((_, (min, max))) = domains {
+                chart = chart.y_range(min, max);
+            } else if let Some([min, max]) = node.y_range {
+                chart = chart.y_range(min, max);
+            }
+            chart.to_svg().map_err(|error| error.to_string())
+        }
+        ChartKind::Scatter => {
+            let primary = visible_series.first().copied();
+            let x = primary
+                .map(|series| series.x.as_slice())
+                .or(node.x.as_deref())
+                .unwrap_or_default();
+            let y = primary
+                .map(|series| series.y.as_slice())
+                .or(node.y.as_deref())
+                .unwrap_or_default();
+            let mut chart = scatter(x, y)
+                .title(node.title.clone())
+                .color(hex_color(
+                    primary
+                        .and_then(|series| series.color.as_deref())
+                        .or(node.color.as_deref()),
+                    0x1f77b4,
+                ))
+                .point_radius(
+                    primary
+                        .and_then(|series| series.point_radius)
+                        .unwrap_or(node.point_radius),
+                )
+                .x_scale(scale_type(node.x_log))
+                .y_scale(scale_type(node.y_log))
+                .legend_position(px_legend_position(&node.legend_position))
+                .annotations(px_annotations(node))
+                .size(node.width, node.height);
+            for series in visible_series.iter().copied().skip(1) {
+                chart = chart.add_series(
+                    &series.x,
+                    &series.y,
+                    (!series.label.is_empty()).then_some(series.label.clone()),
+                    hex_color(series.color.as_deref(), 0x1f77b4),
+                    series.point_radius.unwrap_or(node.point_radius),
+                    series.opacity,
+                );
+            }
+            if let Some(((min, max), _)) = domains {
+                chart = chart.x_range(min, max);
+            } else if let Some([min, max]) = node.x_range {
+                chart = chart.x_range(min, max);
+            }
+            if let Some((_, (min, max))) = domains {
+                chart = chart.y_range(min, max);
+            } else if let Some([min, max]) = node.y_range {
+                chart = chart.y_range(min, max);
+            }
+            chart.to_svg().map_err(|error| error.to_string())
+        }
+        _ => unreachable!("validated chart kind"),
+    }
+}
+
 #[derive(Clone, Deserialize)]
 struct D3HierarchySpec {
     name: String,
@@ -2649,7 +2851,7 @@ fn png_encode(width: u32, height: u32, pixels: &[u8]) -> Vec<u8> {
 
 #[cfg(test)]
 mod chart_export_tests {
-    use super::png_encode;
+    use super::{ChartNode, native_chart_svg, png_encode};
 
     #[test]
     fn png_encoder_writes_a_signature_and_terminal_chunk() {
@@ -2658,6 +2860,67 @@ mod chart_export_tests {
         assert!(png.windows(4).any(|window| window == b"IHDR"));
         assert!(png.windows(4).any(|window| window == b"IDAT"));
         assert!(png.windows(4).any(|window| window == b"IEND"));
+    }
+
+    #[test]
+    fn native_line_export_preserves_title_and_visible_series() {
+        let node: ChartNode = serde_json::from_value(serde_json::json!({
+            "id": "response",
+            "chart": "line",
+            "title": "Frequency response",
+            "x": [100.0, 200.0, 400.0],
+            "y": [80.0, 81.0, 79.5],
+            "width": 640.0,
+            "height": 320.0,
+            "series": [
+                {"id": "spl", "label": "SPL", "x": [100.0, 200.0, 400.0], "y": [80.0, 81.0, 79.5], "visible": true},
+                {"id": "hidden", "label": "Hidden", "x": [100.0, 200.0, 400.0], "y": [1.0, 2.0, 3.0], "visible": false}
+            ]
+        }))
+        .expect("valid chart fixture");
+        let svg = native_chart_svg(&node, Some(((100.0, 400.0), (79.0, 82.0))), None)
+            .expect("native SVG export");
+        assert!(svg.starts_with("<svg"));
+        assert!(svg.contains("Frequency response"));
+        assert!(svg.contains("SPL"));
+        assert!(!svg.contains("Hidden"));
+    }
+
+    #[test]
+    fn native_export_rejects_unsupported_chart_kinds() {
+        let node: ChartNode = serde_json::from_value(serde_json::json!({
+            "id": "heatmap",
+            "chart": "heatmap",
+            "z": [1.0],
+            "width_count": 1,
+            "height_count": 1
+        }))
+        .expect("valid chart fixture");
+        let error = native_chart_svg(&node, None, None).expect_err("heatmap is not supported yet");
+        assert!(error.contains("does not support"));
+    }
+}
+
+#[cfg(test)]
+mod scene_selection_tests {
+    use super::scene_selection_object_id;
+
+    #[test]
+    fn single_mesh_scene_uses_its_stable_geometry_id() {
+        let spec = serde_json::json!({
+            "id": "speaker-scene",
+            "children": [{"id": "baffle"}]
+        });
+        assert_eq!(scene_selection_object_id("speaker-scene", &spec), "baffle");
+    }
+
+    #[test]
+    fn compound_scene_does_not_guess_a_child() {
+        let spec = serde_json::json!({
+            "id": "speaker-scene",
+            "children": [{"id": "baffle"}, {"id": "woofer"}]
+        });
+        assert_eq!(scene_selection_object_id("speaker-scene", &spec), "speaker-scene");
     }
 }
 
@@ -2901,6 +3164,27 @@ fn px_annotations(node: &ChartNode) -> Vec<gpui_px::ChartAnnotation> {
             result
         })
         .collect()
+}
+
+fn scene_selection_object_id(node_id: &str, spec: &Value) -> String {
+    if let Some(children) = spec.get("children").and_then(Value::as_array) {
+        let ids = children
+            .iter()
+            .filter_map(|child| child.get("id").and_then(Value::as_str))
+            .filter(|id| !id.trim().is_empty())
+            .collect::<Vec<_>>();
+        // A single retained mesh has an unambiguous stable object ID. For a
+        // compound scene, keep the scene ID until the host has a real depth
+        // pick result rather than reporting an arbitrary child.
+        if ids.len() == 1 {
+            return ids[0].to_string();
+        }
+    }
+    spec.get("id")
+        .and_then(Value::as_str)
+        .filter(|id| !id.trim().is_empty())
+        .unwrap_or(node_id)
+        .to_string()
 }
 
 pub(super) struct PythonIrShowcase {
@@ -7088,12 +7372,7 @@ impl PythonIrShowcase {
             self.session.as_ref().map(|session| session.event_sink()),
         ) {
             let node_id = node.id.clone();
-            let object_id = node
-                .spec
-                .get("id")
-                .and_then(Value::as_str)
-                .unwrap_or(&node.id)
-                .to_string();
+            let object_id = scene_selection_object_id(&node.id, &node.spec);
             container = container.cursor_pointer().on_click(move |_, _, _| {
                 let _ = sink.dispatch(
                     node_id.clone(),
@@ -7331,6 +7610,67 @@ impl PythonIrShowcase {
                     "capabilities": gpui_python_runtime::session::DEFAULT_HOST_CAPABILITIES,
                 }),
             ),
+            "chart.reset_view" => {
+                let result = (|| -> Result<Value, String> {
+                    let chart_id = arguments
+                        .get("chart_id")
+                        .and_then(Value::as_str)
+                        .filter(|id| !id.trim().is_empty())
+                        .ok_or_else(|| "chart.reset_view requires chart_id".to_string())?;
+                    let state = self
+                        .chart_interactions
+                        .get(chart_id)
+                        .ok_or_else(|| format!("chart {chart_id:?} has no interactive state"))?;
+                    state.reset_zoom();
+                    Ok(serde_json::json!({
+                        "ok": true,
+                        "chart_id": chart_id,
+                        "x": [state.x_domain().0, state.x_domain().1],
+                        "y": [state.y_domain().0, state.y_domain().1],
+                    }))
+                })();
+                match result {
+                    Ok(result) => {
+                        self.send_command_result(request_id, result);
+                        cx.notify();
+                    }
+                    Err(error) => self.send_command_result(
+                        request_id,
+                        serde_json::json!({"ok": false, "error": error}),
+                    ),
+                }
+            }
+            "chart.export_svg" => {
+                let result = (|| -> Result<Value, String> {
+                    let chart_value = arguments
+                        .get("chart")
+                        .ok_or_else(|| "chart.export_svg requires chart".to_string())?;
+                    let node: ChartNode = serde_json::from_value(chart_value.clone())
+                        .map_err(|error| format!("invalid chart export payload: {error}"))?;
+                    let active_domains = self
+                        .chart_interactions
+                        .get(&node.id)
+                        .map(|state| (state.x_domain(), state.y_domain()));
+                    let hidden = self.chart_hidden_series.get(&node.id);
+                    let svg = native_chart_svg(&node, active_domains, hidden)?;
+                    if svg.len() > 4 * 1024 * 1024 {
+                        return Err("chart SVG exceeds the 4 MiB safety limit".into());
+                    }
+                    Ok(serde_json::json!({
+                        "ok": true,
+                        "chart_id": node.id,
+                        "format": "svg",
+                        "svg": svg,
+                    }))
+                })();
+                match result {
+                    Ok(result) => self.send_command_result(request_id, result),
+                    Err(error) => self.send_command_result(
+                        request_id,
+                        serde_json::json!({"ok": false, "error": error}),
+                    ),
+                }
+            }
             "d3.zoom" => {
                 let result = (|| -> Result<Value, String> {
                     let original_x = command_domain(&arguments, "original_x")?;
@@ -8679,6 +9019,29 @@ impl PythonIrShowcase {
                     .map(|text| serde_json::json!({"ok": true, "text": text}))
                     .unwrap_or_else(|| serde_json::json!({"ok": true, "empty": true}));
                 self.send_effect_result(request_id, result);
+            }
+            "open_with_system" | "reveal_path" => {
+                let Some(raw_path) = arguments.get("path").and_then(Value::as_str) else {
+                    self.send_effect_result(
+                        request_id,
+                        serde_json::json!({"ok": false, "error": "path effect requires path"}),
+                    );
+                    return;
+                };
+                let path = PathBuf::from(raw_path);
+                if raw_path.trim().is_empty() || raw_path.contains('\0') {
+                    self.send_effect_result(
+                        request_id,
+                        serde_json::json!({"ok": false, "error": "path effect path is invalid"}),
+                    );
+                    return;
+                }
+                if effect == "open_with_system" {
+                    cx.open_with_system(&path);
+                } else {
+                    cx.reveal_path(&path);
+                }
+                self.send_effect_result(request_id, serde_json::json!({"ok": true}));
             }
             "credential_store" => match super::credentials::handle(&arguments) {
                 Ok(result) => self.send_effect_result(request_id, result),

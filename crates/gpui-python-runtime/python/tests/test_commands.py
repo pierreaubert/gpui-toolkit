@@ -9,6 +9,7 @@ class CommandResultTests(unittest.TestCase):
             "capabilities", {"ok": True, "capabilities": ["commands"]},
         )
         self.assertEqual(result.status, CommandStatus.SUCCEEDED)
+        self.assertTrue(result.ok)
         self.assertEqual(result.data["capabilities"], ["commands"])
         with self.assertRaises(TypeError):
             result.data["extra"] = True
@@ -18,4 +19,5 @@ class CommandResultTests(unittest.TestCase):
             "unknown", {"ok": False, "unsupported": True, "error": "not installed"},
         )
         self.assertEqual(result.status, CommandStatus.UNSUPPORTED)
+        self.assertFalse(result.ok)
         self.assertEqual(result.error, "not installed")

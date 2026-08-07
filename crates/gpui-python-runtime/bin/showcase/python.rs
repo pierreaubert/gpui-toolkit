@@ -5,6 +5,7 @@ use gpui_python_runtime::session::{
     UiEvent, parse_python_message,
 };
 use gpui_python_runtime::ui_ir::PythonAppIr;
+use std::collections::VecDeque;
 use std::env;
 use std::error::Error;
 use std::ffi::OsString;
@@ -28,6 +29,10 @@ pub(super) struct PythonSession {
     child: Arc<Mutex<std::process::Child>>,
     stdin: Arc<Mutex<std::process::ChildStdin>>,
     messages: Receiver<Result<PythonMessage, String>>,
+    /// Messages emitted by `on_session_ready` can legally precede the initial
+    /// snapshot (for example restored job updates). Keep them until the host
+    /// entity has been constructed instead of treating ordering as fatal.
+    pending: Arc<Mutex<VecDeque<PythonMessage>>>,
     pub stderr: Arc<Mutex<Vec<String>>>,
     event_sequence: Arc<AtomicU64>,
     wake: PythonSessionWake,
@@ -152,6 +157,11 @@ impl PythonSession {
     }
 
     pub fn try_recv(&self) -> Option<Result<PythonMessage, String>> {
+        if let Ok(mut pending) = self.pending.lock()
+            && let Some(message) = pending.pop_front()
+        {
+            return Some(Ok(message));
+        }
         self.messages.try_recv().ok()
     }
 
@@ -167,10 +177,23 @@ impl PythonSession {
     }
 
     fn recv(&self) -> Result<PythonMessage, Box<dyn Error + Send + Sync>> {
+        if let Ok(mut pending) = self.pending.lock()
+            && let Some(message) = pending.pop_front()
+        {
+            return Ok(message);
+        }
         self.messages
             .recv()
             .map_err(|error| -> Box<dyn Error + Send + Sync> { error.to_string().into() })?
             .map_err(Into::into)
+    }
+
+    fn prepend_messages(&self, messages: Vec<PythonMessage>) {
+        if let Ok(mut pending) = self.pending.lock() {
+            for message in messages.into_iter().rev() {
+                pending.push_front(message);
+            }
+        }
     }
 
     pub fn shutdown(&self) {
@@ -309,6 +332,7 @@ pub(super) fn spawn_python_session() -> Result<PythonSession, Box<dyn Error + Se
         child: Arc::new(Mutex::new(child)),
         stdin: Arc::new(Mutex::new(stdin)),
         messages: rx,
+        pending: Arc::new(Mutex::new(VecDeque::new())),
         stderr: stderr_lines,
         event_sequence: Arc::new(AtomicU64::new(0)),
         wake,
@@ -346,13 +370,20 @@ pub(super) fn load_python_session_blocking()
         }
         other => return Err(format!("expected Python session ready, received {other:?}").into()),
     }
-    match session.recv()? {
-        PythonMessage::Snapshot { app_ir } => {
-            app_ir.validate()?;
-            Ok((app_ir, session))
+    let mut before_snapshot = Vec::new();
+    let app_ir = loop {
+        match session.recv()? {
+            PythonMessage::Snapshot { app_ir } => {
+                app_ir.validate()?;
+                break app_ir;
+            }
+            message => before_snapshot.push(message),
         }
-        other => Err(format!("expected initial Python snapshot, received {other:?}").into()),
-    }
+    };
+    // Re-play startup effects, commands, jobs, and diagnostics through the
+    // normal host message loop after the initial UI tree is available.
+    session.prepend_messages(before_snapshot);
+    Ok((app_ir, session))
 }
 
 /// Validate the initial snapshot through the same persistent-session

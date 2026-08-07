@@ -120,6 +120,17 @@ class App:
         the Python session process, never on GPUI's render thread.
         """
 
+    def on_session_ready(self, context: "SessionContext") -> Any:
+        """Override to publish application state after capability negotiation.
+
+        The hook runs before the initial snapshot, allowing applications to
+        restore host-owned job history or emit a bounded recovery notice
+        without delaying the native render thread.
+        """
+
+    def on_session_shutdown(self, context: "SessionContext") -> Any:
+        """Override to persist safe state before the host closes the session."""
+
     def on_effect_result(self, request_id: str, result: EffectResult, context: "SessionContext") -> Any:
         """Override to receive a typed result from a native host effect."""
 
@@ -149,6 +160,12 @@ class App:
             "session_version": PYTHON_APP_SESSION_VERSION,
             "capabilities": negotiated_capabilities,
         })
+        try:
+            ready_result = self.on_session_ready(context)
+            if inspect.isawaitable(ready_result):
+                asyncio.run(ready_result)
+        except Exception:
+            context.error(None, "session_ready_failed", "Python session initialization failed")
         context.snapshot(self.to_spec())
 
         # Action handlers run away from this control loop. This preserves input,
@@ -158,6 +175,12 @@ class App:
             for message in _messages():
                 message_type = message.get("type")
                 if message_type == "shutdown":
+                    try:
+                        shutdown_result = self.on_session_shutdown(context)
+                        if inspect.isawaitable(shutdown_result):
+                            asyncio.run(shutdown_result)
+                    except Exception:
+                        context.error(None, "session_shutdown_failed", "Python session shutdown failed")
                     executor.shutdown(wait=False, cancel_futures=True)
                     return
                 if message_type == "heartbeat":
@@ -336,6 +359,7 @@ class SessionContext:
             state = str(record.get("state", ""))
             if not job_id or state not in {
                 "queued", "running", "cancelling", "cancelled", "succeeded", "failed",
+                "reconnecting", "interrupted", "abandoned",
             }:
                 raise ValueError("invalid saved job history record")
             values = {key: value for key, value in record.items() if key not in {"id", "state"}}

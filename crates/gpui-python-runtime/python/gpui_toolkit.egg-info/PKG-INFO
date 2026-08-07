@@ -1,3 +1,25 @@
+Metadata-Version: 2.4
+Name: gpui-toolkit
+Version: 0.9.7
+Summary: Python declarations for GPUI Toolkit apps and retained 3D scene specs
+Author-email: "Pierre F. Aubert" <pierre@spinorama.org>
+License: ISC
+Project-URL: Repository, https://github.com/pierreaubert/gpui-toolkit
+Project-URL: Documentation, https://docs.rs/gpui-toolkit
+Keywords: gpui,ui,visualization,scene3d
+Classifier: Development Status :: 3 - Alpha
+Classifier: Intended Audience :: Developers
+Classifier: License :: OSI Approved :: ISC License (ISCL)
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3 :: Only
+Classifier: Programming Language :: Python :: 3.10
+Classifier: Programming Language :: Python :: 3.11
+Classifier: Programming Language :: Python :: 3.12
+Classifier: Programming Language :: Python :: 3.13
+Classifier: Topic :: Software Development :: User Interfaces
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+
 # gpui-python-runtime
 
 Retained scene specifications for the GPUI Python wrapper.

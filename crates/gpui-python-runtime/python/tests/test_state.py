@@ -198,6 +198,15 @@ class StateStoreTests(unittest.TestCase):
         restored = RecordingContext()
         restored.restore_job_history(saved)
         self.assertEqual(restored.job_history(), saved)
+        restored.restore_job_history([
+            {"id": "remote-reconnect", "state": "reconnecting", "phase": "reconnecting"},
+            {"id": "local-interrupted", "state": "interrupted", "phase": "failed"},
+            {"id": "remote-abandoned", "state": "abandoned", "phase": "abandoned"},
+        ])
+        restored_states = {record["id"]: record["state"] for record in restored.job_history()}
+        self.assertEqual(restored_states["remote-reconnect"], "reconnecting")
+        self.assertEqual(restored_states["local-interrupted"], "interrupted")
+        self.assertEqual(restored_states["remote-abandoned"], "abandoned")
         with self.assertRaises(ValueError):
             restored.restore_job_history([{"id": "bad", "state": "unknown"}])
 
