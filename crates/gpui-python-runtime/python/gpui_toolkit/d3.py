@@ -296,6 +296,199 @@ class D3BridgeKind(str, Enum):
     HOST_INTERACTION = "host_interaction"
 
 
+class AlgorithmOperation(str, Enum):
+    COLOR_INTERPOLATE = "color_interpolate"
+    COLOR_CONVERT = "color_convert"
+    FORMAT = "format"
+    FORMAT_PREFIX = "format_prefix"
+    TIME_INTERVAL = "time_interval"
+    TIME_SCALE = "time_scale"
+    CSV_PARSE = "csv_parse"
+    DSV_PARSE = "dsv_parse"
+    DSV_FORMAT = "dsv_format"
+    INTERPOLATE_NUMBER = "interpolate_number"
+    INTERPOLATE_ARRAY = "interpolate_array"
+    INTERPOLATE_STRING = "interpolate_string"
+    INTERPOLATE_TRANSFORM_CSS = "interpolate_transform_css"
+    INTERPOLATE_TRANSFORM_SVG = "interpolate_transform_svg"
+    INTERPOLATE_ZOOM = "interpolate_zoom"
+    EASE = "ease"
+    SELECTION_JOIN = "selection_join"
+    BRUSH_GESTURE = "brush_gesture"
+    DRAG_GESTURE = "drag_gesture"
+    TRANSITION_SAMPLE = "transition_sample"
+    RANDOM_UNIFORM = "random_uniform"
+    RANDOM = "random"
+    SHUFFLE = "shuffle"
+
+
+class EaseKind(str, Enum):
+    LINEAR = "linear"
+    QUAD_IN = "quad_in"
+    QUAD_OUT = "quad_out"
+    QUAD_IN_OUT = "quad_in_out"
+    CUBIC_IN = "cubic_in"
+    CUBIC_OUT = "cubic_out"
+    CUBIC_IN_OUT = "cubic_in_out"
+    SIN_IN = "sin_in"
+    SIN_OUT = "sin_out"
+    SIN_IN_OUT = "sin_in_out"
+    EXP_IN = "exp_in"
+    EXP_OUT = "exp_out"
+    EXP_IN_OUT = "exp_in_out"
+    CIRCLE_IN = "circle_in"
+    CIRCLE_OUT = "circle_out"
+    CIRCLE_IN_OUT = "circle_in_out"
+    ELASTIC_IN = "elastic_in"
+    ELASTIC_OUT = "elastic_out"
+    ELASTIC_IN_OUT = "elastic_in_out"
+    BACK_IN = "back_in"
+    BACK_OUT = "back_out"
+    BACK_IN_OUT = "back_in_out"
+    BOUNCE_IN = "bounce_in"
+    BOUNCE_OUT = "bounce_out"
+    BOUNCE_IN_OUT = "bounce_in_out"
+
+
+class RandomKind(str, Enum):
+    UNIFORM = "uniform"
+    NORMAL = "normal"
+    LOG_NORMAL = "log_normal"
+    EXPONENTIAL = "exponential"
+    BERNOULLI = "bernoulli"
+    POISSON = "poisson"
+    IRWIN_HALL = "irwin_hall"
+    BATES = "bates"
+
+
+@dataclass(frozen=True)
+class AlgorithmRequest:
+    operation: AlgorithmOperation
+    arguments: dict[str, Any]
+
+    @classmethod
+    def easing(cls, kind: EaseKind, values: Sequence[float]) -> "AlgorithmRequest":
+        return cls(AlgorithmOperation.EASE, {"kind": kind.value, "values": list(values)})
+
+    @classmethod
+    def random(
+        cls,
+        kind: RandomKind,
+        *,
+        count: int,
+        seed: int,
+        **parameters: float | int,
+    ) -> "AlgorithmRequest":
+        if count < 0:
+            raise ValueError("random sample count must be non-negative")
+        return cls(
+            AlgorithmOperation.RANDOM,
+            {"kind": kind.value, "count": count, "seed": seed, **parameters},
+        )
+
+    @classmethod
+    def dsv_parse(cls, input: str, delimiter: str = ",") -> "AlgorithmRequest":
+        if len(delimiter) != 1:
+            raise ValueError("DSV delimiter must be one character")
+        return cls(AlgorithmOperation.DSV_PARSE, {"input": input, "delimiter": delimiter})
+
+    @classmethod
+    def dsv_format(
+        cls,
+        rows: Sequence[dict[str, Any]],
+        columns: Sequence[str],
+        delimiter: str = ",",
+    ) -> "AlgorithmRequest":
+        if delimiter not in {",", "\t"}:
+            raise ValueError("DSV formatting supports comma or tab delimiters")
+        return cls(
+            AlgorithmOperation.DSV_FORMAT,
+            {"rows": list(rows), "columns": list(columns), "delimiter": delimiter},
+        )
+
+    @classmethod
+    def selection_join(
+        cls, old_keys: Sequence[str], new_keys: Sequence[str]
+    ) -> "AlgorithmRequest":
+        return cls(
+            AlgorithmOperation.SELECTION_JOIN,
+            {"old_keys": list(old_keys), "new_keys": list(new_keys)},
+        )
+
+    @classmethod
+    def brush_gesture(
+        cls, points: Sequence[tuple[float, float]], *, min_size: float = 0.0
+    ) -> "AlgorithmRequest":
+        if len(points) < 2:
+            raise ValueError("brush gesture requires at least two points")
+        return cls(
+            AlgorithmOperation.BRUSH_GESTURE,
+            {"points": [list(point) for point in points], "min_size": min_size},
+        )
+
+    @classmethod
+    def drag_gesture(
+        cls,
+        points: Sequence[tuple[float, float]],
+        *,
+        pointer_id: int = 1,
+        click_distance: float = 0.0,
+    ) -> "AlgorithmRequest":
+        if len(points) < 2:
+            raise ValueError("drag gesture requires at least two points")
+        return cls(
+            AlgorithmOperation.DRAG_GESTURE,
+            {
+                "points": [list(point) for point in points],
+                "pointer_id": pointer_id,
+                "click_distance": click_distance,
+            },
+        )
+
+    @classmethod
+    def transition_sample(
+        cls,
+        start: float,
+        end: float,
+        duration_ms: float,
+        delta_ms: Sequence[float],
+        *,
+        delay_ms: float = 0.0,
+        easing: EaseKind = EaseKind.LINEAR,
+    ) -> "AlgorithmRequest":
+        return cls(
+            AlgorithmOperation.TRANSITION_SAMPLE,
+            {
+                "start": start,
+                "end": end,
+                "duration_ms": duration_ms,
+                "delay_ms": delay_ms,
+                "delta_ms": list(delta_ms),
+                "kind": easing.value,
+            },
+        )
+
+    def send(self, context: "SessionContext", request_id: str) -> None:
+        context.command(
+            request_id,
+            "d3.algorithms",
+            operation=self.operation.value,
+            **self.arguments,
+        )
+
+
+@dataclass(frozen=True)
+class AlgorithmResult:
+    operation: AlgorithmOperation
+    value: Any
+
+    @classmethod
+    def from_command(cls, result: CommandResult) -> "AlgorithmResult":
+        if result.status is not CommandStatus.SUCCEEDED:
+            raise RuntimeError(result.error or f"D3 algorithm {result.status.value}")
+        return cls(AlgorithmOperation(str(result.data["operation"])), result.data.get("value"))
+
+
 @dataclass(frozen=True)
 class D3ModuleBridge:
     module: str

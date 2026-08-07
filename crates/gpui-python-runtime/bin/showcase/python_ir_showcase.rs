@@ -116,6 +116,743 @@ fn command_numbers(arguments: &Value, name: &str) -> Result<Vec<f64>, String> {
         .collect()
 }
 
+fn d3_algorithm_command(arguments: &Value) -> Result<Value, String> {
+    let operation = arguments
+        .get("operation")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "D3 algorithm command requires operation".to_string())?;
+    let number = |name: &str| {
+        arguments
+            .get(name)
+            .and_then(Value::as_f64)
+            .filter(|value| value.is_finite())
+            .ok_or_else(|| format!("D3 algorithm field {name} must be finite"))
+    };
+    let unsigned = |name: &str| {
+        arguments
+            .get(name)
+            .and_then(Value::as_u64)
+            .ok_or_else(|| format!("D3 algorithm field {name} must be unsigned"))
+    };
+    let string = |name: &str| {
+        arguments
+            .get(name)
+            .and_then(Value::as_str)
+            .ok_or_else(|| format!("D3 algorithm field {name} must be a string"))
+    };
+    let fixed_array = |name: &str, length: usize| -> Result<Vec<f64>, String> {
+        let values = command_numbers(arguments, name)?;
+        if values.len() != length {
+            return Err(format!(
+                "D3 algorithm field {name} must contain {length} values"
+            ));
+        }
+        Ok(values)
+    };
+    let samples = || {
+        arguments
+            .get("count")
+            .and_then(Value::as_u64)
+            .unwrap_or(1)
+            .min(100_000) as usize
+    };
+    let seed = arguments.get("seed").and_then(Value::as_u64).unwrap_or(1);
+
+    let value = match operation {
+        "color_interpolate" => {
+            let start = unsigned("start")?;
+            let end = unsigned("end")?;
+            let color = d3rs::color::D3Color::from_hex(start as u32).interpolate(
+                &d3rs::color::D3Color::from_hex(end as u32),
+                number("t")? as f32,
+            );
+            serde_json::json!({
+                "hex": color.to_hex(),
+                "hex_alpha": color.to_hex_alpha(),
+                "rgba": [color.r, color.g, color.b, color.a],
+            })
+        }
+        "color_convert" => {
+            let space = string("space")?;
+            let components = command_numbers(arguments, "components")?;
+            let color = match (space, components.as_slice()) {
+                ("hex", [hex]) if *hex >= 0.0 && *hex <= u32::MAX as f64 => {
+                    d3rs::color::D3Color::from_hex(*hex as u32)
+                }
+                ("hsl", [h, s, l]) => {
+                    d3rs::color::D3Color::from_hsl(*h as f32, *s as f32, *l as f32)
+                }
+                ("lab", [l, a, b]) => d3rs::color::D3Color::from_lab(*l, *a, *b),
+                ("hcl", [h, c, l]) => d3rs::color::D3Color::from_hcl(*h, *c, *l),
+                _ => {
+                    return Err(
+                        "color_convert expects hex[1], hsl[3], lab[3], or hcl[3] components"
+                            .to_string(),
+                    );
+                }
+            };
+            let lab = color.to_lab();
+            let hcl = color.to_hcl();
+            serde_json::json!({
+                "hex": color.to_hex(),
+                "hex_alpha": color.to_hex_alpha(),
+                "rgba": [color.r, color.g, color.b, color.a],
+                "lab": [lab.l, lab.a, lab.b],
+                "hcl": [hcl.h, hcl.c, hcl.l],
+            })
+        }
+        "format" => {
+            let specifier = string("specifier")?;
+            serde_json::json!(
+                command_numbers(arguments, "values")?
+                    .into_iter()
+                    .map(|value| d3rs::format::format_value(specifier, value))
+                    .collect::<Vec<_>>()
+            )
+        }
+        "format_prefix" => {
+            let formatter = d3rs::format::format_prefix(string("specifier")?, number("value")?);
+            serde_json::json!(
+                command_numbers(arguments, "values")?
+                    .into_iter()
+                    .map(formatter)
+                    .collect::<Vec<_>>()
+            )
+        }
+        "time_interval" => serde_json::json!(
+            command_numbers(arguments, "values")?
+                .into_iter()
+                .map(|span| {
+                    let interval = d3rs::time::TimeInterval::for_span(span.round() as i64);
+                    serde_json::json!({
+                        "interval": format!("{interval:?}").to_lowercase(),
+                        "format": interval.format_pattern(),
+                    })
+                })
+                .collect::<Vec<_>>()
+        ),
+        "time_scale" => {
+            use d3rs::scale::Scale;
+            let domain = fixed_array("domain", 2)?;
+            let range = fixed_array("range", 2)?;
+            let mut scale = d3rs::time::TimeScale::new()
+                .domain(domain[0].round() as i64, domain[1].round() as i64)
+                .range(range[0], range[1])
+                .clamp(
+                    arguments
+                        .get("clamp")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false),
+                );
+            if arguments
+                .get("nice")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+            {
+                scale = scale.nice(
+                    arguments
+                        .get("tick_count")
+                        .and_then(Value::as_u64)
+                        .map(|v| v as usize),
+                );
+            }
+            let scaled = command_numbers(arguments, "values")?
+                .into_iter()
+                .map(|value| scale.scale(value.round() as i64))
+                .collect::<Vec<_>>();
+            let ticks = scale.time_ticks(
+                arguments
+                    .get("tick_count")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(10)
+                    .max(1) as usize,
+            );
+            serde_json::json!({
+                "values": scaled,
+                "ticks": ticks,
+                "interval": format!("{:?}", scale.interval()).to_lowercase(),
+            })
+        }
+        "csv_parse" => serde_json::to_value(
+            d3rs::fetch::parse_csv(string("input")?).map_err(|error| error.to_string())?,
+        )
+        .map_err(|error| error.to_string())?,
+        "dsv_parse" => {
+            let input = string("input")?;
+            let delimiter = string("delimiter")?;
+            let mut chars = delimiter.chars();
+            let delimiter = chars
+                .next()
+                .filter(|_| chars.next().is_none())
+                .ok_or_else(|| "dsv_parse delimiter must be one character".to_string())?;
+            serde_json::to_value(
+                d3rs::fetch::parse_dsv(input, delimiter).map_err(|error| error.to_string())?,
+            )
+            .map_err(|error| error.to_string())?
+        }
+        "dsv_format" => {
+            let rows: Vec<d3rs::fetch::DsvRow> = serde_json::from_value(
+                arguments
+                    .get("rows")
+                    .cloned()
+                    .ok_or_else(|| "dsv_format requires rows".to_string())?,
+            )
+            .map_err(|error| format!("invalid dsv_format rows: {error}"))?;
+            let columns = arguments
+                .get("columns")
+                .and_then(Value::as_array)
+                .ok_or_else(|| "dsv_format columns must be an array".to_string())?
+                .iter()
+                .map(|value| {
+                    value
+                        .as_str()
+                        .ok_or_else(|| "dsv_format columns must be strings".to_string())
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            let delimiter = string("delimiter")?;
+            match delimiter {
+                "," => serde_json::json!(d3rs::fetch::format_csv(&rows, &columns)),
+                "\t" => serde_json::json!(d3rs::fetch::format_tsv(&rows, &columns)),
+                _ => return Err("dsv_format delimiter must be comma or tab".to_string()),
+            }
+        }
+        "interpolate_number" => {
+            let interpolate = d3rs::interpolate::interpolate(number("start")?, number("end")?);
+            serde_json::json!(
+                command_numbers(arguments, "values")?
+                    .into_iter()
+                    .map(interpolate)
+                    .collect::<Vec<_>>()
+            )
+        }
+        "interpolate_array" => {
+            let interpolate = d3rs::interpolate::interpolate_number_array(
+                command_numbers(arguments, "start_values")?,
+                command_numbers(arguments, "end_values")?,
+            );
+            serde_json::json!(
+                command_numbers(arguments, "values")?
+                    .into_iter()
+                    .map(interpolate)
+                    .collect::<Vec<_>>()
+            )
+        }
+        "interpolate_string" | "interpolate_transform_css" => {
+            let start = string("start")?;
+            let end = string("end")?;
+            let values = command_numbers(arguments, "values")?;
+            if operation == "interpolate_string" {
+                let interpolate = d3rs::interpolate::interpolate_string(start, end);
+                serde_json::json!(values.into_iter().map(interpolate).collect::<Vec<_>>())
+            } else {
+                let interpolate = d3rs::interpolate::interpolate_transform_css(start, end);
+                serde_json::json!(values.into_iter().map(interpolate).collect::<Vec<_>>())
+            }
+        }
+        "interpolate_transform_svg" => {
+            let start = fixed_array("start_values", 6)?;
+            let end = fixed_array("end_values", 6)?;
+            let interpolate = d3rs::interpolate::interpolate_transform_svg(
+                start
+                    .try_into()
+                    .expect("validated six-element start transform"),
+                end.try_into().expect("validated six-element end transform"),
+            );
+            serde_json::json!(
+                command_numbers(arguments, "values")?
+                    .into_iter()
+                    .map(interpolate)
+                    .collect::<Vec<_>>()
+            )
+        }
+        "interpolate_zoom" => {
+            use d3rs::interpolate::zoom::{ZoomView, interpolate_zoom, zoom_duration};
+            let start = fixed_array("start_values", 3)?;
+            let end = fixed_array("end_values", 3)?;
+            let start = ZoomView::new(start[0], start[1], start[2]);
+            let end = ZoomView::new(end[0], end[1], end[2]);
+            let interpolate = interpolate_zoom(start, end);
+            let values = command_numbers(arguments, "values")?
+                .into_iter()
+                .map(|value| {
+                    let view = interpolate(value);
+                    [view.cx, view.cy, view.size]
+                })
+                .collect::<Vec<_>>();
+            serde_json::json!({"values": values, "duration": zoom_duration(start, end)})
+        }
+        "ease" => {
+            let kind = arguments
+                .get("kind")
+                .and_then(Value::as_str)
+                .unwrap_or("linear");
+            let ease = |t: f64| -> Result<f64, String> {
+                Ok(match kind {
+                    "linear" => d3rs::ease::ease_linear(t),
+                    "quad_in" => d3rs::ease::ease_quad_in(t),
+                    "quad_out" => d3rs::ease::ease_quad_out(t),
+                    "quad_in_out" => d3rs::ease::ease_quad_in_out(t),
+                    "cubic_in" => d3rs::ease::ease_cubic_in(t),
+                    "cubic_out" => d3rs::ease::ease_cubic_out(t),
+                    "cubic_in_out" => d3rs::ease::ease_cubic_in_out(t),
+                    "sin_in" => d3rs::ease::ease_sin_in(t),
+                    "sin_out" => d3rs::ease::ease_sin_out(t),
+                    "sin_in_out" => d3rs::ease::ease_sin_in_out(t),
+                    "exp_in" => d3rs::ease::ease_exp_in(t),
+                    "exp_out" => d3rs::ease::ease_exp_out(t),
+                    "exp_in_out" => d3rs::ease::ease_exp_in_out(t),
+                    "circle_in" => d3rs::ease::ease_circle_in(t),
+                    "circle_out" => d3rs::ease::ease_circle_out(t),
+                    "circle_in_out" => d3rs::ease::ease_circle_in_out(t),
+                    "elastic_in" => d3rs::ease::ease_elastic_in(t),
+                    "elastic_out" => d3rs::ease::ease_elastic_out(t),
+                    "elastic_in_out" => d3rs::ease::ease_elastic_in_out(t),
+                    "back_in" => d3rs::ease::ease_back_in(t),
+                    "back_out" => d3rs::ease::ease_back_out(t),
+                    "back_in_out" => d3rs::ease::ease_back_in_out(t),
+                    "bounce_in" => d3rs::ease::ease_bounce_in(t),
+                    "bounce_out" => d3rs::ease::ease_bounce_out(t),
+                    "bounce_in_out" => d3rs::ease::ease_bounce_in_out(t),
+                    _ => return Err(format!("unsupported D3 ease kind: {kind}")),
+                })
+            };
+            serde_json::json!(
+                command_numbers(arguments, "values")?
+                    .into_iter()
+                    .map(ease)
+                    .collect::<Result<Vec<_>, _>>()?
+            )
+        }
+        "selection_join" => {
+            let keys = |name: &str| {
+                arguments
+                    .get(name)
+                    .and_then(Value::as_array)
+                    .ok_or_else(|| format!("selection_join {name} must be an array"))?
+                    .iter()
+                    .map(|value| {
+                        value
+                            .as_str()
+                            .map(str::to_string)
+                            .ok_or_else(|| format!("selection_join {name} values must be strings"))
+                    })
+                    .collect::<Result<Vec<_>, _>>()
+            };
+            let old_keys = keys("old_keys")?;
+            let new_keys = keys("new_keys")?;
+            let join = d3rs::selection::keyed_data_join(
+                &old_keys,
+                &new_keys,
+                |key, _| key.clone(),
+                |key, _| key.clone(),
+            )
+            .map_err(|error| format!("selection join failed: {error:?}"))?;
+            serde_json::json!({
+                "enter": join.enter().iter().map(|item| serde_json::json!({"key": item.key, "new_index": item.new_index})).collect::<Vec<_>>(),
+                "update": join.update().iter().map(|item| serde_json::json!({"key": item.key, "old_index": item.old_index, "new_index": item.new_index})).collect::<Vec<_>>(),
+                "exit": join.exit().iter().map(|item| serde_json::json!({"key": item.key, "old_index": item.old_index})).collect::<Vec<_>>(),
+                "has_structural_changes": join.has_structural_changes(),
+            })
+        }
+        "brush_gesture" => {
+            let points = arguments
+                .get("points")
+                .and_then(Value::as_array)
+                .ok_or_else(|| "brush_gesture points must be an array".to_string())?;
+            if points.len() < 2 {
+                return Err("brush_gesture requires at least two points".to_string());
+            }
+            let point = |value: &Value| -> Result<(f64, f64), String> {
+                let values = value
+                    .as_array()
+                    .ok_or_else(|| "brush_gesture point must be a two-value array".to_string())?;
+                if values.len() != 2 {
+                    return Err("brush_gesture point must be a two-value array".to_string());
+                }
+                let x = values[0]
+                    .as_f64()
+                    .filter(|value| value.is_finite())
+                    .ok_or_else(|| "brush_gesture x must be finite".to_string())?;
+                let y = values[1]
+                    .as_f64()
+                    .filter(|value| value.is_finite())
+                    .ok_or_else(|| "brush_gesture y must be finite".to_string())?;
+                Ok((x, y))
+            };
+            let mut brush = d3rs::brush::BrushState::new();
+            let start = point(&points[0])?;
+            brush.start(start.0, start.1);
+            for value in &points[1..] {
+                let current = point(value)?;
+                brush.update(current.0, current.1);
+            }
+            let selection = brush
+                .end()
+                .ok_or_else(|| "brush_gesture did not produce a selection".to_string())?;
+            serde_json::json!({
+                "selection": [selection.x0, selection.y0, selection.x1, selection.y1],
+                "width": selection.width(),
+                "height": selection.height(),
+                "trivial": selection.is_trivial(arguments.get("min_size").and_then(Value::as_f64).unwrap_or(0.0)),
+            })
+        }
+        "drag_gesture" => {
+            let points = arguments
+                .get("points")
+                .and_then(Value::as_array)
+                .ok_or_else(|| "drag_gesture points must be an array".to_string())?;
+            if points.len() < 2 {
+                return Err("drag_gesture requires at least two points".to_string());
+            }
+            let point = |value: &Value| -> Result<(f64, f64), String> {
+                let values = value
+                    .as_array()
+                    .filter(|values| values.len() == 2)
+                    .ok_or_else(|| "drag_gesture point must be a two-value array".to_string())?;
+                Ok((
+                    values[0]
+                        .as_f64()
+                        .filter(|value| value.is_finite())
+                        .ok_or_else(|| "drag_gesture x must be finite".to_string())?,
+                    values[1]
+                        .as_f64()
+                        .filter(|value| value.is_finite())
+                        .ok_or_else(|| "drag_gesture y must be finite".to_string())?,
+                ))
+            };
+            let pointer_id = arguments
+                .get("pointer_id")
+                .and_then(Value::as_u64)
+                .unwrap_or(1);
+            let config = d3rs::drag::DragConfig::default()
+                .with_click_distance(
+                    arguments
+                        .get("click_distance")
+                        .and_then(Value::as_f64)
+                        .unwrap_or(0.0),
+                )
+                .map_err(|error| format!("{error:?}"))?;
+            let mut state =
+                d3rs::drag::DragState::with_config(config).map_err(|error| format!("{error:?}"))?;
+            let serialize = |update: d3rs::drag::DragUpdate| {
+                serde_json::json!({
+                    "phase": format!("{:?}", update.phase).to_lowercase(),
+                    "current": [update.current.x, update.current.y],
+                    "delta": [update.delta.dx, update.delta.dy],
+                    "total_delta": [update.total_delta.dx, update.total_delta.dy],
+                    "distance": update.distance,
+                    "exceeds_click_distance": update.exceeds_click_distance,
+                })
+            };
+            let start = point(&points[0])?;
+            let mut updates = vec![serialize(
+                state
+                    .start(pointer_id, start.0, start.1)
+                    .map_err(|error| format!("{error:?}"))?,
+            )];
+            for value in &points[1..points.len() - 1] {
+                let current = point(value)?;
+                updates.push(serialize(
+                    state
+                        .drag(pointer_id, current.0, current.1)
+                        .map_err(|error| format!("{error:?}"))?,
+                ));
+            }
+            let end = point(points.last().expect("validated points"))?;
+            updates.push(serialize(
+                state
+                    .end(pointer_id, end.0, end.1)
+                    .map_err(|error| format!("{error:?}"))?,
+            ));
+            serde_json::json!(updates)
+        }
+        "transition_sample" => {
+            let ease: d3rs::transition::EaseFn = match arguments
+                .get("kind")
+                .and_then(Value::as_str)
+                .unwrap_or("linear")
+            {
+                "linear" => d3rs::ease::ease_linear,
+                "quad_in" => d3rs::ease::ease_quad_in,
+                "quad_out" => d3rs::ease::ease_quad_out,
+                "quad_in_out" => d3rs::ease::ease_quad_in_out,
+                "cubic_in" => d3rs::ease::ease_cubic_in,
+                "cubic_out" => d3rs::ease::ease_cubic_out,
+                "cubic_in_out" => d3rs::ease::ease_cubic_in_out,
+                "sin_in" => d3rs::ease::ease_sin_in,
+                "sin_out" => d3rs::ease::ease_sin_out,
+                "sin_in_out" => d3rs::ease::ease_sin_in_out,
+                "exp_in" => d3rs::ease::ease_exp_in,
+                "exp_out" => d3rs::ease::ease_exp_out,
+                "exp_in_out" => d3rs::ease::ease_exp_in_out,
+                "circle_in" => d3rs::ease::ease_circle_in,
+                "circle_out" => d3rs::ease::ease_circle_out,
+                "circle_in_out" => d3rs::ease::ease_circle_in_out,
+                "elastic_in" => d3rs::ease::ease_elastic_in,
+                "elastic_out" => d3rs::ease::ease_elastic_out,
+                "elastic_in_out" => d3rs::ease::ease_elastic_in_out,
+                "back_in" => d3rs::ease::ease_back_in,
+                "back_out" => d3rs::ease::ease_back_out,
+                "back_in_out" => d3rs::ease::ease_back_in_out,
+                "bounce_in" => d3rs::ease::ease_bounce_in,
+                "bounce_out" => d3rs::ease::ease_bounce_out,
+                "bounce_in_out" => d3rs::ease::ease_bounce_in_out,
+                kind => return Err(format!("unsupported D3 transition ease kind: {kind}")),
+            };
+            let mut transition = d3rs::transition::Transition::new()
+                .from_to(number("start")?, number("end")?)
+                .duration(number("duration_ms")?)
+                .delay(
+                    arguments
+                        .get("delay_ms")
+                        .and_then(Value::as_f64)
+                        .unwrap_or(0.0),
+                )
+                .ease(ease);
+            serde_json::json!(
+                command_numbers(arguments, "delta_ms")?
+                    .into_iter()
+                    .map(|delta| transition.tick(delta))
+                    .collect::<Vec<_>>()
+            )
+        }
+        "random_uniform" => {
+            let distribution =
+                d3rs::random::RandomUniform::with_seed(number("min")?, number("max")?, seed);
+            serde_json::json!(
+                (0..samples())
+                    .map(|_| distribution.sample())
+                    .collect::<Vec<_>>()
+            )
+        }
+        "random" => {
+            let kind = string("kind")?;
+            let count = samples();
+            match kind {
+                "uniform" => {
+                    let distribution = d3rs::random::RandomUniform::with_seed(
+                        number("min")?,
+                        number("max")?,
+                        seed,
+                    );
+                    serde_json::json!(
+                        (0..count)
+                            .map(|_| distribution.sample())
+                            .collect::<Vec<_>>()
+                    )
+                }
+                "normal" => {
+                    let distribution = d3rs::random::RandomNormal::with_seed(
+                        number("mean")?,
+                        number("deviation")?,
+                        seed,
+                    );
+                    serde_json::json!(
+                        (0..count)
+                            .map(|_| distribution.sample())
+                            .collect::<Vec<_>>()
+                    )
+                }
+                "log_normal" => {
+                    let distribution = d3rs::random::RandomLogNormal::with_seed(
+                        number("mean")?,
+                        number("deviation")?,
+                        seed,
+                    );
+                    serde_json::json!(
+                        (0..count)
+                            .map(|_| distribution.sample())
+                            .collect::<Vec<_>>()
+                    )
+                }
+                "exponential" => {
+                    let distribution =
+                        d3rs::random::RandomExponential::with_seed(number("lambda")?, seed);
+                    serde_json::json!(
+                        (0..count)
+                            .map(|_| distribution.sample())
+                            .collect::<Vec<_>>()
+                    )
+                }
+                "bernoulli" => {
+                    let distribution =
+                        d3rs::random::RandomBernoulli::with_seed(number("probability")?, seed);
+                    serde_json::json!(
+                        (0..count)
+                            .map(|_| distribution.sample())
+                            .collect::<Vec<_>>()
+                    )
+                }
+                "poisson" => {
+                    let distribution =
+                        d3rs::random::RandomPoisson::with_seed(number("lambda")?, seed);
+                    serde_json::json!(
+                        (0..count)
+                            .map(|_| distribution.sample())
+                            .collect::<Vec<_>>()
+                    )
+                }
+                "irwin_hall" => {
+                    let distribution = d3rs::random::RandomIrwinHall::with_seed(
+                        unsigned("summands")? as usize,
+                        seed,
+                    );
+                    serde_json::json!(
+                        (0..count)
+                            .map(|_| distribution.sample())
+                            .collect::<Vec<_>>()
+                    )
+                }
+                "bates" => {
+                    let summands = unsigned("summands")? as usize;
+                    if summands == 0 {
+                        return Err("random bates requires at least one summand".to_string());
+                    }
+                    let distribution = d3rs::random::RandomBates::with_seed(summands, seed);
+                    serde_json::json!(
+                        (0..count)
+                            .map(|_| distribution.sample())
+                            .collect::<Vec<_>>()
+                    )
+                }
+                _ => return Err(format!("unsupported D3 random kind: {kind}")),
+            }
+        }
+        "shuffle" => {
+            let values = arguments
+                .get("values")
+                .and_then(Value::as_array)
+                .ok_or_else(|| "shuffle values must be an array".to_string())?;
+            serde_json::json!(d3rs::random::shuffle(
+                &d3rs::random::LcgRng::new(seed),
+                values
+            ))
+        }
+        _ => return Err(format!("unsupported D3 algorithm operation: {operation}")),
+    };
+    Ok(serde_json::json!({"ok": true, "operation": operation, "value": value}))
+}
+
+#[cfg(test)]
+mod d3_algorithm_command_tests {
+    use super::d3_algorithm_command;
+    use serde_json::{Value, json};
+
+    fn assert_succeeds(arguments: Value) -> Value {
+        let result = d3_algorithm_command(&arguments).expect("native D3 algorithm should succeed");
+        assert_eq!(result["ok"], true);
+        result["value"].clone()
+    }
+
+    #[test]
+    fn covers_color_format_time_fetch_and_interpolation_operations() {
+        let requests = [
+            json!({"operation": "color_interpolate", "start": 0xff0000_u64, "end": 0x0000ff_u64, "t": 0.5}),
+            json!({"operation": "color_convert", "space": "lab", "components": [50.0, 10.0, -5.0]}),
+            json!({"operation": "format", "specifier": ".2f", "values": [1.25]}),
+            json!({"operation": "format_prefix", "specifier": ".1", "value": 1000.0, "values": [1000.0]}),
+            json!({"operation": "time_interval", "values": [1.0, 3600.0, 86400.0]}),
+            json!({"operation": "time_scale", "domain": [0.0, 86400.0], "range": [0.0, 100.0], "values": [0.0, 43200.0, 86400.0], "tick_count": 4}),
+            json!({"operation": "csv_parse", "input": "name,value\na,1"}),
+            json!({"operation": "dsv_parse", "delimiter": "\t", "input": "name\tvalue\na\t1"}),
+            json!({"operation": "dsv_format", "delimiter": ",", "columns": ["name", "value"], "rows": [{"name": "a", "value": "1"}]}),
+            json!({"operation": "interpolate_number", "start": 0.0, "end": 10.0, "values": [0.5]}),
+            json!({"operation": "interpolate_array", "start_values": [0.0, 10.0], "end_values": [10.0, 20.0], "values": [0.5]}),
+            json!({"operation": "interpolate_string", "start": "0px", "end": "10px", "values": [0.5]}),
+            json!({"operation": "interpolate_transform_css", "start": "translate(0px, 0px)", "end": "translate(10px, 20px)", "values": [0.5]}),
+            json!({"operation": "interpolate_transform_svg", "start_values": [1.0, 0.0, 0.0, 1.0, 0.0, 0.0], "end_values": [1.0, 0.0, 0.0, 1.0, 10.0, 20.0], "values": [0.5]}),
+            json!({"operation": "interpolate_zoom", "start_values": [0.0, 0.0, 100.0], "end_values": [50.0, 50.0, 10.0], "values": [0.0, 0.5, 1.0]}),
+            json!({"operation": "selection_join", "old_keys": ["a", "b"], "new_keys": ["b", "c"]}),
+            json!({"operation": "brush_gesture", "points": [[10.0, 20.0], [30.0, 40.0]], "min_size": 5.0}),
+            json!({"operation": "drag_gesture", "points": [[0.0, 0.0], [3.0, 4.0], [6.0, 8.0]], "click_distance": 4.0}),
+            json!({"operation": "transition_sample", "start": 0.0, "end": 10.0, "duration_ms": 100.0, "delay_ms": 25.0, "delta_ms": [25.0, 25.0, 50.0], "kind": "cubic_in_out"}),
+        ];
+        for request in requests {
+            assert_succeeds(request);
+        }
+    }
+
+    #[test]
+    fn covers_every_easing_and_seeded_random_variant() {
+        let easing = [
+            "linear",
+            "quad_in",
+            "quad_out",
+            "quad_in_out",
+            "cubic_in",
+            "cubic_out",
+            "cubic_in_out",
+            "sin_in",
+            "sin_out",
+            "sin_in_out",
+            "exp_in",
+            "exp_out",
+            "exp_in_out",
+            "circle_in",
+            "circle_out",
+            "circle_in_out",
+            "elastic_in",
+            "elastic_out",
+            "elastic_in_out",
+            "back_in",
+            "back_out",
+            "back_in_out",
+            "bounce_in",
+            "bounce_out",
+            "bounce_in_out",
+        ];
+        for kind in easing {
+            assert_succeeds(json!({"operation": "ease", "kind": kind, "values": [0.0, 0.5, 1.0]}));
+        }
+
+        let distributions = [
+            json!({"kind": "uniform", "min": 0.0, "max": 1.0}),
+            json!({"kind": "normal", "mean": 0.0, "deviation": 1.0}),
+            json!({"kind": "log_normal", "mean": 0.0, "deviation": 1.0}),
+            json!({"kind": "exponential", "lambda": 2.0}),
+            json!({"kind": "bernoulli", "probability": 0.5}),
+            json!({"kind": "poisson", "lambda": 2.0}),
+            json!({"kind": "irwin_hall", "summands": 4}),
+            json!({"kind": "bates", "summands": 4}),
+        ];
+        for distribution in distributions {
+            let mut request = distribution.as_object().expect("object").clone();
+            request.insert("operation".into(), json!("random"));
+            request.insert("seed".into(), json!(7));
+            request.insert("count".into(), json!(4));
+            assert_eq!(
+                assert_succeeds(Value::Object(request))
+                    .as_array()
+                    .unwrap()
+                    .len(),
+                4
+            );
+        }
+        assert_succeeds(
+            json!({"operation": "random_uniform", "min": 0.0, "max": 1.0, "seed": 7, "count": 2}),
+        );
+        assert_succeeds(json!({"operation": "shuffle", "values": [1, 2, 3, 4], "seed": 7}));
+    }
+
+    #[test]
+    fn rejects_unknown_variants_instead_of_silently_falling_back() {
+        assert!(
+            d3_algorithm_command(&json!({"operation": "ease", "kind": "mystery", "values": [0.5]}))
+                .is_err()
+        );
+        assert!(
+            d3_algorithm_command(&json!({"operation": "random", "kind": "mystery", "count": 1}))
+                .is_err()
+        );
+        assert!(
+            d3_algorithm_command(
+                &json!({"operation": "dsv_parse", "delimiter": "::", "input": "a"})
+            )
+            .is_err()
+        );
+    }
+}
+
 struct FixedTextMeasure(f64);
 
 impl gpui_pretext::TextMeasure for FixedTextMeasure {
@@ -6274,6 +7011,13 @@ impl PythonIrShowcase {
                         request_id,
                         serde_json::json!({"ok": false, "error": error}),
                     ),
+                }
+            }
+            "d3.algorithms" => {
+                let result = d3_algorithm_command(&arguments);
+                match result {
+                    Ok(value) => self.send_command_result(request_id, value),
+                    Err(error) => self.send_command_result(request_id, serde_json::json!({"ok": false, "error": error})),
                 }
             }
             "d3.modules" => {

@@ -5,10 +5,75 @@ import json
 
 from gpui_toolkit import SessionContext
 from gpui_toolkit.commands import CommandResult
-from gpui_toolkit.d3 import ArrayOperation, ArrayRequest, D3BridgeKind, ScaleKind, ScaleOutput, ScaleRequest, StatisticsOperation, StatisticsRequest, TickOperation, TickRequest, ZoomOperation, ZoomRequest, ZoomResult, module_catalog_from_command, reports_from_command, request_module_catalog, request_reports
+from gpui_toolkit.d3 import AlgorithmOperation, AlgorithmRequest, AlgorithmResult, ArrayOperation, ArrayRequest, D3BridgeKind, EaseKind, RandomKind, ScaleKind, ScaleOutput, ScaleRequest, StatisticsOperation, StatisticsRequest, TickOperation, TickRequest, ZoomOperation, ZoomRequest, ZoomResult, module_catalog_from_command, reports_from_command, request_module_catalog, request_reports
 
 
 class D3ZoomTests(unittest.TestCase):
+    def test_algorithm_catalog_covers_every_renderer_independent_family(self):
+        self.assertEqual(
+            {operation.value for operation in AlgorithmOperation},
+            {
+                "color_interpolate", "color_convert", "format", "format_prefix",
+                "time_interval", "time_scale", "csv_parse", "dsv_parse", "dsv_format",
+                "interpolate_number", "interpolate_array", "interpolate_string",
+                "interpolate_transform_css", "interpolate_transform_svg", "interpolate_zoom",
+                "ease", "selection_join", "brush_gesture", "drag_gesture",
+                "transition_sample", "random_uniform", "random", "shuffle",
+            },
+        )
+        self.assertEqual(len(EaseKind), 25)
+        self.assertEqual(len(RandomKind), 8)
+
+    def test_algorithm_builders_validate_and_serialize_family_arguments(self):
+        easing = AlgorithmRequest.easing(EaseKind.ELASTIC_IN_OUT, [0.0, 0.5, 1.0])
+        self.assertEqual(easing.arguments["kind"], "elastic_in_out")
+
+        random = AlgorithmRequest.random(
+            RandomKind.NORMAL, count=4, seed=7, mean=0.0, deviation=1.0,
+        )
+        self.assertEqual(random.arguments["seed"], 7)
+        self.assertEqual(random.arguments["kind"], "normal")
+
+        dsv = AlgorithmRequest.dsv_parse("name\tvalue\na\t1", "\t")
+        self.assertEqual(dsv.operation, AlgorithmOperation.DSV_PARSE)
+        formatted = AlgorithmRequest.dsv_format([{"name": "a"}], ["name"])
+        self.assertEqual(formatted.arguments["delimiter"], ",")
+
+        join = AlgorithmRequest.selection_join(["a", "b"], ["b", "c"])
+        self.assertEqual(join.arguments["new_keys"], ["b", "c"])
+        brush = AlgorithmRequest.brush_gesture([(10.0, 20.0), (30.0, 40.0)])
+        self.assertEqual(brush.operation, AlgorithmOperation.BRUSH_GESTURE)
+        drag = AlgorithmRequest.drag_gesture([(0.0, 0.0), (4.0, 3.0)], click_distance=4.0)
+        self.assertEqual(drag.arguments["click_distance"], 4.0)
+        transition = AlgorithmRequest.transition_sample(
+            0.0, 10.0, 100.0, [25.0, 25.0, 50.0], easing=EaseKind.CUBIC_IN_OUT,
+        )
+        self.assertEqual(transition.arguments["kind"], "cubic_in_out")
+
+        with self.assertRaises(ValueError):
+            AlgorithmRequest.random(RandomKind.UNIFORM, count=-1, seed=1)
+        with self.assertRaises(ValueError):
+            AlgorithmRequest.dsv_parse("a", "::")
+
+    def test_pure_algorithm_families_use_one_typed_native_command(self):
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            AlgorithmRequest(
+                AlgorithmOperation.INTERPOLATE_NUMBER,
+                {"start": 0.0, "end": 10.0, "values": [0.0, 0.5, 1.0]},
+            ).send(SessionContext(), "algorithm")
+        message = json.loads(output.getvalue())
+        self.assertEqual(message["command"], "d3.algorithms")
+        self.assertEqual(message["arguments"]["operation"], "interpolate_number")
+
+        result = AlgorithmResult.from_command(
+            CommandResult.from_wire(
+                "algorithm",
+                {"ok": True, "operation": "interpolate_number", "value": [0.0, 5.0, 10.0]},
+            )
+        )
+        self.assertEqual(result.value, [0.0, 5.0, 10.0])
+
     def test_native_module_catalog_covers_algorithm_render_and_interaction_bridges(self):
         output = io.StringIO()
         with contextlib.redirect_stdout(output):
