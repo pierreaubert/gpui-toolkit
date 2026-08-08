@@ -100,7 +100,7 @@ The Python declarations are packaged as `gpui-toolkit` with the import package
 dependencies; Rust/GPUI remains the rendering host.
 
 ```bash
-python -m pip install -e crates/gpui-python-runtime
+python -m pip install gpui-toolkit
 python -c "import gpui_toolkit; print(gpui_toolkit.__version__)"
 ```
 

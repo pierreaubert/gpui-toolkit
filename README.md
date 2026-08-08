@@ -163,6 +163,17 @@ Individual recipes are available as `just demo-ui-kit`, `just demo-d3rs`,
 
 ## Examples
 
+The Python declarations can be installed directly from PyPI:
+
+```bash
+python -m pip install gpui-toolkit
+```
+
+Then import the API as `gpui_toolkit`. Supported-platform wheels include the
+matching native rendering host, so no Rust installation is needed. Source
+installs and unsupported platforms provide the declarations only and require
+`GPUI_TOOLKIT_HOST` when launching a native app.
+
 The aggregate `just examples` builds maintained example families:
 
 ```bash

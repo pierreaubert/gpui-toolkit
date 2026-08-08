@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "gpui-toolkit"
 version = "0.9.7"
 description = "Python declarations for GPUI Toolkit apps and retained 3D scene specs"
-readme = "README.md"
+readme = "crates/gpui-python-runtime/README.md"
 requires-python = ">=3.10"
 license = { text = "ISC" }
 authors = [
@@ -32,12 +32,12 @@ Repository = "https://github.com/pierreaubert/gpui-toolkit"
 Documentation = "https://docs.rs/gpui-toolkit"
 
 [tool.setuptools]
-package-dir = { "" = "python" }
+package-dir = { "" = "crates/gpui-python-runtime/python" }
 include-package-data = true
 
 [tool.setuptools.package-data]
 gpui_toolkit = ["py.typed", "bin/gpui-python-host", "bin/gpui-python-host.exe"]
 
 [tool.setuptools.packages.find]
-where = ["python"]
+where = ["crates/gpui-python-runtime/python"]
 include = ["gpui_toolkit*"]
