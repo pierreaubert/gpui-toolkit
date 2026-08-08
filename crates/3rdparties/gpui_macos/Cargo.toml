@@ -34,7 +34,7 @@ core-video = { version = "0.5.2", features = ["metal"] }
 ctor = "1.0.6"
 derive_more = { version = "2.1.1", features = ["add", "add_assign", "deref", "deref_mut", "display", "from_str", "mul", "mul_assign", "not"] }
 dispatch2 = "0.3.1"
-etagere = "0.2"
+etagere = "0.3"
 font-kit = { package = "zed-font-kit", version = "0.14.1-zed", git = "https://github.com/zed-industries/font-kit", rev = "94b0f28166665e8fd2f53ff6d268a14955c82269", optional = true }
 foreign-types = "0.5"
 futures = "0.3.32"

@@ -18,7 +18,7 @@ anyhow = "1.0"
 bytemuck = "1"
 collections = { version = "0.1.0", git = "https://github.com/zed-industries/zed.git", tag = "v1.9.0" }
 cosmic-text = "0.17.0"
-etagere = "0.2"
+etagere = "0.3"
 itertools = "0.14.0"
 log = "0.4"
 parking_lot = "0.12"
