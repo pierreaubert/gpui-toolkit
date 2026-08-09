@@ -39,4 +39,8 @@ pub enum ChartError {
         height: usize,
         expected: usize,
     },
+
+    /// The requested color range is not finite or has no positive extent.
+    #[error("invalid color range: {reason}")]
+    InvalidColorRange { reason: &'static str },
 }

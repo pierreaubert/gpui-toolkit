@@ -167,7 +167,9 @@ pub use area::{AreaChart, area};
 pub use bar::{BarChart, BarTheme, bar};
 #[cfg(feature = "gpui")]
 pub use boxplot::{BoxPlotChart, boxplot};
+pub use color_range::{AutoOrFixed, ColorRange};
 pub use color_scale::ColorScale;
+pub use colorbar::{Colorbar, ColorbarOrientation};
 #[cfg(feature = "gpui")]
 pub use contour::{ContourChart, contour};
 pub use d3rs::color::D3Color;
@@ -197,7 +199,9 @@ mod area;
 mod bar;
 #[cfg(feature = "gpui")]
 mod boxplot;
+mod color_range;
 mod color_scale;
+pub mod colorbar;
 #[cfg(feature = "gpui")]
 mod contour;
 mod error;
