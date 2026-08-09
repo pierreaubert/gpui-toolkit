@@ -22,8 +22,11 @@ mod pasteboard;
 #[cfg(feature = "screen-capture")]
 mod screen_capture;
 
+pub mod custom_metal;
 mod metal_atlas;
 pub mod metal_renderer;
+
+pub use custom_metal::{MetalCustomDraw, MetalCustomDrawAdapter};
 
 use metal_renderer as renderer;
 

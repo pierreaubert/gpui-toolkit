@@ -7,9 +7,9 @@ use cocoa::{
     quartzcore::AutoresizingMask,
 };
 use gpui::{
-    AtlasTextureId, Background, Bounds, ContentMask, DevicePixels, MonochromeSprite, PaintSurface,
-    Path, Point, PolychromeSprite, PrimitiveBatch, Quad, ScaledPixels, Scene, Shadow, Size,
-    Surface, Underline, point, size,
+    AtlasTextureId, Background, Bounds, ContentMask, CustomPrimitive, DevicePixels,
+    MonochromeSprite, PaintSurface, Path, Pixels, Point, PolychromeSprite, PrimitiveBatch, Quad,
+    ScaledPixels, Scene, Shadow, Size, Surface, Underline, point, px, size,
 };
 #[cfg(any(test, feature = "test-support"))]
 use image::RgbaImage;
@@ -474,8 +474,13 @@ impl MetalRenderer {
                 .lock()
                 .acquire(&self.device, self.is_unified_memory);
 
-            let command_buffer =
-                self.draw_primitives(scene, &mut instance_buffer, drawable, viewport_size);
+            let command_buffer = self.draw_primitives(
+                scene,
+                &mut instance_buffer,
+                drawable,
+                viewport_size,
+                layer.contents_scale() as f32,
+            );
 
             match command_buffer {
                 Ok(command_buffer) => {
@@ -547,8 +552,13 @@ impl MetalRenderer {
                 .lock()
                 .acquire(&self.device, self.is_unified_memory);
 
-            let command_buffer =
-                self.draw_primitives(scene, &mut instance_buffer, drawable, viewport_size);
+            let command_buffer = self.draw_primitives(
+                scene,
+                &mut instance_buffer,
+                drawable,
+                viewport_size,
+                layer.contents_scale() as f32,
+            );
 
             match command_buffer {
                 Ok(command_buffer) => {
@@ -653,8 +663,13 @@ impl MetalRenderer {
                 .lock()
                 .acquire(&self.device, self.is_unified_memory);
 
-            let command_buffer =
-                self.draw_primitives_to_texture(scene, &mut instance_buffer, &target_texture, size);
+            let command_buffer = self.draw_primitives_to_texture(
+                scene,
+                &mut instance_buffer,
+                &target_texture,
+                size,
+                1.0,
+            );
 
             match command_buffer {
                 Ok(command_buffer) => {
@@ -775,8 +790,13 @@ impl MetalRenderer {
                 .lock()
                 .acquire(&self.device, self.is_unified_memory);
 
-            let command_buffer =
-                self.draw_primitives_to_texture(scene, &mut instance_buffer, &target_texture, size);
+            let command_buffer = self.draw_primitives_to_texture(
+                scene,
+                &mut instance_buffer,
+                &target_texture,
+                size,
+                1.0,
+            );
 
             match command_buffer {
                 Ok(command_buffer) => {
@@ -821,8 +841,15 @@ impl MetalRenderer {
         instance_buffer: &mut InstanceBuffer,
         drawable: &metal::MetalDrawableRef,
         viewport_size: Size<DevicePixels>,
+        scale_factor: f32,
     ) -> Result<metal::CommandBuffer> {
-        self.draw_primitives_to_texture(scene, instance_buffer, drawable.texture(), viewport_size)
+        self.draw_primitives_to_texture(
+            scene,
+            instance_buffer,
+            drawable.texture(),
+            viewport_size,
+            scale_factor,
+        )
     }
 
     fn draw_primitives_to_texture(
@@ -831,6 +858,7 @@ impl MetalRenderer {
         instance_buffer: &mut InstanceBuffer,
         texture: &metal::TextureRef,
         viewport_size: Size<DevicePixels>,
+        scale_factor: f32,
     ) -> Result<metal::CommandBuffer> {
         let command_queue = self.command_queue.clone();
         let command_buffer = command_queue.new_command_buffer();
@@ -928,6 +956,29 @@ impl MetalRenderer {
                     viewport_size,
                     command_encoder,
                 ),
+                PrimitiveBatch::Custom(range) => {
+                    command_encoder.end_encoding();
+
+                    for custom in &scene.custom_primitives[range] {
+                        dispatch_custom_draw(
+                            custom,
+                            &self.device,
+                            command_buffer,
+                            texture,
+                            scale_factor,
+                        );
+                    }
+
+                    command_encoder = new_command_encoder_for_texture(
+                        command_buffer,
+                        texture,
+                        viewport_size,
+                        |color_attachment| {
+                            color_attachment.set_load_action(metal::MTLLoadAction::Load);
+                        },
+                    );
+                    true
+                }
                 PrimitiveBatch::SubpixelSprites { .. } => unreachable!(),
             };
             if !ok {
@@ -1564,6 +1615,55 @@ impl MetalRenderer {
             *instance_offset = next_offset;
         }
         true
+    }
+}
+
+fn dispatch_custom_draw(
+    custom: &CustomPrimitive,
+    device: &metal::DeviceRef,
+    command_buffer: &metal::CommandBufferRef,
+    texture: &metal::TextureRef,
+    scale_factor: f32,
+) {
+    let Some(draw) = gpui::lookup_custom_draw(custom.id) else {
+        return;
+    };
+    let Some(metal_draw) = draw
+        .as_any()
+        .downcast_ref::<crate::custom_metal::MetalCustomDrawAdapter>()
+    else {
+        return;
+    };
+
+    metal_draw.0.draw_metal(
+        device,
+        command_buffer,
+        texture,
+        scaled_bounds_to_pixels(custom.bounds, scale_factor),
+        normalized_scale_factor(scale_factor),
+    );
+}
+
+fn scaled_bounds_to_pixels(bounds: Bounds<ScaledPixels>, scale_factor: f32) -> Bounds<Pixels> {
+    let scale_factor = normalized_scale_factor(scale_factor);
+    let inverse_scale = scale_factor.recip();
+    Bounds {
+        origin: point(
+            px(bounds.origin.x.as_f32() * inverse_scale),
+            px(bounds.origin.y.as_f32() * inverse_scale),
+        ),
+        size: size(
+            px(bounds.size.width.as_f32() * inverse_scale),
+            px(bounds.size.height.as_f32() * inverse_scale),
+        ),
+    }
+}
+
+fn normalized_scale_factor(scale_factor: f32) -> f32 {
+    if scale_factor.is_finite() && scale_factor > 0.0 {
+        scale_factor
+    } else {
+        1.0
     }
 }
 
