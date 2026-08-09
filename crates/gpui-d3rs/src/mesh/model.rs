@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 /// Canonical indexed-triangle mesh. Deliberately independent of FEM/BEM,
 /// ndarray, NumPy, and num_complex (spec §5).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct TriangleMesh {
     pub id: Arc<str>,
     pub positions: Arc<[[f64; 3]]>,
