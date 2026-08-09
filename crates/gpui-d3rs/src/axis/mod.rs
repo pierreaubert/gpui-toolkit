@@ -7,6 +7,8 @@
 //! # Example
 //!
 //! ```rust,no_run
+//! # #[cfg(feature = "gpui")]
+//! # {
 //! use d3rs::prelude::*;
 //! use d3rs::axis::{render_axis, AxisConfig, DefaultAxisTheme};
 //!
@@ -15,6 +17,7 @@
 //! let theme = DefaultAxisTheme;
 //!
 //! // render_axis(&scale, &config, 400.0, &theme)
+//! # }
 //! ```
 
 mod config;

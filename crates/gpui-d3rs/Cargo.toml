@@ -151,19 +151,61 @@ required-features = ["gpu-2d"]
 [[example]]
 name = "hierarchy_demo"
 path = "examples/hierarchy_demo.rs"
+required-features = ["gpui"]
 
 [[example]]
 name = "force_demo"
 path = "examples/force_demo.rs"
+required-features = ["gpui"]
 
 [[example]]
 name = "chord_demo"
 path = "examples/chord_demo.rs"
+required-features = ["gpui"]
 
 [[example]]
 name = "chromatic_demo"
 path = "examples/chromatic_demo.rs"
+required-features = ["gpui"]
+
+# GPUI-backed legacy demos (d3rs::surface is gated behind the gpui feature)
+[[example]]
+name = "surface_demo"
+path = "examples/surface_demo.rs"
+required-features = ["gpui"]
+
+[[example]]
+name = "surface_logscale_demo"
+path = "examples/surface_logscale_demo.rs"
+required-features = ["gpui"]
+
+# Mesh contours (compute-only, no rendering features needed)
+[[example]]
+name = "mesh_contour_demo"
+path = "examples/mesh_contour_demo.rs"
 
 [[bench]]
 name = "path_strings"
 harness = false
+
+# Test targets that use feature-gated modules: d3rs::text (gpui),
+# d3rs::gpu2d (gpu-2d), d3rs::gpu3d (gpu-3d, which also pulls in gpui).
+[[test]]
+name = "glyph_text_tests"
+path = "tests/glyph_text_tests.rs"
+required-features = ["gpui"]
+
+[[test]]
+name = "gpu2d_line_tests"
+path = "tests/gpu2d_line_tests.rs"
+required-features = ["gpu-2d"]
+
+[[test]]
+name = "gpu3d_camera_tests"
+path = "tests/gpu3d_camera_tests.rs"
+required-features = ["gpu-3d"]
+
+[[test]]
+name = "surface3d_cache_tests"
+path = "tests/surface3d_cache_tests.rs"
+required-features = ["gpu-3d"]

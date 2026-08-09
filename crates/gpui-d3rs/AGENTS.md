@@ -7,6 +7,7 @@ D3.js-inspired GPU-accelerated plotting library for GPUI.
 - 2D and 3D GPU-accelerated charts
 - Scales (linear, log, band, time, color)
 - Axes, contours, shapes
+- Unstructured triangle meshes (`mesh` module): validation, topology, marching-triangles contours, picking index, revolve — feature-independent, no GPUI/wgpu
 - Spinorama speaker measurement visualization
 - Delaunay triangulation
 - Force-directed graphs
@@ -26,7 +27,7 @@ D3.js-inspired GPU-accelerated plotting library for GPUI.
 
 ## Examples
 
-15+ examples: scale, color, contour, delaunay, force, line, bar, scatter, etc.
+15+ examples: scale, color, contour, delaunay, force, line, bar, scatter, mesh contours (`mesh_contour_demo`, compute-only), etc.
 
 ## Testing
 
@@ -35,6 +36,12 @@ cargo test -p gpui-d3rs --no-default-features --tests   # Golden + unit tests
 cargo test -p gpui-d3rs --lib                            # Unit tests only
 cargo check -p gpui-d3rs && cargo clippy -p gpui-d3rs
 ```
+
+Test targets that use feature-gated modules declare `required-features` in
+`Cargo.toml` (`glyph_text_tests` → `gpui`, `gpu2d_line_tests` → `gpu-2d`,
+`gpu3d_camera_tests` / `surface3d_cache_tests` → `gpu-3d`), so the bare
+`--no-default-features` command skips them and stays green. Any new test
+target against a gated module must follow the same pattern.
 
 ## Example Architecture (Zero Duplication)
 

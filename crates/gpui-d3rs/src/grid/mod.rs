@@ -5,6 +5,8 @@
 //! # Example
 //!
 //! ```rust,no_run
+//! # #[cfg(feature = "gpui")]
+//! # {
 //! use d3rs::prelude::*;
 //! use d3rs::grid::{render_grid, GridConfig};
 //! use d3rs::axis::DefaultAxisTheme;
@@ -15,6 +17,7 @@
 //! let theme = DefaultAxisTheme;
 //!
 //! // render_grid(&x_scale, &y_scale, &config, 400.0, 300.0, &theme)
+//! # }
 //! ```
 
 mod config;

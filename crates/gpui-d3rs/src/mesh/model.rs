@@ -122,21 +122,21 @@ impl TriangleMesh {
                 return Err(MeshValidationError::ZeroAreaTriangle { triangle: t });
             }
         }
-        if let Some(ids) = &self.vertex_ids {
-            if ids.len() != self.positions.len() {
-                return Err(MeshValidationError::VertexIdLengthMismatch {
-                    ids: ids.len(),
-                    positions: self.positions.len(),
-                });
-            }
+        if let Some(ids) = &self.vertex_ids
+            && ids.len() != self.positions.len()
+        {
+            return Err(MeshValidationError::VertexIdLengthMismatch {
+                ids: ids.len(),
+                positions: self.positions.len(),
+            });
         }
-        if let Some(ids) = &self.cell_ids {
-            if ids.len() != self.triangles.len() {
-                return Err(MeshValidationError::CellIdLengthMismatch {
-                    ids: ids.len(),
-                    triangles: self.triangles.len(),
-                });
-            }
+        if let Some(ids) = &self.cell_ids
+            && ids.len() != self.triangles.len()
+        {
+            return Err(MeshValidationError::CellIdLengthMismatch {
+                ids: ids.len(),
+                triangles: self.triangles.len(),
+            });
         }
         Ok(())
     }
@@ -175,18 +175,18 @@ impl ScalarField {
             });
         }
         let mask = self.valid.as_deref();
-        if let Some(m) = mask {
-            if m.len() != self.values.len() {
-                return Err(MeshValidationError::MaskLengthMismatch {
-                    mask: m.len(),
-                    values: self.values.len(),
-                });
-            }
+        if let Some(m) = mask
+            && m.len() != self.values.len()
+        {
+            return Err(MeshValidationError::MaskLengthMismatch {
+                mask: m.len(),
+                values: self.values.len(),
+            });
         }
         for (index, v) in self.values.iter().enumerate() {
             // No mask means every entry is valid; mask length == values length
             // was checked above, so direct indexing is safe.
-            let ok = mask.map_or(true, |m| m[index]);
+            let ok = mask.is_none_or(|m| m[index]);
             // Masked entries may be NaN; infinities are never drawable (spec §5.2).
             if (ok && !v.is_finite()) || (!ok && v.is_infinite()) {
                 return Err(MeshValidationError::NonFiniteValue { index });
