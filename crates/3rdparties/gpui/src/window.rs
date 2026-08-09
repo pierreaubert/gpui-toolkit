@@ -3,7 +3,8 @@ use crate::Inspector;
 use crate::{
     Action, AnyDrag, AnyElement, AnyImageCache, AnyTooltip, AnyView, App, AppContext, Arena, Asset,
     AsyncWindowContext, AvailableSpace, Background, BorderStyle, Bounds, BoxShadow, Capslock,
-    Context, Corners, CursorHideMode, CursorStyle, Decorations, DevicePixels,
+    Context, Corners, CursorHideMode, CursorStyle, CustomDrawId, CustomPrimitive, Decorations,
+    DevicePixels,
     DispatchActionListener, DispatchNodeId, DispatchTree, DisplayId, Edges, Effect, Entity,
     EntityId, EventEmitter, FileDropEvent, FontId, Global, GlobalElementId, GlyphId, GpuSpecs,
     Hsla, InputHandler, IsZero, KeyBinding, KeyContext, KeyDownEvent, KeyEvent, Keystroke,
@@ -4131,6 +4132,25 @@ impl Window {
             bounds,
             content_mask,
             image_buffer,
+        });
+    }
+
+    /// Paint a custom GPU primitive into the scene for the next frame at the
+    /// current z-index. The `id` must refer to a callback registered via
+    /// [`register_custom_draw`](crate::register_custom_draw); the platform
+    /// renderer resolves and invokes it while drawing this frame.
+    ///
+    /// This method should only be called as part of the paint phase of element drawing.
+    pub fn paint_custom(&mut self, id: CustomDrawId, bounds: Bounds<Pixels>) {
+        self.invalidator.debug_assert_paint();
+
+        let bounds = self.snap_bounds(bounds);
+        let content_mask = self.snapped_content_mask();
+        self.next_frame.scene.insert_primitive(CustomPrimitive {
+            order: 0,
+            id,
+            bounds,
+            content_mask,
         });
     }
 

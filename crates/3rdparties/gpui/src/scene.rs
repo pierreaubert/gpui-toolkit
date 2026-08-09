@@ -5,8 +5,8 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    AtlasTextureId, AtlasTile, Background, Bounds, ContentMask, Corners, Edges, Hsla, Pixels,
-    Point, Radians, ScaledPixels, Size, bounds_tree::BoundsTree, point,
+    AtlasTextureId, AtlasTile, Background, Bounds, ContentMask, Corners, CustomDrawId, Edges, Hsla,
+    Pixels, Point, Radians, ScaledPixels, Size, bounds_tree::BoundsTree, point,
 };
 use std::{
     fmt::Debug,
@@ -36,6 +36,7 @@ pub struct Scene {
     pub subpixel_sprites: Vec<SubpixelSprite>,
     pub polychrome_sprites: Vec<PolychromeSprite>,
     pub surfaces: Vec<PaintSurface>,
+    pub custom_primitives: Vec<CustomPrimitive>,
 }
 
 #[expect(missing_docs)]
@@ -52,6 +53,7 @@ impl Scene {
         self.subpixel_sprites.clear();
         self.polychrome_sprites.clear();
         self.surfaces.clear();
+        self.custom_primitives.clear();
     }
 
     pub fn len(&self) -> usize {
@@ -119,6 +121,10 @@ impl Scene {
                 surface.order = order;
                 self.surfaces.push(surface.clone());
             }
+            Primitive::Custom(custom) => {
+                custom.order = order;
+                self.custom_primitives.push(custom.clone());
+            }
         }
         self.paint_operations
             .push(PaintOperation::Primitive(primitive));
@@ -146,6 +152,8 @@ impl Scene {
         self.polychrome_sprites
             .sort_by_key(|sprite| (sprite.order, sprite.tile.tile_id));
         self.surfaces.sort_by_key(|surface| surface.order);
+        self.custom_primitives
+            .sort_by_key(|custom| custom.order);
     }
 
     #[cfg_attr(
@@ -173,6 +181,8 @@ impl Scene {
             polychrome_sprites_iter: self.polychrome_sprites.iter().peekable(),
             surfaces_start: 0,
             surfaces_iter: self.surfaces.iter().peekable(),
+            custom_primitives_start: 0,
+            custom_primitives_iter: self.custom_primitives.iter().peekable(),
         }
     }
 }
@@ -195,6 +205,7 @@ pub(crate) enum PrimitiveKind {
     SubpixelSprite,
     PolychromeSprite,
     Surface,
+    Custom,
 }
 
 pub(crate) enum PaintOperation {
@@ -214,6 +225,7 @@ pub enum Primitive {
     SubpixelSprite(SubpixelSprite),
     PolychromeSprite(PolychromeSprite),
     Surface(PaintSurface),
+    Custom(CustomPrimitive),
 }
 
 #[expect(missing_docs)]
@@ -228,6 +240,7 @@ impl Primitive {
             Primitive::SubpixelSprite(sprite) => &sprite.bounds,
             Primitive::PolychromeSprite(sprite) => &sprite.bounds,
             Primitive::Surface(surface) => &surface.bounds,
+            Primitive::Custom(custom) => &custom.bounds,
         }
     }
 
@@ -241,6 +254,7 @@ impl Primitive {
             Primitive::SubpixelSprite(sprite) => &sprite.content_mask,
             Primitive::PolychromeSprite(sprite) => &sprite.content_mask,
             Primitive::Surface(surface) => &surface.content_mask,
+            Primitive::Custom(custom) => &custom.content_mask,
         }
     }
 }
@@ -269,6 +283,8 @@ struct BatchIterator<'a> {
     polychrome_sprites_iter: Peekable<slice::Iter<'a, PolychromeSprite>>,
     surfaces_start: usize,
     surfaces_iter: Peekable<slice::Iter<'a, PaintSurface>>,
+    custom_primitives_start: usize,
+    custom_primitives_iter: Peekable<slice::Iter<'a, CustomPrimitive>>,
 }
 
 impl<'a> Iterator for BatchIterator<'a> {
@@ -301,6 +317,10 @@ impl<'a> Iterator for BatchIterator<'a> {
             (
                 self.surfaces_iter.peek().map(|s| s.order),
                 PrimitiveKind::Surface,
+            ),
+            (
+                self.custom_primitives_iter.peek().map(|c| c.order),
+                PrimitiveKind::Custom,
             ),
         ];
         orders_and_kinds.sort_by_key(|(order, kind)| (order.unwrap_or(u32::MAX), *kind));
@@ -447,6 +467,20 @@ impl<'a> Iterator for BatchIterator<'a> {
                 self.surfaces_start = surfaces_end;
                 Some(PrimitiveBatch::Surfaces(surfaces_start..surfaces_end))
             }
+            PrimitiveKind::Custom => {
+                let custom_start = self.custom_primitives_start;
+                let mut custom_end = custom_start + 1;
+                self.custom_primitives_iter.next();
+                while self
+                    .custom_primitives_iter
+                    .next_if(|custom| (custom.order, batch_kind) < max_order_and_kind)
+                    .is_some()
+                {
+                    custom_end += 1;
+                }
+                self.custom_primitives_start = custom_end;
+                Some(PrimitiveBatch::Custom(custom_start..custom_end))
+            }
         }
     }
 }
@@ -479,6 +513,7 @@ pub enum PrimitiveBatch {
         range: Range<usize>,
     },
     Surfaces(Range<usize>),
+    Custom(Range<usize>),
 }
 
 #[derive(Default, Debug, Copy, Clone)]
@@ -731,6 +766,25 @@ impl From<PaintSurface> for Primitive {
     }
 }
 
+/// An embedder-provided custom GPU draw (e.g. MeshPlot), referenced by an id
+/// registered via [`crate::register_custom_draw`]. Platform renderers resolve
+/// the id through [`crate::lookup_custom_draw`] and dispatch the draw at this
+/// primitive's position in scene order.
+#[derive(Clone, Debug)]
+#[expect(missing_docs)]
+pub struct CustomPrimitive {
+    pub order: DrawOrder,
+    pub id: CustomDrawId,
+    pub bounds: Bounds<ScaledPixels>,
+    pub content_mask: ContentMask<ScaledPixels>,
+}
+
+impl From<CustomPrimitive> for Primitive {
+    fn from(custom: CustomPrimitive) -> Self {
+        Primitive::Custom(custom)
+    }
+}
+
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 #[expect(missing_docs)]
 pub struct PathId(pub usize);
@@ -897,5 +951,65 @@ impl PathVertex<Pixels> {
             st_position: self.st_position,
             content_mask: self.content_mask.scale(factor),
         }
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{ContentMask, size};
+
+    fn non_empty_bounds() -> Bounds<ScaledPixels> {
+        Bounds {
+            origin: point(ScaledPixels(0.0), ScaledPixels(0.0)),
+            size: size(ScaledPixels(10.0), ScaledPixels(10.0)),
+        }
+    }
+
+    // Adapted from the task brief: `Scene` has no `primitives()` iterator and
+    // `insert_primitive` drops zero-sized primitives, so the test uses
+    // non-empty bounds/mask and asserts retention + order via the scene's
+    // paint operations and per-kind vectors.
+    #[test]
+    fn scene_retains_custom_primitive_in_order() {
+        let mut scene = Scene::default();
+        scene.insert_primitive(Quad {
+            bounds: non_empty_bounds(),
+            content_mask: ContentMask {
+                bounds: non_empty_bounds(),
+            },
+            ..Default::default()
+        });
+        scene.insert_primitive(Primitive::Custom(CustomPrimitive {
+            order: 0,
+            id: 7,
+            bounds: non_empty_bounds(),
+            content_mask: ContentMask {
+                bounds: non_empty_bounds(),
+            },
+        }));
+
+        let kinds: Vec<&'static str> = scene
+            .paint_operations
+            .iter()
+            .map(|op| match op {
+                PaintOperation::Primitive(Primitive::Quad(_)) => "quad",
+                PaintOperation::Primitive(Primitive::Custom(_)) => "custom",
+                _ => "other",
+            })
+            .collect();
+        assert_eq!(kinds, ["quad", "custom"]);
+
+        assert_eq!(scene.quads.len(), 1);
+        assert_eq!(scene.custom_primitives.len(), 1);
+        assert_eq!(scene.custom_primitives[0].id, 7);
+
+        // The custom primitive must participate in batching, not be dropped.
+        scene.finish();
+        let batches: Vec<PrimitiveBatch> = scene.batches().collect();
+        assert_eq!(batches.len(), 2);
+        assert!(matches!(batches[0], PrimitiveBatch::Quads(_)));
+        assert!(matches!(batches[1], PrimitiveBatch::Custom(_)));
     }
 }
