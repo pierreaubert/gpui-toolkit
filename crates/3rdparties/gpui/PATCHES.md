@@ -29,8 +29,8 @@ primitive. Used by the MeshPlot feature; platform renderer crates
   `CustomDraw`, `CustomDrawId`, `register_custom_draw`,
   `unregister_custom_draw`, `lookup_custom_draw`.
 
-**Known downstream impact**: `gpui_wgpu::wgpu_renderer` and
-`gpui_macos::metal_renderer` match on `PrimitiveBatch` exhaustively without a
-wildcard arm, so they do not compile until their dispatch arms for
-`PrimitiveBatch::Custom` are added (MeshPlot tasks 9 and 10). `cargo check -p
+**Known downstream impact**: `gpui_macos::metal_renderer` still matches on
+`PrimitiveBatch` exhaustively without a custom dispatch arm until MeshPlot Task
+10 lands. The WGPU arm is provided by Task 9, and the Windows renderer has a
+minimal no-op arm because it has no WGPU custom-draw backend. `cargo check -p
 gpui` itself is clean.

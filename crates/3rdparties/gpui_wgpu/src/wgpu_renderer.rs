@@ -1,4 +1,4 @@
-use crate::{CompositorGpuHint, WgpuAtlas, WgpuContext};
+use crate::{CompositorGpuHint, WgpuAtlas, WgpuContext, WgpuCustomDrawAdapter};
 use bytemuck::{Pod, Zeroable};
 use gpui::{
     AtlasTextureId, Background, Bounds, DevicePixels, GpuSpecs, MonochromeSprite, Path, Point,
@@ -1201,6 +1201,55 @@ impl WgpuRenderer {
                         PrimitiveBatch::Surfaces(_surfaces) => {
                             // Surfaces are macOS-only for video playback
                             // Not implemented for Linux/wgpu
+                            true
+                        }
+                        PrimitiveBatch::Custom(range) => {
+                            drop(pass);
+
+                            // GPUI stores scene bounds in scaled pixels. WGPU
+                            // custom draws receive those same physical values
+                            // as GPUI pixels with a unit scale factor, matching
+                            // the renderer's device-pixel coordinate space.
+                            if let Some(context) = self.context.as_ref() {
+                                let context = context.borrow();
+                                if let Some(context) = context.as_ref() {
+                                    for custom in &scene.custom_primitives[range] {
+                                        let Some(draw) = gpui::lookup_custom_draw(custom.id) else {
+                                            continue;
+                                        };
+                                        let Some(wgpu_draw) =
+                                            draw.as_any().downcast_ref::<WgpuCustomDrawAdapter>()
+                                        else {
+                                            continue;
+                                        };
+
+                                        let bounds = custom.bounds.map(|value| gpui::px(value.0));
+                                        wgpu_draw.0.draw_wgpu(
+                                            context,
+                                            &mut encoder,
+                                            &frame_view,
+                                            bounds,
+                                            1.0,
+                                        );
+                                    }
+                                }
+                            }
+
+                            pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                                label: Some("main_pass_continued"),
+                                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                                    view: &frame_view,
+                                    resolve_target: None,
+                                    ops: wgpu::Operations {
+                                        load: wgpu::LoadOp::Load,
+                                        store: wgpu::StoreOp::Store,
+                                    },
+                                    depth_slice: None,
+                                })],
+                                depth_stencil_attachment: None,
+                                ..Default::default()
+                            });
+
                             true
                         }
                     };
