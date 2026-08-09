@@ -50,7 +50,12 @@ pub struct RevolvedMesh {
 const AXIS_TOL: f64 = 1e-12;
 
 pub fn revolve(mesh: &TriangleMesh, spec: &RevolveSpec) -> Result<RevolvedMesh, MeshValidationError> {
-    if spec.segments < 3 || spec.sweep_angle <= 0.0 || spec.sweep_angle > TAU {
+    if spec.segments < 3
+        || !spec.start_angle.is_finite()
+        || !spec.sweep_angle.is_finite()
+        || spec.sweep_angle <= 0.0
+        || spec.sweep_angle > TAU
+    {
         return Err(MeshValidationError::InvalidRevolveSpec);
     }
     let full = (spec.sweep_angle - TAU).abs() < 1e-12;
@@ -71,6 +76,12 @@ pub fn revolve(mesh: &TriangleMesh, spec: &RevolveSpec) -> Result<RevolvedMesh, 
     let mut needed = vec![false; mesh.positions.len()];
     for &ei in &topo.boundary_edges {
         let [a, b] = topo.unique_edges[ei as usize];
+        if on_axis[a as usize] && on_axis[b as usize] {
+            // edges fully on the axis emit no ribbons; a vertex touched only
+            // by such edges (e.g. interior to a subdivided axis-aligned
+            // boundary chain) must not get an orphan column
+            continue;
+        }
         needed[a as usize] = true;
         needed[b as usize] = true;
     }
@@ -115,14 +126,14 @@ pub fn revolve(mesh: &TriangleMesh, spec: &RevolveSpec) -> Result<RevolvedMesh, 
     // test in this module is the arbiter.
     for &ei in &topo.boundary_edges {
         let [a, b] = topo.unique_edges[ei as usize];
+        if on_axis[a as usize] && on_axis[b as usize] {
+            continue; // edge lies on the axis: emits no ribbon
+        }
         let cell = topo.edge_triangles[ei as usize][0];
         let (tail, head) = ribbon_direction(mesh.triangles[cell as usize], a, b);
         for s in 0..spec.segments as usize {
             let (t0, t1) = (col(tail, s), col(tail, s + 1));
             let (h0, h1) = (col(head, s), col(head, s + 1));
-            if t0 == h0 && t1 == h1 {
-                continue; // edge lies on the axis
-            }
             push_tri(&mut triangles, &mut source_triangle, [t0, h1, h0], cell);
             push_tri(&mut triangles, &mut source_triangle, [t0, t1, h1], cell);
         }
@@ -328,6 +339,57 @@ mod tests {
     fn invalid_segment_count_rejected() {
         let mesh = profile_square();
         let spec = RevolveSpec { segments: 2, ..RevolveSpec::default() };
+        assert_eq!(revolve(&mesh, &spec), Err(MeshValidationError::InvalidRevolveSpec));
+    }
+
+    #[test]
+    fn axis_chain_interior_vertices_not_orphaned() {
+        // axis boundary is subdivided: vertex 1 (0,0,0.5) is interior to the
+        // axis-aligned boundary chain and touched only by axis-on-axis
+        // boundary edges, so it must not get an orphan derived column
+        let mesh = TriangleMesh {
+            id: "axis-chain".into(),
+            positions: vec![
+                [0.0, 0.0, 0.0],
+                [0.0, 0.0, 0.5],
+                [0.0, 0.0, 1.0],
+                [1.0, 0.0, 0.0],
+                [1.0, 0.0, 0.5],
+                [1.0, 0.0, 1.0],
+            ]
+            .into(),
+            triangles: vec![[0, 1, 4], [0, 4, 3], [1, 2, 5], [1, 5, 4]].into(),
+            vertex_ids: None,
+            cell_ids: None,
+        };
+        assert!(mesh.validate().is_ok(), "fixture must be a valid mesh");
+        let out = revolve(&mesh, &RevolveSpec { segments: 8, ..RevolveSpec::default() }).unwrap();
+        // 2 axis-column endpoints (verts 0, 2) + 3 off-axis verts × 8 columns;
+        // interior axis vertex 1 contributes nothing
+        assert_eq!(out.mesh.positions.len(), 2 + 3 * 8);
+        // every derived vertex has at least one incident triangle
+        let mut incident = vec![false; out.mesh.positions.len()];
+        for t in out.mesh.triangles.iter() {
+            for &i in t {
+                incident[i as usize] = true;
+            }
+        }
+        assert!(
+            incident.iter().all(|&i| i),
+            "every derived vertex must have an incident triangle"
+        );
+        // no zero normals from orphaned vertices
+        for n in &out.normals {
+            let len = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+            assert!((len - 1.0).abs() < 1e-5, "normal must be unit, got {len}");
+        }
+        assert!(out.mesh.validate().is_ok(), "output must be a valid mesh");
+    }
+
+    #[test]
+    fn nan_sweep_rejected() {
+        let mesh = profile_square();
+        let spec = RevolveSpec { sweep_angle: f64::NAN, ..RevolveSpec::default() };
         assert_eq!(revolve(&mesh, &spec), Err(MeshValidationError::InvalidRevolveSpec));
     }
 }
