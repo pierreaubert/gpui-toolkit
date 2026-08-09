@@ -371,7 +371,7 @@ jobs:
         run: just qa-gpui-obvious
 
       - name: Upload desktop accessibility evidence
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: desktop-accessibility-evidence
           path: target/qa/accessibility/
@@ -446,7 +446,7 @@ jobs:
         run: just qa-visual
 
       - name: Upload Metal captures, diffs, reports, and contact sheets
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: visual-evidence-metal
           path: target/qa/visual/
