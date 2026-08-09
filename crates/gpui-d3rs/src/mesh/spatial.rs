@@ -1,5 +1,10 @@
 //! Bounds, 2D projection, barycentric hit testing, and a uniform-grid
 //! spatial index for triangle picking.
+//!
+//! Barycentric tie-break: `barycentric_2d` treats points within 1e-12 of an
+//! edge as inside, so a point lying exactly on a shared edge deterministically
+//! counts as inside both adjacent triangles; callers resolve ties (e.g. by
+//! depth or first hit).
 
 /// Which mesh coordinate feeds a 2D plot axis (spec §5, MeshPlotView).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -55,8 +60,7 @@ impl MeshBounds {
 }
 
 /// Barycentric weights of `p` in triangle (a,b,c); None when outside.
-/// Tolerance: points within 1e-12 of an edge count as inside (deterministic
-/// tie-break, documented in module docs).
+/// Edge tie-break is documented in the module-level docs.
 pub fn barycentric_2d(p: [f64; 2], a: [f64; 2], b: [f64; 2], c: [f64; 2]) -> Option<[f64; 3]> {
     let v0 = [b[0] - a[0], b[1] - a[1]];
     let v1 = [c[0] - a[0], c[1] - a[1]];
@@ -82,8 +86,9 @@ pub fn barycentric_2d(p: [f64; 2], a: [f64; 2], b: [f64; 2], c: [f64; 2]) -> Opt
 }
 
 /// Uniform-grid spatial index over 2D-projected triangles for picking.
-/// Cell size = max(domain extent) / 64, clamped; deterministic iteration
-/// (triangle indices sorted).
+/// Grid resolution n = sqrt(triangle_count).clamp(8, 128) cells per axis;
+/// cell size = domain extent / n. Deterministic iteration (triangle indices
+/// sorted).
 #[derive(Debug, Clone)]
 pub struct TriGridIndex {
     min: [f64; 2],
@@ -143,10 +148,15 @@ impl TriGridIndex {
     pub fn query(&self, p: [f64; 2]) -> Vec<u32> {
         let cx = ((p[0] - self.min[0]) * self.inv_cell[0]) as isize;
         let cy = ((p[1] - self.min[1]) * self.inv_cell[1]) as isize;
-        if cx < 0 || cy < 0 || cx >= self.dims[0] as isize || cy >= self.dims[1] as isize {
+        if cx < 0 || cy < 0 || cx > self.dims[0] as isize || cy > self.dims[1] as isize {
             return Vec::new();
         }
-        let mut out = self.cells[cy as usize * self.dims[0] + cx as usize].clone();
+        // Mirror the build-side clamp: a point exactly on the max domain
+        // boundary (or FP-rounded just past it) maps to the last cell,
+        // where boundary-touching triangles were inserted.
+        let cx = (cx as usize).min(self.dims[0] - 1);
+        let cy = (cy as usize).min(self.dims[1] - 1);
+        let mut out = self.cells[cy * self.dims[0] + cx].clone();
         out.sort_unstable();
         out
     }
@@ -184,6 +194,27 @@ mod tests {
         assert_eq!(hit, vec![0]);
         let far = idx.query([10.5, 10.5]);
         assert_eq!(far, vec![1]);
+    }
+
+    #[test]
+    fn grid_index_query_at_max_domain_boundary() {
+        // Regression: a query exactly on the max domain boundary must hit
+        // triangles whose AABB touches that boundary (build clamps them into
+        // the last cell; query must mirror that clamp).
+        let positions: Vec<[f64; 2]> = vec![
+            [0.0, 0.0],
+            [1.0, 0.0],
+            [0.0, 1.0],
+            [10.0, 10.0],
+            [11.0, 10.0],
+            [10.0, 11.0],
+        ];
+        let triangles: Vec<[u32; 3]> = vec![[0, 1, 2], [3, 4, 5]];
+        let idx = TriGridIndex::build(&positions, &triangles);
+        // [11.0, 11.0] is the domain max corner and the AABB max of tri 1.
+        assert_eq!(idx.query([11.0, 11.0]), vec![1]);
+        // Still out of range well past the domain.
+        assert!(idx.query([20.0, 20.0]).is_empty());
     }
 
     #[test]
