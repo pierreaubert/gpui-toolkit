@@ -71,6 +71,7 @@ pub mod gpu3d;
 pub mod grid;
 pub mod hexbin;
 pub mod legend;
+pub mod mesh;
 pub mod polygon;
 pub mod quadtree;
 pub mod random;

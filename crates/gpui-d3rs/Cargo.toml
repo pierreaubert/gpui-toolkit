@@ -39,6 +39,7 @@ delaunator = { workspace = true }
 math-delaunay = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+thiserror = { workspace = true }
 autoeq = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true }
 ndarray = { workspace = true, optional = true }
