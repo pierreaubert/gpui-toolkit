@@ -579,3 +579,16 @@ def scene3d(
             "selection_action": selection_action,
         },
     )
+
+
+def mesh_plot(
+    plot: Any, *, id: str | None = None, width: float | None = None,
+    height: float | None = None, selection_action: str | None = None,
+) -> Node:
+    """Render a declarative unstructured mesh plot with selection events."""
+    spec = _spec(plot)
+    return Node("mesh_plot", {
+        "id": id or spec.get("id", spec.get("geometry", {}).get("id", "mesh_plot")),
+        "spec": spec, "width": width, "height": height,
+        "selection_action": selection_action,
+    })

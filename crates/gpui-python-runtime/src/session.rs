@@ -4,6 +4,7 @@
 //! newline-delimited JSON control plane used after that snapshot is rendered.
 
 use crate::audio_stream::AudioFrame;
+use crate::mesh_frames::MeshFrame;
 use crate::ui_ir::PythonAppIr;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -27,6 +28,8 @@ pub const DEFAULT_HOST_CAPABILITIES: &[&str] = &[
     "scene3d",
     "state_store",
     "audio_binary_frames",
+    "meshplot",
+    "mesh_binary_frames",
 ];
 
 #[derive(Debug, Clone, PartialEq, Error)]
@@ -47,6 +50,17 @@ pub enum SessionError {
     InvalidJobTransition { from: JobState, to: JobState },
     #[error("unknown job {id:?}")]
     UnknownJob { id: String },
+    #[error(
+        "mesh plot {plot_id:?} generation {received} is stale; current generation is {current} (patch {patch_id:?})"
+    )]
+    StaleMeshGeneration {
+        plot_id: String,
+        received: u64,
+        current: u64,
+        patch_id: Option<String>,
+    },
+    #[error("mesh plot {plot_id:?} has invalid generation 0")]
+    InvalidMeshGeneration { plot_id: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -167,6 +181,49 @@ pub enum PatchOp {
         series_id: String,
         x: Vec<f64>,
         y: Vec<f64>,
+    },
+    ReplaceMeshGeometry {
+        plot_id: String,
+        generation: u64,
+        geometry: Value,
+    },
+    ReplaceMeshField {
+        plot_id: String,
+        generation: u64,
+        field: Value,
+    },
+    SetMeshPlotProp {
+        plot_id: String,
+        generation: u64,
+        property: String,
+        value: Value,
+    },
+    SetMeshPlotSelection {
+        plot_id: String,
+        generation: u64,
+        selection: Value,
+    },
+    ClearMeshPlotSelection {
+        plot_id: String,
+        generation: u64,
+    },
+    SetMeshPlotCamera {
+        plot_id: String,
+        generation: u64,
+        camera: Value,
+    },
+    ResetMeshPlotCamera {
+        plot_id: String,
+        generation: u64,
+    },
+    SetMeshPlotViewport {
+        plot_id: String,
+        generation: u64,
+        viewport: Value,
+    },
+    ResetMeshPlotViewport {
+        plot_id: String,
+        generation: u64,
     },
 }
 
@@ -367,6 +424,9 @@ pub enum PythonMessage {
     /// Header for a raw binary frame. The stdout reader fills `payload` from
     /// the exact byte count immediately following the header line.
     ResourceFrame(AudioFrame),
+    /// Header for a chunked mesh frame. The stdout reader fills the payload
+    /// from the exact byte count immediately following the header line.
+    MeshFrame(MeshFrame),
     DropResource {
         resource_id: String,
         generation: u64,
@@ -400,6 +460,7 @@ pub enum PythonMessage {
 pub struct SessionState {
     revision: u64,
     pub capabilities: Vec<String>,
+    mesh_generations: HashMap<String, u64>,
 }
 
 impl SessionState {
@@ -407,6 +468,7 @@ impl SessionState {
         Self {
             revision: 0,
             capabilities,
+            mesh_generations: HashMap::new(),
         }
     }
     pub fn revision(&self) -> u64 {
@@ -439,8 +501,92 @@ impl SessionState {
                 current: self.revision,
             });
         }
+        let mut generations = HashMap::new();
+        for op in &patch.ops {
+            let (plot_id, generation) = match op {
+                PatchOp::ReplaceMeshGeometry {
+                    plot_id,
+                    generation,
+                    ..
+                }
+                | PatchOp::ReplaceMeshField {
+                    plot_id,
+                    generation,
+                    ..
+                }
+                | PatchOp::SetMeshPlotProp {
+                    plot_id,
+                    generation,
+                    ..
+                }
+                | PatchOp::SetMeshPlotSelection {
+                    plot_id,
+                    generation,
+                    ..
+                }
+                | PatchOp::ClearMeshPlotSelection {
+                    plot_id,
+                    generation,
+                }
+                | PatchOp::SetMeshPlotCamera {
+                    plot_id,
+                    generation,
+                    ..
+                }
+                | PatchOp::ResetMeshPlotCamera {
+                    plot_id,
+                    generation,
+                }
+                | PatchOp::SetMeshPlotViewport {
+                    plot_id,
+                    generation,
+                    ..
+                }
+                | PatchOp::ResetMeshPlotViewport {
+                    plot_id,
+                    generation,
+                } => (plot_id, *generation),
+                _ => continue,
+            };
+            if generation == 0 {
+                return Err(SessionError::InvalidMeshGeneration {
+                    plot_id: plot_id.clone(),
+                });
+            }
+            if let Some(current) = self.mesh_generations.get(plot_id).copied()
+                && generation < current
+            {
+                return Err(SessionError::StaleMeshGeneration {
+                    plot_id: plot_id.clone(),
+                    received: generation,
+                    current,
+                    patch_id: patch.request_id.clone(),
+                });
+            }
+            if let Some(current) = generations.get(plot_id).copied()
+                && generation < current
+            {
+                return Err(SessionError::StaleMeshGeneration {
+                    plot_id: plot_id.clone(),
+                    received: generation,
+                    current,
+                    patch_id: patch.request_id.clone(),
+                });
+            }
+            generations
+                .entry(plot_id.clone())
+                .and_modify(|current| *current = (*current).max(generation))
+                .or_insert(generation);
+        }
         self.revision = patch.revision;
+        self.mesh_generations.extend(generations);
         Ok(())
+    }
+
+    /// Return the newest accepted resource generation for a mesh plot.
+    #[must_use]
+    pub fn mesh_generation(&self, plot_id: &str) -> Option<u64> {
+        self.mesh_generations.get(plot_id).copied()
     }
 }
 
@@ -535,6 +681,76 @@ mod tests {
             serde_json::from_slice::<HostMessage>(&text).unwrap(),
             sample
         );
+    }
+
+    #[test]
+    fn mesh_plot_generations_reject_late_field_updates() {
+        let mut state = SessionState::new(vec!["meshplot".into(), "patches".into()]);
+        state
+            .apply_patch_revision(&Patch {
+                revision: 1,
+                request_id: None,
+                ops: vec![PatchOp::ReplaceMeshField {
+                    plot_id: "plot".into(),
+                    generation: 4,
+                    field: serde_json::json!({"values": [1.0]}),
+                }],
+            })
+            .unwrap();
+        assert_eq!(state.mesh_generation("plot"), Some(4));
+        assert!(matches!(
+            state.apply_patch_revision(&Patch {
+                revision: 2,
+                request_id: None,
+                ops: vec![PatchOp::ReplaceMeshField {
+                    plot_id: "plot".into(),
+                    generation: 3,
+                    field: serde_json::json!({"values": [0.0]}),
+                }],
+            }),
+            Err(SessionError::StaleMeshGeneration { .. })
+        ));
+        assert_eq!(
+            state.revision(),
+            1,
+            "rejected generation must not consume revision"
+        );
+    }
+
+    #[test]
+    fn mesh_plot_generation_can_cover_multiple_same_frame_operations() {
+        let mut state = SessionState::new(vec!["meshplot".into(), "patches".into()]);
+        state
+            .apply_patch_revision(&Patch {
+                revision: 1,
+                request_id: Some("mesh-update".into()),
+                ops: vec![
+                    PatchOp::ReplaceMeshField {
+                        plot_id: "plot".into(),
+                        generation: 2,
+                        field: serde_json::json!({"values": [1.0]}),
+                    },
+                    PatchOp::SetMeshPlotCamera {
+                        plot_id: "plot".into(),
+                        generation: 2,
+                        camera: serde_json::json!({"azimuth": 0.5}),
+                    },
+                ],
+            })
+            .unwrap();
+        assert_eq!(state.mesh_generation("plot"), Some(2));
+        assert!(matches!(
+            state.apply_patch_revision(&Patch {
+                revision: 2,
+                request_id: None,
+                ops: vec![PatchOp::SetMeshPlotViewport {
+                    plot_id: "plot".into(),
+                    generation: 1,
+                    viewport: serde_json::json!({"x": [0.0, 1.0]}),
+                }],
+            }),
+            Err(SessionError::StaleMeshGeneration { .. })
+        ));
     }
 
     #[test]

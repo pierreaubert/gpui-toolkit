@@ -136,6 +136,17 @@ pub const BUILTIN_RENDERER_STORY_IDS: &[&str] = &[
     "px.boxplot",
     "px.treemap",
     "px.surface3d",
+    "px.mesh_plot",
+    "px.mesh_plot.mesh_only",
+    "px.mesh_plot.smooth_fill",
+    "px.mesh_plot.flat_fill",
+    "px.mesh_plot.filled_contours",
+    "px.mesh_plot.isolines",
+    "px.mesh_plot.combined",
+    "px.mesh_plot.axisymmetric_section",
+    "px.mesh_plot.revolve",
+    "px.mesh_plot.surface3d",
+    "px.mesh_plot.picking",
 ];
 
 pub const UI_KIT_EXPORTED_COMPONENT_STORY_IDS: &[&str] = &[
@@ -299,6 +310,38 @@ pub const PX_CHART_STORY_IDS: &[&str] = &[
     "px.boxplot",
     "px.treemap",
     "px.surface3d",
+    "px.mesh_plot",
+];
+
+/// Component-lab mesh stories. The base story is the editable mode matrix;
+/// the named variants keep the release captures deterministic and make each
+/// required MeshPlot view directly addressable from the lab.
+pub const MESH_PLOT_STORY_IDS: &[&str] = &[
+    "px.mesh_plot",
+    "px.mesh_plot.mesh_only",
+    "px.mesh_plot.smooth_fill",
+    "px.mesh_plot.flat_fill",
+    "px.mesh_plot.filled_contours",
+    "px.mesh_plot.isolines",
+    "px.mesh_plot.combined",
+    "px.mesh_plot.axisymmetric_section",
+    "px.mesh_plot.revolve",
+    "px.mesh_plot.surface3d",
+    "px.mesh_plot.picking",
+];
+
+/// Mesh story variants kept out of the public `gpui-px` builder list.
+pub const MESH_PLOT_STORY_VARIANT_IDS: &[&str] = &[
+    "px.mesh_plot.mesh_only",
+    "px.mesh_plot.smooth_fill",
+    "px.mesh_plot.flat_fill",
+    "px.mesh_plot.filled_contours",
+    "px.mesh_plot.isolines",
+    "px.mesh_plot.combined",
+    "px.mesh_plot.axisymmetric_section",
+    "px.mesh_plot.revolve",
+    "px.mesh_plot.surface3d",
+    "px.mesh_plot.picking",
 ];
 
 pub const PX_CHART_STORY_TYPES: &[(&str, &str)] = &[
@@ -314,6 +357,7 @@ pub const PX_CHART_STORY_TYPES: &[(&str, &str)] = &[
     ("BoxPlotChart", "px.boxplot"),
     ("Treemap", "px.treemap"),
     ("Surface3DChart", "px.surface3d"),
+    ("MeshPlot", "px.mesh_plot"),
 ];
 
 pub(super) fn ui_kit_showcase_story_id(story_id: &str) -> bool {

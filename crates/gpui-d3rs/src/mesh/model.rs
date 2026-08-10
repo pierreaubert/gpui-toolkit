@@ -59,10 +59,7 @@ pub enum MeshValidationError {
     #[error("vertex_ids length {ids} != positions length {positions}")]
     VertexIdLengthMismatch { ids: usize, positions: usize },
     #[error("cell_ids length {ids} != triangles length {triangles}")]
-    CellIdLengthMismatch {
-        ids: usize,
-        triangles: usize,
-    },
+    CellIdLengthMismatch { ids: usize, triangles: usize },
     #[error("field '{field_id}' has {values} values, expected {expected} for {association:?}")]
     FieldLengthMismatch {
         field_id: String,
@@ -142,7 +139,7 @@ impl TriangleMesh {
     }
 }
 
-/// Twice the signed area via cross-product magnitude, dimensionless guard.
+/// Squared cross-product magnitude, used as a dimensionless degeneracy guard.
 const ZERO_AREA_EPS: f64 = 1e-30;
 
 fn triangle_area2(a: [f64; 3], b: [f64; 3], c: [f64; 3]) -> f64 {
@@ -286,6 +283,38 @@ mod tests {
     }
 
     #[test]
+    fn vertex_id_length_must_match_positions() {
+        let mut m = mesh(
+            &[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+            &[[0, 1, 2]],
+        );
+        m.vertex_ids = Some(vec![10, 11].into());
+        assert_eq!(
+            m.validate(),
+            Err(MeshValidationError::VertexIdLengthMismatch {
+                ids: 2,
+                positions: 3,
+            })
+        );
+    }
+
+    #[test]
+    fn cell_id_length_must_match_triangles() {
+        let mut m = mesh(
+            &[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+            &[[0, 1, 2]],
+        );
+        m.cell_ids = Some(vec![100, 101].into());
+        assert_eq!(
+            m.validate(),
+            Err(MeshValidationError::CellIdLengthMismatch {
+                ids: 2,
+                triangles: 1,
+            })
+        );
+    }
+
+    #[test]
     fn vertex_field_length_must_match_positions() {
         let m = mesh(
             &[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
@@ -325,6 +354,26 @@ mod tests {
             valid: None,
         };
         assert!(f.validate(&m).is_ok());
+    }
+
+    #[test]
+    fn validity_mask_length_must_match_values() {
+        let m = mesh(
+            &[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+            &[[0, 1, 2]],
+        );
+        let f = ScalarField {
+            id: "f".into(),
+            label: "f".into(),
+            unit: None,
+            values: vec![1.0, 2.0, 3.0].into(),
+            association: ScalarAssociation::Vertex,
+            valid: Some(vec![true, false].into()),
+        };
+        assert_eq!(
+            f.validate(&m),
+            Err(MeshValidationError::MaskLengthMismatch { mask: 2, values: 3 })
+        );
     }
 
     #[test]

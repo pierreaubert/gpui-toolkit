@@ -215,7 +215,9 @@ fn with_node_mut(
     let mut outcome = None;
     let found = for_each_section_content_mut(value, |content| {
         if let Some(node) = find_node_mut(content, id) {
-            outcome = Some(f.take().expect("single callback")(node));
+            if let Some(callback) = f.take() {
+                outcome = Some(callback(node));
+            }
             true
         } else {
             false
@@ -224,7 +226,9 @@ fn with_node_mut(
     if !found {
         return Err(UiIrError::UnknownNodeId { id: id.into() });
     }
-    outcome.expect("found callback runs")
+    outcome.ok_or_else(|| UiIrError::InvalidPatch {
+        message: format!("node {id:?} was matched more than once"),
+    })?
 }
 
 fn apply_patch_op(tree: &mut Value, op: &crate::session::PatchOp) -> Result<(), UiIrError> {
@@ -399,7 +403,124 @@ fn apply_patch_op(tree: &mut Value, op: &crate::session::PatchOp) -> Result<(), 
                 Ok(())
             })
         }
+        PatchOp::ReplaceMeshGeometry {
+            plot_id, geometry, ..
+        } => with_node_mut(tree, plot_id, |node| {
+            if node.get("kind").and_then(Value::as_str) != Some("mesh_plot") {
+                return Err(UiIrError::InvalidPatch {
+                    message: format!("node {plot_id:?} is not a mesh_plot"),
+                });
+            }
+            node.get_mut("spec")
+                .and_then(Value::as_object_mut)
+                .ok_or_else(|| UiIrError::InvalidPatch {
+                    message: "mesh_plot spec is not an object".into(),
+                })?
+                .insert("geometry".into(), geometry.clone());
+            Ok(())
+        }),
+        PatchOp::ReplaceMeshField { plot_id, field, .. } => with_node_mut(tree, plot_id, |node| {
+            if node.get("kind").and_then(Value::as_str) != Some("mesh_plot") {
+                return Err(UiIrError::InvalidPatch {
+                    message: format!("node {plot_id:?} is not a mesh_plot"),
+                });
+            }
+            node.get_mut("spec")
+                .and_then(Value::as_object_mut)
+                .ok_or_else(|| UiIrError::InvalidPatch {
+                    message: "mesh_plot spec is not an object".into(),
+                })?
+                .insert("field".into(), field.clone());
+            Ok(())
+        }),
+        PatchOp::SetMeshPlotProp {
+            plot_id,
+            property,
+            value,
+            ..
+        } => with_node_mut(tree, plot_id, |node| {
+            if node.get("kind").and_then(Value::as_str) != Some("mesh_plot") {
+                return Err(UiIrError::InvalidPatch {
+                    message: format!("node {plot_id:?} is not a mesh_plot"),
+                });
+            }
+            let spec = node
+                .get_mut("spec")
+                .and_then(Value::as_object_mut)
+                .ok_or_else(|| UiIrError::InvalidPatch {
+                    message: "mesh_plot spec is not an object".into(),
+                })?;
+            if !matches!(
+                property.as_str(),
+                "view"
+                    | "mode"
+                    | "color_scale"
+                    | "color_range"
+                    | "wireframe"
+                    | "title"
+                    | "width"
+                    | "height"
+                    | "selection"
+                    | "camera"
+                    | "viewport"
+                    | "contour_levels"
+                    | "equal_aspect"
+                    | "interactions"
+            ) {
+                return Err(UiIrError::InvalidPatch {
+                    message: format!("unknown mesh_plot property {property:?}"),
+                });
+            }
+            spec.insert(property.clone(), value.clone());
+            Ok(())
+        }),
+        PatchOp::SetMeshPlotSelection {
+            plot_id, selection, ..
+        } => with_node_mut(tree, plot_id, |node| {
+            mesh_plot_spec_object(node, plot_id)?.insert("selection".into(), selection.clone());
+            Ok(())
+        }),
+        PatchOp::ClearMeshPlotSelection { plot_id, .. } => with_node_mut(tree, plot_id, |node| {
+            mesh_plot_spec_object(node, plot_id)?.remove("selection");
+            Ok(())
+        }),
+        PatchOp::SetMeshPlotCamera {
+            plot_id, camera, ..
+        } => with_node_mut(tree, plot_id, |node| {
+            mesh_plot_spec_object(node, plot_id)?.insert("camera".into(), camera.clone());
+            Ok(())
+        }),
+        PatchOp::ResetMeshPlotCamera { plot_id, .. } => with_node_mut(tree, plot_id, |node| {
+            mesh_plot_spec_object(node, plot_id)?.remove("camera");
+            Ok(())
+        }),
+        PatchOp::SetMeshPlotViewport {
+            plot_id, viewport, ..
+        } => with_node_mut(tree, plot_id, |node| {
+            mesh_plot_spec_object(node, plot_id)?.insert("viewport".into(), viewport.clone());
+            Ok(())
+        }),
+        PatchOp::ResetMeshPlotViewport { plot_id, .. } => with_node_mut(tree, plot_id, |node| {
+            mesh_plot_spec_object(node, plot_id)?.remove("viewport");
+            Ok(())
+        }),
     }
+}
+
+fn mesh_plot_spec_object<'a>(
+    node: &'a mut Value,
+    plot_id: &str,
+) -> Result<&'a mut serde_json::Map<String, Value>, UiIrError> {
+    if node.get("kind").and_then(Value::as_str) != Some("mesh_plot") {
+        return Err(UiIrError::InvalidPatch {
+            message: format!("node {plot_id:?} is not a mesh_plot"),
+        });
+    }
+    node.get_mut("spec")
+        .and_then(Value::as_object_mut)
+        .ok_or_else(|| UiIrError::InvalidPatch {
+            message: "mesh_plot spec is not an object".into(),
+        })
 }
 
 fn remove_child(value: &mut Value, id: &str) -> bool {
@@ -486,6 +607,7 @@ pub enum UiNode {
     Spacer(SimpleNode),
     Chart(ChartNode),
     Scene3d(Scene3dNode),
+    MeshPlot(MeshPlotNode),
 }
 
 impl UiNode {
@@ -522,6 +644,7 @@ impl UiNode {
             Self::Stepper(node) => node.validate(),
             Self::Chart(node) => node.validate(),
             Self::Scene3d(node) => node.validate(),
+            Self::MeshPlot(node) => node.validate(),
             Self::TextInput(node) => node.validate(),
             Self::NumberInput(node) => node.validate(),
             Self::Slider(node) => node.validate(),
@@ -640,6 +763,7 @@ impl FormNode {
 
 fn child_contains_id(node: &UiNode, target: &str) -> bool {
     match node {
+        UiNode::MeshPlot(_) => false,
         UiNode::Vstack(stack) | UiNode::Hstack(stack) | UiNode::Wrap(stack) => stack
             .children
             .iter()
@@ -2643,6 +2767,34 @@ pub struct Scene3dNode {
     pub height: Option<f32>,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MeshPlotNode {
+    pub id: String,
+    pub spec: Value,
+    #[serde(default)]
+    pub selection_action: Option<String>,
+    pub width: Option<f32>,
+    pub height: Option<f32>,
+}
+
+impl MeshPlotNode {
+    fn validate(&self) -> Result<(), UiIrError> {
+        if self.id.trim().is_empty() {
+            return Err(UiIrError::InvalidPatch {
+                message: "mesh_plot requires a stable id".into(),
+            });
+        }
+        if self.selection_action.as_deref().is_some_and(str::is_empty) {
+            return Err(UiIrError::InvalidPatch {
+                message: "mesh_plot selection action is empty".into(),
+            });
+        }
+        crate::meshplot::MeshPlotSpec::from_value(self.spec.clone())
+            .map_err(|message| UiIrError::InvalidPatch { message })?;
+        Ok(())
+    }
+}
+
 impl Scene3dNode {
     fn validate(&self) -> Result<(), UiIrError> {
         if self.id.trim().is_empty() {
@@ -3524,6 +3676,73 @@ mod tests {
             Err(UiIrError::ChartLengthMismatch { .. })
         ));
         assert_eq!(app, before);
+    }
+
+    #[test]
+    fn mesh_plot_selection_camera_and_viewport_patches_are_transactional() {
+        let mut app: PythonAppIr = serde_json::from_value(serde_json::json!({
+            "title": "Mesh",
+            "sections": [{"id": "main", "label": "Main", "content": {
+                "kind": "mesh_plot", "id": "plot", "spec": {
+                    "schema_version": 1, "id": "plot",
+                    "geometry": {
+                        "id": "mesh",
+                        "positions": [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+                        "triangles": [[0, 1, 2]]
+                    },
+                    "field": {"values": [0.0, 0.5, 1.0], "association": "vertex"},
+                    "mode": "scalar_fill"
+                }
+            }}]
+        }))
+        .unwrap();
+        app.validate().unwrap();
+        app.apply_patch_ops(&[
+            crate::session::PatchOp::SetMeshPlotSelection {
+                plot_id: "plot".into(),
+                generation: 1,
+                selection: serde_json::json!({"cell_index": 0}),
+            },
+            crate::session::PatchOp::SetMeshPlotCamera {
+                plot_id: "plot".into(),
+                generation: 1,
+                camera: serde_json::json!({"azimuth": 0.5}),
+            },
+            crate::session::PatchOp::SetMeshPlotViewport {
+                plot_id: "plot".into(),
+                generation: 1,
+                viewport: serde_json::json!({"x": [0.0, 1.0], "y": [0.0, 1.0]}),
+            },
+        ])
+        .unwrap();
+        let value = serde_json::to_value(&app).unwrap();
+        assert_eq!(
+            value["sections"][0]["content"]["spec"]["selection"]["cell_index"],
+            0
+        );
+        assert_eq!(
+            value["sections"][0]["content"]["spec"]["camera"]["azimuth"],
+            0.5
+        );
+        app.apply_patch_ops(&[
+            crate::session::PatchOp::ClearMeshPlotSelection {
+                plot_id: "plot".into(),
+                generation: 2,
+            },
+            crate::session::PatchOp::ResetMeshPlotCamera {
+                plot_id: "plot".into(),
+                generation: 2,
+            },
+            crate::session::PatchOp::ResetMeshPlotViewport {
+                plot_id: "plot".into(),
+                generation: 2,
+            },
+        ])
+        .unwrap();
+        let value = serde_json::to_value(&app).unwrap();
+        assert!(value["sections"][0]["content"]["spec"]["selection"].is_null());
+        assert!(value["sections"][0]["content"]["spec"]["camera"].is_null());
+        assert!(value["sections"][0]["content"]["spec"]["viewport"].is_null());
     }
 
     #[test]

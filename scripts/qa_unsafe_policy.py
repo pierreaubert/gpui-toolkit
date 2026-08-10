@@ -21,6 +21,14 @@ FFI_BOUNDARY_DIRS = (
     "crates/gpui-showcase/tvos/",
 )
 
+# The retained Metal mesh backend writes shared Metal buffers through native
+# pointers returned by `MTLBuffer::contents()`. This file is the explicit
+# native-renderer boundary for that access, even though the rest of gpui-d3rs
+# remains safe Rust.
+FFI_BOUNDARY_FILES = {
+    "crates/gpui-d3rs/src/mesh/gpu/metal_backend.rs",
+}
+
 # This safe crate contains FFI attributes only as generated Rust source text.
 # Its crate root also uses `forbid(unsafe_code)`, so executable scaffolder code
 # cannot use this text-level exemption.
@@ -43,6 +51,7 @@ UNSAFE_CONSTRUCT = re.compile(
 def _is_allowed(relative_path: str) -> bool:
     return (
         relative_path in GENERATED_FFI_TEMPLATE_FILES
+        or relative_path in FFI_BOUNDARY_FILES
         or relative_path.startswith(FFI_BOUNDARY_DIRS)
         or relative_path.startswith(VENDORED_DIRS)
     )

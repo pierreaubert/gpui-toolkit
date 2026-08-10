@@ -185,6 +185,11 @@ pub use isoline::{IsolineChart, isoline};
 #[cfg(feature = "gpui")]
 pub use line::{ChartTheme, LegendClickCallback, LegendPosition, LineChart, line};
 #[cfg(feature = "gpui")]
+pub use mesh_plot::{
+    Axes2d, FieldInterpolation, MeshPlot, MeshPlotPick, MeshPlotState, MeshPlotView,
+    MeshRenderMode, PlotInteractions, Wireframe, mesh_plot,
+};
+#[cfg(feature = "gpui")]
 pub use pie::{PieChart, donut, pie};
 #[cfg(feature = "gpui")]
 pub use scatter::{ScatterChart, ScatterTheme, scatter};
@@ -212,6 +217,8 @@ pub mod interaction;
 mod isoline;
 #[cfg(feature = "gpui")]
 mod line;
+#[cfg(feature = "gpui")]
+pub mod mesh_plot;
 #[cfg(feature = "gpui")]
 mod pie;
 #[cfg(feature = "gpui")]

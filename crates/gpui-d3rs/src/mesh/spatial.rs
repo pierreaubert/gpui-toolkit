@@ -141,7 +141,12 @@ impl TriGridIndex {
                 }
             }
         }
-        Self { min, inv_cell, dims, cells }
+        Self {
+            min,
+            inv_cell,
+            dims,
+            cells,
+        }
     }
 
     /// Candidate triangles under `p`, sorted for determinism.
@@ -177,7 +182,11 @@ mod tests {
     #[test]
     fn barycentric_inside_triangle() {
         let w = barycentric_2d([0.25, 0.25], [0.0, 0.0], [1.0, 0.0], [0.0, 1.0]).unwrap();
-        assert!((w[0] - 0.5).abs() < 1e-12 && (w[1] - 0.25).abs() < 1e-12 && (w[2] - 0.25).abs() < 1e-12);
+        assert!(
+            (w[0] - 0.5).abs() < 1e-12
+                && (w[1] - 0.25).abs() < 1e-12
+                && (w[2] - 0.25).abs() < 1e-12
+        );
     }
 
     #[test]
@@ -187,7 +196,14 @@ mod tests {
 
     #[test]
     fn grid_index_finds_known_triangle() {
-        let positions: Vec<[f64; 2]> = vec![[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [10.0, 10.0], [11.0, 10.0], [10.0, 11.0]];
+        let positions: Vec<[f64; 2]> = vec![
+            [0.0, 0.0],
+            [1.0, 0.0],
+            [0.0, 1.0],
+            [10.0, 10.0],
+            [11.0, 10.0],
+            [10.0, 11.0],
+        ];
         let triangles: Vec<[u32; 3]> = vec![[0, 1, 2], [3, 4, 5]];
         let idx = TriGridIndex::build(&positions, &triangles);
         let hit = idx.query([0.2, 0.2]);
@@ -220,7 +236,13 @@ mod tests {
     #[test]
     fn projection_picks_axes() {
         let p = [1.0, 2.0, 3.0];
-        assert_eq!(project_2d(CoordinateAxis::X, CoordinateAxis::Y, p), [1.0, 2.0]);
-        assert_eq!(project_2d(CoordinateAxis::Z, CoordinateAxis::X, p), [3.0, 1.0]);
+        assert_eq!(
+            project_2d(CoordinateAxis::X, CoordinateAxis::Y, p),
+            [1.0, 2.0]
+        );
+        assert_eq!(
+            project_2d(CoordinateAxis::Z, CoordinateAxis::X, p),
+            [3.0, 1.0]
+        );
     }
 }

@@ -7,6 +7,9 @@ use super::misc::scale_type;
 use super::misc::tone_color;
 use super::types::StackDirection;
 use d3rs::gpu3d::{Lines3DElement, Lines3DState, Surface3DElement, Surface3DState};
+use d3rs::mesh::{
+    ContourLevels, CoordinateAxis, ScalarAssociation, ScalarField, TriangleMesh, project_2d,
+};
 use gpui::prelude::*;
 use gpui::*;
 use gpui_audio_kit::{
@@ -14,11 +17,19 @@ use gpui_audio_kit::{
 };
 use gpui_design::{DesignExt, DesignSystem};
 use gpui_px::interaction::{InteractiveChartState, interactive};
-use gpui_px::{area, bar, boxplot, contour, donut, heatmap, isoline, line, pie, scatter, treemap};
+use gpui_px::{
+    Axes2d, ColorRange, ColorScale, Colorbar, FieldInterpolation, MeshPlotPick, MeshPlotState,
+    MeshPlotView, MeshRenderMode, PlotInteractions, Wireframe, area, bar, boxplot, contour, donut,
+    heatmap, isoline, line, mesh_plot, pie, scatter, treemap,
+};
 use gpui_python_runtime::audio_stream::{AudioFrameKind, AudioFrameStore};
-use gpui_python_runtime::gpui_adapter::Gpui3DCache;
+use gpui_python_runtime::gpui_adapter::{Gpui3DCache, GpuiMeshPlotCache};
+use gpui_python_runtime::mesh_frames::{
+    MeshDtype, MeshFrame, MeshFrameKind, MeshFrameOutcome, MeshFrameStore, RetainedMeshResource,
+};
+use gpui_python_runtime::meshplot::{MeshPlotResourceError, MeshPlotSpec};
 use gpui_python_runtime::session::{
-    HostMessage, JobLogLine, JobRegistry, JobState, JobUpdate, LogSeverity, PythonMessage,
+    HostMessage, JobLogLine, JobRegistry, JobState, JobUpdate, LogSeverity, PatchOp, PythonMessage,
     SessionState,
 };
 use gpui_python_runtime::spec_cache::TypedSpecCache;
@@ -26,7 +37,7 @@ use gpui_python_runtime::ui_ir::{
     AccordionNode, AlertNode, AudioControlNode, AudioMeterNode, AudioSpectrumNode, BadgeNode,
     BooleanInputNode, BreadcrumbsNode, ButtonNode, CardNode, ChartKind, ChartNode,
     ChartTreemapNode, ColorPickerNode, ConfirmDialogNode, ContextMenuNode, DialogNode,
-    EmptyStateNode, FormNode, ListEditorNode, MenuBarNode, MenuItemNode, MenuNode,
+    EmptyStateNode, FormNode, ListEditorNode, MenuBarNode, MenuItemNode, MenuNode, MeshPlotNode,
     MiniAppShellConfig, NumberInputNode, PathInputNode, PopoverNode, ProgressNode, PythonAppIr,
     Scene3dNode, SectionHeaderNode, SelectNode, SimpleNode, SliderNode, SpinnerNode, StackNode,
     StepperNode, TableNode, TabsNode, TextInputNode, TextNode, ToastNode, TooltipNode, UiNode,
@@ -52,6 +63,8 @@ use serde::Deserialize;
 use serde_json::Value;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
+use std::env;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::{
@@ -74,6 +87,1341 @@ fn table_cell_text(value: &Value) -> String {
         Value::Bool(value) => value.to_string(),
         Value::Number(value) => value.to_string(),
         value => value.to_string(),
+    }
+}
+
+fn write_qa_json_artifact(variable: &str, value: &Value) {
+    let Some(destination) = env::var_os(variable).map(PathBuf::from) else {
+        return;
+    };
+    if let Some(parent) = destination.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    let _ = fs::write(
+        destination,
+        serde_json::to_vec_pretty(value).unwrap_or_else(|_| b"{}\n".to_vec()),
+    );
+}
+
+fn mesh_selection_payload(pick: &MeshPlotPick) -> Value {
+    serde_json::json!({
+        "plot_id": pick.plot_id,
+        "mesh_id": pick.mesh_id,
+        "cell_index": pick.cell_index,
+        "cell_id": pick.cell_id,
+        "nearest_vertex_index": pick.nearest_vertex_index,
+        "vertex_id": pick.vertex_id,
+        "world_position": pick.world_position,
+        "displayed_value": pick.displayed_value,
+        "field_id": pick.field_id,
+    })
+}
+
+fn mesh_selection_event_payload(selection: Option<&MeshPlotPick>) -> Value {
+    selection.map(mesh_selection_payload).unwrap_or(Value::Null)
+}
+
+struct NativeMeshPlotOptions {
+    mode: MeshRenderMode,
+    color_scale: ColorScale,
+    color_range: ColorRange,
+    axes: Axes2d,
+    interactions: PlotInteractions,
+    viewport: Option<[f64; 4]>,
+    selection: Option<MeshPlotPick>,
+}
+
+fn finite_json_pair(value: &Value, name: &str) -> Result<[f64; 2], String> {
+    let values = value
+        .as_array()
+        .ok_or_else(|| format!("mesh_plot {name} must be an array of two numbers"))?;
+    if values.len() != 2 {
+        return Err(format!("mesh_plot {name} must contain exactly two values"));
+    }
+    let min = values[0]
+        .as_f64()
+        .ok_or_else(|| format!("mesh_plot {name} values must be numbers"))?;
+    let max = values[1]
+        .as_f64()
+        .ok_or_else(|| format!("mesh_plot {name} values must be numbers"))?;
+    if !min.is_finite() || !max.is_finite() || min >= max {
+        return Err(format!(
+            "mesh_plot {name} values must be finite and increasing"
+        ));
+    }
+    Ok([min, max])
+}
+
+fn native_mesh_plot_color_range(value: &Value) -> Result<ColorRange, String> {
+    match value {
+        Value::String(value) if value == "auto" => Ok(ColorRange::Auto),
+        Value::Array(_) => {
+            let [min, max] = finite_json_pair(value, "color_range")?;
+            Ok(ColorRange::Fixed { min, max })
+        }
+        _ => Err("mesh_plot color_range must be 'auto' or [min, max]".into()),
+    }
+}
+
+fn native_mesh_plot_contour_levels(value: Option<&Value>) -> Result<ContourLevels, String> {
+    let Some(value) = value.filter(|value| !value.is_null()) else {
+        return Ok(ContourLevels::Count(8));
+    };
+    let object = value
+        .as_object()
+        .ok_or("mesh_plot contour_levels must be an object")?;
+    if let Some(count) = object.get("count") {
+        let count = count
+            .as_u64()
+            .and_then(|count| u32::try_from(count).ok())
+            .filter(|count| *count > 0)
+            .ok_or("mesh_plot contour_levels.count must be a positive integer")?;
+        return Ok(ContourLevels::Count(count));
+    }
+    let values = object
+        .get("values")
+        .and_then(Value::as_array)
+        .ok_or("mesh_plot contour_levels requires count or values")?;
+    let values = values
+        .iter()
+        .map(|value| {
+            value
+                .as_f64()
+                .filter(|value| value.is_finite())
+                .ok_or("mesh_plot contour level must be finite")
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    if values.len() < 2 || values.windows(2).any(|pair| pair[1] <= pair[0]) {
+        return Err("mesh_plot contour_levels.values must contain increasing finite values".into());
+    }
+    Ok(ContourLevels::Explicit(Arc::from(values)))
+}
+
+fn native_mesh_plot_viewport(value: Option<&Value>) -> Result<Option<[f64; 4]>, String> {
+    let Some(value) = value.filter(|value| !value.is_null()) else {
+        return Ok(None);
+    };
+    let object = value
+        .as_object()
+        .ok_or("mesh_plot viewport must be an object")?;
+    let [x_min, x_max] = finite_json_pair(
+        object
+            .get("x")
+            .ok_or("mesh_plot viewport requires an x range")?,
+        "viewport.x",
+    )?;
+    let [y_min, y_max] = finite_json_pair(
+        object
+            .get("y")
+            .ok_or("mesh_plot viewport requires a y range")?,
+        "viewport.y",
+    )?;
+    Ok(Some([x_min, x_max, y_min, y_max]))
+}
+
+fn native_mesh_plot_selection(
+    value: Option<&Value>,
+    plot_id: &str,
+    mesh_id: &str,
+) -> Result<Option<MeshPlotPick>, String> {
+    let Some(value) = value.filter(|value| !value.is_null()) else {
+        return Ok(None);
+    };
+    let object = value
+        .as_object()
+        .ok_or("mesh_plot selection must be an object or null")?;
+    let cell_index = object
+        .get("cell_index")
+        .and_then(Value::as_u64)
+        .and_then(|value| u32::try_from(value).ok())
+        .ok_or("mesh_plot selection requires a u32 cell_index")?;
+    let world_position = match object.get("world_position") {
+        None => [0.0; 3],
+        Some(value) => {
+            let values = value
+                .as_array()
+                .ok_or("mesh_plot selection world_position must be an array")?;
+            if values.len() != 3 {
+                return Err("mesh_plot selection world_position must contain three values".into());
+            }
+            let values = values
+                .iter()
+                .map(|value| {
+                    value
+                        .as_f64()
+                        .filter(|value| value.is_finite())
+                        .ok_or("mesh_plot selection world_position must be finite")
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            [values[0], values[1], values[2]]
+        }
+    };
+    let optional_u32 = |name: &str| -> Result<Option<u32>, String> {
+        object
+            .get(name)
+            .filter(|value| !value.is_null())
+            .map(|value| {
+                value
+                    .as_u64()
+                    .and_then(|value| u32::try_from(value).ok())
+                    .ok_or_else(|| format!("mesh_plot selection {name} must be a u32"))
+            })
+            .transpose()
+    };
+    let optional_u64 = |name: &str| -> Result<Option<u64>, String> {
+        object
+            .get(name)
+            .filter(|value| !value.is_null())
+            .map(|value| {
+                value
+                    .as_u64()
+                    .ok_or_else(|| format!("mesh_plot selection {name} must be a u64"))
+            })
+            .transpose()
+    };
+    let displayed_value = object
+        .get("displayed_value")
+        .filter(|value| !value.is_null())
+        .map(|value| {
+            value
+                .as_f64()
+                .filter(|value| value.is_finite())
+                .ok_or("mesh_plot selection displayed_value must be finite")
+        })
+        .transpose()?;
+    let field_id = object
+        .get("field_id")
+        .filter(|value| !value.is_null())
+        .map(|value| {
+            value
+                .as_str()
+                .filter(|value| !value.trim().is_empty())
+                .map(Arc::from)
+                .ok_or("mesh_plot selection field_id must be a non-empty string")
+        })
+        .transpose()?;
+    Ok(Some(MeshPlotPick {
+        plot_id: Arc::from(plot_id),
+        mesh_id: Arc::from(mesh_id),
+        cell_index,
+        cell_id: optional_u64("cell_id")?,
+        nearest_vertex_index: optional_u32("nearest_vertex_index")?,
+        vertex_id: optional_u64("vertex_id")?,
+        world_position,
+        displayed_value,
+        field_id,
+    }))
+}
+
+fn native_mesh_plot_options(
+    spec: &MeshPlotSpec,
+    mesh_id: &str,
+) -> Result<NativeMeshPlotOptions, String> {
+    let levels = native_mesh_plot_contour_levels(spec.contour_levels.as_ref())?;
+    let mode = match spec.mode.as_str() {
+        "scalar_fill" => MeshRenderMode::ScalarFill {
+            interpolation: FieldInterpolation::Smooth,
+        },
+        "filled_contours" => MeshRenderMode::FilledContours { levels },
+        "isolines" => MeshRenderMode::Isolines { levels },
+        "fill_and_isolines" => MeshRenderMode::FillAndIsolines { levels },
+        "mesh" => MeshRenderMode::Mesh,
+        mode => return Err(format!("unsupported mesh_plot mode {mode:?}")),
+    };
+    let color_scale = match spec.color_scale.as_str() {
+        "viridis" => ColorScale::Viridis,
+        "plasma" => ColorScale::Plasma,
+        "inferno" => ColorScale::Inferno,
+        "magma" => ColorScale::Magma,
+        "heat" => ColorScale::Heat,
+        "coolwarm" | "cool_warm" => ColorScale::Coolwarm,
+        "greys" => ColorScale::Greys,
+        "cividis" | "turbo" => {
+            return Err(format!(
+                "mesh_plot color scale {:?} is not available in the native renderer",
+                spec.color_scale
+            ));
+        }
+        scale => return Err(format!("unsupported mesh_plot color scale {scale:?}")),
+    };
+    Ok(NativeMeshPlotOptions {
+        mode,
+        color_scale,
+        color_range: native_mesh_plot_color_range(&spec.color_range)?,
+        axes: if spec.equal_aspect {
+            Axes2d::equal_aspect()
+        } else {
+            Axes2d::default().fill_aspect()
+        },
+        interactions: PlotInteractions::InspectAndNavigate,
+        viewport: native_mesh_plot_viewport(spec.viewport.as_ref())?,
+        selection: native_mesh_plot_selection(spec.selection.as_ref(), &spec.id, mesh_id)?,
+    })
+}
+
+#[cfg(feature = "gpu-3d")]
+fn apply_mesh_plot_camera(state: &mut MeshPlotState, value: Option<&Value>) -> Result<(), String> {
+    let Some(value) = value.filter(|value| !value.is_null()) else {
+        return Ok(());
+    };
+    let object = value
+        .as_object()
+        .ok_or("mesh_plot camera must be an object or null")?;
+    let finite_f32 = |name: &str| -> Result<Option<f32>, String> {
+        object
+            .get(name)
+            .filter(|value| !value.is_null())
+            .map(|value| {
+                let value = value
+                    .as_f64()
+                    .filter(|value| value.is_finite())
+                    .ok_or_else(|| format!("mesh_plot camera {name} must be finite"))?;
+                if !(value as f32).is_finite() {
+                    return Err(format!("mesh_plot camera {name} is outside f32 range"));
+                }
+                Ok(value as f32)
+            })
+            .transpose()
+    };
+    if let Some(value) = finite_f32("distance")? {
+        state.orbit.distance = value.clamp(state.orbit.min_distance, state.orbit.max_distance);
+    }
+    if let Some(value) = finite_f32("azimuth")? {
+        state.orbit.azimuth = value;
+    }
+    if let Some(value) = finite_f32("elevation")? {
+        state.orbit.elevation = value.clamp(state.orbit.min_elevation, state.orbit.max_elevation);
+    }
+    if let Some(value) = object.get("target") {
+        let values = value
+            .as_array()
+            .ok_or("mesh_plot camera target must be an array")?;
+        if values.len() != 3 {
+            return Err("mesh_plot camera target must contain three values".into());
+        }
+        let values = values
+            .iter()
+            .map(|value| {
+                value
+                    .as_f64()
+                    .filter(|value| value.is_finite())
+                    .map(|value| value as f32)
+                    .filter(|value| value.is_finite())
+                    .ok_or("mesh_plot camera target must contain finite values")
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        state.orbit.target = glam::Vec3::new(values[0], values[1], values[2]);
+    }
+    state.orbit.update_camera(&mut state.camera);
+    Ok(())
+}
+
+#[cfg(all(test, target_os = "macos", feature = "native-qa"))]
+mod native_mesh_plot_tests {
+    use super::{PythonIrShowcase, mesh_selection_event_payload};
+    use gpui::{
+        AnyWindowHandle, AppContext, Context, HeadlessAppContext, InputEvent, InteractiveElement,
+        Modifiers, MouseButton, MouseDownEvent, MouseUpEvent, ParentElement, Platform, Render,
+        Styled, Window, div, point, px, size,
+    };
+    use gpui_macos::{MacPlatform, metal_renderer::MetalHeadlessRenderer};
+    use gpui_px::{MeshPlotPick, MeshPlotState};
+    use gpui_python_runtime::mesh_frames::{MeshDtype, MeshFrame, MeshFrameKind, MeshFrameStore};
+    use gpui_python_runtime::meshplot::MeshPlotSpec;
+    use serde_json::Value;
+    use std::cell::RefCell;
+    use std::rc::Rc;
+    use std::sync::Arc;
+
+    struct NativeResourceMeshPlotView {
+        spec: MeshPlotSpec,
+        frames: Rc<RefCell<MeshFrameStore>>,
+        state: Rc<RefCell<MeshPlotState>>,
+        selection: Rc<RefCell<Option<MeshPlotPick>>>,
+        payload: Rc<RefCell<Value>>,
+        nested: bool,
+    }
+
+    impl Render for NativeResourceMeshPlotView {
+        fn render(
+            &mut self,
+            _window: &mut Window,
+            _cx: &mut Context<Self>,
+        ) -> impl gpui::IntoElement {
+            let selection = self.selection.clone();
+            let payload = self.payload.clone();
+            let callback: Rc<dyn Fn(Option<MeshPlotPick>)> = Rc::new(move |pick| {
+                *payload.borrow_mut() = mesh_selection_event_payload(pick.as_ref());
+                *selection.borrow_mut() = pick;
+            });
+            let (plot, state) = PythonIrShowcase::build_native_mesh_plot(
+                &self.spec,
+                &self.frames.borrow(),
+                Some(self.state.clone()),
+                Some(callback),
+            )
+            .expect("resource-backed Python MeshPlot should build natively");
+            self.state = state;
+            let mut view = div()
+                .id("python-resource-mesh-plot")
+                .w(px(600.0))
+                .h(px(400.0));
+            if self.nested {
+                view = view
+                    .flex()
+                    .flex_col()
+                    .child(div().h(px(40.0)).child("Mesh plot"))
+                    .child(div().h(px(40.0)).child("4 vertices · 2 triangles"))
+                    .child(div().flex_1().size_full().child(plot));
+            } else {
+                view = view.child(plot);
+            }
+            view
+        }
+    }
+
+    fn frame(
+        resource_id: &str,
+        kind: MeshFrameKind,
+        dtype: MeshDtype,
+        shape: &[u32],
+        payload: Vec<u8>,
+    ) -> MeshFrame {
+        MeshFrame {
+            resource_id: resource_id.into(),
+            generation: 1,
+            sequence: 0,
+            chunk_count: 1,
+            kind,
+            dtype,
+            shape: shape.to_vec(),
+            payload,
+        }
+    }
+
+    fn bytes<T: Copy, B: IntoIterator<Item = u8>>(
+        values: &[T],
+        encode: impl Fn(T) -> B,
+    ) -> Vec<u8> {
+        values.iter().copied().flat_map(encode).collect()
+    }
+
+    fn fixture() -> (MeshPlotSpec, Rc<RefCell<MeshFrameStore>>) {
+        let mut store = MeshFrameStore::new();
+        store
+            .ingest(frame(
+                "mesh-positions",
+                MeshFrameKind::Geometry,
+                MeshDtype::F64LE,
+                &[4, 3],
+                bytes(
+                    &[
+                        0.0_f64, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 0.0,
+                    ],
+                    f64::to_le_bytes,
+                ),
+            ))
+            .expect("position frame");
+        store
+            .ingest(frame(
+                "mesh-triangles",
+                MeshFrameKind::Geometry,
+                MeshDtype::U32LE,
+                &[2, 3],
+                bytes(&[0_u32, 1, 2, 0, 2, 3], u32::to_le_bytes),
+            ))
+            .expect("triangle frame");
+        store
+            .ingest(frame(
+                "mesh-vertex-ids",
+                MeshFrameKind::Ids,
+                MeshDtype::U64LE,
+                &[4],
+                bytes(&[101_u64, 102, 103, 104], u64::to_le_bytes),
+            ))
+            .expect("vertex id frame");
+        store
+            .ingest(frame(
+                "mesh-cell-ids",
+                MeshFrameKind::Ids,
+                MeshDtype::U64LE,
+                &[2],
+                bytes(&[201_u64, 202], u64::to_le_bytes),
+            ))
+            .expect("cell id frame");
+        store
+            .ingest(frame(
+                "mesh-pressure",
+                MeshFrameKind::Field,
+                MeshDtype::F64LE,
+                &[4],
+                bytes(&[0.0_f64, 0.5, 1.0, 0.25], f64::to_le_bytes),
+            ))
+            .expect("field frame");
+        store
+            .ingest(frame(
+                "mesh-pressure-valid",
+                MeshFrameKind::Mask,
+                MeshDtype::BoolBytes,
+                &[4],
+                vec![1, 1, 1, 1],
+            ))
+            .expect("mask frame");
+        let spec = MeshPlotSpec::from_value(serde_json::json!({
+            "schema_version": 1,
+            "id": "resource-pressure-plot",
+            "geometry": {
+                "id": "resource-baffle",
+                "positions": {"resource_id": "mesh-positions", "generation": 1, "dtype": "f64le"},
+                "triangles": {"resource_id": "mesh-triangles", "generation": 1, "dtype": "u32le"},
+                "vertex_ids": {"resource_id": "mesh-vertex-ids", "generation": 1, "dtype": "u64le"},
+                "cell_ids": {"resource_id": "mesh-cell-ids", "generation": 1, "dtype": "u64le"}
+            },
+            "field": {
+                "id": "resource-pressure",
+                "label": "Sound pressure level",
+                "unit": "dB SPL",
+                "resource_id": "mesh-pressure",
+                "generation": 1,
+                "association": "vertex",
+                "valid": {"resource_id": "mesh-pressure-valid", "generation": 1, "dtype": "bool_bytes"}
+            },
+            "view": "planar",
+            "mode": "scalar_fill",
+            "color_scale": "viridis",
+            "wireframe": true,
+            "equal_aspect": true,
+            "interactions": ["pan", "zoom", "inspect", "select", "reset", "fit"]
+        }))
+        .expect("resource-backed MeshPlot spec");
+        (spec, Rc::new(RefCell::new(store)))
+    }
+
+    #[::core::prelude::v1::test]
+    fn native_metal_python_resource_plot_renders_and_emits_typed_selection() {
+        let platform = MacPlatform::new(true);
+        let text_system = platform.text_system();
+        drop(platform);
+        let mut cx = HeadlessAppContext::with_platform(text_system, Arc::new(()), || {
+            Some(Box::new(MetalHeadlessRenderer::new()))
+        });
+        let (spec, frames) = fixture();
+        let state = Rc::new(RefCell::new(MeshPlotState::new(0.0, 1.0, 0.0, 1.0)));
+        let selection = Rc::new(RefCell::new(None));
+        let payload = Rc::new(RefCell::new(Value::Null));
+        let window = cx
+            .open_window(size(px(600.0), px(400.0)), {
+                let state = state.clone();
+                let selection = selection.clone();
+                let payload = payload.clone();
+                move |_window, app| {
+                    app.new(|_cx| NativeResourceMeshPlotView {
+                        spec,
+                        frames,
+                        state,
+                        selection,
+                        payload,
+                        nested: false,
+                    })
+                }
+            })
+            .expect("open native Python MeshPlot window");
+        let any_window: AnyWindowHandle = window.into();
+        cx.update_window(any_window, |_, window, app| {
+            let _ = window.draw(app);
+        })
+        .expect("draw resource-backed Python MeshPlot");
+
+        let position = point(px(300.0), px(200.0));
+        cx.update_window(any_window, |_, window, app| {
+            window.dispatch_event(
+                MouseDownEvent {
+                    position,
+                    modifiers: Modifiers::default(),
+                    button: MouseButton::Left,
+                    click_count: 1,
+                    first_mouse: false,
+                }
+                .to_platform_input(),
+                app,
+            );
+            window.dispatch_event(
+                MouseUpEvent {
+                    position,
+                    modifiers: Modifiers::default(),
+                    button: MouseButton::Left,
+                    click_count: 1,
+                }
+                .to_platform_input(),
+                app,
+            );
+        })
+        .expect("dispatch Python MeshPlot selection click");
+        cx.run_until_parked();
+
+        let picked = selection.borrow().clone().expect("selection callback");
+        assert!(matches!(picked.cell_id, Some(201 | 202)));
+        assert!(matches!(picked.vertex_id, Some(101..=104)));
+        assert_eq!(payload.borrow()["plot_id"], "resource-pressure-plot");
+        assert_eq!(payload.borrow()["mesh_id"], "resource-baffle");
+        assert!(matches!(
+            payload.borrow()["cell_id"].as_u64(),
+            Some(201 | 202)
+        ));
+        assert!(matches!(
+            payload.borrow()["vertex_id"].as_u64(),
+            Some(101..=104)
+        ));
+
+        let screenshot = cx
+            .capture_screenshot(any_window)
+            .expect("capture Python MeshPlot framebuffer");
+        assert_eq!(screenshot.width(), 1200);
+        assert_eq!(screenshot.height(), 800);
+        let (min_luma, max_luma) = screenshot
+            .pixels()
+            .map(|pixel| u16::from(pixel.0[0]) + u16::from(pixel.0[1]) + u16::from(pixel.0[2]))
+            .fold((u16::MAX, 0), |(min_luma, max_luma), luma| {
+                (min_luma.min(luma), max_luma.max(luma))
+            });
+        assert!(
+            max_luma > min_luma,
+            "resource-backed MeshPlot framebuffer is blank"
+        );
+    }
+
+    #[::core::prelude::v1::test]
+    fn nested_python_mesh_plot_layout_preserves_pointer_selection() {
+        let platform = MacPlatform::new(true);
+        let text_system = platform.text_system();
+        drop(platform);
+        let mut cx = HeadlessAppContext::with_platform(text_system, Arc::new(()), || {
+            Some(Box::new(MetalHeadlessRenderer::new()))
+        });
+        let (spec, frames) = fixture();
+        let state = Rc::new(RefCell::new(MeshPlotState::new(0.0, 1.0, 0.0, 1.0)));
+        let selection = Rc::new(RefCell::new(None));
+        let payload = Rc::new(RefCell::new(Value::Null));
+        let window = cx
+            .open_window(size(px(600.0), px(400.0)), {
+                let state = state.clone();
+                let selection = selection.clone();
+                let payload = payload.clone();
+                move |_window, app| {
+                    app.new(|_cx| NativeResourceMeshPlotView {
+                        spec,
+                        frames,
+                        state,
+                        selection,
+                        payload,
+                        nested: true,
+                    })
+                }
+            })
+            .expect("open nested native Python MeshPlot window");
+        let any_window: AnyWindowHandle = window.into();
+        cx.update_window(any_window, |_, window, app| {
+            let _ = window.draw(app);
+        })
+        .expect("draw nested resource-backed Python MeshPlot");
+
+        let position = point(px(300.0), px(200.0));
+        cx.update_window(any_window, |_, window, app| {
+            window.dispatch_event(
+                MouseDownEvent {
+                    position,
+                    modifiers: Modifiers::default(),
+                    button: MouseButton::Left,
+                    click_count: 1,
+                    first_mouse: false,
+                }
+                .to_platform_input(),
+                app,
+            );
+            window.dispatch_event(
+                MouseUpEvent {
+                    position,
+                    modifiers: Modifiers::default(),
+                    button: MouseButton::Left,
+                    click_count: 1,
+                }
+                .to_platform_input(),
+                app,
+            );
+        })
+        .expect("dispatch nested Python MeshPlot selection click");
+        cx.run_until_parked();
+
+        let picked = selection
+            .borrow()
+            .clone()
+            .expect("nested selection callback");
+        assert!(matches!(picked.cell_id, Some(201 | 202)));
+        assert!(matches!(picked.vertex_id, Some(101..=104)));
+        assert_eq!(payload.borrow()["plot_id"], "resource-pressure-plot");
+    }
+}
+
+fn validate_mesh_plot_spec_resources(
+    spec: &MeshPlotSpec,
+    store: &MeshFrameStore,
+    patch_id: Option<&str>,
+) -> Result<(), MeshPlotResourceError> {
+    let refs = spec
+        .resource_refs()
+        .map_err(|message| MeshPlotResourceError::InvalidReference {
+            plot_id: spec.id.clone(),
+            role: "mesh_plot".into(),
+            message,
+            patch_id: patch_id.map(str::to_owned),
+        })?;
+    for resource in refs {
+        if store
+            .get(&resource.resource_id, resource.generation)
+            .is_none()
+        {
+            return Err(MeshPlotResourceError::Unavailable {
+                plot_id: spec.id.clone(),
+                role: resource.role,
+                resource_id: resource.resource_id,
+                generation: resource.generation,
+                patch_id: patch_id.map(str::to_owned),
+            });
+        }
+    }
+    let invalid = |message: String| MeshPlotResourceError::InvalidReference {
+        plot_id: spec.id.clone(),
+        role: "mesh_plot".into(),
+        message,
+        patch_id: patch_id.map(str::to_owned),
+    };
+    let (positions, triangles) =
+        decode_mesh_geometry(&spec.geometry, store).map_err(|message| invalid(message))?;
+    if matches!(
+        spec.view.as_str(),
+        "axisymmetric_section" | "axisymmetric_revolve"
+    ) && positions.iter().any(|position| position[0] < -1.0e-12)
+    {
+        return Err(invalid(
+            "axisymmetric mesh radial coordinates must be non-negative".into(),
+        ));
+    }
+    let mesh_id = spec
+        .geometry
+        .get("id")
+        .and_then(Value::as_str)
+        .unwrap_or("mesh");
+    let vertex_ids = decode_inline_ids(&spec.geometry, "vertex_ids", positions.len(), store)
+        .map_err(|message| invalid(message))?
+        .map(Arc::from);
+    let cell_ids = decode_inline_ids(&spec.geometry, "cell_ids", triangles.len(), store)
+        .map_err(|message| invalid(message))?
+        .map(Arc::from);
+    let mesh = TriangleMesh {
+        id: Arc::from(mesh_id),
+        positions: positions.into(),
+        triangles: triangles.into(),
+        vertex_ids,
+        cell_ids,
+    };
+    mesh.validate()
+        .map_err(|error| invalid(error.to_string()))?;
+    if let Some(field) = spec.field.as_ref() {
+        let (values, valid) =
+            decode_mesh_field(field, store).map_err(|message| invalid(message))?;
+        let association = match field.get("association").and_then(Value::as_str) {
+            Some("cell") => ScalarAssociation::Cell,
+            _ => ScalarAssociation::Vertex,
+        };
+        let scalar = ScalarField {
+            id: Arc::from(field.get("id").and_then(Value::as_str).unwrap_or("field")),
+            label: Arc::from(
+                field
+                    .get("label")
+                    .and_then(Value::as_str)
+                    .unwrap_or("Field"),
+            ),
+            unit: field.get("unit").and_then(Value::as_str).map(Arc::from),
+            values: values.into(),
+            association,
+            valid: valid.map(Arc::from),
+        };
+        scalar
+            .validate(&mesh)
+            .map_err(|error| invalid(error.to_string()))?;
+        let color_range =
+            native_mesh_plot_color_range(&spec.color_range).map_err(|message| invalid(message))?;
+        let (mut min, mut max) = (f64::INFINITY, f64::NEG_INFINITY);
+        for (index, value) in scalar.values.iter().enumerate() {
+            if scalar
+                .valid
+                .as_ref()
+                .is_some_and(|valid| valid.get(index) != Some(&true))
+            {
+                continue;
+            }
+            min = min.min(*value);
+            max = max.max(*value);
+        }
+        if min.is_finite() && max.is_finite() {
+            color_range
+                .resolve(min, max)
+                .map_err(|error| invalid(error.to_string()))?;
+        }
+    }
+    native_mesh_plot_options(spec, mesh_id).map_err(|message| invalid(message))?;
+    Ok(())
+}
+
+fn validate_mesh_plot_resources(
+    value: &Value,
+    store: &MeshFrameStore,
+    patch_id: Option<&str>,
+) -> Result<(), MeshPlotResourceError> {
+    if value.get("kind").and_then(Value::as_str) == Some("mesh_plot") {
+        let spec_value = value.get("spec").cloned().unwrap_or(Value::Null);
+        let spec = MeshPlotSpec::from_value(spec_value).map_err(|message| {
+            MeshPlotResourceError::InvalidReference {
+                plot_id: value
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .unwrap_or("<unknown>")
+                    .into(),
+                role: "mesh_plot".into(),
+                message,
+                patch_id: patch_id.map(str::to_owned),
+            }
+        })?;
+        validate_mesh_plot_spec_resources(&spec, store, patch_id)?;
+    }
+    if let Some(object) = value.as_object() {
+        for child in object.values() {
+            validate_mesh_plot_resources(child, store, patch_id)?;
+        }
+    } else if let Some(array) = value.as_array() {
+        for child in array {
+            validate_mesh_plot_resources(child, store, patch_id)?;
+        }
+    }
+    Ok(())
+}
+
+fn mesh_plot_ids(value: &Value, ids: &mut HashSet<String>) {
+    if value.get("kind").and_then(Value::as_str) == Some("mesh_plot") {
+        if let Some(id) = value.get("id").and_then(Value::as_str) {
+            ids.insert(id.to_owned());
+        }
+    }
+    if let Some(object) = value.as_object() {
+        for child in object.values() {
+            mesh_plot_ids(child, ids);
+        }
+    } else if let Some(array) = value.as_array() {
+        for child in array {
+            mesh_plot_ids(child, ids);
+        }
+    }
+}
+
+fn mesh_resource_ref<'a>(value: &'a Value, name: &str) -> Result<(&'a str, u64), String> {
+    let object = value
+        .as_object()
+        .ok_or_else(|| format!("{name} resource handle must be an object"))?;
+    let resource_id = object
+        .get("resource_id")
+        .or_else(|| object.get("id"))
+        .and_then(Value::as_str)
+        .filter(|id| !id.trim().is_empty())
+        .ok_or_else(|| format!("{name} resource_id must be a non-empty string"))?;
+    let generation = object
+        .get("generation")
+        .and_then(Value::as_u64)
+        .filter(|generation| *generation > 0)
+        .ok_or_else(|| format!("{name} resource generation must be positive"))?;
+    Ok((resource_id, generation))
+}
+
+fn mesh_resource<'a>(
+    store: &'a MeshFrameStore,
+    value: &Value,
+    name: &str,
+    expected_kind: MeshFrameKind,
+) -> Result<&'a RetainedMeshResource, String> {
+    let (resource_id, generation) = mesh_resource_ref(value, name)?;
+    let resource = store.get(resource_id, generation).ok_or_else(|| {
+        format!("missing {name} resource {resource_id:?} generation {generation}")
+    })?;
+    if resource.kind != expected_kind {
+        return Err(format!(
+            "{name} resource {resource_id:?} has kind {:?}, expected {:?}",
+            resource.kind, expected_kind
+        ));
+    }
+    Ok(resource)
+}
+
+fn resource_shape_elements(resource: &RetainedMeshResource, name: &str) -> Result<usize, String> {
+    if resource.shape.is_empty() || resource.shape.contains(&0) {
+        return Err(format!(
+            "{name} resource shape must contain positive dimensions"
+        ));
+    }
+    resource.shape.iter().try_fold(1usize, |count, dimension| {
+        count
+            .checked_mul(*dimension as usize)
+            .ok_or_else(|| format!("{name} resource shape is too large"))
+    })
+}
+
+fn decode_resource_floats(resource: &RetainedMeshResource, name: &str) -> Result<Vec<f64>, String> {
+    let elements = resource_shape_elements(resource, name)?;
+    let width = match resource.dtype {
+        MeshDtype::F32LE => 4,
+        MeshDtype::F64LE => 8,
+        dtype => {
+            return Err(format!(
+                "{name} resource dtype {dtype:?} is not f32le/f64le"
+            ));
+        }
+    };
+    let expected = elements
+        .checked_mul(width)
+        .ok_or_else(|| format!("{name} resource payload is too large"))?;
+    if resource.payload.len() != expected {
+        return Err(format!(
+            "{name} resource payload has {} bytes, expected {expected}",
+            resource.payload.len()
+        ));
+    }
+    resource
+        .payload
+        .chunks_exact(width)
+        .map(|chunk| {
+            let value = if width == 4 {
+                f32::from_le_bytes(chunk.try_into().map_err(|_| "invalid f32 bytes")?) as f64
+            } else {
+                f64::from_le_bytes(chunk.try_into().map_err(|_| "invalid f64 bytes")?)
+            };
+            value
+                .is_finite()
+                .then_some(value)
+                .ok_or_else(|| format!("{name} resource contains a non-finite value"))
+        })
+        .collect()
+}
+
+fn decode_resource_u32(resource: &RetainedMeshResource, name: &str) -> Result<Vec<u32>, String> {
+    let elements = resource_shape_elements(resource, name)?;
+    if resource.dtype != MeshDtype::U32LE {
+        return Err(format!(
+            "{name} resource dtype {:?} is not u32le",
+            resource.dtype
+        ));
+    }
+    let expected = elements
+        .checked_mul(4)
+        .ok_or_else(|| format!("{name} resource payload is too large"))?;
+    if resource.payload.len() != expected {
+        return Err(format!(
+            "{name} resource payload has {} bytes, expected {expected}",
+            resource.payload.len()
+        ));
+    }
+    resource
+        .payload
+        .chunks_exact(4)
+        .map(|chunk| {
+            Ok(u32::from_le_bytes(
+                chunk.try_into().map_err(|_| "invalid u32 bytes")?,
+            ))
+        })
+        .collect()
+}
+
+fn decode_resource_u64(resource: &RetainedMeshResource, name: &str) -> Result<Vec<u64>, String> {
+    let elements = resource_shape_elements(resource, name)?;
+    if resource.dtype != MeshDtype::U64LE {
+        return Err(format!(
+            "{name} resource dtype {:?} is not u64le",
+            resource.dtype
+        ));
+    }
+    let expected = elements
+        .checked_mul(8)
+        .ok_or_else(|| format!("{name} resource payload is too large"))?;
+    if resource.payload.len() != expected {
+        return Err(format!(
+            "{name} resource payload has {} bytes, expected {expected}",
+            resource.payload.len()
+        ));
+    }
+    resource
+        .payload
+        .chunks_exact(8)
+        .map(|chunk| {
+            Ok(u64::from_le_bytes(
+                chunk.try_into().map_err(|_| "invalid u64 bytes")?,
+            ))
+        })
+        .collect()
+}
+
+fn decode_resource_bools(
+    resource: &RetainedMeshResource,
+    name: &str,
+    expected_elements: usize,
+) -> Result<Vec<bool>, String> {
+    let elements = resource_shape_elements(resource, name)?;
+    if resource.shape.len() != 1 {
+        return Err(format!("{name} resource shape must be [value_count]"));
+    }
+    if elements != expected_elements {
+        return Err(format!(
+            "{name} resource has {elements} values, expected {expected_elements}"
+        ));
+    }
+    let expected_bytes = match resource.dtype {
+        MeshDtype::BoolBytes => elements,
+        MeshDtype::BoolPacked => {
+            elements
+                .checked_add(7)
+                .ok_or_else(|| format!("{name} resource shape is too large"))?
+                / 8
+        }
+        dtype => {
+            return Err(format!(
+                "{name} resource dtype {dtype:?} is not bool_bytes/bool_packed"
+            ));
+        }
+    };
+    if resource.payload.len() != expected_bytes {
+        return Err(format!(
+            "{name} resource payload has {} bytes, expected {expected_bytes}",
+            resource.payload.len()
+        ));
+    }
+    match resource.dtype {
+        MeshDtype::BoolBytes => resource
+            .payload
+            .iter()
+            .enumerate()
+            .map(|(index, value)| match value {
+                0 => Ok(false),
+                1 => Ok(true),
+                _ => Err(format!("{name} resource byte {index} is not boolean")),
+            })
+            .collect(),
+        MeshDtype::BoolPacked => (0..elements)
+            .map(|index| Ok(resource.payload[index / 8] & (1 << (index % 8)) != 0))
+            .collect(),
+        _ => unreachable!("dtype checked above"),
+    }
+}
+
+fn decode_inline_ids(
+    geometry: &Value,
+    name: &str,
+    expected: usize,
+    store: &MeshFrameStore,
+) -> Result<Option<Vec<u64>>, String> {
+    let Some(value) = geometry.get(name) else {
+        return Ok(None);
+    };
+    if value.is_object() {
+        let resource = mesh_resource(
+            store,
+            value,
+            &format!("geometry.{name}"),
+            MeshFrameKind::Ids,
+        )?;
+        if resource.shape.len() != 1 || resource.shape[0] as usize != expected {
+            return Err(format!(
+                "geometry.{name} resource shape must be [{expected}]"
+            ));
+        }
+        return decode_resource_u64(resource, &format!("geometry.{name}")).map(Some);
+    }
+    let values = value
+        .as_array()
+        .ok_or_else(|| format!("mesh geometry {name} must be an array"))?;
+    if values.len() != expected {
+        return Err(format!(
+            "mesh geometry {name} has {}, expected {expected} values",
+            values.len()
+        ));
+    }
+    values
+        .iter()
+        .map(|value| {
+            value
+                .as_u64()
+                .ok_or_else(|| format!("mesh geometry {name} must contain u64 ids"))
+        })
+        .collect::<Result<Vec<_>, _>>()
+        .map(Some)
+}
+
+fn decode_mesh_geometry(
+    geometry: &Value,
+    store: &MeshFrameStore,
+) -> Result<(Vec<[f64; 3]>, Vec<[u32; 3]>), String> {
+    let split_resources = geometry.get("positions").is_some_and(Value::is_object)
+        || geometry.get("triangles").is_some_and(Value::is_object);
+    if split_resources {
+        let positions_resource = mesh_resource(
+            store,
+            geometry
+                .get("positions")
+                .ok_or("mesh geometry is missing positions resource")?,
+            "geometry.positions",
+            MeshFrameKind::Geometry,
+        )?;
+        let triangles_resource = mesh_resource(
+            store,
+            geometry
+                .get("triangles")
+                .ok_or("mesh geometry is missing triangles resource")?,
+            "geometry.triangles",
+            MeshFrameKind::Geometry,
+        )?;
+        if positions_resource.shape.len() != 2 || positions_resource.shape[1] != 3 {
+            return Err("geometry.positions resource shape must be [vertex_count, 3]".into());
+        }
+        if triangles_resource.shape.len() != 2 || triangles_resource.shape[1] != 3 {
+            return Err("geometry.triangles resource shape must be [triangle_count, 3]".into());
+        }
+        let position_values = decode_resource_floats(positions_resource, "geometry.positions")?;
+        let triangle_values = decode_resource_u32(triangles_resource, "geometry.triangles")?;
+        let positions = position_values
+            .chunks_exact(3)
+            .map(|values| [values[0], values[1], values[2]])
+            .collect();
+        let triangles = triangle_values
+            .chunks_exact(3)
+            .map(|values| [values[0], values[1], values[2]])
+            .collect();
+        return Ok((positions, triangles));
+    }
+
+    let positions = geometry
+        .get("positions")
+        .and_then(Value::as_array)
+        .ok_or("native mesh plot requires inline positions or split resources")?
+        .iter()
+        .map(|point| {
+            let values = point.as_array().ok_or("mesh position must be an array")?;
+            let [x, y, z] = values.as_slice() else {
+                return Err("mesh position must contain three values".into());
+            };
+            Ok([
+                x.as_f64().ok_or("mesh x must be numeric")?,
+                y.as_f64().ok_or("mesh y must be numeric")?,
+                z.as_f64().ok_or("mesh z must be numeric")?,
+            ])
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    let triangles = geometry
+        .get("triangles")
+        .and_then(Value::as_array)
+        .ok_or("native mesh plot requires inline triangles or split resources")?
+        .iter()
+        .map(|triangle| {
+            let values = triangle
+                .as_array()
+                .ok_or("mesh triangle must be an array")?;
+            let [a, b, c] = values.as_slice() else {
+                return Err("mesh triangle must contain three indices".into());
+            };
+            Ok([
+                a.as_u64().ok_or("mesh index must be an integer")? as u32,
+                b.as_u64().ok_or("mesh index must be an integer")? as u32,
+                c.as_u64().ok_or("mesh index must be an integer")? as u32,
+            ])
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    Ok((positions, triangles))
+}
+
+fn decode_mesh_field(
+    field: &Value,
+    store: &MeshFrameStore,
+) -> Result<(Vec<f64>, Option<Vec<bool>>), String> {
+    let values = if field.get("resource_id").is_some() {
+        let resource = mesh_resource(store, field, "field", MeshFrameKind::Field)?;
+        if resource.shape.len() != 1 {
+            return Err("field resource shape must be [value_count]".into());
+        }
+        decode_resource_floats(resource, "field")?
+    } else {
+        field
+            .get("values")
+            .and_then(Value::as_array)
+            .ok_or("native mesh plot requires inline field values or a field resource")?
+            .iter()
+            .map(|value| value.as_f64().ok_or("mesh field value must be numeric"))
+            .collect::<Result<Vec<_>, _>>()?
+    };
+    let valid = field
+        .get("valid")
+        .map(|value| {
+            if value.is_object() {
+                let resource = mesh_resource(store, value, "field.valid", MeshFrameKind::Mask)?;
+                return decode_resource_bools(resource, "field.valid", values.len());
+            }
+            Ok(value
+                .as_array()
+                .ok_or("mesh field valid mask must be an array")?
+                .iter()
+                .map(|value| {
+                    value
+                        .as_bool()
+                        .ok_or("mesh field valid mask must be boolean")
+                })
+                .collect::<Result<Vec<_>, _>>()?)
+        })
+        .transpose()?;
+    if valid
+        .as_ref()
+        .is_some_and(|valid| valid.len() != values.len())
+    {
+        return Err("mesh field valid mask length must match values".into());
+    }
+    Ok((values, valid))
+}
+
+#[cfg(test)]
+mod mesh_resource_decode_tests {
+    use super::*;
+
+    fn retain(
+        store: &mut MeshFrameStore,
+        resource_id: &str,
+        kind: MeshFrameKind,
+        dtype: MeshDtype,
+        shape: Vec<u32>,
+        payload: Vec<u8>,
+    ) {
+        let outcome = store
+            .ingest(MeshFrame {
+                resource_id: resource_id.into(),
+                generation: 1,
+                sequence: 0,
+                chunk_count: 1,
+                kind,
+                dtype,
+                shape,
+                payload,
+            })
+            .expect("valid mesh resource frame");
+        assert!(matches!(outcome, MeshFrameOutcome::Assembled(_)));
+    }
+
+    #[::core::prelude::v1::test]
+    fn decodes_resource_backed_ids_and_both_mask_encodings() {
+        let mut store = MeshFrameStore::new();
+        retain(
+            &mut store,
+            "vertex_ids",
+            MeshFrameKind::Ids,
+            MeshDtype::U64LE,
+            vec![3],
+            [10_u64, 20, 30]
+                .into_iter()
+                .flat_map(u64::to_le_bytes)
+                .collect(),
+        );
+        retain(
+            &mut store,
+            "cell_ids",
+            MeshFrameKind::Ids,
+            MeshDtype::U64LE,
+            vec![1],
+            99_u64.to_le_bytes().to_vec(),
+        );
+        retain(
+            &mut store,
+            "packed_mask",
+            MeshFrameKind::Mask,
+            MeshDtype::BoolPacked,
+            vec![3],
+            vec![0b0000_0101],
+        );
+        retain(
+            &mut store,
+            "byte_mask",
+            MeshFrameKind::Mask,
+            MeshDtype::BoolBytes,
+            vec![3],
+            vec![1, 0, 1],
+        );
+
+        let geometry = serde_json::json!({
+            "vertex_ids": {"resource_id": "vertex_ids", "generation": 1},
+            "cell_ids": {"resource_id": "cell_ids", "generation": 1}
+        });
+        assert_eq!(
+            decode_inline_ids(&geometry, "vertex_ids", 3, &store)
+                .unwrap()
+                .unwrap(),
+            vec![10, 20, 30]
+        );
+        assert_eq!(
+            decode_inline_ids(&geometry, "cell_ids", 1, &store)
+                .unwrap()
+                .unwrap(),
+            vec![99]
+        );
+
+        for resource_id in ["packed_mask", "byte_mask"] {
+            let field = serde_json::json!({
+                "values": [1.0, 2.0, 3.0],
+                "valid": {"resource_id": resource_id, "generation": 1}
+            });
+            assert_eq!(
+                decode_mesh_field(&field, &store).unwrap().1,
+                Some(vec![true, false, true])
+            );
+        }
+    }
+
+    #[::core::prelude::v1::test]
+    fn rejects_missing_and_mismatched_mesh_resources() {
+        let store = MeshFrameStore::new();
+        let missing = serde_json::json!({
+            "vertex_ids": {"resource_id": "stale", "generation": 2}
+        });
+        let error = decode_inline_ids(&missing, "vertex_ids", 1, &store).unwrap_err();
+        assert!(error.contains("missing geometry.vertex_ids resource"));
+
+        let mut store = MeshFrameStore::new();
+        retain(
+            &mut store,
+            "bad_ids",
+            MeshFrameKind::Mask,
+            MeshDtype::U64LE,
+            vec![1],
+            7_u64.to_le_bytes().to_vec(),
+        );
+        let wrong_kind = serde_json::json!({
+            "vertex_ids": {"resource_id": "bad_ids", "generation": 1}
+        });
+        let error = decode_inline_ids(&wrong_kind, "vertex_ids", 1, &store).unwrap_err();
+        assert!(error.contains("expected Ids"));
+
+        retain(
+            &mut store,
+            "bad_mask",
+            MeshFrameKind::Mask,
+            MeshDtype::BoolBytes,
+            vec![1, 3],
+            vec![1, 0, 1],
+        );
+        let field = serde_json::json!({
+            "values": [1.0, 2.0, 3.0],
+            "valid": {"resource_id": "bad_mask", "generation": 1}
+        });
+        let error = decode_mesh_field(&field, &store).unwrap_err();
+        assert!(error.contains("field.valid resource shape must be [value_count]"));
     }
 }
 
@@ -1400,14 +2748,7 @@ fn d3_module_catalog() -> Value {
             "executable renderer-independent native Rust command",
         ),
         (
-            &[
-                "axis",
-                "grid",
-                "legend",
-                "text",
-                "text_layout",
-                "shape",
-            ],
+            &["axis", "grid", "legend", "text", "text_layout", "shape"],
             "chart_spec",
             "gpui_toolkit.charts",
             "host-native retained chart geometry specification",
@@ -1482,7 +2823,7 @@ mod d3_algorithm_command_tests {
         result["value"].clone()
     }
 
-    #[test]
+    #[::core::prelude::v1::test]
     fn covers_color_format_time_fetch_and_interpolation_operations() {
         let requests = [
             json!({"operation": "color_interpolate", "start": 0xff0000_u64, "end": 0x0000ff_u64, "t": 0.5}),
@@ -1522,7 +2863,7 @@ mod d3_algorithm_command_tests {
         }
     }
 
-    #[test]
+    #[::core::prelude::v1::test]
     fn covers_every_easing_and_seeded_random_variant() {
         let easing = [
             "linear",
@@ -1584,7 +2925,7 @@ mod d3_algorithm_command_tests {
         assert_succeeds(json!({"operation": "shuffle", "values": [1, 2, 3, 4], "seed": 7}));
     }
 
-    #[test]
+    #[::core::prelude::v1::test]
     fn rejects_unknown_variants_instead_of_silently_falling_back() {
         assert!(
             d3_algorithm_command(&json!({"operation": "ease", "kind": "mystery", "values": [0.5]}))
@@ -1602,7 +2943,7 @@ mod d3_algorithm_command_tests {
         );
     }
 
-    #[test]
+    #[::core::prelude::v1::test]
     fn module_catalog_dispositions_match_every_public_d3_module() {
         let catalog = d3_module_catalog();
         let mut actual = catalog["modules"]
@@ -2853,7 +4194,7 @@ fn png_encode(width: u32, height: u32, pixels: &[u8]) -> Vec<u8> {
 mod chart_export_tests {
     use super::{ChartNode, native_chart_svg, png_encode};
 
-    #[test]
+    #[::core::prelude::v1::test]
     fn png_encoder_writes_a_signature_and_terminal_chunk() {
         let png = png_encode(1, 1, &[12, 34, 56]);
         assert_eq!(&png[..8], b"\x89PNG\r\n\x1a\n");
@@ -2862,7 +4203,7 @@ mod chart_export_tests {
         assert!(png.windows(4).any(|window| window == b"IEND"));
     }
 
-    #[test]
+    #[::core::prelude::v1::test]
     fn native_line_export_preserves_title_and_visible_series() {
         let node: ChartNode = serde_json::from_value(serde_json::json!({
             "id": "response",
@@ -2886,7 +4227,7 @@ mod chart_export_tests {
         assert!(!svg.contains("Hidden"));
     }
 
-    #[test]
+    #[::core::prelude::v1::test]
     fn native_export_rejects_unsupported_chart_kinds() {
         let node: ChartNode = serde_json::from_value(serde_json::json!({
             "id": "heatmap",
@@ -2905,7 +4246,7 @@ mod chart_export_tests {
 mod scene_selection_tests {
     use super::scene_selection_object_id;
 
-    #[test]
+    #[::core::prelude::v1::test]
     fn single_mesh_scene_uses_its_stable_geometry_id() {
         let spec = serde_json::json!({
             "id": "speaker-scene",
@@ -2914,13 +4255,55 @@ mod scene_selection_tests {
         assert_eq!(scene_selection_object_id("speaker-scene", &spec), "baffle");
     }
 
-    #[test]
+    #[::core::prelude::v1::test]
     fn compound_scene_does_not_guess_a_child() {
         let spec = serde_json::json!({
             "id": "speaker-scene",
             "children": [{"id": "baffle"}, {"id": "woofer"}]
         });
-        assert_eq!(scene_selection_object_id("speaker-scene", &spec), "speaker-scene");
+        assert_eq!(
+            scene_selection_object_id("speaker-scene", &spec),
+            "speaker-scene"
+        );
+    }
+}
+
+#[cfg(test)]
+mod mesh_selection_tests {
+    use super::{mesh_selection_event_payload, mesh_selection_payload};
+    use gpui_px::MeshPlotPick;
+
+    #[::core::prelude::v1::test]
+    fn selection_payload_preserves_pick_identity_and_value() {
+        let pick = MeshPlotPick {
+            plot_id: "plot".into(),
+            mesh_id: "mesh".into(),
+            cell_index: 7,
+            cell_id: Some(42),
+            nearest_vertex_index: Some(3),
+            vertex_id: Some(99),
+            world_position: [0.25, 0.5, 1.0],
+            displayed_value: Some(91.2),
+            field_id: Some("pressure".into()),
+        };
+        let payload = mesh_selection_payload(&pick);
+        assert_eq!(payload["plot_id"], "plot");
+        assert_eq!(payload["mesh_id"], "mesh");
+        assert_eq!(payload["cell_index"], 7);
+        assert_eq!(payload["cell_id"], 42);
+        assert_eq!(payload["nearest_vertex_index"], 3);
+        assert_eq!(payload["vertex_id"], 99);
+        assert_eq!(
+            payload["world_position"],
+            serde_json::json!([0.25, 0.5, 1.0])
+        );
+        assert_eq!(payload["displayed_value"], 91.2);
+        assert_eq!(payload["field_id"], "pressure");
+    }
+
+    #[::core::prelude::v1::test]
+    fn cleared_selection_uses_a_null_payload() {
+        assert_eq!(mesh_selection_event_payload(None), serde_json::Value::Null);
     }
 }
 
@@ -2928,7 +4311,7 @@ mod scene_selection_tests {
 mod builder_adapter_tests {
     use super::{BuilderLayoutSpec, FixedTextMeasure, builder_chassis_row, with_builder_node};
 
-    #[test]
+    #[::core::prelude::v1::test]
     fn recursive_owned_tree_is_solved_and_inspected_without_leaks() {
         let spec: BuilderLayoutSpec = serde_json::from_value(serde_json::json!({
             "kind": "container",
@@ -2995,7 +4378,7 @@ mod builder_adapter_tests {
         assert!(result.4.contains("copy"));
     }
 
-    #[test]
+    #[::core::prelude::v1::test]
     fn snapshot_and_retained_solvers_agree_across_viewports() {
         let spec: BuilderLayoutSpec = serde_json::from_value(serde_json::json!({
             "kind": "container",
@@ -3043,7 +4426,7 @@ mod builder_adapter_tests {
         assert!(widths.2.contains("wide"));
     }
 
-    #[test]
+    #[::core::prelude::v1::test]
     fn full_chassis_rows_decode_to_native_specs() {
         let row = builder_chassis_row(&serde_json::json!({
             "kind": "knob_row",
@@ -3166,6 +4549,7 @@ fn px_annotations(node: &ChartNode) -> Vec<gpui_px::ChartAnnotation> {
         .collect()
 }
 
+#[cfg(test)]
 fn scene_selection_object_id(node_id: &str, spec: &Value) -> String {
     if let Some(children) = spec.get("children").and_then(Value::as_array) {
         let ids = children
@@ -3192,6 +4576,7 @@ pub(super) struct PythonIrShowcase {
     pub(super) load_error: Option<String>,
     pub(super) current_section: String,
     pub(super) gpui_3d: Gpui3DCache,
+    pub(super) mesh_plots: GpuiMeshPlotCache,
     pub(super) spec_cache: TypedSpecCache,
     pub(super) table_cells: HashMap<(usize, usize), (String, SharedString)>,
     form_focus: HashMap<String, FocusHandle>,
@@ -3208,6 +4593,10 @@ pub(super) struct PythonIrShowcase {
     /// Latest-only decoded binary frames. Audio rendering reads these directly
     /// without routing high-rate decimal arrays through app patches.
     audio_frames: AudioFrameStore,
+    mesh_frames: MeshFrameStore,
+    /// Mesh interaction state is host-owned and survives declarative patches.
+    mesh_plot_states: HashMap<String, Rc<RefCell<MeshPlotState>>>,
+    last_mesh_patch_id: Option<String>,
     table_scrolls: HashMap<String, UniformListScrollHandle>,
     table_focus: HashMap<String, FocusHandle>,
     /// Anonymous legacy tables do not retain interaction state, but their
@@ -3237,6 +4626,7 @@ pub(super) struct PythonIrShowcase {
     content_scroll: ScrollHandle,
     close_handler_installed: bool,
     close_approved: bool,
+    qa_pointer_task: Option<Task<()>>,
 }
 
 #[derive(Clone)]
@@ -3268,6 +4658,7 @@ impl PythonIrShowcase {
             load_error: None,
             current_section: presentation_state.section.unwrap_or_default(),
             gpui_3d: Gpui3DCache::new(),
+            mesh_plots: GpuiMeshPlotCache::new(),
             spec_cache: TypedSpecCache::new(),
             table_cells: HashMap::new(),
             form_focus: HashMap::new(),
@@ -3278,6 +4669,9 @@ impl PythonIrShowcase {
             chart_interactions: HashMap::new(),
             chart_hidden_series: HashMap::new(),
             audio_frames: AudioFrameStore::new(),
+            mesh_frames: MeshFrameStore::new(),
+            mesh_plot_states: HashMap::new(),
+            last_mesh_patch_id: None,
             table_scrolls: HashMap::new(),
             table_focus: HashMap::new(),
             legacy_table_id_counter: 0,
@@ -3309,6 +4703,7 @@ impl PythonIrShowcase {
             content_scroll,
             close_handler_installed: false,
             close_approved: false,
+            qa_pointer_task: None,
         }
     }
 
@@ -3460,6 +4855,119 @@ impl PythonIrShowcase {
             }
         })
         .detach();
+    }
+
+    /// Schedule one explicit QA-only pointer click after the first live frame.
+    ///
+    /// This is intentionally opt-in: it exists so a real native host session
+    /// can exercise the same GPUI event path as a user click and produce the
+    /// Python selection log without relying on an external automation tool.
+    fn schedule_qa_pointer_event(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.qa_pointer_task.is_some()
+            || env::var("GPUI_TOOLKIT_QA_AUTO_SELECT").ok().as_deref() != Some("1")
+            || self.app.is_none()
+        {
+            return;
+        }
+        let parse_coordinate = |name: &str, default: f32| {
+            env::var(name)
+                .ok()
+                .and_then(|value| value.parse::<f32>().ok())
+                .filter(|value| value.is_finite() && *value >= 0.0)
+                .unwrap_or(default)
+        };
+        let default_position = point(
+            px(parse_coordinate("GPUI_TOOLKIT_QA_POINTER_X", 560.0)),
+            px(parse_coordinate("GPUI_TOOLKIT_QA_POINTER_Y", 360.0)),
+        );
+        let positions = env::var("GPUI_TOOLKIT_QA_POINTER_POINTS")
+            .ok()
+            .into_iter()
+            .flat_map(|points| {
+                points
+                    .split(';')
+                    .filter_map(|pair| {
+                        let mut values = pair.split(',');
+                        let x = values.next()?.parse::<f32>().ok()?;
+                        let y = values.next()?.parse::<f32>().ok()?;
+                        if x.is_finite() && y.is_finite() && x >= 0.0 && y >= 0.0 {
+                            Some(point(px(x), px(y)))
+                        } else {
+                            None
+                        }
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+        let positions = if positions.is_empty() {
+            vec![default_position]
+        } else {
+            positions
+        };
+        let delay = env::var("GPUI_TOOLKIT_QA_POINTER_DELAY_MS")
+            .ok()
+            .and_then(|value| value.parse::<u64>().ok())
+            .map(|value| Duration::from_millis(value.clamp(100, 30_000)))
+            .unwrap_or_else(|| Duration::from_millis(750));
+        self.qa_pointer_task = Some(cx.spawn_in(
+            window,
+            async move |_this, cx: &mut AsyncWindowContext| {
+                cx.background_executor().timer(delay).await;
+                let total = positions.len();
+                let mut completed = 0;
+                let mut failure = None;
+                for (index, position) in positions.iter().copied().enumerate() {
+                    match cx.update(|window, app| {
+                        window.dispatch_event(
+                            MouseDownEvent {
+                                position,
+                                modifiers: Modifiers::default(),
+                                button: MouseButton::Left,
+                                click_count: 1,
+                                first_mouse: false,
+                            }
+                            .to_platform_input(),
+                            app,
+                        );
+                        window.dispatch_event(
+                            MouseUpEvent {
+                                position,
+                                modifiers: Modifiers::default(),
+                                button: MouseButton::Left,
+                                click_count: 1,
+                            }
+                            .to_platform_input(),
+                            app,
+                        );
+                    }) {
+                        Ok(()) => completed += 1,
+                        Err(error) => {
+                            failure = Some(error.to_string());
+                            break;
+                        }
+                    }
+                    if index + 1 < total {
+                        cx.background_executor()
+                            .timer(Duration::from_millis(120))
+                            .await;
+                    }
+                }
+                write_qa_json_artifact(
+                    "GPUI_TOOLKIT_QA_POINTER_TRACE",
+                    &match failure {
+                        None => serde_json::json!({
+                            "dispatch": "completed",
+                            "count": completed,
+                        }),
+                        Some(error) => serde_json::json!({
+                            "dispatch": "failed",
+                            "count": completed,
+                            "error": error,
+                        }),
+                    },
+                );
+            },
+        ));
     }
 
     pub(super) fn render_sidebar(
@@ -3633,6 +5141,7 @@ impl PythonIrShowcase {
             UiNode::Spacer(node) => self.render_spacer(node),
             UiNode::Chart(node) => self.render_chart(node, theme, ds, cx),
             UiNode::Scene3d(node) => self.render_scene3d(node, theme, ds, cx),
+            UiNode::MeshPlot(node) => self.render_meshplot(node, theme, ds, cx),
             UiNode::TextInput(node) if !node.presentation.visible => div().into_any_element(),
             UiNode::TextInput(node) => self.render_text_input(node, theme, ds, cx),
             UiNode::NumberInput(node) if !node.presentation.visible => div().into_any_element(),
@@ -7358,7 +8867,7 @@ impl PythonIrShowcase {
             None => self.render_error("scene3d spec is missing kind or children", theme, ds),
         };
 
-        let mut container = div()
+        let container = div()
             .id(ElementId::Name(format!("python-scene-{}", node.id).into()))
             .w(px(width))
             .h(px(height))
@@ -7367,22 +8876,343 @@ impl PythonIrShowcase {
             .border_color(theme.border)
             .overflow_hidden()
             .child(element);
-        if let (Some(action), Some(sink)) = (
+        container.into_any_element()
+    }
+
+    /// Render the host-owned mesh-plot surface and dispatch selection only.
+    ///
+    /// Resource validation and native plot construction happen before the
+    /// retained cache is committed, so a malformed patch leaves the previous
+    /// frame visible. Hover is deliberately not sent across the Python pipe.
+    pub(super) fn render_meshplot(
+        &mut self,
+        node: &MeshPlotNode,
+        theme: &Theme,
+        ds: &DesignSystem,
+        _cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let spec = match MeshPlotSpec::from_value(node.spec.clone()) {
+            Ok(spec) => spec,
+            Err(error) => return self.render_error(&error, theme, ds),
+        };
+        if let Err(error) = validate_mesh_plot_spec_resources(
+            &spec,
+            &self.mesh_frames,
+            self.last_mesh_patch_id.as_deref(),
+        ) {
+            return self.render_error(&error.to_string(), theme, ds);
+        }
+        let (resolved_positions, resolved_triangles) =
+            match decode_mesh_geometry(&spec.geometry, &self.mesh_frames) {
+                Ok(geometry) => geometry,
+                Err(error) => return self.render_error(&error, theme, ds),
+            };
+        let field_values = match spec.field.as_ref() {
+            Some(field) => match decode_mesh_field(field, &self.mesh_frames) {
+                Ok((values, _)) => values.len(),
+                Err(error) => return self.render_error(&error, theme, ds),
+            },
+            None => 0,
+        };
+        let positions = resolved_positions.len();
+        let triangles = resolved_triangles.len();
+        let width = node.width.or(spec.width).unwrap_or(560.0);
+        let height = node.height.or(spec.height).unwrap_or(360.0);
+        let mesh_id = spec
+            .geometry
+            .get("id")
+            .and_then(Value::as_str)
+            .unwrap_or("mesh");
+        if let Err(error) = native_mesh_plot_options(&spec, mesh_id) {
+            return self.render_error(&error, theme, ds);
+        }
+        let geometry_changed = self
+            .mesh_plots
+            .get(&spec.id)
+            .is_none_or(|previous| previous.geometry != spec.geometry);
+        let retained_state = (!geometry_changed)
+            .then(|| self.mesh_plot_states.get(&spec.id).cloned())
+            .flatten();
+        let host_selection_callback: Option<Rc<dyn Fn(Option<MeshPlotPick>)>> = match (
             node.selection_action.clone(),
             self.session.as_ref().map(|session| session.event_sink()),
         ) {
-            let node_id = node.id.clone();
-            let object_id = scene_selection_object_id(&node.id, &node.spec);
-            container = container.cursor_pointer().on_click(move |_, _, _| {
-                let _ = sink.dispatch(
-                    node_id.clone(),
-                    "select",
-                    Some(action.clone()),
-                    serde_json::json!({"object_id": object_id}),
-                );
-            });
+            (Some(action), Some(sink)) => {
+                let node_id = node.id.clone();
+                Some(Rc::new(move |selection| {
+                    let payload = mesh_selection_event_payload(selection.as_ref());
+                    write_qa_json_artifact(
+                        "GPUI_TOOLKIT_QA_HOST_SELECTION_LOG",
+                        &serde_json::json!({
+                            "event": "host_selection_callback",
+                            "action": action.clone(),
+                            "node_id": node_id.clone(),
+                            "payload": payload.clone(),
+                        }),
+                    );
+                    let _ = sink.dispatch(node_id.clone(), "select", Some(action.clone()), payload);
+                }))
+            }
+            _ => None,
+        };
+        let (live_plot, live_state) = match Self::build_native_mesh_plot(
+            &spec,
+            &self.mesh_frames,
+            retained_state,
+            host_selection_callback,
+        ) {
+            Ok((element, state)) => (Some(element), Some(state)),
+            Err(error) => return self.render_error(&error, theme, ds),
+        };
+        write_qa_json_artifact(
+            "GPUI_TOOLKIT_QA_RENDER_TRACE",
+            &serde_json::json!({
+                "plot_id": spec.id.clone(),
+                "mesh_id": mesh_id,
+                "positions": positions,
+                "triangles": triangles,
+                "field_values": field_values,
+                "selection_action": node.selection_action.is_some(),
+                "session": self.session.is_some(),
+                "live_plot": live_plot.is_some(),
+            }),
+        );
+        if let Err(error) = self.mesh_plots.upsert(spec.clone()) {
+            return self.render_error(&error, theme, ds);
+        }
+        if let Some(state) = live_state {
+            self.mesh_plot_states.insert(spec.id.clone(), state);
+        }
+        let mut plot_container = div()
+            .flex_1()
+            .size_full()
+            .rounded(px(ds.corners.sm))
+            .border_1()
+            .border_color(theme.border)
+            .bg(theme.surface_hover)
+            .child(live_plot.unwrap_or_else(|| {
+                div()
+                    .text_color(theme.text_secondary)
+                    .child(format!(
+                        "{} · {} · {}",
+                        mesh_id, spec.mode, spec.color_scale
+                    ))
+                    .into_any_element()
+            }));
+        if env::var_os("GPUI_TOOLKIT_QA_INNER_HIT_TRACE").is_some() {
+            let trace_node_id = node.id.clone();
+            plot_container = plot_container.on_mouse_down(
+                MouseButton::Left,
+                move |event: &MouseDownEvent, _window, _cx| {
+                    write_qa_json_artifact(
+                        "GPUI_TOOLKIT_QA_INNER_HIT_TRACE",
+                        &serde_json::json!({
+                            "hit": true,
+                            "node_id": trace_node_id,
+                            "position": [event.position.x.as_f32(), event.position.y.as_f32()],
+                        }),
+                    );
+                },
+            );
+        }
+
+        let mut container = div()
+            .id(ElementId::Name(
+                format!("python-mesh-plot-{}", node.id).into(),
+            ))
+            .w(px(width))
+            .h(px(height))
+            .flex()
+            .flex_col()
+            .gap(px(ds.spacing.control_gap))
+            .p(px(ds.spacing.card_padding))
+            .rounded(px(ds.corners.md))
+            .border_1()
+            .border_color(theme.border)
+            .bg(theme.surface)
+            .child(
+                div()
+                    .text_color(theme.text_primary)
+                    .font_weight(FontWeight::BOLD)
+                    .child(spec.title.unwrap_or_else(|| "Mesh plot".into())),
+            )
+            .child(div().text_color(theme.text_secondary).child(format!(
+                "{} · {} vertices · {} triangles · {} field values",
+                spec.view, positions, triangles, field_values
+            )))
+            .child(plot_container);
+        if env::var_os("GPUI_TOOLKIT_QA_HIT_TRACE").is_some() {
+            let trace_node_id = node.id.clone();
+            container = container.on_mouse_down(
+                MouseButton::Left,
+                move |event: &MouseDownEvent, _window, _cx| {
+                    write_qa_json_artifact(
+                        "GPUI_TOOLKIT_QA_HIT_TRACE",
+                        &serde_json::json!({
+                            "hit": true,
+                            "node_id": trace_node_id,
+                            "position": [event.position.x.as_f32(), event.position.y.as_f32()],
+                        }),
+                    );
+                },
+            );
         }
         container.into_any_element()
+    }
+
+    fn build_native_mesh_plot(
+        spec: &MeshPlotSpec,
+        mesh_frames: &MeshFrameStore,
+        retained_state: Option<Rc<RefCell<MeshPlotState>>>,
+        selection_callback: Option<Rc<dyn Fn(Option<MeshPlotPick>)>>,
+    ) -> Result<(gpui::AnyElement, Rc<RefCell<MeshPlotState>>), String> {
+        let geometry = &spec.geometry;
+        let mesh_id = geometry.get("id").and_then(Value::as_str).unwrap_or("mesh");
+        let (positions, triangles) = decode_mesh_geometry(geometry, mesh_frames)?;
+        let vertex_ids =
+            decode_inline_ids(geometry, "vertex_ids", positions.len(), mesh_frames)?.map(Arc::from);
+        let cell_ids =
+            decode_inline_ids(geometry, "cell_ids", triangles.len(), mesh_frames)?.map(Arc::from);
+        let mesh = TriangleMesh {
+            id: Arc::from(mesh_id),
+            positions: positions.into(),
+            triangles: triangles.into(),
+            vertex_ids,
+            cell_ids,
+        };
+        let mut plot = mesh_plot(mesh.clone()).plot_id(spec.id.clone());
+        if let Some(field) = spec.field.as_ref() {
+            let (values, valid) = decode_mesh_field(field, mesh_frames)?;
+            let association = match field
+                .get("association")
+                .and_then(Value::as_str)
+                .unwrap_or("vertex")
+            {
+                "cell" => ScalarAssociation::Cell,
+                _ => ScalarAssociation::Vertex,
+            };
+            let scalar = ScalarField {
+                id: Arc::from(field.get("id").and_then(Value::as_str).unwrap_or("field")),
+                label: Arc::from(
+                    field
+                        .get("label")
+                        .and_then(Value::as_str)
+                        .unwrap_or("Field"),
+                ),
+                unit: field.get("unit").and_then(Value::as_str).map(Arc::from),
+                values: values.into(),
+                association,
+                valid: valid.map(Arc::from),
+            };
+            plot = plot.field(scalar);
+        }
+        let view = match spec.view.as_str() {
+            "axisymmetric_section" => MeshPlotView::AxisymmetricSection {
+                radial: CoordinateAxis::X,
+                axial: CoordinateAxis::Z,
+            },
+            "axisymmetric_revolve" => MeshPlotView::AxisymmetricRevolve(Default::default()),
+            "surface3d" => MeshPlotView::Surface3d,
+            _ => MeshPlotView::Planar {
+                horizontal: CoordinateAxis::X,
+                vertical: CoordinateAxis::Y,
+            },
+        };
+        let options = native_mesh_plot_options(spec, mesh_id)?;
+        let (horizontal, vertical) = match spec.view.as_str() {
+            "axisymmetric_section" | "axisymmetric_revolve" => {
+                (CoordinateAxis::X, CoordinateAxis::Z)
+            }
+            _ => (CoordinateAxis::X, CoordinateAxis::Y),
+        };
+        let mut x_min = f64::INFINITY;
+        let mut x_max = f64::NEG_INFINITY;
+        let mut y_min = f64::INFINITY;
+        let mut y_max = f64::NEG_INFINITY;
+        for position in mesh.positions.iter() {
+            let projected = project_2d(horizontal, vertical, *position);
+            x_min = x_min.min(projected[0]);
+            x_max = x_max.max(projected[0]);
+            y_min = y_min.min(projected[1]);
+            y_max = y_max.max(projected[1]);
+        }
+        let x_min = if x_min.is_finite() { x_min } else { 0.0 };
+        let y_min = if y_min.is_finite() { y_min } else { 0.0 };
+        let x_max = if x_max.is_finite() {
+            x_max.max(x_min + f64::EPSILON)
+        } else {
+            x_min + 1.0
+        };
+        let y_max = if y_max.is_finite() {
+            y_max.max(y_min + f64::EPSILON)
+        } else {
+            y_min + 1.0
+        };
+        let state = retained_state.unwrap_or_else(|| {
+            Rc::new(RefCell::new(MeshPlotState::new(x_min, x_max, y_min, y_max)))
+        });
+        if let Some([x_min, x_max, y_min, y_max]) = options.viewport {
+            state
+                .borrow_mut()
+                .set_viewport_without_history(x_min, x_max, y_min, y_max);
+        }
+        if let Some(selection) = &options.selection {
+            state.borrow_mut().set_selection(Some(selection.clone()));
+        }
+        state.borrow_mut().set_style(
+            options.mode.clone(),
+            if spec.wireframe {
+                Wireframe::Overlay
+            } else {
+                Wireframe::Hidden
+            },
+            options.color_range.clone(),
+        );
+        #[cfg(feature = "gpu-3d")]
+        if matches!(spec.view.as_str(), "surface3d" | "axisymmetric_revolve") {
+            apply_mesh_plot_camera(&mut state.borrow_mut(), spec.camera.as_ref())?;
+        }
+        plot = plot
+            .view(view)
+            .mode(options.mode)
+            .color_scale(options.color_scale)
+            .color_range(options.color_range)
+            .axes(options.axes)
+            .interactions(options.interactions)
+            .wireframe(if spec.wireframe {
+                Wireframe::Overlay
+            } else {
+                Wireframe::Hidden
+            })
+            .on_selection(move |selection| {
+                if let Some(callback) = &selection_callback {
+                    callback(selection);
+                }
+            })
+            .with_state(state.clone());
+        if let Some(selection) = options.selection {
+            plot = plot.selection(selection);
+        }
+        if let Some(field) = spec.field.as_ref() {
+            let label = field
+                .get("label")
+                .and_then(Value::as_str)
+                .unwrap_or("Field");
+            let mut colorbar = Colorbar::new(label);
+            if let Some(unit) = field.get("unit").and_then(Value::as_str) {
+                colorbar = colorbar.unit(unit);
+            }
+            plot = plot.colorbar(colorbar);
+        }
+        if let Some(title) = &spec.title {
+            plot = plot.title(title.clone());
+        }
+        if let (Some(width), Some(height)) = (spec.width, spec.height) {
+            plot = plot.size(width, height);
+        }
+        plot.build()
+            .map(|element| (div().size_full().child(element).into_any_element(), state))
+            .map_err(|error| error.to_string())
     }
 
     pub(super) fn render_surface_spec(
@@ -9280,10 +11110,49 @@ impl PythonIrShowcase {
                         // handler completed after a newer event superseded it.
                         self.session_state = next_state;
                     } else if let Some(app) = self.app.as_mut() {
-                        if let Err(error) = app.apply_patch_ops(&patch.ops) {
+                        let mut next_app = app.clone();
+                        if let Err(error) = next_app.apply_patch_ops(&patch.ops) {
+                            self.load_error = Some(error.to_string());
+                        } else if let Err(error) = validate_mesh_plot_resources(
+                            &serde_json::to_value(&next_app).unwrap_or(Value::Null),
+                            &self.mesh_frames,
+                            patch.request_id.as_deref(),
+                        ) {
+                            // Resource-backed patches are committed only when
+                            // every referenced generation is already retained;
+                            // the previous valid frame remains visible while a
+                            // sender recovers from a stale/evicted handle.
                             self.load_error = Some(error.to_string());
                         } else {
+                            *app = next_app;
+                            self.last_mesh_patch_id = patch.request_id.clone();
                             self.session_state = next_state;
+                            for operation in &patch.ops {
+                                match operation {
+                                    PatchOp::ClearMeshPlotSelection { plot_id, .. } => {
+                                        if let Some(state) = self.mesh_plot_states.get(plot_id) {
+                                            state.borrow_mut().clear_selection();
+                                        }
+                                    }
+                                    PatchOp::ResetMeshPlotViewport { plot_id, .. } => {
+                                        if let Some(state) = self.mesh_plot_states.get(plot_id) {
+                                            state.borrow_mut().interaction.reset_zoom();
+                                        }
+                                    }
+                                    #[cfg(feature = "gpu-3d")]
+                                    PatchOp::ResetMeshPlotCamera { plot_id, .. } => {
+                                        if let Some(state) = self.mesh_plot_states.get(plot_id) {
+                                            state.borrow_mut().orbit_reset();
+                                        }
+                                    }
+                                    _ => {}
+                                }
+                            }
+                            let mut live_ids = HashSet::new();
+                            if let Ok(value) = serde_json::to_value(&*app) {
+                                mesh_plot_ids(&value, &mut live_ids);
+                            }
+                            self.mesh_plot_states.retain(|id, _| live_ids.contains(id));
                         }
                     } else {
                         self.load_error = Some("patch before snapshot".into());
@@ -9311,11 +11180,28 @@ impl PythonIrShowcase {
                         self.load_error = Some(error.to_string());
                     }
                 }
+                Ok(PythonMessage::MeshFrame(frame)) => {
+                    let resource_id = frame.resource_id.clone();
+                    let generation = frame.generation;
+                    match self.mesh_frames.ingest(frame) {
+                        Ok(MeshFrameOutcome::Assembled(_))
+                        | Ok(MeshFrameOutcome::Incomplete)
+                        | Ok(MeshFrameOutcome::DroppedStale) => {}
+                        Err(error) => {
+                            let patch_id = self.last_mesh_patch_id.as_deref().unwrap_or("<stream>");
+                            self.load_error = Some(format!(
+                                "mesh resource {:?} generation {} (patch {}) failed: {}",
+                                resource_id, generation, patch_id, error
+                            ));
+                        }
+                    }
+                }
                 Ok(PythonMessage::DropResource {
                     resource_id,
                     generation,
                 }) => {
                     self.audio_frames.release(&resource_id, generation);
+                    self.mesh_frames.release(&resource_id, generation);
                 }
                 Ok(PythonMessage::Effect {
                     request_id,
@@ -9454,6 +11340,7 @@ impl Drop for PythonIrShowcase {
             cancellation.store(true, Ordering::Release);
         }
         self.audio_frames.clear();
+        self.mesh_frames.clear();
     }
 }
 
@@ -9540,6 +11427,8 @@ impl Render for PythonIrShowcase {
                         ),
                 );
         }
+
+        self.schedule_qa_pointer_event(window, cx);
 
         div()
             .size_full()

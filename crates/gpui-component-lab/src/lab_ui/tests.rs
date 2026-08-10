@@ -242,6 +242,7 @@ fn builtin_preview_handler_story_id(story_id: &str) -> bool {
     ) || UI_KIT_EXPORTED_COMPONENT_STORY_IDS.contains(&story_id)
         || showcase_section_for_story_id(story_id).is_some()
         || crate::PX_CHART_STORY_IDS.contains(&story_id)
+        || story_id.starts_with("px.mesh_plot.")
 }
 
 #[test]

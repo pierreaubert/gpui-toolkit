@@ -4,6 +4,11 @@
 //! - intersections are computed once per (unique edge, level) and cached;
 //! - a vertex exactly on a level classifies as "above" (documented tie-break);
 //! - masked triangles are skipped entirely and never emit geometry.
+//!
+//! Callers must validate the scalar field before construction. An unmasked
+//! NaN is not a meaningful contour value and otherwise follows ordinary
+//! floating-point comparisons (classified below); validation prevents that
+//! sentinel from entering a render path.
 
 use super::{
     CoordinateAxis, MeshTopology, MeshValidationError, ScalarAssociation, ScalarField,
@@ -58,7 +63,11 @@ impl<'m> MarchingTriangles<'m> {
     }
 
     fn point(&self, v: u32) -> [f64; 2] {
-        project_2d(self.horizontal, self.vertical, self.mesh.positions[v as usize])
+        project_2d(
+            self.horizontal,
+            self.vertical,
+            self.mesh.positions[v as usize],
+        )
     }
 
     fn tri_masked(&self, tri: [u32; 3]) -> bool {
@@ -69,12 +78,7 @@ impl<'m> MarchingTriangles<'m> {
     }
 
     /// Intersection on unique edge `ei` at `level`, computed once and cached.
-    fn edge_hit(
-        &self,
-        ei: u32,
-        level: f64,
-        cache: &mut [Option<[f64; 2]>],
-    ) -> Option<[f64; 2]> {
+    fn edge_hit(&self, ei: u32, level: f64, cache: &mut [Option<[f64; 2]>]) -> Option<[f64; 2]> {
         if let Some(p) = cache[ei as usize] {
             return Some(p);
         }
@@ -109,7 +113,11 @@ impl<'m> MarchingTriangles<'m> {
                     }
                 }
                 if hits.len() == 2 {
-                    out.push(IsolineSegment { level, start: hits[0], end: hits[1] });
+                    out.push(IsolineSegment {
+                        level,
+                        start: hits[0],
+                        end: hits[1],
+                    });
                 }
             }
         }
@@ -136,8 +144,13 @@ impl<'m> MarchingTriangles<'m> {
                 (self.point(tri[2]), self.values[tri[2] as usize]),
             ];
             for band in &mut bands {
-                let lo = band.lower.unwrap();
-                let hi = band.upper.unwrap();
+                let (Some(lo), Some(hi)) = (band.lower, band.upper) else {
+                    // `filled_bands` currently creates only closed bands, but
+                    // ContourBand intentionally also represents open-ended
+                    // ranges. Keep a malformed/open band inert instead of
+                    // turning a future producer change into a library panic.
+                    continue;
+                };
                 let poly = clip_band(&pts, lo, hi);
                 if poly.len() >= 3 {
                     let base = band.positions.len() as u32;
@@ -167,7 +180,9 @@ fn clip_band(tri: &[([f64; 2], f64); 3], lo: f64, hi: f64) -> Vec<([f64; 2], f64
             return out;
         }
         let inside = |v: f64| if keep_above { v >= level } else { v <= level };
-        let mut prev = *input.last().unwrap();
+        let Some(mut prev) = input.last().copied() else {
+            return out;
+        };
         for &cur in input {
             let cur_in = inside(cur.1);
             let prev_in = inside(prev.1);
@@ -217,7 +232,10 @@ mod tests {
         }
     }
 
-    fn with_topo(mesh: TriangleMesh, field: ScalarField) -> (TriangleMesh, ScalarField, MeshTopology) {
+    fn with_topo(
+        mesh: TriangleMesh,
+        field: ScalarField,
+    ) -> (TriangleMesh, ScalarField, MeshTopology) {
         let topo = MeshTopology::build(&mesh.triangles);
         (mesh, field, topo)
     }
@@ -258,7 +276,8 @@ mod tests {
     #[test]
     fn single_triangle_linear_field_isoline() {
         let (mesh, field, topo) = single_tri_fixture(); // (0,0),(1,0),(0,1); v = [0.0, 1.0, 0.0]
-        let mt = MarchingTriangles::new(&mesh, &field, &topo, CoordinateAxis::X, CoordinateAxis::Y).unwrap();
+        let mt = MarchingTriangles::new(&mesh, &field, &topo, CoordinateAxis::X, CoordinateAxis::Y)
+            .unwrap();
         let segs = mt.isolines(&[0.5]);
         assert_eq!(segs.len(), 1);
         let s = segs[0];
@@ -276,29 +295,42 @@ mod tests {
         // two triangles sharing an edge; the intersection point on the shared edge
         // must appear exactly once in the cache → both triangles agree bitwise
         let (mesh, field, topo) = square_fixture_linear(); // v = x over unit square, tris [0,1,2],[1,3,2]
-        let mt = MarchingTriangles::new(&mesh, &field, &topo, CoordinateAxis::X, CoordinateAxis::Y).unwrap();
+        let mt = MarchingTriangles::new(&mesh, &field, &topo, CoordinateAxis::X, CoordinateAxis::Y)
+            .unwrap();
         let segs = mt.isolines(&[0.5]);
         assert_eq!(segs.len(), 2);
         // the two segments share an endpoint bitwise (computed once per unique edge)
         let pts: Vec<[f64; 2]> = segs.iter().flat_map(|s| [s.start, s.end]).collect();
-        let shared = pts.iter().filter(|p| (p[0] - 0.5).abs() < 1e-15 && (p[1] - 0.5).abs() < 1e-15).count();
-        assert_eq!(shared, 2, "both segments must reference the same shared-edge point");
+        let shared = pts
+            .iter()
+            .filter(|p| (p[0] - 0.5).abs() < 1e-15 && (p[1] - 0.5).abs() < 1e-15)
+            .count();
+        assert_eq!(
+            shared, 2,
+            "both segments must reference the same shared-edge point"
+        );
     }
 
     #[test]
     fn exact_on_level_vertex_tiebreak() {
         // v = [0.5, 0.0, 1.0], level 0.5: vertex 0 is exactly on level → treated as above
         let (mesh, field, topo) = fixture_with_values(&[0.5, 0.0, 1.0]);
-        let mt = MarchingTriangles::new(&mesh, &field, &topo, CoordinateAxis::X, CoordinateAxis::Y).unwrap();
+        let mt = MarchingTriangles::new(&mesh, &field, &topo, CoordinateAxis::X, CoordinateAxis::Y)
+            .unwrap();
         let segs = mt.isolines(&[0.5]);
-        assert_eq!(segs.len(), 1, "documented tie-break must yield exactly one segment");
+        assert_eq!(
+            segs.len(),
+            1,
+            "documented tie-break must yield exactly one segment"
+        );
     }
 
     #[test]
     fn masked_triangle_excluded() {
         let (mesh, mut field, topo) = square_fixture_linear();
         field.valid = Some(vec![true, false, true, true].into()); // vertex 1 masked → both tris touch it
-        let mt = MarchingTriangles::new(&mesh, &field, &topo, CoordinateAxis::X, CoordinateAxis::Y).unwrap();
+        let mt = MarchingTriangles::new(&mesh, &field, &topo, CoordinateAxis::X, CoordinateAxis::Y)
+            .unwrap();
         assert!(mt.isolines(&[0.5]).is_empty());
     }
 
@@ -306,15 +338,23 @@ mod tests {
     fn filled_band_triangle_count_matches_area() {
         // v = x on unit square, band [0.25, 0.75): covered area = 0.5
         let (mesh, field, topo) = square_fixture_linear();
-        let mt = MarchingTriangles::new(&mesh, &field, &topo, CoordinateAxis::X, CoordinateAxis::Y).unwrap();
+        let mt = MarchingTriangles::new(&mesh, &field, &topo, CoordinateAxis::X, CoordinateAxis::Y)
+            .unwrap();
         let bands = mt.filled_bands(&[0.25, 0.75]);
         assert_eq!(bands.len(), 1);
-        let area: f64 = bands[0].triangles.iter().map(|t| {
-            let p = |i: u32| bands[0].positions[i as usize];
-            let [a, b, c] = [p(t[0]), p(t[1]), p(t[2])];
-            ((b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])).abs() / 2.0
-        }).sum();
-        assert!((area - 0.5).abs() < 1e-9, "band area must be 0.5, got {area}");
+        let area: f64 = bands[0]
+            .triangles
+            .iter()
+            .map(|t| {
+                let p = |i: u32| bands[0].positions[i as usize];
+                let [a, b, c] = [p(t[0]), p(t[1]), p(t[2])];
+                ((b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])).abs() / 2.0
+            })
+            .sum();
+        assert!(
+            (area - 0.5).abs() < 1e-9,
+            "band area must be 0.5, got {area}"
+        );
     }
 
     #[test]
@@ -322,9 +362,10 @@ mod tests {
         let (mesh, mut field, topo) = square_fixture_linear();
         field.association = ScalarAssociation::Cell;
         field.values = vec![0.2, 0.8].into();
-        let err = MarchingTriangles::new(&mesh, &field, &topo, CoordinateAxis::X, CoordinateAxis::Y)
-            .err()
-            .unwrap();
+        let err =
+            MarchingTriangles::new(&mesh, &field, &topo, CoordinateAxis::X, CoordinateAxis::Y)
+                .err()
+                .unwrap();
         assert_eq!(err, MeshValidationError::ContoursRequireVertexField);
     }
 }

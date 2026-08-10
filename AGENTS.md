@@ -15,13 +15,21 @@ The `gpui-toolkit` workspace contains several related crates for building GPUI a
 | `gpui-ios` | iOS platform backend (Metal rendering, touch, text) | [README](gpui-ios/README.md), [AGENTS.md](gpui-ios/AGENTS.md) |
 | `gpui-pretext` | High-performance text measurement and multiline layout (Rust port of chenglou/pretext) | [README](gpui-pretext/README.md) |
 | `gpui-profiler` | Lightweight allocation profiling utilities for interactive UI hot paths | [README](gpui-profiler/README.md) |
-| `gpui-px` | High-level Plotly Express-style charting API | [README](gpui-px/README.md) |
+| `gpui-px` | High-level Plotly Express-style charting API, including unstructured `MeshPlot` | [README](gpui-px/README.md) |
 | `gpui-themes` | Theme editor and management infrastructure | [AGENTS.md](gpui-themes/AGENTS.md) |
 | `gpui-ui-kit` | Reusable UI components (buttons, forms, layout) with ARIA accessibility support | [lib.rs](gpui-ui-kit/src/lib.rs), [CLAUDE.md](gpui-ui-kit/CLAUDE.md) |
 | `gpui-ui-kit-macros` | Procedural macros for theme derivation | [README](gpui-ui-kit-macros/README.md) |
 | `figma/` | Figma-to-GPUI design system rules and Code Connect mappings | [DESIGN_SYSTEM_RULES.md](figma/DESIGN_SYSTEM_RULES.md), [CODE_CONNECT_MAPPINGS.md](figma/CODE_CONNECT_MAPPINGS.md) |
 
 **Key Principle**: All crates use GPUI's native `div()`-based rendering, not HTML/SVG. Components return `impl IntoElement`.
+
+**MeshPlot**: `gpui-px::mesh_plot` owns the validated triangle-mesh builder,
+scalar-field modes, contour/isoline export, equal-aspect views, and
+accessibility metadata. Geometry preparation, BVH picking, GPU upload state,
+and compute/reference kernels belong to `gpui-d3rs`; Python declarations and
+revisioned patches belong to `gpui-python-runtime`. Keep application-specific
+complex/vector/tensor projection and durable result storage outside these UI
+crates.
 
 ## Forms
 

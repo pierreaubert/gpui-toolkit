@@ -3,7 +3,9 @@ use super::consts::UI_KIT_EXPORTED_COMPONENT_STORIES;
 use super::consts::UI_KIT_SHOWCASE_STORIES;
 use super::story_prop::StoryProp;
 use super::story_registry::StoryRegistry;
+use super::theme_preset::ThemePreset;
 use super::types::StoryPropValue;
+use super::viewport_preset::ViewportPreset;
 use anyhow::Result;
 
 pub fn register_ui_kit_stories(registry: &mut StoryRegistry) -> Result<()> {
@@ -313,7 +315,106 @@ pub fn register_px_stories(registry: &mut StoryRegistry) -> Result<()> {
             StoryProp::new("wireframe", "Wireframe", StoryPropValue::Bool(false)),
             StoryProp::new("fill", "Fill", StoryPropValue::Bool(true)),
         ]),
-    )
+    )?;
+    registry.register(mesh_plot_story(
+        "px.mesh_plot",
+        "Mesh Plot",
+        "Unstructured scalar triangle mesh with contour and selection states",
+        true,
+    ))?;
+    for (id, title, description) in [
+        (
+            "px.mesh_plot.mesh_only",
+            "Mesh Plot — Mesh only",
+            "Deterministic unstructured triangle wireframe",
+        ),
+        (
+            "px.mesh_plot.smooth_fill",
+            "Mesh Plot — Smooth fill",
+            "Vertex-associated scalar field with smooth interpolation",
+        ),
+        (
+            "px.mesh_plot.flat_fill",
+            "Mesh Plot — Flat fill",
+            "Cell-associated scalar field with flat interpolation",
+        ),
+        (
+            "px.mesh_plot.filled_contours",
+            "Mesh Plot — Filled contours",
+            "Unstructured marching-triangle filled contour bands",
+        ),
+        (
+            "px.mesh_plot.isolines",
+            "Mesh Plot — Isolines",
+            "Unstructured marching-triangle isolines",
+        ),
+        (
+            "px.mesh_plot.combined",
+            "Mesh Plot — Combined",
+            "Scalar fill with isolines and a wireframe overlay",
+        ),
+        (
+            "px.mesh_plot.axisymmetric_section",
+            "Mesh Plot — Axisymmetric section",
+            "Deterministic radial/axial section of an annular profile",
+        ),
+        (
+            "px.mesh_plot.revolve",
+            "Mesh Plot — Revolve",
+            "Retained 3D surface generated from an axisymmetric profile",
+        ),
+        (
+            "px.mesh_plot.surface3d",
+            "Mesh Plot — Surface 3D",
+            "Small unstructured 3D scalar surface",
+        ),
+        (
+            "px.mesh_plot.picking",
+            "Mesh Plot — Picking",
+            "Known-cell selection and displayed-value annotation",
+        ),
+    ] {
+        registry.register(mesh_plot_story(id, title, description, false))?;
+    }
+    Ok(())
+}
+
+fn mesh_plot_story(id: &str, title: &str, description: &str, expose_mode: bool) -> ComponentStory {
+    let props = if expose_mode {
+        vec![
+            StoryProp::new("mode", "Mode", StoryPropValue::Choice("combined".into())).options([
+                "mesh",
+                "smooth_fill",
+                "flat_fill",
+                "filled_contours",
+                "isolines",
+                "combined",
+            ]),
+            StoryProp::new("wireframe", "Wireframe", StoryPropValue::Bool(true)),
+            StoryProp::new("fill", "Fill", StoryPropValue::Bool(true)),
+        ]
+    } else {
+        vec![
+            StoryProp::new("wireframe", "Wireframe", StoryPropValue::Bool(true)),
+            StoryProp::new("fill", "Fill", StoryPropValue::Bool(true)),
+        ]
+    };
+
+    let mut story = ComponentStory::new(id, "gpui-px", title, description).props(props);
+    // Keep MeshPlot's release captures aligned with the chart visual QA
+    // contract: dashboard, panel, and mobile widths crossed with three
+    // stable color-scheme identifiers.
+    story.viewports = vec![
+        ViewportPreset::new("dashboard-wide", "Dashboard wide", 1280.0, 760.0),
+        ViewportPreset::new("panel-compact", "Panel compact", 720.0, 520.0),
+        ViewportPreset::new("mobile-card", "Mobile card", 390.0, 640.0),
+    ];
+    story.themes = vec![
+        ThemePreset::new("light", "Light", "neutral", false),
+        ThemePreset::new("dark", "Dark", "apple_hig", false),
+        ThemePreset::new("high_contrast", "High contrast", "material3", false),
+    ];
+    story
 }
 
 pub fn register_audio_kit_stories(registry: &mut StoryRegistry) -> Result<()> {

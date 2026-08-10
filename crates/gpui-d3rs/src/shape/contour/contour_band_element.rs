@@ -289,7 +289,7 @@ mod tests {
         }
     }
 
-    #[test]
+    #[::core::prelude::v1::test]
     fn prepare_band_paths_builds_fill_and_stroke() {
         let band = test_band();
         let x_scale = LinearScale::new().domain(0.0, 1.0).range(0.0, 100.0);
@@ -308,7 +308,7 @@ mod tests {
         assert_eq!(prepared.len(), 1);
     }
 
-    #[test]
+    #[::core::prelude::v1::test]
     fn prepare_band_paths_skips_small_rings() {
         let band = ContourBand {
             lower: 0.0,

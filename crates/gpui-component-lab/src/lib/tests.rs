@@ -12,6 +12,7 @@ use super::consts::PX_CHART_STORY_IDS;
 use super::consts::PX_CHART_STORY_TYPES;
 use super::consts::UI_KIT_EXPORTED_COMPONENT_STORY_IDS;
 use super::consts::UI_KIT_EXPORTED_COMPONENT_STORY_TYPES;
+use super::consts::{MESH_PLOT_STORY_IDS, MESH_PLOT_STORY_VARIANT_IDS};
 use super::default::default_theme_presets;
 use super::latest::latest_rust_source_modified;
 use super::responsive_preview_matrix::ResponsivePreviewMatrix;
@@ -214,11 +215,50 @@ fn px_stories_have_responsive_rendered_conformance() {
 
     let px_story_ids = registry
         .stories()
-        .filter(|story| story.crate_name == "gpui-px")
+        .filter(|story| {
+            story.crate_name == "gpui-px"
+                && !MESH_PLOT_STORY_VARIANT_IDS.contains(&story.id.as_str())
+        })
         .map(|story| story.id.as_str())
         .collect::<BTreeSet<_>>();
     let expected_ids = PX_CHART_STORY_IDS.iter().copied().collect::<BTreeSet<_>>();
     assert_eq!(px_story_ids, expected_ids);
+}
+
+#[test]
+fn mesh_plot_stories_have_deterministic_three_by_three_baselines() {
+    let stories = builtin_story_registry().unwrap();
+    let renderers = builtin_story_renderers().unwrap();
+    let manifest =
+        ComponentLabVisualManifest::from_registries(&stories, &renderers, "target/lab-visual");
+
+    for story_id in MESH_PLOT_STORY_IDS {
+        let story = stories
+            .story(story_id)
+            .unwrap_or_else(|| panic!("missing MeshPlot story {story_id}"));
+        assert_eq!(story.viewports.len(), 3, "{story_id} viewport matrix");
+        assert_eq!(story.themes.len(), 3, "{story_id} scheme matrix");
+        assert!(story.props.iter().any(|prop| prop.name == "fill"));
+
+        let renderer = renderers
+            .renderer(story_id)
+            .unwrap_or_else(|| panic!("missing MeshPlot renderer {story_id}"));
+        assert_eq!(renderer.kind, StoryRendererKind::Chart);
+        assert!(renderer.matrix_preview);
+
+        let cases = manifest
+            .cases
+            .iter()
+            .filter(|case| case.story_id == *story_id)
+            .collect::<Vec<_>>();
+        assert_eq!(cases.len(), 9, "{story_id} visual baseline cases");
+        assert!(cases.iter().all(|case| {
+            case.baseline_path
+                .contains(&format!("/baseline/{}.png", case.capture_id))
+                && case.actual_path.contains("/actual/")
+                && case.diff_path.contains("/diff/")
+        }));
+    }
 }
 
 #[test]

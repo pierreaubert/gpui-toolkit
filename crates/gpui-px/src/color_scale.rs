@@ -41,6 +41,19 @@ impl std::fmt::Debug for ColorScale {
 }
 
 impl ColorScale {
+    /// Stable shader colormap numbering shared with d3rs GPU renderers.
+    pub fn to_colormap_index(&self) -> u32 {
+        match self {
+            Self::Viridis => 0,
+            Self::Plasma => 1,
+            Self::Inferno => 2,
+            Self::Magma => 3,
+            Self::Heat => 4,
+            Self::Coolwarm => 5,
+            Self::Greys => 6,
+            Self::Custom(_) => 0,
+        }
+    }
     /// Create a custom color scale from a function.
     ///
     /// The function should map values in [0, 1] to colors.

@@ -1,4 +1,4 @@
-use gpui :: { FontFeatures , SharedString } ;
+use gpui::{FontFeatures, SharedString};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(super) struct FontKey {
@@ -11,4 +11,3 @@ impl FontKey {
         Self { family, features }
     }
 }
-

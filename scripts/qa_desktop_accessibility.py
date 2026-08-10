@@ -10,7 +10,7 @@ from pathlib import Path
 
 SCHEMA_VERSION = 1
 REPORT_TYPE = "gpui-toolkit-desktop-accessibility-evidence"
-REVIEWED_ON = "2026-08-07"
+REVIEWED_ON = "2026-08-09"
 
 
 CHECKS = (
@@ -90,6 +90,18 @@ CHECKS = (
             ["qa/visual/baselines/README.md", "Metal"],
         ],
     },
+    {
+        "id": "mesh-plot-live-accessibility",
+        "dimension": "MeshPlot live accessibility registration",
+        "status": "component-tested",
+        "evidence": [
+            [
+                "crates/gpui-px/tests/mesh_plot_accessibility.rs",
+                "mesh_plot_registers_native_accessibility_summary",
+            ],
+            ["crates/gpui-px/tests/mesh_plot_accessibility.rs", "AriaRole::Img"],
+        ],
+    },
 )
 
 
@@ -117,6 +129,7 @@ def report() -> dict[str, object]:
         "native_screen_reader_qa": "manual-required",
         "commands": [
             "cargo test -p gpui-ui-kit",
+            "cargo test -p gpui-px --test mesh_plot_accessibility",
             "cargo test -p gpui-component-lab",
             "just qa-visual",
         ],

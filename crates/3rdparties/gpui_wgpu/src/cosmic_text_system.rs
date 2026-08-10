@@ -2,8 +2,8 @@ use anyhow::Result;
 use collections::HashMap;
 use cosmic_text::{FontSystem, ShapeBuffer};
 use gpui::{
-    Bounds, DevicePixels, Font, FontId, FontMetrics, FontRun, GlyphId, LineLayout,
-    Pixels, PlatformTextSystem, RenderGlyphParams, Size, TextRenderingMode, point, size,
+    Bounds, DevicePixels, Font, FontId, FontMetrics, FontRun, GlyphId, LineLayout, Pixels,
+    PlatformTextSystem, RenderGlyphParams, Size, TextRenderingMode, point, size,
 };
 use itertools::Itertools;
 use parking_lot::RwLock;
@@ -16,9 +16,9 @@ mod misc;
 mod types;
 
 use cosmic_text_system_state::CosmicTextSystemState;
-# [cfg (feature = "font-kit")]
+#[cfg(feature = "font-kit")]
 use find::find_best_match;
-# [cfg (not (feature = "font-kit"))]
+#[cfg(not(feature = "font-kit"))]
 use find::find_best_match;
 use font_key::FontKey;
 

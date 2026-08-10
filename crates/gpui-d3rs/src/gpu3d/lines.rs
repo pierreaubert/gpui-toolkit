@@ -297,7 +297,7 @@ impl Element for Lines3DElement {
 mod tests {
     use super::*;
 
-    #[test]
+    #[::core::prelude::v1::test]
     fn default_state_has_camera_initialized_from_controls() {
         let state = Lines3DState::default();
         // Camera should reflect the orbit controls' initial spherical pose.
@@ -306,7 +306,7 @@ mod tests {
         assert_eq!(state.camera.target, expected.target);
     }
 
-    #[test]
+    #[::core::prelude::v1::test]
     fn new_state_applies_overrides() {
         let s = Lines3DState::new(5.0, 90.0, 30.0);
         assert!((s.controls.distance - 5.0).abs() < 1e-5);
@@ -314,7 +314,7 @@ mod tests {
         assert!((s.controls.elevation - 30.0_f32.to_radians()).abs() < 1e-5);
     }
 
-    #[test]
+    #[::core::prelude::v1::test]
     fn update_camera_propagates_orbit_changes() {
         let mut s = Lines3DState::default();
         let before = s.camera.position;
@@ -326,7 +326,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[::core::prelude::v1::test]
     fn scene_default_is_empty() {
         let s = Lines3DScene::default();
         assert!(s.lines.is_empty());

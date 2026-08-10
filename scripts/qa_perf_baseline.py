@@ -69,6 +69,12 @@ class BenchSpec:
 # The `groups` patterns map Criterion group_id values to crate:bench.
 BENCHMARKS: list[BenchSpec] = [
     BenchSpec(
+        "gpui-d3rs",
+        "mesh_prep",
+        [],
+        groups=["mesh_prep"],
+    ),
+    BenchSpec(
         "gpui-builder",
         "solved_tree",
         [],
@@ -98,6 +104,12 @@ BENCHMARKS: list[BenchSpec] = [
         "streaming_prepare",
         [],
         groups=["streaming_prepare"],
+    ),
+    BenchSpec(
+        "gpui-px",
+        "mesh_plot_frames",
+        [],
+        groups=["mesh_plot_svg_frame", "mesh_plot_retained_frames"],
     ),
     BenchSpec(
         "gpui-ui-kit",

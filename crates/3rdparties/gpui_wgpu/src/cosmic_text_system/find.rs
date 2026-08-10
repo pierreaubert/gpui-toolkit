@@ -1,12 +1,12 @@
-use anyhow :: { Context as _ , Ok , Result } ;
-use gpui :: { Font , FontId } ;
-# [cfg (feature = "font-kit")]
-use smallvec::SmallVec;
 use super::cosmic_text_system_state::CosmicTextSystemState;
-# [cfg (feature = "font-kit")]
+#[cfg(feature = "font-kit")]
 use super::misc::face_info_into_properties;
-# [cfg (feature = "font-kit")]
+#[cfg(feature = "font-kit")]
 use super::misc::font_into_properties;
+use anyhow::{Context as _, Ok, Result};
+use gpui::{Font, FontId};
+#[cfg(feature = "font-kit")]
+use smallvec::SmallVec;
 
 #[cfg(feature = "font-kit")]
 pub(super) fn find_best_match(
@@ -80,4 +80,3 @@ pub(super) fn find_best_match(
 
     Ok(best_index)
 }
-

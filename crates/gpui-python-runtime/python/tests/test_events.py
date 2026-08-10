@@ -10,6 +10,21 @@ class EventTests(unittest.TestCase):
         selected = specialize({"id":"e2","node_id":"rows","event":"select","payload":{"row_id":"r1"}})
         self.assertIsInstance(selected, Selection)
         self.assertEqual(selected.selected_id, "r1")
+        mesh_selected = specialize({
+            "id": "e-mesh", "node_id": "plot", "event": "select", "payload": {
+                "plot_id": "pressure-field", "mesh_id": "baffle", "cell_index": 4,
+                "cell_id": 99, "vertex_id": 12, "world_position": [1, 2, 3],
+                "displayed_value": 42.5, "field_id": "pressure",
+            },
+        })
+        self.assertEqual(mesh_selected.plot_id, "pressure-field")
+        self.assertEqual(mesh_selected.mesh_id, "baffle")
+        self.assertEqual(mesh_selected.cell_index, 4)
+        self.assertEqual(mesh_selected.cell_id, 99)
+        self.assertEqual(mesh_selected.vertex_id, 12)
+        self.assertEqual(mesh_selected.world_position, (1.0, 2.0, 3.0))
+        self.assertEqual(mesh_selected.displayed_value, 42.5)
+        self.assertEqual(mesh_selected.field_id, "pressure")
         changed = specialize({"id":"e3","node_id":"gain","event":"change","payload":{"value":0.5}})
         self.assertIsInstance(changed, ValueChange)
         self.assertEqual(changed.value, 0.5)

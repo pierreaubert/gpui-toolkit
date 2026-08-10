@@ -2,7 +2,8 @@
 #![warn(missing_docs)]
 #![allow(clippy::type_complexity)] // Not useful, GPUI makes heavy use of callbacks
 #![allow(clippy::collapsible_else_if)] // False positives in platform specific code
-#![allow(unused_mut)] // False positives in platform specific code
+#![allow(unused_mut)]
+// False positives in platform specific code
 // Local patch (see VENDORED.md): default-lint noise under `-D warnings`; upstream code unchanged.
 #![allow(clippy::collapsible_if)]
 #![allow(clippy::collapsible_match)]

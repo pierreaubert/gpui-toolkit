@@ -473,7 +473,7 @@ mod tests {
     use super::*;
     use crate::scale::LinearScale;
 
-    #[test]
+    #[::core::prelude::v1::test]
     fn render_scatter_uses_single_precomputed_pass() {
         let x_scale = LinearScale::new().domain(0.0, 100.0).range(0.0, 400.0);
         let y_scale = LinearScale::new().domain(0.0, 100.0).range(300.0, 0.0);
@@ -494,7 +494,7 @@ mod tests {
         assert_eq!(points[2].x_rel, 0.9);
     }
 
-    #[test]
+    #[::core::prelude::v1::test]
     fn validate_scatter_inputs_accepts_valid_points() {
         let x_scale = LinearScale::new().domain(0.0, 100.0).range(0.0, 400.0);
         let y_scale = LinearScale::new().domain(0.0, 100.0).range(300.0, 0.0);
@@ -504,7 +504,7 @@ mod tests {
         validate_scatter_inputs(&x_scale, &y_scale, &data, &config).unwrap();
     }
 
-    #[test]
+    #[::core::prelude::v1::test]
     fn validate_scatter_inputs_rejects_non_finite_data_coordinates() {
         let x_scale = LinearScale::new().domain(0.0, 100.0).range(0.0, 400.0);
         let y_scale = LinearScale::new().domain(0.0, 100.0).range(300.0, 0.0);
@@ -529,7 +529,7 @@ mod tests {
         }
     }
 
-    #[test]
+    #[::core::prelude::v1::test]
     fn validate_scatter_inputs_rejects_non_finite_scale_range() {
         let x_scale = LinearScale::new()
             .domain(0.0, 100.0)
@@ -548,7 +548,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[::core::prelude::v1::test]
     fn validate_scatter_inputs_rejects_invalid_config() {
         let x_scale = LinearScale::new().domain(0.0, 100.0).range(0.0, 400.0);
         let y_scale = LinearScale::new().domain(0.0, 100.0).range(300.0, 0.0);

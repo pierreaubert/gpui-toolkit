@@ -545,9 +545,11 @@ mod tests {
             assert!(!platform.id.is_empty());
             assert!(!platform.platform.is_empty());
             assert!(["A", "B", "C"].contains(&platform.tier));
-            assert!(!matrix.platforms[..index]
-                .iter()
-                .any(|previous| previous.id == platform.id));
+            assert!(
+                !matrix.platforms[..index]
+                    .iter()
+                    .any(|previous| previous.id == platform.id)
+            );
         }
     }
 
@@ -642,14 +644,18 @@ mod tests {
         let matrix = release_qa_matrix();
 
         assert!(!matrix.all_passed());
-        assert!(matrix
-            .gates
-            .iter()
-            .any(|gate| gate.status == ReleaseQaStatus::Partial));
-        assert!(matrix
-            .gates
-            .iter()
-            .any(|gate| gate.status == ReleaseQaStatus::ManualRequired));
+        assert!(
+            matrix
+                .gates
+                .iter()
+                .any(|gate| gate.status == ReleaseQaStatus::Partial)
+        );
+        assert!(
+            matrix
+                .gates
+                .iter()
+                .any(|gate| gate.status == ReleaseQaStatus::ManualRequired)
+        );
         assert!(!matrix.gates.iter().any(|gate| matches!(
             gate.status,
             ReleaseQaStatus::Pending | ReleaseQaStatus::Blocked

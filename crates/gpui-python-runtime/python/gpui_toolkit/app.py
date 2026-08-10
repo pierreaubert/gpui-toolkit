@@ -19,12 +19,16 @@ from .events import Event, specialize as specialize_event
 from .effects import EffectResult
 from .commands import CommandResult
 from .miniapp import MiniAppConfig
+from .resources import MAX_MESH_FRAME_BYTES, MAX_MESH_RESOURCE_BYTES, MeshFrame
 
 
 PYTHON_APP_IR_SCHEMA_VERSION = 1
 PYTHON_APP_SESSION_VERSION = 1
 MAX_SESSION_MESSAGE_BYTES = 4 * 1024 * 1024
-PYTHON_SESSION_CAPABILITIES = frozenset({"events", "patches", "jobs", "effects", "commands", "profiler_telemetry"})
+PYTHON_SESSION_CAPABILITIES = frozenset({
+    "events", "patches", "jobs", "effects", "commands", "profiler_telemetry",
+    "meshplot", "mesh_binary_frames",
+})
 
 
 def _negotiate_capabilities(
@@ -299,6 +303,27 @@ class SessionContext:
             stream.write(b"\n")
             stream.flush()
 
+    def mesh_frame(self, header: Mapping[str, Any], payload: bytes) -> None:
+        """Write one bounded JSON-header/raw-payload mesh frame to the host."""
+        try:
+            frame = MeshFrame.decode(header, bytes(payload))
+        except (KeyError, TypeError, ValueError) as error:
+            raise ValueError(f"invalid mesh frame: {error}") from error
+        if len(frame.payload) > MAX_MESH_FRAME_BYTES or len(frame.payload) > MAX_MESH_RESOURCE_BYTES:
+            raise ValueError("mesh resource frame exceeds the configured size limit")
+        message = {**dict(header), "type": "mesh_frame", "byte_length": len(frame.payload)}
+        encoded = self._encode_message(message).encode("utf-8")
+        with self._lock:
+            sys.stdout.flush()
+            stream = getattr(sys.stdout, "buffer", None)
+            if stream is None:
+                raise RuntimeError("binary mesh frames require a binary stdout stream")
+            stream.write(encoded)
+            stream.write(b"\n")
+            stream.write(payload)
+            stream.write(b"\n")
+            stream.flush()
+
     def drop_resource(self, resource_id: str, generation: int) -> None:
         self.send({"type": "drop_resource", "resource_id": resource_id, "generation": generation})
 
@@ -333,6 +358,92 @@ class SessionContext:
             "op": "append_chart_series", "chart_id": chart_id, "series_id": series_id,
             "x": list(x), "y": list(y),
         }])
+
+    @staticmethod
+    def _mesh_patch_generation(generation: int) -> int:
+        if generation <= 0:
+            raise ValueError("mesh patch generation must be positive")
+        return int(generation)
+
+    def replace_mesh_geometry(
+        self, plot_id: str, generation: int, geometry: Any, *, request_id: str | None = None,
+    ) -> None:
+        self.patch([{
+            "op": "replace_mesh_geometry", "plot_id": plot_id,
+            "generation": self._mesh_patch_generation(generation),
+            "geometry": _spec(geometry),
+        }], request_id=request_id)
+
+    def replace_mesh_field(
+        self, plot_id: str, generation: int, field: Any, *, request_id: str | None = None,
+    ) -> None:
+        self.patch([{
+            "op": "replace_mesh_field", "plot_id": plot_id,
+            "generation": self._mesh_patch_generation(generation),
+            "field": _spec(field),
+        }], request_id=request_id)
+
+    def set_mesh_plot_prop(
+        self, plot_id: str, generation: int, property: str, value: Any, *, request_id: str | None = None,
+    ) -> None:
+        if not property.strip():
+            raise ValueError("mesh plot property must not be empty")
+        self.patch([{
+            "op": "set_mesh_plot_prop", "plot_id": plot_id,
+            "generation": self._mesh_patch_generation(generation),
+            "property": property, "value": _spec(value),
+        }], request_id=request_id)
+
+    def set_mesh_plot_selection(
+        self, plot_id: str, generation: int, selection: Any, *, request_id: str | None = None,
+    ) -> None:
+        self.patch([{
+            "op": "set_mesh_plot_selection", "plot_id": plot_id,
+            "generation": self._mesh_patch_generation(generation),
+            "selection": _spec(selection),
+        }], request_id=request_id)
+
+    def clear_mesh_plot_selection(
+        self, plot_id: str, generation: int, *, request_id: str | None = None,
+    ) -> None:
+        self.patch([{
+            "op": "clear_mesh_plot_selection", "plot_id": plot_id,
+            "generation": self._mesh_patch_generation(generation),
+        }], request_id=request_id)
+
+    def set_mesh_plot_camera(
+        self, plot_id: str, generation: int, camera: Any, *, request_id: str | None = None,
+    ) -> None:
+        self.patch([{
+            "op": "set_mesh_plot_camera", "plot_id": plot_id,
+            "generation": self._mesh_patch_generation(generation),
+            "camera": _spec(camera),
+        }], request_id=request_id)
+
+    def reset_mesh_plot_camera(
+        self, plot_id: str, generation: int, *, request_id: str | None = None,
+    ) -> None:
+        self.patch([{
+            "op": "reset_mesh_plot_camera", "plot_id": plot_id,
+            "generation": self._mesh_patch_generation(generation),
+        }], request_id=request_id)
+
+    def set_mesh_plot_viewport(
+        self, plot_id: str, generation: int, viewport: Any, *, request_id: str | None = None,
+    ) -> None:
+        self.patch([{
+            "op": "set_mesh_plot_viewport", "plot_id": plot_id,
+            "generation": self._mesh_patch_generation(generation),
+            "viewport": _spec(viewport),
+        }], request_id=request_id)
+
+    def reset_mesh_plot_viewport(
+        self, plot_id: str, generation: int, *, request_id: str | None = None,
+    ) -> None:
+        self.patch([{
+            "op": "reset_mesh_plot_viewport", "plot_id": plot_id,
+            "generation": self._mesh_patch_generation(generation),
+        }], request_id=request_id)
 
     def job(self, id: str, state: str, **values: Any) -> None:
         if not id.strip():

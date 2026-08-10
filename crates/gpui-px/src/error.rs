@@ -5,6 +5,8 @@ use thiserror::Error;
 /// Errors that can occur when building or rendering charts.
 #[derive(Debug, Error)]
 pub enum ChartError {
+    #[error("mesh validation failed: {0}")]
+    MeshValidation(#[from] d3rs::mesh::MeshValidationError),
     /// X and Y data arrays have different lengths.
     #[error("{x_field} has {x_len} elements but {y_field} has {y_len} elements")]
     DataLengthMismatch {
@@ -43,4 +45,12 @@ pub enum ChartError {
     /// The requested color range is not finite or has no positive extent.
     #[error("invalid color range: {reason}")]
     InvalidColorRange { reason: &'static str },
+
+    /// The requested view needs an optional rendering backend that is not
+    /// enabled for this build.
+    #[error("unsupported mesh plot view {view}: {reason}")]
+    UnsupportedView {
+        view: &'static str,
+        reason: &'static str,
+    },
 }

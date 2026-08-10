@@ -9,8 +9,8 @@
 //! Run with: cargo run --example mesh_contour_demo
 
 use d3rs::mesh::{
-    ContourLevels, CoordinateAxis, MarchingTriangles, MeshTopology, ScalarAssociation,
-    ScalarField, TriangleMesh,
+    ContourLevels, CoordinateAxis, MarchingTriangles, MeshTopology, ScalarAssociation, ScalarField,
+    TriangleMesh,
 };
 
 /// Annulus mesh: `rings` concentric rings x `sectors` angular sectors,
@@ -96,7 +96,10 @@ fn main() {
         valid: None,
     };
     field.validate(&mesh).expect("field must match the mesh");
-    println!("Scalar field: radius, range [{:.3}, {:.3}]", range[0], range[1]);
+    println!(
+        "Scalar field: radius, range [{:.3}, {:.3}]",
+        range[0], range[1]
+    );
 
     // ========================================
     // Levels + topology
@@ -112,14 +115,8 @@ fn main() {
     let topo = MeshTopology::build(&mesh.triangles);
     println!("Topology: {} unique edges", topo.unique_edges.len());
 
-    let mt = MarchingTriangles::new(
-        &mesh,
-        &field,
-        &topo,
-        CoordinateAxis::X,
-        CoordinateAxis::Y,
-    )
-    .expect("vertex field supports contours");
+    let mt = MarchingTriangles::new(&mesh, &field, &topo, CoordinateAxis::X, CoordinateAxis::Y)
+        .expect("vertex field supports contours");
 
     // ========================================
     // Isolines
@@ -127,10 +124,7 @@ fn main() {
     println!("\n--- Isoline segments ---");
     let segments = mt.isolines(&levels);
     for &level in levels.iter() {
-        let n = segments
-            .iter()
-            .filter(|s| s.level == level)
-            .count();
+        let n = segments.iter().filter(|s| s.level == level).count();
         println!("  level {:>5.2}: {} segments", level, n);
     }
     println!("  total: {} segments", segments.len());
@@ -145,10 +139,19 @@ fn main() {
         .map(|b| soup_area(&b.positions, &b.triangles))
         .sum();
     for band in &bands {
+        let (Some(lower), Some(upper)) = (band.lower, band.upper) else {
+            println!(
+                "  open-ended band: {} triangles, {} vertices, area {:.4}",
+                band.triangles.len(),
+                band.positions.len(),
+                soup_area(&band.positions, &band.triangles)
+            );
+            continue;
+        };
         println!(
             "  [{:.2}, {:.2}]: {} triangles, {} vertices, area {:.4}",
-            band.lower.unwrap(),
-            band.upper.unwrap(),
+            lower,
+            upper,
             band.triangles.len(),
             band.positions.len(),
             soup_area(&band.positions, &band.triangles)

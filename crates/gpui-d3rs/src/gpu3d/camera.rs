@@ -1,9 +1,31 @@
 //! Camera system for 3D surface visualization
 
+use crate::mesh::MeshBounds;
 use glam::{Mat4, Vec3};
 use std::f32::consts::PI;
 
-/// 3D camera with perspective projection
+/// The projection used by a [`Camera3D`].
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Projection {
+    /// A perspective projection with a vertical field of view in radians.
+    Perspective { fov_y: f32 },
+    /// An orthographic projection with the given vertical half-height.
+    Orthographic { half_height: f64 },
+}
+
+/// A fixed camera orientation for common 3D views.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StandardView {
+    Front,
+    Back,
+    Left,
+    Right,
+    Top,
+    Bottom,
+    Isometric,
+}
+
+/// 3D camera.
 #[derive(Debug, Clone)]
 pub struct Camera3D {
     /// Camera position in world space
@@ -20,6 +42,7 @@ pub struct Camera3D {
     pub near: f32,
     /// Far clipping plane
     pub far: f32,
+    projection: Projection,
 }
 
 impl Default for Camera3D {
@@ -32,6 +55,9 @@ impl Default for Camera3D {
             aspect: 1.0,
             near: 0.1,
             far: 100.0,
+            projection: Projection::Perspective {
+                fov_y: 45.0_f32.to_radians(),
+            },
         }
     }
 }
@@ -57,7 +83,18 @@ impl Camera3D {
     /// Set field of view in degrees
     pub fn with_fov_degrees(mut self, fov: f32) -> Self {
         self.fov = fov.to_radians();
+        self.projection = Projection::Perspective { fov_y: self.fov };
         self
+    }
+
+    /// Create a camera with the requested projection.
+    pub fn with_projection(projection: Projection) -> Self {
+        let mut camera = Self::default();
+        if let Projection::Perspective { fov_y } = projection {
+            camera.fov = fov_y;
+        }
+        camera.projection = projection;
+        camera
     }
 
     /// Set aspect ratio
@@ -68,7 +105,20 @@ impl Camera3D {
 
     /// Get view matrix (world to camera transformation)
     pub fn view_matrix(&self) -> Mat4 {
-        Mat4::look_at_rh(self.position, self.target, self.up)
+        let forward = self.forward();
+        let up = if forward.cross(self.up).length_squared() < 1e-12 {
+            // A standard front/back view looks along the default Y up axis.
+            // Choose a stable screen-up axis instead of passing collinear
+            // vectors to look_at_rh.
+            if forward.cross(Vec3::Z).length_squared() >= 1e-12 {
+                Vec3::Z
+            } else {
+                Vec3::X
+            }
+        } else {
+            self.up
+        };
+        Mat4::look_at_rh(self.position, self.target, up)
     }
 
     /// Get projection matrix
@@ -76,7 +126,21 @@ impl Camera3D {
         let aspect = self.aspect.max(1e-6);
         let near = self.near.max(1e-6);
         let far = self.far.max(near + 1e-6);
-        Mat4::perspective_rh(self.fov, aspect, near, far)
+        match self.projection {
+            Projection::Perspective { .. } => Mat4::perspective_rh(self.fov, aspect, near, far),
+            Projection::Orthographic { half_height } => {
+                let half_height = (half_height as f32).abs().max(1e-6);
+                let half_width = half_height * aspect;
+                Mat4::orthographic_rh(
+                    -half_width,
+                    half_width,
+                    -half_height,
+                    half_height,
+                    near,
+                    far,
+                )
+            }
+        }
     }
 
     /// Get combined view-projection matrix
@@ -254,6 +318,62 @@ impl OrbitControls {
         let y = self.distance * self.elevation.sin();
         let z = self.distance * self.elevation.cos() * self.azimuth.cos();
         self.target + Vec3::new(x, y, z)
+    }
+
+    /// Get the current view direction, from the camera toward its target.
+    pub fn view_direction(&self) -> Vec3 {
+        (self.target - self.camera_position()).normalize_or_zero()
+    }
+
+    /// Set one of the fixed camera orientations while preserving target and
+    /// distance.
+    pub fn set_standard_view(&mut self, view: StandardView) {
+        let (azimuth, elevation) = match view {
+            // The coordinate convention used by d3rs treats Z as the depth
+            // axis for top/bottom views and Y as the front/back axis.
+            StandardView::Front => (0.0, PI / 2.0),
+            StandardView::Back => (0.0, -PI / 2.0),
+            StandardView::Left => (-PI / 2.0, 0.0),
+            StandardView::Right => (PI / 2.0, 0.0),
+            StandardView::Top => (0.0, 0.0),
+            StandardView::Bottom => (PI, 0.0),
+            StandardView::Isometric => (PI / 4.0, PI / 6.0),
+        };
+        self.azimuth = azimuth;
+        self.elevation = elevation;
+    }
+
+    /// Move the orbit target and camera far enough away to contain the bounds.
+    ///
+    /// The fit uses the bounding sphere and the default camera's 45-degree
+    /// vertical field of view. The narrower of the vertical and horizontal
+    /// view angles is used for non-wide viewports.
+    pub fn fit_to_bounds(&mut self, bounds: MeshBounds, viewport_aspect: f32) {
+        let origin = bounds.origin();
+        self.target = Vec3::new(origin[0] as f32, origin[1] as f32, origin[2] as f32);
+
+        let extent = [
+            bounds.max[0] - bounds.min[0],
+            bounds.max[1] - bounds.min[1],
+            bounds.max[2] - bounds.min[2],
+        ];
+        let radius = 0.5
+            * extent
+                .iter()
+                .map(|component| component * component)
+                .sum::<f64>()
+                .sqrt();
+        let radius = (radius as f32).max(1e-6);
+
+        let aspect = viewport_aspect.abs().max(1e-6);
+        let fov_y = Camera3D::default().fov;
+        let vertical_half_angle = (fov_y * 0.5).clamp(1e-3, PI * 0.5 - 1e-3);
+        let horizontal_half_angle = (vertical_half_angle.tan() * aspect).atan();
+        let half_angle = vertical_half_angle.min(horizontal_half_angle);
+        let required_distance = radius / half_angle.sin();
+
+        self.distance = required_distance.max(self.min_distance);
+        self.max_distance = self.max_distance.max(self.distance);
     }
 
     /// Update and return a camera with current orbit parameters

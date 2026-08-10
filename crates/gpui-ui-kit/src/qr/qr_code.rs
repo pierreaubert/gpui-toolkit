@@ -162,12 +162,8 @@ mod tests {
 
     #[test]
     fn bounded_qr_supports_cancellation() {
-        let error = QrCode::try_new_with_cancel(
-            "hello",
-            QrCodeLimits::default(),
-            || true,
-        )
-        .unwrap_err();
+        let error =
+            QrCode::try_new_with_cancel("hello", QrCodeLimits::default(), || true).unwrap_err();
         assert_eq!(error, QrCodeError::Cancelled);
     }
 }

@@ -525,7 +525,7 @@ mod tests {
     use super::*;
     use crate::scale::LinearScale;
 
-    #[test]
+    #[::core::prelude::v1::test]
     fn test_render_axis_orientations() {
         let scale = LinearScale::new().domain(0.0, 100.0).range(0.0, 400.0);
         let theme = DefaultAxisTheme;

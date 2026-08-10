@@ -187,6 +187,14 @@ impl ChartInteraction {
         self.zoom.zoom_to(x_min, x_max, y_min, y_max);
     }
 
+    /// Update the visible domain without recording a zoom-history entry.
+    ///
+    /// Retained plots use this for pointer-driven navigation so camera frames
+    /// remain allocation-free after warm-up.
+    pub fn set_viewport_without_history(&mut self, x_min: f64, x_max: f64, y_min: f64, y_max: f64) {
+        self.zoom.set_viewport(x_min, x_max, y_min, y_max);
+    }
+
     /// Reset zoom to original view.
     pub fn reset_zoom(&mut self) {
         self.zoom.reset();
@@ -708,11 +716,7 @@ pub(super) mod interactive_chart {
             }
         }
 
-        fn update_hover(
-            &self,
-            position: Point<Pixels>,
-            bounds: Option<gpui::Bounds<Pixels>>,
-        ) {
+        fn update_hover(&self, position: Point<Pixels>, bounds: Option<gpui::Bounds<Pixels>>) {
             if !self.is_over_plot(position, bounds) {
                 self.interaction.borrow_mut().clear_hover();
                 return;
@@ -803,12 +807,11 @@ pub(super) mod interactive_chart {
                 })
                 // Mouse down - start pan
                 .on_mouse_down(MouseButton::Left, move |event, _window, cx| {
-                    let (x, y) = state_for_down
-                        .to_chart_coords(event.position, *bounds_for_down.borrow());
+                    let (x, y) =
+                        state_for_down.to_chart_coords(event.position, *bounds_for_down.borrow());
                     let mode = state_for_down.interaction.borrow().mode;
                     if event.modifiers.shift
-                        || (mode == InteractionMode::Brush
-                            && !state_for_down.config.enable_pan)
+                        || (mode == InteractionMode::Brush && !state_for_down.config.enable_pan)
                     {
                         state_for_down.interaction.borrow_mut().start_brush(x, y);
                     } else if state_for_down.config.enable_pan {

@@ -52,6 +52,9 @@ use crate::{
     load_story_documents, reload_live_preview_state,
 };
 use anyhow::{Context as AnyhowContext, Result};
+use d3rs::mesh::{
+    ContourLevels, CoordinateAxis, RevolveSpec, ScalarAssociation, ScalarField, TriangleMesh,
+};
 use gpui::prelude::*;
 use gpui::{
     AnyElement, Context, Entity, IntoElement, MouseButton, Pixels, Render, SharedString, Size,
@@ -65,8 +68,9 @@ use gpui_audio_kit::{
 };
 use gpui_miniapp::{MiniApp, MiniAppConfig};
 use gpui_px::{
-    ColorScale, LegendPosition, StrokeDashArray, area, bar, boxplot, contour, donut, heatmap,
-    isoline, line, pie, scatter, surface3d, treemap,
+    ColorScale, LegendPosition, MeshPlotPick, MeshPlotView, PlotInteractions, StrokeDashArray,
+    area, bar, boxplot, contour, donut, heatmap, isoline, line, mesh_plot, pie, scatter, surface3d,
+    treemap,
 };
 use gpui_showcase::showcase::{Showcase, ShowcaseSection};
 use gpui_ui_kit::qr::AnimatedQrCode;
@@ -93,6 +97,130 @@ use std::collections::{BTreeMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
+
+fn mesh_plot_square_mesh(id: &str, with_ids: bool) -> TriangleMesh {
+    TriangleMesh {
+        id: id.into(),
+        positions: vec![
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [1.0, 1.0, 0.0],
+            [0.0, 1.0, 0.0],
+        ]
+        .into(),
+        triangles: vec![[0, 1, 2], [0, 2, 3]].into(),
+        vertex_ids: with_ids.then(|| vec![100, 101, 102, 103].into()),
+        cell_ids: with_ids.then(|| vec![2000, 2001].into()),
+    }
+}
+
+fn mesh_plot_square_vertex_field(id: &str) -> ScalarField {
+    ScalarField {
+        id: id.into(),
+        label: "Response".into(),
+        unit: Some("dB".into()),
+        values: vec![0.0, 1.0, 2.0, 0.5].into(),
+        association: ScalarAssociation::Vertex,
+        valid: None,
+    }
+}
+
+fn mesh_plot_square_cell_field(id: &str) -> ScalarField {
+    ScalarField {
+        id: id.into(),
+        label: "Cell response".into(),
+        unit: Some("dB".into()),
+        values: vec![0.25, 1.25].into(),
+        association: ScalarAssociation::Cell,
+        valid: None,
+    }
+}
+
+fn mesh_plot_saddle_mesh(id: &str) -> TriangleMesh {
+    TriangleMesh {
+        id: id.into(),
+        positions: vec![
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [1.0, 1.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.5, 0.5, 0.0],
+        ]
+        .into(),
+        triangles: vec![[0, 1, 4], [1, 2, 4], [2, 3, 4], [3, 0, 4]].into(),
+        vertex_ids: None,
+        cell_ids: None,
+    }
+}
+
+fn mesh_plot_saddle_field(id: &str) -> ScalarField {
+    ScalarField {
+        id: id.into(),
+        label: "Saddle".into(),
+        unit: None,
+        values: vec![-1.0, 1.0, -1.0, 1.0, 0.0].into(),
+        association: ScalarAssociation::Vertex,
+        valid: None,
+    }
+}
+
+fn mesh_plot_annulus_mesh(id: &str) -> TriangleMesh {
+    TriangleMesh {
+        id: id.into(),
+        // The X/Z plane is interpreted as radial/axial by the axisymmetric
+        // stories. The inner radius stays positive so the revolve fixture is
+        // an annulus rather than a degenerate disk.
+        positions: vec![
+            [0.35, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [1.0, 0.0, 1.0],
+            [0.35, 0.0, 1.0],
+        ]
+        .into(),
+        triangles: vec![[0, 1, 2], [0, 2, 3]].into(),
+        vertex_ids: None,
+        cell_ids: None,
+    }
+}
+
+fn mesh_plot_annulus_field(id: &str) -> ScalarField {
+    ScalarField {
+        id: id.into(),
+        label: "Radial response".into(),
+        unit: Some("dB".into()),
+        values: vec![0.1, 0.9, 1.4, 0.4].into(),
+        association: ScalarAssociation::Vertex,
+        valid: None,
+    }
+}
+
+fn mesh_plot_surface_mesh(id: &str) -> TriangleMesh {
+    TriangleMesh {
+        id: id.into(),
+        positions: vec![
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.35],
+            [1.0, 1.0, 0.9],
+            [0.0, 1.0, 0.25],
+            [0.5, 0.5, 0.8],
+        ]
+        .into(),
+        triangles: vec![[0, 1, 4], [1, 2, 4], [2, 3, 4], [3, 0, 4]].into(),
+        vertex_ids: None,
+        cell_ids: None,
+    }
+}
+
+fn mesh_plot_surface_field(id: &str) -> ScalarField {
+    ScalarField {
+        id: id.into(),
+        label: "Surface response".into(),
+        unit: Some("dB".into()),
+        values: vec![0.0, 0.8, 1.6, 0.3, 1.1].into(),
+        association: ScalarAssociation::Vertex,
+        valid: None,
+    }
+}
 
 /// Launch the interactive GPUI component lab.
 pub fn run_lab_app(config: LabAppConfig) -> Result<()> {
@@ -1502,6 +1630,10 @@ impl ComponentLab {
             "px.boxplot" => self.render_boxplot_chart_story(story, scope, design, cx),
             "px.treemap" => self.render_treemap_chart_story(story, scope, design, cx),
             "px.surface3d" => self.render_surface3d_chart_story(story, scope, design, cx),
+            "px.mesh_plot" => self.render_mesh_plot_story(story, scope, design, cx),
+            story_id if story_id.starts_with("px.mesh_plot.") => {
+                self.render_mesh_plot_story(story, scope, design, cx)
+            }
             _ if self.renderers.contains(&story.id) => div()
                 .child(
                     Text::new("Renderer metadata exists, but no preview handler is wired")
@@ -2805,6 +2937,233 @@ impl ComponentLab {
             chart.size(min_width, min_height)
         };
 
+        render_chart_result(chart.build(), theme)
+    }
+
+    pub(super) fn render_mesh_plot_story(
+        &self,
+        story: &ComponentStory,
+        scope: &str,
+        design: Arc<DesignSystem>,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let theme = cx.theme();
+        let (min_width, min_height) = self.chart_minimum(scope);
+        let story_id = story.id.as_str();
+        let (mesh, field, view, mode, title, selection, color_scale) = match story_id {
+            "px.mesh_plot.mesh_only" => (
+                mesh_plot_square_mesh("component-lab-mesh-only", false),
+                None,
+                MeshPlotView::Planar {
+                    horizontal: CoordinateAxis::X,
+                    vertical: CoordinateAxis::Y,
+                },
+                gpui_px::MeshRenderMode::Mesh,
+                "Mesh only",
+                None,
+                ColorScale::Greys,
+            ),
+            "px.mesh_plot.smooth_fill" => (
+                mesh_plot_square_mesh("component-lab-smooth-fill", false),
+                Some(mesh_plot_square_vertex_field("component-lab-smooth-field")),
+                MeshPlotView::Planar {
+                    horizontal: CoordinateAxis::X,
+                    vertical: CoordinateAxis::Y,
+                },
+                gpui_px::MeshRenderMode::ScalarFill {
+                    interpolation: gpui_px::FieldInterpolation::Smooth,
+                },
+                "Smooth scalar fill",
+                None,
+                ColorScale::Viridis,
+            ),
+            "px.mesh_plot.flat_fill" => (
+                mesh_plot_square_mesh("component-lab-flat-fill", false),
+                Some(mesh_plot_square_cell_field("component-lab-flat-field")),
+                MeshPlotView::Planar {
+                    horizontal: CoordinateAxis::X,
+                    vertical: CoordinateAxis::Y,
+                },
+                gpui_px::MeshRenderMode::ScalarFill {
+                    interpolation: gpui_px::FieldInterpolation::Flat,
+                },
+                "Flat cell fill",
+                None,
+                ColorScale::Plasma,
+            ),
+            "px.mesh_plot.filled_contours" => (
+                mesh_plot_saddle_mesh("component-lab-filled-contours"),
+                Some(mesh_plot_saddle_field("component-lab-contour-field")),
+                MeshPlotView::Planar {
+                    horizontal: CoordinateAxis::X,
+                    vertical: CoordinateAxis::Y,
+                },
+                gpui_px::MeshRenderMode::FilledContours {
+                    levels: ContourLevels::Count(6),
+                },
+                "Filled contours",
+                None,
+                ColorScale::Coolwarm,
+            ),
+            "px.mesh_plot.isolines" => (
+                mesh_plot_saddle_mesh("component-lab-isolines"),
+                Some(mesh_plot_saddle_field("component-lab-isoline-field")),
+                MeshPlotView::Planar {
+                    horizontal: CoordinateAxis::X,
+                    vertical: CoordinateAxis::Y,
+                },
+                gpui_px::MeshRenderMode::Isolines {
+                    levels: ContourLevels::Count(6),
+                },
+                "Isolines",
+                None,
+                ColorScale::Coolwarm,
+            ),
+            "px.mesh_plot.combined" => (
+                mesh_plot_saddle_mesh("component-lab-combined"),
+                Some(mesh_plot_saddle_field("component-lab-combined-field")),
+                MeshPlotView::Planar {
+                    horizontal: CoordinateAxis::X,
+                    vertical: CoordinateAxis::Y,
+                },
+                gpui_px::MeshRenderMode::FillAndIsolines {
+                    levels: ContourLevels::Count(6),
+                },
+                "Combined scalar mesh",
+                None,
+                ColorScale::Viridis,
+            ),
+            "px.mesh_plot.axisymmetric_section" => (
+                mesh_plot_annulus_mesh("component-lab-axisymmetric-section"),
+                Some(mesh_plot_annulus_field("component-lab-axisymmetric-field")),
+                MeshPlotView::AxisymmetricSection {
+                    radial: CoordinateAxis::X,
+                    axial: CoordinateAxis::Z,
+                },
+                gpui_px::MeshRenderMode::ScalarFill {
+                    interpolation: gpui_px::FieldInterpolation::Smooth,
+                },
+                "Axisymmetric r-z section",
+                None,
+                ColorScale::Viridis,
+            ),
+            "px.mesh_plot.revolve" => (
+                mesh_plot_annulus_mesh("component-lab-revolve-profile"),
+                Some(mesh_plot_annulus_field("component-lab-revolve-field")),
+                MeshPlotView::AxisymmetricRevolve(RevolveSpec {
+                    radial: CoordinateAxis::X,
+                    axial: CoordinateAxis::Z,
+                    start_angle: 0.0,
+                    sweep_angle: std::f64::consts::TAU,
+                    segments: 12,
+                    end_caps: false,
+                }),
+                gpui_px::MeshRenderMode::ScalarFill {
+                    interpolation: gpui_px::FieldInterpolation::Smooth,
+                },
+                "Axisymmetric revolve",
+                None,
+                ColorScale::Plasma,
+            ),
+            "px.mesh_plot.surface3d" => (
+                mesh_plot_surface_mesh("component-lab-surface3d"),
+                Some(mesh_plot_surface_field("component-lab-surface-field")),
+                MeshPlotView::Surface3d,
+                gpui_px::MeshRenderMode::ScalarFill {
+                    interpolation: gpui_px::FieldInterpolation::Smooth,
+                },
+                "Unstructured surface 3D",
+                None,
+                ColorScale::Viridis,
+            ),
+            "px.mesh_plot.picking" => {
+                let mesh = mesh_plot_square_mesh("component-lab-picking-mesh", true);
+                let field = mesh_plot_square_vertex_field("component-lab-picking-field");
+                (
+                    mesh,
+                    Some(field),
+                    MeshPlotView::Planar {
+                        horizontal: CoordinateAxis::X,
+                        vertical: CoordinateAxis::Y,
+                    },
+                    gpui_px::MeshRenderMode::ScalarFill {
+                        interpolation: gpui_px::FieldInterpolation::Smooth,
+                    },
+                    "Mesh picking",
+                    Some(MeshPlotPick {
+                        plot_id: "component-lab-picking".into(),
+                        mesh_id: "component-lab-picking-mesh".into(),
+                        cell_index: 1,
+                        cell_id: Some(2001),
+                        nearest_vertex_index: Some(2),
+                        vertex_id: Some(102),
+                        world_position: [0.72, 0.72, 0.0],
+                        displayed_value: Some(1.35),
+                        field_id: Some("component-lab-picking-field".into()),
+                    }),
+                    ColorScale::Viridis,
+                )
+            }
+            _ => {
+                let mode = match choice_prop(story, "mode", "combined").as_ref() {
+                    "mesh" => gpui_px::MeshRenderMode::Mesh,
+                    "smooth_fill" => gpui_px::MeshRenderMode::ScalarFill {
+                        interpolation: gpui_px::FieldInterpolation::Smooth,
+                    },
+                    "flat_fill" => gpui_px::MeshRenderMode::ScalarFill {
+                        interpolation: gpui_px::FieldInterpolation::Flat,
+                    },
+                    "filled_contours" => gpui_px::MeshRenderMode::FilledContours {
+                        levels: ContourLevels::Count(6),
+                    },
+                    "isolines" => gpui_px::MeshRenderMode::Isolines {
+                        levels: ContourLevels::Count(6),
+                    },
+                    _ => gpui_px::MeshRenderMode::FillAndIsolines {
+                        levels: ContourLevels::Count(6),
+                    },
+                };
+                (
+                    mesh_plot_square_mesh("component-lab-mesh", false),
+                    Some(mesh_plot_square_vertex_field("component-lab-field")),
+                    MeshPlotView::Planar {
+                        horizontal: CoordinateAxis::X,
+                        vertical: CoordinateAxis::Y,
+                    },
+                    mode,
+                    "Mesh plot",
+                    None,
+                    ColorScale::Viridis,
+                )
+            }
+        };
+
+        let mut chart = mesh_plot(mesh)
+            .view(view)
+            .mode(mode)
+            .color_scale(color_scale)
+            .title(title)
+            .design(design)
+            .interactions(PlotInteractions::inspect_and_navigate())
+            .wireframe(if bool_prop(story, "wireframe", true) {
+                gpui_px::Wireframe::overlay()
+            } else {
+                gpui_px::Wireframe::hidden()
+            });
+        if let Some(field) = field {
+            chart = chart.field(field);
+        }
+        if let Some(selection) = selection {
+            chart = chart.selection(selection);
+        }
+        chart = if bool_prop(story, "fill", true) {
+            chart
+                .fill()
+                .min_size(min_width, min_height)
+                .aspect_ratio(self.layout_constraints.aspect_ratio)
+        } else {
+            chart.size(min_width, min_height)
+        };
         render_chart_result(chart.build(), theme)
     }
 

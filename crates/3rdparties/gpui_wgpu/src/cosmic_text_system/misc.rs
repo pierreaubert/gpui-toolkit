@@ -1,6 +1,6 @@
-use anyhow :: { Context as _ , Ok , Result } ;
-use cosmic_text :: { FontFeatures as CosmicFontFeatures } ;
-use gpui :: FontFeatures ;
+use anyhow::{Context as _, Ok, Result};
+use cosmic_text::FontFeatures as CosmicFontFeatures;
+use gpui::FontFeatures;
 
 pub(super) fn cosmic_font_features(features: &FontFeatures) -> Result<CosmicFontFeatures> {
     let mut result = CosmicFontFeatures::new();
@@ -60,4 +60,3 @@ pub(super) fn check_is_known_emoji_font(postscript_name: &str) -> bool {
     // TODO: Include other common emoji fonts
     postscript_name == "NotoColorEmoji"
 }
-

@@ -184,8 +184,7 @@ mod shader_compilation {
                 module.to_uppercase()
             );
         }
-        fs::write(&rust_binding_path, contents)
-            .expect("Failed to write stub shader binding file");
+        fs::write(&rust_binding_path, contents).expect("Failed to write stub shader binding file");
     }
 
     fn compile_shader_for_module(

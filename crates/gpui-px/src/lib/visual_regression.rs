@@ -310,6 +310,13 @@ pub const CHART_VISUAL_STORIES: &[ChartVisualStory] = &[
         scenario: "projected 3D surface mesh",
         release_focus: "projection framing, wireframe visibility, colorbar, z-range, and fallback messaging",
     },
+    ChartVisualStory {
+        id: "px.mesh_plot",
+        label: "Unstructured Mesh Plot",
+        chart_family: "mesh_plot",
+        scenario: "triangle mesh with scalar fill, contours, wireframe, and selection",
+        release_focus: "equal aspect, masked values, contour tie-breaks, wireframe contrast, and toolbar sizing",
+    },
 ];
 
 fn artifact_path(
@@ -339,7 +346,7 @@ mod tests {
         assert_eq!(manifest.report_type, CHART_VISUAL_REGRESSION_REPORT_TYPE);
         assert_eq!(manifest.crate_name, "gpui-px");
         assert_eq!(manifest.capture_count(), manifest.expected_capture_count());
-        assert_eq!(manifest.stories.len(), 11);
+        assert_eq!(manifest.stories.len(), 12);
         assert_eq!(manifest.viewports.len(), 3);
         assert_eq!(manifest.color_schemes.len(), 3);
         assert!(manifest.validate_unique_capture_ids());
@@ -362,6 +369,7 @@ mod tests {
             "isoline",
             "contour",
             "optional surface3d",
+            "mesh_plot",
         ] {
             assert!(families.contains(family), "missing {family}");
             assert_eq!(

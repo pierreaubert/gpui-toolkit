@@ -4,7 +4,7 @@ use crate::scale::LinearScale;
 use gpui::prelude::*;
 use gpui::*;
 
-#[test]
+#[::core::prelude::v1::test]
 fn paint_batches_cells_by_color() {
     // 4x3 grid: each row has a single value, so each row becomes one batched quad.
     let values = vec![
@@ -31,7 +31,7 @@ fn paint_batches_cells_by_color() {
     assert_eq!(quad_count, 3, "each row should be merged into one quad");
 }
 
-#[test]
+#[::core::prelude::v1::test]
 fn paint_caches_quads_for_unchanged_bounds() {
     let values = vec![1.0, 1.0, 2.0, 2.0];
     let data = HeatmapData::new(vec![0.0, 1.0], vec![0.0, 1.0], values);

@@ -17,8 +17,8 @@ use gpui_python_runtime::ui_ir::{
     SectionHeaderNode, SimpleNode, SpinnerNode, StackNode, TableNode, TabsNode, TextNode, UiNode,
 };
 use gpui_python_runtime::{LinesSpec, MeshSpec, SceneSpec, SurfaceSpec};
-use gpui_ui_kit::theme::{Theme, ThemeExt, ThemeVariant};
 use gpui_ui_kit::Language;
+use gpui_ui_kit::theme::{Theme, ThemeExt, ThemeVariant};
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 use std::env;
@@ -75,7 +75,10 @@ fn miniapp_config(app: &PythonAppIr, presentation: &PresentationStore) -> MiniAp
     let width = shell.map_or(app.width, |config| config.width);
     let height = shell.map_or(app.height, |config| config.height);
     let mut config = MiniAppConfig::new(title)
-        .size(if width > 0.0 { width } else { saved.width }, if height > 0.0 { height } else { saved.height })
+        .size(
+            if width > 0.0 { width } else { saved.width },
+            if height > 0.0 { height } else { saved.height },
+        )
         // PythonIrShowcase owns its content scroll so the shell must not add a
         // second, competing scroll container.
         .scrollable(false);

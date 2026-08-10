@@ -70,6 +70,7 @@ pub const PUBLIC_CHART_STORY_IDS: &[&str] = &[
     "px.boxplot",
     "px.treemap",
     "px.surface3d",
+    "px.mesh_plot",
 ];
 
 /// Versioned chart capability report.
@@ -127,7 +128,7 @@ const CHART_CAPABILITY_ENTRIES: &[ChartCapabilityEntry] = &[
     ChartCapabilityEntry {
         id: "chart-builders",
         capability: "Plotly Express-style chart builders",
-        chart_families: "scatter, line, bar, area, boxplot, heatmap, contour, isoline, pie/donut, treemap, optional surface3d",
+        chart_families: "scatter, line, bar, area, boxplot, heatmap, contour, isoline, pie/donut, treemap, optional surface3d, mesh_plot",
         story_ids: PUBLIC_CHART_STORY_IDS,
         test_contracts: &[
             "component-lab:px-story-conformance",
@@ -140,7 +141,7 @@ const CHART_CAPABILITY_ENTRIES: &[ChartCapabilityEntry] = &[
     ChartCapabilityEntry {
         id: "accessibility-summaries",
         capability: "Non-rendering accessibility summaries",
-        chart_families: "all public chart builders, including optional surface3d",
+        chart_families: "all public chart builders, including optional surface3d and mesh_plot",
         story_ids: PUBLIC_CHART_STORY_IDS,
         test_contracts: &["accessibility summary tests", "accessibility bridge tests"],
         status: ChartCapabilityStatus::Implemented,
@@ -180,11 +181,11 @@ const CHART_CAPABILITY_ENTRIES: &[ChartCapabilityEntry] = &[
     ChartCapabilityEntry {
         id: "static-export",
         capability: "Static image/vector export",
-        chart_families: "line, scatter, bar, area, pie/donut, heatmap, boxplot, treemap, isoline, contour, optional surface3d",
+        chart_families: "line, scatter, bar, area, pie/donut, heatmap, boxplot, treemap, isoline, contour, optional surface3d, mesh_plot",
         story_ids: PUBLIC_CHART_STORY_IDS,
         test_contracts: &["static_export tests"],
         status: ChartCapabilityStatus::Implemented,
-        evidence: "Line, scatter, bar, area, pie/donut, heatmap, boxplot, treemap, isoline, contour, and optional surface3d builders expose deterministic to_svg()/to_svg_with_options() vector export with validation and focused tests.",
+        evidence: "Line, scatter, bar, area, pie/donut, heatmap, boxplot, treemap, isoline, contour, optional surface3d, and mesh_plot builders expose deterministic vector export with validation and focused tests.",
         release_requirement: "Keep static_export tests green and document broader image/PDF export as a future chart-family expansion.",
     },
     ChartCapabilityEntry {
@@ -210,7 +211,7 @@ const CHART_CAPABILITY_ENTRIES: &[ChartCapabilityEntry] = &[
             "component-lab:px-story-conformance",
         ],
         status: ChartCapabilityStatus::Partial,
-        evidence: "chart_visual_regression_manifest() records chart story ids, dashboard/panel/mobile viewports, light/dark/high-contrast schemes, and stable baseline/actual/diff artifact paths for every public chart family plus optional surface3d.",
+        evidence: "chart_visual_regression_manifest() records chart story ids, dashboard/panel/mobile viewports, light/dark/high-contrast schemes, and stable baseline/actual/diff artifact paths for every public chart family plus optional surface3d and mesh_plot.",
         release_requirement: "Keep chart visual-regression manifest tests green and execute the listed captures through component-lab/showcase visual QA before attaching release artifacts.",
     },
     ChartCapabilityEntry {
@@ -226,6 +227,127 @@ const CHART_CAPABILITY_ENTRIES: &[ChartCapabilityEntry] = &[
         evidence: "ChartAccessibilitySummary::to_accessibility_tree() and to_bridge_snapshot() convert chart summaries into gpui-ui-kit AccessibilityTree/AccessibilityBridgeSnapshot payloads with image roles, labels, descriptions, ranges, scales, and series labels for host/native adapters.",
         release_requirement: "Keep accessibility bridge tests green and attach product-level screen-reader QA before claiming OS-level chart accessibility parity.",
     },
+    ChartCapabilityEntry {
+        id: "mesh-plot",
+        capability: "Unstructured triangle mesh plots",
+        chart_families: "mesh_plot",
+        story_ids: &["px.mesh_plot"],
+        test_contracts: &[
+            "mesh_plot builder and validation tests",
+            "mesh_plot SVG and accessibility tests",
+            "component-lab:px.mesh_plot",
+        ],
+        status: ChartCapabilityStatus::Partial,
+        evidence: "TriangleMesh validation, scalar fields, contour/isoline preparation, deterministic SVG export, live native accessibility registration, Python frame retention, split resource-backed native decoding, the component-lab story, reviewed Metal baseline/diff artifacts, and verified Python host selection/callback artifacts are present; reference-machine allocation evidence remains open.",
+        release_requirement: "Complete reference-machine allocation/performance evidence and clean release provenance before promoting to implemented.",
+    },
+    ChartCapabilityEntry {
+        id: "mesh-plot-rendering",
+        capability: "Mesh plot rendering",
+        chart_families: "mesh_plot (2D and 3D)",
+        story_ids: &["px.mesh_plot"],
+        test_contracts: &[
+            "mesh_3d_cache_tests",
+            "gpui-d3rs offscreen renderer smoke tests",
+            "component-lab:px.mesh_plot",
+        ],
+        status: ChartCapabilityStatus::Partial,
+        evidence: "Retained 2D/3D geometry upload, Metal/wgpu custom draws, and an offscreen fallback are implemented and the fallback has runtime rasterization/field-retention smoke coverage; the local macOS Metal 3x3 capture matrix passed and its nine reviewed Metal baseline/diff members are versioned.",
+        release_requirement: "Verify adapter-backed runtime rendering on each supported lane.",
+    },
+    ChartCapabilityEntry {
+        id: "mesh-plot-fields",
+        capability: "Mesh plot vertex and cell scalar fields",
+        chart_families: "mesh_plot",
+        story_ids: &["px.mesh_plot"],
+        test_contracts: &[
+            "mesh_plot builder and validation tests",
+            "mesh_3d_cache_tests",
+        ],
+        status: ChartCapabilityStatus::Partial,
+        evidence: "Vertex and cell associations, validity masks, smooth/flat interpolation, NaN upload sentinels, and field-only retained updates are covered by focused Rust tests.",
+        release_requirement: "Add reference visual evidence for both associations and masked-field behavior.",
+    },
+    ChartCapabilityEntry {
+        id: "mesh-plot-contours",
+        capability: "Mesh plot filled contours and isolines",
+        chart_families: "mesh_plot",
+        story_ids: &["px.mesh_plot"],
+        test_contracts: &[
+            "mesh_contour_golden",
+            "mesh_compute_diff_tests",
+            "mesh_plot SVG tests",
+        ],
+        status: ChartCapabilityStatus::Partial,
+        evidence: "Unstructured marching-triangle bands, isolines, GPU/CPU tie-break parity, and deterministic SVG output are implemented and focused-tested.",
+        release_requirement: "Attach renderer-backed contour/isoline captures and readback diff evidence.",
+    },
+    ChartCapabilityEntry {
+        id: "mesh-plot-axisymmetric",
+        capability: "Mesh plot axisymmetric section and revolve",
+        chart_families: "mesh_plot",
+        story_ids: &["px.mesh_plot"],
+        test_contracts: &[
+            "revolve tests",
+            "component-lab:px.mesh_plot.axisymmetric_section",
+            "component-lab:px.mesh_plot.revolve",
+        ],
+        status: ChartCapabilityStatus::Partial,
+        evidence: "Axisymmetric r-z section and retained revolve/source mapping are implemented with radius and sweep validation; section/revolve stories are present in the component-lab manifest.",
+        release_requirement: "Verify revolved rendering and picking on a reference GPU lane.",
+    },
+    ChartCapabilityEntry {
+        id: "mesh-plot-retained-updates",
+        capability: "Mesh plot retained field-only updates",
+        chart_families: "mesh_plot",
+        story_ids: &["px.mesh_plot"],
+        test_contracts: &["mesh_plot_allocation_contracts", "mesh_3d_cache_tests"],
+        status: ChartCapabilityStatus::Partial,
+        evidence: "Geometry/field revisions, cache invalidation, field-only state preservation, and warmed allocation contracts are present.",
+        release_requirement: "Attach reference-machine allocation and bounded-memory results for the release benchmark sizes.",
+    },
+    ChartCapabilityEntry {
+        id: "mesh-plot-interaction",
+        capability: "Mesh plot picking and native navigation",
+        chart_families: "mesh_plot",
+        story_ids: &["px.mesh_plot"],
+        test_contracts: &[
+            "mesh_plot picking tests",
+            "mesh_selection_payload test",
+            "component-lab:px.mesh_plot.picking",
+        ],
+        status: ChartCapabilityStatus::Partial,
+        evidence: "2D/3D picking, stable IDs, retained camera/viewport state, typed host selection payload construction, and end-to-end native Metal/Python-host pointer QA artifacts are present.",
+        release_requirement: "Attach reference-lane interaction evidence before claiming cross-adapter product parity.",
+    },
+    ChartCapabilityEntry {
+        id: "mesh-plot-python",
+        capability: "Mesh plot Python and resource parity",
+        chart_families: "mesh_plot",
+        story_ids: &["px.mesh_plot"],
+        test_contracts: &[
+            "test_meshplot.py",
+            "test_meshplot_protocol.py",
+            "Python mesh protocol tests",
+        ],
+        status: ChartCapabilityStatus::Partial,
+        evidence: "Inline and retained binary geometry, fields, masks, IDs, revisioned patches, resource eviction, selection event schemas, and a real resource-backed Python host selection/callback trace are covered by protocol, unit, and native-host tests.",
+        release_requirement: "Run Python-authored selection and patch flows through the native host session.",
+    },
+    ChartCapabilityEntry {
+        id: "mesh-plot-export-accessibility",
+        capability: "Mesh plot export and accessibility",
+        chart_families: "mesh_plot",
+        story_ids: &["px.mesh_plot"],
+        test_contracts: &[
+            "mesh_plot SVG and accessibility tests",
+            "mesh_plot_accessibility",
+            "accessibility bridge tests",
+        ],
+        status: ChartCapabilityStatus::Partial,
+        evidence: "Deterministic viewport-aware SVG export, structured accessibility summaries, live native image-role metadata, and AccessibilityTree registration are implemented; product-level screen-reader and clean reference visual-export QA remain open.",
+        release_requirement: "Attach exported-artifact and product accessibility QA before claiming full parity.",
+    },
 ];
 
 /// Return the current chart capability report.
@@ -233,7 +355,7 @@ pub const fn chart_capability_report() -> ChartCapabilityReport {
     ChartCapabilityReport {
         schema_version: CHART_CAPABILITY_SCHEMA_VERSION,
         report_type: CHART_CAPABILITY_REPORT_TYPE,
-        reviewed_on: "2026-07-12",
+        reviewed_on: "2026-08-09",
         entries: CHART_CAPABILITY_ENTRIES,
     }
 }
@@ -253,7 +375,7 @@ mod tests {
 
         assert_eq!(report.schema_version, CHART_CAPABILITY_SCHEMA_VERSION);
         assert_eq!(report.report_type, CHART_CAPABILITY_REPORT_TYPE);
-        assert_eq!(report.reviewed_on, "2026-07-12");
+        assert_eq!(report.reviewed_on, "2026-08-09");
         assert!(!report.entries.is_empty());
         assert!(!report.all_release_ready());
     }
@@ -324,6 +446,29 @@ mod tests {
         assert!(!blocking.contains(&"static-export"));
         assert!(blocking.contains(&"visual-regression"));
         assert!(blocking.contains(&"native-accessibility-bridge"));
+    }
+
+    #[test]
+    fn mesh_plot_capability_report_has_separate_product_contracts() {
+        let ids = chart_capability_entries()
+            .iter()
+            .filter(|entry| entry.id.starts_with("mesh-plot"))
+            .map(|entry| entry.id)
+            .collect::<std::collections::BTreeSet<_>>();
+
+        for id in [
+            "mesh-plot",
+            "mesh-plot-rendering",
+            "mesh-plot-fields",
+            "mesh-plot-contours",
+            "mesh-plot-axisymmetric",
+            "mesh-plot-retained-updates",
+            "mesh-plot-interaction",
+            "mesh-plot-python",
+            "mesh-plot-export-accessibility",
+        ] {
+            assert!(ids.contains(id), "missing mesh plot capability {id}");
+        }
     }
 
     #[test]

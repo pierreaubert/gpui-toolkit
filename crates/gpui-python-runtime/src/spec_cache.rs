@@ -8,6 +8,7 @@ use crate::{LinesSpec, MeshSpec, SceneSpec, SurfaceSpec};
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 use std::collections::{HashMap, VecDeque};
+use std::hash::{Hash, Hasher};
 
 /// Current JSON schema version for Python-authored Scene3D spec payloads.
 pub const SCENE3D_SPEC_SCHEMA_VERSION: u32 = 1;
@@ -68,6 +69,9 @@ pub enum TypedSceneSpec {
 #[derive(Debug, Clone)]
 pub struct TypedSpecCache {
     specs: HashMap<String, TypedSceneSpec>,
+    /// Fingerprints are kept separately from typed values so a node id can be
+    /// reused for a new payload without returning stale retained geometry.
+    fingerprints: HashMap<String, u64>,
     lru: VecDeque<String>,
     max_entries: usize,
 }
@@ -76,6 +80,7 @@ impl Default for TypedSpecCache {
     fn default() -> Self {
         Self {
             specs: HashMap::new(),
+            fingerprints: HashMap::new(),
             lru: VecDeque::new(),
             max_entries: DEFAULT_TYPED_SPEC_CACHE_MAX_ENTRIES,
         }
@@ -118,6 +123,7 @@ impl TypedSpecCache {
 
     pub fn clear(&mut self) {
         self.specs.clear();
+        self.fingerprints.clear();
         self.lru.clear();
     }
 
@@ -126,16 +132,32 @@ impl TypedSpecCache {
         self.lru.push_back(id.to_string());
     }
 
-    fn insert_spec(&mut self, id: String, spec: TypedSceneSpec) {
+    fn insert_spec(&mut self, id: String, spec: TypedSceneSpec, fingerprint: u64) {
         while self.specs.len() >= self.max_entries {
             let Some(evicted) = self.lru.pop_front() else {
                 break;
             };
             self.specs.remove(&evicted);
+            self.fingerprints.remove(&evicted);
         }
 
         self.specs.insert(id.clone(), spec);
+        self.fingerprints.insert(id.clone(), fingerprint);
         self.touch(&id);
+    }
+
+    fn invalidate_if_changed(&mut self, id: &str, value: &Value) -> u64 {
+        let fingerprint = content_fingerprint(value);
+        if self
+            .fingerprints
+            .get(id)
+            .is_some_and(|cached| *cached != fingerprint)
+        {
+            self.specs.remove(id);
+            self.fingerprints.remove(id);
+            self.lru.retain(|entry| entry != id);
+        }
+        fingerprint
     }
 
     /// Parse or return a cached `SurfaceSpec` for the given node id.
@@ -146,12 +168,13 @@ impl TypedSpecCache {
     ) -> Result<&SurfaceSpec, String> {
         validate_scene3d_spec_schema_version(value)?;
         let id = id.into();
+        let fingerprint = self.invalidate_if_changed(&id, value);
         if self.specs.contains_key(&id) {
             self.touch(&id);
         } else {
             let spec = parse_spec::<SurfaceSpec>(value)?;
             spec.validate().map_err(|error| error.to_string())?;
-            self.insert_spec(id.clone(), TypedSceneSpec::Surface(spec));
+            self.insert_spec(id.clone(), TypedSceneSpec::Surface(spec), fingerprint);
         }
         match self.specs.get(&id) {
             Some(TypedSceneSpec::Surface(spec)) => Ok(spec),
@@ -168,12 +191,13 @@ impl TypedSpecCache {
     ) -> Result<&LinesSpec, String> {
         validate_scene3d_spec_schema_version(value)?;
         let id = id.into();
+        let fingerprint = self.invalidate_if_changed(&id, value);
         if self.specs.contains_key(&id) {
             self.touch(&id);
         } else {
             let spec = parse_spec::<LinesSpec>(value)?;
             spec.validate().map_err(|error| error.to_string())?;
-            self.insert_spec(id.clone(), TypedSceneSpec::Lines(spec));
+            self.insert_spec(id.clone(), TypedSceneSpec::Lines(spec), fingerprint);
         }
         match self.specs.get(&id) {
             Some(TypedSceneSpec::Lines(spec)) => Ok(spec),
@@ -190,12 +214,13 @@ impl TypedSpecCache {
     ) -> Result<&MeshSpec, String> {
         validate_scene3d_spec_schema_version(value)?;
         let id = id.into();
+        let fingerprint = self.invalidate_if_changed(&id, value);
         if self.specs.contains_key(&id) {
             self.touch(&id);
         } else {
             let spec = parse_spec::<MeshSpec>(value)?;
             spec.validate().map_err(|error| error.to_string())?;
-            self.insert_spec(id.clone(), TypedSceneSpec::Mesh(spec));
+            self.insert_spec(id.clone(), TypedSceneSpec::Mesh(spec), fingerprint);
         }
         match self.specs.get(&id) {
             Some(TypedSceneSpec::Mesh(spec)) => Ok(spec),
@@ -212,17 +237,52 @@ impl TypedSpecCache {
     ) -> Result<&SceneSpec, String> {
         validate_scene3d_spec_schema_version(value)?;
         let id = id.into();
+        let fingerprint = self.invalidate_if_changed(&id, value);
         if self.specs.contains_key(&id) {
             self.touch(&id);
         } else {
             let spec = parse_spec::<SceneSpec>(value)?;
             spec.validate().map_err(|error| error.to_string())?;
-            self.insert_spec(id.clone(), TypedSceneSpec::Scene(spec));
+            self.insert_spec(id.clone(), TypedSceneSpec::Scene(spec), fingerprint);
         }
         match self.specs.get(&id) {
             Some(TypedSceneSpec::Scene(spec)) => Ok(spec),
             Some(_) => Err(format!("node {id} is not a scene spec")),
             None => unreachable!("just inserted or checked a SceneSpec"),
+        }
+    }
+}
+
+/// Compute a deterministic content fingerprint for a JSON payload.
+///
+/// Object keys are sorted before hashing, so equivalent payloads with a
+/// different insertion order still hit the cache. Arrays remain ordered.
+fn content_fingerprint(value: &Value) -> u64 {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    hash_value(value, &mut hasher);
+    hasher.finish()
+}
+
+fn hash_value(value: &Value, hasher: &mut impl Hasher) {
+    std::mem::discriminant(value).hash(hasher);
+    match value {
+        Value::Null => {}
+        Value::Bool(value) => value.hash(hasher),
+        Value::Number(value) => value.to_string().hash(hasher),
+        Value::String(value) => value.hash(hasher),
+        Value::Array(values) => {
+            values.len().hash(hasher);
+            for value in values {
+                hash_value(value, hasher);
+            }
+        }
+        Value::Object(values) => {
+            let mut keys = values.keys().collect::<Vec<_>>();
+            keys.sort_unstable();
+            for key in keys {
+                key.hash(hasher);
+                hash_value(&values[key], hasher);
+            }
         }
     }
 }
@@ -284,6 +344,38 @@ mod tests {
 
         let error = cache.parse_surface("surface", &future).unwrap_err();
         assert!(error.contains("unsupported scene3d schema version"));
+    }
+
+    #[test]
+    fn content_change_replaces_cached_value_for_same_node_id() {
+        let mut cache = TypedSpecCache::new();
+        let first = serde_json::json!({
+            "id": "surface",
+            "z": { "values": [1.0, 2.0, 3.0, 4.0], "width": 2, "height": 2 }
+        });
+        let second = serde_json::json!({
+            "id": "surface",
+            "z": { "values": [9.0, 2.0, 3.0, 4.0], "width": 2, "height": 2 }
+        });
+        assert_eq!(
+            cache.parse_surface("surface", &first).unwrap().z.values[0],
+            1.0
+        );
+        assert_eq!(
+            cache.parse_surface("surface", &second).unwrap().z.values[0],
+            9.0
+        );
+        assert_eq!(cache.len(), 1);
+    }
+
+    #[test]
+    fn equivalent_object_order_reuses_content_cache() {
+        let a = serde_json::json!({"id":"surface", "z":{"values":[1.0,2.0,3.0,4.0],"width":2,"height":2}});
+        let b = serde_json::from_str::<Value>(
+            r#"{"z":{"height":2,"width":2,"values":[1.0,2.0,3.0,4.0]},"id":"surface"}"#,
+        )
+        .unwrap();
+        assert_eq!(content_fingerprint(&a), content_fingerprint(&b));
     }
 
     #[test]

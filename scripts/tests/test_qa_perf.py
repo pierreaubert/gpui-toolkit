@@ -21,6 +21,22 @@ def fixture(environment: dict[str, object]) -> dict[str, object]:
 
 
 class PerformanceEnvironmentTests(unittest.TestCase):
+    def test_mesh_plot_benchmarks_are_registered_with_the_release_runner(self) -> None:
+        specs = {
+            spec.key: spec
+            for spec in qa_perf_baseline.BENCHMARKS
+        }
+        self.assertIn("gpui-d3rs:mesh_prep", specs)
+        self.assertIn("gpui-px:mesh_plot_frames", specs)
+        self.assertEqual(
+            qa_perf_baseline.spec_for_group("mesh_prep").key,
+            "gpui-d3rs:mesh_prep",
+        )
+        self.assertEqual(
+            qa_perf_baseline.spec_for_group("mesh_plot_retained_frames").key,
+            "gpui-px:mesh_plot_frames",
+        )
+
     def test_macos_arm_cpu_model_is_stable_when_sysctl_is_unavailable(self) -> None:
         with (
             mock.patch.object(qa_perf_baseline.sys, "platform", "darwin"),

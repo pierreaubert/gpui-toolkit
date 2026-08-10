@@ -288,7 +288,9 @@ fn golden_two_shared_triangles() {
         for b in &segs[i + 1..] {
             if a.level == b.level {
                 assert!(
-                    [a.start, a.end].iter().any(|p| p == &b.start || p == &b.end),
+                    [a.start, a.end]
+                        .iter()
+                        .any(|p| p == &b.start || p == &b.end),
                     "segments at level {} must share one endpoint bitwise: {a:?} vs {b:?}",
                     a.level
                 );
@@ -444,9 +446,7 @@ fn golden_permutation_invariance() {
         }
 
         // Rotate the triangle order by 3.
-        let rotated: Vec<[u32; 3]> = (0..n)
-            .map(|i| base.mesh.triangles[(i + 3) % n])
-            .collect();
+        let rotated: Vec<[u32; 3]> = (0..n).map(|i| base.mesh.triangles[(i + 3) % n]).collect();
         let rot = Corpus::new(&base.mesh.positions, &rotated, &base.field.values);
         assert_eq!(
             sorted_segment_bits(&base.segments()),

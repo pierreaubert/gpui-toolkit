@@ -33,6 +33,40 @@ class Selection(Event):
     def selected_id(self) -> str | None:
         return (self.payload or {}).get("row_id") or (self.payload or {}).get("object_id")
 
+    @property
+    def plot_id(self) -> str | None:
+        return (self.payload or {}).get("plot_id")
+
+    @property
+    def mesh_id(self) -> str | None:
+        return (self.payload or {}).get("mesh_id")
+
+    @property
+    def cell_index(self) -> int | None:
+        return (self.payload or {}).get("cell_index")
+
+    @property
+    def cell_id(self) -> int | None:
+        return (self.payload or {}).get("cell_id")
+
+    @property
+    def vertex_id(self) -> int | None:
+        return (self.payload or {}).get("vertex_id")
+
+    @property
+    def world_position(self) -> tuple[float, float, float] | None:
+        position = (self.payload or {}).get("world_position")
+        return None if position is None else tuple(float(value) for value in position)
+
+    @property
+    def displayed_value(self) -> float | None:
+        value = (self.payload or {}).get("displayed_value")
+        return None if value is None else float(value)
+
+    @property
+    def field_id(self) -> str | None:
+        return (self.payload or {}).get("field_id")
+
 @dataclass(frozen=True)
 class ValueChange(Event):
     @property

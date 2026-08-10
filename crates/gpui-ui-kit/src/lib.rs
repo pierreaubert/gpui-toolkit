@@ -90,6 +90,7 @@ pub mod swipe_panel;
 pub mod command_palette;
 pub mod drag_list;
 pub mod notification;
+pub mod plot_toolbar;
 pub mod tag;
 pub mod toolbar;
 pub mod tree_view;
@@ -244,6 +245,7 @@ pub use workflow::{
 pub use command_palette::{CommandItem, CommandPalette, CommandPaletteTheme};
 pub use drag_list::{DragItem, DragList, DragListOrientation, DragListTheme};
 pub use notification::{Notification, NotificationTheme, NotificationVariant};
+pub use plot_toolbar::{PlotToolbar, PlotToolbarAction};
 pub use tag::{Tag, TagSize, TagTheme, TagVariant};
 pub use toolbar::{Toolbar, ToolbarItem, ToolbarTheme};
 pub use tree_view::{TreeNode, TreeView, TreeViewTheme};

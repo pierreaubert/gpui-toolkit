@@ -61,7 +61,7 @@ pub struct PreparedLineBreakData<'a> {
     pub tab_stop_advance: f64,
     pub chunks: Cow<'a, [PreparedLineChunk]>,
     /// Global segment range that this view covers in the underlying
-/// the prepared-text core. Used to key caches.
+    /// the prepared-text core. Used to key caches.
     pub(crate) start_segment: usize,
     pub(crate) end_segment: usize,
     /// Optional cache for Knuth-Plass breakpoint candidate lists. This is

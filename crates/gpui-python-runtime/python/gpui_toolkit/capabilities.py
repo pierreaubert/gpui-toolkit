@@ -20,6 +20,7 @@ _ENTRIES = (
     ('gpui-px.capability-and-visual-reports', 'command', 'gpui_toolkit.charts.request_reports'),
     ('gpui-px.full-chart-api', 'declarative', 'gpui_toolkit.charts'),
     ('gpui-d3rs.scene3d', 'declarative', 'gpui_toolkit.scene3d'),
+    ('gpui-d3rs.meshplot', 'declarative', 'gpui_toolkit.meshplot'),
     ('gpui-d3rs.zoom-command', 'command', 'gpui_toolkit.d3.ZoomRequest'),
     ('gpui-d3rs.array-search-quantile', 'command', 'gpui_toolkit.d3.ArrayRequest'),
     ('gpui-d3rs.scales', 'command', 'gpui_toolkit.d3.ScaleRequest'),

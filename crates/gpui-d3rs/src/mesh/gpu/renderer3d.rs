@@ -1,0 +1,892 @@
+//! Cache-aware 3D mesh renderer facade.
+//!
+//! The platform renderer owns GPU resources; this type owns the state that
+//! must remain stable while a camera is moving.  Keeping that state on top of
+//! [`MeshGpuRenderer`] makes the camera contract testable without requiring a
+//! graphics adapter and lets the wgpu/Metal implementations share it.
+
+use crate::gpu3d::Camera3D;
+use crate::mesh::gpu::{
+    FieldRevision, GeometryRevision, MeshColorConfig, MeshGpuRenderer, RetainedMeshRenderer,
+};
+use crate::mesh::{MeshUpload, expand_cell_shading, upload_chunks};
+#[cfg(not(test))]
+use glam::Vec3Swizzles;
+
+/// Retained 3D mesh state shared by platform renderers.
+///
+/// `B` is deliberately generic so headless tests can use
+/// [`RetainedMeshRenderer`], while a platform can provide its own
+/// [`MeshGpuRenderer`] without duplicating revision and camera-cache logic.
+#[derive(Debug, Clone)]
+pub struct Mesh3DRenderer<B = RetainedMeshRenderer> {
+    backend: B,
+    camera: Camera3D,
+    color: MeshColorConfig,
+    cell_shading: bool,
+    upload: Option<MeshUpload>,
+    field_revision: Option<FieldRevision>,
+    upload_count: u64,
+    upload_bytes: u64,
+}
+
+impl<B: MeshGpuRenderer> Mesh3DRenderer<B> {
+    /// Wrap an existing platform renderer.
+    pub fn with_backend(backend: B) -> Self {
+        Self {
+            backend,
+            camera: Camera3D::default(),
+            color: MeshColorConfig::default(),
+            cell_shading: false,
+            upload: None,
+            field_revision: None,
+            upload_count: 0,
+            upload_bytes: 0,
+        }
+    }
+
+    /// Access the platform renderer for draw submission or diagnostics.
+    pub fn backend(&self) -> &B {
+        &self.backend
+    }
+
+    /// Mutable access to the platform renderer.
+    pub fn backend_mut(&mut self) -> &mut B {
+        &mut self.backend
+    }
+
+    /// Return the current camera without causing a geometry upload.
+    pub fn camera(&self) -> &Camera3D {
+        &self.camera
+    }
+
+    /// Update the camera cache.
+    ///
+    /// This intentionally only changes uniforms/state. Geometry upload is
+    /// driven by [`GeometryRevision`], not by camera frames.
+    pub fn set_camera(&mut self, camera: &Camera3D) {
+        self.camera = camera.clone();
+    }
+
+    /// Return the color/lighting configuration consumed by the shader.
+    pub fn color_config(&self) -> &MeshColorConfig {
+        &self.color
+    }
+
+    /// Set the lighting and colormap configuration without touching geometry.
+    pub fn set_color_config(&mut self, color: MeshColorConfig) {
+        self.color = color;
+    }
+
+    /// Enable or disable lighting.
+    ///
+    /// Scalar views default to unlit so lighting cannot change the scalar to
+    /// colormap mapping.
+    pub fn set_unlit(&mut self, unlit: bool) {
+        self.color.unlit = unlit;
+    }
+
+    /// Enable or disable per-cell flat shading.
+    ///
+    /// Changing this flag changes the vertex representation, so an existing
+    /// geometry upload is rebuilt once using the same geometry revision.
+    pub fn set_cell_shading(&mut self, enabled: bool) {
+        if self.cell_shading == enabled {
+            return;
+        }
+        self.cell_shading = enabled;
+        if let (Some(upload), Some(revision)) =
+            (self.upload.clone(), self.backend.geometry_revision())
+        {
+            self.upload_geometry_inner(revision, &upload, true);
+        }
+    }
+
+    /// Whether per-cell flat shading is active.
+    pub fn cell_shading(&self) -> bool {
+        self.cell_shading
+    }
+
+    /// Number of geometry uploads performed by this cache.
+    ///
+    /// Field writes and camera changes do not increment this counter.
+    pub fn upload_count(&self) -> u64 {
+        self.upload_count
+    }
+
+    /// Number of retained geometry payload bytes uploaded by this cache.
+    pub fn upload_bytes(&self) -> u64 {
+        self.upload_bytes
+    }
+
+    /// Last field revision written through this facade.
+    pub fn field_revision(&self) -> Option<FieldRevision> {
+        self.field_revision
+    }
+
+    /// Upload the representation selected by the current shading mode.
+    fn upload_for_mode(&self, upload: &MeshUpload) -> MeshUpload {
+        if self.cell_shading {
+            expand_cell_shading(upload)
+        } else {
+            upload.clone()
+        }
+    }
+
+    fn upload_geometry_inner(
+        &mut self,
+        revision: GeometryRevision,
+        upload: &MeshUpload,
+        force: bool,
+    ) {
+        // Revisions are the cache key. A camera frame or a repeated render of
+        // the same revision must not recreate GPU buffers unless the vertex
+        // representation itself changed (for example, flat shading toggled).
+        if !force && self.backend.geometry_revision() == Some(revision) {
+            self.upload = Some(upload.clone());
+            return;
+        }
+
+        let prepared = self.upload_for_mode(upload);
+        self.backend.upload_geometry(revision, &prepared);
+        self.upload = Some(upload.clone());
+        self.upload_count += 1;
+        self.upload_bytes = self
+            .upload_bytes
+            .saturating_add(prepared.geometry_byte_len());
+    }
+}
+
+impl Mesh3DRenderer<RetainedMeshRenderer> {
+    /// Construct a headless renderer useful for tests and fallback paths.
+    pub fn new() -> Self {
+        Self::with_backend(RetainedMeshRenderer::default())
+    }
+}
+
+impl Default for Mesh3DRenderer<RetainedMeshRenderer> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<B: MeshGpuRenderer> MeshGpuRenderer for Mesh3DRenderer<B> {
+    fn upload_geometry(&mut self, revision: GeometryRevision, upload: &MeshUpload) {
+        self.upload_geometry_inner(revision, upload, false);
+    }
+
+    fn write_field(&mut self, revision: FieldRevision, values: &[f32]) {
+        self.backend.write_field(revision, values);
+        self.field_revision = Some(revision);
+    }
+
+    fn geometry_revision(&self) -> Option<GeometryRevision> {
+        self.backend.geometry_revision()
+    }
+}
+
+/// Adapter-backed retained surface renderer used by `MeshPlotView::Surface3d`.
+///
+/// The renderer is intentionally separate from the headless facade above:
+/// `Mesh3DRenderer` owns revision policy, while this type owns the WGPU
+/// pipeline, depth/MSAA targets, and GPUI custom-draw registration. Camera
+/// changes only update the uniform buffer; indexed geometry is rebuilt only
+/// when its `GeometryRevision` changes.
+#[cfg(not(test))]
+pub struct WgpuMesh3DRenderer {
+    state: std::rc::Rc<std::cell::RefCell<crate::mesh::gpu::MeshSceneState>>,
+    camera: std::rc::Rc<std::cell::RefCell<Camera3D>>,
+    resources: std::rc::Rc<std::cell::RefCell<Option<WgpuMesh3DResources>>>,
+    custom_id: gpui::CustomDrawId,
+}
+
+#[cfg(not(test))]
+struct WgpuMesh3DResources {
+    geometry_rev: GeometryRevision,
+    field_rev: FieldRevision,
+    vertices: wgpu::Buffer,
+    indices: wgpu::Buffer,
+    edges: wgpu::Buffer,
+    uniform: wgpu::Buffer,
+    bind_group: wgpu::BindGroup,
+    surface_pipeline: wgpu::RenderPipeline,
+    wire_pipeline: wgpu::RenderPipeline,
+    triad_pipeline: wgpu::RenderPipeline,
+    triad: wgpu::Buffer,
+    index_count: u32,
+    edge_count: u32,
+    triad_count: u32,
+    vertex_bytes: u64,
+    msaa_texture: wgpu::Texture,
+    msaa_view: wgpu::TextureView,
+    depth_texture: wgpu::Texture,
+    depth_view: wgpu::TextureView,
+    width: u32,
+    height: u32,
+}
+
+#[cfg(not(test))]
+struct WgpuMesh3DDraw {
+    state: std::rc::Rc<std::cell::RefCell<crate::mesh::gpu::MeshSceneState>>,
+    camera: std::rc::Rc<std::cell::RefCell<Camera3D>>,
+    resources: std::rc::Rc<std::cell::RefCell<Option<WgpuMesh3DResources>>>,
+}
+
+#[cfg(not(test))]
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct Mesh3DVertex {
+    position: [f32; 3],
+    normal: [f32; 3],
+    value: f32,
+    _padding: f32,
+}
+
+#[cfg(not(test))]
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct Mesh3DUniforms {
+    view_proj: [[f32; 4]; 4],
+    model: [[f32; 4]; 4],
+    light_dir: [f32; 4],
+    params: [f32; 4],
+    value_range: [f32; 4],
+    isoline: [f32; 4],
+    isoline_color: [f32; 4],
+}
+
+#[cfg(not(test))]
+impl WgpuMesh3DResources {
+    fn new(
+        ctx: &gpui_wgpu::WgpuContext,
+        state: &crate::mesh::gpu::MeshSceneState,
+        revision: GeometryRevision,
+    ) -> Self {
+        let empty_upload = MeshUpload {
+            positions_f32: Vec::new(),
+            origin: [0.0; 3],
+            indices: Vec::new(),
+            edge_indices: Vec::new(),
+            values_f32: None,
+            cell_values_f32: None,
+        };
+        let upload = state.upload.as_ref().unwrap_or(&empty_upload);
+        // Cell-associated values cannot be represented by shared indexed
+        // vertices: one profile vertex may belong to cells with different
+        // values. Expand those triangles once per geometry revision so flat
+        // cell shading is correct on the retained WGPU path.
+        let render_upload = expand_cell_upload(upload);
+        let vertices = build_3d_vertices(&render_upload);
+        let device = &ctx.device;
+        let vertex_bytes = bytemuck::cast_slice::<Mesh3DVertex, u8>(&vertices);
+        let vertex_buffer = create_chunked_buffer(
+            ctx,
+            "mesh_3d_vertices",
+            vertex_bytes,
+            wgpu::BufferUsages::VERTEX,
+        );
+        let index_buffer = create_chunked_buffer(
+            ctx,
+            "mesh_3d_triangles",
+            bytemuck::cast_slice(&render_upload.indices),
+            wgpu::BufferUsages::INDEX,
+        );
+        let edge_buffer = create_chunked_buffer(
+            ctx,
+            "mesh_3d_edges",
+            bytemuck::cast_slice(&render_upload.edge_indices),
+            wgpu::BufferUsages::INDEX,
+        );
+        let triad_vertices = triad_vertices(&Camera3D::default());
+        let triad = create_chunked_buffer(
+            ctx,
+            "mesh_3d_orientation_triad",
+            bytemuck::cast_slice(&triad_vertices),
+            wgpu::BufferUsages::VERTEX,
+        );
+        let uniform = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("mesh_3d_uniforms"),
+            size: std::mem::size_of::<Mesh3DUniforms>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("mesh_3d_bind_group_layout"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+        });
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("mesh_3d_bind_group"),
+            layout: &bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: uniform.as_entire_binding(),
+            }],
+        });
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("mesh_3d_shader"),
+            source: wgpu::ShaderSource::Wgsl(super::shaders3d::wgsl().into()),
+        });
+        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("mesh_3d_pipeline_layout"),
+            bind_group_layouts: &[Some(&bind_group_layout)],
+            immediate_size: 0,
+        });
+        let vertex_layout = wgpu::VertexBufferLayout {
+            array_stride: std::mem::size_of::<Mesh3DVertex>() as u64,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &[
+                wgpu::VertexAttribute {
+                    format: wgpu::VertexFormat::Float32x3,
+                    offset: 0,
+                    shader_location: 0,
+                },
+                wgpu::VertexAttribute {
+                    format: wgpu::VertexFormat::Float32x3,
+                    offset: 12,
+                    shader_location: 1,
+                },
+                wgpu::VertexAttribute {
+                    format: wgpu::VertexFormat::Float32,
+                    offset: 24,
+                    shader_location: 2,
+                },
+            ],
+        };
+        let pipeline = |topology, depth_bias: wgpu::DepthBiasState| {
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("mesh_3d_pipeline"),
+                layout: Some(&pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &shader,
+                    entry_point: Some("vs_main"),
+                    buffers: std::slice::from_ref(&vertex_layout),
+                    compilation_options: Default::default(),
+                },
+                primitive: wgpu::PrimitiveState {
+                    topology,
+                    strip_index_format: None,
+                    front_face: wgpu::FrontFace::Ccw,
+                    // Scientific meshes may have inconsistent winding. Keep
+                    // both sides visible and let the shader use two-sided light.
+                    cull_mode: None,
+                    unclipped_depth: false,
+                    polygon_mode: wgpu::PolygonMode::Fill,
+                    conservative: false,
+                },
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: wgpu::TextureFormat::Depth32Float,
+                    depth_write_enabled: Some(true),
+                    depth_compare: Some(wgpu::CompareFunction::LessEqual),
+                    stencil: Default::default(),
+                    bias: depth_bias,
+                }),
+                multisample: wgpu::MultisampleState {
+                    count: 4,
+                    mask: !0,
+                    alpha_to_coverage_enabled: false,
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &shader,
+                    entry_point: Some(if topology == wgpu::PrimitiveTopology::LineList {
+                        "fs_wireframe"
+                    } else {
+                        "fs_main"
+                    }),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: ctx.color_texture_format(),
+                        blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                    compilation_options: Default::default(),
+                }),
+                cache: None,
+                multiview_mask: None,
+            })
+        };
+        let surface_pipeline = pipeline(wgpu::PrimitiveTopology::TriangleList, Default::default());
+        let wire_pipeline = pipeline(
+            wgpu::PrimitiveTopology::LineList,
+            wgpu::DepthBiasState {
+                constant: 1,
+                slope_scale: 1.0,
+                clamp: 0.0,
+            },
+        );
+        let triad_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("mesh_3d_orientation_triad_pipeline"),
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_triad"),
+                buffers: std::slice::from_ref(&vertex_layout),
+                compilation_options: Default::default(),
+            },
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::LineList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: None,
+                unclipped_depth: false,
+                polygon_mode: wgpu::PolygonMode::Fill,
+                conservative: false,
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState {
+                count: 4,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_triad"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: ctx.color_texture_format(),
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: Default::default(),
+            }),
+            cache: None,
+            multiview_mask: None,
+        });
+        let (msaa_texture, msaa_view, depth_texture, depth_view) = make_targets(ctx, 1, 1);
+        Self {
+            geometry_rev: revision,
+            field_rev: FieldRevision(0),
+            vertices: vertex_buffer,
+            indices: index_buffer,
+            edges: edge_buffer,
+            uniform,
+            bind_group,
+            surface_pipeline,
+            wire_pipeline,
+            triad_pipeline,
+            triad,
+            index_count: render_upload.indices.len() as u32,
+            edge_count: render_upload.edge_indices.len() as u32,
+            triad_count: triad_vertices.len() as u32,
+            vertex_bytes: vertex_bytes.len() as u64,
+            msaa_texture,
+            msaa_view,
+            depth_texture,
+            depth_view,
+            width: 1,
+            height: 1,
+        }
+    }
+
+    fn resize(&mut self, ctx: &gpui_wgpu::WgpuContext, width: u32, height: u32) {
+        if self.width == width && self.height == height {
+            return;
+        }
+        let (msaa_texture, msaa_view, depth_texture, depth_view) = make_targets(ctx, width, height);
+        self.msaa_texture = msaa_texture;
+        self.msaa_view = msaa_view;
+        self.depth_texture = depth_texture;
+        self.depth_view = depth_view;
+        self.width = width;
+        self.height = height;
+    }
+
+    fn write_vertices(&mut self, ctx: &gpui_wgpu::WgpuContext, upload: &MeshUpload) {
+        let render_upload = expand_cell_upload(upload);
+        let vertices = build_3d_vertices(&render_upload);
+        let bytes = bytemuck::cast_slice::<Mesh3DVertex, u8>(&vertices);
+        if bytes.len() as u64 <= self.vertex_bytes {
+            write_chunked_buffer(ctx, &self.vertices, bytes);
+        }
+    }
+
+    fn write_triad(&self, ctx: &gpui_wgpu::WgpuContext, camera: &Camera3D) {
+        let vertices = triad_vertices(camera);
+        write_chunked_buffer(ctx, &self.triad, bytemuck::cast_slice(&vertices));
+    }
+
+    fn write_uniform(
+        &self,
+        ctx: &gpui_wgpu::WgpuContext,
+        state: &crate::mesh::gpu::MeshSceneState,
+        camera: &Camera3D,
+    ) {
+        let range = state.color.range;
+        let uniforms = Mesh3DUniforms {
+            view_proj: camera.view_projection_matrix().to_cols_array_2d(),
+            model: glam::Mat4::IDENTITY.to_cols_array_2d(),
+            light_dir: [0.35, 0.55, 0.75, 0.0],
+            params: [
+                state.color.colormap as f32,
+                state.color.unlit as u32 as f32,
+                0.3,
+                0.7,
+            ],
+            value_range: [range[0], range[1], 0.0, 0.0],
+            isoline: [
+                state.color.isoline_step,
+                state.color.isoline_width_px,
+                1.0,
+                0.0,
+            ],
+            isoline_color: [0.08, 0.10, 0.14, 1.0],
+        };
+        ctx.queue
+            .write_buffer(&self.uniform, 0, bytemuck::bytes_of(&uniforms));
+    }
+}
+
+#[cfg(not(test))]
+fn make_targets(
+    ctx: &gpui_wgpu::WgpuContext,
+    width: u32,
+    height: u32,
+) -> (
+    wgpu::Texture,
+    wgpu::TextureView,
+    wgpu::Texture,
+    wgpu::TextureView,
+) {
+    let extent = wgpu::Extent3d {
+        width: width.max(1),
+        height: height.max(1),
+        depth_or_array_layers: 1,
+    };
+    let msaa_texture = ctx.device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("mesh_3d_msaa_color"),
+        size: extent,
+        mip_level_count: 1,
+        sample_count: 4,
+        dimension: wgpu::TextureDimension::D2,
+        format: ctx.color_texture_format(),
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+        view_formats: &[],
+    });
+    let msaa_view = msaa_texture.create_view(&wgpu::TextureViewDescriptor::default());
+    let depth_texture = ctx.device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("mesh_3d_depth"),
+        size: extent,
+        mip_level_count: 1,
+        sample_count: 4,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Depth32Float,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+        view_formats: &[],
+    });
+    let depth_view = depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
+    (msaa_texture, msaa_view, depth_texture, depth_view)
+}
+
+#[cfg(not(test))]
+fn create_chunked_buffer(
+    ctx: &gpui_wgpu::WgpuContext,
+    label: &str,
+    bytes: &[u8],
+    usage: wgpu::BufferUsages,
+) -> wgpu::Buffer {
+    let buffer = ctx.device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some(label),
+        size: (bytes.len() as u64).max(4),
+        usage: usage | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+    write_chunked_buffer(ctx, &buffer, bytes);
+    buffer
+}
+
+#[cfg(not(test))]
+fn write_chunked_buffer(ctx: &gpui_wgpu::WgpuContext, buffer: &wgpu::Buffer, bytes: &[u8]) {
+    for (offset, chunk) in upload_chunks(bytes) {
+        if !chunk.is_empty() {
+            ctx.queue.write_buffer(buffer, offset as u64, chunk);
+        }
+    }
+}
+
+#[cfg(not(test))]
+fn build_3d_vertices(upload: &MeshUpload) -> Vec<Mesh3DVertex> {
+    let mut normals = vec![[0.0f32; 3]; upload.positions_f32.len()];
+    for triangle in upload.indices.chunks_exact(3) {
+        let Some(a) = upload.positions_f32.get(triangle[0] as usize) else {
+            continue;
+        };
+        let Some(b) = upload.positions_f32.get(triangle[1] as usize) else {
+            continue;
+        };
+        let Some(c) = upload.positions_f32.get(triangle[2] as usize) else {
+            continue;
+        };
+        let ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+        let ac = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+        let face = [
+            ab[1] * ac[2] - ab[2] * ac[1],
+            ab[2] * ac[0] - ab[0] * ac[2],
+            ab[0] * ac[1] - ab[1] * ac[0],
+        ];
+        for index in triangle {
+            if let Some(normal) = normals.get_mut(*index as usize) {
+                for axis in 0..3 {
+                    normal[axis] += face[axis];
+                }
+            }
+        }
+    }
+    normals.iter_mut().for_each(|normal| {
+        let length = (normal[0] * normal[0] + normal[1] * normal[1] + normal[2] * normal[2]).sqrt();
+        if length > f32::EPSILON {
+            normal.iter_mut().for_each(|value| *value /= length);
+        } else {
+            *normal = [0.0, 0.0, 1.0];
+        }
+    });
+    upload
+        .positions_f32
+        .iter()
+        .enumerate()
+        .map(|(index, &position)| Mesh3DVertex {
+            position,
+            normal: normals[index],
+            value: upload
+                .values_f32
+                .as_ref()
+                .and_then(|values| values.get(index).copied())
+                .unwrap_or(0.0),
+            _padding: 0.0,
+        })
+        .collect()
+}
+
+#[cfg(not(test))]
+fn triad_vertices(camera: &Camera3D) -> [Mesh3DVertex; 6] {
+    let origin = [-0.84_f32, -0.84_f32];
+    let view = camera.view_matrix();
+    let axes = [
+        (glam::Vec3::X, [0.90, 0.16, 0.14]),
+        (glam::Vec3::Y, [0.18, 0.82, 0.28]),
+        (glam::Vec3::Z, [0.20, 0.42, 0.95]),
+    ];
+    let mut output = [Mesh3DVertex {
+        position: [0.0; 3],
+        normal: [0.0; 3],
+        value: 0.0,
+        _padding: 0.0,
+    }; 6];
+    for (axis, (direction, color)) in axes.into_iter().enumerate() {
+        let screen_direction = (view * direction.extend(0.0)).truncate();
+        let length = screen_direction.xy().length().max(1e-6);
+        let direction = screen_direction.xy() / length;
+        let end = [
+            origin[0] + direction.x * 0.12,
+            origin[1] + direction.y * 0.12,
+        ];
+        let base = axis * 2;
+        output[base] = Mesh3DVertex {
+            position: [origin[0], origin[1], 0.0],
+            normal: color,
+            value: 0.0,
+            _padding: 0.0,
+        };
+        output[base + 1] = Mesh3DVertex {
+            position: [end[0], end[1], 0.0],
+            normal: color,
+            value: 0.0,
+            _padding: 0.0,
+        };
+    }
+    output
+}
+
+#[cfg(not(test))]
+fn expand_cell_upload(upload: &MeshUpload) -> MeshUpload {
+    if upload.cell_values_f32.is_none() {
+        return upload.clone();
+    }
+
+    let mut expanded = crate::mesh::expand_cell_shading(upload);
+    // The generic upload helper preserves the original unique-edge list.
+    // Once vertices are duplicated, construct a matching per-triangle line
+    // list so wireframe indices never address the old vertex space.
+    expanded.edge_indices = expanded
+        .indices
+        .chunks_exact(3)
+        .flat_map(|triangle| {
+            [
+                triangle[0],
+                triangle[1],
+                triangle[1],
+                triangle[2],
+                triangle[2],
+                triangle[0],
+            ]
+        })
+        .collect();
+    expanded
+}
+
+#[cfg(not(test))]
+impl gpui::CustomDraw for WgpuMesh3DDraw {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
+#[cfg(not(test))]
+impl gpui_wgpu::WgpuCustomDraw for WgpuMesh3DDraw {
+    fn draw_wgpu(
+        &self,
+        ctx: &gpui_wgpu::WgpuContext,
+        encoder: &mut wgpu::CommandEncoder,
+        target: &wgpu::TextureView,
+        bounds: gpui::Bounds<gpui::Pixels>,
+        scale_factor: f32,
+    ) {
+        let state = self.state.borrow();
+        let Some(upload) = state.upload.as_ref() else {
+            return;
+        };
+        let revision = state.geometry_rev;
+        let mut resources = self.resources.borrow_mut();
+        if resources
+            .as_ref()
+            .is_none_or(|resource| resource.geometry_rev != revision)
+        {
+            *resources = Some(WgpuMesh3DResources::new(ctx, &state, revision));
+        }
+        let Some(resources) = resources.as_mut() else {
+            return;
+        };
+        let width = (f32::from(bounds.size.width) * scale_factor).max(1.0) as u32;
+        let height = (f32::from(bounds.size.height) * scale_factor).max(1.0) as u32;
+        resources.resize(ctx, width, height);
+        if resources.field_rev != state.field_rev {
+            resources.write_vertices(ctx, upload);
+            resources.field_rev = state.field_rev;
+        }
+        let camera = self.camera.borrow();
+        resources.write_uniform(ctx, &state, &camera);
+        resources.write_triad(ctx, &camera);
+        let x = (f32::from(bounds.origin.x) * scale_factor).max(0.0) as u32;
+        let y = (f32::from(bounds.origin.y) * scale_factor).max(0.0) as u32;
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("mesh_3d_pass"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: &resources.msaa_view,
+                resolve_target: Some(target),
+                depth_slice: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                view: &resources.depth_view,
+                depth_ops: Some(wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(1.0),
+                    store: wgpu::StoreOp::Store,
+                }),
+                stencil_ops: None,
+            }),
+            timestamp_writes: None,
+            occlusion_query_set: None,
+            multiview_mask: None,
+        });
+        pass.set_viewport(x as f32, y as f32, width as f32, height as f32, 0.0, 1.0);
+        pass.set_scissor_rect(x, y, width, height);
+        pass.set_bind_group(0, &resources.bind_group, &[]);
+        pass.set_vertex_buffer(0, resources.vertices.slice(..));
+        pass.set_pipeline(&resources.surface_pipeline);
+        pass.set_index_buffer(resources.indices.slice(..), wgpu::IndexFormat::Uint32);
+        pass.draw_indexed(0..resources.index_count, 0, 0..1);
+        if state.color.wireframe && resources.edge_count > 0 {
+            pass.set_pipeline(&resources.wire_pipeline);
+            pass.set_index_buffer(resources.edges.slice(..), wgpu::IndexFormat::Uint32);
+            pass.draw_indexed(0..resources.edge_count, 0, 0..1);
+        }
+        pass.set_pipeline(&resources.triad_pipeline);
+        pass.set_vertex_buffer(0, resources.triad.slice(..));
+        pass.draw(0..resources.triad_count, 0..1);
+    }
+}
+
+#[cfg(not(test))]
+impl WgpuMesh3DRenderer {
+    pub fn new(state: std::rc::Rc<std::cell::RefCell<crate::mesh::gpu::MeshSceneState>>) -> Self {
+        Self::new_with_camera(
+            state,
+            std::rc::Rc::new(std::cell::RefCell::new(Camera3D::default())),
+        )
+    }
+
+    /// Construct a renderer that shares its camera with the owning plot
+    /// state. This keeps pointer navigation and retained custom drawing on
+    /// the same camera without rebuilding mesh buffers.
+    pub fn new_with_camera(
+        state: std::rc::Rc<std::cell::RefCell<crate::mesh::gpu::MeshSceneState>>,
+        camera: std::rc::Rc<std::cell::RefCell<Camera3D>>,
+    ) -> Self {
+        let resources = std::rc::Rc::new(std::cell::RefCell::new(None));
+        let draw: std::rc::Rc<dyn gpui::CustomDraw> = std::rc::Rc::new(
+            gpui_wgpu::WgpuCustomDrawAdapter(std::rc::Rc::new(WgpuMesh3DDraw {
+                state: state.clone(),
+                camera: camera.clone(),
+                resources: resources.clone(),
+            })),
+        );
+        let custom_id = gpui::register_custom_draw(draw);
+        Self {
+            state,
+            camera,
+            resources,
+            custom_id,
+        }
+    }
+
+    pub fn custom_id(&self) -> gpui::CustomDrawId {
+        self.custom_id
+    }
+
+    pub fn camera(&self) -> Camera3D {
+        self.camera.borrow().clone()
+    }
+
+    pub fn set_camera(&self, camera: &Camera3D) {
+        *self.camera.borrow_mut() = camera.clone();
+    }
+}
+
+#[cfg(not(test))]
+impl MeshGpuRenderer for WgpuMesh3DRenderer {
+    fn upload_geometry(&mut self, revision: GeometryRevision, upload: &MeshUpload) {
+        let mut state = self.state.borrow_mut();
+        state.record_geometry_upload(upload);
+        state.geometry_rev = revision;
+        state.upload = Some(upload.clone());
+        self.resources.borrow_mut().take();
+    }
+
+    fn write_field(&mut self, revision: FieldRevision, values: &[f32]) {
+        let mut state = self.state.borrow_mut();
+        state.field_rev = revision;
+        if let Some(upload) = state.upload.as_mut() {
+            if upload.cell_values_f32.is_some() {
+                crate::mesh::gpu::replace_retained_field(&mut upload.cell_values_f32, values);
+            } else {
+                crate::mesh::gpu::replace_retained_field(&mut upload.values_f32, values);
+            }
+        }
+    }
+
+    fn geometry_revision(&self) -> Option<GeometryRevision> {
+        self.state
+            .borrow()
+            .upload
+            .as_ref()
+            .map(|_| self.state.borrow().geometry_rev)
+    }
+}

@@ -1074,7 +1074,7 @@ mod tests {
     use crate::gpu2d::shapes::gpu_axis_theme::GpuAxisTheme;
     use crate::scale::LinearScale;
 
-    #[test]
+    #[::core::prelude::v1::test]
     fn test_gpu_render_axis_orientations() {
         let scale = LinearScale::new().domain(0.0, 100.0).range(0.0, 400.0);
         let theme = GpuAxisTheme::light();

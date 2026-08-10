@@ -233,14 +233,16 @@ fn planned_scaffold_files(app_dir: &Path, names: &AppNames) -> Vec<PathBuf> {
     ]
     .into_iter()
     .map(|path| app_dir.join(path))
-    .chain([
-        "AppDelegate.swift",
-        "BridgingHeader.h",
-        "Info.plist",
-        "Entitlements.plist",
-    ]
-    .into_iter()
-    .map(|path| app_dir.join("ios").join(&names.ios_source_dir).join(path)))
+    .chain(
+        [
+            "AppDelegate.swift",
+            "BridgingHeader.h",
+            "Info.plist",
+            "Entitlements.plist",
+        ]
+        .into_iter()
+        .map(|path| app_dir.join("ios").join(&names.ios_source_dir).join(path)),
+    )
     .collect()
 }
 
@@ -1699,9 +1701,24 @@ mod tests {
         })?;
 
         assert_eq!(preview.app.package_name, "preview-app");
-        assert!(preview.files.iter().any(|path| path.ends_with("Cargo.toml")));
-        assert!(preview.files.iter().any(|path| path.ends_with("ios/PreviewAppApp/AppDelegate.swift")));
-        assert!(preview.files.iter().any(|path| path.ends_with("android/gradle/app/build.gradle.kts")));
+        assert!(
+            preview
+                .files
+                .iter()
+                .any(|path| path.ends_with("Cargo.toml"))
+        );
+        assert!(
+            preview
+                .files
+                .iter()
+                .any(|path| path.ends_with("ios/PreviewAppApp/AppDelegate.swift"))
+        );
+        assert!(
+            preview
+                .files
+                .iter()
+                .any(|path| path.ends_with("android/gradle/app/build.gradle.kts"))
+        );
         assert!(preview.files.iter().all(|path| !path.exists()));
 
         Ok(())

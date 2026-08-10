@@ -1,8 +1,9 @@
 use d3rs::gpu3d::{
-    Camera3D, CartesianGridLineDebugKind, Surface3DConfig, SurfaceData,
-    cartesian_grid_lines_for_testing, projected_surface_depth_visibility_for_testing,
+    Camera3D, CartesianGridLineDebugKind, OrbitControls, Projection, StandardView, Surface3DConfig,
+    SurfaceData, cartesian_grid_lines_for_testing, projected_surface_depth_visibility_for_testing,
     transparent_surface_clear_color_for_testing, unpremultiply_rgba_for_testing,
 };
+use d3rs::mesh::MeshBounds;
 use glam::Vec3;
 
 #[test]
@@ -152,4 +153,51 @@ fn transparent_surface_pixels_are_unpremultiplied_for_gpui_image() {
         pixels,
         vec![64, 128, 191, 128, 10, 20, 30, 255, 8, 9, 10, 0]
     );
+}
+
+#[test]
+fn orthographic_projection_preserves_parallel_lines() {
+    let cam = Camera3D::with_projection(Projection::Orthographic { half_height: 5.0 })
+        .with_position(Vec3::new(0.0, 0.0, 10.0))
+        .with_target(Vec3::ZERO);
+    let m = cam.view_projection_matrix();
+    let a = m * glam::Vec4::new(1.0, 0.0, 0.0, 1.0);
+    let b = m * glam::Vec4::new(1.0, 0.0, -100.0, 1.0);
+    assert!((a.x / a.w - b.x / b.w).abs() < 1e-5);
+}
+
+#[test]
+fn standard_views_are_axis_aligned() {
+    let mut controls = OrbitControls::default();
+    controls.set_standard_view(StandardView::Top);
+    let dir = controls.view_direction();
+    assert!((dir.z.abs() - 1.0).abs() < 1e-5);
+    controls.set_standard_view(StandardView::Front);
+    let dir = controls.view_direction();
+    assert!((dir.y.abs() - 1.0).abs() < 1e-5);
+}
+
+#[test]
+fn fit_to_bounds_contains_all_corners() {
+    let mut controls = OrbitControls::default();
+    let bounds = MeshBounds {
+        min: [-1.0, -2.0, -0.5],
+        max: [3.0, 2.0, 0.5],
+    };
+    controls.fit_to_bounds(bounds, 16.0 / 9.0);
+
+    let camera = controls.to_camera().with_aspect(16.0 / 9.0);
+    let view_projection = camera.view_projection_matrix();
+    for x in [bounds.min[0], bounds.max[0]] {
+        for y in [bounds.min[1], bounds.max[1]] {
+            for z in [bounds.min[2], bounds.max[2]] {
+                let clip = view_projection * Vec3::new(x as f32, y as f32, z as f32).extend(1.0);
+                assert!(clip.w > 0.0, "corner should be in front of camera");
+                let ndc = clip.truncate() / clip.w;
+                assert!(ndc.x.abs() <= 1.0 + 1e-5, "x out of bounds: {ndc:?}");
+                assert!(ndc.y.abs() <= 1.0 + 1e-5, "y out of bounds: {ndc:?}");
+                assert!(ndc.z >= 0.0 && ndc.z <= 1.0, "z out of bounds: {ndc:?}");
+            }
+        }
+    }
 }

@@ -152,8 +152,7 @@ impl Scene {
         self.polychrome_sprites
             .sort_by_key(|sprite| (sprite.order, sprite.tile.tile_id));
         self.surfaces.sort_by_key(|surface| surface.order);
-        self.custom_primitives
-            .sort_by_key(|custom| custom.order);
+        self.custom_primitives.sort_by_key(|custom| custom.order);
     }
 
     #[cfg_attr(
@@ -953,7 +952,6 @@ impl PathVertex<Pixels> {
         }
     }
 }
-
 
 #[cfg(test)]
 mod tests {

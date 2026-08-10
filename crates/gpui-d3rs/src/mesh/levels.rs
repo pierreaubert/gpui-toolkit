@@ -17,8 +17,8 @@ impl ContourLevels {
     pub fn resolve(&self, range: [f64; 2]) -> Result<Arc<[f64]>, MeshValidationError> {
         match self {
             Self::Explicit(levels) => {
-                let ok = levels.iter().all(|l| l.is_finite())
-                    && levels.windows(2).all(|w| w[1] > w[0]);
+                let ok =
+                    levels.iter().all(|l| l.is_finite()) && levels.windows(2).all(|w| w[1] > w[0]);
                 if !ok {
                     return Err(MeshValidationError::InvalidContourLevels);
                 }

@@ -7,8 +7,7 @@
 use std::f64::consts::TAU;
 
 use super::{
-    CoordinateAxis, MeshTopology, MeshValidationError, ScalarAssociation, ScalarField,
-    TriangleMesh,
+    CoordinateAxis, MeshTopology, MeshValidationError, ScalarAssociation, ScalarField, TriangleMesh,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -49,7 +48,15 @@ pub struct RevolvedMesh {
 
 const AXIS_TOL: f64 = 1e-12;
 
-pub fn revolve(mesh: &TriangleMesh, spec: &RevolveSpec) -> Result<RevolvedMesh, MeshValidationError> {
+pub fn revolve(
+    mesh: &TriangleMesh,
+    spec: &RevolveSpec,
+) -> Result<RevolvedMesh, MeshValidationError> {
+    // The construction below indexes positions, triangles, and topology
+    // mappings directly. Validate the caller-owned mesh before deriving any
+    // retained state so malformed input returns a structured error rather
+    // than reaching an unchecked index.
+    mesh.validate()?;
     if spec.segments < 3
         || !spec.start_angle.is_finite()
         || !spec.sweep_angle.is_finite()
@@ -60,16 +67,25 @@ pub fn revolve(mesh: &TriangleMesh, spec: &RevolveSpec) -> Result<RevolvedMesh, 
     }
     let full = (spec.sweep_angle - TAU).abs() < 1e-12;
     // full sweep welds the seam; partial sweep has segments+1 columns
-    let cols = if full { spec.segments as usize } else { spec.segments as usize + 1 };
+    let cols = if full {
+        spec.segments as usize
+    } else {
+        spec.segments as usize + 1
+    };
     let caps = spec.end_caps && !full;
 
     let radius = |i: usize| spec.radial.component(mesh.positions[i]);
     for i in 0..mesh.positions.len() {
         if radius(i) < -AXIS_TOL {
-            return Err(MeshValidationError::InvalidRadius { index: i, value: radius(i) });
+            return Err(MeshValidationError::InvalidRadius {
+                index: i,
+                value: radius(i),
+            });
         }
     }
-    let on_axis: Vec<bool> = (0..mesh.positions.len()).map(|i| radius(i).abs() <= AXIS_TOL).collect();
+    let on_axis: Vec<bool> = (0..mesh.positions.len())
+        .map(|i| radius(i).abs() <= AXIS_TOL)
+        .collect();
     let topo = MeshTopology::build(&mesh.triangles);
 
     // vertices needing columns: boundary endpoints; all vertices when caps
@@ -114,12 +130,13 @@ pub fn revolve(mesh: &TriangleMesh, spec: &RevolveSpec) -> Result<RevolvedMesh, 
 
     let mut triangles: Vec<[u32; 3]> = Vec::new();
     let mut source_triangle: Vec<u32> = Vec::new();
-    let push_tri = |triangles: &mut Vec<[u32; 3]>, source_triangle: &mut Vec<u32>, t: [u32; 3], cell: u32| {
-        if t[0] != t[1] && t[1] != t[2] && t[0] != t[2] {
-            triangles.push(t);
-            source_triangle.push(cell);
-        }
-    };
+    let push_tri =
+        |triangles: &mut Vec<[u32; 3]>, source_triangle: &mut Vec<u32>, t: [u32; 3], cell: u32| {
+            if t[0] != t[1] && t[1] != t[2] && t[0] != t[2] {
+                triangles.push(t);
+                source_triangle.push(cell);
+            }
+        };
 
     // Lateral ribbons: each boundary edge sweeps a quad strip. Winding is
     // chosen so the closed surface has outward orientation; the signed-volume
@@ -143,8 +160,18 @@ pub fn revolve(mesh: &TriangleMesh, spec: &RevolveSpec) -> Result<RevolvedMesh, 
     if caps {
         let last = spec.segments as usize;
         for (ci, tri) in mesh.triangles.iter().enumerate() {
-            push_tri(&mut triangles, &mut source_triangle, [col(tri[0], 0), col(tri[1], 0), col(tri[2], 0)], ci as u32);
-            push_tri(&mut triangles, &mut source_triangle, [col(tri[2], last), col(tri[1], last), col(tri[0], last)], ci as u32);
+            push_tri(
+                &mut triangles,
+                &mut source_triangle,
+                [col(tri[0], 0), col(tri[1], 0), col(tri[2], 0)],
+                ci as u32,
+            );
+            push_tri(
+                &mut triangles,
+                &mut source_triangle,
+                [col(tri[2], last), col(tri[1], last), col(tri[0], last)],
+                ci as u32,
+            );
         }
     }
 
@@ -156,7 +183,12 @@ pub fn revolve(mesh: &TriangleMesh, spec: &RevolveSpec) -> Result<RevolvedMesh, 
         cell_ids: None,
     };
     let normals = smooth_normals(&revolved);
-    Ok(RevolvedMesh { mesh: revolved, source_vertex, source_triangle, normals })
+    Ok(RevolvedMesh {
+        mesh: revolved,
+        source_vertex,
+        source_triangle,
+        normals,
+    })
 }
 
 /// Order (a,b) as (tail, head) following the edge's direction in the
@@ -173,17 +205,22 @@ fn ribbon_direction(cell_tri: [u32; 3], a: u32, b: u32) -> (u32, u32) {
 }
 
 /// Replicate a scalar field onto a revolved mesh — pure lookup, no rebuild.
+///
+/// The normal contract is that `field` has been validated against the source
+/// profile before this function is called. A malformed hand-built
+/// `RevolvedMesh` is still kept total: an out-of-range source mapping becomes
+/// the NaN sentinel used by GPU uploads instead of panicking.
 pub fn revolve_field(field: &ScalarField, revolved: &RevolvedMesh) -> Vec<f64> {
     match field.association {
         ScalarAssociation::Vertex => revolved
             .source_vertex
             .iter()
-            .map(|&s| field.values[s as usize])
+            .map(|&s| field.values.get(s as usize).copied().unwrap_or(f64::NAN))
             .collect(),
         ScalarAssociation::Cell => revolved
             .source_triangle
             .iter()
-            .map(|&s| field.values[s as usize])
+            .map(|&s| field.values.get(s as usize).copied().unwrap_or(f64::NAN))
             .collect(),
     }
 }
@@ -213,7 +250,11 @@ fn smooth_normals(mesh: &TriangleMesh) -> Vec<[f32; 3]> {
     acc.iter()
         .map(|n| {
             let len = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt().max(1e-20);
-            [(n[0] / len) as f32, (n[1] / len) as f32, (n[2] / len) as f32]
+            [
+                (n[0] / len) as f32,
+                (n[1] / len) as f32,
+                (n[2] / len) as f32,
+            ]
         })
         .collect()
 }
@@ -243,7 +284,14 @@ mod tests {
     fn full_sweep_of_square_profile() {
         // profile: unit square in r-z, verts (0,0),(1,0),(0,1),(1,1), tris [0,1,2],[1,3,2]
         let mesh = profile_square();
-        let out = revolve(&mesh, &RevolveSpec { segments: 8, ..RevolveSpec::default() }).unwrap();
+        let out = revolve(
+            &mesh,
+            &RevolveSpec {
+                segments: 8,
+                ..RevolveSpec::default()
+            },
+        )
+        .unwrap();
         // 2 axis verts → 1 column each; 2 off-axis verts → 8 columns each
         assert_eq!(out.mesh.positions.len(), 2 + 2 * 8);
         // lateral surface: cylinder ribbon 8×2 + bottom cone 8 + top cone 8 = 32
@@ -256,30 +304,55 @@ mod tests {
     #[test]
     fn full_sweep_signed_volume_matches_cylinder() {
         let mesh = profile_square();
-        let out = revolve(&mesh, &RevolveSpec { segments: 64, ..RevolveSpec::default() }).unwrap();
+        let out = revolve(
+            &mesh,
+            &RevolveSpec {
+                segments: 64,
+                ..RevolveSpec::default()
+            },
+        )
+        .unwrap();
         // signed volume via divergence theorem: Σ dot(a, cross(b, c)) / 6 ≈ π r² h = π
-        let volume: f64 = out.mesh.triangles.iter().map(|t| {
-            let p = |i: u32| out.mesh.positions[i as usize];
-            let [a, b, c] = [p(t[0]), p(t[1]), p(t[2])];
-            let cross = [
-                b[1] * c[2] - b[2] * c[1],
-                b[2] * c[0] - b[0] * c[2],
-                b[0] * c[1] - b[1] * c[0],
-            ];
-            (a[0] * cross[0] + a[1] * cross[1] + a[2] * cross[2]) / 6.0
-        }).sum();
-        assert!((volume - std::f64::consts::PI).abs() < 0.02, "volume must be ≈ +π (outward winding), got {volume}");
+        let volume: f64 = out
+            .mesh
+            .triangles
+            .iter()
+            .map(|t| {
+                let p = |i: u32| out.mesh.positions[i as usize];
+                let [a, b, c] = [p(t[0]), p(t[1]), p(t[2])];
+                let cross = [
+                    b[1] * c[2] - b[2] * c[1],
+                    b[2] * c[0] - b[0] * c[2],
+                    b[0] * c[1] - b[1] * c[0],
+                ];
+                (a[0] * cross[0] + a[1] * cross[1] + a[2] * cross[2]) / 6.0
+            })
+            .sum();
+        assert!(
+            (volume - std::f64::consts::PI).abs() < 0.02,
+            "volume must be ≈ +π (outward winding), got {volume}"
+        );
     }
 
     #[test]
     fn vertex_field_replicates_per_segment() {
         let mesh = profile_square();
         let field = ScalarField {
-            id: "f".into(), label: "f".into(), unit: None,
+            id: "f".into(),
+            label: "f".into(),
+            unit: None,
             values: vec![0.0, 1.0, 2.0, 3.0].into(),
-            association: ScalarAssociation::Vertex, valid: None,
+            association: ScalarAssociation::Vertex,
+            valid: None,
         };
-        let out = revolve(&mesh, &RevolveSpec { segments: 8, ..RevolveSpec::default() }).unwrap();
+        let out = revolve(
+            &mesh,
+            &RevolveSpec {
+                segments: 8,
+                ..RevolveSpec::default()
+            },
+        )
+        .unwrap();
         let values = revolve_field(&field, &out);
         for (i, &v) in values.iter().enumerate() {
             assert_eq!(v, field.values[out.source_vertex[i] as usize]);
@@ -290,11 +363,21 @@ mod tests {
     fn cell_field_maps_via_source_triangle() {
         let mesh = profile_square();
         let field = ScalarField {
-            id: "f".into(), label: "f".into(), unit: None,
+            id: "f".into(),
+            label: "f".into(),
+            unit: None,
             values: vec![10.0, 20.0].into(),
-            association: ScalarAssociation::Cell, valid: None,
+            association: ScalarAssociation::Cell,
+            valid: None,
         };
-        let out = revolve(&mesh, &RevolveSpec { segments: 8, ..RevolveSpec::default() }).unwrap();
+        let out = revolve(
+            &mesh,
+            &RevolveSpec {
+                segments: 8,
+                ..RevolveSpec::default()
+            },
+        )
+        .unwrap();
         let values = revolve_field(&field, &out);
         for (i, &v) in values.iter().enumerate() {
             assert_eq!(v, field.values[out.source_triangle[i] as usize]);
@@ -312,15 +395,57 @@ mod tests {
     }
 
     #[test]
+    fn malformed_mesh_is_rejected_before_revolve_indexing() {
+        let mesh = TriangleMesh {
+            id: "malformed".into(),
+            positions: vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]].into(),
+            triangles: vec![[0, 1, 3]].into(),
+            vertex_ids: None,
+            cell_ids: None,
+        };
+        assert!(matches!(
+            revolve(&mesh, &RevolveSpec::default()),
+            Err(MeshValidationError::IndexOutOfRange { .. })
+        ));
+    }
+
+    #[test]
+    fn invalid_revolve_field_mapping_uses_nan_sentinel() {
+        let mesh = profile_square();
+        let mut revolved = revolve(&mesh, &RevolveSpec::default()).unwrap();
+        revolved.source_vertex[0] = u32::MAX;
+        let field = ScalarField {
+            id: "f".into(),
+            label: "f".into(),
+            unit: None,
+            values: vec![1.0; 4].into(),
+            association: ScalarAssociation::Vertex,
+            valid: None,
+        };
+        assert!(revolve_field(&field, &revolved)[0].is_nan());
+    }
+
+    #[test]
     fn partial_sweep_open_seam_and_caps() {
         let mesh = profile_square();
-        let spec = RevolveSpec { sweep_angle: std::f64::consts::PI, segments: 4, ..RevolveSpec::default() };
+        let spec = RevolveSpec {
+            sweep_angle: std::f64::consts::PI,
+            segments: 4,
+            ..RevolveSpec::default()
+        };
         let out = revolve(&mesh, &spec).unwrap();
         // open seam: off-axis verts get segments+1 = 5 columns
         assert_eq!(out.mesh.positions.len(), 2 + 2 * 5);
         // no caps by default: only lateral ribbons
         let lateral = out.mesh.triangles.len();
-        let with_caps = revolve(&mesh, &RevolveSpec { end_caps: true, ..spec }).unwrap();
+        let with_caps = revolve(
+            &mesh,
+            &RevolveSpec {
+                end_caps: true,
+                ..spec
+            },
+        )
+        .unwrap();
         // caps add the 2 source triangles × 2 ends
         assert_eq!(with_caps.mesh.triangles.len(), lateral + 4);
     }
@@ -328,7 +453,14 @@ mod tests {
     #[test]
     fn normals_are_unit() {
         let mesh = profile_square();
-        let out = revolve(&mesh, &RevolveSpec { segments: 16, ..RevolveSpec::default() }).unwrap();
+        let out = revolve(
+            &mesh,
+            &RevolveSpec {
+                segments: 16,
+                ..RevolveSpec::default()
+            },
+        )
+        .unwrap();
         for n in &out.normals {
             let len = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
             assert!((len - 1.0).abs() < 1e-5, "normal must be unit, got {len}");
@@ -338,8 +470,14 @@ mod tests {
     #[test]
     fn invalid_segment_count_rejected() {
         let mesh = profile_square();
-        let spec = RevolveSpec { segments: 2, ..RevolveSpec::default() };
-        assert_eq!(revolve(&mesh, &spec), Err(MeshValidationError::InvalidRevolveSpec));
+        let spec = RevolveSpec {
+            segments: 2,
+            ..RevolveSpec::default()
+        };
+        assert_eq!(
+            revolve(&mesh, &spec),
+            Err(MeshValidationError::InvalidRevolveSpec)
+        );
     }
 
     #[test]
@@ -363,7 +501,14 @@ mod tests {
             cell_ids: None,
         };
         assert!(mesh.validate().is_ok(), "fixture must be a valid mesh");
-        let out = revolve(&mesh, &RevolveSpec { segments: 8, ..RevolveSpec::default() }).unwrap();
+        let out = revolve(
+            &mesh,
+            &RevolveSpec {
+                segments: 8,
+                ..RevolveSpec::default()
+            },
+        )
+        .unwrap();
         // 2 axis-column endpoints (verts 0, 2) + 3 off-axis verts × 8 columns;
         // interior axis vertex 1 contributes nothing
         assert_eq!(out.mesh.positions.len(), 2 + 3 * 8);
@@ -389,7 +534,13 @@ mod tests {
     #[test]
     fn nan_sweep_rejected() {
         let mesh = profile_square();
-        let spec = RevolveSpec { sweep_angle: f64::NAN, ..RevolveSpec::default() };
-        assert_eq!(revolve(&mesh, &spec), Err(MeshValidationError::InvalidRevolveSpec));
+        let spec = RevolveSpec {
+            sweep_angle: f64::NAN,
+            ..RevolveSpec::default()
+        };
+        assert_eq!(
+            revolve(&mesh, &spec),
+            Err(MeshValidationError::InvalidRevolveSpec)
+        );
     }
 }

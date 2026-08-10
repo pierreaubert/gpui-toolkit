@@ -361,7 +361,7 @@ mod tests {
         }
     }
 
-    #[test]
+    #[::core::prelude::v1::test]
     fn prepare_contour_paths_builds_fill_and_stroke() {
         let contour = test_contour();
         let x_scale = LinearScale::new().domain(0.0, 1.0).range(0.0, 100.0);
@@ -382,7 +382,7 @@ mod tests {
         assert!(prepared[0].stroke.is_some(), "expected stroke path");
     }
 
-    #[test]
+    #[::core::prelude::v1::test]
     fn prepare_contour_paths_skips_small_rings() {
         let contour = Contour {
             value: 0.5,
@@ -407,7 +407,7 @@ mod tests {
         assert!(prepared.is_empty());
     }
 
-    #[test]
+    #[::core::prelude::v1::test]
     fn prepare_contour_paths_respects_fill_toggle() {
         let contour = test_contour();
         let x_scale = LinearScale::new().domain(0.0, 1.0).range(0.0, 100.0);

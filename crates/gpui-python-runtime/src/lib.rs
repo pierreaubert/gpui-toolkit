@@ -11,6 +11,8 @@ mod cache;
 mod error;
 #[cfg(feature = "gpui")]
 pub mod gpui_adapter;
+pub mod mesh_frames;
+pub mod meshplot;
 mod scene3d;
 pub mod session;
 #[cfg(feature = "showcase")]
@@ -20,6 +22,11 @@ pub mod ui_ir;
 
 pub use cache::{CacheUpdate, DirtyResources, RetainedSceneCache};
 pub use error::Scene3DError;
+pub use mesh_frames::{
+    MAX_MESH_FRAME_BYTES, MAX_MESH_RESOURCE_BYTES, MeshDtype, MeshFrame, MeshFrameError,
+    MeshFrameKind, MeshFrameOutcome, MeshFrameStats, MeshFrameStore, RetainedMeshResource,
+};
+pub use meshplot::{MESHPLOT_SPEC_SCHEMA_VERSION, MeshPlotSpec};
 pub use scene3d::{
     AxisLabels, CameraSpec, ColorRgba, ColormapSpec, GridData, InteractionMode, LightSpec,
     LineSegmentSpec, LineStripSpec, LinesSpec, MaterialSpec, MeshSpec, OrbitCameraSpec,
@@ -32,4 +39,4 @@ pub use spec_cache::{
     DEFAULT_TYPED_SPEC_CACHE_MAX_ENTRIES, SCENE3D_SPEC_SCHEMA_VERSION, scene3d_spec_schema_version,
     validate_scene3d_spec_schema_version,
 };
-pub use ui_ir::{PYTHON_APP_IR_SCHEMA_VERSION, PythonAppIr, UiIrError};
+pub use ui_ir::{MeshPlotNode, PYTHON_APP_IR_SCHEMA_VERSION, PythonAppIr, UiIrError};

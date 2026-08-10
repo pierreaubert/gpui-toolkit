@@ -433,12 +433,7 @@ impl InputEntity {
         }
     }
 
-    fn emit_selection_change(
-        &self,
-        selection: InputSelection,
-        window: &mut Window,
-        cx: &mut App,
-    ) {
+    fn emit_selection_change(&self, selection: InputSelection, window: &mut Window, cx: &mut App) {
         if let Some(ref handler) = self.props.on_selection_change {
             handler(selection, window, cx);
         }
@@ -927,7 +922,7 @@ impl EntityInputHandler for InputEntity {
             .map(|range| {
                 Self::utf16_to_char(&state.text, range.start)
                     ..Self::utf16_to_char(&state.text, range.end)
-        })
+            })
             .unwrap_or_else(|| Self::current_selected_char_range(&state));
         Self::replace_char_range(&mut state, range, text);
         let changed = state.text.clone();

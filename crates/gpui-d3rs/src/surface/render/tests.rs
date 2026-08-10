@@ -12,7 +12,7 @@ use gpui::*;
 
 use super::*;
 
-#[test]
+#[::core::prelude::v1::test]
 fn test_color_scales() {
     // Test that all color scales produce valid colors
     for t in [0.0, 0.25, 0.5, 0.75, 1.0] {
@@ -24,7 +24,7 @@ fn test_color_scales() {
     }
 }
 
-#[test]
+#[::core::prelude::v1::test]
 fn test_config_builder() {
     let config = SurfaceConfig::new()
         .isometric()
@@ -49,14 +49,14 @@ fn test_config_builder() {
     assert!((config.diffuse - 0.7).abs() < 1e-6);
 }
 
-#[test]
+#[::core::prelude::v1::test]
 fn test_normalize_vec() {
     let v = normalize_vec((3.0, 4.0, 0.0));
     let len = (v.0 * v.0 + v.1 * v.1 + v.2 * v.2).sqrt();
     assert!((len - 1.0).abs() < 1e-10);
 }
 
-#[test]
+#[::core::prelude::v1::test]
 fn prepaint_reuses_sorted_triangles_when_camera_unchanged() {
     let data = SurfaceData::from_z_function((0.0, 1.0), (0.0, 1.0), 5, |x, y| x + y);
     let config = SurfaceConfig::new().isometric().rotation(30.0, 45.0);
@@ -95,7 +95,7 @@ fn prepaint_reuses_sorted_triangles_when_camera_unchanged() {
     );
 }
 
-#[test]
+#[::core::prelude::v1::test]
 fn paint_reuses_projected_vertices_after_camera_change() {
     let data = SurfaceData::from_z_function((0.0, 1.0), (0.0, 1.0), 5, |x, y| x + y);
     let config = SurfaceConfig::new().isometric().rotation(30.0, 45.0);

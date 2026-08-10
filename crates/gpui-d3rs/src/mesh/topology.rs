@@ -16,7 +16,8 @@ pub struct MeshTopology {
 }
 
 impl MeshTopology {
-    /// O(n) build via hash map on sorted endpoint pairs.
+    /// Build via a hash map on sorted endpoint pairs, then canonicalize the
+    /// unique-edge order for deterministic downstream uploads.
     pub fn build(triangles: &[[u32; 3]]) -> Self {
         let mut edge_index: HashMap<(u32, u32), u32> = HashMap::with_capacity(triangles.len() * 2);
         let mut unique_edges: Vec<[u32; 2]> = Vec::with_capacity(triangles.len() * 2);
@@ -56,8 +57,7 @@ impl MeshTopology {
         for (new_i, &old_i) in order.iter().enumerate() {
             remap[old_i as usize] = new_i as u32;
         }
-        let unique_edges: Vec<[u32; 2]> =
-            order.iter().map(|&i| unique_edges[i as usize]).collect();
+        let unique_edges: Vec<[u32; 2]> = order.iter().map(|&i| unique_edges[i as usize]).collect();
         let edge_triangles: Vec<[u32; 2]> =
             order.iter().map(|&i| edge_triangles[i as usize]).collect();
         for slots in &mut triangle_edges {
@@ -73,7 +73,12 @@ impl MeshTopology {
             .map(|(i, _)| i as u32)
             .collect();
 
-        Self { unique_edges, triangle_edges, edge_triangles, boundary_edges }
+        Self {
+            unique_edges,
+            triangle_edges,
+            edge_triangles,
+            boundary_edges,
+        }
     }
 }
 

@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use futures::channel::oneshot;
 use gpui::PathPromptOptions;
 use objc::{
@@ -12,8 +12,8 @@ use std::{
     ffi::CStr,
     path::{Path, PathBuf},
     sync::{
-        atomic::{AtomicPtr, Ordering},
         Mutex, Once, OnceLock,
+        atomic::{AtomicPtr, Ordering},
     },
 };
 

@@ -1,6 +1,8 @@
 use crate::error::Scene3DError;
+use crate::meshplot::MeshPlotSpec;
 use crate::scene3d::{LinesSpec, MeshSpec, SceneFingerprints, SceneSpec, SurfaceSpec};
 use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct DirtyResources {
@@ -58,6 +60,38 @@ pub struct CacheUpdate {
     pub dirty: DirtyResources,
 }
 
+/// Dirty domains for a retained mesh plot.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct MeshPlotDirtyResources {
+    pub is_new: bool,
+    pub geometry: bool,
+    pub field: bool,
+    pub style: bool,
+    pub camera: bool,
+}
+
+impl MeshPlotDirtyResources {
+    #[must_use]
+    pub const fn is_unchanged(self) -> bool {
+        !self.is_new && !self.geometry && !self.field && !self.style && !self.camera
+    }
+}
+
+/// Result of inserting a mesh-plot spec into the retained host cache.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MeshPlotCacheUpdate {
+    pub id: String,
+    pub dirty: MeshPlotDirtyResources,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct MeshPlotFingerprints {
+    geometry: u64,
+    field: u64,
+    style: u64,
+    camera: u64,
+}
+
 #[derive(Debug, Clone)]
 struct RetainedEntry {
     fingerprints: SceneFingerprints,
@@ -66,6 +100,7 @@ struct RetainedEntry {
 #[derive(Debug, Default)]
 pub struct RetainedSceneCache {
     entries: HashMap<String, RetainedEntry>,
+    mesh_plots: HashMap<String, MeshPlotFingerprints>,
 }
 
 impl RetainedSceneCache {
@@ -86,6 +121,7 @@ impl RetainedSceneCache {
 
     pub fn clear(&mut self) {
         self.entries.clear();
+        self.mesh_plots.clear();
     }
 
     pub fn retain_only<I, S>(&mut self, ids: I)
@@ -95,6 +131,7 @@ impl RetainedSceneCache {
     {
         let live: std::collections::HashSet<String> = ids.into_iter().map(Into::into).collect();
         self.entries.retain(|id, _| live.contains(id));
+        self.mesh_plots.retain(|id, _| live.contains(id));
     }
 
     pub fn upsert_scene(&mut self, spec: &SceneSpec) -> Result<CacheUpdate, Scene3DError> {
@@ -115,6 +152,40 @@ impl RetainedSceneCache {
     pub fn upsert_mesh(&mut self, spec: &MeshSpec) -> Result<CacheUpdate, Scene3DError> {
         spec.validate()?;
         Ok(self.upsert_fingerprints(&spec.id, spec.fingerprints()))
+    }
+
+    /// Insert or update a declarative mesh plot without conflating field and
+    /// geometry changes. Validation happens before the retained entry changes.
+    pub fn upsert_meshplot(&mut self, spec: &MeshPlotSpec) -> Result<MeshPlotCacheUpdate, String> {
+        spec.validate()?;
+        let fingerprints = mesh_plot_fingerprints(spec);
+        let dirty = if let Some(previous) = self.mesh_plots.insert(spec_id(spec), fingerprints) {
+            MeshPlotDirtyResources {
+                is_new: false,
+                geometry: previous.geometry != fingerprints.geometry,
+                field: previous.field != fingerprints.field,
+                style: previous.style != fingerprints.style,
+                camera: previous.camera != fingerprints.camera,
+            }
+        } else {
+            MeshPlotDirtyResources {
+                is_new: true,
+                geometry: true,
+                field: spec.field.is_some(),
+                style: true,
+                camera: true,
+            }
+        };
+        Ok(MeshPlotCacheUpdate {
+            id: spec_id(spec),
+            dirty,
+        })
+    }
+
+    /// Number of retained mesh plot entries.
+    #[must_use]
+    pub fn meshplot_len(&self) -> usize {
+        self.mesh_plots.len()
     }
 
     fn upsert_fingerprints(&mut self, id: &str, fingerprints: SceneFingerprints) -> CacheUpdate {
@@ -142,6 +213,45 @@ fn classify(previous: SceneFingerprints, next: SceneFingerprints) -> DirtyResour
         material: previous.material != next.material,
         camera: previous.camera != next.camera,
     }
+}
+
+fn spec_id(spec: &MeshPlotSpec) -> String {
+    if !spec.id.trim().is_empty() && spec.id != "mesh_plot" {
+        return spec.id.clone();
+    }
+    spec.geometry
+        .get("id")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or(&spec.id)
+        .to_string()
+}
+
+fn mesh_plot_fingerprints(spec: &MeshPlotSpec) -> MeshPlotFingerprints {
+    MeshPlotFingerprints {
+        geometry: json_fingerprint(&spec.geometry),
+        field: spec.field.as_ref().map_or(0, json_fingerprint),
+        style: json_fingerprint(&serde_json::json!({
+            "mode": spec.mode,
+            "color_scale": spec.color_scale,
+            "color_range": spec.color_range,
+            "wireframe": spec.wireframe,
+            "title": spec.title,
+            "width": spec.width,
+            "height": spec.height,
+            "selection": spec.selection,
+        })),
+        camera: json_fingerprint(&serde_json::json!({
+            "view": spec.view,
+            "camera": spec.camera,
+            "viewport": spec.viewport,
+        })),
+    }
+}
+
+fn json_fingerprint(value: &serde_json::Value) -> u64 {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    value.to_string().hash(&mut hasher);
+    hasher.finish()
 }
 
 #[cfg(test)]
@@ -253,5 +363,42 @@ mod tests {
             scalar_field: None,
         };
         assert!(cache.upsert_mesh(&bad_mesh).is_err());
+    }
+
+    #[test]
+    fn meshplot_field_update_does_not_dirty_geometry_or_camera() {
+        let geometry = serde_json::json!({
+            "id":"plot-mesh",
+            "positions": [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+            "triangles": [[0, 1, 2]]
+        });
+        let first = MeshPlotSpec {
+            schema_version: 1,
+            id: "plot".into(),
+            geometry: geometry.clone(),
+            field: Some(serde_json::json!({"values":[1.0, 1.0, 1.0]})),
+            view: "planar".into(),
+            mode: "scalar_fill".into(),
+            color_scale: "viridis".into(),
+            color_range: serde_json::json!("auto"),
+            wireframe: true,
+            title: None,
+            width: None,
+            height: None,
+            selection: None,
+            camera: None,
+            viewport: None,
+            contour_levels: None,
+            equal_aspect: false,
+            interactions: Vec::new(),
+        };
+        let mut second = first.clone();
+        second.field = Some(serde_json::json!({"values":[2.0, 2.0, 2.0]}));
+        let mut cache = RetainedSceneCache::new();
+        cache.upsert_meshplot(&first).unwrap();
+        let update = cache.upsert_meshplot(&second).unwrap();
+        assert!(update.dirty.field);
+        assert!(!update.dirty.geometry);
+        assert!(!update.dirty.camera);
     }
 }

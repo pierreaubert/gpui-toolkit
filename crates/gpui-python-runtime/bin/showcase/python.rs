@@ -308,6 +308,41 @@ pub(super) fn spawn_python_session() -> Result<PythonSession, Box<dyn Error + Se
                     reader_wake.notify();
                     return;
                 }
+            } else if let PythonMessage::MeshFrame(frame) = &mut parsed {
+                let byte_length = match serde_json::from_slice::<serde_json::Value>(&line)
+                    .ok()
+                    .and_then(|value| value.get("byte_length").and_then(serde_json::Value::as_u64))
+                    .and_then(|length| usize::try_from(length).ok())
+                {
+                    Some(length) => length,
+                    None => {
+                        let _ = tx.send(Err("Python mesh frame has invalid byte_length".into()));
+                        reader_wake.notify();
+                        return;
+                    }
+                };
+                if byte_length > gpui_python_runtime::mesh_frames::MAX_MESH_FRAME_BYTES {
+                    let _ = tx.send(Err("Python mesh frame exceeds maximum size".into()));
+                    reader_wake.notify();
+                    return;
+                }
+                frame.payload.resize(byte_length, 0);
+                if let Err(error) = reader.read_exact(&mut frame.payload) {
+                    let _ = tx.send(Err(format!("truncated Python mesh frame: {error}")));
+                    reader_wake.notify();
+                    return;
+                }
+                let mut delimiter = [0_u8; 1];
+                if reader.read_exact(&mut delimiter).is_err() || delimiter[0] != b'\n' {
+                    let _ = tx.send(Err("Python mesh frame is missing its delimiter".into()));
+                    reader_wake.notify();
+                    return;
+                }
+                if let Err(error) = frame.validate() {
+                    let _ = tx.send(Err(format!("invalid Python mesh frame: {error}")));
+                    reader_wake.notify();
+                    return;
+                }
             }
             if tx.send(Ok(parsed)).is_err() {
                 break;

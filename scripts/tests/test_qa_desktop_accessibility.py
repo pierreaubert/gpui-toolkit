@@ -33,12 +33,14 @@ class DesktopAccessibilityEvidenceTests(unittest.TestCase):
                 "native-adapter-parity",
                 "reduced-motion",
                 "high-contrast",
+                "mesh-plot-live-accessibility",
             },
         )
 
     def test_markdown_names_limitations(self):
         text = markdown(report())
         self.assertIn("Native adapter payload parity", text)
+        self.assertIn("MeshPlot live accessibility registration", text)
         self.assertIn("manual-required", text)
         self.assertIn("does not claim VoiceOver", text)
 

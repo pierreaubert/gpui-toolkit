@@ -38,6 +38,14 @@
 
 ### Charts and Interaction
 
+- Added the retained mesh-plot foundation: validated unstructured triangle
+  meshes, scalar fill/contour/isoline modes, BVH picking, deterministic SVG
+  export and accessibility summaries, Python mesh frames/patches, and a
+  component-lab story. Added explicit macOS Metal backend selection for the
+  retained renderer and Python showcase feature path. GPU adapter and
+  reference-machine QA remain tracked as partial capability evidence until the
+  full release gate is run.
+
 - Fixed Python chart wheel zoom and drag interaction by retaining painted bounds, converting window coordinates to chart-local coordinates, and invalidating the host view when interaction state changes.
 - Added native line curves, dash styles, grouped bars, annotations, per-series opacity, secondary axes, nearest-point inspection, legend toggling, brushing, keyboard navigation, and SVG/PNG/CSV export.
 

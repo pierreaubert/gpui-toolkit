@@ -217,6 +217,17 @@ disposition = "declarative"
 tests = ["crates/gpui-python-runtime/python/tests/test_scene3d.py"]
 
 [[capability]]
+id = "gpui-d3rs.meshplot"
+rust_path = "gpui_d3rs::mesh"
+python_path = "gpui_toolkit.meshplot"
+disposition = "declarative"
+tests = [
+    "crates/gpui-python-runtime/python/tests/test_meshplot.py",
+    "crates/gpui-python-runtime/python/tests/test_meshplot_protocol.py",
+    "crates/gpui-px/src/mesh_plot/mesh_plot_chart.rs",
+]
+
+[[capability]]
 id = "gpui-d3rs.zoom-command"
 rust_path = "gpui_d3rs::zoom::ZoomState"
 python_path = "gpui_toolkit.d3.ZoomRequest"

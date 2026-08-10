@@ -54,6 +54,52 @@ let chart = scatter(&x_data, &y_data)
 
 ## Chart Types
 
+### Unstructured Mesh Plot
+
+`MeshPlot` renders indexed triangle meshes directly, with optional vertex or
+cell scalar fields, equal-aspect planar/axisymmetric views, wireframe, contour
+and isoline modes, deterministic SVG export, and an accessibility summary.
+Coordinates remain `f64` at the public boundary; GPU upload preparation rebases
+the bounds centre before converting to `f32`.
+
+```rust
+use d3rs::mesh::{CoordinateAxis, ScalarAssociation, ScalarField, TriangleMesh};
+use gpui_px::{mesh_plot, FieldInterpolation, MeshPlotView, MeshRenderMode};
+
+let mesh = TriangleMesh {
+    id: "plate".into(),
+    positions: vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]].into(),
+    triangles: vec![[0, 1, 2]].into(),
+    vertex_ids: None,
+    cell_ids: None,
+};
+let field = ScalarField {
+    id: "pressure".into(),
+    label: "Pressure".into(),
+    unit: Some("Pa".into()),
+    values: vec![0.0, 1.0, 0.5].into(),
+    association: ScalarAssociation::Vertex,
+    valid: None,
+};
+let chart = mesh_plot(mesh)
+    .field(field)
+    .view(MeshPlotView::Planar {
+        horizontal: CoordinateAxis::X,
+        vertical: CoordinateAxis::Y,
+    })
+    .mode(MeshRenderMode::ScalarFill {
+        interpolation: FieldInterpolation::Smooth,
+    })
+    .build()?;
+```
+
+The Python parity surface is available through `gpui_toolkit.meshplot` and
+`ui.mesh_plot()`. Resource-backed binary frames should be used for production
+arrays; inline JSON remains suitable for small examples and protocol tests.
+The current Python showcase validates and retains resource-backed frames, but
+its native mesh renderer requires inline geometry until a mixed-dtype packing
+contract for positions and triangle indices is finalized.
+
 ### Scatter
 
 Displays individual data points with x,y coordinates. Ideal for exploring correlations, identifying clusters, and spotting outliers.

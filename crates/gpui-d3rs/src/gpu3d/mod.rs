@@ -37,7 +37,7 @@ mod mesh;
 mod renderer;
 mod shaders;
 
-pub use camera::{Camera3D, OrbitControls};
+pub use camera::{Camera3D, OrbitControls, Projection, StandardView};
 pub use config::{Colormap, Surface3DConfig, SurfacePlotType};
 pub use data::{SurfaceData, SurfaceVertex};
 pub use element::{

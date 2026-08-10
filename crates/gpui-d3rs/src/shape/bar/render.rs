@@ -453,7 +453,7 @@ mod tests {
     use super::*;
     use crate::scale::LinearScale;
 
-    #[test]
+    #[::core::prelude::v1::test]
     fn render_bars_batches_by_color() {
         let x_scale = LinearScale::new().domain(0.0, 3.0).range(0.0, 300.0);
         let y_scale = LinearScale::new().domain(0.0, 100.0).range(300.0, 0.0);
@@ -474,7 +474,7 @@ mod tests {
         assert!(quads.iter().all(|q| q.width > 0.0 && q.height > 0.0));
     }
 
-    #[test]
+    #[::core::prelude::v1::test]
     fn render_grouped_bars_batches_by_color() {
         let data = vec![
             GroupedBarDatum::new("Q1", "A", 50.0),

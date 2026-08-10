@@ -20,7 +20,12 @@ showcase = []
 spinorama = []
 tokio = []
 urlencoding = []
-visual-capture = ["gpui/test-support", "dep:gpui_macos", "gpui_macos/test-support"]
+visual-capture = [
+    "gpui/test-support",
+    "dep:gpui_macos",
+    "gpui_macos/test-support",
+    "gpui-px/gpu-metal",
+]
 
 [dependencies]
 anyhow = { workspace = true }
@@ -32,6 +37,7 @@ gpui-design = { workspace = true }
 gpui-miniapp = { workspace = true }
 gpui-profiler = { workspace = true }
 gpui-px = { workspace = true, features = ["gpui", "gpu-3d"] }
+gpui-d3rs = { workspace = true }
 gpui-showcase = { workspace = true }
 gpui-ui-kit = { workspace = true }
 image = { workspace = true }

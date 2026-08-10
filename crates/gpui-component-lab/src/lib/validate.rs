@@ -5,6 +5,7 @@ use super::component_lab_conformance_report::ComponentLabConformanceReport;
 use super::component_story::ComponentStory;
 use super::consts::PX_CHART_STORY_IDS;
 use super::consts::PX_CHART_STORY_TYPES;
+use super::consts::{MESH_PLOT_STORY_IDS, MESH_PLOT_STORY_VARIANT_IDS};
 use super::misc::layout_string;
 use super::misc::number_field;
 use super::story_document::StoryDocument;
@@ -102,7 +103,10 @@ fn validate_px_chart_conformance(
     let renderers = builtin_story_renderers().ok();
     let registered_px_ids = registry
         .stories()
-        .filter(|story| story.crate_name == "gpui-px")
+        .filter(|story| {
+            story.crate_name == "gpui-px"
+                && !MESH_PLOT_STORY_VARIANT_IDS.contains(&story.id.as_str())
+        })
         .map(|story| story.id.as_str())
         .collect::<BTreeSet<_>>();
 
@@ -559,6 +563,13 @@ fn validate_viewports(story: &ComponentStory, findings: &mut Vec<ComponentLabCon
         }
     }
 
+    // MeshPlot captures intentionally use the release-QA viewport IDs rather
+    // than the lab's four interactive presets. Their exact 3-cell matrix is
+    // checked by the visual-manifest tests below.
+    if MESH_PLOT_STORY_IDS.contains(&story.id.as_str()) {
+        return;
+    }
+
     for required in ["mobile", "tablet", "desktop", "wide"] {
         if !story
             .viewports
@@ -621,6 +632,13 @@ fn validate_theme_presets(
                 ),
             ));
         }
+    }
+
+    // MeshPlot's three theme IDs mirror the visual-regression color schemes;
+    // their design-language values were validated above, so no additional
+    // neutral-ID requirement applies to these capture stories.
+    if MESH_PLOT_STORY_IDS.contains(&story.id.as_str()) {
+        return;
     }
 
     if !story.themes.iter().any(|theme| theme.id == "neutral") {

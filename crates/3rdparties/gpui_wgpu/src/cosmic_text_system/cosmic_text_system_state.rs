@@ -1,17 +1,24 @@
-use anyhow :: { Context as _ , Ok , Result } ;
-use collections::HashMap;
-use cosmic_text :: { Attrs , AttrsList , Family , FontFeatures as CosmicFontFeatures , FontSystem , ShapeBuffer , ShapeLine } ;
-use gpui :: { Bounds , DevicePixels , FontFeatures , FontId , FontRun , GlyphId , LineLayout , Pixels , RenderGlyphParams , SUBPIXEL_VARIANTS_X , SUBPIXEL_VARIANTS_Y , ShapedGlyph , ShapedRun , Size , point , size } ;
-use smallvec::SmallVec;
-use std :: { borrow :: Cow } ;
-use swash::{
-    scale::{Render, ScaleContext, Source, StrikeWith},
-    zeno::{Format, Vector},
-};
 use super::font_key::FontKey;
 use super::misc::check_is_known_emoji_font;
 use super::misc::cosmic_font_features;
 use super::types::LoadedFont;
+use anyhow::{Context as _, Ok, Result};
+use collections::HashMap;
+use cosmic_text::{
+    Attrs, AttrsList, Family, FontFeatures as CosmicFontFeatures, FontSystem, ShapeBuffer,
+    ShapeLine,
+};
+use gpui::{
+    Bounds, DevicePixels, FontFeatures, FontId, FontRun, GlyphId, LineLayout, Pixels,
+    RenderGlyphParams, SUBPIXEL_VARIANTS_X, SUBPIXEL_VARIANTS_Y, ShapedGlyph, ShapedRun, Size,
+    point, size,
+};
+use smallvec::SmallVec;
+use std::borrow::Cow;
+use swash::{
+    scale::{Render, ScaleContext, Source, StrikeWith},
+    zeno::{Format, Vector},
+};
 
 pub(super) struct CosmicTextSystemState {
     pub(super) font_system: FontSystem,
@@ -115,7 +122,10 @@ impl CosmicTextSystemState {
         }
     }
 
-    pub(super) fn raster_bounds(&mut self, params: &RenderGlyphParams) -> Result<Bounds<DevicePixels>> {
+    pub(super) fn raster_bounds(
+        &mut self,
+        params: &RenderGlyphParams,
+    ) -> Result<Bounds<DevicePixels>> {
         let image = self.render_glyph_image(params)?;
         Ok(Bounds {
             origin: point(image.placement.left.into(), (-image.placement.top).into()),
@@ -231,7 +241,12 @@ impl CosmicTextSystemState {
     }
 
     #[profiling::function]
-    pub(super) fn layout_line(&mut self, text: &str, font_size: Pixels, font_runs: &[FontRun]) -> LineLayout {
+    pub(super) fn layout_line(
+        &mut self,
+        text: &str,
+        font_size: Pixels,
+        font_runs: &[FontRun],
+    ) -> LineLayout {
         let mut attrs_list = AttrsList::new(&Attrs::new());
         let mut offs = 0;
         for run in font_runs {

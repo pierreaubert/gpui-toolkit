@@ -1,5 +1,7 @@
+use crate::cache::MeshPlotCacheUpdate;
 use crate::cache::RetainedSceneCache;
 use crate::error::Scene3DError;
+use crate::meshplot::MeshPlotSpec;
 use crate::scene3d::{
     CameraSpec, ColorRgba, ColormapSpec, LightSpec, LinesSpec, MeshSpec, OrbitCameraSpec, Point3,
     ScalarAssociation, SceneNode, SceneSpec, SurfaceSpec,
@@ -24,6 +26,46 @@ pub struct Gpui3DCache {
     mesh_states: HashMap<String, Rc<RefCell<Lines3DState>>>,
     scene_states: HashMap<String, Rc<RefCell<Lines3DState>>>,
     scenes: HashMap<String, Lines3DElement>,
+}
+
+/// Host-side retained state for declarative mesh plots.
+///
+/// The typed spec is replaced only after validation and the cache reports
+/// independent geometry/field/style/camera dirty domains to the renderer.
+#[derive(Debug, Default)]
+pub struct GpuiMeshPlotCache {
+    resources: RetainedSceneCache,
+    specs: HashMap<String, MeshPlotSpec>,
+}
+
+impl GpuiMeshPlotCache {
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn upsert(&mut self, spec: MeshPlotSpec) -> Result<MeshPlotCacheUpdate, String> {
+        let update = self.resources.upsert_meshplot(&spec)?;
+        let id = update.id.clone();
+        self.specs.insert(id, spec);
+        Ok(update)
+    }
+
+    #[must_use]
+    pub fn get(&self, id: &str) -> Option<&MeshPlotSpec> {
+        self.specs.get(id)
+    }
+
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.specs.len()
+    }
+
+    pub fn retain_only<'a>(&mut self, ids: impl IntoIterator<Item = &'a str>) {
+        let live = ids.into_iter().collect::<std::collections::HashSet<_>>();
+        self.specs.retain(|id, _| live.contains(id.as_str()));
+        self.resources.retain_only(live.into_iter());
+    }
 }
 
 impl std::fmt::Debug for Gpui3DCache {

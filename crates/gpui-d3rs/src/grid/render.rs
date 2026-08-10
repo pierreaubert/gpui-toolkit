@@ -127,7 +127,7 @@ mod tests {
     use crate::grid::GridConfig;
     use crate::scale::LinearScale;
 
-    #[test]
+    #[::core::prelude::v1::test]
     fn test_render_grid_borrowed_ticks() {
         let x_scale = LinearScale::new().domain(0.0, 100.0).range(0.0, 400.0);
         let y_scale = LinearScale::new().domain(0.0, 100.0).range(300.0, 0.0);

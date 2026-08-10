@@ -107,6 +107,32 @@ impl ZoomState {
         }
     }
 
+    /// Update the visible viewport without adding a history entry.
+    ///
+    /// High-frequency pointer navigation uses this path so camera frames do
+    /// not grow the zoom history or allocate. Explicit box-zoom and keyboard
+    /// zoom continue to use [`Self::zoom_to`] and remain undoable.
+    pub fn set_viewport(&mut self, x_min: f64, x_max: f64, y_min: f64, y_max: f64) {
+        let new_x_min = x_min.max(self.original_x.0);
+        let new_x_max = x_max.min(self.original_x.1);
+        let new_y_min = y_min.max(self.original_y.0);
+        let new_y_max = y_max.min(self.original_y.1);
+        let (new_x_min, new_x_max) = if self.x_is_log {
+            (new_x_min.max(1e-10), new_x_max.max(1e-10))
+        } else {
+            (new_x_min, new_x_max)
+        };
+        let (new_y_min, new_y_max) = if self.y_is_log {
+            (new_y_min.max(1e-10), new_y_max.max(1e-10))
+        } else {
+            (new_y_min, new_y_max)
+        };
+        if new_x_min < new_x_max && new_y_min < new_y_max {
+            self.current_x = (new_x_min, new_x_max);
+            self.current_y = (new_y_min, new_y_max);
+        }
+    }
+
     /// Reset to original view (clears all zoom history)
     pub fn reset(&mut self) {
         self.current_x = self.original_x;

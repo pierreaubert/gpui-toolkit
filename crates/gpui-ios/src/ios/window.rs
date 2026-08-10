@@ -10,7 +10,6 @@
 //! whose view hosts a CAMetalLayer. Rendering is performed by
 //! `gpui_wgpu::WgpuRenderer` which drives wgpu over the Metal backend.
 
-
 mod accessibility;
 mod consts;
 mod fallback_atlas;

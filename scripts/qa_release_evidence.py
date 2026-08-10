@@ -5,10 +5,12 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import io
 import json
 import platform
 import subprocess
 import sys
+import tarfile
 from pathlib import Path
 from typing import Iterable
 
@@ -16,8 +18,15 @@ from typing import Iterable
 SCHEMA_VERSION = 1
 REPORT_TYPE = "gpui-toolkit-release-evidence-manifest"
 
+MESH_PLOT_LOCAL_CAPTURE_COUNT = 99
+MESH_PLOT_VERSIONED_BASELINE_COUNT = 9
+MESH_PLOT_VISUAL_CAPTURE_ARTIFACT = "target/qa/visual/component-lab-capture.json"
+MESH_PLOT_VISUAL_DIFF_ARTIFACT = "target/qa/visual/component-lab-diff.json"
+MESH_PLOT_SCREEN_READER_RUNBOOK = "qa/accessibility/mesh-plot-screen-reader-qa.md"
+
 REQUIRED_ARTIFACTS = (
     "qa/perf/baseline.json",
+    MESH_PLOT_SCREEN_READER_RUNBOOK,
     "qa/visual/baselines/component-lab-metal-pr-v1.tar.zst",
     "target/gpui-conformance/component-lab.json",
     "target/gpui-conformance/component-lab.md",
@@ -29,6 +38,8 @@ REQUIRED_ARTIFACTS = (
     "target/qa/cov/summary.json",
     "target/qa/perf/current.json",
     "target/qa/perf/report.md",
+    MESH_PLOT_VISUAL_CAPTURE_ARTIFACT,
+    MESH_PLOT_VISUAL_DIFF_ARTIFACT,
     "target/qa/visual/component-lab-manifest.json",
     "target/qa/visual/component-lab-manifest.md",
     "target/qa/visual/report.md",
@@ -36,10 +47,14 @@ REQUIRED_ARTIFACTS = (
     "target/qa/visual/showcase-manifest.md",
 )
 
+MESH_PLOT_BENCHMARKS = {
+    ("gpui-d3rs", "mesh_prep"),
+    ("gpui-px", "mesh_plot_frames"),
+}
+MESH_PLOT_BASELINE_MARKER = "px-mesh-plot__"
+
 OPTIONAL_ARTIFACTS = (
-    "target/qa/visual/component-lab-capture.json",
     "target/qa/visual/component-lab-capture.md",
-    "target/qa/visual/component-lab-diff.json",
     "target/qa/visual/component-lab-diff.md",
 )
 
@@ -148,6 +163,176 @@ def collect_artifacts(root: Path, revision: str) -> list[dict[str, object]]:
     return [artifact_row(root, relative, revision) for relative in sorted(paths)]
 
 
+def read_json_object(path: Path, description: str) -> dict[str, object]:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise EvidenceError(f"invalid {description} {path.name}: {error}") from error
+    if not isinstance(value, dict):
+        raise EvidenceError(f"invalid {description} {path.name}: expected a JSON object")
+    return value
+
+
+def validate_mesh_plot_visual_capture(root: Path) -> None:
+    """Require all 99 local MeshPlot actual captures to be present."""
+    capture = read_json_object(
+        root / MESH_PLOT_VISUAL_CAPTURE_ARTIFACT,
+        "MeshPlot local visual capture",
+    )
+    cases = capture.get("cases")
+    if (
+        capture.get("report_type") != "gpui-component-lab-render-capture"
+        or capture.get("passed") is not True
+        or capture.get("requested_count") != MESH_PLOT_LOCAL_CAPTURE_COUNT
+        or capture.get("captured_count") != MESH_PLOT_LOCAL_CAPTURE_COUNT
+        or capture.get("failed_count") != 0
+        or not isinstance(cases, list)
+        or len(cases) != MESH_PLOT_LOCAL_CAPTURE_COUNT
+    ):
+        raise EvidenceError(
+            "MeshPlot local visual capture must report 99 requested/captured "
+            "cases, zero failures, and a passing capture run"
+        )
+
+    root_resolved = root.resolve()
+    capture_ids: set[str] = set()
+    actual_paths: set[Path] = set()
+    for case in cases:
+        if not isinstance(case, dict):
+            raise EvidenceError("MeshPlot local visual capture contains a malformed case")
+        capture_id = case.get("capture_id")
+        actual_path_text = case.get("actual_path")
+        if (
+            not isinstance(capture_id, str)
+            or not capture_id
+            or capture_id in capture_ids
+            or case.get("status") != "Captured"
+            or not isinstance(actual_path_text, str)
+            or not actual_path_text
+        ):
+            raise EvidenceError(
+                "MeshPlot local visual capture must contain 99 unique Captured cases "
+                "with actual_path entries"
+            )
+        candidate = (root / actual_path_text).resolve()
+        try:
+            candidate.relative_to(root_resolved)
+        except ValueError as error:
+            raise EvidenceError(
+                f"MeshPlot actual capture path escapes the repository: {actual_path_text}"
+            ) from error
+        if "actual" not in candidate.parts or not candidate.is_file():
+            raise EvidenceError(f"missing MeshPlot local actual capture: {actual_path_text}")
+        capture_ids.add(capture_id)
+        actual_paths.add(candidate)
+
+    if len(capture_ids) != MESH_PLOT_LOCAL_CAPTURE_COUNT or len(actual_paths) != MESH_PLOT_LOCAL_CAPTURE_COUNT:
+        raise EvidenceError("MeshPlot local visual capture does not contain 99 unique actual images")
+
+
+def validate_mesh_plot_benchmarks(root: Path) -> None:
+    """Require MeshPlot benchmark records in both release perf artifacts."""
+    missing: list[str] = []
+    for relative in ("qa/perf/baseline.json", "target/qa/perf/current.json"):
+        path = root / relative
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+            raise EvidenceError(f"invalid performance artifact {relative}: {error}") from error
+        records = data.get("records") if isinstance(data, dict) else None
+        keys = {
+            (record.get("crate"), record.get("bench"))
+            for record in records
+            if isinstance(record, dict)
+        } if isinstance(records, list) else set()
+        for crate, bench in sorted(MESH_PLOT_BENCHMARKS - keys):
+            missing.append(f"{relative}:{crate}:{bench}")
+    if missing:
+        raise EvidenceError(
+            "MeshPlot benchmark evidence is missing; run the registered MeshPlot "
+            "benchmarks on the reference host: " + ", ".join(missing)
+        )
+
+
+def visual_baseline_members(path: Path) -> list[str]:
+    """List members of the checked-in zstd-compressed visual archive."""
+    try:
+        completed = subprocess.run(
+            ["zstd", "-d", "-c", str(path)],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        with tarfile.open(fileobj=io.BytesIO(completed.stdout), mode="r:") as archive:
+            return [member.name for member in archive.getmembers()]
+    except (OSError, subprocess.CalledProcessError, tarfile.TarError) as error:
+        raise EvidenceError(f"invalid visual baseline archive {path.name}: {error}") from error
+
+
+def validate_mesh_plot_visual_baseline(root: Path) -> set[str]:
+    """Require exactly nine versioned MeshPlot entries in the visual archive."""
+    archive = root / "qa/visual/baselines/component-lab-metal-pr-v1.tar.zst"
+    members = visual_baseline_members(archive)
+    ids = [
+        Path(member).stem
+        for member in members
+        if (
+            Path(member).parent == Path("metal/baseline")
+            and Path(member).name.startswith(MESH_PLOT_BASELINE_MARKER)
+            and not Path(member).name.startswith("._")
+            and Path(member).suffix.lower() == ".png"
+        )
+    ]
+    if len(ids) != MESH_PLOT_VERSIONED_BASELINE_COUNT or len(set(ids)) != len(ids):
+        raise EvidenceError(
+            "MeshPlot visual baseline evidence must contain exactly 9 unique "
+            "versioned PNG captures"
+        )
+    return set(ids)
+
+
+def validate_mesh_plot_visual_diff(root: Path, baseline_ids: set[str]) -> None:
+    """Require a passing zero-diff report for the nine versioned captures."""
+    diff = read_json_object(
+        root / MESH_PLOT_VISUAL_DIFF_ARTIFACT,
+        "MeshPlot visual diff",
+    )
+    cases = diff.get("cases")
+    if (
+        diff.get("report_type") != "gpui-component-lab-visual-diff"
+        or diff.get("passed") is not True
+        or diff.get("compared_count") != MESH_PLOT_VERSIONED_BASELINE_COUNT
+        or diff.get("failed_count") != 0
+        or diff.get("max_changed_pixels") != 0
+        or not isinstance(cases, list)
+        or len(cases) != MESH_PLOT_VERSIONED_BASELINE_COUNT
+    ):
+        raise EvidenceError(
+            "MeshPlot visual diff must report 9 compared cases, zero failures, "
+            "zero changed pixels, and a passing diff run"
+        )
+
+    diff_ids: list[str] = []
+    for case in cases:
+        if not isinstance(case, dict):
+            raise EvidenceError("MeshPlot visual diff contains a malformed case")
+        capture_id = case.get("capture_id")
+        if (
+            not isinstance(capture_id, str)
+            or capture_id in diff_ids
+            or case.get("status") != "Passed"
+            or case.get("changed_pixels") != 0
+            or case.get("max_channel_delta") != 0
+        ):
+            raise EvidenceError("MeshPlot visual diff contains a failed or duplicate case")
+        diff_ids.append(capture_id)
+
+    if set(diff_ids) != baseline_ids:
+        raise EvidenceError(
+            "MeshPlot visual diff cases must match the 9 versioned baseline captures"
+        )
+
+
 def validate_required_platforms(
     root: Path,
     artifacts: Iterable[dict[str, object]],
@@ -179,6 +364,10 @@ def build_manifest(
         raise EvidenceError("release evidence requires a clean worktree")
     revision = str(source["revision"])
     artifacts = collect_artifacts(root, revision)
+    validate_mesh_plot_benchmarks(root)
+    validate_mesh_plot_visual_capture(root)
+    baseline_ids = validate_mesh_plot_visual_baseline(root)
+    validate_mesh_plot_visual_diff(root, baseline_ids)
     validate_required_platforms(root, artifacts, required_platforms)
     return {
         "schema_version": SCHEMA_VERSION,

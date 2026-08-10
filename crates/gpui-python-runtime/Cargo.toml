@@ -21,6 +21,7 @@ gpui = [
 ]
 gpu-2d = ["gpui-d3rs?/gpu-2d", "gpui-px?/gpu-2d"]
 gpu-3d = ["gpui-d3rs?/gpu-3d", "gpui-px?/gpu-3d"]
+gpu-metal = ["gpui-d3rs?/gpu-metal", "gpui-px?/gpu-metal"]
 reqwest = ["gpui-px?/reqwest"]
 showcase = [
     "gpui",
@@ -35,7 +36,15 @@ showcase = [
     "dep:gpui-miniapp",
     "dep:gpui-px",
     "dep:gpui-ui-kit",
+    "gpu-2d",
+    "gpu-3d",
+    "gpu-metal",
     "gpui-px/gpui",
+]
+native-qa = [
+    "showcase",
+    "dep:gpui_macos",
+    "gpui_macos/test-support",
 ]
 spinorama = ["gpui-px?/spinorama"]
 tokio = ["gpui-px?/tokio"]
@@ -55,6 +64,7 @@ gpui-audio-kit = { workspace = true, optional = true }
 gpui-miniapp = { workspace = true, optional = true }
 gpui-px = { workspace = true, default-features = false, optional = true }
 gpui-ui-kit = { workspace = true, optional = true }
+gpui_macos = { workspace = true, optional = true }
 glam = { workspace = true, optional = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }

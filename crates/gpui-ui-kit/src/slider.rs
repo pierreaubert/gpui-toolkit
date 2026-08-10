@@ -509,7 +509,8 @@ impl RenderOnce for Slider {
                     {
                         let release_x: f32 = event.position.x.into();
                         let value = handle_drag(release_x, &state, &config_drag_end)
-                            .unwrap_or(state.start_value) as f32;
+                            .unwrap_or(state.start_value)
+                            as f32;
                         handler(snap_drag_end.snap_value(value), window, cx);
                     }
                     clear_drag_state(id_up.clone());
