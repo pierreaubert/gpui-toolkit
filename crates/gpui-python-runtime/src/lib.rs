@@ -11,6 +11,8 @@ mod cache;
 mod error;
 #[cfg(feature = "gpui")]
 pub mod gpui_adapter;
+#[cfg(feature = "showcase")]
+pub mod native_mesh_plot;
 pub mod mesh_frames;
 pub mod meshplot;
 mod scene3d;

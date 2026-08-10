@@ -13,9 +13,9 @@ description = "High-level Plotly Express-style charting API built on d3rs and GP
 default = ["gpui", "gpu-2d"]
 autoeq = ["dep:autoeq"]
 gpui = ["dep:gpui", "dep:gpui-ui-kit", "dep:gpui-miniapp", "dep:gpui-builder", "dep:gpui-design", "gpui-design/gpui", "gpui-d3rs/gpui"]
-gpu-3d = ["gpui-d3rs/gpu-3d", "dep:glam"]
+gpu-3d = ["gpui-d3rs/gpu-3d", "dep:glam", "dep:image"]
 gpu-2d = ["gpui-d3rs/gpu-2d"]
-gpu-metal = ["gpu-2d", "gpui-d3rs/gpu-metal", "gpui"]
+gpu-metal = ["gpu-2d", "gpu-3d", "gpui-d3rs/gpu-metal", "gpui"]
 native-qa = [
     "gpu-metal",
     "gpui/test-support",
@@ -36,6 +36,7 @@ gpui-builder = { workspace = true, optional = true }
 gpui-design = { workspace = true, optional = true }
 gpui-d3rs = { workspace = true }
 glam = { workspace = true, optional = true }
+image = { workspace = true, optional = true }
 thiserror = { workspace = true }
 autoeq = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true }
@@ -61,7 +62,7 @@ harness = false
 [[example]]
 name = "mesh_plot_showcase"
 path = "examples/mesh_plot_showcase.rs"
-required-features = ["gpui"]
+required-features = ["gpui", "gpu-3d"]
 
 [[bin]]
 name = "px-showcase"

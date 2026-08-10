@@ -6,14 +6,30 @@ use d3rs::mesh::{
 use std::hint::black_box;
 use std::sync::Arc;
 
+/// A connected triangulated grid. Unlike independent triangles, this drives
+/// shared-edge topology, contour stitching, normal accumulation, and BVH
+/// locality in the same way as a typical finite-element surface mesh.
 fn fixture(triangles: usize) -> TriangleMesh {
-    let mut positions = Vec::with_capacity(triangles * 3);
+    let side = ((triangles as f64 / 2.0).sqrt().ceil() as usize).saturating_add(1);
+    let positions = (0..side)
+        .flat_map(|y| (0..side).map(move |x| [x as f64, y as f64, 0.0]))
+        .collect::<Vec<_>>();
     let mut indices = Vec::with_capacity(triangles);
-    for index in 0..triangles {
-        let base = positions.len() as u32;
-        let x = index as f64;
-        positions.extend([[x, 0.0, 0.0], [x + 1.0, 0.0, 0.0], [x, 1.0, 0.0]]);
-        indices.push([base, base + 1, base + 2]);
+    'rows: for y in 0..side - 1 {
+        for x in 0..side - 1 {
+            let a = (y * side + x) as u32;
+            let b = a + 1;
+            let c = a + side as u32;
+            let d = c + 1;
+            indices.push([a, b, c]);
+            if indices.len() == triangles {
+                break 'rows;
+            }
+            indices.push([b, d, c]);
+            if indices.len() == triangles {
+                break 'rows;
+            }
+        }
     }
     TriangleMesh {
         id: "bench".into(),
@@ -52,7 +68,11 @@ fn revolve_fixture() -> TriangleMesh {
 
 fn mesh_prep(c: &mut Criterion) {
     let mut group = c.benchmark_group("mesh_prep");
-    for triangle_count in [100_000, 1_000_000, 10_000_000] {
+    // The first two sizes are the release-evidence workloads from the MeshPlot
+    // specification: 100k vertices / 200k triangles is representative of a
+    // production BEM/FEM surface without turning routine CI into a 10M-tri
+    // memory stress test.
+    for triangle_count in [100_000, 200_000] {
         let mesh = fixture(triangle_count);
         let topology = MeshTopology::build(&mesh.triangles);
         group.bench_function(format!("topology_{triangle_count}_triangles"), |b| {

@@ -22,6 +22,19 @@ impl ContourLevels {
                 if !ok {
                     return Err(MeshValidationError::InvalidContourLevels);
                 }
+                let [lo, hi] = range;
+                // An explicit set may include a guard level immediately
+                // outside the displayed range, but it must intersect that
+                // range. Otherwise it cannot produce a displayed contour and
+                // almost always indicates that a stale color range was sent
+                // with a field patch.
+                if lo.is_finite()
+                    && hi.is_finite()
+                    && hi > lo
+                    && !levels.iter().any(|level| *level >= lo && *level <= hi)
+                {
+                    return Err(MeshValidationError::InvalidContourLevels);
+                }
                 Ok(levels.clone())
             }
             Self::Count(count) => {
@@ -105,6 +118,21 @@ mod tests {
             levels.resolve([0.0, 1.0]),
             Err(MeshValidationError::InvalidContourLevels)
         );
+    }
+
+    #[test]
+    fn explicit_levels_must_intersect_displayed_range() {
+        let levels = ContourLevels::Explicit(vec![2.0, 3.0].into());
+        assert_eq!(
+            levels.resolve([0.0, 1.0]),
+            Err(MeshValidationError::InvalidContourLevels)
+        );
+    }
+
+    #[test]
+    fn explicit_levels_may_include_a_guard_level_outside_displayed_range() {
+        let levels = ContourLevels::Explicit(vec![-1.0, 0.5, 2.0].into());
+        assert_eq!(&*levels.resolve([0.0, 1.0]).unwrap(), &[-1.0, 0.5, 2.0]);
     }
 
     #[test]

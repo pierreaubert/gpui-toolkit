@@ -1,13 +1,18 @@
 use super::{
     FieldRevision, GeometryRevision, MeshGpuRenderer, MeshSceneState, replace_retained_field,
 };
+use crate::gpu3d::Camera3D;
 use crate::mesh::MeshUpload;
 use crate::mesh::gpu::shaders_metal::MESH_MSL;
+use crate::mesh::gpu::shaders3d::MESH_3D_MSL;
+use glam::{Vec3, Vec3Swizzles};
 use gpui::{Bounds, CustomDraw, Pixels};
 use gpui_macos::{MetalCustomDraw, MetalCustomDrawAdapter};
 use metal::{
-    CommandBufferRef, DeviceRef, MTLLoadAction, MTLPrimitiveType, MTLResourceOptions,
-    MTLScissorRect, MTLStoreAction, RenderPipelineState, TextureRef,
+    CommandBufferRef, DepthStencilDescriptor, DepthStencilState, DeviceRef, MTLCompareFunction,
+    MTLLoadAction, MTLPixelFormat, MTLPrimitiveType, MTLResourceOptions, MTLScissorRect,
+    MTLStorageMode, MTLStoreAction, MTLTextureUsage, RenderPipelineState, Texture,
+    TextureDescriptor, TextureRef,
 };
 use std::cell::RefCell;
 use std::ffi::c_void;
@@ -18,21 +23,166 @@ use std::rc::Rc;
 #[derive(Clone, Copy)]
 struct MetalVertex {
     position: [f32; 3],
+    normal: [f32; 3],
     value: f32,
+    _padding: f32,
 }
 
 #[repr(C)]
 #[derive(Clone, Copy)]
-struct MetalTransform {
-    columns: [[f32; 4]; 4],
+struct MetalUniform2d {
+    view_transform: [[f32; 4]; 4],
+    range: [f32; 4],
+    style: [f32; 4],
 }
 
 #[repr(C)]
 #[derive(Clone, Copy)]
 struct MetalUniform {
-    view_transform: [[f32; 4]; 4],
-    range: [f32; 4],
-    style: [f32; 4],
+    view_proj: [[f32; 4]; 4],
+    model: [[f32; 4]; 4],
+    light_dir: [f32; 4],
+    params: [f32; 4],
+    value_range: [f32; 4],
+    isoline: [f32; 4],
+    isoline_color: [f32; 4],
+}
+
+fn metal_uniform(state: &MeshSceneState, is_3d: bool) -> MetalUniform {
+    let origin = state
+        .upload
+        .as_ref()
+        .map(|upload| upload.origin)
+        .unwrap_or([0.0; 3]);
+    MetalUniform {
+        // The dedicated 3D shader consumes this complete POD layout. The 2D
+        // path deliberately keeps its smaller historical ABI in
+        // `metal_uniform_2d` below.
+        view_proj: state.view_transform,
+        model: [
+            [1.0, 0.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0, 0.0],
+            [origin[0] as f32, origin[1] as f32, origin[2] as f32, 1.0],
+        ],
+        light_dir: [0.35, 0.55, 0.75, 0.0],
+        params: [
+            state.color.colormap as f32,
+            (is_3d && state.color.unlit) as u8 as f32,
+            0.3,
+            0.7,
+        ],
+        value_range: [
+            state.color.range[0],
+            state.color.range[1],
+            state.color.colormap as f32,
+            state.color.isoline_step,
+        ],
+        isoline: [
+            state.color.isoline_step,
+            state.color.isoline_width_px,
+            1.0,
+            0.0,
+        ],
+        isoline_color: [0.08, 0.10, 0.14, 1.0],
+    }
+}
+
+fn metal_uniform_2d(state: &MeshSceneState) -> MetalUniform2d {
+    MetalUniform2d {
+        view_transform: state.view_transform,
+        range: [
+            state.color.range[0],
+            state.color.range[1],
+            state.color.colormap as f32,
+            state.color.isoline_step,
+        ],
+        style: [
+            state.color.isoline_width_px,
+            state.color.wireframe as u32 as f32,
+            0.0,
+            0.0,
+        ],
+    }
+}
+
+fn vertex_normals(upload: &MeshUpload) -> Vec<[f32; 3]> {
+    let mut normals = vec![[0.0; 3]; upload.positions_f32.len()];
+    for triangle in upload.indices.chunks_exact(3) {
+        let (Some(a), Some(b), Some(c)) = (
+            upload.positions_f32.get(triangle[0] as usize),
+            upload.positions_f32.get(triangle[1] as usize),
+            upload.positions_f32.get(triangle[2] as usize),
+        ) else {
+            continue;
+        };
+        let ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+        let ac = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+        let face = [
+            ab[1] * ac[2] - ab[2] * ac[1],
+            ab[2] * ac[0] - ab[0] * ac[2],
+            ab[0] * ac[1] - ab[1] * ac[0],
+        ];
+        for &index in triangle {
+            if let Some(normal) = normals.get_mut(index as usize) {
+                for axis in 0..3 {
+                    normal[axis] += face[axis];
+                }
+            }
+        }
+    }
+    for normal in &mut normals {
+        let length = (normal[0] * normal[0] + normal[1] * normal[1] + normal[2] * normal[2]).sqrt();
+        if length > f32::EPSILON {
+            for value in normal {
+                *value /= length;
+            }
+        } else {
+            *normal = [0.0, 0.0, 1.0];
+        }
+    }
+    normals
+}
+
+/// Small camera-oriented orientation triad rendered in NDC after the mesh.
+/// `normal` carries the RGB axis color for the dedicated triad fragment shader.
+fn metal_triad_vertices(camera: Option<&Camera3D>) -> [MetalVertex; 6] {
+    let origin = [-0.84_f32, -0.84_f32];
+    let view = camera.map_or(glam::Mat4::IDENTITY, Camera3D::view_matrix);
+    let axes = [
+        (Vec3::X, [0.90, 0.16, 0.14]),
+        (Vec3::Y, [0.18, 0.82, 0.28]),
+        (Vec3::Z, [0.20, 0.42, 0.95]),
+    ];
+    let mut output = [MetalVertex {
+        position: [0.0; 3],
+        normal: [0.0; 3],
+        value: 0.0,
+        _padding: 0.0,
+    }; 6];
+    for (axis, (direction, color)) in axes.into_iter().enumerate() {
+        let screen = (view * direction.extend(0.0)).truncate();
+        let length = screen.xy().length().max(1e-6);
+        let screen = screen.xy() / length;
+        let end = [
+            origin[0] + screen.x * 0.12,
+            origin[1] - screen.y * 0.12,
+            0.0,
+        ];
+        output[axis * 2] = MetalVertex {
+            position: [origin[0], origin[1], 0.0],
+            normal: color,
+            value: 1.0,
+            _padding: 0.0,
+        };
+        output[axis * 2 + 1] = MetalVertex {
+            position: end,
+            normal: color,
+            value: 1.0,
+            _padding: 0.0,
+        };
+    }
+    output
 }
 
 struct MetalResources {
@@ -43,8 +193,17 @@ struct MetalResources {
     uniform: metal::Buffer,
     pipeline: RenderPipelineState,
     line_pipeline: RenderPipelineState,
+    triad: Option<metal::Buffer>,
+    triad_pipeline: Option<RenderPipelineState>,
+    depth: Texture,
+    depth_state: DepthStencilState,
+    triad_depth_state: Option<DepthStencilState>,
     vertex_count: usize,
     line_count: usize,
+    triad_count: usize,
+    target_width: u64,
+    target_height: u64,
+    is_3d: bool,
 }
 
 impl MetalResources {
@@ -54,7 +213,9 @@ impl MetalResources {
         revision: GeometryRevision,
         upload: &MeshUpload,
         state: &MeshSceneState,
+        is_3d: bool,
     ) -> Option<Self> {
+        let normals = vertex_normals(upload);
         let mut vertices = Vec::with_capacity(upload.indices.len());
         for (cell, triangle) in upload.indices.chunks_exact(3).enumerate() {
             for &index in triangle {
@@ -70,14 +231,24 @@ impl MetalResources {
                             .and_then(|values| values.get(index as usize).copied())
                     })
                     .unwrap_or(0.5);
-                vertices.push(MetalVertex { position, value });
+                vertices.push(MetalVertex {
+                    position,
+                    normal: normals
+                        .get(index as usize)
+                        .copied()
+                        .unwrap_or([0.0, 0.0, 1.0]),
+                    value,
+                    _padding: 0.0,
+                });
             }
         }
         let mut lines = Vec::with_capacity(upload.edge_indices.len());
         for &index in &upload.edge_indices {
             lines.push(MetalVertex {
                 position: *upload.positions_f32.get(index as usize)?,
+                normal: [0.0, 0.0, 1.0],
                 value: 0.0,
+                _padding: 0.0,
             });
         }
         let options = MTLResourceOptions::StorageModeShared;
@@ -91,42 +262,92 @@ impl MetalResources {
             (lines.len() * std::mem::size_of::<MetalVertex>()) as u64,
             options,
         );
-        let uniform = MetalUniform {
-            view_transform: state.view_transform,
-            range: [
-                state.color.range[0],
-                state.color.range[1],
-                state.color.colormap as f32,
-                state.color.isoline_step,
-            ],
-            style: [
-                state.color.isoline_width_px,
-                state.color.wireframe as u32 as f32,
-                0.0,
-                0.0,
-            ],
+        let uniform_buffer = if is_3d {
+            let uniform = metal_uniform(state, true);
+            device.new_buffer_with_data(
+                &uniform as *const MetalUniform as *const c_void,
+                std::mem::size_of::<MetalUniform>() as u64,
+                options,
+            )
+        } else {
+            let uniform = metal_uniform_2d(state);
+            device.new_buffer_with_data(
+                &uniform as *const MetalUniform2d as *const c_void,
+                std::mem::size_of::<MetalUniform2d>() as u64,
+                options,
+            )
         };
-        let uniform_buffer = device.new_buffer_with_data(
-            &uniform as *const MetalUniform as *const c_void,
-            std::mem::size_of::<MetalUniform>() as u64,
-            options,
-        );
         let library = device
-            .new_library_with_source(MESH_MSL, &metal::CompileOptions::new())
+            .new_library_with_source(
+                if is_3d { MESH_3D_MSL } else { MESH_MSL },
+                &metal::CompileOptions::new(),
+            )
             .ok()?;
-        let vertex = library.get_function("mesh_vertex", None).ok()?;
-        let fragment = library.get_function("mesh_fragment", None).ok()?;
-        let line_fragment = library.get_function("mesh_line_fragment", None).ok()?;
-        let make_pipeline = |label: &str, fragment: &metal::FunctionRef| {
-            let descriptor = metal::RenderPipelineDescriptor::new();
-            descriptor.set_label(label);
-            descriptor.set_vertex_function(Some(vertex.as_ref()));
-            descriptor.set_fragment_function(Some(fragment));
-            descriptor
-                .color_attachments()
-                .object_at(0)?
-                .set_pixel_format(texture.pixel_format());
-            device.new_render_pipeline_state(&descriptor).ok()
+        let vertex = library
+            .get_function(if is_3d { "vs_main" } else { "mesh_vertex" }, None)
+            .ok()?;
+        let fragment = library
+            .get_function(if is_3d { "fs_main" } else { "mesh_fragment" }, None)
+            .ok()?;
+        let line_fragment = library
+            .get_function(
+                if is_3d {
+                    "fs_wireframe"
+                } else {
+                    "mesh_line_fragment"
+                },
+                None,
+            )
+            .ok()?;
+        let make_pipeline =
+            |label: &str, vertex: &metal::FunctionRef, fragment: &metal::FunctionRef| {
+                let descriptor = metal::RenderPipelineDescriptor::new();
+                descriptor.set_label(label);
+                descriptor.set_vertex_function(Some(vertex));
+                descriptor.set_fragment_function(Some(fragment));
+                descriptor
+                    .color_attachments()
+                    .object_at(0)?
+                    .set_pixel_format(texture.pixel_format());
+                descriptor.set_depth_attachment_pixel_format(MTLPixelFormat::Depth32Float);
+                device.new_render_pipeline_state(&descriptor).ok()
+            };
+        let depth_descriptor = TextureDescriptor::new();
+        depth_descriptor.set_pixel_format(MTLPixelFormat::Depth32Float);
+        depth_descriptor.set_width(texture.width().max(1));
+        depth_descriptor.set_height(texture.height().max(1));
+        depth_descriptor.set_storage_mode(MTLStorageMode::Private);
+        depth_descriptor.set_usage(MTLTextureUsage::RenderTarget);
+        let depth = device.new_texture(&depth_descriptor);
+        let depth_state_descriptor = DepthStencilDescriptor::new();
+        depth_state_descriptor.set_depth_compare_function(MTLCompareFunction::LessEqual);
+        depth_state_descriptor.set_depth_write_enabled(true);
+        let depth_state = device.new_depth_stencil_state(&depth_state_descriptor);
+        let (triad, triad_pipeline, triad_depth_state, triad_count) = if is_3d {
+            let triad_vertices = metal_triad_vertices(None);
+            let triad = device.new_buffer_with_data(
+                triad_vertices.as_ptr() as *const c_void,
+                (triad_vertices.len() * std::mem::size_of::<MetalVertex>()) as u64,
+                options,
+            );
+            let triad_vertex = library.get_function("vs_triad", None).ok()?;
+            let triad_fragment = library.get_function("fs_triad", None).ok()?;
+            let triad_pipeline = make_pipeline(
+                "mesh_metal_triad",
+                triad_vertex.as_ref(),
+                triad_fragment.as_ref(),
+            )?;
+            let descriptor = DepthStencilDescriptor::new();
+            descriptor.set_depth_compare_function(MTLCompareFunction::Always);
+            descriptor.set_depth_write_enabled(false);
+            (
+                Some(triad),
+                Some(triad_pipeline),
+                Some(device.new_depth_stencil_state(&descriptor)),
+                triad_vertices.len(),
+            )
+        } else {
+            (None, None, None, 0)
         };
         Some(Self {
             geometry_rev: revision,
@@ -134,10 +355,23 @@ impl MetalResources {
             vertices: vertex_buffer,
             lines: line_buffer,
             uniform: uniform_buffer,
-            pipeline: make_pipeline("mesh_metal_fill", fragment.as_ref())?,
-            line_pipeline: make_pipeline("mesh_metal_lines", line_fragment.as_ref())?,
+            pipeline: make_pipeline("mesh_metal_fill", vertex.as_ref(), fragment.as_ref())?,
+            line_pipeline: make_pipeline(
+                "mesh_metal_lines",
+                vertex.as_ref(),
+                line_fragment.as_ref(),
+            )?,
+            triad,
+            triad_pipeline,
+            depth,
+            depth_state,
+            triad_depth_state,
             vertex_count: vertices.len(),
             line_count: lines.len(),
+            triad_count,
+            target_width: texture.width(),
+            target_height: texture.height(),
+            is_3d,
         })
     }
 
@@ -172,29 +406,41 @@ impl MetalResources {
     }
 
     fn update_uniform(&mut self, state: &MeshSceneState) {
-        let uniform = MetalUniform {
-            view_transform: state.view_transform,
-            range: [
-                state.color.range[0],
-                state.color.range[1],
-                state.color.colormap as f32,
-                state.color.isoline_step,
-            ],
-            style: [
-                state.color.isoline_width_px,
-                state.color.wireframe as u32 as f32,
-                0.0,
-                0.0,
-            ],
-        };
+        let uniform = metal_uniform(state, self.is_3d);
         // SAFETY: `uniform` is a fully initialized POD value, the destination
         // is the shared uniform buffer allocated for this renderer, and the
         // copy length is exactly the `MetalUniform` layout size.
         unsafe {
+            if self.is_3d {
+                ptr::copy_nonoverlapping(
+                    &uniform as *const MetalUniform as *const u8,
+                    self.uniform.contents() as *mut u8,
+                    std::mem::size_of::<MetalUniform>(),
+                );
+            } else {
+                let uniform = metal_uniform_2d(state);
+                ptr::copy_nonoverlapping(
+                    &uniform as *const MetalUniform2d as *const u8,
+                    self.uniform.contents() as *mut u8,
+                    std::mem::size_of::<MetalUniform2d>(),
+                );
+            }
+        }
+    }
+
+    fn update_triad(&mut self, camera: Option<&Camera3D>) {
+        let Some(triad) = &self.triad else {
+            return;
+        };
+        let vertices = metal_triad_vertices(camera);
+        // SAFETY: the shared buffer was allocated exactly for six
+        // `MetalVertex` entries and is updated with an identically sized POD
+        // array on the render thread.
+        unsafe {
             ptr::copy_nonoverlapping(
-                &uniform as *const MetalUniform as *const u8,
-                self.uniform.contents() as *mut u8,
-                std::mem::size_of::<MetalUniform>(),
+                vertices.as_ptr() as *const u8,
+                triad.contents() as *mut u8,
+                std::mem::size_of_val(&vertices),
             );
         }
     }
@@ -209,6 +455,8 @@ pub struct MetalMeshRenderer {
 struct MetalMeshDraw {
     state: Rc<RefCell<MeshSceneState>>,
     resources: Rc<RefCell<Option<MetalResources>>>,
+    is_3d: bool,
+    camera: Option<Rc<RefCell<Camera3D>>>,
 }
 
 impl CustomDraw for MetalMeshDraw {
@@ -231,12 +479,19 @@ impl MetalCustomDraw for MetalMeshDraw {
             return;
         };
         let mut resources = self.resources.borrow_mut();
-        if resources
-            .as_ref()
-            .is_none_or(|resources| resources.geometry_rev != state.geometry_rev)
-        {
-            *resources =
-                MetalResources::new(device, drawable_texture, state.geometry_rev, upload, &state);
+        if resources.as_ref().is_none_or(|resources| {
+            resources.geometry_rev != state.geometry_rev
+                || resources.target_width != drawable_texture.width()
+                || resources.target_height != drawable_texture.height()
+        }) {
+            *resources = MetalResources::new(
+                device,
+                drawable_texture,
+                state.geometry_rev,
+                upload,
+                &state,
+                self.is_3d,
+            );
         }
         let Some(resources) = resources.as_mut() else {
             return;
@@ -246,6 +501,8 @@ impl MetalCustomDraw for MetalMeshDraw {
             resources.field_rev = state.field_rev;
         }
         resources.update_uniform(&state);
+        let camera = self.camera.as_ref().map(|camera| camera.borrow().clone());
+        resources.update_triad(camera.as_ref());
         let descriptor = metal::RenderPassDescriptor::new();
         let Some(attachment) = descriptor.color_attachments().object_at(0) else {
             // A malformed descriptor must not take down the render thread.
@@ -254,6 +511,13 @@ impl MetalCustomDraw for MetalMeshDraw {
         attachment.set_texture(Some(drawable_texture));
         attachment.set_load_action(MTLLoadAction::Load);
         attachment.set_store_action(MTLStoreAction::Store);
+        let Some(depth_attachment) = descriptor.depth_attachment() else {
+            return;
+        };
+        depth_attachment.set_texture(Some(&resources.depth));
+        depth_attachment.set_load_action(MTLLoadAction::Clear);
+        depth_attachment.set_clear_depth(1.0);
+        depth_attachment.set_store_action(MTLStoreAction::DontCare);
         let encoder = command_buffer.new_render_command_encoder(&descriptor);
         let rect = MTLScissorRect {
             x: (f32::from(bounds.origin.x) * scale_factor).max(0.0) as u64,
@@ -262,9 +526,14 @@ impl MetalCustomDraw for MetalMeshDraw {
             height: (f32::from(bounds.size.height) * scale_factor).max(1.0) as u64,
         };
         encoder.set_scissor_rect(rect);
+        encoder.set_depth_stencil_state(&resources.depth_state);
         encoder.set_render_pipeline_state(&resources.pipeline);
         encoder.set_vertex_buffer(0, Some(&resources.vertices), 0);
         encoder.set_vertex_buffer(1, Some(&resources.uniform), 0);
+        // Vertex and fragment stages have independent bindings. The old 2D
+        // path used the same buffer layout; bind it explicitly so 3D scalar
+        // coloring/lighting never reads an unbound fragment uniform.
+        encoder.set_fragment_buffer(if self.is_3d { 0 } else { 1 }, Some(&resources.uniform), 0);
         if resources.vertex_count != 0 {
             encoder.draw_primitives(MTLPrimitiveType::Triangle, 0, resources.vertex_count as u64);
         }
@@ -273,16 +542,53 @@ impl MetalCustomDraw for MetalMeshDraw {
             encoder.set_vertex_buffer(0, Some(&resources.lines), 0);
             encoder.draw_primitives(MTLPrimitiveType::Line, 0, resources.line_count as u64);
         }
+        if let (Some(pipeline), Some(triad), Some(depth_state)) = (
+            resources.triad_pipeline.as_ref(),
+            resources.triad.as_ref(),
+            resources.triad_depth_state.as_ref(),
+        ) && resources.triad_count != 0
+        {
+            encoder.set_depth_stencil_state(depth_state);
+            encoder.set_render_pipeline_state(pipeline);
+            encoder.set_vertex_buffer(0, Some(triad), 0);
+            encoder.draw_primitives(MTLPrimitiveType::Line, 0, resources.triad_count as u64);
+        }
         encoder.end_encoding();
     }
 }
 
 impl MetalMeshRenderer {
     pub fn new(state: Rc<RefCell<MeshSceneState>>) -> Self {
+        Self::with_dimension(state, false, None)
+    }
+
+    /// Construct the dedicated normal-bearing, lit Metal renderer used for
+    /// `Surface3d` and axisymmetric revolve plots. The regular constructor
+    /// remains the 2D ABI-compatible scalar renderer.
+    pub fn new_3d(state: Rc<RefCell<MeshSceneState>>) -> Self {
+        Self::with_dimension(state, true, None)
+    }
+
+    /// Construct the 3D renderer with the retained orbit camera used to keep
+    /// its orientation triad synchronized with navigation.
+    pub fn new_3d_with_camera(
+        state: Rc<RefCell<MeshSceneState>>,
+        camera: Rc<RefCell<Camera3D>>,
+    ) -> Self {
+        Self::with_dimension(state, true, Some(camera))
+    }
+
+    fn with_dimension(
+        state: Rc<RefCell<MeshSceneState>>,
+        is_3d: bool,
+        camera: Option<Rc<RefCell<Camera3D>>>,
+    ) -> Self {
         let resources = Rc::new(RefCell::new(None));
         let draw: Rc<dyn CustomDraw> = Rc::new(MetalCustomDrawAdapter(Rc::new(MetalMeshDraw {
             state: state.clone(),
             resources: resources.clone(),
+            is_3d,
+            camera,
         })));
         let custom_id = gpui::register_custom_draw(draw);
         Self {

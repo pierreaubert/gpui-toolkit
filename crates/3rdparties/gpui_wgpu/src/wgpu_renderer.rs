@@ -1228,6 +1228,7 @@ impl WgpuRenderer {
                                             context,
                                             &mut encoder,
                                             &frame_view,
+                                            [self.surface_config.width, self.surface_config.height],
                                             bounds,
                                             1.0,
                                         );

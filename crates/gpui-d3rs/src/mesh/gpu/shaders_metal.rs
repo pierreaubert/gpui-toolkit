@@ -14,8 +14,10 @@ struct Uniforms {
 };
 
 struct Vertex {
-    float3 position [[attribute(0)]];
-    float value [[attribute(1)]];
+    float3 position;
+    float3 normal;
+    float value;
+    float _padding;
 };
 
 struct Out {
@@ -23,7 +25,11 @@ struct Out {
     float value;
 };
 
-vertex Out mesh_vertex(Vertex input [[stage_in]], constant Uniforms& uniforms [[buffer(1)]]) {
+vertex Out mesh_vertex(
+    const device Vertex* vertices [[buffer(0)]],
+    uint vertex_id [[vertex_id]],
+    constant Uniforms& uniforms [[buffer(1)]]) {
+    Vertex input = vertices[vertex_id];
     Out output;
     output.position = uniforms.view_transform * float4(input.position, 1.0);
     output.value = input.value;

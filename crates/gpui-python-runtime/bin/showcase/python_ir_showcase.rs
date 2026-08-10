@@ -8,7 +8,8 @@ use super::misc::tone_color;
 use super::types::StackDirection;
 use d3rs::gpu3d::{Lines3DElement, Lines3DState, Surface3DElement, Surface3DState};
 use d3rs::mesh::{
-    ContourLevels, CoordinateAxis, ScalarAssociation, ScalarField, TriangleMesh, project_2d,
+    ContourLevels, CoordinateAxis, MissingValuePolicy, ScalarAssociation, ScalarField,
+    TriangleMesh, project_2d,
 };
 use gpui::prelude::*;
 use gpui::*;
@@ -18,9 +19,9 @@ use gpui_audio_kit::{
 use gpui_design::{DesignExt, DesignSystem};
 use gpui_px::interaction::{InteractiveChartState, interactive};
 use gpui_px::{
-    Axes2d, ColorRange, ColorScale, Colorbar, FieldInterpolation, MeshPlotPick, MeshPlotState,
-    MeshPlotView, MeshRenderMode, PlotInteractions, Wireframe, area, bar, boxplot, contour, donut,
-    heatmap, isoline, line, mesh_plot, pie, scatter, treemap,
+    AutoOrFixed, Axes2d, ColorRange, ColorScale, Colorbar, FieldInterpolation, MeshPlotPick,
+    MeshPlotState, MeshPlotView, MeshRenderMode, PlotInteractions, Wireframe, area, bar, boxplot,
+    contour, donut, heatmap, isoline, line, mesh_plot, pie, scatter, treemap,
 };
 use gpui_python_runtime::audio_stream::{AudioFrameKind, AudioFrameStore};
 use gpui_python_runtime::gpui_adapter::{Gpui3DCache, GpuiMeshPlotCache};
@@ -121,15 +122,17 @@ fn mesh_selection_event_payload(selection: Option<&MeshPlotPick>) -> Value {
     selection.map(mesh_selection_payload).unwrap_or(Value::Null)
 }
 
-struct NativeMeshPlotOptions {
-    mode: MeshRenderMode,
-    color_scale: ColorScale,
-    color_range: ColorRange,
-    axes: Axes2d,
-    interactions: PlotInteractions,
-    viewport: Option<[f64; 4]>,
-    selection: Option<MeshPlotPick>,
+fn cached_meshplot_fallback(
+    cache: &GpuiMeshPlotCache,
+    requested: &MeshPlotSpec,
+) -> Option<MeshPlotSpec> {
+    cache
+        .get(&requested.id)
+        .filter(|previous| *previous != requested)
+        .cloned()
 }
+
+type NativeMeshPlotOptions = gpui_python_runtime::native_mesh_plot::NativeMeshPlotOptions;
 
 fn finite_json_pair(value: &Value, name: &str) -> Result<[f64; 2], String> {
     let values = value
@@ -159,10 +162,34 @@ fn native_mesh_plot_color_range(value: &Value) -> Result<ColorRange, String> {
             let [min, max] = finite_json_pair(value, "color_range")?;
             Ok(ColorRange::Fixed { min, max })
         }
-        _ => Err("mesh_plot color_range must be 'auto' or [min, max]".into()),
+        Value::Object(value) => {
+            let symmetric = value
+                .get("symmetric")
+                .and_then(Value::as_object)
+                .filter(|_| value.len() == 1)
+                .ok_or("mesh_plot symmetric color_range must contain a symmetric object")?;
+            let center = symmetric
+                .get("center")
+                .and_then(Value::as_f64)
+                .filter(|center| center.is_finite())
+                .ok_or("mesh_plot symmetric color_range center must be finite")?;
+            let extent = match symmetric.get("extent") {
+                Some(Value::String(value)) if value == "auto" => AutoOrFixed::Auto,
+                Some(value) => AutoOrFixed::Fixed(
+                    value
+                        .as_f64()
+                        .filter(|extent| extent.is_finite() && *extent > 0.0)
+                        .ok_or("mesh_plot symmetric color_range extent must be 'auto' or positive finite")?,
+                ),
+                None => return Err("mesh_plot symmetric color_range requires extent".into()),
+            };
+            Ok(ColorRange::Symmetric { center, extent })
+        }
+        _ => Err("mesh_plot color_range must be 'auto', [min, max], or a symmetric range".into()),
     }
 }
 
+#[allow(dead_code)] // Retained temporarily while the resource-builder extraction is completed.
 fn native_mesh_plot_contour_levels(value: Option<&Value>) -> Result<ContourLevels, String> {
     let Some(value) = value.filter(|value| !value.is_null()) else {
         return Ok(ContourLevels::Count(8));
@@ -197,6 +224,18 @@ fn native_mesh_plot_contour_levels(value: Option<&Value>) -> Result<ContourLevel
     Ok(ContourLevels::Explicit(Arc::from(values)))
 }
 
+#[allow(dead_code)] // Retained temporarily while the resource-builder extraction is completed.
+fn native_mesh_plot_missing_value_policy(value: &str) -> Result<MissingValuePolicy, String> {
+    match value {
+        "reject" => Ok(MissingValuePolicy::Reject),
+        "mask_nan" => Ok(MissingValuePolicy::MaskNaN),
+        value => Err(format!(
+            "unsupported mesh_plot missing_value_policy {value:?}"
+        )),
+    }
+}
+
+#[allow(dead_code)] // Retained temporarily while the resource-builder extraction is completed.
 fn native_mesh_plot_viewport(value: Option<&Value>) -> Result<Option<[f64; 4]>, String> {
     let Some(value) = value.filter(|value| !value.is_null()) else {
         return Ok(None);
@@ -219,6 +258,7 @@ fn native_mesh_plot_viewport(value: Option<&Value>) -> Result<Option<[f64; 4]>, 
     Ok(Some([x_min, x_max, y_min, y_max]))
 }
 
+#[allow(dead_code)] // Retained temporarily while the resource-builder extraction is completed.
 fn native_mesh_plot_selection(
     value: Option<&Value>,
     plot_id: &str,
@@ -317,46 +357,7 @@ fn native_mesh_plot_options(
     spec: &MeshPlotSpec,
     mesh_id: &str,
 ) -> Result<NativeMeshPlotOptions, String> {
-    let levels = native_mesh_plot_contour_levels(spec.contour_levels.as_ref())?;
-    let mode = match spec.mode.as_str() {
-        "scalar_fill" => MeshRenderMode::ScalarFill {
-            interpolation: FieldInterpolation::Smooth,
-        },
-        "filled_contours" => MeshRenderMode::FilledContours { levels },
-        "isolines" => MeshRenderMode::Isolines { levels },
-        "fill_and_isolines" => MeshRenderMode::FillAndIsolines { levels },
-        "mesh" => MeshRenderMode::Mesh,
-        mode => return Err(format!("unsupported mesh_plot mode {mode:?}")),
-    };
-    let color_scale = match spec.color_scale.as_str() {
-        "viridis" => ColorScale::Viridis,
-        "plasma" => ColorScale::Plasma,
-        "inferno" => ColorScale::Inferno,
-        "magma" => ColorScale::Magma,
-        "heat" => ColorScale::Heat,
-        "coolwarm" | "cool_warm" => ColorScale::Coolwarm,
-        "greys" => ColorScale::Greys,
-        "cividis" | "turbo" => {
-            return Err(format!(
-                "mesh_plot color scale {:?} is not available in the native renderer",
-                spec.color_scale
-            ));
-        }
-        scale => return Err(format!("unsupported mesh_plot color scale {scale:?}")),
-    };
-    Ok(NativeMeshPlotOptions {
-        mode,
-        color_scale,
-        color_range: native_mesh_plot_color_range(&spec.color_range)?,
-        axes: if spec.equal_aspect {
-            Axes2d::equal_aspect()
-        } else {
-            Axes2d::default().fill_aspect()
-        },
-        interactions: PlotInteractions::InspectAndNavigate,
-        viewport: native_mesh_plot_viewport(spec.viewport.as_ref())?,
-        selection: native_mesh_plot_selection(spec.selection.as_ref(), &spec.id, mesh_id)?,
-    })
+    gpui_python_runtime::native_mesh_plot::options(spec, mesh_id)
 }
 
 #[cfg(feature = "gpu-3d")]
@@ -973,7 +974,11 @@ fn resource_shape_elements(resource: &RetainedMeshResource, name: &str) -> Resul
     })
 }
 
-fn decode_resource_floats(resource: &RetainedMeshResource, name: &str) -> Result<Vec<f64>, String> {
+fn decode_resource_floats(
+    resource: &RetainedMeshResource,
+    name: &str,
+    allow_nan: bool,
+) -> Result<Vec<f64>, String> {
     let elements = resource_shape_elements(resource, name)?;
     let width = match resource.dtype {
         MeshDtype::F32LE => 4,
@@ -1002,10 +1007,10 @@ fn decode_resource_floats(resource: &RetainedMeshResource, name: &str) -> Result
             } else {
                 f64::from_le_bytes(chunk.try_into().map_err(|_| "invalid f64 bytes")?)
             };
-            value
-                .is_finite()
-                .then_some(value)
-                .ok_or_else(|| format!("{name} resource contains a non-finite value"))
+            if value.is_infinite() || (!allow_nan && value.is_nan()) {
+                return Err(format!("{name} resource contains a non-finite value"));
+            }
+            Ok(value)
         })
         .collect()
 }
@@ -1190,7 +1195,7 @@ fn decode_mesh_geometry(
         if triangles_resource.shape.len() != 2 || triangles_resource.shape[1] != 3 {
             return Err("geometry.triangles resource shape must be [triangle_count, 3]".into());
         }
-        let position_values = decode_resource_floats(positions_resource, "geometry.positions")?;
+        let position_values = decode_resource_floats(positions_resource, "geometry.positions", false)?;
         let triangle_values = decode_resource_u32(triangles_resource, "geometry.triangles")?;
         let positions = position_values
             .chunks_exact(3)
@@ -1251,7 +1256,10 @@ fn decode_mesh_field(
         if resource.shape.len() != 1 {
             return Err("field resource shape must be [value_count]".into());
         }
-        decode_resource_floats(resource, "field")?
+        // Keep NaN samples intact for `MissingValuePolicy::MaskNaN`, but
+        // never accept infinities: they cannot be rendered or meaningfully
+        // masked by a scalar field.
+        decode_resource_floats(resource, "field", true)?
     } else {
         field
             .get("values")
@@ -1422,6 +1430,93 @@ mod mesh_resource_decode_tests {
         });
         let error = decode_mesh_field(&field, &store).unwrap_err();
         assert!(error.contains("field.valid resource shape must be [value_count]"));
+    }
+
+    #[::core::prelude::v1::test]
+    fn resource_backed_nan_is_masked_by_the_native_missing_value_policy() {
+        let mut store = MeshFrameStore::new();
+        retain(
+            &mut store,
+            "field-values",
+            MeshFrameKind::Field,
+            MeshDtype::F64LE,
+            vec![3],
+            [0.0_f64, f64::NAN, 2.0]
+                .into_iter()
+                .flat_map(f64::to_le_bytes)
+                .collect(),
+        );
+        let field = serde_json::json!({
+            "resource_id": "field-values",
+            "generation": 1
+        });
+        let (values, valid) = decode_mesh_field(&field, &store).unwrap();
+        assert!(values[1].is_nan());
+        assert!(valid.is_none());
+
+        let masked = ScalarField {
+            id: "pressure".into(),
+            label: "Pressure".into(),
+            unit: None,
+            values: Arc::from(values),
+            association: ScalarAssociation::Vertex,
+            valid: valid.map(Arc::from),
+        }
+        .mask_nan()
+        .unwrap();
+        assert_eq!(masked.valid.as_deref(), Some(&[true, false, true][..]));
+    }
+
+    #[::core::prelude::v1::test]
+    fn resource_backed_infinity_is_rejected_even_when_nan_masking_is_requested() {
+        let mut store = MeshFrameStore::new();
+        retain(
+            &mut store,
+            "field-values",
+            MeshFrameKind::Field,
+            MeshDtype::F64LE,
+            vec![3],
+            [0.0_f64, f64::INFINITY, 2.0]
+                .into_iter()
+                .flat_map(f64::to_le_bytes)
+                .collect(),
+        );
+        let field = serde_json::json!({
+            "resource_id": "field-values",
+            "generation": 1
+        });
+        let error = decode_mesh_field(&field, &store).unwrap_err();
+        assert!(error.contains("field resource contains a non-finite value"));
+    }
+
+    #[::core::prelude::v1::test]
+    fn invalid_new_spec_selects_the_cached_last_valid_spec_without_recursion() {
+        let previous = MeshPlotSpec::from_value(serde_json::json!({
+            "schema_version": 1,
+            "id": "last-valid",
+            "revision": 1,
+            "geometry": {
+                "id": "mesh",
+                "positions": [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+                "triangles": [[0, 1, 2]]
+            }
+        }))
+        .unwrap();
+        let mut cache = GpuiMeshPlotCache::new();
+        cache.upsert(previous.clone()).unwrap();
+
+        let mut invalid_newer = previous.clone();
+        invalid_newer.revision = 2;
+        invalid_newer.geometry = serde_json::json!({
+            "id": "mesh",
+            "positions": {"resource_id": "missing", "generation": 9},
+            "triangles": {"resource_id": "missing-indices", "generation": 9}
+        });
+        assert_eq!(
+            cached_meshplot_fallback(&cache, &invalid_newer),
+            Some(previous.clone())
+        );
+        assert!(cached_meshplot_fallback(&cache, &previous).is_none());
     }
 }
 
@@ -8879,6 +8974,26 @@ impl PythonIrShowcase {
         container.into_any_element()
     }
 
+    fn render_meshplot_error_or_last_valid(
+        &mut self,
+        node: &MeshPlotNode,
+        requested: &MeshPlotSpec,
+        error: &str,
+        theme: &Theme,
+        ds: &DesignSystem,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let previous = cached_meshplot_fallback(&self.mesh_plots, requested);
+        if let Some(previous) = previous
+            && let Ok(spec) = serde_json::to_value(previous)
+        {
+            let mut fallback = node.clone();
+            fallback.spec = spec;
+            return self.render_meshplot(&fallback, theme, ds, cx);
+        }
+        self.render_error(error, theme, ds)
+    }
+
     /// Render the host-owned mesh-plot surface and dispatch selection only.
     ///
     /// Resource validation and native plot construction happen before the
@@ -8900,17 +9015,32 @@ impl PythonIrShowcase {
             &self.mesh_frames,
             self.last_mesh_patch_id.as_deref(),
         ) {
-            return self.render_error(&error.to_string(), theme, ds);
+            return self.render_meshplot_error_or_last_valid(
+                node,
+                &spec,
+                &error.to_string(),
+                theme,
+                ds,
+                _cx,
+            );
         }
         let (resolved_positions, resolved_triangles) =
             match decode_mesh_geometry(&spec.geometry, &self.mesh_frames) {
                 Ok(geometry) => geometry,
-                Err(error) => return self.render_error(&error, theme, ds),
+                Err(error) => {
+                    return self.render_meshplot_error_or_last_valid(
+                        node, &spec, &error, theme, ds, _cx,
+                    );
+                }
             };
         let field_values = match spec.field.as_ref() {
             Some(field) => match decode_mesh_field(field, &self.mesh_frames) {
                 Ok((values, _)) => values.len(),
-                Err(error) => return self.render_error(&error, theme, ds),
+                Err(error) => {
+                    return self.render_meshplot_error_or_last_valid(
+                        node, &spec, &error, theme, ds, _cx,
+                    );
+                }
             },
             None => 0,
         };
@@ -8924,15 +9054,28 @@ impl PythonIrShowcase {
             .and_then(Value::as_str)
             .unwrap_or("mesh");
         if let Err(error) = native_mesh_plot_options(&spec, mesh_id) {
-            return self.render_error(&error, theme, ds);
+            return self.render_meshplot_error_or_last_valid(node, &spec, &error, theme, ds, _cx);
         }
         let geometry_changed = self
             .mesh_plots
             .get(&spec.id)
             .is_none_or(|previous| previous.geometry != spec.geometry);
+        let field_changed = self
+            .mesh_plots
+            .get(&spec.id)
+            .is_some_and(|previous| previous.field != spec.field);
         let retained_state = (!geometry_changed)
             .then(|| self.mesh_plot_states.get(&spec.id).cloned())
             .flatten();
+        if let Some(state) = retained_state.as_ref() {
+            // The declarative cache is the authoritative dirty-domain source
+            // for Python frames. Carry its field revision into the native
+            // retained renderer before `build` so a scalar-only patch writes
+            // values without rebuilding geometry buffers.
+            state
+                .borrow_mut()
+                .mark_resources_changed(false, field_changed);
+        }
         let host_selection_callback: Option<Rc<dyn Fn(Option<MeshPlotPick>)>> = match (
             node.selection_action.clone(),
             self.session.as_ref().map(|session| session.event_sink()),
@@ -8962,7 +9105,11 @@ impl PythonIrShowcase {
             host_selection_callback,
         ) {
             Ok((element, state)) => (Some(element), Some(state)),
-            Err(error) => return self.render_error(&error, theme, ds),
+            Err(error) => {
+                return self.render_meshplot_error_or_last_valid(
+                    node, &spec, &error, theme, ds, _cx,
+                );
+            }
         };
         write_qa_json_artifact(
             "GPUI_TOOLKIT_QA_RENDER_TRACE",
@@ -9177,6 +9324,7 @@ impl PythonIrShowcase {
             .mode(options.mode)
             .color_scale(options.color_scale)
             .color_range(options.color_range)
+            .missing_value_policy(options.missing_value_policy)
             .axes(options.axes)
             .interactions(options.interactions)
             .wireframe(if spec.wireframe {

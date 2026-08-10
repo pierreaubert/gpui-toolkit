@@ -84,7 +84,7 @@ fn main() {
     );
     assert!(contour_svg.contains("gpui-px-colorbar"));
 
-    // Axisymmetric r-z profile and retained revolved derivative.
+    // Axisymmetric r-z profile and its retained revolved 3D derivative.
     let profile = TriangleMesh {
         id: "axisymmetric-profile".into(),
         positions: Arc::from([
@@ -122,26 +122,41 @@ fn main() {
     );
     assert!(axisymmetric_svg.contains("Axisymmetric temperature"));
 
-    // 3D BEM surface result: export metadata identifies the 3D view while
-    // native GPU composition remains the responsibility of the live builder.
-    let surface_svg = export(
-        mesh_plot(mesh)
-            .field(field)
-            .view(MeshPlotView::Surface3d)
-            .title("BEM surface pressure")
+    let revolve_svg = export(
+        mesh_plot(profile.clone())
+            .field(profile_field.clone())
+            .view(MeshPlotView::AxisymmetricRevolve(revolve_spec.clone()))
+            .title("Revolved temperature surface")
             .mode(MeshRenderMode::ScalarFill {
                 interpolation: FieldInterpolation::Smooth,
             })
-            .colorbar(Colorbar::new("Pressure").unit("Pa")),
-        "surface-3d",
+            .colorbar(Colorbar::new("Temperature").unit("K"))
+            .wireframe(Wireframe::overlay()),
+        "axisymmetric-revolve",
     );
+    assert!(revolve_svg.contains("data-view=\"axisymmetric-revolve\""));
+    assert!(revolve_svg.contains("gpui-px-mesh-3d-triangle"));
+
+    // 3D BEM surface result: export metadata identifies the 3D view while
+    // native GPU composition remains the responsibility of the live builder.
+    let surface = mesh_plot(mesh)
+        .field(field)
+        .view(MeshPlotView::Surface3d)
+        .title("BEM surface pressure")
+        .mode(MeshRenderMode::ScalarFill {
+            interpolation: FieldInterpolation::Smooth,
+        })
+        .colorbar(Colorbar::new("Pressure").unit("Pa"));
+    let surface_png = surface.to_png(1.5).expect("Surface3d PNG export");
+    assert_eq!(&surface_png[..8], b"\x89PNG\r\n\x1a\n");
+    let surface_svg = export(surface, "surface-3d");
     assert!(surface_svg.contains("BEM surface pressure"));
 
     println!(
         "{}",
         concat!(
-            "mesh_plot_showcase: 4 Sonium smoke scenarios passed ",
-            "(2D mesh, contour field-map, axisymmetric section/revolve, 3D surface)"
+            "mesh_plot_showcase: 5 Sonium smoke scenarios passed ",
+            "(2D mesh, contour field-map, axisymmetric section, revolve, 3D surface)"
         )
     );
 }

@@ -1,8 +1,8 @@
 //! Deterministic vertex-clustering decimation for interactive mesh LOD.
 
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, sync::Arc};
 
-use super::{MeshTopology, TriangleMesh};
+use super::{MeshTopology, MeshValidationError, ScalarAssociation, ScalarField, TriangleMesh};
 
 /// Reduce a triangle mesh with a deterministic grid-clustering pass.
 ///
@@ -18,9 +18,80 @@ use super::{MeshTopology, TriangleMesh};
 /// unchanged, which keeps a rendering fallback valid instead of manufacturing
 /// an invalid mesh while handling a bad update.
 pub fn decimate_vertex_clustering(mesh: &TriangleMesh, target_triangles: usize) -> TriangleMesh {
+    decimate_vertex_clustering_with_mapping(mesh, target_triangles).mesh
+}
+
+/// A deterministic LOD mesh together with the source samples represented by
+/// each of its vertices and triangles.
+///
+/// Vertex fields are sampled at `source_vertex_indices`; cell fields are
+/// sampled at `source_triangle_indices`.  Keeping this provenance separate
+/// from optional external IDs makes a proxy safe for rendering regardless of
+/// the caller's ID policy.
+#[derive(Debug, Clone)]
+pub struct MeshDecimation {
+    pub mesh: TriangleMesh,
+    pub source_vertex_indices: Arc<[u32]>,
+    pub source_triangle_indices: Arc<[u32]>,
+}
+
+impl MeshDecimation {
+    fn identity(mesh: &TriangleMesh) -> Self {
+        Self {
+            mesh: mesh.clone(),
+            source_vertex_indices: (0..mesh.positions.len() as u32).collect(),
+            source_triangle_indices: (0..mesh.triangles.len() as u32).collect(),
+        }
+    }
+
+    /// Materialize a scalar field for this proxy from the corresponding source
+    /// field. Vertex and cell association are preserved; optional validity
+    /// masks follow the exact same representative/source-triangle mapping.
+    pub fn map_field(
+        &self,
+        source_mesh: &TriangleMesh,
+        field: &ScalarField,
+    ) -> Result<ScalarField, MeshValidationError> {
+        field.validate(source_mesh)?;
+        let source_indices = match field.association {
+            ScalarAssociation::Vertex => &self.source_vertex_indices,
+            ScalarAssociation::Cell => &self.source_triangle_indices,
+        };
+        let values = source_indices
+            .iter()
+            .map(|&index| field.values[index as usize])
+            .collect::<Vec<_>>();
+        let valid = field.valid.as_ref().map(|valid| {
+            source_indices
+                .iter()
+                .map(|&index| valid[index as usize])
+                .collect::<Vec<_>>()
+                .into()
+        });
+        let mapped = ScalarField {
+            id: field.id.clone(),
+            label: field.label.clone(),
+            unit: field.unit.clone(),
+            values: values.into(),
+            association: field.association,
+            valid,
+        };
+        mapped.validate(&self.mesh)?;
+        Ok(mapped)
+    }
+}
+
+/// Reduce a mesh and retain the source vertex/cell associated with each
+/// output primitive. This is the LOD entry point for scalar rendering: it
+/// preserves field association without conflating source indices with caller
+/// supplied external IDs.
+pub fn decimate_vertex_clustering_with_mapping(
+    mesh: &TriangleMesh,
+    target_triangles: usize,
+) -> MeshDecimation {
     if target_triangles == 0 || mesh.triangles.len() <= target_triangles || mesh.validate().is_err()
     {
-        return mesh.clone();
+        return MeshDecimation::identity(mesh);
     }
 
     let boundary_vertices = boundary_vertices(mesh);
@@ -29,7 +100,7 @@ pub fn decimate_vertex_clustering(mesh: &TriangleMesh, target_triangles: usize) 
     let mut candidate = cluster_mesh(mesh, &boundary_vertices, bounds, resolution);
     let allowed_triangles = target_triangles.saturating_mul(2);
 
-    while candidate.triangles.len() > allowed_triangles {
+    while candidate.mesh.triangles.len() > allowed_triangles {
         let next = resolution.map(|axis| axis.max(1) / 2);
         if next == resolution {
             break;
@@ -83,7 +154,7 @@ fn cluster_mesh(
     boundary_vertices: &[bool],
     (min, max): ([f64; 3], [f64; 3]),
     resolution: [usize; 3],
-) -> TriangleMesh {
+) -> MeshDecimation {
     let mut cluster_indices = vec![0usize; mesh.positions.len()];
     let mut clusters = BTreeMap::<(u8, usize, usize, usize), usize>::new();
 
@@ -141,6 +212,7 @@ fn cluster_mesh(
         .map(|&cluster_index| cluster_index as u32)
         .collect();
     let mut triangles = Vec::with_capacity(mesh.triangles.len());
+    let mut source_triangle_indices = Vec::with_capacity(mesh.triangles.len());
     let mut kept_cell_ids = mesh
         .cell_ids
         .as_ref()
@@ -160,13 +232,14 @@ fn cluster_mesh(
             continue;
         }
         triangles.push(mapped);
+        source_triangle_indices.push(triangle_index as u32);
         if let (Some(source_ids), Some(output_ids)) = (&mesh.cell_ids, &mut kept_cell_ids) {
             output_ids.push(source_ids[triangle_index]);
         }
     }
 
     if triangles.is_empty() {
-        return mesh.clone();
+        return MeshDecimation::identity(mesh);
     }
 
     let output = TriangleMesh {
@@ -184,9 +257,16 @@ fn cluster_mesh(
     };
 
     if output.validate().is_ok() {
-        output
+        MeshDecimation {
+            mesh: output,
+            source_vertex_indices: representatives
+                .into_iter()
+                .map(|index| index as u32)
+                .collect(),
+            source_triangle_indices: source_triangle_indices.into(),
+        }
     } else {
-        mesh.clone()
+        MeshDecimation::identity(mesh)
     }
 }
 
@@ -275,5 +355,67 @@ mod tests {
             decimate_vertex_clustering(&mesh, 500).triangles,
             decimate_vertex_clustering(&mesh, 500).triangles
         );
+    }
+
+    #[test]
+    fn decimation_provenance_maps_proxy_samples_to_source_indices() {
+        let mesh = grid_mesh(20, 20);
+        let decimation = decimate_vertex_clustering_with_mapping(&mesh, 40);
+        assert_eq!(
+            decimation.mesh.positions.len(),
+            decimation.source_vertex_indices.len()
+        );
+        assert_eq!(
+            decimation.mesh.triangles.len(),
+            decimation.source_triangle_indices.len()
+        );
+        for (&proxy_vertex, position) in decimation
+            .source_vertex_indices
+            .iter()
+            .zip(decimation.mesh.positions.iter())
+        {
+            assert_eq!(*position, mesh.positions[proxy_vertex as usize]);
+        }
+        for &source_triangle in decimation.source_triangle_indices.iter() {
+            assert!((source_triangle as usize) < mesh.triangles.len());
+        }
+    }
+
+    #[test]
+    fn decimation_maps_vertex_and_cell_fields_with_their_source_provenance() {
+        let mesh = grid_mesh(20, 20);
+        let decimation = decimate_vertex_clustering_with_mapping(&mesh, 40);
+        for association in [ScalarAssociation::Vertex, ScalarAssociation::Cell] {
+            let count = match association {
+                ScalarAssociation::Vertex => mesh.positions.len(),
+                ScalarAssociation::Cell => mesh.triangles.len(),
+            };
+            let field = ScalarField {
+                id: "field".into(),
+                label: "Field".into(),
+                unit: None,
+                values: (0..count).map(|index| index as f64).collect(),
+                association,
+                valid: Some(
+                    (0..count)
+                        .map(|index| index % 3 != 0)
+                        .collect::<Vec<_>>()
+                        .into(),
+                ),
+            };
+            let mapped = decimation.map_field(&mesh, &field).unwrap();
+            let provenance = match association {
+                ScalarAssociation::Vertex => &decimation.source_vertex_indices,
+                ScalarAssociation::Cell => &decimation.source_triangle_indices,
+            };
+            assert_eq!(mapped.values.len(), provenance.len());
+            assert_eq!(
+                mapped.valid.as_deref().map(|mask| mask.len()),
+                Some(provenance.len())
+            );
+            for (output, &source) in mapped.values.iter().zip(provenance.iter()) {
+                assert_eq!(*output, field.values[source as usize]);
+            }
+        }
     }
 }

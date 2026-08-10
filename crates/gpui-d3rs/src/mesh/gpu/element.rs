@@ -116,7 +116,7 @@ pub const DEFAULT_LOD_THRESHOLD: usize = 2_000_000;
 #[derive(Debug, Clone)]
 pub struct MeshLodController {
     full_mesh: crate::mesh::TriangleMesh,
-    proxy_mesh: Option<crate::mesh::TriangleMesh>,
+    proxy_mesh: Option<crate::mesh::MeshDecimation>,
     lod_threshold: usize,
     camera_dragging: bool,
 }
@@ -154,7 +154,9 @@ impl MeshLodController {
     }
     pub fn active_mesh(&self) -> &crate::mesh::TriangleMesh {
         if self.camera_dragging {
-            self.proxy_mesh.as_ref().unwrap_or(&self.full_mesh)
+            self.proxy_mesh
+                .as_ref()
+                .map_or(&self.full_mesh, |proxy| &proxy.mesh)
         } else {
             &self.full_mesh
         }
@@ -163,7 +165,27 @@ impl MeshLodController {
         &self.full_mesh
     }
     pub fn proxy_mesh(&self) -> Option<&crate::mesh::TriangleMesh> {
-        self.proxy_mesh.as_ref()
+        self.proxy_mesh.as_ref().map(|proxy| &proxy.mesh)
+    }
+    /// Return the active proxy provenance while a drag is in progress.
+    /// Callers use this to map vertex/cell scalar fields without changing the
+    /// public full-resolution picking and selection contract.
+    pub fn active_proxy(&self) -> Option<&crate::mesh::MeshDecimation> {
+        self.camera_dragging
+            .then_some(self.proxy_mesh.as_ref())
+            .flatten()
+    }
+    /// Return a scalar field whose samples match the mesh currently rendered
+    /// by this controller. Selection remains against `full_mesh`; this is
+    /// only for the temporary drag-time visual proxy.
+    pub fn active_field(
+        &self,
+        field: &crate::mesh::ScalarField,
+    ) -> Result<crate::mesh::ScalarField, crate::mesh::MeshValidationError> {
+        self.active_proxy().map_or_else(
+            || Ok(field.clone()),
+            |proxy| proxy.map_field(&self.full_mesh, field),
+        )
     }
     pub fn lod_threshold(&self) -> usize {
         self.lod_threshold
@@ -179,11 +201,13 @@ impl MeshLodController {
 fn make_proxy(
     mesh: &crate::mesh::TriangleMesh,
     threshold: usize,
-) -> Option<crate::mesh::TriangleMesh> {
+) -> Option<crate::mesh::MeshDecimation> {
     if threshold == 0 || mesh.triangles.len() <= threshold {
         None
     } else {
-        Some(crate::mesh::decimate_vertex_clustering(mesh, threshold))
+        Some(crate::mesh::decimate_vertex_clustering_with_mapping(
+            mesh, threshold,
+        ))
     }
 }
 
@@ -220,5 +244,32 @@ mod tests {
         let mut controller = MeshLodController::with_lod_threshold(mesh(), 100);
         controller.begin_camera_drag();
         assert!(!controller.uses_proxy());
+    }
+
+    #[::core::prelude::v1::test]
+    fn lod_controller_maps_the_active_proxy_field() {
+        let mut controller = MeshLodController::with_lod_threshold(mesh(), 1);
+        let field = crate::mesh::ScalarField {
+            id: "field".into(),
+            label: "Field".into(),
+            unit: None,
+            values: vec![0.0, 1.0, 2.0, 3.0].into(),
+            association: crate::mesh::ScalarAssociation::Vertex,
+            valid: None,
+        };
+        assert_eq!(
+            controller.active_field(&field).unwrap().values,
+            field.values
+        );
+        controller.begin_camera_drag();
+        let proxy_field = controller.active_field(&field).unwrap();
+        assert_eq!(
+            proxy_field.values.len(),
+            controller.active_mesh().positions.len()
+        );
+        assert_eq!(
+            proxy_field.association,
+            crate::mesh::ScalarAssociation::Vertex
+        );
     }
 }

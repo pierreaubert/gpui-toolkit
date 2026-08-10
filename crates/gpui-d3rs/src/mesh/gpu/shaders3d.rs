@@ -189,7 +189,11 @@ struct VertexOut {
     float value;
 };
 
-vertex VertexOut vs_main(VertexIn input [[stage_in]], constant Uniforms& uniforms [[buffer(0)]]) {
+vertex VertexOut vs_main(
+    const device VertexIn* vertices [[buffer(0)]],
+    uint vertex_id [[vertex_id]],
+    constant Uniforms& uniforms [[buffer(1)]]) {
+  VertexIn input = vertices[vertex_id];
     VertexOut output;
     float4 world = uniforms.model * float4(input.position, 1.0);
     output.position = uniforms.view_proj * world;
@@ -198,7 +202,10 @@ vertex VertexOut vs_main(VertexIn input [[stage_in]], constant Uniforms& uniform
     return output;
 }
 
-vertex VertexOut vs_triad(VertexIn input [[stage_in]]) {
+vertex VertexOut vs_triad(
+    const device VertexIn* vertices [[buffer(0)]],
+    uint vertex_id [[vertex_id]]) {
+  VertexIn input = vertices[vertex_id];
     VertexOut output;
     output.position = float4(input.position.xy, 0.0, 1.0);
     output.normal = input.normal;

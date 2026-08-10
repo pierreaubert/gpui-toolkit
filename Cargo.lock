@@ -3016,6 +3016,7 @@ dependencies = [
  "gpui-profiler",
  "gpui-ui-kit",
  "gpui_macos",
+ "image",
  "reqwest",
  "thiserror 2.0.18",
  "tokio",

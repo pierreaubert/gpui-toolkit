@@ -179,11 +179,17 @@ class MeshScalarField:
 class MeshPlotSpec:
     geometry: MeshGeometry
     id: str = "mesh_plot"
+    revision: int = 0
     field: MeshScalarField | None = None
     view: str = "planar"
     mode: str = "mesh"
     color_scale: str = "viridis"
-    color_range: str | tuple[float, float] = "auto"
+    # ``{"symmetric": {"center": 0.0, "extent": "auto"}}`` or a
+    # positive numeric extent mirrors Rust's ColorRange::Symmetric.
+    color_range: str | tuple[float, float] | dict[str, Any] = "auto"
+    # ``mask_nan`` converts NaN field samples into explicit invalid-mask
+    # entries; ``reject`` preserves the strict default validation.
+    missing_value_policy: str = "reject"
     wireframe: bool = True
     title: str | None = None
     width: float | None = None
@@ -192,7 +198,7 @@ class MeshPlotSpec:
     camera: dict[str, Any] | None = None
     viewport: dict[str, Any] | None = None
     contour_levels: dict[str, Any] | None = None
-    equal_aspect: bool = False
+    equal_aspect: bool = True
     interactions: Sequence[str] = ()
 
     def to_spec(self) -> dict[str, Any]:
@@ -215,10 +221,24 @@ class MeshPlotSpec:
             if self.mode in {"filled_contours", "isolines", "fill_and_isolines"} and field.get("association", "vertex") != "vertex":
                 raise ValueError("mesh plot contours require a vertex field")
         if self.color_range != "auto":
-            if not isinstance(self.color_range, tuple) or len(self.color_range) != 2:
-                raise ValueError("color_range must be 'auto' or a (min, max) tuple")
-            if not all(float(value) == float(value) and abs(float(value)) < float("inf") for value in self.color_range) or self.color_range[0] >= self.color_range[1]:
-                raise ValueError("color_range must be increasing finite values")
+            if isinstance(self.color_range, tuple):
+                if len(self.color_range) != 2 or not all(float(value) == float(value) and abs(float(value)) < float("inf") for value in self.color_range) or self.color_range[0] >= self.color_range[1]:
+                    raise ValueError("color_range must be increasing finite values")
+            elif isinstance(self.color_range, dict):
+                symmetric = self.color_range.get("symmetric")
+                if set(self.color_range) != {"symmetric"} or not isinstance(symmetric, dict) or set(symmetric) != {"center", "extent"}:
+                    raise ValueError("symmetric color_range must be {'symmetric': {'center': number, 'extent': 'auto' or positive number}}")
+                center, extent = symmetric["center"], symmetric["extent"]
+                if not isinstance(center, (int, float)) or not isfinite(float(center)):
+                    raise ValueError("symmetric color_range center must be finite")
+                if extent != "auto" and (not isinstance(extent, (int, float)) or not isfinite(float(extent)) or float(extent) <= 0):
+                    raise ValueError("symmetric color_range extent must be 'auto' or a positive finite number")
+            else:
+                raise ValueError("color_range must be 'auto', a (min, max) tuple, or a symmetric range mapping")
+        if not isinstance(self.revision, int) or self.revision < 0:
+            raise ValueError("revision must be a non-negative integer")
+        if self.missing_value_policy not in {"reject", "mask_nan"}:
+            raise ValueError("missing_value_policy must be 'reject' or 'mask_nan'")
         if self.contour_levels is not None:
             if not isinstance(self.contour_levels, dict):
                 raise ValueError("contour_levels must be a mapping")
@@ -233,7 +253,7 @@ class MeshPlotSpec:
         allowed_interactions = {"pan", "zoom", "inspect", "select", "reset", "fit"}
         if any(interaction not in allowed_interactions for interaction in self.interactions) or len(set(self.interactions)) != len(self.interactions):
             raise ValueError("mesh plot interactions contain an unsupported or duplicate value")
-        spec = {"kind": "mesh_plot", "schema_version": MESHPLOT_SCHEMA_VERSION, "id": self.id, "geometry": geometry, "field": field, "view": self.view, "mode": self.mode, "color_scale": self.color_scale, "color_range": list(self.color_range) if isinstance(self.color_range, tuple) else self.color_range, "wireframe": self.wireframe, "title": self.title, "width": self.width, "height": self.height, "selection": self.selection, "camera": self.camera, "viewport": self.viewport, "contour_levels": self.contour_levels, "equal_aspect": self.equal_aspect, "interactions": list(self.interactions)}
+        spec = {"kind": "mesh_plot", "schema_version": MESHPLOT_SCHEMA_VERSION, "id": self.id, "revision": self.revision, "geometry": geometry, "field": field, "view": self.view, "mode": self.mode, "color_scale": self.color_scale, "color_range": list(self.color_range) if isinstance(self.color_range, tuple) else self.color_range, "missing_value_policy": self.missing_value_policy, "wireframe": self.wireframe, "title": self.title, "width": self.width, "height": self.height, "selection": self.selection, "camera": self.camera, "viewport": self.viewport, "contour_levels": self.contour_levels, "equal_aspect": self.equal_aspect, "interactions": list(self.interactions)}
         if "positions" in geometry and len(json.dumps(spec, separators=(",", ":")).encode("utf-8")) > MAX_INLINE_MESH_BYTES:
             raise ValueError(
                 "inline mesh plot payload exceeds 256 KiB; use ResourceStore mesh handles"
@@ -320,4 +340,9 @@ def plot(mesh: MeshGeometry | None = None, field: MeshScalarField | None = None,
     geometry = geometry or mesh
     if geometry is None:
         raise TypeError("meshplot.plot requires geometry")
-    return MeshPlotSpec(geometry, geometry.id if id == "mesh_plot" else id, field, **kwargs)
+    return MeshPlotSpec(
+        geometry=geometry,
+        id=geometry.id if id == "mesh_plot" else id,
+        field=field,
+        **kwargs,
+    )

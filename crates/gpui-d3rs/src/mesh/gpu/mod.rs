@@ -39,7 +39,7 @@ pub use metal_backend::MetalMeshRenderer;
 #[cfg(feature = "gpui")]
 mod element;
 #[cfg(feature = "gpui")]
-pub use element::MeshSceneElement;
+pub use element::{DEFAULT_LOD_THRESHOLD, MeshLodController, MeshSceneElement};
 
 #[cfg(feature = "gpui")]
 mod offscreen;

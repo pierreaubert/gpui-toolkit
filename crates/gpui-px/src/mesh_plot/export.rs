@@ -3,10 +3,16 @@
 use super::{MeshPlot, MeshPlotPick, MeshPlotView, MeshRenderMode, Wireframe};
 use crate::static_export::{draw_title, escape_xml, svg_header, validate_plot_area};
 use crate::{ChartAccessibilitySummary, ChartError, ColorRange, ScaleType, StaticSvgOptions};
+#[cfg(feature = "gpu-3d")]
+use d3rs::gpu3d::OrbitControls;
 use d3rs::mesh::{
     ContourBand, ContourLevels, CoordinateAxis, MarchingTriangles, MeshTopology,
     MeshValidationError, ScalarAssociation, ScalarField, TriangleMesh, project_2d,
 };
+#[cfg(feature = "gpu-3d")]
+use glam::{Vec3, Vec4};
+#[cfg(feature = "gpu-3d")]
+use image::{ColorType, ImageEncoder, codecs::png::PngEncoder};
 use std::fmt::Write as _;
 
 const MICRO_BAND_COUNT: usize = 64;
@@ -55,6 +61,9 @@ struct Projector {
     extent: [f64; 2],
     origin: [f64; 2],
     size: [f64; 2],
+    container_origin: [f64; 2],
+    container_size: [f64; 2],
+    equal_aspect: bool,
 }
 
 impl Projector {
@@ -73,23 +82,17 @@ impl Projector {
             (max[1] - min[1]).max(1.0e-12),
         ];
         let available = [layout.width(), layout.height()];
-        let mut size = available;
-        let mut origin = [layout.left, layout.top];
-
-        if equal_aspect {
-            let scale = (available[0] / extent[0]).min(available[1] / extent[1]);
-            size = [extent[0] * scale, extent[1] * scale];
-            origin = [
-                layout.left + (available[0] - size[0]) * 0.5,
-                layout.top + (available[1] - size[1]) * 0.5,
-            ];
-        }
+        let (origin, size) =
+            fitted_frame([layout.left, layout.top], available, extent, equal_aspect);
 
         Self {
             min,
             extent,
             origin,
             size,
+            container_origin: [layout.left, layout.top],
+            container_size: available,
+            equal_aspect,
         }
     }
 
@@ -108,8 +111,43 @@ impl Projector {
             (x[1] - x[0]).abs().max(1.0e-12),
             (y[1] - y[0]).abs().max(1.0e-12),
         ];
+        (self.origin, self.size) = fitted_frame(
+            self.container_origin,
+            self.container_size,
+            self.extent,
+            self.equal_aspect,
+        );
         self
     }
+
+    fn frame(self) -> SvgLayout {
+        SvgLayout {
+            left: self.origin[0],
+            top: self.origin[1],
+            right: self.origin[0] + self.size[0],
+            bottom: self.origin[1] + self.size[1],
+        }
+    }
+}
+
+fn fitted_frame(
+    origin: [f64; 2],
+    available: [f64; 2],
+    extent: [f64; 2],
+    equal_aspect: bool,
+) -> ([f64; 2], [f64; 2]) {
+    if !equal_aspect {
+        return (origin, available);
+    }
+    let scale = (available[0] / extent[0]).min(available[1] / extent[1]);
+    let size = [extent[0] * scale, extent[1] * scale];
+    (
+        [
+            origin[0] + (available[0] - size[0]) * 0.5,
+            origin[1] + (available[1] - size[1]) * 0.5,
+        ],
+        size,
+    )
 }
 
 impl MeshPlot {
@@ -125,6 +163,13 @@ impl MeshPlot {
         crate::validate::validate_dimensions(options.width, options.height)?;
         validate_plot_area(options)?;
         let layout = SvgLayout::new(options)?;
+        #[cfg(feature = "gpu-3d")]
+        if matches!(
+            self.view,
+            MeshPlotView::Surface3d | MeshPlotView::AxisymmetricRevolve(_)
+        ) {
+            return self.to_svg_3d_with_layout(options, layout);
+        }
         let (horizontal, vertical) = view_axes(&self.view);
         let points: Vec<[f64; 2]> = self
             .mesh
@@ -172,7 +217,13 @@ impl MeshPlot {
         }
 
         draw_mesh_axes(
-            &mut svg, options, layout, x_domain, y_domain, horizontal, vertical,
+            &mut svg,
+            options,
+            projector.frame(),
+            x_domain,
+            y_domain,
+            horizontal,
+            vertical,
         );
         render_mode(self, &mut svg, &projector, value_range)?;
 
@@ -213,6 +264,345 @@ impl MeshPlot {
             horizontal,
             vertical,
         );
+        svg.push_str("</g>\n</svg>\n");
+        Ok(svg)
+    }
+
+    /// Export a 3D or revolved mesh plot as PNG at an explicit display scale.
+    ///
+    /// The image uses the same current camera, scalar range, wireframe, and
+    /// mesh/revolve preparation as the interactive 3D scene. It deliberately
+    /// creates a short-lived scene snapshot, so exporting cannot mutate live
+    /// interaction state. Platforms with framebuffer readback may replace the
+    /// deterministic CPU fallback behind this API without changing callers.
+    #[cfg(feature = "gpu-3d")]
+    pub fn to_png(&self, scale: f32) -> Result<Vec<u8>, ChartError> {
+        validate_for_export(self)?;
+        if !scale.is_finite() || scale <= 0.0 {
+            return Err(ChartError::InvalidDimension {
+                field: "png scale",
+                value: scale,
+            });
+        }
+        if !matches!(
+            self.view,
+            MeshPlotView::Surface3d | MeshPlotView::AxisymmetricRevolve(_)
+        ) {
+            return Err(ChartError::UnsupportedView {
+                view: view_name(&self.view),
+                reason: "PNG export is currently available for 3D mesh views",
+            });
+        }
+        let (base_width, base_height) = self.chart_size.layout_dimensions();
+        let width = scaled_png_dimension(base_width, scale, "png width")?;
+        let height = scaled_png_dimension(base_height, scale, "png height")?;
+        let (mesh, field) = super::mesh_plot_chart::render_3d_mesh_and_field_for_view(
+            &self.mesh,
+            self.field.as_ref(),
+            &self.view,
+        )?;
+        let range = resolved_value_range(self)?;
+        let scene = super::mesh_plot_chart::build_retained_3d_scene_state(
+            &mesh,
+            field.as_ref(),
+            &self.mode,
+            self.wireframe,
+            &self.color_scale,
+            range,
+        );
+        let mut camera = self
+            .state
+            .as_ref()
+            .and_then(|state| state.try_borrow().ok().map(|state| state.camera.clone()))
+            .unwrap_or_else(|| {
+                let mut orbit = OrbitControls::default();
+                orbit.fit_to_bounds(
+                    d3rs::mesh::MeshBounds::from_positions(&mesh.positions),
+                    width as f32 / height.max(1) as f32,
+                );
+                orbit.to_camera()
+            });
+        camera.aspect = width as f32 / height.max(1) as f32;
+        {
+            let mut scene_state = scene.borrow_mut();
+            let origin = scene_state
+                .upload
+                .as_ref()
+                .map(|upload| upload.origin)
+                .unwrap_or([0.0; 3]);
+            // The CPU fallback consumes already-rebased upload positions, so
+            // compose the same model-origin translation used by GPU backends.
+            scene_state.view_transform = (camera.view_projection_matrix()
+                * glam::Mat4::from_translation(Vec3::new(
+                    origin[0] as f32,
+                    origin[1] as f32,
+                    origin[2] as f32,
+                )))
+            .to_cols_array_2d();
+        }
+        let image = {
+            let scene = scene.borrow();
+            d3rs::mesh::gpu::render_offscreen(scene.upload.as_ref(), &scene, width, height)
+        };
+        let mut output = Vec::new();
+        PngEncoder::new(&mut output)
+            .write_image(image.as_raw(), width, height, ColorType::Rgba8.into())
+            .map_err(|error| ChartError::ImageExport {
+                reason: error.to_string(),
+            })?;
+        Ok(output)
+    }
+
+    #[cfg(feature = "gpu-3d")]
+    fn to_svg_3d_with_layout(
+        &self,
+        options: StaticSvgOptions,
+        layout: SvgLayout,
+    ) -> Result<String, ChartError> {
+        let (mesh, field) = match &self.view {
+            MeshPlotView::Surface3d => (self.mesh.clone(), self.field.clone()),
+            MeshPlotView::AxisymmetricRevolve(spec) => {
+                let revolved = d3rs::mesh::revolve(&self.mesh, spec)?;
+                let field = self
+                    .field
+                    .as_ref()
+                    .map(|field| super::picking3d::revolved_field(field, &revolved));
+                (revolved.mesh, field)
+            }
+            _ => unreachable!(),
+        };
+        let mut camera = self
+            .state
+            .as_ref()
+            .and_then(|state| state.try_borrow().ok().map(|state| state.camera.clone()))
+            .unwrap_or_else(|| {
+                let mut orbit = OrbitControls::default();
+                orbit.fit_to_bounds(
+                    d3rs::mesh::MeshBounds::from_positions(&mesh.positions),
+                    layout.width() as f32 / layout.height() as f32,
+                );
+                orbit.to_camera()
+            });
+        camera.aspect = (layout.width() / layout.height()).max(f64::EPSILON) as f32;
+        let project_clip = |clip: Vec4| project_clip_to_svg(clip, layout);
+        let clip_point = |point: [f64; 3]| {
+            camera.view_projection_matrix()
+                * Vec3::new(point[0] as f32, point[1] as f32, point[2] as f32).extend(1.0)
+        };
+        let range = field
+            .as_ref()
+            .and_then(finite_field_range)
+            .and_then(|r| self.color_range.resolve(r[0], r[1]).ok());
+        let contour_levels = match &self.mode {
+            MeshRenderMode::FilledContours { levels }
+            | MeshRenderMode::Isolines { levels }
+            | MeshRenderMode::FillAndIsolines { levels } => range
+                .map(|range| levels.resolve(range).map_err(ChartError::from))
+                .transpose()?,
+            _ => None,
+        };
+        let mut triangles = Vec::new();
+        for (index, triangle) in mesh.triangles.iter().enumerate() {
+            let (Some(a), Some(b), Some(c)) = (
+                mesh.positions.get(triangle[0] as usize).copied().map(clip_point),
+                mesh.positions.get(triangle[1] as usize).copied().map(clip_point),
+                mesh.positions.get(triangle[2] as usize).copied().map(clip_point),
+            )
+            else {
+                continue;
+            };
+            let value = field.as_ref().and_then(|field| match field.association {
+                ScalarAssociation::Cell => (field
+                    .valid
+                    .as_ref()
+                    .is_none_or(|valid| valid.get(index) == Some(&true)))
+                .then(|| field.values.get(index).copied())
+                .flatten()
+                .filter(|value| value.is_finite()),
+                ScalarAssociation::Vertex => triangle
+                    .iter()
+                    .all(|vertex| {
+                        field
+                            .valid
+                            .as_ref()
+                            .is_none_or(|valid| valid.get(*vertex as usize) == Some(&true))
+                    })
+                    .then(|| {
+                        (field.values[triangle[0] as usize]
+                            + field.values[triangle[1] as usize]
+                            + field.values[triangle[2] as usize])
+                            / 3.0
+                    })
+                    .filter(|value| value.is_finite()),
+            });
+            if field.is_some() && value.is_none() {
+                continue;
+            }
+            for clipped in clip_triangle_to_frustum([a, b, c]) {
+                let Some(a) = project_clip(clipped[0]) else {
+                    continue;
+                };
+                let Some(b) = project_clip(clipped[1]) else {
+                    continue;
+                };
+                let Some(c) = project_clip(clipped[2]) else {
+                    continue;
+                };
+                triangles.push((
+                    (a[2] + b[2] + c[2]) / 3.0,
+                    [[a[0], a[1]], [b[0], b[1]], [c[0], c[1]]],
+                    value,
+                ));
+            }
+        }
+        triangles.sort_by(|a, b| b.0.total_cmp(&a.0));
+        let summary = self.accessibility_summary();
+        let mut svg = svg_header(options);
+        draw_title(&mut svg, self.title.as_deref(), options.width);
+        let _ = writeln!(
+            svg,
+            "<desc>{}</desc><g class=\"gpui-px-mesh-plot-3d\" data-camera=\"current\" data-view=\"{}\">",
+            escape_xml(&summary.description),
+            view_name(&self.view)
+        );
+        let draw_surface = !matches!(self.mode, MeshRenderMode::Isolines { .. });
+        for (_, points, value) in triangles {
+            if !draw_surface {
+                continue;
+            }
+            let value = if matches!(self.mode, MeshRenderMode::FilledContours { .. }) {
+                value.map(|value| contour_band_midpoint(value, contour_levels.as_deref()))
+            } else {
+                value
+            };
+            let color = match (value, range) {
+                (Some(value), Some(range)) => {
+                    self.color_scale.map(normalize(value, range)).to_hex()
+                }
+                _ => "#596371".into(),
+            };
+            write_triangle_path(
+                &mut svg,
+                "gpui-px-mesh-3d-triangle",
+                &points,
+                &color,
+                None,
+                None,
+            );
+        }
+        if matches!(
+            self.mode,
+            MeshRenderMode::Isolines { .. } | MeshRenderMode::FillAndIsolines { .. }
+        ) && let (Some(field), Some(levels)) = (field.as_ref(), contour_levels.as_deref())
+            && field.association == ScalarAssociation::Vertex
+        {
+            svg.push_str("<g class=\"gpui-px-mesh-3d-isolines\" fill=\"none\" stroke=\"#141820\" stroke-width=\"1\">\n");
+            for (cell_index, triangle) in mesh.triangles.iter().enumerate() {
+                let Some(points) = triangle_world_positions(&mesh, *triangle) else {
+                    continue;
+                };
+                let Some(values) = triangle_vertex_values(field, *triangle) else {
+                    continue;
+                };
+                if field.valid.as_ref().is_some_and(|valid| {
+                    triangle.iter().any(|&vertex| valid.get(vertex as usize) != Some(&true))
+                }) {
+                    continue;
+                }
+                for &level in levels {
+                    let Some((start, end)) = isoline_segment_3d(points, values, level) else {
+                        continue;
+                    };
+                    let Some((start, end)) = clip_line_to_frustum(clip_point(start), clip_point(end))
+                        .and_then(|(start, end)| Some((project_clip(start)?, project_clip(end)?)))
+                    else {
+                        continue;
+                    };
+                    let _ = writeln!(
+                        svg,
+                        "<path class=\"gpui-px-mesh-3d-isoline\" data-cell=\"{cell_index}\" data-level=\"{level:.6}\" d=\"M {:.2},{:.2} L {:.2},{:.2}\"/>",
+                        start[0], start[1], end[0], end[1]
+                    );
+                }
+            }
+            svg.push_str("</g>\n");
+        }
+        if self.wireframe == Wireframe::Overlay || matches!(self.mode, MeshRenderMode::Mesh) {
+            svg.push_str("<g class=\"gpui-px-mesh-wireframe\" fill=\"none\" stroke=\"#222\">\n");
+            for edge in MeshTopology::build(&mesh.triangles).unique_edges {
+                let Some(start) = mesh.positions.get(edge[0] as usize).copied().map(clip_point)
+                else {
+                    continue;
+                };
+                let Some(end) = mesh.positions.get(edge[1] as usize).copied().map(clip_point)
+                else {
+                    continue;
+                };
+                let Some((start, end)) = clip_line_to_frustum(start, end)
+                    .and_then(|(start, end)| Some((project_clip(start)?, project_clip(end)?)))
+                else {
+                    continue;
+                };
+                let _ = writeln!(
+                    svg,
+                    "<path class=\"gpui-px-mesh-wireframe-edge\" d=\"M {:.2},{:.2} L {:.2},{:.2}\" stroke-width=\"1\"/>",
+                    start[0], start[1], end[0], end[1]
+                );
+            }
+            svg.push_str("</g>\n");
+        }
+        let bounds = d3rs::mesh::MeshBounds::from_positions(&mesh.positions);
+        let axis_origin = [bounds.min[0], bounds.min[1], bounds.min[2]];
+        let axes = [
+            ("X", [bounds.max[0], bounds.min[1], bounds.min[2]], "#d14b45"),
+            ("Y", [bounds.min[0], bounds.max[1], bounds.min[2]], "#359653"),
+            ("Z", [bounds.min[0], bounds.min[1], bounds.max[2]], "#357edb"),
+        ];
+        svg.push_str("<g class=\"gpui-px-mesh-3d-axes\" fill=\"none\" stroke-width=\"1.25\">\n");
+        for (label, endpoint, color) in axes {
+            let Some((start, end)) = clip_line_to_frustum(clip_point(axis_origin), clip_point(endpoint))
+                .and_then(|(start, end)| Some((project_clip(start)?, project_clip(end)?)))
+            else {
+                continue;
+            };
+            let _ = writeln!(
+                svg,
+                "<path class=\"gpui-px-mesh-3d-axis\" data-axis=\"{label}\" d=\"M {:.2},{:.2} L {:.2},{:.2}\" stroke=\"{color}\"/><text class=\"gpui-px-mesh-3d-axis-label\" x=\"{:.2}\" y=\"{:.2}\" fill=\"{color}\">{label}</text>",
+                start[0], start[1], end[0], end[1], end[0] + 3.0, end[1] - 3.0
+            );
+        }
+        svg.push_str("</g>\n");
+        let selection = self
+            .state
+            .as_ref()
+            .and_then(|state| {
+                state
+                    .try_borrow()
+                    .ok()
+                    .and_then(|state| state.selection.clone())
+            })
+            .or_else(|| self.selection.clone());
+        if let Some(selection) = selection
+            && let Some(point) = project_clip(clip_point(selection.world_position))
+        {
+            let title = format!(
+                "Cell {}{}{}",
+                selection.cell_index,
+                selection
+                    .cell_id
+                    .map_or_else(String::new, |id| format!(" (id {id})")),
+                selection
+                    .displayed_value
+                    .map_or_else(String::new, |value| format!("; value {value:.6}")),
+            );
+            let _ = writeln!(
+                svg,
+                "<circle class=\"gpui-px-mesh-selection\" data-selected=\"true\" cx=\"{:.2}\" cy=\"{:.2}\" r=\"4\" fill=\"none\" stroke=\"#ff8c00\" stroke-width=\"2\"><title>{}</title></circle>",
+                point[0],
+                point[1],
+                escape_xml(&title)
+            );
+        }
         svg.push_str("</g>\n</svg>\n");
         Ok(svg)
     }
@@ -330,6 +720,18 @@ impl MeshPlot {
             description,
         }
     }
+}
+
+#[cfg(feature = "gpu-3d")]
+fn scaled_png_dimension(base: f32, scale: f32, field: &'static str) -> Result<u32, ChartError> {
+    let scaled = base * scale;
+    if !scaled.is_finite() || scaled <= 0.0 || scaled > 16_384.0 {
+        return Err(ChartError::InvalidDimension {
+            field,
+            value: scaled,
+        });
+    }
+    Ok(scaled.round().max(1.0) as u32)
 }
 
 fn validate_for_export(plot: &MeshPlot) -> Result<(), ChartError> {
@@ -707,6 +1109,147 @@ fn write_triangle_path(
     svg.push_str("/>\n");
 }
 
+/// Clip a homogeneous point to the SVG viewport after frustum clipping. The
+/// camera uses WebGPU/Metal depth convention (`0 <= z <= w`).
+#[cfg(feature = "gpu-3d")]
+fn project_clip_to_svg(clip: Vec4, layout: SvgLayout) -> Option<[f64; 3]> {
+    (clip.w > 1e-6).then(|| {
+        let ndc = clip.truncate() / clip.w;
+        [
+            layout.left + (ndc.x as f64 + 1.0) * 0.5 * layout.width(),
+            layout.top + (1.0 - (ndc.y as f64 + 1.0) * 0.5) * layout.height(),
+            ndc.z as f64,
+        ]
+    })
+}
+
+/// Return the signed distance from `point` to each homogeneous clip plane.
+/// A non-negative distance is inside. Keeping this in homogeneous space is
+/// essential: discarding a triangle merely because one vertex is behind the
+/// near plane loses all partially visible surfaces and wireframe edges.
+#[cfg(feature = "gpu-3d")]
+fn frustum_distances(point: Vec4) -> [f32; 6] {
+    [
+        point.w + point.x,
+        point.w - point.x,
+        point.w + point.y,
+        point.w - point.y,
+        point.z,
+        point.w - point.z,
+    ]
+}
+
+#[cfg(feature = "gpu-3d")]
+fn clip_triangle_to_frustum(triangle: [Vec4; 3]) -> Vec<[Vec4; 3]> {
+    let mut polygon = triangle.to_vec();
+    for plane in 0..6 {
+        if polygon.is_empty() {
+            return Vec::new();
+        }
+        let mut clipped = Vec::with_capacity(polygon.len() + 1);
+        let Some(mut previous) = polygon.last().copied() else {
+            return Vec::new();
+        };
+        let mut previous_distance = frustum_distances(previous)[plane];
+        for current in polygon {
+            let current_distance = frustum_distances(current)[plane];
+            let previous_inside = previous_distance >= 0.0;
+            let current_inside = current_distance >= 0.0;
+            if previous_inside != current_inside {
+                let t = previous_distance / (previous_distance - current_distance);
+                clipped.push(previous.lerp(current, t.clamp(0.0, 1.0)));
+            }
+            if current_inside {
+                clipped.push(current);
+            }
+            previous = current;
+            previous_distance = current_distance;
+        }
+        polygon = clipped;
+    }
+    if polygon.len() < 3 {
+        return Vec::new();
+    }
+    (1..polygon.len() - 1)
+        .map(|index| [polygon[0], polygon[index], polygon[index + 1]])
+        .collect()
+}
+
+#[cfg(feature = "gpu-3d")]
+fn clip_line_to_frustum(start: Vec4, end: Vec4) -> Option<(Vec4, Vec4)> {
+    let start_distances = frustum_distances(start);
+    let end_distances = frustum_distances(end);
+    let (mut lower, mut upper) = (0.0_f32, 1.0_f32);
+    for plane in 0..6 {
+        let a = start_distances[plane];
+        let b = end_distances[plane];
+        if a < 0.0 && b < 0.0 {
+            return None;
+        }
+        if (a < 0.0) != (b < 0.0) {
+            let t = a / (a - b);
+            if a < 0.0 {
+                lower = lower.max(t);
+            } else {
+                upper = upper.min(t);
+            }
+        }
+    }
+    (lower <= upper).then(|| (start.lerp(end, lower), start.lerp(end, upper)))
+}
+
+#[cfg(feature = "gpu-3d")]
+fn triangle_world_positions(mesh: &TriangleMesh, triangle: [u32; 3]) -> Option<[[f64; 3]; 3]> {
+    Some([
+        *mesh.positions.get(triangle[0] as usize)?,
+        *mesh.positions.get(triangle[1] as usize)?,
+        *mesh.positions.get(triangle[2] as usize)?,
+    ])
+}
+
+#[cfg(feature = "gpu-3d")]
+fn triangle_vertex_values(field: &ScalarField, triangle: [u32; 3]) -> Option<[f64; 3]> {
+    let values = [
+        *field.values.get(triangle[0] as usize)?,
+        *field.values.get(triangle[1] as usize)?,
+        *field.values.get(triangle[2] as usize)?,
+    ];
+    values.iter().all(|value| value.is_finite()).then_some(values)
+}
+
+/// Mesh-native 3D equivalent of the documented marching-triangle tie-break:
+/// an exactly-on-level endpoint is classified as above. It returns one
+/// segment per non-degenerate triangle/level crossing.
+#[cfg(feature = "gpu-3d")]
+fn isoline_segment_3d(
+    points: [[f64; 3]; 3],
+    values: [f64; 3],
+    level: f64,
+) -> Option<([f64; 3], [f64; 3])> {
+    let mut hits = Vec::with_capacity(2);
+    for (a, b) in [(0usize, 1usize), (1, 2), (2, 0)] {
+        if (values[a] >= level) == (values[b] >= level) {
+            continue;
+        }
+        let t = (level - values[a]) / (values[b] - values[a]);
+        hits.push(std::array::from_fn(|axis| {
+            points[a][axis] + t * (points[b][axis] - points[a][axis])
+        }));
+    }
+    (hits.len() == 2 && hits[0] != hits[1]).then(|| (hits[0], hits[1]))
+}
+
+fn contour_band_midpoint(value: f64, levels: Option<&[f64]>) -> f64 {
+    let Some(levels) = levels else {
+        return value;
+    };
+    levels
+        .windows(2)
+        .find(|band| value >= band[0] && value <= band[1])
+        .map(|band| 0.5 * (band[0] + band[1]))
+        .unwrap_or(value)
+}
+
 fn render_isolines(
     svg: &mut String,
     segments: &[d3rs::mesh::IsolineSegment],
@@ -901,6 +1444,235 @@ mod tests {
     fn mesh_plot_svg_is_deterministic() {
         let plot = plot();
         assert_eq!(plot.to_svg().unwrap(), plot.to_svg().unwrap());
+    }
+
+    #[test]
+    fn equal_aspect_frame_tracks_the_current_viewport() {
+        let layout = SvgLayout {
+            left: 0.0,
+            top: 0.0,
+            right: 400.0,
+            bottom: 200.0,
+        };
+        let projector = Projector::new(&[[0.0, 0.0], [4.0, 1.0]], layout, true);
+        assert_eq!(projector.frame().top, 50.0);
+        assert_eq!(projector.frame().bottom, 150.0);
+        let zoomed = projector.with_viewport([1.0, 3.0], [0.0, 1.0]);
+        assert_eq!(zoomed.frame().top, 0.0);
+        assert_eq!(zoomed.frame().bottom, 200.0);
+    }
+
+    #[cfg(feature = "gpu-3d")]
+    #[test]
+    fn surface_svg_uses_camera_projected_triangles() {
+        let plot = mesh_plot(square_mesh())
+            .view(MeshPlotView::Surface3d)
+            .mode(MeshRenderMode::Mesh)
+            .size(320.0, 240.0);
+        let svg = plot.to_svg().unwrap();
+        assert!(svg.contains("gpui-px-mesh-plot-3d"));
+        assert!(svg.contains("data-camera=\"current\""));
+        assert!(svg.contains("gpui-px-mesh-3d-triangle"));
+        assert!(svg.contains("gpui-px-mesh-wireframe-edge"));
+        assert_eq!(svg, plot.to_svg().unwrap());
+    }
+
+    #[cfg(feature = "gpu-3d")]
+    #[test]
+    fn surface_svg_projects_render_mode_contours_and_orientation_axes() {
+        let plot = mesh_plot(square_mesh())
+            .field(vertex_field())
+            .view(MeshPlotView::Surface3d)
+            .mode(MeshRenderMode::FillAndIsolines {
+                levels: ContourLevels::Explicit(Arc::from([0.5, 1.5])),
+            })
+            .color_range(ColorRange::Fixed { min: 0.0, max: 2.0 });
+        let svg = plot.to_svg().unwrap();
+        assert!(svg.contains("gpui-px-mesh-3d-isolines"));
+        assert!(svg.contains("gpui-px-mesh-3d-isoline"));
+        assert!(svg.contains("data-level=\"0.500000\""));
+        assert!(svg.contains("gpui-px-mesh-3d-axes"));
+        assert!(svg.contains("data-axis=\"X\""));
+        assert_eq!(svg, plot.to_svg().unwrap());
+    }
+
+    #[cfg(feature = "gpu-3d")]
+    #[test]
+    fn homogeneous_clipping_keeps_partially_visible_triangles_and_edges() {
+        // One vertex is behind the near plane (`z < 0`) while the other two
+        // are visible. Export must retain the clipped quad as two triangles
+        // instead of dropping the entire source triangle.
+        let triangle = [
+            Vec4::new(-0.4, -0.4, -0.5, 1.0),
+            Vec4::new(0.7, -0.4, 0.5, 1.0),
+            Vec4::new(0.0, 0.7, 0.5, 1.0),
+        ];
+        let clipped = clip_triangle_to_frustum(triangle);
+        assert_eq!(clipped.len(), 2);
+        assert!(clipped
+            .iter()
+            .flatten()
+            .all(|point| frustum_distances(*point).into_iter().all(|distance| distance >= 0.0)));
+
+        let (start, end) = clip_line_to_frustum(triangle[0], triangle[1]).unwrap();
+        assert!(frustum_distances(start).into_iter().all(|distance| distance >= 0.0));
+        assert!(frustum_distances(end).into_iter().all(|distance| distance >= 0.0));
+    }
+
+    #[cfg(feature = "gpu-3d")]
+    #[test]
+    fn surface_svg_projects_selected_annotation() {
+        let selection = MeshPlotPick {
+            plot_id: "plot".into(),
+            mesh_id: "square".into(),
+            cell_index: 0,
+            cell_id: Some(42),
+            nearest_vertex_index: None,
+            vertex_id: None,
+            world_position: [0.0, 0.0, 0.0],
+            displayed_value: Some(1.0),
+            field_id: None,
+        };
+        let svg = mesh_plot(square_mesh())
+            .view(MeshPlotView::Surface3d)
+            .selection(selection)
+            .to_svg()
+            .unwrap();
+        assert!(svg.contains("<circle class=\"gpui-px-mesh-selection\""));
+        assert!(svg.contains("Cell 0 (id 42); value 1.000000"));
+    }
+
+    #[cfg(feature = "gpu-3d")]
+    #[test]
+    fn surface_exports_do_not_mutate_retained_interaction_state() {
+        use crate::MeshPlotState;
+        use std::cell::RefCell;
+        use std::rc::Rc;
+
+        let state = Rc::new(RefCell::new(MeshPlotState::new(0.0, 1.0, 0.0, 1.0)));
+        {
+            let mut state = state.borrow_mut();
+            state.geometry_revision = 7;
+            state.field_revision = 11;
+            state.orbit_rotate(18.0, -9.0);
+            state.set_selection(Some(MeshPlotPick {
+                plot_id: "plot".into(),
+                mesh_id: "square".into(),
+                cell_index: 1,
+                cell_id: Some(9),
+                nearest_vertex_index: None,
+                vertex_id: None,
+                world_position: [1.0, 1.0, 0.0],
+                displayed_value: Some(2.0),
+                field_id: Some("pressure".into()),
+            }));
+        }
+        let before = {
+            let state = state.borrow();
+            (
+                state.geometry_revision,
+                state.field_revision,
+                state.selection.clone(),
+                state.hover.clone(),
+                state.camera.view_projection_matrix().to_cols_array(),
+                state.interaction.x_domain(),
+                state.interaction.y_domain(),
+            )
+        };
+
+        let plot = mesh_plot(square_mesh())
+            .field(vertex_field())
+            .view(MeshPlotView::Surface3d)
+            .with_state(state.clone());
+        let svg = plot.to_svg().unwrap();
+        assert!(svg.contains("data-camera=\"current\""));
+        let png = plot.to_png(1.0).unwrap();
+        assert_eq!(&png[..8], b"\x89PNG\r\n\x1a\n");
+
+        let state = state.borrow();
+        assert_eq!(state.geometry_revision, before.0);
+        assert_eq!(state.field_revision, before.1);
+        assert_eq!(state.selection, before.2);
+        assert_eq!(state.hover, before.3);
+        assert_eq!(state.camera.view_projection_matrix().to_cols_array(), before.4);
+        assert_eq!(state.interaction.x_domain(), before.5);
+        assert_eq!(state.interaction.y_domain(), before.6);
+    }
+
+    #[cfg(feature = "gpu-3d")]
+    #[test]
+    fn surface_png_export_uses_requested_scale_and_is_deterministic() {
+        use image::GenericImageView;
+
+        let plot = mesh_plot(square_mesh())
+            .field(vertex_field())
+            .view(MeshPlotView::Surface3d)
+            .mode(MeshRenderMode::ScalarFill {
+                interpolation: super::super::types::FieldInterpolation::Smooth,
+            })
+            .size(80.0, 50.0);
+        let first = plot.to_png(2.0).unwrap();
+        let second = plot.to_png(2.0).unwrap();
+        assert_eq!(first, second);
+        assert_eq!(&first[..8], b"\x89PNG\r\n\x1a\n");
+        let image = image::load_from_memory(&first).unwrap();
+        assert_eq!(image.dimensions(), (160, 100));
+        assert!(image.pixels().any(|(_, _, pixel)| pixel.0[3] != 0));
+    }
+
+    #[cfg(feature = "gpu-3d")]
+    #[test]
+    fn surface_png_restores_rebased_large_world_origin_before_projection() {
+        use image::GenericImageView;
+
+        let mut mesh = square_mesh();
+        mesh.positions = mesh
+            .positions
+            .iter()
+            .map(|point| [point[0] + 1_000_000.0, point[1] - 2_000_000.0, point[2] + 500_000.0])
+            .collect::<Vec<_>>()
+            .into();
+        let png = mesh_plot(mesh)
+            .field(vertex_field())
+            .view(MeshPlotView::Surface3d)
+            .mode(MeshRenderMode::ScalarFill {
+                interpolation: super::super::types::FieldInterpolation::Smooth,
+            })
+            .size(80.0, 50.0)
+            .to_png(1.0)
+            .unwrap();
+        let image = image::load_from_memory(&png).unwrap();
+        assert!(image.pixels().any(|(_, _, pixel)| pixel.0[3] != 0));
+    }
+
+    #[cfg(feature = "gpu-3d")]
+    #[test]
+    fn png_export_rejects_invalid_scale_and_non_3d_views() {
+        let surface = mesh_plot(square_mesh()).view(MeshPlotView::Surface3d);
+        assert!(matches!(
+            surface.to_png(0.0),
+            Err(ChartError::InvalidDimension { field: "png scale", .. })
+        ));
+        assert!(matches!(
+            plot().to_png(1.0),
+            Err(ChartError::UnsupportedView { .. })
+        ));
+    }
+
+    #[cfg(feature = "gpu-3d")]
+    #[test]
+    fn surface_svg_omits_triangles_with_masked_vertex_samples() {
+        let mut field = vertex_field();
+        field.valid = Some(Arc::from([false, true, true, true]));
+        let svg = mesh_plot(square_mesh())
+            .field(field)
+            .view(MeshPlotView::Surface3d)
+            .mode(MeshRenderMode::ScalarFill {
+                interpolation: super::super::types::FieldInterpolation::Smooth,
+            })
+            .to_svg()
+            .unwrap();
+        assert!(!svg.contains("gpui-px-mesh-3d-triangle"));
     }
 
     #[test]

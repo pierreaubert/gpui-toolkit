@@ -42,6 +42,7 @@ pub struct PlotToolbar {
     wireframe: bool,
     aria_label: SharedString,
     disabled: Vec<PlotToolbarAction>,
+    hidden: Vec<PlotToolbarAction>,
     on_action: Option<ActionHandler>,
 }
 
@@ -55,6 +56,7 @@ impl PlotToolbar {
             wireframe: false,
             aria_label: "Plot controls".into(),
             disabled: Vec::new(),
+            hidden: Vec::new(),
             on_action: None,
         }
     }
@@ -91,6 +93,19 @@ impl PlotToolbar {
             }
         } else {
             self.disabled.retain(|candidate| *candidate != action);
+        }
+        self
+    }
+
+    /// Hide or show an individual action. Hidden actions are omitted from
+    /// layout and keyboard navigation rather than merely disabled.
+    pub fn hidden(mut self, action: PlotToolbarAction, hidden: bool) -> Self {
+        if hidden {
+            if !self.hidden.contains(&action) {
+                self.hidden.push(action);
+            }
+        } else {
+            self.hidden.retain(|candidate| *candidate != action);
         }
         self
     }
@@ -136,31 +151,52 @@ impl PlotToolbar {
             button
         };
 
-        Toolbar::new(self.id)
-            .aria_label(self.aria_label)
-            .item(ToolbarItem::custom(button(
+        let hidden = self.hidden.clone();
+        let mut toolbar = Toolbar::new(self.id).aria_label(self.aria_label);
+        macro_rules! item {
+            ($action:expr, $item:expr) => {
+                if !hidden.contains(&$action) {
+                    toolbar = toolbar.item($item);
+                }
+            };
+        }
+        item!(
+            PlotToolbarAction::Fit,
+            ToolbarItem::custom(button(
                 "fit",
                 "Fit".into(),
                 "Fit plot to data".into(),
                 PlotToolbarAction::Fit,
-                false,
-            )))
-            .item(ToolbarItem::custom(button(
+                false
+            ))
+        );
+        item!(
+            PlotToolbarAction::Reset,
+            ToolbarItem::custom(button(
                 "reset",
                 "Reset".into(),
                 "Reset plot view".into(),
                 PlotToolbarAction::Reset,
-                false,
-            )))
-            .separator()
-            .item(ToolbarItem::custom(button(
+                false
+            ))
+        );
+        if !hidden.contains(&PlotToolbarAction::Fit) || !hidden.contains(&PlotToolbarAction::Reset)
+        {
+            toolbar = toolbar.separator();
+        }
+        item!(
+            PlotToolbarAction::OpenModeMenu,
+            ToolbarItem::custom(button(
                 "mode",
                 self.mode.clone(),
                 format!("Plot mode: {}. Open mode menu", self.mode).into(),
                 PlotToolbarAction::OpenModeMenu,
-                false,
-            )))
-            .item(ToolbarItem::custom(button(
+                false
+            ))
+        );
+        item!(
+            PlotToolbarAction::ToggleWireframe,
+            ToolbarItem::custom(button(
                 "wireframe",
                 "Wireframe".into(),
                 if self.wireframe {
@@ -170,30 +206,39 @@ impl PlotToolbar {
                 }
                 .into(),
                 PlotToolbarAction::ToggleWireframe,
-                self.wireframe,
-            )))
-            .item(ToolbarItem::custom(button(
+                self.wireframe
+            ))
+        );
+        item!(
+            PlotToolbarAction::ResetColorRange,
+            ToolbarItem::custom(button(
                 "color-range",
                 "Auto range".into(),
                 "Reset color range to automatic".into(),
                 PlotToolbarAction::ResetColorRange,
-                false,
-            )))
-            .item(ToolbarItem::custom(button(
+                false
+            ))
+        );
+        item!(
+            PlotToolbarAction::OpenViewMenu,
+            ToolbarItem::custom(button(
                 "view",
                 self.view.clone(),
                 format!("Plot view: {}. Open view menu", self.view).into(),
                 PlotToolbarAction::OpenViewMenu,
-                false,
-            )))
-            .separator()
-            .item(ToolbarItem::custom(button(
+                false
+            ))
+        );
+        if !hidden.contains(&PlotToolbarAction::Export) {
+            toolbar = toolbar.separator().item(ToolbarItem::custom(button(
                 "export",
                 "Export".into(),
                 "Export plot".into(),
                 PlotToolbarAction::Export,
                 false,
-            )))
+            )));
+        }
+        toolbar
     }
 }
 
@@ -223,6 +268,16 @@ mod tests {
         assert_eq!(toolbar.view, "Surface 3D");
         assert!(toolbar.wireframe);
         assert!(!toolbar.disabled.contains(&PlotToolbarAction::Export));
+    }
+
+    #[test]
+    fn individual_actions_can_be_hidden_and_reenabled() {
+        let toolbar = PlotToolbar::new("plot-toolbar")
+            .hidden(PlotToolbarAction::Export, true)
+            .hidden(PlotToolbarAction::Export, false)
+            .hidden(PlotToolbarAction::OpenViewMenu, true);
+        assert!(!toolbar.hidden.contains(&PlotToolbarAction::Export));
+        assert!(toolbar.hidden.contains(&PlotToolbarAction::OpenViewMenu));
     }
 
     #[test]

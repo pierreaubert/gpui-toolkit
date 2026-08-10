@@ -216,14 +216,7 @@ fn classify(previous: SceneFingerprints, next: SceneFingerprints) -> DirtyResour
 }
 
 fn spec_id(spec: &MeshPlotSpec) -> String {
-    if !spec.id.trim().is_empty() && spec.id != "mesh_plot" {
-        return spec.id.clone();
-    }
-    spec.geometry
-        .get("id")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or(&spec.id)
-        .to_string()
+    spec.cache_id()
 }
 
 fn mesh_plot_fingerprints(spec: &MeshPlotSpec) -> MeshPlotFingerprints {
@@ -375,12 +368,14 @@ mod tests {
         let first = MeshPlotSpec {
             schema_version: 1,
             id: "plot".into(),
+            revision: 0,
             geometry: geometry.clone(),
             field: Some(serde_json::json!({"values":[1.0, 1.0, 1.0]})),
             view: "planar".into(),
             mode: "scalar_fill".into(),
             color_scale: "viridis".into(),
             color_range: serde_json::json!("auto"),
+            missing_value_policy: "reject".into(),
             wireframe: true,
             title: None,
             width: None,

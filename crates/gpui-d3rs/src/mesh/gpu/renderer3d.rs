@@ -518,9 +518,23 @@ impl WgpuMesh3DResources {
         camera: &Camera3D,
     ) {
         let range = state.color.range;
+        let origin = state
+            .upload
+            .as_ref()
+            .map(|upload| upload.origin)
+            .unwrap_or([0.0; 3]);
         let uniforms = Mesh3DUniforms {
             view_proj: camera.view_projection_matrix().to_cols_array_2d(),
-            model: glam::Mat4::IDENTITY.to_cols_array_2d(),
+            // `prepare_upload` deliberately rebases vertices around a local
+            // f64 origin. Restore that translation in the model matrix before
+            // applying the world-space camera, otherwise large-world meshes
+            // render/pick against a camera fitted to the wrong location.
+            model: glam::Mat4::from_translation(glam::Vec3::new(
+                origin[0] as f32,
+                origin[1] as f32,
+                origin[2] as f32,
+            ))
+            .to_cols_array_2d(),
             light_dir: [0.35, 0.55, 0.75, 0.0],
             params: [
                 state.color.colormap as f32,
@@ -743,6 +757,7 @@ impl gpui_wgpu::WgpuCustomDraw for WgpuMesh3DDraw {
         ctx: &gpui_wgpu::WgpuContext,
         encoder: &mut wgpu::CommandEncoder,
         target: &wgpu::TextureView,
+        target_size: [u32; 2],
         bounds: gpui::Bounds<gpui::Pixels>,
         scale_factor: f32,
     ) {
@@ -761,9 +776,13 @@ impl gpui_wgpu::WgpuCustomDraw for WgpuMesh3DDraw {
         let Some(resources) = resources.as_mut() else {
             return;
         };
-        let width = (f32::from(bounds.size.width) * scale_factor).max(1.0) as u32;
-        let height = (f32::from(bounds.size.height) * scale_factor).max(1.0) as u32;
-        resources.resize(ctx, width, height);
+        let viewport_width = (f32::from(bounds.size.width) * scale_factor).max(1.0) as u32;
+        let viewport_height = (f32::from(bounds.size.height) * scale_factor).max(1.0) as u32;
+        // The color resolve target is GPUI's full frame. WGPU requires every
+        // attachment in this render pass to have the same extent, therefore
+        // depth/MSAA resources follow `target_size`; chart bounds only define
+        // the viewport and scissor below.
+        resources.resize(ctx, target_size[0].max(1), target_size[1].max(1));
         if resources.field_rev != state.field_rev {
             resources.write_vertices(ctx, upload);
             resources.field_rev = state.field_rev;
@@ -796,8 +815,15 @@ impl gpui_wgpu::WgpuCustomDraw for WgpuMesh3DDraw {
             occlusion_query_set: None,
             multiview_mask: None,
         });
-        pass.set_viewport(x as f32, y as f32, width as f32, height as f32, 0.0, 1.0);
-        pass.set_scissor_rect(x, y, width, height);
+        pass.set_viewport(
+            x as f32,
+            y as f32,
+            viewport_width as f32,
+            viewport_height as f32,
+            0.0,
+            1.0,
+        );
+        pass.set_scissor_rect(x, y, viewport_width, viewport_height);
         pass.set_bind_group(0, &resources.bind_group, &[]);
         pass.set_vertex_buffer(0, resources.vertices.slice(..));
         pass.set_pipeline(&resources.surface_pipeline);
@@ -853,6 +879,13 @@ impl WgpuMesh3DRenderer {
 
     pub fn camera(&self) -> Camera3D {
         self.camera.borrow().clone()
+    }
+
+    /// Share the retained camera with native pointer interaction. This keeps
+    /// orbit/zoom events and the custom draw synchronized without rebuilding
+    /// mesh resources.
+    pub fn camera_handle(&self) -> std::rc::Rc<std::cell::RefCell<Camera3D>> {
+        self.camera.clone()
     }
 
     pub fn set_camera(&self, camera: &Camera3D) {

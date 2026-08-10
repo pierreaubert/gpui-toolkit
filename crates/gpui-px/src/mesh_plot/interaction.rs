@@ -1,10 +1,155 @@
 use super::MeshPlotPick;
 use crate::interaction::ChartInteraction;
 #[cfg(feature = "gpu-3d")]
-use d3rs::gpu3d::{Camera3D, OrbitControls};
+use d3rs::gpu3d::{Camera3D, OrbitControls, StandardView};
 #[cfg(feature = "gpu-3d")]
-use d3rs::mesh::MeshBounds;
-use d3rs::mesh::{CoordinateAxis, ScalarField, TriGridIndex, TriangleMesh};
+use d3rs::mesh::gpu::MeshSceneState;
+#[cfg(all(feature = "gpu-3d", not(test)))]
+use d3rs::mesh::gpu::WgpuMesh3DRenderer;
+use d3rs::mesh::{
+    ContourBand, CoordinateAxis, IsolineSegment, ScalarAssociation, ScalarField, TriGridIndex,
+    TriangleMesh,
+};
+#[cfg(feature = "gpu-3d")]
+use d3rs::mesh::{MeshBounds, MeshBvh, RevolveSpec, RevolvedMesh};
+#[cfg(all(feature = "gpu-3d", not(test)))]
+use std::cell::RefCell;
+use std::rc::Rc;
+
+/// GPU resources retained by one live 3D mesh-plot instance.
+///
+/// The renderer is deliberately owned by [`MeshPlotState`] rather than a
+/// single `MeshPlot::build` call. GPUI's draw registry then keeps referring to
+/// the same custom ID while field, style, and camera patches mutate only their
+/// respective retained state.
+#[cfg(all(feature = "gpu-3d", not(test)))]
+#[derive(Clone)]
+pub(crate) struct RetainedMesh3D {
+    pub(crate) scene: Rc<RefCell<MeshSceneState>>,
+    pub(crate) renderer: Rc<WgpuMesh3DRenderer>,
+    /// Full/proxy uploads for drag-time navigation. The same renderer owns
+    /// both: swapping the scene revision rebuilds buffers once at drag start
+    /// and once at drag end, never on camera-only frames.
+    pub(crate) lod: Rc<RefCell<RetainedMeshLod>>,
+    pub(crate) geometry_revision: u64,
+}
+
+#[cfg(feature = "gpu-3d")]
+pub(crate) struct RetainedMeshLod {
+    controller: d3rs::mesh::gpu::MeshLodController,
+    full_upload: Option<d3rs::mesh::MeshUpload>,
+    proxy_upload: Option<d3rs::mesh::MeshUpload>,
+    displaying_proxy: bool,
+}
+
+/// Prepared marching-triangle output owned by a live plot instance. Pointer
+/// identities complement host revisions so direct native builders cannot reuse
+/// contours after replacing an Arc-backed field without updating its revision.
+#[derive(Clone)]
+struct RetainedContours {
+    geometry_revision: u64,
+    positions_ptr: usize,
+    triangles_ptr: usize,
+    field_values_ptr: Option<usize>,
+    valid_ptr: Option<usize>,
+    association: Option<ScalarAssociation>,
+    horizontal: CoordinateAxis,
+    vertical: CoordinateAxis,
+    mode: super::MeshRenderMode,
+    range: Option<[f64; 2]>,
+    bands: Rc<Vec<ContourBand>>,
+    lines: Rc<Vec<IsolineSegment>>,
+}
+
+#[cfg(feature = "gpu-3d")]
+impl RetainedMeshLod {
+    pub(crate) fn new(mesh: TriangleMesh, field: Option<&ScalarField>) -> Self {
+        Self::with_lod_threshold(mesh, field, d3rs::mesh::gpu::DEFAULT_LOD_THRESHOLD)
+    }
+
+    pub(crate) fn with_lod_threshold(
+        mesh: TriangleMesh,
+        field: Option<&ScalarField>,
+        threshold: usize,
+    ) -> Self {
+        let controller = d3rs::mesh::gpu::MeshLodController::with_lod_threshold(mesh, threshold);
+        let mut result = Self {
+            controller,
+            full_upload: None,
+            proxy_upload: None,
+            displaying_proxy: false,
+        };
+        result.update_field(field);
+        result
+    }
+
+    pub(crate) fn update_field(&mut self, field: Option<&ScalarField>) {
+        if self.controller.proxy_mesh().is_none() {
+            self.proxy_upload = None;
+            return;
+        }
+        // Temporarily select the proxy only to materialize its association-safe
+        // scalar data. This does not change the live scene or camera state.
+        self.controller.begin_camera_drag();
+        let proxy_mesh = self.controller.active_mesh().clone();
+        let proxy_field = field.and_then(|field| self.controller.active_field(field).ok());
+        self.controller.end_camera_drag();
+        self.proxy_upload = Some(mesh_upload_with_field(&proxy_mesh, proxy_field.as_ref()));
+    }
+
+    pub(crate) fn begin_drag(&mut self, scene: &mut MeshSceneState) -> bool {
+        self.controller.begin_camera_drag();
+        if self.displaying_proxy {
+            return false;
+        }
+        let Some(proxy_upload) = self.proxy_upload.as_ref() else {
+            return false;
+        };
+        self.full_upload = scene.upload.clone();
+        scene.record_geometry_upload(proxy_upload);
+        scene.geometry_rev.0 = scene.geometry_rev.0.saturating_add(1);
+        scene.field_rev.0 = scene.field_rev.0.saturating_add(1);
+        scene.upload = Some(proxy_upload.clone());
+        self.displaying_proxy = true;
+        true
+    }
+
+    pub(crate) fn end_drag(&mut self, scene: &mut MeshSceneState) -> bool {
+        self.controller.end_camera_drag();
+        if !self.displaying_proxy {
+            return false;
+        }
+        let Some(full_upload) = self.full_upload.take() else {
+            self.displaying_proxy = false;
+            return false;
+        };
+        scene.record_geometry_upload(&full_upload);
+        scene.geometry_rev.0 = scene.geometry_rev.0.saturating_add(1);
+        scene.field_rev.0 = scene.field_rev.0.saturating_add(1);
+        scene.upload = Some(full_upload);
+        self.displaying_proxy = false;
+        true
+    }
+}
+
+#[cfg(feature = "gpu-3d")]
+fn mesh_upload_with_field(
+    mesh: &TriangleMesh,
+    field: Option<&ScalarField>,
+) -> d3rs::mesh::MeshUpload {
+    use d3rs::mesh::{MeshTopology, ScalarAssociation, prepare_field, prepare_upload};
+
+    let topology = MeshTopology::build(&mesh.triangles);
+    let mut upload = prepare_upload(mesh, &topology);
+    if let Some(field) = field {
+        let values = prepare_field(field);
+        match field.association {
+            ScalarAssociation::Vertex => upload.values_f32 = Some(values),
+            ScalarAssociation::Cell => upload.cell_values_f32 = Some(values),
+        }
+    }
+    upload
+}
 
 #[derive(Clone)]
 pub struct MeshPlotState {
@@ -18,12 +163,41 @@ pub struct MeshPlotState {
     pub wireframe: super::Wireframe,
     pub render_mode: super::MeshRenderMode,
     pub color_range: crate::ColorRange,
+    /// The planar picker uses projected coordinates, so its accelerator is
+    /// retained independently from the 3D BVH.  Besides the host geometry
+    /// revision, retain the source buffer identities and projection axes:
+    /// native callers can otherwise rebuild with a new mesh without first
+    /// going through the revisioned Python cache.
+    retained_planar_index: Option<(
+        u64,
+        CoordinateAxis,
+        CoordinateAxis,
+        usize,
+        usize,
+        Rc<TriGridIndex>,
+    )>,
+    retained_contours: Option<RetainedContours>,
     #[cfg(feature = "gpu-3d")]
     pub camera: Camera3D,
     #[cfg(feature = "gpu-3d")]
     pub orbit: OrbitControls,
     #[cfg(feature = "gpu-3d")]
     pub camera_fitted: bool,
+    #[cfg(feature = "gpu-3d")]
+    retained_bvh: Option<(u64, Rc<MeshBvh>)>,
+    /// Axisymmetric geometry has a different topology from its source
+    /// profile. Keep both it and its accelerator together so repeated pointer
+    /// inspection never regenerates the revolution surface.
+    #[cfg(feature = "gpu-3d")]
+    retained_revolve: Option<(u64, RevolveSpec, Rc<RevolvedMesh>, Rc<MeshBvh>)>,
+    /// One field derivative for the retained revolved geometry. Its identity
+    /// includes both the host field revision and the immutable Arc backing
+    /// stores so native callers that do not use the Python cache cannot reuse
+    /// stale values accidentally.
+    #[cfg(feature = "gpu-3d")]
+    retained_revolved_field: Option<(u64, u64, usize, Option<usize>, Rc<ScalarField>)>,
+    #[cfg(all(feature = "gpu-3d", not(test)))]
+    pub(crate) retained_3d: Option<RetainedMesh3D>,
 }
 
 impl MeshPlotState {
@@ -40,13 +214,227 @@ impl MeshPlotState {
             wireframe: super::Wireframe::Overlay,
             render_mode: super::MeshRenderMode::Mesh,
             color_range: crate::ColorRange::Auto,
+            retained_planar_index: None,
+            retained_contours: None,
             #[cfg(feature = "gpu-3d")]
             camera: orbit.to_camera(),
             #[cfg(feature = "gpu-3d")]
             orbit,
             #[cfg(feature = "gpu-3d")]
             camera_fitted: false,
+            #[cfg(feature = "gpu-3d")]
+            retained_bvh: None,
+            #[cfg(feature = "gpu-3d")]
+            retained_revolve: None,
+            #[cfg(feature = "gpu-3d")]
+            retained_revolved_field: None,
+            #[cfg(all(feature = "gpu-3d", not(test)))]
+            retained_3d: None,
         }
+    }
+
+    /// Apply independently-versioned native resource changes from a retained
+    /// host cache. Geometry changes invalidate the renderer; field/style and
+    /// camera changes retain it.
+    pub fn mark_resources_changed(&mut self, geometry_changed: bool, field_changed: bool) {
+        if geometry_changed {
+            self.geometry_revision = self.geometry_revision.saturating_add(1).max(1);
+            self.retained_planar_index = None;
+            self.retained_contours = None;
+            #[cfg(all(feature = "gpu-3d", not(test)))]
+            {
+                self.retained_3d = None;
+            }
+            #[cfg(feature = "gpu-3d")]
+            {
+                self.retained_bvh = None;
+                self.retained_revolve = None;
+                self.retained_revolved_field = None;
+            }
+        }
+        if field_changed {
+            self.field_revision = self.field_revision.saturating_add(1).max(1);
+            self.retained_contours = None;
+            #[cfg(feature = "gpu-3d")]
+            {
+                self.retained_revolved_field = None;
+            }
+        }
+    }
+
+    /// Return cached contour bands/isolines only when every preparation input
+    /// is unchanged. Style-only changes intentionally retain this result.
+    pub(crate) fn cached_contours(
+        &self,
+        mesh: &TriangleMesh,
+        field: Option<&ScalarField>,
+        horizontal: CoordinateAxis,
+        vertical: CoordinateAxis,
+        mode: &super::MeshRenderMode,
+        range: Option<[f64; 2]>,
+    ) -> Option<(Rc<Vec<ContourBand>>, Rc<Vec<IsolineSegment>>)> {
+        let cached = self.retained_contours.as_ref()?;
+        let values_ptr = field.map(|field| field.values.as_ptr() as usize);
+        let valid_ptr = field
+            .and_then(|field| field.valid.as_ref())
+            .map(|valid| valid.as_ptr() as usize);
+        let association = field.map(|field| field.association);
+        (cached.geometry_revision == self.geometry_revision.max(1)
+            && cached.positions_ptr == mesh.positions.as_ptr() as usize
+            && cached.triangles_ptr == mesh.triangles.as_ptr() as usize
+            && cached.field_values_ptr == values_ptr
+            && cached.valid_ptr == valid_ptr
+            && cached.association == association
+            && cached.horizontal == horizontal
+            && cached.vertical == vertical
+            && cached.mode == *mode
+            && cached.range == range)
+            .then(|| (cached.bands.clone(), cached.lines.clone()))
+    }
+
+    /// Atomically replace the prepared contour result after all bands and
+    /// isolines for one complete input revision have been produced.
+    pub(crate) fn store_contours(
+        &mut self,
+        mesh: &TriangleMesh,
+        field: Option<&ScalarField>,
+        horizontal: CoordinateAxis,
+        vertical: CoordinateAxis,
+        mode: &super::MeshRenderMode,
+        range: Option<[f64; 2]>,
+        bands: Rc<Vec<ContourBand>>,
+        lines: Rc<Vec<IsolineSegment>>,
+    ) {
+        self.retained_contours = Some(RetainedContours {
+            geometry_revision: self.geometry_revision.max(1),
+            positions_ptr: mesh.positions.as_ptr() as usize,
+            triangles_ptr: mesh.triangles.as_ptr() as usize,
+            field_values_ptr: field.map(|field| field.values.as_ptr() as usize),
+            valid_ptr: field
+                .and_then(|field| field.valid.as_ref())
+                .map(|valid| valid.as_ptr() as usize),
+            association: field.map(|field| field.association),
+            horizontal,
+            vertical,
+            mode: mode.clone(),
+            range,
+            bands,
+            lines,
+        });
+    }
+
+    /// Return the retained planar spatial index for native hover/click
+    /// inspection. Field and style changes deliberately do not invalidate the
+    /// index; a geometry replacement or a different projected plane does.
+    pub(crate) fn planar_index_for(
+        &mut self,
+        projected: &[[f64; 2]],
+        mesh: &TriangleMesh,
+        horizontal: CoordinateAxis,
+        vertical: CoordinateAxis,
+    ) -> Rc<TriGridIndex> {
+        let revision = self.geometry_revision.max(1);
+        let positions_ptr = mesh.positions.as_ptr() as usize;
+        let triangles_ptr = mesh.triangles.as_ptr() as usize;
+        if let Some((
+            cached_revision,
+            cached_horizontal,
+            cached_vertical,
+            cached_positions,
+            cached_triangles,
+            index,
+        )) = &self.retained_planar_index
+            && *cached_revision == revision
+            && *cached_horizontal == horizontal
+            && *cached_vertical == vertical
+            && *cached_positions == positions_ptr
+            && *cached_triangles == triangles_ptr
+        {
+            return index.clone();
+        }
+
+        let index = Rc::new(TriGridIndex::build(projected, &mesh.triangles));
+        self.retained_planar_index = Some((
+            revision,
+            horizontal,
+            vertical,
+            positions_ptr,
+            triangles_ptr,
+            index.clone(),
+        ));
+        index
+    }
+
+    #[cfg(feature = "gpu-3d")]
+    /// Return a geometry-revision-keyed BVH for live 3D picking.
+    pub(crate) fn bvh_for(&mut self, mesh: &TriangleMesh) -> Rc<MeshBvh> {
+        let revision = self.geometry_revision.max(1);
+        if let Some((cached_revision, bvh)) = &self.retained_bvh
+            && *cached_revision == revision
+        {
+            return bvh.clone();
+        }
+        let bvh = Rc::new(MeshBvh::build(mesh));
+        self.retained_bvh = Some((revision, bvh.clone()));
+        bvh
+    }
+
+    #[cfg(feature = "gpu-3d")]
+    /// Return the retained revolved geometry and matching BVH for the current
+    /// source-geometry revision. A changed revolve specification is itself a
+    /// geometry change for this derived product.
+    pub(crate) fn revolved_bvh_for(
+        &mut self,
+        mesh: &TriangleMesh,
+        spec: &RevolveSpec,
+    ) -> Result<(Rc<RevolvedMesh>, Rc<MeshBvh>), d3rs::mesh::MeshValidationError> {
+        let revision = self.geometry_revision.max(1);
+        if let Some((cached_revision, cached_spec, revolved, bvh)) = &self.retained_revolve
+            && *cached_revision == revision
+            && cached_spec == spec
+        {
+            return Ok((revolved.clone(), bvh.clone()));
+        }
+        let revolved = Rc::new(d3rs::mesh::revolve(mesh, spec)?);
+        let bvh = Rc::new(MeshBvh::build(&revolved.mesh));
+        self.retained_revolve = Some((revision, spec.clone(), revolved.clone(), bvh.clone()));
+        Ok((revolved, bvh))
+    }
+
+    #[cfg(feature = "gpu-3d")]
+    /// Return a field replicated onto the retained revolution surface. The
+    /// source field's immutable buffers are part of the cache identity, which
+    /// makes native retained-state callers safe even before they explicitly
+    /// advance a field revision.
+    pub(crate) fn revolved_field_for(
+        &mut self,
+        mesh: &TriangleMesh,
+        spec: &RevolveSpec,
+        field: &ScalarField,
+    ) -> Result<Rc<ScalarField>, d3rs::mesh::MeshValidationError> {
+        let (revolved, _) = self.revolved_bvh_for(mesh, spec)?;
+        let geometry_revision = self.geometry_revision.max(1);
+        let field_revision = self.field_revision;
+        let values_ptr = field.values.as_ptr() as usize;
+        let valid_ptr = field.valid.as_ref().map(|valid| valid.as_ptr() as usize);
+        if let Some((cached_geometry, cached_field, cached_values, cached_valid, derived)) =
+            &self.retained_revolved_field
+            && *cached_geometry == geometry_revision
+            && *cached_field == field_revision
+            && *cached_values == values_ptr
+            && *cached_valid == valid_ptr
+        {
+            return Ok(derived.clone());
+        }
+        let derived = Rc::new(super::picking3d::revolved_field(field, &revolved));
+        self.retained_revolved_field = Some((
+            geometry_revision,
+            field_revision,
+            values_ptr,
+            valid_ptr,
+            derived.clone(),
+        ));
+        Ok(derived)
     }
     pub fn clear_selection(&mut self) {
         self.selection = None;
@@ -133,6 +521,20 @@ impl MeshPlotState {
         self.color_range = color_range;
     }
 
+    /// Toggle the retained wireframe preference and return its new value.
+    pub fn toggle_wireframe(&mut self) -> super::Wireframe {
+        self.wireframe = match self.wireframe {
+            super::Wireframe::Overlay => super::Wireframe::Hidden,
+            super::Wireframe::Hidden => super::Wireframe::Overlay,
+        };
+        self.wireframe
+    }
+
+    /// Restore automatic scalar-range selection for retained renderers.
+    pub fn reset_color_range(&mut self) {
+        self.color_range = crate::ColorRange::Auto;
+    }
+
     /// Apply a keyboard navigation action while retaining selection/hover.
     pub fn handle_key(&mut self, key: &str) -> bool {
         let Some(action) = crate::interaction::keyboard_action_for_key(key) else {
@@ -162,6 +564,10 @@ impl MeshPlotState {
         self.field_values.clear();
         self.field_values.extend_from_slice(values);
         self.field_revision = revision;
+        #[cfg(feature = "gpu-3d")]
+        {
+            self.retained_revolved_field = None;
+        }
     }
 
     /// Return the retained field values for a backend upload.
@@ -187,6 +593,60 @@ impl MeshPlotState {
     pub fn orbit_zoom(&mut self, delta: f32) {
         self.orbit.zoom(delta);
         self.orbit.update_camera(&mut self.camera);
+    }
+
+    #[cfg(feature = "gpu-3d")]
+    /// Pan the retained 3D orbit target in camera-relative screen space.
+    pub fn orbit_pan(&mut self, delta_x: f32, delta_y: f32) {
+        self.orbit.pan(delta_x, delta_y, &self.camera);
+        self.orbit.update_camera(&mut self.camera);
+    }
+
+    #[cfg(feature = "gpu-3d")]
+    /// Move to a conventional camera orientation while preserving the fitted
+    /// target and distance.
+    pub fn orbit_standard_view(&mut self, view: StandardView) {
+        self.orbit.set_standard_view(view);
+        self.orbit.update_camera(&mut self.camera);
+    }
+
+    #[cfg(feature = "gpu-3d")]
+    /// Toggle perspective/orthographic projection without disturbing the
+    /// retained orbit target or distance.
+    pub fn toggle_projection(&mut self) {
+        self.camera.toggle_projection();
+    }
+
+    #[cfg(feature = "gpu-3d")]
+    /// Apply the shared chart keys to 3D orbit navigation. Arrow keys pan,
+    /// plus/minus zoom, and Home/0/R restore the fitted camera.
+    pub fn handle_3d_key(&mut self, key: &str) -> bool {
+        match key.to_ascii_lowercase().as_str() {
+            "1" => self.orbit_standard_view(StandardView::Front),
+            "2" => self.orbit_standard_view(StandardView::Back),
+            "3" => self.orbit_standard_view(StandardView::Left),
+            "4" => self.orbit_standard_view(StandardView::Right),
+            "5" => self.orbit_standard_view(StandardView::Top),
+            "6" => self.orbit_standard_view(StandardView::Bottom),
+            "i" => self.orbit_standard_view(StandardView::Isometric),
+            "p" => self.toggle_projection(),
+            _ => {
+                use crate::interaction::ChartKeyboardAction;
+                let Some(action) = crate::interaction::keyboard_action_for_key(key) else {
+                    return false;
+                };
+                match action {
+                    ChartKeyboardAction::ZoomIn => self.orbit_zoom(0.5),
+                    ChartKeyboardAction::ZoomOut => self.orbit_zoom(-0.5),
+                    ChartKeyboardAction::PanLeft => self.orbit_pan(-24.0, 0.0),
+                    ChartKeyboardAction::PanRight => self.orbit_pan(24.0, 0.0),
+                    ChartKeyboardAction::PanUp => self.orbit_pan(0.0, -24.0),
+                    ChartKeyboardAction::PanDown => self.orbit_pan(0.0, 24.0),
+                    ChartKeyboardAction::ResetZoom => self.orbit_reset(),
+                }
+            }
+        }
+        true
     }
 
     #[cfg(feature = "gpu-3d")]
@@ -224,6 +684,7 @@ impl MeshPlotState {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::mesh_plot::Wireframe;
     use std::sync::Arc;
 
     fn pick() -> MeshPlotPick {
@@ -260,6 +721,40 @@ mod tests {
         );
     }
 
+    #[test]
+    fn resource_dirty_domains_only_advance_their_matching_revision() {
+        let mut state = MeshPlotState::new(0.0, 1.0, 0.0, 1.0);
+        state.mark_resources_changed(true, true);
+        assert_eq!(state.geometry_revision, 1);
+        assert_eq!(state.field_revision, 1);
+
+        state.mark_resources_changed(false, true);
+        assert_eq!(state.geometry_revision, 1);
+        assert_eq!(state.field_revision, 2);
+
+        state.mark_resources_changed(true, false);
+        assert_eq!(state.geometry_revision, 2);
+        assert_eq!(state.field_revision, 2);
+    }
+
+    #[test]
+    fn wireframe_toggle_updates_retained_style() {
+        let mut state = MeshPlotState::new(0.0, 1.0, 0.0, 1.0);
+        assert_eq!(state.toggle_wireframe(), Wireframe::Hidden);
+        assert_eq!(state.toggle_wireframe(), Wireframe::Overlay);
+    }
+
+    #[test]
+    fn color_range_reset_restores_automatic_selection() {
+        let mut state = MeshPlotState::new(0.0, 1.0, 0.0, 1.0);
+        state.color_range = crate::ColorRange::Fixed {
+            min: -12.0,
+            max: 3.0,
+        };
+        state.reset_color_range();
+        assert_eq!(state.color_range, crate::ColorRange::Auto);
+    }
+
     #[cfg(feature = "gpu-3d")]
     #[test]
     fn orbit_navigation_changes_camera_without_touching_2d_state() {
@@ -271,5 +766,280 @@ mod tests {
         assert!(state.camera.position.is_finite());
         state.orbit_reset();
         assert_eq!(state.interaction.x_domain(), (0.0, 1.0));
+    }
+
+    #[cfg(feature = "gpu-3d")]
+    #[test]
+    fn three_d_keyboard_pan_and_zoom_update_only_the_camera() {
+        let mut state = MeshPlotState::new(0.0, 1.0, 0.0, 1.0);
+        let initial_target = state.camera.target;
+        let initial_distance = state.orbit.distance;
+        assert!(state.handle_3d_key("left"));
+        assert_ne!(state.camera.target, initial_target);
+        assert!(state.handle_3d_key("+"));
+        assert!(state.orbit.distance < initial_distance);
+        assert_eq!(state.interaction.x_domain(), (0.0, 1.0));
+    }
+
+    #[cfg(feature = "gpu-3d")]
+    #[test]
+    fn three_d_standard_views_and_projection_toggle_update_the_camera() {
+        let mut state = MeshPlotState::new(0.0, 1.0, 0.0, 1.0);
+        let initial = state.camera.view_projection_matrix();
+        assert!(state.handle_3d_key("5"));
+        assert_ne!(state.camera.view_projection_matrix(), initial);
+        assert!(matches!(
+            state.camera.projection(),
+            d3rs::gpu3d::Projection::Perspective { .. }
+        ));
+        assert!(state.handle_3d_key("p"));
+        assert!(matches!(
+            state.camera.projection(),
+            d3rs::gpu3d::Projection::Orthographic { .. }
+        ));
+        assert_eq!(state.interaction.x_domain(), (0.0, 1.0));
+    }
+
+    #[cfg(feature = "gpu-3d")]
+    #[test]
+    fn fit_camera_redefines_the_subsequent_reset_view() {
+        let mut state = MeshPlotState::new(0.0, 1.0, 0.0, 1.0);
+        let bounds = MeshBounds {
+            min: [-10.0, -2.0, -1.0],
+            max: [10.0, 2.0, 1.0],
+        };
+        state.fit_camera_to_bounds(bounds, 16.0 / 9.0);
+        let fitted_position = state.camera.position;
+        let fitted_target = state.camera.target;
+        state.orbit_rotate(40.0, -15.0);
+        assert_ne!(state.camera.position, fitted_position);
+        state.orbit_reset();
+        assert_eq!(state.camera.position, fitted_position);
+        assert_eq!(state.camera.target, fitted_target);
+    }
+
+    #[cfg(feature = "gpu-3d")]
+    #[test]
+    fn retained_bvh_is_reused_until_geometry_changes() {
+        let mesh = TriangleMesh {
+            id: "mesh".into(),
+            positions: Arc::from([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]),
+            triangles: Arc::from([[0, 1, 2]]),
+            vertex_ids: None,
+            cell_ids: None,
+        };
+        let mut state = MeshPlotState::new(0.0, 1.0, 0.0, 1.0);
+        state.mark_resources_changed(true, false);
+        let first = state.bvh_for(&mesh);
+        let second = state.bvh_for(&mesh);
+        assert!(Rc::ptr_eq(&first, &second));
+
+        state.mark_resources_changed(true, false);
+        let replaced = state.bvh_for(&mesh);
+        assert!(!Rc::ptr_eq(&first, &replaced));
+    }
+
+    #[test]
+    fn retained_planar_index_is_reused_for_field_updates_and_replaced_for_geometry() {
+        let mesh = TriangleMesh {
+            id: "mesh".into(),
+            positions: Arc::from([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]),
+            triangles: Arc::from([[0, 1, 2]]),
+            vertex_ids: None,
+            cell_ids: None,
+        };
+        let projected = [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]];
+        let mut state = MeshPlotState::new(0.0, 1.0, 0.0, 1.0);
+        state.mark_resources_changed(true, false);
+        let first = state.planar_index_for(&projected, &mesh, CoordinateAxis::X, CoordinateAxis::Y);
+        state.mark_resources_changed(false, true);
+        let after_field_update =
+            state.planar_index_for(&projected, &mesh, CoordinateAxis::X, CoordinateAxis::Y);
+        assert!(Rc::ptr_eq(&first, &after_field_update));
+
+        state.mark_resources_changed(true, false);
+        let after_geometry_update =
+            state.planar_index_for(&projected, &mesh, CoordinateAxis::X, CoordinateAxis::Y);
+        assert!(!Rc::ptr_eq(&first, &after_geometry_update));
+
+        let rotated_projection = [[0.0, 0.0], [0.0, 1.0], [1.0, 0.0]];
+        let after_view_change = state.planar_index_for(
+            &rotated_projection,
+            &mesh,
+            CoordinateAxis::Y,
+            CoordinateAxis::X,
+        );
+        assert!(!Rc::ptr_eq(&after_geometry_update, &after_view_change));
+    }
+
+    #[test]
+    fn retained_contours_reuse_complete_results_and_invalidate_by_field_revision() {
+        let mesh = TriangleMesh {
+            id: "mesh".into(),
+            positions: Arc::from([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]),
+            triangles: Arc::from([[0, 1, 2]]),
+            vertex_ids: None,
+            cell_ids: None,
+        };
+        let field = ScalarField {
+            id: "field".into(),
+            label: "Field".into(),
+            unit: None,
+            values: Arc::from([0.0, 0.5, 1.0]),
+            association: ScalarAssociation::Vertex,
+            valid: None,
+        };
+        let mode = crate::mesh_plot::MeshRenderMode::Isolines {
+            levels: d3rs::mesh::ContourLevels::Count(4),
+        };
+        let mut state = MeshPlotState::new(0.0, 1.0, 0.0, 1.0);
+        state.mark_resources_changed(true, false);
+        let bands = Rc::new(Vec::new());
+        let lines = Rc::new(Vec::new());
+        state.store_contours(
+            &mesh,
+            Some(&field),
+            CoordinateAxis::X,
+            CoordinateAxis::Y,
+            &mode,
+            Some([0.0, 1.0]),
+            bands.clone(),
+            lines.clone(),
+        );
+        let (cached_bands, cached_lines) = state
+            .cached_contours(
+                &mesh,
+                Some(&field),
+                CoordinateAxis::X,
+                CoordinateAxis::Y,
+                &mode,
+                Some([0.0, 1.0]),
+            )
+            .expect("complete contour result must be retained");
+        assert!(Rc::ptr_eq(&cached_bands, &bands));
+        assert!(Rc::ptr_eq(&cached_lines, &lines));
+
+        state.mark_resources_changed(false, true);
+        assert!(
+            state
+                .cached_contours(
+                    &mesh,
+                    Some(&field),
+                    CoordinateAxis::X,
+                    CoordinateAxis::Y,
+                    &mode,
+                    Some([0.0, 1.0]),
+                )
+                .is_none()
+        );
+    }
+
+    #[cfg(feature = "gpu-3d")]
+    #[test]
+    fn retained_revolve_and_bvh_are_reused_until_geometry_changes() {
+        let mesh = TriangleMesh {
+            id: "profile".into(),
+            positions: Arc::from([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]]),
+            triangles: Arc::from([[0, 1, 2]]),
+            vertex_ids: None,
+            cell_ids: None,
+        };
+        let mut state = MeshPlotState::new(0.0, 1.0, 0.0, 1.0);
+        state.mark_resources_changed(true, false);
+        let spec = RevolveSpec::default();
+        let (first_mesh, first_bvh) = state.revolved_bvh_for(&mesh, &spec).unwrap();
+        let (second_mesh, second_bvh) = state.revolved_bvh_for(&mesh, &spec).unwrap();
+        assert!(Rc::ptr_eq(&first_mesh, &second_mesh));
+        assert!(Rc::ptr_eq(&first_bvh, &second_bvh));
+
+        state.mark_resources_changed(true, false);
+        let (replaced_mesh, replaced_bvh) = state.revolved_bvh_for(&mesh, &spec).unwrap();
+        assert!(!Rc::ptr_eq(&first_mesh, &replaced_mesh));
+        assert!(!Rc::ptr_eq(&first_bvh, &replaced_bvh));
+    }
+
+    #[cfg(feature = "gpu-3d")]
+    #[test]
+    fn retained_revolved_field_is_reused_and_invalidated_by_field_revision() {
+        let mesh = TriangleMesh {
+            id: "profile".into(),
+            positions: Arc::from([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]]),
+            triangles: Arc::from([[0, 1, 2]]),
+            vertex_ids: None,
+            cell_ids: None,
+        };
+        let field = ScalarField {
+            id: "field".into(),
+            label: "Field".into(),
+            unit: None,
+            values: Arc::from([1.0, 2.0, 3.0]),
+            association: d3rs::mesh::ScalarAssociation::Vertex,
+            valid: None,
+        };
+        let mut state = MeshPlotState::new(0.0, 1.0, 0.0, 1.0);
+        state.mark_resources_changed(true, true);
+        let spec = RevolveSpec::default();
+        let first = state.revolved_field_for(&mesh, &spec, &field).unwrap();
+        let second = state.revolved_field_for(&mesh, &spec, &field).unwrap();
+        assert!(Rc::ptr_eq(&first, &second));
+
+        state.mark_resources_changed(false, true);
+        let replaced = state.revolved_field_for(&mesh, &spec, &field).unwrap();
+        assert!(!Rc::ptr_eq(&first, &replaced));
+    }
+
+    #[cfg(feature = "gpu-3d")]
+    #[test]
+    fn retained_lod_swaps_proxy_only_for_drag_and_restores_full_upload() {
+        let width = 5usize;
+        let positions = (0..width)
+            .flat_map(|y| (0..width).map(move |x| [x as f64, y as f64, 0.0]))
+            .collect::<Vec<_>>();
+        let mut triangles = Vec::new();
+        for y in 0..width - 1 {
+            for x in 0..width - 1 {
+                let a = (y * width + x) as u32;
+                let b = a + 1;
+                let c = a + width as u32;
+                let d = c + 1;
+                triangles.extend([[a, b, c], [b, d, c]]);
+            }
+        }
+        let mesh = TriangleMesh {
+            id: "grid".into(),
+            positions: positions.into(),
+            triangles: triangles.into(),
+            vertex_ids: None,
+            cell_ids: None,
+        };
+        let field = ScalarField {
+            id: "field".into(),
+            label: "Field".into(),
+            unit: None,
+            values: (0..mesh.positions.len())
+                .map(|index| index as f64)
+                .collect(),
+            association: d3rs::mesh::ScalarAssociation::Vertex,
+            valid: None,
+        };
+        let full_upload = mesh_upload_with_field(&mesh, Some(&field));
+        let mut scene = MeshSceneState {
+            upload: Some(full_upload.clone()),
+            ..MeshSceneState::default()
+        };
+        let mut lod = RetainedMeshLod::with_lod_threshold(mesh, Some(&field), 1);
+        assert!(lod.begin_drag(&mut scene));
+        let proxy_upload = scene.upload.as_ref().unwrap();
+        assert!(proxy_upload.positions_f32.len() < full_upload.positions_f32.len());
+        assert_eq!(
+            proxy_upload.values_f32.as_ref().map(Vec::len),
+            Some(proxy_upload.positions_f32.len())
+        );
+        assert!(lod.end_drag(&mut scene));
+        assert_eq!(
+            scene.upload.as_ref().unwrap().positions_f32,
+            full_upload.positions_f32
+        );
+        assert_eq!(scene.geometry_rev.0, 2);
     }
 }

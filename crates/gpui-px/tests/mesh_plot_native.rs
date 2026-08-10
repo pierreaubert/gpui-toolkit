@@ -9,14 +9,16 @@
 
 #![cfg(all(target_os = "macos", feature = "native-qa"))]
 
-use d3rs::mesh::{ScalarAssociation, ScalarField, TriangleMesh};
+use d3rs::mesh::{CoordinateAxis, RevolveSpec, ScalarAssociation, ScalarField, TriangleMesh};
 use gpui::{
     AnyWindowHandle, AppContext, Context, HeadlessAppContext, InputEvent, InteractiveElement,
     Modifiers, MouseButton, MouseDownEvent, MouseUpEvent, ParentElement, Platform, Render, Styled,
     Window, div, point, px, size,
 };
 use gpui_macos::{MacPlatform, metal_renderer::MetalHeadlessRenderer};
-use gpui_px::{MeshPlotPick, MeshPlotState, mesh_plot};
+use gpui_px::{
+    FieldInterpolation, MeshPlotPick, MeshPlotState, MeshPlotView, MeshRenderMode, mesh_plot,
+};
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -26,6 +28,8 @@ struct NativeMeshPlotView {
     field: ScalarField,
     state: Rc<RefCell<MeshPlotState>>,
     selection: Rc<RefCell<Option<MeshPlotPick>>>,
+    view: MeshPlotView,
+    mode: MeshRenderMode,
 }
 
 impl Render for NativeMeshPlotView {
@@ -34,6 +38,8 @@ impl Render for NativeMeshPlotView {
         let plot = mesh_plot(self.mesh.clone())
             .field(self.field.clone())
             .size(600.0, 400.0)
+            .view(self.view.clone())
+            .mode(self.mode.clone())
             .with_state(self.state.clone())
             .on_selection(move |pick| {
                 *selection.borrow_mut() = pick;
@@ -66,6 +72,33 @@ fn fixture() -> (TriangleMesh, ScalarField) {
         label: "Pressure".into(),
         unit: Some("Pa".into()),
         values: Arc::from([0.0, 0.5, 1.0, 0.25]),
+        association: ScalarAssociation::Vertex,
+        valid: None,
+    };
+    (mesh, field)
+}
+
+/// A positive-radius profile with two connected cells. This specifically
+/// exercises revolved mesh generation rather than merely the planar source
+/// section used by the other native fixture.
+fn revolve_fixture() -> (TriangleMesh, ScalarField) {
+    let mesh = TriangleMesh {
+        id: "native-revolve".into(),
+        positions: Arc::from([
+            [0.25, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [1.0, 1.0, 0.0],
+            [0.25, 1.0, 0.0],
+        ]),
+        triangles: Arc::from([[0, 1, 2], [0, 2, 3]]),
+        vertex_ids: Some(Arc::from([20, 21, 22, 23])),
+        cell_ids: Some(Arc::from([200, 201])),
+    };
+    let field = ScalarField {
+        id: "native-revolve-field".into(),
+        label: "Velocity".into(),
+        unit: Some("m/s".into()),
+        values: Arc::from([0.0, 0.25, 1.0, 0.75]),
         association: ScalarAssociation::Vertex,
         valid: None,
     };
@@ -123,6 +156,13 @@ fn native_metal_mesh_plot_click_dispatches_selection_and_keyboard_preserves_it()
                     field,
                     state,
                     selection,
+                    view: MeshPlotView::Planar {
+                        horizontal: d3rs::mesh::CoordinateAxis::X,
+                        vertical: d3rs::mesh::CoordinateAxis::Y,
+                    },
+                    mode: MeshRenderMode::ScalarFill {
+                        interpolation: FieldInterpolation::Smooth,
+                    },
                 })
             }
         })
@@ -172,4 +212,136 @@ fn native_metal_mesh_plot_click_dispatches_selection_and_keyboard_preserves_it()
         max_luma > min_luma,
         "native MeshPlot framebuffer should contain rendered pixels"
     );
+}
+
+#[test]
+fn native_metal_surface3d_builds_the_dedicated_depth_and_triad_path() {
+    let platform = MacPlatform::new(true);
+    let text_system = platform.text_system();
+    drop(platform);
+    let mut cx = HeadlessAppContext::with_platform(text_system, Arc::new(()), || {
+        Some(Box::new(MetalHeadlessRenderer::new()))
+    });
+
+    let (mesh, field) = fixture();
+    let state = Rc::new(RefCell::new(MeshPlotState::new(0.0, 1.0, 0.0, 1.0)));
+    let selection = Rc::new(RefCell::new(None));
+    let window = cx
+        .open_window(size(px(600.0), px(400.0)), {
+            let state = state.clone();
+            let selection = selection.clone();
+            move |_window, app| {
+                app.new(|_cx| NativeMeshPlotView {
+                    mesh,
+                    field,
+                    state,
+                    selection,
+                    view: MeshPlotView::Surface3d,
+                    mode: MeshRenderMode::ScalarFill {
+                        interpolation: FieldInterpolation::Smooth,
+                    },
+                })
+            }
+        })
+        .expect("open native Surface3d window");
+    let window: AnyWindowHandle = window.into();
+    cx.update_window(window, |_, window, app| {
+        let _ = window.draw(app);
+    })
+    .expect("draw native Surface3d");
+
+    let screenshot = cx
+        .capture_screenshot(window)
+        .expect("capture native Surface3d framebuffer");
+    assert_eq!(screenshot.width(), 1200);
+    assert_eq!(screenshot.height(), 800);
+    assert!(
+        screenshot.pixels().any(|pixel| pixel.0[3] != 0),
+        "dedicated Metal 3D draw should leave visible framebuffer pixels"
+    );
+}
+
+#[test]
+fn native_metal_full_and_partial_revolves_build_depth_tested_frames() {
+    let (mesh, vertex_field) = revolve_fixture();
+    let cell_field = ScalarField {
+        id: "native-revolve-cell-field".into(),
+        label: "Cell velocity".into(),
+        unit: Some("m/s".into()),
+        values: Arc::from([0.25, 0.75]),
+        association: ScalarAssociation::Cell,
+        valid: None,
+    };
+    let views = [
+        (
+            MeshPlotView::AxisymmetricRevolve(RevolveSpec {
+                radial: CoordinateAxis::X,
+                axial: CoordinateAxis::Y,
+                start_angle: 0.0,
+                sweep_angle: std::f64::consts::TAU,
+                segments: 32,
+                end_caps: false,
+            }),
+            vertex_field,
+            MeshRenderMode::ScalarFill {
+                interpolation: FieldInterpolation::Smooth,
+            },
+        ),
+        (
+            MeshPlotView::AxisymmetricRevolve(RevolveSpec {
+                radial: CoordinateAxis::X,
+                axial: CoordinateAxis::Y,
+                start_angle: -std::f64::consts::FRAC_PI_2,
+                sweep_angle: std::f64::consts::PI,
+                segments: 24,
+                end_caps: true,
+            }),
+            cell_field,
+            MeshRenderMode::ScalarFill {
+                interpolation: FieldInterpolation::Flat,
+            },
+        ),
+    ];
+
+    for (index, (view, field, mode)) in views.into_iter().enumerate() {
+        let platform = MacPlatform::new(true);
+        let text_system = platform.text_system();
+        drop(platform);
+        let mut cx = HeadlessAppContext::with_platform(text_system, Arc::new(()), || {
+            Some(Box::new(MetalHeadlessRenderer::new()))
+        });
+        let state = Rc::new(RefCell::new(MeshPlotState::new(0.25, 1.0, 0.0, 1.0)));
+        let selection = Rc::new(RefCell::new(None));
+        let window = cx
+            .open_window(size(px(600.0), px(400.0)), {
+                let state = state.clone();
+                let selection = selection.clone();
+                let mesh = mesh.clone();
+                move |_window, app| {
+                    app.new(|_cx| NativeMeshPlotView {
+                        mesh,
+                        field,
+                        state,
+                        selection,
+                        view,
+                        mode,
+                    })
+                }
+            })
+            .expect("open native revolved MeshPlot window");
+        let window: AnyWindowHandle = window.into();
+        cx.update_window(window, |_, window, app| {
+            let _ = window.draw(app);
+        })
+        .expect("draw native revolved MeshPlot");
+        let screenshot = cx
+            .capture_screenshot(window)
+            .expect("capture native revolved MeshPlot framebuffer");
+        assert_eq!(screenshot.width(), 1200, "revolve case {index}");
+        assert_eq!(screenshot.height(), 800, "revolve case {index}");
+        assert!(
+            screenshot.pixels().any(|pixel| pixel.0[3] != 0),
+            "revolve case {index} should leave visible framebuffer pixels"
+        );
+    }
 }

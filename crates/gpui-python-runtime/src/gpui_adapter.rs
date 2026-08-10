@@ -36,6 +36,7 @@ pub struct Gpui3DCache {
 pub struct GpuiMeshPlotCache {
     resources: RetainedSceneCache,
     specs: HashMap<String, MeshPlotSpec>,
+    revisions: HashMap<String, u64>,
 }
 
 impl GpuiMeshPlotCache {
@@ -45,8 +46,20 @@ impl GpuiMeshPlotCache {
     }
 
     pub fn upsert(&mut self, spec: MeshPlotSpec) -> Result<MeshPlotCacheUpdate, String> {
+        let requested_id = spec.cache_id();
+        if self
+            .revisions
+            .get(&requested_id)
+            .is_some_and(|current| spec.revision < *current)
+        {
+            return Err(format!(
+                "stale mesh_plot revision {} for {requested_id}; current revision is {}",
+                spec.revision, self.revisions[&requested_id]
+            ));
+        }
         let update = self.resources.upsert_meshplot(&spec)?;
         let id = update.id.clone();
+        self.revisions.insert(id.clone(), spec.revision);
         self.specs.insert(id, spec);
         Ok(update)
     }
@@ -64,6 +77,7 @@ impl GpuiMeshPlotCache {
     pub fn retain_only<'a>(&mut self, ids: impl IntoIterator<Item = &'a str>) {
         let live = ids.into_iter().collect::<std::collections::HashSet<_>>();
         self.specs.retain(|id, _| live.contains(id.as_str()));
+        self.revisions.retain(|id, _| live.contains(id.as_str()));
         self.resources.retain_only(live.into_iter());
     }
 }
@@ -832,5 +846,42 @@ mod tests {
         assert!(cache.surfaces.contains_key("surface"));
         assert!(cache.lines.is_empty());
         assert!(cache.line_states.is_empty());
+    }
+
+    #[test]
+    fn meshplot_invalid_upsert_preserves_last_valid_spec_and_retain_only_drops_it() {
+        let valid = MeshPlotSpec::from_value(serde_json::json!({
+            "schema_version": 1,
+            "id": "plot",
+            "revision": 2,
+            "geometry": {
+                "positions": [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+                "triangles": [[0, 1, 2]]
+            },
+            "mode": "mesh"
+        }))
+        .unwrap();
+        let mut cache = GpuiMeshPlotCache::new();
+        cache.upsert(valid.clone()).unwrap();
+
+        let mut invalid = valid.clone();
+        invalid.geometry = serde_json::json!({"positions": [], "triangles": []});
+        assert!(cache.upsert(invalid).is_err());
+        assert_eq!(cache.get("plot"), Some(&valid));
+
+        let mut stale = valid.clone();
+        stale.revision = 1;
+        stale.field = Some(serde_json::json!({"values": [2.0, 2.0, 2.0]}));
+        assert!(
+            cache
+                .upsert(stale)
+                .unwrap_err()
+                .contains("stale mesh_plot revision")
+        );
+        assert_eq!(cache.get("plot"), Some(&valid));
+
+        cache.retain_only(std::iter::empty::<&str>());
+        assert_eq!(cache.len(), 0);
+        assert!(cache.get("plot").is_none());
     }
 }

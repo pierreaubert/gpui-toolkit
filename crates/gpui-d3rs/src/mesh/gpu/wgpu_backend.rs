@@ -288,6 +288,7 @@ impl WgpuCustomDraw for WgpuMeshDraw {
         ctx: &WgpuContext,
         encoder: &mut wgpu::CommandEncoder,
         target: &wgpu::TextureView,
+        _target_size: [u32; 2],
         bounds: Bounds<Pixels>,
         scale_factor: f32,
     ) {

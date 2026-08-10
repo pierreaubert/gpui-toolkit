@@ -97,6 +97,33 @@ impl Camera3D {
         camera
     }
 
+    /// Return the active projection mode.
+    pub fn projection(&self) -> Projection {
+        self.projection
+    }
+
+    /// Replace the active projection mode, retaining the configured
+    /// perspective field of view for a later switch back from orthographic.
+    pub fn set_projection(&mut self, projection: Projection) {
+        if let Projection::Perspective { fov_y } = projection {
+            self.fov = fov_y;
+        }
+        self.projection = projection;
+    }
+
+    /// Toggle perspective/orthographic projection while preserving the
+    /// approximate vertical framing at the orbit target.
+    pub fn toggle_projection(&mut self) {
+        let projection = match self.projection {
+            Projection::Perspective { fov_y } => Projection::Orthographic {
+                half_height: (self.position - self.target).length() as f64
+                    * (fov_y * 0.5).tan() as f64,
+            },
+            Projection::Orthographic { .. } => Projection::Perspective { fov_y: self.fov },
+        };
+        self.set_projection(projection);
+    }
+
     /// Set aspect ratio
     pub fn with_aspect(mut self, aspect: f32) -> Self {
         self.aspect = aspect;

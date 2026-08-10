@@ -19,6 +19,21 @@ pub fn pick_3d<P: AsRef<str>>(
     if let Some(field) = field {
         field.validate(mesh).ok()?;
     }
+    let bvh = MeshBvh::build(mesh);
+    pick_3d_with_bvh(mesh, field, &bvh, camera, screen, viewport, plot_id)
+}
+
+/// Pick using a caller-retained BVH. Live plots use this to avoid rebuilding
+/// the geometry accelerator for every click.
+pub fn pick_3d_with_bvh<P: AsRef<str>>(
+    mesh: &TriangleMesh,
+    field: Option<&ScalarField>,
+    bvh: &MeshBvh,
+    camera: &Camera3D,
+    screen: [f32; 2],
+    viewport: [f32; 2],
+    plot_id: P,
+) -> Option<MeshPlotPick> {
     if viewport[0] <= 0.0 || viewport[1] <= 0.0 {
         return None;
     }
@@ -35,7 +50,7 @@ pub fn pick_3d<P: AsRef<str>>(
     if direction.length_squared() <= f32::EPSILON {
         return None;
     }
-    let hit = MeshBvh::build(mesh).ray_cast(
+    let hit = bvh.ray_cast(
         near.to_array().map(|v| v as f64),
         direction.to_array().map(|v| v as f64),
     )?;
@@ -133,17 +148,67 @@ pub fn pick_revolved_3d<P: AsRef<str>>(
     if let Some(field) = field {
         field.validate(source_mesh).ok()?;
     }
-    let derived_field = field.map(|field| ScalarField {
+    let derived_field = field.map(|field| revolved_field(field, revolved));
+    let bvh = MeshBvh::build(&revolved.mesh);
+    pick_revolved_3d_with_bvh(
+        source_mesh,
+        revolved,
+        derived_field.as_ref(),
+        &bvh,
+        field.map(|field| field.id.clone()),
+        camera,
+        screen,
+        viewport,
+        plot_id,
+    )
+}
+
+/// Replicate a profile field onto its revolved mesh while preserving explicit
+/// missing-data entries. Kept crate-visible so live interaction can use a
+/// retained geometry/BVH without changing scalar semantics.
+pub(crate) fn revolved_field(field: &ScalarField, revolved: &RevolvedMesh) -> ScalarField {
+    let valid = field.valid.as_ref().map(|valid| match field.association {
+        ScalarAssociation::Vertex => revolved
+            .source_vertex
+            .iter()
+            .map(|&source| valid.get(source as usize).copied().unwrap_or(false))
+            .collect::<Vec<_>>()
+            .into(),
+        ScalarAssociation::Cell => revolved
+            .source_triangle
+            .iter()
+            .map(|&source| valid.get(source as usize).copied().unwrap_or(false))
+            .collect::<Vec<_>>()
+            .into(),
+    });
+    ScalarField {
         id: field.id.clone(),
         label: field.label.clone(),
         unit: field.unit.clone(),
         values: d3rs::mesh::revolve_field(field, revolved).into(),
         association: field.association,
-        valid: None,
-    });
-    let mut pick = pick_3d(
+        valid,
+    }
+}
+
+/// Pick a revolved surface through a retained derived field and BVH. This is
+/// the live-chart counterpart to [`pick_revolved_3d`]; callers own cache
+/// invalidation through their source geometry and field revisions.
+pub fn pick_revolved_3d_with_bvh<P: AsRef<str>>(
+    source_mesh: &TriangleMesh,
+    revolved: &RevolvedMesh,
+    derived_field: Option<&ScalarField>,
+    bvh: &MeshBvh,
+    field_id: Option<Arc<str>>,
+    camera: &Camera3D,
+    screen: [f32; 2],
+    viewport: [f32; 2],
+    plot_id: P,
+) -> Option<MeshPlotPick> {
+    let mut pick = pick_3d_with_bvh(
         &revolved.mesh,
-        derived_field.as_ref(),
+        derived_field,
+        bvh,
         camera,
         screen,
         viewport,
@@ -167,7 +232,7 @@ pub fn pick_revolved_3d<P: AsRef<str>>(
             .as_ref()
             .and_then(|ids| ids.get(source_vertex as usize).copied());
     }
-    pick.field_id = field.map(|field| field.id.clone());
+    pick.field_id = field_id;
     Some(pick)
 }
 

@@ -13,10 +13,14 @@ mod spatial;
 mod topology;
 mod upload;
 pub use bvh::MeshBvh;
-pub use decimate::decimate_vertex_clustering;
+pub use decimate::{
+    MeshDecimation, decimate_vertex_clustering, decimate_vertex_clustering_with_mapping,
+};
 pub use levels::ContourLevels;
 pub use marching_triangles::{ContourBand, IsolineSegment, MarchingTriangles};
-pub use model::{MeshValidationError, ScalarAssociation, ScalarField, TriangleMesh};
+pub use model::{
+    MeshValidationError, MissingValuePolicy, ScalarAssociation, ScalarField, TriangleMesh,
+};
 pub use revolve::{RevolveSpec, RevolvedMesh, revolve, revolve_field};
 pub use spatial::{CoordinateAxis, MeshBounds, TriGridIndex, barycentric_2d, project_2d};
 pub use topology::MeshTopology;

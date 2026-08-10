@@ -31,6 +31,10 @@ pub enum ChartError {
     #[error("invalid dimension: {field} must be positive, got {value}")]
     InvalidDimension { field: &'static str, value: f32 },
 
+    /// An image encoder could not produce a static plot export.
+    #[error("image export failed: {reason}")]
+    ImageExport { reason: String },
+
     /// Grid dimension mismatch for 2D data.
     #[error(
         "grid dimension mismatch: z has {z_len} values but expected {width} x {height} = {expected}"

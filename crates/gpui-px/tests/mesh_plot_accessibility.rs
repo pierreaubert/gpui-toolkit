@@ -63,7 +63,9 @@ async fn mesh_plot_registers_native_accessibility_summary(cx: &mut TestAppContex
         assert!(description.contains("Field Pressure (Pa), vertex association, 3 values."));
         assert!(description.contains("Displayed value range 0.000 to 1.000."));
         assert!(description.contains("No mesh element is selected."));
-        assert!(description.contains("Available controls: inspect, select, pan, zoom, fit, and reset."));
+        assert!(
+            description.contains("Available controls: inspect, select, pan, zoom, fit, and reset.")
+        );
 
         let snapshot = tree.to_bridge_snapshot();
         assert_eq!(

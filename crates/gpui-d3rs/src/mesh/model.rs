@@ -37,6 +37,17 @@ pub enum ScalarAssociation {
     Cell,
 }
 
+/// How a caller wants NaN scalar samples handled at the toolkit boundary.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum MissingValuePolicy {
+    /// Reject unmasked NaNs (the default).
+    #[default]
+    Reject,
+    /// Convert NaN samples into explicit invalid-mask entries. Infinities are
+    /// always rejected because they are never drawable.
+    MaskNaN,
+}
+
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum MeshValidationError {
     #[error("positions array is empty")]
@@ -154,6 +165,23 @@ fn triangle_area2(a: [f64; 3], b: [f64; 3], c: [f64; 3]) -> f64 {
 }
 
 impl ScalarField {
+    /// Return a field whose NaN entries are made explicit in its validity mask.
+    pub fn mask_nan(mut self) -> Result<Self, MeshValidationError> {
+        let mut valid = self
+            .valid
+            .as_deref()
+            .map_or_else(|| vec![true; self.values.len()], ToOwned::to_owned);
+        for (index, value) in self.values.iter().enumerate() {
+            if value.is_infinite() {
+                return Err(MeshValidationError::NonFiniteValue { index });
+            }
+            if value.is_nan() {
+                valid[index] = false;
+            }
+        }
+        self.valid = Some(valid.into());
+        Ok(self)
+    }
     /// Validate this field against a mesh: length must match the association
     /// target, the mask (if any) must match the values length, and every
     /// unmasked value must be finite. Masked entries may be NaN; infinities
@@ -226,6 +254,21 @@ mod tests {
     fn empty_triangles_rejected() {
         let m = mesh(&[[0.0, 0.0, 0.0]], &[]);
         assert_eq!(m.validate(), Err(MeshValidationError::EmptyTriangles));
+    }
+
+    #[test]
+    fn mask_nan_creates_an_explicit_invalid_entry() {
+        let field = ScalarField {
+            id: "f".into(),
+            label: "f".into(),
+            unit: None,
+            values: vec![0.0, f64::NAN, 2.0].into(),
+            association: ScalarAssociation::Vertex,
+            valid: None,
+        }
+        .mask_nan()
+        .unwrap();
+        assert_eq!(field.valid.as_deref(), Some(&[true, false, true][..]));
     }
 
     #[test]

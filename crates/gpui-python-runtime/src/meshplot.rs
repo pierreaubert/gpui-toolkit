@@ -12,6 +12,8 @@ pub struct MeshPlotSpec {
     pub schema_version: u32,
     #[serde(default = "default_id")]
     pub id: String,
+    #[serde(default)]
+    pub revision: u64,
     pub geometry: Value,
     #[serde(default)]
     pub field: Option<Value>,
@@ -23,6 +25,8 @@ pub struct MeshPlotSpec {
     pub color_scale: String,
     #[serde(default = "default_color_range")]
     pub color_range: Value,
+    #[serde(default = "default_missing_value_policy")]
+    pub missing_value_policy: String,
     #[serde(default = "default_wireframe")]
     pub wireframe: bool,
     #[serde(default)]
@@ -91,11 +95,26 @@ fn default_color_scale() -> String {
 fn default_color_range() -> Value {
     Value::String("auto".into())
 }
+fn default_missing_value_policy() -> String {
+    "reject".into()
+}
 fn default_wireframe() -> bool {
     true
 }
 
 impl MeshPlotSpec {
+    /// Stable cache identity shared by retained host state and patch ordering.
+    pub fn cache_id(&self) -> String {
+        if !self.id.trim().is_empty() && self.id != "mesh_plot" {
+            return self.id.clone();
+        }
+        self.geometry
+            .get("id")
+            .and_then(Value::as_str)
+            .unwrap_or(&self.id)
+            .to_string()
+    }
+
     pub fn from_value(value: Value) -> Result<Self, String> {
         let version = value
             .get("schema_version")
@@ -320,6 +339,12 @@ impl MeshPlotSpec {
             }
         }
         validate_range(&self.color_range)?;
+        if !matches!(self.missing_value_policy.as_str(), "reject" | "mask_nan") {
+            return Err(format!(
+                "unsupported mesh_plot missing_value_policy {:?}",
+                self.missing_value_policy
+            ));
+        }
         for (name, value) in [("width", self.width), ("height", self.height)] {
             if value.is_some_and(|v| !v.is_finite() || v <= 0.0) {
                 return Err(format!("mesh_plot {name} must be positive and finite"));
@@ -477,7 +502,36 @@ fn validate_range(value: &Value) -> Result<(), String> {
                 Err("mesh_plot color_range must be increasing finite values".into())
             }
         }
-        _ => Err("mesh_plot color_range must be 'auto' or [min, max]".into()),
+        Value::Object(value) => {
+            let symmetric = value
+                .get("symmetric")
+                .and_then(Value::as_object)
+                .filter(|_| value.len() == 1)
+                .ok_or("mesh_plot symmetric color_range must contain a symmetric object")?;
+            if symmetric.len() != 2 {
+                return Err("mesh_plot symmetric color_range requires center and extent".into());
+            }
+            let center = symmetric.get("center").and_then(Value::as_f64);
+            let extent = symmetric.get("extent");
+            if center.is_none_or(|center| !center.is_finite()) {
+                return Err("mesh_plot symmetric color_range center must be finite".into());
+            }
+            match extent {
+                Some(Value::String(value)) if value == "auto" => Ok(()),
+                Some(value)
+                    if value
+                        .as_f64()
+                        .is_some_and(|value| value.is_finite() && value > 0.0) =>
+                {
+                    Ok(())
+                }
+                _ => Err(
+                    "mesh_plot symmetric color_range extent must be 'auto' or positive finite"
+                        .into(),
+                ),
+            }
+        }
+        _ => Err("mesh_plot color_range must be 'auto', [min, max], or a symmetric range".into()),
     }
 }
 
@@ -553,6 +607,43 @@ mod tests {
 
         let mut invalid = valid_spec();
         invalid["color_range"] = serde_json::json!([1.0, 1.0]);
+        assert!(MeshPlotSpec::from_value(invalid).is_err());
+    }
+
+    #[test]
+    fn accepts_symmetric_color_ranges() {
+        let mut automatic = valid_spec();
+        automatic["color_range"] = serde_json::json!({
+            "symmetric": {"center": 0.0, "extent": "auto"}
+        });
+        assert!(MeshPlotSpec::from_value(automatic).is_ok());
+
+        let mut fixed = valid_spec();
+        fixed["color_range"] = serde_json::json!({
+            "symmetric": {"center": 1.0, "extent": 3.5}
+        });
+        assert!(MeshPlotSpec::from_value(fixed).is_ok());
+
+        let mut invalid = valid_spec();
+        invalid["color_range"] = serde_json::json!({
+            "symmetric": {"center": 0.0, "extent": 0.0}
+        });
+        assert!(MeshPlotSpec::from_value(invalid).is_err());
+    }
+
+    #[test]
+    fn accepts_and_validates_missing_value_policy() {
+        let mut masked = valid_spec();
+        masked["missing_value_policy"] = serde_json::json!("mask_nan");
+        assert_eq!(
+            MeshPlotSpec::from_value(masked)
+                .unwrap()
+                .missing_value_policy,
+            "mask_nan"
+        );
+
+        let mut invalid = valid_spec();
+        invalid["missing_value_policy"] = serde_json::json!("interpolate");
         assert!(MeshPlotSpec::from_value(invalid).is_err());
     }
 
