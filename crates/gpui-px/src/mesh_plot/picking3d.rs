@@ -20,12 +20,20 @@ pub fn pick_3d<P: AsRef<str>>(
         field.validate(mesh).ok()?;
     }
     let bvh = MeshBvh::build(mesh);
-    pick_3d_with_bvh(mesh, field, &bvh, camera, screen, viewport, plot_id)
+    pick_3d_with_bvh(
+        mesh,
+        field,
+        &bvh,
+        camera,
+        screen,
+        viewport,
+        Arc::from(plot_id.as_ref()),
+    )
 }
 
 /// Pick using a caller-retained BVH. Live plots use this to avoid rebuilding
 /// the geometry accelerator for every click.
-pub fn pick_3d_with_bvh<P: AsRef<str>>(
+pub fn pick_3d_with_bvh<P: Into<Arc<str>>>(
     mesh: &TriangleMesh,
     field: Option<&ScalarField>,
     bvh: &MeshBvh,
@@ -113,7 +121,7 @@ pub fn pick_3d_with_bvh<P: AsRef<str>>(
         }
     });
     Some(MeshPlotPick {
-        plot_id: Arc::from(plot_id.as_ref()),
+        plot_id: plot_id.into(),
         mesh_id: mesh.id.clone(),
         cell_index,
         cell_id: mesh
@@ -159,7 +167,7 @@ pub fn pick_revolved_3d<P: AsRef<str>>(
         camera,
         screen,
         viewport,
-        plot_id,
+        Arc::from(plot_id.as_ref()),
     )
 }
 
@@ -194,7 +202,7 @@ pub(crate) fn revolved_field(field: &ScalarField, revolved: &RevolvedMesh) -> Sc
 /// Pick a revolved surface through a retained derived field and BVH. This is
 /// the live-chart counterpart to [`pick_revolved_3d`]; callers own cache
 /// invalidation through their source geometry and field revisions.
-pub fn pick_revolved_3d_with_bvh<P: AsRef<str>>(
+pub fn pick_revolved_3d_with_bvh<P: Into<Arc<str>>>(
     source_mesh: &TriangleMesh,
     revolved: &RevolvedMesh,
     derived_field: Option<&ScalarField>,

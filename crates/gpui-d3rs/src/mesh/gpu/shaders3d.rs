@@ -135,9 +135,15 @@ fn isoline_alpha(value: f32, step: f32, width: f32) -> f32 {
     return 1.0 - smoothstep(half_width, half_width + phase_per_pixel, distance);
 }
 
+// Keep this portable across the Naga revisions used by GPUI. Some supported
+// WGPU backends do not expose WGSL's isNan/isInf builtins yet.
+fn finite(value: f32) -> bool {
+    return value == value && abs(value) <= 3.402823466e38;
+}
+
 @fragment
 fn fs_main(input: VertexOut) -> @location(0) vec4<f32> {
-    if (isNan(input.value) || isInf(input.value)) { discard; }
+    if (!finite(input.value)) { discard; }
     var lambert = 1.0;
     if (uniforms.params.y <= 0.5) {
         lambert = uniforms.params.z + uniforms.params.w * abs(dot(normalize(input.normal), normalize(uniforms.light_dir.xyz)));

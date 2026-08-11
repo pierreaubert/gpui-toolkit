@@ -1,4 +1,6 @@
 use super::interaction::MeshPlotState;
+#[cfg(feature = "gpu-3d")]
+use super::interaction::PreparedRevolve;
 use super::types::*;
 use crate::{
     ChartError, ChartSize, ColorRange, ColorScale, Colorbar, DEFAULT_TITLE_FONT_SIZE,
@@ -8,6 +10,8 @@ use d3rs::axis::{AxisConfig, DefaultAxisTheme, render_axis};
 use d3rs::grid::{GridConfig, render_grid};
 #[cfg(feature = "gpu-3d")]
 use d3rs::mesh::MeshBounds;
+#[cfg(feature = "gpu-3d")]
+use d3rs::mesh::gpu::compute::MeshCompute;
 use d3rs::mesh::{
     ContourBand, CoordinateAxis, IsolineSegment, MarchingTriangles, MeshTopology,
     MeshValidationError, ScalarAssociation, ScalarField, TriangleMesh, project_2d,
@@ -16,8 +20,9 @@ use d3rs::scale::LinearScale;
 use d3rs::text::{GlyphTextConfig, render_glyph_text};
 use gpui::prelude::*;
 use gpui::{
-    AnyElement, App, Div, InteractiveElement, IntoElement, ParentElement, RenderOnce, Stateful,
-    Styled, Window, div, hsla, px, rgb,
+    AnyElement, App, Bounds, Context, Div, FocusHandle, InteractiveElement, IntoElement,
+    ParentElement, Pixels, Render, RenderOnce, Stateful, Styled, WeakEntity, Window, canvas, div,
+    hsla, point, px, rgb,
 };
 use gpui_design::DesignSystem;
 use gpui_ui_kit::accessibility::{
@@ -25,12 +30,91 @@ use gpui_ui_kit::accessibility::{
 };
 use gpui_ui_kit::plot_toolbar::PlotToolbarAction;
 use gpui_ui_kit::tooltip::{Tooltip, TooltipPlacement};
+#[cfg(feature = "gpui")]
+use gpui_ui_kit::{ContextMenu, menu::MenuItem};
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::env;
 use std::fs;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
+
+type MeshPlotEntityKey = (gpui::WindowId, Arc<str>);
+type MeshPlotEntityMap = HashMap<MeshPlotEntityKey, gpui::Entity<MeshPlotLiveElement>>;
+type MeshPlotExportCallback = Rc<dyn Fn(Result<String, ChartError>)>;
+
+thread_local! {
+    /// MeshPlot builders are often recreated by a parent `Render` after a
+    /// Python/resource patch. Keep the live GPUI entity by stable plot ID so
+    /// background preparation, menus, and local navigation are not cancelled
+    /// simply because its declarative wrapper was rebuilt.
+    static MESH_PLOT_ENTITIES: RefCell<MeshPlotEntityMap> = RefCell::new(HashMap::new());
+}
+
+/// Classify a declarative rebuild by the immutable data that determines
+/// prepared mesh buffers. Parent `Render` implementations commonly recreate a
+/// builder on each notification, and resource adapters may decode fresh `Arc`
+/// buffers even when the resource generation is unchanged. The fallback
+/// comparison is therefore exact and uses f64 bit patterns so a masked NaN is
+/// stable across rebuilds.
+fn mesh_plot_resource_domains_changed(previous: &MeshPlot, next: &MeshPlot) -> (bool, bool) {
+    let positions_changed = previous.mesh.positions.as_ptr() != next.mesh.positions.as_ptr()
+        && (previous.mesh.positions.len() != next.mesh.positions.len()
+            || previous
+                .mesh
+                .positions
+                .iter()
+                .zip(next.mesh.positions.iter())
+                .any(|(previous, next)| {
+                    previous
+                        .iter()
+                        .zip(next.iter())
+                        .any(|(previous, next)| previous.to_bits() != next.to_bits())
+                }));
+    let geometry_changed = positions_changed
+        || (previous.mesh.triangles.as_ptr() != next.mesh.triangles.as_ptr()
+            && previous.mesh.triangles.as_ref() != next.mesh.triangles.as_ref())
+        || match (&previous.mesh.vertex_ids, &next.mesh.vertex_ids) {
+            (Some(previous), Some(next)) => {
+                previous.as_ptr() != next.as_ptr() && previous.as_ref() != next.as_ref()
+            }
+            (None, None) => false,
+            _ => true,
+        }
+        || match (&previous.mesh.cell_ids, &next.mesh.cell_ids) {
+            (Some(previous), Some(next)) => {
+                previous.as_ptr() != next.as_ptr() && previous.as_ref() != next.as_ref()
+            }
+            (None, None) => false,
+            _ => true,
+        }
+        // Axisymmetric views derive a different render mesh from the same
+        // source buffers, so a projection/spec switch is a geometry change.
+        || previous.view != next.view;
+    let field_changed = match (&previous.field, &next.field) {
+        (Some(previous), Some(next)) => {
+            (previous.values.as_ptr() != next.values.as_ptr()
+                && (previous.values.len() != next.values.len()
+                    || previous
+                        .values
+                        .iter()
+                        .zip(next.values.iter())
+                        .any(|(previous, next)| previous.to_bits() != next.to_bits())))
+                || match (&previous.valid, &next.valid) {
+                    (Some(previous), Some(next)) => {
+                        previous.as_ptr() != next.as_ptr() && previous.as_ref() != next.as_ref()
+                    }
+                    (None, None) => false,
+                    _ => true,
+                }
+                || previous.association != next.association
+        }
+        (None, None) => false,
+        _ => true,
+    };
+    (geometry_changed, field_changed)
+}
 
 fn write_mesh_qa_hit_trace(position: [f32; 2], viewport: [f32; 2], picked: bool) {
     let Some(destination) = env::var_os("GPUI_TOOLKIT_QA_LIVE_HIT_TRACE").map(PathBuf::from) else {
@@ -68,6 +152,116 @@ impl IntoElement for AccessibleMeshPlotElement {
     }
 }
 
+/// A one-shot builder wrapper that promotes a `MeshPlot` to a retained GPUI
+/// view at layout time.  The builder API stays ergonomic while the live view
+/// gains a stable owner for toolbar/menu state, completion notifications, and
+/// future background preparation results.
+struct MeshPlotElement {
+    plot: MeshPlot,
+}
+
+struct MeshPlotLiveElement {
+    plot: MeshPlot,
+    first_frame: bool,
+    toolbar_menu: Option<MeshPlotToolbarMenu>,
+    focus_handle: FocusHandle,
+    _window_cleanup: gpui::Subscription,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum MeshPlotToolbarMenu {
+    Mode,
+    View,
+}
+
+impl RenderOnce for MeshPlotElement {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let MeshPlotElement { mut plot } = self;
+        let plot_id = (window.window_handle().window_id(), plot.plot_id.clone());
+        MESH_PLOT_ENTITIES.with(|entities| {
+            let mut entities = entities.borrow_mut();
+            if let Some(entity) = entities.get(&plot_id).cloned() {
+                // When this builder is rendered again, retain the entity and
+                // its local menu/preparation ownership while atomically
+                // replacing the declarative data/configuration it renders.
+                entity.update(cx, |live, cx| {
+                    // Most declarative callers create a fresh builder without
+                    // an explicit state handle. Preserve the retained owner in
+                    // that common case so an in-flight contour/revolve task,
+                    // camera, selection, and toolbar changes survive the
+                    // parent redraw that delivered new resources.
+                    if plot.state.is_none() {
+                        plot.state = live.plot.state.clone();
+                    }
+                    let shares_retained_state = match (&live.plot.state, &plot.state) {
+                        (Some(previous), Some(next)) => Rc::ptr_eq(previous, next),
+                        _ => false,
+                    };
+                    if shares_retained_state {
+                        let (geometry_changed, field_changed) =
+                            mesh_plot_resource_domains_changed(&live.plot, &plot);
+                        if (geometry_changed || field_changed)
+                            && let Some(state) = plot.state.as_ref()
+                        {
+                            state
+                                .borrow_mut()
+                                .mark_resources_changed(geometry_changed, field_changed);
+                        }
+                    }
+                    live.plot = plot;
+                    cx.notify();
+                });
+                entity
+            } else {
+                let cleanup_key = plot_id.clone();
+                let window_cleanup = cx.on_window_closed(move |_cx, closed_window| {
+                    if closed_window == cleanup_key.0 {
+                        MESH_PLOT_ENTITIES.with(|entities| {
+                            entities.borrow_mut().remove(&cleanup_key);
+                        });
+                    }
+                });
+                let entity = cx.new(|cx| MeshPlotLiveElement {
+                    plot,
+                    first_frame: true,
+                    toolbar_menu: None,
+                    focus_handle: cx.focus_handle(),
+                    _window_cleanup: window_cleanup,
+                });
+                entities.insert(plot_id, entity.clone());
+                entity
+            }
+        })
+    }
+}
+
+impl IntoElement for MeshPlotElement {
+    type Element = gpui::Component<Self>;
+
+    fn into_element(self) -> Self::Element {
+        gpui::Component::new(self)
+    }
+}
+
+impl Render for MeshPlotLiveElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let frame =
+            self.plot
+                .build_frame(cx, self.first_frame, self.toolbar_menu, &self.focus_handle);
+        self.first_frame = false;
+        frame.unwrap_or_else(|error| {
+            // `MeshPlot::build` performs validation before this retained view
+            // is created. This fallback only protects a later live rebuild
+            // from a recoverable renderer/resource failure.
+            div()
+                .size_full()
+                .bg(rgb(0xf4f5f7))
+                .child(format!("Mesh plot unavailable: {error}"))
+                .into_any_element()
+        })
+    }
+}
+
 /// Builder for unstructured 2D/axisymmetric mesh charts.
 pub struct MeshPlot {
     pub(crate) mesh: TriangleMesh,
@@ -88,6 +282,7 @@ pub struct MeshPlot {
     pub(crate) design: Option<Arc<DesignSystem>>,
     pub(crate) state: Option<Rc<RefCell<MeshPlotState>>>,
     pub(crate) selection_callback: Option<Rc<dyn Fn(Option<MeshPlotPick>)>>,
+    pub(crate) export_callback: Option<MeshPlotExportCallback>,
     pub(crate) show_toolbar: bool,
     pub(crate) hidden_toolbar_actions: Vec<PlotToolbarAction>,
 }
@@ -178,6 +373,16 @@ impl MeshPlot {
         self.selection_callback = Some(Rc::new(callback));
         self
     }
+    /// Receive the deterministic SVG produced by the toolbar Export action.
+    /// The host owns file saving, so the component stays usable in sandboxed
+    /// and embedded windows.
+    pub fn on_export<F>(mut self, callback: F) -> Self
+    where
+        F: Fn(Result<String, ChartError>) + 'static,
+    {
+        self.export_callback = Some(Rc::new(callback));
+        self
+    }
     pub fn title(mut self, title: impl Into<String>) -> Self {
         self.title = Some(title.into());
         self
@@ -245,6 +450,23 @@ impl MeshPlot {
             self.field = Some(field.mask_nan()?);
         }
         self.validate()?;
+        let (layout_width, layout_height) = resolved_chart_dimensions(self.chart_size);
+        crate::validate::validate_dimensions(layout_width, layout_height)?;
+        Ok(MeshPlotElement { plot: self })
+    }
+
+    /// Compose the current frame of a retained live plot. The public builder
+    /// validates once, then this method is re-entered whenever the live owner
+    /// is notified by navigation, toolbar actions, or preparation completion.
+    fn build_frame(
+        &mut self,
+        cx: &mut Context<MeshPlotLiveElement>,
+        first_frame: bool,
+        toolbar_menu: Option<MeshPlotToolbarMenu>,
+        focus_handle: &FocusHandle,
+    ) -> Result<AnyElement, ChartError> {
+        let live = cx.entity().clone();
+        self.validate()?;
         let accessibility = self.accessibility_summary();
         let design = self.design.clone().unwrap_or_else(default_design);
         let (layout_width, layout_height) = resolved_chart_dimensions(self.chart_size);
@@ -266,7 +488,6 @@ impl MeshPlot {
             field: "mesh.positions",
             reason: "mesh projection must contain finite coordinates",
         })?;
-        let value_range = resolve_value_range(self.field.as_ref(), self.color_range)?;
         let topology = MeshTopology::build(&self.mesh.triangles);
 
         let margin_left = 50.0;
@@ -298,39 +519,141 @@ impl MeshPlot {
 
         let mesh = self.mesh.clone();
         let field = self.field.clone();
-        let mode = self.mode.clone();
-        let wireframe = self.wireframe;
         let equal_aspect = self.axes.equal_aspect;
         let color_scale = self.color_scale.clone();
         let projected_for_render = projected.clone();
-        let range_for_render = value_range;
         let mesh_for_render = mesh.clone();
         let field_for_render = field.clone();
         let selection_callback = self.selection_callback.clone();
 
         #[cfg(feature = "gpu-3d")]
         let state_is_new = self.state.is_none();
-        let interaction_state = if self.interactions == PlotInteractions::InspectAndNavigate {
-            let state = self.state.clone().unwrap_or_else(|| {
-                Rc::new(RefCell::new(MeshPlotState::new(
-                    x_domain[0],
-                    x_domain[1],
-                    y_domain[0],
-                    y_domain[1],
-                )))
-            });
+        #[cfg(feature = "gpu-3d")]
+        let needs_revolve_preparation_state =
+            matches!(self.view, MeshPlotView::AxisymmetricRevolve(_))
+                && self.mesh.triangles.len() >= ASYNC_REVOLVE_TRIANGLE_THRESHOLD;
+        let interaction_state =
+            if self.interactions == PlotInteractions::InspectAndNavigate || self.show_toolbar || {
+                #[cfg(feature = "gpu-3d")]
+                {
+                    needs_revolve_preparation_state
+                }
+                #[cfg(not(feature = "gpu-3d"))]
+                {
+                    false
+                }
+            } {
+                let state = self.state.clone().unwrap_or_else(|| {
+                    Rc::new(RefCell::new(MeshPlotState::new(
+                        x_domain[0],
+                        x_domain[1],
+                        y_domain[0],
+                        y_domain[1],
+                    )))
+                });
+                // A builder-created state must live beyond this frame so toolbar
+                // actions, async preparation, and exporter snapshots all address
+                // the same retained plot instance.
+                self.state = Some(state.clone());
+                {
+                    let mut state_ref = state.borrow_mut();
+                    state_ref.interaction = state_ref
+                        .interaction
+                        .clone()
+                        .with_size(plot_width, plot_height);
+                    if first_frame {
+                        state_ref.set_style(self.mode.clone(), self.wireframe, self.color_range);
+                    }
+                }
+                Some(state)
+            } else {
+                None
+            };
+
+        // After the initial frame, the live state is authoritative for all
+        // style values that native controls can mutate. Rebuilding from the
+        // original builder values would immediately undo a toolbar action.
+        let (mode, wireframe, active_color_range) = interaction_state
+            .as_ref()
+            .map(|state| {
+                let state = state.borrow();
+                (
+                    state.render_mode.clone(),
+                    state.wireframe,
+                    state.color_range,
+                )
+            })
+            .unwrap_or_else(|| (self.mode.clone(), self.wireframe, self.color_range));
+        let value_range = resolve_value_range(self.field.as_ref(), active_color_range)?;
+        let range_for_render = value_range;
+        let toolbar_mode_label = format!("{mode:?}");
+
+        #[cfg(all(feature = "gpu-3d", not(test)))]
+        let revolve_preparing = match (&self.view, interaction_state.as_ref()) {
+            (MeshPlotView::AxisymmetricRevolve(spec), Some(state))
+                if self.mesh.triangles.len() >= ASYNC_REVOLVE_TRIANGLE_THRESHOLD =>
             {
-                let mut state_ref = state.borrow_mut();
-                state_ref.interaction = state_ref
-                    .interaction
-                    .clone()
-                    .with_size(plot_width as f32, plot_height as f32);
-                state_ref.set_style(self.mode.clone(), self.wireframe, self.color_range);
+                let already_prepared =
+                    state
+                        .borrow()
+                        .has_prepared_revolve(&self.mesh, spec, self.field.as_ref());
+                if !already_prepared {
+                    let key = state.borrow_mut().begin_revolve_preparation(
+                        &self.mesh,
+                        spec,
+                        self.field.as_ref(),
+                    );
+                    if let Some(key) = key {
+                        let background_mesh = self.mesh.clone();
+                        let background_spec = spec.clone();
+                        let background_field = self.field.clone();
+                        let task = cx.background_spawn(async move {
+                            prepare_revolve(
+                                &background_mesh,
+                                &background_spec,
+                                background_field.as_ref(),
+                            )
+                        });
+                        cx.spawn(async move |this: WeakEntity<MeshPlotLiveElement>, cx| {
+                            let prepared = task.await;
+                            let _ = this.update(cx, |live, cx| {
+                                let Some(state) = live.plot.state.as_ref() else {
+                                    return;
+                                };
+                                let mut state = state.borrow_mut();
+                                if !state.finish_revolve_preparation(&key) {
+                                    return;
+                                }
+                                if let Ok(prepared) = prepared
+                                    && state.store_prepared_revolve(
+                                        &key,
+                                        &live.plot.mesh,
+                                        live.plot.field.as_ref(),
+                                        prepared,
+                                    )
+                                {
+                                    // The previous ready scene remains visible
+                                    // until this point. Build the new upload on
+                                    // the following retained render and fit to
+                                    // the new derived bounds exactly once.
+                                    state.retained_3d = None;
+                                    state.camera_fitted = false;
+                                }
+                                cx.notify();
+                            });
+                        })
+                        .detach();
+                    }
+                    true
+                } else {
+                    false
+                }
             }
-            Some(state)
-        } else {
-            None
+            _ => false,
         };
+
+        #[cfg(any(not(feature = "gpu-3d"), test))]
+        let revolve_preparing = false;
 
         let cached_contours = interaction_state.as_ref().and_then(|state| {
             state.borrow().cached_contours(
@@ -338,12 +661,88 @@ impl MeshPlot {
                 self.field.as_ref(),
                 horizontal,
                 vertical,
-                &self.mode,
+                &mode,
                 value_range,
             )
         });
+        let run_contours_in_background = interaction_state.is_some()
+            && requires_contour_preparation(&mode)
+            && self.mesh.triangles.len() >= ASYNC_CONTOUR_TRIANGLE_THRESHOLD;
         let (contour_bands, isolines) = if let Some(cached) = cached_contours {
             cached
+        } else if run_contours_in_background {
+            let Some(state) = interaction_state.as_ref() else {
+                unreachable!("background contour preparation requires retained state")
+            };
+            let previous = state.borrow().previous_contours();
+            let key = state.borrow_mut().begin_contour_preparation(
+                &self.mesh,
+                self.field.as_ref(),
+                horizontal,
+                vertical,
+                &mode,
+                value_range,
+            );
+            if let Some(key) = key {
+                let background_mesh = self.mesh.clone();
+                let background_field = self.field.clone();
+                let background_mode = mode.clone();
+                let completion_mode = mode.clone();
+                let task = cx.background_spawn(async move {
+                    let background_topology = MeshTopology::build(&background_mesh.triangles);
+                    #[cfg(feature = "gpu-3d")]
+                    {
+                        contour_geometry_with_compute(
+                            &background_mesh,
+                            background_field.as_ref(),
+                            &background_topology,
+                            horizontal,
+                            vertical,
+                            &background_mode,
+                            value_range,
+                        )
+                    }
+                    #[cfg(not(feature = "gpu-3d"))]
+                    {
+                        contour_geometry(
+                            &background_mesh,
+                            background_field.as_ref(),
+                            &background_topology,
+                            horizontal,
+                            vertical,
+                            &background_mode,
+                            value_range,
+                        )
+                    }
+                });
+                cx.spawn(async move |this: WeakEntity<MeshPlotLiveElement>, cx| {
+                    let prepared = task.await;
+                    let _ = this.update(cx, |live, cx| {
+                        let Some(state) = live.plot.state.as_ref() else {
+                            return;
+                        };
+                        let mut state = state.borrow_mut();
+                        if !state.finish_contour_preparation(&key) {
+                            return;
+                        }
+                        if let Ok((bands, lines)) = prepared {
+                            state.store_contours(
+                                &live.plot.mesh,
+                                live.plot.field.as_ref(),
+                                horizontal,
+                                vertical,
+                                &completion_mode,
+                                value_range,
+                                Rc::new(bands),
+                                Rc::new(lines),
+                            );
+                        }
+                        cx.notify();
+                    });
+                })
+                .detach();
+            }
+            previous.unwrap_or_else(|| (Rc::new(Vec::new()), Rc::new(Vec::new())))
         } else {
             let (bands, lines) = contour_geometry(
                 &self.mesh,
@@ -351,7 +750,7 @@ impl MeshPlot {
                 &topology,
                 horizontal,
                 vertical,
-                &self.mode,
+                &mode,
                 value_range,
             )?;
             let bands = Rc::new(bands);
@@ -362,7 +761,7 @@ impl MeshPlot {
                     self.field.as_ref(),
                     horizontal,
                     vertical,
-                    &self.mode,
+                    &mode,
                     value_range,
                     bands.clone(),
                     lines.clone(),
@@ -378,8 +777,8 @@ impl MeshPlot {
             &projected,
             x_domain,
             y_domain,
-            plot_width as f32,
-            plot_height as f32,
+            plot_width,
+            plot_height,
             equal_aspect,
             &mode,
             wireframe,
@@ -402,13 +801,19 @@ impl MeshPlot {
             };
             state
                 .borrow_mut()
-                .set_camera_aspect(plot_width as f32, plot_height as f32);
-            if !state.borrow().camera_fitted || state_is_new {
-                let render_mesh = render_3d_mesh_for_view(&mesh, &self.view)?;
-                let bounds = MeshBounds::from_positions(&render_mesh.positions);
+                .set_camera_aspect(plot_width, plot_height);
+            if (!state.borrow().camera_fitted || state_is_new) && !revolve_preparing {
+                let bounds = match &self.view {
+                    MeshPlotView::AxisymmetricRevolve(spec) => {
+                        let (revolved, _) = state.borrow_mut().revolved_bvh_for(&mesh, spec)?;
+                        MeshBounds::from_positions(&revolved.mesh.positions)
+                    }
+                    MeshPlotView::Surface3d => MeshBounds::from_positions(&mesh.positions),
+                    _ => unreachable!("retained 3D state only accepts 3D views"),
+                };
                 state
                     .borrow_mut()
-                    .fit_camera_to_bounds(bounds, plot_width as f32 / plot_height.max(1.0) as f32);
+                    .fit_camera_to_bounds(bounds, plot_width / plot_height.max(1.0));
             }
             Some(state)
         } else {
@@ -431,7 +836,53 @@ impl MeshPlot {
             let geometry_revision = owner.geometry_revision;
             let field_revision = owner.field_revision;
             let camera = owner.camera.clone();
-            if let Some(retained) = owner
+            if revolve_preparing {
+                if let Some(retained) = owner.retained_3d.as_ref().cloned() {
+                    // A geometry patch may be expensive to revolve. Keep the
+                    // last complete upload/camera visible until the worker
+                    // delivers an atomically accepted replacement.
+                    retained.renderer.set_camera(&camera);
+                    (
+                        retained.scene.clone(),
+                        retained.renderer.clone(),
+                        Some(retained.lod.clone()),
+                    )
+                } else {
+                    // First large revolve: render the source profile as a
+                    // deliberately lightweight preparing representation. This
+                    // avoids a hidden synchronous `revolve()` while making it
+                    // clear that the final surface is still being prepared.
+                    let fresh_retained_3d_state = build_retained_3d_scene_state(
+                        &mesh,
+                        field.as_ref(),
+                        &mode,
+                        wireframe,
+                        &color_scale,
+                        range_for_render,
+                    );
+                    {
+                        use d3rs::mesh::gpu::{FieldRevision, GeometryRevision};
+                        let mut fresh = fresh_retained_3d_state.borrow_mut();
+                        fresh.geometry_rev = GeometryRevision(geometry_revision);
+                        fresh.field_rev = FieldRevision(field_revision);
+                    }
+                    let renderer = Rc::new(d3rs::mesh::gpu::WgpuMesh3DRenderer::new_with_camera(
+                        fresh_retained_3d_state.clone(),
+                        Rc::new(RefCell::new(camera)),
+                    ));
+                    let lod = Rc::new(RefCell::new(super::interaction::RetainedMeshLod::new(
+                        mesh.clone(),
+                        field.as_ref(),
+                    )));
+                    owner.retained_3d = Some(super::interaction::RetainedMesh3D {
+                        scene: fresh_retained_3d_state.clone(),
+                        renderer: renderer.clone(),
+                        lod: lod.clone(),
+                        geometry_revision,
+                    });
+                    (fresh_retained_3d_state, renderer, Some(lod))
+                }
+            } else if let Some(retained) = owner
                 .retained_3d
                 .as_ref()
                 .filter(|retained| retained.geometry_revision == geometry_revision)
@@ -587,8 +1038,8 @@ impl MeshPlot {
             update_scene_view_transform(
                 &retained_state,
                 &state.borrow(),
-                plot_width as f32,
-                plot_height as f32,
+                plot_width,
+                plot_height,
                 equal_aspect,
             );
         }
@@ -780,8 +1231,6 @@ impl MeshPlot {
             let plot_id = self.plot_id.clone();
             let hover_index = index.clone();
             let select_index = index;
-            let horizontal = horizontal;
-            let vertical = vertical;
             let hover_state = state.clone();
             let hover_clear_state = hover_state.clone();
             let select_state = state.clone();
@@ -793,8 +1242,8 @@ impl MeshPlot {
             let scroll_scene = retained_state.clone();
             let pan_scene = retained_state.clone();
             let pan_scene_move = pan_scene.clone();
-            let navigation_width = plot_width as f32;
-            let navigation_height = plot_height as f32;
+            let navigation_width = plot_width;
+            let navigation_height = plot_height;
             let hover_plot_id = plot_id.clone();
             let select_plot_id = plot_id;
             let drag_state = Rc::new(RefCell::new(None::<[f32; 2]>));
@@ -803,29 +1252,75 @@ impl MeshPlot {
             let drag_up = drag_state.clone();
             let brush_state = state.clone();
             let callback = selection_callback.clone();
-            div()
+            let focus_handle = focus_handle.clone();
+            let focus_on_pointer_down = focus_handle.clone();
+            let focus_on_click = focus_handle.clone();
+            // Mouse events arrive in window coordinates. Cache the actual
+            // painted plot bounds so nested layouts, titles, axes, and resize
+            // all share one local-coordinate conversion.
+            let interaction_bounds: Rc<RefCell<Option<Bounds<Pixels>>>> =
+                Rc::new(RefCell::new(None));
+            let bounds_for_paint = interaction_bounds.clone();
+            let bounds_for_move = interaction_bounds.clone();
+            let bounds_for_down = interaction_bounds.clone();
+            let bounds_for_scroll = interaction_bounds.clone();
+            let bounds_recorder = canvas(
+                move |_bounds, _window, _cx| (),
+                move |bounds, (), _window, _cx| {
+                    let _ = bounds_for_paint.borrow_mut().replace(bounds);
+                },
+            )
+            .absolute()
+            .inset_0();
+            // GPUI dispatches keyboard events along the focused element's
+            // ancestor path. Keep the focus target as the interactive canvas,
+            // and install the key handler on its stable parent so it remains
+            // reachable after retained-frame rebuilds.
+            let interaction_surface = div()
                 .size_full()
                 .id(format!("mesh-plot-{}", mesh.id))
+                .track_focus(&focus_handle)
                 .focusable()
                 .cursor_grab()
                 .child(plot_element)
+                .child(bounds_recorder)
                 .on_mouse_move(move |event: &gpui::MouseMoveEvent, window, _cx| {
-                    let x = f32::from(event.position.x);
-                    let y = f32::from(event.position.y);
+                    let Some(bounds) = *bounds_for_move.borrow() else {
+                        return;
+                    };
+                    let screen_x = f32::from(event.position.x) - f32::from(bounds.origin.x);
+                    let screen_y = f32::from(event.position.y) - f32::from(bounds.origin.y);
                     let mut state = hover_state.borrow_mut();
-                    let Some((x, y)) = state.interaction.update_hover_pixel(x, y) else {
+                    if state
+                        .interaction
+                        .update_hover_pixel(screen_x, screen_y)
+                        .is_none()
+                    {
+                        state.set_hover(None);
+                        return;
+                    }
+                    let Some([x, y]) = mesh_point_to_domain(
+                        &state,
+                        screen_x,
+                        screen_y,
+                        navigation_width,
+                        navigation_height,
+                        equal_aspect,
+                    ) else {
+                        // Letterbox bars are outside the rendered mesh. Do
+                        // not turn their pixel coordinates into false picks.
                         state.set_hover(None);
                         return;
                     };
                     if state.interaction.is_brushing() {
-                        state.interaction.update_brush(x as f32, y as f32);
+                        state.interaction.update_brush(screen_x, screen_y);
                         window.refresh();
                     } else if let Some(previous) = *drag_move.borrow() {
-                        let dx = x as f32 - previous[0];
-                        let dy = y as f32 - previous[1];
+                        let dx = screen_x - previous[0];
+                        let dy = screen_y - previous[1];
                         if dx.abs() > 0.0 || dy.abs() > 0.0 {
                             state.interaction.pan_by_pixels(dx, dy);
-                            *drag_move.borrow_mut() = Some([x as f32, y as f32]);
+                            *drag_move.borrow_mut() = Some([screen_x, screen_y]);
                             update_scene_view_transform(
                                 &pan_scene_move,
                                 &state,
@@ -850,12 +1345,36 @@ impl MeshPlot {
                 })
                 .on_mouse_down(
                     gpui::MouseButton::Left,
-                    move |event: &gpui::MouseDownEvent, _window, _cx| {
-                        let screen = [f32::from(event.position.x), f32::from(event.position.y)];
+                    move |event: &gpui::MouseDownEvent, window, cx| {
+                        window.focus(&focus_on_pointer_down, cx);
+                        let Some(bounds) = *bounds_for_down.borrow() else {
+                            return;
+                        };
+                        let screen = [
+                            f32::from(event.position.x) - f32::from(bounds.origin.x),
+                            f32::from(event.position.y) - f32::from(bounds.origin.y),
+                        ];
                         let mut state = select_state.borrow_mut();
-                        let Some((x, y)) =
-                            state.interaction.update_hover_pixel(screen[0], screen[1])
-                        else {
+                        if state
+                            .interaction
+                            .update_hover_pixel(screen[0], screen[1])
+                            .is_none()
+                        {
+                            write_mesh_qa_hit_trace(
+                                screen,
+                                [navigation_width, navigation_height],
+                                false,
+                            );
+                            return;
+                        }
+                        let Some([x, y]) = mesh_point_to_domain(
+                            &state,
+                            screen[0],
+                            screen[1],
+                            navigation_width,
+                            navigation_height,
+                            equal_aspect,
+                        ) else {
                             write_mesh_qa_hit_trace(
                                 screen,
                                 [navigation_width, navigation_height],
@@ -864,7 +1383,7 @@ impl MeshPlot {
                             return;
                         };
                         if event.modifiers.shift {
-                            state.interaction.start_brush(x as f32, y as f32);
+                            state.interaction.start_brush(screen[0], screen[1]);
                             *drag_down.borrow_mut() = None;
                         } else {
                             let pick = state.pick_at(
@@ -882,7 +1401,7 @@ impl MeshPlot {
                                 [navigation_width, navigation_height],
                                 pick.is_some(),
                             );
-                            *drag_down.borrow_mut() = Some([x as f32, y as f32]);
+                            *drag_down.borrow_mut() = Some(screen);
                             if let Some(callback) = &callback {
                                 callback(pick);
                             }
@@ -910,20 +1429,8 @@ impl MeshPlot {
                         window.refresh();
                     }
                 })
-                .on_key_down(move |event: &gpui::KeyDownEvent, window, _cx| {
-                    let mut state = key_state.borrow_mut();
-                    if state.handle_key(&event.keystroke.key) {
-                        update_scene_view_transform(
-                            &key_scene,
-                            &state,
-                            navigation_width,
-                            navigation_height,
-                            equal_aspect,
-                        );
-                        window.refresh();
-                    }
-                })
-                .on_click(move |event: &gpui::ClickEvent, window, _cx| {
+                .on_click(move |event: &gpui::ClickEvent, window, cx| {
+                    window.focus(&focus_on_click, cx);
                     if event.click_count() >= 2 {
                         let mut state = click_state.borrow_mut();
                         state.interaction.reset_zoom();
@@ -945,12 +1452,27 @@ impl MeshPlot {
                     if !delta.is_finite() || delta == 0.0 {
                         return;
                     }
+                    let Some(bounds) = *bounds_for_scroll.borrow() else {
+                        return;
+                    };
                     let mut state = scroll_state.borrow_mut();
-                    let x = f32::from(event.position.x);
-                    let y = f32::from(event.position.y);
-                    state
-                        .interaction
-                        .zoom_around_pixel(x, y, (1.0 - delta * 0.1).max(0.1) as f64);
+                    let x = f32::from(event.position.x) - f32::from(bounds.origin.x);
+                    let y = f32::from(event.position.y) - f32::from(bounds.origin.y);
+                    let Some([focus_x, focus_y]) = mesh_point_to_domain(
+                        &state,
+                        x,
+                        y,
+                        navigation_width,
+                        navigation_height,
+                        equal_aspect,
+                    ) else {
+                        return;
+                    };
+                    state.interaction.zoom_around_domain(
+                        focus_x,
+                        focus_y,
+                        (1.0 - delta * 0.1).max(0.1) as f64,
+                    );
                     update_scene_view_transform(
                         &scroll_scene,
                         &state,
@@ -959,7 +1481,23 @@ impl MeshPlot {
                         equal_aspect,
                     );
                     window.refresh();
+                });
+            div()
+                .size_full()
+                .on_key_down(move |event: &gpui::KeyDownEvent, window, _cx| {
+                    let mut state = key_state.borrow_mut();
+                    if state.handle_key(&event.keystroke.key) {
+                        update_scene_view_transform(
+                            &key_scene,
+                            &state,
+                            navigation_width,
+                            navigation_height,
+                            equal_aspect,
+                        );
+                        window.refresh();
+                    }
                 })
+                .child(interaction_surface)
                 .into_any_element()
         } else {
             plot_element
@@ -1013,10 +1551,24 @@ impl MeshPlot {
             let state_key = state;
             let selection_callback_3d = selection_callback.clone();
             let clear_selection_callback_3d = selection_callback.clone();
-            let viewport = [plot_width as f32, plot_height as f32];
+            let viewport = [plot_width, plot_height];
+            let preparing_overlay = revolve_preparing.then(|| {
+                div()
+                    .absolute()
+                    .top(px(8.0))
+                    .left(px(8.0))
+                    .px(px(8.0))
+                    .py(px(4.0))
+                    .bg(rgb(0x30343b))
+                    .text_color(rgb(0xffffff))
+                    .child("Preparing 3D surface…")
+                    .into_any_element()
+            });
             div()
                 .size_full()
+                .relative()
                 .child(plot_element)
+                .children(preparing_overlay)
                 .on_mouse_down(
                     gpui::MouseButton::Left,
                     move |event: &gpui::MouseDownEvent, _window, _cx| {
@@ -1173,15 +1725,15 @@ impl MeshPlot {
 
         let chart_content = div()
             .flex()
-            .child(render_axis(&y_scale, &axis_y, plot_height as f32, &theme))
+            .child(render_axis(&y_scale, &axis_y, plot_height, &theme))
             .child(
                 div()
                     .flex()
                     .flex_col()
                     .child(
                         div()
-                            .w(px(plot_width as f32))
-                            .h(px(plot_height as f32))
+                            .w(px(plot_width))
+                            .h(px(plot_height))
                             .relative()
                             .overflow_hidden()
                             .bg(rgb(0xf8f8f8))
@@ -1189,14 +1741,14 @@ impl MeshPlot {
                                 &x_scale,
                                 &y_scale,
                                 &grid,
-                                plot_width as f32,
-                                plot_height as f32,
+                                plot_width,
+                                plot_height,
                                 &theme,
                             ))
                             .child(div().absolute().inset_0().size_full().child(plot_element))
                             .children(hover_tooltip),
                     )
-                    .child(render_axis(&x_scale, &axis_x, plot_width as f32, &theme)),
+                    .child(render_axis(&x_scale, &axis_x, plot_width, &theme)),
             );
 
         let mut container = apply_chart_size(div(), self.chart_size)
@@ -1218,7 +1770,7 @@ impl MeshPlot {
                     .child(render_glyph_text(title, &config)),
             );
         }
-        let mut body = div().flex().child(chart_content);
+        let mut body = div().relative().flex().child(chart_content);
         if let Some(colorbar) = &self.colorbar
             && let Some(range) = value_range
         {
@@ -1230,7 +1782,7 @@ impl MeshPlot {
                         min: range[0],
                         max: range[1],
                     })
-                    .render(&design, plot_height as f32),
+                    .render(&design, plot_height),
             );
         }
         #[cfg(feature = "gpui")]
@@ -1251,22 +1803,66 @@ impl MeshPlot {
             #[cfg(feature = "gpu-3d")]
             let toolbar_3d_camera = retained_3d_camera.clone();
             #[cfg(feature = "gpu-3d")]
-            let toolbar_3d_bounds = toolbar_is_3d
-                .then(|| render_3d_mesh_for_view(&mesh, &self.view).ok())
-                .flatten()
-                .map(|mesh| MeshBounds::from_positions(&mesh.positions));
+            let toolbar_3d_bounds = toolbar_state.as_ref().and_then(|state| {
+                let mut state = state.borrow_mut();
+                match &self.view {
+                    MeshPlotView::Surface3d => Some(MeshBounds::from_positions(&mesh.positions)),
+                    MeshPlotView::AxisymmetricRevolve(spec)
+                        if !state.revolve_preparation_pending(&mesh, spec, field.as_ref()) =>
+                    {
+                        state
+                            .revolved_bvh_for(&mesh, spec)
+                            .ok()
+                            .map(|(revolved, _)| {
+                                MeshBounds::from_positions(&revolved.mesh.positions)
+                            })
+                    }
+                    _ => None,
+                }
+            });
             let toolbar_field = field.clone();
             let toolbar_hidden_actions = self.hidden_toolbar_actions.clone();
+            let toolbar_live = live.clone();
+            let toolbar_export = self.export_callback.clone();
+            let toolbar_action_state = toolbar_state.clone();
+            let toolbar_action_field = toolbar_field.clone();
             let mut toolbar = PlotToolbar::new("mesh-plot-toolbar")
-                .mode(format!("{:?}", self.mode))
+                .mode(toolbar_mode_label)
                 .view(toolbar_view_name(&self.view))
-                .wireframe(self.wireframe == Wireframe::Overlay);
+                .wireframe(wireframe == Wireframe::Overlay)
+                .disabled(PlotToolbarAction::Export, toolbar_export.is_none());
+            if !toolbar_is_3d {
+                toolbar = toolbar.hidden(PlotToolbarAction::OpenViewMenu, true);
+            }
             for action in toolbar_hidden_actions {
                 toolbar = toolbar.hidden(action, true);
             }
             let toolbar = toolbar
                 .on_action(move |action, window, _cx| {
-                    let Some(state) = toolbar_state.as_ref() else {
+                    if matches!(action, PlotToolbarAction::OpenModeMenu) {
+                        toolbar_live.update(_cx, |plot, cx| {
+                            plot.toolbar_menu = Some(MeshPlotToolbarMenu::Mode);
+                            cx.notify();
+                        });
+                        return;
+                    }
+                    if matches!(action, PlotToolbarAction::OpenViewMenu) {
+                        toolbar_live.update(_cx, |plot, cx| {
+                            plot.toolbar_menu = Some(MeshPlotToolbarMenu::View);
+                            cx.notify();
+                        });
+                        return;
+                    }
+                    if matches!(action, PlotToolbarAction::Export) {
+                        if let Some(callback) = toolbar_export.as_ref() {
+                            toolbar_live.update(_cx, |plot, cx| {
+                                callback(plot.plot.to_svg());
+                                cx.notify();
+                            });
+                        }
+                        return;
+                    }
+                    let Some(state) = toolbar_action_state.as_ref() else {
                         return;
                     };
                     let mut state = state.borrow_mut();
@@ -1279,7 +1875,7 @@ impl MeshPlot {
                                         if let Some(bounds) = toolbar_3d_bounds {
                                             state.fit_camera_to_bounds(
                                                 bounds,
-                                                plot_width as f32 / plot_height.max(1.0) as f32,
+                                                plot_width / plot_height.max(1.0),
                                             );
                                         }
                                     } else {
@@ -1297,8 +1893,8 @@ impl MeshPlot {
                                 update_scene_view_transform(
                                     &toolbar_2d_scene,
                                     &state,
-                                    plot_width as f32,
-                                    plot_height as f32,
+                                    plot_width,
+                                    plot_height,
                                     equal_aspect,
                                 );
                             }
@@ -1318,11 +1914,13 @@ impl MeshPlot {
                         }
                         PlotToolbarAction::ResetColorRange => {
                             state.reset_color_range();
-                            let range =
-                                resolve_value_range(toolbar_field.as_ref(), ColorRange::Auto)
-                                    .ok()
-                                    .flatten()
-                                    .unwrap_or([0.0, 1.0]);
+                            let range = resolve_value_range(
+                                toolbar_action_field.as_ref(),
+                                ColorRange::Auto,
+                            )
+                            .ok()
+                            .flatten()
+                            .unwrap_or([0.0, 1.0]);
                             #[cfg(feature = "gpu-2d")]
                             {
                                 toolbar_2d_scene.borrow_mut().color.range =
@@ -1336,12 +1934,56 @@ impl MeshPlot {
                         }
                         PlotToolbarAction::OpenModeMenu
                         | PlotToolbarAction::OpenViewMenu
-                        | PlotToolbarAction::Export => {}
+                        | PlotToolbarAction::Export => unreachable!("handled before state access"),
                     }
                     window.refresh();
+                    toolbar_live.update(_cx, |_plot, cx| cx.notify());
                 })
                 .build();
             body = body.child(toolbar);
+
+            if let Some(menu) = toolbar_menu {
+                let active_menu_mode = toolbar_state
+                    .as_ref()
+                    .map(|state| state.borrow().render_mode.clone())
+                    .unwrap_or(MeshRenderMode::Mesh);
+                let items = match menu {
+                    MeshPlotToolbarMenu::Mode => {
+                        mesh_toolbar_mode_items(toolbar_field.as_ref(), &active_menu_mode)
+                    }
+                    MeshPlotToolbarMenu::View => mesh_toolbar_view_items(),
+                };
+                let menu_live = live.clone();
+                let close_live = live.clone();
+                let menu_state = toolbar_state.clone();
+                let menu_is_3d = toolbar_is_3d;
+                body = body.child(
+                    ContextMenu::new("mesh-plot-toolbar-menu", items)
+                        .position(point(px(4.0), px(38.0)))
+                        .on_select(move |id, window, cx| {
+                            menu_live.update(cx, |plot, cx| {
+                                if let Some(state) = menu_state.as_ref() {
+                                    let mut state = state.borrow_mut();
+                                    apply_mesh_toolbar_menu_selection(
+                                        &mut state,
+                                        menu,
+                                        id.as_ref(),
+                                        menu_is_3d,
+                                    );
+                                }
+                                plot.toolbar_menu = None;
+                                cx.notify();
+                            });
+                            window.refresh();
+                        })
+                        .on_close(move |_window, cx| {
+                            close_live.update(cx, |plot, cx| {
+                                plot.toolbar_menu = None;
+                                cx.notify();
+                            });
+                        }),
+                );
+            }
         }
         container = container.child(body);
         let element_id = format!("mesh-plot-{}", self.plot_id);
@@ -1361,7 +2003,8 @@ impl MeshPlot {
                 label: accessibility_label.into(),
                 props: accessibility_props,
             },
-        })
+        }
+        .into_any_element())
     }
 
     fn validate(&self) -> Result<(), ChartError> {
@@ -1411,12 +2054,29 @@ impl MeshPlot {
             }
         }
         if let MeshPlotView::AxisymmetricRevolve(spec) = &self.view {
-            // Validate and prepare the retained derivative before a GPU/GPUI
-            // element is constructed. Hosts key this derivative by the
-            // geometry/spec revision and reuse it across field updates.
-            let revolved = d3rs::mesh::revolve(&self.mesh, spec)?;
-            if let Some(field) = &self.field {
-                let _ = d3rs::mesh::revolve_field(field, &revolved);
+            // Keep builder validation cheap. `revolve()` performs the same
+            // mesh/spec/radius checks below, but it also allocates the full
+            // derived surface, computes normals, and builds topology. Large
+            // interactive profiles must defer that work to the retained
+            // background preparation path rather than doing it before the
+            // first "Preparing 3D surface…" frame can be presented.
+            if spec.segments < 3
+                || !spec.start_angle.is_finite()
+                || !spec.sweep_angle.is_finite()
+                || spec.sweep_angle <= 0.0
+                || spec.sweep_angle > std::f64::consts::TAU
+            {
+                return Err(MeshValidationError::InvalidRevolveSpec.into());
+            }
+            for (index, position) in self.mesh.positions.iter().enumerate() {
+                let radius = spec.radial.component(*position);
+                if radius < -1e-12 {
+                    return Err(MeshValidationError::InvalidRadius {
+                        index,
+                        value: radius,
+                    }
+                    .into());
+                }
             }
         }
         if let MeshPlotView::AxisymmetricSection { radial, .. } = self.view {
@@ -1476,23 +2136,9 @@ pub fn mesh_plot(mesh: TriangleMesh) -> MeshPlot {
         design: None,
         state: None,
         selection_callback: None,
+        export_callback: None,
         show_toolbar: false,
         hidden_toolbar_actions: Vec::new(),
-    }
-}
-
-#[cfg(feature = "gpu-3d")]
-fn render_3d_mesh_for_view(
-    mesh: &TriangleMesh,
-    view: &MeshPlotView,
-) -> Result<TriangleMesh, ChartError> {
-    match view {
-        MeshPlotView::AxisymmetricRevolve(spec) => Ok(d3rs::mesh::revolve(mesh, spec)?.mesh),
-        MeshPlotView::Surface3d => Ok(mesh.clone()),
-        _ => Err(ChartError::UnsupportedView {
-            view: toolbar_view_name(view),
-            reason: "the 3D render path only accepts surface or revolve views",
-        }),
     }
 }
 
@@ -1744,6 +2390,57 @@ fn mesh_view_transform(
 }
 
 #[cfg(feature = "gpu-2d")]
+fn mesh_point_to_domain(
+    state: &MeshPlotState,
+    screen_x: f32,
+    screen_y: f32,
+    plot_width: f32,
+    plot_height: f32,
+    equal_aspect: bool,
+) -> Option<[f64; 2]> {
+    if !screen_x.is_finite()
+        || !screen_y.is_finite()
+        || plot_width <= 0.0
+        || plot_height <= 0.0
+        || screen_x < 0.0
+        || screen_y < 0.0
+        || screen_x > plot_width
+        || screen_y > plot_height
+    {
+        return None;
+    }
+    let (x_domain_min, x_domain_max) = state.interaction.x_domain();
+    let (y_domain_min, y_domain_max) = state.interaction.y_domain();
+    let x_span = (x_domain_max - x_domain_min).max(f64::EPSILON);
+    let y_span = (y_domain_max - y_domain_min).max(f64::EPSILON);
+    if !equal_aspect {
+        return Some([
+            x_domain_min + f64::from(screen_x) / f64::from(plot_width) * x_span,
+            y_domain_max - f64::from(screen_y) / f64::from(plot_height) * y_span,
+        ]);
+    }
+
+    let pixels_per_unit = (f64::from(plot_width) / x_span).min(f64::from(plot_height) / y_span);
+    let used_width = x_span * pixels_per_unit;
+    let used_height = y_span * pixels_per_unit;
+    let left = (f64::from(plot_width) - used_width) * 0.5;
+    let top = (f64::from(plot_height) - used_height) * 0.5;
+    let screen_x = f64::from(screen_x);
+    let screen_y = f64::from(screen_y);
+    if screen_x < left
+        || screen_x > left + used_width
+        || screen_y < top
+        || screen_y > top + used_height
+    {
+        return None;
+    }
+    Some([
+        x_domain_min + (screen_x - left) / pixels_per_unit,
+        y_domain_max - (screen_y - top) / pixels_per_unit,
+    ])
+}
+
+#[cfg(feature = "gpu-2d")]
 fn update_scene_view_transform(
     scene: &Rc<RefCell<d3rs::mesh::gpu::MeshSceneState>>,
     interaction: &MeshPlotState,
@@ -1810,6 +2507,12 @@ fn pick_3d_for_view_retained(
             super::picking3d::pick_3d_with_bvh(mesh, field, &bvh, camera, screen, viewport, plot_id)
         }
         MeshPlotView::AxisymmetricRevolve(spec) => {
+            if state.revolve_preparation_pending(mesh, spec, field) {
+                // The visible fallback belongs to a previous complete scene
+                // (or the lightweight initial profile), so do not synchronously
+                // build a new derived BVH merely to service a pointer event.
+                return None;
+            }
             let (revolved, bvh) = state.revolved_bvh_for(mesh, spec).ok()?;
             let derived_field = field
                 .map(|field| state.revolved_field_for(mesh, spec, field))
@@ -1837,6 +2540,124 @@ fn toolbar_view_name(view: &MeshPlotView) -> &'static str {
         MeshPlotView::AxisymmetricSection { .. } => "Axisymmetric section",
         MeshPlotView::AxisymmetricRevolve(_) => "Axisymmetric revolve",
         MeshPlotView::Surface3d => "Surface 3D",
+    }
+}
+
+#[cfg(feature = "gpui")]
+fn mesh_toolbar_mode_items(field: Option<&ScalarField>, current: &MeshRenderMode) -> Vec<MenuItem> {
+    let mut items = vec![MenuItem::checkbox(
+        "mesh",
+        "Mesh",
+        matches!(current, MeshRenderMode::Mesh),
+    )];
+    let Some(field) = field else {
+        return items;
+    };
+    match field.association {
+        ScalarAssociation::Vertex => {
+            items.push(MenuItem::checkbox(
+                "smooth-fill",
+                "Smooth scalar fill",
+                matches!(
+                    current,
+                    MeshRenderMode::ScalarFill {
+                        interpolation: FieldInterpolation::Smooth
+                    }
+                ),
+            ));
+            items.push(MenuItem::checkbox(
+                "filled-contours",
+                "Filled contours",
+                matches!(current, MeshRenderMode::FilledContours { .. }),
+            ));
+            items.push(MenuItem::checkbox(
+                "isolines",
+                "Isolines",
+                matches!(current, MeshRenderMode::Isolines { .. }),
+            ));
+            items.push(MenuItem::checkbox(
+                "fill-and-isolines",
+                "Fill and isolines",
+                matches!(current, MeshRenderMode::FillAndIsolines { .. }),
+            ));
+        }
+        ScalarAssociation::Cell => items.push(MenuItem::checkbox(
+            "flat-fill",
+            "Flat scalar fill",
+            matches!(
+                current,
+                MeshRenderMode::ScalarFill {
+                    interpolation: FieldInterpolation::Flat
+                }
+            ),
+        )),
+    }
+    items
+}
+
+#[cfg(feature = "gpui")]
+fn mesh_toolbar_view_items() -> Vec<MenuItem> {
+    [
+        ("front", "Front"),
+        ("back", "Back"),
+        ("left", "Left"),
+        ("right", "Right"),
+        ("top", "Top"),
+        ("bottom", "Bottom"),
+        ("isometric", "Isometric"),
+        ("projection", "Toggle perspective / orthographic"),
+    ]
+    .into_iter()
+    .map(|(id, label)| MenuItem::new(id, label))
+    .collect()
+}
+
+#[cfg(feature = "gpui")]
+fn apply_mesh_toolbar_menu_selection(
+    state: &mut MeshPlotState,
+    menu: MeshPlotToolbarMenu,
+    id: &str,
+    is_3d: bool,
+) {
+    match menu {
+        MeshPlotToolbarMenu::Mode => {
+            let mode = match id {
+                "mesh" => MeshRenderMode::Mesh,
+                "smooth-fill" => MeshRenderMode::ScalarFill {
+                    interpolation: FieldInterpolation::Smooth,
+                },
+                "flat-fill" => MeshRenderMode::ScalarFill {
+                    interpolation: FieldInterpolation::Flat,
+                },
+                "filled-contours" => MeshRenderMode::FilledContours {
+                    levels: d3rs::mesh::ContourLevels::Count(12),
+                },
+                "isolines" => MeshRenderMode::Isolines {
+                    levels: d3rs::mesh::ContourLevels::Count(12),
+                },
+                "fill-and-isolines" => MeshRenderMode::FillAndIsolines {
+                    levels: d3rs::mesh::ContourLevels::Count(12),
+                },
+                _ => return,
+            };
+            state.set_render_mode(mode);
+        }
+        MeshPlotToolbarMenu::View if is_3d =>
+        {
+            #[cfg(feature = "gpu-3d")]
+            match id {
+                "front" => state.orbit_standard_view(d3rs::gpu3d::StandardView::Front),
+                "back" => state.orbit_standard_view(d3rs::gpu3d::StandardView::Back),
+                "left" => state.orbit_standard_view(d3rs::gpu3d::StandardView::Left),
+                "right" => state.orbit_standard_view(d3rs::gpu3d::StandardView::Right),
+                "top" => state.orbit_standard_view(d3rs::gpu3d::StandardView::Top),
+                "bottom" => state.orbit_standard_view(d3rs::gpu3d::StandardView::Bottom),
+                "isometric" => state.orbit_standard_view(d3rs::gpu3d::StandardView::Isometric),
+                "projection" => state.toggle_projection(),
+                _ => {}
+            }
+        }
+        MeshPlotToolbarMenu::View => {}
     }
 }
 
@@ -1924,6 +2745,116 @@ fn contour_geometry(
         Vec::new()
     };
     Ok((bands, lines))
+}
+
+/// Adapter-backed isolines are an opportunistic acceleration for large live
+/// plots. Filled-band clipping stays on the deterministic CPU implementation
+/// until a matching GPU band pipeline exists. Any adapter creation/dispatch
+/// failure deliberately falls back to `contour_geometry`.
+#[cfg(feature = "gpu-3d")]
+fn contour_geometry_with_compute(
+    mesh: &TriangleMesh,
+    field: Option<&ScalarField>,
+    topology: &MeshTopology,
+    horizontal: CoordinateAxis,
+    vertical: CoordinateAxis,
+    mode: &MeshRenderMode,
+    range: Option<[f64; 2]>,
+) -> Result<(Vec<ContourBand>, Vec<IsolineSegment>), ChartError> {
+    let Some(field) = field else {
+        return Ok((Vec::new(), Vec::new()));
+    };
+    let levels = match mode {
+        MeshRenderMode::FilledContours { levels }
+        | MeshRenderMode::Isolines { levels }
+        | MeshRenderMode::FillAndIsolines { levels } => {
+            levels.resolve(range.unwrap_or([0.0, 1.0]))?
+        }
+        _ => return Ok((Vec::new(), Vec::new())),
+    };
+    let marching = MarchingTriangles::new(mesh, field, topology, horizontal, vertical)?;
+    let cpu_bands = || marching.filled_bands(&levels);
+    let cpu_lines = || marching.isolines(&levels);
+    let Some(compute) = MeshCompute::try_new() else {
+        return Ok((
+            if matches!(
+                mode,
+                MeshRenderMode::FilledContours { .. } | MeshRenderMode::FillAndIsolines { .. }
+            ) {
+                cpu_bands()
+            } else {
+                Vec::new()
+            },
+            if matches!(
+                mode,
+                MeshRenderMode::Isolines { .. } | MeshRenderMode::FillAndIsolines { .. }
+            ) {
+                cpu_lines()
+            } else {
+                Vec::new()
+            },
+        ));
+    };
+    let bands = if matches!(
+        mode,
+        MeshRenderMode::FilledContours { .. } | MeshRenderMode::FillAndIsolines { .. }
+    ) {
+        compute
+            .band_triangles_projected(mesh, field, topology, horizontal, vertical, &levels)
+            .unwrap_or_else(|_| cpu_bands())
+    } else {
+        Vec::new()
+    };
+    let lines = if matches!(
+        mode,
+        MeshRenderMode::Isolines { .. } | MeshRenderMode::FillAndIsolines { .. }
+    ) {
+        compute
+            .marching_segments_projected(mesh, field, topology, horizontal, vertical, &levels)
+            .unwrap_or_else(|_| cpu_lines())
+    } else {
+        Vec::new()
+    };
+    Ok((bands, lines))
+}
+
+/// Above this size, marching-triangle bands and isolines are prepared on the
+/// GPUI background executor. The threshold keeps small plots synchronous and
+/// deterministic while protecting interactive render frames for solver-scale
+/// meshes.
+const ASYNC_CONTOUR_TRIANGLE_THRESHOLD: usize = 10_000;
+
+/// Revolve generation expands every profile vertex and cell by the requested
+/// angular resolution and then builds a BVH, so use the same large-mesh policy
+/// as contours: never do that work during a live frame once the profile is
+/// large enough to be user-visible.
+#[cfg(feature = "gpu-3d")]
+const ASYNC_REVOLVE_TRIANGLE_THRESHOLD: usize = 10_000;
+
+#[cfg(feature = "gpu-3d")]
+#[cfg_attr(test, allow(dead_code))]
+fn prepare_revolve(
+    mesh: &TriangleMesh,
+    spec: &d3rs::mesh::RevolveSpec,
+    field: Option<&ScalarField>,
+) -> Result<PreparedRevolve, ChartError> {
+    let revolved = d3rs::mesh::revolve(mesh, spec)?;
+    let bvh = d3rs::mesh::MeshBvh::build(&revolved.mesh);
+    let field = field.map(|field| super::picking3d::revolved_field(field, &revolved));
+    Ok(PreparedRevolve {
+        revolved,
+        bvh,
+        field,
+    })
+}
+
+fn requires_contour_preparation(mode: &MeshRenderMode) -> bool {
+    matches!(
+        mode,
+        MeshRenderMode::FilledContours { .. }
+            | MeshRenderMode::Isolines { .. }
+            | MeshRenderMode::FillAndIsolines { .. }
+    )
 }
 
 struct MeshProjector {
@@ -2080,6 +3011,61 @@ mod tests {
     }
 
     #[test]
+    fn declarative_rebuild_classifies_geometry_and_field_dirty_domains() {
+        let mesh = square_mesh();
+        let field = vertex_field();
+        let previous = mesh_plot(mesh.clone()).field(field.clone());
+        let unchanged = mesh_plot(mesh.clone()).field(field.clone());
+        assert_eq!(
+            mesh_plot_resource_domains_changed(&previous, &unchanged),
+            (false, false),
+            "cloned builders retain their immutable backing stores"
+        );
+
+        let mut replacement_mesh = mesh.clone();
+        replacement_mesh.positions = Arc::from([
+            [0.0, 0.0, 0.0],
+            [2.0, 0.0, 0.0],
+            [2.0, 1.0, 0.0],
+            [0.0, 1.0, 0.0],
+        ]);
+        let geometry_update = mesh_plot(replacement_mesh).field(field.clone());
+        assert_eq!(
+            mesh_plot_resource_domains_changed(&previous, &geometry_update),
+            (true, false)
+        );
+
+        let mut replacement_field = field.clone();
+        replacement_field.values = Arc::from([2.0, 1.0, 1.0, 0.0]);
+        let field_update = mesh_plot(mesh.clone()).field(replacement_field);
+        assert_eq!(
+            mesh_plot_resource_domains_changed(&previous, &field_update),
+            (false, true)
+        );
+
+        let mut masked_nan_field = field.clone();
+        masked_nan_field.values = Arc::from([0.0, f64::NAN, 1.0, 2.0]);
+        let masked_nan_previous = mesh_plot(mesh.clone()).field(masked_nan_field.clone());
+        let mut rebuilt_masked_nan_field = masked_nan_field.clone();
+        rebuilt_masked_nan_field.values = Arc::from([0.0, f64::NAN, 1.0, 2.0]);
+        let rebuilt_masked_nan = mesh_plot(mesh.clone()).field(rebuilt_masked_nan_field);
+        assert_eq!(
+            mesh_plot_resource_domains_changed(&masked_nan_previous, &rebuilt_masked_nan),
+            (false, false),
+            "equivalent masked NaN samples must not dirty a rebuilt live plot"
+        );
+
+        let revolve_update = mesh_plot(mesh)
+            .field(field)
+            .view(MeshPlotView::AxisymmetricRevolve(Default::default()));
+        assert_eq!(
+            mesh_plot_resource_domains_changed(&previous, &revolve_update),
+            (true, false),
+            "a view that derives revolved geometry must invalidate prepared buffers"
+        );
+    }
+
+    #[test]
     fn toolbar_action_visibility_is_builder_configurable() {
         let plot = mesh_plot(square_mesh())
             .toolbar(true)
@@ -2095,6 +3081,52 @@ mod tests {
             plot.hidden_toolbar_actions
                 .contains(&PlotToolbarAction::OpenViewMenu)
         );
+    }
+
+    #[cfg(feature = "gpui")]
+    #[test]
+    fn toolbar_mode_menu_offers_only_valid_field_association_choices() {
+        let vertex_items = mesh_toolbar_mode_items(Some(&vertex_field()), &MeshRenderMode::Mesh);
+        let vertex_ids: Vec<_> = vertex_items.iter().map(|item| item.id().as_ref()).collect();
+        assert!(vertex_ids.contains(&"smooth-fill"));
+        assert!(vertex_ids.contains(&"filled-contours"));
+
+        let cell_field = ScalarField {
+            id: "cell".into(),
+            label: "Cell".into(),
+            unit: None,
+            values: Arc::from([0.5, 0.7]),
+            association: ScalarAssociation::Cell,
+            valid: None,
+        };
+        let cell_items = mesh_toolbar_mode_items(Some(&cell_field), &MeshRenderMode::Mesh);
+        let cell_ids: Vec<_> = cell_items.iter().map(|item| item.id().as_ref()).collect();
+        assert!(cell_ids.contains(&"flat-fill"));
+        assert!(!cell_ids.contains(&"filled-contours"));
+    }
+
+    #[cfg(feature = "gpui")]
+    #[test]
+    fn toolbar_mode_selection_updates_the_retained_style() {
+        let mut state = MeshPlotState::new(0.0, 1.0, 0.0, 1.0);
+        apply_mesh_toolbar_menu_selection(
+            &mut state,
+            MeshPlotToolbarMenu::Mode,
+            "fill-and-isolines",
+            false,
+        );
+        assert!(matches!(
+            state.render_mode,
+            MeshRenderMode::FillAndIsolines {
+                levels: ContourLevels::Count(12)
+            }
+        ));
+    }
+
+    #[test]
+    fn export_callback_is_builder_configurable() {
+        let plot = mesh_plot(square_mesh()).on_export(|result| assert!(result.is_ok()));
+        assert!(plot.export_callback.is_some());
     }
 
     #[test]
@@ -2138,6 +3170,65 @@ mod tests {
                 MeshValidationError::ContoursRequireVertexField
             ))
         ));
+    }
+
+    fn contour_band_area(band: &ContourBand) -> f64 {
+        band.triangles
+            .iter()
+            .map(|&[a, b, c]| {
+                let a = band.positions[a as usize];
+                let b = band.positions[b as usize];
+                let c = band.positions[c as usize];
+                ((b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])).abs() * 0.5
+            })
+            .sum()
+    }
+
+    #[cfg(feature = "gpu-3d")]
+    #[test]
+    fn computed_fill_and_isolines_matches_cpu_geometry_with_adapter_precision() {
+        let mesh = square_mesh();
+        let field = vertex_field();
+        let topology = MeshTopology::build(&mesh.triangles);
+        let mode = MeshRenderMode::FillAndIsolines {
+            levels: d3rs::mesh::ContourLevels::Count(3),
+        };
+        let cpu = contour_geometry(
+            &mesh,
+            Some(&field),
+            &topology,
+            CoordinateAxis::X,
+            CoordinateAxis::Y,
+            &mode,
+            Some([0.0, 2.0]),
+        )
+        .unwrap();
+        let computed = contour_geometry_with_compute(
+            &mesh,
+            Some(&field),
+            &topology,
+            CoordinateAxis::X,
+            CoordinateAxis::Y,
+            &mode,
+            Some([0.0, 2.0]),
+        )
+        .unwrap();
+        assert_eq!(computed.0.len(), cpu.0.len());
+        for (computed_band, cpu_band) in computed.0.iter().zip(&cpu.0) {
+            // Keep f64 level boundaries exact even though the adapter clips with f32
+            // interpolation internally.
+            assert_eq!(computed_band.lower, cpu_band.lower);
+            assert_eq!(computed_band.upper, cpu_band.upper);
+            assert!(
+                (contour_band_area(computed_band) - contour_band_area(cpu_band)).abs() < 2e-4,
+                "computed area {} != CPU area {} for {:?}..{:?}",
+                contour_band_area(computed_band),
+                contour_band_area(cpu_band),
+                cpu_band.lower,
+                cpu_band.upper,
+            );
+        }
+        assert_eq!(computed.1, cpu.1);
     }
 
     #[test]
@@ -2311,6 +3402,68 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "gpu-3d")]
+    #[test]
+    fn retained_3d_viewport_and_selection_updates_keep_geometry_payload() {
+        let mesh = square_mesh();
+        let field = vertex_field();
+        let scene = build_retained_3d_scene_state(
+            &mesh,
+            Some(&field),
+            &MeshRenderMode::ScalarFill {
+                interpolation: FieldInterpolation::Smooth,
+            },
+            Wireframe::Hidden,
+            &ColorScale::Viridis,
+            Some([0.0, 2.0]),
+        );
+        let (positions, indices, geometry_revision, upload_count, upload_bytes) = {
+            let scene = scene.borrow();
+            let upload = scene.upload.as_ref().expect("prepared 3D upload");
+            (
+                upload.positions_f32.clone(),
+                upload.indices.clone(),
+                scene.geometry_rev,
+                scene.geometry_upload_count,
+                scene.geometry_upload_bytes,
+            )
+        };
+        let mut state = MeshPlotState::new(0.0, 1.0, 0.0, 1.0);
+        update_scene_view_transform(&scene, &state, 600.0, 400.0, true);
+        let initial_transform = scene.borrow().view_transform;
+
+        state.interaction.zoom_around_domain(0.5, 0.5, 0.8);
+        update_scene_view_transform(&scene, &state, 800.0, 400.0, true);
+        let viewport_transform = scene.borrow().view_transform;
+        assert_ne!(viewport_transform, initial_transform);
+
+        state.set_selection(Some(MeshPlotPick {
+            plot_id: "plot".into(),
+            mesh_id: "square".into(),
+            cell_index: 1,
+            cell_id: Some(101),
+            nearest_vertex_index: Some(2),
+            vertex_id: Some(12),
+            world_position: [0.5, 0.5, 0.0],
+            displayed_value: Some(1.0),
+            field_id: Some("pressure".into()),
+        }));
+        update_scene_view_transform(&scene, &state, 800.0, 400.0, true);
+
+        let scene = scene.borrow();
+        let upload = scene.upload.as_ref().expect("retained 3D upload");
+        assert_eq!(scene.view_transform, viewport_transform);
+        assert_eq!(scene.geometry_rev, geometry_revision);
+        assert_eq!(scene.geometry_upload_count, upload_count);
+        assert_eq!(scene.geometry_upload_bytes, upload_bytes);
+        assert_eq!(upload.positions_f32, positions);
+        assert_eq!(upload.indices, indices);
+        assert_eq!(
+            state.selection.as_ref().and_then(|pick| pick.cell_id),
+            Some(101)
+        );
+    }
+
     #[test]
     fn mask_nan_policy_turns_nan_samples_into_invalid_mask_entries() {
         let mut field = vertex_field();
@@ -2384,6 +3537,19 @@ mod tests {
         let projector = MeshProjector::new(&points, 400.0, 300.0, true);
         assert_eq!(projector.point(points[0]), [0.0, 250.0]);
         assert_eq!(projector.point(points[1]), [400.0, 50.0]);
+    }
+
+    #[cfg(feature = "gpu-2d")]
+    #[test]
+    fn equal_aspect_pointer_inversion_uses_the_visible_letterboxed_viewport() {
+        let state = MeshPlotState::new(0.0, 1.0, 0.0, 1.0);
+        // 530×360 leaves 85px bars left/right. This local point is within
+        // the visible square, not at the same normalized x of the full rect.
+        let point = mesh_point_to_domain(&state, 130.0, 290.0, 530.0, 360.0, true)
+            .expect("point inside equal-aspect plot");
+        assert!((point[0] - 0.125).abs() < 1e-12);
+        assert!((point[1] - (70.0 / 360.0)).abs() < 1e-12);
+        assert!(mesh_point_to_domain(&state, 50.0, 180.0, 530.0, 360.0, true).is_none());
     }
 
     #[test]

@@ -180,8 +180,8 @@ fn cluster_mesh(
     let mut centroid_sums = vec![[0.0; 3]; clusters.len()];
     let mut counts = vec![0usize; clusters.len()];
     for (vertex_index, &cluster_index) in cluster_indices.iter().enumerate() {
-        for axis in 0..3 {
-            centroid_sums[cluster_index][axis] += mesh.positions[vertex_index][axis];
+        for (axis, sum) in centroid_sums[cluster_index].iter_mut().enumerate() {
+            *sum += mesh.positions[vertex_index][axis];
         }
         counts[cluster_index] += 1;
     }

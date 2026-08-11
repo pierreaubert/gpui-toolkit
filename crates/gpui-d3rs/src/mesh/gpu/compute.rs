@@ -7,8 +7,8 @@
 //! CPU/GPU differential tests meaningful on machines without an adapter.
 
 use crate::mesh::{
-    ContourBand, IsolineSegment, MarchingTriangles, MeshTopology, MeshValidationError, ScalarField,
-    TriangleMesh,
+    ContourBand, CoordinateAxis, IsolineSegment, MarchingTriangles, MeshTopology,
+    MeshValidationError, ScalarField, TriangleMesh, project_2d,
 };
 use std::sync::Arc;
 
@@ -19,6 +19,7 @@ struct AdapterCompute {
     field_bind_group_layout: wgpu::BindGroupLayout,
     edge_pipeline: wgpu::ComputePipeline,
     triangle_pipeline: wgpu::ComputePipeline,
+    band_pipeline: wgpu::ComputePipeline,
     contour_bind_group_layout: wgpu::BindGroupLayout,
 }
 
@@ -128,6 +129,14 @@ impl AdapterCompute {
             compilation_options: Default::default(),
             cache: None,
         });
+        let band_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("mesh_compute_band_pipeline"),
+            layout: Some(&contour_pipeline_layout),
+            module: &shader,
+            entry_point: Some("triangle_bands"),
+            compilation_options: Default::default(),
+            cache: None,
+        });
         Some(Self {
             device,
             queue,
@@ -135,6 +144,7 @@ impl AdapterCompute {
             field_bind_group_layout,
             edge_pipeline,
             triangle_pipeline,
+            band_pipeline,
             contour_bind_group_layout,
         })
     }
@@ -146,7 +156,7 @@ impl AdapterCompute {
         let workgroups = values.len().div_ceil(256);
         let input = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("mesh_compute_values"),
-            size: (values.len() * std::mem::size_of::<f32>()) as u64,
+            size: std::mem::size_of_val(values) as u64,
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -362,7 +372,7 @@ impl AdapterCompute {
             wgpu::BufferUsages::STORAGE,
         );
         let edge_hits_size = edge_count.checked_mul(32).ok_or(())? as u64;
-        let segments_size = triangle_count.checked_mul(48).ok_or(())? as u64;
+        let segments_size = triangle_count.checked_mul(112).ok_or(())? as u64;
         let edge_hits = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("mesh_compute_contour_edge_hits"),
             size: edge_hits_size,
@@ -474,8 +484,8 @@ impl AdapterCompute {
                 return Err(());
             }
             let data = slice.get_mapped_range();
-            for chunk in data.chunks_exact(48) {
-                let valid = u32::from_le_bytes([chunk[32], chunk[33], chunk[34], chunk[35]]);
+            for chunk in data.chunks_exact(112) {
+                let valid = u32::from_le_bytes([chunk[96], chunk[97], chunk[98], chunk[99]]);
                 if valid == 0 {
                     continue;
                 }
@@ -508,6 +518,274 @@ impl AdapterCompute {
             staging.unmap();
         }
         Ok(output)
+    }
+
+    /// Dispatch one deterministic, fixed-size clipped-polygon slot per input
+    /// triangle for each closed scalar band. This is intentionally read back
+    /// rather than rendered directly: MeshPlot's retained contour cache and
+    /// SVG path both consume the same `ContourBand` representation.
+    fn band_triangles(
+        &self,
+        mesh: &TriangleMesh,
+        field: &ScalarField,
+        topology: &MeshTopology,
+        levels: &[f32],
+    ) -> Result<Vec<ContourBand>, ()> {
+        if levels.len() < 2
+            || mesh.positions.is_empty()
+            || mesh.triangles.is_empty()
+            || field.values.len() != mesh.positions.len()
+            || topology.unique_edges.is_empty()
+            || topology.triangle_edges.len() != mesh.triangles.len()
+        {
+            return Err(());
+        }
+        if let Some(valid) = field.valid.as_deref()
+            && valid.len() != field.values.len()
+        {
+            return Err(());
+        }
+
+        let mut bounds_min = [f64::INFINITY; 3];
+        let mut bounds_max = [f64::NEG_INFINITY; 3];
+        for position in mesh.positions.iter() {
+            for axis in 0..3 {
+                let value = position[axis];
+                if !value.is_finite() {
+                    return Err(());
+                }
+                bounds_min[axis] = bounds_min[axis].min(value);
+                bounds_max[axis] = bounds_max[axis].max(value);
+            }
+        }
+        let origin: [f64; 3] =
+            std::array::from_fn(|axis| bounds_min[axis] * 0.5 + bounds_max[axis] * 0.5);
+        let positions: Vec<[f32; 4]> = mesh
+            .positions
+            .iter()
+            .map(|position| {
+                [
+                    (position[0] - origin[0]) as f32,
+                    (position[1] - origin[1]) as f32,
+                    (position[2] - origin[2]) as f32,
+                    0.0,
+                ]
+            })
+            .collect();
+        if positions
+            .iter()
+            .any(|position| !position[..3].iter().all(|value| value.is_finite()))
+        {
+            return Err(());
+        }
+        let mut values = Vec::with_capacity(field.values.len());
+        for (index, &value) in field.values.iter().enumerate() {
+            if field.valid.as_deref().is_some_and(|valid| !valid[index]) {
+                values.push(f32::NAN);
+            } else {
+                let value = value as f32;
+                if !value.is_finite() {
+                    return Err(());
+                }
+                values.push(value);
+            }
+        }
+
+        let edge_count = topology.unique_edges.len();
+        let triangle_count = mesh.triangles.len();
+        if edge_count > u32::MAX as usize
+            || triangle_count > u32::MAX as usize
+            || topology.unique_edges.iter().any(|[a, b]| {
+                *a as usize >= positions.len()
+                    || *b as usize >= positions.len()
+                    || *a as usize >= values.len()
+                    || *b as usize >= values.len()
+            })
+            || mesh.triangles.iter().any(|triangle| {
+                triangle
+                    .iter()
+                    .any(|&vertex| vertex as usize >= positions.len())
+            })
+        {
+            return Err(());
+        }
+        let create_buffer = |label: &str, bytes: &[u8], usage: wgpu::BufferUsages| {
+            let buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some(label),
+                size: bytes.len() as u64,
+                usage: usage | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+            self.queue.write_buffer(&buffer, 0, bytes);
+            buffer
+        };
+        let values_buffer = create_buffer(
+            "mesh_compute_band_values",
+            bytemuck::cast_slice(&values),
+            wgpu::BufferUsages::STORAGE,
+        );
+        let positions_buffer = create_buffer(
+            "mesh_compute_band_positions",
+            bytemuck::cast_slice(&positions),
+            wgpu::BufferUsages::STORAGE,
+        );
+        // The shared contour layout includes edge-hit bindings. The band
+        // kernel does not read them, but binding the same buffers keeps the
+        // pipeline layout compact and compatible with the isoline path.
+        let edges_buffer = create_buffer(
+            "mesh_compute_band_edges",
+            bytemuck::cast_slice(&topology.unique_edges),
+            wgpu::BufferUsages::STORAGE,
+        );
+        let triangles_buffer = create_buffer(
+            "mesh_compute_band_triangles",
+            bytemuck::cast_slice(mesh.triangles.as_ref()),
+            wgpu::BufferUsages::STORAGE,
+        );
+        let edge_hits = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("mesh_compute_band_unused_edge_hits"),
+            size: edge_count.checked_mul(32).ok_or(())? as u64,
+            usage: wgpu::BufferUsages::STORAGE,
+            mapped_at_creation: false,
+        });
+        let output_size = triangle_count.checked_mul(112).ok_or(())? as u64;
+        let output = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("mesh_compute_band_output"),
+            size: output_size,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+            mapped_at_creation: false,
+        });
+        let staging = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("mesh_compute_band_readback"),
+            size: output_size,
+            usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let levels_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("mesh_compute_band_levels"),
+            size: 16,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("mesh_compute_band_bind_group"),
+            layout: &self.contour_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: values_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: positions_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: edges_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: edge_hits.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 5,
+                    resource: levels_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 6,
+                    resource: triangles_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 7,
+                    resource: output.as_entire_binding(),
+                },
+            ],
+        });
+
+        let mut bands = Vec::with_capacity(levels.len() - 1);
+        for pair in levels.windows(2) {
+            let [lower, upper] = [pair[0], pair[1]];
+            if !lower.is_finite() || !upper.is_finite() || lower > upper {
+                return Err(());
+            }
+            self.queue.write_buffer(
+                &levels_buffer,
+                0,
+                bytemuck::cast_slice(&[lower, upper, 0.0_f32, 0.0]),
+            );
+            let mut encoder = self
+                .device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("mesh_compute_band_encoder"),
+                });
+            {
+                let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                    label: Some("mesh_compute_band_pass"),
+                    timestamp_writes: None,
+                });
+                pass.set_pipeline(&self.band_pipeline);
+                pass.set_bind_group(0, &bind_group, &[]);
+                pass.dispatch_workgroups(triangle_count.div_ceil(256) as u32, 1, 1);
+            }
+            encoder.copy_buffer_to_buffer(&output, 0, &staging, 0, output_size);
+            self.queue.submit(std::iter::once(encoder.finish()));
+            let slice = staging.slice(..);
+            let (sender, receiver) = std::sync::mpsc::channel();
+            slice.map_async(wgpu::MapMode::Read, move |result| {
+                let _ = sender.send(result);
+            });
+            let _ = self.device.poll(wgpu::PollType::Wait {
+                submission_index: Default::default(),
+                timeout: Some(std::time::Duration::from_secs(5)),
+            });
+            if !matches!(
+                receiver.recv_timeout(std::time::Duration::from_secs(5)),
+                Ok(Ok(()))
+            ) {
+                return Err(());
+            }
+            let data = slice.get_mapped_range();
+            let mut band = ContourBand {
+                lower: Some(lower as f64),
+                upper: Some(upper as f64),
+                positions: Vec::new(),
+                triangles: Vec::new(),
+            };
+            for chunk in data.chunks_exact(112) {
+                let valid = u32::from_le_bytes(chunk[96..100].try_into().map_err(|_| ())?);
+                let count = u32::from_le_bytes(chunk[100..104].try_into().map_err(|_| ())?);
+                if valid == 0 || !(3..=6).contains(&count) {
+                    continue;
+                }
+                let base = u32::try_from(band.positions.len()).map_err(|_| ())?;
+                for point in 0..count as usize {
+                    let offset = point * 16;
+                    let position = [
+                        f32::from_le_bytes(chunk[offset..offset + 4].try_into().map_err(|_| ())?)
+                            as f64
+                            + origin[0],
+                        f32::from_le_bytes(
+                            chunk[offset + 4..offset + 8].try_into().map_err(|_| ())?,
+                        ) as f64
+                            + origin[1],
+                    ];
+                    if !position.iter().all(|value| value.is_finite()) {
+                        drop(data);
+                        staging.unmap();
+                        return Err(());
+                    }
+                    band.positions.push(position);
+                }
+                for offset in 1..count - 1 {
+                    band.triangles
+                        .push([base, base + offset, base + offset + 1]);
+                }
+            }
+            drop(data);
+            staging.unmap();
+            bands.push(band);
+        }
+        Ok(bands)
     }
 }
 
@@ -545,10 +823,10 @@ impl MeshCompute {
     /// Return the finite min/max of a field, ignoring NaN and infinities.
     #[must_use]
     pub fn field_min_max(&self, values: &[f32]) -> Option<[f32; 2]> {
-        if let Some(adapter) = &self.adapter {
-            if let Ok(result) = adapter.field_min_max(values) {
-                return result;
-            }
+        if let Some(adapter) = &self.adapter
+            && let Ok(result) = adapter.field_min_max(values)
+        {
+            return result;
         }
         let mut range = [f32::INFINITY, f32::NEG_INFINITY];
         for &value in values {
@@ -586,7 +864,71 @@ impl MeshCompute {
         Ok(marching.isolines(&levels))
     }
 
-    /// Produce filled contour bands using the CPU golden-reference clipper.
+    /// Produce isolines in an arbitrary projected mesh plane. Adapter work
+    /// receives a compact XY projection; when no adapter is available (or it
+    /// rejects the request), the CPU golden path uses the original axes.
+    ///
+    /// Keeping the caller's f64 levels on the public boundary means the GPU
+    /// path never leaks f32 level quantisation into exported/accessible data.
+    pub fn marching_segments_projected(
+        &self,
+        mesh: &TriangleMesh,
+        field: &ScalarField,
+        topology: &MeshTopology,
+        horizontal: CoordinateAxis,
+        vertical: CoordinateAxis,
+        levels: &[f64],
+    ) -> Result<Vec<IsolineSegment>, MeshValidationError> {
+        if levels.iter().any(|level| !level.is_finite()) {
+            return Err(MeshValidationError::InvalidContourLevels);
+        }
+        let levels_f32 = levels.iter().map(|&level| level as f32).collect::<Vec<_>>();
+        if levels_f32.iter().any(|level| !level.is_finite()) {
+            return Err(MeshValidationError::InvalidContourLevels);
+        }
+        validate_contour_inputs(mesh, field, &levels_f32)?;
+        if field.association != crate::mesh::ScalarAssociation::Vertex {
+            return Err(MeshValidationError::ContoursRequireVertexField);
+        }
+        if let Some(adapter) = &self.adapter {
+            let projected = TriangleMesh {
+                id: mesh.id.clone(),
+                positions: mesh
+                    .positions
+                    .iter()
+                    .map(|&point| {
+                        let [x, y] = project_2d(horizontal, vertical, point);
+                        [x, y, 0.0]
+                    })
+                    .collect::<Vec<_>>()
+                    .into(),
+                triangles: mesh.triangles.clone(),
+                vertex_ids: None,
+                cell_ids: None,
+            };
+            // The adapter returns XY; uploading projected coordinates makes
+            // those values exactly the requested chart plane.
+            if let Ok(mut segments) =
+                adapter.marching_segments(&projected, field, topology, &levels_f32)
+            {
+                for segment in &mut segments {
+                    if let Some((_, &level)) = levels_f32
+                        .iter()
+                        .zip(levels)
+                        .find(|(candidate, _)| **candidate as f64 == segment.level)
+                    {
+                        segment.level = level;
+                    }
+                }
+                return Ok(segments);
+            }
+        }
+        let marching = MarchingTriangles::new(mesh, field, topology, horizontal, vertical)?;
+        Ok(marching.isolines(levels))
+    }
+
+    /// Produce XY filled contour bands using adapter compute when available,
+    /// with the CPU golden-reference clipper as a deterministic fallback.
     pub fn band_triangles(
         &self,
         mesh: &TriangleMesh,
@@ -595,6 +937,12 @@ impl MeshCompute {
         levels: &[f32],
     ) -> Result<Vec<ContourBand>, MeshValidationError> {
         validate_contour_inputs(mesh, field, levels)?;
+        let levels_f64 = levels.iter().map(|&level| level as f64).collect::<Vec<_>>();
+        if let Some(adapter) = &self.adapter
+            && let Ok(bands) = adapter.band_triangles(mesh, field, topology, levels)
+        {
+            return Ok(bands);
+        }
         let marching = MarchingTriangles::new(
             mesh,
             field,
@@ -602,8 +950,60 @@ impl MeshCompute {
             crate::mesh::CoordinateAxis::X,
             crate::mesh::CoordinateAxis::Y,
         )?;
-        let levels = levels.iter().map(|&level| level as f64).collect::<Vec<_>>();
-        Ok(marching.filled_bands(&levels))
+        Ok(marching.filled_bands(&levels_f64))
+    }
+
+    /// Produce filled contour bands in an arbitrary projected mesh plane.
+    /// The adapter receives a compact XY projection while callers retain the
+    /// original f64 reported level boundaries and a CPU fallback for every
+    /// unavailable/failed adapter path.
+    pub fn band_triangles_projected(
+        &self,
+        mesh: &TriangleMesh,
+        field: &ScalarField,
+        topology: &MeshTopology,
+        horizontal: CoordinateAxis,
+        vertical: CoordinateAxis,
+        levels: &[f64],
+    ) -> Result<Vec<ContourBand>, MeshValidationError> {
+        if levels.iter().any(|level| !level.is_finite()) {
+            return Err(MeshValidationError::InvalidContourLevels);
+        }
+        let levels_f32 = levels.iter().map(|&level| level as f32).collect::<Vec<_>>();
+        if levels_f32.iter().any(|level| !level.is_finite()) {
+            return Err(MeshValidationError::InvalidContourLevels);
+        }
+        validate_contour_inputs(mesh, field, &levels_f32)?;
+        if field.association != crate::mesh::ScalarAssociation::Vertex {
+            return Err(MeshValidationError::ContoursRequireVertexField);
+        }
+        if let Some(adapter) = &self.adapter {
+            let projected = TriangleMesh {
+                id: mesh.id.clone(),
+                positions: mesh
+                    .positions
+                    .iter()
+                    .map(|&point| {
+                        let [x, y] = project_2d(horizontal, vertical, point);
+                        [x, y, 0.0]
+                    })
+                    .collect::<Vec<_>>()
+                    .into(),
+                triangles: mesh.triangles.clone(),
+                vertex_ids: None,
+                cell_ids: None,
+            };
+            if let Ok(mut bands) = adapter.band_triangles(&projected, field, topology, &levels_f32)
+            {
+                for (band, boundaries) in bands.iter_mut().zip(levels.windows(2)) {
+                    band.lower = Some(boundaries[0]);
+                    band.upper = Some(boundaries[1]);
+                }
+                return Ok(bands);
+            }
+        }
+        let marching = MarchingTriangles::new(mesh, field, topology, horizontal, vertical)?;
+        Ok(marching.filled_bands(levels))
     }
 
     /// Flatten the already-deduplicated edge list for an upload.
@@ -729,7 +1129,7 @@ mod tests {
         assert!(wgsl.contains("fn field_min_max"));
         assert!(wgsl.contains("fn edge_intersections"));
         assert!(wgsl.contains("fn triangle_segments"));
-        assert!(wgsl.contains("(a >= level) == (b >= level)"));
+        assert!(wgsl.contains("(a >= levels.lower) == (b >= levels.lower)"));
         assert!(wgsl.contains("position: vec4<f32>"));
         assert!(wgsl.contains("edge_hits[triangle.e0]"));
         assert!(msl.contains("kernel void triangle_segments"));

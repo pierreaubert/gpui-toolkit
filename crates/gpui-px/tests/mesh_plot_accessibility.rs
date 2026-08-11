@@ -42,7 +42,7 @@ impl Render for MeshPlotAccessibilityView {
 #[gpui::test]
 async fn mesh_plot_registers_native_accessibility_summary(cx: &mut TestAppContext) {
     cx.update(|cx| cx.set_global(AccessibilityTree::new()));
-    let _window = cx.add_window(|_window, _cx| MeshPlotAccessibilityView);
+    let window = cx.add_window(|_window, _cx| MeshPlotAccessibilityView);
 
     cx.update(|cx| {
         let tree = cx.global::<AccessibilityTree>();
@@ -96,4 +96,8 @@ async fn mesh_plot_registers_native_accessibility_summary(cx: &mut TestAppContex
             node.props.value_text.as_deref()
         );
     });
+
+    cx.update_window(window.into(), |_, window, _| window.remove_window())
+        .expect("close MeshPlot accessibility test window");
+    cx.run_until_parked();
 }

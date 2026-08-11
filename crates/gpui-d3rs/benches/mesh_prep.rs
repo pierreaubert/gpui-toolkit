@@ -1,7 +1,7 @@
 use criterion::{Criterion, criterion_group, criterion_main};
 use d3rs::mesh::{
     CoordinateAxis, MarchingTriangles, MeshBvh, MeshTopology, RevolveSpec, ScalarAssociation,
-    ScalarField, TriangleMesh, prepare_upload, revolve,
+    ScalarField, TriangleMesh, prepare_upload, revolve, revolve_field,
 };
 use std::hint::black_box;
 use std::sync::Arc;
@@ -121,6 +121,32 @@ fn mesh_prep(c: &mut Criterion) {
     group.bench_function("revolve_full_64_segments", |b| {
         b.iter(|| black_box(revolve(&revolve_mesh, &revolve_spec)))
     });
+    let revolve_field_values = vertex_field(&revolve_mesh);
+    group.bench_function("revolve_full_64_segments_with_vertex_field", |b| {
+        b.iter(|| {
+            let revolved = revolve(&revolve_mesh, &revolve_spec)
+                .expect("benchmark fixture has a valid axisymmetric profile");
+            black_box(revolve_field(&revolve_field_values, &revolved))
+        })
+    });
+    let partial_revolve_spec = RevolveSpec {
+        sweep_angle: std::f64::consts::PI,
+        end_caps: true,
+        ..revolve_spec
+    };
+    group.bench_function("revolve_partial_capped_64_segments", |b| {
+        b.iter(|| black_box(revolve(&revolve_mesh, &partial_revolve_spec)))
+    });
+    group.bench_function(
+        "revolve_partial_capped_64_segments_with_vertex_field",
+        |b| {
+            b.iter(|| {
+                let revolved = revolve(&revolve_mesh, &partial_revolve_spec)
+                    .expect("benchmark fixture has a valid axisymmetric profile");
+                black_box(revolve_field(&revolve_field_values, &revolved))
+            })
+        },
+    );
     group.finish();
 }
 criterion_group!(benches, mesh_prep);

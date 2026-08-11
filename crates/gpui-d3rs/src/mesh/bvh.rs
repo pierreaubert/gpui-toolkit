@@ -26,15 +26,10 @@ impl Aabb {
     }
 
     fn include_point(&mut self, point: [f64; 3]) {
-        for axis in 0..3 {
-            self.min[axis] = self.min[axis].min(point[axis]);
-            self.max[axis] = self.max[axis].max(point[axis]);
+        for (axis, coordinate) in point.into_iter().enumerate() {
+            self.min[axis] = self.min[axis].min(coordinate);
+            self.max[axis] = self.max[axis].max(coordinate);
         }
-    }
-
-    fn include_aabb(&mut self, other: Self) {
-        self.include_point(other.min);
-        self.include_point(other.max);
     }
 
     fn extent(&self) -> [f64; 3] {
@@ -42,14 +37,6 @@ impl Aabb {
             self.max[0] - self.min[0],
             self.max[1] - self.min[1],
             self.max[2] - self.min[2],
-        ]
-    }
-
-    fn centroid(&self) -> [f64; 3] {
-        [
-            0.5 * (self.min[0] + self.max[0]),
-            0.5 * (self.min[1] + self.max[1]),
-            0.5 * (self.min[2] + self.max[2]),
         ]
     }
 
@@ -145,10 +132,17 @@ impl MeshBvh {
     /// barycentric coordinates `[weight_a, weight_b, weight_c]`.
     pub fn ray_cast(&self, origin: [f64; 3], direction: [f64; 3]) -> Option<(u32, f64, [f64; 3])> {
         self.nodes.first()?;
-        let mut stack = vec![0u32];
+        // Median splitting keeps depth below 32 for the u32-indexed mesh
+        // limit. A fixed stack avoids an allocation for every live hover or
+        // click while leaving generous headroom for the depth-first walk.
+        const MAX_BVH_STACK: usize = 64;
+        let mut stack = [0u32; MAX_BVH_STACK];
+        let mut stack_len = 1;
         let mut best: Option<(u32, f64, [f64; 3])> = None;
 
-        while let Some(node_index) = stack.pop() {
+        while stack_len > 0 {
+            stack_len -= 1;
+            let node_index = stack[stack_len];
             let node = self.nodes[node_index as usize];
             let max_t = best.map_or(f64::INFINITY, |(_, t, _)| t);
             if !node.bounds.hit(origin, direction, max_t) {
@@ -178,18 +172,28 @@ impl MeshBvh {
             } else {
                 // Push both children. Ordering by entry distance improves
                 // pruning while keeping traversal iterative and deterministic.
-                let children = [node.left, node.right];
-                let mut hits = children
-                    .into_iter()
-                    .filter_map(|child| {
-                        let child_node = self.nodes[child as usize];
-                        ray_aabb_entry(&child_node.bounds, origin, direction)
-                            .map(|entry| (entry, child))
-                    })
-                    .collect::<Vec<_>>();
-                hits.sort_by(|a, b| b.0.total_cmp(&a.0));
-                for (_, child) in hits {
-                    stack.push(child);
+                let left = self.nodes[node.left as usize];
+                let right = self.nodes[node.right as usize];
+                let left_entry = ray_aabb_entry(&left.bounds, origin, direction);
+                let right_entry = ray_aabb_entry(&right.bounds, origin, direction);
+                let mut push = |child| {
+                    debug_assert!(stack_len < MAX_BVH_STACK);
+                    stack[stack_len] = child;
+                    stack_len += 1;
+                };
+                match (left_entry, right_entry) {
+                    (Some(left), Some(right)) if left <= right => {
+                        // The stack is LIFO: push the farther child first.
+                        push(node.right);
+                        push(node.left);
+                    }
+                    (Some(_), Some(_)) => {
+                        push(node.left);
+                        push(node.right);
+                    }
+                    (Some(_), None) => push(node.left),
+                    (None, Some(_)) => push(node.right),
+                    (None, None) => {}
                 }
             }
         }

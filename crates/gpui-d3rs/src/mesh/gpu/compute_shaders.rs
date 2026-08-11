@@ -8,6 +8,14 @@
 
 /// WGSL reduction and edge-intersection kernels.
 pub const MESH_COMPUTE_WGSL: &str = r#"
+// Naga versions supported by the workspace do not expose WGSL's isNan/isInf
+// builtins. This finite predicate has the same f32 contract without relying
+// on those newer names: NaN is the only value unequal to itself and infinity
+// exceeds the largest finite f32 magnitude.
+fn finite(value: f32) -> bool {
+    return value == value && abs(value) <= 3.402823466e38;
+}
+
 struct PartialRange {
     min_value: f32,
     max_value: f32,
@@ -37,7 +45,7 @@ fn field_min_max(
     loop {
         if (index >= count) { break; }
         let value = values[index];
-        if (!isNan(value) && !isInf(value)) {
+        if (finite(value)) {
             minimum = min(minimum, value);
             maximum = max(maximum, value);
             valid = 1u;
@@ -76,7 +84,14 @@ struct EdgeHit {
 @group(0) @binding(2) var<storage, read> positions: array<vec4<f32>>;
 @group(0) @binding(3) var<storage, read> edges: array<Edge>;
 @group(0) @binding(4) var<storage, read_write> edge_hits: array<EdgeHit>;
-@group(0) @binding(5) var<uniform> level: f32;
+struct ContourLevels {
+    lower: f32,
+    upper: f32,
+    _padding0: f32,
+    _padding1: f32,
+};
+
+@group(0) @binding(5) var<uniform> levels: ContourLevels;
 
 @compute @workgroup_size(256)
 fn edge_intersections(@builtin(global_invocation_id) id: vec3<u32>) {
@@ -84,17 +99,17 @@ fn edge_intersections(@builtin(global_invocation_id) id: vec3<u32>) {
     let edge = edges[id.x];
     let a = values[edge.a];
     let b = values[edge.b];
-    if (isNan(a) || isNan(b) || isInf(a) || isInf(b)) {
+    if (!finite(a) || !finite(b)) {
         edge_hits[id.x].valid = 0u;
         return;
     }
     // This must stay identical to MarchingTriangles::edge_hit: an on-level
     // vertex is classified as high, including the zero-length-segment case.
-    if ((a >= level) == (b >= level)) {
+    if ((a >= levels.lower) == (b >= levels.lower)) {
         edge_hits[id.x].valid = 0u;
         return;
     }
-    let interpolation = clamp((level - a) / (b - a), 0.0, 1.0);
+    let interpolation = clamp((levels.lower - a) / (b - a), 0.0, 1.0);
     edge_hits[id.x] = EdgeHit(
         vec4<f32>(mix(positions[edge.a].xyz, positions[edge.b].xyz, interpolation), 0.0),
         1u,
@@ -107,15 +122,18 @@ struct TriangleEdges {
     e1: u32,
     e2: u32,
 };
-struct Segment {
-    start: vec4<f32>,
-    end: vec4<f32>,
+struct ContourOutput {
+    // Six slots cover the clipped polygon worst case while keeping the
+    // isoline result in the first two slots. Fixed per-triangle output keeps
+    // readback ordering deterministic without atomics.
+    points: array<vec4<f32>, 6>,
     valid: u32,
-    _padding: u32,
+    count: u32,
+    _padding: vec2<u32>,
 };
 
 @group(0) @binding(6) var<storage, read> triangle_edges: array<TriangleEdges>;
-@group(0) @binding(7) var<storage, read_write> segments: array<Segment>;
+@group(0) @binding(7) var<storage, read_write> outputs: array<ContourOutput>;
 
 // Gather is intentionally a separate pass. Each unique edge has exactly one
 // interpolation result, so adjacent triangles cannot develop cracks. The
@@ -147,10 +165,102 @@ fn triangle_segments(@builtin(global_invocation_id) id: vec3<u32>) {
         count += 1u;
     }
     if (count == 2u) {
-        segments[id.x] = Segment(first, second, 1u, 0u);
+        outputs[id.x].points[0] = first;
+        outputs[id.x].points[1] = second;
+        outputs[id.x].valid = 1u;
+        outputs[id.x].count = 2u;
     } else {
-        segments[id.x].valid = 0u;
+        outputs[id.x].valid = 0u;
+        outputs[id.x].count = 0u;
     }
+}
+
+struct BandVertex {
+    position: vec4<f32>,
+    value: f32,
+};
+
+struct BandPolygon {
+    vertices: array<BandVertex, 6>,
+    count: u32,
+};
+
+fn band_inside(value: f32, boundary: f32, keep_greater: bool) -> bool {
+    if (keep_greater) {
+        return value >= boundary;
+    }
+    return value <= boundary;
+}
+
+fn append_band_vertex(polygon: ptr<function, BandPolygon>, vertex: BandVertex) {
+    if ((*polygon).count < 6u) {
+        (*polygon).vertices[(*polygon).count] = vertex;
+        (*polygon).count += 1u;
+    }
+}
+
+fn clip_band_polygon(input: BandPolygon, boundary: f32, keep_greater: bool) -> BandPolygon {
+    var output: BandPolygon;
+    output.count = 0u;
+    if (input.count == 0u) {
+        return output;
+    }
+    var previous = input.vertices[input.count - 1u];
+    var previous_inside = band_inside(previous.value, boundary, keep_greater);
+    for (var index = 0u; index < input.count; index += 1u) {
+        let current = input.vertices[index];
+        let current_inside = band_inside(current.value, boundary, keep_greater);
+        if (current_inside != previous_inside) {
+            let denominator = current.value - previous.value;
+            if (denominator != 0.0) {
+                let t = clamp((boundary - previous.value) / denominator, 0.0, 1.0);
+                append_band_vertex(
+                    &output,
+                    BandVertex(mix(previous.position, current.position, t), boundary),
+                );
+            }
+        }
+        if (current_inside) {
+            append_band_vertex(&output, current);
+        }
+        previous = current;
+        previous_inside = current_inside;
+    }
+    return output;
+}
+
+// Clip each triangle to lower <= value <= upper. The fixed output slot is
+// deliberately triangle-indexed, matching triangle_segments: adapter work is
+// deterministic and host-side reconstruction preserves source triangle order.
+@compute @workgroup_size(256)
+fn triangle_bands(@builtin(global_invocation_id) id: vec3<u32>) {
+    if (id.x >= arrayLength(&triangle_edges)) { return; }
+    let triangle = triangle_edges[id.x];
+    let a = values[triangle.e0];
+    let b = values[triangle.e1];
+    let c = values[triangle.e2];
+    if (!finite(a) || !finite(b) || !finite(c)) {
+        outputs[id.x].valid = 0u;
+        outputs[id.x].count = 0u;
+        return;
+    }
+    var polygon: BandPolygon;
+    polygon.count = 3u;
+    polygon.vertices[0] = BandVertex(positions[triangle.e0], a);
+    polygon.vertices[1] = BandVertex(positions[triangle.e1], b);
+    polygon.vertices[2] = BandVertex(positions[triangle.e2], c);
+    polygon = clip_band_polygon(polygon, levels.lower, true);
+    polygon = clip_band_polygon(polygon, levels.upper, false);
+    if (polygon.count < 3u) {
+        outputs[id.x].valid = 0u;
+        outputs[id.x].count = 0u;
+        return;
+    }
+    for (var index = 0u; index < polygon.count; index += 1u) {
+        outputs[id.x].points[index] = polygon.vertices[index].position;
+    }
+    outputs[id.x].valid = 1u;
+    outputs[id.x].count = polygon.count;
 }
 "#;
 

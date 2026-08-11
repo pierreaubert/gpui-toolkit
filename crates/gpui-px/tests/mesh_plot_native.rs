@@ -9,19 +9,35 @@
 
 #![cfg(all(target_os = "macos", feature = "native-qa"))]
 
+use d3rs::gpu3d::Camera3D;
 use d3rs::mesh::{CoordinateAxis, RevolveSpec, ScalarAssociation, ScalarField, TriangleMesh};
+use glam::Vec3;
 use gpui::{
     AnyWindowHandle, AppContext, Context, HeadlessAppContext, InputEvent, InteractiveElement,
-    Modifiers, MouseButton, MouseDownEvent, MouseUpEvent, ParentElement, Platform, Render, Styled,
-    Window, div, point, px, size,
+    Modifiers, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement, Platform,
+    Render, ScrollDelta, ScrollWheelEvent, Styled, TouchPhase, Window, div, point, px, size,
 };
 use gpui_macos::{MacPlatform, metal_renderer::MetalHeadlessRenderer};
 use gpui_px::{
-    FieldInterpolation, MeshPlotPick, MeshPlotState, MeshPlotView, MeshRenderMode, mesh_plot,
+    FieldInterpolation, MeshPlotPick, MeshPlotState, MeshPlotView, MeshRenderMode, Wireframe,
+    mesh_plot,
 };
 use std::cell::RefCell;
 use std::rc::Rc;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, MutexGuard};
+
+// macOS aborts when TIS/TSM keyboard-layout APIs are initialized from more
+// than one Rust test thread at a time. Keep each scenario independently
+// named while serializing the complete platform/window lifetime.
+static NATIVE_PLATFORM_LOCK: Mutex<()> = Mutex::new(());
+
+fn native_platform_lock() -> MutexGuard<'static, ()> {
+    // Do not let an earlier assertion failure hide later native scenario
+    // failures behind a poisoned test-serialization mutex.
+    NATIVE_PLATFORM_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
 
 struct NativeMeshPlotView {
     mesh: TriangleMesh,
@@ -30,6 +46,39 @@ struct NativeMeshPlotView {
     selection: Rc<RefCell<Option<MeshPlotPick>>>,
     view: MeshPlotView,
     mode: MeshRenderMode,
+    wireframe: Wireframe,
+}
+
+struct ResizableNativeMeshPlotView {
+    mesh: TriangleMesh,
+    field: ScalarField,
+    state: Rc<RefCell<MeshPlotState>>,
+    selection: Rc<RefCell<Option<MeshPlotPick>>>,
+    size: Rc<RefCell<(f32, f32)>>,
+}
+
+impl Render for ResizableNativeMeshPlotView {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl gpui::IntoElement {
+        let (width, height) = *self.size.borrow();
+        let selection = self.selection.clone();
+        let plot = mesh_plot(self.mesh.clone())
+            .field(self.field.clone())
+            .size(width, height)
+            .view(MeshPlotView::Planar {
+                horizontal: CoordinateAxis::X,
+                vertical: CoordinateAxis::Y,
+            })
+            .mode(MeshRenderMode::ScalarFill {
+                interpolation: FieldInterpolation::Smooth,
+            })
+            .with_state(self.state.clone())
+            .on_selection(move |pick| {
+                *selection.borrow_mut() = pick;
+            })
+            .build()
+            .expect("resizable native MeshPlot should build");
+        div().w(px(width)).h(px(height)).child(plot)
+    }
 }
 
 impl Render for NativeMeshPlotView {
@@ -40,6 +89,7 @@ impl Render for NativeMeshPlotView {
             .size(600.0, 400.0)
             .view(self.view.clone())
             .mode(self.mode.clone())
+            .wireframe(self.wireframe)
             .with_state(self.state.clone())
             .on_selection(move |pick| {
                 *selection.borrow_mut() = pick;
@@ -105,8 +155,80 @@ fn revolve_fixture() -> (TriangleMesh, ScalarField) {
     (mesh, field)
 }
 
-fn dispatch_click(cx: &mut HeadlessAppContext, window: AnyWindowHandle) {
-    let position = point(px(300.0), px(200.0));
+/// A connected 10,000-triangle profile, exactly at the live asynchronous
+/// revolve threshold. Shared vertices keep the fixture representative without
+/// using the memory-heavy independent-triangle pattern.
+fn large_revolve_fixture() -> (TriangleMesh, ScalarField) {
+    const COLUMNS: usize = 100;
+    const ROWS: usize = 50;
+    let mut positions = Vec::with_capacity((COLUMNS + 1) * (ROWS + 1));
+    let mut values = Vec::with_capacity((COLUMNS + 1) * (ROWS + 1));
+    for row in 0..=ROWS {
+        let y = row as f64 / ROWS as f64;
+        for column in 0..=COLUMNS {
+            let x = column as f64 / COLUMNS as f64;
+            positions.push([0.25 + 0.75 * x, y, 0.0]);
+            values.push(0.3 * x + 0.7 * y);
+        }
+    }
+    let mut triangles = Vec::with_capacity(COLUMNS * ROWS * 2);
+    for row in 0..ROWS {
+        for column in 0..COLUMNS {
+            let lower_left = (row * (COLUMNS + 1) + column) as u32;
+            let lower_right = lower_left + 1;
+            let upper_left = lower_left + (COLUMNS + 1) as u32;
+            let upper_right = upper_left + 1;
+            triangles.push([lower_left, lower_right, upper_right]);
+            triangles.push([lower_left, upper_right, upper_left]);
+        }
+    }
+    assert_eq!(triangles.len(), 10_000);
+    (
+        TriangleMesh {
+            id: "native-large-revolve".into(),
+            positions: positions.into(),
+            triangles: triangles.into(),
+            vertex_ids: None,
+            cell_ids: None,
+        },
+        ScalarField {
+            id: "native-large-revolve-field".into(),
+            label: "Large profile scalar".into(),
+            unit: None,
+            values: values.into(),
+            association: ScalarAssociation::Vertex,
+            valid: None,
+        },
+    )
+}
+
+/// A triangle with one vertex in front of the configured near plane and two
+/// visible vertices. Hardware clipping must retain the visible portion rather
+/// than discarding the entire primitive.
+fn near_clipped_fixture() -> (TriangleMesh, ScalarField) {
+    let mesh = TriangleMesh {
+        id: "native-near-clipped".into(),
+        positions: Arc::from([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.5, 1.0, 1.95]]),
+        triangles: Arc::from([[0, 1, 2]]),
+        vertex_ids: None,
+        cell_ids: None,
+    };
+    let field = ScalarField {
+        id: "native-near-clipped-field".into(),
+        label: "Near clip scalar".into(),
+        unit: None,
+        values: Arc::from([0.0, 1.0, 0.5]),
+        association: ScalarAssociation::Vertex,
+        valid: None,
+    };
+    (mesh, field)
+}
+
+fn dispatch_click_at(
+    cx: &mut HeadlessAppContext,
+    window: AnyWindowHandle,
+    position: gpui::Point<gpui::Pixels>,
+) {
     cx.update_window(window, |_, window, app| {
         window.dispatch_event(
             MouseDownEvent {
@@ -134,8 +256,66 @@ fn dispatch_click(cx: &mut HeadlessAppContext, window: AnyWindowHandle) {
     cx.run_until_parked();
 }
 
+fn dispatch_move(
+    cx: &mut HeadlessAppContext,
+    window: AnyWindowHandle,
+    position: gpui::Point<gpui::Pixels>,
+) {
+    cx.update_window(window, |_, window, app| {
+        window.dispatch_event(
+            MouseMoveEvent {
+                position,
+                pressed_button: None,
+                modifiers: Modifiers::default(),
+            }
+            .to_platform_input(),
+            app,
+        );
+    })
+    .expect("dispatch native MeshPlot hover move");
+    cx.run_until_parked();
+}
+
+fn dispatch_scroll(
+    cx: &mut HeadlessAppContext,
+    window: AnyWindowHandle,
+    position: gpui::Point<gpui::Pixels>,
+    lines_y: f32,
+) {
+    cx.update_window(window, |_, window, app| {
+        window.dispatch_event(
+            ScrollWheelEvent {
+                position,
+                delta: ScrollDelta::Lines(point(0.0, lines_y)),
+                modifiers: Modifiers::default(),
+                touch_phase: TouchPhase::Moved,
+            }
+            .to_platform_input(),
+            app,
+        );
+    })
+    .expect("dispatch native MeshPlot scroll");
+    cx.run_until_parked();
+}
+
+fn dispatch_click(cx: &mut HeadlessAppContext, window: AnyWindowHandle) {
+    // A 600×400 equal-aspect plot of this square is letterboxed horizontally
+    // by 100 px on either side. At this visible coordinate the correctly
+    // inverted point belongs to the second triangle; treating the full 600px
+    // width as data would incorrectly select the first triangle.
+    let position = point(px(180.0), px(300.0));
+    dispatch_click_at(cx, window, position);
+}
+
+fn close_window(cx: &mut HeadlessAppContext, window: AnyWindowHandle) {
+    cx.update_window(window, |_, window, _app| window.remove_window())
+        .expect("close native MeshPlot window");
+    cx.run_until_parked();
+}
+
 #[test]
 fn native_metal_mesh_plot_click_dispatches_selection_and_keyboard_preserves_it() {
+    let _platform_guard = native_platform_lock();
     let platform = MacPlatform::new(true);
     let text_system = platform.text_system();
     drop(platform);
@@ -163,6 +343,7 @@ fn native_metal_mesh_plot_click_dispatches_selection_and_keyboard_preserves_it()
                     mode: MeshRenderMode::ScalarFill {
                         interpolation: FieldInterpolation::Smooth,
                     },
+                    wireframe: Wireframe::hidden(),
                 })
             }
         })
@@ -174,17 +355,36 @@ fn native_metal_mesh_plot_click_dispatches_selection_and_keyboard_preserves_it()
     .expect("initial native MeshPlot draw");
 
     dispatch_click(&mut cx, any_window);
+    // Pointer focus is committed to the rendered dispatch tree during the
+    // following prepaint. A real window performs that frame before the user
+    // can press a key; reproduce the same boundary in this headless test.
+    cx.run_until_parked();
+    cx.update_window(any_window, |_, window, app| {
+        window.draw(app).clear();
+    })
+    .expect("commit focused MeshPlot frame");
     let picked = selection
         .borrow()
         .clone()
         .expect("native click should emit a typed MeshPlotPick");
     assert_eq!(picked.plot_id.as_ref(), "native-selection");
     assert_eq!(picked.mesh_id.as_ref(), "native-selection");
-    assert!(picked.cell_id.is_some());
+    assert_eq!(picked.cell_id, Some(101));
     assert!(picked.vertex_id.is_some());
     assert!(picked.displayed_value.is_some());
 
     let before_domain = state.borrow().interaction.x_domain();
+    cx.update_window(any_window, |_, window, app| {
+        window.dispatch_keystroke(gpui::Keystroke::parse("=").unwrap(), app);
+    })
+    .expect("dispatch native MeshPlot keyboard zoom");
+    cx.run_until_parked();
+    let zoomed_domain = state.borrow().interaction.x_domain();
+    assert!(
+        zoomed_domain.1 - zoomed_domain.0 < before_domain.1 - before_domain.0,
+        "keyboard zoom should shrink the viewport before testing a pan"
+    );
+
     cx.update_window(any_window, |_, window, app| {
         window.dispatch_keystroke(gpui::Keystroke::parse("right").unwrap(), app);
     })
@@ -192,8 +392,8 @@ fn native_metal_mesh_plot_click_dispatches_selection_and_keyboard_preserves_it()
     cx.run_until_parked();
     let after_domain = state.borrow().interaction.x_domain();
     assert_ne!(
-        before_domain, after_domain,
-        "keyboard pan should move the viewport"
+        zoomed_domain, after_domain,
+        "keyboard pan should move a zoomed viewport"
     );
     assert_eq!(selection.borrow().as_ref(), Some(&picked));
 
@@ -212,10 +412,109 @@ fn native_metal_mesh_plot_click_dispatches_selection_and_keyboard_preserves_it()
         max_luma > min_luma,
         "native MeshPlot framebuffer should contain rendered pixels"
     );
+    close_window(&mut cx, any_window);
+}
+
+#[test]
+fn native_metal_equal_aspect_selection_stays_aligned_after_resize() {
+    let _platform_guard = native_platform_lock();
+    let platform = MacPlatform::new(true);
+    let text_system = platform.text_system();
+    drop(platform);
+    let mut cx = HeadlessAppContext::with_platform(text_system, Arc::new(()), || {
+        Some(Box::new(MetalHeadlessRenderer::new()))
+    });
+    let (mesh, field) = fixture();
+    let state = Rc::new(RefCell::new(MeshPlotState::new(0.0, 1.0, 0.0, 1.0)));
+    let selection = Rc::new(RefCell::new(None));
+    let layout = Rc::new(RefCell::new((600.0, 400.0)));
+    let window = cx
+        .open_window(size(px(600.0), px(400.0)), {
+            let state = state.clone();
+            let selection = selection.clone();
+            let layout = layout.clone();
+            move |_window, app| {
+                app.new(|_cx| ResizableNativeMeshPlotView {
+                    mesh,
+                    field,
+                    state,
+                    selection,
+                    size: layout,
+                })
+            }
+        })
+        .expect("open resizable native MeshPlot window");
+    let view = cx
+        .read_window(&window, |view, _| view)
+        .expect("read resizable native MeshPlot view");
+    let any_window: AnyWindowHandle = window.into();
+    cx.update_window(any_window, |_, window, app| {
+        let _ = window.draw(app);
+    })
+    .expect("draw initial equal-aspect MeshPlot");
+    dispatch_move(&mut cx, any_window, point(px(180.0), px(300.0)));
+    assert_eq!(
+        state.borrow().hover.as_ref().and_then(|pick| pick.cell_id),
+        Some(101)
+    );
+    dispatch_move(&mut cx, any_window, point(px(80.0), px(300.0)));
+    assert!(state.borrow().hover.is_none(), "letterbox hover must clear");
+    dispatch_scroll(&mut cx, any_window, point(px(80.0), px(300.0)), 1.0);
+    let (x_min, x_max) = state.borrow().interaction.x_domain();
+    assert!(
+        x_min == 0.0 && x_max == 1.0,
+        "wheel zoom in a letterbox bar must be ignored, got ({x_min}, {x_max})"
+    );
+    dispatch_scroll(&mut cx, any_window, point(px(180.0), px(300.0)), 1.0);
+    let (x_min, x_max) = state.borrow().interaction.x_domain();
+    assert!(
+        (x_max - x_min - 0.9).abs() < 1e-6,
+        "wheel zoom in the visible equal-aspect viewport must shrink by its factor, got ({x_min}, {x_max})"
+    );
+    dispatch_click_at(&mut cx, any_window, point(px(180.0), px(300.0)));
+    assert_eq!(
+        selection.borrow().as_ref().and_then(|pick| pick.cell_id),
+        Some(101)
+    );
+
+    *selection.borrow_mut() = None;
+    *layout.borrow_mut() = (800.0, 400.0);
+    cx.update_entity(&view, |_view, cx| cx.notify());
+    cx.update_window(any_window, |_, window, app| {
+        window.resize(size(px(800.0), px(400.0)));
+        window.draw(app).clear();
+    })
+    .expect("resize and draw equal-aspect MeshPlot");
+    let screenshot = cx
+        .capture_screenshot(any_window)
+        .expect("capture resized equal-aspect MeshPlot");
+    assert_eq!(screenshot.width(), 1600);
+    assert_eq!(screenshot.height(), 800);
+    // The resized plot's chart area is 730×360 with a 185px inner letterbox
+    // offset. This window coordinate maps to the same second source cell;
+    // full-rectangle inversion would land in the first one.
+    dispatch_move(&mut cx, any_window, point(px(280.0), px(300.0)));
+    assert_eq!(
+        state.borrow().hover.as_ref().and_then(|pick| pick.cell_id),
+        Some(101)
+    );
+    dispatch_move(&mut cx, any_window, point(px(100.0), px(300.0)));
+    assert!(
+        state.borrow().hover.is_none(),
+        "resized letterbox hover must clear"
+    );
+    dispatch_click_at(&mut cx, any_window, point(px(280.0), px(300.0)));
+    assert_eq!(
+        selection.borrow().as_ref().and_then(|pick| pick.cell_id),
+        Some(101)
+    );
+    drop(view);
+    close_window(&mut cx, any_window);
 }
 
 #[test]
 fn native_metal_surface3d_builds_the_dedicated_depth_and_triad_path() {
+    let _platform_guard = native_platform_lock();
     let platform = MacPlatform::new(true);
     let text_system = platform.text_system();
     drop(platform);
@@ -240,6 +539,7 @@ fn native_metal_surface3d_builds_the_dedicated_depth_and_triad_path() {
                     mode: MeshRenderMode::ScalarFill {
                         interpolation: FieldInterpolation::Smooth,
                     },
+                    wireframe: Wireframe::hidden(),
                 })
             }
         })
@@ -259,10 +559,248 @@ fn native_metal_surface3d_builds_the_dedicated_depth_and_triad_path() {
         screenshot.pixels().any(|pixel| pixel.0[3] != 0),
         "dedicated Metal 3D draw should leave visible framebuffer pixels"
     );
+    let colored_pixels = screenshot
+        .pixels()
+        .filter(|pixel| {
+            let [r, g, b, _] = pixel.0;
+            r.max(g).max(b).saturating_sub(r.min(g).min(b)) > 12
+        })
+        .count();
+    assert!(
+        colored_pixels > 200,
+        "dedicated Metal 3D draw should produce a substantial scalar-colored surface, got {colored_pixels} pixels"
+    );
+    close_window(&mut cx, window);
+}
+
+#[test]
+fn native_metal_surface3d_wireframe_changes_the_composited_frame() {
+    let _platform_guard = native_platform_lock();
+
+    let render = |wireframe: Wireframe| {
+        let platform = MacPlatform::new(true);
+        let text_system = platform.text_system();
+        drop(platform);
+        let mut cx = HeadlessAppContext::with_platform(text_system, Arc::new(()), || {
+            Some(Box::new(MetalHeadlessRenderer::new()))
+        });
+        let (mesh, field) = fixture();
+        let state = Rc::new(RefCell::new(MeshPlotState::new(0.0, 1.0, 0.0, 1.0)));
+        let selection = Rc::new(RefCell::new(None));
+        let window = cx
+            .open_window(size(px(600.0), px(400.0)), {
+                let state = state.clone();
+                let selection = selection.clone();
+                move |_window, app| {
+                    app.new(|_cx| NativeMeshPlotView {
+                        mesh,
+                        field,
+                        state,
+                        selection,
+                        view: MeshPlotView::Surface3d,
+                        mode: MeshRenderMode::ScalarFill {
+                            interpolation: FieldInterpolation::Smooth,
+                        },
+                        wireframe,
+                    })
+                }
+            })
+            .expect("open native Surface3d wireframe window");
+        let window: AnyWindowHandle = window.into();
+        cx.update_window(window, |_, window, app| {
+            let _ = window.draw(app);
+        })
+        .expect("draw native Surface3d wireframe frame");
+        let screenshot = cx
+            .capture_screenshot(window)
+            .expect("capture native Surface3d wireframe framebuffer");
+        let pixels = screenshot.pixels().map(|pixel| pixel.0).collect::<Vec<_>>();
+        close_window(&mut cx, window);
+        pixels
+    };
+
+    let without_wireframe = render(Wireframe::hidden());
+    let with_wireframe = render(Wireframe::overlay());
+    assert_eq!(with_wireframe.len(), without_wireframe.len());
+    let changed_pixels = with_wireframe
+        .iter()
+        .zip(&without_wireframe)
+        .filter(|(wireframe, fill)| wireframe != fill)
+        .count();
+    assert!(
+        changed_pixels > 100,
+        "wireframe overlay should visibly alter the native 3D frame, got {changed_pixels} changed pixels"
+    );
+}
+
+#[test]
+fn native_metal_surface3d_keeps_a_partially_near_clipped_triangle() {
+    let _platform_guard = native_platform_lock();
+    let platform = MacPlatform::new(true);
+    let text_system = platform.text_system();
+    drop(platform);
+    let mut cx = HeadlessAppContext::with_platform(text_system, Arc::new(()), || {
+        Some(Box::new(MetalHeadlessRenderer::new()))
+    });
+    let (mesh, field) = near_clipped_fixture();
+    let mut initial_state = MeshPlotState::new(0.0, 1.0, 0.0, 1.0);
+    let mut camera = Camera3D::new()
+        .with_position(Vec3::new(0.5, 0.5, 2.0))
+        .with_target(Vec3::new(0.5, 0.5, 0.0))
+        .with_aspect(1.5)
+        .with_fov_degrees(70.0);
+    camera.near = 0.2;
+    initial_state.camera = camera.clone();
+    initial_state.camera_fitted = true;
+    assert!(
+        camera
+            .project_to_screen(Vec3::new(0.5, 1.0, 1.95), 600.0, 400.0)
+            .is_none(),
+        "fixture vertex must be in front of the camera near plane"
+    );
+    assert!(
+        camera
+            .project_to_screen(Vec3::new(0.0, 0.0, 0.0), 600.0, 400.0)
+            .is_some(),
+        "fixture must retain visible vertices"
+    );
+    let state = Rc::new(RefCell::new(initial_state));
+    let selection = Rc::new(RefCell::new(None));
+    let window = cx
+        .open_window(size(px(600.0), px(400.0)), {
+            let state = state.clone();
+            let selection = selection.clone();
+            move |_window, app| {
+                app.new(|_cx| NativeMeshPlotView {
+                    mesh,
+                    field,
+                    state,
+                    selection,
+                    view: MeshPlotView::Surface3d,
+                    mode: MeshRenderMode::ScalarFill {
+                        interpolation: FieldInterpolation::Smooth,
+                    },
+                    wireframe: Wireframe::overlay(),
+                })
+            }
+        })
+        .expect("open native near-clipped Surface3d window");
+    let window: AnyWindowHandle = window.into();
+    cx.update_window(window, |_, window, app| {
+        let _ = window.draw(app);
+    })
+    .expect("draw native near-clipped Surface3d");
+    let screenshot = cx
+        .capture_screenshot(window)
+        .expect("capture native near-clipped Surface3d framebuffer");
+    let colored_pixels = screenshot
+        .pixels()
+        .filter(|pixel| {
+            let [r, g, b, _] = pixel.0;
+            r.max(g).max(b).saturating_sub(r.min(g).min(b)) > 12
+        })
+        .count();
+    assert!(
+        colored_pixels > 100,
+        "partially near-clipped native triangle should retain a visible colored region, got {colored_pixels} pixels"
+    );
+    close_window(&mut cx, window);
+}
+
+#[test]
+fn native_metal_large_revolve_shows_preparing_frame_then_completed_surface() {
+    let _platform_guard = native_platform_lock();
+    let platform = MacPlatform::new(true);
+    let text_system = platform.text_system();
+    drop(platform);
+    let mut cx = HeadlessAppContext::with_platform(text_system, Arc::new(()), || {
+        Some(Box::new(MetalHeadlessRenderer::new()))
+    });
+    let (mesh, field) = large_revolve_fixture();
+    let state = Rc::new(RefCell::new(MeshPlotState::new(0.25, 1.0, 0.0, 1.0)));
+    let selection = Rc::new(RefCell::new(None));
+    let window = cx
+        .open_window(size(px(600.0), px(400.0)), {
+            let state = state.clone();
+            let selection = selection.clone();
+            move |_window, app| {
+                app.new(|_cx| NativeMeshPlotView {
+                    mesh,
+                    field,
+                    state,
+                    selection,
+                    view: MeshPlotView::AxisymmetricRevolve(RevolveSpec {
+                        radial: CoordinateAxis::X,
+                        axial: CoordinateAxis::Y,
+                        start_angle: 0.0,
+                        sweep_angle: std::f64::consts::TAU,
+                        segments: 12,
+                        end_caps: false,
+                    }),
+                    mode: MeshRenderMode::ScalarFill {
+                        interpolation: FieldInterpolation::Smooth,
+                    },
+                    wireframe: Wireframe::hidden(),
+                })
+            }
+        })
+        .expect("open native large revolved MeshPlot window");
+    let window: AnyWindowHandle = window.into();
+    cx.update_window(window, |_, window, app| {
+        let _ = window.draw(app);
+    })
+    .expect("draw native large-revolve preparing frame");
+    let preparing = cx
+        .capture_screenshot(window)
+        .expect("capture native preparing framebuffer");
+    let badge_color = [0x30, 0x34, 0x3b];
+    let badge_pixels = preparing
+        .pixels()
+        .take(160 * preparing.width() as usize)
+        .filter(|pixel| pixel.0[..3] == badge_color)
+        .count();
+    assert!(
+        badge_pixels > 100,
+        "first large-revolve frame should contain the Preparing 3D surface badge, got {badge_pixels} badge pixels"
+    );
+
+    // The deterministic headless dispatcher runs both the background derive
+    // and its retained-view completion task. The following draw observes the
+    // accepted prepared geometry rather than synchronously deriving it.
+    cx.run_until_parked();
+    cx.update_window(window, |_, window, app| {
+        window.draw(app).clear();
+    })
+    .expect("draw completed native large-revolve frame");
+    let completed = cx
+        .capture_screenshot(window)
+        .expect("capture completed native large-revolve framebuffer");
+    let completed_badge_pixels = completed
+        .pixels()
+        .take(160 * completed.width() as usize)
+        .filter(|pixel| pixel.0[..3] == badge_color)
+        .count();
+    assert_eq!(
+        completed_badge_pixels, 0,
+        "completed large-revolve frame must remove the preparing badge"
+    );
+    let colored_pixels = completed
+        .pixels()
+        .filter(|pixel| {
+            let [r, g, b, _] = pixel.0;
+            r.max(g).max(b).saturating_sub(r.min(g).min(b)) > 12
+        })
+        .count();
+    assert!(
+        colored_pixels > 200,
+        "completed large-revolve frame should contain a scalar-colored surface, got {colored_pixels} pixels"
+    );
+    close_window(&mut cx, window);
 }
 
 #[test]
 fn native_metal_full_and_partial_revolves_build_depth_tested_frames() {
+    let _platform_guard = native_platform_lock();
     let (mesh, vertex_field) = revolve_fixture();
     let cell_field = ScalarField {
         id: "native-revolve-cell-field".into(),
@@ -325,6 +863,7 @@ fn native_metal_full_and_partial_revolves_build_depth_tested_frames() {
                         selection,
                         view,
                         mode,
+                        wireframe: Wireframe::hidden(),
                     })
                 }
             })
@@ -343,5 +882,166 @@ fn native_metal_full_and_partial_revolves_build_depth_tested_frames() {
             screenshot.pixels().any(|pixel| pixel.0[3] != 0),
             "revolve case {index} should leave visible framebuffer pixels"
         );
+        let colored_pixels = screenshot
+            .pixels()
+            .filter(|pixel| {
+                let [r, g, b, _] = pixel.0;
+                r.max(g).max(b).saturating_sub(r.min(g).min(b)) > 12
+            })
+            .count();
+        assert!(
+            colored_pixels > 200,
+            "revolve case {index} should produce a substantial scalar-colored surface, got {colored_pixels} pixels"
+        );
+        close_window(&mut cx, window);
+    }
+}
+
+#[test]
+fn native_metal_live_3d_state_exports_deterministic_surface_and_revolve_artifacts() {
+    use image::GenericImageView;
+
+    let _platform_guard = native_platform_lock();
+    let (surface_mesh, surface_field) = fixture();
+    let (revolve_mesh, revolve_field) = revolve_fixture();
+    let cases = [
+        (
+            surface_mesh,
+            surface_field,
+            MeshPlotView::Surface3d,
+            MeshRenderMode::ScalarFill {
+                interpolation: FieldInterpolation::Smooth,
+            },
+        ),
+        (
+            revolve_mesh,
+            revolve_field,
+            MeshPlotView::AxisymmetricRevolve(RevolveSpec {
+                radial: CoordinateAxis::X,
+                axial: CoordinateAxis::Y,
+                start_angle: 0.0,
+                sweep_angle: std::f64::consts::TAU,
+                segments: 32,
+                end_caps: false,
+            }),
+            MeshRenderMode::ScalarFill {
+                interpolation: FieldInterpolation::Smooth,
+            },
+        ),
+    ];
+
+    for (index, (mesh, field, view, mode)) in cases.into_iter().enumerate() {
+        let platform = MacPlatform::new(true);
+        let text_system = platform.text_system();
+        drop(platform);
+        let mut cx = HeadlessAppContext::with_platform(text_system, Arc::new(()), || {
+            Some(Box::new(MetalHeadlessRenderer::new()))
+        });
+        let state = Rc::new(RefCell::new(MeshPlotState::new(0.0, 1.0, 0.0, 1.0)));
+        let selection = Rc::new(RefCell::new(None));
+        let window = cx
+            .open_window(size(px(600.0), px(400.0)), {
+                let state = state.clone();
+                let selection = selection.clone();
+                let live_mesh = mesh.clone();
+                let live_field = field.clone();
+                let live_view = view.clone();
+                let live_mode = mode.clone();
+                move |_window, app| {
+                    app.new(|_cx| NativeMeshPlotView {
+                        mesh: live_mesh,
+                        field: live_field,
+                        state,
+                        selection,
+                        view: live_view,
+                        mode: live_mode,
+                        wireframe: Wireframe::hidden(),
+                    })
+                }
+            })
+            .expect("open native 3D export-parity MeshPlot window");
+        let entity = cx
+            .read_window(&window, |view, _| view)
+            .expect("read native 3D export-parity MeshPlot entity");
+        let any_window: AnyWindowHandle = window.into();
+        cx.update_window(any_window, |_, window, app| {
+            let _ = window.draw(app);
+        })
+        .expect("draw native 3D export-parity MeshPlot");
+
+        // The live renderer fits a camera for the first frame. Rotate it so
+        // the export must consume the retained live camera, not a default.
+        state.borrow_mut().orbit_rotate(13.0, -7.0);
+        cx.update_entity(&entity, |_view, cx| cx.notify());
+        cx.update_window(any_window, |_, window, app| {
+            window.draw(app).clear();
+        })
+        .expect("redraw rotated native 3D export-parity MeshPlot");
+        let live = cx
+            .capture_screenshot(any_window)
+            .expect("capture native 3D export-parity frame");
+        assert_eq!(live.dimensions(), (1200, 800), "3D export case {index}");
+        let live_colored = live
+            .pixels()
+            .filter(|pixel| {
+                let [r, g, b, _] = pixel.0;
+                r.max(g).max(b).saturating_sub(r.min(g).min(b)) > 12
+            })
+            .count();
+        assert!(
+            live_colored > 200,
+            "native 3D export case {index} must produce a scalar-coloured live frame"
+        );
+
+        let before = {
+            let state = state.borrow();
+            (
+                state.geometry_revision,
+                state.field_revision,
+                state.selection.clone(),
+                state.hover.clone(),
+                state.camera.view_projection_matrix().to_cols_array(),
+            )
+        };
+        let plot = mesh_plot(mesh)
+            .field(field)
+            .size(600.0, 400.0)
+            .view(view)
+            .mode(mode)
+            .wireframe(Wireframe::hidden())
+            .with_state(state.clone());
+        let svg = plot.to_svg().expect("export live 3D SVG");
+        assert!(svg.contains("data-camera=\"current\""));
+        assert!(svg.contains("gpui-px-mesh-3d-triangle"));
+        assert!(svg.contains("gpui-px-mesh-3d-axes"));
+        assert_eq!(
+            svg,
+            plot.to_svg().expect("re-export deterministic live 3D SVG"),
+            "3D export case {index}"
+        );
+        let png = plot.to_png(1.0).expect("export live 3D PNG");
+        assert_eq!(&png[..8], b"\x89PNG\r\n\x1a\n");
+        let decoded = image::load_from_memory(&png).expect("decode exported 3D PNG");
+        assert_eq!(decoded.dimensions(), (600, 400), "3D export case {index}");
+        assert_eq!(
+            png,
+            plot.to_png(1.0)
+                .expect("re-export deterministic live 3D PNG"),
+            "3D export case {index}"
+        );
+
+        let state = state.borrow();
+        assert_eq!(state.geometry_revision, before.0);
+        assert_eq!(state.field_revision, before.1);
+        assert_eq!(state.selection, before.2);
+        assert_eq!(state.hover, before.3);
+        assert_eq!(
+            state.camera.view_projection_matrix().to_cols_array(),
+            before.4,
+            "export must not change the live 3D camera for case {index}"
+        );
+        drop(state);
+        drop(entity);
+        close_window(&mut cx, any_window);
     }
 }

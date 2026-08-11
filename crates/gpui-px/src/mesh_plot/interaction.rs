@@ -34,6 +34,21 @@ pub(crate) struct RetainedMesh3D {
     pub(crate) geometry_revision: u64,
 }
 
+/// Read-only diagnostics for the retained live 3D scene.
+///
+/// Native hosts and integration tests use this to verify dirty-domain
+/// behavior without reaching into renderer-owned state. `scene_identity` is
+/// process-local and intentionally suitable only for comparing two snapshots
+/// from the same running plot instance.
+#[cfg(all(feature = "gpu-3d", not(test)))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RetainedMesh3DStats {
+    pub geometry_revision: u64,
+    pub scene_identity: usize,
+    pub geometry_upload_count: u64,
+    pub geometry_upload_bytes: u64,
+}
+
 #[cfg(feature = "gpu-3d")]
 pub(crate) struct RetainedMeshLod {
     controller: d3rs::mesh::gpu::MeshLodController,
@@ -42,12 +57,28 @@ pub(crate) struct RetainedMeshLod {
     displaying_proxy: bool,
 }
 
+type RetainedContourOutput = (Rc<Vec<ContourBand>>, Rc<Vec<IsolineSegment>>);
+
+#[cfg(feature = "gpu-3d")]
+type RetainedRevolve = (
+    u64,
+    usize,
+    usize,
+    RevolveSpec,
+    Rc<RevolvedMesh>,
+    Rc<MeshBvh>,
+);
+
+#[cfg(feature = "gpu-3d")]
+type RetainedRevolvedField = (u64, u64, usize, Option<usize>, Rc<ScalarField>);
+
 /// Prepared marching-triangle output owned by a live plot instance. Pointer
 /// identities complement host revisions so direct native builders cannot reuse
 /// contours after replacing an Arc-backed field without updating its revision.
 #[derive(Clone)]
 struct RetainedContours {
     geometry_revision: u64,
+    field_revision: u64,
     positions_ptr: usize,
     triangles_ptr: usize,
     field_values_ptr: Option<usize>,
@@ -61,8 +92,53 @@ struct RetainedContours {
     lines: Rc<Vec<IsolineSegment>>,
 }
 
+/// Sendable/cache-comparable identity of one complete contour preparation.
+/// Keeping this separate from the Rc-owned draw data lets a background worker
+/// prove that it is still returning the revision the live plot requested.
+#[derive(Clone, PartialEq)]
+pub(crate) struct ContourPreparationKey {
+    geometry_revision: u64,
+    field_revision: u64,
+    positions_ptr: usize,
+    triangles_ptr: usize,
+    field_values_ptr: Option<usize>,
+    valid_ptr: Option<usize>,
+    association: Option<ScalarAssociation>,
+    horizontal: CoordinateAxis,
+    vertical: CoordinateAxis,
+    mode: super::MeshRenderMode,
+    range: Option<[f64; 2]>,
+}
+
+/// Identity of a complete axisymmetric-revolve preparation request. Geometry
+/// buffer identities are included in addition to host revisions because a
+/// direct native caller can replace an Arc-backed mesh before advancing its
+/// revision counter.
+#[cfg(feature = "gpu-3d")]
+#[derive(Clone, PartialEq)]
+pub(crate) struct RevolvePreparationKey {
+    geometry_revision: u64,
+    field_revision: u64,
+    positions_ptr: usize,
+    triangles_ptr: usize,
+    field_values_ptr: Option<usize>,
+    valid_ptr: Option<usize>,
+    spec: RevolveSpec,
+}
+
+/// Owned result returned by the background executor. It intentionally has no
+/// `Rc` members, so preparation can happen away from GPUI's UI thread and be
+/// promoted into retained draw state only after its key is revalidated.
+#[cfg(feature = "gpu-3d")]
+pub(crate) struct PreparedRevolve {
+    pub(crate) revolved: RevolvedMesh,
+    pub(crate) bvh: MeshBvh,
+    pub(crate) field: Option<ScalarField>,
+}
+
 #[cfg(feature = "gpu-3d")]
 impl RetainedMeshLod {
+    #[cfg_attr(test, allow(dead_code))]
     pub(crate) fn new(mesh: TriangleMesh, field: Option<&ScalarField>) -> Self {
         Self::with_lod_threshold(mesh, field, d3rs::mesh::gpu::DEFAULT_LOD_THRESHOLD)
     }
@@ -177,6 +253,7 @@ pub struct MeshPlotState {
         Rc<TriGridIndex>,
     )>,
     retained_contours: Option<RetainedContours>,
+    contour_preparation_inflight: Option<ContourPreparationKey>,
     #[cfg(feature = "gpu-3d")]
     pub camera: Camera3D,
     #[cfg(feature = "gpu-3d")]
@@ -189,13 +266,18 @@ pub struct MeshPlotState {
     /// profile. Keep both it and its accelerator together so repeated pointer
     /// inspection never regenerates the revolution surface.
     #[cfg(feature = "gpu-3d")]
-    retained_revolve: Option<(u64, RevolveSpec, Rc<RevolvedMesh>, Rc<MeshBvh>)>,
+    retained_revolve: Option<RetainedRevolve>,
     /// One field derivative for the retained revolved geometry. Its identity
     /// includes both the host field revision and the immutable Arc backing
     /// stores so native callers that do not use the Python cache cannot reuse
     /// stale values accidentally.
     #[cfg(feature = "gpu-3d")]
-    retained_revolved_field: Option<(u64, u64, usize, Option<usize>, Rc<ScalarField>)>,
+    retained_revolved_field: Option<RetainedRevolvedField>,
+    /// At most one complete revolve/derived-field preparation may be queued
+    /// for this retained plot. Replacement requests supersede the key, so
+    /// late worker results cannot overwrite the current scene.
+    #[cfg(feature = "gpu-3d")]
+    revolve_preparation_inflight: Option<RevolvePreparationKey>,
     #[cfg(all(feature = "gpu-3d", not(test)))]
     pub(crate) retained_3d: Option<RetainedMesh3D>,
 }
@@ -216,6 +298,7 @@ impl MeshPlotState {
             color_range: crate::ColorRange::Auto,
             retained_planar_index: None,
             retained_contours: None,
+            contour_preparation_inflight: None,
             #[cfg(feature = "gpu-3d")]
             camera: orbit.to_camera(),
             #[cfg(feature = "gpu-3d")]
@@ -228,9 +311,26 @@ impl MeshPlotState {
             retained_revolve: None,
             #[cfg(feature = "gpu-3d")]
             retained_revolved_field: None,
+            #[cfg(feature = "gpu-3d")]
+            revolve_preparation_inflight: None,
             #[cfg(all(feature = "gpu-3d", not(test)))]
             retained_3d: None,
         }
+    }
+
+    /// Snapshot retained 3D upload ownership for runtime diagnostics.
+    ///
+    /// Returns `None` until a live 3D frame has created its retained scene.
+    #[cfg(all(feature = "gpu-3d", not(test)))]
+    pub fn retained_3d_stats(&self) -> Option<RetainedMesh3DStats> {
+        let retained = self.retained_3d.as_ref()?;
+        let scene = retained.scene.borrow();
+        Some(RetainedMesh3DStats {
+            geometry_revision: retained.geometry_revision,
+            scene_identity: Rc::as_ptr(&retained.scene) as usize,
+            geometry_upload_count: scene.geometry_upload_count,
+            geometry_upload_bytes: scene.geometry_upload_bytes,
+        })
     }
 
     /// Apply independently-versioned native resource changes from a retained
@@ -240,7 +340,7 @@ impl MeshPlotState {
         if geometry_changed {
             self.geometry_revision = self.geometry_revision.saturating_add(1).max(1);
             self.retained_planar_index = None;
-            self.retained_contours = None;
+            self.contour_preparation_inflight = None;
             #[cfg(all(feature = "gpu-3d", not(test)))]
             {
                 self.retained_3d = None;
@@ -250,14 +350,16 @@ impl MeshPlotState {
                 self.retained_bvh = None;
                 self.retained_revolve = None;
                 self.retained_revolved_field = None;
+                self.revolve_preparation_inflight = None;
             }
         }
         if field_changed {
             self.field_revision = self.field_revision.saturating_add(1).max(1);
-            self.retained_contours = None;
+            self.contour_preparation_inflight = None;
             #[cfg(feature = "gpu-3d")]
             {
                 self.retained_revolved_field = None;
+                self.revolve_preparation_inflight = None;
             }
         }
     }
@@ -272,7 +374,7 @@ impl MeshPlotState {
         vertical: CoordinateAxis,
         mode: &super::MeshRenderMode,
         range: Option<[f64; 2]>,
-    ) -> Option<(Rc<Vec<ContourBand>>, Rc<Vec<IsolineSegment>>)> {
+    ) -> Option<RetainedContourOutput> {
         let cached = self.retained_contours.as_ref()?;
         let values_ptr = field.map(|field| field.values.as_ptr() as usize);
         let valid_ptr = field
@@ -280,6 +382,7 @@ impl MeshPlotState {
             .map(|valid| valid.as_ptr() as usize);
         let association = field.map(|field| field.association);
         (cached.geometry_revision == self.geometry_revision.max(1)
+            && cached.field_revision == self.field_revision
             && cached.positions_ptr == mesh.positions.as_ptr() as usize
             && cached.triangles_ptr == mesh.triangles.as_ptr() as usize
             && cached.field_values_ptr == values_ptr
@@ -307,6 +410,7 @@ impl MeshPlotState {
     ) {
         self.retained_contours = Some(RetainedContours {
             geometry_revision: self.geometry_revision.max(1),
+            field_revision: self.field_revision,
             positions_ptr: mesh.positions.as_ptr() as usize,
             triangles_ptr: mesh.triangles.as_ptr() as usize,
             field_values_ptr: field.map(|field| field.values.as_ptr() as usize),
@@ -321,6 +425,76 @@ impl MeshPlotState {
             bands,
             lines,
         });
+    }
+
+    fn contour_preparation_key(
+        &self,
+        mesh: &TriangleMesh,
+        field: Option<&ScalarField>,
+        horizontal: CoordinateAxis,
+        vertical: CoordinateAxis,
+        mode: &super::MeshRenderMode,
+        range: Option<[f64; 2]>,
+    ) -> ContourPreparationKey {
+        ContourPreparationKey {
+            geometry_revision: self.geometry_revision.max(1),
+            field_revision: self.field_revision,
+            positions_ptr: mesh.positions.as_ptr() as usize,
+            triangles_ptr: mesh.triangles.as_ptr() as usize,
+            field_values_ptr: field.map(|field| field.values.as_ptr() as usize),
+            valid_ptr: field
+                .and_then(|field| field.valid.as_ref())
+                .map(|valid| valid.as_ptr() as usize),
+            association: field.map(|field| field.association),
+            horizontal,
+            vertical,
+            mode: mode.clone(),
+            range,
+        }
+    }
+
+    /// Return the last complete contour frame even when it belongs to an older
+    /// revision. The live renderer uses it while a newer background result is
+    /// still preparing, avoiding a blank or partially-updated plot.
+    pub(crate) fn previous_contours(&self) -> Option<RetainedContourOutput> {
+        self.retained_contours
+            .as_ref()
+            .map(|cached| (cached.bands.clone(), cached.lines.clone()))
+    }
+
+    /// Mark a complete input revision as being prepared. Returns its key only
+    /// for a newly-started task, so repeated render passes cannot queue the
+    /// same work repeatedly.
+    pub(crate) fn begin_contour_preparation(
+        &mut self,
+        mesh: &TriangleMesh,
+        field: Option<&ScalarField>,
+        horizontal: CoordinateAxis,
+        vertical: CoordinateAxis,
+        mode: &super::MeshRenderMode,
+        range: Option<[f64; 2]>,
+    ) -> Option<ContourPreparationKey> {
+        let key = self.contour_preparation_key(mesh, field, horizontal, vertical, mode, range);
+        if self.contour_preparation_inflight.as_ref() == Some(&key) {
+            return None;
+        }
+        self.contour_preparation_inflight = Some(key.clone());
+        Some(key)
+    }
+
+    /// Accept a worker result only when it still corresponds to the latest
+    /// request. A newer geometry/field/style mutation clears or replaces the
+    /// in-flight key before this method can store stale draw data.
+    pub(crate) fn finish_contour_preparation(&mut self, key: &ContourPreparationKey) -> bool {
+        if self.contour_preparation_inflight.as_ref() != Some(key) {
+            return false;
+        }
+        self.contour_preparation_inflight = None;
+        true
+    }
+
+    pub(crate) fn cancel_contour_preparation(&mut self) {
+        self.contour_preparation_inflight = None;
     }
 
     /// Return the retained planar spatial index for native hover/click
@@ -380,6 +554,134 @@ impl MeshPlotState {
     }
 
     #[cfg(feature = "gpu-3d")]
+    fn revolve_preparation_key(
+        &self,
+        mesh: &TriangleMesh,
+        spec: &RevolveSpec,
+        field: Option<&ScalarField>,
+    ) -> RevolvePreparationKey {
+        RevolvePreparationKey {
+            geometry_revision: self.geometry_revision.max(1),
+            field_revision: self.field_revision,
+            positions_ptr: mesh.positions.as_ptr() as usize,
+            triangles_ptr: mesh.triangles.as_ptr() as usize,
+            field_values_ptr: field.map(|field| field.values.as_ptr() as usize),
+            valid_ptr: field
+                .and_then(|field| field.valid.as_ref())
+                .map(|valid| valid.as_ptr() as usize),
+            spec: spec.clone(),
+        }
+    }
+
+    /// Start preparation only once for an exact source/spec/field revision.
+    /// This is deliberately state-only: the GPUI live owner chooses when to
+    /// dispatch it and atomically accepts the result on its UI thread.
+    #[cfg(feature = "gpu-3d")]
+    pub(crate) fn begin_revolve_preparation(
+        &mut self,
+        mesh: &TriangleMesh,
+        spec: &RevolveSpec,
+        field: Option<&ScalarField>,
+    ) -> Option<RevolvePreparationKey> {
+        let key = self.revolve_preparation_key(mesh, spec, field);
+        if self.revolve_preparation_inflight.as_ref() == Some(&key) {
+            return None;
+        }
+        self.revolve_preparation_inflight = Some(key.clone());
+        Some(key)
+    }
+
+    /// Return true only for the still-current request. This rejects stale
+    /// background work after geometry/field replacement and clears the
+    /// duplicate-suppression marker before the caller stores its full result.
+    #[cfg(feature = "gpu-3d")]
+    pub(crate) fn finish_revolve_preparation(&mut self, key: &RevolvePreparationKey) -> bool {
+        if self.revolve_preparation_inflight.as_ref() != Some(key) {
+            return false;
+        }
+        self.revolve_preparation_inflight = None;
+        true
+    }
+
+    #[cfg(feature = "gpu-3d")]
+    pub(crate) fn revolve_preparation_pending(
+        &self,
+        mesh: &TriangleMesh,
+        spec: &RevolveSpec,
+        field: Option<&ScalarField>,
+    ) -> bool {
+        self.revolve_preparation_inflight.as_ref()
+            == Some(&self.revolve_preparation_key(mesh, spec, field))
+    }
+
+    /// Promote one fully-prepared worker result into the retained caches.
+    /// The caller must first call [`Self::finish_revolve_preparation`]; the
+    /// key is retained as a final guard against accidental source mismatch.
+    #[cfg(feature = "gpu-3d")]
+    pub(crate) fn store_prepared_revolve(
+        &mut self,
+        key: &RevolvePreparationKey,
+        mesh: &TriangleMesh,
+        field: Option<&ScalarField>,
+        prepared: PreparedRevolve,
+    ) -> bool {
+        if self.revolve_preparation_key(mesh, &key.spec, field) != *key {
+            return false;
+        }
+        let revolved = Rc::new(prepared.revolved);
+        let bvh = Rc::new(prepared.bvh);
+        self.retained_revolve = Some((
+            key.geometry_revision,
+            key.positions_ptr,
+            key.triangles_ptr,
+            key.spec.clone(),
+            revolved,
+            bvh,
+        ));
+        self.retained_revolved_field = prepared.field.map(|field| {
+            (
+                key.geometry_revision,
+                key.field_revision,
+                key.field_values_ptr.unwrap_or_default(),
+                key.valid_ptr,
+                Rc::new(field),
+            )
+        });
+        true
+    }
+
+    /// Whether the requested derived geometry (and, when supplied, derived
+    /// scalar field) is already fully available without invoking `revolve`.
+    #[cfg(feature = "gpu-3d")]
+    pub(crate) fn has_prepared_revolve(
+        &self,
+        mesh: &TriangleMesh,
+        spec: &RevolveSpec,
+        field: Option<&ScalarField>,
+    ) -> bool {
+        let geometry_ready = self.retained_revolve.as_ref().is_some_and(
+            |(revision, positions_ptr, triangles_ptr, cached_spec, _, _)| {
+                *revision == self.geometry_revision.max(1)
+                    && *positions_ptr == mesh.positions.as_ptr() as usize
+                    && *triangles_ptr == mesh.triangles.as_ptr() as usize
+                    && cached_spec == spec
+            },
+        );
+        geometry_ready
+            && field.is_none_or(|field| {
+                self.retained_revolved_field.as_ref().is_some_and(
+                    |(geometry, field_revision, values_ptr, valid_ptr, _)| {
+                        *geometry == self.geometry_revision.max(1)
+                            && *field_revision == self.field_revision
+                            && *values_ptr == field.values.as_ptr() as usize
+                            && *valid_ptr
+                                == field.valid.as_ref().map(|valid| valid.as_ptr() as usize)
+                    },
+                )
+            })
+    }
+
+    #[cfg(feature = "gpu-3d")]
     /// Return the retained revolved geometry and matching BVH for the current
     /// source-geometry revision. A changed revolve specification is itself a
     /// geometry change for this derived product.
@@ -389,15 +691,25 @@ impl MeshPlotState {
         spec: &RevolveSpec,
     ) -> Result<(Rc<RevolvedMesh>, Rc<MeshBvh>), d3rs::mesh::MeshValidationError> {
         let revision = self.geometry_revision.max(1);
-        if let Some((cached_revision, cached_spec, revolved, bvh)) = &self.retained_revolve
+        if let Some((cached_revision, positions_ptr, triangles_ptr, cached_spec, revolved, bvh)) =
+            &self.retained_revolve
             && *cached_revision == revision
+            && *positions_ptr == mesh.positions.as_ptr() as usize
+            && *triangles_ptr == mesh.triangles.as_ptr() as usize
             && cached_spec == spec
         {
             return Ok((revolved.clone(), bvh.clone()));
         }
         let revolved = Rc::new(d3rs::mesh::revolve(mesh, spec)?);
         let bvh = Rc::new(MeshBvh::build(&revolved.mesh));
-        self.retained_revolve = Some((revision, spec.clone(), revolved.clone(), bvh.clone()));
+        self.retained_revolve = Some((
+            revision,
+            mesh.positions.as_ptr() as usize,
+            mesh.triangles.as_ptr() as usize,
+            spec.clone(),
+            revolved.clone(),
+            bvh.clone(),
+        ));
         Ok((revolved, bvh))
     }
 
@@ -519,6 +831,16 @@ impl MeshPlotState {
         self.render_mode = mode;
         self.wireframe = wireframe;
         self.color_range = color_range;
+        self.contour_preparation_inflight = None;
+    }
+
+    /// Set the render mode selected by the native toolbar. A pending contour
+    /// task is invalid once its level/mode policy changes.
+    pub(crate) fn set_render_mode(&mut self, mode: super::MeshRenderMode) {
+        if self.render_mode != mode {
+            self.render_mode = mode;
+            self.cancel_contour_preparation();
+        }
     }
 
     /// Toggle the retained wireframe preference and return its new value.
@@ -931,6 +1253,155 @@ mod tests {
                     Some([0.0, 1.0]),
                 )
                 .is_none()
+        );
+    }
+
+    #[test]
+    fn contour_preparation_is_revision_keyed_and_keeps_the_last_complete_frame() {
+        let mesh = TriangleMesh {
+            id: "mesh".into(),
+            positions: Arc::from([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]),
+            triangles: Arc::from([[0, 1, 2]]),
+            vertex_ids: None,
+            cell_ids: None,
+        };
+        let field = ScalarField {
+            id: "field".into(),
+            label: "Field".into(),
+            unit: None,
+            values: Arc::from([0.0, 0.5, 1.0]),
+            association: ScalarAssociation::Vertex,
+            valid: None,
+        };
+        let mode = crate::mesh_plot::MeshRenderMode::Isolines {
+            levels: d3rs::mesh::ContourLevels::Count(4),
+        };
+        let mut state = MeshPlotState::new(0.0, 1.0, 0.0, 1.0);
+        state.mark_resources_changed(true, false);
+        let previous_bands = Rc::new(Vec::new());
+        let previous_lines = Rc::new(Vec::new());
+        state.store_contours(
+            &mesh,
+            Some(&field),
+            CoordinateAxis::X,
+            CoordinateAxis::Y,
+            &mode,
+            Some([0.0, 1.0]),
+            previous_bands.clone(),
+            previous_lines.clone(),
+        );
+        let key = state
+            .begin_contour_preparation(
+                &mesh,
+                Some(&field),
+                CoordinateAxis::X,
+                CoordinateAxis::Y,
+                &mode,
+                Some([0.0, 1.0]),
+            )
+            .expect("first revision starts a task");
+        assert!(
+            state
+                .begin_contour_preparation(
+                    &mesh,
+                    Some(&field),
+                    CoordinateAxis::X,
+                    CoordinateAxis::Y,
+                    &mode,
+                    Some([0.0, 1.0]),
+                )
+                .is_none(),
+            "a render retry must not queue duplicate work"
+        );
+
+        state.mark_resources_changed(false, true);
+        let (bands, lines) = state
+            .previous_contours()
+            .expect("an invalidated revision keeps its complete fallback frame");
+        assert!(Rc::ptr_eq(&bands, &previous_bands));
+        assert!(Rc::ptr_eq(&lines, &previous_lines));
+        assert!(
+            !state.finish_contour_preparation(&key),
+            "a late result must not replace the newer field revision"
+        );
+    }
+
+    #[cfg(feature = "gpu-3d")]
+    #[test]
+    fn revolve_preparation_rejects_duplicates_and_stale_results() {
+        let mesh = TriangleMesh {
+            id: "profile".into(),
+            positions: Arc::from([
+                [0.0, 0.0, 0.0],
+                [1.0, 0.0, 0.0],
+                [1.0, 0.0, 1.0],
+                [0.0, 0.0, 1.0],
+            ]),
+            triangles: Arc::from([[0, 1, 2], [0, 2, 3]]),
+            vertex_ids: None,
+            cell_ids: None,
+        };
+        let field = ScalarField {
+            id: "pressure".into(),
+            label: "Pressure".into(),
+            unit: None,
+            values: Arc::from([0.0, 0.5, 1.0, 0.75]),
+            association: ScalarAssociation::Vertex,
+            valid: None,
+        };
+        let spec = RevolveSpec {
+            radial: CoordinateAxis::X,
+            axial: CoordinateAxis::Y,
+            segments: 8,
+            ..RevolveSpec::default()
+        };
+        let mut state = MeshPlotState::new(0.0, 1.0, 0.0, 1.0);
+        state.mark_resources_changed(true, true);
+        let key = state
+            .begin_revolve_preparation(&mesh, &spec, Some(&field))
+            .expect("first request starts preparation");
+        assert!(
+            state
+                .begin_revolve_preparation(&mesh, &spec, Some(&field))
+                .is_none(),
+            "repeated frames must not queue duplicate revolve work"
+        );
+
+        state.mark_resources_changed(false, true);
+        assert!(
+            !state.finish_revolve_preparation(&key),
+            "a field replacement must reject a late derived field"
+        );
+
+        let current_key = state
+            .begin_revolve_preparation(&mesh, &spec, Some(&field))
+            .expect("new field revision starts a new request");
+        assert!(state.finish_revolve_preparation(&current_key));
+        let revolved = d3rs::mesh::revolve(&mesh, &spec).expect("valid profile");
+        let prepared = PreparedRevolve {
+            bvh: MeshBvh::build(&revolved.mesh),
+            field: Some(crate::mesh_plot::picking3d::revolved_field(
+                &field, &revolved,
+            )),
+            revolved,
+        };
+        assert!(state.store_prepared_revolve(&current_key, &mesh, Some(&field), prepared));
+        assert!(state.retained_revolve.is_some());
+        assert!(state.retained_revolved_field.is_some());
+        assert!(state.has_prepared_revolve(&mesh, &spec, Some(&field)));
+
+        let replacement_mesh = TriangleMesh {
+            positions: Arc::from(mesh.positions.iter().copied().collect::<Vec<_>>()),
+            triangles: Arc::from(mesh.triangles.iter().copied().collect::<Vec<_>>()),
+            ..mesh.clone()
+        };
+        let replacement_field = ScalarField {
+            values: Arc::from(field.values.iter().copied().collect::<Vec<_>>()),
+            ..field.clone()
+        };
+        assert!(
+            !state.has_prepared_revolve(&replacement_mesh, &spec, Some(&replacement_field)),
+            "immutable buffer replacement must not reuse a same-revision derived mesh"
         );
     }
 

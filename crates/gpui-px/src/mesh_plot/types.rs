@@ -117,8 +117,9 @@ fn coordinate_label(axis: CoordinateAxis) -> &'static str {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum PlotInteractions {
+    #[default]
     InspectAndNavigate,
     None,
 }
@@ -128,11 +129,6 @@ impl PlotInteractions {
     }
     pub fn none() -> Self {
         Self::None
-    }
-}
-impl Default for PlotInteractions {
-    fn default() -> Self {
-        Self::InspectAndNavigate
     }
 }
 

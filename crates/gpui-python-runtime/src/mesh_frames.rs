@@ -175,12 +175,12 @@ impl MeshFrame {
             serde_json::from_str(header).map_err(|error| MeshFrameError::InvalidHeader {
                 message: error.to_string(),
             })?;
-        if let Some(message_type) = header.message_type {
-            if message_type != "mesh_frame" {
-                return Err(MeshFrameError::UnexpectedType {
-                    received: message_type,
-                });
-            }
+        if let Some(message_type) = header.message_type
+            && message_type != "mesh_frame"
+        {
+            return Err(MeshFrameError::UnexpectedType {
+                received: message_type,
+            });
         }
         if header.byte_length != payload.len() {
             return Err(MeshFrameError::HeaderPayloadMismatch {
@@ -391,14 +391,13 @@ impl MeshFrameStore {
         if matches!(self.entries.get(&key), Some(MeshEntry::Resource(_))) {
             return Ok(MeshFrameOutcome::DroppedStale);
         }
-        if let Some(MeshEntry::Assembly(existing)) = self.entries.get(&key) {
-            if existing.kind != frame.kind
+        if let Some(MeshEntry::Assembly(existing)) = self.entries.get(&key)
+            && (existing.kind != frame.kind
                 || existing.dtype != frame.dtype
                 || existing.shape != frame.shape
-                || existing.chunks.len() != frame.chunk_count as usize
-            {
-                return Err(MeshFrameError::MetadataMismatch);
-            }
+                || existing.chunks.len() != frame.chunk_count as usize)
+        {
+            return Err(MeshFrameError::MetadataMismatch);
         }
 
         let additional = match self.entries.get(&key) {

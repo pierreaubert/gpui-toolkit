@@ -9,7 +9,9 @@ use crate::gpu3d::Camera3D;
 use crate::mesh::gpu::{
     FieldRevision, GeometryRevision, MeshColorConfig, MeshGpuRenderer, RetainedMeshRenderer,
 };
-use crate::mesh::{MeshUpload, expand_cell_shading, upload_chunks};
+#[cfg(not(test))]
+use crate::mesh::upload_chunks;
+use crate::mesh::{MeshUpload, expand_cell_shading};
 #[cfg(not(test))]
 use glam::Vec3Swizzles;
 
@@ -18,6 +20,7 @@ use glam::Vec3Swizzles;
 /// `B` is deliberately generic so headless tests can use
 /// [`RetainedMeshRenderer`], while a platform can provide its own
 /// [`MeshGpuRenderer`] without duplicating revision and camera-cache logic.
+#[cfg_attr(test, allow(dead_code))]
 #[derive(Debug, Clone)]
 pub struct Mesh3DRenderer<B = RetainedMeshRenderer> {
     backend: B,
@@ -30,6 +33,7 @@ pub struct Mesh3DRenderer<B = RetainedMeshRenderer> {
     upload_bytes: u64,
 }
 
+#[cfg_attr(test, allow(dead_code))]
 impl<B: MeshGpuRenderer> Mesh3DRenderer<B> {
     /// Wrap an existing platform renderer.
     pub fn with_backend(backend: B) -> Self {
@@ -189,7 +193,7 @@ impl<B: MeshGpuRenderer> MeshGpuRenderer for Mesh3DRenderer<B> {
 ///
 /// The renderer is intentionally separate from the headless facade above:
 /// `Mesh3DRenderer` owns revision policy, while this type owns the WGPU
-/// pipeline, depth/MSAA targets, and GPUI custom-draw registration. Camera
+/// pipeline, depth targets, and GPUI custom-draw registration. Camera
 /// changes only update the uniform buffer; indexed geometry is rebuilt only
 /// when its `GeometryRevision` changes.
 #[cfg(not(test))]
@@ -217,12 +221,40 @@ struct WgpuMesh3DResources {
     edge_count: u32,
     triad_count: u32,
     vertex_bytes: u64,
-    msaa_texture: wgpu::Texture,
-    msaa_view: wgpu::TextureView,
     depth_texture: wgpu::Texture,
     depth_view: wgpu::TextureView,
     width: u32,
     height: u32,
+}
+
+/// Convert a GPUI chart rectangle to a physical WGPU viewport, clipped to the
+/// full resolve target. A custom draw is embedded in GPUI's frame rather than
+/// owning that frame, so its layout bounds may be partially outside the target
+/// during scroll, clipping, or resize.
+fn clipped_target_viewport(
+    origin: [f32; 2],
+    size: [f32; 2],
+    scale_factor: f32,
+    target_size: [u32; 2],
+) -> Option<[u32; 4]> {
+    let scale = scale_factor.max(0.0);
+    let left = (origin[0] * scale).floor().max(0.0);
+    let top = (origin[1] * scale).floor().max(0.0);
+    let right = ((origin[0] + size[0]) * scale)
+        .ceil()
+        .min(target_size[0] as f32);
+    let bottom = ((origin[1] + size[1]) * scale)
+        .ceil()
+        .min(target_size[1] as f32);
+    if right <= left || bottom <= top {
+        return None;
+    }
+    Some([
+        left as u32,
+        top as u32,
+        (right - left) as u32,
+        (bottom - top) as u32,
+    ])
 }
 
 #[cfg(not(test))]
@@ -389,11 +421,7 @@ impl WgpuMesh3DResources {
                     stencil: Default::default(),
                     bias: depth_bias,
                 }),
-                multisample: wgpu::MultisampleState {
-                    count: 4,
-                    mask: !0,
-                    alpha_to_coverage_enabled: false,
-                },
+                multisample: wgpu::MultisampleState::default(),
                 fragment: Some(wgpu::FragmentState {
                     module: &shader,
                     entry_point: Some(if topology == wgpu::PrimitiveTopology::LineList {
@@ -415,11 +443,10 @@ impl WgpuMesh3DResources {
         let surface_pipeline = pipeline(wgpu::PrimitiveTopology::TriangleList, Default::default());
         let wire_pipeline = pipeline(
             wgpu::PrimitiveTopology::LineList,
-            wgpu::DepthBiasState {
-                constant: 1,
-                slope_scale: 1.0,
-                clamp: 0.0,
-            },
+            // WGPU rejects depth bias for line topology. The depth comparison
+            // remains LessEqual so mesh edges are still visible on coplanar
+            // surfaces without creating an invalid adapter pipeline.
+            Default::default(),
         );
         let triad_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("mesh_3d_orientation_triad_pipeline"),
@@ -439,12 +466,18 @@ impl WgpuMesh3DResources {
                 polygon_mode: wgpu::PolygonMode::Fill,
                 conservative: false,
             },
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState {
-                count: 4,
-                mask: !0,
-                alpha_to_coverage_enabled: false,
-            },
+            // This is an overlay, but it shares the surface pass so its
+            // pipeline must declare the same depth format. `Always` with
+            // writes disabled keeps the triad visible without changing the
+            // surface depth buffer.
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: wgpu::TextureFormat::Depth32Float,
+                depth_write_enabled: Some(false),
+                depth_compare: Some(wgpu::CompareFunction::Always),
+                stencil: Default::default(),
+                bias: Default::default(),
+            }),
+            multisample: wgpu::MultisampleState::default(),
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
                 entry_point: Some("fs_triad"),
@@ -458,7 +491,7 @@ impl WgpuMesh3DResources {
             cache: None,
             multiview_mask: None,
         });
-        let (msaa_texture, msaa_view, depth_texture, depth_view) = make_targets(ctx, 1, 1);
+        let (depth_texture, depth_view) = make_targets(ctx, 1, 1);
         Self {
             geometry_rev: revision,
             field_rev: FieldRevision(0),
@@ -475,8 +508,6 @@ impl WgpuMesh3DResources {
             edge_count: render_upload.edge_indices.len() as u32,
             triad_count: triad_vertices.len() as u32,
             vertex_bytes: vertex_bytes.len() as u64,
-            msaa_texture,
-            msaa_view,
             depth_texture,
             depth_view,
             width: 1,
@@ -488,9 +519,7 @@ impl WgpuMesh3DResources {
         if self.width == width && self.height == height {
             return;
         }
-        let (msaa_texture, msaa_view, depth_texture, depth_view) = make_targets(ctx, width, height);
-        self.msaa_texture = msaa_texture;
-        self.msaa_view = msaa_view;
+        let (depth_texture, depth_view) = make_targets(ctx, width, height);
         self.depth_texture = depth_texture;
         self.depth_view = depth_view;
         self.width = width;
@@ -561,40 +590,24 @@ fn make_targets(
     ctx: &gpui_wgpu::WgpuContext,
     width: u32,
     height: u32,
-) -> (
-    wgpu::Texture,
-    wgpu::TextureView,
-    wgpu::Texture,
-    wgpu::TextureView,
-) {
+) -> (wgpu::Texture, wgpu::TextureView) {
     let extent = wgpu::Extent3d {
         width: width.max(1),
         height: height.max(1),
         depth_or_array_layers: 1,
     };
-    let msaa_texture = ctx.device.create_texture(&wgpu::TextureDescriptor {
-        label: Some("mesh_3d_msaa_color"),
-        size: extent,
-        mip_level_count: 1,
-        sample_count: 4,
-        dimension: wgpu::TextureDimension::D2,
-        format: ctx.color_texture_format(),
-        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-        view_formats: &[],
-    });
-    let msaa_view = msaa_texture.create_view(&wgpu::TextureViewDescriptor::default());
     let depth_texture = ctx.device.create_texture(&wgpu::TextureDescriptor {
         label: Some("mesh_3d_depth"),
         size: extent,
         mip_level_count: 1,
-        sample_count: 4,
+        sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
         format: wgpu::TextureFormat::Depth32Float,
         usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
         view_formats: &[],
     });
     let depth_view = depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
-    (msaa_texture, msaa_view, depth_texture, depth_view)
+    (depth_texture, depth_view)
 }
 
 #[cfg(not(test))]
@@ -776,12 +789,19 @@ impl gpui_wgpu::WgpuCustomDraw for WgpuMesh3DDraw {
         let Some(resources) = resources.as_mut() else {
             return;
         };
-        let viewport_width = (f32::from(bounds.size.width) * scale_factor).max(1.0) as u32;
-        let viewport_height = (f32::from(bounds.size.height) * scale_factor).max(1.0) as u32;
-        // The color resolve target is GPUI's full frame. WGPU requires every
-        // attachment in this render pass to have the same extent, therefore
-        // depth/MSAA resources follow `target_size`; chart bounds only define
-        // the viewport and scissor below.
+        let Some([x, y, viewport_width, viewport_height]) = clipped_target_viewport(
+            [f32::from(bounds.origin.x), f32::from(bounds.origin.y)],
+            [f32::from(bounds.size.width), f32::from(bounds.size.height)],
+            scale_factor,
+            target_size,
+        ) else {
+            return;
+        };
+        // The color target is GPUI's full frame. Depth resources follow that
+        // extent; chart bounds only define the viewport and scissor below.
+        // Draw directly into the target rather than an intermediate MSAA
+        // resolve texture, because resolving a full-size intermediate would
+        // overwrite content outside this embedded chart rectangle.
         resources.resize(ctx, target_size[0].max(1), target_size[1].max(1));
         if resources.field_rev != state.field_rev {
             resources.write_vertices(ctx, upload);
@@ -790,16 +810,14 @@ impl gpui_wgpu::WgpuCustomDraw for WgpuMesh3DDraw {
         let camera = self.camera.borrow();
         resources.write_uniform(ctx, &state, &camera);
         resources.write_triad(ctx, &camera);
-        let x = (f32::from(bounds.origin.x) * scale_factor).max(0.0) as u32;
-        let y = (f32::from(bounds.origin.y) * scale_factor).max(0.0) as u32;
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("mesh_3d_pass"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: &resources.msaa_view,
-                resolve_target: Some(target),
+                view: target,
+                resolve_target: None,
                 depth_slice: None,
                 ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                    load: wgpu::LoadOp::Load,
                     store: wgpu::StoreOp::Store,
                 },
             })],
@@ -890,6 +908,43 @@ impl WgpuMesh3DRenderer {
 
     pub fn set_camera(&self, camera: &Camera3D) {
         *self.camera.borrow_mut() = camera.clone();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::clipped_target_viewport;
+
+    #[test]
+    fn embedded_viewport_preserves_an_offset_chart_rectangle() {
+        assert_eq!(
+            clipped_target_viewport([25.0, 20.0], [80.0, 50.0], 1.0, [160, 120]),
+            Some([25, 20, 80, 50])
+        );
+    }
+
+    #[test]
+    fn embedded_viewport_clips_to_the_target_on_every_edge() {
+        assert_eq!(
+            clipped_target_viewport([-20.0, 10.0], [50.0, 40.0], 1.0, [160, 120]),
+            Some([0, 10, 30, 40])
+        );
+        assert_eq!(
+            clipped_target_viewport([130.0, 100.0], [50.0, 40.0], 1.0, [160, 120]),
+            Some([130, 100, 30, 20])
+        );
+        assert_eq!(
+            clipped_target_viewport([170.0, 0.0], [20.0, 20.0], 1.0, [160, 120]),
+            None
+        );
+    }
+
+    #[test]
+    fn embedded_viewport_scales_before_clipping_after_a_resize() {
+        assert_eq!(
+            clipped_target_viewport([10.0, 5.0], [30.0, 20.0], 2.0, [80, 40]),
+            Some([20, 10, 60, 30])
+        );
     }
 }
 

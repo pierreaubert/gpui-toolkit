@@ -73,6 +73,25 @@ pub const PUBLIC_CHART_STORY_IDS: &[&str] = &[
     "px.mesh_plot",
 ];
 
+/// Every component-lab story that exercises a MeshPlot product contract.
+///
+/// These are intentionally separate from [`PUBLIC_CHART_STORY_IDS`]: only the
+/// parent builder is a public chart-family story, while the named variants
+/// make release evidence for render modes, views, and picking auditable.
+pub const MESH_PLOT_RELEASE_STORY_IDS: &[&str] = &[
+    "px.mesh_plot",
+    "px.mesh_plot.mesh_only",
+    "px.mesh_plot.smooth_fill",
+    "px.mesh_plot.flat_fill",
+    "px.mesh_plot.filled_contours",
+    "px.mesh_plot.isolines",
+    "px.mesh_plot.combined",
+    "px.mesh_plot.axisymmetric_section",
+    "px.mesh_plot.revolve",
+    "px.mesh_plot.surface3d",
+    "px.mesh_plot.picking",
+];
+
 /// Versioned chart capability report.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ChartCapabilityReport {
@@ -231,35 +250,35 @@ const CHART_CAPABILITY_ENTRIES: &[ChartCapabilityEntry] = &[
         id: "mesh-plot",
         capability: "Unstructured triangle mesh plots",
         chart_families: "mesh_plot",
-        story_ids: &["px.mesh_plot"],
+        story_ids: MESH_PLOT_RELEASE_STORY_IDS,
         test_contracts: &[
             "mesh_plot builder and validation tests",
             "mesh_plot SVG and accessibility tests",
             "component-lab:px.mesh_plot",
         ],
         status: ChartCapabilityStatus::Partial,
-        evidence: "TriangleMesh validation, scalar fields, contour/isoline preparation, deterministic SVG export, live native accessibility registration, Python frame retention, split resource-backed native decoding, the component-lab story, reviewed Metal baseline/diff artifacts, and verified Python host selection/callback artifacts are present; reference-machine allocation evidence remains open.",
-        release_requirement: "Complete reference-machine allocation/performance evidence and clean release provenance before promoting to implemented.",
+        evidence: "TriangleMesh validation, scalar fields, contour/isoline preparation, deterministic SVG/PNG export, live native accessibility registration, Python frame retention, split resource-backed native decoding, all 11 component-lab MeshPlot stories, reviewed Metal parent-story baseline/diff artifacts, and verified Python host selection/callback artifacts are present; reference-machine allocation evidence and clean all-variant baselines remain open.",
+        release_requirement: "Complete reference-machine allocation/performance evidence and promote clean-release visual baselines for every MeshPlot variant before promoting to implemented.",
     },
     ChartCapabilityEntry {
         id: "mesh-plot-rendering",
         capability: "Mesh plot rendering",
         chart_families: "mesh_plot (2D and 3D)",
-        story_ids: &["px.mesh_plot"],
+        story_ids: MESH_PLOT_RELEASE_STORY_IDS,
         test_contracts: &[
             "mesh_3d_cache_tests",
             "gpui-d3rs offscreen renderer smoke tests",
             "component-lab:px.mesh_plot",
         ],
         status: ChartCapabilityStatus::Partial,
-        evidence: "Retained 2D/3D geometry upload, Metal/wgpu custom draws, and an offscreen fallback are implemented and the fallback has runtime rasterization/field-retention smoke coverage; the local macOS Metal 3x3 capture matrix passed and its nine reviewed Metal baseline/diff members are versioned.",
-        release_requirement: "Verify adapter-backed runtime rendering on each supported lane.",
+        evidence: "Retained 2D/3D geometry upload, Metal/wgpu custom draws, and an offscreen fallback are implemented. Native Metal tests cover depth, clipping, wireframe, large-revolve preparation, and current-camera Surface3d/revolve export; all 11 stories have a local 3x3 capture matrix, while only the parent story has reviewed versioned Metal baselines.",
+        release_requirement: "Promote clean all-variant baselines and verify adapter-backed runtime rendering on each supported lane.",
     },
     ChartCapabilityEntry {
         id: "mesh-plot-fields",
         capability: "Mesh plot vertex and cell scalar fields",
         chart_families: "mesh_plot",
-        story_ids: &["px.mesh_plot"],
+        story_ids: MESH_PLOT_RELEASE_STORY_IDS,
         test_contracts: &[
             "mesh_plot builder and validation tests",
             "mesh_3d_cache_tests",
@@ -272,7 +291,7 @@ const CHART_CAPABILITY_ENTRIES: &[ChartCapabilityEntry] = &[
         id: "mesh-plot-contours",
         capability: "Mesh plot filled contours and isolines",
         chart_families: "mesh_plot",
-        story_ids: &["px.mesh_plot"],
+        story_ids: MESH_PLOT_RELEASE_STORY_IDS,
         test_contracts: &[
             "mesh_contour_golden",
             "mesh_compute_diff_tests",
@@ -286,21 +305,21 @@ const CHART_CAPABILITY_ENTRIES: &[ChartCapabilityEntry] = &[
         id: "mesh-plot-axisymmetric",
         capability: "Mesh plot axisymmetric section and revolve",
         chart_families: "mesh_plot",
-        story_ids: &["px.mesh_plot"],
+        story_ids: MESH_PLOT_RELEASE_STORY_IDS,
         test_contracts: &[
             "revolve tests",
             "component-lab:px.mesh_plot.axisymmetric_section",
             "component-lab:px.mesh_plot.revolve",
         ],
         status: ChartCapabilityStatus::Partial,
-        evidence: "Axisymmetric r-z section and retained revolve/source mapping are implemented with radius and sweep validation; section/revolve stories are present in the component-lab manifest.",
-        release_requirement: "Verify revolved rendering and picking on a reference GPU lane.",
+        evidence: "Axisymmetric r-z section and retained revolve/source mapping are implemented with radius and sweep validation; dedicated section/revolve component-lab stories and serialized native Metal depth/current-camera-export coverage are present.",
+        release_requirement: "Promote clean visual baselines and verify revolved rendering/picking on every reference GPU lane.",
     },
     ChartCapabilityEntry {
         id: "mesh-plot-retained-updates",
         capability: "Mesh plot retained field-only updates",
         chart_families: "mesh_plot",
-        story_ids: &["px.mesh_plot"],
+        story_ids: MESH_PLOT_RELEASE_STORY_IDS,
         test_contracts: &["mesh_plot_allocation_contracts", "mesh_3d_cache_tests"],
         status: ChartCapabilityStatus::Partial,
         evidence: "Geometry/field revisions, cache invalidation, field-only state preservation, and warmed allocation contracts are present.",
@@ -310,7 +329,7 @@ const CHART_CAPABILITY_ENTRIES: &[ChartCapabilityEntry] = &[
         id: "mesh-plot-interaction",
         capability: "Mesh plot picking and native navigation",
         chart_families: "mesh_plot",
-        story_ids: &["px.mesh_plot"],
+        story_ids: MESH_PLOT_RELEASE_STORY_IDS,
         test_contracts: &[
             "mesh_plot picking tests",
             "mesh_selection_payload test",
@@ -324,7 +343,7 @@ const CHART_CAPABILITY_ENTRIES: &[ChartCapabilityEntry] = &[
         id: "mesh-plot-python",
         capability: "Mesh plot Python and resource parity",
         chart_families: "mesh_plot",
-        story_ids: &["px.mesh_plot"],
+        story_ids: MESH_PLOT_RELEASE_STORY_IDS,
         test_contracts: &[
             "test_meshplot.py",
             "test_meshplot_protocol.py",
@@ -338,15 +357,15 @@ const CHART_CAPABILITY_ENTRIES: &[ChartCapabilityEntry] = &[
         id: "mesh-plot-export-accessibility",
         capability: "Mesh plot export and accessibility",
         chart_families: "mesh_plot",
-        story_ids: &["px.mesh_plot"],
+        story_ids: MESH_PLOT_RELEASE_STORY_IDS,
         test_contracts: &[
             "mesh_plot SVG and accessibility tests",
             "mesh_plot_accessibility",
             "accessibility bridge tests",
         ],
         status: ChartCapabilityStatus::Partial,
-        evidence: "Deterministic viewport-aware SVG export, structured accessibility summaries, live native image-role metadata, and AccessibilityTree registration are implemented; product-level screen-reader and clean reference visual-export QA remain open.",
-        release_requirement: "Attach exported-artifact and product accessibility QA before claiming full parity.",
+        evidence: "Deterministic viewport-aware SVG/PNG export, structured accessibility summaries, live native image-role metadata, AccessibilityTree registration, and serialized native current-camera export coverage are implemented; product-level screen-reader and clean reference visual-export QA remain open.",
+        release_requirement: "Attach clean exported-artifact comparisons and product screen-reader QA before claiming full parity.",
     },
 ];
 
@@ -355,7 +374,7 @@ pub const fn chart_capability_report() -> ChartCapabilityReport {
     ChartCapabilityReport {
         schema_version: CHART_CAPABILITY_SCHEMA_VERSION,
         report_type: CHART_CAPABILITY_REPORT_TYPE,
-        reviewed_on: "2026-08-09",
+        reviewed_on: "2026-08-10",
         entries: CHART_CAPABILITY_ENTRIES,
     }
 }
@@ -375,7 +394,7 @@ mod tests {
 
         assert_eq!(report.schema_version, CHART_CAPABILITY_SCHEMA_VERSION);
         assert_eq!(report.report_type, CHART_CAPABILITY_REPORT_TYPE);
-        assert_eq!(report.reviewed_on, "2026-08-09");
+        assert_eq!(report.reviewed_on, "2026-08-10");
         assert!(!report.entries.is_empty());
         assert!(!report.all_release_ready());
     }
@@ -468,6 +487,32 @@ mod tests {
             "mesh-plot-export-accessibility",
         ] {
             assert!(ids.contains(id), "missing mesh plot capability {id}");
+        }
+    }
+
+    #[test]
+    fn mesh_plot_capabilities_name_every_release_story_variant() {
+        let expected = MESH_PLOT_RELEASE_STORY_IDS
+            .iter()
+            .copied()
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(expected.len(), 11);
+
+        for entry in chart_capability_entries()
+            .iter()
+            .filter(|entry| entry.id.starts_with("mesh-plot"))
+        {
+            assert_eq!(
+                entry
+                    .story_ids
+                    .iter()
+                    .copied()
+                    .collect::<std::collections::BTreeSet<_>>(),
+                expected,
+                "{} must retain all release-story provenance",
+                entry.id
+            );
+            assert_eq!(entry.status, ChartCapabilityStatus::Partial);
         }
     }
 

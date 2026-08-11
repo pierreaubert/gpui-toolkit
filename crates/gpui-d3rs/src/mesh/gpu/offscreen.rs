@@ -10,11 +10,19 @@ use std::rc::Rc;
 /// draw backends. It is useful on unsupported platforms and in deterministic
 /// export/tests; geometry and field writes still follow the common renderer
 /// contract rather than bypassing revisions.
+#[allow(
+    dead_code,
+    reason = "deterministic fallback is retained for unsupported backend/export integration"
+)]
 #[derive(Debug, Clone)]
 pub struct OffscreenMeshRenderer {
     state: Rc<RefCell<MeshSceneState>>,
 }
 
+#[allow(
+    dead_code,
+    reason = "deterministic fallback is retained for unsupported backend/export integration"
+)]
 impl OffscreenMeshRenderer {
     pub fn new(state: Rc<RefCell<MeshSceneState>>) -> Self {
         Self { state }

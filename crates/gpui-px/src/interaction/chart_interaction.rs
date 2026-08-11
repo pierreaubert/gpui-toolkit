@@ -415,13 +415,22 @@ impl ChartInteraction {
 
     /// Zoom around a plot-relative pixel coordinate by a scale factor.
     pub fn zoom_around_pixel(&mut self, mouse_x: f32, mouse_y: f32, factor: f64) {
+        let (focus_x, focus_y) = self.point_to_domain(mouse_x, mouse_y);
+        self.zoom_around_domain(focus_x, focus_y, factor);
+    }
+
+    /// Zoom around an explicit data-space focal point.
+    ///
+    /// Callers with a letterboxed or otherwise transformed viewport can use
+    /// this instead of converting their coordinates through the full chart
+    /// rectangle.
+    pub fn zoom_around_domain(&mut self, focus_x: f64, focus_y: f64, factor: f64) {
         if !factor.is_finite() || factor <= 0.0 {
             return;
         }
 
         let (x_min, x_max) = self.x_domain();
         let (y_min, y_max) = self.y_domain();
-        let (focus_x, focus_y) = self.point_to_domain(mouse_x, mouse_y);
 
         let mut new_x_min = focus_x - (focus_x - x_min) * factor;
         let mut new_x_max = focus_x + (x_max - focus_x) * factor;

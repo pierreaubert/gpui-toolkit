@@ -23,6 +23,47 @@ pub struct CompositorGpuHint {
 }
 
 impl WgpuContext {
+    /// Create a renderer context without a window surface.
+    ///
+    /// This is intended for offscreen renderers and adapter-backed tests. It
+    /// deliberately skips the surface-compatibility selection used by
+    /// [`Self::new`], but otherwise requests the same device features and
+    /// limits as the interactive renderer.
+    #[cfg(not(target_family = "wasm"))]
+    pub fn headless() -> anyhow::Result<Self> {
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::all(),
+            ..wgpu::InstanceDescriptor::new_without_display_handle()
+        });
+        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::HighPerformance,
+            compatible_surface: None,
+            force_fallback_adapter: false,
+        }))
+        .map_err(|error| anyhow::anyhow!("Failed to request a headless GPU adapter: {error}"))?;
+        let (device, queue, dual_source_blending, color_texture_format) =
+            pollster::block_on(Self::create_device(&adapter))?;
+        let device_lost = Arc::new(AtomicBool::new(false));
+        device.set_device_lost_callback({
+            let device_lost = Arc::clone(&device_lost);
+            move |reason, message| {
+                log::error!("wgpu device lost: reason={reason:?}, message={message}");
+                if reason != wgpu::DeviceLostReason::Destroyed {
+                    device_lost.store(true, Ordering::Relaxed);
+                }
+            }
+        });
+        Ok(Self {
+            instance,
+            adapter,
+            device: Arc::new(device),
+            queue: Arc::new(queue),
+            dual_source_blending,
+            color_texture_format,
+            device_lost,
+        })
+    }
+
     #[cfg(not(target_family = "wasm"))]
     pub fn new(
         instance: wgpu::Instance,

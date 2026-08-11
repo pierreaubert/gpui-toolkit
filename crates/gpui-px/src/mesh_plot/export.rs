@@ -404,11 +404,19 @@ impl MeshPlot {
         let mut triangles = Vec::new();
         for (index, triangle) in mesh.triangles.iter().enumerate() {
             let (Some(a), Some(b), Some(c)) = (
-                mesh.positions.get(triangle[0] as usize).copied().map(clip_point),
-                mesh.positions.get(triangle[1] as usize).copied().map(clip_point),
-                mesh.positions.get(triangle[2] as usize).copied().map(clip_point),
-            )
-            else {
+                mesh.positions
+                    .get(triangle[0] as usize)
+                    .copied()
+                    .map(clip_point),
+                mesh.positions
+                    .get(triangle[1] as usize)
+                    .copied()
+                    .map(clip_point),
+                mesh.positions
+                    .get(triangle[2] as usize)
+                    .copied()
+                    .map(clip_point),
+            ) else {
                 continue;
             };
             let value = field.as_ref().and_then(|field| match field.association {
@@ -505,7 +513,9 @@ impl MeshPlot {
                     continue;
                 };
                 if field.valid.as_ref().is_some_and(|valid| {
-                    triangle.iter().any(|&vertex| valid.get(vertex as usize) != Some(&true))
+                    triangle
+                        .iter()
+                        .any(|&vertex| valid.get(vertex as usize) != Some(&true))
                 }) {
                     continue;
                 }
@@ -513,8 +523,10 @@ impl MeshPlot {
                     let Some((start, end)) = isoline_segment_3d(points, values, level) else {
                         continue;
                     };
-                    let Some((start, end)) = clip_line_to_frustum(clip_point(start), clip_point(end))
-                        .and_then(|(start, end)| Some((project_clip(start)?, project_clip(end)?)))
+                    let Some((start, end)) =
+                        clip_line_to_frustum(clip_point(start), clip_point(end)).and_then(
+                            |(start, end)| Some((project_clip(start)?, project_clip(end)?)),
+                        )
                     else {
                         continue;
                     };
@@ -530,11 +542,19 @@ impl MeshPlot {
         if self.wireframe == Wireframe::Overlay || matches!(self.mode, MeshRenderMode::Mesh) {
             svg.push_str("<g class=\"gpui-px-mesh-wireframe\" fill=\"none\" stroke=\"#222\">\n");
             for edge in MeshTopology::build(&mesh.triangles).unique_edges {
-                let Some(start) = mesh.positions.get(edge[0] as usize).copied().map(clip_point)
+                let Some(start) = mesh
+                    .positions
+                    .get(edge[0] as usize)
+                    .copied()
+                    .map(clip_point)
                 else {
                     continue;
                 };
-                let Some(end) = mesh.positions.get(edge[1] as usize).copied().map(clip_point)
+                let Some(end) = mesh
+                    .positions
+                    .get(edge[1] as usize)
+                    .copied()
+                    .map(clip_point)
                 else {
                     continue;
                 };
@@ -554,21 +574,39 @@ impl MeshPlot {
         let bounds = d3rs::mesh::MeshBounds::from_positions(&mesh.positions);
         let axis_origin = [bounds.min[0], bounds.min[1], bounds.min[2]];
         let axes = [
-            ("X", [bounds.max[0], bounds.min[1], bounds.min[2]], "#d14b45"),
-            ("Y", [bounds.min[0], bounds.max[1], bounds.min[2]], "#359653"),
-            ("Z", [bounds.min[0], bounds.min[1], bounds.max[2]], "#357edb"),
+            (
+                "X",
+                [bounds.max[0], bounds.min[1], bounds.min[2]],
+                "#d14b45",
+            ),
+            (
+                "Y",
+                [bounds.min[0], bounds.max[1], bounds.min[2]],
+                "#359653",
+            ),
+            (
+                "Z",
+                [bounds.min[0], bounds.min[1], bounds.max[2]],
+                "#357edb",
+            ),
         ];
         svg.push_str("<g class=\"gpui-px-mesh-3d-axes\" fill=\"none\" stroke-width=\"1.25\">\n");
         for (label, endpoint, color) in axes {
-            let Some((start, end)) = clip_line_to_frustum(clip_point(axis_origin), clip_point(endpoint))
-                .and_then(|(start, end)| Some((project_clip(start)?, project_clip(end)?)))
+            let Some((start, end)) =
+                clip_line_to_frustum(clip_point(axis_origin), clip_point(endpoint))
+                    .and_then(|(start, end)| Some((project_clip(start)?, project_clip(end)?)))
             else {
                 continue;
             };
             let _ = writeln!(
                 svg,
                 "<path class=\"gpui-px-mesh-3d-axis\" data-axis=\"{label}\" d=\"M {:.2},{:.2} L {:.2},{:.2}\" stroke=\"{color}\"/><text class=\"gpui-px-mesh-3d-axis-label\" x=\"{:.2}\" y=\"{:.2}\" fill=\"{color}\">{label}</text>",
-                start[0], start[1], end[0], end[1], end[0] + 3.0, end[1] - 3.0
+                start[0],
+                start[1],
+                end[0],
+                end[1],
+                end[0] + 3.0,
+                end[1] - 3.0
             );
         }
         svg.push_str("</g>\n");
@@ -626,10 +664,7 @@ impl MeshPlot {
             }
             (x, y) => (x, y),
         };
-        let value_range = self
-            .field
-            .as_ref()
-            .and_then(|field| finite_field_range(field));
+        let value_range = self.field.as_ref().and_then(finite_field_range);
         let title = self.title.clone();
         let name = title.as_deref().unwrap_or("Mesh plot");
         let field_text = self.field.as_ref().map_or_else(
@@ -1214,7 +1249,10 @@ fn triangle_vertex_values(field: &ScalarField, triangle: [u32; 3]) -> Option<[f6
         *field.values.get(triangle[1] as usize)?,
         *field.values.get(triangle[2] as usize)?,
     ];
-    values.iter().all(|value| value.is_finite()).then_some(values)
+    values
+        .iter()
+        .all(|value| value.is_finite())
+        .then_some(values)
 }
 
 /// Mesh-native 3D equivalent of the documented marching-triangle tie-break:
@@ -1509,14 +1547,23 @@ mod tests {
         ];
         let clipped = clip_triangle_to_frustum(triangle);
         assert_eq!(clipped.len(), 2);
-        assert!(clipped
-            .iter()
-            .flatten()
-            .all(|point| frustum_distances(*point).into_iter().all(|distance| distance >= 0.0)));
+        assert!(clipped.iter().flatten().all(|point| {
+            frustum_distances(*point)
+                .into_iter()
+                .all(|distance| distance >= 0.0)
+        }));
 
         let (start, end) = clip_line_to_frustum(triangle[0], triangle[1]).unwrap();
-        assert!(frustum_distances(start).into_iter().all(|distance| distance >= 0.0));
-        assert!(frustum_distances(end).into_iter().all(|distance| distance >= 0.0));
+        assert!(
+            frustum_distances(start)
+                .into_iter()
+                .all(|distance| distance >= 0.0)
+        );
+        assert!(
+            frustum_distances(end)
+                .into_iter()
+                .all(|distance| distance >= 0.0)
+        );
     }
 
     #[cfg(feature = "gpu-3d")]
@@ -1594,7 +1641,10 @@ mod tests {
         assert_eq!(state.field_revision, before.1);
         assert_eq!(state.selection, before.2);
         assert_eq!(state.hover, before.3);
-        assert_eq!(state.camera.view_projection_matrix().to_cols_array(), before.4);
+        assert_eq!(
+            state.camera.view_projection_matrix().to_cols_array(),
+            before.4
+        );
         assert_eq!(state.interaction.x_domain(), before.5);
         assert_eq!(state.interaction.y_domain(), before.6);
     }
@@ -1629,7 +1679,13 @@ mod tests {
         mesh.positions = mesh
             .positions
             .iter()
-            .map(|point| [point[0] + 1_000_000.0, point[1] - 2_000_000.0, point[2] + 500_000.0])
+            .map(|point| {
+                [
+                    point[0] + 1_000_000.0,
+                    point[1] - 2_000_000.0,
+                    point[2] + 500_000.0,
+                ]
+            })
             .collect::<Vec<_>>()
             .into();
         let png = mesh_plot(mesh)
@@ -1651,7 +1707,10 @@ mod tests {
         let surface = mesh_plot(square_mesh()).view(MeshPlotView::Surface3d);
         assert!(matches!(
             surface.to_png(0.0),
-            Err(ChartError::InvalidDimension { field: "png scale", .. })
+            Err(ChartError::InvalidDimension {
+                field: "png scale",
+                ..
+            })
         ));
         assert!(matches!(
             plot().to_png(1.0),

@@ -64,7 +64,7 @@ impl WgpuResources {
             bytemuck::cast_slice(field_values),
             wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         );
-        let value_bytes = (field_values.len() * std::mem::size_of::<f32>()) as u64;
+        let value_bytes = std::mem::size_of_val(field_values) as u64;
         let uniform = ctx.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("mesh_uniform"),
             size: std::mem::size_of::<MeshUniform>() as u64,
@@ -177,7 +177,7 @@ impl WgpuResources {
 
     fn update_field(&mut self, ctx: &WgpuContext, revision: FieldRevision, values: &[f32]) {
         let values = if values.is_empty() { &[0.5] } else { values };
-        let bytes = (values.len() * std::mem::size_of::<f32>()) as u64;
+        let bytes = std::mem::size_of_val(values) as u64;
         // Field patches are deliberately queue-only. A field with a different
         // cardinality is a geometry/schema change and must arrive with a new
         // geometry revision, which recreates this retained resource.

@@ -438,6 +438,7 @@ mod native_mesh_plot_tests {
         spec: MeshPlotSpec,
         frames: Rc<RefCell<MeshFrameStore>>,
         state: Rc<RefCell<MeshPlotState>>,
+        last_valid_spec: Option<MeshPlotSpec>,
         selection: Rc<RefCell<Option<MeshPlotPick>>>,
         payload: Rc<RefCell<Value>>,
         nested: bool,
@@ -459,9 +460,32 @@ mod native_mesh_plot_tests {
                 &self.spec,
                 &self.frames.borrow(),
                 Some(self.state.clone()),
-                Some(callback),
+                Some(callback.clone()),
             )
-            .expect("resource-backed Python MeshPlot should build natively");
+            .map(|result| {
+                self.last_valid_spec = Some(self.spec.clone());
+                result
+            })
+            .unwrap_or_else(|error| {
+                // Match the showcase host's last-valid-frame policy: a
+                // resource decode/build failure must keep the prior native
+                // plot rather than replacing it with an error card.
+                let previous = self
+                    .last_valid_spec
+                    .as_ref()
+                    .expect("invalid patch requires an earlier valid native MeshPlot");
+                PythonIrShowcase::build_native_mesh_plot(
+                    previous,
+                    &self.frames.borrow(),
+                    Some(self.state.clone()),
+                    Some(callback),
+                )
+                .unwrap_or_else(|fallback_error| {
+                    panic!(
+                        "invalid resource patch ({error}) must retain a buildable last-valid MeshPlot: {fallback_error}"
+                    )
+                })
+            });
             self.state = state;
             let mut view = div()
                 .id("python-resource-mesh-plot")
@@ -620,6 +644,7 @@ mod native_mesh_plot_tests {
                         spec,
                         frames,
                         state,
+                        last_valid_spec: None,
                         selection,
                         payload,
                         nested: false,
@@ -689,6 +714,9 @@ mod native_mesh_plot_tests {
             max_luma > min_luma,
             "resource-backed MeshPlot framebuffer is blank"
         );
+        cx.update_window(any_window, |_, window, _| window.remove_window())
+            .expect("close native Python MeshPlot window");
+        cx.run_until_parked();
     }
 
     #[::core::prelude::v1::test]
@@ -713,6 +741,7 @@ mod native_mesh_plot_tests {
                         spec,
                         frames,
                         state,
+                        last_valid_spec: None,
                         selection,
                         payload,
                         nested: true,
@@ -760,6 +789,338 @@ mod native_mesh_plot_tests {
         assert!(matches!(picked.cell_id, Some(201 | 202)));
         assert!(matches!(picked.vertex_id, Some(101..=104)));
         assert_eq!(payload.borrow()["plot_id"], "resource-pressure-plot");
+        cx.update_window(any_window, |_, window, _| window.remove_window())
+            .expect("close nested native Python MeshPlot window");
+        cx.run_until_parked();
+    }
+
+    #[test]
+    fn native_metal_invalid_resource_patch_keeps_the_last_valid_meshplot_frame() {
+        let platform = MacPlatform::new(true);
+        let text_system = platform.text_system();
+        drop(platform);
+        let mut cx = HeadlessAppContext::with_platform(text_system, Arc::new(()), || {
+            Some(Box::new(MetalHeadlessRenderer::new()))
+        });
+        let (spec, frames) = fixture();
+        let state = Rc::new(RefCell::new(MeshPlotState::new(0.0, 1.0, 0.0, 1.0)));
+        let selection = Rc::new(RefCell::new(None));
+        let payload = Rc::new(RefCell::new(Value::Null));
+        let initial_spec = spec.clone();
+        let window = cx
+            .open_window(size(px(600.0), px(400.0)), {
+                let state = state.clone();
+                let selection = selection.clone();
+                let payload = payload.clone();
+                move |_window, app| {
+                    app.new(|_cx| NativeResourceMeshPlotView {
+                        spec: initial_spec,
+                        frames,
+                        state,
+                        last_valid_spec: None,
+                        selection,
+                        payload,
+                        nested: false,
+                    })
+                }
+            })
+            .expect("open native resource-backed MeshPlot window");
+        let view = cx
+            .read_window(&window, |view, _| view)
+            .expect("read native resource-backed MeshPlot view");
+        let any_window: AnyWindowHandle = window.into();
+        cx.update_window(any_window, |_, window, app| {
+            let _ = window.draw(app);
+        })
+        .expect("draw valid resource-backed MeshPlot");
+        let before = cx
+            .capture_screenshot(any_window)
+            .expect("capture valid resource-backed MeshPlot frame");
+
+        let mut invalid = spec.clone();
+        invalid.revision = 2;
+        invalid.geometry = serde_json::json!({
+            "id": "resource-baffle",
+            "positions": {"resource_id": "missing-positions", "generation": 2, "dtype": "f64le"},
+            "triangles": {"resource_id": "missing-triangles", "generation": 2, "dtype": "u32le"}
+        });
+        cx.update_entity(&view, |view, cx| {
+            view.spec = invalid;
+            cx.notify();
+        });
+        cx.update_window(any_window, |_, window, app| {
+            window.draw(app).clear();
+        })
+        .expect("draw invalid resource-backed patch fallback");
+        let after = cx
+            .capture_screenshot(any_window)
+            .expect("capture fallback resource-backed MeshPlot frame");
+        assert_eq!(
+            after.as_raw(),
+            before.as_raw(),
+            "an invalid resource-backed patch must preserve the complete last-valid native frame"
+        );
+        assert!(
+            cx.read_entity(&view, |view, _| Rc::ptr_eq(&view.state, &state)),
+            "invalid resource patch must keep the retained MeshPlotState owner"
+        );
+        drop(view);
+        cx.update_window(any_window, |_, window, _| window.remove_window())
+            .expect("close native resource-backed MeshPlot window");
+        cx.run_until_parked();
+    }
+
+    #[test]
+    fn native_metal_resource_patch_stream_keeps_the_newest_valid_frame() {
+        let platform = MacPlatform::new(true);
+        let text_system = platform.text_system();
+        drop(platform);
+        let mut cx = HeadlessAppContext::with_platform(text_system, Arc::new(()), || {
+            Some(Box::new(MetalHeadlessRenderer::new()))
+        });
+        let (spec, frames) = fixture();
+        let state = Rc::new(RefCell::new(MeshPlotState::new(0.0, 1.0, 0.0, 1.0)));
+        let selection = Rc::new(RefCell::new(None));
+        let payload = Rc::new(RefCell::new(Value::Null));
+        let initial_spec = spec.clone();
+        let window = cx
+            .open_window(size(px(600.0), px(400.0)), {
+                let state = state.clone();
+                let selection = selection.clone();
+                let payload = payload.clone();
+                move |_window, app| {
+                    app.new(|_cx| NativeResourceMeshPlotView {
+                        spec: initial_spec,
+                        frames,
+                        state,
+                        last_valid_spec: None,
+                        selection,
+                        payload,
+                        nested: false,
+                    })
+                }
+            })
+            .expect("open native resource patch-stream MeshPlot window");
+        let view = cx
+            .read_window(&window, |view, _| view)
+            .expect("read native resource patch-stream MeshPlot view");
+        let any_window: AnyWindowHandle = window.into();
+        cx.update_window(any_window, |_, window, app| {
+            let _ = window.draw(app);
+        })
+        .expect("draw initial resource-backed MeshPlot");
+        let field_revision_before = state.borrow().field_revision;
+
+        let mut replacement_field = frame(
+            "mesh-pressure",
+            MeshFrameKind::Field,
+            MeshDtype::F64LE,
+            &[4],
+            bytes(&[1.0_f64, 0.0, 1.0, 0.0], f64::to_le_bytes),
+        );
+        replacement_field.generation = 2;
+        cx.update_entity(&view, |view, _cx| {
+            view.frames
+                .borrow_mut()
+                .ingest(replacement_field)
+                .expect("ingest newer field resource generation");
+            let mut updated = spec.clone();
+            updated.revision = 2;
+            updated.field.as_mut().expect("fixture includes a field")["generation"] =
+                Value::from(2);
+            view.spec = updated;
+        });
+        cx.update_entity(&view, |_view, cx| cx.notify());
+        cx.update_window(any_window, |_, window, app| {
+            window.draw(app).clear();
+        })
+        .expect("draw valid resource-backed field patch");
+        let updated = cx
+            .capture_screenshot(any_window)
+            .expect("capture valid resource-backed field patch");
+        assert!(
+            cx.read_entity(&view, |view, _| Rc::ptr_eq(&view.state, &state)),
+            "valid field patch must preserve the retained MeshPlotState owner"
+        );
+        assert_eq!(
+            state.borrow().field_revision,
+            field_revision_before + 1,
+            "a declarative resource-field replacement must advance only the retained field domain"
+        );
+        assert_eq!(
+            cx.read_entity(&view, |view, _| {
+                view.last_valid_spec
+                    .as_ref()
+                    .and_then(|spec| spec.field.as_ref())
+                    .and_then(|field| field.get("generation"))
+                    .and_then(Value::as_u64)
+            }),
+            Some(2),
+            "the valid resource patch must become the retained last-valid specification"
+        );
+
+        let mut invalid = spec.clone();
+        invalid.revision = 3;
+        invalid.geometry = serde_json::json!({
+            "id": "resource-baffle",
+            "positions": {"resource_id": "missing-positions", "generation": 3, "dtype": "f64le"},
+            "triangles": {"resource_id": "missing-triangles", "generation": 3, "dtype": "u32le"}
+        });
+        cx.update_entity(&view, |view, cx| {
+            view.spec = invalid;
+            cx.notify();
+        });
+        cx.update_window(any_window, |_, window, app| {
+            window.draw(app).clear();
+        })
+        .expect("draw invalid resource-backed patch after valid update");
+        let fallback = cx
+            .capture_screenshot(any_window)
+            .expect("capture newest-valid resource-backed fallback frame");
+        assert_eq!(
+            fallback.as_raw(),
+            updated.as_raw(),
+            "an invalid patch must preserve the newest complete valid native frame"
+        );
+        assert!(
+            cx.read_entity(&view, |view, _| Rc::ptr_eq(&view.state, &state)),
+            "invalid patch must preserve the retained MeshPlotState owner"
+        );
+        drop(view);
+        cx.update_window(any_window, |_, window, _| window.remove_window())
+            .expect("close native resource patch-stream MeshPlot window");
+        cx.run_until_parked();
+    }
+
+    #[test]
+    fn native_metal_surface_resource_geometry_patch_replaces_only_the_retained_geometry_scene() {
+        let platform = MacPlatform::new(true);
+        let text_system = platform.text_system();
+        drop(platform);
+        let mut cx = HeadlessAppContext::with_platform(text_system, Arc::new(()), || {
+            Some(Box::new(MetalHeadlessRenderer::new()))
+        });
+        let (mut spec, frames) = fixture();
+        spec.view = "surface3d".into();
+        let state = Rc::new(RefCell::new(MeshPlotState::new(0.0, 1.0, 0.0, 1.0)));
+        let selection = Rc::new(RefCell::new(None));
+        let payload = Rc::new(RefCell::new(Value::Null));
+        let initial_spec = spec.clone();
+        let window = cx
+            .open_window(size(px(600.0), px(400.0)), {
+                let state = state.clone();
+                let selection = selection.clone();
+                let payload = payload.clone();
+                move |_window, app| {
+                    app.new(|_cx| NativeResourceMeshPlotView {
+                        spec: initial_spec,
+                        frames,
+                        state,
+                        last_valid_spec: None,
+                        selection,
+                        payload,
+                        nested: false,
+                    })
+                }
+            })
+            .expect("open native Surface3d resource MeshPlot window");
+        let view = cx
+            .read_window(&window, |view, _| view)
+            .expect("read native Surface3d resource MeshPlot view");
+        let any_window: AnyWindowHandle = window.into();
+        cx.update_window(any_window, |_, window, app| {
+            let _ = window.draw(app);
+        })
+        .expect("draw initial resource-backed Surface3d MeshPlot");
+        let initial_frame = cx
+            .capture_screenshot(any_window)
+            .expect("capture initial resource-backed Surface3d frame");
+        let initial_stats = state
+            .borrow()
+            .retained_3d_stats()
+            .expect("initial Surface3d frame creates a retained scene");
+        let initial_field_revision = state.borrow().field_revision;
+
+        // Decoding the same resource-backed spec creates fresh immutable Arc
+        // buffers. It must still retain the existing scene and GPU upload.
+        cx.update_entity(&view, |_view, cx| cx.notify());
+        cx.update_window(any_window, |_, window, app| {
+            window.draw(app).clear();
+        })
+        .expect("redraw unchanged resource-backed Surface3d MeshPlot");
+        assert_eq!(
+            state.borrow().retained_3d_stats(),
+            Some(initial_stats),
+            "an unchanged resource re-decode must keep the retained 3D scene and upload"
+        );
+
+        let mut replacement_positions = frame(
+            "mesh-positions",
+            MeshFrameKind::Geometry,
+            MeshDtype::F64LE,
+            &[4, 3],
+            bytes(
+                &[
+                    0.0_f64, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 1.0, 1.5, 0.0, 1.0, 0.0,
+                ],
+                f64::to_le_bytes,
+            ),
+        );
+        replacement_positions.generation = 2;
+        cx.update_entity(&view, |view, _cx| {
+            view.frames
+                .borrow_mut()
+                .ingest(replacement_positions)
+                .expect("ingest newer geometry resource generation");
+            let mut updated = spec.clone();
+            updated.revision = 2;
+            updated.geometry["positions"]["generation"] = Value::from(2);
+            view.spec = updated;
+        });
+        cx.update_entity(&view, |_view, cx| cx.notify());
+        cx.update_window(any_window, |_, window, app| {
+            window.draw(app).clear();
+        })
+        .expect("draw resource-backed Surface3d geometry patch");
+        let patched_frame = cx
+            .capture_screenshot(any_window)
+            .expect("capture resource-backed Surface3d geometry patch");
+        let patched_stats = state
+            .borrow()
+            .retained_3d_stats()
+            .expect("geometry patch recreates a retained Surface3d scene");
+        assert_ne!(
+            patched_stats.scene_identity, initial_stats.scene_identity,
+            "a changed geometry resource must replace the retained 3D scene"
+        );
+        assert_eq!(
+            patched_stats.geometry_revision,
+            initial_stats.geometry_revision + 1,
+            "a changed geometry resource must advance the geometry domain once"
+        );
+        assert_eq!(
+            state.borrow().field_revision,
+            initial_field_revision,
+            "a geometry-only resource patch must not advance the field domain"
+        );
+        assert_ne!(
+            patched_frame.as_raw(),
+            initial_frame.as_raw(),
+            "the changed Surface3d geometry must affect the rendered native frame"
+        );
+        assert_eq!(
+            cx.read_entity(&view, |view, _| {
+                view.last_valid_spec
+                    .as_ref()
+                    .and_then(|spec| spec.geometry["positions"]["generation"].as_u64())
+            }),
+            Some(2),
+            "the geometry patch must become the retained last-valid specification"
+        );
+        drop(view);
+        cx.update_window(any_window, |_, window, _| window.remove_window())
+            .expect("close native Surface3d resource MeshPlot window");
+        cx.run_until_parked();
     }
 }
 
@@ -1129,6 +1490,16 @@ fn decode_inline_ids(
     expected: usize,
     store: &MeshFrameStore,
 ) -> Result<Option<Vec<u64>>, String> {
+    gpui_python_runtime::native_mesh_plot::decode_ids(geometry, name, expected, store)
+}
+
+#[allow(dead_code)] // Transitional duplicate kept until the showcase-only helpers below are removed.
+fn legacy_decode_inline_ids(
+    geometry: &Value,
+    name: &str,
+    expected: usize,
+    store: &MeshFrameStore,
+) -> Result<Option<Vec<u64>>, String> {
     let Some(value) = geometry.get(name) else {
         return Ok(None);
     };
@@ -1170,6 +1541,14 @@ fn decode_mesh_geometry(
     geometry: &Value,
     store: &MeshFrameStore,
 ) -> Result<(Vec<[f64; 3]>, Vec<[u32; 3]>), String> {
+    gpui_python_runtime::native_mesh_plot::decode_geometry(geometry, store)
+}
+
+#[allow(dead_code)] // Transitional duplicate kept until the showcase-only helpers below are removed.
+fn legacy_decode_mesh_geometry(
+    geometry: &Value,
+    store: &MeshFrameStore,
+) -> Result<(Vec<[f64; 3]>, Vec<[u32; 3]>), String> {
     let split_resources = geometry.get("positions").is_some_and(Value::is_object)
         || geometry.get("triangles").is_some_and(Value::is_object);
     if split_resources {
@@ -1195,7 +1574,8 @@ fn decode_mesh_geometry(
         if triangles_resource.shape.len() != 2 || triangles_resource.shape[1] != 3 {
             return Err("geometry.triangles resource shape must be [triangle_count, 3]".into());
         }
-        let position_values = decode_resource_floats(positions_resource, "geometry.positions", false)?;
+        let position_values =
+            decode_resource_floats(positions_resource, "geometry.positions", false)?;
         let triangle_values = decode_resource_u32(triangles_resource, "geometry.triangles")?;
         let positions = position_values
             .chunks_exact(3)
@@ -1248,6 +1628,14 @@ fn decode_mesh_geometry(
 }
 
 fn decode_mesh_field(
+    field: &Value,
+    store: &MeshFrameStore,
+) -> Result<(Vec<f64>, Option<Vec<bool>>), String> {
+    gpui_python_runtime::native_mesh_plot::decode_field(field, store)
+}
+
+#[allow(dead_code)] // Transitional duplicate kept until the showcase-only helpers below are removed.
+fn legacy_decode_mesh_field(
     field: &Value,
     store: &MeshFrameStore,
 ) -> Result<(Vec<f64>, Option<Vec<bool>>), String> {
@@ -9010,6 +9398,20 @@ impl PythonIrShowcase {
             Ok(spec) => spec,
             Err(error) => return self.render_error(&error, theme, ds),
         };
+        if self
+            .mesh_plots
+            .get(&spec.id)
+            .is_some_and(|previous| spec.revision < previous.revision)
+        {
+            return self.render_meshplot_error_or_last_valid(
+                node,
+                &spec,
+                "stale mesh_plot revision",
+                theme,
+                ds,
+                _cx,
+            );
+        }
         if let Err(error) = validate_mesh_plot_spec_resources(
             &spec,
             &self.mesh_frames,
@@ -9028,18 +9430,16 @@ impl PythonIrShowcase {
             match decode_mesh_geometry(&spec.geometry, &self.mesh_frames) {
                 Ok(geometry) => geometry,
                 Err(error) => {
-                    return self.render_meshplot_error_or_last_valid(
-                        node, &spec, &error, theme, ds, _cx,
-                    );
+                    return self
+                        .render_meshplot_error_or_last_valid(node, &spec, &error, theme, ds, _cx);
                 }
             };
         let field_values = match spec.field.as_ref() {
             Some(field) => match decode_mesh_field(field, &self.mesh_frames) {
                 Ok((values, _)) => values.len(),
                 Err(error) => {
-                    return self.render_meshplot_error_or_last_valid(
-                        node, &spec, &error, theme, ds, _cx,
-                    );
+                    return self
+                        .render_meshplot_error_or_last_valid(node, &spec, &error, theme, ds, _cx);
                 }
             },
             None => 0,
@@ -9064,18 +9464,12 @@ impl PythonIrShowcase {
             .mesh_plots
             .get(&spec.id)
             .is_some_and(|previous| previous.field != spec.field);
-        let retained_state = (!geometry_changed)
-            .then(|| self.mesh_plot_states.get(&spec.id).cloned())
-            .flatten();
-        if let Some(state) = retained_state.as_ref() {
-            // The declarative cache is the authoritative dirty-domain source
-            // for Python frames. Carry its field revision into the native
-            // retained renderer before `build` so a scalar-only patch writes
-            // values without rebuilding geometry buffers.
-            state
-                .borrow_mut()
-                .mark_resources_changed(false, field_changed);
-        }
+        // Retain the same live owner across both field and geometry patches.
+        // Geometry replacement advances its dirty domain but deliberately
+        // preserves the last complete renderer/camera while an expensive new
+        // revolve is prepared; replacing this Rc here would defeat that
+        // retained-frame contract before MeshPlot can apply it.
+        let retained_state = self.mesh_plot_states.get(&spec.id).cloned();
         let host_selection_callback: Option<Rc<dyn Fn(Option<MeshPlotPick>)>> = match (
             node.selection_action.clone(),
             self.session.as_ref().map(|session| session.event_sink()),
@@ -9101,16 +9495,24 @@ impl PythonIrShowcase {
         let (live_plot, live_state) = match Self::build_native_mesh_plot(
             &spec,
             &self.mesh_frames,
-            retained_state,
+            retained_state.clone(),
             host_selection_callback,
         ) {
             Ok((element, state)) => (Some(element), Some(state)),
             Err(error) => {
-                return self.render_meshplot_error_or_last_valid(
-                    node, &spec, &error, theme, ds, _cx,
-                );
+                return self
+                    .render_meshplot_error_or_last_valid(node, &spec, &error, theme, ds, _cx);
             }
         };
+        if let Some(state) = retained_state.as_ref() {
+            // Commit dirty domains only after all native option/resource
+            // validation succeeded. The builder returns a deferred GPUI
+            // element, so this still happens before its next render while an
+            // invalid patch leaves the prior live owner untouched.
+            state
+                .borrow_mut()
+                .mark_resources_changed(geometry_changed, field_changed);
+        }
         write_qa_json_artifact(
             "GPUI_TOOLKIT_QA_RENDER_TRACE",
             &serde_json::json!({
@@ -9207,12 +9609,20 @@ impl PythonIrShowcase {
         container.into_any_element()
     }
 
+    #[allow(unreachable_code)] // Retained temporarily while the legacy builder is removed.
     fn build_native_mesh_plot(
         spec: &MeshPlotSpec,
         mesh_frames: &MeshFrameStore,
         retained_state: Option<Rc<RefCell<MeshPlotState>>>,
         selection_callback: Option<Rc<dyn Fn(Option<MeshPlotPick>)>>,
     ) -> Result<(gpui::AnyElement, Rc<RefCell<MeshPlotState>>), String> {
+        return gpui_python_runtime::native_mesh_plot::build(
+            spec,
+            mesh_frames,
+            retained_state,
+            selection_callback,
+        );
+
         let geometry = &spec.geometry;
         let mesh_id = geometry.get("id").and_then(Value::as_str).unwrap_or("mesh");
         let (positions, triangles) = decode_mesh_geometry(geometry, mesh_frames)?;
