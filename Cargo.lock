@@ -2595,9 +2595,9 @@ dependencies = [
 
 [[package]]
 name = "glam"
-version = "0.30.10"
+version = "0.33.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "19fc433e8437a212d1b6f1e68c7824af3aed907da60afa994e7f542d18d12aa9"
+checksum = "7360bd2cd76e0cd9032d42cf2922155cecea2685b0cfa4630c3246df030bcfd6"
 
 [[package]]
 name = "glob"
@@ -3025,7 +3025,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-python-runtime"
-version = "0.9.7"
+version = "0.9.8"
 dependencies = [
  "glam",
  "gpui",
@@ -3120,7 +3120,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-toolkit"
-version = "0.9.7"
+version = "0.9.8"
 dependencies = [
  "gpui-au",
  "gpui-audio-kit",
