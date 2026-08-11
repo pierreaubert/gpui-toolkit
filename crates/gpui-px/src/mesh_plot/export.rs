@@ -151,6 +151,23 @@ fn fitted_frame(
 }
 
 impl MeshPlot {
+    fn prepared_export_snapshot(&self) -> Result<Self, ChartError> {
+        let mut snapshot = self.clone();
+        if snapshot.missing_value_policy == d3rs::mesh::MissingValuePolicy::MaskNaN
+            && let Some(field) = snapshot.field.take()
+        {
+            snapshot.field = Some(field.mask_nan()?);
+        }
+        if let Some(state) = snapshot.state.as_ref()
+            && let Ok(state) = state.try_borrow()
+        {
+            snapshot.mode = state.render_mode.clone();
+            snapshot.wireframe = state.wireframe;
+            snapshot.color_range = state.color_range;
+        }
+        Ok(snapshot)
+    }
+
     /// Export the current mesh-plot view as deterministic SVG.
     pub fn to_svg(&self) -> Result<String, ChartError> {
         let (width, height) = self.chart_size.layout_dimensions();
@@ -159,6 +176,14 @@ impl MeshPlot {
 
     /// Export the current mesh-plot view using explicit SVG dimensions/margins.
     pub fn to_svg_with_options(&self, options: StaticSvgOptions) -> Result<String, ChartError> {
+        self.prepared_export_snapshot()?
+            .to_svg_with_options_prepared(options)
+    }
+
+    fn to_svg_with_options_prepared(
+        &self,
+        options: StaticSvgOptions,
+    ) -> Result<String, ChartError> {
         validate_for_export(self)?;
         crate::validate::validate_dimensions(options.width, options.height)?;
         validate_plot_area(options)?;
@@ -277,6 +302,11 @@ impl MeshPlot {
     /// deterministic CPU fallback behind this API without changing callers.
     #[cfg(feature = "gpu-3d")]
     pub fn to_png(&self, scale: f32) -> Result<Vec<u8>, ChartError> {
+        self.prepared_export_snapshot()?.to_png_prepared(scale)
+    }
+
+    #[cfg(feature = "gpu-3d")]
+    fn to_png_prepared(&self, scale: f32) -> Result<Vec<u8>, ChartError> {
         validate_for_export(self)?;
         if !scale.is_finite() || scale <= 0.0 {
             return Err(ChartError::InvalidDimension {
@@ -1751,6 +1781,61 @@ mod tests {
         assert!(svg.contains("min=\"0.000000\" max=\"2.000000\""));
         assert!(svg.contains("data-lower=\"0.000000\""));
         assert!(svg.contains("data-upper=\"2.000000\""));
+    }
+
+    #[test]
+    fn mesh_plot_svg_uses_retained_toolbar_style() {
+        use crate::{MeshPlotState, Wireframe};
+        use std::cell::RefCell;
+        use std::rc::Rc;
+
+        let state = Rc::new(RefCell::new(MeshPlotState::new(0.0, 1.0, 0.0, 1.0)));
+        state.borrow_mut().set_style(
+            MeshRenderMode::Isolines {
+                levels: ContourLevels::Explicit(Arc::from([0.5, 1.5])),
+            },
+            Wireframe::Hidden,
+            ColorRange::Fixed {
+                min: 0.25,
+                max: 1.75,
+            },
+        );
+
+        let svg = plot().with_state(state).to_svg().unwrap();
+        assert!(svg.contains("gpui-px-mesh-isoline"));
+        assert!(!svg.contains("gpui-px-mesh-contour-band"));
+        assert!(!svg.contains("gpui-px-mesh-wireframe"));
+        assert!(svg.contains("min=\"0.250000\" max=\"1.750000\""));
+    }
+
+    #[test]
+    fn mask_nan_policy_is_applied_before_direct_svg_export() {
+        let mut field = vertex_field();
+        field.values = Arc::from([0.0, f64::NAN, 1.0, 2.0]);
+        let svg = mesh_plot(square_mesh())
+            .field(field)
+            .mode(MeshRenderMode::ScalarFill {
+                interpolation: super::super::types::FieldInterpolation::Smooth,
+            })
+            .missing_value_policy(d3rs::mesh::MissingValuePolicy::MaskNaN)
+            .to_svg();
+        assert!(svg.is_ok());
+    }
+
+    #[cfg(feature = "gpu-3d")]
+    #[test]
+    fn mask_nan_policy_is_applied_before_direct_png_export() {
+        let mut field = vertex_field();
+        field.values = Arc::from([0.0, f64::NAN, 1.0, 2.0]);
+        let png = mesh_plot(square_mesh())
+            .field(field)
+            .view(MeshPlotView::Surface3d)
+            .mode(MeshRenderMode::ScalarFill {
+                interpolation: super::super::types::FieldInterpolation::Smooth,
+            })
+            .missing_value_policy(d3rs::mesh::MissingValuePolicy::MaskNaN)
+            .to_png(1.0);
+        assert!(png.is_ok());
     }
 
     #[test]

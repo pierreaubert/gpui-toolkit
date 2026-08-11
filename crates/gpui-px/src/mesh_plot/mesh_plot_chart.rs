@@ -21,8 +21,8 @@ use d3rs::text::{GlyphTextConfig, render_glyph_text};
 use gpui::prelude::*;
 use gpui::{
     AnyElement, App, Bounds, Context, Div, FocusHandle, InteractiveElement, IntoElement,
-    ParentElement, Pixels, Render, RenderOnce, Stateful, Styled, WeakEntity, Window, canvas, div,
-    hsla, point, px, rgb,
+    ParentElement, Pixels, Point, Render, RenderOnce, Stateful, Styled, WeakEntity, Window, canvas,
+    div, hsla, point, px, rgb,
 };
 use gpui_design::DesignSystem;
 use gpui_ui_kit::accessibility::{
@@ -40,16 +40,48 @@ use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
 
-type MeshPlotEntityKey = (gpui::WindowId, Arc<str>);
-type MeshPlotEntityMap = HashMap<MeshPlotEntityKey, gpui::Entity<MeshPlotLiveElement>>;
 type MeshPlotExportCallback = Rc<dyn Fn(Result<String, ChartError>)>;
+
+#[derive(Default)]
+struct MeshPlotOccurrenceTracker {
+    draw_epoch: u64,
+    counts: HashMap<(gpui::WindowId, Arc<str>), usize>,
+}
+
+impl MeshPlotOccurrenceTracker {
+    fn next(&mut self, draw_epoch: u64, key: (gpui::WindowId, Arc<str>)) -> usize {
+        if self.draw_epoch != draw_epoch {
+            self.draw_epoch = draw_epoch;
+            self.counts.clear();
+        }
+        let occurrence = self.counts.entry(key).or_default();
+        let current = *occurrence;
+        *occurrence += 1;
+        current
+    }
+}
+
+#[cfg(all(
+    feature = "gpu-2d",
+    feature = "gpu-metal",
+    target_os = "macos",
+    not(test)
+))]
+type Mesh2dDrawOwner = d3rs::mesh::gpu::MetalMeshRenderer;
+#[cfg(all(
+    feature = "gpu-2d",
+    not(all(feature = "gpu-metal", target_os = "macos")),
+    not(test)
+))]
+type Mesh2dDrawOwner = d3rs::mesh::gpu::WgpuMeshRenderer;
 
 thread_local! {
     /// MeshPlot builders are often recreated by a parent `Render` after a
-    /// Python/resource patch. Keep the live GPUI entity by stable plot ID so
-    /// background preparation, menus, and local navigation are not cancelled
-    /// simply because its declarative wrapper was rebuilt.
-    static MESH_PLOT_ENTITIES: RefCell<MeshPlotEntityMap> = RefCell::new(HashMap::new());
+    /// Python/resource patch. Distinguish same-ID siblings by their encounter
+    /// order in the current draw; GPUI's keyed element-state store then owns
+    /// each live entity exactly while that component remains mounted.
+    static MESH_PLOT_OCCURRENCES: RefCell<MeshPlotOccurrenceTracker> =
+        RefCell::new(MeshPlotOccurrenceTracker::default());
 }
 
 /// Classify a declarative rebuild by the immutable data that determines
@@ -132,6 +164,21 @@ fn write_mesh_qa_hit_trace(position: [f32; 2], viewport: [f32; 2], picked: bool)
     );
 }
 
+fn plot_local_position(position: Point<Pixels>, bounds: Bounds<Pixels>) -> [f32; 2] {
+    [
+        f32::from(position.x) - f32::from(bounds.origin.x),
+        f32::from(position.y) - f32::from(bounds.origin.y),
+    ]
+}
+
+/// Windows GPUI currently has no native custom-mesh primitive. Leaving the
+/// custom ID unset makes `MeshSceneElement` render its retained upload through
+/// `render_offscreen` and paint the resulting GPUI image, so DirectX receives
+/// ordinary image primitives instead of silently discarding the chart.
+const fn mesh_custom_draw_supported(target_os: &str) -> bool {
+    !matches!(target_os.as_bytes(), b"windows")
+}
+
 struct AccessibleMeshPlotElement {
     element: Stateful<Div>,
     node: AccessibilityNode,
@@ -165,7 +212,6 @@ struct MeshPlotLiveElement {
     first_frame: bool,
     toolbar_menu: Option<MeshPlotToolbarMenu>,
     focus_handle: FocusHandle,
-    _window_cleanup: gpui::Subscription,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -177,61 +223,51 @@ enum MeshPlotToolbarMenu {
 impl RenderOnce for MeshPlotElement {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let MeshPlotElement { mut plot } = self;
-        let plot_id = (window.window_handle().window_id(), plot.plot_id.clone());
-        MESH_PLOT_ENTITIES.with(|entities| {
-            let mut entities = entities.borrow_mut();
-            if let Some(entity) = entities.get(&plot_id).cloned() {
-                // When this builder is rendered again, retain the entity and
-                // its local menu/preparation ownership while atomically
-                // replacing the declarative data/configuration it renders.
-                entity.update(cx, |live, cx| {
-                    // Most declarative callers create a fresh builder without
-                    // an explicit state handle. Preserve the retained owner in
-                    // that common case so an in-flight contour/revolve task,
-                    // camera, selection, and toolbar changes survive the
-                    // parent redraw that delivered new resources.
-                    if plot.state.is_none() {
-                        plot.state = live.plot.state.clone();
-                    }
-                    let shares_retained_state = match (&live.plot.state, &plot.state) {
-                        (Some(previous), Some(next)) => Rc::ptr_eq(previous, next),
-                        _ => false,
-                    };
-                    if shares_retained_state {
-                        let (geometry_changed, field_changed) =
-                            mesh_plot_resource_domains_changed(&live.plot, &plot);
-                        if (geometry_changed || field_changed)
-                            && let Some(state) = plot.state.as_ref()
-                        {
-                            state
-                                .borrow_mut()
-                                .mark_resources_changed(geometry_changed, field_changed);
-                        }
-                    }
-                    live.plot = plot;
-                    cx.notify();
-                });
-                entity
-            } else {
-                let cleanup_key = plot_id.clone();
-                let window_cleanup = cx.on_window_closed(move |_cx, closed_window| {
-                    if closed_window == cleanup_key.0 {
-                        MESH_PLOT_ENTITIES.with(|entities| {
-                            entities.borrow_mut().remove(&cleanup_key);
-                        });
-                    }
-                });
-                let entity = cx.new(|cx| MeshPlotLiveElement {
-                    plot,
-                    first_frame: true,
-                    toolbar_menu: None,
-                    focus_handle: cx.focus_handle(),
-                    _window_cleanup: window_cleanup,
-                });
-                entities.insert(plot_id, entity.clone());
-                entity
+        let window_id = window.window_handle().window_id();
+        let occurrence = MESH_PLOT_OCCURRENCES.with(|occurrences| {
+            occurrences
+                .borrow_mut()
+                .next(window.draw_epoch(), (window_id, plot.plot_id.clone()))
+        });
+        let element_key = format!("mesh-plot-live-{}-{occurrence}", plot.plot_id);
+        let initial_plot = plot.clone();
+        let entity =
+            window.use_keyed_state(element_key, cx, move |_window, cx| MeshPlotLiveElement {
+                plot: initial_plot,
+                first_frame: true,
+                toolbar_menu: None,
+                focus_handle: cx.focus_handle(),
+            });
+        // When this builder is rendered again, retain the entity and its local
+        // menu/preparation ownership while atomically replacing declarative
+        // data and configuration.
+        entity.update(cx, |live, cx| {
+            // Most declarative callers create a fresh builder without an
+            // explicit state handle. Preserve the retained owner in that
+            // common case so preparation, camera, selection, and toolbar
+            // changes survive the parent redraw that delivered new resources.
+            if plot.state.is_none() {
+                plot.state = live.plot.state.clone();
             }
-        })
+            let shares_retained_state = match (&live.plot.state, &plot.state) {
+                (Some(previous), Some(next)) => Rc::ptr_eq(previous, next),
+                _ => false,
+            };
+            if shares_retained_state {
+                let (geometry_changed, field_changed) =
+                    mesh_plot_resource_domains_changed(&live.plot, &plot);
+                if (geometry_changed || field_changed)
+                    && let Some(state) = plot.state.as_ref()
+                {
+                    state
+                        .borrow_mut()
+                        .mark_resources_changed(geometry_changed, field_changed);
+                }
+            }
+            live.plot = plot;
+            cx.notify();
+        });
+        entity
     }
 }
 
@@ -263,6 +299,7 @@ impl Render for MeshPlotLiveElement {
 }
 
 /// Builder for unstructured 2D/axisymmetric mesh charts.
+#[derive(Clone)]
 pub struct MeshPlot {
     pub(crate) mesh: TriangleMesh,
     pub(crate) plot_id: Arc<str>,
@@ -285,6 +322,8 @@ pub struct MeshPlot {
     pub(crate) export_callback: Option<MeshPlotExportCallback>,
     pub(crate) show_toolbar: bool,
     pub(crate) hidden_toolbar_actions: Vec<PlotToolbarAction>,
+    #[cfg(all(feature = "gpu-2d", not(test)))]
+    retained_2d_draw_owner: Option<Rc<Mesh2dDrawOwner>>,
 }
 
 impl MeshPlot {
@@ -501,12 +540,6 @@ impl MeshPlot {
         let plot_width = (layout_width - margin_left - margin_right).max(1.0);
         let plot_height = (layout_height - margin_top - margin_bottom).max(1.0);
 
-        let x_scale = LinearScale::new()
-            .domain(x_domain[0], x_domain[1])
-            .range(0.0, plot_width as f64);
-        let y_scale = LinearScale::new()
-            .domain(y_domain[0], y_domain[1])
-            .range(plot_height as f64, 0.0);
         let theme = DefaultAxisTheme;
         let (horizontal_title, vertical_title) = self.axes.titles(&self.view, horizontal, vertical);
         let axis_x = AxisConfig::bottom()
@@ -587,6 +620,21 @@ impl MeshPlot {
         let value_range = resolve_value_range(self.field.as_ref(), active_color_range)?;
         let range_for_render = value_range;
         let toolbar_mode_label = format!("{mode:?}");
+        let (visible_x_domain, visible_y_domain) = interaction_state
+            .as_ref()
+            .map(|state| {
+                let state = state.borrow();
+                let x = state.interaction.x_domain();
+                let y = state.interaction.y_domain();
+                ([x.0, x.1], [y.0, y.1])
+            })
+            .unwrap_or((x_domain, y_domain));
+        let x_scale = LinearScale::new()
+            .domain(visible_x_domain[0], visible_x_domain[1])
+            .range(0.0, plot_width as f64);
+        let y_scale = LinearScale::new()
+            .domain(visible_y_domain[0], visible_y_domain[1])
+            .range(plot_height as f64, 0.0);
 
         #[cfg(all(feature = "gpu-3d", not(test)))]
         let revolve_preparing = match (&self.view, interaction_state.as_ref()) {
@@ -987,6 +1035,11 @@ impl MeshPlot {
         #[cfg(all(feature = "gpu-3d", not(test)))]
         let retained_3d_camera = Some(retained_3d_renderer.camera_handle());
 
+        #[cfg(all(feature = "gpu-2d", not(test)))]
+        {
+            self.retained_2d_draw_owner = None;
+        }
+
         // macOS dispatches its registered Metal custom draw directly. The
         // dedicated 3D constructor consumes the same retained upload as WGPU
         // while selecting the normal-bearing, lit/depth-tested Metal pipeline
@@ -1002,18 +1055,18 @@ impl MeshPlot {
                 retained_3d_state.borrow_mut().view_transform =
                     camera.borrow().view_projection_matrix().to_cols_array_2d();
             }
-            retained_3d_camera
-                .as_ref()
-                .map_or_else(
-                    || d3rs::mesh::gpu::MetalMeshRenderer::new_3d(retained_3d_state.clone()),
-                    |camera| {
-                        d3rs::mesh::gpu::MetalMeshRenderer::new_3d_with_camera(
-                            retained_3d_state.clone(),
-                            camera.clone(),
-                        )
-                    },
-                )
-                .custom_id()
+            let renderer = retained_3d_camera.as_ref().map_or_else(
+                || d3rs::mesh::gpu::MetalMeshRenderer::new_3d(retained_3d_state.clone()),
+                |camera| {
+                    d3rs::mesh::gpu::MetalMeshRenderer::new_3d_with_camera(
+                        retained_3d_state.clone(),
+                        camera.clone(),
+                    )
+                },
+            );
+            let custom_id = renderer.custom_id();
+            self.retained_2d_draw_owner = Some(Rc::new(renderer));
+            custom_id
         };
 
         #[cfg(all(
@@ -1053,7 +1106,11 @@ impl MeshPlot {
             {
                 let scene = d3rs::mesh::gpu::MeshSceneElement::new(retained_3d_state.clone());
                 #[cfg(not(test))]
-                let scene = scene.with_custom_id(retained_3d_custom_id);
+                let scene = if mesh_custom_draw_supported(std::env::consts::OS) {
+                    scene.with_custom_id(retained_3d_custom_id)
+                } else {
+                    scene
+                };
                 scene.into_any_element()
             }
             #[cfg(not(feature = "gpu-3d"))]
@@ -1066,12 +1123,16 @@ impl MeshPlot {
         ) {
             let scene = d3rs::mesh::gpu::MeshSceneElement::new(retained_state.clone());
             #[cfg(not(test))]
-            let scene = {
+            let scene = if mesh_custom_draw_supported(std::env::consts::OS) {
                 #[cfg(all(feature = "gpu-metal", target_os = "macos"))]
                 let renderer = d3rs::mesh::gpu::MetalMeshRenderer::new(retained_state.clone());
                 #[cfg(not(all(feature = "gpu-metal", target_os = "macos")))]
                 let renderer = d3rs::mesh::gpu::WgpuMeshRenderer::new(retained_state.clone());
-                scene.with_custom_id(renderer.custom_id())
+                let custom_id = renderer.custom_id();
+                self.retained_2d_draw_owner = Some(Rc::new(renderer));
+                scene.with_custom_id(custom_id)
+            } else {
+                scene
             };
             scene.into_any_element()
         } else {
@@ -1084,7 +1145,8 @@ impl MeshPlot {
                         width.max(1.0),
                         height.max(1.0),
                         equal_aspect,
-                    );
+                    )
+                    .with_viewport(visible_x_domain, visible_y_domain);
                     let value_to_color = |value: f64| {
                         let t = range_for_render
                             .map(|range| {
@@ -1197,7 +1259,11 @@ impl MeshPlot {
             if matches!(self.view, MeshPlotView::Surface3d) {
                 let scene = d3rs::mesh::gpu::MeshSceneElement::new(retained_3d_state.clone());
                 #[cfg(not(test))]
-                let scene = scene.with_custom_id(retained_3d_custom_id);
+                let scene = if mesh_custom_draw_supported(std::env::consts::OS) {
+                    scene.with_custom_id(retained_3d_custom_id)
+                } else {
+                    scene
+                };
                 scene.into_any_element()
             } else {
                 div().size_full().bg(rgb(0xf4f5f7)).into_any_element()
@@ -1552,6 +1618,22 @@ impl MeshPlot {
             let selection_callback_3d = selection_callback.clone();
             let clear_selection_callback_3d = selection_callback.clone();
             let viewport = [plot_width, plot_height];
+            let focus_handle_3d = focus_handle.clone();
+            let focus_on_pointer_down_3d = focus_handle_3d.clone();
+            let interaction_bounds: Rc<RefCell<Option<Bounds<Pixels>>>> =
+                Rc::new(RefCell::new(None));
+            let bounds_for_paint = interaction_bounds.clone();
+            let bounds_for_down = interaction_bounds.clone();
+            let bounds_for_middle_down = interaction_bounds.clone();
+            let bounds_for_move = interaction_bounds;
+            let bounds_recorder = canvas(
+                move |_bounds, _window, _cx| (),
+                move |bounds, (), _window, _cx| {
+                    let _ = bounds_for_paint.borrow_mut().replace(bounds);
+                },
+            )
+            .absolute()
+            .inset_0();
             let preparing_overlay = revolve_preparing.then(|| {
                 div()
                     .absolute()
@@ -1567,12 +1649,20 @@ impl MeshPlot {
             div()
                 .size_full()
                 .relative()
+                .id(format!("mesh-plot-3d-{}", mesh.id))
+                .track_focus(&focus_handle_3d)
+                .focusable()
                 .child(plot_element)
+                .child(bounds_recorder)
                 .children(preparing_overlay)
                 .on_mouse_down(
                     gpui::MouseButton::Left,
-                    move |event: &gpui::MouseDownEvent, _window, _cx| {
-                        let screen = [f32::from(event.position.x), f32::from(event.position.y)];
+                    move |event: &gpui::MouseDownEvent, window, cx| {
+                        window.focus(&focus_on_pointer_down_3d, cx);
+                        let Some(bounds) = *bounds_for_down.borrow() else {
+                            return;
+                        };
+                        let screen = plot_local_position(event.position, bounds);
                         let mut state = state_down.borrow_mut();
                         let camera_value = camera_down.borrow().clone();
                         let pick = pick_3d_for_view_retained(
@@ -1600,17 +1690,23 @@ impl MeshPlot {
                 .on_mouse_down(
                     gpui::MouseButton::Middle,
                     move |event: &gpui::MouseDownEvent, _window, _cx| {
+                        let Some(bounds) = *bounds_for_middle_down.borrow() else {
+                            return;
+                        };
                         if let Some(lod) = lod_middle_down.as_ref() {
                             lod.borrow_mut()
                                 .begin_drag(&mut lod_scene_middle_down.borrow_mut());
                         }
                         *pan_drag_middle_down.borrow_mut() = true;
                         *drag_middle_down.borrow_mut() =
-                            Some([f32::from(event.position.x), f32::from(event.position.y)]);
+                            Some(plot_local_position(event.position, bounds));
                     },
                 )
                 .on_mouse_move(move |event: &gpui::MouseMoveEvent, window, _cx| {
-                    let current = [f32::from(event.position.x), f32::from(event.position.y)];
+                    let Some(bounds) = *bounds_for_move.borrow() else {
+                        return;
+                    };
+                    let current = plot_local_position(event.position, bounds);
                     let Some(previous) = *drag_move.borrow() else {
                         // Hover inspection is native-only: it updates local
                         // state but deliberately does not invoke the host
@@ -2139,6 +2235,8 @@ pub fn mesh_plot(mesh: TriangleMesh) -> MeshPlot {
         export_callback: None,
         show_toolbar: false,
         hidden_toolbar_actions: Vec::new(),
+        #[cfg(all(feature = "gpu-2d", not(test)))]
+        retained_2d_draw_owner: None,
     }
 }
 
@@ -2861,13 +2959,23 @@ struct MeshProjector {
     min: [f64; 2],
     scale: [f64; 2],
     offset: [f64; 2],
+    width: f32,
     height: f32,
+    equal_aspect: bool,
 }
 
 impl MeshProjector {
     fn new(points: &[[f64; 2]], width: f32, height: f32, equal_aspect: bool) -> Self {
         let x = finite_domain(points, 0).unwrap_or([0.0, 1.0]);
         let y = finite_domain(points, 1).unwrap_or([0.0, 1.0]);
+        Self::from_domains(x, y, width, height, equal_aspect)
+    }
+
+    fn with_viewport(self, x: [f64; 2], y: [f64; 2]) -> Self {
+        Self::from_domains(x, y, self.width, self.height, self.equal_aspect)
+    }
+
+    fn from_domains(x: [f64; 2], y: [f64; 2], width: f32, height: f32, equal_aspect: bool) -> Self {
         let span = [
             (x[1] - x[0]).max(f64::EPSILON),
             (y[1] - y[0]).max(f64::EPSILON),
@@ -2882,14 +2990,18 @@ impl MeshProjector {
                     ((width as f64 - used[0]) * 0.5),
                     ((height as f64 - used[1]) * 0.5),
                 ],
+                width,
                 height,
+                equal_aspect,
             }
         } else {
             Self {
                 min: [x[0], y[0]],
                 scale: [width as f64 / span[0], height as f64 / span[1]],
                 offset: [0.0, 0.0],
+                width,
                 height,
+                equal_aspect,
             }
         }
     }
@@ -3063,6 +3175,17 @@ mod tests {
             (true, false),
             "a view that derives revolved geometry must invalidate prepared buffers"
         );
+    }
+
+    #[test]
+    fn repeated_plot_ids_receive_stable_occurrence_keys_per_draw() {
+        let window = gpui::WindowId::from(1);
+        let mut tracker = MeshPlotOccurrenceTracker::default();
+        assert_eq!(tracker.next(10, (window, Arc::from("shared"))), 0);
+        assert_eq!(tracker.next(10, (window, Arc::from("shared"))), 1);
+        assert_eq!(tracker.next(10, (window, Arc::from("other"))), 0);
+        assert_eq!(tracker.next(11, (window, Arc::from("shared"))), 0);
+        assert_eq!(tracker.next(11, (window, Arc::from("shared"))), 1);
     }
 
     #[test]
@@ -3537,6 +3660,34 @@ mod tests {
         let projector = MeshProjector::new(&points, 400.0, 300.0, true);
         assert_eq!(projector.point(points[0]), [0.0, 250.0]);
         assert_eq!(projector.point(points[1]), [400.0, 50.0]);
+    }
+
+    #[test]
+    fn projector_uses_the_live_interaction_viewport() {
+        let points = [[0.0, 0.0], [4.0, 2.0]];
+        let projector =
+            MeshProjector::new(&points, 400.0, 200.0, false).with_viewport([1.0, 3.0], [0.5, 1.5]);
+        assert_eq!(projector.point([1.0, 0.5]), [0.0, 200.0]);
+        assert_eq!(projector.point([3.0, 1.5]), [400.0, 0.0]);
+    }
+
+    #[test]
+    fn pointer_positions_are_converted_to_plot_local_coordinates() {
+        let bounds = Bounds {
+            origin: point(px(50.0), px(75.0)),
+            size: gpui::size(px(400.0), px(300.0)),
+        };
+        assert_eq!(
+            plot_local_position(point(px(250.0), px(225.0)), bounds),
+            [200.0, 150.0]
+        );
+    }
+
+    #[test]
+    fn windows_uses_the_software_mesh_scene_fallback() {
+        assert!(!mesh_custom_draw_supported("windows"));
+        assert!(mesh_custom_draw_supported("macos"));
+        assert!(mesh_custom_draw_supported("linux"));
     }
 
     #[cfg(feature = "gpu-2d")]

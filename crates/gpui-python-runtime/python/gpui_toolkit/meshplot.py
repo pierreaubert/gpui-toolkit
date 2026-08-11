@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
-from math import isfinite
+from math import isfinite, isnan, tau
 from typing import Any, Sequence
 
 from .resources import Resource
@@ -141,9 +141,10 @@ class MeshScalarField:
     valid_resource_id: str | None = None
     valid_generation: int | None = None
 
-    def to_spec(self) -> dict[str, Any]:
+    def to_spec(self, missing_value_policy: str = "reject") -> dict[str, Any]:
         if not self.id.strip():
             raise ValueError("mesh field id must not be empty")
+        valid: list[bool] | None = None
         if self.resource_id is not None:
             if not self.resource_id.strip() or self.generation is None or self.generation <= 0:
                 raise ValueError("resource-backed field requires a positive generation")
@@ -154,12 +155,37 @@ class MeshScalarField:
             _resource_handle(spec, "mesh field")
         else:
             values = list(self.values)
-            if any(not isinstance(value, (int, float)) or not isfinite(float(value)) for value in values):
-                raise ValueError("mesh field values must be finite numbers")
+            if any(
+                not isinstance(value, (int, float))
+                or (not isfinite(float(value)) and not isnan(float(value)))
+                for value in values
+            ):
+                raise ValueError("mesh field values must be finite numbers or NaN")
+            valid = None if self.valid is None else list(self.valid)
+            if valid is not None and (
+                len(valid) != len(values)
+                or any(not isinstance(value, bool) for value in valid)
+            ):
+                raise ValueError("mesh field valid mask must match values and contain booleans")
+            for index, value in enumerate(values):
+                if not isnan(float(value)):
+                    continue
+                explicitly_masked = valid is not None and not valid[index]
+                if missing_value_policy != "mask_nan" and not explicitly_masked:
+                    raise ValueError(
+                        "NaN mesh field values require an explicit false validity entry "
+                        "or missing_value_policy='mask_nan'"
+                    )
+                if valid is None:
+                    valid = [True] * len(values)
+                valid[index] = False
+                values[index] = 0.0
             spec = {"id": self.id, "values": values, "dtype": "f64le", "association": self.association}
         if self.label is not None: spec["label"] = self.label
         if self.unit is not None: spec["unit"] = self.unit
-        if self.valid is not None:
+        if self.resource_id is None and valid is not None:
+            spec["valid"] = valid
+        elif self.valid is not None:
             if len(self.valid) != len(self.values) or any(not isinstance(value, bool) for value in self.valid):
                 raise ValueError("mesh field valid mask must match values and contain booleans")
             spec["valid"] = list(self.valid)
@@ -173,6 +199,38 @@ class MeshScalarField:
             }
             _resource_handle(spec["valid"], "mesh field valid mask")
         return spec
+
+
+@dataclass(frozen=True)
+class MeshRevolve:
+    radial: str = "x"
+    axial: str = "z"
+    start_angle: float = 0.0
+    sweep_angle: float = tau
+    segments: int = 64
+    end_caps: bool = False
+
+    def to_spec(self) -> dict[str, Any]:
+        if self.radial not in {"x", "y", "z"} or self.axial not in {"x", "y", "z"}:
+            raise ValueError("revolve radial and axial axes must be 'x', 'y', or 'z'")
+        if self.radial == self.axial:
+            raise ValueError("revolve radial and axial axes must be distinct")
+        if not isfinite(float(self.start_angle)):
+            raise ValueError("revolve start_angle must be finite")
+        if not isfinite(float(self.sweep_angle)) or not 0.0 < float(self.sweep_angle) <= tau:
+            raise ValueError("revolve sweep_angle must be in (0, 2*pi]")
+        if not isinstance(self.segments, int) or isinstance(self.segments, bool) or self.segments < 3:
+            raise ValueError("revolve segments must be an integer of at least 3")
+        if not isinstance(self.end_caps, bool):
+            raise ValueError("revolve end_caps must be boolean")
+        return {
+            "radial": self.radial,
+            "axial": self.axial,
+            "start_angle": float(self.start_angle),
+            "sweep_angle": float(self.sweep_angle),
+            "segments": self.segments,
+            "end_caps": self.end_caps,
+        }
 
 
 @dataclass(frozen=True)
@@ -200,6 +258,7 @@ class MeshPlotSpec:
     contour_levels: dict[str, Any] | None = None
     equal_aspect: bool = True
     interactions: Sequence[str] = ()
+    revolve: MeshRevolve | None = None
 
     def to_spec(self) -> dict[str, Any]:
         if not self.id.strip():
@@ -212,8 +271,10 @@ class MeshPlotSpec:
             raise ValueError(f"unsupported mesh plot color scale: {self.color_scale!r}")
         if self.mode != "mesh" and self.field is None:
             raise ValueError(f"mesh plot mode {self.mode!r} requires a scalar field")
+        if self.missing_value_policy not in {"reject", "mask_nan"}:
+            raise ValueError("missing_value_policy must be 'reject' or 'mask_nan'")
         geometry = self.geometry.to_spec()
-        field = None if self.field is None else self.field.to_spec()
+        field = None if self.field is None else self.field.to_spec(self.missing_value_policy)
         if field is not None and "values" in field:
             expected = len(geometry["positions"]) if field.get("association", "vertex") == "vertex" else len(geometry["triangles"])
             if len(field["values"]) != expected:
@@ -237,8 +298,8 @@ class MeshPlotSpec:
                 raise ValueError("color_range must be 'auto', a (min, max) tuple, or a symmetric range mapping")
         if not isinstance(self.revision, int) or self.revision < 0:
             raise ValueError("revision must be a non-negative integer")
-        if self.missing_value_policy not in {"reject", "mask_nan"}:
-            raise ValueError("missing_value_policy must be 'reject' or 'mask_nan'")
+        if self.revolve is not None and self.view != "axisymmetric_revolve":
+            raise ValueError("revolve settings require view='axisymmetric_revolve'")
         if self.contour_levels is not None:
             if not isinstance(self.contour_levels, dict):
                 raise ValueError("contour_levels must be a mapping")
@@ -254,6 +315,8 @@ class MeshPlotSpec:
         if any(interaction not in allowed_interactions for interaction in self.interactions) or len(set(self.interactions)) != len(self.interactions):
             raise ValueError("mesh plot interactions contain an unsupported or duplicate value")
         spec = {"kind": "mesh_plot", "schema_version": MESHPLOT_SCHEMA_VERSION, "id": self.id, "revision": self.revision, "geometry": geometry, "field": field, "view": self.view, "mode": self.mode, "color_scale": self.color_scale, "color_range": list(self.color_range) if isinstance(self.color_range, tuple) else self.color_range, "missing_value_policy": self.missing_value_policy, "wireframe": self.wireframe, "title": self.title, "width": self.width, "height": self.height, "selection": self.selection, "camera": self.camera, "viewport": self.viewport, "contour_levels": self.contour_levels, "equal_aspect": self.equal_aspect, "interactions": list(self.interactions)}
+        if self.view == "axisymmetric_revolve":
+            spec["revolve"] = (self.revolve or MeshRevolve()).to_spec()
         if "positions" in geometry and len(json.dumps(spec, separators=(",", ":")).encode("utf-8")) > MAX_INLINE_MESH_BYTES:
             raise ValueError(
                 "inline mesh plot payload exceeds 256 KiB; use ResourceStore mesh handles"
@@ -319,10 +382,18 @@ def scalar_field(values: Sequence[float], *, association: str = "vertex", id: st
     if association not in {"vertex", "cell"}: raise ValueError("association must be 'vertex' or 'cell'")
     if not id.strip(): raise ValueError("mesh field id must not be empty")
     values = tuple(values)
-    if any(not isinstance(value, (int, float)) or not isfinite(float(value)) for value in values):
-        raise ValueError("mesh field values must be finite numbers")
+    if any(
+        not isinstance(value, (int, float))
+        or (not isfinite(float(value)) and not isnan(float(value)))
+        for value in values
+    ):
+        raise ValueError("mesh field values must be finite numbers or NaN")
     if valid is not None and len(valid) != len(values): raise ValueError("mesh field valid mask length must match values")
     return MeshScalarField(values, association, id, label, unit, valid)
+
+
+def revolve(*, radial: str = "x", axial: str = "z", start_angle: float = 0.0, sweep_angle: float = tau, segments: int = 64, end_caps: bool = False) -> MeshRevolve:
+    return MeshRevolve(radial, axial, start_angle, sweep_angle, segments, end_caps)
 
 
 def resource_field(resource_id: str, generation: int, *, association: str = "vertex", id: str = "field", label: str | None = None, unit: str | None = None, valid_resource_id: str | None = None, valid_generation: int | None = None) -> MeshScalarField:

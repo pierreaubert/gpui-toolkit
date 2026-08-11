@@ -221,7 +221,11 @@ fn spec_id(spec: &MeshPlotSpec) -> String {
 
 fn mesh_plot_fingerprints(spec: &MeshPlotSpec) -> MeshPlotFingerprints {
     MeshPlotFingerprints {
-        geometry: json_fingerprint(&spec.geometry),
+        geometry: json_fingerprint(&serde_json::json!({
+            "geometry": spec.geometry,
+            "view": spec.view,
+            "revolve": spec.revolve,
+        })),
         field: spec.field.as_ref().map_or(0, json_fingerprint),
         style: json_fingerprint(&serde_json::json!({
             "mode": spec.mode,
@@ -372,6 +376,7 @@ mod tests {
             geometry: geometry.clone(),
             field: Some(serde_json::json!({"values":[1.0, 1.0, 1.0]})),
             view: "planar".into(),
+            revolve: None,
             mode: "scalar_fill".into(),
             color_scale: "viridis".into(),
             color_range: serde_json::json!("auto"),
@@ -395,5 +400,30 @@ mod tests {
         assert!(update.dirty.field);
         assert!(!update.dirty.geometry);
         assert!(!update.dirty.camera);
+    }
+
+    #[test]
+    fn meshplot_revolve_update_dirties_derived_geometry() {
+        let mut first = MeshPlotSpec::from_value(serde_json::json!({
+            "schema_version": 1,
+            "id": "revolve",
+            "geometry": {
+                "id": "profile",
+                "positions": [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]],
+                "triangles": [[0, 1, 2]]
+            },
+            "view": "axisymmetric_revolve",
+            "revolve": {"sweep_angle": 1.5, "segments": 32, "end_caps": true}
+        }))
+        .unwrap();
+        let mut cache = RetainedSceneCache::new();
+        cache.upsert_meshplot(&first).unwrap();
+        first.revolve = Some(serde_json::json!({
+            "sweep_angle": 3.0,
+            "segments": 48,
+            "end_caps": false
+        }));
+        let update = cache.upsert_meshplot(&first).unwrap();
+        assert!(update.dirty.geometry);
     }
 }

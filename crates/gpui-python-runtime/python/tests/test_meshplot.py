@@ -1,4 +1,6 @@
 import unittest
+import math
+import json
 
 from gpui_toolkit import meshplot, ui
 from gpui_toolkit.resources import ResourceStore
@@ -59,6 +61,49 @@ class MeshPlotTests(unittest.TestCase):
         self.assertEqual(geometry_spec["vertex_ids"]["dtype"], "u64le")
         self.assertEqual(geometry_spec["cell_ids"]["resource_id"], "cell_ids")
         self.assertEqual(field_spec["valid"]["dtype"], "bool_bytes")
+
+    def test_inline_explicit_mask_accepts_nan_without_nonstandard_json(self):
+        field = meshplot.scalar_field(
+            [0.0, math.nan, 2.0], valid=[True, False, True]
+        )
+        spec = field.to_spec()
+        json.dumps(spec, allow_nan=False)
+        self.assertEqual(spec["values"], [0.0, 0.0, 2.0])
+        self.assertEqual(spec["valid"], [True, False, True])
+
+    def test_inline_mask_nan_policy_builds_an_explicit_validity_mask(self):
+        field = meshplot.scalar_field([0.0, math.nan, 2.0])
+        spec = meshplot.plot(
+            self.geometry,
+            field,
+            mode="scalar_fill",
+            missing_value_policy="mask_nan",
+        ).to_spec()
+        self.assertEqual(spec["field"]["values"], [0.0, 0.0, 2.0])
+        self.assertEqual(spec["field"]["valid"], [True, False, True])
+
+    def test_partial_revolve_settings_round_trip(self):
+        spec = meshplot.plot(
+            self.geometry,
+            view="axisymmetric_revolve",
+            revolve=meshplot.revolve(
+                start_angle=0.25,
+                sweep_angle=1.5,
+                segments=32,
+                end_caps=True,
+            ),
+        ).to_spec()
+        self.assertEqual(
+            spec["revolve"],
+            {
+                "radial": "x",
+                "axial": "z",
+                "start_angle": 0.25,
+                "sweep_angle": 1.5,
+                "segments": 32,
+                "end_caps": True,
+            },
+        )
 
 
 if __name__ == "__main__":

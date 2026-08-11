@@ -1,9 +1,9 @@
 use crate::{CompositorGpuHint, WgpuAtlas, WgpuContext, WgpuCustomDrawAdapter};
 use bytemuck::{Pod, Zeroable};
 use gpui::{
-    AtlasTextureId, Background, Bounds, DevicePixels, GpuSpecs, MonochromeSprite, Path, Point,
-    PolychromeSprite, PrimitiveBatch, Quad, ScaledPixels, Scene, Shadow, Size, SubpixelSprite,
-    Underline,
+    AtlasTextureId, Background, Bounds, CustomPrimitive, DevicePixels, GpuSpecs, MonochromeSprite,
+    Path, Pixels, Point, PolychromeSprite, PrimitiveBatch, Quad, ScaledPixels, Scene, Shadow, Size,
+    SubpixelSprite, Underline,
 };
 use log::warn;
 #[cfg(not(target_family = "wasm"))]
@@ -25,6 +25,14 @@ use rendering_parameters::RenderingParameters;
 use types::WgpuBindGroupLayouts;
 use types::WgpuPipelines;
 use types::WgpuResources;
+
+fn clipped_custom_draw_bounds(custom: &CustomPrimitive) -> Option<Bounds<Pixels>> {
+    let bounds = custom.bounds.intersect(&custom.content_mask.bounds);
+    if bounds.size.width.0 <= 0.0 || bounds.size.height.0 <= 0.0 {
+        return None;
+    }
+    Some(bounds.map(|value| gpui::px(value.0)))
+}
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
@@ -1223,7 +1231,10 @@ impl WgpuRenderer {
                                             continue;
                                         };
 
-                                        let bounds = custom.bounds.map(|value| gpui::px(value.0));
+                                        let Some(bounds) = clipped_custom_draw_bounds(custom)
+                                        else {
+                                            continue;
+                                        };
                                         wgpu_draw.0.draw_wgpu(
                                             context,
                                             &mut encoder,
@@ -1720,5 +1731,31 @@ impl WgpuRenderer {
 
         log::info!("GPU recovery complete");
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod custom_draw_tests {
+    use super::*;
+
+    #[test]
+    fn custom_draw_bounds_are_clipped_by_the_ancestor_content_mask() {
+        let custom = CustomPrimitive {
+            order: 0,
+            id: 1,
+            bounds: Bounds::new(
+                Point::new(ScaledPixels(10.0), ScaledPixels(20.0)),
+                Size::new(ScaledPixels(100.0), ScaledPixels(80.0)),
+            ),
+            content_mask: gpui::ContentMask {
+                bounds: Bounds::new(
+                    Point::new(ScaledPixels(40.0), ScaledPixels(0.0)),
+                    Size::new(ScaledPixels(30.0), ScaledPixels(200.0)),
+                ),
+            },
+        };
+        let clipped = clipped_custom_draw_bounds(&custom).unwrap();
+        assert_eq!(clipped.origin, Point::new(gpui::px(40.0), gpui::px(20.0)));
+        assert_eq!(clipped.size, Size::new(gpui::px(30.0), gpui::px(80.0)));
     }
 }

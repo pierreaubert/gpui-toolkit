@@ -911,6 +911,13 @@ impl WgpuMesh3DRenderer {
     }
 }
 
+#[cfg(not(test))]
+impl Drop for WgpuMesh3DRenderer {
+    fn drop(&mut self) {
+        gpui::unregister_custom_draw(self.custom_id);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::clipped_target_viewport;

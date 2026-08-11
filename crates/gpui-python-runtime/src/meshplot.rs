@@ -19,6 +19,8 @@ pub struct MeshPlotSpec {
     pub field: Option<Value>,
     #[serde(default = "default_view")]
     pub view: String,
+    #[serde(default)]
+    pub revolve: Option<Value>,
     #[serde(default = "default_mode")]
     pub mode: String,
     #[serde(default = "default_color_scale")]

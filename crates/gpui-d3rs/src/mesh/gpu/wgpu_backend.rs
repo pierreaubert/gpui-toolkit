@@ -374,6 +374,12 @@ impl WgpuMeshRenderer {
     }
 }
 
+impl Drop for WgpuMeshRenderer {
+    fn drop(&mut self) {
+        gpui::unregister_custom_draw(self.custom_id);
+    }
+}
+
 impl MeshGpuRenderer for WgpuMeshRenderer {
     fn upload_geometry(&mut self, rev: GeometryRevision, upload: &MeshUpload) {
         let mut state = self.state.borrow_mut();

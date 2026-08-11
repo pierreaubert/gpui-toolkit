@@ -1,6 +1,8 @@
 #![cfg(feature = "gpu-3d")]
 
-use d3rs::mesh::gpu::{GeometryRevision, MeshGpuRenderer, MeshSceneState, WgpuMesh3DRenderer};
+use d3rs::mesh::gpu::{
+    GeometryRevision, MeshGpuRenderer, MeshSceneState, WgpuMesh3DRenderer, WgpuMeshRenderer,
+};
 use d3rs::mesh::{MeshTopology, TriangleMesh, prepare_upload};
 use gpui::{Bounds, Point, Size, lookup_custom_draw, px, unregister_custom_draw};
 use gpui_wgpu::{WgpuContext, WgpuCustomDrawAdapter};
@@ -9,6 +11,28 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 const TARGET_SIZE: [u32; 2] = [128, 96];
+
+#[test]
+fn dropping_retained_renderer_unregisters_its_custom_draw() {
+    let id;
+    {
+        let renderer = WgpuMesh3DRenderer::new(Rc::new(RefCell::new(MeshSceneState::default())));
+        id = renderer.custom_id();
+        assert!(lookup_custom_draw(id).is_some());
+    }
+    assert!(lookup_custom_draw(id).is_none());
+}
+
+#[test]
+fn dropping_retained_2d_renderer_unregisters_its_custom_draw() {
+    let id;
+    {
+        let renderer = WgpuMeshRenderer::new(Rc::new(RefCell::new(MeshSceneState::default())));
+        id = renderer.custom_id();
+        assert!(lookup_custom_draw(id).is_some());
+    }
+    assert!(lookup_custom_draw(id).is_none());
+}
 
 fn square_upload() -> d3rs::mesh::MeshUpload {
     let mesh = TriangleMesh {

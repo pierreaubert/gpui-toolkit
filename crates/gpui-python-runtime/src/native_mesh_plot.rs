@@ -7,7 +7,7 @@
 
 use crate::mesh_frames::{MeshDtype, MeshFrameKind, MeshFrameStore, RetainedMeshResource};
 use crate::meshplot::MeshPlotSpec;
-use d3rs::mesh::{ContourLevels, MissingValuePolicy};
+use d3rs::mesh::{ContourLevels, MissingValuePolicy, RevolveSpec};
 use gpui_px::{
     AutoOrFixed, Axes2d, ColorRange, ColorScale, FieldInterpolation, MeshPlotPick, MeshRenderMode,
     PlotInteractions,
@@ -129,6 +129,64 @@ fn missing_value_policy(value: &str) -> Result<MissingValuePolicy, String> {
             "unsupported mesh_plot missing_value_policy {value:?}"
         )),
     }
+}
+
+fn coordinate_axis(
+    value: Option<&Value>,
+    default: CoordinateAxis,
+    name: &str,
+) -> Result<CoordinateAxis, String> {
+    match value.and_then(Value::as_str) {
+        None => Ok(default),
+        Some("x") => Ok(CoordinateAxis::X),
+        Some("y") => Ok(CoordinateAxis::Y),
+        Some("z") => Ok(CoordinateAxis::Z),
+        Some(_) => Err(format!("mesh_plot revolve {name} must be 'x', 'y', or 'z'")),
+    }
+}
+
+fn revolve_spec(value: Option<&Value>) -> Result<RevolveSpec, String> {
+    let Some(value) = value.filter(|value| !value.is_null()) else {
+        return Ok(RevolveSpec::default());
+    };
+    let object = value
+        .as_object()
+        .ok_or("mesh_plot revolve must be an object")?;
+    let defaults = RevolveSpec::default();
+    let radial = coordinate_axis(object.get("radial"), defaults.radial, "radial")?;
+    let axial = coordinate_axis(object.get("axial"), defaults.axial, "axial")?;
+    if radial == axial {
+        return Err("mesh_plot revolve radial and axial axes must be distinct".into());
+    }
+    let start_angle = object
+        .get("start_angle")
+        .map_or(Some(defaults.start_angle), Value::as_f64)
+        .filter(|value| value.is_finite())
+        .ok_or("mesh_plot revolve start_angle must be finite")?;
+    let sweep_angle = object
+        .get("sweep_angle")
+        .map_or(Some(defaults.sweep_angle), Value::as_f64)
+        .filter(|value| value.is_finite() && *value > 0.0 && *value <= std::f64::consts::TAU)
+        .ok_or("mesh_plot revolve sweep_angle must be in (0, 2*pi]")?;
+    let segments = object
+        .get("segments")
+        .map_or(Some(defaults.segments), |value| {
+            value.as_u64().and_then(|value| u32::try_from(value).ok())
+        })
+        .filter(|value| *value >= 3)
+        .ok_or("mesh_plot revolve segments must be an integer of at least 3")?;
+    let end_caps = object
+        .get("end_caps")
+        .map_or(Some(defaults.end_caps), Value::as_bool)
+        .ok_or("mesh_plot revolve end_caps must be boolean")?;
+    Ok(RevolveSpec {
+        radial,
+        axial,
+        start_angle,
+        sweep_angle,
+        segments,
+        end_caps,
+    })
 }
 
 fn viewport(value: Option<&Value>) -> Result<Option<[f64; 4]>, String> {
@@ -712,7 +770,9 @@ pub fn build(
             radial: CoordinateAxis::X,
             axial: CoordinateAxis::Z,
         },
-        "axisymmetric_revolve" => MeshPlotView::AxisymmetricRevolve(Default::default()),
+        "axisymmetric_revolve" => {
+            MeshPlotView::AxisymmetricRevolve(revolve_spec(spec.revolve.as_ref())?)
+        }
         "surface3d" => MeshPlotView::Surface3d,
         _ => MeshPlotView::Planar {
             horizontal: CoordinateAxis::X,
@@ -923,5 +983,24 @@ mod tests {
         let mut spec = spec(serde_json::json!("auto"));
         spec.contour_levels = Some(serde_json::json!({"values": [2.0, 1.0]}));
         assert!(options(&spec, "mesh").unwrap_err().contains("increasing"));
+    }
+
+    #[test]
+    fn revolve_settings_preserve_partial_sweep_segments_and_caps() {
+        let revolve = revolve_spec(Some(&serde_json::json!({
+            "radial": "y",
+            "axial": "z",
+            "start_angle": 0.25,
+            "sweep_angle": 1.5,
+            "segments": 32,
+            "end_caps": true
+        })))
+        .unwrap();
+        assert_eq!(revolve.radial, CoordinateAxis::Y);
+        assert_eq!(revolve.axial, CoordinateAxis::Z);
+        assert_eq!(revolve.start_angle, 0.25);
+        assert_eq!(revolve.sweep_angle, 1.5);
+        assert_eq!(revolve.segments, 32);
+        assert!(revolve.end_caps);
     }
 }
