@@ -205,7 +205,7 @@ syn = { version = "2", features = ["full", "parsing", "extra-traits"] }
 # Graphics and visualization
 bytemuck = { version = "1.14", features = ["derive"] }
 glam = "0.30"
-pollster = "0.4"
+pollster = "1.0"
 image = { version = "0.25", default-features = false, features = ["bmp", "gif", "ico", "jpeg", "png", "pnm", "tiff", "webp"] }
 fontdue = "0.9"
 pathfinder_geometry = "0.5"
