@@ -1,5 +1,11 @@
 # What is new in 0.9
 
+## 0.9.8
+
+Feature: added support for meshed plots in 2d and 3d
+
+## 0.9.7
+
 GPUI Toolkit 0.9 is the first release line with an explicit public quality
 contract. It is based on history-free GPUI snapshots from Zed v1.9.0 and ships
 native components, responsive layout, design tokens, audio controls, themes,
@@ -15,3 +21,5 @@ The first crates.io wave is intentionally small: `gpui-design`,
 in the source tag as beta while their unpublished runtime dependency prevents
 honest registry packaging. See `RELEASE.md` and `qa.md` for support and
 platform limits.
+
+
