@@ -6,6 +6,20 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
+# A versioned baseline represents a source revision, not whichever partially
+# edited files happened to be open on a developer machine. Keep capture output
+# in target/ available for iteration, but refuse baseline promotion until the
+# source tree (including untracked release inputs) is clean. This guard is
+# deliberately before any build or capture work.
+if [[ "${QA_VISUAL_UPDATE_BASELINES:-0}" == "1" ]]; then
+    if [[ -n "$(git status --porcelain --untracked-files=all)" ]]; then
+        echo "QA_VISUAL_UPDATE_BASELINES=1 requires a clean source tree; commit or remove all tracked/untracked changes before promoting baselines." >&2
+        exit 1
+    fi
+    baseline_revision="$(git rev-parse --verify HEAD)"
+    echo "=== Promoting visual baselines from clean revision ${baseline_revision} ==="
+fi
+
 mkdir -p target/qa/visual target/gpui-conformance
 
 FEATURES="--features autoeq,gpu-2d,gpu-3d,reqwest,showcase,spinorama,tokio,urlencoding"
@@ -23,6 +37,7 @@ echo "=== component-lab capture inventory ==="
 visual_root="${QA_VISUAL_OUTPUT_ROOT:-target/qa/visual/component-lab}"
 capture_limit="${QA_VISUAL_CAPTURE_LIMIT:-200}"
 baseline_archive="${QA_VISUAL_BASELINE_ARCHIVE:-qa/visual/baselines/component-lab-metal-pr-v1.tar.zst}"
+
 case "$(uname -s)" in
     Darwin)
         visual_renderer="metal"
