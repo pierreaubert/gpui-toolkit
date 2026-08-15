@@ -10,3 +10,17 @@ pub use release_artifacts::{
     showcase_visual_capture_manifest,
 };
 pub use showcase::Showcase;
+
+/// Boot the showcase as a full GPUI app. Shared by the native `main` and the
+/// wasm `start` entry point.
+pub fn run_showcase() {
+    use gpui::AppContext as _;
+    gpui_miniapp::MiniApp::run(
+        gpui_miniapp::MiniAppConfig::new("UI Kit Showcase")
+            .size(1200.0, 900.0)
+            .scrollable(true)
+            .with_theme(true)
+            .with_i18n(true),
+        |cx| cx.new(Showcase::new),
+    );
+}

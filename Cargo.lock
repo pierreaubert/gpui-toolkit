@@ -3089,6 +3089,7 @@ dependencies = [
  "gpui-ios",
  "gpui-miniapp",
  "gpui-ui-kit",
+ "wasm-bindgen",
 ]
 
 [[package]]

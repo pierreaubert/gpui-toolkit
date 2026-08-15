@@ -6,7 +6,7 @@
 # ----------------------------------------------------------------------
 
 wasm_target := "wasm32-unknown-unknown"
-wasm_packages := "-p gpui_web -p gpui-miniapp -p gpui-hello-web"
+wasm_packages := "-p gpui_web -p gpui-miniapp -p gpui-hello-web -p gpui-showcase"
 
 [group('wasm')]
 wasm-setup:
@@ -20,6 +20,10 @@ wasm-check:
 [group('wasm')]
 wasm-serve-hello:
 	cd crates/gpui-hello-web && RUSTUP_TOOLCHAIN=nightly CARGO_UNSTABLE_BUILD_STD=std,panic_abort trunk serve
+
+[group('wasm')]
+wasm-serve-showcase:
+	cd crates/gpui-showcase && RUSTUP_TOOLCHAIN=nightly CARGO_UNSTABLE_BUILD_STD=std,panic_abort trunk serve
 
 # Prereqs: `cargo install wasm-bindgen-cli` (provides wasm-bindgen-test-runner)
 # and a chromedriver on PATH (`brew install chromedriver`); set the CHROMEDRIVER
