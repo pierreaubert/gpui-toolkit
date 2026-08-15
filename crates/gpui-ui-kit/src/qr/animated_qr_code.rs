@@ -12,7 +12,10 @@ use gpui::{
 };
 use qrcode::QrCode as QrMatrix;
 use qrcode::types::Color as QrColor;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+// `std::time::Instant` panics on wasm32-unknown-unknown ("time not implemented
+// on this platform"); web-time aliases std on native targets.
+use web_time::Instant;
 
 /// An animated QR code that pans a zoomed viewport when the display size is
 /// too small for modules to be individually legible.

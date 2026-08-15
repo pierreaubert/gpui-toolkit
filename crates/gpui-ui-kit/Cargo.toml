@@ -29,6 +29,10 @@ qrcode = { workspace = true }
 # Proc macros for theme generation
 gpui-ui-kit-macros = { workspace = true }
 
+# Wasm-safe monotonic clock (aliases std::time on native targets; the std
+# `Instant` panics on wasm32-unknown-unknown).
+web-time = "1.1.0"
+
 # Platform backends (gpui_macos, gpui_linux, gpui_windows, gpui-ios) are NOT
 # declared here. They live only in zed-industries/zed's git tree (or, for
 # gpui-ios, the local workspace) with no crates.io release, so depending on

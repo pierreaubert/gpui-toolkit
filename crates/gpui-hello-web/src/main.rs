@@ -28,7 +28,11 @@ mod imp {
     pub fn start() {
         gpui_miniapp::web_init();
         let platform = gpui_miniapp::current_platform().expect("web platform");
-        gpui::Application::with_platform(platform).run(|cx: &mut App| {
+        // `WebPlatform::run` returns immediately after scheduling the launch
+        // callback, so the app must be kept alive explicitly: `run_embedded`
+        // returns an `ApplicationHandle` owning the app; forget it so the app
+        // lives for the page's lifetime.
+        let handle = gpui::Application::with_platform(platform).run_embedded(|cx: &mut App| {
             let bounds = Bounds::centered(None, size(px(640.), px(560.)), cx);
             cx.open_window(
                 WindowOptions {
@@ -40,6 +44,7 @@ mod imp {
             .expect("failed to open window");
             cx.activate(true);
         });
+        std::mem::forget(handle);
     }
 }
 

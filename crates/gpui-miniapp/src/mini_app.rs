@@ -129,7 +129,7 @@ impl MiniApp {
             }
         };
 
-        gpui::Application::with_platform(platform).run(move |cx: &mut App| {
+        let launch = move |cx: &mut App| {
             // Initialize theme state if enabled
             if config_rc.with_theme {
                 cx.set_global(ThemeState::with_variant(config_rc.initial_theme));
@@ -287,7 +287,18 @@ impl MiniApp {
             }
 
             cx.activate(true);
-        });
+        };
+
+        let app = gpui::Application::with_platform(platform);
+        #[cfg(target_family = "wasm")]
+        {
+            // `WebPlatform::run` returns immediately after scheduling the
+            // launch callback, so keep the app alive explicitly for the
+            // page's lifetime via the leaked `ApplicationHandle`.
+            std::mem::forget(app.run_embedded(launch));
+        }
+        #[cfg(not(target_family = "wasm"))]
+        app.run(launch);
     }
 
     /// Build the menu bar based on configuration and current language

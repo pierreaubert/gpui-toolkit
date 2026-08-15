@@ -28,7 +28,10 @@ use gpui::{
 };
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+// `std::time::Instant` panics on wasm32-unknown-unknown ("time not implemented
+// on this platform"); web-time aliases std on native targets.
+use web_time::Instant;
 
 thread_local! {
     static SWIPE_PANEL_ENTITIES: RefCell<HashMap<ElementId, WeakEntity<SwipePanelEntity>>> =

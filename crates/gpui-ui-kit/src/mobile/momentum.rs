@@ -5,7 +5,9 @@
 //! components such as `SwipePanel` can use it without depending on
 //! non-publishable platform crates.
 
-use std::time::Instant;
+// `std::time::Instant` panics on wasm32-unknown-unknown ("time not implemented
+// on this platform"); web-time aliases std on native targets.
+use web_time::Instant;
 
 const DECELERATION_RATE: f32 = 0.998;
 const MIN_VELOCITY: f32 = 30.0;

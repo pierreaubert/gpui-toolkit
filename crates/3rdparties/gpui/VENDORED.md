@@ -7,6 +7,15 @@
 
 ## Local patches
 
+- `src/app.rs` adds `ApplicationHandle` and `Application::run_embedded` (ported
+  verbatim from upstream zed PR #60574, commit 74798c68d5) so that wasm/embedded
+  platforms — where `Platform::run` returns immediately after scheduling the
+  launch callback instead of blocking — can keep the app alive via a strong
+  handle. Without it the `Rc<AppCell>` held only by the launch callback is
+  dropped when the callback is consumed, dropping every window and its DOM
+  closures at boot (observed as wasm-bindgen "closure invoked recursively or
+  after being dropped" pageerrors from the pending rAF/ResizeObserver).
+
 - `Cargo.toml` upgrades `stacksafe` from 0.1 to 1.0 to avoid the
   future-incompatible `proc-macro-error2` 2.0.1 dependency while preserving the
   existing `StackSafe` and `#[stacksafe]` API usage.
