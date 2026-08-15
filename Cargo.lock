@@ -2941,6 +2941,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "gpui-hello-web"
+version = "0.1.0"
+dependencies = [
+ "gpui",
+ "gpui-miniapp",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "gpui-ios"
 version = "0.9.11"
 dependencies = [

@@ -8,6 +8,7 @@ members = [
     "crates/gpui-d3rs",
     "crates/gpui-design",
     "crates/gpui-design-tools",
+    "crates/gpui-hello-web",
     "crates/gpui-ios",
     "crates/gpui-keybinding",
     "crates/gpui-miniapp",

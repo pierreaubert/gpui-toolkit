@@ -10,6 +10,7 @@ default:
 import 'builds/linux.just'
 import 'builds/windows.just'
 import 'builds/cross.just'
+import 'builds/wasm.just'
 
 # ----------------------------------------------------------------------
 # VARIABLES

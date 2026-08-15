@@ -1,0 +1,49 @@
+//! Minimal GPUI-on-wasm spike: one quad + one text line in a full-page canvas.
+//! Build/serve via `just wasm-serve-hello` (Trunk, COOP/COEP headers included).
+#![cfg_attr(target_family = "wasm", no_main)]
+
+#[cfg(target_family = "wasm")]
+mod imp {
+    use gpui::*;
+
+    struct HelloWeb;
+
+    impl Render for HelloWeb {
+        fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+            div()
+                .size_full()
+                .bg(rgb(0x1e1e2e))
+                .flex()
+                .flex_col()
+                .items_center()
+                .justify_center()
+                .gap_4()
+                .text_color(rgb(0xffffff))
+                .child(div().size(px(64.0)).bg(rgb(0xf38ba8)).rounded(px(8.0)))
+                .child("Hello from GPUI on wasm")
+        }
+    }
+
+    #[wasm_bindgen::prelude::wasm_bindgen(start)]
+    pub fn start() {
+        gpui_miniapp::web_init();
+        let platform = gpui_miniapp::current_platform().expect("web platform");
+        gpui::Application::with_platform(platform).run(|cx: &mut App| {
+            let bounds = Bounds::centered(None, size(px(640.), px(560.)), cx);
+            cx.open_window(
+                WindowOptions {
+                    window_bounds: Some(WindowBounds::Windowed(bounds)),
+                    ..Default::default()
+                },
+                |_, cx| cx.new(|_| HelloWeb),
+            )
+            .expect("failed to open window");
+            cx.activate(true);
+        });
+    }
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn main() {
+    eprintln!("gpui-hello-web only runs on wasm32-unknown-unknown; use `just wasm-serve-hello`");
+}

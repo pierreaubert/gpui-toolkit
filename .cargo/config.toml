@@ -56,4 +56,7 @@ rustflags = [
   "-C", "link-arg=--export=__tls_size",
   "-C", "link-arg=--export=__tls_align",
   "-C", "link-arg=--export=__tls_base",
+  # wasm-bindgen's thread-id injection requires an exported immutable
+  # `__heap_base` global; LLD tree-shakes it unless explicitly exported.
+  "-C", "link-arg=--export=__heap_base",
 ]
