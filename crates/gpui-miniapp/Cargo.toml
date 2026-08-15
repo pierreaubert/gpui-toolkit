@@ -55,3 +55,7 @@ gpui-ios = { workspace = true }
 
 [target.'cfg(target_os = "android")'.dependencies]
 gpui-android = { workspace = true }
+
+[target.'cfg(target_family = "wasm")'.dependencies]
+gpui_web = { workspace = true }
+console_error_panic_hook = "0.1.7"

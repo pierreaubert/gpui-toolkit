@@ -2980,6 +2980,7 @@ dependencies = [
 name = "gpui-miniapp"
 version = "0.9.8"
 dependencies = [
+ "console_error_panic_hook",
  "gpui",
  "gpui-android",
  "gpui-builder",
@@ -2988,6 +2989,7 @@ dependencies = [
  "gpui-ui-kit",
  "gpui_linux",
  "gpui_macos",
+ "gpui_web",
  "gpui_windows",
  "libsqlite3-sys",
 ]

@@ -26,9 +26,6 @@ uuid = { workspace = true }
 # QR code generation
 qrcode = { workspace = true }
 
-# Async timer for animated components
-smol = { workspace = true }
-
 # Proc macros for theme generation
 gpui-ui-kit-macros = { workspace = true }
 
@@ -37,6 +34,12 @@ gpui-ui-kit-macros = { workspace = true }
 # gpui-ios, the local workspace) with no crates.io release, so depending on
 # them would make this crate unpublishable. Application shells live in the
 # sibling `gpui-miniapp` crate (publish = false).
+
+# Async timer for animated components. smol (via async-io/polling) has no
+# wasm32-unknown-unknown support, so it stays native-only; the wasm build uses
+# gpui's BackgroundExecutor::timer at the call sites instead.
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+smol = { workspace = true }
 
 [features]
 default = []

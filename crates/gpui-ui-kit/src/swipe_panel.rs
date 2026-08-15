@@ -420,7 +420,12 @@ impl SwipePanelEntity {
             self.last_anim_time = Instant::now();
             cx.spawn(async move |this: WeakEntity<Self>, cx| {
                 loop {
+                    #[cfg(not(target_family = "wasm"))]
                     smol::Timer::after(Duration::from_millis(16)).await;
+                    #[cfg(target_family = "wasm")]
+                    cx.background_executor()
+                        .timer(Duration::from_millis(16))
+                        .await;
                     let alive = this.update(cx, |model, cx| {
                         model.step_animation(cx);
                     });

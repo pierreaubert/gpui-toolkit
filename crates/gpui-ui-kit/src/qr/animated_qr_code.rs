@@ -127,7 +127,12 @@ impl AnimatedQrCode {
         if needs_animation {
             cx.spawn(async move |this: WeakEntity<Self>, cx| {
                 loop {
+                    #[cfg(not(target_family = "wasm"))]
                     smol::Timer::after(Duration::from_millis(33)).await;
+                    #[cfg(target_family = "wasm")]
+                    cx.background_executor()
+                        .timer(Duration::from_millis(33))
+                        .await;
                     let alive = this.update(cx, |_this, cx| {
                         cx.notify();
                     });
