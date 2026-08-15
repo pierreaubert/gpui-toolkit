@@ -1,0 +1,32 @@
+[package]
+name = "gpui_web"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+publish = false
+
+[lib]
+path = "src/gpui_web.rs"
+
+[features]
+default = ["multithreaded"]
+multithreaded = ["dep:wasm_thread"]
+
+[target.'cfg(target_family = "wasm")'.dependencies]
+gpui = { version = "0.2.2", git = "https://github.com/zed-industries/zed.git", tag = "v1.9.0" }
+parking_lot = { version = "0.12.1", features = ["nightly"] }
+gpui_wgpu = { version = "0.1.0", git = "https://github.com/zed-industries/zed.git", tag = "v1.9.0" }
+http_client = { version = "0.1.0", git = "https://github.com/zed-industries/zed.git", tag = "v1.9.0" }
+anyhow = "1.0.86"
+futures = "0.3.32"
+log = { version = "0.4.16", features = ["kv_unstable_serde", "serde"] }
+smallvec = { version = "1.6", features = ["union", "const_new"] }
+uuid = { version = "1.1.2", features = ["v4", "v5", "v7", "serde"] }
+wasm-bindgen = "0.2.120"
+wasm-bindgen-futures = "0.4"
+web-time = "1.1.0"
+console_error_panic_hook = "0.1.7"
+js-sys = "0.3"
+raw-window-handle = "0.6"
+wasm_thread = { version = "0.3", features = ["es_modules"], optional = true }
+web-sys = { version = "0.3", features = ["console", "CompositionEvent", "CssStyleDeclaration", "DataTransfer", "Document", "DomRect", "DragEvent", "Element", "EventTarget", "File", "FileList", "HtmlCanvasElement", "HtmlElement", "HtmlInputElement", "KeyboardEvent", "MediaQueryList", "MediaQueryListEvent", "MouseEvent", "Navigator", "PointerEvent", "ResizeObserver", "ResizeObserverBoxOptions", "ResizeObserverEntry", "ResizeObserverSize", "ResizeObserverOptions", "Screen", "Storage", "VisualViewport", "Headers", "Request", "RequestInit", "RequestRedirect", "Response", "WheelEvent", "Window"] }
