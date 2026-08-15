@@ -9,6 +9,9 @@ The `gpui-toolkit` workspace contains several related crates for building GPUI a
 | Crate | Purpose | Documentation |
 |-------|---------|---------------|
 | `gpui-au` | macOS Audio Unit platform backend — embeds GPUI inside AUv3 ViewControllers via Metal/wgpu | [lib.rs](gpui-au/src/lib.rs) |
+| `gpui-hello-web` | Minimal wasm/browser spike app (gpui_web + gpui_wgpu canvas) | this repo, `just wasm-serve-hello` |
+| `gpui-showcase` | Component showcase with a wasm/browser entry point (gpui_web + gpui_wgpu canvas) | `just wasm-serve-showcase` |
+| `gpui-px` (px-showcase) | Chart showcase with a wasm/browser entry point | `just wasm-serve-px` |
 | `gpui-builder` | Generic constraint-based layout solver — priority collapse, auto-axis, display tiers, dividers | [README](gpui-builder/README.md) |
 | `gpui-d3rs` | Low-level D3.js-inspired visualization primitives | [README](gpui-d3rs/README.md) |
 | `gpui-design` | Platform-adaptive design system (Apple HIG, Material 3, Fluent, Neutral) — spacing, corners, typography, animation | [README](gpui-design/README.md) |
@@ -153,7 +156,27 @@ cargo test -p gpui-px --features=gpui
 
 # Build showcase (visual verification)
 cargo run --bin gpui-px-showcase
+
+# Check the wasm/web backend closure (nightly + build-std, injected by the recipe)
+just wasm-check
+
+# Serve apps in the browser (WebGPU-only; COOP/COEP headers set by Trunk)
+just wasm-serve-hello      # http://127.0.0.1:8080
+just wasm-serve-showcase   # http://127.0.0.1:8081
+just wasm-serve-px         # http://127.0.0.1:8082
+
+# Headless-Chrome smoke test + visual diff
+just wasm-test
+just wasm-visual           # positional args: `just wasm-visual hello 8080 gpui-hello-web [record]`
 ```
+
+The browser target is WebGPU-only (Chrome/Edge 113+, Firefox 141+ on Windows,
+Safari 26+); design in
+[docs/superpowers/specs/2026-08-15-wasm-browser-target-design.md](docs/superpowers/specs/2026-08-15-wasm-browser-target-design.md).
+wasm builds need nightly (`-Z build-std`), env-injected by the `just` recipes
+so the stable host toolchain is untouched. Visual QA baselines live at
+`qa/visual/wasm/baselines/`. Caveat: some toolkit code paths still assume
+native time APIs.
 
 ## Quick Links
 
