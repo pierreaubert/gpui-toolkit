@@ -167,7 +167,8 @@ just wasm-serve-px         # http://127.0.0.1:8082
 
 # Headless-Chrome smoke test + visual diff
 just wasm-test
-just wasm-visual           # positional args: `just wasm-visual hello 8080 gpui-hello-web [record]`
+just wasm-visual           # positional args: `just wasm-visual hello 8080 gpui-hello-web [record] [click_x click_y]`
+                           # e.g. chart section: `just wasm-visual px-scatter 8082 gpui-px '' 80 137`
 ```
 
 The browser target is WebGPU-only (Chrome/Edge 113+, Firefox 141+ on Windows,

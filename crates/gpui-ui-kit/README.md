@@ -172,8 +172,9 @@ security-relevant dependencies and background tasks:
 - The `qr_debug` example demonstrates in-process QR rendering only. Camera
   scanning and operating-system permission handling remain host-app concerns,
   keeping native capture backends out of the UI kit's dependency graph.
-- `AnimatedQrCode` and `SwipePanel` use weak-entity scoped `smol::Timer` loops
-  for repaint/spring animation. The tasks exit when their entity is gone, and
+- `AnimatedQrCode` and `SwipePanel` use weak-entity scoped timer loops
+  (`smol::Timer` natively, `BackgroundExecutor::timer` on wasm) for
+  repaint/spring animation. The tasks exit when their entity is gone, and
   the swipe-panel task also stops when animation completes.
 
 The report includes `schema_version`, `report_type`, stable entry ids,

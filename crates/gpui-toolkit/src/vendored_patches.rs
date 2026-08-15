@@ -339,7 +339,8 @@ const VENDORED_PATCHES: &[VendoredPatch] = &[
         reason: "Web/wasm platform backend for gpui (canvas plus WebGPU).",
         retained_changes: &[
             "src/window.rs ports the reentrancy-safe callback invocation from upstream zed PR #61707: WebWindowInner::with_callback take/call/restore, raf_id tracking, and a Drop for WebWindow that cancels the pending rAF and disconnects the ResizeObserver (details in VENDORED.md).",
-            "The on-demand frame_waker rework (upstream zed PR #62327) is deliberately not ported; documented as a non-ported follow-up in VENDORED.md.",
+            "src/dispatcher.rs ports the run_waker_loop fixes from the same PR #61707 commit: await waitAsync only when is_async, and drain the mailbox again after re-arming the signal so no notifications are lost (details in VENDORED.md).",
+            "The remaining PR #61707 hunks (platform.rs DOM failure message, events.rs EventListenerHandle rework, window.rs fullscreen/clamp/handle hunks) and the on-demand frame_waker rework (upstream zed PR #62327) are deliberately not ported; documented as non-ported follow-ups in VENDORED.md.",
         ],
         verification_gate: "just wasm-check (nightly wasm32-unknown-unknown closure) and just lint-host; run just wasm-test for web platform changes.",
         vendoring_doc: "crates/3rdparties/gpui_web/VENDORED.md",

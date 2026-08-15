@@ -3,6 +3,8 @@
 
 Usage:
     python3 scripts/qa_wasm_screenshot.py --url http://127.0.0.1:8081 --name showcase [--record]
+    python3 scripts/qa_wasm_screenshot.py --url http://127.0.0.1:8082 --name px-scatter \
+        --click-xy 80 137 [--click-text "Scatter"] [--settle-ms 4000]
 
 Requires: pip install playwright pillow && playwright install chromium
 """
@@ -32,7 +34,7 @@ def diff_ratio(a, b) -> float:
     return differing / total
 
 
-def capture(url: str, out: Path, wait_ms: int) -> dict:
+def capture(url: str, out: Path, wait_ms: int, click_texts: list[str], click_xys: list[tuple[int, int]], settle_ms: int) -> dict:
     """Screenshot the page; return a liveness report (canvas size, console log)."""
     from playwright.sync_api import sync_playwright
 
@@ -52,6 +54,19 @@ def capture(url: str, out: Path, wait_ms: int) -> dict:
             canvas_found = False
             console.append(f"[harness] wait_for_selector('canvas') failed: {exc.__class__.__name__}")
         page.wait_for_timeout(wait_ms)  # let GPUI render a few frames
+        for text in click_texts:
+            try:
+                page.get_by_text(text, exact=True).first.click(timeout=10_000)
+                console.append(f"[harness] clicked '{text}'")
+                page.wait_for_timeout(settle_ms)  # let the target section render
+            except Exception as exc:
+                console.append(f"[harness] click '{text}' failed: {exc.__class__.__name__}")
+        for x, y in click_xys:
+            # Canvas-rendered apps (GPUI) have no DOM text nodes to locate;
+            # click at viewport coordinates instead.
+            page.mouse.click(x, y)
+            console.append(f"[harness] clicked at ({x}, {y})")
+            page.wait_for_timeout(settle_ms)  # let the target section render
         if canvas_found:
             canvas_width = page.evaluate("document.querySelector('canvas').width")
             canvas_height = page.evaluate("document.querySelector('canvas').height")
@@ -68,6 +83,29 @@ def main() -> int:
     parser.add_argument("--name", required=True)
     parser.add_argument("--record", action="store_true", help="write the baseline instead of comparing")
     parser.add_argument("--wait-ms", type=int, default=3000)
+    parser.add_argument(
+        "--click-text",
+        action="append",
+        default=[],
+        metavar="TEXT",
+        help="click an element with this exact visible text after boot, before capture (repeatable)",
+    )
+    parser.add_argument(
+        "--click-xy",
+        action="append",
+        default=[],
+        nargs=2,
+        type=int,
+        metavar=("X", "Y"),
+        help="click at these viewport coordinates after boot, before capture (repeatable);"
+        " needed for canvas-rendered (GPUI) UI with no DOM text nodes",
+    )
+    parser.add_argument(
+        "--settle-ms",
+        type=int,
+        default=1500,
+        help="delay after each --click-text/--click-xy to let the target section render",
+    )
     args = parser.parse_args()
 
     try:
@@ -81,7 +119,8 @@ def main() -> int:
     baseline = BASELINES / f"{args.name}.png"
     actual = Path("target/qa/wasm") / f"{args.name}.png"
     actual.parent.mkdir(parents=True, exist_ok=True)
-    report = capture(args.url, actual, args.wait_ms)
+    click_xys = [(x, y) for x, y in args.click_xy]
+    report = capture(args.url, actual, args.wait_ms, args.click_text, click_xys, args.settle_ms)
 
     print(f"canvas: {report['canvas_width']}x{report['canvas_height']}")
     if report["canvas_width"] <= 0:
@@ -92,9 +131,12 @@ def main() -> int:
             print(f"  {line}")
 
     if args.record:
+        if report["canvas_width"] <= 0:
+            print("error: refusing to record a baseline from a blank render (zero-width canvas)", file=sys.stderr)
+            return 1
         baseline.write_bytes(actual.read_bytes())
         print(f"recorded {baseline}")
-        return 0 if report["canvas_width"] > 0 else 1
+        return 0
     if not baseline.exists():
         print(f"error: no baseline {baseline}; run with --record first", file=sys.stderr)
         return 2

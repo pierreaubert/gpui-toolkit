@@ -32,19 +32,35 @@ wasm-serve-px:
 # Screenshot a served wasm app and diff against qa/visual/wasm/baselines/<name>.png.
 # Positional args: `just wasm-visual hello 8080 gpui-hello-web` (defaults: showcase).
 # Append `record` as a 4th arg to (re)write the baseline instead of comparing.
+# Append X Y as 5th/6th args to click viewport coordinates before capture
+# (in-app navigation for canvas-rendered UI), e.g.
+# `just wasm-visual px-scatter 8082 gpui-px '' 80 137`.
 [group('wasm')]
-wasm-visual name="showcase" port="8081" dir="gpui-showcase" record="":
+wasm-visual name="showcase" port="8081" dir="gpui-showcase" record="" click_x="" click_y="":
 	#!/usr/bin/env bash
 	set -euo pipefail
 	record_flag=""
 	[ -n "{{record}}" ] && record_flag="--record"
+	click_flags=()
+	if [ -n "{{click_x}}" ] || [ -n "{{click_y}}" ]; then
+		[ -n "{{click_x}}" ] && [ -n "{{click_y}}" ] || { echo "wasm-visual: click_x and click_y must be passed together" >&2; exit 1; }
+		click_flags=(--click-xy "{{click_x}}" "{{click_y}}")
+	fi
 	cd crates/{{dir}}
 	RUSTUP_TOOLCHAIN=nightly CARGO_UNSTABLE_BUILD_STD=std,panic_abort env -u NO_COLOR trunk serve --port {{port}} --open=false &
 	server=$!
 	trap 'kill $server' EXIT
 	cd ../..
-	for i in $(seq 1 60); do curl -sf "http://127.0.0.1:{{port}}" > /dev/null && break; sleep 2; done
-	uv run --with pillow --with playwright python3 scripts/qa_wasm_screenshot.py --url "http://127.0.0.1:{{port}}" --name {{name}} $record_flag
+	server_up=""
+	for i in $(seq 1 60); do
+		if curl -sf "http://127.0.0.1:{{port}}" > /dev/null; then server_up=1; break; fi
+		sleep 2
+	done
+	if [ -z "$server_up" ]; then
+		echo "error: trunk on port {{port}} did not become ready within ~120s" >&2
+		exit 1
+	fi
+	uv run --with pillow --with playwright python3 scripts/qa_wasm_screenshot.py --url "http://127.0.0.1:{{port}}" --name {{name}} $record_flag ${click_flags[@]+"${click_flags[@]}"}
 
 # Prereqs: `cargo install wasm-bindgen-cli` (provides wasm-bindgen-test-runner)
 # and a chromedriver on PATH (`brew install chromedriver`); set the CHROMEDRIVER
