@@ -29,6 +29,23 @@ wasm-serve-showcase:
 wasm-serve-px:
 	cd crates/gpui-px && RUSTUP_TOOLCHAIN=nightly CARGO_UNSTABLE_BUILD_STD=std,panic_abort trunk serve
 
+# Screenshot a served wasm app and diff against qa/visual/wasm/baselines/<name>.png.
+# Positional args: `just wasm-visual hello 8080 gpui-hello-web` (defaults: showcase).
+# Append `record` as a 4th arg to (re)write the baseline instead of comparing.
+[group('wasm')]
+wasm-visual name="showcase" port="8081" dir="gpui-showcase" record="":
+	#!/usr/bin/env bash
+	set -euo pipefail
+	record_flag=""
+	[ -n "{{record}}" ] && record_flag="--record"
+	cd crates/{{dir}}
+	RUSTUP_TOOLCHAIN=nightly CARGO_UNSTABLE_BUILD_STD=std,panic_abort env -u NO_COLOR trunk serve --port {{port}} --open=false &
+	server=$!
+	trap 'kill $server' EXIT
+	cd ../..
+	for i in $(seq 1 60); do curl -sf "http://127.0.0.1:{{port}}" > /dev/null && break; sleep 2; done
+	uv run --with pillow --with playwright python3 scripts/qa_wasm_screenshot.py --url "http://127.0.0.1:{{port}}" --name {{name}} $record_flag
+
 # Prereqs: `cargo install wasm-bindgen-cli` (provides wasm-bindgen-test-runner)
 # and a chromedriver on PATH (`brew install chromedriver`); set the CHROMEDRIVER
 # env var if the driver lives somewhere non-standard.
