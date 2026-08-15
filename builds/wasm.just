@@ -20,3 +20,10 @@ wasm-check:
 [group('wasm')]
 wasm-serve-hello:
 	cd crates/gpui-hello-web && RUSTUP_TOOLCHAIN=nightly CARGO_UNSTABLE_BUILD_STD=std,panic_abort trunk serve
+
+# Prereqs: `cargo install wasm-bindgen-cli` (provides wasm-bindgen-test-runner)
+# and a chromedriver on PATH (`brew install chromedriver`); set the CHROMEDRIVER
+# env var if the driver lives somewhere non-standard.
+[group('wasm')]
+wasm-test:
+	RUSTUP_TOOLCHAIN=nightly CARGO_UNSTABLE_BUILD_STD=std,panic_abort CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER=wasm-bindgen-test-runner cargo test --target {{wasm_target}} -p gpui-hello-web
