@@ -2,6 +2,9 @@
 //!
 //! This showcase demonstrates the high-level gpui-px charting API built on top of d3rs.
 //! Navigate through sections using the sidebar to see examples of each chart type.
+//!
+//! Build/serve the wasm version via `just wasm-serve-px` (Trunk, port 8082).
+#![cfg_attr(target_family = "wasm", no_main)]
 
 use gpui::*;
 use gpui_miniapp::{MiniApp, MiniAppConfig};
@@ -17,7 +20,7 @@ mod showcase_app;
 
 use showcase_app::ShowcaseApp;
 
-fn main() {
+fn run_app() {
     MiniApp::run(
         MiniAppConfig::new("gpui-px Showcase")
             .size(1200.0, 800.0)
@@ -25,4 +28,16 @@ fn main() {
             .scrollable(false),
         |cx| cx.new(ShowcaseApp::new),
     );
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn main() {
+    run_app();
+}
+
+#[cfg(target_family = "wasm")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn start() {
+    gpui_miniapp::web_init();
+    run_app();
 }

@@ -30,7 +30,6 @@ urlencoding = ["dep:urlencoding"]
 
 [dependencies]
 gpui = { workspace = true, optional = true }
-smol = { workspace = true, optional = true }
 gpui-ui-kit = { workspace = true, optional = true }
 gpui-miniapp = { workspace = true, optional = true }
 gpui-profiler = { workspace = true, optional = true }
@@ -64,6 +63,12 @@ fontdue = { workspace = true, optional = true }
 metal = { version = "0.33", optional = true }
 objc = { workspace = true, optional = true }
 gpui_macos = { path = "../3rdparties/gpui_macos", optional = true }
+
+# Async runtime for GPUI-era helpers. smol (via async-io/polling) has no
+# wasm32-unknown-unknown support, so it stays native-only (same pattern as
+# gpui-ui-kit); no d3rs source references it directly.
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+smol = { workspace = true, optional = true }
 
 [dev-dependencies]
 approx = { workspace = true }
