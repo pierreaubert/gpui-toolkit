@@ -770,6 +770,7 @@ impl gpui_wgpu::WgpuCustomDraw for WgpuMesh3DDraw {
         ctx: &gpui_wgpu::WgpuContext,
         encoder: &mut wgpu::CommandEncoder,
         target: &wgpu::TextureView,
+        _target_format: wgpu::TextureFormat,
         target_size: [u32; 2],
         bounds: gpui::Bounds<gpui::Pixels>,
         scale_factor: f32,

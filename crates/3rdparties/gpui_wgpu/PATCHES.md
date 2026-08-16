@@ -17,3 +17,19 @@ draws must not submit the encoder themselves.
   missing or non-WGPU registrations, and hands the shared `WgpuContext` to
   matching draws.
 - **`src/gpui_wgpu.rs`**: exports the custom-draw API from the crate root.
+
+## 2. `draw_wgpu` `target_format` param + capability probe init (vello 2D charts, 2026-08-16)
+
+Extends the custom-draw seam for the vello 2D chart backend: implementations
+need the frame texture's format to build compositing pipelines, and elements
+need to know whether custom draws dispatch at all before choosing GPU vs CPU
+rasterization.
+
+- **`src/custom.rs`**: `WgpuCustomDraw::draw_wgpu` gains a
+  `target_format: wgpu::TextureFormat` parameter after `target`.
+- **`src/wgpu_renderer.rs`**: the `PrimitiveBatch::Custom` dispatch site passes
+  `self.surface_config.format` as `target_format`; `new_internal` calls
+  `gpui::set_wgpu_custom_draw_available(has_context)` gated on
+  `gpu_context.is_some()` — native `new()` passes `Some(..)` and advertises
+  custom draw, wasm `new_from_canvas` passes `None` and leaves the probe false
+  (its dispatch arm skips custom batches anyway when `self.context` is `None`).

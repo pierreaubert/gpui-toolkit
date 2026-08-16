@@ -415,7 +415,11 @@ impl WgpuRenderer {
             path_msaa_view: None,
         };
 
-        Ok(Self {
+        // Canvas (wasm) renderers have no stored GpuContext, so the
+        // `PrimitiveBatch::Custom` dispatch arm silently skips their batches.
+        // Keep the probe truthful: only native renderers advertise custom draw.
+        let has_context = gpu_context.is_some();
+        let renderer = Self {
             context: gpu_context,
             compositor_gpu,
             resources: Some(resources),
@@ -436,7 +440,9 @@ impl WgpuRenderer {
             failed_frame_count: 0,
             device_lost: context.device_lost_flag(),
             needs_redraw: false,
-        })
+        };
+        gpui::set_wgpu_custom_draw_available(has_context);
+        Ok(renderer)
     }
 
     fn create_bind_group_layouts(device: &wgpu::Device) -> WgpuBindGroupLayouts {
@@ -1239,6 +1245,7 @@ impl WgpuRenderer {
                                             context,
                                             &mut encoder,
                                             &frame_view,
+                                            self.surface_config.format,
                                             [self.surface_config.width, self.surface_config.height],
                                             bounds,
                                             1.0,

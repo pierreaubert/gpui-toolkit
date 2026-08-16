@@ -11,16 +11,17 @@ use std::rc::Rc;
 pub trait WgpuCustomDraw: CustomDraw {
     /// Record a render pass against `target` without submitting `encoder`.
     ///
-    /// Implementations should use `bounds` as their scissor rectangle. The
-    /// bounds are in GPUI pixels and `scale_factor` is the scale to use when
-    /// converting them to device pixels. `target_size` is the physical extent
-    /// of `target`; auxiliary depth/MSAA attachments must use this extent,
-    /// rather than the custom draw's scissor rectangle.
+    /// `target_format` is the texture format of `target` (needed to build
+    /// compositing pipelines). Implementations should use `bounds` as their
+    /// scissor rectangle. The bounds are in GPUI pixels and `scale_factor`
+    /// is the scale to use when converting them to device pixels.
+    /// `target_size` is the physical extent of `target`.
     fn draw_wgpu(
         &self,
         ctx: &WgpuContext,
         encoder: &mut wgpu::CommandEncoder,
         target: &wgpu::TextureView,
+        target_format: wgpu::TextureFormat,
         target_size: [u32; 2],
         bounds: Bounds<Pixels>,
         scale_factor: f32,

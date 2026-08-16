@@ -127,7 +127,8 @@ pub use assets::*;
 pub use color::*;
 pub use ctor::ctor;
 pub use custom_draw::{
-    CustomDraw, CustomDrawId, lookup_custom_draw, register_custom_draw, unregister_custom_draw,
+    CustomDraw, CustomDrawId, lookup_custom_draw, register_custom_draw,
+    set_wgpu_custom_draw_available, unregister_custom_draw, wgpu_custom_draw_available,
 };
 pub use element::*;
 pub use elements::*;

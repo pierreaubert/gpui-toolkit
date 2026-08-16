@@ -5,6 +5,23 @@ use std::any::Any;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+/// Set by the wgpu renderer (`gpui_wgpu`) when it initializes, meaning
+/// `WgpuCustomDraw` primitives registered in this process will actually be
+/// dispatched. Chart elements probe this to pick GPU vs CPU rasterization.
+static WGPU_CUSTOM_DRAW_AVAILABLE: AtomicBool = AtomicBool::new(false);
+
+/// Whether the active renderer dispatches `WgpuCustomDraw` primitives.
+pub fn wgpu_custom_draw_available() -> bool {
+    WGPU_CUSTOM_DRAW_AVAILABLE.load(Ordering::Acquire)
+}
+
+/// Called by `gpui_wgpu::WgpuRenderer` on init. Not app API.
+#[doc(hidden)]
+pub fn set_wgpu_custom_draw_available(available: bool) {
+    WGPU_CUSTOM_DRAW_AVAILABLE.store(available, Ordering::Release);
+}
 
 /// Opaque identifier for a registered [`CustomDraw`] callback.
 pub type CustomDrawId = u64;
@@ -66,6 +83,15 @@ mod tests {
         assert!(lookup_custom_draw(id).is_some());
         unregister_custom_draw(id);
         assert!(lookup_custom_draw(id).is_none());
+    }
+
+    #[test]
+    fn wgpu_custom_draw_flag_roundtrip() {
+        assert!(!wgpu_custom_draw_available());
+        set_wgpu_custom_draw_available(true);
+        assert!(wgpu_custom_draw_available());
+        set_wgpu_custom_draw_available(false);
+        assert!(!wgpu_custom_draw_available());
     }
 
     #[test]

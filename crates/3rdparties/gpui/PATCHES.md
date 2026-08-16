@@ -34,3 +34,18 @@ primitive. Used by the MeshPlot feature; platform renderer crates
 10 lands. The WGPU arm is provided by Task 9, and the Windows renderer has a
 minimal no-op arm because it has no WGPU custom-draw backend. `cargo check -p
 gpui` itself is clean.
+
+## 2. `WgpuCustomDraw` capability probe (vello 2D charts, 2026-08-16)
+
+Adds a process-wide flag so chart elements can probe whether the active
+renderer actually dispatches `WgpuCustomDraw` primitives, and pick GPU vs
+CPU rasterization accordingly. Set by `gpui_wgpu::WgpuRenderer` on init
+(native only — wasm canvas renderers store no `GpuContext` and silently
+skip custom batches, so they leave the flag false).
+
+- **`src/custom_draw.rs`**: `static WGPU_CUSTOM_DRAW_AVAILABLE: AtomicBool`,
+  `wgpu_custom_draw_available() -> bool`, and
+  `#[doc(hidden)] set_wgpu_custom_draw_available(bool)` (renderer-only, not
+  app API). Includes a `#[cfg(test)]` flag roundtrip test.
+- **`src/gpui.rs`** (crate root): re-export of `wgpu_custom_draw_available`
+  and `set_wgpu_custom_draw_available` alongside the registry functions.
