@@ -180,7 +180,7 @@ impl fmt::Display for ScatterRenderError {
 impl std::error::Error for ScatterRenderError {}
 
 /// Pre-computed screen-space point for a scatter plot.
-#[cfg(any(test, all(feature = "gpui", not(test))))]
+#[cfg(any(test, feature = "vello", all(feature = "gpui", not(test))))]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(super) struct ScatterDrawPoint {
     pub x_rel: f32,
@@ -188,7 +188,7 @@ pub(super) struct ScatterDrawPoint {
 }
 
 /// Pre-compute normalized (0-1) point positions in a single pass.
-#[cfg(any(test, all(feature = "gpui", not(test))))]
+#[cfg(any(test, feature = "vello", all(feature = "gpui", not(test))))]
 pub(super) fn compute_scatter_points<XS, YS>(
     x_scale: &XS,
     y_scale: &YS,
@@ -446,6 +446,101 @@ where
     .size_full()
     .absolute()
     .inset_0()
+}
+
+/// Build the vello scene for precomputed scatter points in element-local
+/// coordinates (0..width, 0..height), mirroring `render_scatter`'s paint
+/// order: when `stroke_color` is set, a stroked circle of radius
+/// `r + stroke_width/2` (width `stroke_width`, stroke color un-opacified) is
+/// emitted for every point BEFORE the opacity-adjusted fills.
+#[cfg(feature = "vello")]
+fn scatter_points_scene(
+    points: &[ScatterDrawPoint],
+    config: &ScatterConfig,
+    width: f32,
+    height: f32,
+) -> crate::vello2d::ChartScene {
+    use crate::vello2d::kurbo::{Circle, Shape, Stroke};
+    use crate::vello2d::peniko::{Brush, Color};
+
+    let radius = config.point_radius as f64;
+    let mut scene = crate::vello2d::ChartScene::new();
+    if let Some(stroke_color) = config.stroke_color {
+        let stroke_brush = Brush::Solid(Color::new([
+            stroke_color.r,
+            stroke_color.g,
+            stroke_color.b,
+            stroke_color.a,
+        ]));
+        let stroke_radius = radius + config.stroke_width as f64 / 2.0;
+        for p in points {
+            let cx = (p.x_rel * width) as f64;
+            let cy = (p.y_rel * height) as f64;
+            scene.stroke_path(
+                Circle::new((cx, cy), stroke_radius).to_path(0.1),
+                Stroke::new(config.stroke_width as f64),
+                stroke_brush.clone(),
+            );
+        }
+    }
+    let fill_brush = Brush::Solid(Color::new([
+        config.fill_color.r,
+        config.fill_color.g,
+        config.fill_color.b,
+        config.fill_color.a * config.opacity,
+    ]));
+    for p in points {
+        scene.fill_circle(
+            (p.x_rel * width) as f64,
+            (p.y_rel * height) as f64,
+            radius,
+            fill_brush.clone(),
+        );
+    }
+    scene
+}
+
+/// Build a backend-neutral vello scene for a scatter series, in
+/// element-local coordinates (0..width, 0..height).
+#[cfg(feature = "vello")]
+pub fn scatter_chart_scene<XS, YS>(
+    x_scale: &XS,
+    y_scale: &YS,
+    data: &[ScatterPoint],
+    config: &ScatterConfig,
+    width: f32,
+    height: f32,
+) -> crate::vello2d::ChartScene
+where
+    XS: Scale<f64, f64>,
+    YS: Scale<f64, f64>,
+{
+    let points = compute_scatter_points(x_scale, y_scale, data);
+    scatter_points_scene(&points, config, width, height)
+}
+
+/// Render a scatter series through the vello backend (GPU zero-copy where
+/// the wgpu renderer is active, vello_cpu otherwise). The scene is rebuilt
+/// from the actual paint bounds on resize.
+#[cfg(all(feature = "vello-gpui", not(test)))]
+pub fn render_scatter_vello<XS, YS>(
+    x_scale: &XS,
+    y_scale: &YS,
+    data: &[ScatterPoint],
+    config: &ScatterConfig,
+    backend: crate::vello2d::RasterBackend,
+) -> impl IntoElement + use<XS, YS>
+where
+    XS: Scale<f64, f64>,
+    YS: Scale<f64, f64>,
+{
+    let points = compute_scatter_points(x_scale, y_scale, data);
+    let config = config.clone();
+    crate::vello2d::VelloChartElement::with_builder(move |width, height| {
+        scatter_points_scene(&points, &config, width, height)
+    })
+    .backend(backend)
+    .absolute()
 }
 
 /// Append a circle outline to a GPUI path builder.
