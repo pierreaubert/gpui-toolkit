@@ -24,6 +24,8 @@ spinorama = ["dep:autoeq", "dep:tokio", "dep:ndarray", "dep:reqwest", "dep:urlen
 tokio = ["dep:tokio"]
 gpu-3d = ["dep:wgpu", "dep:bytemuck", "dep:glam", "dep:pollster", "dep:gpui_wgpu", "gpui"]
 gpu-2d = ["dep:wgpu", "dep:bytemuck", "dep:glam", "dep:pollster", "dep:gpui_wgpu", "gpui"]
+vello = ["dep:vello", "dep:vello_cpu", "dep:peniko", "dep:kurbo", "dep:bytemuck", "dep:log"]
+vello-gpui = ["vello", "gpui", "gpu-2d"]
 gpu-metal = ["gpu-2d", "gpu-3d", "gpui", "dep:metal", "dep:objc", "dep:gpui_macos"]
 gpu-compute = ["gpu-2d"]
 urlencoding = ["dep:urlencoding"]
@@ -51,6 +53,11 @@ wgpu = { workspace = true, optional = true }
 bytemuck = { workspace = true, optional = true }
 glam = { workspace = true, optional = true }
 pollster = { workspace = true, optional = true }
+vello = { workspace = true, optional = true }
+vello_cpu = { workspace = true, optional = true }
+peniko = { workspace = true, optional = true }
+kurbo = { workspace = true, optional = true }
+log = { workspace = true, optional = true } # d3rs has no log dep on main; workspace pins log 0.4.28 (root Cargo.toml :80)
 gpui_wgpu = { path = "../3rdparties/gpui_wgpu", optional = true }
 image = { workspace = true, optional = true }
 fontdue = { workspace = true, optional = true }
@@ -237,3 +244,24 @@ required-features = ["gpu-3d"]
 name = "mesh_compute_diff_tests"
 path = "tests/mesh_compute_diff_tests.rs"
 required-features = ["gpu-compute"]
+
+[[test]]
+name = "vello2d_scene_tests"
+path = "tests/vello2d_scene_tests.rs"
+required-features = ["vello"]
+
+[[test]]
+name = "vello2d_cpu_tests"
+path = "tests/vello2d_cpu_tests.rs"
+required-features = ["vello"]
+
+[[test]]
+name = "vello2d_element_tests"
+path = "tests/vello2d_element_tests.rs"
+required-features = ["vello-gpui"]
+
+[[bench]]
+name = "vello2d_bench"
+path = "benches/vello2d_bench.rs"
+harness = false
+required-features = ["vello"]

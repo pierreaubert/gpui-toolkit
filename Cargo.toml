@@ -124,6 +124,10 @@ gpui_windows = { version = "0.1.0", git = "https://github.com/zed-industries/zed
 gpui_wgpu = { version = "0.1.0", git = "https://github.com/zed-industries/zed.git", tag = "v1.9.0" }
 gpui_web = { version = "0.1.0", git = "https://github.com/zed-industries/zed.git", tag = "v1.9.0" }
 wgpu = { version = "29.0.0", git = "https://github.com/zed-industries/wgpu.git", rev = "357a0c56e0070480ad9daea5d2eaa83150b79e88" }
+vello = { version = "0.10.0", default-features = false, features = ["wgpu"] }
+vello_cpu = { version = "0.2.0" }
+peniko = { version = "0.6.1" }
+kurbo = { version = "0.13.1" }
 
 # Zed internal crates used by vendored platform backends
 collections = { version = "0.1.0", git = "https://github.com/zed-industries/zed.git", tag = "v1.9.0" }
@@ -327,6 +331,13 @@ objc = { path = "crates/3rdparties/objc" }
 # calls `smol::process::Child::adopt_raw_pid`, which only exists in zed's async-process fork.
 async-process = { git = "https://github.com/zed-industries/async-process.git", rev = "0b6d6713570af61806e1e5cb40e0f757cb93fd9d" }
 async-task = { git = "https://github.com/smol-rs/async-task.git", rev = "b4486cd71e4e94fbda54ce6302444de14f4d190e" }
+# vello 0.10 requires crates-io wgpu/naga 29.0.3; unify with Zed's fork
+# (fork = upstream v29.0.3 + one internal wgpu-hal EGL patch, version-identical).
+wgpu = { git = "https://github.com/zed-industries/wgpu.git", rev = "357a0c56e0070480ad9daea5d2eaa83150b79e88" }
+wgpu-core = { git = "https://github.com/zed-industries/wgpu.git", rev = "357a0c56e0070480ad9daea5d2eaa83150b79e88" }
+wgpu-hal = { git = "https://github.com/zed-industries/wgpu.git", rev = "357a0c56e0070480ad9daea5d2eaa83150b79e88" }
+wgpu-types = { git = "https://github.com/zed-industries/wgpu.git", rev = "357a0c56e0070480ad9daea5d2eaa83150b79e88" }
+naga = { git = "https://github.com/zed-industries/wgpu.git", rev = "357a0c56e0070480ad9daea5d2eaa83150b79e88" }
 
 [profile.release]
 # `release` is the everyday optimised profile — used by CI, `just prod-*`,
