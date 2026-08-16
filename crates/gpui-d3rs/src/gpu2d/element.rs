@@ -7,10 +7,30 @@ use super::device::Gpu2DContext;
 use gpui::*;
 use image::{Frame, RgbaImage};
 use std::cell::RefCell;
+#[cfg(target_family = "wasm")]
+use std::collections::HashMap;
 use std::mem::ManuallyDrop;
 use std::panic;
 use std::rc::Rc;
 use std::sync::Arc;
+
+#[cfg(target_family = "wasm")]
+thread_local! {
+    /// Renderer cache for wasm, keyed by the plot's pixel origin.
+    ///
+    /// GPUI rebuilds the element tree on every re-render, so a renderer (and
+    /// the deferred readback slot it carries) stored in `self` would be
+    /// orphaned by the very `request_animation_frame` repaint that is meant
+    /// to pick its pixels up: the new element would build a fresh renderer
+    /// whose readback slot is empty, and the completed map_async callback
+    /// would land in the dropped previous generation. Parking one renderer
+    /// per chart position keeps the paint loop below consistent across
+    /// re-renders. Charts sharing a page occupy different origins (e.g. the
+    /// px-showcase gallery); a static layout keeps its origin stable, and a
+    /// resize shifts origins, so stale entries are evicted by a hard cap.
+    static RENDERER_CACHE: RefCell<HashMap<(u32, u32), Rc<RefCell<Chart2DRenderer>>>> =
+        RefCell::new(HashMap::new());
+}
 
 /// Draw function type for Chart2DElement
 pub type DrawFn = Box<dyn Fn(&mut Chart2DRenderer, Bounds<Pixels>)>;
@@ -25,10 +45,17 @@ pub type DrawFn = Box<dyn Fn(&mut Chart2DRenderer, Bounds<Pixels>)>;
 ///
 /// On wasm the renderer is constructed lazily during the first paint: device
 /// initialization is async there, so chart construction never touches the GPU.
+/// Because GPUI rebuilds elements on every re-render, the lazily built
+/// renderer is parked in a thread-local cache keyed by plot origin (see
+/// `RENDERER_CACHE`) so its deferred readback slot survives repaints.
 /// Readbacks are deferred (`map_async` driven by the browser event loop), which
 /// means painted pixels can be one frame stale during interaction/resize — a
-/// size mismatch drops the stale frame instead of painting garbage. Native
-/// keeps eager construction and synchronous readback, unchanged.
+/// size mismatch drops the stale frame instead of painting garbage. Two known
+/// limitations of the origin-keyed cache: a data-only invalidation (same size)
+/// can rest on the pre-change frame until the next unrelated repaint, and
+/// absolutely-positioned overlay charts sharing an origin share one renderer
+/// (no current wasm call site overlays). Native keeps eager construction and
+/// synchronous readback, unchanged.
 pub struct Chart2DElement {
     renderer: Option<ManuallyDrop<Rc<RefCell<Chart2DRenderer>>>>,
     draw_fn: DrawFn,
@@ -181,14 +208,43 @@ impl Element for Chart2DElement {
             return;
         }
 
-        // Lazy construction (wasm) — native always has Some from `new()`.
-        if self.renderer.is_none() {
-            match Chart2DRenderer::try_new() {
-                Ok(renderer) => {
-                    self.renderer = Some(ManuallyDrop::new(Rc::new(RefCell::new(renderer))));
-                }
-                Err(_) => {
-                    #[cfg(target_family = "wasm")]
+        // Resolve the renderer. Native always has Some from `new()`; wasm
+        // lazily builds one and parks it in RENDERER_CACHE (see above) so it
+        // survives the element rebuild that every repaint triggers.
+        #[cfg(not(target_family = "wasm"))]
+        let renderer = (**self.renderer.as_ref().unwrap()).clone();
+
+        #[cfg(target_family = "wasm")]
+        let renderer = {
+            let resolved = if let Some(renderer) = &self.renderer {
+                Some((**renderer).clone())
+            } else {
+                let key = (
+                    f32::from(bounds.origin.x).to_bits(),
+                    f32::from(bounds.origin.y).to_bits(),
+                );
+                RENDERER_CACHE.with(|cache| {
+                    let mut cache = cache.borrow_mut();
+                    if let Some(renderer) = cache.get(&key) {
+                        return Some(Rc::clone(renderer));
+                    }
+                    match Chart2DRenderer::try_new() {
+                        Ok(renderer) => {
+                            if cache.len() >= 32 {
+                                // Origins shift on resize; drop stale entries.
+                                cache.clear();
+                            }
+                            let renderer = Rc::new(RefCell::new(renderer));
+                            cache.insert(key, Rc::clone(&renderer));
+                            Some(renderer)
+                        }
+                        Err(_) => None,
+                    }
+                })
+            };
+            match resolved {
+                Some(renderer) => renderer,
+                None => {
                     if !Gpu2DContext::init_failed() {
                         // Device still initializing — keep polling until ready.
                         window.request_animation_frame();
@@ -197,8 +253,7 @@ impl Element for Chart2DElement {
                     return;
                 }
             }
-        }
-        let renderer = self.renderer.as_ref().unwrap();
+        };
 
         #[cfg(target_family = "wasm")]
         {

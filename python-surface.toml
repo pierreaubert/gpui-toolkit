@@ -101,6 +101,9 @@ path = "crates/gpui-design"
 id = "gpui-design-tools"
 path = "crates/gpui-design-tools"
 [[inventory.crate]]
+id = "gpui-hello-web"
+path = "crates/gpui-hello-web"
+[[inventory.crate]]
 id = "gpui-ios"
 path = "crates/gpui-ios"
 [[inventory.crate]]
@@ -507,3 +510,10 @@ rust_path = "gpui_ui_kit::Language"
 python_path = "gpui_toolkit.i18n.TranslationCatalog"
 disposition = "declarative"
 tests = ["crates/gpui-python-runtime/python/tests/test_i18n.py"]
+
+[[capability]]
+id = "gpui-hello-web.wasm-demo"
+rust_path = "gpui_hello_web"
+python_path = "gpui_toolkit.platform"
+disposition = "non-consumer"
+tests = ["crates/gpui-python-runtime/python/tests/test_platform.py"]
