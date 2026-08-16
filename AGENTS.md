@@ -176,8 +176,15 @@ Safari 26+); design in
 [docs/superpowers/specs/2026-08-15-wasm-browser-target-design.md](docs/superpowers/specs/2026-08-15-wasm-browser-target-design.md).
 wasm builds need nightly (`-Z build-std`), env-injected by the `just` recipes
 so the stable host toolchain is untouched. Visual QA baselines live at
-`qa/visual/wasm/baselines/`. Caveat: some toolkit code paths still assume
-native time APIs.
+`qa/visual/wasm/baselines/`.
+
+gpu2d charts (`d3rs::gpu2d`, e.g. the px-showcase Heatmap/Contour/Isoline
+sections) render on wasm: device init is async and pixel readback is deferred
+via `map_async`, so painted content lags one frame behind interaction/resize.
+The gpu3d / sphere_gallery renderers and the gpu-compute path
+(`gpui-d3rs/src/mesh/gpu/compute.rs`) still assume blocking wgpu
+(`device.poll`/`pollster`) and must not be exercised on wasm. Caveat: some
+toolkit code paths still assume native time APIs.
 
 ## Quick Links
 

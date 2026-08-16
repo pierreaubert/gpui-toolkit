@@ -70,6 +70,12 @@ gpui_macos = { path = "../3rdparties/gpui_macos", optional = true }
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 smol = { workspace = true, optional = true }
 
+# Async device init for gpu2d on the browser target (spawn_local drives
+# create_device().await; blocking the main thread with pollster throws
+# Atomics.wait RuntimeErrors).
+[target.'cfg(target_family = "wasm")'.dependencies]
+wasm-bindgen-futures = { workspace = true }
+
 [dev-dependencies]
 approx = { workspace = true }
 criterion = { workspace = true }

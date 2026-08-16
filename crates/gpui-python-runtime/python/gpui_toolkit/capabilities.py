@@ -61,6 +61,7 @@ _ENTRIES = (
     ('gpui-python-runtime.commands', 'command', 'gpui_toolkit.commands.CommandResult'),
     ('gpui-ui-kit.accessibility-and-focus', 'declarative', 'gpui_toolkit.accessibility.AriaProps'),
     ('gpui-ui-kit.i18n', 'declarative', 'gpui_toolkit.i18n.TranslationCatalog'),
+    ('gpui-hello-web.wasm-demo', 'non-consumer', 'gpui_toolkit.platform'),
 )
 
 def capabilities() -> tuple[Capability, ...]:

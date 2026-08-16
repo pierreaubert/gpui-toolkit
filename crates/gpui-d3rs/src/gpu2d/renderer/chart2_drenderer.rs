@@ -45,12 +45,37 @@ pub struct Chart2DRenderer {
 
     // Background color
     pub(super) background_color: [f32; 4],
+
+    // Deferred readback state (wasm only): the browser event loop delivers
+    // the map_async callback, so pixels arrive one frame later.
+    #[cfg(target_family = "wasm")]
+    readback: std::rc::Rc<std::cell::RefCell<Readback>>,
+}
+
+/// Deferred pixel readback state for the wasm target.
+///
+/// `in_flight` guards against stacking `map_async` calls, and `pixels`
+/// holds the newest completed frame (row padding already stripped) until
+/// `Chart2DRenderer::take_readback` consumes it.
+#[cfg(target_family = "wasm")]
+#[derive(Default)]
+pub struct Readback {
+    pub in_flight: bool,
+    pub pixels: Option<(u32, u32, Vec<u8>)>,
 }
 
 impl Chart2DRenderer {
-    /// Create a new renderer
+    /// Create a new renderer, panicking when the GPU context is unavailable
     pub fn new() -> Self {
-        let ctx = Gpu2DContext::global();
+        Self::try_new().unwrap_or_else(|err| panic!("{err}"))
+    }
+
+    /// Try to create a new renderer.
+    ///
+    /// Returns `Err` instead of panicking when no GPU adapter exists or, on
+    /// wasm, while the device is still initializing asynchronously.
+    pub fn try_new() -> Result<Self, &'static str> {
+        let ctx = Gpu2DContext::try_global()?;
         let device = ctx.device();
         let queue = ctx.queue();
 
@@ -100,7 +125,7 @@ impl Chart2DRenderer {
             .bind_group_layout()
             .map(|layout| Self::create_text_pipeline(&device, &uniform_bind_group_layout, layout));
 
-        Self {
+        Ok(Self {
             device,
             queue,
             line_pipeline,
@@ -122,7 +147,9 @@ impl Chart2DRenderer {
             width: 0,
             height: 0,
             background_color: [0.0, 0.0, 0.0, 0.0], // Transparent by default
-        }
+            #[cfg(target_family = "wasm")]
+            readback: std::rc::Rc::new(std::cell::RefCell::new(Readback::default())),
+        })
     }
 
     pub(super) fn create_line_pipeline(
@@ -630,8 +657,10 @@ impl Chart2DRenderer {
         }
     }
 
-    /// End the frame and render to texture, returning RGBA pixels
-    pub fn end_frame(&mut self) -> Option<Vec<u8>> {
+    /// Write uniforms, record the render pass, copy the render texture into a
+    /// fresh staging buffer and submit. Returns the staging buffer, or None
+    /// when there is nothing to read back.
+    fn submit_frame(&mut self) -> Option<wgpu::Buffer> {
         if self.width == 0 || self.height == 0 {
             return None;
         }
@@ -832,6 +861,15 @@ impl Chart2DRenderer {
 
         self.queue.submit(std::iter::once(encoder.finish()));
 
+        Some(staging_buffer)
+    }
+
+    /// End the frame and render to texture, returning RGBA pixels
+    #[cfg(not(target_family = "wasm"))]
+    pub fn end_frame(&mut self) -> Option<Vec<u8>> {
+        let staging_buffer = self.submit_frame()?;
+        let bytes_per_row = (self.width * 4 + 255) & !255; // Align to 256
+
         // Read back pixels
         let buffer_slice = staging_buffer.slice(..);
         let (tx, rx) = std::sync::mpsc::channel();
@@ -863,6 +901,66 @@ impl Chart2DRenderer {
             }
             _ => None,
         }
+    }
+
+    /// End the frame: submit the draw commands and start an asynchronous
+    /// readback whose callback is delivered by the browser event loop.
+    /// Completed pixels are retrieved one frame later via `take_readback`
+    /// (wasm only — blocking `device.poll`/`mpsc::recv` is forbidden there).
+    #[cfg(target_family = "wasm")]
+    pub fn end_frame_async(&mut self) {
+        // Never stack maps: a previous readback is still in flight.
+        if self.readback.borrow().in_flight {
+            return;
+        }
+        let Some(staging_buffer) = self.submit_frame() else {
+            return;
+        };
+        let (width, height) = (self.width, self.height);
+        let bytes_per_row = (width * 4 + 255) & !255; // Align to 256 (as in submit_frame)
+
+        self.readback.borrow_mut().in_flight = true;
+        let slot = self.readback.clone();
+        // The map closure needs the buffer beyond the slice's borrow.
+        let mapped_buffer = staging_buffer.clone();
+        staging_buffer
+            .slice(..)
+            .map_async(wgpu::MapMode::Read, move |result| {
+                let mut slot = slot.borrow_mut();
+                slot.in_flight = false;
+                if result.is_ok() {
+                    let data = mapped_buffer.slice(..).get_mapped_range();
+
+                    // Remove row padding
+                    let mut pixels = Vec::with_capacity((width * height * 4) as usize);
+                    for row in 0..height {
+                        let start = (row * bytes_per_row) as usize;
+                        let end = start + (width * 4) as usize;
+                        pixels.extend_from_slice(&data[start..end]);
+                    }
+
+                    drop(data);
+                    mapped_buffer.unmap();
+
+                    slot.pixels = Some((width, height, pixels));
+                }
+            });
+        // No device.poll, no channel recv on wasm — the browser event loop
+        // delivers the callback.
+    }
+
+    /// Take the newest completed readback, if any (wasm only).
+    #[cfg(target_family = "wasm")]
+    pub fn take_readback(&mut self) -> Option<(u32, u32, Vec<u8>)> {
+        self.readback.borrow_mut().pixels.take()
+    }
+
+    /// True while a readback is in flight or completed pixels are unpainted
+    /// (wasm only).
+    #[cfg(target_family = "wasm")]
+    pub fn readback_pending(&self) -> bool {
+        let readback = self.readback.borrow();
+        readback.in_flight || readback.pixels.is_some()
     }
 
     /// Get current dimensions
