@@ -41,3 +41,11 @@ fn try_global_does_not_poison_on_missing_adapter() {
     // on CI without GPU it must return Err, with GPU Ok.
     let _ = d3rs::gpu2d::Gpu2DContext::try_global();
 }
+
+#[cfg(not(target_family = "wasm"))]
+#[test]
+fn try_new_matches_new_infallibility_contract() {
+    // Where a GPU exists, try_new is Ok; where it doesn't, Err — never UB.
+    // `new()` keeps its panic-on-miss contract via try_new internally.
+    let _ = d3rs::gpu2d::Chart2DRenderer::try_new();
+}

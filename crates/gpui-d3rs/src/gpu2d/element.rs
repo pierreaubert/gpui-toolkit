@@ -3,11 +3,13 @@
 use super::primitives::Color4;
 use super::renderer::Chart2DRenderer;
 use gpui::*;
+#[cfg(not(target_family = "wasm"))]
 use image::{Frame, RgbaImage};
 use std::cell::RefCell;
 use std::mem::ManuallyDrop;
 use std::panic;
 use std::rc::Rc;
+#[cfg(not(target_family = "wasm"))]
 use std::sync::Arc;
 
 /// Draw function type for Chart2DElement
@@ -163,6 +165,10 @@ impl Element for Chart2DElement {
             return;
         }
 
+        // wasm: no paint until the deferred readback loop is wired up.
+        #[cfg(target_family = "wasm")]
+        let _ = window;
+
         // Begin frame
         {
             let mut renderer = self.renderer.borrow_mut();
@@ -172,13 +178,17 @@ impl Element for Chart2DElement {
             (self.draw_fn)(&mut renderer, bounds);
         }
 
-        // End frame and get pixels
+        // End frame and get pixels.
+        // wasm has no synchronous readback (`end_frame` is native-only); the
+        // deferred readback paint loop is wired up separately.
+        #[cfg(not(target_family = "wasm"))]
         let pixels = {
             let mut renderer = self.renderer.borrow_mut();
             renderer.end_frame()
         };
 
         // Paint the rendered image
+        #[cfg(not(target_family = "wasm"))]
         if let Some(pixels) = pixels
             && let Some(rgba_image) = RgbaImage::from_raw(width, height, pixels)
         {
