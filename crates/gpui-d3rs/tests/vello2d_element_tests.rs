@@ -1,5 +1,6 @@
 use d3rs::vello2d::kurbo::Rect;
 use d3rs::vello2d::peniko::{Brush, Color};
+use d3rs::vello2d::wgpu_draw_physical_size;
 use d3rs::vello2d::{ChartScene, RasterBackend, VelloChartElement};
 
 fn sample_scene() -> ChartScene {
@@ -32,4 +33,10 @@ fn builder_supplies_scene_lazily() {
         scene
     });
     assert!(format!("{element:?}").contains("builder"));
+}
+
+#[test]
+fn physical_size_scales_and_clamps() {
+    assert_eq!(wgpu_draw_physical_size(100.0, 50.0, 2.0), [200, 100]);
+    assert_eq!(wgpu_draw_physical_size(0.0, -3.0, 1.0), [1, 1]);
 }
