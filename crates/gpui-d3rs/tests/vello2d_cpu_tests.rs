@@ -56,8 +56,8 @@ use d3rs::shape::{ScatterConfig, ScatterPoint, scatter_chart_scene};
 #[test]
 fn scatter_scene_golden_pixels() {
     // Fixed 100x80 linear scales, 3 points — the QA oracle for the port.
-    // `no_stroke`: ScatterConfig's default stroke would add one ring command
-    // per point; this test asserts the fill-only command count.
+    // `no_stroke`: ScatterConfig's default stroke would add one batched ring
+    // command; this test asserts the fill-only command count.
     let x_scale = LinearScale::new().domain(0.0, 100.0).range(0.0, 100.0);
     let y_scale = LinearScale::new().domain(0.0, 80.0).range(80.0, 0.0);
     let data = vec![
@@ -71,7 +71,7 @@ fn scatter_scene_golden_pixels() {
         .opacity(1.0)
         .no_stroke();
     let scene = scatter_chart_scene(&x_scale, &y_scale, &data, &config, 100.0, 80.0);
-    assert_eq!(scene.len(), 3, "one fill command per point");
+    assert_eq!(scene.len(), 1, "all points batched into one fill command");
 
     let mut rast = CpuRasterizer::new(100, 80);
     let buf = rast.rasterize(&scene, 100, 80);
@@ -100,8 +100,9 @@ fn scatter_scene_respects_opacity() {
 
 #[test]
 fn scatter_scene_stroke_ring_paints_before_fill() {
-    // Mirrors render_scatter's legacy stroke ring: a stroked circle of radius
-    // r + w/2 emitted before the fill, using the stroke color un-opacified.
+    // Mirrors render_scatter's legacy stroke ring: one batched stroke path of
+    // circles with radius r + w/2 emitted before the single batched fill,
+    // using the stroke color un-opacified.
     let x_scale = LinearScale::new().domain(0.0, 10.0).range(0.0, 40.0);
     let y_scale = LinearScale::new().domain(0.0, 10.0).range(40.0, 0.0);
     let data = vec![ScatterPoint::new(5.0, 5.0)];
@@ -112,10 +113,14 @@ fn scatter_scene_stroke_ring_paints_before_fill() {
         .point_radius(4.0)
         .opacity(1.0);
     let scene = scatter_chart_scene(&x_scale, &y_scale, &data, &config, 40.0, 40.0);
-    assert_eq!(scene.len(), 2, "one stroke ring + one fill per point");
+    assert_eq!(scene.len(), 2, "one batched stroke command + one batched fill command");
     assert!(
         matches!(scene.commands()[0], d3rs::vello2d::ChartCmd::Stroke { .. }),
         "stroke ring must be emitted before the fill"
+    );
+    assert!(
+        matches!(scene.commands()[1], d3rs::vello2d::ChartCmd::Fill { .. }),
+        "fill must follow the stroke"
     );
 
     let mut rast = CpuRasterizer::new(40, 40);
@@ -126,6 +131,43 @@ fn scatter_scene_stroke_ring_paints_before_fill() {
     // On the ring (radius 5 -> point at (25, 20)): blue stroke visible.
     let ring = px(&buf, 40, 25, 20);
     assert!(ring[2] > 150 && ring[3] > 150, "ring: {ring:?}");
+}
+
+#[test]
+fn scatter_scene_overlapping_translucent_points_blend_once() {
+    // Regression oracle for legacy compositing parity: all circles are
+    // batched into ONE fill path, so a pixel covered by two overlapping
+    // translucent markers must reach the same premultiplied alpha as a pixel
+    // covered by only one — not be blended twice (darker overlap).
+    let x_scale = LinearScale::new().domain(0.0, 40.0).range(0.0, 40.0);
+    let y_scale = LinearScale::new().domain(0.0, 32.0).range(32.0, 0.0);
+    let data = vec![ScatterPoint::new(16.0, 16.0), ScatterPoint::new(24.0, 16.0)];
+    let config = ScatterConfig::new()
+        .fill_color(D3Color::from_hex(0xff0000))
+        .point_radius(8.0)
+        .opacity(0.5)
+        .no_stroke();
+    let scene = scatter_chart_scene(&x_scale, &y_scale, &data, &config, 40.0, 32.0);
+    assert_eq!(scene.len(), 1, "both circles batched into one fill command");
+
+    let mut rast = CpuRasterizer::new(40, 32);
+    let buf = rast.rasterize(&scene, 40, 32);
+    // (12,16): inside only the first circle (center 16, r 8).
+    let single = px(&buf, 40, 12, 16);
+    // (20,16): inside BOTH circles (4px from each center).
+    let overlap = px(&buf, 40, 20, 16);
+    assert!(
+        (100..=160).contains(&single[3]),
+        "single-covered alpha ~128, got {single:?}"
+    );
+    assert!(
+        (100..=160).contains(&overlap[3]),
+        "overlap must blend once, got {overlap:?}"
+    );
+    assert!(
+        single[3].abs_diff(overlap[3]) <= 4,
+        "overlap alpha must match single-covered alpha: {single:?} vs {overlap:?}"
+    );
 }
 
 #[test]

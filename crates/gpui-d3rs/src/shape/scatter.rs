@@ -449,10 +449,12 @@ where
 }
 
 /// Build the vello scene for precomputed scatter points in element-local
-/// coordinates (0..width, 0..height), mirroring `render_scatter`'s paint
-/// order: when `stroke_color` is set, a stroked circle of radius
-/// `r + stroke_width/2` (width `stroke_width`, stroke color un-opacified) is
-/// emitted for every point BEFORE the opacity-adjusted fills.
+/// coordinates (0..width, 0..height), mirroring `render_scatter`'s batched
+/// paint: ALL circles are combined into a single fill path (one fill command,
+/// so overlapping translucent points blend once per pixel exactly like the
+/// legacy single `paint_path` call). When `stroke_color` is set, one batched
+/// stroke path of circles with radius `r + stroke_width/2` (width
+/// `stroke_width`, stroke color un-opacified) is emitted BEFORE the fill.
 #[cfg(feature = "vello")]
 fn scatter_points_scene(
     points: &[ScatterDrawPoint],
@@ -460,11 +462,14 @@ fn scatter_points_scene(
     width: f32,
     height: f32,
 ) -> crate::vello2d::ChartScene {
-    use crate::vello2d::kurbo::{Circle, Shape, Stroke};
+    use crate::vello2d::kurbo::{BezPath, Circle, Shape, Stroke};
     use crate::vello2d::peniko::{Brush, Color};
 
     let radius = config.point_radius as f64;
     let mut scene = crate::vello2d::ChartScene::new();
+    if radius <= 0.0 || points.is_empty() {
+        return scene;
+    }
     if let Some(stroke_color) = config.stroke_color {
         let stroke_brush = Brush::Solid(Color::new([
             stroke_color.r,
@@ -473,15 +478,17 @@ fn scatter_points_scene(
             stroke_color.a,
         ]));
         let stroke_radius = radius + config.stroke_width as f64 / 2.0;
+        let mut stroke_path = BezPath::new();
         for p in points {
             let cx = (p.x_rel * width) as f64;
             let cy = (p.y_rel * height) as f64;
-            scene.stroke_path(
-                Circle::new((cx, cy), stroke_radius).to_path(0.1),
-                Stroke::new(config.stroke_width as f64),
-                stroke_brush.clone(),
-            );
+            stroke_path.extend(Circle::new((cx, cy), stroke_radius).to_path(0.1));
         }
+        scene.stroke_path(
+            stroke_path,
+            Stroke::new(config.stroke_width as f64),
+            stroke_brush,
+        );
     }
     let fill_brush = Brush::Solid(Color::new([
         config.fill_color.r,
@@ -489,14 +496,13 @@ fn scatter_points_scene(
         config.fill_color.b,
         config.fill_color.a * config.opacity,
     ]));
+    let mut fill_path = BezPath::new();
     for p in points {
-        scene.fill_circle(
-            (p.x_rel * width) as f64,
-            (p.y_rel * height) as f64,
-            radius,
-            fill_brush.clone(),
-        );
+        let cx = (p.x_rel * width) as f64;
+        let cy = (p.y_rel * height) as f64;
+        fill_path.extend(Circle::new((cx, cy), radius).to_path(0.1));
     }
+    scene.fill_path(fill_path, fill_brush);
     scene
 }
 
