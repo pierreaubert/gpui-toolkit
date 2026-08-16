@@ -88,6 +88,8 @@ pub mod text_layout;
 pub mod tile;
 pub mod timer;
 pub mod transition;
+#[cfg(feature = "vello")]
+pub mod vello2d;
 
 /// Prelude module for convenient imports
 pub mod prelude {
