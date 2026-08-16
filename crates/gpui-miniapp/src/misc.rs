@@ -31,15 +31,28 @@ pub fn current_platform() -> Result<Rc<dyn gpui::Platform>, String> {
     {
         Ok(gpui_android::current_platform(false))
     }
+    #[cfg(target_family = "wasm")]
+    {
+        Ok(Rc::new(gpui_web::WebPlatform::new(true)))
+    }
     #[cfg(not(any(
         target_os = "macos",
         target_os = "linux",
         target_os = "windows",
         target_os = "ios",
         target_os = "tvos",
-        target_os = "android"
+        target_os = "android",
+        target_family = "wasm"
     )))]
     {
         compile_error!("unsupported platform for gpui-miniapp")
     }
+}
+
+/// Initialize browser-side logging and panic hooks. Call once from the
+/// `#[wasm_bindgen(start)]` entry point before constructing the platform.
+#[cfg(target_family = "wasm")]
+pub fn web_init() {
+    console_error_panic_hook::set_once();
+    gpui_web::init_logging();
 }

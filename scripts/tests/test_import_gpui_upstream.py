@@ -196,5 +196,19 @@ class ClosureAndVendorTests(unittest.TestCase):
         self.assertFalse((dest / "internal_b").exists())
 
 
+class ApplyOnlyTest(unittest.TestCase):
+    def test_filters_closure(self):
+        closure = ["gpui", "gpui_web", "util"]
+        self.assertEqual(imp.apply_only(closure, {"gpui_web"}), ["gpui_web"])
+
+    def test_empty_only_returns_full_closure(self):
+        closure = ["gpui", "gpui_web", "util"]
+        self.assertEqual(imp.apply_only(closure, set()), closure)
+
+    def test_unknown_name_is_rejected(self):
+        with self.assertRaises(SystemExit):
+            imp.apply_only(["gpui"], {"nope"})
+
+
 if __name__ == "__main__":
     unittest.main()

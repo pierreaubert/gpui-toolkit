@@ -101,6 +101,32 @@ jobs:
         working-directory: crates/gpui-showcase/android/gradle
         run: ./gradlew compileDebugJavaWithJavac
 
+  wasm-check:
+    name: wasm32 compile (web backend)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install nightly Rust with wasm target
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          targets: wasm32-unknown-unknown
+          components: rust-src
+
+      - name: Cache cargo
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-wasm-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Check web backend crates
+        env:
+          CARGO_UNSTABLE_BUILD_STD: std,panic_abort
+        run: cargo check --target wasm32-unknown-unknown -p gpui_web -p gpui-miniapp -p gpui-hello-web -p gpui-showcase -p gpui-px -p gpui-d3rs
+
   apple-extension-check:
     name: Apple extension backend (AUv3)
     runs-on: macos-latest

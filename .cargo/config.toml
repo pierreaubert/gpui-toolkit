@@ -45,3 +45,18 @@ ar = "aarch64-w64-mingw32-ar"
 rustflags = [
   "-C", "target-feature=+neon",
 ]
+
+[target.wasm32-unknown-unknown]
+rustflags = [
+  "-C", "target-feature=+atomics,+bulk-memory,+mutable-globals",
+  "-C", "link-arg=--shared-memory",
+  "-C", "link-arg=--max-memory=1073741824",
+  "-C", "link-arg=--import-memory",
+  "-C", "link-arg=--export=__wasm_init_tls",
+  "-C", "link-arg=--export=__tls_size",
+  "-C", "link-arg=--export=__tls_align",
+  "-C", "link-arg=--export=__tls_base",
+  # wasm-bindgen's thread-id injection requires an exported immutable
+  # `__heap_base` global; LLD tree-shakes it unless explicitly exported.
+  "-C", "link-arg=--export=__heap_base",
+]

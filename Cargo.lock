@@ -1302,6 +1302,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "console_error_panic_hook"
+version = "0.1.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a06aeb73f470f66dcdbf7223caeebb85984942f22f1adb2a088cf9668146bbbc"
+dependencies = [
+ "cfg-if",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "const-oid"
 version = "0.10.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2931,6 +2941,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "gpui-hello-web"
+version = "0.1.0"
+dependencies = [
+ "gpui",
+ "gpui-miniapp",
+ "wasm-bindgen",
+ "wasm-bindgen-test",
+]
+
+[[package]]
 name = "gpui-ios"
 version = "0.9.11"
 dependencies = [
@@ -2970,6 +2990,7 @@ dependencies = [
 name = "gpui-miniapp"
 version = "0.9.8"
 dependencies = [
+ "console_error_panic_hook",
  "gpui",
  "gpui-android",
  "gpui-builder",
@@ -2978,6 +2999,7 @@ dependencies = [
  "gpui-ui-kit",
  "gpui_linux",
  "gpui_macos",
+ "gpui_web",
  "gpui_windows",
  "libsqlite3-sys",
 ]
@@ -3021,11 +3043,12 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "urlencoding",
+ "wasm-bindgen",
 ]
 
 [[package]]
 name = "gpui-python-runtime"
-version = "0.9.7"
+version = "0.9.8"
 dependencies = [
  "glam",
  "gpui",
@@ -3067,6 +3090,7 @@ dependencies = [
  "gpui-ios",
  "gpui-miniapp",
  "gpui-ui-kit",
+ "wasm-bindgen",
 ]
 
 [[package]]
@@ -3120,7 +3144,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-toolkit"
-version = "0.9.7"
+version = "0.9.8"
 dependencies = [
  "gpui-au",
  "gpui-audio-kit",
@@ -3161,6 +3185,7 @@ dependencies = [
  "serde_json",
  "smol",
  "uuid",
+ "web-time",
 ]
 
 [[package]]
@@ -3295,6 +3320,29 @@ dependencies = [
  "anyhow",
  "log",
  "which",
+]
+
+[[package]]
+name = "gpui_web"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "console_error_panic_hook",
+ "futures",
+ "gpui",
+ "gpui_wgpu",
+ "http_client",
+ "js-sys",
+ "log",
+ "parking_lot",
+ "raw-window-handle",
+ "smallvec",
+ "uuid",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "wasm_thread",
+ "web-sys",
+ "web-time",
 ]
 
 [[package]]
@@ -4523,6 +4571,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "minicov"
+version = "0.3.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c3aa3aa12b448ac225b3102217d1ac5cc717908f02722926524b0599c933c7a0"
+dependencies = [
+ "cc",
+ "walkdir",
+]
+
+[[package]]
 name = "minimal-lexical"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4695,6 +4753,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c3b335231dfd352ffb0f8017f3b6027a4917f7df785ea2143d8af2adc66980ae"
 dependencies = [
  "winapi",
+]
+
+[[package]]
+name = "nu-ansi-term"
+version = "0.50.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
+dependencies = [
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -8091,6 +8158,57 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dc1b4cb0cc549fcf58d7dfc081778139b3d283a081644e833e84682ad71cea24"
 dependencies = [
  "unicode-ident",
+]
+
+[[package]]
+name = "wasm-bindgen-test"
+version = "0.3.76"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2a0d555ca874445df8d314f94f5c948a4e74e5418f332c89f660a3d8310a96f4"
+dependencies = [
+ "async-trait",
+ "cast",
+ "js-sys",
+ "libm",
+ "minicov",
+ "nu-ansi-term",
+ "num-traits",
+ "oorandom",
+ "serde",
+ "serde_json",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "wasm-bindgen-test-macro",
+ "wasm-bindgen-test-shared",
+]
+
+[[package]]
+name = "wasm-bindgen-test-macro"
+version = "0.3.76"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "94eb68555b95bcea5e8cf4abe280b529049479fa995bfc23734af96a6aedc120"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.118",
+]
+
+[[package]]
+name = "wasm-bindgen-test-shared"
+version = "0.2.126"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c31d56021e873866c968588ed85ccdf56db5c426e44afdb4618c39895104b920"
+
+[[package]]
+name = "wasm_thread"
+version = "0.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b7516db7f32decdadb1c3b8deb1b7d78b9df7606c5cc2f6241737c2ab3a0258e"
+dependencies = [
+ "futures",
+ "js-sys",
+ "wasm-bindgen",
+ "web-sys",
 ]
 
 [[package]]

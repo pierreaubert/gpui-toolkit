@@ -28,7 +28,10 @@ use gpui::{
 };
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+// `std::time::Instant` panics on wasm32-unknown-unknown ("time not implemented
+// on this platform"); web-time aliases std on native targets.
+use web_time::Instant;
 
 thread_local! {
     static SWIPE_PANEL_ENTITIES: RefCell<HashMap<ElementId, WeakEntity<SwipePanelEntity>>> =
@@ -420,7 +423,12 @@ impl SwipePanelEntity {
             self.last_anim_time = Instant::now();
             cx.spawn(async move |this: WeakEntity<Self>, cx| {
                 loop {
+                    #[cfg(not(target_family = "wasm"))]
                     smol::Timer::after(Duration::from_millis(16)).await;
+                    #[cfg(target_family = "wasm")]
+                    cx.background_executor()
+                        .timer(Duration::from_millis(16))
+                        .await;
                     let alive = this.update(cx, |model, cx| {
                         model.step_animation(cx);
                     });

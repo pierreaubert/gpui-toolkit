@@ -30,6 +30,7 @@ Two open source examples:
 | [gpui-d3rs](./crates/gpui-d3rs/) | D3.js-inspired visualization primitives: scales, shapes, colors, geo projections, force layouts, Delaunay/Voronoi, GPU 2D, and GPU 3D. |
 | [gpui-design](./crates/gpui-design/) | Platform-adaptive design system tokens for spacing, corners, typography, animation, and GPUI integration. |
 | [gpui-design-tools](./crates/gpui-design-tools/) | CLI tooling for exporting, importing, and validating design tokens and conformance reports. |
+| [gpui-hello-web](./crates/gpui-hello-web/) | Minimal wasm/browser spike app running GPUI on the vendored `gpui_web` WebGPU backend via Trunk. |
 | [gpui-ios](./crates/gpui-ios/) | iOS/tvOS platform backend for GPUI with Metal rendering, touch input, text input, accessibility, platform views, and hot reload hooks. |
 | [gpui-keybinding](./crates/gpui-keybinding/) | Reusable keybinding framework with editor-style preset support for GPUI applications. |
 | [gpui-miniapp](./crates/gpui-miniapp/) | Small application shell used by examples and showcases to select the right GPUI platform backend. |

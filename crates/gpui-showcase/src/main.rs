@@ -3,11 +3,12 @@
 //! A thin example wrapper around `gpui_showcase::Showcase`.
 //! Use View > Theme menu or Cmd+T to toggle between light/dark themes.
 //! Use Language menu to switch between languages.
+#![cfg_attr(target_family = "wasm", no_main)]
 
-use gpui::*;
-use gpui_miniapp::{MiniApp, MiniAppConfig};
-use gpui_showcase::{Showcase, showcase_release_artifact_report, showcase_visual_capture_manifest};
+#[cfg(not(target_family = "wasm"))]
+use gpui_showcase::{showcase_release_artifact_report, showcase_visual_capture_manifest};
 
+#[cfg(not(target_family = "wasm"))]
 fn main() {
     let mut args = std::env::args().skip(1);
     if let Some(arg) = args.next() {
@@ -33,12 +34,12 @@ fn main() {
         }
     }
 
-    MiniApp::run(
-        MiniAppConfig::new("UI Kit Showcase")
-            .size(1200.0, 900.0)
-            .scrollable(true)
-            .with_theme(true)
-            .with_i18n(true),
-        |cx| cx.new(Showcase::new),
-    );
+    gpui_showcase::run_showcase();
+}
+
+#[cfg(target_family = "wasm")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn start() {
+    gpui_miniapp::web_init();
+    gpui_showcase::run_showcase();
 }

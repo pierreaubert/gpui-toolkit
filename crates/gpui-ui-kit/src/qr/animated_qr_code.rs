@@ -12,7 +12,10 @@ use gpui::{
 };
 use qrcode::QrCode as QrMatrix;
 use qrcode::types::Color as QrColor;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+// `std::time::Instant` panics on wasm32-unknown-unknown ("time not implemented
+// on this platform"); web-time aliases std on native targets.
+use web_time::Instant;
 
 /// An animated QR code that pans a zoomed viewport when the display size is
 /// too small for modules to be individually legible.
@@ -127,7 +130,12 @@ impl AnimatedQrCode {
         if needs_animation {
             cx.spawn(async move |this: WeakEntity<Self>, cx| {
                 loop {
+                    #[cfg(not(target_family = "wasm"))]
                     smol::Timer::after(Duration::from_millis(33)).await;
+                    #[cfg(target_family = "wasm")]
+                    cx.background_executor()
+                        .timer(Duration::from_millis(33))
+                        .await;
                     let alive = this.update(cx, |_this, cx| {
                         cx.notify();
                     });

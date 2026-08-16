@@ -14,8 +14,8 @@ from pathlib import Path
 
 ZED_GIT = "https://github.com/zed-industries/zed.git"
 ZED_TARBALL = "https://github.com/zed-industries/zed/archive/refs/tags/{ref}.tar.gz"
-DEFAULT_ROOTS = ["gpui", "gpui_macros", "gpui_macos", "gpui_linux", "collections", "util"]
-EXCLUDED_CRATES = {"reqwest_client", "gpui_platform", "gpui_web", "zlog", "ztracing", "ztracing_macro"}
+DEFAULT_ROOTS = ["gpui", "gpui_macros", "gpui_macos", "gpui_linux", "collections", "util", "gpui_web"]
+EXCLUDED_CRATES = {"reqwest_client", "gpui_platform", "zlog", "ztracing", "ztracing_macro"}
 EXCLUDED_DIRS = {"examples", "benches"}
 VENDOR_DIR = Path("crates/3rdparties")
 GPUI_IMAGE_FEATURES = ["bmp", "gif", "ico", "jpeg", "png", "pnm", "tiff", "webp"]
@@ -211,6 +211,17 @@ def compute_closure(zdir: Path, ctx: dict, roots: list[str]) -> list[str]:
     return order
 
 
+def apply_only(closure: list[str], only: set[str]) -> list[str]:
+    """Restrict a closure to --only names for vendor/check; full closure is
+    still used for the printed [patch] block."""
+    if not only:
+        return closure
+    unknown = only - set(closure)
+    if unknown:
+        raise SystemExit(f"error: --only names not in closure: {sorted(unknown)}")
+    return [n for n in closure if n in only]
+
+
 def rewrite_manifest(manifest: dict, ctx: dict) -> dict:
     pkg_in = manifest.get("package", {})
     pkg: dict = {"name": pkg_in["name"]}
@@ -388,6 +399,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--root", action="append", default=[])
     parser.add_argument("--skip", action="append", default=[], metavar="NAME",
                         help="do not vendor NAME (kept in closure and [patch] block); repeatable")
+    parser.add_argument("--only", action="append", default=[], metavar="NAME",
+                        help="vendor/check only NAME (closure/patch block unchanged); repeatable")
     parser.add_argument("--print-closure", action="store_true")
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args(argv)
@@ -395,12 +408,13 @@ def main(argv: list[str] | None = None) -> int:
     zdir = fetch(args.ref, Path(args.cache))
     ctx = load_zed(zdir, args.ref)
     closure = compute_closure(zdir, ctx, roots)
+    selection = apply_only(closure, set(args.only))
     if args.print_closure:
         print("closure:", " ".join(closure))
         for name in closure:
             print(f"  {name} {ctx['versions'][name]}")
     if args.check:
-        diffs = check(VENDOR_DIR, zdir, ctx, closure, skip=set(args.skip))
+        diffs = check(VENDOR_DIR, zdir, ctx, selection, skip=set(args.skip))
         if diffs:
             print("drift / local patch surface:")
             print("\n".join(diffs))
@@ -408,7 +422,7 @@ def main(argv: list[str] | None = None) -> int:
         print("ok: vendored tree matches regeneration")
         return 0
     if not args.print_closure:
-        vendor_closure(closure, zdir, ctx, VENDOR_DIR, skip=set(args.skip))
+        vendor_closure(selection, zdir, ctx, VENDOR_DIR, skip=set(args.skip))
         print("\n[patch.\"https://github.com/zed-industries/zed.git\"]")
         for name in closure:
             print(f"{name} = {{ path = \"crates/3rdparties/{name}\" }}")
