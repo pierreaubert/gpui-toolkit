@@ -33,3 +33,11 @@ fn positive_width_line_expands_with_aa_coverage() {
     assert!((batch.vertices[0].position[0] + 1.0).abs() < f32::EPSILON);
     assert!((batch.vertices[0].position[1] - 2.0).abs() < f32::EPSILON);
 }
+
+#[cfg(not(target_family = "wasm"))]
+#[test]
+fn try_global_does_not_poison_on_missing_adapter() {
+    // Just exercises that try_global returns without panicking machinery;
+    // on CI without GPU it must return Err, with GPU Ok.
+    let _ = d3rs::gpu2d::Gpu2DContext::try_global();
+}

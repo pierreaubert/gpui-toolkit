@@ -53,26 +53,36 @@ impl Gpu2DContext {
     /// browser app runs on the single main thread, so the singleton lives in a
     /// `thread_local!` instead; the initialized context is intentionally
     /// leaked once to hand out the same `&'static Self` as the native path.
+    ///
+    /// Device creation is async: the first call kicks `create_device().await`
+    /// via `wasm_bindgen_futures::spawn_local` and returns
+    /// `Err("GPU device is initializing")` until it resolves. `pollster` is
+    /// never used here — blocking the browser main thread throws
+    /// `RuntimeError: Atomics.wait cannot be called in this context`.
     #[cfg(target_family = "wasm")]
     pub fn try_global() -> Result<&'static Self, &'static str> {
-        use std::cell::OnceCell;
-        thread_local! {
-            static CONTEXT: OnceCell<Result<&'static Gpu2DContext, String>> = const { OnceCell::new() };
-        }
-        CONTEXT.with(|cell| {
-            match cell.get_or_init(|| {
-                let (instance, device, queue) = pollster::block_on(create_device())?;
-                Ok(&*Box::leak(Box::new(Gpu2DContext {
-                    device: Arc::new(device),
-                    queue: Arc::new(queue),
-                    _instance: instance,
-                })))
-            }) {
-                Ok(context) => Ok(*context),
-                // Leak the message so the cached error can satisfy 'static too.
-                Err(err) => Err(&*Box::leak(err.clone().into_boxed_str())),
+        wasm_state::kick();
+        wasm_state::STATE.with(|state| match &*state.borrow() {
+            wasm_state::State::Ready(context) => Ok(*context),
+            wasm_state::State::Uninit | wasm_state::State::Initializing => {
+                Err("GPU device is initializing")
             }
+            // Leak the message so the cached error can satisfy 'static too.
+            wasm_state::State::Failed(err) => Err(&*Box::leak(err.clone().into_boxed_str())),
         })
+    }
+
+    /// Returns true once the async device initialization has completed (wasm only).
+    #[cfg(target_family = "wasm")]
+    pub fn is_ready() -> bool {
+        wasm_state::STATE.with(|state| matches!(*state.borrow(), wasm_state::State::Ready(_)))
+    }
+
+    /// Returns true when device initialization has permanently failed, so
+    /// callers can stop scheduling repaints (wasm only).
+    #[cfg(target_family = "wasm")]
+    pub fn init_failed() -> bool {
+        wasm_state::STATE.with(|state| matches!(*state.borrow(), wasm_state::State::Failed(_)))
     }
 
     /// Get a clone of the device Arc
@@ -86,10 +96,58 @@ impl Gpu2DContext {
     }
 }
 
+/// Async device-init state machine (wasm only): `create_device().await` is
+/// driven by the browser event loop instead of blocking the main thread.
+#[cfg(target_family = "wasm")]
+mod wasm_state {
+    use super::{Gpu2DContext, create_device};
+    use std::cell::RefCell;
+
+    pub enum State {
+        Uninit,
+        Initializing,
+        Ready(&'static Gpu2DContext),
+        Failed(String),
+    }
+
+    thread_local! {
+        pub static STATE: RefCell<State> = const { RefCell::new(State::Uninit) };
+    }
+
+    /// Kick async init if Uninit; idempotent.
+    pub fn kick() {
+        STATE.with(|s| {
+            let should_start = matches!(*s.borrow(), State::Uninit);
+            if should_start {
+                *s.borrow_mut() = State::Initializing;
+                wasm_bindgen_futures::spawn_local(async {
+                    let next = match create_device().await {
+                        Ok((instance, device, queue)) => State::Ready(&*Box::leak(Box::new(
+                            Gpu2DContext {
+                                device: std::sync::Arc::new(device),
+                                queue: std::sync::Arc::new(queue),
+                                _instance: instance,
+                            },
+                        ))),
+                        Err(err) => State::Failed(err),
+                    };
+                    STATE.with(|s| *s.borrow_mut() = next);
+                });
+            }
+        });
+    }
+}
+
 /// Create a new wgpu instance, device and queue
 async fn create_device() -> Result<(wgpu::Instance, wgpu::Device, wgpu::Queue), String> {
+    // Native probes every backend; the browser target is WebGPU-only.
+    #[cfg(not(target_family = "wasm"))]
+    let backends = wgpu::Backends::all();
+    #[cfg(target_family = "wasm")]
+    let backends = wgpu::Backends::BROWSER_WEBGPU;
+
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-        backends: wgpu::Backends::all(),
+        backends,
         ..wgpu::InstanceDescriptor::new_without_display_handle()
     });
 
@@ -102,11 +160,17 @@ async fn create_device() -> Result<(wgpu::Instance, wgpu::Device, wgpu::Queue), 
         .await
         .map_err(|err| format!("Failed to find suitable GPU adapter: {err:?}"))?;
 
+    // WebGPU exposes a smaller limit set than native defaults.
+    #[cfg(not(target_family = "wasm"))]
+    let required_limits = wgpu::Limits::default();
+    #[cfg(target_family = "wasm")]
+    let required_limits = wgpu::Limits::downlevel_defaults();
+
     let (device, queue) = adapter
         .request_device(&wgpu::DeviceDescriptor {
             label: Some("Chart2D Device"),
             required_features: wgpu::Features::empty(),
-            required_limits: wgpu::Limits::default(),
+            required_limits,
             memory_hints: wgpu::MemoryHints::default(),
             trace: wgpu::Trace::Off,
             experimental_features: wgpu::ExperimentalFeatures::default(),

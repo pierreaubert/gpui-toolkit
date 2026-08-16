@@ -2917,6 +2917,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "urlencoding",
+ "wasm-bindgen-futures",
  "wgpu",
 ]
 
@@ -3048,7 +3049,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-python-runtime"
-version = "0.9.8"
+version = "0.9.9"
 dependencies = [
  "glam",
  "gpui",
@@ -3144,7 +3145,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-toolkit"
-version = "0.9.8"
+version = "0.9.9"
 dependencies = [
  "gpui-au",
  "gpui-audio-kit",
