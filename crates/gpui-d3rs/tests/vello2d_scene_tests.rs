@@ -1,5 +1,6 @@
 use d3rs::vello2d::kurbo::{Circle, Rect, Shape, Stroke};
 use d3rs::vello2d::peniko::{Brush, Color, Fill};
+use d3rs::vello2d::to_vello_scene;
 use d3rs::vello2d::{ChartCmd, ChartScene};
 
 fn red() -> Brush {
@@ -67,4 +68,21 @@ fn circle_helper_matches_kurbo_circle_path() {
     };
     let expected = Circle::new((5.0, 5.0), 2.0).to_path(0.1);
     assert_eq!(path.elements(), expected.elements());
+}
+
+#[test]
+fn gpu_replay_emits_one_draw_per_command() {
+    let mut scene = ChartScene::new();
+    scene.fill_circle(10.0, 10.0, 2.0, red());
+    scene.stroke_polyline(&[(0.0, 0.0), (5.0, 5.0)], Stroke::new(1.0), red());
+    let vello_scene = to_vello_scene(&scene);
+    let encoding = vello_scene.encoding();
+    assert_eq!(encoding.draw_tags.len(), 2);
+    assert!(!encoding.path_data.is_empty());
+}
+
+#[test]
+fn gpu_replay_of_empty_scene_has_no_draws() {
+    let vello_scene = to_vello_scene(&ChartScene::new());
+    assert_eq!(vello_scene.encoding().draw_tags.len(), 0);
 }
