@@ -8,6 +8,8 @@
 
 **Spec:** `docs/superpowers/specs/2026-08-16-vello-2d-charts-design.md`
 
+> **2026-08-16 reconciliation (post `wasm-async-gpu2d` merge):** plan re-verified against main @ 6368b08. Material adaptations: (1) wasm renderers (`new_from_canvas`) never store a `WgpuContext` in `self.context`, so the `PrimitiveBatch::Custom` dispatch silently skips on wasm — Task 5 sets the probe flag only where dispatch can fire, and wasm resolves `Auto` → `Cpu` (Task 9 falls back accordingly); (2) `Frame`/`RgbaImage` come from the `image` crate, not `gpui` — Task 6 imports fixed; (3) d3rs has no `log` dep — Task 1 adds it to the `vello` feature; (4) px's gpui-d3rs dep is non-optional at `crates/gpui-px/Cargo.toml:37` — the `vello` feature forwards through `[features]` (:12-29); (5) the px showcase has no feature-gating pattern (gpu2d sections are unconditional because `gpu-2d` is a default feature) — Task 9 introduces `#[cfg(feature = "vello")]` gating itself; (6) `gpu2d/element.rs` refs updated (Element impl :132-334, paint_image at :266-272 wasm / :324-330 native); (7) `compute_scatter_points` gate is `#[cfg(any(test, all(feature = "gpui", not(test))))]` — widened in Task 8. All other line refs re-verified accurate.
+
 **Scope of THIS plan:** infrastructure (deps, IR, GPU + CPU backends, element) + scatter port + QA/perf. Porting line/area/bar/boxplot/treemap/pie is a follow-up plan once the pattern is proven.
 
 **Tech Stack:** vello 0.10.0, vello_cpu 0.2.0, peniko 0.6.1, kurbo 0.13.1, wgpu 29.0.3 (Zed fork rev `357a0c56e0070480ad9daea5d2eaa83150b79e88`), vendored GPUI fork (`crates/3rdparties/gpui*`).
@@ -99,7 +101,7 @@ In `crates/gpui-d3rs/Cargo.toml`:
 
 ```toml
 # in [features], after the `gpu-2d = ...` line (:26):
-vello = ["dep:vello", "dep:vello_cpu", "dep:peniko", "dep:kurbo", "dep:bytemuck"]
+vello = ["dep:vello", "dep:vello_cpu", "dep:peniko", "dep:kurbo", "dep:bytemuck", "dep:log"]
 vello-gpui = ["vello", "gpui", "gpu-2d"]
 
 # in [dependencies], after `pollster = ...` (:53):
@@ -107,6 +109,7 @@ vello = { workspace = true, optional = true }
 vello_cpu = { workspace = true, optional = true }
 peniko = { workspace = true, optional = true }
 kurbo = { workspace = true, optional = true }
+log = { workspace = true, optional = true } # d3rs has no log dep on main; workspace pins log 0.4.28 (root Cargo.toml :80)
 
 # at the end of the [[test]] block area (after mesh_compute_diff_tests, :236-239):
 [[test]]
@@ -133,7 +136,7 @@ required-features = ["vello"]
 
 - [ ] **Step 4: Add the px forwarding feature**
 
-In `crates/gpui-px/Cargo.toml` (read it first; the d3rs dep is at :16-17):
+In `crates/gpui-px/Cargo.toml`: the gpui-d3rs dep is a non-optional workspace dep at :37 and `[features]` is at :12-29 — add the `vello` line right after `gpu-2d` (:17):
 
 ```toml
 # in [features]:
@@ -672,7 +675,7 @@ fn apply_paint(ctx: &mut RenderContext, brush: &Brush) {
 }
 ```
 
-If `vello_cpu` doesn't re-export `peniko` (compile error on `use vello_cpu::peniko::Brush`), switch to the direct `peniko::Brush` dep. If d3rs lacks a `log` dependency (check `[dependencies]`), use `eprintln!` instead of adding one.
+If `vello_cpu` doesn't re-export `peniko` (compile error on `use vello_cpu::peniko::Brush`), switch to the direct `peniko::Brush` dep. `log` is provided by Task 1 Step 3 (`dep:log` on the `vello` feature), so `log::warn!` here and `log::error!` in Task 7 compile as written.
 
 - [ ] **Step 4: Run tests to verify they pass**
 
@@ -693,7 +696,7 @@ git commit -m "feat(d3rs): vello_cpu replay of ChartScene (CpuRasterizer)"
 **Files:**
 - Modify: `crates/3rdparties/gpui/src/custom_draw.rs`
 - Modify: `crates/3rdparties/gpui_wgpu/src/custom.rs:19-27`
-- Modify: `crates/3rdparties/gpui_wgpu/src/wgpu_renderer.rs:1214-1246` (dispatch) + renderer init (grep `fn new` in that file; `new_from_canvas` is at :192-204)
+- Modify: `crates/3rdparties/gpui_wgpu/src/wgpu_renderer.rs:1214-1248` (dispatch) + renderer init (`new` native :133-189, `new_from_canvas` wasm :192-205, both funnel into `new_internal` :207+)
 - Modify: `crates/gpui-d3rs/src/mesh/gpu/wgpu_backend.rs:285-294` (signature update)
 - Modify: `crates/3rdparties/gpui_wgpu/PATCHES.md` and `crates/3rdparties/gpui/PATCHES.md` (check both exist; match their format)
 
@@ -787,13 +790,13 @@ Update `WgpuMeshDraw::draw_wgpu` in `crates/gpui-d3rs/src/mesh/gpu/wgpu_backend.
 
 - [ ] **Step 5: Set the probe flag in the wgpu renderer init**
 
-In `crates/3rdparties/gpui_wgpu/src/wgpu_renderer.rs`, find the `WgpuRenderer` constructors (grep `fn new`; `new_from_canvas` is at :192-204). Wherever the `WgpuContext` has been successfully created and stored into `self.context` (grep for `self.context =`), add immediately after:
+Both constructors funnel into `new_internal` (:207+), which stores the context into the struct literal at :419 (`context: gpu_context`; field type `Option<GpuContext>` = `Option<Rc<RefCell<Option<WgpuContext>>>>`). Native `new()` (:133-189) passes `Some(...)`; wasm `new_from_canvas` (:192-205) passes `None` — and the `PrimitiveBatch::Custom` dispatch arm (:1221-1223) silently skips the batch when `self.context` is `None`, so custom draw cannot fire for canvas renderers today. Capture `let has_context = gpu_context.is_some();` before the struct literal, then immediately after construction:
 
 ```rust
-        gpui::set_wgpu_custom_draw_available(true);
+        gpui::set_wgpu_custom_draw_available(has_context);
 ```
 
-Add it to every successful-init path (or once in a shared context-init helper if one exists — read the file and follow its structure).
+This keeps the probe truthful on both platforms: native sets it, wasm leaves it false and `RasterBackend::Auto` resolves to `Cpu`. Fixing the wasm dispatch gap (context never stored for canvas renderers) is out of scope — Task 9 falls back to `RasterBackend::Cpu` on wasm.
 
 - [ ] **Step 6: Run the new test + full check**
 
@@ -877,7 +880,7 @@ Expected: FAIL — `VelloChartElement` not found.
 
 - [ ] **Step 3: Implement element.rs**
 
-Model the `Element` impl on `gpu2d/element.rs:124-190` (style with `relative(1.0)` / absolute opt-in, no-op prepaint) and the image paint on `gpu2d/element.rs:317-331`. Read `../../GPUI.md` first per repo rule. Note: `Frame` and `RenderImage` come from `gpui`, `RgbaImage` from the `image` crate (already an optional dep enabled by the `gpui` feature).
+Model the `Element` impl on `gpu2d/element.rs:132-334` — rewritten by the wasm-async merge: `Chart2DElement` struct at :59-64, `request_layout` :144-178 (style with `relative(1.0)` / absolute opt-in), no-op `prepaint` :180-190 — and the image paint on `gpu2d/element.rs:324-330` (native; the wasm split path paints readback at :266-272). Read `../../GPUI.md` first per repo rule. Note: `RenderImage` comes from `gpui`; `Frame` and `RgbaImage` come from the `image` crate (see gpu2d/element.rs:7-8; `image` is already an optional dep enabled by the `gpui` feature).
 
 ```rust
 //! GPUI element that paints a [`ChartScene`] via vello (GPU) or vello_cpu.
@@ -885,11 +888,11 @@ Model the `Element` impl on `gpu2d/element.rs:124-190` (style with `relative(1.0
 use crate::vello2d::wgpu_draw::WgpuVelloDraw;
 use crate::vello2d::{ChartScene, CpuRasterizer};
 use gpui::{
-    App, Bounds, Corners, CustomDrawId, Edges, Element, ElementId, Frame, GlobalElementId,
+    App, Bounds, Corners, CustomDrawId, Edges, Element, ElementId, GlobalElementId,
     InspectorElementId, IntoElement, LayoutId, Pixels, Position, RenderImage, Size, Style,
     Window, px, relative,
 };
-use image::RgbaImage;
+use image::{Frame, RgbaImage};
 use std::cell::RefCell;
 use std::panic::Location;
 use std::rc::Rc;
@@ -1645,7 +1648,7 @@ Expected: FAIL — `scatter_chart_scene` not found.
 
 - [ ] **Step 3: Implement `scatter_chart_scene` + `render_scatter_vello` in shape/scatter.rs**
 
-First check the cfg gates on `compute_scatter_points` and its point-struct field names (read scatter.rs :1-120). If `compute_scatter_points` is gated `#[cfg(all(feature = "gpui", not(test)))]`, widen its gate to `#[cfg(any(feature = "gpui", feature = "vello"))]` (keeping `not(test)` where present) so the vello path can use it in unit tests. Do NOT change `render_scatter`'s behavior.
+Verified against main: `compute_scatter_points` (:192-228) is gated `#[cfg(any(test, all(feature = "gpui", not(test))))]` at :191, and the draw-point struct is `ScatterDrawPoint` (:184-188) with public `x_rel: f32` / `y_rel: f32`. Widen the gate to `#[cfg(any(test, feature = "vello", all(feature = "gpui", not(test))))]` so the vello path can use it. Do NOT change `render_scatter`'s behavior.
 
 Append to `crates/gpui-d3rs/src/shape/scatter.rs`:
 
@@ -1726,7 +1729,7 @@ where
 
 Two alignment notes:
 - `render_scatter` (legacy) paints a stroke ring when `config.stroke_color` is set (scatter.rs:412-427): a stroked circle of radius `r + stroke_width/2` with width `stroke_width` per point, painted BEFORE the fill. Mirror that in both functions above: if `let Some(stroke_color) = config.stroke_color`, first emit `scene.stroke_path(Circle::new((cx, cy), r + w/2).to_path(0.1), kurbo::Stroke::new(w), stroke_brush)` per point. Use the real field/constructor names from the scatter config and `D3Color::to_rgba()` (read the color module; `to_rgba` returns an RGBA struct — mirror how render_scatter consumes it at :390-394).
-- If `ScatterConfig` isn't `Clone`, capture the needed scalars (`fill_color`, `opacity`, `point_radius`, `stroke_color`, `stroke_width`) into the closure instead of cloning the config.
+- `ScatterConfig` derives `Clone` (:12), so the config-clone approach above compiles as written.
 
 - [ ] **Step 4: Run golden tests**
 
@@ -1738,7 +1741,7 @@ Expected: all PASS (2 new + 4 from Task 4).
 In `crates/gpui-px/src/scatter/scatter_chart.rs`:
 
 ```rust
-// struct field (with the other config fields, near `opacity` at :417):
+// struct field (with the other config fields — the `opacity` field is at :191; :417 is its builder method):
 #[cfg(feature = "vello")]
 raster_backend: Option<d3rs::vello2d::RasterBackend>,
 
@@ -1812,7 +1815,7 @@ Duplicate the existing scatter showcase section with:
 - at least one series with ≥ 100k points, deterministic data (`x = i as f64 * 0.001`, `y = (i as f64 * 0.013).sin()` — no RNG)
 - registered in the showcase nav/mod list the same way the original scatter section is (read the showcase's mod.rs).
 
-Feature-gate the section so the showcase binary still builds without `vello` — check how existing optional sections (gpu2d heatmap/contour) are gated in the px showcase and mirror that pattern.
+Feature-gate the section so the showcase binary still builds without `vello`. Verified: the existing gpu2d sections (Heatmap/Contour/Isoline) are NOT feature-gated (`gpu-2d` is in px's default features), so there is no pattern to copy — add `#[cfg(feature = "vello")]` yourself on the new `ChartSection` variant (`bin/showcase/chart_section.rs` :1-15), its `all()` (:18-32) / `label()` (:34-48) arms, the dispatch arm (`bin/showcase/showcase_app.rs` :203-214), and the new render fn. The `px-showcase` [[bin]] has no `required-features`, so this cfg is what keeps default builds green.
 
 - [ ] **Step 2: Native visual verification**
 
@@ -1948,4 +1951,4 @@ Expected: everything green.
 - Spec coverage: deps/unification (T1), scene layer (T2-3), CPU backend + oracle (T4), vendored patches (T5), element (T6), GPU backend (T7), scatter port + per-chart toggle (T8), wasm/visual QA (T9), perf + docs (T10). Spec error-handling rules are embedded in T6/T7 code (poison flag, log-and-skip). Remaining chart ports explicitly deferred to a follow-up plan (scope discipline).
 - No placeholders: every code step carries full code. Documented compile-error-driven fallbacks exist only where an upstream API name couldn't be verified offline (`Encoding` field names in T3, `vello_cpu::peniko` re-export in T4, `D3Color::to_rgba` field names in T8).
 - Type consistency: `ChartScene` / `ChartCmd` / `to_vello_scene(&ChartScene) -> vello::Scene` / `CpuRasterizer::rasterize(&ChartScene, u16, u16) -> Vec<u8>` / `VelloChartElement::{new, with_builder, backend, absolute}` / `WgpuVelloDraw::new(Rc<RefCell<ChartScene>>).into_custom_draw()` are used identically across tasks.
-- Resolved during review: scene is built at paint-time bounds via `with_builder` (resize correctness); element keeps ownership of the current scene so the empty-check works for both backends; disjoint field borrows in `draw_wgpu` (renderer vs offscreen_view); `Frame`/`RenderImage` imported from `gpui`, not `image`; integration tests reach kurbo/peniko through `d3rs::vello2d` re-exports.
+- Resolved during review: scene is built at paint-time bounds via `with_builder` (resize correctness); element keeps ownership of the current scene so the empty-check works for both backends; disjoint field borrows in `draw_wgpu` (renderer vs offscreen_view); `RenderImage` imported from `gpui`; `Frame`/`RgbaImage` from the `image` crate (mirroring gpu2d/element.rs); integration tests reach kurbo/peniko through `d3rs::vello2d` re-exports.

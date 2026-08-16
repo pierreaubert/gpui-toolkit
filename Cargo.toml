@@ -190,12 +190,12 @@ windows-core = "0.61"
 
 # Utilities
 approx = "0.5"
-criterion = "0.8.1"
-itertools = "0.14.0"
+criterion = "0.8"
+itertools = "0.14"
 proptest = "1.9"
 rand = "0.10.2"
 unicode-normalization = "0.1"
-toml = "0.8"
+toml = "1.1"
 uuid = { version = "1", features = ["v4", "v5", "serde"] }
 lazy_static = "1.4"
 bincode = { version = "2.0.1", features = ["serde"] }
@@ -207,8 +207,8 @@ syn = { version = "2", features = ["full", "parsing", "extra-traits"] }
 
 # Graphics and visualization
 bytemuck = { version = "1.14", features = ["derive"] }
-glam = "0.30"
-pollster = "0.4"
+glam = "0.33"
+pollster = "1"
 wasm-bindgen-futures = "0.4"
 image = { version = "0.25", default-features = false, features = ["bmp", "gif", "ico", "jpeg", "png", "pnm", "tiff", "webp"] }
 fontdue = "0.9"

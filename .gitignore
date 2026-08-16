@@ -49,6 +49,7 @@ src/unused.rs
 check_output_*.txt
 .superpowers
 /docs/superpowers
+/.tokensave
 
 # Logs
 logs
@@ -79,5 +80,4 @@ CTAGS
 .#*
 .idea
 .qwen
-.tokensave
 .worktrees/
