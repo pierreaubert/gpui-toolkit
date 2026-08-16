@@ -197,6 +197,7 @@ fn adapter_draw_preserves_content_outside_an_embedded_clipped_viewport() {
         &ctx,
         &mut encoder,
         &view,
+        ctx.color_texture_format(),
         TARGET_SIZE,
         Bounds::new(
             Point::new(px(-16.0), px(20.0)),
@@ -235,6 +236,7 @@ fn adapter_draw_preserves_content_outside_an_embedded_clipped_viewport() {
         &ctx,
         &mut resized_encoder,
         &resized_view,
+        ctx.color_texture_format(),
         resized_target,
         Bounds::new(
             Point::new(px(20.0), px(8.0)),
@@ -262,6 +264,7 @@ fn adapter_draw_preserves_content_outside_an_embedded_clipped_viewport() {
         &ctx,
         &mut sibling_encoder,
         &sibling_view,
+        ctx.color_texture_format(),
         TARGET_SIZE,
         Bounds::new(Point::new(px(0.0), px(12.0)), Size::new(px(48.0), px(72.0))),
         1.0,
@@ -270,6 +273,7 @@ fn adapter_draw_preserves_content_outside_an_embedded_clipped_viewport() {
         &ctx,
         &mut sibling_encoder,
         &sibling_view,
+        ctx.color_texture_format(),
         TARGET_SIZE,
         Bounds::new(
             Point::new(px(80.0), px(12.0)),
