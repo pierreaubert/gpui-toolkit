@@ -20,8 +20,7 @@ mod scene;
 pub use kurbo;
 pub use peniko;
 
-// Populated by Task 4 (symbol does not exist yet).
-// pub use cpu::CpuRasterizer;
+pub use cpu::CpuRasterizer;
 pub use gpu_scene::to_vello_scene;
 pub use scene::{ChartCmd, ChartScene};
 
