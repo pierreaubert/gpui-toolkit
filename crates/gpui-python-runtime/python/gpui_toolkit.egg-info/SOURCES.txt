@@ -15,9 +15,11 @@ python/gpui_toolkit/i18n.py
 python/gpui_toolkit/keybindings.py
 python/gpui_toolkit/lab.py
 python/gpui_toolkit/layout.py
+python/gpui_toolkit/meshplot.py
 python/gpui_toolkit/miniapp.py
 python/gpui_toolkit/platform.py
 python/gpui_toolkit/profiler.py
+python/gpui_toolkit/py.typed
 python/gpui_toolkit/reports.py
 python/gpui_toolkit/resources.py
 python/gpui_toolkit/scaffolder.py
@@ -31,3 +33,4 @@ python/gpui_toolkit.egg-info/PKG-INFO
 python/gpui_toolkit.egg-info/SOURCES.txt
 python/gpui_toolkit.egg-info/dependency_links.txt
 python/gpui_toolkit.egg-info/top_level.txt
+python/gpui_toolkit/bin/gpui-python-host

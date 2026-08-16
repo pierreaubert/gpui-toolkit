@@ -222,6 +222,65 @@ fn mesh_plot_surface_field(id: &str) -> ScalarField {
     }
 }
 
+fn mesh_plot_large_mesh(id: &str) -> TriangleMesh {
+    const GRID: usize = 128;
+    let vertex_count = (GRID + 1) * (GRID + 1);
+    let mut positions = Vec::with_capacity(vertex_count);
+    let mut triangles = Vec::with_capacity(GRID * GRID * 2);
+
+    for y in 0..=GRID {
+        let v = y as f64 / GRID as f64;
+        for x in 0..=GRID {
+            let u = x as f64 / GRID as f64;
+            let dx = u - 0.5;
+            let dy = v - 0.5;
+            let z = 0.22 * (dx * 18.0).sin() * (dy * 18.0).cos()
+                + 0.12 * (dx * dx + dy * dy).sqrt().cos();
+            positions.push([u, v, z]);
+        }
+    }
+
+    for y in 0..GRID {
+        for x in 0..GRID {
+            let top_left = y * (GRID + 1) + x;
+            let top_right = top_left + 1;
+            let bottom_left = (y + 1) * (GRID + 1) + x;
+            let bottom_right = bottom_left + 1;
+            triangles.push([top_left as u32, top_right as u32, bottom_right as u32]);
+            triangles.push([top_left as u32, bottom_right as u32, bottom_left as u32]);
+        }
+    }
+
+    TriangleMesh {
+        id: id.into(),
+        positions: positions.into(),
+        triangles: triangles.into(),
+        vertex_ids: None,
+        cell_ids: None,
+    }
+}
+
+fn mesh_plot_large_field(id: &str) -> ScalarField {
+    const GRID: usize = 128;
+    let mut values = Vec::with_capacity((GRID + 1) * (GRID + 1));
+    for y in 0..=GRID {
+        let v = y as f64 / GRID as f64;
+        for x in 0..=GRID {
+            let u = x as f64 / GRID as f64;
+            values.push((u * 14.0).sin() * (v * 11.0).cos());
+        }
+    }
+
+    ScalarField {
+        id: id.into(),
+        label: "Large mesh response".into(),
+        unit: Some("a.u.".into()),
+        values: values.into(),
+        association: ScalarAssociation::Vertex,
+        valid: None,
+    }
+}
+
 /// Launch the interactive GPUI component lab.
 pub fn run_lab_app(config: LabAppConfig) -> Result<()> {
     let app_config = MiniAppConfig::new("gpui-component-lab")
@@ -3073,6 +3132,17 @@ impl ComponentLab {
                     interpolation: gpui_px::FieldInterpolation::Smooth,
                 },
                 "Unstructured surface 3D",
+                None,
+                ColorScale::Viridis,
+            ),
+            "px.mesh_plot.large_mesh" => (
+                mesh_plot_large_mesh("component-lab-large-mesh"),
+                Some(mesh_plot_large_field("component-lab-large-field")),
+                MeshPlotView::Surface3d,
+                gpui_px::MeshRenderMode::ScalarFill {
+                    interpolation: gpui_px::FieldInterpolation::Smooth,
+                },
+                "Large unstructured surface 3D",
                 None,
                 ColorScale::Viridis,
             ),

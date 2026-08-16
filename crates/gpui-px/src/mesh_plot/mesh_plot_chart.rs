@@ -2453,7 +2453,7 @@ fn update_retained_3d_scene_state(
 
 #[cfg(feature = "gpu-2d")]
 fn mesh_view_transform(
-    origin: [f64; 3],
+    _origin: [f64; 3],
     x_domain: [f64; 2],
     y_domain: [f64; 2],
     plot_width: f32,
@@ -2477,8 +2477,12 @@ fn mesh_view_transform(
     } else {
         (2.0 / x_span, 2.0 / y_span, -1.0, -1.0)
     };
-    let tx = offset_x - (origin[0] + x_domain[0]) * scale_x;
-    let ty = offset_y - (origin[1] + y_domain[0]) * scale_y;
+    // The upload positions have already been rebased by `origin` in
+    // `build_retained_scene_state`, so the domain minima must be applied in
+    // that rebased coordinate system. Adding the origin here shifts meshes
+    // with non-zero minima (notably axisymmetric r-z sections) off-screen.
+    let tx = offset_x - x_domain[0] * scale_x;
+    let ty = offset_y - y_domain[0] * scale_y;
     [
         [scale_x as f32, 0.0, 0.0, 0.0],
         [0.0, scale_y as f32, 0.0, 0.0],
@@ -3101,6 +3105,25 @@ mod tests {
             valid: None,
         }
     }
+
+    #[cfg(feature = "gpu-2d")]
+    #[test]
+    fn rebased_mesh_transform_keeps_nonzero_axisymmetric_origin_visible() {
+        let transform = mesh_view_transform(
+            [0.35, 0.0, 0.0],
+            [0.35, 1.0],
+            [0.0, 1.0],
+            400.0,
+            300.0,
+            true,
+        );
+
+        // The lower-left rebased point is [0, 0]. It should remain inside
+        // the equal-aspect letterbox instead of being translated off-screen.
+        assert!(transform[3][0] > -0.1);
+        assert!((transform[3][1] + 1.0).abs() < 1e-6);
+    }
+
     #[test]
     fn spec_example_builds() {
         let result = mesh_plot(square_mesh())

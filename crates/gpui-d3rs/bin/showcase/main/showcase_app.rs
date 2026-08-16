@@ -111,6 +111,8 @@ pub struct ShowcaseApp {
     pub surface_plot_camera_freq_2d: d3rs::surface::SurfaceCamera,
     pub surface_plot_camera_spectral: d3rs::surface::SurfaceCamera,
     pub surface_plot_drag: Option<(usize, Point<Pixels>)>,
+    pub mesh_plot_camera: d3rs::surface::SurfaceCamera,
+    pub mesh_plot_drag: Option<(usize, Point<Pixels>)>,
     // Allocation probe for tracking heap allocations during interactive events.
     alloc_probe: AllocProbe,
     last_render_alloc: AllocSnapshot,
@@ -239,6 +241,10 @@ impl ShowcaseApp {
                 .with_rotation(25.0, 40.0)
                 .with_zoom(1.0),
             surface_plot_drag: None,
+            mesh_plot_camera: d3rs::surface::SurfaceCamera::new()
+                .with_rotation(30.0, 35.0)
+                .with_zoom(1.0),
+            mesh_plot_drag: None,
             alloc_probe: AllocProbe::new(),
             last_render_alloc: AllocSnapshot::default(),
             last_mouse_move_alloc: AllocSnapshot::default(),
@@ -483,6 +489,7 @@ impl ShowcaseApp {
                 self.ensure_surface_plot_cache();
                 super::showcase_modules::surface_plots::render(self, cx)
             }
+            DemoSection::Meshes => super::showcase_modules::meshes::render(self, cx),
             DemoSection::QuadTree => super::showcase_modules::quadtree::render(self, cx),
             DemoSection::Contours => super::showcase_modules::contours::render(self, cx),
             DemoSection::Transitions => super::showcase_modules::transitions::render(self, cx),

@@ -36,7 +36,7 @@ gpui-design-tools = { workspace = true }
 gpui-design = { workspace = true }
 gpui-miniapp = { workspace = true }
 gpui-profiler = { workspace = true }
-gpui-px = { workspace = true, features = ["gpui", "gpu-3d"] }
+gpui-px = { workspace = true, features = ["gpui", "gpu-3d", "gpu-metal"] }
 gpui-d3rs = { workspace = true }
 gpui-showcase = { workspace = true }
 gpui-ui-kit = { workspace = true }

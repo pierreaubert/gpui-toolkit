@@ -146,6 +146,7 @@ pub const BUILTIN_RENDERER_STORY_IDS: &[&str] = &[
     "px.mesh_plot.axisymmetric_section",
     "px.mesh_plot.revolve",
     "px.mesh_plot.surface3d",
+    "px.mesh_plot.large_mesh",
     "px.mesh_plot.picking",
 ];
 
@@ -327,6 +328,7 @@ pub const MESH_PLOT_STORY_IDS: &[&str] = &[
     "px.mesh_plot.axisymmetric_section",
     "px.mesh_plot.revolve",
     "px.mesh_plot.surface3d",
+    "px.mesh_plot.large_mesh",
     "px.mesh_plot.picking",
 ];
 

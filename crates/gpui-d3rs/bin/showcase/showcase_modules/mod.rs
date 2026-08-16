@@ -7,6 +7,7 @@ pub mod force;
 pub mod geo;
 pub mod hierarchy;
 pub mod line_charts;
+pub mod meshes;
 pub mod overview;
 pub mod quadtree;
 pub mod scales;

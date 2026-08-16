@@ -369,6 +369,11 @@ pub fn register_px_stories(registry: &mut StoryRegistry) -> Result<()> {
             "Small unstructured 3D scalar surface",
         ),
         (
+            "px.mesh_plot.large_mesh",
+            "Mesh Plot — Large mesh",
+            "128×128 surface grid with 32,768 triangles",
+        ),
+        (
             "px.mesh_plot.picking",
             "Mesh Plot — Picking",
             "Known-cell selection and displayed-value annotation",
