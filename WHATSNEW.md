@@ -1,5 +1,19 @@
 # What is new in 0.9
 
+## 0.9.9
+
+### Feature: added support for wasm/browser as a target
+
+wasm/browser is a now supported target.
+
+Run it:
+```bash
+     just wasm-setup        # one-time toolchain bits
+     just wasm-serve-px     # http://127.0.0.1:8082 (also: wasm-serve-hello :8080, wasm-serve-showcase :8081)
+     just wasm-test         # headless-Chrome smoke test
+     just wasm-visual       # screenshot diff against baselines
+```
+
 ## 0.9.8
 
 Feature: added support for meshed plots in 2d and 3d
