@@ -71,6 +71,16 @@ pub struct RetainedMesh3DStats {
     pub gpu_peak_field_capacity_bytes: u64,
     /// Number of non-empty adapter resource releases observed by this plot.
     pub gpu_memory_release_count: u64,
+    /// Whether the retained scene is currently displaying its drag proxy.
+    pub lod_proxy_active: bool,
+    /// Number of proxy uploads performed by the retained LOD controller.
+    pub lod_proxy_upload_count: u64,
+    /// Number of full-resolution restorations performed after a drag.
+    pub lod_full_restore_count: u64,
+    /// Triangle count of the active drag proxy, if one is available.
+    pub lod_proxy_triangle_count: u64,
+    /// Triangle count of the full-resolution retained mesh.
+    pub lod_full_triangle_count: u64,
     /// CPU time spent creating/uploading adapter geometry resources.
     pub gpu_geometry_upload_time_ns: u64,
     /// CPU time spent submitting adapter scalar-buffer writes.
@@ -130,6 +140,8 @@ pub(crate) struct RetainedMeshLod {
     full_upload: Option<d3rs::mesh::MeshUpload>,
     proxy_upload: Option<d3rs::mesh::MeshUpload>,
     displaying_proxy: bool,
+    proxy_upload_count: u64,
+    full_restore_count: u64,
 }
 
 type RetainedContourOutput = (Rc<Vec<ContourBand>>, Rc<Vec<IsolineSegment>>);
@@ -229,6 +241,8 @@ impl RetainedMeshLod {
             full_upload: None,
             proxy_upload: None,
             displaying_proxy: false,
+            proxy_upload_count: 0,
+            full_restore_count: 0,
         };
         result.update_field(field);
         result
@@ -262,6 +276,7 @@ impl RetainedMeshLod {
         scene.field_rev.0 = scene.field_rev.0.saturating_add(1);
         scene.upload = Some(proxy_upload.clone());
         self.displaying_proxy = true;
+        self.proxy_upload_count = self.proxy_upload_count.saturating_add(1);
         true
     }
 
@@ -279,6 +294,7 @@ impl RetainedMeshLod {
         scene.field_rev.0 = scene.field_rev.0.saturating_add(1);
         scene.upload = Some(full_upload);
         self.displaying_proxy = false;
+        self.full_restore_count = self.full_restore_count.saturating_add(1);
         true
     }
 }
@@ -464,6 +480,7 @@ impl MeshPlotState {
     pub fn retained_3d_stats(&self) -> Option<RetainedMesh3DStats> {
         let retained = self.retained_3d.as_ref()?;
         let scene = retained.scene.borrow();
+        let lod = retained.lod.borrow();
         Some(RetainedMesh3DStats {
             geometry_revision: retained.geometry_revision,
             scene_identity: Rc::as_ptr(&retained.scene) as usize,
@@ -492,6 +509,14 @@ impl MeshPlotState {
             gpu_peak_resident_bytes: scene.gpu_peak_resident_bytes,
             gpu_peak_field_capacity_bytes: scene.gpu_peak_field_capacity_bytes,
             gpu_memory_release_count: scene.gpu_memory_release_count,
+            lod_proxy_active: lod.displaying_proxy,
+            lod_proxy_upload_count: lod.proxy_upload_count,
+            lod_full_restore_count: lod.full_restore_count,
+            lod_proxy_triangle_count: lod
+                .controller
+                .proxy_mesh()
+                .map_or(0, |mesh| mesh.triangles.len() as u64),
+            lod_full_triangle_count: lod.controller.full_mesh().triangles.len() as u64,
             gpu_geometry_upload_time_ns: scene.gpu_geometry_upload_time_ns,
             gpu_field_write_time_ns: scene.gpu_field_write_time_ns,
             gpu_frame_time_ns: scene.gpu_frame_time_ns,
@@ -1848,6 +1873,8 @@ mod tests {
             vertex_ids: None,
             cell_ids: None,
         };
+        let full_bounds = MeshBounds::from_positions(&mesh.positions);
+        let full_triangle_count = mesh.triangles.len();
         let field = ScalarField {
             id: "field".into(),
             label: "Field".into(),
@@ -1864,6 +1891,16 @@ mod tests {
             ..MeshSceneState::default()
         };
         let mut lod = RetainedMeshLod::with_lod_threshold(mesh, Some(&field), 1);
+        let proxy = lod
+            .controller
+            .proxy_mesh()
+            .expect("large mesh should have a drag proxy");
+        assert!(proxy.triangles.len() < full_triangle_count);
+        assert_eq!(
+            MeshBounds::from_positions(&proxy.positions),
+            full_bounds,
+            "drag proxy must preserve the full mesh bounds"
+        );
         assert!(lod.begin_drag(&mut scene));
         let proxy_upload = scene.upload.as_ref().unwrap();
         assert!(proxy_upload.positions_f32.len() < full_upload.positions_f32.len());
@@ -1882,5 +1919,8 @@ mod tests {
             "a drag must upload the proxy once and restore the full mesh once"
         );
         assert!(scene.geometry_upload_bytes >= full_upload.positions_f32.len() as u64);
+        assert!(!lod.displaying_proxy);
+        assert_eq!(lod.proxy_upload_count, 1);
+        assert_eq!(lod.full_restore_count, 1);
     }
 }
