@@ -718,3 +718,9 @@ xcode:
 [group('download')]
 download-once:
 	wget -q -O crates/gpui-d3rs/bin/showcase/data/land-50m.json https://cdn.jsdelivr.net/npm/world-atlas@2/land-50m.json
+# Deterministic named color-scale CVD regression screen. Manual rendered CVD
+# review remains a separate reference-host/product gate.
+[group('qa')]
+qa-mesh-cvd:
+	@echo "Running MeshPlot color-vision-deficiency regression..."
+	cargo test -p gpui-px --lib color_scale::tests::named_scales_remain_distinguishable_under_cvd_simulations

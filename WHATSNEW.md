@@ -1,5 +1,10 @@
 # What is new in 0.9
 
+## 0.9.10
+
+### Feature: integrated with Vello with 2d plots ; benefit is that all
+operations execute on the GPU with no ping pong with the CPU
+
 ## 0.9.9
 
 ### Feature: added support for wasm/browser as a target
