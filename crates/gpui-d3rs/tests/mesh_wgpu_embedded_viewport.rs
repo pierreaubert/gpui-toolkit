@@ -11,6 +11,7 @@ use gpui_wgpu::{WgpuContext, WgpuCustomDrawAdapter};
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
+use std::time::Instant;
 
 const TARGET_SIZE: [u32; 2] = [128, 96];
 
@@ -288,6 +289,7 @@ fn adapter_3d_camera_only_updates_preserve_retained_geometry_and_scalar_buffers(
     assert_eq!(initial.gpu_field_write_count, 0);
 
     let mut controls = OrbitControls::default();
+    let camera_frames_started = Instant::now();
     for frame in 0..60 {
         controls.rotate(1.0, -0.4);
         controls.zoom(if frame % 2 == 0 { 0.002 } else { -0.001 });
@@ -296,6 +298,11 @@ fn adapter_3d_camera_only_updates_preserve_retained_geometry_and_scalar_buffers(
         renderer.set_camera(&camera);
         draw_adapter_frame(&ctx, draw, &view, size);
     }
+    let camera_frames_elapsed = camera_frames_started.elapsed();
+    assert!(
+        camera_frames_elapsed < std::time::Duration::from_secs(1),
+        "60 camera-only frames exceeded the 1 s (60 Hz average) budget: {camera_frames_elapsed:?}"
+    );
 
     let final_state = state.borrow();
     assert_eq!(final_state.gpu_geometry_upload_count, 1);
