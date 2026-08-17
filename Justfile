@@ -353,6 +353,12 @@ prod: prod-workspace
 prod-workspace:
 	cargo build --release --workspace {{features}}
 
+# Build the Python package, including its bundled native host.
+[group('build')]
+build-python:
+	cargo build --release -p gpui-python-runtime --features showcase --bin gpui-python-host
+	python3 scripts/build_python_package.py --host target/release/gpui-python-host
+
 # ----------------------------------------------------------------------
 # DEMOS
 # ----------------------------------------------------------------------

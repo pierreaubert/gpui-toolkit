@@ -31,6 +31,9 @@ def main() -> int:
     bundled.parent.mkdir(parents=True, exist_ok=True)
     args.output.mkdir(parents=True, exist_ok=True)
 
+    existing_bundled = bundled.read_bytes() if bundled.exists() else None
+    existing_mode = bundled.stat().st_mode if bundled.exists() else None
+
     existing_wheels = set(args.output.glob("gpui_toolkit-*.whl"))
     shutil.copyfile(host, bundled)
     if os.name != "nt":
@@ -72,6 +75,9 @@ def main() -> int:
             )
     finally:
         bundled.unlink(missing_ok=True)
+        if existing_bundled is not None:
+            bundled.write_bytes(existing_bundled)
+            bundled.chmod(existing_mode)
 
     return 0
 
