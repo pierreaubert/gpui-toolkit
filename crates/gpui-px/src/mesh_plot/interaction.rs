@@ -72,6 +72,9 @@ pub struct RetainedMesh3DStats {
     /// CPU time spent recording retained adapter-backed frames.
     pub gpu_frame_time_ns: u64,
     pub gpu_frame_count: u64,
+    /// Asynchronously recovered GPU execution time for retained frames.
+    pub gpu_frame_gpu_time_ns: u64,
+    pub gpu_frame_gpu_time_count: u64,
 }
 
 /// CPU-side timing counters for expensive MeshPlot operations.
@@ -484,6 +487,8 @@ impl MeshPlotState {
             gpu_field_write_time_ns: scene.gpu_field_write_time_ns,
             gpu_frame_time_ns: scene.gpu_frame_time_ns,
             gpu_frame_count: scene.gpu_frame_count,
+            gpu_frame_gpu_time_ns: scene.gpu_frame_gpu_time_ns,
+            gpu_frame_gpu_time_count: scene.gpu_frame_gpu_time_count,
         })
     }
 

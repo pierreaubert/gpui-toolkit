@@ -2476,6 +2476,8 @@ fn build_retained_scene_state(
         gpu_field_write_time_ns: 0,
         gpu_frame_time_ns: 0,
         gpu_frame_count: 0,
+        gpu_frame_gpu_time_ns: 0,
+        gpu_frame_gpu_time_count: 0,
         view_transform: mesh_view_transform(
             origin,
             x_domain,
@@ -2586,6 +2588,8 @@ pub(crate) fn build_retained_3d_scene_state(
         gpu_field_write_time_ns: 0,
         gpu_frame_time_ns: 0,
         gpu_frame_count: 0,
+        gpu_frame_gpu_time_ns: 0,
+        gpu_frame_gpu_time_count: 0,
         view_transform: [
             [1.0, 0.0, 0.0, 0.0],
             [0.0, 1.0, 0.0, 0.0],

@@ -12,6 +12,7 @@ pub struct WgpuContext {
     pub device: Arc<wgpu::Device>,
     pub queue: Arc<wgpu::Queue>,
     dual_source_blending: bool,
+    timestamp_queries: bool,
     color_texture_format: wgpu::TextureFormat,
     device_lost: Arc<AtomicBool>,
 }
@@ -41,7 +42,7 @@ impl WgpuContext {
             force_fallback_adapter: false,
         }))
         .map_err(|error| anyhow::anyhow!("Failed to request a headless GPU adapter: {error}"))?;
-        let (device, queue, dual_source_blending, color_texture_format) =
+        let (device, queue, dual_source_blending, color_texture_format, timestamp_queries) =
             pollster::block_on(Self::create_device(&adapter))?;
         let device_lost = Arc::new(AtomicBool::new(false));
         device.set_device_lost_callback({
@@ -59,6 +60,7 @@ impl WgpuContext {
             device: Arc::new(device),
             queue: Arc::new(queue),
             dual_source_blending,
+            timestamp_queries,
             color_texture_format,
             device_lost,
         })
@@ -84,7 +86,7 @@ impl WgpuContext {
 
         // Select an adapter by actually testing surface configuration with the real device.
         // This is the only reliable way to determine compatibility on hybrid GPU systems.
-        let (adapter, device, queue, dual_source_blending, color_texture_format) =
+        let (adapter, device, queue, dual_source_blending, color_texture_format, timestamp_queries) =
             pollster::block_on(Self::select_adapter_and_device(
                 &instance,
                 device_id_filter,
@@ -115,6 +117,7 @@ impl WgpuContext {
             device: Arc::new(device),
             queue: Arc::new(queue),
             dual_source_blending,
+            timestamp_queries,
             color_texture_format,
             device_lost,
         })
@@ -146,7 +149,7 @@ impl WgpuContext {
         );
 
         let device_lost = Arc::new(AtomicBool::new(false));
-        let (device, queue, dual_source_blending, color_texture_format) =
+        let (device, queue, dual_source_blending, color_texture_format, timestamp_queries) =
             Self::create_device(&adapter).await?;
 
         Ok(Self {
@@ -155,6 +158,7 @@ impl WgpuContext {
             device: Arc::new(device),
             queue: Arc::new(queue),
             dual_source_blending,
+            timestamp_queries,
             color_texture_format,
             device_lost,
         })
@@ -162,10 +166,16 @@ impl WgpuContext {
 
     async fn create_device(
         adapter: &wgpu::Adapter,
-    ) -> anyhow::Result<(wgpu::Device, wgpu::Queue, bool, TextureFormat)> {
+    ) -> anyhow::Result<(wgpu::Device, wgpu::Queue, bool, TextureFormat, bool)> {
         let dual_source_blending = adapter
             .features()
             .contains(wgpu::Features::DUAL_SOURCE_BLENDING);
+        // Timestamp queries are optional on WebGPU and on older native
+        // adapters. Request the encoder variant only when the adapter
+        // advertises it so normal rendering keeps the broadest compatibility.
+        let timestamp_queries = std::env::var_os("SOTF_GPU_TIMESTAMPS").as_deref()
+            == Some(std::ffi::OsStr::new("1"))
+            && adapter.features().contains(wgpu::Features::TIMESTAMP_QUERY);
 
         let mut required_features = wgpu::Features::empty();
         if dual_source_blending {
@@ -175,6 +185,9 @@ impl WgpuContext {
                 "Dual-source blending not available on this GPU. \
                 Subpixel text antialiasing will be disabled."
             );
+        }
+        if timestamp_queries {
+            required_features |= wgpu::Features::TIMESTAMP_QUERY;
         }
 
         let color_atlas_texture_format = Self::select_color_texture_format(adapter)?;
@@ -214,6 +227,7 @@ impl WgpuContext {
             queue,
             dual_source_blending,
             color_atlas_texture_format,
+            timestamp_queries,
         ))
     }
 
@@ -289,6 +303,7 @@ impl WgpuContext {
         wgpu::Queue,
         bool,
         TextureFormat,
+        bool,
     )> {
         let mut adapters: Vec<_> = instance.enumerate_adapters(wgpu::Backends::all()).await;
 
@@ -375,7 +390,13 @@ impl WgpuContext {
             log::info!("Testing adapter: {} ({:?})...", info.name, info.backend);
 
             match Self::try_adapter_with_surface(&adapter, surface).await {
-                Ok((device, queue, dual_source_blending, color_atlas_texture_format)) => {
+                Ok((
+                    device,
+                    queue,
+                    dual_source_blending,
+                    color_atlas_texture_format,
+                    timestamp_queries,
+                )) => {
                     log::info!(
                         "Selected GPU (passed configuration test): {} ({:?})",
                         info.name,
@@ -387,6 +408,7 @@ impl WgpuContext {
                         queue,
                         dual_source_blending,
                         color_atlas_texture_format,
+                        timestamp_queries,
                     ));
                 }
                 Err(e) => {
@@ -413,7 +435,7 @@ impl WgpuContext {
     async fn try_adapter_with_surface(
         adapter: &wgpu::Adapter,
         surface: &wgpu::Surface<'_>,
-    ) -> anyhow::Result<(wgpu::Device, wgpu::Queue, bool, TextureFormat)> {
+    ) -> anyhow::Result<(wgpu::Device, wgpu::Queue, bool, TextureFormat, bool)> {
         let caps = surface.get_capabilities(adapter);
         if caps.formats.is_empty() {
             anyhow::bail!("no compatible surface formats");
@@ -422,7 +444,7 @@ impl WgpuContext {
             anyhow::bail!("no compatible alpha modes");
         }
 
-        let (device, queue, dual_source_blending, color_atlas_texture_format) =
+        let (device, queue, dual_source_blending, color_atlas_texture_format, timestamp_queries) =
             Self::create_device(adapter).await?;
         let error_scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
 
@@ -449,6 +471,7 @@ impl WgpuContext {
             queue,
             dual_source_blending,
             color_atlas_texture_format,
+            timestamp_queries,
         ))
     }
 
@@ -488,6 +511,17 @@ impl WgpuContext {
 
     pub fn supports_dual_source_blending(&self) -> bool {
         self.dual_source_blending
+    }
+
+    /// Returns whether encoder timestamp queries were enabled for this
+    /// adapter-backed device.
+    pub fn supports_timestamp_queries(&self) -> bool {
+        self.timestamp_queries
+    }
+
+    /// Return the adapter timestamp period in nanoseconds per GPU tick.
+    pub fn timestamp_period_ns(&self) -> f32 {
+        self.queue.get_timestamp_period()
     }
 
     pub fn color_texture_format(&self) -> wgpu::TextureFormat {

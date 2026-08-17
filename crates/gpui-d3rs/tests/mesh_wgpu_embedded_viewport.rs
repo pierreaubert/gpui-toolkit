@@ -218,6 +218,16 @@ fn adapter_3d_field_update_writes_scalar_storage_without_geometry_reupload() {
         .downcast_ref::<WgpuCustomDrawAdapter>()
         .expect("MeshPlot 3D custom draw must use the WGPU adapter");
     draw_adapter_frame(&ctx, draw, &view, size);
+    if std::env::var_os("SOTF_GPU_TIMESTAMPS").is_some_and(|value| value == "1")
+        && ctx.supports_timestamp_queries()
+    {
+        ctx.device
+            .poll(wgpu::PollType::Wait {
+                submission_index: None,
+                timeout: Some(std::time::Duration::from_secs(1)),
+            })
+            .expect("timestamp query submission should complete");
+    }
     let initial = state.borrow().clone();
     assert_eq!(initial.gpu_geometry_upload_count, 1);
     assert_eq!(initial.gpu_field_write_count, 0);
@@ -228,6 +238,9 @@ fn adapter_3d_field_update_writes_scalar_storage_without_geometry_reupload() {
 
     renderer.write_field(FieldRevision(2), &[1.0, 0.25, 0.75, 0.5]);
     draw_adapter_frame(&ctx, draw, &view, size);
+    // Readback is intentionally asynchronous: this frame starts mapping the
+    // first submission, and the following frame polls its completed result.
+    draw_adapter_frame(&ctx, draw, &view, size);
     let updated = state.borrow().clone();
     assert_eq!(updated.gpu_geometry_upload_count, 1);
     assert_eq!(
@@ -237,6 +250,12 @@ fn adapter_3d_field_update_writes_scalar_storage_without_geometry_reupload() {
     assert_eq!(updated.gpu_field_write_count, 1);
     assert!(updated.gpu_field_write_time_ns > 0);
     assert!(updated.gpu_frame_count >= 2);
+    if std::env::var_os("SOTF_GPU_TIMESTAMPS").is_some_and(|value| value == "1")
+        && ctx.supports_timestamp_queries()
+    {
+        assert!(updated.gpu_frame_gpu_time_count > 0);
+        assert!(updated.gpu_frame_gpu_time_ns > 0);
+    }
     assert_eq!(
         updated.gpu_field_write_bytes,
         4 * std::mem::size_of::<f32>() as u64
@@ -267,6 +286,48 @@ fn adapter_3d_field_update_writes_scalar_storage_without_geometry_reupload() {
         (4 + 6) * std::mem::size_of::<f32>() as u64,
         "a same-layout cell update must write expanded triangle-local values"
     );
+}
+
+#[test]
+fn adapter_3d_timestamp_queries_recover_async_gpu_duration() {
+    if std::env::var_os("SOTF_GPU_TIMESTAMPS").as_deref() != Some(std::ffi::OsStr::new("1")) {
+        return;
+    }
+    let Some(ctx) = headless_context() else {
+        return;
+    };
+    if !ctx.supports_timestamp_queries() {
+        eprintln!("SKIP WGPU timestamp test: adapter has no encoder timestamp support");
+        return;
+    }
+
+    let state = Rc::new(RefCell::new(MeshSceneState::default()));
+    let mut renderer = WgpuMesh3DRenderer::new(state.clone());
+    let mut upload = square_upload();
+    upload.values_f32 = Some(vec![0.0, 0.5, 1.0, 0.25]);
+    renderer.upload_geometry(GeometryRevision(1), &upload);
+
+    let size = [96, 96];
+    let (_texture, view) = target(&ctx, size);
+    let draw = lookup_custom_draw(renderer.custom_id()).expect("3D custom draw must be registered");
+    let draw = draw
+        .as_any()
+        .downcast_ref::<WgpuCustomDrawAdapter>()
+        .expect("MeshPlot 3D custom draw must use the WGPU adapter");
+
+    for _ in 0..4 {
+        draw_adapter_frame(&ctx, draw, &view, size);
+        ctx.device
+            .poll(wgpu::PollType::Wait {
+                submission_index: None,
+                timeout: Some(std::time::Duration::from_secs(1)),
+            })
+            .expect("timestamp query submission should complete");
+    }
+
+    let stats = state.borrow();
+    assert!(stats.gpu_frame_gpu_time_count > 0);
+    assert!(stats.gpu_frame_gpu_time_ns > 0);
 }
 
 #[test]
@@ -380,6 +441,44 @@ fn adapter_3d_thousand_field_updates_keep_geometry_and_memory_bounded() {
     assert_eq!(
         final_state.gpu_resident_bytes, initial.gpu_resident_bytes,
         "alternating field updates must not grow resident adapter memory"
+    );
+}
+
+#[test]
+fn adapter_3d_geometry_generation_replacement_keeps_resident_memory_bounded() {
+    let Some(ctx) = headless_context() else {
+        return;
+    };
+
+    let state = Rc::new(RefCell::new(MeshSceneState::default()));
+    let mut renderer = WgpuMesh3DRenderer::new(state.clone());
+    let size = [96, 96];
+    let (_texture, view) = target(&ctx, size);
+    let draw = lookup_custom_draw(renderer.custom_id()).expect("3D custom draw must be registered");
+    let draw = draw
+        .as_any()
+        .downcast_ref::<WgpuCustomDrawAdapter>()
+        .expect("MeshPlot 3D custom draw must use the WGPU adapter");
+
+    let mut max_resident_bytes = 0;
+    for revision in 1..=100 {
+        let mut upload = square_upload();
+        if revision % 2 == 0 {
+            upload.cell_values_f32 = Some(vec![0.2, 0.8]);
+        } else {
+            upload.values_f32 = Some(vec![0.0, 0.5, 1.0, 0.25]);
+        }
+        renderer.upload_geometry(GeometryRevision(revision), &upload);
+        draw_adapter_frame(&ctx, draw, &view, size);
+        max_resident_bytes = max_resident_bytes.max(state.borrow().gpu_resident_bytes);
+    }
+
+    let final_state = state.borrow();
+    assert_eq!(final_state.gpu_geometry_upload_count, 100);
+    assert!(final_state.gpu_resident_bytes > 0);
+    assert!(
+        max_resident_bytes < 64 * 1024,
+        "replacing 100 tiny retained generations must not grow resident adapter memory: {max_resident_bytes} bytes"
     );
 }
 

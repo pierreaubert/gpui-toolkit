@@ -7,7 +7,8 @@
 
 use crate::gpu3d::Camera3D;
 use crate::mesh::gpu::{
-    FieldRevision, GeometryRevision, MeshColorConfig, MeshGpuRenderer, RetainedMeshRenderer,
+    FieldRevision, GeometryRevision, GpuTimestampRecorder, MeshColorConfig, MeshGpuRenderer,
+    RetainedMeshRenderer,
 };
 #[cfg(not(test))]
 use crate::mesh::upload_chunks;
@@ -254,6 +255,7 @@ struct WgpuMesh3DResources {
     depth_view: wgpu::TextureView,
     width: u32,
     height: u32,
+    timestamp: Option<GpuTimestampRecorder>,
 }
 
 /// Convert a GPUI chart rectangle to a physical WGPU viewport, clipped to the
@@ -602,6 +604,7 @@ impl WgpuMesh3DResources {
             depth_view,
             width: 1,
             height: 1,
+            timestamp: GpuTimestampRecorder::new(ctx, "mesh_3d_gpu_timestamps"),
         }
     }
 
@@ -884,6 +887,15 @@ impl gpui_wgpu::WgpuCustomDraw for WgpuMesh3DDraw {
         scale_factor: f32,
     ) {
         let frame_started = Instant::now();
+        let gpu_elapsed = self
+            .resources
+            .borrow_mut()
+            .as_mut()
+            .and_then(|resources| resources.timestamp.as_mut())
+            .and_then(|timestamp| timestamp.poll(ctx));
+        if let Some(elapsed) = gpu_elapsed {
+            self.state.borrow_mut().record_gpu_frame_gpu_time(elapsed);
+        }
         let state = self.state.borrow();
         let Some(upload) = state.upload.as_ref() else {
             return;
@@ -953,6 +965,10 @@ impl gpui_wgpu::WgpuCustomDraw for WgpuMesh3DDraw {
         let camera = self.camera.borrow();
         resources.write_uniform(ctx, &state, &camera);
         resources.write_triad(ctx, &camera);
+        let timestamp_active = resources
+            .timestamp
+            .as_mut()
+            .is_some_and(|timestamp| timestamp.begin());
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("mesh_3d_pass"),
@@ -973,7 +989,10 @@ impl gpui_wgpu::WgpuCustomDraw for WgpuMesh3DDraw {
                     }),
                     stencil_ops: None,
                 }),
-                timestamp_writes: None,
+                timestamp_writes: resources
+                    .timestamp
+                    .as_ref()
+                    .and_then(|timestamp| timestamp.render_pass_writes(timestamp_active)),
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
@@ -999,6 +1018,9 @@ impl gpui_wgpu::WgpuCustomDraw for WgpuMesh3DDraw {
             pass.set_pipeline(&resources.triad_pipeline);
             pass.set_vertex_buffer(0, resources.triad.slice(..));
             pass.draw(0..resources.triad_count, 0..1);
+        }
+        if let Some(timestamp) = resources.timestamp.as_mut() {
+            timestamp.finish(encoder, timestamp_active);
         }
         drop(state);
         self.state

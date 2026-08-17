@@ -397,7 +397,6 @@ impl WgpuCustomDraw for WgpuMeshDraw {
         }
         state.set_gpu_memory(resources.resident_bytes, resources.value_bytes);
         resources.update_uniform(ctx, &state);
-
         let x = (f32::from(bounds.origin.x) * scale_factor).max(0.0) as u32;
         let y = (f32::from(bounds.origin.y) * scale_factor).max(0.0) as u32;
         let width = (f32::from(bounds.size.width) * scale_factor).max(1.0) as u32;

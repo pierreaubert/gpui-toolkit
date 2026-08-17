@@ -92,6 +92,10 @@ pub struct MeshSceneState {
     /// Number of retained adapter-backed frames included in
     /// [`Self::gpu_frame_time_ns`].
     pub gpu_frame_count: u64,
+    /// GPU execution time recovered asynchronously from adapter timestamps.
+    pub gpu_frame_gpu_time_ns: u64,
+    /// Number of retained frames with a completed GPU timestamp sample.
+    pub gpu_frame_gpu_time_count: u64,
     pub view_transform: [[f32; 4]; 4],
     pub color: MeshColorConfig,
 }
@@ -116,6 +120,8 @@ impl Default for MeshSceneState {
             gpu_field_write_time_ns: 0,
             gpu_frame_time_ns: 0,
             gpu_frame_count: 0,
+            gpu_frame_gpu_time_ns: 0,
+            gpu_frame_gpu_time_count: 0,
             view_transform: [
                 [1.0, 0.0, 0.0, 0.0],
                 [0.0, 1.0, 0.0, 0.0],
@@ -182,6 +188,14 @@ impl MeshSceneState {
             .gpu_frame_time_ns
             .saturating_add(elapsed.as_nanos().min(u128::from(u64::MAX)) as u64);
         self.gpu_frame_count = self.gpu_frame_count.saturating_add(1);
+    }
+
+    /// Record a completed asynchronous GPU timestamp sample.
+    pub fn record_gpu_frame_gpu_time(&mut self, elapsed: Duration) {
+        self.gpu_frame_gpu_time_ns = self
+            .gpu_frame_gpu_time_ns
+            .saturating_add(elapsed.as_nanos().min(u128::from(u64::MAX)) as u64);
+        self.gpu_frame_gpu_time_count = self.gpu_frame_gpu_time_count.saturating_add(1);
     }
 }
 
@@ -325,5 +339,8 @@ mod tests {
         assert_eq!(state.gpu_field_write_time_ns, 11);
         assert_eq!(state.gpu_frame_time_ns, 30);
         assert_eq!(state.gpu_frame_count, 2);
+        state.record_gpu_frame_gpu_time(Duration::from_nanos(19));
+        assert_eq!(state.gpu_frame_gpu_time_ns, 19);
+        assert_eq!(state.gpu_frame_gpu_time_count, 1);
     }
 }
