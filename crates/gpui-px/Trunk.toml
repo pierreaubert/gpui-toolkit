@@ -1,5 +1,7 @@
 [build]
 target = "index.html"
+# The "Scatter (vello)" showcase section is cfg'd on the vello feature.
+features = ["vello"]
 
 [serve]
 addresses = ["127.0.0.1"]

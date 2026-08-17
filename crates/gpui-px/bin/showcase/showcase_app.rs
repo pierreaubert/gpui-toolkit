@@ -39,6 +39,21 @@ pub(super) struct ShowcaseApp {
 }
 
 impl ShowcaseApp {
+    /// Optional initial-section override for headless QA capture, matched
+    /// case-insensitively against `ChartSection::label()`
+    /// (e.g. `PX_SHOWCASE_SECTION="Scatter (vello)"`).
+    fn initial_section() -> ChartSection {
+        std::env::var("PX_SHOWCASE_SECTION")
+            .ok()
+            .and_then(|name| {
+                ChartSection::all()
+                    .iter()
+                    .copied()
+                    .find(|s| s.label().eq_ignore_ascii_case(name.trim()))
+            })
+            .unwrap_or_default()
+    }
+
     pub(super) fn new(_cx: &mut Context<Self>) -> Self {
         let (scatter_x, scatter_y) = generate_scatter_data();
         let (line_x, line_y) = generate_line_data();
@@ -71,7 +86,7 @@ impl ShowcaseApp {
         let line_y_pad = (line_y_max - line_y_min) * 0.05;
 
         Self {
-            current_section: ChartSection::default(),
+            current_section: Self::initial_section(),
             scatter_x: scatter_x.clone(),
             scatter_y: scatter_y.clone(),
             line_x: line_x.clone(),
@@ -212,6 +227,8 @@ impl ShowcaseApp {
             ChartSection::Isoline => self.render_isoline_demo(&theme, &ds),
             ChartSection::Treemap => self.render_treemap_demo(&theme, &ds),
             ChartSection::Gallery => self.render_gallery(&theme, &ds),
+            #[cfg(feature = "vello")]
+            ChartSection::ScatterVello => self.render_scatter_vello_demo(&theme, &ds),
         };
 
         div()
@@ -421,6 +438,78 @@ impl ShowcaseApp {
                     .child(div().text_size(px(ds.typography.small_size)).child("• Custom colors via 0xRRGGBB hex values"))
                     .child(div().text_size(px(ds.typography.small_size)).child("• Adjustable point radius and opacity"))
                     .child(div().text_size(px(ds.typography.small_size)).child("• Title rendering at top of chart")),
+            )
+    }
+
+    // ========================================================================
+    // Scatter (vello) Section
+    // ========================================================================
+
+    #[cfg(feature = "vello")]
+    pub(super) fn render_scatter_vello_demo(&self, theme: &Theme, ds: &DesignSystem) -> Div {
+        // 100k deterministic points (no RNG): a dense sine sweep.
+        let x: Vec<f64> = (0..100_000).map(|i| i as f64 * 0.001).collect();
+        let y: Vec<f64> = (0..100_000).map(|i| (i as f64 * 0.013).sin()).collect();
+
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(ds.spacing.section_gap * 1.5))
+            .child(
+                div()
+                    .text_size(px(ds.typography.large_size))
+                    .font_weight(FontWeight::BOLD)
+                    .text_color(theme.text_primary)
+                    .child("Scatter Plot (vello)"),
+            )
+            .child(
+                div()
+                    .text_size(px(ds.typography.small_size))
+                    .text_color(theme.text_secondary)
+                    .max_w(px(600.0))
+                    .child("Same scatter chart rasterized through the vello 2D backend (RasterBackend::Auto: zero-copy wgpu where the wgpu renderer dispatches custom draws, vello_cpu pixmap fallback elsewhere — macOS Metal and wasm included). Points composite identically to the legacy GPUI path renderer."),
+            )
+            .child(
+                scatter(&x, &y)
+                    .title("Sine Sweep - 100k points (vello)")
+                    .color(0x1f77b4)
+                    .point_radius(5.0)
+                    .size(600.0, 400.0)
+                    .raster_backend(d3rs::vello2d::RasterBackend::Auto)
+                    .build()
+                    .unwrap(),
+            )
+            .child(
+                div()
+                    .mt(px(ds.spacing.section_gap))
+                    .text_size(px(ds.typography.large_size))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(theme.text_primary)
+                    .child("Code"),
+            )
+            .child(self.code_block(
+                "scatter(&x, &y)\n    .title(\"Sine Sweep\")\n    .color(0x1f77b4)\n    .point_radius(5.0)\n    .raster_backend(d3rs::vello2d::RasterBackend::Auto)\n    .build()?",
+                theme,
+                ds,
+            ))
+            .child(
+                div()
+                    .mt(px(ds.spacing.section_gap))
+                    .text_size(px(ds.typography.large_size))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(theme.text_primary)
+                    .child("Features"),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(ds.spacing.grid_unit))
+                    .ml(px(ds.spacing.card_padding))
+                    .child(div().text_size(px(ds.typography.small_size)).child("• vello GPU rasterization via WgpuCustomDraw (zero-copy)"))
+                    .child(div().text_size(px(ds.typography.small_size)).child("• vello_cpu fallback via paint_image on non-wgpu renderers"))
+                    .child(div().text_size(px(ds.typography.small_size)).child("• 100k points batched into a single fill/stroke per series"))
+                    .child(div().text_size(px(ds.typography.small_size)).child("• Scene rebuilt at paint bounds for crisp resize")),
             )
     }
 

@@ -12,6 +12,10 @@ pub(super) enum ChartSection {
     Isoline,
     Treemap,
     Gallery,
+    // Appended last so existing wasm-visual nav click coordinates for the
+    // sections above stay valid.
+    #[cfg(feature = "vello")]
+    ScatterVello,
 }
 
 impl ChartSection {
@@ -28,6 +32,8 @@ impl ChartSection {
             ChartSection::Isoline,
             ChartSection::Treemap,
             ChartSection::Gallery,
+            #[cfg(feature = "vello")]
+            ChartSection::ScatterVello,
         ]
     }
 
@@ -44,6 +50,8 @@ impl ChartSection {
             ChartSection::Isoline => "Isoline",
             ChartSection::Treemap => "Treemap",
             ChartSection::Gallery => "Gallery",
+            #[cfg(feature = "vello")]
+            ChartSection::ScatterVello => "Scatter (vello)",
         }
     }
 }
