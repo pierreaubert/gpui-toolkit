@@ -261,7 +261,7 @@ qa-mesh-product-visual:
 # QA_CVD_REQUIRED=1 after a product capture on the reference host. Human CVD
 # review remains a separate manual acceptance gate.
 [group('qa')]
-qa-mesh-cvd:
+qa-mesh-cvd: qa-mesh-cvd-color-scale
 	@echo "Running MeshPlot rendered CVD screen..."
 	bash scripts/qa_mesh_cvd.sh
 
@@ -806,6 +806,6 @@ download-once:
 # Deterministic named color-scale CVD regression screen. Manual rendered CVD
 # review remains a separate reference-host/product gate.
 [group('qa')]
-qa-mesh-cvd:
+qa-mesh-cvd-color-scale:
 	@echo "Running MeshPlot color-vision-deficiency regression..."
 	cargo test -p gpui-px --lib color_scale::tests::named_scales_remain_distinguishable_under_cvd_simulations
