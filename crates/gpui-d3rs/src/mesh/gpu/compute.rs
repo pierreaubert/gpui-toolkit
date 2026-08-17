@@ -16,6 +16,7 @@ use std::sync::Arc;
 struct AdapterCompute {
     device: Arc<wgpu::Device>,
     queue: Arc<wgpu::Queue>,
+    backend: wgpu::Backend,
     field_pipeline: wgpu::ComputePipeline,
     field_bind_group_layout: wgpu::BindGroupLayout,
     edge_pipeline: wgpu::ComputePipeline,
@@ -62,6 +63,7 @@ impl AdapterCompute {
             force_fallback_adapter: false,
         }))
         .ok()?;
+        let backend = adapter.get_info().backend;
         let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
             label: Some("MeshCompute device"),
             required_features: wgpu::Features::empty(),
@@ -141,6 +143,7 @@ impl AdapterCompute {
         Some(Self {
             device,
             queue,
+            backend,
             field_pipeline,
             field_bind_group_layout,
             edge_pipeline,
@@ -876,6 +879,14 @@ impl MeshCompute {
     #[must_use]
     pub fn adapter_backed(&self) -> bool {
         self.adapter.is_some()
+    }
+
+    /// Return the native backend used by adapter-backed compute, when one is
+    /// available. This lets platform QA distinguish Metal, Vulkan, and other
+    /// adapter paths while keeping CPU-reference fallback explicit.
+    #[must_use]
+    pub fn adapter_backend(&self) -> Option<wgpu::Backend> {
+        self.adapter.as_ref().map(|adapter| adapter.backend)
     }
 
     /// Return the finite min/max of a field, ignoring NaN and infinities.

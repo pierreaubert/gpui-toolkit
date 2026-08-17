@@ -3,6 +3,18 @@ use d3rs::mesh::{ContourBand, CoordinateAxis, MarchingTriangles, MeshTopology, S
 use d3rs::mesh::{ScalarField, TriangleMesh};
 use std::sync::Arc;
 
+#[cfg(target_os = "macos")]
+#[test]
+fn adapter_compute_differential_path_reports_metal_on_macos() {
+    let Some(compute) = MeshCompute::try_new() else {
+        return;
+    };
+    let Some(backend) = compute.adapter_backend() else {
+        return;
+    };
+    assert_eq!(backend, wgpu::Backend::Metal);
+}
+
 fn square_fixture() -> (TriangleMesh, ScalarField, MeshTopology) {
     let mesh = TriangleMesh {
         id: "compute-diff".into(),
