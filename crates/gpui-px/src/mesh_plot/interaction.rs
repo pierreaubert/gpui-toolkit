@@ -65,6 +65,13 @@ pub struct RetainedMesh3DStats {
     /// Adapter-owned field capacity and approximate resident allocation.
     pub gpu_field_capacity_bytes: u64,
     pub gpu_resident_bytes: u64,
+    /// CPU time spent creating/uploading adapter geometry resources.
+    pub gpu_geometry_upload_time_ns: u64,
+    /// CPU time spent submitting adapter scalar-buffer writes.
+    pub gpu_field_write_time_ns: u64,
+    /// CPU time spent recording retained adapter-backed frames.
+    pub gpu_frame_time_ns: u64,
+    pub gpu_frame_count: u64,
 }
 
 /// CPU-side timing counters for expensive MeshPlot operations.
@@ -473,6 +480,10 @@ impl MeshPlotState {
             gpu_field_write_bytes: scene.gpu_field_write_bytes,
             gpu_field_capacity_bytes: scene.gpu_field_capacity_bytes,
             gpu_resident_bytes: scene.gpu_resident_bytes,
+            gpu_geometry_upload_time_ns: scene.gpu_geometry_upload_time_ns,
+            gpu_field_write_time_ns: scene.gpu_field_write_time_ns,
+            gpu_frame_time_ns: scene.gpu_frame_time_ns,
+            gpu_frame_count: scene.gpu_frame_count,
         })
     }
 

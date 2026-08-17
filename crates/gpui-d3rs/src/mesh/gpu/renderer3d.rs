@@ -16,6 +16,8 @@ use crate::mesh::{MeshUpload, expand_cell_shading};
 use glam::Vec3Swizzles;
 #[cfg(not(test))]
 use std::borrow::Cow;
+#[cfg(not(test))]
+use std::time::Instant;
 
 /// Retained 3D mesh state shared by platform renderers.
 ///
@@ -881,6 +883,7 @@ impl gpui_wgpu::WgpuCustomDraw for WgpuMesh3DDraw {
         bounds: gpui::Bounds<gpui::Pixels>,
         scale_factor: f32,
     ) {
+        let frame_started = Instant::now();
         let state = self.state.borrow();
         let Some(upload) = state.upload.as_ref() else {
             return;
@@ -889,17 +892,20 @@ impl gpui_wgpu::WgpuCustomDraw for WgpuMesh3DDraw {
         let expected_field_layout = mesh_field_layout(upload);
         let mut resources = self.resources.borrow_mut();
         let mut created_geometry_resource = false;
+        let mut geometry_upload_time = None;
         if resources.as_ref().is_none_or(|resource| {
             resource.geometry_rev != revision
                 || resource.value_count != expected_field_layout.value_count
                 || resource.value_is_cell != expected_field_layout.is_cell
         }) {
+            let geometry_started = Instant::now();
             let mut created = WgpuMesh3DResources::new(ctx, &state, revision);
             // The newly allocated scalar buffer is initialized from the
             // current retained upload, so do not count that initialization as
             // a later field-only queue write.
             created.field_rev = state.field_rev;
             *resources = Some(created);
+            geometry_upload_time = Some(geometry_started.elapsed());
             created_geometry_resource = true;
         }
         let Some(resources) = resources.as_mut() else {
@@ -920,10 +926,12 @@ impl gpui_wgpu::WgpuCustomDraw for WgpuMesh3DDraw {
         // overwrite content outside this embedded chart rectangle.
         resources.resize(ctx, target_size[0].max(1), target_size[1].max(1));
         let mut field_write_bytes = 0;
+        let field_write_started = Instant::now();
         if resources.field_rev != state.field_rev {
             field_write_bytes = resources.write_values(ctx, upload);
             resources.field_rev = state.field_rev;
         }
+        let field_write_time = field_write_started.elapsed();
         let resident_bytes = resources.resident_bytes;
         let field_capacity_bytes = resources.field_capacity_bytes;
         drop(state);
@@ -931,9 +939,13 @@ impl gpui_wgpu::WgpuCustomDraw for WgpuMesh3DDraw {
             let mut state = self.state.borrow_mut();
             if created_geometry_resource {
                 state.record_gpu_geometry_upload(resources.geometry_bytes);
+                if let Some(elapsed) = geometry_upload_time {
+                    state.record_gpu_geometry_upload_time(elapsed);
+                }
             }
             if field_write_bytes != 0 {
                 state.record_gpu_field_write(field_write_bytes);
+                state.record_gpu_field_write_time(field_write_time);
             }
             state.set_gpu_memory(resident_bytes, field_capacity_bytes);
         }
@@ -941,51 +953,57 @@ impl gpui_wgpu::WgpuCustomDraw for WgpuMesh3DDraw {
         let camera = self.camera.borrow();
         resources.write_uniform(ctx, &state, &camera);
         resources.write_triad(ctx, &camera);
-        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("mesh_3d_pass"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: target,
-                resolve_target: None,
-                depth_slice: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Load,
-                    store: wgpu::StoreOp::Store,
-                },
-            })],
-            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                view: &resources.depth_view,
-                depth_ops: Some(wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(1.0),
-                    store: wgpu::StoreOp::Store,
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("mesh_3d_pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: target,
+                    resolve_target: None,
+                    depth_slice: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &resources.depth_view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0),
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
                 }),
-                stencil_ops: None,
-            }),
-            timestamp_writes: None,
-            occlusion_query_set: None,
-            multiview_mask: None,
-        });
-        pass.set_viewport(
-            x as f32,
-            y as f32,
-            viewport_width as f32,
-            viewport_height as f32,
-            0.0,
-            1.0,
-        );
-        pass.set_scissor_rect(x, y, viewport_width, viewport_height);
-        pass.set_bind_group(0, &resources.bind_group, &[]);
-        pass.set_vertex_buffer(0, resources.vertices.slice(..));
-        pass.set_pipeline(&resources.surface_pipeline);
-        pass.set_index_buffer(resources.indices.slice(..), wgpu::IndexFormat::Uint32);
-        pass.draw_indexed(0..resources.index_count, 0, 0..1);
-        if state.color.wireframe && resources.edge_count > 0 {
-            pass.set_pipeline(&resources.wire_pipeline);
-            pass.set_index_buffer(resources.edges.slice(..), wgpu::IndexFormat::Uint32);
-            pass.draw_indexed(0..resources.edge_count, 0, 0..1);
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            pass.set_viewport(
+                x as f32,
+                y as f32,
+                viewport_width as f32,
+                viewport_height as f32,
+                0.0,
+                1.0,
+            );
+            pass.set_scissor_rect(x, y, viewport_width, viewport_height);
+            pass.set_bind_group(0, &resources.bind_group, &[]);
+            pass.set_vertex_buffer(0, resources.vertices.slice(..));
+            pass.set_pipeline(&resources.surface_pipeline);
+            pass.set_index_buffer(resources.indices.slice(..), wgpu::IndexFormat::Uint32);
+            pass.draw_indexed(0..resources.index_count, 0, 0..1);
+            if state.color.wireframe && resources.edge_count > 0 {
+                pass.set_pipeline(&resources.wire_pipeline);
+                pass.set_index_buffer(resources.edges.slice(..), wgpu::IndexFormat::Uint32);
+                pass.draw_indexed(0..resources.edge_count, 0, 0..1);
+            }
+            pass.set_pipeline(&resources.triad_pipeline);
+            pass.set_vertex_buffer(0, resources.triad.slice(..));
+            pass.draw(0..resources.triad_count, 0..1);
         }
-        pass.set_pipeline(&resources.triad_pipeline);
-        pass.set_vertex_buffer(0, resources.triad.slice(..));
-        pass.draw(0..resources.triad_count, 0..1);
+        drop(state);
+        self.state
+            .borrow_mut()
+            .record_gpu_frame_time(frame_started.elapsed());
     }
 }
 

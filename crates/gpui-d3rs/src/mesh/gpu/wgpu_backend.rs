@@ -8,6 +8,7 @@ use gpui_wgpu::{WgpuContext, WgpuCustomDraw, WgpuCustomDrawAdapter};
 use std::borrow::Cow;
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::time::Instant;
 
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
@@ -350,6 +351,7 @@ impl WgpuCustomDraw for WgpuMeshDraw {
         bounds: Bounds<Pixels>,
         scale_factor: f32,
     ) {
+        let frame_started = Instant::now();
         // Hold the retained state mutably for the complete custom draw. The
         // resource registry is a separate RefCell, so this avoids a
         // read-then-write reborrow of the same state during telemetry updates
@@ -361,28 +363,37 @@ impl WgpuCustomDraw for WgpuMeshDraw {
         };
         let mut resources = self.resources.borrow_mut();
         let mut created_geometry_resource = false;
+        let mut geometry_upload_time = None;
         if resources
             .as_ref()
             .is_none_or(|resources| resources.geometry_rev != state.geometry_rev)
         {
+            let geometry_started = Instant::now();
             *resources = Some(WgpuResources::new(ctx, state.geometry_rev, upload));
+            geometry_upload_time = Some(geometry_started.elapsed());
             created_geometry_resource = true;
         }
         let Some(resources) = resources.as_mut() else {
             return;
         };
         let field = field_values(upload);
+        let field_write_started = Instant::now();
         let field_write_bytes = if resources.field_rev != state.field_rev {
             resources.update_field(ctx, state.field_rev, field.as_ref())
         } else {
             0
         };
+        let field_write_time = field_write_started.elapsed();
         drop(field);
         if created_geometry_resource {
             state.record_gpu_geometry_upload(resources.geometry_bytes);
+            if let Some(elapsed) = geometry_upload_time {
+                state.record_gpu_geometry_upload_time(elapsed);
+            }
         }
         if field_write_bytes != 0 {
             state.record_gpu_field_write(field_write_bytes);
+            state.record_gpu_field_write_time(field_write_time);
         }
         state.set_gpu_memory(resources.resident_bytes, resources.value_bytes);
         resources.update_uniform(ctx, &state);
@@ -391,33 +402,36 @@ impl WgpuCustomDraw for WgpuMeshDraw {
         let y = (f32::from(bounds.origin.y) * scale_factor).max(0.0) as u32;
         let width = (f32::from(bounds.size.width) * scale_factor).max(1.0) as u32;
         let height = (f32::from(bounds.size.height) * scale_factor).max(1.0) as u32;
-        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("mesh_custom_draw"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: target,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Load,
-                    store: wgpu::StoreOp::Store,
-                },
-                depth_slice: None,
-            })],
-            depth_stencil_attachment: None,
-            ..Default::default()
-        });
-        pass.set_scissor_rect(x, y, width, height);
-        pass.set_vertex_buffer(0, resources.positions.slice(..));
-        pass.set_bind_group(0, &resources.bind_group, &[]);
-        if resources.triangle_index_count != 0 {
-            pass.set_pipeline(&resources.fill_pipeline);
-            pass.set_index_buffer(resources.triangles.slice(..), wgpu::IndexFormat::Uint32);
-            pass.draw_indexed(0..resources.triangle_index_count, 0, 0..1);
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("mesh_custom_draw"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: target,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                    depth_slice: None,
+                })],
+                depth_stencil_attachment: None,
+                ..Default::default()
+            });
+            pass.set_scissor_rect(x, y, width, height);
+            pass.set_vertex_buffer(0, resources.positions.slice(..));
+            pass.set_bind_group(0, &resources.bind_group, &[]);
+            if resources.triangle_index_count != 0 {
+                pass.set_pipeline(&resources.fill_pipeline);
+                pass.set_index_buffer(resources.triangles.slice(..), wgpu::IndexFormat::Uint32);
+                pass.draw_indexed(0..resources.triangle_index_count, 0, 0..1);
+            }
+            if state.color.wireframe && resources.edge_index_count != 0 {
+                pass.set_pipeline(&resources.line_pipeline);
+                pass.set_index_buffer(resources.edges.slice(..), wgpu::IndexFormat::Uint32);
+                pass.draw_indexed(0..resources.edge_index_count, 0, 0..1);
+            }
         }
-        if state.color.wireframe && resources.edge_index_count != 0 {
-            pass.set_pipeline(&resources.line_pipeline);
-            pass.set_index_buffer(resources.edges.slice(..), wgpu::IndexFormat::Uint32);
-            pass.draw_indexed(0..resources.edge_index_count, 0, 0..1);
-        }
+        state.record_gpu_frame_time(frame_started.elapsed());
     }
 }
 

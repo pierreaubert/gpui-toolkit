@@ -1023,6 +1023,14 @@ fn native_metal_live_3d_state_exports_deterministic_surface_and_revolve_artifact
             "native 3D export case {index} must dispatch an adapter-backed upload (uploads={gpu_uploads}, resident_bytes={gpu_resident_bytes})"
         );
         assert!(
+            stats.gpu_geometry_upload_time_ns > 0,
+            "native 3D export case {index} must record adapter geometry submission time"
+        );
+        assert!(
+            stats.gpu_frame_count > 0 && stats.gpu_frame_time_ns > 0,
+            "native 3D export case {index} must record retained frame timing"
+        );
+        assert!(
             live_colored > 200,
             "native 3D export case {index} must produce a scalar-coloured live frame"
         );
@@ -1051,6 +1059,10 @@ fn native_metal_live_3d_state_exports_deterministic_surface_and_revolve_artifact
         assert_eq!(
             camera_stats.gpu_field_write_count, camera_field_writes,
             "camera-only native 3D navigation must not rewrite scalar data"
+        );
+        assert!(
+            camera_stats.gpu_frame_count > stats.gpu_frame_count,
+            "camera-only native 3D navigation must record a retained frame"
         );
 
         // A field-only patch must update the dedicated scalar buffer while
@@ -1095,6 +1107,10 @@ fn native_metal_live_3d_state_exports_deterministic_surface_and_revolve_artifact
         assert!(
             patched_stats.gpu_field_write_bytes > field_bytes_before_field_patch,
             "field-only native 3D patch must report scalar bytes"
+        );
+        assert!(
+            patched_stats.gpu_field_write_time_ns > 0,
+            "field-only native 3D patch must record scalar submission time"
         );
 
         let before = {

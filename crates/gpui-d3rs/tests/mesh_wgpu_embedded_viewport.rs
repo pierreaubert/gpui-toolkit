@@ -221,6 +221,9 @@ fn adapter_3d_field_update_writes_scalar_storage_without_geometry_reupload() {
     let initial = state.borrow().clone();
     assert_eq!(initial.gpu_geometry_upload_count, 1);
     assert_eq!(initial.gpu_field_write_count, 0);
+    assert!(initial.gpu_geometry_upload_time_ns > 0);
+    assert!(initial.gpu_frame_time_ns > 0);
+    assert_eq!(initial.gpu_frame_count, 1);
     assert!(initial.gpu_field_capacity_bytes >= 4 * std::mem::size_of::<f32>() as u64);
 
     renderer.write_field(FieldRevision(2), &[1.0, 0.25, 0.75, 0.5]);
@@ -232,6 +235,8 @@ fn adapter_3d_field_update_writes_scalar_storage_without_geometry_reupload() {
         initial.gpu_geometry_upload_bytes
     );
     assert_eq!(updated.gpu_field_write_count, 1);
+    assert!(updated.gpu_field_write_time_ns > 0);
+    assert!(updated.gpu_frame_count >= 2);
     assert_eq!(
         updated.gpu_field_write_bytes,
         4 * std::mem::size_of::<f32>() as u64
@@ -312,6 +317,8 @@ fn adapter_3d_camera_only_updates_preserve_retained_geometry_and_scalar_buffers(
     );
     assert_eq!(final_state.gpu_field_write_count, 0);
     assert_eq!(final_state.gpu_field_write_bytes, 0);
+    assert!(final_state.gpu_frame_count >= 61);
+    assert!(final_state.gpu_frame_time_ns >= initial.gpu_frame_time_ns);
     assert_eq!(
         final_state.gpu_field_capacity_bytes,
         initial.gpu_field_capacity_bytes
@@ -341,6 +348,8 @@ fn adapter_3d_thousand_field_updates_keep_geometry_and_memory_bounded() {
     draw_adapter_frame(&ctx, draw, &view, size);
     let initial = state.borrow().clone();
     assert_eq!(initial.gpu_geometry_upload_count, 1);
+    assert!(initial.gpu_geometry_upload_time_ns > 0);
+    assert!(initial.gpu_frame_time_ns > 0);
     assert!(initial.gpu_resident_bytes > 0);
     assert!(initial.gpu_field_capacity_bytes >= (field_len * std::mem::size_of::<f32>()) as u64);
 
@@ -406,6 +415,7 @@ fn adapter_2d_field_update_writes_scalar_storage_without_geometry_reupload() {
         initial.gpu_geometry_upload_bytes
     );
     assert_eq!(updated.gpu_field_write_count, 1);
+    assert!(updated.gpu_field_write_time_ns > 0);
     assert_eq!(
         updated.gpu_field_write_bytes,
         4 * std::mem::size_of::<f32>() as u64

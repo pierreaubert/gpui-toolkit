@@ -18,6 +18,7 @@ use std::cell::RefCell;
 use std::ffi::c_void;
 use std::ptr;
 use std::rc::Rc;
+use std::time::Instant;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -602,17 +603,20 @@ impl MetalCustomDraw for MetalMeshDraw {
         bounds: Bounds<Pixels>,
         scale_factor: f32,
     ) {
+        let frame_started = Instant::now();
         let state = self.state.borrow();
         let Some(upload) = state.upload.as_ref() else {
             return;
         };
         let mut resources = self.resources.borrow_mut();
         let mut created_geometry_resource = false;
+        let mut geometry_upload_time = None;
         if resources.as_ref().is_none_or(|resources| {
             resources.geometry_rev != state.geometry_rev
                 || resources.target_width != drawable_texture.width()
                 || resources.target_height != drawable_texture.height()
         }) {
+            let geometry_started = Instant::now();
             *resources = MetalResources::new(
                 device,
                 drawable_texture,
@@ -621,16 +625,19 @@ impl MetalCustomDraw for MetalMeshDraw {
                 &state,
                 self.is_3d,
             );
+            geometry_upload_time = Some(geometry_started.elapsed());
             created_geometry_resource = true;
         }
         let Some(resources) = resources.as_mut() else {
             return;
         };
         let mut field_write_bytes = 0;
+        let field_write_started = Instant::now();
         if resources.field_rev != state.field_rev {
             field_write_bytes = resources.update_values(upload);
             resources.field_rev = state.field_rev;
         }
+        let field_write_time = field_write_started.elapsed();
         let resident_bytes = resources.resident_bytes;
         let field_capacity_bytes = resources.field_capacity_bytes;
         drop(state);
@@ -638,9 +645,13 @@ impl MetalCustomDraw for MetalMeshDraw {
             let mut state = self.state.borrow_mut();
             if created_geometry_resource {
                 state.record_gpu_geometry_upload(resources.geometry_bytes);
+                if let Some(elapsed) = geometry_upload_time {
+                    state.record_gpu_geometry_upload_time(elapsed);
+                }
             }
             if field_write_bytes != 0 {
                 state.record_gpu_field_write(field_write_bytes);
+                state.record_gpu_field_write_time(field_write_time);
             }
             state.set_gpu_memory(resident_bytes, field_capacity_bytes);
         }
@@ -731,6 +742,10 @@ impl MetalCustomDraw for MetalMeshDraw {
             encoder.draw_primitives(MTLPrimitiveType::Line, 0, resources.triad_count as u64);
         }
         encoder.end_encoding();
+        drop(state);
+        self.state
+            .borrow_mut()
+            .record_gpu_frame_time(frame_started.elapsed());
     }
 }
 

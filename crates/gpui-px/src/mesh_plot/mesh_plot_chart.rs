@@ -2472,6 +2472,10 @@ fn build_retained_scene_state(
         gpu_geometry_upload_bytes: 0,
         gpu_field_capacity_bytes: 0,
         gpu_resident_bytes: 0,
+        gpu_geometry_upload_time_ns: 0,
+        gpu_field_write_time_ns: 0,
+        gpu_frame_time_ns: 0,
+        gpu_frame_count: 0,
         view_transform: mesh_view_transform(
             origin,
             x_domain,
@@ -2578,6 +2582,10 @@ pub(crate) fn build_retained_3d_scene_state(
         gpu_geometry_upload_bytes: 0,
         gpu_field_capacity_bytes: 0,
         gpu_resident_bytes: 0,
+        gpu_geometry_upload_time_ns: 0,
+        gpu_field_write_time_ns: 0,
+        gpu_frame_time_ns: 0,
+        gpu_frame_count: 0,
         view_transform: [
             [1.0, 0.0, 0.0, 0.0],
             [0.0, 1.0, 0.0, 0.0],

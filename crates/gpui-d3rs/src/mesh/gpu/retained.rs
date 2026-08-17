@@ -1,5 +1,6 @@
 use super::{FieldRevision, GeometryRevision};
 use crate::mesh::MeshUpload;
+use std::time::Duration;
 
 /// Replace a retained scalar buffer without reallocating when its capacity is
 /// already sufficient. The first field upload may allocate; subsequent field
@@ -77,6 +78,20 @@ pub struct MeshSceneState {
     /// targets. Pipeline/driver-private allocations are intentionally not
     /// included because wgpu and Metal do not expose them portably.
     pub gpu_resident_bytes: u64,
+    /// CPU time spent creating/uploading the current adapter geometry
+    /// resources, accumulated across retained resource generations.
+    ///
+    /// This measures the production submission path, not asynchronous GPU
+    /// execution time; it is still useful for comparing adapter lanes and
+    /// spotting regressions in resource churn.
+    pub gpu_geometry_upload_time_ns: u64,
+    /// CPU time spent submitting adapter-backed scalar-buffer writes.
+    pub gpu_field_write_time_ns: u64,
+    /// CPU time spent recording retained custom-draw frames.
+    pub gpu_frame_time_ns: u64,
+    /// Number of retained adapter-backed frames included in
+    /// [`Self::gpu_frame_time_ns`].
+    pub gpu_frame_count: u64,
     pub view_transform: [[f32; 4]; 4],
     pub color: MeshColorConfig,
 }
@@ -97,6 +112,10 @@ impl Default for MeshSceneState {
             gpu_geometry_upload_bytes: 0,
             gpu_field_capacity_bytes: 0,
             gpu_resident_bytes: 0,
+            gpu_geometry_upload_time_ns: 0,
+            gpu_field_write_time_ns: 0,
+            gpu_frame_time_ns: 0,
+            gpu_frame_count: 0,
             view_transform: [
                 [1.0, 0.0, 0.0, 0.0],
                 [0.0, 1.0, 0.0, 0.0],
@@ -141,6 +160,28 @@ impl MeshSceneState {
     pub fn set_gpu_memory(&mut self, resident_bytes: u64, field_capacity_bytes: u64) {
         self.gpu_resident_bytes = resident_bytes;
         self.gpu_field_capacity_bytes = field_capacity_bytes;
+    }
+
+    /// Accumulate adapter geometry resource creation/upload time.
+    pub fn record_gpu_geometry_upload_time(&mut self, elapsed: Duration) {
+        self.gpu_geometry_upload_time_ns = self
+            .gpu_geometry_upload_time_ns
+            .saturating_add(elapsed.as_nanos().min(u128::from(u64::MAX)) as u64);
+    }
+
+    /// Accumulate adapter scalar-buffer write submission time.
+    pub fn record_gpu_field_write_time(&mut self, elapsed: Duration) {
+        self.gpu_field_write_time_ns = self
+            .gpu_field_write_time_ns
+            .saturating_add(elapsed.as_nanos().min(u128::from(u64::MAX)) as u64);
+    }
+
+    /// Accumulate retained custom-draw frame recording time.
+    pub fn record_gpu_frame_time(&mut self, elapsed: Duration) {
+        self.gpu_frame_time_ns = self
+            .gpu_frame_time_ns
+            .saturating_add(elapsed.as_nanos().min(u128::from(u64::MAX)) as u64);
+        self.gpu_frame_count = self.gpu_frame_count.saturating_add(1);
     }
 }
 
@@ -275,5 +316,14 @@ mod tests {
         assert_eq!(state.gpu_field_write_bytes, 64);
         assert_eq!(state.gpu_resident_bytes, 512);
         assert_eq!(state.gpu_field_capacity_bytes, 128);
+
+        state.record_gpu_geometry_upload_time(Duration::from_nanos(7));
+        state.record_gpu_field_write_time(Duration::from_nanos(11));
+        state.record_gpu_frame_time(Duration::from_nanos(13));
+        state.record_gpu_frame_time(Duration::from_nanos(17));
+        assert_eq!(state.gpu_geometry_upload_time_ns, 7);
+        assert_eq!(state.gpu_field_write_time_ns, 11);
+        assert_eq!(state.gpu_frame_time_ns, 30);
+        assert_eq!(state.gpu_frame_count, 2);
     }
 }
