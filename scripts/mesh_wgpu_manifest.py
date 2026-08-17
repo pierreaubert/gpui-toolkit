@@ -16,6 +16,14 @@ RENDERER = "wgpu-headless"
 WIDTH = 256
 HEIGHT = 192
 CASE_IDS = ("mesh", "smooth", "cell", "wireframe", "isoline", "revolve")
+COMPARISON_IDS = {
+    "mesh": "px.mesh_plot.mesh_only",
+    "smooth": "px.mesh_plot.smooth_fill",
+    "cell": "px.mesh_plot.flat_fill",
+    "wireframe": "px.mesh_plot.wireframe",
+    "isoline": "px.mesh_plot.isolines",
+    "revolve": "px.mesh_plot.revolve",
+}
 CHECKSUM_RE = re.compile(r"^fnv1a64:[0-9a-f]{16}$")
 
 
@@ -63,14 +71,15 @@ def validate_manifest(
     repo_root: Path,
     require_images: bool,
     allow_skipped: bool,
+    expected_renderer: str = RENDERER,
 ) -> dict[str, Any]:
-    """Validate one actual or baseline manifest and return its JSON object."""
+    """Validate one adapter visual manifest and return its JSON object."""
 
     manifest = _read_object(path, "WGPU visual manifest")
     if manifest.get("schema_version") != SCHEMA_VERSION:
         raise WgpuManifestError(f"WGPU visual manifest schema mismatch: {path}")
-    if manifest.get("renderer") != RENDERER:
-        raise WgpuManifestError(f"WGPU visual manifest renderer mismatch: {path}")
+    if manifest.get("renderer") != expected_renderer:
+        raise WgpuManifestError(f"visual manifest renderer mismatch: {path}")
 
     status = manifest.get("status", "captured")
     if status == "skipped":
@@ -106,6 +115,11 @@ def validate_manifest(
         seen_ids.add(case_id)
         if not isinstance(case.get("description"), str) or not case["description"].strip():
             raise WgpuManifestError(f"WGPU visual case {case_id} has no description")
+        comparison_id = case.get("comparison_id")
+        if comparison_id != COMPARISON_IDS[case_id]:
+            raise WgpuManifestError(
+                f"WGPU visual case {case_id} has an invalid comparison_id"
+            )
         path_text = case.get("path")
         if not isinstance(path_text, str):
             raise WgpuManifestError(f"WGPU visual case {case_id} has no image path")
@@ -161,13 +175,13 @@ def compare_manifests(actual: dict[str, Any], baseline: dict[str, Any]) -> None:
                 )
 
 
-def write_skip(path: Path, reason: str) -> None:
+def write_skip(path: Path, reason: str, *, renderer: str = RENDERER) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         json.dumps(
             {
                 "schema_version": SCHEMA_VERSION,
-                "renderer": RENDERER,
+                "renderer": renderer,
                 "status": "skipped",
                 "reason": reason,
                 "cases": [],
@@ -185,13 +199,19 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--baseline", type=Path)
     parser.add_argument("--repo-root", type=Path, default=Path.cwd())
     parser.add_argument("--required", action="store_true")
+    parser.add_argument(
+        "--capture-only",
+        action="store_true",
+        help="require a captured manifest but do not require a standalone baseline",
+    )
     parser.add_argument("--write-skip", type=Path)
     parser.add_argument("--reason", default="no usable WGPU adapter")
+    parser.add_argument("--renderer", default=RENDERER)
     args = parser.parse_args(argv)
 
     try:
         if args.write_skip is not None:
-            write_skip(args.write_skip, args.reason)
+            write_skip(args.write_skip, args.reason, renderer=args.renderer)
             return 0
         if args.actual is None:
             parser.error("--actual is required unless --write-skip is used")
@@ -200,18 +220,27 @@ def main(argv: list[str] | None = None) -> int:
             repo_root=args.repo_root,
             require_images=True,
             allow_skipped=not args.required,
+            expected_renderer=args.renderer,
         )
         if actual.get("status", "captured") == "skipped":
             if args.required:
-                raise WgpuManifestError("WGPU visual lane is skipped but is required")
-            print("WGPU visual captures skipped; no usable adapter was available")
+                raise WgpuManifestError(
+                    f"{args.renderer} visual lane is skipped but is required"
+                )
+            print(f"{args.renderer} visual captures skipped; no usable adapter was available")
+            return 0
+        if args.capture_only:
+            print(f"{args.renderer} visual capture passed ({len(CASE_IDS)} cases)")
             return 0
         if args.baseline is None or not args.baseline.is_file():
             if args.required:
                 raise WgpuManifestError(
-                    f"missing WGPU baseline {args.baseline}; promote from a clean release run"
+                    f"missing {args.renderer} baseline {args.baseline}; promote from a clean release run"
                 )
-            print(f"WGPU visual captures produced; baseline not installed: {args.baseline}")
+            print(
+                f"{args.renderer} visual captures produced; baseline not installed: "
+                f"{args.baseline}"
+            )
             return 0
         baseline = validate_manifest(
             args.baseline,

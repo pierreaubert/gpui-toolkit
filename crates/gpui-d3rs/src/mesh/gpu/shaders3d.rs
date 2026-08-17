@@ -134,7 +134,11 @@ fn isoline_alpha(value: f32, step: f32, width: f32) -> f32 {
     if (step <= 0.0 || width <= 0.0) { return 0.0; }
     let phase = value / step;
     let distance = abs(fract(phase + 0.5) - 0.5);
-    let phase_per_pixel = clamp(fwidth(phase), 0.0001, 0.5);
+    // Derivative implementations can differ by a few ulps between Metal and
+    // WGPU even when they target the same adapter. Quantize the pixel phase
+    // width before the smoothstep so antialiased isolines have stable 8-bit
+    // output at adapter boundaries.
+    let phase_per_pixel = clamp(round(clamp(fwidth(phase), 0.0001, 0.5) * 64.0) / 64.0, 0.0001, 0.5);
     let half_width = max(0.5 * width * phase_per_pixel, 0.35 * phase_per_pixel);
     return 1.0 - smoothstep(half_width, half_width + phase_per_pixel, distance);
 }
@@ -190,7 +194,17 @@ struct Uniforms {
 struct VertexIn {
     float4 position [[attribute(0)]];
     float4 normal [[attribute(1)]];
+    // Keep the raw Metal buffer stride identical to Rust's `MetalVertex`:
+    // position (16) + normal (16) + value (4) + padding (12).  The 3D
+    // scalar is read from the separate values buffer in `vs_main`, but it
+    // still occupies space in the interleaved upload and must be represented
+    // here so vertex_id advances by 48 bytes rather than 32. Keep the
+    // trailing padding as scalar members: Metal gives a float3 16-byte
+    // alignment, which would incorrectly make this struct 64 bytes.
+    float value [[attribute(2)]];
+    float _padding[3];
 };
+static_assert(sizeof(VertexIn) == 48, "MetalVertex ABI must remain 48 bytes");
 
 struct VertexOut {
     float4 position [[position]];
@@ -265,7 +279,9 @@ float isoline_alpha(float value, float step, float width) {
     if (step <= 0.0 || width <= 0.0) return 0.0;
     float phase = value / step;
     float distance = abs(fract(phase + 0.5) - 0.5);
-    float phase_per_pixel = clamp(fwidth(phase), 0.0001, 0.5);
+    // Keep antialiased isoline output stable across Metal and WGPU derivative
+    // implementations by using the same fixed phase-width quantization.
+    float phase_per_pixel = clamp(round(clamp(fwidth(phase), 0.0001, 0.5) * 64.0) / 64.0, 0.0001, 0.5);
     float half_width = max(0.5 * width * phase_per_pixel, 0.35 * phase_per_pixel);
     return 1.0 - smoothstep(half_width, half_width + phase_per_pixel, distance);
 }

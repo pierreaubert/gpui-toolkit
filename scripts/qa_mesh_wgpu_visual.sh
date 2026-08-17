@@ -23,6 +23,10 @@ output_root="${QA_WGPU_VISUAL_OUTPUT_ROOT:-target/qa/visual/mesh-plot-wgpu}"
 actual_dir="$output_root/actual"
 baseline_dir="${QA_WGPU_VISUAL_BASELINE_DIR:-qa/visual/baselines/mesh-plot-wgpu-v1}"
 required="${QA_WGPU_REQUIRED:-0}"
+mkdir -p "$actual_dir"
+# The capture lane owns this manifest; do not retain a prior captured manifest
+# if compilation or adapter discovery takes a skip path.
+rm -f "$actual_dir/manifest.json"
 capture_log="$(mktemp -t mesh-plot-wgpu.XXXXXX)"
 trap 'rm -f "$capture_log"' EXIT
 

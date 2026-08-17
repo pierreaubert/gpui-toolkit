@@ -122,7 +122,11 @@ qa-gpui-obvious: qa-gpui-conformance
 # Full QA aggregator. Runs non-coverage checks first; coverage gate is last so a
 # sub-90% report still lets the other suites exercise the code.
 [group('qa')]
-qa: lint-host qa-scripts qa-api qa-prop qa-visual qa-mesh-wgpu-visual qa-perf qa-gpui-obvious qa-cov-check qa-deps
+qa: lint-host qa-scripts qa-api qa-prop qa-visual qa-mesh-wgpu-visual qa-mesh-metal-visual qa-mesh-product-visual qa-mesh-cvd qa-mesh-compute qa-mesh-lod qa-mesh-metal-memory qa-mesh-expanded-visual qa-perf qa-gpui-obvious qa-cov-check qa-deps
+	# The developer lane skips when paired reference captures are unavailable;
+	# the release recipe below reruns it with a hard requirement.
+	bash scripts/qa_mesh_cross_adapter_visual.sh
+	bash scripts/qa_mesh_cross_adapter_expanded.sh
 	python3 scripts/qa_release_evidence.py
 	@echo "Full QA suite passed"
 
@@ -131,6 +135,14 @@ qa: lint-host qa-scripts qa-api qa-prop qa-visual qa-mesh-wgpu-visual qa-perf qa
 # with scripts/qa_release_evidence.py --require-platform <lane>.
 [group('release')]
 qa-release-evidence: qa
+	QA_METAL_REQUIRED=1 bash scripts/qa_mesh_metal_visual.sh
+	QA_PRODUCT_REQUIRED=1 bash scripts/qa_mesh_product_visual.sh
+	QA_CVD_REQUIRED=1 bash scripts/qa_mesh_cvd.sh
+	QA_COMPUTE_REQUIRED=1 bash scripts/qa_mesh_compute.sh
+	QA_LOD_REQUIRED=1 bash scripts/qa_mesh_lod.sh
+	QA_METAL_MEMORY_REQUIRED=1 bash scripts/qa_mesh_metal_memory.sh
+	QA_CROSS_ADAPTER_REQUIRED=1 bash scripts/qa_mesh_cross_adapter_visual.sh
+	QA_EXPANDED_REQUIRED=1 bash scripts/qa_mesh_cross_adapter_expanded.sh
 	python3 scripts/qa_release_evidence.py --require-clean
 
 [group('qa')]
@@ -143,9 +155,17 @@ qa-scripts:
 	bash -n scripts/run_apple_simulator_smoke.sh
 	bash -n scripts/run_android_emulator_smoke.sh
 	bash -n scripts/run_utm_linux_guest_native_ui_smoke.sh
+	bash -n scripts/qa_mesh_cross_adapter_visual.sh
+	bash -n scripts/qa_mesh_cross_adapter_expanded.sh
 	bash -n scripts/run_utm_linux_native_ui_smoke.sh
 	bash -n scripts/run_utm_windows_native_ui_smoke.sh
 	bash -n scripts/qa_fuzz_check.sh
+	bash -n scripts/qa_mesh_metal_visual.sh
+	bash -n scripts/qa_mesh_product_visual.sh
+	bash -n scripts/qa_mesh_cvd.sh
+	bash -n scripts/qa_mesh_compute.sh
+	bash -n scripts/qa_mesh_lod.sh
+	bash -n scripts/qa_mesh_metal_memory.sh
 	python3 scripts/qa_desktop_accessibility.py --output-json target/qa/accessibility/desktop-evidence.json --output-markdown target/qa/accessibility/desktop-evidence.md
 
 # Local macOS capture uses the native host directly. UTM is reserved for the
@@ -221,6 +241,57 @@ qa-visual:
 qa-mesh-wgpu-visual:
 	@echo "Running MeshPlot WGPU visual checks..."
 	bash scripts/qa_mesh_wgpu_visual.sh
+
+# Adapter-backed Metal MeshPlot capture. Release CI should set
+# QA_METAL_REQUIRED=1 and use a macOS machine with a usable Metal device.
+[group('qa')]
+qa-mesh-metal-visual:
+	@echo "Running MeshPlot Metal visual checks..."
+	bash scripts/qa_mesh_metal_visual.sh
+
+# Product-level paired MeshPlot capture with GPUI axes, labels, colorbar, and
+# selected-cell overlay. Release CI should set QA_PRODUCT_REQUIRED=1.
+[group('qa')]
+qa-mesh-product-visual:
+	@echo "Running high-level MeshPlot product visual checks..."
+	bash scripts/qa_mesh_product_visual.sh
+
+# Automated rendered-stimulus CVD screen. Release CI should set
+# QA_CVD_REQUIRED=1 after a product capture on the reference host. Human CVD
+# review remains a separate manual acceptance gate.
+[group('qa')]
+qa-mesh-cvd:
+	@echo "Running MeshPlot rendered CVD screen..."
+	bash scripts/qa_mesh_cvd.sh
+
+# Adapter-backed MeshPlot compute parity and timestamp evidence. Release CI
+# should set QA_COMPUTE_REQUIRED=1 on a Metal machine with timestamp support.
+[group('qa')]
+qa-mesh-compute:
+	@echo "Running MeshPlot compute parity/timing checks..."
+	bash scripts/qa_mesh_compute.sh
+
+# Adapter-backed MeshPlot drag-time LOD visual and frame-budget evidence.
+# Release CI should set QA_LOD_REQUIRED=1 on a Metal reference host.
+[group('qa')]
+qa-mesh-lod:
+	@echo "Running MeshPlot LOD visual/frame-budget checks..."
+	bash scripts/qa_mesh_lod.sh
+
+# Long-run native Metal driver-allocation, eviction, and teardown evidence.
+# Release CI should set QA_METAL_MEMORY_REQUIRED=1 on a clean reference host.
+[group('qa')]
+qa-mesh-metal-memory:
+	@echo "Running MeshPlot Metal memory lifecycle checks..."
+	bash scripts/qa_mesh_metal_memory.sh
+
+# Adapter-backed expanded MeshPlot state matrix. This deliberately stays
+# separate from the six-case baseline: camera, displayed range, and NaN-mask
+# state changes are compared exactly but are not baseline promotion cases.
+[group('qa')]
+qa-mesh-expanded-visual:
+	@echo "Running expanded MeshPlot adapter-state visual checks..."
+	bash scripts/qa_mesh_cross_adapter_expanded.sh
 
 # Generate a full workspace coverage report.
 [group('qa')]

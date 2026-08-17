@@ -8,6 +8,7 @@ from pathlib import Path
 
 from mesh_wgpu_manifest import (
     CASE_IDS,
+    COMPARISON_IDS,
     WgpuManifestError,
     compare_manifests,
     validate_manifest,
@@ -26,6 +27,7 @@ def captured_manifest(paths: list[str] | None = None) -> dict[str, object]:
         "cases": [
             {
                 "id": case_id,
+                "comparison_id": COMPARISON_IDS[case_id],
                 "description": f"fixture {case_id}",
                 "path": path,
                 "opaque_pixels": index + 1,
@@ -122,6 +124,17 @@ class WgpuManifestTests(unittest.TestCase):
                 repo_root=self.root,
                 require_images=True,
                 allow_skipped=False,
+                    )
+
+        value = captured_manifest()
+        value["cases"][0]["comparison_id"] = "wrong.semantic.case"
+        self.write_manifest(value)
+        with self.assertRaisesRegex(WgpuManifestError, "invalid comparison_id"):
+            validate_manifest(
+                self.manifest_path,
+                repo_root=self.root,
+                require_images=True,
+                allow_skipped=False,
             )
 
     def test_skip_manifest_requires_reason_and_is_disallowed_when_required(self):
@@ -152,6 +165,19 @@ class WgpuManifestTests(unittest.TestCase):
                 require_images=True,
                 allow_skipped=True,
             )
+
+    def test_validator_accepts_the_native_metal_renderer_contract(self):
+        value = captured_manifest()
+        value["renderer"] = "metal-headless"
+        self.write_manifest(value)
+        manifest = validate_manifest(
+            self.manifest_path,
+            repo_root=self.root,
+            require_images=True,
+            allow_skipped=False,
+            expected_renderer="metal-headless",
+        )
+        self.assertEqual(manifest["renderer"], "metal-headless")
 
     def test_compare_manifests_catches_opaque_pixel_and_checksum_drift(self):
         actual = captured_manifest()

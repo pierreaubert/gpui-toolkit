@@ -37,7 +37,9 @@ pub type GpuContext = Rc<RefCell<Option<WgpuContext>>>;
 pub(super) struct WgpuResources {
     pub(super) device: Arc<wgpu::Device>,
     pub(super) queue: Arc<wgpu::Queue>,
-    pub(super) surface: wgpu::Surface<'static>,
+    /// The interactive renderer owns a configured surface. Headless QA uses
+    /// the same pipelines and resources against a caller-provided texture.
+    pub(super) surface: Option<wgpu::Surface<'static>>,
     pub(super) pipelines: WgpuPipelines,
     pub(super) bind_group_layouts: WgpuBindGroupLayouts,
     pub(super) atlas_sampler: wgpu::Sampler,

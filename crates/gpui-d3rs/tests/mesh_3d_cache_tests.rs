@@ -113,5 +113,7 @@ fn shader_sources_include_surface_and_wireframe_entries() {
     assert!(shaders3d::msl().contains("fragment float4 fs_wireframe"));
     assert!(shaders3d::msl().contains("const device float* values [[buffer(2)]]"));
     assert!(shaders3d::msl().contains("uniforms.value_range.z > 0.5 ? values[vertex_id] : 0.0"));
-    assert!(!shaders3d::msl().contains("value [[attribute(2)]]"));
+    // The Metal vertex ABI carries the scalar slot and trailing padding so
+    // vertex_id advances over the same 48-byte stride as Rust's upload.
+    assert!(shaders3d::msl().contains("value [[attribute(2)]]"));
 }

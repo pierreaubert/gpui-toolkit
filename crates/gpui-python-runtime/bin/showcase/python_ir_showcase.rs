@@ -402,9 +402,16 @@ mod native_mesh_plot_tests {
         Arc::new(gpui::NoopTextSystem::new())
     }
 
+    fn native_metal_required() -> bool {
+        matches!(std::env::var("QA_NATIVE_REQUIRED").as_deref(), Ok("1"))
+            || matches!(std::env::var("QA_METAL_REQUIRED").as_deref(), Ok("1"))
+    }
+
     fn native_metal_available() -> bool {
         if MetalHeadlessRenderer::try_new().is_some() {
             true
+        } else if native_metal_required() {
+            panic!("native Metal QA requires a compatible Metal device")
         } else {
             eprintln!("native Metal QA skipped: no compatible Metal device");
             false

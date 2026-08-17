@@ -28,9 +28,24 @@ class ReleaseError(RuntimeError):
     pass
 
 
+def resolve_command(args: tuple[str, ...]) -> list[str]:
+    """Resolve Rust tools when a restricted shell omits Cargo's bin directory."""
+
+    if not args:
+        return []
+    executable = args[0]
+    if os.path.isabs(executable) or shutil.which(executable):
+        return list(args)
+    if executable in {"cargo", "rustc", "rustup", "just"}:
+        fallback = Path.home() / ".cargo" / "bin" / executable
+        if fallback.is_file() or fallback.is_symlink():
+            return [str(fallback), *args[1:]]
+    return list(args)
+
+
 def run(root: Path, *args: str, text: bool = True) -> str | bytes:
     completed = subprocess.run(
-        args,
+        resolve_command(args),
         cwd=root,
         check=True,
         stdout=subprocess.PIPE,
@@ -175,7 +190,7 @@ def package_wave_one(root: Path, staging: Path, metadata: dict[str, Any]) -> lis
         if package not in versions:
             raise ReleaseError(f"cargo metadata does not contain workspace package {package}")
         subprocess.run(
-            ["cargo", "package", "--locked", "--offline", "-p", package],
+            resolve_command(("cargo", "package", "--locked", "--offline", "-p", package)),
             cwd=root,
             check=True,
         )

@@ -5,11 +5,11 @@
   "width": 256,
   "height": 192,
   "cases": [
-    {"id":"mesh","description":"mesh-only","path":"mesh.png","opaque_pixels":15541,"rgba_checksum":"fnv1a64:f73d9b50f6a57b4a"},
-    {"id":"smooth","description":"smooth vertex scalar fill","path":"smooth.png","opaque_pixels":15541,"rgba_checksum":"fnv1a64:c8ec9bd6d33879ee"},
-    {"id":"cell","description":"flat cell scalar fill","path":"cell.png","opaque_pixels":15541,"rgba_checksum":"fnv1a64:840af1b71a99834e"},
-    {"id":"wireframe","description":"smooth fill with wireframe","path":"wireframe.png","opaque_pixels":15789,"rgba_checksum":"fnv1a64:9332b1ad3d4cbb87"},
-    {"id":"isoline","description":"smooth fill with isoline","path":"isoline.png","opaque_pixels":15541,"rgba_checksum":"fnv1a64:7755f35bd536f802"},
-    {"id":"revolve","description":"axisymmetric revolved surface","path":"revolve.png","opaque_pixels":21607,"rgba_checksum":"fnv1a64:20ea8ef300902ea2"}
+    {"id":"mesh","comparison_id":"px.mesh_plot.mesh_only","description":"mesh-only","path":"mesh.png","opaque_pixels":49152,"rgba_checksum":"fnv1a64:4425df9235029ae5"},
+    {"id":"smooth","comparison_id":"px.mesh_plot.smooth_fill","description":"smooth vertex scalar fill","path":"smooth.png","opaque_pixels":49152,"rgba_checksum":"fnv1a64:729ad5024b6e6019"},
+    {"id":"cell","comparison_id":"px.mesh_plot.flat_fill","description":"flat cell scalar fill","path":"cell.png","opaque_pixels":49152,"rgba_checksum":"fnv1a64:7dbb63eb3bae71b1"},
+    {"id":"wireframe","comparison_id":"px.mesh_plot.wireframe","description":"smooth fill with wireframe","path":"wireframe.png","opaque_pixels":49152,"rgba_checksum":"fnv1a64:83b21de865ee72dc"},
+    {"id":"isoline","comparison_id":"px.mesh_plot.isolines","description":"smooth fill with isoline","path":"isoline.png","opaque_pixels":49152,"rgba_checksum":"fnv1a64:8f16b07fabcbfaec"},
+    {"id":"revolve","comparison_id":"px.mesh_plot.revolve","description":"axisymmetric revolved surface","path":"revolve.png","opaque_pixels":49152,"rgba_checksum":"fnv1a64:c917fe5e1146ef9d"}
   ]
 }

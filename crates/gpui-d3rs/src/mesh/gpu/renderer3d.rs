@@ -6,9 +6,10 @@
 //! graphics adapter and lets the wgpu/Metal implementations share it.
 
 use crate::gpu3d::Camera3D;
+#[cfg(not(test))]
+use crate::mesh::gpu::GpuTimestampRecorder;
 use crate::mesh::gpu::{
-    FieldRevision, GeometryRevision, GpuTimestampRecorder, MeshColorConfig, MeshGpuRenderer,
-    RetainedMeshRenderer,
+    FieldRevision, GeometryRevision, MeshColorConfig, MeshGpuRenderer, RetainedMeshRenderer,
 };
 #[cfg(not(test))]
 use crate::mesh::upload_chunks;
@@ -255,6 +256,7 @@ struct WgpuMesh3DResources {
     depth_view: wgpu::TextureView,
     width: u32,
     height: u32,
+    #[cfg(not(test))]
     timestamp: Option<GpuTimestampRecorder>,
 }
 

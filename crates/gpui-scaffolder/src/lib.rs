@@ -1421,6 +1421,7 @@ mod tests {
             force: false,
             dry_run: false,
         })?;
+        patch_scaffold_for_local_workspace(&scaffolded.app_dir.join("Cargo.toml"))?;
 
         run_scaffolded_cargo_check(
             &scaffolded.app_dir.join("Cargo.toml"),
@@ -1441,6 +1442,7 @@ mod tests {
             force: false,
             dry_run: false,
         })?;
+        patch_scaffold_for_local_workspace(&scaffolded.app_dir.join("Cargo.toml"))?;
 
         run_scaffolded_cargo_check(
             &scaffolded.app_dir.join("Cargo.toml"),
@@ -1461,6 +1463,7 @@ mod tests {
             force: false,
             dry_run: false,
         })?;
+        patch_scaffold_for_local_workspace(&scaffolded.app_dir.join("Cargo.toml"))?;
 
         run_scaffolded_cargo_check_with_toolchain(
             &scaffolded.app_dir.join("Cargo.toml"),
@@ -1470,6 +1473,64 @@ mod tests {
             "scaffolded tvOS simulator library failed cargo check",
         )?;
 
+        Ok(())
+    }
+
+    /// Keep compile-smoke tests offline without changing the published
+    /// scaffold template: generated apps intentionally point at the public
+    /// Zed tag, while this test-only patch redirects that source to the
+    /// workspace's vendored crates.
+    fn patch_scaffold_for_local_workspace(manifest_path: &Path) -> Result<()> {
+        let toolkit_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .canonicalize()?;
+        let workspace_manifest: toml::Value = toml::from_str(include_str!("../../../Cargo.toml"))?;
+        let patches = workspace_manifest
+            .get("patch")
+            .and_then(|patch| patch.get("https://github.com/zed-industries/zed.git"))
+            .and_then(toml::Value::as_table)
+            .context("workspace must define local Zed patches")?;
+
+        let mut manifest = fs::read_to_string(manifest_path)?;
+        let generated_gpui = format!(
+            r#"gpui = {{ version = "{GPUI_VERSION}", git = "https://github.com/zed-industries/zed.git", tag = "{GPUI_ZED_TAG}" }}"#
+        );
+        let local_gpui = toolkit_root.join("crates/3rdparties/gpui").canonicalize()?;
+        let local_gpui = format!(r#"gpui = {{ path = "{}" }}"#, cargo_path(&local_gpui));
+        if !manifest.contains(&generated_gpui) {
+            bail!("generated scaffold must contain the expected GPUI Git dependency");
+        }
+        manifest = manifest.replace(&generated_gpui, &local_gpui);
+        manifest
+            .push_str("\n# Test-only local patch: keep generated-project compile smoke offline.\n");
+        manifest.push_str("[patch.\"https://github.com/zed-industries/zed.git\"]\n");
+        for (name, dependency) in patches {
+            let relative_path = dependency
+                .get("path")
+                .and_then(toml::Value::as_str)
+                .with_context(|| format!("local Zed patch {name} must have a path"))?;
+            let path = toolkit_root.join(relative_path).canonicalize()?;
+            manifest.push_str(&format!(
+                "{name} = {{ path = \"{}\" }}\n",
+                cargo_path(&path),
+            ));
+        }
+        // Dependencies inside the vendored GPUI package retain Cargo's
+        // tagged-source spelling, which some standalone-workspace versions
+        // match including the query string.
+        manifest.push_str("[patch.\"https://github.com/zed-industries/zed.git?tag=v1.9.0\"]\n");
+        for (name, dependency) in patches {
+            let relative_path = dependency
+                .get("path")
+                .and_then(toml::Value::as_str)
+                .with_context(|| format!("local Zed patch {name} must have a path"))?;
+            let path = toolkit_root.join(relative_path).canonicalize()?;
+            manifest.push_str(&format!(
+                "{name} = {{ path = \"{}\" }}\n",
+                cargo_path(&path),
+            ));
+        }
+        fs::write(manifest_path, manifest)?;
         Ok(())
     }
 
@@ -1507,6 +1568,9 @@ mod tests {
             .arg("--manifest-path")
             .arg(manifest_path)
             .env("CARGO_TARGET_DIR", target_dir);
+        if std::env::var_os("GPUI_SCAFFOLDER_OFFLINE").is_some() {
+            command.arg("--offline");
+        }
         command.args(extra_args);
 
         let output = command

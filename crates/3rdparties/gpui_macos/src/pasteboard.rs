@@ -376,6 +376,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires a live macOS pasteboard service; run with --ignored"]
     fn test_string() {
         let pasteboard = Pasteboard::unique();
         assert_eq!(pasteboard.read(), None);
@@ -410,6 +411,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires a live macOS pasteboard service; run with --ignored"]
     fn test_read_external_path() {
         let pasteboard = Pasteboard::unique();
 
@@ -440,6 +442,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires a live macOS pasteboard service; run with --ignored"]
     fn test_read_external_paths_with_spaces() {
         let pasteboard = Pasteboard::unique();
         let paths = ["/some file with spaces.txt"];
@@ -459,6 +462,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires a live macOS pasteboard service; run with --ignored"]
     fn test_read_multiple_external_paths() {
         let pasteboard = Pasteboard::unique();
         let paths = ["/file.txt", "/image.png"];
@@ -491,6 +495,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires a live macOS pasteboard service; run with --ignored"]
     fn test_read_image() {
         let pasteboard = Pasteboard::unique();
 

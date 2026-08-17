@@ -1,21 +1,36 @@
-//! Capture retained MeshPlot scenes through the real WGPU adapter-backed
-//! renderer. The output is consumed by the WGPU visual QA lane.
+//! Capture the retained MeshPlot scenes through the native Metal custom draw.
+//!
+//! The output uses the same six canonical scene IDs and 256x192 target size as
+//! `mesh_wgpu_visual_capture`, allowing the release QA wrapper to compare the
+//! renderer backends without substituting high-level component-lab captures.
+
+#![cfg(target_os = "macos")]
 
 use d3rs::gpu3d::Camera3D;
 use d3rs::mesh::gpu::{
-    GeometryRevision, MeshColorConfig, MeshSceneState, render_offscreen_wgpu_with_camera,
+    GeometryRevision, MeshColorConfig, MeshSceneElement, MeshSceneState, MetalMeshRenderer,
 };
 use d3rs::mesh::{
-    MeshTopology, RevolveSpec, ScalarAssociation, ScalarField, TriangleMesh, prepare_upload,
-    revolve, revolve_field,
+    CoordinateAxis, MeshTopology, RevolveSpec, ScalarAssociation, ScalarField, TriangleMesh,
+    prepare_upload, revolve, revolve_field,
 };
+use gpui::{
+    AnyWindowHandle, AppContext, Context, HeadlessAppContext, ParentElement, Platform, Render,
+    Styled, Window, div, px, size,
+};
+use gpui_macos::{MacPlatform, metal_renderer::MetalHeadlessRenderer};
+use image::RgbaImage;
+use std::cell::RefCell;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 use std::sync::Arc;
 
 const WIDTH: u32 = 256;
 const HEIGHT: u32 = 192;
+const CSS_WIDTH: f32 = 128.0;
+const CSS_HEIGHT: f32 = 96.0;
 
 #[derive(Clone, Copy)]
 struct CaptureCase {
@@ -75,9 +90,23 @@ const EXPANDED_CASES: &[CaptureCase] = &[
     },
 ];
 
+struct SceneView {
+    state: Rc<RefCell<MeshSceneState>>,
+    custom_id: gpui::CustomDrawId,
+}
+
+impl Render for SceneView {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl gpui::IntoElement {
+        div()
+            .w(px(CSS_WIDTH))
+            .h(px(CSS_HEIGHT))
+            .child(MeshSceneElement::new(self.state.clone()).with_custom_id(self.custom_id))
+    }
+}
+
 fn square_mesh() -> TriangleMesh {
     TriangleMesh {
-        id: "wgpu-visual-square".into(),
+        id: "metal-visual-square".into(),
         positions: Arc::from([
             [-1.0, -1.0, 0.0],
             [1.0, -1.0, 0.0],
@@ -92,7 +121,7 @@ fn square_mesh() -> TriangleMesh {
 
 fn square_field() -> ScalarField {
     ScalarField {
-        id: "wgpu-visual-field".into(),
+        id: "metal-visual-field".into(),
         label: "scalar".into(),
         unit: Some("arb".into()),
         values: Arc::from([0.0, 0.5, 1.0, 0.25]),
@@ -103,7 +132,7 @@ fn square_field() -> ScalarField {
 
 fn square_cell_field() -> ScalarField {
     ScalarField {
-        id: "wgpu-visual-cell-field".into(),
+        id: "metal-visual-cell-field".into(),
         label: "cell scalar".into(),
         unit: Some("arb".into()),
         values: Arc::from([0.15, 0.85]),
@@ -114,7 +143,7 @@ fn square_cell_field() -> ScalarField {
 
 fn profile_mesh() -> TriangleMesh {
     TriangleMesh {
-        id: "wgpu-visual-profile".into(),
+        id: "metal-visual-profile".into(),
         positions: Arc::from([
             [0.15, 0.0, -1.0],
             [0.75, 0.0, -1.0],
@@ -129,7 +158,7 @@ fn profile_mesh() -> TriangleMesh {
 
 fn profile_field() -> ScalarField {
     ScalarField {
-        id: "wgpu-visual-profile-field".into(),
+        id: "metal-visual-profile-field".into(),
         label: "pressure".into(),
         unit: Some("Pa".into()),
         values: Arc::from([0.0, 0.35, 0.75, 1.0]),
@@ -149,14 +178,14 @@ fn scene_camera(id: &str) -> Camera3D {
     }
 }
 
-fn scene_for(id: &str) -> Result<(MeshSceneState, Camera3D), String> {
+fn scene_for(id: &str) -> Result<(MeshSceneState, bool, Camera3D), String> {
     let camera = scene_camera(id);
     if id == "revolve" {
         let profile = profile_mesh();
         let field = profile_field();
         let spec = RevolveSpec {
-            radial: d3rs::mesh::CoordinateAxis::X,
-            axial: d3rs::mesh::CoordinateAxis::Z,
+            radial: CoordinateAxis::X,
+            axial: CoordinateAxis::Z,
             segments: 32,
             end_caps: true,
             ..RevolveSpec::default()
@@ -167,6 +196,7 @@ fn scene_for(id: &str) -> Result<(MeshSceneState, Camera3D), String> {
         let mut state = MeshSceneState {
             geometry_rev: GeometryRevision(1),
             upload: Some(upload),
+            view_transform: camera.view_projection_matrix().to_cols_array_2d(),
             color: MeshColorConfig {
                 range: [0.0, 1.0],
                 unlit: false,
@@ -175,8 +205,8 @@ fn scene_for(id: &str) -> Result<(MeshSceneState, Camera3D), String> {
             ..MeshSceneState::default()
         };
         state.upload.as_mut().unwrap().values_f32 =
-            Some(values.iter().map(|value| *value as f32).collect::<Vec<_>>());
-        return Ok((state, camera));
+            Some(values.iter().map(|value| *value as f32).collect());
+        return Ok((state, true, camera));
     }
 
     let (field, wireframe, isoline_step, range) = match id {
@@ -191,13 +221,14 @@ fn scene_for(id: &str) -> Result<(MeshSceneState, Camera3D), String> {
         "cell" => (Some(square_cell_field()), false, 0.0, [0.0, 1.0]),
         "wireframe" => (Some(square_field()), true, 0.0, [0.0, 1.0]),
         "isoline" => (Some(square_field()), false, 0.5, [0.0, 1.0]),
-        other => return Err(format!("unknown WGPU visual capture case: {other}")),
+        other => return Err(format!("unknown Metal visual capture case: {other}")),
     };
     let mesh = square_mesh();
     let upload = prepare_upload(&mesh, &MeshTopology::build(&mesh.triangles));
     let mut state = MeshSceneState {
         geometry_rev: GeometryRevision(1),
         upload: Some(upload),
+        view_transform: camera.view_projection_matrix().to_cols_array_2d(),
         color: MeshColorConfig {
             range,
             wireframe,
@@ -216,17 +247,57 @@ fn scene_for(id: &str) -> Result<(MeshSceneState, Camera3D), String> {
             state.upload.as_mut().unwrap().values_f32 = Some(values);
         }
     }
-    Ok((state, camera))
+    // Keep the canonical adapter pair on the same retained 3D renderer path
+    // as `render_offscreen_wgpu`, including for planar fixtures. This makes
+    // camera, depth, and shader behavior part of the comparison contract.
+    Ok((state, true, camera))
 }
 
-fn expanded_case_set() -> bool {
-    let mut args = env::args().skip(1);
-    while let Some(arg) = args.next() {
-        if arg == "--case-set" {
-            return args.next().as_deref() == Some("expanded");
-        }
+fn capture_case(id: &str) -> Result<RgbaImage, String> {
+    if MetalHeadlessRenderer::try_new().is_none() {
+        return Err("Metal adapter unavailable".into());
     }
-    false
+    let (state, is_3d, camera) = scene_for(id)?;
+    let state = Rc::new(RefCell::new(state));
+    let renderer = if is_3d {
+        MetalMeshRenderer::new_3d_with_camera(state.clone(), Rc::new(RefCell::new(camera)))
+    } else {
+        MetalMeshRenderer::new(state.clone())
+    };
+    let custom_id = renderer.custom_id();
+    let platform = MacPlatform::new(true);
+    let text_system = platform.text_system();
+    drop(platform);
+    let mut cx = HeadlessAppContext::with_platform(text_system, Arc::new(()), || {
+        Some(Box::new(MetalHeadlessRenderer::new()))
+    });
+    let window = cx
+        .open_window(size(px(CSS_WIDTH), px(CSS_HEIGHT)), {
+            let state = state.clone();
+            move |_window, app| app.new(|_cx| SceneView { state, custom_id })
+        })
+        .map_err(|error| format!("open Metal capture window: {error}"))?;
+    let window: AnyWindowHandle = window.into();
+    cx.update_window(window, |_, window, app| {
+        let _ = window.draw(app);
+    })
+    .map_err(|error| format!("draw Metal capture window: {error}"))?;
+    cx.run_until_parked();
+    let screenshot = cx
+        .capture_screenshot(window)
+        .map_err(|error| format!("capture Metal framebuffer: {error}"))?;
+    cx.update_window(window, |_, window, _app| window.remove_window())
+        .map_err(|error| format!("close Metal capture window: {error}"))?;
+    cx.run_until_parked();
+    drop(renderer);
+    if screenshot.width() != WIDTH || screenshot.height() != HEIGHT {
+        return Err(format!(
+            "Metal capture dimensions are {}x{}, expected {WIDTH}x{HEIGHT}",
+            screenshot.width(),
+            screenshot.height()
+        ));
+    }
+    Ok(screenshot)
 }
 
 fn fnv1a64(bytes: &[u8]) -> u64 {
@@ -242,12 +313,22 @@ fn output_dir() -> PathBuf {
             return PathBuf::from(args.next().expect("--output-dir requires a path"));
         }
     }
-    PathBuf::from("target/qa/visual/mesh-plot-wgpu/actual")
+    PathBuf::from("target/qa/visual/mesh-plot-metal/actual")
+}
+
+fn expanded_case_set() -> bool {
+    let mut args = env::args().skip(1);
+    while let Some(arg) = args.next() {
+        if arg == "--case-set" {
+            return args.next().as_deref() == Some("expanded");
+        }
+    }
+    false
 }
 
 fn write_manifest(dir: &Path, rows: &[String]) -> Result<(), String> {
     let manifest = format!(
-        "{{\n  \"schema_version\": 1,\n  \"renderer\": \"wgpu-headless\",\n  \"status\": \"captured\",\n  \"width\": {WIDTH},\n  \"height\": {HEIGHT},\n  \"cases\": [\n{}\n  ]\n}}\n",
+        "{{\n  \"schema_version\": 1,\n  \"renderer\": \"metal-headless\",\n  \"status\": \"captured\",\n  \"width\": {WIDTH},\n  \"height\": {HEIGHT},\n  \"cases\": [\n{}\n  ]\n}}\n",
         rows.join(",\n")
     );
     fs::write(dir.join("manifest.json"), manifest).map_err(|error| error.to_string())
@@ -263,14 +344,7 @@ fn main() -> Result<(), String> {
     };
     let mut rows = Vec::with_capacity(cases.len());
     for case in cases {
-        let (state, camera) = scene_for(case.id)?;
-        let image = match render_offscreen_wgpu_with_camera(&state, WIDTH, HEIGHT, &camera) {
-            Ok(image) => image,
-            Err(error) if error.starts_with("Failed to request a headless GPU adapter") => {
-                return Err(format!("WGPU adapter unavailable: {error}"));
-            }
-            Err(error) => return Err(error),
-        };
+        let image = capture_case(case.id)?;
         let path = dir.join(format!("{}.png", case.id));
         image.save(&path).map_err(|error| error.to_string())?;
         let opaque = image.pixels().filter(|pixel| pixel.0[3] != 0).count();
@@ -281,10 +355,15 @@ fn main() -> Result<(), String> {
             case.comparison_id,
             case.description,
             path.file_name()
-                .expect("WGPU capture path always has a file name")
+                .expect("Metal capture path always has a file name")
                 .display(),
             opaque,
         ));
     }
     write_manifest(&dir, &rows)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn main() -> Result<(), String> {
+    Err("Metal adapter unavailable: this capture requires macOS".into())
 }

@@ -1,6 +1,8 @@
 use super::{
     FieldRevision, GeometryRevision, MeshGpuRenderer, MeshSceneState, replace_retained_field,
 };
+#[cfg(all(feature = "gpu-3d", not(test), not(target_family = "wasm")))]
+use crate::gpu3d::Camera3D;
 use crate::mesh::MeshUpload;
 use image::{Rgba, RgbaImage};
 use std::cell::RefCell;
@@ -270,6 +272,20 @@ pub fn render_offscreen_wgpu(
     width: u32,
     height: u32,
 ) -> Result<RgbaImage, String> {
+    render_offscreen_wgpu_with_camera(state, width, height, &Camera3D::default())
+}
+
+/// Render a retained 3D scene through the real WGPU path with an explicit
+/// camera. The default [`render_offscreen_wgpu`] entry point remains stable
+/// for existing callers; this variant makes camera-state parity and export
+/// QA able to exercise the same retained renderer without mutating state.
+#[cfg(all(feature = "gpu-3d", not(test), not(target_family = "wasm")))]
+pub fn render_offscreen_wgpu_with_camera(
+    state: &MeshSceneState,
+    width: u32,
+    height: u32,
+    camera: &Camera3D,
+) -> Result<RgbaImage, String> {
     use gpui::{Bounds, Point, Size, px};
     use gpui_wgpu::WgpuContext;
     use std::sync::mpsc;
@@ -297,7 +313,10 @@ pub fn render_offscreen_wgpu(
     });
     let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
     let state = std::rc::Rc::new(std::cell::RefCell::new(state.clone()));
-    let renderer = super::WgpuMesh3DRenderer::new(state);
+    let renderer = super::WgpuMesh3DRenderer::new_with_camera(
+        state,
+        std::rc::Rc::new(std::cell::RefCell::new(camera.clone())),
+    );
     let draw = gpui::lookup_custom_draw(renderer.custom_id())
         .ok_or_else(|| "WGPU mesh custom draw was not registered".to_string())?;
     let draw = draw
@@ -317,8 +336,12 @@ pub fn render_offscreen_wgpu(
                 view: &view,
                 resolve_target: None,
                 depth_slice: None,
+                // Metal headless captures are returned as an opaque
+                // compositor framebuffer. Use the same opaque black
+                // background for the paired WGPU capture so alpha does
+                // not dominate an otherwise meaningful RGB comparison.
                 ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
                     store: wgpu::StoreOp::Store,
                 },
             })],

@@ -173,9 +173,11 @@ impl WgpuContext {
         // Timestamp queries are optional on WebGPU and on older native
         // adapters. Request the encoder variant only when the adapter
         // advertises it so normal rendering keeps the broadest compatibility.
+        let timestamp_features = adapter.features();
         let timestamp_queries = std::env::var_os("SOTF_GPU_TIMESTAMPS").as_deref()
             == Some(std::ffi::OsStr::new("1"))
-            && adapter.features().contains(wgpu::Features::TIMESTAMP_QUERY);
+            && timestamp_features.contains(wgpu::Features::TIMESTAMP_QUERY)
+            && timestamp_features.contains(wgpu::Features::TIMESTAMP_QUERY_INSIDE_PASSES);
 
         let mut required_features = wgpu::Features::empty();
         if dual_source_blending {
@@ -187,7 +189,8 @@ impl WgpuContext {
             );
         }
         if timestamp_queries {
-            required_features |= wgpu::Features::TIMESTAMP_QUERY;
+            required_features |=
+                wgpu::Features::TIMESTAMP_QUERY | wgpu::Features::TIMESTAMP_QUERY_INSIDE_PASSES;
         }
 
         let color_atlas_texture_format = Self::select_color_texture_format(adapter)?;

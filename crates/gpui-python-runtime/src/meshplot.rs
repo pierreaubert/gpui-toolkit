@@ -887,4 +887,182 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn rejects_invalid_meshplot_validation_surface() {
+        let mut invalid = valid_spec();
+        invalid["geometry"] = serde_json::json!({
+            "positions": {"resource_id": "positions", "generation": 0},
+            "triangles": {"resource_id": "triangles", "generation": 1}
+        });
+        assert!(
+            MeshPlotSpec::from_value(invalid)
+                .unwrap_err()
+                .contains("geometry.positions resource generation must be positive")
+        );
+
+        let mut invalid = valid_spec();
+        invalid["geometry"] = serde_json::json!({
+            "positions": {"resource_id": "positions", "generation": 1}
+        });
+        assert!(
+            MeshPlotSpec::from_value(invalid)
+                .unwrap_err()
+                .contains("requires a triangles resource handle")
+        );
+
+        for (property, value, expected) in [
+            (
+                "view",
+                serde_json::json!("volume"),
+                "unsupported mesh_plot view",
+            ),
+            (
+                "mode",
+                serde_json::json!("volume_fill"),
+                "unsupported mesh_plot mode",
+            ),
+            (
+                "color_scale",
+                serde_json::json!("rainbow"),
+                "unsupported mesh_plot color scale",
+            ),
+        ] {
+            let mut invalid = valid_spec();
+            invalid[property] = value;
+            assert!(
+                MeshPlotSpec::from_value(invalid)
+                    .unwrap_err()
+                    .contains(expected),
+                "{property}"
+            );
+        }
+
+        let mut invalid = valid_spec();
+        invalid["mode"] = serde_json::json!("scalar_fill");
+        invalid["field"] = serde_json::Value::Null;
+        assert!(
+            MeshPlotSpec::from_value(invalid)
+                .unwrap_err()
+                .contains("requires a scalar field")
+        );
+
+        let mut invalid = valid_spec();
+        invalid["field"]["association"] = serde_json::json!("edge");
+        assert!(
+            MeshPlotSpec::from_value(invalid)
+                .unwrap_err()
+                .contains("unsupported mesh_plot field association")
+        );
+
+        let mut invalid = valid_spec();
+        invalid["mode"] = serde_json::json!("isolines");
+        invalid["field"]["association"] = serde_json::json!("cell");
+        invalid["field"]["values"] = serde_json::json!([1.0]);
+        assert!(
+            MeshPlotSpec::from_value(invalid)
+                .unwrap_err()
+                .contains("contours require a vertex field")
+        );
+
+        for (property, value, expected) in [
+            (
+                "values",
+                serde_json::json!([0.0, 0.5, f64::NAN]),
+                "field values must be finite",
+            ),
+            (
+                "valid",
+                serde_json::json!([true, false]),
+                "valid mask length does not match values",
+            ),
+            (
+                "valid",
+                serde_json::json!([true, "false", true]),
+                "valid mask must contain booleans",
+            ),
+        ] {
+            let mut invalid = valid_spec();
+            invalid["field"][property] = value;
+            assert!(
+                MeshPlotSpec::from_value(invalid)
+                    .unwrap_err()
+                    .contains(expected),
+                "field.{property}"
+            );
+        }
+
+        let mut invalid = valid_spec();
+        invalid["width"] = serde_json::json!(0.0);
+        assert!(
+            MeshPlotSpec::from_value(invalid)
+                .unwrap_err()
+                .contains("width must be positive and finite")
+        );
+
+        let mut invalid = valid_spec();
+        invalid["camera"] = serde_json::json!([0.0, 1.0]);
+        assert!(
+            MeshPlotSpec::from_value(invalid)
+                .unwrap_err()
+                .contains("camera must be an object")
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_meshplot_geometry_and_interactions() {
+        for (geometry, expected) in [
+            (
+                serde_json::json!({
+                    "positions": [[0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+                    "triangles": [[0, 1, 2]]
+                }),
+                "position 0 must contain three finite numbers",
+            ),
+            (
+                serde_json::json!({
+                    "positions": [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+                    "triangles": [[0, 1]]
+                }),
+                "triangle 0 must contain three indices",
+            ),
+            (
+                serde_json::json!({
+                    "positions": [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+                    "triangles": [[0, 1, "two"]]
+                }),
+                "triangle 0 has a non-integer index",
+            ),
+            (
+                serde_json::json!({
+                    "positions": [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+                    "triangles": [[0, 1, 2]],
+                    "vertex_ids": [10]
+                }),
+                "vertex_ids must contain 3 integer ids",
+            ),
+        ] {
+            let mut invalid = valid_spec();
+            invalid["geometry"] = geometry;
+            assert!(
+                MeshPlotSpec::from_value(invalid)
+                    .unwrap_err()
+                    .contains(expected),
+                "{expected}"
+            );
+        }
+
+        for interactions in [
+            serde_json::json!(["pan", "rotate"]),
+            serde_json::json!(["pan", "pan"]),
+        ] {
+            let mut invalid = valid_spec();
+            invalid["interactions"] = interactions;
+            assert!(
+                MeshPlotSpec::from_value(invalid)
+                    .unwrap_err()
+                    .contains("mesh_plot interaction")
+            );
+        }
+    }
 }

@@ -1,6 +1,19 @@
 use d3rs::mesh::{ContourLevels, CoordinateAxis, RevolveSpec};
 use std::sync::Arc;
 
+/// Select the retained GPU backend used by a live MeshPlot.
+///
+/// `Auto` follows the platform's normal backend selection. `Wgpu` is useful
+/// for explicit cross-adapter capture and for applications that intentionally
+/// use GPUI's WGPU custom-draw path on macOS, where the crate may also be
+/// compiled with the native Metal feature.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum MeshPlotBackend {
+    #[default]
+    Auto,
+    Wgpu,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum MeshPlotView {
     Planar {

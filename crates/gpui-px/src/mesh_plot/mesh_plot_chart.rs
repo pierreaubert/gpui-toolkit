@@ -36,8 +36,11 @@ use gpui_ui_kit::tooltip::{Tooltip, TooltipPlacement};
 use gpui_ui_kit::{ContextMenu, menu::MenuItem};
 use std::cell::RefCell;
 use std::collections::HashMap;
+#[cfg(feature = "gpu-2d")]
 use std::env;
+#[cfg(feature = "gpu-2d")]
 use std::fs;
+#[cfg(feature = "gpu-2d")]
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -64,19 +67,41 @@ impl MeshPlotOccurrenceTracker {
     }
 }
 
-#[cfg(all(
-    feature = "gpu-2d",
-    feature = "gpu-metal",
-    target_os = "macos",
-    any(not(test), feature = "native-qa")
-))]
-type Mesh2dDrawOwner = d3rs::mesh::gpu::MetalMeshRenderer;
-#[cfg(all(
-    feature = "gpu-2d",
-    not(all(feature = "gpu-metal", target_os = "macos")),
-    any(not(test), feature = "native-qa")
-))]
-type Mesh2dDrawOwner = d3rs::mesh::gpu::WgpuMeshRenderer;
+#[cfg(all(feature = "gpu-2d", any(not(test), feature = "native-qa")))]
+enum Mesh2dDrawOwner {
+    #[cfg(all(feature = "gpu-metal", target_os = "macos"))]
+    Metal(d3rs::mesh::gpu::MetalMeshRenderer),
+    Wgpu(d3rs::mesh::gpu::WgpuMeshRenderer),
+}
+
+#[cfg(all(feature = "gpu-2d", any(not(test), feature = "native-qa")))]
+impl Mesh2dDrawOwner {
+    fn custom_id(&self) -> gpui::CustomDrawId {
+        match self {
+            #[cfg(all(feature = "gpu-metal", target_os = "macos"))]
+            Self::Metal(renderer) => renderer.custom_id(),
+            Self::Wgpu(renderer) => renderer.custom_id(),
+        }
+    }
+}
+
+#[cfg(all(feature = "gpu-2d", any(not(test), feature = "native-qa")))]
+fn new_mesh_2d_draw_owner(
+    state: Rc<RefCell<d3rs::mesh::gpu::MeshSceneState>>,
+    backend: MeshPlotBackend,
+) -> Mesh2dDrawOwner {
+    if matches!(backend, MeshPlotBackend::Wgpu) {
+        return Mesh2dDrawOwner::Wgpu(d3rs::mesh::gpu::WgpuMeshRenderer::new(state));
+    }
+    #[cfg(all(feature = "gpu-metal", target_os = "macos"))]
+    {
+        Mesh2dDrawOwner::Metal(d3rs::mesh::gpu::MetalMeshRenderer::new(state))
+    }
+    #[cfg(not(all(feature = "gpu-metal", target_os = "macos")))]
+    {
+        Mesh2dDrawOwner::Wgpu(d3rs::mesh::gpu::WgpuMeshRenderer::new(state))
+    }
+}
 
 thread_local! {
     /// MeshPlot builders are often recreated by a parent `Render` after a
@@ -126,7 +151,8 @@ fn mesh_plot_resource_domains_changed(previous: &MeshPlot, next: &MeshPlot) -> (
         }
         // Axisymmetric views derive a different render mesh from the same
         // source buffers, so a projection/spec switch is a geometry change.
-        || previous.view != next.view;
+        || previous.view != next.view
+        || previous.renderer_backend != next.renderer_backend;
     let field_changed = match (&previous.field, &next.field) {
         (Some(previous), Some(next)) => {
             (previous.values.as_ptr() != next.values.as_ptr()
@@ -151,6 +177,7 @@ fn mesh_plot_resource_domains_changed(previous: &MeshPlot, next: &MeshPlot) -> (
     (geometry_changed, field_changed)
 }
 
+#[cfg(feature = "gpu-2d")]
 fn write_mesh_qa_hit_trace(position: [f32; 2], viewport: [f32; 2], picked: bool) {
     let Some(destination) = env::var_os("GPUI_TOOLKIT_QA_LIVE_HIT_TRACE").map(PathBuf::from) else {
         return;
@@ -380,6 +407,7 @@ pub struct MeshPlot {
     pub(crate) export_callback: Option<MeshPlotExportCallback>,
     pub(crate) show_toolbar: bool,
     pub(crate) hidden_toolbar_actions: Vec<PlotToolbarAction>,
+    pub(crate) renderer_backend: MeshPlotBackend,
     #[cfg(all(feature = "gpu-2d", any(not(test), feature = "native-qa")))]
     retained_2d_draw_owner: Option<Rc<Mesh2dDrawOwner>>,
 }
@@ -389,6 +417,16 @@ impl MeshPlot {
     /// Defaults to the geometry ID for backwards compatibility.
     pub fn plot_id(mut self, plot_id: impl Into<String>) -> Self {
         self.plot_id = Arc::from(plot_id.into());
+        self
+    }
+
+    /// Select the retained GPU backend for live rendering.
+    ///
+    /// `Auto` is the default platform choice. `Wgpu` is intended for explicit
+    /// cross-adapter rendering and is especially useful on macOS builds that
+    /// also include the native Metal feature.
+    pub fn renderer_backend(mut self, backend: MeshPlotBackend) -> Self {
+        self.renderer_backend = backend;
         self
     }
 
@@ -616,10 +654,14 @@ impl MeshPlot {
 
         let mesh = self.mesh.clone();
         let field = self.field.clone();
+        #[cfg(feature = "gpu-2d")]
         let equal_aspect = self.axes.equal_aspect;
         let color_scale = self.color_scale.clone();
+        #[cfg(feature = "gpu-2d")]
         let projected_for_render = projected.clone();
+        #[cfg(feature = "gpu-2d")]
         let mesh_for_render = mesh.clone();
+        #[cfg(feature = "gpu-2d")]
         let field_for_render = field.clone();
         let selection_callback = self.selection_callback.clone();
 
@@ -659,6 +701,9 @@ impl MeshPlot {
                     .with_size(plot_width, plot_height);
                 if first_frame {
                     state_ref.set_style(self.mode.clone(), self.wireframe, self.color_range);
+                    if state_ref.selection.is_none() {
+                        state_ref.selection = self.selection.clone();
+                    }
                 }
             }
             Some(state)
@@ -899,6 +944,9 @@ impl MeshPlot {
             (bands, lines)
         };
 
+        #[cfg(not(feature = "gpu-2d"))]
+        let _ = (&contour_bands, &isolines);
+
         #[cfg(feature = "gpu-2d")]
         let retained_state = build_retained_scene_state(
             &mesh,
@@ -1134,7 +1182,9 @@ impl MeshPlot {
                 retained_3d_state.borrow_mut().view_transform =
                     camera.borrow().view_projection_matrix().to_cols_array_2d();
             }
-            if let Some(renderer) = self.retained_2d_draw_owner.as_ref() {
+            if matches!(self.renderer_backend, MeshPlotBackend::Wgpu) {
+                retained_3d_renderer.custom_id()
+            } else if let Some(renderer) = self.retained_2d_draw_owner.as_ref() {
                 renderer.custom_id()
             } else {
                 let renderer = retained_3d_camera.as_ref().map_or_else(
@@ -1147,7 +1197,7 @@ impl MeshPlot {
                     },
                 );
                 let custom_id = renderer.custom_id();
-                self.retained_2d_draw_owner = Some(Rc::new(renderer));
+                self.retained_2d_draw_owner = Some(Rc::new(Mesh2dDrawOwner::Metal(renderer)));
                 custom_id
             }
         };
@@ -1207,10 +1257,8 @@ impl MeshPlot {
             let scene = d3rs::mesh::gpu::MeshSceneElement::new(retained_state.clone());
             #[cfg(any(not(test), feature = "native-qa"))]
             let scene = if mesh_custom_draw_supported(std::env::consts::OS) {
-                #[cfg(all(feature = "gpu-metal", target_os = "macos"))]
-                let renderer = d3rs::mesh::gpu::MetalMeshRenderer::new(retained_state.clone());
-                #[cfg(not(all(feature = "gpu-metal", target_os = "macos")))]
-                let renderer = d3rs::mesh::gpu::WgpuMeshRenderer::new(retained_state.clone());
+                let renderer =
+                    new_mesh_2d_draw_owner(retained_state.clone(), self.renderer_backend);
                 let custom_id = renderer.custom_id();
                 self.retained_2d_draw_owner = Some(Rc::new(renderer));
                 scene.with_custom_id(custom_id)
@@ -1430,6 +1478,7 @@ impl MeshPlot {
             let allow_inspect = self.interactions.allows_inspect();
             let allow_select = self.interactions.allows_select();
             let allow_reset = self.interactions.allows_reset();
+            let allow_fit = self.interactions.allows_fit();
 
             let interaction_surface = div()
                 .size_full()
@@ -1656,6 +1705,7 @@ impl MeshPlot {
                         allow_pan,
                         allow_zoom,
                         allow_reset,
+                        allow_fit,
                     ) {
                         update_scene_view_transform(
                             &key_scene,
@@ -1675,6 +1725,91 @@ impl MeshPlot {
 
         #[cfg(not(feature = "gpu-2d"))]
         let plot_element = plot_element;
+
+        // Selection is a live visual state, not only an export annotation.
+        // Keep this as a transparent retained 2D layer so it follows the
+        // same viewport/equal-aspect mapping as the mesh and remains visible
+        // for both the GPU mesh path and the CPU contour path. The state is
+        // borrowed only while the draw callback runs; pointer handlers can
+        // therefore update it and request a normal GPUI repaint.
+        #[cfg(feature = "gpu-2d")]
+        let selection_overlay = if matches!(
+            &self.view,
+            MeshPlotView::Planar { .. } | MeshPlotView::AxisymmetricSection { .. }
+        ) && (self.selection.is_some() || interaction_state.is_some())
+        {
+            let selection_state = interaction_state.clone();
+            let static_selection = self.selection.clone();
+            let selection_mesh = mesh.clone();
+            let selection_projected = projected.clone();
+            let selection_equal_aspect = equal_aspect;
+            Some(
+                canvas(
+                    move |bounds, _window, _cx| {
+                        let selection = retained_overlay_selection(
+                            selection_state.as_ref(),
+                            static_selection.as_ref(),
+                        );
+                        let Some(selection) = selection else {
+                            return None;
+                        };
+                        let width = f32::from(bounds.size.width).max(1.0);
+                        let height = f32::from(bounds.size.height).max(1.0);
+                        let projector = MeshProjector::new(
+                            &selection_projected,
+                            width,
+                            height,
+                            selection_equal_aspect,
+                        )
+                        .with_viewport(visible_x_domain, visible_y_domain);
+                        selected_triangle_points(
+                            &selection_mesh,
+                            &selection,
+                            &projector,
+                            &selection_projected,
+                        )
+                    },
+                    move |bounds, points, window, _cx| {
+                        let Some(points) = points else {
+                            return;
+                        };
+                        let origin_x = f32::from(bounds.origin.x);
+                        let origin_y = f32::from(bounds.origin.y);
+                        let mut builder = gpui::PathBuilder::stroke(px(2.0));
+                        builder.move_to(point(
+                            px(origin_x + points[0][0]),
+                            px(origin_y + points[0][1]),
+                        ));
+                        for point_position in points.iter().skip(1) {
+                            builder.line_to(point(
+                                px(origin_x + point_position[0]),
+                                px(origin_y + point_position[1]),
+                            ));
+                        }
+                        builder.close();
+                        if let Ok(path) = builder.build() {
+                            window.paint_path(
+                                path,
+                                gpui::Rgba {
+                                    r: 1.0,
+                                    g: 0.55,
+                                    b: 0.0,
+                                    a: 1.0,
+                                },
+                            );
+                        }
+                    },
+                )
+                .absolute()
+                .inset_0()
+                .into_any_element(),
+            )
+        } else {
+            None
+        };
+
+        #[cfg(not(feature = "gpu-2d"))]
+        let selection_overlay: Option<AnyElement> = None;
 
         #[cfg(feature = "gpu-3d")]
         let plot_element = if let (Some(state), Some(camera)) = (
@@ -1718,7 +1853,7 @@ impl MeshPlot {
             let state_down = state.clone();
             let state_move = state.clone();
             let state_scroll = state.clone();
-            let state_key = state;
+            let state_key = state.clone();
             let selection_callback_3d = selection_callback.clone();
             let clear_selection_callback_3d = selection_callback.clone();
             let viewport = [plot_width, plot_height];
@@ -1728,6 +1863,20 @@ impl MeshPlot {
             let allow_select = self.interactions.allows_select();
             let allow_reset = self.interactions.allows_reset();
             let allow_fit = self.interactions.allows_fit();
+            let keyboard_fit_bounds_3d = if revolve_preparing {
+                None
+            } else {
+                match &self.view {
+                    MeshPlotView::Surface3d => Some(MeshBounds::from_positions(&mesh.positions)),
+                    MeshPlotView::AxisymmetricRevolve(spec) => {
+                        state.borrow_mut().revolved_bvh_for(&mesh, spec).ok().map(
+                            |(revolved, _)| MeshBounds::from_positions(&revolved.mesh.positions),
+                        )
+                    }
+                    _ => None,
+                }
+            }
+            .map(|bounds| (bounds, plot_width / plot_height.max(1.0)));
             let focus_handle_3d = focus_handle.clone();
             let focus_on_pointer_down_3d = focus_handle_3d.clone();
             let interaction_bounds: Rc<RefCell<Option<Bounds<Pixels>>>> =
@@ -1902,12 +2051,13 @@ impl MeshPlot {
                 .on_key_down(move |event: &gpui::KeyDownEvent, window, _cx| {
                     {
                         let mut state = state_key.borrow_mut();
-                        if state.handle_3d_key_with_permissions(
+                        if state.handle_3d_key_with_fit(
                             &event.keystroke.key,
                             allow_pan,
                             allow_zoom,
                             allow_reset,
                             allow_fit,
+                            keyboard_fit_bounds_3d,
                         ) {
                             *camera.borrow_mut() = state.camera.clone();
                             camera_scene_reset.borrow_mut().view_transform =
@@ -1974,6 +2124,7 @@ impl MeshPlot {
                                 &theme,
                             ))
                             .child(div().absolute().inset_0().size_full().child(plot_element))
+                            .children(selection_overlay)
                             .children(hover_tooltip),
                     )
                     .child(render_axis(&x_scale, &axis_x, plot_width, &theme)),
@@ -2400,6 +2551,7 @@ pub fn mesh_plot(mesh: TriangleMesh) -> MeshPlot {
         export_callback: None,
         show_toolbar: false,
         hidden_toolbar_actions: Vec::new(),
+        renderer_backend: MeshPlotBackend::default(),
         #[cfg(all(feature = "gpu-2d", any(not(test), feature = "native-qa")))]
         retained_2d_draw_owner: None,
     }
@@ -2472,6 +2624,8 @@ fn build_retained_scene_state(
         gpu_geometry_upload_bytes: 0,
         gpu_field_capacity_bytes: 0,
         gpu_resident_bytes: 0,
+        gpu_driver_allocated_bytes: None,
+        gpu_peak_driver_allocated_bytes: 0,
         gpu_peak_resident_bytes: 0,
         gpu_peak_field_capacity_bytes: 0,
         gpu_memory_release_count: 0,
@@ -2587,6 +2741,8 @@ pub(crate) fn build_retained_3d_scene_state(
         gpu_geometry_upload_bytes: 0,
         gpu_field_capacity_bytes: 0,
         gpu_resident_bytes: 0,
+        gpu_driver_allocated_bytes: None,
+        gpu_peak_driver_allocated_bytes: 0,
         gpu_peak_resident_bytes: 0,
         gpu_peak_field_capacity_bytes: 0,
         gpu_memory_release_count: 0,
@@ -3158,6 +3314,7 @@ fn requires_contour_preparation(mode: &MeshRenderMode) -> bool {
     )
 }
 
+#[cfg(any(feature = "gpu-2d", test))]
 struct MeshProjector {
     min: [f64; 2],
     scale: [f64; 2],
@@ -3167,6 +3324,7 @@ struct MeshProjector {
     equal_aspect: bool,
 }
 
+#[cfg(any(feature = "gpu-2d", test))]
 impl MeshProjector {
     fn new(points: &[[f64; 2]], width: f32, height: f32, equal_aspect: bool) -> Self {
         let x = finite_domain(points, 0).unwrap_or([0.0, 1.0]);
@@ -3216,6 +3374,7 @@ impl MeshProjector {
     }
 }
 
+#[cfg(any(feature = "gpu-2d", test))]
 fn triangle_points(
     projector: &MeshProjector,
     points: &[[f64; 2]],
@@ -3228,6 +3387,38 @@ fn triangle_points(
     ])
 }
 
+#[cfg(any(feature = "gpu-2d", test))]
+fn selected_triangle_points(
+    mesh: &TriangleMesh,
+    selection: &MeshPlotPick,
+    projector: &MeshProjector,
+    projected: &[[f64; 2]],
+) -> Option<[[f32; 2]; 3]> {
+    if selection.mesh_id.as_ref() != mesh.id.as_ref() {
+        return None;
+    }
+    triangle_points(
+        projector,
+        projected,
+        *mesh.triangles.get(selection.cell_index as usize)?,
+    )
+}
+
+#[cfg(any(feature = "gpu-2d", test))]
+fn retained_overlay_selection(
+    state: Option<&Rc<RefCell<MeshPlotState>>>,
+    fallback: Option<&MeshPlotPick>,
+) -> Option<MeshPlotPick> {
+    match state {
+        Some(state) => state
+            .try_borrow()
+            .ok()
+            .and_then(|state| state.selection.clone()),
+        None => fallback.cloned(),
+    }
+}
+
+#[cfg(any(feature = "gpu-2d", test))]
 fn triangle_points_from_band(
     projector: &MeshProjector,
     points: &[[f64; 2]],
@@ -3236,6 +3427,7 @@ fn triangle_points_from_band(
     triangle_points(projector, points, triangle)
 }
 
+#[cfg(any(feature = "gpu-2d", test))]
 fn triangle_value(field: Option<&ScalarField>, triangle: [u32; 3], cell: usize) -> Option<f64> {
     let field = field?;
     match field.association {
@@ -3326,6 +3518,91 @@ mod tests {
     }
 
     #[test]
+    fn selected_triangle_overlay_uses_the_live_mesh_projection() {
+        let mesh = square_mesh();
+        let projected = mesh
+            .positions
+            .iter()
+            .copied()
+            .map(|point| project_2d(CoordinateAxis::X, CoordinateAxis::Y, point))
+            .collect::<Vec<_>>();
+        let projector = MeshProjector::from_domains([0.0, 1.0], [0.0, 1.0], 100.0, 80.0, true);
+        let selection = MeshPlotPick {
+            plot_id: "plot".into(),
+            mesh_id: mesh.id.clone(),
+            cell_index: 1,
+            cell_id: None,
+            nearest_vertex_index: None,
+            vertex_id: None,
+            world_position: [0.25, 0.75, 0.0],
+            displayed_value: None,
+            field_id: None,
+        };
+        let points = selected_triangle_points(&mesh, &selection, &projector, &projected)
+            .expect("valid selection should produce an overlay triangle");
+        assert_eq!(points[0], [10.0, 80.0]);
+        assert_eq!(points[1], [90.0, 0.0]);
+        assert_eq!(points[2], [10.0, 0.0]);
+    }
+
+    #[test]
+    fn selected_triangle_overlay_rejects_foreign_and_invalid_picks() {
+        let mesh = square_mesh();
+        let projected = mesh
+            .positions
+            .iter()
+            .copied()
+            .map(|point| project_2d(CoordinateAxis::X, CoordinateAxis::Y, point))
+            .collect::<Vec<_>>();
+        let projector = MeshProjector::from_domains([0.0, 1.0], [0.0, 1.0], 100.0, 80.0, false);
+        let mut selection = MeshPlotPick {
+            plot_id: "plot".into(),
+            mesh_id: "other-mesh".into(),
+            cell_index: 0,
+            cell_id: None,
+            nearest_vertex_index: None,
+            vertex_id: None,
+            world_position: [0.0, 0.0, 0.0],
+            displayed_value: None,
+            field_id: None,
+        };
+        assert!(selected_triangle_points(&mesh, &selection, &projector, &projected).is_none());
+        selection.mesh_id = mesh.id.clone();
+        selection.cell_index = 99;
+        assert!(selected_triangle_points(&mesh, &selection, &projector, &projected).is_none());
+    }
+
+    #[test]
+    fn live_selection_clearing_does_not_restore_static_selection() {
+        let static_selection = MeshPlotPick {
+            plot_id: "plot".into(),
+            mesh_id: "square".into(),
+            cell_index: 0,
+            cell_id: None,
+            nearest_vertex_index: None,
+            vertex_id: None,
+            world_position: [0.0, 0.0, 0.0],
+            displayed_value: None,
+            field_id: None,
+        };
+        let state = Rc::new(RefCell::new(MeshPlotState::new(0.0, 1.0, 0.0, 1.0)));
+        state.borrow_mut().selection = Some(static_selection.clone());
+        assert_eq!(
+            retained_overlay_selection(Some(&state), Some(&static_selection)),
+            Some(static_selection.clone())
+        );
+        state.borrow_mut().clear_selection();
+        assert_eq!(
+            retained_overlay_selection(Some(&state), Some(&static_selection)),
+            None
+        );
+        assert_eq!(
+            retained_overlay_selection(None, Some(&static_selection)),
+            Some(static_selection)
+        );
+    }
+
+    #[test]
     fn declarative_rebuild_classifies_geometry_and_field_dirty_domains() {
         let mesh = square_mesh();
         let field = vertex_field();
@@ -3377,6 +3654,15 @@ mod tests {
             mesh_plot_resource_domains_changed(&previous, &revolve_update),
             (true, false),
             "a view that derives revolved geometry must invalidate prepared buffers"
+        );
+
+        let backend_update = mesh_plot(square_mesh())
+            .field(vertex_field())
+            .renderer_backend(MeshPlotBackend::Wgpu);
+        assert_eq!(
+            mesh_plot_resource_domains_changed(&previous, &backend_update),
+            (true, false),
+            "switching retained GPU backends must replace the custom draw owner"
         );
     }
 
@@ -4506,6 +4792,7 @@ mod tests {
         };
         let result = mesh_plot(square_mesh())
             .plot_id("plot")
+            .renderer_backend(MeshPlotBackend::Wgpu)
             .missing_value_policy(d3rs::mesh::MissingValuePolicy::Reject)
             .with_state(state)
             .toolbar(true)

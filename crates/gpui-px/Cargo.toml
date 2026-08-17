@@ -16,6 +16,12 @@ gpui = ["dep:gpui", "dep:gpui-ui-kit", "dep:gpui-miniapp", "dep:gpui-builder", "
 gpu-3d = ["gpui-d3rs/gpu-3d", "gpui-d3rs/gpu-compute", "dep:glam", "dep:image"]
 gpu-2d = ["gpui-d3rs/gpu-2d"]
 gpu-metal = ["gpu-2d", "gpu-3d", "gpui-d3rs/gpu-metal", "gpui"]
+headless-qa = [
+    "gpu-3d",
+    "gpui-d3rs/headless-qa",
+    "gpui/test-support",
+    "dep:gpui_wgpu",
+]
 native-qa = [
     "gpu-metal",
     "gpui/test-support",
@@ -35,6 +41,7 @@ gpui-miniapp = { workspace = true, optional = true }
 gpui-builder = { workspace = true, optional = true }
 gpui-design = { workspace = true, optional = true }
 gpui-d3rs = { workspace = true }
+gpui_wgpu = { workspace = true, optional = true }
 glam = { workspace = true, optional = true }
 image = { workspace = true, optional = true }
 thiserror = { workspace = true }
@@ -58,6 +65,11 @@ harness = false
 [[bench]]
 name = "mesh_plot_frames"
 harness = false
+
+[[test]]
+name = "mesh_plot_wgpu_product"
+path = "tests/mesh_plot_wgpu_product.rs"
+required-features = ["native-qa", "headless-qa"]
 
 [[example]]
 name = "mesh_plot_showcase"

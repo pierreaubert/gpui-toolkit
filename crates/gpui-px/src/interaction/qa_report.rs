@@ -130,9 +130,9 @@ const INTERACTION_QA_ENTRIES: &[InteractionQaEntry] = &[
     },
     InteractionQaEntry {
         id: "keyboard-state",
-        behavior: "Keyboard zoom, pan, and reset state actions",
+        behavior: "Keyboard zoom, pan, fit, and reset state actions",
         status: InteractionQaStatus::Implemented,
-        evidence: "ChartKeyboardAction plus ChartInteraction::apply_keyboard_action cover renderer-free keyboard zoom, pan, and reset transitions.",
+        evidence: "MeshPlotState::handle_key_with_permissions covers capability-gated planar keyboard fit, while the live 3D wrapper supplies current surface/revolve bounds to the equivalent fit action alongside ChartKeyboardAction zoom, pan, and reset transitions.",
         release_requirement: "Keep keyboard interaction state tests green and map product key bindings to these actions in host apps.",
     },
     InteractionQaEntry {
@@ -215,7 +215,7 @@ mod tests {
 
         assert_eq!(bridge, vec!["host-key-bindings"]);
         assert!(markdown.contains(INTERACTION_QA_REPORT_TYPE));
-        assert!(markdown.contains("Keyboard zoom, pan, and reset"));
+        assert!(markdown.contains("Keyboard zoom, pan, fit, and reset"));
         assert!(markdown.contains("app-bridge-required"));
     }
 }

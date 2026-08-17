@@ -78,6 +78,12 @@ pub struct MeshSceneState {
     /// targets. Pipeline/driver-private allocations are intentionally not
     /// included because wgpu and Metal do not expose them portably.
     pub gpu_resident_bytes: u64,
+    /// Snapshot of the platform driver's total allocated size when the
+    /// backend exposes it. `None` means this backend has no driver-private
+    /// allocation query; Metal publishes `MTLDevice.currentAllocatedSize`.
+    pub gpu_driver_allocated_bytes: Option<u64>,
+    /// Highest driver allocation snapshot observed by this scene.
+    pub gpu_peak_driver_allocated_bytes: u64,
     /// Highest adapter-owned resident allocation observed by this retained
     /// scene. This remains available after the current resources are released
     /// so long-run churn tests can distinguish bounded residency from a
@@ -125,6 +131,8 @@ impl Default for MeshSceneState {
             gpu_geometry_upload_bytes: 0,
             gpu_field_capacity_bytes: 0,
             gpu_resident_bytes: 0,
+            gpu_driver_allocated_bytes: None,
+            gpu_peak_driver_allocated_bytes: 0,
             gpu_peak_resident_bytes: 0,
             gpu_peak_field_capacity_bytes: 0,
             gpu_memory_release_count: 0,
@@ -183,6 +191,13 @@ impl MeshSceneState {
             self.gpu_peak_field_capacity_bytes.max(field_capacity_bytes);
     }
 
+    /// Publish a platform driver's current allocation snapshot.
+    pub fn set_gpu_driver_memory(&mut self, allocated_bytes: u64) {
+        self.gpu_driver_allocated_bytes = Some(allocated_bytes);
+        self.gpu_peak_driver_allocated_bytes =
+            self.gpu_peak_driver_allocated_bytes.max(allocated_bytes);
+    }
+
     /// Mark the adapter-owned resources as released while retaining their
     /// peak counters for post-destruction diagnostics.
     pub fn clear_gpu_memory(&mut self) {
@@ -191,6 +206,7 @@ impl MeshSceneState {
         }
         self.gpu_resident_bytes = 0;
         self.gpu_field_capacity_bytes = 0;
+        self.gpu_driver_allocated_bytes = None;
     }
 
     /// Accumulate adapter geometry resource creation/upload time.
@@ -355,6 +371,9 @@ mod tests {
         assert_eq!(state.gpu_field_write_bytes, 64);
         assert_eq!(state.gpu_resident_bytes, 512);
         assert_eq!(state.gpu_field_capacity_bytes, 128);
+        state.set_gpu_driver_memory(1024);
+        assert_eq!(state.gpu_driver_allocated_bytes, Some(1024));
+        assert_eq!(state.gpu_peak_driver_allocated_bytes, 1024);
         assert_eq!(state.gpu_peak_resident_bytes, 512);
         assert_eq!(state.gpu_peak_field_capacity_bytes, 128);
         assert_eq!(state.gpu_memory_release_count, 0);
@@ -364,6 +383,8 @@ mod tests {
         assert_eq!(state.gpu_field_capacity_bytes, 0);
         assert_eq!(state.gpu_peak_resident_bytes, 512);
         assert_eq!(state.gpu_peak_field_capacity_bytes, 128);
+        assert_eq!(state.gpu_driver_allocated_bytes, None);
+        assert_eq!(state.gpu_peak_driver_allocated_bytes, 1024);
         assert_eq!(state.gpu_memory_release_count, 1);
 
         state.record_gpu_geometry_upload_time(Duration::from_nanos(7));

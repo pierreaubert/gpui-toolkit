@@ -9,4 +9,6 @@ pub use custom::*;
 pub use wgpu;
 pub use wgpu_atlas::*;
 pub use wgpu_context::*;
+#[cfg(feature = "headless-qa")]
+pub use wgpu_renderer::WgpuHeadlessRenderer;
 pub use wgpu_renderer::{GpuContext, WgpuRenderer, WgpuSurfaceConfig};

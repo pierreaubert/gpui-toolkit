@@ -46,9 +46,16 @@ fn native_text_system() -> Arc<dyn gpui::PlatformTextSystem> {
     Arc::new(gpui::NoopTextSystem::new())
 }
 
+fn native_metal_required() -> bool {
+    matches!(std::env::var("QA_NATIVE_REQUIRED").as_deref(), Ok("1"))
+        || matches!(std::env::var("QA_METAL_REQUIRED").as_deref(), Ok("1"))
+}
+
 fn native_metal_available() -> bool {
     if MetalHeadlessRenderer::try_new().is_some() {
         true
+    } else if native_metal_required() {
+        panic!("native Metal QA requires a compatible Metal device")
     } else {
         eprintln!("native Metal QA skipped: no compatible Metal device");
         false
@@ -1018,9 +1025,18 @@ fn native_metal_live_3d_state_exports_deterministic_surface_and_revolve_artifact
             .expect("native 3D export case must retain 3D renderer stats");
         let gpu_uploads = stats.gpu_geometry_upload_count;
         let gpu_resident_bytes = stats.gpu_resident_bytes;
+        let gpu_driver_allocated_bytes = stats.gpu_driver_allocated_bytes;
         assert!(
             gpu_uploads > 0 && gpu_resident_bytes > 0,
             "native 3D export case {index} must dispatch an adapter-backed upload (uploads={gpu_uploads}, resident_bytes={gpu_resident_bytes})"
+        );
+        assert!(
+            gpu_driver_allocated_bytes.is_some_and(|bytes| bytes > 0),
+            "native 3D export case {index} must expose Metal driver allocation telemetry"
+        );
+        assert!(
+            stats.gpu_peak_driver_allocated_bytes >= gpu_driver_allocated_bytes.unwrap_or(0),
+            "native 3D export case {index} must retain the peak Metal allocation snapshot"
         );
         assert!(
             stats.gpu_geometry_upload_time_ns > 0,

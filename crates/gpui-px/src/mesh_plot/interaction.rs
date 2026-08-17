@@ -65,6 +65,10 @@ pub struct RetainedMesh3DStats {
     /// Adapter-owned field capacity and approximate resident allocation.
     pub gpu_field_capacity_bytes: u64,
     pub gpu_resident_bytes: u64,
+    /// Platform driver allocation snapshot when exposed by the active
+    /// renderer; WGPU and non-native backends report `None`.
+    pub gpu_driver_allocated_bytes: Option<u64>,
+    pub gpu_peak_driver_allocated_bytes: u64,
     /// Peak adapter-owned resident allocation observed by this plot.
     pub gpu_peak_resident_bytes: u64,
     /// Peak adapter-owned scalar-buffer capacity observed by this plot.
@@ -81,6 +85,10 @@ pub struct RetainedMesh3DStats {
     pub lod_proxy_triangle_count: u64,
     /// Triangle count of the full-resolution retained mesh.
     pub lod_full_triangle_count: u64,
+    /// CPU time spent swapping the retained scene to the drag proxy.
+    pub lod_proxy_upload_time_ns: u64,
+    /// CPU time spent restoring the full-resolution scene after a drag.
+    pub lod_full_restore_time_ns: u64,
     /// CPU time spent creating/uploading adapter geometry resources.
     pub gpu_geometry_upload_time_ns: u64,
     /// CPU time spent submitting adapter scalar-buffer writes.
@@ -142,6 +150,8 @@ pub(crate) struct RetainedMeshLod {
     displaying_proxy: bool,
     proxy_upload_count: u64,
     full_restore_count: u64,
+    proxy_upload_time_ns: u64,
+    full_restore_time_ns: u64,
 }
 
 type RetainedContourOutput = (Rc<Vec<ContourBand>>, Rc<Vec<IsolineSegment>>);
@@ -243,6 +253,8 @@ impl RetainedMeshLod {
             displaying_proxy: false,
             proxy_upload_count: 0,
             full_restore_count: 0,
+            proxy_upload_time_ns: 0,
+            full_restore_time_ns: 0,
         };
         result.update_field(field);
         result
@@ -270,6 +282,7 @@ impl RetainedMeshLod {
         let Some(proxy_upload) = self.proxy_upload.as_ref() else {
             return false;
         };
+        let started = Instant::now();
         self.full_upload = scene.upload.clone();
         scene.record_geometry_upload(proxy_upload);
         scene.geometry_rev.0 = scene.geometry_rev.0.saturating_add(1);
@@ -277,6 +290,9 @@ impl RetainedMeshLod {
         scene.upload = Some(proxy_upload.clone());
         self.displaying_proxy = true;
         self.proxy_upload_count = self.proxy_upload_count.saturating_add(1);
+        self.proxy_upload_time_ns = self
+            .proxy_upload_time_ns
+            .saturating_add(MeshPlotTimingStats::duration_ns(started.elapsed()));
         true
     }
 
@@ -289,12 +305,16 @@ impl RetainedMeshLod {
             self.displaying_proxy = false;
             return false;
         };
+        let started = Instant::now();
         scene.record_geometry_upload(&full_upload);
         scene.geometry_rev.0 = scene.geometry_rev.0.saturating_add(1);
         scene.field_rev.0 = scene.field_rev.0.saturating_add(1);
         scene.upload = Some(full_upload);
         self.displaying_proxy = false;
         self.full_restore_count = self.full_restore_count.saturating_add(1);
+        self.full_restore_time_ns = self
+            .full_restore_time_ns
+            .saturating_add(MeshPlotTimingStats::duration_ns(started.elapsed()));
         true
     }
 }
@@ -506,6 +526,8 @@ impl MeshPlotState {
             gpu_field_write_bytes: scene.gpu_field_write_bytes,
             gpu_field_capacity_bytes: scene.gpu_field_capacity_bytes,
             gpu_resident_bytes: scene.gpu_resident_bytes,
+            gpu_driver_allocated_bytes: scene.gpu_driver_allocated_bytes,
+            gpu_peak_driver_allocated_bytes: scene.gpu_peak_driver_allocated_bytes,
             gpu_peak_resident_bytes: scene.gpu_peak_resident_bytes,
             gpu_peak_field_capacity_bytes: scene.gpu_peak_field_capacity_bytes,
             gpu_memory_release_count: scene.gpu_memory_release_count,
@@ -517,6 +539,8 @@ impl MeshPlotState {
                 .proxy_mesh()
                 .map_or(0, |mesh| mesh.triangles.len() as u64),
             lod_full_triangle_count: lod.controller.full_mesh().triangles.len() as u64,
+            lod_proxy_upload_time_ns: lod.proxy_upload_time_ns,
+            lod_full_restore_time_ns: lod.full_restore_time_ns,
             gpu_geometry_upload_time_ns: scene.gpu_geometry_upload_time_ns,
             gpu_field_write_time_ns: scene.gpu_field_write_time_ns,
             gpu_frame_time_ns: scene.gpu_frame_time_ns,
@@ -711,6 +735,7 @@ impl MeshPlotState {
     /// Return the retained planar spatial index for native hover/click
     /// inspection. Field and style changes deliberately do not invalidate the
     /// index; a geometry replacement or a different projected plane does.
+    #[cfg(any(feature = "gpu-2d", test))]
     pub(crate) fn planar_index_for(
         &mut self,
         projected: &[[f64; 2]],
@@ -1072,7 +1097,7 @@ impl MeshPlotState {
 
     /// Apply a keyboard navigation action while retaining selection/hover.
     pub fn handle_key(&mut self, key: &str) -> bool {
-        self.handle_key_with_permissions(key, true, true, true)
+        self.handle_key_with_permissions(key, true, true, true, true)
     }
 
     /// Apply a keyboard navigation action subject to the plot's declared
@@ -1083,7 +1108,18 @@ impl MeshPlotState {
         allow_pan: bool,
         allow_zoom: bool,
         allow_reset: bool,
+        allow_fit: bool,
     ) -> bool {
+        if matches!(key.to_ascii_lowercase().as_str(), "f" | "fit") {
+            if !allow_fit {
+                return false;
+            }
+            // For a planar plot, fit and reset both restore the finite mesh
+            // domain captured when ChartInteraction was created. Keeping the
+            // operation here avoids a second keyboard-only viewport contract.
+            self.interaction.reset_zoom();
+            return true;
+        }
         let Some(action) = crate::interaction::keyboard_action_for_key(key) else {
             return false;
         };
@@ -1182,7 +1218,9 @@ impl MeshPlotState {
 
     #[cfg(feature = "gpu-3d")]
     /// Apply the shared chart keys to 3D orbit navigation. Arrow keys pan,
-    /// plus/minus zoom, and Home/0/R restore the fitted camera.
+    /// plus/minus zoom, and Home/0/R restore the fitted camera. The direct
+    /// helper has no mesh bounds, so `f`/`fit` is handled by the live plot
+    /// wrapper that owns the current derived surface bounds.
     pub fn handle_3d_key(&mut self, key: &str) -> bool {
         self.handle_3d_key_with_permissions(key, true, true, true, true)
     }
@@ -1197,7 +1235,26 @@ impl MeshPlotState {
         allow_reset: bool,
         allow_fit: bool,
     ) -> bool {
+        self.handle_3d_key_with_fit(key, allow_pan, allow_zoom, allow_reset, allow_fit, None)
+    }
+
+    #[cfg(feature = "gpu-3d")]
+    pub(crate) fn handle_3d_key_with_fit(
+        &mut self,
+        key: &str,
+        allow_pan: bool,
+        allow_zoom: bool,
+        allow_reset: bool,
+        allow_fit: bool,
+        fit_bounds: Option<(MeshBounds, f32)>,
+    ) -> bool {
         match key.to_ascii_lowercase().as_str() {
+            "f" | "fit" if allow_fit => {
+                let Some((bounds, aspect)) = fit_bounds else {
+                    return false;
+                };
+                self.fit_camera_to_bounds(bounds, aspect);
+            }
             "1" if allow_fit => self.orbit_standard_view(StandardView::Front),
             "2" if allow_fit => self.orbit_standard_view(StandardView::Back),
             "3" if allow_fit => self.orbit_standard_view(StandardView::Left),
@@ -1302,10 +1359,25 @@ mod tests {
     fn keyboard_navigation_honors_declared_capabilities() {
         let mut state = MeshPlotState::new(0.0, 1.0, 0.0, 1.0);
         let initial_x = state.interaction.x_domain();
-        assert!(!state.handle_key_with_permissions("arrowleft", false, true, false));
+        assert!(!state.handle_key_with_permissions("arrowleft", false, true, false, false));
         assert_eq!(state.interaction.x_domain(), initial_x);
-        assert!(state.handle_key_with_permissions("+", false, true, false));
+        assert!(state.handle_key_with_permissions("+", false, true, false, false));
         assert_ne!(state.interaction.x_domain(), initial_x);
+    }
+
+    #[test]
+    fn keyboard_fit_restores_initial_domain_only_when_declared() {
+        let mut state = MeshPlotState::new(0.0, 1.0, 0.0, 1.0);
+        state.interaction.zoom_around_pixel(300.0, 200.0, 0.5);
+        assert_ne!(state.interaction.x_domain(), (0.0, 1.0));
+        assert!(!state.handle_key_with_permissions("f", true, true, true, false));
+        assert_ne!(state.interaction.x_domain(), (0.0, 1.0));
+        assert!(state.handle_key_with_permissions("f", true, true, true, true));
+        assert_eq!(state.interaction.x_domain(), (0.0, 1.0));
+
+        state.interaction.zoom_around_pixel(300.0, 200.0, 0.5);
+        assert!(state.handle_key_with_permissions("fit", true, true, true, true));
+        assert_eq!(state.interaction.x_domain(), (0.0, 1.0));
     }
 
     #[test]
@@ -1385,6 +1457,37 @@ mod tests {
             d3rs::gpu3d::Projection::Orthographic { .. }
         ));
         assert_eq!(state.interaction.x_domain(), (0.0, 1.0));
+    }
+
+    #[cfg(feature = "gpu-3d")]
+    #[test]
+    fn three_d_keyboard_fit_uses_current_bounds_and_capability() {
+        let mut state = MeshPlotState::new(0.0, 1.0, 0.0, 1.0);
+        state.orbit_rotate(25.0, -10.0);
+        let before = state.camera.position;
+        let bounds = MeshBounds {
+            min: [-4.0, -2.0, -1.0],
+            max: [4.0, 2.0, 1.0],
+        };
+        assert!(!state.handle_3d_key_with_fit(
+            "f",
+            true,
+            true,
+            true,
+            false,
+            Some((bounds, 16.0 / 9.0)),
+        ));
+        assert_eq!(state.camera.position, before);
+        assert!(state.handle_3d_key_with_fit(
+            "fit",
+            true,
+            true,
+            true,
+            true,
+            Some((bounds, 16.0 / 9.0)),
+        ));
+        assert!(state.camera_fitted);
+        assert_ne!(state.camera.position, before);
     }
 
     #[cfg(feature = "gpu-3d")]
@@ -1922,5 +2025,7 @@ mod tests {
         assert!(!lod.displaying_proxy);
         assert_eq!(lod.proxy_upload_count, 1);
         assert_eq!(lod.full_restore_count, 1);
+        assert!(lod.proxy_upload_time_ns > 0);
+        assert!(lod.full_restore_time_ns > 0);
     }
 }

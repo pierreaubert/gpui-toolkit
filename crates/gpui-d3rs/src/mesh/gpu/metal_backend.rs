@@ -24,14 +24,16 @@ use std::time::Instant;
 #[derive(Clone, Copy)]
 struct MetalVertex {
     /// Keep the Rust layout identical to the MSL `float4`/`float4`/`float`/
-    /// `float3` layout. Metal aligns `float3` members to 16 bytes, so using
-    /// packed Rust triples here would make the shader read the next field at
-    /// the wrong offset.
+    /// three-scalar-padding layout. A Metal `float3` member is 16-byte
+    /// aligned, so the shader deliberately uses a scalar array for the final
+    /// 12 bytes instead.
     position: [f32; 4],
     normal: [f32; 4],
     value: f32,
     _padding: [f32; 3],
 }
+
+const _: () = assert!(std::mem::size_of::<MetalVertex>() == 48);
 
 fn metal_vertex(position: [f32; 3], normal: [f32; 3], value: f32) -> MetalVertex {
     MetalVertex {
@@ -62,27 +64,28 @@ struct MetalUniform {
     isoline_color: [f32; 4],
 }
 
-fn metal_uniform(state: &MeshSceneState, is_3d: bool) -> MetalUniform {
+fn metal_uniform(state: &MeshSceneState, is_3d: bool, camera: Option<&Camera3D>) -> MetalUniform {
     let origin = state
         .upload
         .as_ref()
         .map(|upload| upload.origin)
         .unwrap_or([0.0; 3]);
     let (view_proj, model) = if is_3d {
-        // Keep the Metal transform identical to the deterministic CPU/WGPU
-        // path: the retained scene stores the camera matrix, while the
-        // rebased upload origin is composed into that matrix once. Keeping a
-        // pure identity model also avoids relying on platform matrix-layout
-        // interpretation for the translation column.
+        // Keep the Metal transform in the same two-matrix form as the WGPU
+        // path. The camera projection and rebased upload origin remain
+        // separate so the shader performs the same model/view composition on
+        // both adapters.
         (
-            (Mat4::from_cols_array_2d(&state.view_transform)
-                * Mat4::from_translation(Vec3::new(
-                    origin[0] as f32,
-                    origin[1] as f32,
-                    origin[2] as f32,
-                )))
+            camera
+                .map(Camera3D::view_projection_matrix)
+                .unwrap_or_else(|| Mat4::from_cols_array_2d(&state.view_transform))
+                .to_cols_array_2d(),
+            Mat4::from_translation(Vec3::new(
+                origin[0] as f32,
+                origin[1] as f32,
+                origin[2] as f32,
+            ))
             .to_cols_array_2d(),
-            Mat4::IDENTITY.to_cols_array_2d(),
         )
     } else {
         (
@@ -232,7 +235,10 @@ fn metal_triad_vertices(camera: Option<&Camera3D>) -> [MetalVertex; 6] {
         let screen = screen.xy() / length;
         let end = [
             origin[0] + screen.x * 0.12,
-            origin[1] - screen.y * 0.12,
+            // The triad vertices are already in NDC. Metal and WGPU both
+            // use the same upward-positive NDC Y convention; the drawable
+            // viewport mapping must not be applied a second time here.
+            origin[1] + screen.y * 0.12,
             0.0,
         ];
         output[axis * 2] = metal_vertex([origin[0], origin[1], 0.0], color, 1.0);
@@ -277,6 +283,7 @@ impl MetalResources {
         upload: &MeshUpload,
         state: &MeshSceneState,
         is_3d: bool,
+        camera: Option<&Camera3D>,
     ) -> Option<Self> {
         let normals = vertex_normals(upload);
         let mut vertices = Vec::with_capacity(upload.indices.len());
@@ -337,7 +344,7 @@ impl MetalResources {
             options,
         );
         let uniform_buffer = if is_3d {
-            let uniform = metal_uniform(state, true);
+            let uniform = metal_uniform(state, true, camera);
             device.new_buffer_with_data(
                 &uniform as *const MetalUniform as *const c_void,
                 std::mem::size_of::<MetalUniform>() as u64,
@@ -534,8 +541,8 @@ impl MetalResources {
         (offset * std::mem::size_of::<f32>()) as u64
     }
 
-    fn update_uniform(&mut self, state: &MeshSceneState) {
-        let uniform = metal_uniform(state, self.is_3d);
+    fn update_uniform(&mut self, state: &MeshSceneState, camera: Option<&Camera3D>) {
+        let uniform = metal_uniform(state, self.is_3d, camera);
         // SAFETY: `uniform` is a fully initialized POD value, the destination
         // is the shared uniform buffer allocated for this renderer, and the
         // copy length is exactly the `MetalUniform` layout size.
@@ -608,6 +615,7 @@ impl MetalCustomDraw for MetalMeshDraw {
         let Some(upload) = state.upload.as_ref() else {
             return;
         };
+        let camera = self.camera.as_ref().map(|camera| camera.borrow().clone());
         let mut resources = self.resources.borrow_mut();
         let mut created_geometry_resource = false;
         let mut geometry_upload_time = None;
@@ -624,6 +632,7 @@ impl MetalCustomDraw for MetalMeshDraw {
                 upload,
                 &state,
                 self.is_3d,
+                camera.as_ref(),
             );
             geometry_upload_time = Some(geometry_started.elapsed());
             created_geometry_resource = true;
@@ -640,6 +649,7 @@ impl MetalCustomDraw for MetalMeshDraw {
         let field_write_time = field_write_started.elapsed();
         let resident_bytes = resources.resident_bytes;
         let field_capacity_bytes = resources.field_capacity_bytes;
+        let driver_allocated_bytes = device.current_allocated_size() as u64;
         drop(state);
         {
             let mut state = self.state.borrow_mut();
@@ -654,10 +664,10 @@ impl MetalCustomDraw for MetalMeshDraw {
                 state.record_gpu_field_write_time(field_write_time);
             }
             state.set_gpu_memory(resident_bytes, field_capacity_bytes);
+            state.set_gpu_driver_memory(driver_allocated_bytes);
         }
         let state = self.state.borrow();
-        resources.update_uniform(&state);
-        let camera = self.camera.as_ref().map(|camera| camera.borrow().clone());
+        resources.update_uniform(&state, camera.as_ref());
         resources.update_triad(camera.as_ref());
         let descriptor = metal::RenderPassDescriptor::new();
         let Some(attachment) = descriptor.color_attachments().object_at(0) else {
