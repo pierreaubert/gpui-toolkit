@@ -2887,7 +2887,7 @@ fn update_retained_3d_scene_state(
 
 #[cfg(feature = "gpu-2d")]
 fn mesh_view_transform(
-    _origin: [f64; 3],
+    origin: [f64; 3],
     x_domain: [f64; 2],
     y_domain: [f64; 2],
     plot_width: f32,
@@ -2915,8 +2915,8 @@ fn mesh_view_transform(
     // `build_retained_scene_state`, so the domain minima must be applied in
     // that rebased coordinate system. Adding the origin here shifts meshes
     // with non-zero minima (notably axisymmetric r-z sections) off-screen.
-    let tx = offset_x - x_domain[0] * scale_x;
-    let ty = offset_y - y_domain[0] * scale_y;
+    let tx = offset_x - (x_domain[0] - origin[0]) * scale_x;
+    let ty = offset_y - (y_domain[0] - origin[1]) * scale_y;
     [
         [scale_x as f32, 0.0, 0.0, 0.0],
         [0.0, scale_y as f32, 0.0, 0.0],
@@ -3594,7 +3594,7 @@ mod tests {
 
         // The lower-left rebased point is [0, 0]. It should remain inside
         // the equal-aspect letterbox instead of being translated off-screen.
-        assert!(transform[3][0] > -0.1);
+        assert!(transform[3][0] > -1.0 && transform[3][0] < 1.0);
         assert!((transform[3][1] + 1.0).abs() < 1e-6);
     }
 
