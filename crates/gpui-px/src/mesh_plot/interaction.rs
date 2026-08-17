@@ -65,6 +65,12 @@ pub struct RetainedMesh3DStats {
     /// Adapter-owned field capacity and approximate resident allocation.
     pub gpu_field_capacity_bytes: u64,
     pub gpu_resident_bytes: u64,
+    /// Peak adapter-owned resident allocation observed by this plot.
+    pub gpu_peak_resident_bytes: u64,
+    /// Peak adapter-owned scalar-buffer capacity observed by this plot.
+    pub gpu_peak_field_capacity_bytes: u64,
+    /// Number of non-empty adapter resource releases observed by this plot.
+    pub gpu_memory_release_count: u64,
     /// CPU time spent creating/uploading adapter geometry resources.
     pub gpu_geometry_upload_time_ns: u64,
     /// CPU time spent submitting adapter scalar-buffer writes.
@@ -483,6 +489,9 @@ impl MeshPlotState {
             gpu_field_write_bytes: scene.gpu_field_write_bytes,
             gpu_field_capacity_bytes: scene.gpu_field_capacity_bytes,
             gpu_resident_bytes: scene.gpu_resident_bytes,
+            gpu_peak_resident_bytes: scene.gpu_peak_resident_bytes,
+            gpu_peak_field_capacity_bytes: scene.gpu_peak_field_capacity_bytes,
+            gpu_memory_release_count: scene.gpu_memory_release_count,
             gpu_geometry_upload_time_ns: scene.gpu_geometry_upload_time_ns,
             gpu_field_write_time_ns: scene.gpu_field_write_time_ns,
             gpu_frame_time_ns: scene.gpu_frame_time_ns,

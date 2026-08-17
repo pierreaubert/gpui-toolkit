@@ -461,6 +461,8 @@ impl WgpuMeshRenderer {
 impl Drop for WgpuMeshRenderer {
     fn drop(&mut self) {
         gpui::unregister_custom_draw(self.custom_id);
+        self.resources.borrow_mut().take();
+        self.state.borrow_mut().clear_gpu_memory();
     }
 }
 

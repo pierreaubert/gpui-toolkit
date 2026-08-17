@@ -476,9 +476,49 @@ fn adapter_3d_geometry_generation_replacement_keeps_resident_memory_bounded() {
     let final_state = state.borrow();
     assert_eq!(final_state.gpu_geometry_upload_count, 100);
     assert!(final_state.gpu_resident_bytes > 0);
+    assert_eq!(
+        final_state.gpu_peak_resident_bytes, max_resident_bytes,
+        "peak telemetry must retain the largest observed resident generation"
+    );
     assert!(
-        max_resident_bytes < 64 * 1024,
+        final_state.gpu_peak_resident_bytes < 64 * 1024,
         "replacing 100 tiny retained generations must not grow resident adapter memory: {max_resident_bytes} bytes"
+    );
+}
+
+#[test]
+fn adapter_3d_renderer_drop_releases_current_memory_but_keeps_peak_evidence() {
+    let Some(ctx) = headless_context() else {
+        return;
+    };
+
+    let state = Rc::new(RefCell::new(MeshSceneState::default()));
+    let mut renderer = WgpuMesh3DRenderer::new(state.clone());
+    renderer.upload_geometry(GeometryRevision(1), &square_upload());
+    let size = [96, 96];
+    let (_texture, view) = target(&ctx, size);
+    {
+        let draw =
+            lookup_custom_draw(renderer.custom_id()).expect("3D custom draw must be registered");
+        let draw = draw
+            .as_any()
+            .downcast_ref::<WgpuCustomDrawAdapter>()
+            .expect("MeshPlot 3D custom draw must use the WGPU adapter");
+        draw_adapter_frame(&ctx, draw, &view, size);
+    }
+
+    let before_drop = state.borrow().clone();
+    assert!(before_drop.gpu_resident_bytes > 0);
+    assert!(before_drop.gpu_peak_resident_bytes >= before_drop.gpu_resident_bytes);
+    drop(renderer);
+
+    let after_drop = state.borrow();
+    assert_eq!(after_drop.gpu_resident_bytes, 0);
+    assert_eq!(after_drop.gpu_field_capacity_bytes, 0);
+    assert_eq!(after_drop.gpu_memory_release_count, 1);
+    assert_eq!(
+        after_drop.gpu_peak_resident_bytes,
+        before_drop.gpu_peak_resident_bytes
     );
 }
 
