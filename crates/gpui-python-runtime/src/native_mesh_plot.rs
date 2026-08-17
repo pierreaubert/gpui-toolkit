@@ -576,6 +576,12 @@ pub fn decode_geometry(
     geometry: &Value,
     store: &MeshFrameStore,
 ) -> Result<(Vec<[f64; 3]>, Vec<[u32; 3]>), String> {
+    if geometry.get("resource_id").is_some() {
+        return Err(
+            "native mesh plot geometry resource_id is unsupported; provide separate positions and triangles resource handles"
+                .into(),
+        );
+    }
     let split_resources = geometry.get("positions").is_some_and(Value::is_object)
         || geometry.get("triangles").is_some_and(Value::is_object);
     if split_resources {
@@ -1322,6 +1328,20 @@ mod tests {
             decode_field(&field, &store)
                 .unwrap_err()
                 .contains("mesh field value must be numeric")
+        );
+    }
+
+    #[test]
+    fn geometry_decoder_rejects_unsupported_whole_resource_handles() {
+        let store = MeshFrameStore::new();
+        let geometry = serde_json::json!({
+            "resource_id": "geometry",
+            "generation": 1
+        });
+        assert!(
+            decode_geometry(&geometry, &store)
+                .unwrap_err()
+                .contains("geometry resource_id is unsupported")
         );
     }
 }

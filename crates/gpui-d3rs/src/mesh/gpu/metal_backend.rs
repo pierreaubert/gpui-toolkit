@@ -803,6 +803,10 @@ impl MetalMeshRenderer {
     pub fn custom_id(&self) -> gpui::CustomDrawId {
         self.custom_id
     }
+
+    pub fn state(&self) -> Rc<RefCell<MeshSceneState>> {
+        self.state.clone()
+    }
 }
 
 impl Drop for MetalMeshRenderer {

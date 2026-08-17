@@ -42,6 +42,24 @@ class MeshPlotTests(unittest.TestCase):
         self.assertEqual(spec["triangles"]["resource_id"], "triangles")
         self.assertEqual(spec["triangles"]["dtype"], "u32le")
 
+    def test_resource_geometry_rejects_legacy_whole_resource_form(self):
+        with self.assertRaisesRegex(ValueError, "triangles_resource_id"):
+            meshplot.resource_geometry("geometry", 1)
+
+    def test_resource_geometry_rejects_mixed_whole_and_split_handles(self):
+        geometry = meshplot.MeshGeometry(
+            (),
+            (),
+            resource_id="geometry",
+            generation=1,
+            positions_resource_id="positions",
+            positions_generation=1,
+            triangles_resource_id="triangles",
+            triangles_generation=1,
+        )
+        with self.assertRaisesRegex(ValueError, "whole-geometry"):
+            geometry.to_spec()
+
     def test_resource_ids_and_masks_use_typed_handles(self):
         geometry = meshplot.resource_geometry(
             "positions",

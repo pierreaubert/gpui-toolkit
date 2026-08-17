@@ -154,7 +154,10 @@ impl MeshPlotSpec {
         let split_geometry_resources = self.geometry.get("positions").is_some_and(Value::is_object)
             || self.geometry.get("triangles").is_some_and(Value::is_object);
         if geometry_resource.is_some() {
-            validate_resource_handle(&self.geometry, "geometry")?;
+            return Err(
+                "mesh_plot geometry resource_id is unsupported; provide separate positions and triangles resource handles"
+                    .into(),
+            );
         } else if split_geometry_resources {
             validate_resource_handle(
                 self.geometry
@@ -426,7 +429,10 @@ impl MeshPlotSpec {
 
         let geometry = &self.geometry;
         if geometry.get("resource_id").is_some() {
-            push("geometry", geometry)?;
+            return Err(
+                "mesh_plot geometry resource_id is unsupported; provide separate positions and triangles resource handles"
+                    .into(),
+            );
         } else if geometry.get("positions").is_some_and(Value::is_object)
             || geometry.get("triangles").is_some_and(Value::is_object)
         {
@@ -713,15 +719,27 @@ mod tests {
     }
 
     #[test]
-    fn accepts_resource_handles_and_rejects_bad_ranges() {
+    fn accepts_split_resource_handles_and_rejects_whole_geometry_handles() {
         let mut value = valid_spec();
         value["geometry"] = serde_json::json!({
-            "id": "mesh", "resource_id": "geometry", "generation": 4
+            "id": "mesh",
+            "positions": {"resource_id": "positions", "generation": 4},
+            "triangles": {"resource_id": "triangles", "generation": 4}
         });
         value["field"] = serde_json::json!({
             "resource_id": "field", "generation": 4, "association": "vertex"
         });
         assert!(MeshPlotSpec::from_value(value).is_ok());
+
+        let mut unsupported = valid_spec();
+        unsupported["geometry"] = serde_json::json!({
+            "id": "mesh", "resource_id": "geometry", "generation": 4
+        });
+        assert!(
+            MeshPlotSpec::from_value(unsupported)
+                .unwrap_err()
+                .contains("geometry resource_id is unsupported")
+        );
 
         let mut invalid = valid_spec();
         invalid["color_range"] = serde_json::json!([1.0, 1.0]);

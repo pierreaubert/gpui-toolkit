@@ -113,6 +113,11 @@ class MeshGeometry:
     def to_spec(self) -> dict[str, Any]:
         if not self.id.strip():
             raise ValueError("mesh geometry id must not be empty")
+        if self.resource_id is not None:
+            raise ValueError(
+                "whole-geometry resource handles are unsupported; provide "
+                "positions_resource_id and triangles_resource_id"
+            )
         if self.positions_resource_id is not None or self.triangles_resource_id is not None:
             if (
                 not self.positions_resource_id
@@ -135,14 +140,6 @@ class MeshGeometry:
                     "generation": self.triangles_generation,
                     "dtype": "u32le",
                 },
-            }
-        elif self.resource_id is not None:
-            if not self.resource_id.strip() or self.generation is None or self.generation <= 0:
-                raise ValueError("resource-backed geometry requires a positive generation")
-            spec: dict[str, Any] = {
-                "id": self.id,
-                "resource_id": self.resource_id,
-                "generation": self.generation,
             }
         else:
             _validate_inline_geometry(self.positions, self.triangles, self.vertex_ids, self.cell_ids)
@@ -381,18 +378,15 @@ def geometry(positions: Sequence[Sequence[float]], triangles: Sequence[Sequence[
 def resource_geometry(resource_id: str, generation: int, *, id: str = "mesh", vertex_ids: Sequence[int] | None = None, cell_ids: Sequence[int] | None = None, triangles_resource_id: str | None = None, triangles_generation: int | None = None, vertex_ids_resource_id: str | None = None, vertex_ids_generation: int | None = None, cell_ids_resource_id: str | None = None, cell_ids_generation: int | None = None) -> MeshGeometry:
     """Reference geometry sent through :class:`ResourceStore` mesh frames.
 
-    The legacy two-argument form is retained for declaration compatibility,
-    but native host rendering requires ``triangles_resource_id`` and
-    ``triangles_generation`` because positions and indices have different
-    portable dtypes. Prefer :func:`resource_geometry_from_resources` for
-    resources returned by :class:`ResourceStore`.
+    Native rendering requires explicit position and triangle resources because
+    positions and indices have different portable dtypes. Prefer
+    :func:`resource_geometry_from_resources` for resources returned by
+    :class:`ResourceStore`.
     """
     if triangles_resource_id is None:
-        return MeshGeometry(
-            (), (), id, vertex_ids, cell_ids, resource_id, generation,
-            None, None, None, None,
-            vertex_ids_resource_id, vertex_ids_generation,
-            cell_ids_resource_id, cell_ids_generation,
+        raise ValueError(
+            "resource_geometry requires triangles_resource_id and "
+            "triangles_generation; use resource_geometry_from_resources"
         )
     return MeshGeometry(
         (), (), id, vertex_ids, cell_ids, None, None,

@@ -33,8 +33,10 @@ struct WgpuResources {
     bind_group: wgpu::BindGroup,
     fill_pipeline: wgpu::RenderPipeline,
     line_pipeline: wgpu::RenderPipeline,
+    position_count: usize,
     triangle_index_count: u32,
     edge_index_count: u32,
+    field_is_cell: bool,
 }
 
 impl WgpuResources {
@@ -186,17 +188,19 @@ impl WgpuResources {
             bind_group,
             fill_pipeline: pipeline(wgpu::PrimitiveTopology::TriangleList, "fragment"),
             line_pipeline: pipeline(wgpu::PrimitiveTopology::LineList, "line_fragment"),
+            position_count: render_upload.positions_f32.len(),
             triangle_index_count: render_upload.indices.len() as u32,
             edge_index_count: render_upload.edge_indices.len() as u32,
+            field_is_cell: upload.cell_values_f32.is_some(),
         }
     }
 
     fn update_field(&mut self, ctx: &WgpuContext, revision: FieldRevision, values: &[f32]) -> u64 {
-        let values = if values.is_empty() { &[0.5] } else { values };
+        if values.is_empty() {
+            self.field_rev = revision;
+            return 0;
+        }
         let bytes = std::mem::size_of_val(values) as u64;
-        // Field patches are deliberately queue-only. A field with a different
-        // cardinality is a geometry/schema change and must arrive with a new
-        // geometry revision, which recreates this retained resource.
         if bytes <= self.value_bytes && values.len() == self.value_count {
             ctx.queue
                 .write_buffer(&self.values, 0, bytemuck::cast_slice(values));
@@ -364,10 +368,27 @@ impl WgpuCustomDraw for WgpuMeshDraw {
         let mut resources = self.resources.borrow_mut();
         let mut created_geometry_resource = false;
         let mut geometry_upload_time = None;
-        if resources
-            .as_ref()
-            .is_none_or(|resources| resources.geometry_rev != state.geometry_rev)
-        {
+        let field = field_values(upload);
+        let field_is_cell = upload.cell_values_f32.is_some();
+        let position_count = if field_is_cell {
+            upload.indices.len()
+        } else {
+            upload.positions_f32.len()
+        };
+        let edge_index_count = if field_is_cell {
+            upload.indices.chunks_exact(3).count().saturating_mul(6)
+        } else {
+            upload.edge_indices.len()
+        };
+        let value_count = field.len().max(1);
+        if resources.as_ref().is_none_or(|resources| {
+            resources.geometry_rev != state.geometry_rev
+                || resources.position_count != position_count
+                || resources.triangle_index_count != upload.indices.len() as u32
+                || resources.edge_index_count != edge_index_count as u32
+                || resources.value_count != value_count
+                || resources.field_is_cell != field_is_cell
+        }) {
             let geometry_started = Instant::now();
             *resources = Some(WgpuResources::new(ctx, state.geometry_rev, upload));
             geometry_upload_time = Some(geometry_started.elapsed());
@@ -376,7 +397,6 @@ impl WgpuCustomDraw for WgpuMeshDraw {
         let Some(resources) = resources.as_mut() else {
             return;
         };
-        let field = field_values(upload);
         let field_write_started = Instant::now();
         let field_write_bytes = if resources.field_rev != state.field_rev {
             resources.update_field(ctx, state.field_rev, field.as_ref())

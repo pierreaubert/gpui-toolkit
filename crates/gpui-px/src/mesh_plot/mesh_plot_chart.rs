@@ -83,6 +83,14 @@ impl Mesh2dDrawOwner {
             Self::Wgpu(renderer) => renderer.custom_id(),
         }
     }
+
+    fn state(&self) -> Rc<RefCell<d3rs::mesh::gpu::MeshSceneState>> {
+        match self {
+            #[cfg(all(feature = "gpu-metal", target_os = "macos"))]
+            Self::Metal(renderer) => renderer.state(),
+            Self::Wgpu(renderer) => renderer.state(),
+        }
+    }
 }
 
 #[cfg(all(feature = "gpu-2d", any(not(test), feature = "native-qa")))]
@@ -671,16 +679,26 @@ impl MeshPlot {
         let needs_revolve_preparation_state =
             matches!(self.view, MeshPlotView::AxisymmetricRevolve(_))
                 && self.mesh.triangles.len() >= ASYNC_REVOLVE_TRIANGLE_THRESHOLD;
-        let interaction_state = if self.interactions.is_interactive() || self.show_toolbar || {
-            #[cfg(feature = "gpu-3d")]
-            {
-                needs_revolve_preparation_state
-            }
-            #[cfg(not(feature = "gpu-3d"))]
-            {
-                false
-            }
-        } {
+        #[cfg(feature = "gpu-2d")]
+        let needs_2d_retained_state = !matches!(
+            self.view,
+            MeshPlotView::Surface3d | MeshPlotView::AxisymmetricRevolve(_)
+        );
+        #[cfg(not(feature = "gpu-2d"))]
+        let needs_2d_retained_state = false;
+        let interaction_state = if self.interactions.is_interactive()
+            || self.show_toolbar
+            || needs_2d_retained_state
+            || {
+                #[cfg(feature = "gpu-3d")]
+                {
+                    needs_revolve_preparation_state
+                }
+                #[cfg(not(feature = "gpu-3d"))]
+                {
+                    false
+                }
+            } {
             let state = self.state.clone().unwrap_or_else(|| {
                 Rc::new(RefCell::new(MeshPlotState::new(
                     x_domain[0],
@@ -695,6 +713,9 @@ impl MeshPlot {
             self.state = Some(state.clone());
             {
                 let mut state_ref = state.borrow_mut();
+                if state_ref.geometry_revision == 0 {
+                    state_ref.mark_resources_changed(true, self.field.is_some());
+                }
                 state_ref.interaction = state_ref
                     .interaction
                     .clone()
@@ -948,7 +969,31 @@ impl MeshPlot {
         let _ = (&contour_bands, &isolines);
 
         #[cfg(feature = "gpu-2d")]
+        let retained_2d_scene = {
+            #[cfg(all(feature = "gpu-2d", any(not(test), feature = "native-qa")))]
+            {
+                self.retained_2d_draw_owner
+                    .as_ref()
+                    .map(|owner| owner.state())
+            }
+            #[cfg(not(all(feature = "gpu-2d", any(not(test), feature = "native-qa"))))]
+            {
+                None
+            }
+        };
+
+        #[cfg(feature = "gpu-2d")]
+        let (geometry_revision, field_revision) = interaction_state
+            .as_ref()
+            .map(|state| {
+                let state = state.borrow();
+                (state.geometry_revision.max(1), state.field_revision)
+            })
+            .unwrap_or((1, u64::from(field.is_some())));
+
+        #[cfg(feature = "gpu-2d")]
         let retained_state = build_retained_scene_state(
+            retained_2d_scene,
             &mesh,
             field.as_ref(),
             &projected,
@@ -961,6 +1006,8 @@ impl MeshPlot {
             wireframe,
             &color_scale,
             range_for_render,
+            geometry_revision,
+            field_revision,
         );
 
         #[cfg(feature = "gpu-3d")]
@@ -1178,24 +1225,34 @@ impl MeshPlot {
             any(not(test), feature = "native-qa")
         ))]
         let retained_3d_custom_id = {
-            if let Some(camera) = retained_3d_camera.as_ref() {
+            if !matches!(
+                self.view,
+                MeshPlotView::Surface3d | MeshPlotView::AxisymmetricRevolve(_)
+            ) {
+                retained_3d_renderer.custom_id()
+            } else if let Some(camera) = retained_3d_camera.as_ref() {
                 retained_3d_state.borrow_mut().view_transform =
                     camera.borrow().view_projection_matrix().to_cols_array_2d();
-            }
-            if matches!(self.renderer_backend, MeshPlotBackend::Wgpu) {
+                if matches!(self.renderer_backend, MeshPlotBackend::Wgpu) {
+                    retained_3d_renderer.custom_id()
+                } else if let Some(renderer) = self.retained_2d_draw_owner.as_ref() {
+                    renderer.custom_id()
+                } else {
+                    let renderer = d3rs::mesh::gpu::MetalMeshRenderer::new_3d_with_camera(
+                        retained_3d_state.clone(),
+                        camera.clone(),
+                    );
+                    let custom_id = renderer.custom_id();
+                    self.retained_2d_draw_owner = Some(Rc::new(Mesh2dDrawOwner::Metal(renderer)));
+                    custom_id
+                }
+            } else if matches!(self.renderer_backend, MeshPlotBackend::Wgpu) {
                 retained_3d_renderer.custom_id()
             } else if let Some(renderer) = self.retained_2d_draw_owner.as_ref() {
                 renderer.custom_id()
             } else {
-                let renderer = retained_3d_camera.as_ref().map_or_else(
-                    || d3rs::mesh::gpu::MetalMeshRenderer::new_3d(retained_3d_state.clone()),
-                    |camera| {
-                        d3rs::mesh::gpu::MetalMeshRenderer::new_3d_with_camera(
-                            retained_3d_state.clone(),
-                            camera.clone(),
-                        )
-                    },
-                );
+                let renderer =
+                    d3rs::mesh::gpu::MetalMeshRenderer::new_3d(retained_3d_state.clone());
                 let custom_id = renderer.custom_id();
                 self.retained_2d_draw_owner = Some(Rc::new(Mesh2dDrawOwner::Metal(renderer)));
                 custom_id
@@ -1257,10 +1314,17 @@ impl MeshPlot {
             let scene = d3rs::mesh::gpu::MeshSceneElement::new(retained_state.clone());
             #[cfg(any(not(test), feature = "native-qa"))]
             let scene = if mesh_custom_draw_supported(std::env::consts::OS) {
-                let renderer =
-                    new_mesh_2d_draw_owner(retained_state.clone(), self.renderer_backend);
-                let custom_id = renderer.custom_id();
-                self.retained_2d_draw_owner = Some(Rc::new(renderer));
+                let custom_id = if let Some(renderer) = self.retained_2d_draw_owner.as_ref() {
+                    renderer.custom_id()
+                } else {
+                    let renderer = Rc::new(new_mesh_2d_draw_owner(
+                        retained_state.clone(),
+                        self.renderer_backend,
+                    ));
+                    let custom_id = renderer.custom_id();
+                    self.retained_2d_draw_owner = Some(renderer);
+                    custom_id
+                };
                 scene.with_custom_id(custom_id)
             } else {
                 scene
@@ -2559,6 +2623,7 @@ pub fn mesh_plot(mesh: TriangleMesh) -> MeshPlot {
 
 #[cfg(feature = "gpu-2d")]
 fn build_retained_scene_state(
+    retained: Option<Rc<RefCell<d3rs::mesh::gpu::MeshSceneState>>>,
     mesh: &TriangleMesh,
     field: Option<&ScalarField>,
     projected: &[[f64; 2]],
@@ -2571,6 +2636,8 @@ fn build_retained_scene_state(
     wireframe: Wireframe,
     color_scale: &ColorScale,
     range: Option<[f64; 2]>,
+    geometry_revision: u64,
+    field_revision: u64,
 ) -> Rc<RefCell<d3rs::mesh::gpu::MeshSceneState>> {
     use d3rs::mesh::gpu::{FieldRevision, GeometryRevision, MeshColorConfig, MeshSceneState};
     use d3rs::mesh::{prepare_field, prepare_upload};
@@ -2610,9 +2677,35 @@ fn build_retained_scene_state(
         }
     }
     let color_range = range.unwrap_or([0.0, 1.0]);
+    let view_transform = mesh_view_transform(
+        origin,
+        x_domain,
+        y_domain,
+        plot_width,
+        plot_height,
+        equal_aspect,
+    );
+    let color = MeshColorConfig {
+        colormap: color_scale.to_colormap_index(),
+        range: [color_range[0] as f32, color_range[1] as f32],
+        wireframe: wireframe == Wireframe::Overlay || matches!(mode, MeshRenderMode::Mesh),
+        isoline_step: isoline_step(mode, range).unwrap_or(0.0) as f32,
+        isoline_width_px: 1.0,
+        unlit: true,
+    };
+    if let Some(scene) = retained {
+        let mut state = scene.borrow_mut();
+        state.geometry_rev = GeometryRevision(geometry_revision.max(1));
+        state.field_rev = FieldRevision(field_revision);
+        state.upload = Some(upload);
+        state.view_transform = view_transform;
+        state.color = color;
+        drop(state);
+        return scene;
+    }
     Rc::new(RefCell::new(MeshSceneState {
-        geometry_rev: GeometryRevision(1),
-        field_rev: FieldRevision(u64::from(field.is_some())),
+        geometry_rev: GeometryRevision(geometry_revision.max(1)),
+        field_rev: FieldRevision(field_revision),
         upload: Some(upload),
         geometry_upload_count: 0,
         geometry_upload_bytes: 0,
@@ -2635,22 +2728,8 @@ fn build_retained_scene_state(
         gpu_frame_count: 0,
         gpu_frame_gpu_time_ns: 0,
         gpu_frame_gpu_time_count: 0,
-        view_transform: mesh_view_transform(
-            origin,
-            x_domain,
-            y_domain,
-            plot_width,
-            plot_height,
-            equal_aspect,
-        ),
-        color: MeshColorConfig {
-            colormap: color_scale.to_colormap_index(),
-            range: [color_range[0] as f32, color_range[1] as f32],
-            wireframe: wireframe == Wireframe::Overlay || matches!(mode, MeshRenderMode::Mesh),
-            isoline_step: isoline_step(mode, range).unwrap_or(0.0) as f32,
-            isoline_width_px: 1.0,
-            unlit: true,
-        },
+        view_transform,
+        color,
     }))
 }
 
@@ -4626,6 +4705,7 @@ mod tests {
         };
         let projected = [[10.0, 20.0], [11.0, 20.0], [11.0, 21.0], [10.0, 21.0]];
         let scene = build_retained_scene_state(
+            None,
             &mesh,
             Some(&cell_field),
             &projected,
@@ -4640,6 +4720,8 @@ mod tests {
             Wireframe::Hidden,
             &ColorScale::Viridis,
             Some([0.0, 1.0]),
+            1,
+            1,
         );
         let scene = scene.borrow();
         let upload = scene.upload.as_ref().expect("prepared 2D upload");
@@ -4656,6 +4738,7 @@ mod tests {
         let mesh = square_mesh();
         let projected = [[10.0, 20.0], [11.0, 20.0], [11.0, 21.0], [10.0, 21.0]];
         let scene = build_retained_scene_state(
+            None,
             &mesh,
             None,
             &projected,
@@ -4668,6 +4751,8 @@ mod tests {
             Wireframe::Overlay,
             &ColorScale::Viridis,
             None,
+            1,
+            0,
         );
         let scene = scene.borrow();
         let upload = scene.upload.as_ref().expect("prepared 2D upload");
@@ -4682,6 +4767,73 @@ mod tests {
         assert_eq!(point, [10.5, 20.5]);
         assert!(mesh_point_to_domain(&state, f32::NAN, 10.0, 400.0, 300.0, false).is_none());
         assert!(mesh_point_to_domain(&state, 10.0, 10.0, 0.0, 300.0, false).is_none());
+    }
+
+    #[cfg(feature = "gpu-2d")]
+    #[test]
+    fn retained_2d_scene_updates_existing_owner_in_place() {
+        let mesh = square_mesh();
+        let projected = [[10.0, 20.0], [11.0, 20.0], [11.0, 21.0], [10.0, 21.0]];
+        let scene = build_retained_scene_state(
+            None,
+            &mesh,
+            None,
+            &projected,
+            [10.0, 11.0],
+            [20.0, 21.0],
+            400.0,
+            300.0,
+            false,
+            &MeshRenderMode::Mesh,
+            Wireframe::Overlay,
+            &ColorScale::Viridis,
+            None,
+            3,
+            0,
+        );
+        scene.borrow_mut().geometry_upload_count = 7;
+
+        let field = ScalarField {
+            id: "vertex".into(),
+            label: "Vertex".into(),
+            unit: None,
+            values: Arc::from([0.0, 0.5, 1.0, 1.5]),
+            association: ScalarAssociation::Vertex,
+            valid: None,
+        };
+        let updated = build_retained_scene_state(
+            Some(scene.clone()),
+            &mesh,
+            Some(&field),
+            &projected,
+            [10.0, 11.0],
+            [20.0, 21.0],
+            400.0,
+            300.0,
+            false,
+            &MeshRenderMode::ScalarFill {
+                interpolation: FieldInterpolation::Smooth,
+            },
+            Wireframe::Hidden,
+            &ColorScale::Magma,
+            Some([0.0, 1.5]),
+            3,
+            1,
+        );
+
+        assert!(Rc::ptr_eq(&scene, &updated));
+        let state = updated.borrow();
+        assert_eq!(state.geometry_rev.0, 3);
+        assert_eq!(state.field_rev.0, 1);
+        assert_eq!(state.geometry_upload_count, 7);
+        assert_eq!(
+            state
+                .upload
+                .as_ref()
+                .and_then(|upload| upload.values_f32.as_deref()),
+            Some(&[0.0, 0.5, 1.0, 1.5][..])
+        );
+        assert!(!state.color.wireframe);
     }
 
     #[test]
