@@ -203,6 +203,10 @@ fn adapter_draw_preserves_content_outside_an_embedded_clipped_viewport() {
             Point::new(px(-16.0), px(20.0)),
             Size::new(px(64.0), px(48.0)),
         ),
+        Bounds::new(
+            Point::new(px(-16.0), px(20.0)),
+            Size::new(px(64.0), px(48.0)),
+        ),
         1.0,
     );
     ctx.queue.submit(std::iter::once(encoder.finish()));
@@ -242,6 +246,10 @@ fn adapter_draw_preserves_content_outside_an_embedded_clipped_viewport() {
             Point::new(px(20.0), px(8.0)),
             Size::new(px(100.0), px(80.0)),
         ),
+        Bounds::new(
+            Point::new(px(20.0), px(8.0)),
+            Size::new(px(100.0), px(80.0)),
+        ),
         1.0,
     );
     ctx.queue.submit(std::iter::once(resized_encoder.finish()));
@@ -267,6 +275,7 @@ fn adapter_draw_preserves_content_outside_an_embedded_clipped_viewport() {
         ctx.color_texture_format(),
         TARGET_SIZE,
         Bounds::new(Point::new(px(0.0), px(12.0)), Size::new(px(48.0), px(72.0))),
+        Bounds::new(Point::new(px(0.0), px(12.0)), Size::new(px(48.0), px(72.0))),
         1.0,
     );
     draw.0.draw_wgpu(
@@ -275,6 +284,10 @@ fn adapter_draw_preserves_content_outside_an_embedded_clipped_viewport() {
         &sibling_view,
         ctx.color_texture_format(),
         TARGET_SIZE,
+        Bounds::new(
+            Point::new(px(80.0), px(12.0)),
+            Size::new(px(48.0), px(72.0)),
+        ),
         Bounds::new(
             Point::new(px(80.0), px(12.0)),
             Size::new(px(48.0), px(72.0)),

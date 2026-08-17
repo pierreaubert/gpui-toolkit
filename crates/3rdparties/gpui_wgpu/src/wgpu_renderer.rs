@@ -1241,6 +1241,8 @@ impl WgpuRenderer {
                                         else {
                                             continue;
                                         };
+                                        let full_bounds =
+                                            custom.bounds.map(|value| gpui::px(value.0));
                                         wgpu_draw.0.draw_wgpu(
                                             context,
                                             &mut encoder,
@@ -1248,6 +1250,7 @@ impl WgpuRenderer {
                                             self.surface_config.format,
                                             [self.surface_config.width, self.surface_config.height],
                                             bounds,
+                                            full_bounds,
                                             1.0,
                                         );
                                     }

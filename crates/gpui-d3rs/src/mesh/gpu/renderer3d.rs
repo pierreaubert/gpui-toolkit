@@ -773,6 +773,7 @@ impl gpui_wgpu::WgpuCustomDraw for WgpuMesh3DDraw {
         _target_format: wgpu::TextureFormat,
         target_size: [u32; 2],
         bounds: gpui::Bounds<gpui::Pixels>,
+        _full_bounds: gpui::Bounds<gpui::Pixels>,
         scale_factor: f32,
     ) {
         let state = self.state.borrow();

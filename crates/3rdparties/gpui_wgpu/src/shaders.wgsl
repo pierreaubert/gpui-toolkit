@@ -1282,7 +1282,11 @@ fn fs_poly_sprite(input: PolySpriteVarying) -> @location(0) vec4<f32> {
         let grayscale = dot(color.rgb, GRAYSCALE_FACTORS);
         color = vec4<f32>(vec3<f32>(grayscale), sample.a);
     }
-    return blend_color(color, sprite.opacity * saturate(0.5 - distance));
+    // Atlas content is premultiplied (matches the Metal renderer's
+    // polychrome_sprite_fragment): scale only alpha for opacity/edge
+    // coverage. Multiplying rgb by alpha again would double-apply it.
+    color.a *= sprite.opacity * saturate(0.5 - distance);
+    return color;
 }
 
 // --- surfaces --- //

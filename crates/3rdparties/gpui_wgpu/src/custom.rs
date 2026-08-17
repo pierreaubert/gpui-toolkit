@@ -16,6 +16,13 @@ pub trait WgpuCustomDraw: CustomDraw {
     /// scissor rectangle. The bounds are in GPUI pixels and `scale_factor`
     /// is the scale to use when converting them to device pixels.
     /// `target_size` is the physical extent of `target`.
+    ///
+    /// `bounds` is the element bounds intersected with the content mask
+    /// (the visible region), while `full_bounds` is the unclipped element
+    /// bounds. Draws that render into an offscreen buffer sized from the
+    /// element extent need `full_bounds` to locate the visible sub-region;
+    /// `bounds.origin - full_bounds.origin` is the clip offset.
+    #[allow(clippy::too_many_arguments)]
     fn draw_wgpu(
         &self,
         ctx: &WgpuContext,
@@ -24,6 +31,7 @@ pub trait WgpuCustomDraw: CustomDraw {
         target_format: wgpu::TextureFormat,
         target_size: [u32; 2],
         bounds: Bounds<Pixels>,
+        full_bounds: Bounds<Pixels>,
         scale_factor: f32,
     );
 }

@@ -26,4 +26,7 @@ pub use scene::{ChartCmd, ChartScene};
 #[cfg(feature = "vello-gpui")]
 pub use element::{RasterBackend, VelloChartElement};
 #[cfg(feature = "vello-gpui")]
-pub use wgpu_draw::physical_size as wgpu_draw_physical_size;
+pub use wgpu_draw::{
+    clip_src_rect as wgpu_draw_clip_src_rect, physical_size as wgpu_draw_physical_size,
+    scene_scale as wgpu_draw_scene_scale,
+};

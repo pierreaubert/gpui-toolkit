@@ -6,15 +6,29 @@ use gpui::{Bounds, CustomDraw, Pixels};
 use gpui_wgpu::{WgpuContext, WgpuCustomDraw, WgpuCustomDrawAdapter};
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
+use vello::kurbo::Affine;
 use vello::peniko::Color;
 use vello::{AaConfig, AaSupport, RenderParams, Renderer, RendererOptions};
 
+/// Scene + the logical element size it was built for. Shared between
+/// [`VelloChartElement`](crate::vello2d::VelloChartElement) (writes, at paint
+/// time, in logical GPUI pixels) and [`WgpuVelloDraw`] (reads, at draw time,
+/// where bounds arrive in physical pixels).
+pub struct SharedScene {
+    /// The chart scene in logical coordinates.
+    pub scene: ChartScene,
+    /// Element-local logical size the scene was built for.
+    pub logical_size: (f32, f32),
+}
+
 /// Shared scene handle + lazily-initialized GPU state.
 pub struct WgpuVelloDraw {
-    scene: Rc<RefCell<ChartScene>>,
+    scene: Rc<RefCell<SharedScene>>,
     gpu: RefCell<Option<GpuState>>,
-    /// Set when Renderer::new fails: never retry inside the paint loop.
-    poisoned: Cell<bool>,
+    /// Shared with the element: set when `Renderer::new` fails so the element
+    /// can fall back to the CPU rasterizer on its next paint. Never retried
+    /// inside the paint loop.
+    failed: Rc<Cell<bool>>,
 }
 
 struct GpuState {
@@ -32,12 +46,51 @@ pub fn physical_size(width: f32, height: f32, scale_factor: f32) -> [u32; 2] {
     ]
 }
 
+/// Scale mapping logical scene coordinates onto the physical offscreen
+/// extent. Guards against a zero logical size (element not painted yet).
+pub fn scene_scale(logical_w: f32, logical_h: f32, physical_w: f32, physical_h: f32) -> [f64; 2] {
+    [
+        if logical_w > 0.0 {
+            (physical_w / logical_w) as f64
+        } else {
+            1.0
+        },
+        if logical_h > 0.0 {
+            (physical_h / logical_h) as f64
+        } else {
+            1.0
+        },
+    ]
+}
+
+/// Source rectangle (origin, size) in device pixels: the visible sub-region
+/// of the full-element offscreen texture.
+pub fn clip_src_rect(
+    full: Bounds<Pixels>,
+    clipped: Bounds<Pixels>,
+    scale_factor: f32,
+) -> ([f32; 2], [f32; 2]) {
+    let full_x: f32 = full.origin.x.into();
+    let full_y: f32 = full.origin.y.into();
+    let clip_x: f32 = clipped.origin.x.into();
+    let clip_y: f32 = clipped.origin.y.into();
+    let clip_w: f32 = clipped.size.width.into();
+    let clip_h: f32 = clipped.size.height.into();
+    (
+        [
+            ((clip_x - full_x) * scale_factor).max(0.0),
+            ((clip_y - full_y) * scale_factor).max(0.0),
+        ],
+        [clip_w * scale_factor, clip_h * scale_factor],
+    )
+}
+
 impl WgpuVelloDraw {
-    pub fn new(scene: Rc<RefCell<ChartScene>>) -> Self {
+    pub fn new(scene: Rc<RefCell<SharedScene>>, failed: Rc<Cell<bool>>) -> Self {
         Self {
             scene,
             gpu: RefCell::new(None),
-            poisoned: Cell::new(false),
+            failed,
         }
     }
 
@@ -61,22 +114,29 @@ impl WgpuCustomDraw for WgpuVelloDraw {
         target_format: wgpu::TextureFormat,
         target_size: [u32; 2],
         bounds: Bounds<Pixels>,
+        full_bounds: Bounds<Pixels>,
         scale_factor: f32,
     ) {
-        if self.poisoned.get() {
+        if self.failed.get() {
             return;
         }
+        let full_w: f32 = full_bounds.size.width.into();
+        let full_h: f32 = full_bounds.size.height.into();
+        let size = physical_size(full_w, full_h, scale_factor);
+
         let vello_scene = {
-            let scene = self.scene.borrow();
-            if scene.is_empty() {
+            let shared = self.scene.borrow();
+            if shared.scene.is_empty() {
                 return;
             }
-            to_vello_scene(&scene)
+            let [sx, sy] = scene_scale(
+                shared.logical_size.0,
+                shared.logical_size.1,
+                size[0] as f32,
+                size[1] as f32,
+            );
+            to_vello_scene(&shared.scene, Affine::scale_non_uniform(sx, sy))
         }; // RefCell borrow released before GPU work
-
-        let width: f32 = bounds.size.width.into();
-        let height: f32 = bounds.size.height.into();
-        let size = physical_size(width, height, scale_factor);
 
         let mut gpu_slot = self.gpu.borrow_mut();
         if gpu_slot.is_none() {
@@ -96,8 +156,10 @@ impl WgpuCustomDraw for WgpuVelloDraw {
                     });
                 }
                 Err(err) => {
-                    log::error!("vello2d: vello::Renderer::new failed: {err}");
-                    self.poisoned.set(true);
+                    log::error!(
+                        "vello2d: vello::Renderer::new failed ({err}); element falls back to CPU"
+                    );
+                    self.failed.set(true);
                     return;
                 }
             }
@@ -149,12 +211,15 @@ impl WgpuCustomDraw for WgpuVelloDraw {
 
         let origin_x: f32 = bounds.origin.x.into();
         let origin_y: f32 = bounds.origin.y.into();
+        let (src_origin, src_size) = clip_src_rect(full_bounds, bounds, scale_factor);
         gpu.composite.as_ref().unwrap().composite(
             ctx,
             encoder,
             target,
             gpu.offscreen_view.as_ref().unwrap(),
             [origin_x * scale_factor, origin_y * scale_factor],
+            src_size,
+            src_origin,
             [size[0] as f32, size[1] as f32],
             [target_size[0] as f32, target_size[1] as f32],
         );
@@ -175,8 +240,10 @@ const COMPOSITE_WGSL: &str = r#"
 struct Uniforms {
     dst_origin: vec2<f32>,
     dst_size: vec2<f32>,
+    src_origin: vec2<f32>,
+    src_size: vec2<f32>,
+    tex_size: vec2<f32>,
     target_size: vec2<f32>,
-    _pad: vec2<f32>,
 };
 @group(0) @binding(0) var<uniform> u: Uniforms;
 @group(0) @binding(1) var src_tex: texture_2d<f32>;
@@ -199,7 +266,9 @@ fn vs(@builtin(vertex_index) i: u32) -> VsOut {
         device_px.x / u.target_size.x * 2.0 - 1.0,
         1.0 - device_px.y / u.target_size.y * 2.0,
     );
-    return VsOut(vec4<f32>(ndc, 0.0, 1.0), p);
+    // Sample only the visible sub-region of the full-element texture.
+    let uv = (u.src_origin + p * u.src_size) / u.tex_size;
+    return VsOut(vec4<f32>(ndc, 0.0, 1.0), uv);
 }
 
 @fragment
@@ -279,7 +348,7 @@ impl CompositePipeline {
         });
         let uniform = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("vello2d_composite_uniform"),
-            size: 32,
+            size: 48,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -297,6 +366,7 @@ impl CompositePipeline {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn composite(
         &self,
         ctx: &WgpuContext,
@@ -305,17 +375,23 @@ impl CompositePipeline {
         src: &wgpu::TextureView,
         dst_origin: [f32; 2],
         dst_size: [f32; 2],
+        src_origin: [f32; 2],
+        tex_size: [f32; 2],
         target_size: [f32; 2],
     ) {
-        let uniforms: [f32; 8] = [
+        let uniforms: [f32; 12] = [
             dst_origin[0],
             dst_origin[1],
             dst_size[0],
             dst_size[1],
+            src_origin[0],
+            src_origin[1],
+            dst_size[0],
+            dst_size[1],
+            tex_size[0],
+            tex_size[1],
             target_size[0],
             target_size[1],
-            0.0,
-            0.0,
         ];
         ctx.queue
             .write_buffer(&self.uniform, 0, bytemuck::cast_slice(&uniforms));

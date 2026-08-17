@@ -1,4 +1,4 @@
-use d3rs::vello2d::kurbo::{Circle, Rect, Shape, Stroke};
+use d3rs::vello2d::kurbo::{Affine, Circle, Rect, Shape, Stroke};
 use d3rs::vello2d::peniko::{Brush, Color, Fill};
 use d3rs::vello2d::to_vello_scene;
 use d3rs::vello2d::{ChartCmd, ChartScene};
@@ -42,7 +42,11 @@ fn fill_rect_uses_rect_shape() {
 #[test]
 fn stroke_polyline_builds_single_open_path() {
     let mut scene = ChartScene::new();
-    scene.stroke_polyline(&[(0.0, 0.0), (1.0, 2.0), (3.0, 4.0)], Stroke::new(2.0), red());
+    scene.stroke_polyline(
+        &[(0.0, 0.0), (1.0, 2.0), (3.0, 4.0)],
+        Stroke::new(2.0),
+        red(),
+    );
     let ChartCmd::Stroke { path, stroke, .. } = &scene.commands()[0] else {
         panic!("expected Stroke command");
     };
@@ -75,14 +79,27 @@ fn gpu_replay_emits_one_draw_per_command() {
     let mut scene = ChartScene::new();
     scene.fill_circle(10.0, 10.0, 2.0, red());
     scene.stroke_polyline(&[(0.0, 0.0), (5.0, 5.0)], Stroke::new(1.0), red());
-    let vello_scene = to_vello_scene(&scene);
+    let vello_scene = to_vello_scene(&scene, Affine::IDENTITY);
     let encoding = vello_scene.encoding();
     assert_eq!(encoding.draw_tags.len(), 2);
     assert!(!encoding.path_data.is_empty());
 }
 
 #[test]
+fn gpu_replay_applies_transform() {
+    let mut scene = ChartScene::new();
+    scene.fill_rect(Rect::new(0.0, 0.0, 10.0, 20.0), red());
+    let vello_scene = to_vello_scene(&scene, Affine::scale(2.0));
+    let encoding = vello_scene.encoding();
+    assert_eq!(encoding.draw_tags.len(), 1);
+    let transform = encoding.transforms.first().expect("draw transform");
+    // kurbo Affine [a, b, c, d, e, f]: uniform scale(2) → a = d = 2.
+    assert_eq!(transform.matrix[0], 2.0);
+    assert_eq!(transform.matrix[3], 2.0);
+}
+
+#[test]
 fn gpu_replay_of_empty_scene_has_no_draws() {
-    let vello_scene = to_vello_scene(&ChartScene::new());
+    let vello_scene = to_vello_scene(&ChartScene::new(), Affine::IDENTITY);
     assert_eq!(vello_scene.encoding().draw_tags.len(), 0);
 }

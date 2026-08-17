@@ -291,6 +291,7 @@ impl WgpuCustomDraw for WgpuMeshDraw {
         _target_format: wgpu::TextureFormat,
         _target_size: [u32; 2],
         bounds: Bounds<Pixels>,
+        _full_bounds: Bounds<Pixels>,
         scale_factor: f32,
     ) {
         let state = self.state.borrow();
