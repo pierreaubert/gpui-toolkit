@@ -112,6 +112,7 @@ BENCHMARKS: list[BenchSpec] = [
         ["gpu-3d"],
         groups=[
             "mesh_plot_svg_frame",
+            "mesh_plot_png_frame",
             "mesh_plot_build_*",
             "mesh_plot_fit_*",
             "mesh_plot_retained_frames",

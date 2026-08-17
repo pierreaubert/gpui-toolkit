@@ -1,7 +1,7 @@
 use criterion::{Criterion, criterion_group, criterion_main};
 use d3rs::mesh::TriangleMesh;
 use gpui_px::mesh_plot::MeshPlotState;
-use gpui_px::{MeshRenderMode, mesh_plot};
+use gpui_px::{MeshPlotView, MeshRenderMode, mesh_plot};
 use std::hint::black_box;
 use std::sync::Arc;
 
@@ -136,6 +136,30 @@ fn bench(c: &mut Criterion) {
             cell_ids: None,
         };
         b.iter(|| black_box(mesh_plot(small.clone()).mode(MeshRenderMode::Mesh).to_svg()))
+    });
+
+    #[cfg(feature = "gpu-3d")]
+    c.bench_function("mesh_plot_png_frame", |b| {
+        let small = TriangleMesh {
+            id: "bench-png".into(),
+            positions: Arc::from([
+                [0.0, 0.0, 0.0],
+                [1.0, 0.0, 0.15],
+                [1.0, 1.0, 0.0],
+                [0.0, 1.0, -0.15],
+            ]),
+            triangles: Arc::from([[0, 1, 2], [0, 2, 3]]),
+            vertex_ids: None,
+            cell_ids: None,
+        };
+        let field = vertex_field(&small, "bench-png-field");
+        let plot = mesh_plot(small)
+            .field(field)
+            .view(MeshPlotView::Surface3d)
+            .mode(MeshRenderMode::ScalarFill {
+                interpolation: FieldInterpolation::Smooth,
+            });
+        b.iter(|| black_box(plot.to_png(1.0)))
     });
 
     #[cfg(feature = "gpu-3d")]

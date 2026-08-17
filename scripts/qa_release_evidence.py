@@ -89,6 +89,7 @@ MESH_PLOT_BENCHMARK_WORKLOADS = {
     ("gpui-px", "mesh_plot_frames"): (
         ("mesh_plot_build_200000_triangles", "mesh_plot_build_200000_triangles"),
         ("mesh_plot_fit_200000_triangles", "mesh_plot_fit_200000_triangles"),
+        ("mesh_plot_png_frame", "mesh_plot_png_frame"),
         ("mesh_plot_retained_frames", "field_replace_100000_values"),
         ("mesh_plot_retained_frames", "camera_100000_values"),
         ("mesh_plot_retained_picking", "surface_bvh_pick"),
