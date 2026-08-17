@@ -30,6 +30,10 @@ const CASES: &[CaptureCase] = &[
         description: "smooth vertex scalar fill",
     },
     CaptureCase {
+        id: "cell",
+        description: "flat cell scalar fill",
+    },
+    CaptureCase {
         id: "wireframe",
         description: "smooth fill with wireframe",
     },
@@ -65,6 +69,17 @@ fn square_field() -> ScalarField {
         unit: Some("arb".into()),
         values: Arc::from([0.0, 0.5, 1.0, 0.25]),
         association: ScalarAssociation::Vertex,
+        valid: None,
+    }
+}
+
+fn square_cell_field() -> ScalarField {
+    ScalarField {
+        id: "wgpu-visual-cell-field".into(),
+        label: "cell scalar".into(),
+        unit: Some("arb".into()),
+        values: Arc::from([0.15, 0.85]),
+        association: ScalarAssociation::Cell,
         valid: None,
     }
 }
@@ -127,6 +142,7 @@ fn scene_for(id: &str) -> Result<MeshSceneState, String> {
     let (field, wireframe, isoline_step) = match id {
         "mesh" => (None, false, 0.0),
         "smooth" => (Some(square_field()), false, 0.0),
+        "cell" => (Some(square_cell_field()), false, 0.0),
         "wireframe" => (Some(square_field()), true, 0.0),
         "isoline" => (Some(square_field()), false, 0.5),
         other => return Err(format!("unknown WGPU visual capture case: {other}")),
@@ -147,8 +163,12 @@ fn scene_for(id: &str) -> Result<MeshSceneState, String> {
         ..MeshSceneState::default()
     };
     if let Some(field) = field {
-        state.upload.as_mut().unwrap().values_f32 =
-            Some(field.values.iter().map(|value| *value as f32).collect());
+        let values = field.values.iter().map(|value| *value as f32).collect();
+        if field.association == ScalarAssociation::Cell {
+            state.upload.as_mut().unwrap().cell_values_f32 = Some(values);
+        } else {
+            state.upload.as_mut().unwrap().values_f32 = Some(values);
+        }
     }
     Ok(state)
 }

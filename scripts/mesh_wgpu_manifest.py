@@ -15,7 +15,7 @@ SCHEMA_VERSION = 1
 RENDERER = "wgpu-headless"
 WIDTH = 256
 HEIGHT = 192
-CASE_IDS = ("mesh", "smooth", "wireframe", "isoline", "revolve")
+CASE_IDS = ("mesh", "smooth", "cell", "wireframe", "isoline", "revolve")
 CHECKSUM_RE = re.compile(r"^fnv1a64:[0-9a-f]{16}$")
 
 
@@ -90,7 +90,9 @@ def validate_manifest(
         )
     cases = manifest.get("cases")
     if not isinstance(cases, list) or len(cases) != len(CASE_IDS):
-        raise WgpuManifestError("WGPU visual manifest must contain exactly five cases")
+        raise WgpuManifestError(
+            f"WGPU visual manifest must contain exactly {len(CASE_IDS)} cases"
+        )
 
     expected_ids = set(CASE_IDS)
     seen_ids: set[str] = set()
