@@ -64,6 +64,7 @@ MESH_PLOT_BASELINE_IDS = tuple(
     f"px-mesh-plot-fixture-{index:02d}"
     for index in range(MESH_PLOT_VERSIONED_BASELINE_COUNT)
 )
+WGPU_CASE_IDS = ("mesh", "smooth", "cell", "wireframe", "isoline", "revolve")
 
 
 def mesh_plot_capture_fixture(root: Path) -> dict[str, object]:
@@ -121,7 +122,7 @@ def mesh_plot_wgpu_fixture(root: Path) -> None:
     actual_dir = root / "target/qa/visual/mesh-plot-wgpu/actual"
     actual_dir.mkdir(parents=True, exist_ok=True)
     cases = []
-    for index, case_id in enumerate(("mesh", "smooth", "wireframe", "isoline", "revolve")):
+    for index, case_id in enumerate(WGPU_CASE_IDS):
         (actual_dir / f"{case_id}.png").write_bytes(f"fixture-{case_id}".encode())
         cases.append(
             {
@@ -300,13 +301,13 @@ class ReleaseEvidenceTests(unittest.TestCase):
         with self.assertRaisesRegex(EvidenceError, "99 compared cases"):
             self.build(root)
 
-    def test_wgpu_manifest_requires_the_canonical_five_cases(self):
+    def test_wgpu_manifest_requires_the_canonical_six_cases(self):
         root = self.make_repo()
         actual = root / MESH_PLOT_WGPU_VISUAL_CAPTURE_ARTIFACT
         data = json.loads(actual.read_text(encoding="utf-8"))
         data["cases"].pop()
         actual.write_text(json.dumps(data), encoding="utf-8")
-        with self.assertRaisesRegex(EvidenceError, "exactly five cases"):
+        with self.assertRaisesRegex(EvidenceError, "exactly 6 cases"):
             self.build(root)
 
     def test_wgpu_baseline_checksum_must_match_actual(self):
