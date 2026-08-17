@@ -186,8 +186,8 @@ pub use isoline::{IsolineChart, isoline};
 pub use line::{ChartTheme, LegendClickCallback, LegendPosition, LineChart, line};
 #[cfg(feature = "gpui")]
 pub use mesh_plot::{
-    Axes2d, FieldInterpolation, MeshPlot, MeshPlotPick, MeshPlotState, MeshPlotView,
-    MeshRenderMode, PlotInteractions, Wireframe, mesh_plot,
+    Axes2d, FieldInterpolation, MeshPlot, MeshPlotPick, MeshPlotState, MeshPlotTimingStats,
+    MeshPlotView, MeshRenderMode, PlotInteractions, Wireframe, mesh_plot,
 };
 #[cfg(feature = "gpui")]
 pub use pie::{PieChart, donut, pie};

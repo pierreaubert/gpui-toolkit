@@ -5,13 +5,13 @@ use crate::gpu3d::Camera3D;
 use crate::mesh::MeshUpload;
 use crate::mesh::gpu::shaders_metal::MESH_MSL;
 use crate::mesh::gpu::shaders3d::MESH_3D_MSL;
-use glam::{Vec3, Vec3Swizzles};
+use glam::{Mat4, Vec3, Vec3Swizzles};
 use gpui::{Bounds, CustomDraw, Pixels};
 use gpui_macos::{MetalCustomDraw, MetalCustomDrawAdapter};
 use metal::{
     CommandBufferRef, DepthStencilDescriptor, DepthStencilState, DeviceRef, MTLCompareFunction,
     MTLLoadAction, MTLPixelFormat, MTLPrimitiveType, MTLResourceOptions, MTLScissorRect,
-    MTLStorageMode, MTLStoreAction, MTLTextureUsage, RenderPipelineState, Texture,
+    MTLStorageMode, MTLStoreAction, MTLTextureUsage, MTLViewport, RenderPipelineState, Texture,
     TextureDescriptor, TextureRef,
 };
 use std::cell::RefCell;
@@ -22,10 +22,23 @@ use std::rc::Rc;
 #[repr(C)]
 #[derive(Clone, Copy)]
 struct MetalVertex {
-    position: [f32; 3],
-    normal: [f32; 3],
+    /// Keep the Rust layout identical to the MSL `float4`/`float4`/`float`/
+    /// `float3` layout. Metal aligns `float3` members to 16 bytes, so using
+    /// packed Rust triples here would make the shader read the next field at
+    /// the wrong offset.
+    position: [f32; 4],
+    normal: [f32; 4],
     value: f32,
-    _padding: f32,
+    _padding: [f32; 3],
+}
+
+fn metal_vertex(position: [f32; 3], normal: [f32; 3], value: f32) -> MetalVertex {
+    MetalVertex {
+        position: [position[0], position[1], position[2], 0.0],
+        normal: [normal[0], normal[1], normal[2], 0.0],
+        value,
+        _padding: [0.0; 3],
+    }
 }
 
 #[repr(C)]
@@ -54,17 +67,43 @@ fn metal_uniform(state: &MeshSceneState, is_3d: bool) -> MetalUniform {
         .as_ref()
         .map(|upload| upload.origin)
         .unwrap_or([0.0; 3]);
+    let (view_proj, model) = if is_3d {
+        // Keep the Metal transform identical to the deterministic CPU/WGPU
+        // path: the retained scene stores the camera matrix, while the
+        // rebased upload origin is composed into that matrix once. Keeping a
+        // pure identity model also avoids relying on platform matrix-layout
+        // interpretation for the translation column.
+        (
+            (Mat4::from_cols_array_2d(&state.view_transform)
+                * Mat4::from_translation(Vec3::new(
+                    origin[0] as f32,
+                    origin[1] as f32,
+                    origin[2] as f32,
+                )))
+            .to_cols_array_2d(),
+            Mat4::IDENTITY.to_cols_array_2d(),
+        )
+    } else {
+        (
+            state.view_transform,
+            [
+                [1.0, 0.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0, 0.0],
+                [0.0, 0.0, 1.0, 0.0],
+                [origin[0] as f32, origin[1] as f32, origin[2] as f32, 1.0],
+            ],
+        )
+    };
+    let field_enabled = state
+        .upload
+        .as_ref()
+        .is_some_and(|upload| upload.values_f32.is_some() || upload.cell_values_f32.is_some());
     MetalUniform {
         // The dedicated 3D shader consumes this complete POD layout. The 2D
         // path deliberately keeps its smaller historical ABI in
         // `metal_uniform_2d` below.
-        view_proj: state.view_transform,
-        model: [
-            [1.0, 0.0, 0.0, 0.0],
-            [0.0, 1.0, 0.0, 0.0],
-            [0.0, 0.0, 1.0, 0.0],
-            [origin[0] as f32, origin[1] as f32, origin[2] as f32, 1.0],
-        ],
+        view_proj,
+        model,
         light_dir: [0.35, 0.55, 0.75, 0.0],
         params: [
             state.color.colormap as f32,
@@ -75,8 +114,12 @@ fn metal_uniform(state: &MeshSceneState, is_3d: bool) -> MetalUniform {
         value_range: [
             state.color.range[0],
             state.color.range[1],
-            state.color.colormap as f32,
-            state.color.isoline_step,
+            if is_3d {
+                field_enabled as u32 as f32
+            } else {
+                state.color.colormap as f32
+            },
+            if is_3d { 0.0 } else { state.color.isoline_step },
         ],
         isoline: [
             state.color.isoline_step,
@@ -144,6 +187,33 @@ fn vertex_normals(upload: &MeshUpload) -> Vec<[f32; 3]> {
     normals
 }
 
+/// Expand the scalar association to the same per-triangle-vertex order used
+/// by the Metal draw. 3D values live in their own buffer so a field-only
+/// update never writes the retained position/normal vertex buffer.
+fn metal_field_values(upload: &MeshUpload) -> Vec<f32> {
+    upload
+        .indices
+        .chunks_exact(3)
+        .enumerate()
+        .flat_map(|(cell, triangle)| {
+            let cell_value = upload
+                .cell_values_f32
+                .as_ref()
+                .and_then(|values| values.get(cell).copied());
+            triangle.iter().map(move |&index| {
+                cell_value
+                    .or_else(|| {
+                        upload
+                            .values_f32
+                            .as_ref()
+                            .and_then(|values| values.get(index as usize).copied())
+                    })
+                    .unwrap_or(0.5)
+            })
+        })
+        .collect()
+}
+
 /// Small camera-oriented orientation triad rendered in NDC after the mesh.
 /// `normal` carries the RGB axis color for the dedicated triad fragment shader.
 fn metal_triad_vertices(camera: Option<&Camera3D>) -> [MetalVertex; 6] {
@@ -154,12 +224,7 @@ fn metal_triad_vertices(camera: Option<&Camera3D>) -> [MetalVertex; 6] {
         (Vec3::Y, [0.18, 0.82, 0.28]),
         (Vec3::Z, [0.20, 0.42, 0.95]),
     ];
-    let mut output = [MetalVertex {
-        position: [0.0; 3],
-        normal: [0.0; 3],
-        value: 0.0,
-        _padding: 0.0,
-    }; 6];
+    let mut output = [metal_vertex([0.0; 3], [0.0; 3], 0.0); 6];
     for (axis, (direction, color)) in axes.into_iter().enumerate() {
         let screen = (view * direction.extend(0.0)).truncate();
         let length = screen.xy().length().max(1e-6);
@@ -169,18 +234,8 @@ fn metal_triad_vertices(camera: Option<&Camera3D>) -> [MetalVertex; 6] {
             origin[1] - screen.y * 0.12,
             0.0,
         ];
-        output[axis * 2] = MetalVertex {
-            position: [origin[0], origin[1], 0.0],
-            normal: color,
-            value: 1.0,
-            _padding: 0.0,
-        };
-        output[axis * 2 + 1] = MetalVertex {
-            position: end,
-            normal: color,
-            value: 1.0,
-            _padding: 0.0,
-        };
+        output[axis * 2] = metal_vertex([origin[0], origin[1], 0.0], color, 1.0);
+        output[axis * 2 + 1] = metal_vertex(end, color, 1.0);
     }
     output
 }
@@ -189,6 +244,9 @@ struct MetalResources {
     geometry_rev: GeometryRevision,
     field_rev: FieldRevision,
     vertices: metal::Buffer,
+    /// 3D scalar values are separate from positions/normals. The 2D shader
+    /// retains its historical interleaved value ABI and leaves this unset.
+    values: Option<metal::Buffer>,
     lines: metal::Buffer,
     uniform: metal::Buffer,
     pipeline: RenderPipelineState,
@@ -199,11 +257,15 @@ struct MetalResources {
     depth_state: DepthStencilState,
     triad_depth_state: Option<DepthStencilState>,
     vertex_count: usize,
+    value_count: usize,
     line_count: usize,
     triad_count: usize,
     target_width: u64,
     target_height: u64,
     is_3d: bool,
+    geometry_bytes: u64,
+    field_capacity_bytes: u64,
+    resident_bytes: u64,
 }
 
 impl MetalResources {
@@ -220,36 +282,39 @@ impl MetalResources {
         for (cell, triangle) in upload.indices.chunks_exact(3).enumerate() {
             for &index in triangle {
                 let position = *upload.positions_f32.get(index as usize)?;
-                let value = upload
-                    .cell_values_f32
-                    .as_ref()
-                    .and_then(|values| values.get(cell).copied())
-                    .or_else(|| {
-                        upload
-                            .values_f32
-                            .as_ref()
-                            .and_then(|values| values.get(index as usize).copied())
-                    })
-                    .unwrap_or(0.5);
-                vertices.push(MetalVertex {
+                vertices.push(metal_vertex(
                     position,
-                    normal: normals
+                    normals
                         .get(index as usize)
                         .copied()
                         .unwrap_or([0.0, 0.0, 1.0]),
-                    value,
-                    _padding: 0.0,
-                });
+                    // 2D keeps using this interleaved value. The 3D shader
+                    // reads its value from the dedicated buffer below.
+                    if is_3d {
+                        0.0
+                    } else {
+                        upload
+                            .cell_values_f32
+                            .as_ref()
+                            .and_then(|values| values.get(cell).copied())
+                            .or_else(|| {
+                                upload
+                                    .values_f32
+                                    .as_ref()
+                                    .and_then(|values| values.get(index as usize).copied())
+                            })
+                            .unwrap_or(0.5)
+                    },
+                ));
             }
         }
         let mut lines = Vec::with_capacity(upload.edge_indices.len());
         for &index in &upload.edge_indices {
-            lines.push(MetalVertex {
-                position: *upload.positions_f32.get(index as usize)?,
-                normal: [0.0, 0.0, 1.0],
-                value: 0.0,
-                _padding: 0.0,
-            });
+            lines.push(metal_vertex(
+                *upload.positions_f32.get(index as usize)?,
+                [0.0, 0.0, 1.0],
+                0.0,
+            ));
         }
         let options = MTLResourceOptions::StorageModeShared;
         let vertex_buffer = device.new_buffer_with_data(
@@ -257,6 +322,14 @@ impl MetalResources {
             (vertices.len() * std::mem::size_of::<MetalVertex>()) as u64,
             options,
         );
+        let field_values = is_3d.then(|| metal_field_values(upload));
+        let value_buffer = field_values.as_ref().map(|values| {
+            device.new_buffer_with_data(
+                values.as_ptr() as *const c_void,
+                (values.len() * std::mem::size_of::<f32>()).max(4) as u64,
+                options,
+            )
+        });
         let line_buffer = device.new_buffer_with_data(
             lines.as_ptr() as *const c_void,
             (lines.len() * std::mem::size_of::<MetalVertex>()) as u64,
@@ -349,10 +422,30 @@ impl MetalResources {
         } else {
             (None, None, None, 0)
         };
+        let vertex_bytes = (vertices.len() * std::mem::size_of::<MetalVertex>()) as u64;
+        let line_bytes = (lines.len() * std::mem::size_of::<MetalVertex>()) as u64;
+        let uniform_bytes = if is_3d {
+            std::mem::size_of::<MetalUniform>() as u64
+        } else {
+            std::mem::size_of::<MetalUniform2d>() as u64
+        };
+        let triad_bytes = if is_3d {
+            (triad_count * std::mem::size_of::<MetalVertex>()) as u64
+        } else {
+            0
+        };
+        let value_bytes = field_values.as_ref().map_or(0, |values| {
+            (values.len() * std::mem::size_of::<f32>()).max(4) as u64
+        });
+        let depth_bytes = texture
+            .width()
+            .saturating_mul(texture.height())
+            .saturating_mul(4);
         Some(Self {
             geometry_rev: revision,
             field_rev: FieldRevision::default(),
             vertices: vertex_buffer,
+            values: value_buffer,
             lines: line_buffer,
             uniform: uniform_buffer,
             pipeline: make_pipeline("mesh_metal_fill", vertex.as_ref(), fragment.as_ref())?,
@@ -367,15 +460,49 @@ impl MetalResources {
             depth_state,
             triad_depth_state,
             vertex_count: vertices.len(),
+            value_count: field_values.as_ref().map_or(vertices.len(), Vec::len),
             line_count: lines.len(),
             triad_count,
             target_width: texture.width(),
             target_height: texture.height(),
             is_3d,
+            geometry_bytes: vertex_bytes.saturating_add(line_bytes),
+            field_capacity_bytes: if is_3d {
+                value_bytes
+            } else {
+                (vertices.len() * std::mem::size_of::<f32>()) as u64
+            },
+            resident_bytes: vertex_bytes
+                .saturating_add(line_bytes)
+                .saturating_add(value_bytes)
+                .saturating_add(uniform_bytes)
+                .saturating_add(triad_bytes)
+                .saturating_add(depth_bytes),
         })
     }
 
-    fn update_values(&mut self, upload: &MeshUpload) {
+    fn update_values(&mut self, upload: &MeshUpload) -> u64 {
+        if self.is_3d {
+            let Some(values_buffer) = self.values.as_ref() else {
+                return 0;
+            };
+            let values = metal_field_values(upload);
+            if values.len() > self.value_count {
+                return 0;
+            }
+            // SAFETY: the shared scalar buffer is allocated for at least
+            // `value_count` f32 values, and the copied slice is bounded by
+            // that capacity.
+            unsafe {
+                ptr::copy_nonoverlapping(
+                    values.as_ptr() as *const u8,
+                    values_buffer.contents() as *mut u8,
+                    std::mem::size_of_val(values.as_slice()),
+                );
+            }
+            return std::mem::size_of_val(values.as_slice()) as u64;
+        }
+
         let mut offset = 0usize;
         let contents = self.vertices.contents() as *mut MetalVertex;
         for (cell, triangle) in upload.indices.chunks_exact(3).enumerate() {
@@ -403,6 +530,7 @@ impl MetalResources {
                 offset += 1;
             }
         }
+        (offset * std::mem::size_of::<f32>()) as u64
     }
 
     fn update_uniform(&mut self, state: &MeshSceneState) {
@@ -479,6 +607,7 @@ impl MetalCustomDraw for MetalMeshDraw {
             return;
         };
         let mut resources = self.resources.borrow_mut();
+        let mut created_geometry_resource = false;
         if resources.as_ref().is_none_or(|resources| {
             resources.geometry_rev != state.geometry_rev
                 || resources.target_width != drawable_texture.width()
@@ -492,14 +621,30 @@ impl MetalCustomDraw for MetalMeshDraw {
                 &state,
                 self.is_3d,
             );
+            created_geometry_resource = true;
         }
         let Some(resources) = resources.as_mut() else {
             return;
         };
+        let mut field_write_bytes = 0;
         if resources.field_rev != state.field_rev {
-            resources.update_values(upload);
+            field_write_bytes = resources.update_values(upload);
             resources.field_rev = state.field_rev;
         }
+        let resident_bytes = resources.resident_bytes;
+        let field_capacity_bytes = resources.field_capacity_bytes;
+        drop(state);
+        {
+            let mut state = self.state.borrow_mut();
+            if created_geometry_resource {
+                state.record_gpu_geometry_upload(resources.geometry_bytes);
+            }
+            if field_write_bytes != 0 {
+                state.record_gpu_field_write(field_write_bytes);
+            }
+            state.set_gpu_memory(resident_bytes, field_capacity_bytes);
+        }
+        let state = self.state.borrow();
         resources.update_uniform(&state);
         let camera = self.camera.as_ref().map(|camera| camera.borrow().clone());
         resources.update_triad(camera.as_ref());
@@ -519,17 +664,49 @@ impl MetalCustomDraw for MetalMeshDraw {
         depth_attachment.set_clear_depth(1.0);
         depth_attachment.set_store_action(MTLStoreAction::DontCare);
         let encoder = command_buffer.new_render_command_encoder(&descriptor);
+        let scale = if scale_factor.is_finite() && scale_factor > 0.0 {
+            scale_factor
+        } else {
+            1.0
+        };
+        let target_width = drawable_texture.width() as f32;
+        let target_height = drawable_texture.height() as f32;
+        let left = (f32::from(bounds.origin.x) * scale)
+            .floor()
+            .clamp(0.0, target_width);
+        let top = (f32::from(bounds.origin.y) * scale)
+            .floor()
+            .clamp(0.0, target_height);
+        let right = ((f32::from(bounds.origin.x) + f32::from(bounds.size.width)) * scale)
+            .ceil()
+            .clamp(left, target_width);
+        let bottom = ((f32::from(bounds.origin.y) + f32::from(bounds.size.height)) * scale)
+            .ceil()
+            .clamp(top, target_height);
+        let viewport_width = (right - left).max(1.0);
+        let viewport_height = (bottom - top).max(1.0);
+        encoder.set_viewport(MTLViewport {
+            originX: left as f64,
+            originY: top as f64,
+            width: viewport_width as f64,
+            height: viewport_height as f64,
+            znear: 0.0,
+            zfar: 1.0,
+        });
         let rect = MTLScissorRect {
-            x: (f32::from(bounds.origin.x) * scale_factor).max(0.0) as u64,
-            y: (f32::from(bounds.origin.y) * scale_factor).max(0.0) as u64,
-            width: (f32::from(bounds.size.width) * scale_factor).max(1.0) as u64,
-            height: (f32::from(bounds.size.height) * scale_factor).max(1.0) as u64,
+            x: left as u64,
+            y: top as u64,
+            width: viewport_width as u64,
+            height: viewport_height as u64,
         };
         encoder.set_scissor_rect(rect);
         encoder.set_depth_stencil_state(&resources.depth_state);
         encoder.set_render_pipeline_state(&resources.pipeline);
         encoder.set_vertex_buffer(0, Some(&resources.vertices), 0);
         encoder.set_vertex_buffer(1, Some(&resources.uniform), 0);
+        if self.is_3d {
+            encoder.set_vertex_buffer(2, resources.values.as_ref().map(|value| &**value), 0);
+        }
         // Vertex and fragment stages have independent bindings. The old 2D
         // path used the same buffer layout; bind it explicitly so 3D scalar
         // coloring/lighting never reads an unbound fragment uniform.
@@ -620,6 +797,7 @@ impl MeshGpuRenderer for MetalMeshRenderer {
 
     fn write_field(&mut self, rev: FieldRevision, values: &[f32]) {
         let mut state = self.state.borrow_mut();
+        state.record_field_write(values);
         state.field_rev = rev;
         if let Some(upload) = &mut state.upload {
             if upload.cell_values_f32.is_some() {

@@ -36,6 +36,60 @@ class PerformanceEnvironmentTests(unittest.TestCase):
             qa_perf_baseline.spec_for_group("mesh_plot_retained_frames").key,
             "gpui-px:mesh_plot_frames",
         )
+        self.assertEqual(
+            qa_perf_baseline.spec_for_group("mesh_plot_build_200000_triangles").key,
+            "gpui-px:mesh_plot_frames",
+        )
+        self.assertEqual(
+            qa_perf_baseline.spec_for_group("mesh_plot_fit_200000_triangles").key,
+            "gpui-px:mesh_plot_frames",
+        )
+        self.assertEqual(
+            qa_perf_baseline.spec_for_group("mesh_plot_retained_picking").key,
+            "gpui-px:mesh_plot_frames",
+        )
+        self.assertIn(
+            "gpu-3d",
+            specs["gpui-px:mesh_plot_frames"].features,
+        )
+
+    def test_single_benchmark_run_does_not_collect_stale_other_benchmarks(self) -> None:
+        requested = next(
+            spec
+            for spec in qa_perf_baseline.BENCHMARKS
+            if spec.key == "gpui-d3rs:mesh_prep"
+        )
+        records = [
+            {
+                "crate": "gpui-d3rs",
+                "bench": "mesh_prep",
+                "group": "mesh_prep",
+                "function": "prepare_100000_triangles",
+                "median_ns": 10.0,
+                "mean_ns": 11.0,
+                "unit": "ns",
+            },
+            {
+                "crate": "gpui-px",
+                "bench": "mesh_plot_frames",
+                "group": "mesh_plot_retained_frames",
+                "function": "field_replace_100000_values",
+                "median_ns": 20.0,
+                "mean_ns": 21.0,
+                "unit": "ns",
+            },
+        ]
+        with (
+            mock.patch.object(qa_perf_baseline, "run_bench") as run_bench,
+            mock.patch.object(qa_perf_baseline, "discover_records", return_value=records),
+        ):
+            selected = qa_perf_baseline.run_one(requested)
+
+        run_bench.assert_called_once_with(requested)
+        self.assertEqual(
+            {(record["crate"], record["bench"]) for record in selected},
+            {("gpui-d3rs", "mesh_prep")},
+        )
 
     def test_macos_arm_cpu_model_is_stable_when_sysctl_is_unavailable(self) -> None:
         with (

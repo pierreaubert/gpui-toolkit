@@ -55,6 +55,28 @@ pub struct MeshSceneState {
     pub geometry_upload_count: u64,
     /// Sum of retained geometry payload bytes sent to the backend.
     pub geometry_upload_bytes: u64,
+    /// Number of scalar field writes sent to the backend.
+    pub field_write_count: u64,
+    /// Sum of scalar field payload bytes sent to the backend.
+    pub field_write_bytes: u64,
+    /// Number of scalar writes submitted to an adapter-backed field buffer.
+    ///
+    /// This is separate from `field_write_count`: the latter records the
+    /// logical retained-state mutation, while this counter is incremented by
+    /// the custom draw only after a queue/private-buffer write succeeds.
+    pub gpu_field_write_count: u64,
+    /// Bytes submitted by adapter-backed scalar writes.
+    pub gpu_field_write_bytes: u64,
+    /// Number of adapter-backed geometry allocations/uploads.
+    pub gpu_geometry_upload_count: u64,
+    /// Bytes in adapter-backed geometry allocations/uploads.
+    pub gpu_geometry_upload_bytes: u64,
+    /// Bytes reserved for the current adapter-backed scalar buffer.
+    pub gpu_field_capacity_bytes: u64,
+    /// Approximate resident bytes for adapter-owned mesh buffers and depth
+    /// targets. Pipeline/driver-private allocations are intentionally not
+    /// included because wgpu and Metal do not expose them portably.
+    pub gpu_resident_bytes: u64,
     pub view_transform: [[f32; 4]; 4],
     pub color: MeshColorConfig,
 }
@@ -67,6 +89,14 @@ impl Default for MeshSceneState {
             upload: None,
             geometry_upload_count: 0,
             geometry_upload_bytes: 0,
+            field_write_count: 0,
+            field_write_bytes: 0,
+            gpu_field_write_count: 0,
+            gpu_field_write_bytes: 0,
+            gpu_geometry_upload_count: 0,
+            gpu_geometry_upload_bytes: 0,
+            gpu_field_capacity_bytes: 0,
+            gpu_resident_bytes: 0,
             view_transform: [
                 [1.0, 0.0, 0.0, 0.0],
                 [0.0, 1.0, 0.0, 0.0],
@@ -85,6 +115,32 @@ impl MeshSceneState {
         self.geometry_upload_bytes = self
             .geometry_upload_bytes
             .saturating_add(upload.geometry_byte_len());
+    }
+
+    /// Record one scalar-field write without counting geometry bytes.
+    pub fn record_field_write(&mut self, values: &[f32]) {
+        self.field_write_count = self.field_write_count.saturating_add(1);
+        self.field_write_bytes = self.field_write_bytes.saturating_add(
+            (values.len() as u64).saturating_mul(std::mem::size_of::<f32>() as u64),
+        );
+    }
+
+    /// Record one adapter-backed scalar-buffer write.
+    pub fn record_gpu_field_write(&mut self, bytes: u64) {
+        self.gpu_field_write_count = self.gpu_field_write_count.saturating_add(1);
+        self.gpu_field_write_bytes = self.gpu_field_write_bytes.saturating_add(bytes);
+    }
+
+    /// Record a newly allocated adapter-backed geometry resource.
+    pub fn record_gpu_geometry_upload(&mut self, bytes: u64) {
+        self.gpu_geometry_upload_count = self.gpu_geometry_upload_count.saturating_add(1);
+        self.gpu_geometry_upload_bytes = self.gpu_geometry_upload_bytes.saturating_add(bytes);
+    }
+
+    /// Publish the current adapter-owned buffer/depth allocation estimate.
+    pub fn set_gpu_memory(&mut self, resident_bytes: u64, field_capacity_bytes: u64) {
+        self.gpu_resident_bytes = resident_bytes;
+        self.gpu_field_capacity_bytes = field_capacity_bytes;
     }
 }
 
@@ -114,6 +170,7 @@ impl MeshGpuRenderer for RetainedMeshRenderer {
     }
 
     fn write_field(&mut self, rev: FieldRevision, values: &[f32]) {
+        self.state.record_field_write(values);
         self.state.field_rev = rev;
         self.values.clear();
         self.values.extend_from_slice(values);
@@ -160,6 +217,11 @@ mod tests {
             renderer.state().geometry_upload_bytes,
             upload().geometry_byte_len()
         );
+        assert_eq!(renderer.state().field_write_count, 1);
+        assert_eq!(
+            renderer.state().field_write_bytes,
+            3 * std::mem::size_of::<f32>() as u64
+        );
     }
 
     #[test]
@@ -189,5 +251,29 @@ mod tests {
             capacity
         );
         assert_eq!(renderer.state().geometry_upload_count, 1);
+        assert_eq!(renderer.state().field_write_count, 2);
+        assert_eq!(
+            renderer.state().field_write_bytes,
+            6 * std::mem::size_of::<f32>() as u64
+        );
+    }
+
+    #[test]
+    fn adapter_telemetry_is_separate_from_logical_retained_state() {
+        let mut state = MeshSceneState::default();
+        state.record_geometry_upload(&upload());
+        state.record_gpu_geometry_upload(128);
+        state.record_field_write(&[1.0, 2.0]);
+        state.record_gpu_field_write(64);
+        state.set_gpu_memory(512, 128);
+
+        assert_eq!(state.geometry_upload_count, 1);
+        assert_eq!(state.gpu_geometry_upload_count, 1);
+        assert_eq!(state.gpu_geometry_upload_bytes, 128);
+        assert_eq!(state.field_write_count, 1);
+        assert_eq!(state.gpu_field_write_count, 1);
+        assert_eq!(state.gpu_field_write_bytes, 64);
+        assert_eq!(state.gpu_resident_bytes, 512);
+        assert_eq!(state.gpu_field_capacity_bytes, 128);
     }
 }

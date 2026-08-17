@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::mpsc::{self, Receiver};
+use std::sync::mpsc::{self, Receiver, SyncSender};
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll, Waker};
 use std::time::{Duration, Instant};
@@ -233,6 +233,12 @@ pub(super) fn spawn_python_session() -> Result<PythonSession, Box<dyn Error + Se
         .nth(1)
         .map(PathBuf::from)
         .unwrap_or_else(default_showcase_path);
+    spawn_python_session_for_script(script)
+}
+
+fn spawn_python_session_for_script(
+    script: PathBuf,
+) -> Result<PythonSession, Box<dyn Error + Send + Sync>> {
     let mut child = Command::new(python_executable())
         .arg(&script)
         .env("GPUI_TOOLKIT_SESSION", "1")
@@ -256,101 +262,7 @@ pub(super) fn spawn_python_session() -> Result<PythonSession, Box<dyn Error + Se
     let wake = PythonSessionWake::new();
     let reader_wake = wake.clone();
     std::thread::spawn(move || {
-        let mut reader = BufReader::new(stdout);
-        loop {
-            let mut line = Vec::new();
-            match reader.read_until(b'\n', &mut line) {
-                Ok(0) => break,
-                Ok(_) => {}
-                Err(error) => {
-                    let _ = tx.send(Err(error.to_string()));
-                    reader_wake.notify();
-                    return;
-                }
-            }
-            if line.last() == Some(&b'\n') {
-                line.pop();
-            }
-            if line.last() == Some(&b'\r') {
-                line.pop();
-            }
-            if line.is_empty() {
-                continue;
-            }
-            if line.len() > DEFAULT_MAX_SESSION_MESSAGE_BYTES {
-                let _ = tx.send(Err("Python session message exceeds maximum size".into()));
-                reader_wake.notify();
-                return;
-            }
-            let mut parsed = match parse_python_message(&line, DEFAULT_MAX_SESSION_MESSAGE_BYTES) {
-                Ok(message) => message,
-                Err(error) => {
-                    let _ = tx.send(Err(error.to_string()));
-                    reader_wake.notify();
-                    return;
-                }
-            };
-            if let PythonMessage::ResourceFrame(frame) = &mut parsed {
-                if frame.byte_length > gpui_python_runtime::audio_stream::MAX_AUDIO_FRAME_BYTES {
-                    let _ = tx.send(Err("Python audio frame exceeds maximum size".into()));
-                    reader_wake.notify();
-                    return;
-                }
-                frame.payload.resize(frame.byte_length, 0);
-                if let Err(error) = reader.read_exact(&mut frame.payload) {
-                    let _ = tx.send(Err(format!("truncated Python audio frame: {error}")));
-                    reader_wake.notify();
-                    return;
-                }
-                let mut delimiter = [0_u8; 1];
-                if reader.read_exact(&mut delimiter).is_err() || delimiter[0] != b'\n' {
-                    let _ = tx.send(Err("Python audio frame is missing its delimiter".into()));
-                    reader_wake.notify();
-                    return;
-                }
-            } else if let PythonMessage::MeshFrame(frame) = &mut parsed {
-                let byte_length = match serde_json::from_slice::<serde_json::Value>(&line)
-                    .ok()
-                    .and_then(|value| value.get("byte_length").and_then(serde_json::Value::as_u64))
-                    .and_then(|length| usize::try_from(length).ok())
-                {
-                    Some(length) => length,
-                    None => {
-                        let _ = tx.send(Err("Python mesh frame has invalid byte_length".into()));
-                        reader_wake.notify();
-                        return;
-                    }
-                };
-                if byte_length > gpui_python_runtime::mesh_frames::MAX_MESH_FRAME_BYTES {
-                    let _ = tx.send(Err("Python mesh frame exceeds maximum size".into()));
-                    reader_wake.notify();
-                    return;
-                }
-                frame.payload.resize(byte_length, 0);
-                if let Err(error) = reader.read_exact(&mut frame.payload) {
-                    let _ = tx.send(Err(format!("truncated Python mesh frame: {error}")));
-                    reader_wake.notify();
-                    return;
-                }
-                let mut delimiter = [0_u8; 1];
-                if reader.read_exact(&mut delimiter).is_err() || delimiter[0] != b'\n' {
-                    let _ = tx.send(Err("Python mesh frame is missing its delimiter".into()));
-                    reader_wake.notify();
-                    return;
-                }
-                if let Err(error) = frame.validate() {
-                    let _ = tx.send(Err(format!("invalid Python mesh frame: {error}")));
-                    reader_wake.notify();
-                    return;
-                }
-            }
-            if tx.send(Ok(parsed)).is_err() {
-                break;
-            }
-            reader_wake.notify();
-        }
-        let _ = tx.send(Err("Python session stdout closed unexpectedly".into()));
-        reader_wake.notify();
+        read_python_messages(BufReader::new(stdout), tx, reader_wake);
     });
     let stderr_lines = Arc::new(Mutex::new(Vec::new()));
     let stderr_sink = stderr_lines.clone();
@@ -372,6 +284,308 @@ pub(super) fn spawn_python_session() -> Result<PythonSession, Box<dyn Error + Se
         event_sequence: Arc::new(AtomicU64::new(0)),
         wake,
     })
+}
+
+fn read_python_messages<R: BufRead>(
+    mut reader: R,
+    tx: SyncSender<Result<PythonMessage, String>>,
+    reader_wake: PythonSessionWake,
+) {
+    loop {
+        let mut line = Vec::new();
+        match reader.read_until(b'\n', &mut line) {
+            Ok(0) => break,
+            Ok(_) => {}
+            Err(error) => {
+                let _ = tx.send(Err(error.to_string()));
+                reader_wake.notify();
+                return;
+            }
+        }
+        if line.last() == Some(&b'\n') {
+            line.pop();
+        }
+        if line.last() == Some(&b'\r') {
+            line.pop();
+        }
+        if line.is_empty() {
+            continue;
+        }
+        if line.len() > DEFAULT_MAX_SESSION_MESSAGE_BYTES {
+            let _ = tx.send(Err("Python session message exceeds maximum size".into()));
+            reader_wake.notify();
+            // `read_until` consumed the complete control line, so the
+            // newline-delimited stream is still synchronized. Keep the
+            // child alive and allow a later valid patch or heartbeat to
+            // recover the session.
+            continue;
+        }
+        let mut parsed = match parse_python_message(&line, DEFAULT_MAX_SESSION_MESSAGE_BYTES) {
+            Ok(message) => message,
+            Err(error) => {
+                let _ = tx.send(Err(error.to_string()));
+                reader_wake.notify();
+                // JSON/control-message failures are line-local. The
+                // reader has consumed the delimiter, unlike a malformed
+                // binary frame whose payload length can desynchronize the
+                // stream, so continue reading subsequent messages.
+                continue;
+            }
+        };
+        if let PythonMessage::ResourceFrame(frame) = &mut parsed {
+            if frame.byte_length > gpui_python_runtime::audio_stream::MAX_AUDIO_FRAME_BYTES {
+                let _ = tx.send(Err("Python audio frame exceeds maximum size".into()));
+                reader_wake.notify();
+                return;
+            }
+            frame.payload.resize(frame.byte_length, 0);
+            if let Err(error) = reader.read_exact(&mut frame.payload) {
+                let _ = tx.send(Err(format!("truncated Python audio frame: {error}")));
+                reader_wake.notify();
+                return;
+            }
+            let mut delimiter = [0_u8; 1];
+            if reader.read_exact(&mut delimiter).is_err() || delimiter[0] != b'\n' {
+                let _ = tx.send(Err("Python audio frame is missing its delimiter".into()));
+                reader_wake.notify();
+                return;
+            }
+        } else if let PythonMessage::MeshFrame(frame) = &mut parsed {
+            let byte_length = match serde_json::from_slice::<serde_json::Value>(&line)
+                .ok()
+                .and_then(|value| value.get("byte_length").and_then(serde_json::Value::as_u64))
+                .and_then(|length| usize::try_from(length).ok())
+            {
+                Some(length) => length,
+                None => {
+                    let _ = tx.send(Err("Python mesh frame has invalid byte_length".into()));
+                    reader_wake.notify();
+                    return;
+                }
+            };
+            if byte_length > gpui_python_runtime::mesh_frames::MAX_MESH_FRAME_BYTES {
+                let _ = tx.send(Err("Python mesh frame exceeds maximum size".into()));
+                reader_wake.notify();
+                return;
+            }
+            frame.payload.resize(byte_length, 0);
+            if let Err(error) = reader.read_exact(&mut frame.payload) {
+                let _ = tx.send(Err(format!("truncated Python mesh frame: {error}")));
+                reader_wake.notify();
+                return;
+            }
+            let mut delimiter = [0_u8; 1];
+            if reader.read_exact(&mut delimiter).is_err() || delimiter[0] != b'\n' {
+                let _ = tx.send(Err("Python mesh frame is missing its delimiter".into()));
+                reader_wake.notify();
+                return;
+            }
+            if let Err(error) = frame.validate() {
+                let _ = tx.send(Err(format!("invalid Python mesh frame: {error}")));
+                reader_wake.notify();
+                // The payload and delimiter have both been consumed, so the
+                // newline-delimited stream is still synchronized. Keep the
+                // session alive and allow a later generation or heartbeat to
+                // recover after a frame-local validation error.
+                continue;
+            }
+        }
+        if tx.send(Ok(parsed)).is_err() {
+            break;
+        }
+        reader_wake.notify();
+    }
+    let _ = tx.send(Err("Python session stdout closed unexpectedly".into()));
+    reader_wake.notify();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Cursor;
+
+    #[test]
+    fn python_session_shutdown_handshake_reaps_child_process() {
+        let script = env::temp_dir().join(format!(
+            "gpui-toolkit-python-shutdown-{}.py",
+            std::process::id()
+        ));
+        let marker = script.with_extension("marker");
+        let _ = std::fs::remove_file(&script);
+        let _ = std::fs::remove_file(&marker);
+        std::fs::write(
+            &script,
+            r#"import json
+import pathlib
+import sys
+
+for line in sys.stdin:
+    message = json.loads(line)
+    if message.get("type") == "shutdown":
+        pathlib.Path(__file__).with_suffix(".marker").write_text("shutdown", encoding="utf-8")
+        break
+"#,
+        )
+        .expect("write shutdown probe script");
+
+        let session =
+            spawn_python_session_for_script(script.clone()).expect("spawn Python shutdown probe");
+        session.shutdown();
+        drop(session);
+
+        assert_eq!(
+            std::fs::read_to_string(&marker).expect("read shutdown probe marker"),
+            "shutdown",
+            "host shutdown must reach the persistent Python child before reaping it"
+        );
+        let _ = std::fs::remove_file(script);
+        let _ = std::fs::remove_file(marker);
+    }
+
+    #[test]
+    fn reader_recovers_after_malformed_patch() {
+        let (tx, rx) = mpsc::sync_channel(8);
+        let wake = PythonSessionWake::new();
+        read_python_messages(
+            Cursor::new(
+                b"{\"type\":\"patch\",\"revision\":\"not-a-number\",\"ops\":[]}\n{\"type\":\"heartbeat\",\"id\":\"after-malformed\"}\n".to_vec(),
+            ),
+            tx,
+            wake,
+        );
+
+        let malformed = rx.recv().expect("malformed message diagnostic");
+        assert!(matches!(
+            malformed,
+            Err(message) if message.contains("malformed session message")
+        ));
+        assert_eq!(
+            rx.recv().expect("message after malformed line"),
+            Ok(PythonMessage::Heartbeat {
+                id: "after-malformed".into()
+            })
+        );
+        assert!(matches!(
+            rx.recv().expect("stream-close diagnostic"),
+            Err(message) if message.contains("stdout closed")
+        ));
+    }
+
+    #[test]
+    fn stale_patch_does_not_block_later_session_messages() {
+        let (tx, rx) = mpsc::sync_channel(8);
+        let wake = PythonSessionWake::new();
+        read_python_messages(
+            Cursor::new(
+                b"{\"type\":\"patch\",\"revision\":1,\"ops\":[]}\n{\"type\":\"patch\",\"revision\":1,\"ops\":[]}\n{\"type\":\"heartbeat\",\"id\":\"after-stale\"}\n"
+                    .to_vec(),
+            ),
+            tx,
+            wake,
+        );
+
+        let mut state = gpui_python_runtime::session::SessionState::new(vec!["patches".into()]);
+        let first = rx.recv().expect("first patch").expect("valid first patch");
+        let second = rx.recv().expect("stale patch").expect("parsed stale patch");
+        let PythonMessage::Patch(first) = first else {
+            panic!("expected first patch");
+        };
+        let PythonMessage::Patch(second) = second else {
+            panic!("expected stale patch");
+        };
+        state
+            .apply_patch_revision(&first)
+            .expect("first patch accepted");
+        assert!(matches!(
+            state.apply_patch_revision(&second),
+            Err(gpui_python_runtime::session::SessionError::StaleRevision { .. })
+        ));
+        assert_eq!(
+            rx.recv().expect("message after stale patch"),
+            Ok(PythonMessage::Heartbeat {
+                id: "after-stale".into()
+            })
+        );
+    }
+
+    #[test]
+    fn reader_recovers_after_a_consumed_invalid_mesh_frame() {
+        let (tx, rx) = mpsc::sync_channel(8);
+        let wake = PythonSessionWake::new();
+        let header = serde_json::json!({
+            "type": "mesh_frame",
+            "resource_id": "field",
+            "generation": 1,
+            "sequence": 0,
+            "chunk_count": 1,
+            "kind": "field",
+            "dtype": "u64le",
+            "shape": [2],
+            "byte_length": 8,
+        });
+        let mut stream = serde_json::to_vec(&header).unwrap();
+        stream.extend_from_slice(b"\n12345678\n");
+        stream.extend_from_slice(b"{\"type\":\"heartbeat\",\"id\":\"after-frame\"}\n");
+
+        read_python_messages(Cursor::new(stream), tx, wake);
+
+        let malformed = rx.recv().expect("invalid frame diagnostic");
+        assert!(matches!(
+            malformed,
+            Err(message) if message.contains("invalid Python mesh frame")
+        ));
+        assert_eq!(
+            rx.recv().expect("message after invalid frame"),
+            Ok(PythonMessage::Heartbeat {
+                id: "after-frame".into()
+            })
+        );
+    }
+
+    #[test]
+    fn reader_preserves_audio_frame_payload_and_following_drop_resource() {
+        let (tx, rx) = mpsc::sync_channel(8);
+        let wake = PythonSessionWake::new();
+        let header = serde_json::json!({
+            "type": "resource_frame",
+            "resource_id": "meter",
+            "generation": 3,
+            "sequence": 1,
+            "frame_kind": "meter",
+            "byte_length": 4,
+            "shape": [1, 1],
+            "dtype": "f32",
+            "byte_order": "little",
+            "finite_policy": "drop_frame",
+            "coalesce": "latest",
+            "sample_rate": 48_000.0,
+            "attack_ms": 10.0,
+            "release_ms": 120.0,
+        });
+        let mut stream = serde_json::to_vec(&header).unwrap();
+        stream.extend_from_slice(b"\n");
+        stream.extend_from_slice(&1.25_f32.to_le_bytes());
+        stream.extend_from_slice(b"\n");
+        stream
+            .extend_from_slice(br#"{"type":"drop_resource","resource_id":"meter","generation":3}"#);
+        stream.extend_from_slice(b"\n");
+
+        read_python_messages(Cursor::new(stream), tx, wake);
+
+        let Ok(PythonMessage::ResourceFrame(frame)) = rx.recv().expect("audio frame") else {
+            panic!("expected audio resource frame");
+        };
+        assert_eq!(frame.resource_id, "meter");
+        assert_eq!(frame.generation, 3);
+        assert_eq!(frame.payload, 1.25_f32.to_le_bytes());
+        assert_eq!(
+            rx.recv().expect("drop resource after audio frame"),
+            Ok(PythonMessage::DropResource {
+                resource_id: "meter".into(),
+                generation: 3,
+            })
+        );
+    }
 }
 
 pub(super) fn load_python_session_blocking()

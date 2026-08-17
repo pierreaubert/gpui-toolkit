@@ -465,6 +465,9 @@ fn apply_patch_op(tree: &mut Value, op: &crate::session::PatchOp) -> Result<(), 
                     | "viewport"
                     | "contour_levels"
                     | "equal_aspect"
+                    | "axes"
+                    | "missing_value_policy"
+                    | "revolve"
                     | "interactions"
             ) {
                 return Err(UiIrError::InvalidPatch {
@@ -3713,6 +3716,25 @@ mod tests {
                 generation: 1,
                 viewport: serde_json::json!({"x": [0.0, 1.0], "y": [0.0, 1.0]}),
             },
+            crate::session::PatchOp::SetMeshPlotProp {
+                plot_id: "plot".into(),
+                generation: 1,
+                property: "axes".into(),
+                value: serde_json::json!({
+                    "horizontal_label": "distance",
+                    "vertical_label": "height",
+                    "unit": "m",
+                    "x_range": [0.0, 2.0],
+                    "y_range": [-1.0, 3.0],
+                    "show_grid": false
+                }),
+            },
+            crate::session::PatchOp::SetMeshPlotProp {
+                plot_id: "plot".into(),
+                generation: 1,
+                property: "missing_value_policy".into(),
+                value: serde_json::json!("mask_nan"),
+            },
         ])
         .unwrap();
         let value = serde_json::to_value(&app).unwrap();
@@ -3723,6 +3745,15 @@ mod tests {
         assert_eq!(
             value["sections"][0]["content"]["spec"]["camera"]["azimuth"],
             0.5
+        );
+        assert_eq!(value["sections"][0]["content"]["spec"]["axes"]["unit"], "m");
+        assert_eq!(
+            value["sections"][0]["content"]["spec"]["axes"]["show_grid"],
+            false
+        );
+        assert_eq!(
+            value["sections"][0]["content"]["spec"]["missing_value_policy"],
+            "mask_nan"
         );
         app.apply_patch_ops(&[
             crate::session::PatchOp::ClearMeshPlotSelection {
@@ -3743,6 +3774,51 @@ mod tests {
         assert!(value["sections"][0]["content"]["spec"]["selection"].is_null());
         assert!(value["sections"][0]["content"]["spec"]["camera"].is_null());
         assert!(value["sections"][0]["content"]["spec"]["viewport"].is_null());
+    }
+
+    #[test]
+    fn mesh_plot_revolve_property_patch_is_transactional() {
+        let mut app: PythonAppIr = serde_json::from_value(serde_json::json!({
+            "title": "Revolve",
+            "sections": [{"id": "main", "label": "Main", "content": {
+                "kind": "mesh_plot", "id": "plot", "spec": {
+                    "schema_version": 1, "id": "plot",
+                    "geometry": {
+                        "id": "mesh",
+                        "positions": [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+                        "triangles": [[0, 1, 2]]
+                    },
+                    "view": "axisymmetric_revolve",
+                    "mode": "mesh"
+                }
+            }}]
+        }))
+        .unwrap();
+        app.validate().unwrap();
+        app.apply_patch_ops(&[crate::session::PatchOp::SetMeshPlotProp {
+            plot_id: "plot".into(),
+            generation: 1,
+            property: "revolve".into(),
+            value: serde_json::json!({
+                "radial": "y",
+                "axial": "z",
+                "start_angle": 0.25,
+                "sweep_angle": 1.5,
+                "segments": 32,
+                "end_caps": true
+            }),
+        }])
+        .unwrap();
+
+        let value = serde_json::to_value(&app).unwrap();
+        assert_eq!(
+            value["sections"][0]["content"]["spec"]["revolve"]["segments"],
+            32
+        );
+        assert_eq!(
+            value["sections"][0]["content"]["spec"]["revolve"]["end_caps"],
+            true
+        );
     }
 
     #[test]

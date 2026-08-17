@@ -48,6 +48,7 @@ impl MeshGpuRenderer for OffscreenMeshRenderer {
 
     fn write_field(&mut self, rev: FieldRevision, values: &[f32]) {
         let mut state = self.state.borrow_mut();
+        state.record_field_write(values);
         state.field_rev = rev;
         if let Some(upload) = state.upload.as_mut() {
             if upload.cell_values_f32.is_some() {
@@ -105,11 +106,11 @@ pub fn render_offscreen(
         .all(|value| value.is_finite())
         && state.view_transform != identity_matrix();
     let point = |index: u32| -> Option<[f32; 2]> {
-        let p = upload
-            .positions_f32
-            .get(index as usize)
-            .copied()
-            .unwrap_or_default();
+        // MeshUpload is normally produced from a validated TriangleMesh, but
+        // it is a public retained-render input. An invalid index must suppress
+        // the primitive rather than silently substituting the origin and
+        // rasterizing a different triangle or edge.
+        let p = upload.positions_f32.get(index as usize).copied()?;
         if use_view_transform {
             let clip = transform_point(state.view_transform, p)?;
             Some([
@@ -254,6 +255,169 @@ pub fn render_offscreen(
         }
     }
     image
+}
+
+/// Render one retained 3D scene through the real WGPU custom-draw backend and
+/// read the target texture back to an RGBA image.
+///
+/// This is intentionally separate from [`render_offscreen`]. The CPU path is
+/// deterministic and remains the fallback for export hosts without an
+/// adapter; this helper provides adapter-backed framebuffer evidence and a
+/// native WGPU readback path for callers that explicitly opt into it.
+#[cfg(all(feature = "gpu-3d", not(test), not(target_family = "wasm")))]
+pub fn render_offscreen_wgpu(
+    state: &MeshSceneState,
+    width: u32,
+    height: u32,
+) -> Result<RgbaImage, String> {
+    use gpui::{Bounds, Point, Size, px};
+    use gpui_wgpu::WgpuContext;
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    if width == 0 || height == 0 {
+        return Err("WGPU readback dimensions must be non-zero".into());
+    }
+
+    let context = WgpuContext::headless().map_err(|error| error.to_string())?;
+    let format = context.color_texture_format();
+    let texture = context.device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("mesh_offscreen_wgpu_target"),
+        size: wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+        view_formats: &[],
+    });
+    let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+    let state = std::rc::Rc::new(std::cell::RefCell::new(state.clone()));
+    let renderer = super::WgpuMesh3DRenderer::new(state);
+    let draw = gpui::lookup_custom_draw(renderer.custom_id())
+        .ok_or_else(|| "WGPU mesh custom draw was not registered".to_string())?;
+    let draw = draw
+        .as_any()
+        .downcast_ref::<gpui_wgpu::WgpuCustomDrawAdapter>()
+        .ok_or_else(|| "WGPU mesh custom draw has an unexpected adapter".to_string())?;
+
+    let mut encoder = context
+        .device
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("mesh_offscreen_wgpu_encoder"),
+        });
+    {
+        let _pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("mesh_offscreen_wgpu_clear"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: &view,
+                resolve_target: None,
+                depth_slice: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+            multiview_mask: None,
+        });
+    }
+    draw.0.draw_wgpu(
+        &context,
+        &mut encoder,
+        &view,
+        [width, height],
+        Bounds::new(
+            Point::new(px(0.0), px(0.0)),
+            Size::new(px(width as f32), px(height as f32)),
+        ),
+        1.0,
+    );
+
+    let row_bytes = width
+        .checked_mul(4)
+        .ok_or_else(|| "WGPU readback row size overflow".to_string())?;
+    let padded_row_bytes = row_bytes
+        .div_ceil(256)
+        .checked_mul(256)
+        .ok_or_else(|| "WGPU readback alignment overflow".to_string())?;
+    let staging = context.device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("mesh_offscreen_wgpu_readback"),
+        size: u64::from(padded_row_bytes) * u64::from(height),
+        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+        mapped_at_creation: false,
+    });
+    encoder.copy_texture_to_buffer(
+        wgpu::TexelCopyTextureInfo {
+            texture: &texture,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        wgpu::TexelCopyBufferInfo {
+            buffer: &staging,
+            layout: wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(padded_row_bytes),
+                rows_per_image: Some(height),
+            },
+        },
+        wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        },
+    );
+    context.queue.submit(std::iter::once(encoder.finish()));
+
+    let slice = staging.slice(..);
+    let (sender, receiver) = mpsc::channel();
+    slice.map_async(wgpu::MapMode::Read, move |result| {
+        let _ = sender.send(result);
+    });
+    let _ = context.device.poll(wgpu::PollType::Wait {
+        submission_index: Default::default(),
+        timeout: Some(Duration::from_secs(5)),
+    });
+    receiver
+        .recv_timeout(Duration::from_secs(5))
+        .map_err(|error| format!("WGPU readback callback timed out: {error}"))?
+        .map_err(|error| format!("WGPU readback mapping failed: {error}"))?;
+
+    let data = slice.get_mapped_range();
+    let pixel_count = usize::try_from(width)
+        .ok()
+        .and_then(|width| usize::try_from(height).ok().map(|height| width * height))
+        .ok_or_else(|| "WGPU readback image size overflow".to_string())?;
+    let mut rgba = vec![0u8; pixel_count * 4];
+    for y in 0..height as usize {
+        let source_row = y * padded_row_bytes as usize;
+        let target_row = y * width as usize * 4;
+        for x in 0..width as usize {
+            let source = source_row + x * 4;
+            let target = target_row + x * 4;
+            let pixel = &data[source..source + 4];
+            if format == wgpu::TextureFormat::Bgra8Unorm {
+                rgba[target..target + 4].copy_from_slice(&[pixel[2], pixel[1], pixel[0], pixel[3]]);
+            } else if format == wgpu::TextureFormat::Rgba8Unorm {
+                rgba[target..target + 4].copy_from_slice(pixel);
+            } else {
+                drop(data);
+                staging.unmap();
+                return Err(format!("unsupported WGPU readback format {format:?}"));
+            }
+        }
+    }
+    drop(data);
+    staging.unmap();
+    RgbaImage::from_raw(width, height, rgba)
+        .ok_or_else(|| "WGPU readback image dimensions do not match payload".to_string())
 }
 
 fn edge(a: [f32; 2], b: [f32; 2], p: [f32; 2]) -> f32 {
@@ -444,6 +608,11 @@ mod tests {
         let retained = state.borrow();
         assert_eq!(retained.geometry_upload_count, 1);
         assert_eq!(retained.geometry_upload_bytes, upload.geometry_byte_len());
+        assert_eq!(retained.field_write_count, 1);
+        assert_eq!(
+            retained.field_write_bytes,
+            3 * std::mem::size_of::<f32>() as u64
+        );
         assert_eq!(retained.field_rev, FieldRevision(7));
         drop(retained);
 
@@ -506,5 +675,104 @@ mod tests {
         state.view_transform[3][1] = -100.0;
         let image = render_offscreen(Some(&upload), &state, 32, 32);
         assert!(image.pixels().all(|pixel| pixel[3] == 0));
+    }
+
+    #[test]
+    fn fallback_skips_primitives_with_out_of_range_indices() {
+        let upload = MeshUpload {
+            positions_f32: vec![[10.0, 10.0, 0.0], [20.0, 10.0, 0.0], [10.0, 20.0, 0.0]],
+            origin: [0.0; 3],
+            indices: vec![0, 1, 99],
+            edge_indices: vec![0, 1, 1, 99, 99, 0],
+            values_f32: None,
+            cell_values_f32: None,
+        };
+        let image = render_offscreen(Some(&upload), &MeshSceneState::default(), 32, 32);
+        assert!(image.pixels().all(|pixel| pixel.0[3] == 0));
+    }
+
+    #[test]
+    fn raster_helpers_cover_transforms_clipping_colormaps_and_lines() {
+        let identity = identity_matrix();
+        assert_eq!(
+            transform_point(identity, [0.25, -0.5, 2.0]),
+            Some([0.25, -0.5, 2.0])
+        );
+
+        let mut translated = identity;
+        translated[3][0] = 2.0;
+        translated[3][1] = -3.0;
+        assert_eq!(
+            transform_point(translated, [1.0, 2.0, 3.0]),
+            Some([3.0, -1.0, 3.0])
+        );
+
+        let mut zero_w = identity;
+        zero_w[3][3] = -0.0;
+        assert!(transform_point(zero_w, [1.0, 2.0, 3.0]).is_some());
+        let mut non_finite = identity;
+        non_finite[0][0] = f32::NAN;
+        assert!(transform_point(non_finite, [1.0, 2.0, 3.0]).is_none());
+
+        assert_eq!(clipped_pixel_range([0.0, 2.0, 1.0], 4), Some((0, 2)));
+        assert_eq!(clipped_pixel_range([-3.0, 1.5, 2.0], 4), Some((0, 2)));
+        assert_eq!(clipped_pixel_range([4.0, 5.0, 6.0], 4), None);
+        assert_eq!(clipped_pixel_range([-4.0, -3.0, -2.0], 4), None);
+        assert_eq!(clipped_pixel_range([f32::NAN, 0.0, 1.0], 4), None);
+        assert_eq!(clipped_pixel_range([0.0, 1.0, 2.0], 0), None);
+
+        for map_id in 0..=3 {
+            for t in [0.0, 0.25, 0.5, 0.75, 1.0] {
+                let color = colormap(t, map_id);
+                assert!(color.iter().any(|channel| *channel > 0));
+            }
+        }
+        assert_ne!(colormap(0.25, 99), colormap(0.75, 99));
+        assert_eq!(
+            lerp_rgb([0.0, 0.5, 1.0], [1.0, 0.5, 0.0], -1.0),
+            [0.0, 0.5, 1.0]
+        );
+        assert_eq!(
+            lerp_rgb([0.0, 0.5, 1.0], [1.0, 0.5, 0.0], 2.0),
+            [1.0, 0.5, 0.0]
+        );
+
+        let mut image = RgbaImage::from_pixel(8, 8, Rgba([0, 0, 0, 0]));
+        draw_line(&mut image, [-2.0, 0.0], [7.0, 7.0], [1, 2, 3, 255]);
+        assert!(image.pixels().any(|pixel| pixel.0 == [1, 2, 3, 255]));
+
+        let mut cell_upload = triangle_upload();
+        cell_upload.values_f32 = None;
+        cell_upload.cell_values_f32 = Some(vec![0.75]);
+        let mut styled = MeshSceneState::default();
+        styled.color.isoline_step = 0.5;
+        styled.color.isoline_width_px = 1.0;
+        styled.color.wireframe = true;
+        let styled_image = render_offscreen(Some(&cell_upload), &styled, 32, 32);
+        assert!(styled_image.pixels().any(|pixel| pixel.0[3] != 0));
+
+        let mut uncolored = triangle_upload();
+        uncolored.values_f32 = None;
+        uncolored.cell_values_f32 = None;
+        let plain_image = render_offscreen(Some(&uncolored), &MeshSceneState::default(), 16, 16);
+        assert!(plain_image.pixels().any(|pixel| pixel.0[3] != 0));
+        assert!(
+            render_offscreen(Some(&uncolored), &MeshSceneState::default(), 0, 16)
+                .pixels()
+                .all(|pixel| pixel.0[3] == 0)
+        );
+        assert!(
+            render_offscreen(Some(&uncolored), &MeshSceneState::default(), 16, 0)
+                .pixels()
+                .all(|pixel| pixel.0[3] == 0)
+        );
+
+        let mut non_finite_upload = uncolored;
+        non_finite_upload.positions_f32[0][0] = f32::NAN;
+        assert!(
+            render_offscreen(Some(&non_finite_upload), &MeshSceneState::default(), 16, 16)
+                .pixels()
+                .all(|pixel| pixel.0[3] == 0)
+        );
     }
 }

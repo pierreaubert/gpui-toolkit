@@ -45,6 +45,8 @@ pub use element::{DEFAULT_LOD_THRESHOLD, MeshLodController, MeshSceneElement};
 mod offscreen;
 #[cfg(feature = "gpui")]
 pub use offscreen::render_offscreen;
+#[cfg(all(feature = "gpu-3d", not(test), not(target_family = "wasm")))]
+pub use offscreen::render_offscreen_wgpu;
 
 /// Stable GPU-facing revision for retained geometry buffers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]

@@ -2,9 +2,10 @@ use super::shaders::MESH_WGSL;
 use super::{
     FieldRevision, GeometryRevision, MeshGpuRenderer, MeshSceneState, replace_retained_field,
 };
-use crate::mesh::{MeshUpload, upload_chunks};
+use crate::mesh::{MeshUpload, expand_cell_shading, upload_chunks};
 use gpui::{Bounds, CustomDraw, Pixels};
 use gpui_wgpu::{WgpuContext, WgpuCustomDraw, WgpuCustomDrawAdapter};
+use std::borrow::Cow;
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -25,6 +26,8 @@ struct WgpuResources {
     values: wgpu::Buffer,
     value_bytes: u64,
     value_count: usize,
+    geometry_bytes: u64,
+    resident_bytes: u64,
     uniform: wgpu::Buffer,
     bind_group: wgpu::BindGroup,
     fill_pipeline: wgpu::RenderPipeline,
@@ -35,27 +38,30 @@ struct WgpuResources {
 
 impl WgpuResources {
     fn new(ctx: &WgpuContext, revision: GeometryRevision, upload: &MeshUpload) -> Self {
-        let field_values = upload
-            .values_f32
-            .as_deref()
-            .or(upload.cell_values_f32.as_deref())
-            .unwrap_or(&[0.5]);
+        let render_upload = expand_cell_upload(upload);
+        let field_values = render_upload.values_f32.as_deref().unwrap_or(&[0.5]);
+        let positions_bytes =
+            (render_upload.positions_f32.len() * std::mem::size_of::<[f32; 3]>()).max(4) as u64;
+        let triangles_bytes =
+            (render_upload.indices.len() * std::mem::size_of::<u32>()).max(4) as u64;
+        let edges_bytes =
+            (render_upload.edge_indices.len() * std::mem::size_of::<u32>()).max(4) as u64;
         let positions = create_chunked_buffer(
             ctx,
             "mesh_positions",
-            bytemuck::cast_slice(&upload.positions_f32),
+            bytemuck::cast_slice(&render_upload.positions_f32),
             wgpu::BufferUsages::VERTEX,
         );
         let triangles = create_chunked_buffer(
             ctx,
             "mesh_triangles",
-            bytemuck::cast_slice(&upload.indices),
+            bytemuck::cast_slice(&render_upload.indices),
             wgpu::BufferUsages::INDEX,
         );
         let edges = create_chunked_buffer(
             ctx,
             "mesh_edges",
-            bytemuck::cast_slice(&upload.edge_indices),
+            bytemuck::cast_slice(&render_upload.edge_indices),
             wgpu::BufferUsages::INDEX,
         );
         let values = create_chunked_buffer(
@@ -65,6 +71,7 @@ impl WgpuResources {
             wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         );
         let value_bytes = std::mem::size_of_val(field_values) as u64;
+        let uniform_bytes = std::mem::size_of::<MeshUniform>() as u64;
         let uniform = ctx.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("mesh_uniform"),
             size: std::mem::size_of::<MeshUniform>() as u64,
@@ -166,16 +173,24 @@ impl WgpuResources {
             values,
             value_bytes,
             value_count: field_values.len(),
+            geometry_bytes: positions_bytes
+                .saturating_add(triangles_bytes)
+                .saturating_add(edges_bytes),
+            resident_bytes: positions_bytes
+                .saturating_add(triangles_bytes)
+                .saturating_add(edges_bytes)
+                .saturating_add(value_bytes.max(4))
+                .saturating_add(uniform_bytes),
             uniform,
             bind_group,
             fill_pipeline: pipeline(wgpu::PrimitiveTopology::TriangleList, "fragment"),
             line_pipeline: pipeline(wgpu::PrimitiveTopology::LineList, "line_fragment"),
-            triangle_index_count: upload.indices.len() as u32,
-            edge_index_count: upload.edge_indices.len() as u32,
+            triangle_index_count: render_upload.indices.len() as u32,
+            edge_index_count: render_upload.edge_indices.len() as u32,
         }
     }
 
-    fn update_field(&mut self, ctx: &WgpuContext, revision: FieldRevision, values: &[f32]) {
+    fn update_field(&mut self, ctx: &WgpuContext, revision: FieldRevision, values: &[f32]) -> u64 {
         let values = if values.is_empty() { &[0.5] } else { values };
         let bytes = std::mem::size_of_val(values) as u64;
         // Field patches are deliberately queue-only. A field with a different
@@ -185,6 +200,9 @@ impl WgpuResources {
             ctx.queue
                 .write_buffer(&self.values, 0, bytemuck::cast_slice(values));
             self.field_rev = revision;
+            bytes
+        } else {
+            0
         }
     }
 
@@ -264,6 +282,46 @@ fn make_bind_group(
     })
 }
 
+/// Expand cell-associated values into the vertex-local representation used by
+/// the portable 2D shader. Shared indexed vertices cannot carry two different
+/// cell values, so the cell path duplicates each triangle's vertices once per
+/// triangle and rebuilds its wireframe indices in that expanded vertex space.
+fn expand_cell_upload(upload: &MeshUpload) -> MeshUpload {
+    if upload.cell_values_f32.is_none() {
+        return upload.clone();
+    }
+
+    let mut expanded = expand_cell_shading(upload);
+    expanded.edge_indices = expanded
+        .indices
+        .chunks_exact(3)
+        .flat_map(|triangle| {
+            [
+                triangle[0],
+                triangle[1],
+                triangle[1],
+                triangle[2],
+                triangle[2],
+                triangle[0],
+            ]
+        })
+        .collect();
+    expanded
+}
+
+fn field_values(upload: &MeshUpload) -> Cow<'_, [f32]> {
+    if let Some(cell_values) = &upload.cell_values_f32 {
+        return Cow::Owned(
+            cell_values
+                .iter()
+                .flat_map(|&value| [value, value, value])
+                .take(upload.indices.len())
+                .collect(),
+        );
+    }
+    Cow::Borrowed(upload.values_f32.as_deref().unwrap_or(&[]))
+}
+
 /// WGPU renderer that dispatches through GPUI's zero-copy custom primitive.
 pub struct WgpuMeshRenderer {
     state: Rc<RefCell<MeshSceneState>>,
@@ -292,28 +350,41 @@ impl WgpuCustomDraw for WgpuMeshDraw {
         bounds: Bounds<Pixels>,
         scale_factor: f32,
     ) {
-        let state = self.state.borrow();
+        // Hold the retained state mutably for the complete custom draw. The
+        // resource registry is a separate RefCell, so this avoids a
+        // read-then-write reborrow of the same state during telemetry updates
+        // (which otherwise panics on cell-field updates) without cloning the
+        // retained upload on every frame.
+        let mut state = self.state.borrow_mut();
         let Some(upload) = state.upload.as_ref() else {
             return;
         };
         let mut resources = self.resources.borrow_mut();
+        let mut created_geometry_resource = false;
         if resources
             .as_ref()
             .is_none_or(|resources| resources.geometry_rev != state.geometry_rev)
         {
             *resources = Some(WgpuResources::new(ctx, state.geometry_rev, upload));
+            created_geometry_resource = true;
         }
         let Some(resources) = resources.as_mut() else {
             return;
         };
-        let field = upload
-            .values_f32
-            .as_deref()
-            .or(upload.cell_values_f32.as_deref())
-            .unwrap_or(&[0.5]);
-        if resources.field_rev != state.field_rev {
-            resources.update_field(ctx, state.field_rev, field);
+        let field = field_values(upload);
+        let field_write_bytes = if resources.field_rev != state.field_rev {
+            resources.update_field(ctx, state.field_rev, field.as_ref())
+        } else {
+            0
+        };
+        drop(field);
+        if created_geometry_resource {
+            state.record_gpu_geometry_upload(resources.geometry_bytes);
         }
+        if field_write_bytes != 0 {
+            state.record_gpu_field_write(field_write_bytes);
+        }
+        state.set_gpu_memory(resources.resident_bytes, resources.value_bytes);
         resources.update_uniform(ctx, &state);
 
         let x = (f32::from(bounds.origin.x) * scale_factor).max(0.0) as u32;
@@ -391,6 +462,7 @@ impl MeshGpuRenderer for WgpuMeshRenderer {
 
     fn write_field(&mut self, rev: FieldRevision, values: &[f32]) {
         let mut state = self.state.borrow_mut();
+        state.record_field_write(values);
         state.field_rev = rev;
         if let Some(upload) = &mut state.upload {
             if upload.cell_values_f32.is_some() {

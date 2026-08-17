@@ -43,19 +43,51 @@ pub struct MeshUpload {
 }
 
 impl MeshUpload {
+    fn bytes(count: usize, element_size: usize) -> u64 {
+        u64::try_from(count)
+            .unwrap_or(u64::MAX)
+            .saturating_mul(u64::try_from(element_size).unwrap_or(u64::MAX))
+    }
+
     /// Return the retained geometry payload size in bytes.
     ///
     /// Scalar values are intentionally excluded: field-only updates are
     /// tracked separately and must not look like geometry re-uploads.
     pub fn geometry_byte_len(&self) -> u64 {
-        let bytes = |count: usize, element_size: usize| {
-            u64::try_from(count)
-                .unwrap_or(u64::MAX)
-                .saturating_mul(u64::try_from(element_size).unwrap_or(u64::MAX))
-        };
-        bytes(self.positions_f32.len(), std::mem::size_of::<[f32; 3]>())
-            .saturating_add(bytes(self.indices.len(), std::mem::size_of::<u32>()))
-            .saturating_add(bytes(self.edge_indices.len(), std::mem::size_of::<u32>()))
+        Self::bytes(self.positions_f32.len(), std::mem::size_of::<[f32; 3]>())
+            .saturating_add(Self::bytes(self.indices.len(), std::mem::size_of::<u32>()))
+            .saturating_add(Self::bytes(
+                self.edge_indices.len(),
+                std::mem::size_of::<u32>(),
+            ))
+    }
+
+    /// Return the currently resident scalar payload size in bytes.
+    pub fn field_byte_len(&self) -> u64 {
+        self.values_f32
+            .as_ref()
+            .map_or(0, |values| {
+                Self::bytes(values.len(), std::mem::size_of::<f32>())
+            })
+            .saturating_add(self.cell_values_f32.as_ref().map_or(0, |values| {
+                Self::bytes(values.len(), std::mem::size_of::<f32>())
+            }))
+    }
+
+    /// Return the capacity reserved by the currently resident scalar buffers.
+    ///
+    /// This is intentionally separate from [`Self::field_byte_len`]: repeated
+    /// field updates may reuse a larger allocation, and release diagnostics
+    /// need to distinguish retained capacity from bytes written this frame.
+    pub fn field_capacity_byte_len(&self) -> u64 {
+        self.values_f32
+            .as_ref()
+            .map_or(0, |values| {
+                Self::bytes(values.capacity(), std::mem::size_of::<f32>())
+            })
+            .saturating_add(self.cell_values_f32.as_ref().map_or(0, |values| {
+                Self::bytes(values.capacity(), std::mem::size_of::<f32>())
+            }))
     }
 }
 
@@ -272,7 +304,10 @@ mod tests {
         let topology = MeshTopology::build(&mesh.triangles);
         let mut upload = prepare_upload(&mesh, &topology);
         let geometry_bytes = upload.geometry_byte_len();
-        upload.values_f32 = Some(vec![0.0; mesh.positions.len()]);
+        assert_eq!(upload.field_byte_len(), 0);
+        assert_eq!(upload.field_capacity_byte_len(), 0);
+        upload.values_f32 = Some(Vec::with_capacity(8));
+        upload.values_f32.as_mut().unwrap().extend([0.0, 1.0]);
         upload.cell_values_f32 = Some(vec![0.0; mesh.triangles.len()]);
         assert_eq!(upload.geometry_byte_len(), geometry_bytes);
         assert_eq!(
@@ -280,6 +315,14 @@ mod tests {
             (mesh.positions.len() * std::mem::size_of::<[f32; 3]>()
                 + mesh.triangles.len() * 3 * std::mem::size_of::<u32>()
                 + topology.unique_edges.len() * 2 * std::mem::size_of::<u32>()) as u64
+        );
+        assert_eq!(
+            upload.field_byte_len(),
+            (2 + mesh.triangles.len()) as u64 * std::mem::size_of::<f32>() as u64
+        );
+        assert_eq!(
+            upload.field_capacity_byte_len(),
+            (8 + mesh.triangles.len()) as u64 * std::mem::size_of::<f32>() as u64
         );
     }
 

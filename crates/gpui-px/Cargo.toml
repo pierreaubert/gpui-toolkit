@@ -67,6 +67,7 @@ required-features = ["gpui", "gpu-3d"]
 [[bin]]
 name = "px-showcase"
 path = "bin/showcase.rs"
+required-features = ["gpui", "gpu-2d"]
 
 [[bin]]
 name = "px-spinorama"

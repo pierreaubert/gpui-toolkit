@@ -8,7 +8,7 @@ use crate::mesh_frames::MeshFrame;
 use crate::ui_ir::PythonAppIr;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use thiserror::Error;
 
 pub const PYTHON_APP_SESSION_VERSION: u32 = 1;
@@ -588,6 +588,23 @@ impl SessionState {
     pub fn mesh_generation(&self, plot_id: &str) -> Option<u64> {
         self.mesh_generations.get(plot_id).copied()
     }
+
+    /// Reset revision and MeshPlot generation history when a new Python
+    /// producer is installed. The negotiated capability set belongs to the
+    /// host and remains valid across child-process restarts.
+    pub fn reset_for_new_session(&mut self) {
+        self.revision = 0;
+        self.mesh_generations.clear();
+    }
+
+    /// Drop generation history for plots that are no longer present in the
+    /// committed application snapshot. This is intentionally separate from a
+    /// session reset so active plots keep rejecting late generations while a
+    /// removed plot can be recreated with a fresh producer generation.
+    pub fn retain_mesh_plot_generations(&mut self, live_plot_ids: &HashSet<String>) {
+        self.mesh_generations
+            .retain(|plot_id, _| live_plot_ids.contains(plot_id));
+    }
 }
 
 pub fn parse_python_message(line: &[u8], max_bytes: usize) -> Result<PythonMessage, SessionError> {
@@ -751,6 +768,63 @@ mod tests {
             }),
             Err(SessionError::StaleMeshGeneration { .. })
         ));
+    }
+
+    #[test]
+    fn session_restart_clears_revision_and_mesh_generation_history() {
+        let mut state = SessionState::new(vec!["meshplot".into(), "patches".into()]);
+        state
+            .apply_patch_revision(&Patch {
+                revision: 7,
+                request_id: Some("old-producer".into()),
+                ops: vec![PatchOp::ReplaceMeshField {
+                    plot_id: "plot".into(),
+                    generation: 9,
+                    field: serde_json::json!({"values": [1.0]}),
+                }],
+            })
+            .unwrap();
+
+        state.reset_for_new_session();
+
+        assert_eq!(state.revision(), 0);
+        assert_eq!(state.mesh_generation("plot"), None);
+        state
+            .apply_patch_revision(&Patch {
+                revision: 1,
+                request_id: Some("new-producer".into()),
+                ops: vec![PatchOp::ReplaceMeshField {
+                    plot_id: "plot".into(),
+                    generation: 1,
+                    field: serde_json::json!({"values": [2.0]}),
+                }],
+            })
+            .expect("a restarted producer may begin at revision one again");
+        assert_eq!(state.revision(), 1);
+        assert_eq!(state.mesh_generation("plot"), Some(1));
+    }
+
+    #[test]
+    fn removed_mesh_plots_release_only_their_generation_history() {
+        let mut state = SessionState::new(vec!["meshplot".into(), "patches".into()]);
+        for (plot_id, generation) in [("active", 4), ("removed", 8)] {
+            state
+                .apply_patch_revision(&Patch {
+                    revision: generation,
+                    request_id: None,
+                    ops: vec![PatchOp::ReplaceMeshField {
+                        plot_id: plot_id.into(),
+                        generation,
+                        field: serde_json::json!({"values": [1.0]}),
+                    }],
+                })
+                .unwrap();
+        }
+
+        state.retain_mesh_plot_generations(&HashSet::from(["active".into()]));
+
+        assert_eq!(state.mesh_generation("active"), Some(4));
+        assert_eq!(state.mesh_generation("removed"), None);
     }
 
     #[test]

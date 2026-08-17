@@ -16,11 +16,11 @@ struct Uniforms {
 };
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
+@group(0) @binding(1) var<storage, read> values: array<f32>;
 
 struct VertexIn {
     @location(0) position: vec3<f32>,
     @location(1) normal: vec3<f32>,
-    @location(2) value: f32,
 };
 
 struct VertexOut {
@@ -30,12 +30,16 @@ struct VertexOut {
 };
 
 @vertex
-fn vs_main(input: VertexIn) -> VertexOut {
+fn vs_main(input: VertexIn, @builtin(vertex_index) vertex_index: u32) -> VertexOut {
     var output: VertexOut;
     let world = uniforms.model * vec4<f32>(input.position, 1.0);
     output.clip_position = uniforms.view_proj * world;
     output.normal = normalize((uniforms.model * vec4<f32>(input.normal, 0.0)).xyz);
-    output.value = input.value;
+    if (uniforms.value_range.z > 0.5) {
+        output.value = values[vertex_index];
+    } else {
+        output.value = 0.0;
+    }
     return output;
 }
 
@@ -184,9 +188,8 @@ struct Uniforms {
 };
 
 struct VertexIn {
-    float3 position [[attribute(0)]];
-    float3 normal [[attribute(1)]];
-    float value [[attribute(2)]];
+    float4 position [[attribute(0)]];
+    float4 normal [[attribute(1)]];
 };
 
 struct VertexOut {
@@ -198,13 +201,14 @@ struct VertexOut {
 vertex VertexOut vs_main(
     const device VertexIn* vertices [[buffer(0)]],
     uint vertex_id [[vertex_id]],
-    constant Uniforms& uniforms [[buffer(1)]]) {
+    constant Uniforms& uniforms [[buffer(1)]],
+    const device float* values [[buffer(2)]]) {
   VertexIn input = vertices[vertex_id];
     VertexOut output;
-    float4 world = uniforms.model * float4(input.position, 1.0);
+    float4 world = uniforms.model * float4(input.position.xyz, 1.0);
     output.position = uniforms.view_proj * world;
-    output.normal = normalize((uniforms.model * float4(input.normal, 0.0)).xyz);
-    output.value = input.value;
+    output.normal = normalize((uniforms.model * float4(input.normal.xyz, 0.0)).xyz);
+    output.value = uniforms.value_range.z > 0.5 ? values[vertex_id] : 0.0;
     return output;
 }
 
@@ -214,7 +218,7 @@ vertex VertexOut vs_triad(
   VertexIn input = vertices[vertex_id];
     VertexOut output;
     output.position = float4(input.position.xy, 0.0, 1.0);
-    output.normal = input.normal;
+    output.normal = input.normal.xyz;
     output.value = 1.0;
     return output;
 }

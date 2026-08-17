@@ -176,7 +176,7 @@ class App:
         # cancellation, shutdown, and heartbeat responsiveness when Python
         # begins long-running local or remote simulation work.
         with ThreadPoolExecutor(max_workers=4, thread_name_prefix="gpui-action") as executor:
-            for message in _messages():
+            for message in _messages(context):
                 message_type = message.get("type")
                 if message_type == "shutdown":
                     try:
@@ -767,9 +767,18 @@ def _read_message() -> dict[str, Any]:
     return value
 
 
-def _messages() -> Any:
+def _messages(context: SessionContext | None = None) -> Any:
     for line in sys.stdin:
         if line.strip():
-            value = json.loads(line)
+            try:
+                value = json.loads(line)
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                if context is not None:
+                    # Do not echo malformed input back to the host: a broken
+                    # or hostile message may contain secrets or unbounded text.
+                    context.error(None, "malformed_message", "GPUI session message is not valid JSON")
+                continue
             if isinstance(value, dict):
                 yield value
+            elif context is not None:
+                context.error(None, "malformed_message", "GPUI session message must be an object")

@@ -108,7 +108,10 @@ qa-gpui-obvious: qa-gpui-conformance
 	cargo test -p gpui-ui-kit {{features}} --features bench --test allocation_contracts -- --test-threads=1
 	cargo test -p gpui-ui-kit {{features}} --features bench --test text_input_corpus
 	cargo test -p gpui-d3rs {{features}}
-	cargo test -p gpui-px {{features}}
+	# MeshPlot allocation contracts use a process-global allocator; keep this
+	# package serial so unrelated test-thread startup allocations cannot pollute
+	# the zero-allocation hot-path assertions.
+	cargo test -p gpui-px {{features}} -- --test-threads=1
 	cargo tree -p gpui-design-tools {{features}}
 	python3 scripts/qa_desktop_accessibility.py --output-json target/qa/accessibility/desktop-evidence.json --output-markdown target/qa/accessibility/desktop-evidence.md
 
@@ -119,7 +122,7 @@ qa-gpui-obvious: qa-gpui-conformance
 # Full QA aggregator. Runs non-coverage checks first; coverage gate is last so a
 # sub-90% report still lets the other suites exercise the code.
 [group('qa')]
-qa: lint-host qa-scripts qa-api qa-prop qa-visual qa-perf qa-gpui-obvious qa-cov-check qa-deps
+qa: lint-host qa-scripts qa-api qa-prop qa-visual qa-mesh-wgpu-visual qa-perf qa-gpui-obvious qa-cov-check qa-deps
 	python3 scripts/qa_release_evidence.py
 	@echo "Full QA suite passed"
 
@@ -211,12 +214,23 @@ qa-visual:
 	@echo "Running visual non-regression checks..."
 	bash scripts/qa_visual_capture.sh
 
+# Adapter-backed MeshPlot visual contract. Release CI should set
+# QA_WGPU_REQUIRED=1 and use a machine with a usable WGPU adapter plus a
+# promoted baseline directory.
+[group('qa')]
+qa-mesh-wgpu-visual:
+	@echo "Running MeshPlot WGPU visual checks..."
+	bash scripts/qa_mesh_wgpu_visual.sh
+
 # Generate a full workspace coverage report.
 [group('qa')]
 qa-cov:
 	mkdir -p target/qa/cov
-	cargo llvm-cov --workspace --exclude gpui-scaffolder --all-targets --html --output-dir target/qa/cov/html {{features}} --ignore-filename-regex '{{cov_ignore_regex}}'
-	cargo llvm-cov --workspace --exclude gpui-scaffolder --all-targets --json --summary-only --output-path {{cov_summary}} {{features}} --ignore-filename-regex '{{cov_ignore_regex}}'
+	# gpui_macos clipboard tests require a live pasteboard service and are not
+	# part of the measured source set; keep them out of the portable coverage
+	# lane while retaining their separate host QA gate.
+	cargo llvm-cov --workspace --exclude gpui-scaffolder --exclude gpui_macos --all-targets --html --output-dir target/qa/cov/html {{features}} --ignore-filename-regex '{{cov_ignore_regex}}'
+	cargo llvm-cov --workspace --exclude gpui-scaffolder --exclude gpui_macos --all-targets --json --summary-only --output-path {{cov_summary}} {{features}} --ignore-filename-regex '{{cov_ignore_regex}}'
 	@echo "Coverage report: target/qa/cov/html/index.html"
 
 # Open the HTML coverage report (macOS).
@@ -229,7 +243,7 @@ qa-cov-html: qa-cov
 qa-cov-check:
 	@echo "Running coverage gate (threshold {{cov_threshold}}%)..."
 	mkdir -p target/qa/cov
-	cargo llvm-cov --workspace --exclude gpui-scaffolder --all-targets --json --summary-only --output-path {{cov_summary}} {{features}} --ignore-filename-regex '{{cov_ignore_regex}}'
+	cargo llvm-cov --workspace --exclude gpui-scaffolder --exclude gpui_macos --all-targets --json --summary-only --output-path {{cov_summary}} {{features}} --ignore-filename-regex '{{cov_ignore_regex}}'
 	python3 scripts/qa_cov_check.py --summary {{cov_summary}} --threshold {{cov_threshold}} --output {{cov_report}} --ignore-regex '{{cov_ignore_regex}}'
 
 # Update the committed performance baseline. Run intentionally after benchmarking.

@@ -14,10 +14,10 @@ use d3rs::mesh::{CoordinateAxis, RevolveSpec, ScalarAssociation, ScalarField, Tr
 use glam::Vec3;
 use gpui::{
     AnyWindowHandle, AppContext, Context, HeadlessAppContext, InputEvent, InteractiveElement,
-    Modifiers, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement, Platform,
-    Render, ScrollDelta, ScrollWheelEvent, Styled, TouchPhase, Window, div, point, px, size,
+    Modifiers, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement, Render,
+    ScrollDelta, ScrollWheelEvent, Styled, TouchPhase, Window, div, point, px, size,
 };
-use gpui_macos::{MacPlatform, metal_renderer::MetalHeadlessRenderer};
+use gpui_macos::metal_renderer::MetalHeadlessRenderer;
 use gpui_px::{
     FieldInterpolation, MeshPlotPick, MeshPlotState, MeshPlotView, MeshRenderMode, Wireframe,
     mesh_plot,
@@ -37,6 +37,22 @@ fn native_platform_lock() -> MutexGuard<'static, ()> {
     NATIVE_PLATFORM_LOCK
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+fn native_text_system() -> Arc<dyn gpui::PlatformTextSystem> {
+    // Native MeshPlot QA exercises Metal drawing and screenshot capture. A
+    // deterministic GPUI text system avoids initializing macOS TIS/TSM
+    // services, which can abort headless test processes before assertions.
+    Arc::new(gpui::NoopTextSystem::new())
+}
+
+fn native_metal_available() -> bool {
+    if MetalHeadlessRenderer::try_new().is_some() {
+        true
+    } else {
+        eprintln!("native Metal QA skipped: no compatible Metal device");
+        false
+    }
 }
 
 struct NativeMeshPlotView {
@@ -316,9 +332,10 @@ fn close_window(cx: &mut HeadlessAppContext, window: AnyWindowHandle) {
 #[test]
 fn native_metal_mesh_plot_click_dispatches_selection_and_keyboard_preserves_it() {
     let _platform_guard = native_platform_lock();
-    let platform = MacPlatform::new(true);
-    let text_system = platform.text_system();
-    drop(platform);
+    if !native_metal_available() {
+        return;
+    }
+    let text_system = native_text_system();
     let mut cx = HeadlessAppContext::with_platform(text_system, Arc::new(()), || {
         Some(Box::new(MetalHeadlessRenderer::new()))
     });
@@ -418,9 +435,10 @@ fn native_metal_mesh_plot_click_dispatches_selection_and_keyboard_preserves_it()
 #[test]
 fn native_metal_equal_aspect_selection_stays_aligned_after_resize() {
     let _platform_guard = native_platform_lock();
-    let platform = MacPlatform::new(true);
-    let text_system = platform.text_system();
-    drop(platform);
+    if !native_metal_available() {
+        return;
+    }
+    let text_system = native_text_system();
     let mut cx = HeadlessAppContext::with_platform(text_system, Arc::new(()), || {
         Some(Box::new(MetalHeadlessRenderer::new()))
     });
@@ -515,9 +533,10 @@ fn native_metal_equal_aspect_selection_stays_aligned_after_resize() {
 #[test]
 fn native_metal_surface3d_builds_the_dedicated_depth_and_triad_path() {
     let _platform_guard = native_platform_lock();
-    let platform = MacPlatform::new(true);
-    let text_system = platform.text_system();
-    drop(platform);
+    if !native_metal_available() {
+        return;
+    }
+    let text_system = native_text_system();
     let mut cx = HeadlessAppContext::with_platform(text_system, Arc::new(()), || {
         Some(Box::new(MetalHeadlessRenderer::new()))
     });
@@ -576,11 +595,12 @@ fn native_metal_surface3d_builds_the_dedicated_depth_and_triad_path() {
 #[test]
 fn native_metal_surface3d_wireframe_changes_the_composited_frame() {
     let _platform_guard = native_platform_lock();
+    if !native_metal_available() {
+        return;
+    }
 
     let render = |wireframe: Wireframe| {
-        let platform = MacPlatform::new(true);
-        let text_system = platform.text_system();
-        drop(platform);
+        let text_system = native_text_system();
         let mut cx = HeadlessAppContext::with_platform(text_system, Arc::new(()), || {
             Some(Box::new(MetalHeadlessRenderer::new()))
         });
@@ -636,9 +656,10 @@ fn native_metal_surface3d_wireframe_changes_the_composited_frame() {
 #[test]
 fn native_metal_surface3d_keeps_a_partially_near_clipped_triangle() {
     let _platform_guard = native_platform_lock();
-    let platform = MacPlatform::new(true);
-    let text_system = platform.text_system();
-    drop(platform);
+    if !native_metal_available() {
+        return;
+    }
+    let text_system = native_text_system();
     let mut cx = HeadlessAppContext::with_platform(text_system, Arc::new(()), || {
         Some(Box::new(MetalHeadlessRenderer::new()))
     });
@@ -710,9 +731,10 @@ fn native_metal_surface3d_keeps_a_partially_near_clipped_triangle() {
 #[test]
 fn native_metal_large_revolve_shows_preparing_frame_then_completed_surface() {
     let _platform_guard = native_platform_lock();
-    let platform = MacPlatform::new(true);
-    let text_system = platform.text_system();
-    drop(platform);
+    if !native_metal_available() {
+        return;
+    }
+    let text_system = native_text_system();
     let mut cx = HeadlessAppContext::with_platform(text_system, Arc::new(()), || {
         Some(Box::new(MetalHeadlessRenderer::new()))
     });
@@ -801,6 +823,9 @@ fn native_metal_large_revolve_shows_preparing_frame_then_completed_surface() {
 #[test]
 fn native_metal_full_and_partial_revolves_build_depth_tested_frames() {
     let _platform_guard = native_platform_lock();
+    if !native_metal_available() {
+        return;
+    }
     let (mesh, vertex_field) = revolve_fixture();
     let cell_field = ScalarField {
         id: "native-revolve-cell-field".into(),
@@ -842,9 +867,7 @@ fn native_metal_full_and_partial_revolves_build_depth_tested_frames() {
     ];
 
     for (index, (view, field, mode)) in views.into_iter().enumerate() {
-        let platform = MacPlatform::new(true);
-        let text_system = platform.text_system();
-        drop(platform);
+        let text_system = native_text_system();
         let mut cx = HeadlessAppContext::with_platform(text_system, Arc::new(()), || {
             Some(Box::new(MetalHeadlessRenderer::new()))
         });
@@ -902,6 +925,9 @@ fn native_metal_live_3d_state_exports_deterministic_surface_and_revolve_artifact
     use image::GenericImageView;
 
     let _platform_guard = native_platform_lock();
+    if !native_metal_available() {
+        return;
+    }
     let (surface_mesh, surface_field) = fixture();
     let (revolve_mesh, revolve_field) = revolve_fixture();
     let cases = [
@@ -931,9 +957,7 @@ fn native_metal_live_3d_state_exports_deterministic_surface_and_revolve_artifact
     ];
 
     for (index, (mesh, field, view, mode)) in cases.into_iter().enumerate() {
-        let platform = MacPlatform::new(true);
-        let text_system = platform.text_system();
-        drop(platform);
+        let text_system = native_text_system();
         let mut cx = HeadlessAppContext::with_platform(text_system, Arc::new(()), || {
             Some(Box::new(MetalHeadlessRenderer::new()))
         });
@@ -988,9 +1012,89 @@ fn native_metal_live_3d_state_exports_deterministic_surface_and_revolve_artifact
                 r.max(g).max(b).saturating_sub(r.min(g).min(b)) > 12
             })
             .count();
+        let stats = state
+            .borrow()
+            .retained_3d_stats()
+            .expect("native 3D export case must retain 3D renderer stats");
+        let gpu_uploads = stats.gpu_geometry_upload_count;
+        let gpu_resident_bytes = stats.gpu_resident_bytes;
+        assert!(
+            gpu_uploads > 0 && gpu_resident_bytes > 0,
+            "native 3D export case {index} must dispatch an adapter-backed upload (uploads={gpu_uploads}, resident_bytes={gpu_resident_bytes})"
+        );
         assert!(
             live_colored > 200,
             "native 3D export case {index} must produce a scalar-coloured live frame"
+        );
+
+        // Camera-only navigation must reuse the retained position/normal/
+        // index resource and avoid a scalar rewrite as well.
+        let camera_geometry_uploads = stats.gpu_geometry_upload_count;
+        let camera_field_writes = stats.gpu_field_write_count;
+        state.borrow_mut().orbit_rotate(-5.0, 3.0);
+        cx.update_entity(&entity, |_view, cx| cx.notify());
+        cx.update_window(any_window, |_, window, app| {
+            window.draw(app).clear();
+        })
+        .expect("redraw camera-only native 3D MeshPlot");
+        let _camera_frame = cx
+            .capture_screenshot(any_window)
+            .expect("capture camera-only native 3D MeshPlot");
+        let camera_stats = state
+            .borrow()
+            .retained_3d_stats()
+            .expect("camera-only native 3D plot must retain renderer stats");
+        assert_eq!(
+            camera_stats.gpu_geometry_upload_count, camera_geometry_uploads,
+            "camera-only native 3D navigation must not upload geometry"
+        );
+        assert_eq!(
+            camera_stats.gpu_field_write_count, camera_field_writes,
+            "camera-only native 3D navigation must not rewrite scalar data"
+        );
+
+        // A field-only patch must update the dedicated scalar buffer while
+        // preserving the retained position/normal/index geometry resource.
+        let geometry_uploads_before_field_patch = stats.gpu_geometry_upload_count;
+        let field_writes_before_field_patch = stats.gpu_field_write_count;
+        let field_bytes_before_field_patch = stats.gpu_field_write_bytes;
+        let updated_field = ScalarField {
+            id: field.id.clone(),
+            label: field.label.clone(),
+            unit: field.unit.clone(),
+            values: Arc::from([0.9, 0.2, 0.8, 0.1]),
+            association: field.association,
+            valid: field.valid.clone(),
+        };
+        cx.update_entity(&entity, |view, cx| {
+            view.field = updated_field;
+            cx.notify();
+        });
+        cx.update_window(any_window, |_, window, app| {
+            window.draw(app).clear();
+        })
+        .expect("redraw field-patched native 3D MeshPlot");
+        let _patched = cx
+            .capture_screenshot(any_window)
+            .expect("capture field-patched native 3D MeshPlot");
+        let patched_stats = state
+            .borrow()
+            .retained_3d_stats()
+            .expect("field-patched native 3D plot must retain renderer stats");
+        assert_eq!(
+            patched_stats.gpu_geometry_upload_count, geometry_uploads_before_field_patch,
+            "field-only native 3D patch must not upload geometry"
+        );
+        assert!(
+            patched_stats.gpu_field_write_count > field_writes_before_field_patch,
+            "field-only native 3D patch must write the scalar buffer (before={}, after={}, geometry_uploads={})",
+            field_writes_before_field_patch,
+            patched_stats.gpu_field_write_count,
+            patched_stats.gpu_geometry_upload_count,
+        );
+        assert!(
+            patched_stats.gpu_field_write_bytes > field_bytes_before_field_patch,
+            "field-only native 3D patch must report scalar bytes"
         );
 
         let before = {
@@ -1023,6 +1127,42 @@ fn native_metal_live_3d_state_exports_deterministic_surface_and_revolve_artifact
         assert_eq!(&png[..8], b"\x89PNG\r\n\x1a\n");
         let decoded = image::load_from_memory(&png).expect("decode exported 3D PNG");
         assert_eq!(decoded.dimensions(), (600, 400), "3D export case {index}");
+        let exported = decoded.to_rgba8();
+        let exported_colored = exported
+            .pixels()
+            .filter(|pixel| {
+                let [r, g, b, a] = pixel.0;
+                a != 0 && r.max(g).max(b).saturating_sub(r.min(g).min(b)) > 12
+            })
+            .count();
+        assert!(
+            exported_colored > 50,
+            "native/export parity case {index} must contain scalar-coloured PNG pixels"
+        );
+        // The Metal framebuffer and deterministic export use different
+        // rasterizers and layout composition. Verify the shared plot viewport
+        // is populated independently; exact cross-adapter silhouette parity
+        // remains a release QA gate rather than a unit-test contract.
+        let native_scale = live.width() / 600;
+        let native_plot = image::imageops::crop_imm(
+            &live,
+            50 * native_scale,
+            10 * native_scale,
+            530 * native_scale,
+            360 * native_scale,
+        )
+        .to_image();
+        let native_plot_colored = native_plot
+            .pixels()
+            .filter(|pixel| {
+                let [r, g, b, a] = pixel.0;
+                a != 0 && r.max(g).max(b).saturating_sub(r.min(g).min(b)) > 12
+            })
+            .count();
+        assert!(
+            native_plot_colored > 200,
+            "native plot viewport case {index} must contain scalar-coloured pixels, got {native_plot_colored}"
+        );
         assert_eq!(
             png,
             plot.to_png(1.0)

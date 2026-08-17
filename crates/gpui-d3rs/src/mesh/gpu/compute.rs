@@ -10,6 +10,7 @@ use crate::mesh::{
     ContourBand, CoordinateAxis, IsolineSegment, MarchingTriangles, MeshTopology,
     MeshValidationError, ScalarField, TriangleMesh, project_2d,
 };
+use std::cell::Cell;
 use std::sync::Arc;
 
 struct AdapterCompute {
@@ -789,6 +790,26 @@ impl AdapterCompute {
     }
 }
 
+/// The backend that produced the most recent reduction result.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MeshComputeBackend {
+    /// An adapter-backed compute pass produced the result.
+    Adapter,
+    /// The deterministic CPU reference implementation produced the result.
+    CpuReference,
+}
+
+impl MeshComputeBackend {
+    /// Stable machine-readable backend label for host diagnostics.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Adapter => "adapter",
+            Self::CpuReference => "cpu_reference",
+        }
+    }
+}
+
 /// A mesh compute service.
 pub struct MeshCompute {
     /// True when no adapter-backed reduction is available.
@@ -797,9 +818,24 @@ pub struct MeshCompute {
     /// false; the field lets a host report the reduction backend explicitly.
     pub reference_backend: bool,
     adapter: Option<AdapterCompute>,
+    last_backend: Cell<MeshComputeBackend>,
 }
 
 impl MeshCompute {
+    /// Construct a deterministic CPU-only compute service.
+    ///
+    /// This is useful for hosts that intentionally disable adapter work and
+    /// for differential tests that need to exercise fallback reporting even
+    /// when the machine running the test has a usable graphics adapter.
+    #[must_use]
+    pub fn cpu_reference() -> Self {
+        Self {
+            reference_backend: true,
+            adapter: None,
+            last_backend: Cell::new(MeshComputeBackend::CpuReference),
+        }
+    }
+
     /// Construct a compute service.
     ///
     /// This returns `Some` even without a graphics adapter. Adapter-backed
@@ -808,10 +844,32 @@ impl MeshCompute {
     #[must_use]
     pub fn try_new() -> Option<Self> {
         let adapter = AdapterCompute::try_new();
+        let last_backend = if adapter.is_some() {
+            MeshComputeBackend::Adapter
+        } else {
+            MeshComputeBackend::CpuReference
+        };
         Some(Self {
             reference_backend: adapter.is_none(),
             adapter,
+            last_backend: Cell::new(last_backend),
         })
+    }
+
+    /// Return the best backend available when this service was constructed.
+    #[must_use]
+    pub fn available_backend(&self) -> MeshComputeBackend {
+        if self.adapter.is_some() {
+            MeshComputeBackend::Adapter
+        } else {
+            MeshComputeBackend::CpuReference
+        }
+    }
+
+    /// Return the backend that produced the most recent reduction result.
+    #[must_use]
+    pub fn last_backend(&self) -> MeshComputeBackend {
+        self.last_backend.get()
     }
 
     /// Whether at least one operation is backed by an adapter compute pass.
@@ -826,8 +884,10 @@ impl MeshCompute {
         if let Some(adapter) = &self.adapter
             && let Ok(result) = adapter.field_min_max(values)
         {
+            self.last_backend.set(MeshComputeBackend::Adapter);
             return result;
         }
+        self.last_backend.set(MeshComputeBackend::CpuReference);
         let mut range = [f32::INFINITY, f32::NEG_INFINITY];
         for &value in values {
             if value.is_finite() {
@@ -858,8 +918,10 @@ impl MeshCompute {
         if let Some(adapter) = &self.adapter
             && let Ok(segments) = adapter.marching_segments(mesh, field, topology, levels)
         {
+            self.last_backend.set(MeshComputeBackend::Adapter);
             return Ok(segments);
         }
+        self.last_backend.set(MeshComputeBackend::CpuReference);
         let levels = levels.iter().map(|&level| level as f64).collect::<Vec<_>>();
         Ok(marching.isolines(&levels))
     }
@@ -920,9 +982,11 @@ impl MeshCompute {
                         segment.level = level;
                     }
                 }
+                self.last_backend.set(MeshComputeBackend::Adapter);
                 return Ok(segments);
             }
         }
+        self.last_backend.set(MeshComputeBackend::CpuReference);
         let marching = MarchingTriangles::new(mesh, field, topology, horizontal, vertical)?;
         Ok(marching.isolines(levels))
     }
@@ -941,8 +1005,10 @@ impl MeshCompute {
         if let Some(adapter) = &self.adapter
             && let Ok(bands) = adapter.band_triangles(mesh, field, topology, levels)
         {
+            self.last_backend.set(MeshComputeBackend::Adapter);
             return Ok(bands);
         }
+        self.last_backend.set(MeshComputeBackend::CpuReference);
         let marching = MarchingTriangles::new(
             mesh,
             field,
@@ -999,9 +1065,11 @@ impl MeshCompute {
                     band.lower = Some(boundaries[0]);
                     band.upper = Some(boundaries[1]);
                 }
+                self.last_backend.set(MeshComputeBackend::Adapter);
                 return Ok(bands);
             }
         }
+        self.last_backend.set(MeshComputeBackend::CpuReference);
         let marching = MarchingTriangles::new(mesh, field, topology, horizontal, vertical)?;
         Ok(marching.filled_bands(levels))
     }
@@ -1100,6 +1168,89 @@ mod tests {
             Some([-2.0, 4.0])
         );
         assert_eq!(compute.field_min_max(&[f32::NAN]), None);
+    }
+
+    #[test]
+    fn compute_reports_available_and_last_backend() {
+        let compute = MeshCompute::try_new().unwrap();
+        assert_eq!(
+            compute.reference_backend,
+            matches!(
+                compute.available_backend(),
+                MeshComputeBackend::CpuReference
+            )
+        );
+        assert_eq!(
+            compute.adapter_backed(),
+            matches!(compute.available_backend(), MeshComputeBackend::Adapter)
+        );
+        assert_eq!(
+            compute.available_backend().as_str(),
+            match compute.available_backend() {
+                MeshComputeBackend::Adapter => "adapter",
+                MeshComputeBackend::CpuReference => "cpu_reference",
+            }
+        );
+
+        let (mesh, field, topology) = fixture();
+        let _ = compute
+            .marching_segments(&mesh, &field, &topology, &[0.5])
+            .expect("the reference fallback must always be available");
+        assert!(matches!(
+            compute.last_backend(),
+            MeshComputeBackend::Adapter | MeshComputeBackend::CpuReference
+        ));
+        if !compute.adapter_backed() {
+            assert_eq!(compute.last_backend(), MeshComputeBackend::CpuReference);
+        }
+    }
+
+    #[test]
+    fn cpu_reference_reports_fallback_for_every_reduction_path() {
+        let compute = MeshCompute::cpu_reference();
+        let (mesh, field, topology) = fixture();
+
+        assert_eq!(
+            compute.available_backend(),
+            MeshComputeBackend::CpuReference
+        );
+        assert_eq!(compute.last_backend(), MeshComputeBackend::CpuReference);
+        assert_eq!(compute.field_min_max(&[0.0, 1.0]), Some([0.0, 1.0]));
+        assert_eq!(compute.last_backend(), MeshComputeBackend::CpuReference);
+
+        compute
+            .marching_segments(&mesh, &field, &topology, &[0.5])
+            .expect("CPU isolines");
+        assert_eq!(compute.last_backend(), MeshComputeBackend::CpuReference);
+
+        compute
+            .marching_segments_projected(
+                &mesh,
+                &field,
+                &topology,
+                CoordinateAxis::X,
+                CoordinateAxis::Y,
+                &[0.5],
+            )
+            .expect("CPU projected isolines");
+        assert_eq!(compute.last_backend(), MeshComputeBackend::CpuReference);
+
+        compute
+            .band_triangles(&mesh, &field, &topology, &[0.5])
+            .expect("CPU filled bands");
+        assert_eq!(compute.last_backend(), MeshComputeBackend::CpuReference);
+
+        compute
+            .band_triangles_projected(
+                &mesh,
+                &field,
+                &topology,
+                CoordinateAxis::X,
+                CoordinateAxis::Y,
+                &[0.5],
+            )
+            .expect("CPU projected filled bands");
+        assert_eq!(compute.last_backend(), MeshComputeBackend::CpuReference);
     }
 
     #[test]

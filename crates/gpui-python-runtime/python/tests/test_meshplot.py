@@ -105,6 +105,57 @@ class MeshPlotTests(unittest.TestCase):
             },
         )
 
+    def test_axes_configuration_round_trip_normalizes_ranges(self):
+        spec = meshplot.plot(
+            self.geometry,
+            axes={
+                "horizontal_label": "distance",
+                "vertical_label": "height",
+                "unit": "m",
+                "x_range": (0, 2),
+                "y_range": [-1.0, 3.0],
+                "show_grid": False,
+            },
+        ).to_spec()
+        self.assertEqual(
+            spec["axes"],
+            {
+                "horizontal_label": "distance",
+                "vertical_label": "height",
+                "unit": "m",
+                "x_range": [0.0, 2.0],
+                "y_range": [-1.0, 3.0],
+                "show_grid": False,
+            },
+        )
+
+    def test_axes_configuration_rejects_invalid_values(self):
+        for axes in (
+            "invalid",
+            {"horizontal_label": 1},
+            {"x_range": [1.0, 1.0]},
+            {"y_range": [float("nan"), 1.0]},
+            {"show_grid": 1},
+            {"future": True},
+        ):
+            with self.subTest(axes=axes):
+                with self.assertRaises(ValueError):
+                    meshplot.plot(self.geometry, axes=axes).to_spec()
+
+    def test_interactions_use_supported_preset_or_explicit_disable(self):
+        self.assertEqual(
+            meshplot.plot(self.geometry).to_spec()["interactions"],
+            ["pan", "zoom", "inspect", "select", "reset", "fit"],
+        )
+        self.assertEqual(
+            meshplot.plot(self.geometry, interactions=[]).to_spec()["interactions"],
+            [],
+        )
+        self.assertEqual(
+            meshplot.plot(self.geometry, interactions=["pan"]).to_spec()["interactions"],
+            ["pan"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

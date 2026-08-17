@@ -226,7 +226,16 @@ fn mesh_plot_fingerprints(spec: &MeshPlotSpec) -> MeshPlotFingerprints {
             "view": spec.view,
             "revolve": spec.revolve,
         })),
-        field: spec.field.as_ref().map_or(0, json_fingerprint),
+        // The missing-value policy changes how the native field is validated
+        // and masked, so it belongs to the field dirty domain whenever a
+        // field is present. Keep a field-less plot at the zero fingerprint so
+        // changing an unused policy does not trigger a needless field write.
+        field: spec.field.as_ref().map_or(0, |field| {
+            json_fingerprint(&serde_json::json!({
+                "field": field,
+                "missing_value_policy": spec.missing_value_policy,
+            }))
+        }),
         style: json_fingerprint(&serde_json::json!({
             "mode": spec.mode,
             "color_scale": spec.color_scale,
@@ -236,6 +245,10 @@ fn mesh_plot_fingerprints(spec: &MeshPlotSpec) -> MeshPlotFingerprints {
             "width": spec.width,
             "height": spec.height,
             "selection": spec.selection,
+            "contour_levels": spec.contour_levels,
+            "equal_aspect": spec.equal_aspect,
+            "axes": spec.axes,
+            "interactions": spec.interactions,
         })),
         camera: json_fingerprint(&serde_json::json!({
             "view": spec.view,
@@ -338,7 +351,7 @@ mod tests {
             id: "bad".to_string(),
             camera: CameraSpec::default(),
             children: vec![],
-            interactions: vec![],
+            interactions: Vec::new(),
             background: None,
             size: None,
         };
@@ -390,7 +403,8 @@ mod tests {
             viewport: None,
             contour_levels: None,
             equal_aspect: false,
-            interactions: Vec::new(),
+            axes: None,
+            interactions: None,
         };
         let mut second = first.clone();
         second.field = Some(serde_json::json!({"values":[2.0, 2.0, 2.0]}));
@@ -425,5 +439,73 @@ mod tests {
         }));
         let update = cache.upsert_meshplot(&first).unwrap();
         assert!(update.dirty.geometry);
+    }
+
+    #[test]
+    fn meshplot_render_configuration_changes_dirty_the_correct_domain() {
+        let first = MeshPlotSpec {
+            schema_version: 1,
+            id: "plot".into(),
+            revision: 0,
+            geometry: serde_json::json!({
+                "id": "mesh",
+                "positions": [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+                "triangles": [[0, 1, 2]]
+            }),
+            field: Some(serde_json::json!({
+                "values": [0.0, 0.5, 1.0],
+                "association": "vertex"
+            })),
+            view: "planar".into(),
+            revolve: None,
+            mode: "scalar_fill".into(),
+            color_scale: "viridis".into(),
+            color_range: serde_json::json!("auto"),
+            missing_value_policy: "reject".into(),
+            wireframe: true,
+            title: None,
+            width: None,
+            height: None,
+            selection: None,
+            camera: None,
+            viewport: None,
+            contour_levels: None,
+            equal_aspect: true,
+            axes: None,
+            interactions: None,
+        };
+
+        let assert_update = |next: MeshPlotSpec, field: bool, style: bool| {
+            let mut cache = RetainedSceneCache::new();
+            cache.upsert_meshplot(&first).unwrap();
+            let update = cache.upsert_meshplot(&next).unwrap();
+            assert_eq!(update.dirty.field, field);
+            assert_eq!(update.dirty.style, style);
+            assert!(!update.dirty.geometry);
+            assert!(!update.dirty.camera);
+        };
+
+        let mut missing_policy = first.clone();
+        missing_policy.missing_value_policy = "mask_nan".into();
+        assert_update(missing_policy, true, false);
+
+        let mut contours = first.clone();
+        contours.contour_levels = Some(serde_json::json!({"count": 8}));
+        assert_update(contours, false, true);
+
+        let mut aspect = first.clone();
+        aspect.equal_aspect = false;
+        assert_update(aspect, false, true);
+
+        let mut axes = first.clone();
+        axes.axes = Some(serde_json::json!({
+            "horizontal_label": "distance",
+            "show_grid": false
+        }));
+        assert_update(axes, false, true);
+
+        let mut interactions = first.clone();
+        interactions.interactions = Some(vec!["pan".into(), "zoom".into()]);
+        assert_update(interactions, false, true);
     }
 }

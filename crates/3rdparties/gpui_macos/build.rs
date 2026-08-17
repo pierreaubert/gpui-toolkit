@@ -128,15 +128,25 @@ mod macos_build {
         let metallib_output_path =
             PathBuf::from(env::var("OUT_DIR").unwrap()).join("shaders.metallib");
         println!("cargo:rerun-if-changed={}", shader_path);
+        println!("cargo:rerun-if-env-changed=CLANG_MODULE_CACHE_PATH");
 
-        let output = Command::new("xcrun")
+        let mut metal = Command::new("xcrun");
+        metal.args([
+            "-sdk",
+            "macosx",
+            "metal",
+            "-gline-tables-only",
+            "-mmacosx-version-min=10.15.7",
+            "-MO",
+        ]);
+        if let Some(module_cache_path) = env::var_os("CLANG_MODULE_CACHE_PATH") {
+            metal.arg(format!(
+                "-fmodules-cache-path={}",
+                PathBuf::from(module_cache_path).display()
+            ));
+        }
+        let output = metal
             .args([
-                "-sdk",
-                "macosx",
-                "metal",
-                "-gline-tables-only",
-                "-mmacosx-version-min=10.15.7",
-                "-MO",
                 "-c",
                 shader_path,
                 "-include",

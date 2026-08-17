@@ -25,6 +25,7 @@ mod dialog_test;
 mod icon_button_test;
 
 // Component integration tests - Navigation Components
+mod accessibility_test;
 mod accordion_test;
 mod breadcrumbs_test;
 mod context_menu_test;

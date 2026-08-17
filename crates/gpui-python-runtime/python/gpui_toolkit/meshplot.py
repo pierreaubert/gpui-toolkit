@@ -10,6 +10,7 @@ from .resources import Resource
 
 MESHPLOT_SCHEMA_VERSION = 1
 MAX_INLINE_MESH_BYTES = 256 * 1024
+_DEFAULT_INTERACTIONS = ("pan", "zoom", "inspect", "select", "reset", "fit")
 
 
 def _array(value: Sequence[Any]) -> list[Any]:
@@ -22,6 +23,52 @@ def _resource_handle(value: Any, name: str) -> None:
     generation = value.get("generation")
     if not isinstance(generation, int) or isinstance(generation, bool) or generation <= 0:
         raise ValueError(f"{name} resource generation must be positive")
+
+
+def _normalize_axes(value: dict[str, Any] | None) -> dict[str, Any] | None:
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise ValueError("mesh plot axes must be a mapping")
+    allowed = {
+        "horizontal_label",
+        "vertical_label",
+        "unit",
+        "x_range",
+        "y_range",
+        "show_grid",
+    }
+    unknown = set(value) - allowed
+    if unknown:
+        raise ValueError(f"mesh plot axes contain unsupported properties: {sorted(unknown)!r}")
+    normalized: dict[str, Any] = {}
+    for name in ("horizontal_label", "vertical_label", "unit"):
+        if name in value:
+            if not isinstance(value[name], str):
+                raise ValueError(f"mesh plot axes {name} must be a string")
+            normalized[name] = value[name]
+    for name in ("x_range", "y_range"):
+        if name not in value:
+            continue
+        range_value = value[name]
+        if (
+            not isinstance(range_value, (list, tuple))
+            or len(range_value) != 2
+            or any(
+                isinstance(item, bool)
+                or not isinstance(item, (int, float))
+                or not isfinite(float(item))
+                for item in range_value
+            )
+            or float(range_value[0]) >= float(range_value[1])
+        ):
+            raise ValueError(f"mesh plot axes {name} must contain two increasing finite values")
+        normalized[name] = [float(range_value[0]), float(range_value[1])]
+    if "show_grid" in value:
+        if not isinstance(value["show_grid"], bool):
+            raise ValueError("mesh plot axes show_grid must be boolean")
+        normalized["show_grid"] = value["show_grid"]
+    return normalized
 
 
 def _validate_inline_geometry(
@@ -257,7 +304,8 @@ class MeshPlotSpec:
     viewport: dict[str, Any] | None = None
     contour_levels: dict[str, Any] | None = None
     equal_aspect: bool = True
-    interactions: Sequence[str] = ()
+    axes: dict[str, Any] | None = None
+    interactions: Sequence[str] = _DEFAULT_INTERACTIONS
     revolve: MeshRevolve | None = None
 
     def to_spec(self) -> dict[str, Any]:
@@ -314,7 +362,9 @@ class MeshPlotSpec:
         allowed_interactions = {"pan", "zoom", "inspect", "select", "reset", "fit"}
         if any(interaction not in allowed_interactions for interaction in self.interactions) or len(set(self.interactions)) != len(self.interactions):
             raise ValueError("mesh plot interactions contain an unsupported or duplicate value")
-        spec = {"kind": "mesh_plot", "schema_version": MESHPLOT_SCHEMA_VERSION, "id": self.id, "revision": self.revision, "geometry": geometry, "field": field, "view": self.view, "mode": self.mode, "color_scale": self.color_scale, "color_range": list(self.color_range) if isinstance(self.color_range, tuple) else self.color_range, "missing_value_policy": self.missing_value_policy, "wireframe": self.wireframe, "title": self.title, "width": self.width, "height": self.height, "selection": self.selection, "camera": self.camera, "viewport": self.viewport, "contour_levels": self.contour_levels, "equal_aspect": self.equal_aspect, "interactions": list(self.interactions)}
+        interactions = list(self.interactions)
+        axes = _normalize_axes(self.axes)
+        spec = {"kind": "mesh_plot", "schema_version": MESHPLOT_SCHEMA_VERSION, "id": self.id, "revision": self.revision, "geometry": geometry, "field": field, "view": self.view, "mode": self.mode, "color_scale": self.color_scale, "color_range": list(self.color_range) if isinstance(self.color_range, tuple) else self.color_range, "missing_value_policy": self.missing_value_policy, "wireframe": self.wireframe, "title": self.title, "width": self.width, "height": self.height, "selection": self.selection, "camera": self.camera, "viewport": self.viewport, "contour_levels": self.contour_levels, "equal_aspect": self.equal_aspect, "axes": axes, "interactions": interactions}
         if self.view == "axisymmetric_revolve":
             spec["revolve"] = (self.revolve or MeshRevolve()).to_spec()
         if "positions" in geometry and len(json.dumps(spec, separators=(",", ":")).encode("utf-8")) > MAX_INLINE_MESH_BYTES:

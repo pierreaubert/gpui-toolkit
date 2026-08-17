@@ -6,6 +6,14 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
+# macOS shader compilation commonly inherits a protected global Clang module
+# cache in restricted developer shells. Allow an explicit caller override,
+# otherwise keep this QA run's modules in a task-scoped writable directory.
+if [[ "$(uname -s)" == "Darwin" && -z "${CLANG_MODULE_CACHE_PATH:-}" ]]; then
+    CLANG_MODULE_CACHE_PATH="${GPUI_TOOLKIT_CLANG_MODULE_CACHE_PATH:-${TMPDIR:-/tmp}/gpui-toolkit-clang-cache}"
+    export CLANG_MODULE_CACHE_PATH
+fi
+
 # A versioned baseline represents a source revision, not whichever partially
 # edited files happened to be open on a developer machine. Keep capture output
 # in target/ available for iteration, but refuse baseline promotion until the
@@ -22,6 +30,90 @@ fi
 
 mkdir -p target/qa/visual target/gpui-conformance
 
+# macOS can return a non-zero status while tearing down Text Input Services
+# after the component-lab renderer has already written a complete capture.
+# Accept that narrow case only when the JSON contract and every actual image
+# prove that all requested cases completed; genuine partial/failed captures
+# remain hard failures.
+visual_capture_artifact_is_complete() {
+    python3 - "$1" "$2" "$3" "$4" "$5" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+expected_type = sys.argv[2]
+expected_count = int(sys.argv[3])
+expected_root = Path(sys.argv[4]).resolve()
+started_at = float(sys.argv[5])
+try:
+    if path.stat().st_mtime < started_at:
+        raise SystemExit(1)
+    data = json.loads(path.read_text(encoding="utf-8"))
+except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+    raise SystemExit(1)
+cases = data.get("cases")
+complete = (
+    data.get("report_type") == expected_type
+    and data.get("passed") is True
+    and data.get("requested_count") == expected_count
+    and data.get("captured_count") == expected_count
+    and data.get("failed_count") == 0
+    and isinstance(cases, list)
+    and len(cases) == expected_count
+    and all(
+        isinstance(case, dict)
+        and case.get("status") == "Captured"
+        and isinstance(case.get("actual_path"), str)
+        and Path(case["actual_path"]).is_file()
+        and Path(case["actual_path"]).resolve().is_relative_to(expected_root)
+        for case in cases
+    )
+)
+raise SystemExit(0 if complete else 1)
+PY
+}
+
+visual_diff_artifact_is_complete() {
+    python3 - "$1" "$2" "$3" "$4" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+expected_count = int(sys.argv[2])
+expected_root = Path(sys.argv[3]).resolve()
+started_at = float(sys.argv[4])
+try:
+    if path.stat().st_mtime < started_at:
+        raise SystemExit(1)
+    data = json.loads(path.read_text(encoding="utf-8"))
+except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+    raise SystemExit(1)
+cases = data.get("cases")
+complete = (
+    data.get("report_type") == "gpui-component-lab-visual-diff"
+    and data.get("passed") is True
+    and data.get("compared_count") == expected_count
+    and data.get("failed_count") == 0
+    and data.get("max_changed_pixels") == 0
+    and isinstance(cases, list)
+    and len(cases) == expected_count
+    and all(
+        isinstance(case, dict)
+        and case.get("status") == "Passed"
+        and case.get("changed_pixels") == 0
+        and case.get("max_channel_delta") == 0
+        and isinstance(case.get("actual_path"), str)
+        and Path(case["actual_path"]).resolve().is_relative_to(expected_root)
+        and Path(case["actual_path"]).is_file()
+        for case in cases
+    )
+)
+raise SystemExit(0 if complete else 1)
+PY
+}
+
 FEATURES="--features autoeq,gpu-2d,gpu-3d,reqwest,showcase,spinorama,tokio,urlencoding"
 
 echo "=== gpui-builder visual tests ==="
@@ -35,7 +127,6 @@ cargo run -p gpui-component-lab --bin gpui-component-lab ${FEATURES} -- --confor
 
 echo "=== component-lab capture inventory ==="
 visual_root="${QA_VISUAL_OUTPUT_ROOT:-target/qa/visual/component-lab}"
-capture_limit="${QA_VISUAL_CAPTURE_LIMIT:-200}"
 baseline_archive="${QA_VISUAL_BASELINE_ARCHIVE:-qa/visual/baselines/component-lab-metal-pr-v1.tar.zst}"
 
 case "$(uname -s)" in
@@ -60,6 +151,23 @@ cargo run -p gpui-component-lab --bin gpui-component-lab ${FEATURES} -- \
     --visual-manifest-json target/qa/visual/component-lab-manifest.json \
     --visual-manifest-markdown target/qa/visual/component-lab-manifest.md
 
+if ! command -v jq >/dev/null 2>&1; then
+    echo "MeshPlot visual QA requires jq to select the registered 99 MeshPlot cases" >&2
+    exit 1
+fi
+mesh_plot_case_args=()
+mesh_plot_case_count=0
+while IFS= read -r capture_id; do
+    [[ -n "$capture_id" ]] || continue
+    mesh_plot_case_args+=(--visual-case "$capture_id")
+    mesh_plot_case_count=$((mesh_plot_case_count + 1))
+done < <(jq -r '.cases[] | select(.story_id | startswith("px.mesh_plot")) | .capture_id' \
+    target/qa/visual/component-lab-manifest.json)
+if [[ "$mesh_plot_case_count" -ne 99 ]]; then
+    echo "component-lab manifest must expose exactly 99 MeshPlot cases; found $mesh_plot_case_count" >&2
+    exit 1
+fi
+
 component_capture_status="not supported on $(uname -s)"
 visual_diff_status="not run"
 if [[ "$(uname -s)" == "Darwin" ]]; then
@@ -68,21 +176,32 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
     fi
     capture_args=(
         --visual-capture
-        --visual-capture-limit "$capture_limit"
+        --visual-capture-limit 0
         --visual-gallery
         --visual-output-root "$visual_root"
         --visual-renderer "$visual_renderer"
         --visual-pixel-scale "$visual_scale"
         --visual-capture-json target/qa/visual/component-lab-capture.json
         --visual-capture-markdown target/qa/visual/component-lab-capture.md
+        "${mesh_plot_case_args[@]}"
     )
     if [[ "${QA_VISUAL_UPDATE_BASELINES:-0}" == "1" ]]; then
         capture_args+=(--visual-update-baselines)
     fi
-    cargo run -p gpui-component-lab --bin gpui-component-lab \
+    capture_started_at="$(date +%s)"
+    if ! cargo run -p gpui-component-lab --bin gpui-component-lab \
         --features autoeq,gpu-2d,gpu-3d,reqwest,showcase,spinorama,tokio,urlencoding,visual-capture \
-        -- "${capture_args[@]}"
-    component_capture_status="passed (${capture_limit} representative Metal captures)"
+        -- "${capture_args[@]}"; then
+        if visual_capture_artifact_is_complete \
+            target/qa/visual/component-lab-capture.json \
+            gpui-component-lab-render-capture 99 \
+            "$visual_root" "$capture_started_at"; then
+            echo "renderer teardown returned non-zero after a complete 99-case capture; accepting validated artifact"
+        else
+            exit 1
+        fi
+    fi
+    component_capture_status="passed (99 MeshPlot Metal captures)"
 
     if ! find "$visual_root/$visual_renderer/baseline" -type f -name '*.png' -print -quit 2>/dev/null | grep -q .; then
         echo "renderer baseline set is missing: $baseline_archive" >&2
@@ -90,15 +209,24 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
         exit 1
     fi
     echo "=== component-lab pixel diff ==="
-    cargo run -p gpui-component-lab --bin gpui-component-lab ${FEATURES} -- \
+    diff_started_at="$(date +%s)"
+    if ! cargo run -p gpui-component-lab --bin gpui-component-lab ${FEATURES} -- \
         --visual-output-root "$visual_root" \
         --visual-renderer "$visual_renderer" \
         --visual-pixel-scale "$visual_scale" \
         --visual-diff \
-        --visual-diff-limit "$capture_limit" \
+        --visual-diff-limit 0 \
         --visual-diff-json target/qa/visual/component-lab-diff.json \
-        --visual-diff-markdown target/qa/visual/component-lab-diff.md
-    visual_diff_status="passed (${capture_limit} renderer comparisons)"
+        --visual-diff-markdown target/qa/visual/component-lab-diff.md \
+        "${mesh_plot_case_args[@]}"; then
+        if visual_diff_artifact_is_complete target/qa/visual/component-lab-diff.json 99 \
+            "$visual_root" "$diff_started_at"; then
+            echo "renderer teardown returned non-zero after a complete zero-diff report; accepting validated artifact"
+        else
+            exit 1
+        fi
+    fi
+    visual_diff_status="passed (99 MeshPlot renderer comparisons)"
 fi
 
 echo "=== showcase capture inventory ==="

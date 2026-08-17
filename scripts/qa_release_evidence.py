@@ -4,25 +4,39 @@
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import hashlib
 import io
 import json
 import platform
+import shutil
 import subprocess
 import sys
 import tarfile
 from pathlib import Path
 from typing import Iterable
 
+from mesh_wgpu_manifest import (
+    WgpuManifestError,
+    compare_manifests,
+    validate_manifest,
+)
+
 
 SCHEMA_VERSION = 1
 REPORT_TYPE = "gpui-toolkit-release-evidence-manifest"
 
 MESH_PLOT_LOCAL_CAPTURE_COUNT = 99
-MESH_PLOT_VERSIONED_BASELINE_COUNT = 9
+MESH_PLOT_VERSIONED_BASELINE_COUNT = 99
 MESH_PLOT_VISUAL_CAPTURE_ARTIFACT = "target/qa/visual/component-lab-capture.json"
 MESH_PLOT_VISUAL_DIFF_ARTIFACT = "target/qa/visual/component-lab-diff.json"
 MESH_PLOT_SCREEN_READER_RUNBOOK = "qa/accessibility/mesh-plot-screen-reader-qa.md"
+MESH_PLOT_WGPU_VISUAL_CAPTURE_ARTIFACT = (
+    "target/qa/visual/mesh-plot-wgpu/actual/manifest.json"
+)
+MESH_PLOT_WGPU_VISUAL_BASELINE_ARTIFACT = (
+    "qa/visual/baselines/mesh-plot-wgpu-v1/manifest.json"
+)
 
 REQUIRED_ARTIFACTS = (
     "qa/perf/baseline.json",
@@ -40,6 +54,7 @@ REQUIRED_ARTIFACTS = (
     "target/qa/perf/report.md",
     MESH_PLOT_VISUAL_CAPTURE_ARTIFACT,
     MESH_PLOT_VISUAL_DIFF_ARTIFACT,
+    MESH_PLOT_WGPU_VISUAL_CAPTURE_ARTIFACT,
     "target/qa/visual/component-lab-manifest.json",
     "target/qa/visual/component-lab-manifest.md",
     "target/qa/visual/report.md",
@@ -51,11 +66,41 @@ MESH_PLOT_BENCHMARKS = {
     ("gpui-d3rs", "mesh_prep"),
     ("gpui-px", "mesh_plot_frames"),
 }
-MESH_PLOT_BASELINE_MARKER = "px-mesh-plot__"
+# Presence of a benchmark binary alone is not enough to establish release
+# performance coverage. Keep this list in terms of Criterion group/function
+# names so the validator proves the workload matrix without depending on
+# machine-specific timings or record ordering.
+MESH_PLOT_BENCHMARK_WORKLOADS = {
+    ("gpui-d3rs", "mesh_prep"): (
+        ("mesh_prep", "prepare_100000_triangles"),
+        ("mesh_prep", "prepare_200000_triangles"),
+        ("mesh_prep", "marching_isolines_100000_triangles"),
+        ("mesh_prep", "marching_bands_100000_triangles"),
+        ("mesh_prep", "bvh_200000_triangles"),
+        ("mesh_prep", "revolve_full_64_segments"),
+        ("mesh_prep", "revolve_full_64_segments_with_vertex_field"),
+        ("mesh_prep", "revolve_partial_capped_64_segments"),
+        ("mesh_prep", "revolve_partial_capped_64_segments_with_vertex_field"),
+        ("mesh_prep", "lod_proxy_upload_100000_triangles"),
+        ("mesh_prep", "lod_full_restore_upload_100000_triangles"),
+        ("mesh_prep", "lod_proxy_field_mapping_100000_triangles"),
+        ("mesh_prep", "lod_drag_transition_100000_triangles"),
+    ),
+    ("gpui-px", "mesh_plot_frames"): (
+        ("mesh_plot_build_200000_triangles", "mesh_plot_build_200000_triangles"),
+        ("mesh_plot_fit_200000_triangles", "mesh_plot_fit_200000_triangles"),
+        ("mesh_plot_retained_frames", "field_replace_100000_values"),
+        ("mesh_plot_retained_frames", "camera_100000_values"),
+        ("mesh_plot_retained_picking", "surface_bvh_pick"),
+        ("mesh_plot_retained_picking", "revolved_bvh_pick"),
+    ),
+}
+MESH_PLOT_BASELINE_MARKER = "px-mesh-plot"
 
 OPTIONAL_ARTIFACTS = (
     "target/qa/visual/component-lab-capture.md",
     "target/qa/visual/component-lab-diff.md",
+    MESH_PLOT_WGPU_VISUAL_BASELINE_ARTIFACT,
 )
 
 PLATFORM_EVIDENCE = {
@@ -69,9 +114,38 @@ class EvidenceError(RuntimeError):
     pass
 
 
+def resolve_command(args: tuple[str, ...]) -> list[str]:
+    """Resolve toolchain and archive commands in restricted shells."""
+
+    if not args:
+        return []
+    executable = args[0]
+    if Path(executable).is_absolute():
+        return list(args)
+    found = shutil.which(executable)
+    if found:
+        return [found, *args[1:]]
+    fallback_dirs: tuple[Path, ...]
+    if executable in {"cargo", "rustc", "rustup", "just"}:
+        fallback_dirs = (Path.home() / ".cargo" / "bin",)
+    elif executable in {"zstd", "tar"}:
+        fallback_dirs = (
+            Path("/opt/homebrew/bin"),
+            Path("/usr/local/bin"),
+            Path("/usr/bin"),
+        )
+    else:
+        fallback_dirs = ()
+    for directory in fallback_dirs:
+        fallback = directory / executable
+        if fallback.is_file() or fallback.is_symlink():
+            return [str(fallback), *args[1:]]
+    return list(args)
+
+
 def command_output(root: Path, *args: str) -> str:
     completed = subprocess.run(
-        args,
+        resolve_command(args),
         cwd=root,
         check=True,
         stdout=subprocess.PIPE,
@@ -230,8 +304,19 @@ def validate_mesh_plot_visual_capture(root: Path) -> None:
         raise EvidenceError("MeshPlot local visual capture does not contain 99 unique actual images")
 
 
-def validate_mesh_plot_benchmarks(root: Path) -> None:
-    """Require MeshPlot benchmark records in both release perf artifacts."""
+def validate_mesh_plot_benchmarks(
+    root: Path,
+    *,
+    strict: bool = False,
+    source_revision: str | None = None,
+) -> None:
+    """Require MeshPlot benchmark records in both release perf artifacts.
+
+    Developer evidence only needs to identify the registered binaries because
+    it may intentionally use a partial local run. A clean release manifest
+    must additionally contain every named workload in
+    ``MESH_PLOT_BENCHMARK_WORKLOADS``.
+    """
     missing: list[str] = []
     for relative in ("qa/perf/baseline.json", "target/qa/perf/current.json"):
         path = root / relative
@@ -240,25 +325,68 @@ def validate_mesh_plot_benchmarks(root: Path) -> None:
         except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
             raise EvidenceError(f"invalid performance artifact {relative}: {error}") from error
         records = data.get("records") if isinstance(data, dict) else None
+        if strict and isinstance(data, dict):
+            metadata = data.get("metadata")
+            environment = metadata.get("environment") if isinstance(metadata, dict) else None
+            if not isinstance(environment, dict) or environment.get("source_dirty") is not False:
+                raise EvidenceError(
+                    f"{relative}: strict release evidence must declare source_dirty: false"
+                )
+            if (
+                relative == "target/qa/perf/current.json"
+                and source_revision is not None
+                and environment.get("source_revision") is not None
+                and environment.get("source_revision") != source_revision
+            ):
+                raise EvidenceError(
+                    f"{relative}: current performance evidence belongs to another source revision"
+                )
         keys = {
             (record.get("crate"), record.get("bench"))
             for record in records
             if isinstance(record, dict)
         } if isinstance(records, list) else set()
-        for crate, bench in sorted(MESH_PLOT_BENCHMARKS - keys):
-            missing.append(f"{relative}:{crate}:{bench}")
-    if missing:
-        raise EvidenceError(
-            "MeshPlot benchmark evidence is missing; run the registered MeshPlot "
-            "benchmarks on the reference host: " + ", ".join(missing)
-        )
+        missing_binaries = sorted(MESH_PLOT_BENCHMARKS - keys)
+        if missing_binaries:
+            missing.extend(f"{relative}:{crate}:{bench}" for crate, bench in missing_binaries)
+            raise EvidenceError(
+                "MeshPlot benchmark evidence is missing; run the registered MeshPlot "
+                "benchmarks on the reference host: " + ", ".join(missing)
+            )
+        if not strict:
+            continue
+        for crate, bench in sorted(MESH_PLOT_BENCHMARKS):
+            record_keys = {
+                (
+                    str(record.get("group", "")),
+                    str(record.get("function", "")),
+                )
+                for record in records
+                if isinstance(record, dict)
+                and record.get("crate") == crate
+                and record.get("bench") == bench
+            }
+            missing_workloads = [
+                f"{crate}:{bench}:{group}/{function}"
+                for group, function in MESH_PLOT_BENCHMARK_WORKLOADS[(crate, bench)]
+                if not any(
+                    fnmatch.fnmatchcase(record_group, group)
+                    and fnmatch.fnmatchcase(record_function, function)
+                    for record_group, record_function in record_keys
+                )
+            ]
+            if missing_workloads:
+                raise EvidenceError(
+                    "MeshPlot benchmark evidence is missing required workloads: "
+                    + ", ".join(missing_workloads)
+                )
 
 
 def visual_baseline_members(path: Path) -> list[str]:
     """List members of the checked-in zstd-compressed visual archive."""
     try:
         completed = subprocess.run(
-            ["zstd", "-d", "-c", str(path)],
+            resolve_command(("zstd", "-d", "-c", str(path))),
             check=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -270,7 +398,7 @@ def visual_baseline_members(path: Path) -> list[str]:
 
 
 def validate_mesh_plot_visual_baseline(root: Path) -> set[str]:
-    """Require exactly nine versioned MeshPlot entries in the visual archive."""
+    """Require all 99 versioned MeshPlot entries in the visual archive."""
     archive = root / "qa/visual/baselines/component-lab-metal-pr-v1.tar.zst"
     members = visual_baseline_members(archive)
     ids = [
@@ -285,14 +413,14 @@ def validate_mesh_plot_visual_baseline(root: Path) -> set[str]:
     ]
     if len(ids) != MESH_PLOT_VERSIONED_BASELINE_COUNT or len(set(ids)) != len(ids):
         raise EvidenceError(
-            "MeshPlot visual baseline evidence must contain exactly 9 unique "
+            "MeshPlot visual baseline evidence must contain exactly 99 unique "
             "versioned PNG captures"
         )
     return set(ids)
 
 
 def validate_mesh_plot_visual_diff(root: Path, baseline_ids: set[str]) -> None:
-    """Require a passing zero-diff report for the nine versioned captures."""
+    """Require a passing zero-diff report for all 99 versioned captures."""
     diff = read_json_object(
         root / MESH_PLOT_VISUAL_DIFF_ARTIFACT,
         "MeshPlot visual diff",
@@ -308,7 +436,7 @@ def validate_mesh_plot_visual_diff(root: Path, baseline_ids: set[str]) -> None:
         or len(cases) != MESH_PLOT_VERSIONED_BASELINE_COUNT
     ):
         raise EvidenceError(
-            "MeshPlot visual diff must report 9 compared cases, zero failures, "
+            "MeshPlot visual diff must report 99 compared cases, zero failures, "
             "zero changed pixels, and a passing diff run"
         )
 
@@ -329,8 +457,47 @@ def validate_mesh_plot_visual_diff(root: Path, baseline_ids: set[str]) -> None:
 
     if set(diff_ids) != baseline_ids:
         raise EvidenceError(
-            "MeshPlot visual diff cases must match the 9 versioned baseline captures"
+            "MeshPlot visual diff cases must match the 99 versioned baseline captures"
         )
+
+
+def validate_mesh_plot_wgpu_visual(root: Path, *, require_baseline: bool) -> None:
+    """Validate the adapter-backed WGPU capture and optional release baseline."""
+
+    actual_path = root / MESH_PLOT_WGPU_VISUAL_CAPTURE_ARTIFACT
+    try:
+        actual = validate_manifest(
+            actual_path,
+            repo_root=root,
+            require_images=True,
+            allow_skipped=True,
+        )
+    except WgpuManifestError as error:
+        raise EvidenceError(str(error)) from error
+
+    if actual.get("status", "captured") == "skipped":
+        if require_baseline:
+            raise EvidenceError("WGPU visual evidence is skipped but is required for release")
+        return
+
+    baseline_path = root / MESH_PLOT_WGPU_VISUAL_BASELINE_ARTIFACT
+    if not baseline_path.is_file():
+        if require_baseline:
+            raise EvidenceError(
+                "missing WGPU visual baseline; promote "
+                f"{MESH_PLOT_WGPU_VISUAL_BASELINE_ARTIFACT} from a clean release run"
+            )
+        return
+    try:
+        baseline = validate_manifest(
+            baseline_path,
+            repo_root=root,
+            require_images=False,
+            allow_skipped=False,
+        )
+        compare_manifests(actual, baseline)
+    except WgpuManifestError as error:
+        raise EvidenceError(str(error)) from error
 
 
 def validate_required_platforms(
@@ -357,17 +524,25 @@ def build_manifest(
     root: Path,
     *,
     require_clean: bool = False,
+    require_wgpu_visual: bool | None = None,
     required_platforms: Iterable[str] = (),
 ) -> dict[str, object]:
+    if require_wgpu_visual is None:
+        require_wgpu_visual = require_clean
     source = source_provenance(root)
     if require_clean and source["dirty"]:
         raise EvidenceError("release evidence requires a clean worktree")
     revision = str(source["revision"])
     artifacts = collect_artifacts(root, revision)
-    validate_mesh_plot_benchmarks(root)
+    validate_mesh_plot_benchmarks(
+        root,
+        strict=require_clean,
+        source_revision=revision,
+    )
     validate_mesh_plot_visual_capture(root)
     baseline_ids = validate_mesh_plot_visual_baseline(root)
     validate_mesh_plot_visual_diff(root, baseline_ids)
+    validate_mesh_plot_wgpu_visual(root, require_baseline=require_wgpu_visual)
     validate_required_platforms(root, artifacts, required_platforms)
     return {
         "schema_version": SCHEMA_VERSION,

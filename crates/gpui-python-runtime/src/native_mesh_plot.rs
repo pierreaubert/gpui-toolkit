@@ -131,6 +131,76 @@ fn missing_value_policy(value: &str) -> Result<MissingValuePolicy, String> {
     }
 }
 
+fn axes(spec: &MeshPlotSpec) -> Result<Axes2d, String> {
+    let mut axes = if spec.equal_aspect {
+        Axes2d::equal_aspect()
+    } else {
+        Axes2d::default().fill_aspect()
+    };
+    let Some(value) = spec.axes.as_ref().filter(|value| !value.is_null()) else {
+        return Ok(axes);
+    };
+    let object = value
+        .as_object()
+        .ok_or("mesh_plot axes must be an object")?;
+    let (default_horizontal, default_vertical) = match spec.view.as_str() {
+        "axisymmetric_section" | "axisymmetric_revolve" => ("r", "z"),
+        _ => ("x", "y"),
+    };
+    let horizontal = object
+        .get("horizontal_label")
+        .map(|value| {
+            value
+                .as_str()
+                .ok_or("mesh_plot axes horizontal_label must be a string")
+        })
+        .transpose()?;
+    let vertical = object
+        .get("vertical_label")
+        .map(|value| {
+            value
+                .as_str()
+                .ok_or("mesh_plot axes vertical_label must be a string")
+        })
+        .transpose()?;
+    if horizontal.is_some() || vertical.is_some() {
+        axes = axes.labels(
+            horizontal.unwrap_or(default_horizontal),
+            vertical.unwrap_or(default_vertical),
+        );
+    }
+    if let Some(unit) = object.get("unit") {
+        axes = axes.unit(
+            unit.as_str()
+                .ok_or("mesh_plot axes unit must be a string")?,
+        );
+    }
+    if let Some(range) = object.get("x_range") {
+        let [min, max] = finite_json_pair(range, "axes.x_range")?;
+        axes = axes.horizontal_range(min, max);
+    }
+    if let Some(range) = object.get("y_range") {
+        let [min, max] = finite_json_pair(range, "axes.y_range")?;
+        axes = axes.vertical_range(min, max);
+    }
+    if let Some(show_grid) = object.get("show_grid") {
+        axes = axes.grid(
+            show_grid
+                .as_bool()
+                .ok_or("mesh_plot axes show_grid must be boolean")?,
+        );
+    }
+    Ok(axes)
+}
+
+fn interactions(spec: &MeshPlotSpec) -> Result<PlotInteractions, String> {
+    let Some(interactions) = spec.interactions.as_ref() else {
+        // A missing field is the legacy/default interactive preset.
+        return Ok(PlotInteractions::InspectAndNavigate);
+    };
+    PlotInteractions::from_names(interactions)
+}
+
 fn coordinate_axis(
     value: Option<&Value>,
     default: CoordinateAxis,
@@ -337,12 +407,8 @@ pub fn options(spec: &MeshPlotSpec, mesh_id: &str) -> Result<NativeMeshPlotOptio
         color_scale,
         color_range: color_range(&spec.color_range)?,
         missing_value_policy: missing_value_policy(&spec.missing_value_policy)?,
-        axes: if spec.equal_aspect {
-            Axes2d::equal_aspect()
-        } else {
-            Axes2d::default().fill_aspect()
-        },
-        interactions: PlotInteractions::InspectAndNavigate,
+        axes: axes(spec)?,
+        interactions: interactions(spec)?,
         viewport: viewport(spec.viewport.as_ref())?,
         selection: selection(spec.selection.as_ref(), &spec.id, mesh_id)?,
     })
@@ -495,6 +561,16 @@ fn u64s(resource: &RetainedMeshResource, name: &str) -> Result<Vec<u64>, String>
         .collect()
 }
 
+fn inline_float(value: &Value, name: &str, allow_nan: bool) -> Result<f64, String> {
+    let value = value
+        .as_f64()
+        .ok_or_else(|| format!("{name} must be numeric"))?;
+    if value.is_infinite() || (!allow_nan && value.is_nan()) {
+        return Err(format!("{name} must be finite"));
+    }
+    Ok(value)
+}
+
 /// Resolve inline or retained-resource geometry while rejecting non-finite coordinates.
 pub fn decode_geometry(
     geometry: &Value,
@@ -546,9 +622,9 @@ pub fn decode_geometry(
                 return Err("mesh position must contain three values".into());
             };
             Ok([
-                x.as_f64().ok_or("mesh x must be numeric")?,
-                y.as_f64().ok_or("mesh y must be numeric")?,
-                z.as_f64().ok_or("mesh z must be numeric")?,
+                inline_float(x, "mesh x", false)?,
+                inline_float(y, "mesh y", false)?,
+                inline_float(z, "mesh z", false)?,
             ])
         })
         .collect::<Result<Vec<_>, String>>()?;
@@ -592,7 +668,7 @@ pub fn decode_field(
             .and_then(Value::as_array)
             .ok_or("native mesh plot requires inline field values or a field resource")?
             .iter()
-            .map(|value| value.as_f64().ok_or("mesh field value must be numeric"))
+            .map(|value| inline_float(value, "mesh field value", true))
             .collect::<Result<Vec<_>, _>>()?
     };
     let valid = field
@@ -780,6 +856,16 @@ pub fn build(
         },
     };
     let options = options(spec, mesh_id)?;
+    // Parse all 3D camera values before touching a retained state owner. A
+    // malformed camera patch must take the same transactional path as a
+    // malformed resource or render option and leave the last-valid state
+    // untouched.
+    #[cfg(feature = "gpu-3d")]
+    let parsed_camera = if matches!(spec.view.as_str(), "surface3d" | "axisymmetric_revolve") {
+        Some(parse_camera(spec.camera.as_ref())?)
+    } else {
+        None
+    };
     let (horizontal, vertical) = match spec.view.as_str() {
         "axisymmetric_section" | "axisymmetric_revolve" => (CoordinateAxis::X, CoordinateAxis::Z),
         _ => (CoordinateAxis::X, CoordinateAxis::Y),
@@ -809,6 +895,7 @@ pub fn build(
     };
     let state = retained_state
         .unwrap_or_else(|| Rc::new(RefCell::new(MeshPlotState::new(x_min, x_max, y_min, y_max))));
+    let configuration_snapshot = state.borrow().configuration_snapshot();
     if let Some([x_min, x_max, y_min, y_max]) = options.viewport {
         state
             .borrow_mut()
@@ -827,8 +914,8 @@ pub fn build(
         options.color_range.clone(),
     );
     #[cfg(feature = "gpu-3d")]
-    if matches!(spec.view.as_str(), "surface3d" | "axisymmetric_revolve") {
-        apply_camera(&mut state.borrow_mut(), spec.camera.as_ref())?;
+    if let Some(camera) = parsed_camera {
+        apply_camera(&mut state.borrow_mut(), camera);
     }
     plot = plot
         .view(view)
@@ -870,15 +957,36 @@ pub fn build(
     if let (Some(width), Some(height)) = (spec.width, spec.height) {
         plot = plot.size(width, height);
     }
-    plot.build()
-        .map(|element| (div().size_full().child(element).into_any_element(), state))
-        .map_err(|error| error.to_string())
+    let element = match plot.build() {
+        Ok(element) => element,
+        Err(error) => {
+            state
+                .borrow_mut()
+                .restore_configuration(configuration_snapshot);
+            return Err(error.to_string());
+        }
+    };
+    Ok((div().size_full().child(element).into_any_element(), state))
 }
 
 #[cfg(feature = "gpu-3d")]
-fn apply_camera(state: &mut MeshPlotState, value: Option<&Value>) -> Result<(), String> {
+#[derive(Debug, Clone, Copy)]
+struct ParsedCamera {
+    distance: Option<f32>,
+    azimuth: Option<f32>,
+    elevation: Option<f32>,
+    target: Option<[f32; 3]>,
+}
+
+#[cfg(feature = "gpu-3d")]
+fn parse_camera(value: Option<&Value>) -> Result<ParsedCamera, String> {
     let Some(value) = value.filter(|value| !value.is_null()) else {
-        return Ok(());
+        return Ok(ParsedCamera {
+            distance: None,
+            azimuth: None,
+            elevation: None,
+            target: None,
+        });
     };
     let object = value
         .as_object()
@@ -899,16 +1007,7 @@ fn apply_camera(state: &mut MeshPlotState, value: Option<&Value>) -> Result<(), 
             })
             .transpose()
     };
-    if let Some(value) = finite_f32("distance")? {
-        state.orbit.distance = value.clamp(state.orbit.min_distance, state.orbit.max_distance);
-    }
-    if let Some(value) = finite_f32("azimuth")? {
-        state.orbit.azimuth = value;
-    }
-    if let Some(value) = finite_f32("elevation")? {
-        state.orbit.elevation = value.clamp(state.orbit.min_elevation, state.orbit.max_elevation);
-    }
-    if let Some(value) = object.get("target") {
+    let target = if let Some(value) = object.get("target") {
         let values = value
             .as_array()
             .filter(|values| values.len() == 3)
@@ -923,10 +1022,33 @@ fn apply_camera(state: &mut MeshPlotState, value: Option<&Value>) -> Result<(), 
                     .ok_or("mesh_plot camera target must contain finite values")
             })
             .collect::<Result<Vec<_>, _>>()?;
-        state.orbit.target = glam::Vec3::new(values[0], values[1], values[2]);
+        Some([values[0], values[1], values[2]])
+    } else {
+        None
+    };
+    Ok(ParsedCamera {
+        distance: finite_f32("distance")?,
+        azimuth: finite_f32("azimuth")?,
+        elevation: finite_f32("elevation")?,
+        target,
+    })
+}
+
+#[cfg(feature = "gpu-3d")]
+fn apply_camera(state: &mut MeshPlotState, camera: ParsedCamera) {
+    if let Some(value) = camera.distance {
+        state.orbit.distance = value.clamp(state.orbit.min_distance, state.orbit.max_distance);
+    }
+    if let Some(value) = camera.azimuth {
+        state.orbit.azimuth = value;
+    }
+    if let Some(value) = camera.elevation {
+        state.orbit.elevation = value.clamp(state.orbit.min_elevation, state.orbit.max_elevation);
+    }
+    if let Some(target) = camera.target {
+        state.orbit.target = glam::Vec3::from_array(target);
     }
     state.orbit.update_camera(&mut state.camera);
-    Ok(())
 }
 
 #[cfg(test)]
@@ -985,6 +1107,163 @@ mod tests {
         assert!(options(&spec, "mesh").unwrap_err().contains("increasing"));
     }
 
+    #[cfg(feature = "gpu-3d")]
+    #[test]
+    fn invalid_camera_is_rejected_before_retained_state_mutation() {
+        let mut plot_spec = spec(serde_json::json!("auto"));
+        plot_spec.view = "surface3d".into();
+        plot_spec.camera = Some(serde_json::json!({
+            "distance": 2.0,
+            "target": [0.0, "not-a-number", 0.0]
+        }));
+
+        let state = Rc::new(RefCell::new(MeshPlotState::new(0.0, 1.0, 0.0, 1.0)));
+        let before = {
+            let state = state.borrow();
+            (
+                state.interaction.zoom.clone(),
+                state.selection.clone(),
+                state.wireframe,
+                state.render_mode.clone(),
+                state.color_range.clone(),
+                state.geometry_revision,
+                state.field_revision,
+                state.orbit.distance,
+                state.orbit.azimuth,
+                state.orbit.elevation,
+                state.orbit.target,
+            )
+        };
+
+        let error = match build(
+            &plot_spec,
+            &MeshFrameStore::new(),
+            Some(state.clone()),
+            None,
+        ) {
+            Ok(_) => panic!("an invalid camera must reject the native build"),
+            Err(error) => error,
+        };
+        assert!(error.contains("camera target"));
+
+        let after = {
+            let state = state.borrow();
+            (
+                state.interaction.zoom.clone(),
+                state.selection.clone(),
+                state.wireframe,
+                state.render_mode.clone(),
+                state.color_range.clone(),
+                state.geometry_revision,
+                state.field_revision,
+                state.orbit.distance,
+                state.orbit.azimuth,
+                state.orbit.elevation,
+                state.orbit.target,
+            )
+        };
+        assert_eq!(after, before);
+    }
+
+    #[test]
+    fn invalid_decoded_field_length_restores_retained_configuration() {
+        let mut plot_spec = spec(serde_json::json!("auto"));
+        plot_spec.field = Some(serde_json::json!({
+            "id": "field",
+            "values": [0.0, 1.0],
+            "association": "vertex"
+        }));
+
+        let state = Rc::new(RefCell::new(MeshPlotState::new(0.0, 1.0, 0.0, 1.0)));
+        let before = {
+            let state = state.borrow();
+            (
+                state.interaction.zoom.clone(),
+                state.selection.clone(),
+                state.wireframe,
+                state.render_mode.clone(),
+                state.color_range.clone(),
+            )
+        };
+
+        let error = match build(
+            &plot_spec,
+            &MeshFrameStore::new(),
+            Some(state.clone()),
+            None,
+        ) {
+            Ok(_) => panic!("a field-length mismatch must reject the native build"),
+            Err(error) => error,
+        };
+        assert!(error.contains("expected 3"));
+
+        let after = {
+            let state = state.borrow();
+            (
+                state.interaction.zoom.clone(),
+                state.selection.clone(),
+                state.wireframe,
+                state.render_mode.clone(),
+                state.color_range.clone(),
+            )
+        };
+        assert_eq!(after, before);
+    }
+
+    #[test]
+    fn options_convert_python_axes_configuration() {
+        let mut value = serde_json::json!({
+            "schema_version": 1,
+            "id": "axes",
+            "geometry": {
+                "id": "mesh",
+                "positions": [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+                "triangles": [[0, 1, 2]]
+            },
+            "axes": {
+                "horizontal_label": "distance",
+                "unit": "m",
+                "x_range": [0.0, 2.0],
+                "y_range": [-1.0, 3.0],
+                "show_grid": false
+            }
+        });
+        let spec = MeshPlotSpec::from_value(value.take()).unwrap();
+        let options = options(&spec, "mesh").unwrap();
+        assert_eq!(
+            options.axes,
+            Axes2d::equal_aspect()
+                .labels("distance", "y")
+                .unit("m")
+                .horizontal_range(0.0, 2.0)
+                .vertical_range(-1.0, 3.0)
+                .grid(false)
+        );
+    }
+
+    #[test]
+    fn options_preserve_default_disable_and_map_partial_interactions() {
+        let mut default_spec = spec(serde_json::json!("auto"));
+        default_spec.interactions = None;
+        assert_eq!(
+            options(&default_spec, "mesh").unwrap().interactions,
+            PlotInteractions::InspectAndNavigate
+        );
+
+        let mut disabled_spec = default_spec.clone();
+        disabled_spec.interactions = Some(Vec::new());
+        assert_eq!(
+            options(&disabled_spec, "mesh").unwrap().interactions,
+            PlotInteractions::None
+        );
+
+        let mut partial_spec = default_spec;
+        partial_spec.interactions = Some(vec!["pan".into()]);
+        let interactions = options(&partial_spec, "mesh").unwrap().interactions;
+        assert!(interactions.allows_pan());
+        assert!(!interactions.allows_zoom());
+    }
+
     #[test]
     fn revolve_settings_preserve_partial_sweep_segments_and_caps() {
         let revolve = revolve_spec(Some(&serde_json::json!({
@@ -1002,5 +1281,47 @@ mod tests {
         assert_eq!(revolve.sweep_angle, 1.5);
         assert_eq!(revolve.segments, 32);
         assert!(revolve.end_caps);
+    }
+
+    #[test]
+    fn inline_decoders_preserve_the_resource_validation_contract() {
+        let store = MeshFrameStore::new();
+        let geometry = serde_json::json!({
+            "positions": [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+            "triangles": [[0, 1, 2]]
+        });
+        let (positions, triangles) = decode_geometry(&geometry, &store).unwrap();
+        assert_eq!(positions.len(), 3);
+        assert_eq!(triangles, vec![[0, 1, 2]]);
+
+        let field = serde_json::json!({
+            "values": [1.0, 2.0, 3.0],
+            "valid": [true, false, true]
+        });
+        assert_eq!(
+            decode_field(&field, &store).unwrap(),
+            (vec![1.0, 2.0, 3.0], Some(vec![true, false, true]))
+        );
+    }
+
+    #[test]
+    fn inline_decoders_reject_non_numeric_geometry_and_field_values() {
+        let store = MeshFrameStore::new();
+        let geometry = serde_json::json!({
+            "positions": [[0.0, "invalid", 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+            "triangles": [[0, 1, 2]]
+        });
+        assert!(
+            decode_geometry(&geometry, &store)
+                .unwrap_err()
+                .contains("mesh y must be numeric")
+        );
+
+        let field = serde_json::json!({"values": [1.0, "invalid", 3.0]});
+        assert!(
+            decode_field(&field, &store)
+                .unwrap_err()
+                .contains("mesh field value must be numeric")
+        );
     }
 }

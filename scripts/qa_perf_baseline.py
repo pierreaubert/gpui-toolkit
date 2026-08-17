@@ -26,6 +26,7 @@ import fnmatch
 import json
 import platform
 import re
+import shutil
 import subprocess
 import sys
 from dataclasses import dataclass, field
@@ -108,8 +109,14 @@ BENCHMARKS: list[BenchSpec] = [
     BenchSpec(
         "gpui-px",
         "mesh_plot_frames",
-        [],
-        groups=["mesh_plot_svg_frame", "mesh_plot_retained_frames"],
+        ["gpu-3d"],
+        groups=[
+            "mesh_plot_svg_frame",
+            "mesh_plot_build_*",
+            "mesh_plot_fit_*",
+            "mesh_plot_retained_frames",
+            "mesh_plot_retained_picking",
+        ],
     ),
     BenchSpec(
         "gpui-ui-kit",
@@ -138,7 +145,7 @@ def run_bench(spec: BenchSpec) -> None:
 
     before = existing_criterion_dirs()
     try:
-        subprocess.run(cmd, cwd=ROOT, check=True, timeout=BENCH_TIMEOUT_SECS)
+        subprocess.run(resolve_command(cmd), cwd=ROOT, check=True, timeout=BENCH_TIMEOUT_SECS)
     except FileNotFoundError:
         print("ERROR: cargo executable not found; is Rust installed?", file=sys.stderr)
         sys.exit(2)
@@ -272,6 +279,17 @@ def run_all() -> list[dict[str, Any]]:
     return assign_crates(records)
 
 
+def run_one(spec: BenchSpec) -> list[dict[str, Any]]:
+    """Run one benchmark and return only that benchmark's records."""
+    run_bench(spec)
+    records = assign_crates(discover_records())
+    return [
+        record
+        for record in records
+        if record["crate"] == spec.crate and record["bench"] == spec.bench
+    ]
+
+
 def collect_all() -> list[dict[str, Any]]:
     records = discover_records()
     assigned = assign_crates(records)
@@ -298,11 +316,29 @@ def build_baseline(records: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def resolve_command(command: list[str]) -> list[str]:
+    """Resolve Rust tools even when a restricted shell omits Cargo from PATH."""
+
+    if not command:
+        return command
+    executable = command[0]
+    if Path(executable).is_absolute():
+        return command
+    found = shutil.which(executable)
+    if found:
+        return [found, *command[1:]]
+    if executable in {"cargo", "rustc", "rustup"}:
+        fallback = Path.home() / ".cargo" / "bin" / executable
+        if fallback.is_file() or fallback.is_symlink():
+            return [str(fallback), *command[1:]]
+    return command
+
+
 def command_output(command: list[str]) -> str:
     """Return a stable one-line command result without making QA fragile."""
     try:
         result = subprocess.run(
-            command,
+            resolve_command(command),
             cwd=ROOT,
             check=True,
             capture_output=True,
@@ -397,8 +433,7 @@ def main(argv: list[str]) -> int:
         if spec is None:
             print(f"ERROR: unknown benchmark {args.run!r}", file=sys.stderr)
             return 2
-        run_bench(spec)
-        records = assign_crates(discover_records())
+        records = run_one(spec)
     else:
         records = run_all()
 

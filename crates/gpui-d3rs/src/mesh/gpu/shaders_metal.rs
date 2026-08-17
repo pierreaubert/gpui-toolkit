@@ -14,10 +14,9 @@ struct Uniforms {
 };
 
 struct Vertex {
-    float3 position;
-    float3 normal;
+    float4 position;
+    float4 normal;
     float value;
-    float _padding;
 };
 
 struct Out {
@@ -31,7 +30,7 @@ vertex Out mesh_vertex(
     constant Uniforms& uniforms [[buffer(1)]]) {
     Vertex input = vertices[vertex_id];
     Out output;
-    output.position = uniforms.view_transform * float4(input.position, 1.0);
+    output.position = uniforms.view_transform * float4(input.position.xyz, 1.0);
     output.value = input.value;
     return output;
 }
