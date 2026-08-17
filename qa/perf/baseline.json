@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "generated_at": "2026-08-17T01:22:07Z",
+  "generated_at": "2026-08-17T01:58:25Z",
   "metadata": {
     "criterion_flags": "--noplot --sample-size 100 --measurement-time 5 --warm-up-time 2",
     "generator": "scripts/qa_perf_baseline.py",
@@ -15,7 +15,7 @@
         "verbose": "rustc 1.97.1 (8bab26f4f 2026-07-14) binary: rustc commit-hash: 8bab26f4f68e0e26f0bb7960be334d5b520ea452 commit-date: 2026-07-14 host: aarch64-apple-darwin release: 1.97.1 LLVM version: 22.1.6"
       },
       "cargo": "cargo 1.97.1 (c980f4866 2026-06-30)",
-      "source_revision": "dce7d3eee07a4c541104f5c6b09430aa3e196e88",
+      "source_revision": "955f6fb3eca609d0c233e60f13d72d75a8ae73e7",
       "source_dirty": false
     }
   },
@@ -25,8 +25,8 @@
       "bench": "mesh_plot_frames",
       "group": "mesh_plot_build_200000_triangles",
       "function": "mesh_plot_build_200000_triangles",
-      "median_ns": 401004.15,
-      "mean_ns": 401590.56377777783,
+      "median_ns": 361479.80574400723,
+      "mean_ns": 360499.5671602971,
       "unit": "ns"
     },
     {
@@ -34,8 +34,17 @@
       "bench": "mesh_plot_frames",
       "group": "mesh_plot_fit_200000_triangles",
       "function": "mesh_plot_fit_200000_triangles",
-      "median_ns": 20.51180937433622,
-      "mean_ns": 20.639000829970186,
+      "median_ns": 19.93079435775825,
+      "mean_ns": 20.028050376169553,
+      "unit": "ns"
+    },
+    {
+      "crate": "gpui-px",
+      "bench": "mesh_plot_frames",
+      "group": "mesh_plot_png_frame",
+      "function": "mesh_plot_png_frame",
+      "median_ns": 1099063.887908497,
+      "mean_ns": 1102733.4998295985,
       "unit": "ns"
     },
     {
@@ -43,8 +52,8 @@
       "bench": "mesh_plot_frames",
       "group": "mesh_plot_retained_frames",
       "function": "camera_1000000_values",
-      "median_ns": 4.692614069708526,
-      "mean_ns": 4.692261376599673,
+      "median_ns": 4.536119227579641,
+      "mean_ns": 4.526175890556422,
       "unit": "ns"
     },
     {
@@ -52,8 +61,8 @@
       "bench": "mesh_plot_frames",
       "group": "mesh_plot_retained_frames",
       "function": "camera_100000_values",
-      "median_ns": 4.846524264867824,
-      "mean_ns": 4.884048147266574,
+      "median_ns": 4.429307928605056,
+      "mean_ns": 4.4411316926197175,
       "unit": "ns"
     },
     {
@@ -61,8 +70,8 @@
       "bench": "mesh_plot_frames",
       "group": "mesh_plot_retained_frames",
       "function": "field_replace_1000000_values",
-      "median_ns": 65589.35964912281,
-      "mean_ns": 66703.32119256472,
+      "median_ns": 62740.34289846958,
+      "mean_ns": 63288.57764584457,
       "unit": "ns"
     },
     {
@@ -70,8 +79,8 @@
       "bench": "mesh_plot_frames",
       "group": "mesh_plot_retained_frames",
       "function": "field_replace_100000_values",
-      "median_ns": 6487.2870370370365,
-      "mean_ns": 6518.053423826321,
+      "median_ns": 6269.34526413244,
+      "mean_ns": 6331.390566246172,
       "unit": "ns"
     },
     {
@@ -79,8 +88,8 @@
       "bench": "mesh_plot_frames",
       "group": "mesh_plot_retained_picking",
       "function": "revolved_bvh_pick",
-      "median_ns": 236.6081046908585,
-      "mean_ns": 236.74777951881214,
+      "median_ns": 213.53199569499395,
+      "mean_ns": 215.1903544764065,
       "unit": "ns"
     },
     {
@@ -88,8 +97,8 @@
       "bench": "mesh_plot_frames",
       "group": "mesh_plot_retained_picking",
       "function": "surface_bvh_pick",
-      "median_ns": 355.1232414352321,
-      "mean_ns": 359.7996061751277,
+      "median_ns": 315.5171243756638,
+      "mean_ns": 316.62743788213646,
       "unit": "ns"
     },
     {
@@ -97,8 +106,8 @@
       "bench": "mesh_plot_frames",
       "group": "mesh_plot_svg_frame",
       "function": "mesh_plot_svg_frame",
-      "median_ns": 12421.874421296296,
-      "mean_ns": 12566.637848600087,
+      "median_ns": 11127.24932012432,
+      "mean_ns": 11128.763799946886,
       "unit": "ns"
     },
     {
@@ -106,8 +115,8 @@
       "bench": "mesh_prep",
       "group": "mesh_prep",
       "function": "bvh_100000_triangles",
-      "median_ns": 31743791.5,
-      "mean_ns": 31845612.5,
+      "median_ns": 29545010.5,
+      "mean_ns": 29635056.885,
       "unit": "ns"
     },
     {
@@ -115,8 +124,8 @@
       "bench": "mesh_prep",
       "group": "mesh_prep",
       "function": "bvh_200000_triangles",
-      "median_ns": 72054354.0,
-      "mean_ns": 71699012.3,
+      "median_ns": 64427895.5,
+      "mean_ns": 64475326.31,
       "unit": "ns"
     },
     {
@@ -124,8 +133,8 @@
       "bench": "mesh_prep",
       "group": "mesh_prep",
       "function": "bvh_query_100000_triangles",
-      "median_ns": 148.6666534741081,
-      "mean_ns": 145.90409566702255,
+      "median_ns": 136.23290764192416,
+      "mean_ns": 135.88579955206706,
       "unit": "ns"
     },
     {
@@ -133,8 +142,8 @@
       "bench": "mesh_prep",
       "group": "mesh_prep",
       "function": "bvh_query_200000_triangles",
-      "median_ns": 267.6577893568775,
-      "mean_ns": 273.2011529302704,
+      "median_ns": 256.8937837103548,
+      "mean_ns": 258.07196479704436,
       "unit": "ns"
     },
     {
@@ -142,8 +151,8 @@
       "bench": "mesh_prep",
       "group": "mesh_prep",
       "function": "lod_drag_transition_100000_triangles",
-      "median_ns": 0.9382504366829987,
-      "mean_ns": 0.9429366007728252,
+      "median_ns": 0.9149406842262148,
+      "mean_ns": 0.920313226820064,
       "unit": "ns"
     },
     {
@@ -151,8 +160,8 @@
       "bench": "mesh_prep",
       "group": "mesh_prep",
       "function": "lod_full_restore_upload_100000_triangles",
-      "median_ns": 342584.0848214286,
-      "mean_ns": 335826.04890873015,
+      "median_ns": 328532.94331797236,
+      "mean_ns": 326050.2557849266,
       "unit": "ns"
     },
     {
@@ -160,8 +169,8 @@
       "bench": "mesh_prep",
       "group": "mesh_prep",
       "function": "lod_proxy_field_mapping_100000_triangles",
-      "median_ns": 5.8828206606835565,
-      "mean_ns": 5.871461969640982,
+      "median_ns": 5.666429017357521,
+      "mean_ns": 5.6589038581043125,
       "unit": "ns"
     },
     {
@@ -169,8 +178,8 @@
       "bench": "mesh_prep",
       "group": "mesh_prep",
       "function": "lod_proxy_upload_100000_triangles",
-      "median_ns": 7966.097254672897,
-      "mean_ns": 8043.736386849133,
+      "median_ns": 7699.955716429107,
+      "mean_ns": 7790.438584495522,
       "unit": "ns"
     },
     {
@@ -178,8 +187,8 @@
       "bench": "mesh_prep",
       "group": "mesh_prep",
       "function": "marching_bands_100000_triangles",
-      "median_ns": 13123438.0,
-      "mean_ns": 13317058.4,
+      "median_ns": 11553825.0,
+      "mean_ns": 11596463.162,
       "unit": "ns"
     },
     {
@@ -187,8 +196,8 @@
       "bench": "mesh_prep",
       "group": "mesh_prep",
       "function": "marching_bands_200000_triangles",
-      "median_ns": 30197833.5,
-      "mean_ns": 30084466.7,
+      "median_ns": 26796625.25,
+      "mean_ns": 26870826.035,
       "unit": "ns"
     },
     {
@@ -196,8 +205,8 @@
       "bench": "mesh_prep",
       "group": "mesh_prep",
       "function": "marching_isolines_100000_triangles",
-      "median_ns": 19103354.0,
-      "mean_ns": 19012558.1,
+      "median_ns": 17007880.125,
+      "mean_ns": 17085875.93,
       "unit": "ns"
     },
     {
@@ -205,8 +214,8 @@
       "bench": "mesh_prep",
       "group": "mesh_prep",
       "function": "marching_isolines_200000_triangles",
-      "median_ns": 37287313.0,
-      "mean_ns": 37345946.0,
+      "median_ns": 33409010.5,
+      "mean_ns": 33726329.62,
       "unit": "ns"
     },
     {
@@ -214,8 +223,8 @@
       "bench": "mesh_prep",
       "group": "mesh_prep",
       "function": "prepare_100000_triangles",
-      "median_ns": 305028.2791666667,
-      "mean_ns": 306484.05906746036,
+      "median_ns": 334505.8035714286,
+      "mean_ns": 342239.4391280379,
       "unit": "ns"
     },
     {
@@ -223,8 +232,8 @@
       "bench": "mesh_prep",
       "group": "mesh_prep",
       "function": "prepare_200000_triangles",
-      "median_ns": 642802.361111111,
-      "mean_ns": 643564.5591269842,
+      "median_ns": 621780.5153562654,
+      "mean_ns": 628202.4934954768,
       "unit": "ns"
     },
     {
@@ -232,8 +241,8 @@
       "bench": "mesh_prep",
       "group": "mesh_prep",
       "function": "revolve_full_64_segments",
-      "median_ns": 2512.326183844011,
-      "mean_ns": 2524.734281624442,
+      "median_ns": 2318.5724464563864,
+      "mean_ns": 2325.041472632602,
       "unit": "ns"
     },
     {
@@ -241,8 +250,8 @@
       "bench": "mesh_prep",
       "group": "mesh_prep",
       "function": "revolve_full_64_segments_with_vertex_field",
-      "median_ns": 2514.1021066938497,
-      "mean_ns": 2521.3695333964374,
+      "median_ns": 2376.9500262454667,
+      "mean_ns": 2387.2408902898387,
       "unit": "ns"
     },
     {
@@ -250,8 +259,8 @@
       "bench": "mesh_prep",
       "group": "mesh_prep",
       "function": "revolve_partial_capped_64_segments",
-      "median_ns": 2621.01033496732,
-      "mean_ns": 2579.2292826797384,
+      "median_ns": 2600.7317818731353,
+      "mean_ns": 2607.571997216473,
       "unit": "ns"
     },
     {
@@ -259,8 +268,8 @@
       "bench": "mesh_prep",
       "group": "mesh_prep",
       "function": "revolve_partial_capped_64_segments_with_vertex_field",
-      "median_ns": 2650.944989451477,
-      "mean_ns": 2627.609734905566,
+      "median_ns": 2498.3401785714286,
+      "mean_ns": 2508.921765020158,
       "unit": "ns"
     },
     {
@@ -268,8 +277,8 @@
       "bench": "mesh_prep",
       "group": "mesh_prep",
       "function": "topology_100000_triangles",
-      "median_ns": 4764451.166666666,
-      "mean_ns": 4731887.466666667,
+      "median_ns": 4282829.875,
+      "mean_ns": 4308459.996666666,
       "unit": "ns"
     },
     {
@@ -277,8 +286,8 @@
       "bench": "mesh_prep",
       "group": "mesh_prep",
       "function": "topology_200000_triangles",
-      "median_ns": 10217687.5,
-      "mean_ns": 10271691.6,
+      "median_ns": 9288788.25,
+      "mean_ns": 9318872.64,
       "unit": "ns"
     }
   ]
