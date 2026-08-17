@@ -12,6 +12,7 @@ from release_rc import (
     ensure_clean,
     git_archive,
     license_inventory,
+    resolve_command,
     spdx_document,
     validate_version,
 )
@@ -67,6 +68,15 @@ class ReleaseCandidateTests(unittest.TestCase):
             body = archive.read()
         self.assertIn(b"gpui-toolkit-1.2.3/tracked.txt", body)
         self.assertNotIn(str(root).encode(), body)
+
+    def test_resolve_command_falls_back_to_cargo_bin(self):
+        with mock.patch("release_rc.shutil.which", return_value=None):
+            resolved = resolve_command(("cargo", "--version"))
+        cargo = Path.home() / ".cargo" / "bin" / "cargo"
+        if cargo.is_file() or cargo.is_symlink():
+            self.assertEqual(resolved, [str(cargo), "--version"])
+        else:
+            self.assertEqual(resolved, ["cargo", "--version"])
 
     def test_sbom_and_license_inventory_are_sorted_and_private_path_free(self):
         metadata = {

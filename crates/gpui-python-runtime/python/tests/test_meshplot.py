@@ -42,6 +42,24 @@ class MeshPlotTests(unittest.TestCase):
         self.assertEqual(spec["triangles"]["resource_id"], "triangles")
         self.assertEqual(spec["triangles"]["dtype"], "u32le")
 
+    def test_resource_geometry_rejects_legacy_whole_resource_form(self):
+        with self.assertRaisesRegex(ValueError, "triangles_resource_id"):
+            meshplot.resource_geometry("geometry", 1)
+
+    def test_resource_geometry_rejects_mixed_whole_and_split_handles(self):
+        geometry = meshplot.MeshGeometry(
+            (),
+            (),
+            resource_id="geometry",
+            generation=1,
+            positions_resource_id="positions",
+            positions_generation=1,
+            triangles_resource_id="triangles",
+            triangles_generation=1,
+        )
+        with self.assertRaisesRegex(ValueError, "whole-geometry"):
+            geometry.to_spec()
+
     def test_resource_ids_and_masks_use_typed_handles(self):
         geometry = meshplot.resource_geometry(
             "positions",
@@ -103,6 +121,57 @@ class MeshPlotTests(unittest.TestCase):
                 "segments": 32,
                 "end_caps": True,
             },
+        )
+
+    def test_axes_configuration_round_trip_normalizes_ranges(self):
+        spec = meshplot.plot(
+            self.geometry,
+            axes={
+                "horizontal_label": "distance",
+                "vertical_label": "height",
+                "unit": "m",
+                "x_range": (0, 2),
+                "y_range": [-1.0, 3.0],
+                "show_grid": False,
+            },
+        ).to_spec()
+        self.assertEqual(
+            spec["axes"],
+            {
+                "horizontal_label": "distance",
+                "vertical_label": "height",
+                "unit": "m",
+                "x_range": [0.0, 2.0],
+                "y_range": [-1.0, 3.0],
+                "show_grid": False,
+            },
+        )
+
+    def test_axes_configuration_rejects_invalid_values(self):
+        for axes in (
+            "invalid",
+            {"horizontal_label": 1},
+            {"x_range": [1.0, 1.0]},
+            {"y_range": [float("nan"), 1.0]},
+            {"show_grid": 1},
+            {"future": True},
+        ):
+            with self.subTest(axes=axes):
+                with self.assertRaises(ValueError):
+                    meshplot.plot(self.geometry, axes=axes).to_spec()
+
+    def test_interactions_use_supported_preset_or_explicit_disable(self):
+        self.assertEqual(
+            meshplot.plot(self.geometry).to_spec()["interactions"],
+            ["pan", "zoom", "inspect", "select", "reset", "fit"],
+        )
+        self.assertEqual(
+            meshplot.plot(self.geometry, interactions=[]).to_spec()["interactions"],
+            [],
+        )
+        self.assertEqual(
+            meshplot.plot(self.geometry, interactions=["pan"]).to_spec()["interactions"],
+            ["pan"],
         )
 
 

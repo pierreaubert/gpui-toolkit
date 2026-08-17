@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "generated_at": "2026-08-09T15:41:52Z",
+  "generated_at": "2026-08-17T01:58:25Z",
   "metadata": {
     "criterion_flags": "--noplot --sample-size 100 --measurement-time 5 --warm-up-time 2",
     "generator": "scripts/qa_perf_baseline.py",
@@ -15,513 +15,36 @@
         "verbose": "rustc 1.97.1 (8bab26f4f 2026-07-14) binary: rustc commit-hash: 8bab26f4f68e0e26f0bb7960be334d5b520ea452 commit-date: 2026-07-14 host: aarch64-apple-darwin release: 1.97.1 LLVM version: 22.1.6"
       },
       "cargo": "cargo 1.97.1 (c980f4866 2026-06-30)",
-      "source_revision": "82c91b46cfcd7f8367bb3d86bfe6517cd7c74f44",
-      "source_dirty": true
+      "source_revision": "955f6fb3eca609d0c233e60f13d72d75a8ae73e7",
+      "source_dirty": false
     }
   },
   "records": [
     {
-      "crate": "gpui-ios",
-      "bench": "accessibility_diff",
-      "group": "accessibility_diff",
-      "function": "size_1000_churn_0_pct",
-      "median_ns": 28027.154977829523,
-      "mean_ns": 28074.983468924736,
-      "unit": "ns"
-    },
-    {
-      "crate": "gpui-ios",
-      "bench": "accessibility_diff",
-      "group": "accessibility_diff",
-      "function": "size_1000_churn_0_pct_reuse",
-      "median_ns": 27857.949183446966,
-      "mean_ns": 27973.36188275133,
-      "unit": "ns"
-    },
-    {
-      "crate": "gpui-ios",
-      "bench": "accessibility_diff",
-      "group": "accessibility_diff",
-      "function": "size_1000_churn_1_pct",
-      "median_ns": 28312.831172932332,
-      "mean_ns": 28345.871176460107,
-      "unit": "ns"
-    },
-    {
-      "crate": "gpui-ios",
-      "bench": "accessibility_diff",
-      "group": "accessibility_diff",
-      "function": "size_1000_churn_1_pct_reuse",
-      "median_ns": 28754.65860359153,
-      "mean_ns": 28831.227276468817,
-      "unit": "ns"
-    },
-    {
-      "crate": "gpui-ios",
-      "bench": "accessibility_diff",
-      "group": "accessibility_diff",
-      "function": "size_1000_churn_5_pct",
-      "median_ns": 28111.590476190475,
-      "mean_ns": 28589.93458418877,
-      "unit": "ns"
-    },
-    {
-      "crate": "gpui-ios",
-      "bench": "accessibility_diff",
-      "group": "accessibility_diff",
-      "function": "size_1000_churn_5_pct_reuse",
-      "median_ns": 28224.459506631916,
-      "mean_ns": 28487.03525864549,
-      "unit": "ns"
-    },
-    {
-      "crate": "gpui-ios",
-      "bench": "accessibility_diff",
-      "group": "accessibility_diff",
-      "function": "size_100_churn_0_pct",
-      "median_ns": 2884.8437585499314,
-      "mean_ns": 2891.739201512791,
-      "unit": "ns"
-    },
-    {
-      "crate": "gpui-ios",
-      "bench": "accessibility_diff",
-      "group": "accessibility_diff",
-      "function": "size_100_churn_0_pct_reuse",
-      "median_ns": 2726.9225295210463,
-      "mean_ns": 2739.9313975544956,
-      "unit": "ns"
-    },
-    {
-      "crate": "gpui-ios",
-      "bench": "accessibility_diff",
-      "group": "accessibility_diff",
-      "function": "size_100_churn_1_pct",
-      "median_ns": 2910.8937810687657,
-      "mean_ns": 2952.2875268916955,
-      "unit": "ns"
-    },
-    {
-      "crate": "gpui-ios",
-      "bench": "accessibility_diff",
-      "group": "accessibility_diff",
-      "function": "size_100_churn_1_pct_reuse",
-      "median_ns": 2728.1820118245805,
-      "mean_ns": 2753.2099546157756,
-      "unit": "ns"
-    },
-    {
-      "crate": "gpui-ios",
-      "bench": "accessibility_diff",
-      "group": "accessibility_diff",
-      "function": "size_100_churn_5_pct",
-      "median_ns": 2975.2846075132084,
-      "mean_ns": 3000.0942378291757,
-      "unit": "ns"
-    },
-    {
-      "crate": "gpui-ios",
-      "bench": "accessibility_diff",
-      "group": "accessibility_diff",
-      "function": "size_100_churn_5_pct_reuse",
-      "median_ns": 2794.846997326473,
-      "mean_ns": 2802.2261930971063,
-      "unit": "ns"
-    },
-    {
-      "crate": "gpui-ios",
-      "bench": "accessibility_diff",
-      "group": "accessibility_diff",
-      "function": "size_5000_churn_0_pct",
-      "median_ns": 154765.408008658,
-      "mean_ns": 154634.2470813761,
-      "unit": "ns"
-    },
-    {
-      "crate": "gpui-ios",
-      "bench": "accessibility_diff",
-      "group": "accessibility_diff",
-      "function": "size_5000_churn_0_pct_reuse",
-      "median_ns": 154907.44218831963,
-      "mean_ns": 160280.92854727118,
-      "unit": "ns"
-    },
-    {
-      "crate": "gpui-ios",
-      "bench": "accessibility_diff",
-      "group": "accessibility_diff",
-      "function": "size_5000_churn_1_pct",
-      "median_ns": 153919.0108225108,
-      "mean_ns": 155470.5612074091,
-      "unit": "ns"
-    },
-    {
-      "crate": "gpui-ios",
-      "bench": "accessibility_diff",
-      "group": "accessibility_diff",
-      "function": "size_5000_churn_1_pct_reuse",
-      "median_ns": 152345.5173930037,
-      "mean_ns": 152613.95988870956,
-      "unit": "ns"
-    },
-    {
-      "crate": "gpui-ios",
-      "bench": "accessibility_diff",
-      "group": "accessibility_diff",
-      "function": "size_5000_churn_5_pct",
-      "median_ns": 156051.33021000095,
-      "mean_ns": 162039.0547410456,
-      "unit": "ns"
-    },
-    {
-      "crate": "gpui-ios",
-      "bench": "accessibility_diff",
-      "group": "accessibility_diff",
-      "function": "size_5000_churn_5_pct_reuse",
-      "median_ns": 152561.32142857142,
-      "mean_ns": 155312.93395331482,
-      "unit": "ns"
-    },
-    {
-      "crate": "gpui-ui-kit",
-      "bench": "edit_state",
-      "group": "backspace",
-      "function": "backspace",
-      "median_ns": 218.76082244915847,
-      "mean_ns": 219.05632636419818,
-      "unit": "ns"
-    },
-    {
-      "crate": "gpui-builder",
-      "bench": "solved_tree",
-      "group": "balanced_tree_find",
-      "function": "as_map_get_depth_10",
-      "median_ns": 6.468700034296326,
-      "mean_ns": 6.600713214285261,
-      "unit": "ns"
-    },
-    {
-      "crate": "gpui-builder",
-      "bench": "solved_tree",
-      "group": "balanced_tree_find",
-      "function": "as_map_get_depth_6",
-      "median_ns": 6.15541996263736,
-      "mean_ns": 6.31710903739044,
-      "unit": "ns"
-    },
-    {
-      "crate": "gpui-builder",
-      "bench": "solved_tree",
-      "group": "balanced_tree_find",
-      "function": "as_map_get_depth_8",
-      "median_ns": 5.910189244431437,
-      "mean_ns": 6.017712510601752,
-      "unit": "ns"
-    },
-    {
-      "crate": "gpui-builder",
-      "bench": "solved_tree",
-      "group": "balanced_tree_find",
-      "function": "flat_find_depth_10",
-      "median_ns": 6.268490925624466,
-      "mean_ns": 6.330041467537024,
-      "unit": "ns"
-    },
-    {
-      "crate": "gpui-builder",
-      "bench": "solved_tree",
-      "group": "balanced_tree_find",
-      "function": "flat_find_depth_6",
-      "median_ns": 6.017391644598753,
-      "mean_ns": 6.1427378690465355,
-      "unit": "ns"
-    },
-    {
-      "crate": "gpui-builder",
-      "bench": "solved_tree",
-      "group": "balanced_tree_find",
-      "function": "flat_find_depth_8",
-      "median_ns": 5.766941187258895,
-      "mean_ns": 5.856747009549059,
-      "unit": "ns"
-    },
-    {
-      "crate": "gpui-builder",
-      "bench": "solved_tree",
-      "group": "balanced_tree_find",
-      "function": "recursive_find_depth_10",
-      "median_ns": 5003.498253640299,
-      "mean_ns": 5014.5650071845475,
-      "unit": "ns"
-    },
-    {
-      "crate": "gpui-builder",
-      "bench": "solved_tree",
-      "group": "balanced_tree_find",
-      "function": "recursive_find_depth_6",
-      "median_ns": 229.1558235421382,
-      "mean_ns": 232.4430075341074,
-      "unit": "ns"
-    },
-    {
-      "crate": "gpui-builder",
-      "bench": "solved_tree",
-      "group": "balanced_tree_find",
-      "function": "recursive_find_depth_8",
-      "median_ns": 1426.4709037769435,
-      "mean_ns": 1435.3078904609422,
-      "unit": "ns"
-    },
-    {
-      "crate": "gpui-builder",
-      "bench": "solved_tree",
-      "group": "balanced_tree_traversal",
-      "function": "flat_iter_depth_10",
-      "median_ns": 1561.4726458846603,
-      "mean_ns": 1560.0270400480865,
-      "unit": "ns"
-    },
-    {
-      "crate": "gpui-builder",
-      "bench": "solved_tree",
-      "group": "balanced_tree_traversal",
-      "function": "flat_iter_depth_6",
-      "median_ns": 32.10767484167023,
-      "mean_ns": 32.33154462829074,
-      "unit": "ns"
-    },
-    {
-      "crate": "gpui-builder",
-      "bench": "solved_tree",
-      "group": "balanced_tree_traversal",
-      "function": "flat_iter_depth_8",
-      "median_ns": 100.26808644663578,
-      "mean_ns": 100.76427374219269,
-      "unit": "ns"
-    },
-    {
-      "crate": "gpui-builder",
-      "bench": "solved_tree",
-      "group": "balanced_tree_traversal",
-      "function": "recursive_collect_depth_10",
-      "median_ns": 4645.665652179574,
-      "mean_ns": 4697.456037719509,
-      "unit": "ns"
-    },
-    {
-      "crate": "gpui-builder",
-      "bench": "solved_tree",
-      "group": "balanced_tree_traversal",
-      "function": "recursive_collect_depth_6",
-      "median_ns": 380.07545184651315,
-      "mean_ns": 381.60078278482047,
-      "unit": "ns"
-    },
-    {
-      "crate": "gpui-builder",
-      "bench": "solved_tree",
-      "group": "balanced_tree_traversal",
-      "function": "recursive_collect_depth_8",
-      "median_ns": 1104.3569336276305,
-      "mean_ns": 1115.8014152859641,
-      "unit": "ns"
-    },
-    {
-      "crate": "gpui-ui-kit",
-      "bench": "edit_state",
-      "group": "delete_selection",
-      "function": "delete_selection",
-      "median_ns": 115.56302820410603,
-      "mean_ns": 116.54008766815372,
-      "unit": "ns"
-    },
-    {
-      "crate": "gpui-d3rs",
-      "bench": "force_many_body",
-      "group": "force_many_body",
-      "function": "barnes_hut/100",
-      "median_ns": 18433.433366533864,
-      "mean_ns": 18411.90414598856,
-      "unit": "ns"
-    },
-    {
-      "crate": "gpui-d3rs",
-      "bench": "force_many_body",
-      "group": "force_many_body",
-      "function": "barnes_hut/1000",
-      "median_ns": 260568.43391148327,
-      "mean_ns": 261354.41002495965,
-      "unit": "ns"
-    },
-    {
-      "crate": "gpui-d3rs",
-      "bench": "force_many_body",
-      "group": "force_many_body",
-      "function": "barnes_hut/50",
-      "median_ns": 9284.633891033893,
-      "mean_ns": 9313.01832280277,
-      "unit": "ns"
-    },
-    {
-      "crate": "gpui-d3rs",
-      "bench": "force_many_body",
-      "group": "force_many_body",
-      "function": "barnes_hut/500",
-      "median_ns": 116452.1265625,
-      "mean_ns": 116531.25848805983,
-      "unit": "ns"
-    },
-    {
-      "crate": "gpui-d3rs",
-      "bench": "force_many_body",
-      "group": "force_many_body",
-      "function": "barnes_hut/5000",
-      "median_ns": 1664958.7023809524,
-      "mean_ns": 1664065.682950735,
-      "unit": "ns"
-    },
-    {
-      "crate": "gpui-d3rs",
-      "bench": "force_many_body",
-      "group": "force_many_body",
-      "function": "brute_force/100",
-      "median_ns": 14821.192172897197,
-      "mean_ns": 15152.806299200602,
-      "unit": "ns"
-    },
-    {
-      "crate": "gpui-d3rs",
-      "bench": "force_many_body",
-      "group": "force_many_body",
-      "function": "brute_force/1000",
-      "median_ns": 1230623.9583333335,
-      "mean_ns": 1266971.1607811414,
-      "unit": "ns"
-    },
-    {
-      "crate": "gpui-d3rs",
-      "bench": "force_many_body",
-      "group": "force_many_body",
-      "function": "brute_force/50",
-      "median_ns": 3366.125295437844,
-      "mean_ns": 3370.165945315206,
-      "unit": "ns"
-    },
-    {
-      "crate": "gpui-d3rs",
-      "bench": "force_many_body",
-      "group": "force_many_body",
-      "function": "brute_force/500",
-      "median_ns": 374243.6298076923,
-      "mean_ns": 387335.41751844983,
-      "unit": "ns"
-    },
-    {
-      "crate": "gpui-d3rs",
-      "bench": "force_many_body",
-      "group": "force_many_body",
-      "function": "brute_force/5000",
-      "median_ns": 37504427.0,
-      "mean_ns": 37521030.25,
-      "unit": "ns"
-    },
-    {
-      "crate": "gpui-keybinding",
-      "bench": "discovery",
-      "group": "format_key_label",
-      "function": "format_key_label",
-      "median_ns": 295.1862883102106,
-      "mean_ns": 306.41940587383067,
-      "unit": "ns"
-    },
-    {
-      "crate": "gpui-d3rs",
-      "bench": "path_strings",
-      "group": "geo_path/render",
-      "function": "geo_path_render",
-      "median_ns": 677.0071738336921,
-      "mean_ns": 686.5587784300136,
-      "unit": "ns"
-    },
-    {
-      "crate": "gpui-d3rs",
-      "bench": "path_strings",
-      "group": "geo_path/render_into",
-      "function": "geo_path_render_into",
-      "median_ns": 657.5238586311884,
-      "mean_ns": 673.3947720116801,
-      "unit": "ns"
-    },
-    {
-      "crate": "gpui-ui-kit",
-      "bench": "edit_state",
-      "group": "insert_char",
-      "function": "insert_char",
-      "median_ns": 157.0083833319635,
-      "mean_ns": 157.6769666347665,
-      "unit": "ns"
-    },
-    {
-      "crate": "gpui-ui-kit",
-      "bench": "edit_state",
-      "group": "kill_word_backward",
-      "function": "kill_word_backward",
-      "median_ns": 328.2609129058351,
-      "mean_ns": 328.3250683973586,
-      "unit": "ns"
-    },
-    {
-      "crate": "gpui-pretext",
-      "bench": "layout_temporaries",
-      "group": "layout/layout_optimal",
-      "function": "layout_layout_optimal",
-      "median_ns": 2211.159820286745,
-      "mean_ns": 2213.9698418448443,
-      "unit": "ns"
-    },
-    {
-      "crate": "gpui-pretext",
-      "bench": "layout_temporaries",
-      "group": "layout/layout_with_lines",
-      "function": "layout_layout_with_lines",
-      "median_ns": 152.39845665977612,
-      "mean_ns": 152.8110997011429,
-      "unit": "ns"
-    },
-    {
-      "crate": "gpui-pretext",
-      "bench": "layout_temporaries",
-      "group": "measurement/get_grapheme_prefix_widths",
-      "function": "measurement_get_grapheme_prefix_widths",
-      "median_ns": 19.725056217713117,
-      "mean_ns": 20.155048079942205,
-      "unit": "ns"
-    },
-    {
-      "crate": "gpui-pretext",
-      "bench": "layout_temporaries",
-      "group": "measurement/get_grapheme_widths_cache_hit",
-      "function": "measurement_get_grapheme_widths_cache_hit",
-      "median_ns": 12.43148176393122,
-      "mean_ns": 12.310632630080386,
-      "unit": "ns"
-    },
-    {
-      "crate": "gpui-pretext",
-      "bench": "layout_temporaries",
-      "group": "measurement/get_width_cache_hit",
-      "function": "measurement_get_width_cache_hit",
-      "median_ns": 20.55008422467025,
-      "mean_ns": 20.763006036099,
+      "crate": "gpui-px",
+      "bench": "mesh_plot_frames",
+      "group": "mesh_plot_build_200000_triangles",
+      "function": "mesh_plot_build_200000_triangles",
+      "median_ns": 361479.80574400723,
+      "mean_ns": 360499.5671602971,
       "unit": "ns"
     },
     {
       "crate": "gpui-px",
       "bench": "mesh_plot_frames",
-      "group": "mesh_plot_retained_frames",
-      "function": "camera_10000000_values",
-      "median_ns": 0.2690711869448435,
-      "mean_ns": 0.2809730781083766,
+      "group": "mesh_plot_fit_200000_triangles",
+      "function": "mesh_plot_fit_200000_triangles",
+      "median_ns": 19.93079435775825,
+      "mean_ns": 20.028050376169553,
+      "unit": "ns"
+    },
+    {
+      "crate": "gpui-px",
+      "bench": "mesh_plot_frames",
+      "group": "mesh_plot_png_frame",
+      "function": "mesh_plot_png_frame",
+      "median_ns": 1099063.887908497,
+      "mean_ns": 1102733.4998295985,
       "unit": "ns"
     },
     {
@@ -529,17 +52,17 @@
       "bench": "mesh_plot_frames",
       "group": "mesh_plot_retained_frames",
       "function": "camera_1000000_values",
-      "median_ns": 0.2599202887940719,
-      "mean_ns": 0.26314603447747204,
+      "median_ns": 4.536119227579641,
+      "mean_ns": 4.526175890556422,
       "unit": "ns"
     },
     {
       "crate": "gpui-px",
       "bench": "mesh_plot_frames",
       "group": "mesh_plot_retained_frames",
-      "function": "field_replace_10000000_values",
-      "median_ns": 673759.3247380033,
-      "mean_ns": 686219.2573230822,
+      "function": "camera_100000_values",
+      "median_ns": 4.429307928605056,
+      "mean_ns": 4.4411316926197175,
       "unit": "ns"
     },
     {
@@ -547,8 +70,35 @@
       "bench": "mesh_plot_frames",
       "group": "mesh_plot_retained_frames",
       "function": "field_replace_1000000_values",
-      "median_ns": 59424.37809597523,
-      "mean_ns": 59625.839035525016,
+      "median_ns": 62740.34289846958,
+      "mean_ns": 63288.57764584457,
+      "unit": "ns"
+    },
+    {
+      "crate": "gpui-px",
+      "bench": "mesh_plot_frames",
+      "group": "mesh_plot_retained_frames",
+      "function": "field_replace_100000_values",
+      "median_ns": 6269.34526413244,
+      "mean_ns": 6331.390566246172,
+      "unit": "ns"
+    },
+    {
+      "crate": "gpui-px",
+      "bench": "mesh_plot_frames",
+      "group": "mesh_plot_retained_picking",
+      "function": "revolved_bvh_pick",
+      "median_ns": 213.53199569499395,
+      "mean_ns": 215.1903544764065,
+      "unit": "ns"
+    },
+    {
+      "crate": "gpui-px",
+      "bench": "mesh_plot_frames",
+      "group": "mesh_plot_retained_picking",
+      "function": "surface_bvh_pick",
+      "median_ns": 315.5171243756638,
+      "mean_ns": 316.62743788213646,
       "unit": "ns"
     },
     {
@@ -556,26 +106,8 @@
       "bench": "mesh_plot_frames",
       "group": "mesh_plot_svg_frame",
       "function": "mesh_plot_svg_frame",
-      "median_ns": 10026.646005483173,
-      "mean_ns": 10077.988039694243,
-      "unit": "ns"
-    },
-    {
-      "crate": "gpui-d3rs",
-      "bench": "mesh_prep",
-      "group": "mesh_prep",
-      "function": "bvh_10000000_triangles",
-      "median_ns": 4377908583.5,
-      "mean_ns": 4459264897.09,
-      "unit": "ns"
-    },
-    {
-      "crate": "gpui-d3rs",
-      "bench": "mesh_prep",
-      "group": "mesh_prep",
-      "function": "bvh_1000000_triangles",
-      "median_ns": 347124188.0,
-      "mean_ns": 368155597.53,
+      "median_ns": 11127.24932012432,
+      "mean_ns": 11128.763799946886,
       "unit": "ns"
     },
     {
@@ -583,26 +115,17 @@
       "bench": "mesh_prep",
       "group": "mesh_prep",
       "function": "bvh_100000_triangles",
-      "median_ns": 28581802.25,
-      "mean_ns": 28653895.635,
+      "median_ns": 29545010.5,
+      "mean_ns": 29635056.885,
       "unit": "ns"
     },
     {
       "crate": "gpui-d3rs",
       "bench": "mesh_prep",
       "group": "mesh_prep",
-      "function": "bvh_query_10000000_triangles",
-      "median_ns": 597.4975633366339,
-      "mean_ns": 618.0840522704569,
-      "unit": "ns"
-    },
-    {
-      "crate": "gpui-d3rs",
-      "bench": "mesh_prep",
-      "group": "mesh_prep",
-      "function": "bvh_query_1000000_triangles",
-      "median_ns": 518.4825664941789,
-      "mean_ns": 539.2662581287432,
+      "function": "bvh_200000_triangles",
+      "median_ns": 64427895.5,
+      "mean_ns": 64475326.31,
       "unit": "ns"
     },
     {
@@ -610,26 +133,53 @@
       "bench": "mesh_prep",
       "group": "mesh_prep",
       "function": "bvh_query_100000_triangles",
-      "median_ns": 433.14342429788724,
-      "mean_ns": 443.59647662263455,
+      "median_ns": 136.23290764192416,
+      "mean_ns": 135.88579955206706,
       "unit": "ns"
     },
     {
       "crate": "gpui-d3rs",
       "bench": "mesh_prep",
       "group": "mesh_prep",
-      "function": "marching_bands_10000000_triangles",
-      "median_ns": 373577874.5,
-      "mean_ns": 373210366.66,
+      "function": "bvh_query_200000_triangles",
+      "median_ns": 256.8937837103548,
+      "mean_ns": 258.07196479704436,
       "unit": "ns"
     },
     {
       "crate": "gpui-d3rs",
       "bench": "mesh_prep",
       "group": "mesh_prep",
-      "function": "marching_bands_1000000_triangles",
-      "median_ns": 36543010.5,
-      "mean_ns": 36573550.465,
+      "function": "lod_drag_transition_100000_triangles",
+      "median_ns": 0.9149406842262148,
+      "mean_ns": 0.920313226820064,
+      "unit": "ns"
+    },
+    {
+      "crate": "gpui-d3rs",
+      "bench": "mesh_prep",
+      "group": "mesh_prep",
+      "function": "lod_full_restore_upload_100000_triangles",
+      "median_ns": 328532.94331797236,
+      "mean_ns": 326050.2557849266,
+      "unit": "ns"
+    },
+    {
+      "crate": "gpui-d3rs",
+      "bench": "mesh_prep",
+      "group": "mesh_prep",
+      "function": "lod_proxy_field_mapping_100000_triangles",
+      "median_ns": 5.666429017357521,
+      "mean_ns": 5.6589038581043125,
+      "unit": "ns"
+    },
+    {
+      "crate": "gpui-d3rs",
+      "bench": "mesh_prep",
+      "group": "mesh_prep",
+      "function": "lod_proxy_upload_100000_triangles",
+      "median_ns": 7699.955716429107,
+      "mean_ns": 7790.438584495522,
       "unit": "ns"
     },
     {
@@ -637,26 +187,17 @@
       "bench": "mesh_prep",
       "group": "mesh_prep",
       "function": "marching_bands_100000_triangles",
-      "median_ns": 3722266.038461538,
-      "mean_ns": 3736148.6830769223,
+      "median_ns": 11553825.0,
+      "mean_ns": 11596463.162,
       "unit": "ns"
     },
     {
       "crate": "gpui-d3rs",
       "bench": "mesh_prep",
       "group": "mesh_prep",
-      "function": "marching_isolines_10000000_triangles",
-      "median_ns": 469014958.0,
-      "mean_ns": 471340551.65,
-      "unit": "ns"
-    },
-    {
-      "crate": "gpui-d3rs",
-      "bench": "mesh_prep",
-      "group": "mesh_prep",
-      "function": "marching_isolines_1000000_triangles",
-      "median_ns": 48061354.0,
-      "mean_ns": 48256729.775,
+      "function": "marching_bands_200000_triangles",
+      "median_ns": 26796625.25,
+      "mean_ns": 26870826.035,
       "unit": "ns"
     },
     {
@@ -664,26 +205,17 @@
       "bench": "mesh_prep",
       "group": "mesh_prep",
       "function": "marching_isolines_100000_triangles",
-      "median_ns": 4586885.45,
-      "mean_ns": 4588787.121,
+      "median_ns": 17007880.125,
+      "mean_ns": 17085875.93,
       "unit": "ns"
     },
     {
       "crate": "gpui-d3rs",
       "bench": "mesh_prep",
       "group": "mesh_prep",
-      "function": "prepare_10000000_triangles",
-      "median_ns": 97653625.0,
-      "mean_ns": 98117092.89,
-      "unit": "ns"
-    },
-    {
-      "crate": "gpui-d3rs",
-      "bench": "mesh_prep",
-      "group": "mesh_prep",
-      "function": "prepare_1000000_triangles",
-      "median_ns": 10919675.0,
-      "mean_ns": 10937633.331999999,
+      "function": "marching_isolines_200000_triangles",
+      "median_ns": 33409010.5,
+      "mean_ns": 33726329.62,
       "unit": "ns"
     },
     {
@@ -691,8 +223,17 @@
       "bench": "mesh_prep",
       "group": "mesh_prep",
       "function": "prepare_100000_triangles",
-      "median_ns": 700591.8079322638,
-      "mean_ns": 703242.8179348889,
+      "median_ns": 334505.8035714286,
+      "mean_ns": 342239.4391280379,
+      "unit": "ns"
+    },
+    {
+      "crate": "gpui-d3rs",
+      "bench": "mesh_prep",
+      "group": "mesh_prep",
+      "function": "prepare_200000_triangles",
+      "median_ns": 621780.5153562654,
+      "mean_ns": 628202.4934954768,
       "unit": "ns"
     },
     {
@@ -700,26 +241,35 @@
       "bench": "mesh_prep",
       "group": "mesh_prep",
       "function": "revolve_full_64_segments",
-      "median_ns": 2567.96992444465,
-      "mean_ns": 2568.1265067350378,
+      "median_ns": 2318.5724464563864,
+      "mean_ns": 2325.041472632602,
       "unit": "ns"
     },
     {
       "crate": "gpui-d3rs",
       "bench": "mesh_prep",
       "group": "mesh_prep",
-      "function": "topology_10000000_triangles",
-      "median_ns": 2060384020.5,
-      "mean_ns": 2082746356.65,
+      "function": "revolve_full_64_segments_with_vertex_field",
+      "median_ns": 2376.9500262454667,
+      "mean_ns": 2387.2408902898387,
       "unit": "ns"
     },
     {
       "crate": "gpui-d3rs",
       "bench": "mesh_prep",
       "group": "mesh_prep",
-      "function": "topology_1000000_triangles",
-      "median_ns": 118801333.5,
-      "mean_ns": 119603718.38,
+      "function": "revolve_partial_capped_64_segments",
+      "median_ns": 2600.7317818731353,
+      "mean_ns": 2607.571997216473,
+      "unit": "ns"
+    },
+    {
+      "crate": "gpui-d3rs",
+      "bench": "mesh_prep",
+      "group": "mesh_prep",
+      "function": "revolve_partial_capped_64_segments_with_vertex_field",
+      "median_ns": 2498.3401785714286,
+      "mean_ns": 2508.921765020158,
       "unit": "ns"
     },
     {
@@ -727,197 +277,17 @@
       "bench": "mesh_prep",
       "group": "mesh_prep",
       "function": "topology_100000_triangles",
-      "median_ns": 8229276.785714285,
-      "mean_ns": 8262851.7828571405,
+      "median_ns": 4282829.875,
+      "mean_ns": 4308459.996666666,
       "unit": "ns"
     },
     {
       "crate": "gpui-d3rs",
-      "bench": "path_strings",
-      "group": "path/to_svg_string",
-      "function": "path_to_svg_string",
-      "median_ns": 233.30575326771455,
-      "mean_ns": 235.02237393628127,
-      "unit": "ns"
-    },
-    {
-      "crate": "gpui-d3rs",
-      "bench": "path_strings",
-      "group": "path/write_svg_string",
-      "function": "path_write_svg_string",
-      "median_ns": 227.15230447583548,
-      "mean_ns": 228.15356276263057,
-      "unit": "ns"
-    },
-    {
-      "crate": "gpui-keybinding",
-      "bench": "discovery",
-      "group": "search_command_palette_cached",
-      "function": "search_command_palette_cached",
-      "median_ns": 21339.53936545241,
-      "mean_ns": 21069.137301060586,
-      "unit": "ns"
-    },
-    {
-      "crate": "gpui-px",
-      "bench": "streaming_prepare",
-      "group": "streaming_prepare",
-      "function": "line/10000",
-      "median_ns": 6506.510532314729,
-      "mean_ns": 6535.690037855508,
-      "unit": "ns"
-    },
-    {
-      "crate": "gpui-px",
-      "bench": "streaming_prepare",
-      "group": "streaming_prepare",
-      "function": "line/100000",
-      "median_ns": 66081.45332991803,
-      "mean_ns": 66508.55304205297,
-      "unit": "ns"
-    },
-    {
-      "crate": "gpui-px",
-      "bench": "streaming_prepare",
-      "group": "streaming_prepare",
-      "function": "line/1000000",
-      "median_ns": 660126.4893081761,
-      "mean_ns": 665247.443444473,
-      "unit": "ns"
-    },
-    {
-      "crate": "gpui-px",
-      "bench": "streaming_prepare",
-      "group": "streaming_prepare",
-      "function": "scatter/10000",
-      "median_ns": 6485.762549023453,
-      "mean_ns": 6511.298493117782,
-      "unit": "ns"
-    },
-    {
-      "crate": "gpui-px",
-      "bench": "streaming_prepare",
-      "group": "streaming_prepare",
-      "function": "scatter/100000",
-      "median_ns": 66289.55267045455,
-      "mean_ns": 66476.52273442823,
-      "unit": "ns"
-    },
-    {
-      "crate": "gpui-px",
-      "bench": "streaming_prepare",
-      "group": "streaming_prepare",
-      "function": "scatter/1000000",
-      "median_ns": 661958.2300112613,
-      "mean_ns": 664448.1290131247,
-      "unit": "ns"
-    },
-    {
-      "crate": "gpui-builder",
-      "bench": "solved_tree",
-      "group": "text_cache_hit",
-      "function": "solve_text_cache_hit",
-      "median_ns": 814.2771269375603,
-      "mean_ns": 824.556142511527,
-      "unit": "ns"
-    },
-    {
-      "crate": "gpui-builder",
-      "bench": "solved_tree",
-      "group": "text_cache_hit",
-      "function": "solve_tree_into_text_cache_hit",
-      "median_ns": 1067.2899431414357,
-      "mean_ns": 1069.357971725538,
-      "unit": "ns"
-    },
-    {
-      "crate": "gpui-builder",
-      "bench": "solved_tree",
-      "group": "text_cache_hit",
-      "function": "solve_tree_text_cache_hit",
-      "median_ns": 1138.7327727876454,
-      "mean_ns": 1147.2272252171251,
-      "unit": "ns"
-    },
-    {
-      "crate": "gpui-builder",
-      "bench": "solved_tree",
-      "group": "wide_tree_find",
-      "function": "as_map_get_count_200",
-      "median_ns": 8.27480573417547,
-      "mean_ns": 8.378734596456862,
-      "unit": "ns"
-    },
-    {
-      "crate": "gpui-builder",
-      "bench": "solved_tree",
-      "group": "wide_tree_find",
-      "function": "as_map_get_count_50",
-      "median_ns": 9.32906387372141,
-      "mean_ns": 9.399689794193074,
-      "unit": "ns"
-    },
-    {
-      "crate": "gpui-builder",
-      "bench": "solved_tree",
-      "group": "wide_tree_find",
-      "function": "as_map_get_count_500",
-      "median_ns": 8.176792486231633,
-      "mean_ns": 8.242002722428774,
-      "unit": "ns"
-    },
-    {
-      "crate": "gpui-builder",
-      "bench": "solved_tree",
-      "group": "wide_tree_find",
-      "function": "flat_find_count_200",
-      "median_ns": 8.087743063866347,
-      "mean_ns": 8.175378953718127,
-      "unit": "ns"
-    },
-    {
-      "crate": "gpui-builder",
-      "bench": "solved_tree",
-      "group": "wide_tree_find",
-      "function": "flat_find_count_50",
-      "median_ns": 9.306417315019996,
-      "mean_ns": 9.366730330421438,
-      "unit": "ns"
-    },
-    {
-      "crate": "gpui-builder",
-      "bench": "solved_tree",
-      "group": "wide_tree_find",
-      "function": "flat_find_count_500",
-      "median_ns": 8.143335364443768,
-      "mean_ns": 8.182352161507682,
-      "unit": "ns"
-    },
-    {
-      "crate": "gpui-builder",
-      "bench": "solved_tree",
-      "group": "wide_tree_find",
-      "function": "recursive_find_count_200",
-      "median_ns": 135.4468037078871,
-      "mean_ns": 135.72987612940983,
-      "unit": "ns"
-    },
-    {
-      "crate": "gpui-builder",
-      "bench": "solved_tree",
-      "group": "wide_tree_find",
-      "function": "recursive_find_count_50",
-      "median_ns": 121.0358697771102,
-      "mean_ns": 115.21281424549707,
-      "unit": "ns"
-    },
-    {
-      "crate": "gpui-builder",
-      "bench": "solved_tree",
-      "group": "wide_tree_find",
-      "function": "recursive_find_count_500",
-      "median_ns": 519.6571837731144,
-      "mean_ns": 520.9138611995724,
+      "bench": "mesh_prep",
+      "group": "mesh_prep",
+      "function": "topology_200000_triangles",
+      "median_ns": 9288788.25,
+      "mean_ns": 9318872.64,
       "unit": "ns"
     }
   ]

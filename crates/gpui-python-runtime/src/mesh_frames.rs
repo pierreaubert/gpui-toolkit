@@ -6,7 +6,7 @@
 //! only after all chunks have arrived.
 
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use thiserror::Error;
 
 pub const MAX_MESH_FRAME_BYTES: usize = 16 * 1024 * 1024;
@@ -296,6 +296,10 @@ pub struct MeshFrameStats {
     pub in_flight: usize,
     pub bytes_used: usize,
     pub evictions: u64,
+    /// Number of completed resources with at least one active owner.
+    pub referenced_resources: usize,
+    /// Sum of all active owners across completed resources.
+    pub references: usize,
 }
 
 #[derive(Debug)]
@@ -322,6 +326,11 @@ pub struct MeshFrameStore {
     entries: HashMap<MeshKey, MeshEntry>,
     order: VecDeque<MeshKey>,
     latest_generation: HashMap<String, u64>,
+    /// Generations whose latest ingest failed after advancing the monotonic
+    /// watermark. These may be retransmitted for recovery; explicit release,
+    /// eviction, and clear still make a generation permanently stale.
+    recoverable_generations: HashSet<MeshKey>,
+    references: HashMap<MeshKey, usize>,
     byte_budget: usize,
     bytes_used: usize,
     evictions: u64,
@@ -343,6 +352,8 @@ impl MeshFrameStore {
             entries: HashMap::new(),
             order: VecDeque::new(),
             latest_generation: HashMap::new(),
+            recoverable_generations: HashSet::new(),
+            references: HashMap::new(),
             byte_budget: byte_budget.clamp(1, MAX_MESH_RESOURCE_BYTES),
             bytes_used: 0,
             evictions: 0,
@@ -370,7 +381,36 @@ impl MeshFrameStore {
                 .count(),
             bytes_used: self.bytes_used,
             evictions: self.evictions,
+            referenced_resources: self.references.len(),
+            references: self.references.values().sum(),
         }
+    }
+
+    /// Keep a completed resource alive while a native MeshPlot references it.
+    ///
+    /// Resource generations remain immutable. A newer generation may coexist
+    /// with a referenced older generation until the old plot releases it.
+    pub fn retain(&mut self, resource_id: &str, generation: u64) -> bool {
+        let key = (resource_id.to_owned(), generation);
+        if !matches!(self.entries.get(&key), Some(MeshEntry::Resource(_))) {
+            return false;
+        }
+        *self.references.entry(key).or_default() += 1;
+        true
+    }
+
+    /// Release one native owner of a completed resource.
+    pub fn release_reference(&mut self, resource_id: &str, generation: u64) -> bool {
+        let key = (resource_id.to_owned(), generation);
+        let Some(count) = self.references.get_mut(&key) else {
+            return false;
+        };
+        if *count > 1 {
+            *count -= 1;
+        } else {
+            self.references.remove(&key);
+        }
+        true
     }
 
     pub fn ingest(&mut self, frame: MeshFrame) -> Result<MeshFrameOutcome, MeshFrameError> {
@@ -379,6 +419,14 @@ impl MeshFrameStore {
         let key = (frame.resource_id.clone(), frame.generation);
         if let Some(current) = self.latest_generation.get(&frame.resource_id).copied() {
             if frame.generation < current {
+                return Ok(MeshFrameOutcome::DroppedStale);
+            }
+            if frame.generation == current
+                && !self.entries.contains_key(&key)
+                && !self.recoverable_generations.contains(&key)
+            {
+                // A released, evicted, or cleared generation must not become
+                // live again merely because the producer retransmits it.
                 return Ok(MeshFrameOutcome::DroppedStale);
             }
             if frame.generation > current {
@@ -391,6 +439,10 @@ impl MeshFrameStore {
         if matches!(self.entries.get(&key), Some(MeshEntry::Resource(_))) {
             return Ok(MeshFrameOutcome::DroppedStale);
         }
+        // This is a new attempt after a transient ingest failure. Once a
+        // valid chunk is accepted, later duplicate chunks follow the normal
+        // immutable-generation rules again.
+        self.recoverable_generations.remove(&key);
         if let Some(MeshEntry::Assembly(existing)) = self.entries.get(&key)
             && (existing.kind != frame.kind
                 || existing.dtype != frame.dtype
@@ -408,7 +460,10 @@ impl MeshFrameStore {
             }
             _ => frame.payload.len(),
         };
-        self.ensure_capacity(additional, &key)?;
+        if let Err(error) = self.ensure_capacity(additional, &key) {
+            self.recoverable_generations.insert(key);
+            return Err(error);
+        }
 
         if !self.entries.contains_key(&key) {
             self.order.push_back(key.clone());
@@ -423,30 +478,39 @@ impl MeshFrameStore {
                 }),
             );
         }
-        let Some(entry) = self.entries.get_mut(&key) else {
-            return Err(MeshFrameError::InvalidHeader {
-                message: "mesh assembly disappeared while ingesting a frame".into(),
-            });
-        };
-        let MeshEntry::Assembly(assembly) = entry else {
-            return Ok(MeshFrameOutcome::DroppedStale);
-        };
-        let chunk = &mut assembly.chunks[frame.sequence as usize];
-        if chunk.is_none() {
-            assembly.bytes += frame.payload.len();
-            self.bytes_used += frame.payload.len();
-            *chunk = Some(frame.payload);
-        }
+        let received = {
+            let Some(entry) = self.entries.get_mut(&key) else {
+                self.recoverable_generations.insert(key);
+                return Err(MeshFrameError::InvalidHeader {
+                    message: "mesh assembly disappeared while ingesting a frame".into(),
+                });
+            };
+            let MeshEntry::Assembly(assembly) = entry else {
+                return Ok(MeshFrameOutcome::DroppedStale);
+            };
+            let chunk = &mut assembly.chunks[frame.sequence as usize];
+            if chunk.is_none() {
+                assembly.bytes += frame.payload.len();
+                self.bytes_used += frame.payload.len();
+                *chunk = Some(frame.payload);
+            }
 
-        if assembly.chunks.iter().any(Option::is_none) {
-            return Ok(MeshFrameOutcome::Incomplete);
+            if assembly.chunks.iter().any(Option::is_none) {
+                return Ok(MeshFrameOutcome::Incomplete);
+            }
+            assembly.bytes
+        };
+        if received != expected {
+            self.remove_entry(&key);
+            self.recoverable_generations.insert(key.clone());
+            return Err(MeshFrameError::AssembledPayloadMismatch { received, expected });
         }
-        if assembly.bytes != expected {
-            return Err(MeshFrameError::AssembledPayloadMismatch {
-                received: assembly.bytes,
-                expected,
+        let Some(MeshEntry::Assembly(assembly)) = self.entries.get_mut(&key) else {
+            self.recoverable_generations.insert(key);
+            return Err(MeshFrameError::InvalidHeader {
+                message: "mesh assembly disappeared before completion".into(),
             });
-        }
+        };
         let payload = assembly
             .chunks
             .iter_mut()
@@ -468,13 +532,18 @@ impl MeshFrameStore {
 
     pub fn release(&mut self, resource_id: &str, generation: u64) -> bool {
         let key = (resource_id.to_owned(), generation);
+        if self.references.contains_key(&key) {
+            return false;
+        }
+        self.recoverable_generations.remove(&key);
         self.remove_entry(&key).is_some()
     }
 
     pub fn clear(&mut self) {
         self.entries.clear();
         self.order.clear();
-        self.latest_generation.clear();
+        self.recoverable_generations.clear();
+        self.references.clear();
         self.bytes_used = 0;
     }
 
@@ -491,17 +560,16 @@ impl MeshFrameStore {
             });
         }
         while self.bytes_used.saturating_add(additional) > self.byte_budget {
-            let Some(key) = self.order.pop_front() else {
+            let Some(index) = self
+                .order
+                .iter()
+                .position(|key| key != current && !self.references.contains_key(key))
+            else {
                 return Err(MeshFrameError::ResourceTooLarge {
                     limit: self.byte_budget,
                 });
             };
-            if &key == current {
-                self.order.push_front(key);
-                return Err(MeshFrameError::ResourceTooLarge {
-                    limit: self.byte_budget,
-                });
-            }
+            let key = self.order.remove(index).expect("eviction index is valid");
             if self.remove_entry(&key).is_some() {
                 self.evictions += 1;
             }
@@ -513,16 +581,24 @@ impl MeshFrameStore {
         let keys = self
             .entries
             .keys()
-            .filter(|(id, generation)| id == resource_id && *generation < keep_generation)
+            .filter(|key| {
+                key.0 == resource_id
+                    && key.1 < keep_generation
+                    && !self.references.contains_key(*key)
+            })
             .cloned()
             .collect::<Vec<_>>();
         for key in keys {
             self.remove_entry(&key);
         }
+        self.recoverable_generations
+            .retain(|(id, generation)| id != resource_id || *generation >= keep_generation);
     }
 
     fn remove_entry(&mut self, key: &MeshKey) -> Option<MeshEntry> {
         let entry = self.entries.remove(key)?;
+        self.order.retain(|queued| queued != key);
+        self.references.remove(key);
         self.bytes_used = self.bytes_used.saturating_sub(match &entry {
             MeshEntry::Assembly(assembly) => assembly.bytes,
             MeshEntry::Resource(resource) => resource.payload.len(),
@@ -548,6 +624,19 @@ mod tests {
             dtype: MeshDtype::F64LE,
             shape: vec![100, 3],
             payload,
+        }
+    }
+
+    fn tiny_frame(resource_id: &str, generation: u64, value: u8) -> MeshFrame {
+        MeshFrame {
+            resource_id: resource_id.into(),
+            generation,
+            sequence: 0,
+            chunk_count: 1,
+            kind: MeshFrameKind::Field,
+            dtype: MeshDtype::U64LE,
+            shape: vec![1],
+            payload: vec![value; 8],
         }
     }
 
@@ -634,5 +723,332 @@ mod tests {
         assert!(
             MeshFrame::decode(&header.to_string(), &vec![0; MAX_MESH_FRAME_BYTES + 1]).is_err()
         );
+    }
+
+    #[test]
+    fn malformed_headers_and_metadata_return_structured_errors() {
+        let mut frame = tiny_frame("field", 1, 1);
+
+        frame.resource_id = " ".into();
+        assert!(matches!(frame.validate(), Err(MeshFrameError::InvalidId)));
+        frame = tiny_frame("field", 1, 1);
+        frame.generation = 0;
+        assert!(matches!(
+            frame.validate(),
+            Err(MeshFrameError::InvalidGeneration)
+        ));
+        frame = tiny_frame("field", 1, 1);
+        frame.chunk_count = 0;
+        assert!(matches!(
+            frame.validate(),
+            Err(MeshFrameError::InvalidChunkCount { .. })
+        ));
+        frame = tiny_frame("field", 1, 1);
+        frame.chunk_count = 2;
+        frame.sequence = 2;
+        assert!(matches!(
+            frame.validate(),
+            Err(MeshFrameError::InvalidSequence { .. })
+        ));
+        frame = tiny_frame("field", 1, 1);
+        frame.dtype = MeshDtype::BoolPacked;
+        frame.shape = vec![8];
+        frame.payload = vec![0x01];
+        assert!(frame.validate().is_ok());
+        frame.dtype = MeshDtype::BoolBytes;
+        frame.shape = vec![1];
+        assert!(frame.validate().is_ok());
+        frame.dtype = MeshDtype::F64LE;
+        frame.shape = Vec::new();
+        assert!(matches!(
+            frame.validate(),
+            Err(MeshFrameError::InvalidShape)
+        ));
+        frame.shape = vec![0];
+        assert!(matches!(
+            frame.validate(),
+            Err(MeshFrameError::InvalidShape)
+        ));
+        frame.shape = vec![u32::MAX; 3];
+        assert!(matches!(
+            frame.validate(),
+            Err(MeshFrameError::ShapeOverflow)
+        ));
+        frame.shape = vec![(MAX_MESH_RESOURCE_BYTES / 8 + 1) as u32];
+        assert!(matches!(
+            frame.validate(),
+            Err(MeshFrameError::ResourceTooLarge { .. })
+        ));
+
+        assert!(matches!(
+            MeshFrame::decode("not json", &[0; 8]),
+            Err(MeshFrameError::InvalidHeader { .. })
+        ));
+        let wrong_type = serde_json::json!({
+            "type": "not_mesh_frame",
+            "resource_id": "field",
+            "generation": 1,
+            "sequence": 0,
+            "chunk_count": 1,
+            "kind": "field",
+            "dtype": "u64le",
+            "shape": [1],
+            "byte_length": 8,
+        });
+        assert!(matches!(
+            MeshFrame::decode(&wrong_type.to_string(), &[0; 8]),
+            Err(MeshFrameError::UnexpectedType { .. })
+        ));
+        let short_header = serde_json::json!({
+            "type": "mesh_frame",
+            "resource_id": "field",
+            "generation": 1,
+            "sequence": 0,
+            "chunk_count": 1,
+            "kind": "field",
+            "dtype": "u64le",
+            "shape": [1],
+            "byte_length": 7,
+        });
+        assert!(matches!(
+            MeshFrame::decode(&short_header.to_string(), &[0; 8]),
+            Err(MeshFrameError::HeaderPayloadMismatch { .. })
+        ));
+        let mut empty = tiny_frame("field", 1, 1);
+        empty.payload.clear();
+        assert!(matches!(
+            empty.validate(),
+            Err(MeshFrameError::ShapePayloadMismatch { .. })
+        ));
+    }
+
+    #[test]
+    fn duplicate_and_incomplete_chunks_preserve_assembly_invariants() {
+        let mut first = tiny_frame("assembly", 1, 1);
+        first.chunk_count = 2;
+        first.payload = vec![1; 4];
+        let mut store = MeshFrameStore::new();
+        assert_eq!(
+            store.ingest(first.clone()).unwrap(),
+            MeshFrameOutcome::Incomplete
+        );
+        assert_eq!(
+            store.ingest(first.clone()).unwrap(),
+            MeshFrameOutcome::Incomplete
+        );
+
+        let mut second = first.clone();
+        second.sequence = 1;
+        assert!(matches!(
+            store.ingest(second).unwrap(),
+            MeshFrameOutcome::Assembled(_)
+        ));
+
+        let mut mismatch = first.clone();
+        mismatch.resource_id = "mismatch".into();
+        assert_eq!(
+            store.ingest(mismatch.clone()).unwrap(),
+            MeshFrameOutcome::Incomplete
+        );
+        mismatch.sequence = 1;
+        mismatch.dtype = MeshDtype::F32LE;
+        assert!(matches!(
+            store.ingest(mismatch),
+            Err(MeshFrameError::MetadataMismatch)
+        ));
+
+        let mut short = first;
+        short.resource_id = "short".into();
+        short.payload = vec![1; 3];
+        let mut short_store = MeshFrameStore::new();
+        assert_eq!(
+            short_store.ingest(short.clone()).unwrap(),
+            MeshFrameOutcome::Incomplete
+        );
+        let mut bad_second = short.clone();
+        bad_second.sequence = 1;
+        assert!(matches!(
+            short_store.ingest(bad_second),
+            Err(MeshFrameError::AssembledPayloadMismatch { .. })
+        ));
+        assert_eq!(short_store.stats().in_flight, 0);
+
+        let mut corrected_first = short.clone();
+        corrected_first.payload = vec![1; 4];
+        assert_eq!(
+            short_store.ingest(corrected_first).unwrap(),
+            MeshFrameOutcome::Incomplete
+        );
+        let mut corrected_second = short;
+        corrected_second.sequence = 1;
+        corrected_second.payload = vec![1; 4];
+        let MeshFrameOutcome::Assembled(resource) = short_store
+            .ingest(corrected_second)
+            .expect("a corrected retransmission must recover the same generation")
+        else {
+            panic!("corrected chunks should assemble");
+        };
+        assert_eq!(resource.payload, vec![1; 8]);
+    }
+
+    #[test]
+    fn reference_counts_and_budget_pressure_are_explicit() {
+        let mut store = MeshFrameStore::with_budget(8);
+        assert!(matches!(
+            store.ingest(tiny_frame("held", 1, 1)).unwrap(),
+            MeshFrameOutcome::Assembled(_)
+        ));
+        assert!(store.retain("held", 1));
+        assert!(store.retain("held", 1));
+        assert_eq!(store.stats().references, 2);
+        assert!(store.release_reference("held", 1));
+        assert_eq!(store.stats().references, 1);
+        assert!(store.release_reference("held", 1));
+        assert!(!store.release_reference("held", 1));
+
+        assert!(matches!(
+            store.ingest(tiny_frame("blocked", 1, 2)).unwrap(),
+            MeshFrameOutcome::Assembled(_)
+        ));
+        assert!(store.retain("blocked", 1));
+        assert!(matches!(
+            store.ingest(tiny_frame("third", 1, 3)),
+            Err(MeshFrameError::ResourceTooLarge { limit: 8 })
+        ));
+        assert!(store.release_reference("blocked", 1));
+        assert!(store.release("blocked", 1));
+        assert!(matches!(
+            store.ingest(tiny_frame("third", 1, 3)).unwrap(),
+            MeshFrameOutcome::Assembled(_)
+        ));
+        assert!(!store.retain("missing", 1));
+        assert!(!store.release("missing", 1));
+    }
+
+    #[test]
+    fn clear_preserves_generation_history_for_stale_handles() {
+        let mut store = MeshFrameStore::new();
+        let frame = fixture();
+        let resource_id = frame.resource_id.clone();
+        assert!(matches!(
+            store.ingest(frame).unwrap(),
+            MeshFrameOutcome::Assembled(_)
+        ));
+        store.clear();
+
+        assert_eq!(
+            store.ingest(fixture()).unwrap(),
+            MeshFrameOutcome::DroppedStale
+        );
+
+        let mut replacement = fixture();
+        replacement.generation = 2;
+        assert!(matches!(
+            store.ingest(replacement).unwrap(),
+            MeshFrameOutcome::Assembled(_)
+        ));
+        assert!(store.get(&resource_id, 1).is_none());
+        assert!(store.get(&resource_id, 2).is_some());
+    }
+
+    #[test]
+    fn release_removes_evicted_key_from_fifo_order() {
+        let mut store = MeshFrameStore::new();
+        let frame = fixture();
+        let resource_id = frame.resource_id.clone();
+        assert!(matches!(
+            store.ingest(frame).unwrap(),
+            MeshFrameOutcome::Assembled(_)
+        ));
+        assert_eq!(store.order.len(), 1);
+        assert!(store.release(&resource_id, 1));
+        assert!(store.order.is_empty());
+        assert_eq!(store.stats().bytes_used, 0);
+    }
+
+    #[test]
+    fn referenced_resources_are_not_evicted_or_explicitly_released() {
+        let mut store = MeshFrameStore::with_budget(16);
+        assert!(matches!(
+            store.ingest(tiny_frame("first", 1, 1)).unwrap(),
+            MeshFrameOutcome::Assembled(_)
+        ));
+        assert!(matches!(
+            store.ingest(tiny_frame("second", 1, 2)).unwrap(),
+            MeshFrameOutcome::Assembled(_)
+        ));
+        assert!(store.retain("first", 1));
+        assert_eq!(store.stats().referenced_resources, 1);
+        assert_eq!(store.stats().references, 1);
+        assert!(!store.release("first", 1));
+
+        assert!(matches!(
+            store.ingest(tiny_frame("third", 1, 3)).unwrap(),
+            MeshFrameOutcome::Assembled(_)
+        ));
+        assert!(store.get("first", 1).is_some());
+        assert!(store.get("second", 1).is_none());
+        assert!(store.release_reference("first", 1));
+        assert!(store.release("first", 1));
+        assert_eq!(store.stats().references, 0);
+    }
+
+    #[test]
+    fn newer_generation_keeps_referenced_older_generation_until_release() {
+        let mut store = MeshFrameStore::with_budget(24);
+        assert!(matches!(
+            store.ingest(tiny_frame("field", 1, 1)).unwrap(),
+            MeshFrameOutcome::Assembled(_)
+        ));
+        assert!(store.retain("field", 1));
+        assert!(matches!(
+            store.ingest(tiny_frame("field", 2, 2)).unwrap(),
+            MeshFrameOutcome::Assembled(_)
+        ));
+        assert!(store.get("field", 1).is_some());
+        assert!(store.get("field", 2).is_some());
+        assert!(store.release_reference("field", 1));
+        assert!(store.release("field", 1));
+        assert!(store.get("field", 2).is_some());
+    }
+
+    #[test]
+    fn alternating_field_updates_stay_bounded_while_geometry_is_retained() {
+        let mut store = MeshFrameStore::with_budget(32);
+        assert!(matches!(
+            store.ingest(tiny_frame("geometry", 1, 7)).unwrap(),
+            MeshFrameOutcome::Assembled(_)
+        ));
+        assert!(store.retain("geometry", 1));
+
+        let mut maximum_resources = 0;
+        let mut maximum_bytes = 0;
+        for generation in 1..=1_000 {
+            assert!(matches!(
+                store
+                    .ingest(tiny_frame("field", generation, (generation % 251) as u8))
+                    .unwrap(),
+                MeshFrameOutcome::Assembled(_)
+            ));
+            let stats = store.stats();
+            maximum_resources = maximum_resources.max(stats.resources);
+            maximum_bytes = maximum_bytes.max(stats.bytes_used);
+            assert!(stats.resources <= 2);
+            assert!(stats.bytes_used <= 32);
+            assert_eq!(stats.referenced_resources, 1);
+            assert_eq!(stats.references, 1);
+            assert!(store.get("geometry", 1).is_some());
+            assert!(store.get("field", generation).is_some());
+        }
+
+        assert_eq!(maximum_resources, 2);
+        assert!(maximum_bytes <= 32);
+        assert!(store.release_reference("geometry", 1));
+        assert!(store.release("geometry", 1));
+        assert!(store.release("field", 1_000));
+        let stats = store.stats();
+        assert_eq!(stats.resources, 0);
+        assert_eq!(stats.bytes_used, 0);
+        assert_eq!(stats.references, 0);
     }
 }

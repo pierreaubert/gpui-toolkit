@@ -12,7 +12,7 @@ use d3rs::mesh::{
 #[cfg(feature = "gpu-3d")]
 use glam::{Vec3, Vec4};
 #[cfg(feature = "gpu-3d")]
-use image::{ColorType, ImageEncoder, codecs::png::PngEncoder};
+use image::{ColorType, ImageEncoder, Rgba, RgbaImage, codecs::png::PngEncoder};
 use std::fmt::Write as _;
 
 const MICRO_BAND_COUNT: usize = 64;
@@ -203,8 +203,9 @@ impl MeshPlot {
             .copied()
             .map(|point| project_2d(horizontal, vertical, point))
             .collect();
-        let full_x_domain = domain(&points, 0);
-        let full_y_domain = domain(&points, 1);
+        let (configured_x_domain, configured_y_domain) = self.axes.configured_ranges();
+        let full_x_domain = configured_x_domain.unwrap_or_else(|| domain(&points, 0));
+        let full_y_domain = configured_y_domain.unwrap_or_else(|| domain(&points, 1));
         let (x_domain, y_domain) = live_viewport(self, full_x_domain, full_y_domain);
         let projector = Projector::new(&points, layout, self.axes.equal_aspect)
             .with_viewport(x_domain, y_domain);
@@ -241,14 +242,16 @@ impl MeshPlot {
             );
         }
 
+        let (horizontal_title, vertical_title) = self.axes.titles(&self.view, horizontal, vertical);
         draw_mesh_axes(
             &mut svg,
             options,
             projector.frame(),
             x_domain,
             y_domain,
-            horizontal,
-            vertical,
+            &horizontal_title,
+            &vertical_title,
+            self.axes.show_grid(),
         );
         render_mode(self, &mut svg, &projector, value_range)?;
 
@@ -326,6 +329,33 @@ impl MeshPlot {
         let (base_width, base_height) = self.chart_size.layout_dimensions();
         let width = scaled_png_dimension(base_width, scale, "png width")?;
         let height = scaled_png_dimension(base_height, scale, "png height")?;
+        // Keep the 3D export viewport aligned with the live MeshPlot layout.
+        // The interactive scene is rendered inside the axis frame rather
+        // than across the title/axis margins; using the full image aspect
+        // here changes the current camera projection and makes framebuffer
+        // and export silhouettes disagree.
+        let margin_left = scaled_png_dimension(50.0, scale, "png left margin")?;
+        let margin_right = scaled_png_dimension(
+            if self.colorbar.is_some() { 86.0 } else { 20.0 },
+            scale,
+            "png right margin",
+        )?;
+        let margin_top = scaled_png_dimension(
+            if self.title.is_some() {
+                crate::TITLE_AREA_HEIGHT
+            } else {
+                10.0
+            },
+            scale,
+            "png top margin",
+        )?;
+        let margin_bottom = scaled_png_dimension(30.0, scale, "png bottom margin")?;
+        let plot_width = width
+            .saturating_sub(margin_left.saturating_add(margin_right))
+            .max(1);
+        let plot_height = height
+            .saturating_sub(margin_top.saturating_add(margin_bottom))
+            .max(1);
         let (mesh, field) = super::mesh_plot_chart::render_3d_mesh_and_field_for_view(
             &self.mesh,
             self.field.as_ref(),
@@ -348,11 +378,11 @@ impl MeshPlot {
                 let mut orbit = OrbitControls::default();
                 orbit.fit_to_bounds(
                     d3rs::mesh::MeshBounds::from_positions(&mesh.positions),
-                    width as f32 / height.max(1) as f32,
+                    plot_width as f32 / plot_height as f32,
                 );
                 orbit.to_camera()
             });
-        camera.aspect = width as f32 / height.max(1) as f32;
+        camera.aspect = plot_width as f32 / plot_height as f32;
         {
             let mut scene_state = scene.borrow_mut();
             let origin = scene_state
@@ -370,10 +400,22 @@ impl MeshPlot {
                 )))
             .to_cols_array_2d();
         }
-        let image = {
+        let plot_image = {
             let scene = scene.borrow();
-            d3rs::mesh::gpu::render_offscreen(scene.upload.as_ref(), &scene, width, height)
+            d3rs::mesh::gpu::render_offscreen(
+                scene.upload.as_ref(),
+                &scene,
+                plot_width,
+                plot_height,
+            )
         };
+        let mut image = RgbaImage::from_pixel(width, height, Rgba([0, 0, 0, 0]));
+        image::imageops::overlay(
+            &mut image,
+            &plot_image,
+            i64::from(margin_left),
+            i64::from(margin_top),
+        );
         let mut output = Vec::new();
         PngEncoder::new(&mut output)
             .write_image(image.as_raw(), width, height, ColorType::Rgba8.into())
@@ -640,6 +682,17 @@ impl MeshPlot {
             );
         }
         svg.push_str("</g>\n");
+        if let Some(colorbar) = &self.colorbar {
+            let colorbar_range = range.map_or(self.color_range, |range| ColorRange::Fixed {
+                min: range[0],
+                max: range[1],
+            });
+            let colorbar = colorbar
+                .clone()
+                .color_scale(self.color_scale.clone())
+                .range(colorbar_range);
+            svg.push_str(&colorbar.to_svg(layout.right + 16.0, layout.top, layout.height()));
+        }
         let selection = self
             .state
             .as_ref()
@@ -685,8 +738,9 @@ impl MeshPlot {
             .copied()
             .map(|point| project_2d(horizontal, vertical, point))
             .collect();
-        let x_range = finite_domain(&points, 0);
-        let y_range = finite_domain(&points, 1);
+        let (configured_x_range, configured_y_range) = self.axes.configured_ranges();
+        let x_range = configured_x_range.or_else(|| finite_domain(&points, 0));
+        let y_range = configured_y_range.or_else(|| finite_domain(&points, 1));
         let (x_range, y_range) = match (x_range, y_range) {
             (Some(x), Some(y)) => {
                 let (x, y) = live_viewport(self, x, y);
@@ -735,18 +789,13 @@ impl MeshPlot {
                 )
             },
         );
-        let controls = match self.interactions {
-            super::PlotInteractions::InspectAndNavigate => {
-                "Available controls: inspect, select, pan, zoom, fit, and reset."
-            }
-            super::PlotInteractions::None => "Available controls: none.",
-        };
+        let controls = self.interactions.controls_summary();
+        let (horizontal_title, vertical_title) = self.axes.titles(&self.view, horizontal, vertical);
         let description = format!(
-            "{name}: {} view with {} vertices and {} triangles. {}, X range {:.3} to {:.3}, Y range {:.3} to {:.3}. {field_text} Displayed value range {}. Wireframe {}. {selected} {controls}",
+            "{name}: {} view with {} vertices and {} triangles. Axes {horizontal_title} and {vertical_title}. X range {:.3} to {:.3}, Y range {:.3} to {:.3}. {field_text} Displayed value range {}. Wireframe {}. {selected} {controls}",
             view_name(&self.view),
             self.mesh.positions.len(),
             self.mesh.triangles.len(),
-            field_text,
             x_range.map_or(0.0, |range| range[0]),
             x_range.map_or(0.0, |range| range[1]),
             y_range.map_or(0.0, |range| range[0]),
@@ -834,6 +883,19 @@ fn validate_for_export(plot: &MeshPlot) -> Result<(), ChartError> {
             }
         }
     }
+    for (field, range) in [
+        ("axes.horizontal_range", plot.axes.configured_ranges().0),
+        ("axes.vertical_range", plot.axes.configured_ranges().1),
+    ] {
+        if let Some([min, max]) = range
+            && (!min.is_finite() || !max.is_finite() || max <= min)
+        {
+            return Err(ChartError::InvalidData {
+                field,
+                reason: "axis range must be finite and strictly increasing",
+            });
+        }
+    }
     if let Some(range) = plot.field.as_ref().and_then(finite_field_range) {
         plot.color_range.resolve(range[0], range[1])?;
     }
@@ -913,14 +975,6 @@ fn association_name(association: ScalarAssociation) -> &'static str {
     }
 }
 
-fn axis_name(axis: CoordinateAxis) -> &'static str {
-    match axis {
-        CoordinateAxis::X => "X",
-        CoordinateAxis::Y => "Y",
-        CoordinateAxis::Z => "Z",
-    }
-}
-
 fn domain(points: &[[f64; 2]], axis: usize) -> [f64; 2] {
     finite_domain(points, axis).unwrap_or([0.0, 1.0])
 }
@@ -943,12 +997,15 @@ fn draw_mesh_axes(
     layout: SvgLayout,
     x_domain: [f64; 2],
     y_domain: [f64; 2],
-    horizontal: CoordinateAxis,
-    vertical: CoordinateAxis,
+    horizontal_title: &str,
+    vertical_title: &str,
+    show_grid: bool,
 ) {
     if !options.show_axes {
         return;
     }
+    let horizontal_title = escape_xml(horizontal_title);
+    let vertical_title = escape_xml(vertical_title);
     let grid_color = "#e6e6e6";
     let axis_color = "#666";
     for step in 0..=4 {
@@ -957,16 +1014,18 @@ fn draw_mesh_axes(
         let y = layout.bottom - layout.height() * t;
         let x_value = x_domain[0] + (x_domain[1] - x_domain[0]) * t;
         let y_value = y_domain[0] + (y_domain[1] - y_domain[0]) * t;
-        let _ = writeln!(
-            svg,
-            "<line class=\"gpui-px-mesh-grid\" x1=\"{x:.2}\" y1=\"{:.2}\" x2=\"{x:.2}\" y2=\"{:.2}\" stroke=\"{grid_color}\" stroke-width=\"1\"/>",
-            layout.top, layout.bottom
-        );
-        let _ = writeln!(
-            svg,
-            "<line class=\"gpui-px-mesh-grid\" x1=\"{:.2}\" y1=\"{y:.2}\" x2=\"{:.2}\" y2=\"{y:.2}\" stroke=\"{grid_color}\" stroke-width=\"1\"/>",
-            layout.left, layout.right
-        );
+        if show_grid {
+            let _ = writeln!(
+                svg,
+                "<line class=\"gpui-px-mesh-grid\" x1=\"{x:.2}\" y1=\"{:.2}\" x2=\"{x:.2}\" y2=\"{:.2}\" stroke=\"{grid_color}\" stroke-width=\"1\"/>",
+                layout.top, layout.bottom
+            );
+            let _ = writeln!(
+                svg,
+                "<line class=\"gpui-px-mesh-grid\" x1=\"{:.2}\" y1=\"{y:.2}\" x2=\"{:.2}\" y2=\"{y:.2}\" stroke=\"{grid_color}\" stroke-width=\"1\"/>",
+                layout.left, layout.right
+            );
+        }
         let _ = writeln!(
             svg,
             "<text class=\"gpui-px-mesh-axis-label\" x=\"{x:.2}\" y=\"{:.2}\" text-anchor=\"middle\" fill=\"{axis_color}\">{x_value:.3}</text>",
@@ -994,7 +1053,7 @@ fn draw_mesh_axes(
         "<text class=\"gpui-px-mesh-axis-title\" x=\"{:.2}\" y=\"{:.2}\" text-anchor=\"middle\">{}</text>",
         (layout.left + layout.right) * 0.5,
         layout.bottom + 34.0,
-        axis_name(horizontal)
+        horizontal_title
     );
     let _ = writeln!(
         svg,
@@ -1003,7 +1062,7 @@ fn draw_mesh_axes(
         (layout.top + layout.bottom) * 0.5,
         layout.left - 38.0,
         (layout.top + layout.bottom) * 0.5,
-        axis_name(vertical)
+        vertical_title
     );
 }
 
@@ -1307,6 +1366,7 @@ fn isoline_segment_3d(
     (hits.len() == 2 && hits[0] != hits[1]).then(|| (hits[0], hits[1]))
 }
 
+#[cfg(feature = "gpu-3d")]
 fn contour_band_midpoint(value: f64, levels: Option<&[f64]>) -> f64 {
     let Some(levels) = levels else {
         return value;
@@ -1461,7 +1521,9 @@ fn triangle_area2(points: &[[f64; 2]; 3]) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{ColorRange, ColorScale, Colorbar, MeshPlotView, MeshRenderMode, mesh_plot};
+    use crate::{
+        Axes2d, ColorRange, ColorScale, Colorbar, MeshPlotView, MeshRenderMode, mesh_plot,
+    };
     use d3rs::mesh::{ContourLevels, CoordinateAxis, ScalarAssociation};
     use std::sync::Arc;
 
@@ -1562,6 +1624,28 @@ mod tests {
         assert!(svg.contains("gpui-px-mesh-3d-axes"));
         assert!(svg.contains("data-axis=\"X\""));
         assert_eq!(svg, plot.to_svg().unwrap());
+    }
+
+    #[cfg(feature = "gpu-3d")]
+    #[test]
+    fn surface_svg_includes_colorbar_for_the_displayed_value_range() {
+        let svg = mesh_plot(square_mesh())
+            .field(vertex_field())
+            .view(MeshPlotView::Surface3d)
+            .mode(MeshRenderMode::ScalarFill {
+                interpolation: super::super::types::FieldInterpolation::Smooth,
+            })
+            .color_range(ColorRange::Fixed {
+                min: 0.25,
+                max: 1.75,
+            })
+            .colorbar(Colorbar::new("Pressure").unit("dB SPL"))
+            .to_svg()
+            .unwrap();
+        assert!(svg.contains("gpui-px-colorbar"));
+        assert!(svg.contains("data-lower=\"0.250000\""));
+        assert!(svg.contains("data-upper=\"1.750000\""));
+        assert!(svg.contains("Pressure"));
     }
 
     #[cfg(feature = "gpu-3d")]
@@ -1784,6 +1868,31 @@ mod tests {
     }
 
     #[test]
+    fn mesh_plot_svg_uses_custom_axes_titles_and_units() {
+        let svg = plot()
+            .axes(Axes2d::equal_aspect().labels("radius", "height").unit("m"))
+            .to_svg()
+            .unwrap();
+        assert!(svg.contains(">radius (m)</text>"));
+        assert!(svg.contains(">height (m)</text>"));
+    }
+
+    #[test]
+    fn mesh_plot_svg_honors_explicit_axis_ranges_and_grid_visibility() {
+        let svg = plot()
+            .axes(
+                Axes2d::equal_aspect()
+                    .ranges([-1.0, 2.0], [3.0, 8.0])
+                    .grid(false),
+            )
+            .to_svg()
+            .unwrap();
+        assert!(svg.contains("data-x-range=\"-1.000000,2.000000\""));
+        assert!(svg.contains("data-y-range=\"3.000000,8.000000\""));
+        assert!(!svg.contains("gpui-px-mesh-grid"));
+    }
+
+    #[test]
     fn mesh_plot_svg_uses_retained_toolbar_style() {
         use crate::{MeshPlotState, Wireframe};
         use std::cell::RefCell;
@@ -1849,6 +1958,7 @@ mod tests {
         assert!(summary.description.contains("dB SPL"));
         assert!(summary.description.contains("vertex association"));
         assert!(summary.description.contains("Available controls"));
+        assert_eq!(summary.description.matches("Field Pressure").count(), 1);
     }
 
     #[test]

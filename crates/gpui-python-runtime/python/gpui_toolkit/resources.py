@@ -87,6 +87,8 @@ class ResourceStats:
     bytes_used: int
     byte_budget: int
     evictions: int
+    referenced_entries: int = 0
+    references: int = 0
 
 
 @dataclass(frozen=True)
@@ -174,7 +176,11 @@ class ResourceStore:
         if byte_budget <= 0:
             raise ValueError("resource byte budget must be positive")
         self._budget = byte_budget
-        self._entries: OrderedDict[str, tuple[Resource, bytes, int]] = OrderedDict()
+        # Keep retained older generations alive while a consumer transitions
+        # to a replacement.  The latest generation is indexed separately so
+        # unretained replacements can still discard their predecessor
+        # immediately without making stale handles valid again.
+        self._entries: OrderedDict[tuple[str, int], tuple[Resource, bytes, int]] = OrderedDict()
         self._generations: dict[str, int] = {}
         self._used = 0
         self._evictions = 0
@@ -199,9 +205,8 @@ class ResourceStore:
             raise ResourceError("mesh resource exceeds 1 GiB")
         generation = self._generations.get(id, 0) + 1
         self._generations[id] = generation
-        old = self._entries.pop(id, None)
-        if old is not None:
-            self._used -= len(old[1])
+        old_key = (id, generation - 1)
+        old = self._entries.get(old_key)
         resource = Resource(
             id=id,
             generation=generation,
@@ -213,10 +218,27 @@ class ResourceStore:
             byte_order=byte_order,
             finite_policy=finite_policy,
         )
-        self._entries[id] = (resource, payload, 0)
+        # Preflight the budget before mutating the store.  This keeps a
+        # failed replacement from evicting unrelated resources or leaving an
+        # over-budget newest generation behind.
+        old_reclaimable = old is not None and old[2] == 0
+        projected = self._used - (len(old[1]) if old_reclaimable else 0) + len(payload)
+        evictable = sum(
+            len(entry[1])
+            for key, entry in self._entries.items()
+            if entry[2] == 0 and key != old_key
+        )
+        if projected > self._budget and projected - self._budget > evictable:
+            raise ResourceError("resource budget exhausted by retained resources")
+
+        if old_reclaimable:
+            self._entries.pop(old_key)
+            self._used -= len(old[1])
+
+        self._entries[(id, generation)] = (resource, payload, 0)
         self._used += len(payload)
         self._evict()
-        if id not in self._entries:
+        if (id, generation) not in self._entries:
             raise ResourceError("resource budget exhausted by retained resources")
         return resource
 
@@ -313,37 +335,71 @@ class ResourceStore:
             context.mesh_frame(header, payload)
 
     def read(self, resource: Resource) -> bytes:
-        entry = self._entries.get(resource.id)
-        if entry is None or entry[0].generation != resource.generation:
+        key = (resource.id, resource.generation)
+        entry = self._entries.get(key)
+        if entry is None:
             raise StaleResourceError(f"resource {resource.id!r} generation is no longer available")
-        self._entries.move_to_end(resource.id)
+        self._entries.move_to_end(key)
         return entry[1]
 
     def retain(self, resource: Resource) -> None:
         entry = self._checked(resource)
-        self._entries[resource.id] = (entry[0], entry[1], entry[2] + 1)
+        self._entries[(resource.id, resource.generation)] = (entry[0], entry[1], entry[2] + 1)
 
     def release(self, resource: Resource) -> None:
         entry = self._checked(resource)
-        self._entries[resource.id] = (entry[0], entry[1], max(0, entry[2] - 1))
+        key = (resource.id, resource.generation)
+        remaining = max(0, entry[2] - 1)
+        if remaining == 0 and self._generations.get(resource.id) != resource.generation:
+            self._entries.pop(key)
+            self._used -= len(entry[1])
+            return
+        self._entries[key] = (entry[0], entry[1], remaining)
         self._evict()
 
+    def drop(self, resource: Resource) -> None:
+        """Explicitly remove an unretained resource from local storage.
+
+        Generation history is intentionally kept so a later resource with the
+        same id cannot make an old handle valid again.
+        """
+        entry = self._checked(resource)
+        if entry[2] > 0:
+            raise ResourceError(f"resource {resource.id!r} is still retained")
+        self._entries.pop((resource.id, resource.generation))
+        self._used -= len(entry[1])
+
+    def clear(self) -> None:
+        """Drop all unconditionally retained bytes while preserving generations."""
+        self._entries.clear()
+        self._used = 0
+
     def stats(self) -> ResourceStats:
-        return ResourceStats(len(self._entries), self._used, self._budget, self._evictions)
+        return ResourceStats(
+            len(self._entries),
+            self._used,
+            self._budget,
+            self._evictions,
+            sum(entry[2] > 0 for entry in self._entries.values()),
+            sum(entry[2] for entry in self._entries.values()),
+        )
 
     def _checked(self, resource: Resource) -> tuple[Resource, bytes, int]:
-        entry = self._entries.get(resource.id)
-        if entry is None or entry[0].generation != resource.generation:
+        entry = self._entries.get((resource.id, resource.generation))
+        if entry is None:
             raise StaleResourceError(f"resource {resource.id!r} generation is no longer available")
         return entry
 
     def _evict(self) -> None:
         while self._used > self._budget:
-            candidate = next(((id, entry) for id, entry in self._entries.items() if entry[2] == 0), None)
+            candidate = next(
+                ((key, entry) for key, entry in self._entries.items() if entry[2] == 0),
+                None,
+            )
             if candidate is None:
                 raise ResourceError("resource budget exhausted by retained resources")
-            id, entry = candidate
-            self._entries.pop(id)
+            key, entry = candidate
+            self._entries.pop(key)
             self._used -= len(entry[1])
             self._evictions += 1
 

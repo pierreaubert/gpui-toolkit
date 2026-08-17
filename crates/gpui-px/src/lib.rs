@@ -186,14 +186,14 @@ pub use isoline::{IsolineChart, isoline};
 pub use line::{ChartTheme, LegendClickCallback, LegendPosition, LineChart, line};
 #[cfg(feature = "gpui")]
 pub use mesh_plot::{
-    Axes2d, FieldInterpolation, MeshPlot, MeshPlotPick, MeshPlotState, MeshPlotView,
-    MeshRenderMode, PlotInteractions, Wireframe, mesh_plot,
+    Axes2d, FieldInterpolation, MeshPlot, MeshPlotBackend, MeshPlotPick, MeshPlotState,
+    MeshPlotTimingStats, MeshPlotView, MeshRenderMode, PlotInteractions, Wireframe, mesh_plot,
 };
 #[cfg(feature = "gpui")]
 pub use pie::{PieChart, donut, pie};
 #[cfg(feature = "gpui")]
 pub use scatter::{ScatterChart, ScatterTheme, scatter};
-#[cfg(feature = "gpu-3d")]
+#[cfg(all(feature = "gpui", feature = "gpu-3d"))]
 pub use surface3d::{Surface3DChart, surface3d};
 #[cfg(feature = "gpui")]
 pub use treemap::{TilingMethod, Treemap, TreemapNode, treemap};
@@ -223,7 +223,7 @@ pub mod mesh_plot;
 mod pie;
 #[cfg(feature = "gpui")]
 mod scatter;
-#[cfg(feature = "gpu-3d")]
+#[cfg(all(feature = "gpui", feature = "gpu-3d"))]
 mod surface3d;
 #[cfg(feature = "gpui")]
 mod treemap;

@@ -1,4 +1,5 @@
 use criterion::{Criterion, criterion_group, criterion_main};
+use d3rs::mesh::gpu::MeshLodController;
 use d3rs::mesh::{
     CoordinateAxis, MarchingTriangles, MeshBvh, MeshTopology, RevolveSpec, ScalarAssociation,
     ScalarField, TriangleMesh, prepare_upload, revolve, revolve_field,
@@ -91,13 +92,17 @@ fn mesh_prep(c: &mut Criterion) {
             CoordinateAxis::Y,
         )
         .expect("benchmark fixture uses a vertex field");
-        let isoline_levels = [0.25, 0.5, 0.75];
+        // Twelve levels exercise the release contour workload rather than the
+        // three-level smoke fixture used by the original benchmark.
+        let contour_levels = [
+            20.0, 40.0, 60.0, 80.0, 100.0, 120.0, 140.0, 160.0, 180.0, 200.0, 220.0, 240.0,
+        ];
         group.bench_function(
             format!("marching_isolines_{triangle_count}_triangles"),
-            |b| b.iter(|| black_box(marching.isolines(&isoline_levels))),
+            |b| b.iter(|| black_box(marching.isolines(&contour_levels))),
         );
         group.bench_function(format!("marching_bands_{triangle_count}_triangles"), |b| {
-            b.iter(|| black_box(marching.filled_bands(&[0.25, 0.5, 0.75])))
+            b.iter(|| black_box(marching.filled_bands(&contour_levels)))
         });
 
         group.bench_function(format!("bvh_{triangle_count}_triangles"), |b| {
@@ -147,6 +152,37 @@ fn mesh_prep(c: &mut Criterion) {
             })
         },
     );
+
+    // Drag-time LOD evidence uses the same connected topology as the release
+    // mesh-preparation workloads. Proxy and full uploads are measured
+    // separately, while the controller transition and association-safe field
+    // mapping are measured without involving a platform GPU.
+    let lod_mesh = fixture(100_000);
+    let lod_field = vertex_field(&lod_mesh);
+    let mut lod_controller = MeshLodController::with_lod_threshold(lod_mesh.clone(), 10_000);
+    let proxy_mesh = lod_controller
+        .proxy_mesh()
+        .expect("large connected mesh must have a drag proxy")
+        .clone();
+    let proxy_topology = MeshTopology::build(&proxy_mesh.triangles);
+    let full_topology = MeshTopology::build(&lod_mesh.triangles);
+    group.bench_function("lod_proxy_upload_100000_triangles", |b| {
+        b.iter(|| black_box(prepare_upload(&proxy_mesh, &proxy_topology)))
+    });
+    group.bench_function("lod_full_restore_upload_100000_triangles", |b| {
+        b.iter(|| black_box(prepare_upload(&lod_mesh, &full_topology)))
+    });
+    group.bench_function("lod_proxy_field_mapping_100000_triangles", |b| {
+        b.iter(|| black_box(lod_controller.active_field(&lod_field)))
+    });
+    group.bench_function("lod_drag_transition_100000_triangles", |b| {
+        b.iter(|| {
+            lod_controller.begin_camera_drag();
+            let proxy_count = lod_controller.active_mesh().triangles.len();
+            lod_controller.end_camera_drag();
+            black_box((proxy_count, lod_controller.active_mesh().triangles.len()))
+        })
+    });
     group.finish();
 }
 criterion_group!(benches, mesh_prep);

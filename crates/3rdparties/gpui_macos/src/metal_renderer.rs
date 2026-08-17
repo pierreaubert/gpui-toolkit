@@ -185,7 +185,20 @@ impl MetalRenderer {
         Self::new_internal(device, None, true, instance_buffer_pool)
     }
 
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn try_new_headless(instance_buffer_pool: Arc<Mutex<InstanceBufferPool>>) -> Option<Self> {
+        let device = Self::try_create_device()?;
+        Some(Self::new_internal(device, None, true, instance_buffer_pool))
+    }
+
     fn create_device() -> metal::Device {
+        Self::try_create_device().unwrap_or_else(|| {
+            log::error!("unable to access a compatible graphics device");
+            std::process::exit(1);
+        })
+    }
+
+    fn try_create_device() -> Option<metal::Device> {
         // Prefer low‐power integrated GPUs on Intel Mac. On Apple
         // Silicon, there is only ever one GPU, so this is equivalent to
         // `metal::Device::system_default()`.
@@ -193,17 +206,14 @@ impl MetalRenderer {
             .into_iter()
             .min_by_key(|d| (d.is_removable(), !d.is_low_power()))
         {
-            d
+            Some(d)
         } else {
             // For some reason `all()` can return an empty list, see https://github.com/zed-industries/zed/issues/37689
             // In that case, we fall back to the system default device.
             log::error!(
                 "Unable to enumerate Metal devices; attempting to use system default device"
             );
-            metal::Device::system_default().unwrap_or_else(|| {
-                log::error!("unable to access a compatible graphics device");
-                std::process::exit(1);
-            })
+            metal::Device::system_default()
         }
     }
 
@@ -1876,6 +1886,15 @@ impl MetalHeadlessRenderer {
         let instance_buffer_pool = Arc::new(Mutex::new(InstanceBufferPool::default()));
         let renderer = MetalRenderer::new_headless(instance_buffer_pool);
         Self { renderer }
+    }
+
+    /// Construct a headless renderer when the host exposes a Metal device.
+    /// Native visual QA can use this to report a developer skip instead of
+    /// terminating the entire test process on a host without Metal.
+    pub fn try_new() -> Option<Self> {
+        let instance_buffer_pool = Arc::new(Mutex::new(InstanceBufferPool::default()));
+        let renderer = MetalRenderer::try_new_headless(instance_buffer_pool)?;
+        Some(Self { renderer })
     }
 }
 

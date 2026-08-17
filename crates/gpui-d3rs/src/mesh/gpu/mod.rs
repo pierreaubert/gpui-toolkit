@@ -7,6 +7,11 @@
 mod retained;
 pub use retained::*;
 
+#[cfg(all(any(feature = "gpu-2d", feature = "gpu-3d"), not(test)))]
+mod timestamp;
+#[cfg(all(any(feature = "gpu-2d", feature = "gpu-3d"), not(test)))]
+pub(crate) use timestamp::GpuTimestampRecorder;
+
 #[cfg(all(feature = "gpu-2d", not(test)))]
 mod shaders;
 
@@ -45,6 +50,8 @@ pub use element::{DEFAULT_LOD_THRESHOLD, MeshLodController, MeshSceneElement};
 mod offscreen;
 #[cfg(feature = "gpui")]
 pub use offscreen::render_offscreen;
+#[cfg(all(feature = "gpu-3d", not(test), not(target_family = "wasm")))]
+pub use offscreen::{render_offscreen_wgpu, render_offscreen_wgpu_with_camera};
 
 /// Stable GPU-facing revision for retained geometry buffers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]

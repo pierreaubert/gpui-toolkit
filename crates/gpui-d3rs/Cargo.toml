@@ -27,7 +27,10 @@ gpu-2d = ["dep:wgpu", "dep:bytemuck", "dep:glam", "dep:pollster", "dep:gpui_wgpu
 vello = ["dep:vello", "dep:vello_cpu", "dep:peniko", "dep:kurbo", "dep:bytemuck", "dep:log"]
 vello-gpui = ["vello", "gpui", "gpu-2d"]
 gpu-metal = ["gpu-2d", "gpu-3d", "gpui", "dep:metal", "dep:objc", "dep:gpui_macos"]
+metal-qa = ["gpu-metal", "gpui/test-support", "gpui_macos/test-support"]
 gpu-compute = ["gpu-2d"]
+# Real GPUI scene readback for adapter-backed product visual QA.
+headless-qa = ["gpu-3d", "gpui_wgpu/headless-qa"]
 urlencoding = ["dep:urlencoding"]
 
 [dependencies]
@@ -159,6 +162,16 @@ path = "examples/surface3d_demo.rs"
 required-features = ["gpu-3d"]
 
 [[example]]
+name = "mesh_wgpu_visual_capture"
+path = "examples/mesh_wgpu_visual_capture.rs"
+required-features = ["gpu-3d"]
+
+[[example]]
+name = "mesh_metal_visual_capture"
+path = "examples/mesh_metal_visual_capture.rs"
+required-features = ["metal-qa"]
+
+[[example]]
 name = "sphere_gallery_demo"
 path = "examples/sphere_gallery_demo.rs"
 required-features = ["gpu-3d"]
@@ -265,3 +278,13 @@ name = "vello2d_bench"
 path = "benches/vello2d_bench.rs"
 harness = false
 required-features = ["vello"]
+
+[[test]]
+name = "mesh_lod_evidence"
+path = "tests/mesh_lod_evidence.rs"
+required-features = ["gpu-3d"]
+
+[[test]]
+name = "mesh_metal_memory_evidence"
+path = "tests/mesh_metal_memory_evidence.rs"
+required-features = ["metal-qa"]

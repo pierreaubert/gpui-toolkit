@@ -143,7 +143,10 @@ fn capture_component_lab_cases_macos(
     let text_system = platform.text_system();
     drop(platform);
     let mut cx = HeadlessAppContext::with_platform(text_system, Arc::new(()), || {
-        Some(Box::new(MetalHeadlessRenderer::new()))
+        MetalHeadlessRenderer::try_new().map(|renderer| {
+            let renderer: Box<dyn gpui::PlatformHeadlessRenderer> = Box::new(renderer);
+            renderer
+        })
     });
     cx.update(|app| {
         app.set_global(ThemeState::with_variant(ThemeVariant::Light));

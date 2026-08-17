@@ -5,6 +5,7 @@
 //! source so a scalar field has the same visual contract in both views.
 
 pub const MESH_WGSL: &str = r#"
+
 struct Uniforms {
     view_transform: mat4x4<f32>,
     range: vec4<f32>,
@@ -23,10 +24,10 @@ struct VertexOut {
 fn vertex(@location(0) point: vec3<f32>, @builtin(vertex_index) index: u32) -> VertexOut {
     var output: VertexOut;
     output.position = uniforms.view_transform * vec4<f32>(point, 1.0);
-    // Cell-associated values are read by primitive_index in the fragment
-    // stage. The vertex value is only a harmless placeholder in that mode.
-    let vertex_field = uniforms.range.w > 0.5 && uniforms.style.z <= 0.5;
-    output.value = select(0.5, values[index], vertex_field);
+    // Cell-associated uploads are expanded to triangle-local vertices before
+    // they reach this pipeline. Both vertex- and cell-associated fields can
+    // therefore use the same portable interpolated value path.
+    output.value = select(0.5, values[index], uniforms.range.w > 0.5);
     return output;
 }
 
@@ -113,11 +114,16 @@ fn isoline_alpha(value: f32) -> f32 {
     return 1.0 - smoothstep(half_width, half_width + phase_per_pixel, distance);
 }
 
+// Keep this portable across the Naga revisions used by GPUI. Some supported
+// WGPU backends do not expose WGSL's isNan/isInf builtins yet.
+fn finite(value: f32) -> bool {
+    return value == value && abs(value) <= 3.402823466e38;
+}
+
 @fragment
-fn fragment(input: VertexOut, @builtin(primitive_index) primitive_index: u32) -> @location(0) vec4<f32> {
-    let cell_field = uniforms.style.z > 0.5;
-    let value = select(input.value, values[primitive_index], cell_field);
-    if (isNan(value) || isInf(value)) { discard; }
+fn fragment(input: VertexOut) -> @location(0) vec4<f32> {
+    let value = input.value;
+    if (!finite(value)) { discard; }
     let span = max(uniforms.range.y - uniforms.range.x, 1e-6);
     let normalized = clamp((value - uniforms.range.x) / span, 0.0, 1.0);
     let base = get_color(normalized, uniforms.range.z);
@@ -130,3 +136,17 @@ fn line_fragment(_input: VertexOut) -> @location(0) vec4<f32> {
     return vec4<f32>(0.08, 0.10, 0.14, 0.9);
 }
 "#;
+
+#[cfg(test)]
+mod tests {
+    use super::MESH_WGSL;
+
+    #[test]
+    fn cell_field_shader_uses_interpolated_values() {
+        assert!(!MESH_WGSL.contains("primitive_index"));
+        assert!(!MESH_WGSL.contains("isNan"));
+        assert!(!MESH_WGSL.contains("isInf"));
+        assert!(MESH_WGSL.contains("values[index]"));
+        assert!(MESH_WGSL.contains("let value = input.value;"));
+    }
+}

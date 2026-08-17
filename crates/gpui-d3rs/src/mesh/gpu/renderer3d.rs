@@ -6,6 +6,8 @@
 //! graphics adapter and lets the wgpu/Metal implementations share it.
 
 use crate::gpu3d::Camera3D;
+#[cfg(not(test))]
+use crate::mesh::gpu::GpuTimestampRecorder;
 use crate::mesh::gpu::{
     FieldRevision, GeometryRevision, MeshColorConfig, MeshGpuRenderer, RetainedMeshRenderer,
 };
@@ -14,6 +16,10 @@ use crate::mesh::upload_chunks;
 use crate::mesh::{MeshUpload, expand_cell_shading};
 #[cfg(not(test))]
 use glam::Vec3Swizzles;
+#[cfg(not(test))]
+use std::borrow::Cow;
+#[cfg(not(test))]
+use std::time::Instant;
 
 /// Retained 3D mesh state shared by platform renderers.
 ///
@@ -143,6 +149,15 @@ impl<B: MeshGpuRenderer> Mesh3DRenderer<B> {
         upload: &MeshUpload,
         force: bool,
     ) {
+        // Geometry preparation is also asynchronous. Never let a late lower
+        // revision replace the scene that is already visible.
+        if self
+            .backend
+            .geometry_revision()
+            .is_some_and(|current| revision.0 < current.0)
+        {
+            return;
+        }
         // Revisions are the cache key. A camera frame or a repeated render of
         // the same revision must not recreate GPU buffers unless the vertex
         // representation itself changed (for example, flat shading toggled).
@@ -180,6 +195,15 @@ impl<B: MeshGpuRenderer> MeshGpuRenderer for Mesh3DRenderer<B> {
     }
 
     fn write_field(&mut self, revision: FieldRevision, values: &[f32]) {
+        // Background preparation can finish out of order. A late lower
+        // revision must not overwrite the field already visible in the
+        // retained scene or trigger another adapter write.
+        if self
+            .field_revision
+            .is_some_and(|current| revision.0 < current.0)
+        {
+            return;
+        }
         self.backend.write_field(revision, values);
         self.field_revision = Some(revision);
     }
@@ -209,6 +233,7 @@ struct WgpuMesh3DResources {
     geometry_rev: GeometryRevision,
     field_rev: FieldRevision,
     vertices: wgpu::Buffer,
+    values: wgpu::Buffer,
     indices: wgpu::Buffer,
     edges: wgpu::Buffer,
     uniform: wgpu::Buffer,
@@ -220,11 +245,19 @@ struct WgpuMesh3DResources {
     index_count: u32,
     edge_count: u32,
     triad_count: u32,
-    vertex_bytes: u64,
+    value_bytes: u64,
+    value_count: usize,
+    value_is_cell: bool,
+    geometry_bytes: u64,
+    field_capacity_bytes: u64,
+    resident_bytes: u64,
+    depth_bytes: u64,
     depth_texture: wgpu::Texture,
     depth_view: wgpu::TextureView,
     width: u32,
     height: u32,
+    #[cfg(not(test))]
+    timestamp: Option<GpuTimestampRecorder>,
 }
 
 /// Convert a GPUI chart rectangle to a physical WGPU viewport, clipped to the
@@ -270,8 +303,22 @@ struct WgpuMesh3DDraw {
 struct Mesh3DVertex {
     position: [f32; 3],
     normal: [f32; 3],
-    value: f32,
-    _padding: f32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Mesh3DFieldLayout {
+    value_count: usize,
+    is_cell: bool,
+}
+
+fn mesh_field_layout(upload: &MeshUpload) -> Mesh3DFieldLayout {
+    Mesh3DFieldLayout {
+        value_count: upload.cell_values_f32.as_ref().map_or_else(
+            || upload.values_f32.as_ref().map_or(0, Vec::len),
+            |values| values.len().saturating_mul(3).min(upload.indices.len()),
+        ),
+        is_cell: upload.cell_values_f32.is_some(),
+    }
 }
 
 #[cfg(not(test))]
@@ -309,13 +356,33 @@ impl WgpuMesh3DResources {
         // cell shading is correct on the retained WGPU path.
         let render_upload = expand_cell_upload(upload);
         let vertices = build_3d_vertices(&render_upload);
+        let field_values = mesh_field_values(&render_upload);
+        let field_layout = mesh_field_layout(upload);
+        let triad_vertices = triad_vertices(&Camera3D::default());
         let device = &ctx.device;
         let vertex_bytes = bytemuck::cast_slice::<Mesh3DVertex, u8>(&vertices);
+        let vertex_buffer_bytes = (vertex_bytes.len() as u64).max(4);
+        let value_bytes = std::mem::size_of_val(field_values.as_ref()) as u64;
+        let value_buffer_bytes = value_bytes.max(4);
+        let index_buffer_bytes =
+            (render_upload.indices.len() * std::mem::size_of::<u32>()).max(4) as u64;
+        let edge_buffer_bytes =
+            (render_upload.edge_indices.len() * std::mem::size_of::<u32>()).max(4) as u64;
+        let triad_buffer_bytes =
+            (triad_vertices.len() * std::mem::size_of::<Mesh3DVertex>()).max(4) as u64;
+        let uniform_buffer_bytes = std::mem::size_of::<Mesh3DUniforms>() as u64;
+        let depth_bytes = 4;
         let vertex_buffer = create_chunked_buffer(
             ctx,
             "mesh_3d_vertices",
             vertex_bytes,
             wgpu::BufferUsages::VERTEX,
+        );
+        let value_buffer = create_chunked_buffer(
+            ctx,
+            "mesh_3d_values",
+            bytemuck::cast_slice(field_values.as_ref()),
+            wgpu::BufferUsages::STORAGE,
         );
         let index_buffer = create_chunked_buffer(
             ctx,
@@ -329,7 +396,6 @@ impl WgpuMesh3DResources {
             bytemuck::cast_slice(&render_upload.edge_indices),
             wgpu::BufferUsages::INDEX,
         );
-        let triad_vertices = triad_vertices(&Camera3D::default());
         let triad = create_chunked_buffer(
             ctx,
             "mesh_3d_orientation_triad",
@@ -344,24 +410,42 @@ impl WgpuMesh3DResources {
         });
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("mesh_3d_bind_group_layout"),
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
                 },
-                count: None,
-            }],
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+            ],
         });
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("mesh_3d_bind_group"),
             layout: &bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: uniform.as_entire_binding(),
-            }],
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: uniform.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: value_buffer.as_entire_binding(),
+                },
+            ],
         });
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("mesh_3d_shader"),
@@ -385,11 +469,6 @@ impl WgpuMesh3DResources {
                     format: wgpu::VertexFormat::Float32x3,
                     offset: 12,
                     shader_location: 1,
-                },
-                wgpu::VertexAttribute {
-                    format: wgpu::VertexFormat::Float32,
-                    offset: 24,
-                    shader_location: 2,
                 },
             ],
         };
@@ -496,6 +575,7 @@ impl WgpuMesh3DResources {
             geometry_rev: revision,
             field_rev: FieldRevision(0),
             vertices: vertex_buffer,
+            values: value_buffer,
             indices: index_buffer,
             edges: edge_buffer,
             uniform,
@@ -507,11 +587,26 @@ impl WgpuMesh3DResources {
             index_count: render_upload.indices.len() as u32,
             edge_count: render_upload.edge_indices.len() as u32,
             triad_count: triad_vertices.len() as u32,
-            vertex_bytes: vertex_bytes.len() as u64,
+            value_bytes: value_buffer_bytes,
+            value_count: field_layout.value_count,
+            value_is_cell: field_layout.is_cell,
+            geometry_bytes: vertex_buffer_bytes
+                .saturating_add(index_buffer_bytes)
+                .saturating_add(edge_buffer_bytes),
+            field_capacity_bytes: value_buffer_bytes,
+            resident_bytes: vertex_buffer_bytes
+                .saturating_add(value_buffer_bytes)
+                .saturating_add(index_buffer_bytes)
+                .saturating_add(edge_buffer_bytes)
+                .saturating_add(triad_buffer_bytes)
+                .saturating_add(uniform_buffer_bytes)
+                .saturating_add(depth_bytes),
+            depth_bytes,
             depth_texture,
             depth_view,
             width: 1,
             height: 1,
+            timestamp: GpuTimestampRecorder::new(ctx, "mesh_3d_gpu_timestamps"),
         }
     }
 
@@ -524,14 +619,27 @@ impl WgpuMesh3DResources {
         self.depth_view = depth_view;
         self.width = width;
         self.height = height;
+        let depth_bytes = u64::from(width)
+            .saturating_mul(u64::from(height))
+            .saturating_mul(4);
+        self.resident_bytes = self
+            .resident_bytes
+            .saturating_sub(self.depth_bytes)
+            .saturating_add(depth_bytes);
+        self.depth_bytes = depth_bytes;
     }
 
-    fn write_vertices(&mut self, ctx: &gpui_wgpu::WgpuContext, upload: &MeshUpload) {
-        let render_upload = expand_cell_upload(upload);
-        let vertices = build_3d_vertices(&render_upload);
-        let bytes = bytemuck::cast_slice::<Mesh3DVertex, u8>(&vertices);
-        if bytes.len() as u64 <= self.vertex_bytes {
-            write_chunked_buffer(ctx, &self.vertices, bytes);
+    fn write_values(&mut self, ctx: &gpui_wgpu::WgpuContext, upload: &MeshUpload) -> u64 {
+        let values = mesh_field_values(upload);
+        let bytes = bytemuck::cast_slice(values.as_ref());
+        if bytes.len() as u64 <= self.value_bytes
+            && values.len() == self.value_count
+            && upload.cell_values_f32.is_some() == self.value_is_cell
+        {
+            write_chunked_buffer(ctx, &self.values, bytes);
+            bytes.len() as u64
+        } else {
+            0
         }
     }
 
@@ -552,6 +660,10 @@ impl WgpuMesh3DResources {
             .as_ref()
             .map(|upload| upload.origin)
             .unwrap_or([0.0; 3]);
+        let field_enabled = state
+            .upload
+            .as_ref()
+            .is_some_and(|upload| upload.values_f32.is_some() || upload.cell_values_f32.is_some());
         let uniforms = Mesh3DUniforms {
             view_proj: camera.view_projection_matrix().to_cols_array_2d(),
             // `prepare_upload` deliberately rebases vertices around a local
@@ -571,7 +683,7 @@ impl WgpuMesh3DResources {
                 0.3,
                 0.7,
             ],
-            value_range: [range[0], range[1], 0.0, 0.0],
+            value_range: [range[0], range[1], field_enabled as u32 as f32, 0.0],
             isoline: [
                 state.color.isoline_step,
                 state.color.isoline_width_px,
@@ -679,12 +791,6 @@ fn build_3d_vertices(upload: &MeshUpload) -> Vec<Mesh3DVertex> {
         .map(|(index, &position)| Mesh3DVertex {
             position,
             normal: normals[index],
-            value: upload
-                .values_f32
-                .as_ref()
-                .and_then(|values| values.get(index).copied())
-                .unwrap_or(0.0),
-            _padding: 0.0,
         })
         .collect()
 }
@@ -701,8 +807,6 @@ fn triad_vertices(camera: &Camera3D) -> [Mesh3DVertex; 6] {
     let mut output = [Mesh3DVertex {
         position: [0.0; 3],
         normal: [0.0; 3],
-        value: 0.0,
-        _padding: 0.0,
     }; 6];
     for (axis, (direction, color)) in axes.into_iter().enumerate() {
         let screen_direction = (view * direction.extend(0.0)).truncate();
@@ -716,14 +820,10 @@ fn triad_vertices(camera: &Camera3D) -> [Mesh3DVertex; 6] {
         output[base] = Mesh3DVertex {
             position: [origin[0], origin[1], 0.0],
             normal: color,
-            value: 0.0,
-            _padding: 0.0,
         };
         output[base + 1] = Mesh3DVertex {
             position: [end[0], end[1], 0.0],
             normal: color,
-            value: 0.0,
-            _padding: 0.0,
         };
     }
     output
@@ -757,6 +857,20 @@ fn expand_cell_upload(upload: &MeshUpload) -> MeshUpload {
 }
 
 #[cfg(not(test))]
+fn mesh_field_values(upload: &MeshUpload) -> Cow<'_, [f32]> {
+    if let Some(cell_values) = &upload.cell_values_f32 {
+        return Cow::Owned(
+            cell_values
+                .iter()
+                .flat_map(|&value| [value, value, value])
+                .take(upload.indices.len())
+                .collect(),
+        );
+    }
+    Cow::Borrowed(upload.values_f32.as_deref().unwrap_or(&[]))
+}
+
+#[cfg(not(test))]
 impl gpui::CustomDraw for WgpuMesh3DDraw {
     fn as_any(&self) -> &dyn std::any::Any {
         self
@@ -776,17 +890,39 @@ impl gpui_wgpu::WgpuCustomDraw for WgpuMesh3DDraw {
         _full_bounds: gpui::Bounds<gpui::Pixels>,
         scale_factor: f32,
     ) {
+        let frame_started = Instant::now();
+        let gpu_elapsed = self
+            .resources
+            .borrow_mut()
+            .as_mut()
+            .and_then(|resources| resources.timestamp.as_mut())
+            .and_then(|timestamp| timestamp.poll(ctx));
+        if let Some(elapsed) = gpu_elapsed {
+            self.state.borrow_mut().record_gpu_frame_gpu_time(elapsed);
+        }
         let state = self.state.borrow();
         let Some(upload) = state.upload.as_ref() else {
             return;
         };
         let revision = state.geometry_rev;
+        let expected_field_layout = mesh_field_layout(upload);
         let mut resources = self.resources.borrow_mut();
-        if resources
-            .as_ref()
-            .is_none_or(|resource| resource.geometry_rev != revision)
-        {
-            *resources = Some(WgpuMesh3DResources::new(ctx, &state, revision));
+        let mut created_geometry_resource = false;
+        let mut geometry_upload_time = None;
+        if resources.as_ref().is_none_or(|resource| {
+            resource.geometry_rev != revision
+                || resource.value_count != expected_field_layout.value_count
+                || resource.value_is_cell != expected_field_layout.is_cell
+        }) {
+            let geometry_started = Instant::now();
+            let mut created = WgpuMesh3DResources::new(ctx, &state, revision);
+            // The newly allocated scalar buffer is initialized from the
+            // current retained upload, so do not count that initialization as
+            // a later field-only queue write.
+            created.field_rev = state.field_rev;
+            *resources = Some(created);
+            geometry_upload_time = Some(geometry_started.elapsed());
+            created_geometry_resource = true;
         }
         let Some(resources) = resources.as_mut() else {
             return;
@@ -805,58 +941,95 @@ impl gpui_wgpu::WgpuCustomDraw for WgpuMesh3DDraw {
         // resolve texture, because resolving a full-size intermediate would
         // overwrite content outside this embedded chart rectangle.
         resources.resize(ctx, target_size[0].max(1), target_size[1].max(1));
+        let mut field_write_bytes = 0;
+        let field_write_started = Instant::now();
         if resources.field_rev != state.field_rev {
-            resources.write_vertices(ctx, upload);
+            field_write_bytes = resources.write_values(ctx, upload);
             resources.field_rev = state.field_rev;
         }
+        let field_write_time = field_write_started.elapsed();
+        let resident_bytes = resources.resident_bytes;
+        let field_capacity_bytes = resources.field_capacity_bytes;
+        drop(state);
+        {
+            let mut state = self.state.borrow_mut();
+            if created_geometry_resource {
+                state.record_gpu_geometry_upload(resources.geometry_bytes);
+                if let Some(elapsed) = geometry_upload_time {
+                    state.record_gpu_geometry_upload_time(elapsed);
+                }
+            }
+            if field_write_bytes != 0 {
+                state.record_gpu_field_write(field_write_bytes);
+                state.record_gpu_field_write_time(field_write_time);
+            }
+            state.set_gpu_memory(resident_bytes, field_capacity_bytes);
+        }
+        let state = self.state.borrow();
         let camera = self.camera.borrow();
         resources.write_uniform(ctx, &state, &camera);
         resources.write_triad(ctx, &camera);
-        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("mesh_3d_pass"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: target,
-                resolve_target: None,
-                depth_slice: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Load,
-                    store: wgpu::StoreOp::Store,
-                },
-            })],
-            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                view: &resources.depth_view,
-                depth_ops: Some(wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(1.0),
-                    store: wgpu::StoreOp::Store,
+        let timestamp_active = resources
+            .timestamp
+            .as_mut()
+            .is_some_and(|timestamp| timestamp.begin());
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("mesh_3d_pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: target,
+                    resolve_target: None,
+                    depth_slice: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &resources.depth_view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0),
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
                 }),
-                stencil_ops: None,
-            }),
-            timestamp_writes: None,
-            occlusion_query_set: None,
-            multiview_mask: None,
-        });
-        pass.set_viewport(
-            x as f32,
-            y as f32,
-            viewport_width as f32,
-            viewport_height as f32,
-            0.0,
-            1.0,
-        );
-        pass.set_scissor_rect(x, y, viewport_width, viewport_height);
-        pass.set_bind_group(0, &resources.bind_group, &[]);
-        pass.set_vertex_buffer(0, resources.vertices.slice(..));
-        pass.set_pipeline(&resources.surface_pipeline);
-        pass.set_index_buffer(resources.indices.slice(..), wgpu::IndexFormat::Uint32);
-        pass.draw_indexed(0..resources.index_count, 0, 0..1);
-        if state.color.wireframe && resources.edge_count > 0 {
-            pass.set_pipeline(&resources.wire_pipeline);
-            pass.set_index_buffer(resources.edges.slice(..), wgpu::IndexFormat::Uint32);
-            pass.draw_indexed(0..resources.edge_count, 0, 0..1);
+                timestamp_writes: resources
+                    .timestamp
+                    .as_ref()
+                    .and_then(|timestamp| timestamp.render_pass_writes(timestamp_active)),
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            pass.set_viewport(
+                x as f32,
+                y as f32,
+                viewport_width as f32,
+                viewport_height as f32,
+                0.0,
+                1.0,
+            );
+            pass.set_scissor_rect(x, y, viewport_width, viewport_height);
+            pass.set_bind_group(0, &resources.bind_group, &[]);
+            pass.set_vertex_buffer(0, resources.vertices.slice(..));
+            pass.set_pipeline(&resources.surface_pipeline);
+            pass.set_index_buffer(resources.indices.slice(..), wgpu::IndexFormat::Uint32);
+            pass.draw_indexed(0..resources.index_count, 0, 0..1);
+            if state.color.wireframe && resources.edge_count > 0 {
+                pass.set_pipeline(&resources.wire_pipeline);
+                pass.set_index_buffer(resources.edges.slice(..), wgpu::IndexFormat::Uint32);
+                pass.draw_indexed(0..resources.edge_count, 0, 0..1);
+            }
+            pass.set_pipeline(&resources.triad_pipeline);
+            pass.set_vertex_buffer(0, resources.triad.slice(..));
+            pass.draw(0..resources.triad_count, 0..1);
         }
-        pass.set_pipeline(&resources.triad_pipeline);
-        pass.set_vertex_buffer(0, resources.triad.slice(..));
-        pass.draw(0..resources.triad_count, 0..1);
+        if let Some(timestamp) = resources.timestamp.as_mut() {
+            timestamp.finish(encoder, timestamp_active);
+        }
+        drop(state);
+        self.state
+            .borrow_mut()
+            .record_gpu_frame_time(frame_started.elapsed());
     }
 }
 
@@ -917,12 +1090,14 @@ impl WgpuMesh3DRenderer {
 impl Drop for WgpuMesh3DRenderer {
     fn drop(&mut self) {
         gpui::unregister_custom_draw(self.custom_id);
+        self.resources.borrow_mut().take();
+        self.state.borrow_mut().clear_gpu_memory();
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::clipped_target_viewport;
+    use super::{MeshUpload, clipped_target_viewport, mesh_field_layout};
 
     #[test]
     fn embedded_viewport_preserves_an_offset_chart_rectangle() {
@@ -955,6 +1130,38 @@ mod tests {
             Some([20, 10, 60, 30])
         );
     }
+
+    #[test]
+    fn field_layout_distinguishes_vertex_and_cell_storage() {
+        let vertex_upload = MeshUpload {
+            positions_f32: vec![[0.0; 3]; 3],
+            origin: [0.0; 3],
+            indices: vec![0, 1, 2],
+            edge_indices: vec![0, 1, 1, 2, 2, 0],
+            values_f32: Some(vec![0.0, 0.5, 1.0]),
+            cell_values_f32: None,
+        };
+        assert_eq!(
+            mesh_field_layout(&vertex_upload),
+            super::Mesh3DFieldLayout {
+                value_count: 3,
+                is_cell: false,
+            }
+        );
+
+        let cell_upload = MeshUpload {
+            values_f32: None,
+            cell_values_f32: Some(vec![0.5]),
+            ..vertex_upload
+        };
+        assert_eq!(
+            mesh_field_layout(&cell_upload),
+            super::Mesh3DFieldLayout {
+                value_count: 3,
+                is_cell: true,
+            }
+        );
+    }
 }
 
 #[cfg(not(test))]
@@ -969,6 +1176,7 @@ impl MeshGpuRenderer for WgpuMesh3DRenderer {
 
     fn write_field(&mut self, revision: FieldRevision, values: &[f32]) {
         let mut state = self.state.borrow_mut();
+        state.record_field_write(values);
         state.field_rev = revision;
         if let Some(upload) = state.upload.as_mut() {
             if upload.cell_values_f32.is_some() {

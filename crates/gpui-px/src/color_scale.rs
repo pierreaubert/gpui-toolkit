@@ -417,4 +417,80 @@ mod tests {
         assert_eq!(c1.g, c2.g);
         assert_eq!(c1.b, c2.b);
     }
+
+    #[derive(Clone, Copy, Debug)]
+    enum ColorVisionDeficiency {
+        Protan,
+        Deutan,
+        Tritan,
+    }
+
+    fn simulate_cvd(color: D3Color, deficiency: ColorVisionDeficiency) -> [f64; 3] {
+        let [r, g, b] = [color.r as f64, color.g as f64, color.b as f64];
+        let transformed = match deficiency {
+            // Brettel-style linear approximations in sRGB space. These are
+            // intentionally used only as a regression screen, not as a
+            // perceptual substitute for a calibrated human study.
+            ColorVisionDeficiency::Protan => [
+                0.56667 * r + 0.43333 * g,
+                0.55833 * r + 0.44167 * g,
+                0.24167 * g + 0.75833 * b,
+            ],
+            ColorVisionDeficiency::Deutan => [
+                0.625 * r + 0.375 * g,
+                0.700 * r + 0.300 * g,
+                0.300 * g + 0.700 * b,
+            ],
+            ColorVisionDeficiency::Tritan => [
+                0.950 * r + 0.050 * g,
+                0.43333 * g + 0.56667 * b,
+                0.475 * g + 0.525 * b,
+            ],
+        };
+        transformed.map(|channel| channel.clamp(0.0, 1.0))
+    }
+
+    fn color_distance(left: [f64; 3], right: [f64; 3]) -> f64 {
+        left.into_iter()
+            .zip(right)
+            .map(|(a, b)| (a - b).powi(2))
+            .sum::<f64>()
+            .sqrt()
+    }
+
+    #[test]
+    fn named_scales_remain_distinguishable_under_cvd_simulations() {
+        let scales = [
+            ("viridis", ColorScale::Viridis),
+            ("plasma", ColorScale::Plasma),
+            ("inferno", ColorScale::Inferno),
+            ("magma", ColorScale::Magma),
+            ("heat", ColorScale::Heat),
+            ("coolwarm", ColorScale::Coolwarm),
+            ("greys", ColorScale::Greys),
+        ];
+        let deficiencies = [
+            ColorVisionDeficiency::Protan,
+            ColorVisionDeficiency::Deutan,
+            ColorVisionDeficiency::Tritan,
+        ];
+        let samples = [0.0, 0.25, 0.5, 0.75, 1.0];
+
+        for (name, scale) in scales {
+            for deficiency in deficiencies {
+                let transformed: Vec<_> = samples
+                    .into_iter()
+                    .map(|t| simulate_cvd(scale.map(t), deficiency))
+                    .collect();
+                for pair in transformed.windows(2) {
+                    assert!(
+                        color_distance(pair[0], pair[1]) > 0.01,
+                        "{name} collapsed adjacent samples under {deficiency:?}: {:?} -> {:?}",
+                        pair[0],
+                        pair[1]
+                    );
+                }
+            }
+        }
+    }
 }

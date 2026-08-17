@@ -87,6 +87,7 @@ pub struct ContextMenu {
     on_select: Option<Box<dyn Fn(&SharedString, &mut Window, &mut App) + 'static>>,
     on_close: Option<Box<dyn Fn(&mut Window, &mut App) + 'static>>,
     on_focus_change: Option<Box<dyn Fn(Option<usize>, &mut Window, &mut App) + 'static>>,
+    aria_label: Option<SharedString>,
 }
 
 impl ContextMenu {
@@ -102,6 +103,7 @@ impl ContextMenu {
             on_select: None,
             on_close: None,
             on_focus_change: None,
+            aria_label: Some("Context menu".into()),
         }
     }
 
@@ -153,6 +155,12 @@ impl ContextMenu {
         self
     }
 
+    /// Set the accessible name of the menu region.
+    pub fn aria_label(mut self, label: impl Into<SharedString>) -> Self {
+        self.aria_label = Some(label.into());
+        self
+    }
+
     /// Build the context menu with theme
     pub fn build_with_theme(self, theme: &ContextMenuTheme) -> Div {
         let on_close_rc: Option<Rc<dyn Fn(&mut Window, &mut App)>> =
@@ -174,6 +182,9 @@ impl ContextMenu {
         // Build the menu using the existing Menu component
         let menu_theme = theme.to_menu_theme();
         let mut menu = crate::menu::Menu::new(self.id, self.items).min_width(self.min_width);
+        if let Some(label) = self.aria_label {
+            menu = menu.aria_label(label);
+        }
 
         if let Some(idx) = self.focused_index {
             menu = menu.focused_index(idx);

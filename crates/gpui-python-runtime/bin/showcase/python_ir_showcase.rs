@@ -26,12 +26,16 @@ use gpui_px::{
 use gpui_python_runtime::audio_stream::{AudioFrameKind, AudioFrameStore};
 use gpui_python_runtime::gpui_adapter::{Gpui3DCache, GpuiMeshPlotCache};
 use gpui_python_runtime::mesh_frames::{
-    MeshDtype, MeshFrame, MeshFrameKind, MeshFrameOutcome, MeshFrameStore, RetainedMeshResource,
+    MeshFrame, MeshFrameKind, MeshFrameOutcome, MeshFrameStore,
 };
 use gpui_python_runtime::meshplot::{MeshPlotResourceError, MeshPlotSpec};
+use gpui_python_runtime::native_mesh_plot::{
+    decode_field as decode_mesh_field, decode_geometry as decode_mesh_geometry,
+    decode_ids as decode_inline_ids,
+};
 use gpui_python_runtime::session::{
-    HostMessage, JobLogLine, JobRegistry, JobState, JobUpdate, LogSeverity, PatchOp, PythonMessage,
-    SessionState,
+    HostMessage, JobLogLine, JobRegistry, JobState, JobUpdate, LogSeverity, Patch, PatchOp,
+    PythonMessage, SessionState,
 };
 use gpui_python_runtime::spec_cache::TypedSpecCache;
 use gpui_python_runtime::ui_ir::{
@@ -360,79 +364,59 @@ fn native_mesh_plot_options(
     gpui_python_runtime::native_mesh_plot::options(spec, mesh_id)
 }
 
-#[cfg(feature = "gpu-3d")]
-fn apply_mesh_plot_camera(state: &mut MeshPlotState, value: Option<&Value>) -> Result<(), String> {
-    let Some(value) = value.filter(|value| !value.is_null()) else {
-        return Ok(());
-    };
-    let object = value
-        .as_object()
-        .ok_or("mesh_plot camera must be an object or null")?;
-    let finite_f32 = |name: &str| -> Result<Option<f32>, String> {
-        object
-            .get(name)
-            .filter(|value| !value.is_null())
-            .map(|value| {
-                let value = value
-                    .as_f64()
-                    .filter(|value| value.is_finite())
-                    .ok_or_else(|| format!("mesh_plot camera {name} must be finite"))?;
-                if !(value as f32).is_finite() {
-                    return Err(format!("mesh_plot camera {name} is outside f32 range"));
-                }
-                Ok(value as f32)
-            })
-            .transpose()
-    };
-    if let Some(value) = finite_f32("distance")? {
-        state.orbit.distance = value.clamp(state.orbit.min_distance, state.orbit.max_distance);
-    }
-    if let Some(value) = finite_f32("azimuth")? {
-        state.orbit.azimuth = value;
-    }
-    if let Some(value) = finite_f32("elevation")? {
-        state.orbit.elevation = value.clamp(state.orbit.min_elevation, state.orbit.max_elevation);
-    }
-    if let Some(value) = object.get("target") {
-        let values = value
-            .as_array()
-            .ok_or("mesh_plot camera target must be an array")?;
-        if values.len() != 3 {
-            return Err("mesh_plot camera target must contain three values".into());
-        }
-        let values = values
-            .iter()
-            .map(|value| {
-                value
-                    .as_f64()
-                    .filter(|value| value.is_finite())
-                    .map(|value| value as f32)
-                    .filter(|value| value.is_finite())
-                    .ok_or("mesh_plot camera target must contain finite values")
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        state.orbit.target = glam::Vec3::new(values[0], values[1], values[2]);
-    }
-    state.orbit.update_camera(&mut state.camera);
-    Ok(())
-}
-
 #[cfg(all(test, target_os = "macos", feature = "native-qa"))]
 mod native_mesh_plot_tests {
-    use super::{PythonIrShowcase, mesh_selection_event_payload};
+    use super::{
+        Patch, PatchOp, PresentationStore, PythonIrShowcase, mesh_plot_resource_handles,
+        mesh_selection_event_payload,
+    };
     use gpui::{
         AnyWindowHandle, AppContext, Context, HeadlessAppContext, InputEvent, InteractiveElement,
         Modifiers, MouseButton, MouseDownEvent, MouseUpEvent, ParentElement, Platform, Render,
         Styled, Window, div, point, px, size,
     };
-    use gpui_macos::{MacPlatform, metal_renderer::MetalHeadlessRenderer};
+    use gpui_macos::metal_renderer::MetalHeadlessRenderer;
     use gpui_px::{MeshPlotPick, MeshPlotState};
-    use gpui_python_runtime::mesh_frames::{MeshDtype, MeshFrame, MeshFrameKind, MeshFrameStore};
+    use gpui_python_runtime::mesh_frames::{
+        MeshDtype, MeshFrame, MeshFrameKind, MeshFrameOutcome, MeshFrameStore,
+    };
     use gpui_python_runtime::meshplot::MeshPlotSpec;
     use serde_json::Value;
     use std::cell::RefCell;
     use std::rc::Rc;
-    use std::sync::Arc;
+    use std::sync::{Arc, Mutex, MutexGuard, atomic::Ordering};
+
+    // TIS/TSM keyboard-layout initialization can abort macOS test processes
+    // when multiple native GPUI platforms are created concurrently. Use the
+    // tests only need Metal rendering, so use the deterministic no-op text
+    // system and serialize the complete platform/window lifetime.
+    static NATIVE_PLATFORM_LOCK: Mutex<()> = Mutex::new(());
+
+    fn native_platform_lock() -> MutexGuard<'static, ()> {
+        NATIVE_PLATFORM_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    fn native_text_system() -> Arc<dyn gpui::PlatformTextSystem> {
+        Arc::new(gpui::NoopTextSystem::new())
+    }
+
+    fn native_metal_required() -> bool {
+        matches!(std::env::var("QA_NATIVE_REQUIRED").as_deref(), Ok("1"))
+            || matches!(std::env::var("QA_METAL_REQUIRED").as_deref(), Ok("1"))
+    }
+
+    fn native_metal_available() -> bool {
+        if MetalHeadlessRenderer::try_new().is_some() {
+            true
+        } else if native_metal_required() {
+            panic!("native Metal QA requires a compatible Metal device")
+        } else {
+            eprintln!("native Metal QA skipped: no compatible Metal device");
+            false
+        }
+    }
 
     struct NativeResourceMeshPlotView {
         spec: MeshPlotSpec,
@@ -532,7 +516,11 @@ mod native_mesh_plot_tests {
     }
 
     fn fixture() -> (MeshPlotSpec, Rc<RefCell<MeshFrameStore>>) {
-        let mut store = MeshFrameStore::new();
+        fixture_with_store(MeshFrameStore::new())
+    }
+
+    fn fixture_with_store(store: MeshFrameStore) -> (MeshPlotSpec, Rc<RefCell<MeshFrameStore>>) {
+        let mut store = store;
         store
             .ingest(frame(
                 "mesh-positions",
@@ -624,9 +612,11 @@ mod native_mesh_plot_tests {
 
     #[::core::prelude::v1::test]
     fn native_metal_python_resource_plot_renders_and_emits_typed_selection() {
-        let platform = MacPlatform::new(true);
-        let text_system = platform.text_system();
-        drop(platform);
+        let _platform_guard = native_platform_lock();
+        if !native_metal_available() {
+            return;
+        }
+        let text_system = native_text_system();
         let mut cx = HeadlessAppContext::with_platform(text_system, Arc::new(()), || {
             Some(Box::new(MetalHeadlessRenderer::new()))
         });
@@ -721,9 +711,11 @@ mod native_mesh_plot_tests {
 
     #[::core::prelude::v1::test]
     fn nested_python_mesh_plot_layout_preserves_pointer_selection() {
-        let platform = MacPlatform::new(true);
-        let text_system = platform.text_system();
-        drop(platform);
+        let _platform_guard = native_platform_lock();
+        if !native_metal_available() {
+            return;
+        }
+        let text_system = native_text_system();
         let mut cx = HeadlessAppContext::with_platform(text_system, Arc::new(()), || {
             Some(Box::new(MetalHeadlessRenderer::new()))
         });
@@ -796,9 +788,11 @@ mod native_mesh_plot_tests {
 
     #[test]
     fn native_metal_invalid_resource_patch_keeps_the_last_valid_meshplot_frame() {
-        let platform = MacPlatform::new(true);
-        let text_system = platform.text_system();
-        drop(platform);
+        let _platform_guard = native_platform_lock();
+        if !native_metal_available() {
+            return;
+        }
+        let text_system = native_text_system();
         let mut cx = HeadlessAppContext::with_platform(text_system, Arc::new(()), || {
             Some(Box::new(MetalHeadlessRenderer::new()))
         });
@@ -837,8 +831,67 @@ mod native_mesh_plot_tests {
             .capture_screenshot(any_window)
             .expect("capture valid resource-backed MeshPlot frame");
 
+        let mut invalid_field = spec.clone();
+        invalid_field.revision = 2;
+        invalid_field.field = Some(serde_json::json!({
+            "id": "resource-pressure",
+            "label": "Sound pressure level",
+            "unit": "dB SPL",
+            "resource_id": "missing-pressure",
+            "generation": 2,
+            "association": "vertex",
+            "valid": {
+                "resource_id": "mesh-pressure-valid",
+                "generation": 1,
+                "dtype": "bool_bytes"
+            }
+        }));
+        cx.update_entity(&view, |view, cx| {
+            view.spec = invalid_field;
+            cx.notify();
+        });
+        cx.update_window(any_window, |_, window, app| {
+            window.draw(app).clear();
+        })
+        .expect("draw invalid field resource-backed patch fallback");
+        let invalid_field_frame = cx
+            .capture_screenshot(any_window)
+            .expect("capture invalid field fallback frame");
+        assert_eq!(
+            invalid_field_frame.as_raw(),
+            before.as_raw(),
+            "an invalid field resource patch must preserve the last-valid native frame"
+        );
+
+        let mut invalid_mask = spec.clone();
+        invalid_mask.revision = 3;
+        invalid_mask
+            .field
+            .as_mut()
+            .expect("fixture includes a field")["valid"] = serde_json::json!({
+            "resource_id": "missing-mask",
+            "generation": 2,
+            "dtype": "bool_bytes"
+        });
+        cx.update_entity(&view, |view, cx| {
+            view.spec = invalid_mask;
+            cx.notify();
+        });
+        cx.update_window(any_window, |_, window, app| {
+            window.draw(app).clear();
+        })
+        .expect("draw invalid mask resource-backed patch fallback");
+        let invalid_mask_frame = cx
+            .capture_screenshot(any_window)
+            .expect("capture invalid mask fallback frame");
+        assert_eq!(
+            invalid_mask_frame.as_raw(),
+            before.as_raw(),
+            "an invalid mask resource patch must preserve the last-valid native frame"
+        );
+
         let mut invalid = spec.clone();
-        invalid.revision = 2;
+        invalid.revision = 4;
         invalid.geometry = serde_json::json!({
             "id": "resource-baffle",
             "positions": {"resource_id": "missing-positions", "generation": 2, "dtype": "f64le"},
@@ -872,9 +925,11 @@ mod native_mesh_plot_tests {
 
     #[test]
     fn native_metal_resource_patch_stream_keeps_the_newest_valid_frame() {
-        let platform = MacPlatform::new(true);
-        let text_system = platform.text_system();
-        drop(platform);
+        let _platform_guard = native_platform_lock();
+        if !native_metal_available() {
+            return;
+        }
+        let text_system = native_text_system();
         let mut cx = HeadlessAppContext::with_platform(text_system, Arc::new(()), || {
             Some(Box::new(MetalHeadlessRenderer::new()))
         });
@@ -993,10 +1048,150 @@ mod native_mesh_plot_tests {
     }
 
     #[test]
+    fn native_metal_malformed_mesh_frame_recovers_after_corrected_generation() {
+        let _platform_guard = native_platform_lock();
+        if !native_metal_available() {
+            return;
+        }
+        let text_system = native_text_system();
+        let mut cx = HeadlessAppContext::with_platform(text_system, Arc::new(()), || {
+            Some(Box::new(MetalHeadlessRenderer::new()))
+        });
+        let (spec, frames) = fixture();
+        let state = Rc::new(RefCell::new(MeshPlotState::new(0.0, 1.0, 0.0, 1.0)));
+        let selection = Rc::new(RefCell::new(None));
+        let payload = Rc::new(RefCell::new(Value::Null));
+        let initial_spec = spec.clone();
+        let window = cx
+            .open_window(size(px(600.0), px(400.0)), {
+                let state = state.clone();
+                let selection = selection.clone();
+                let payload = payload.clone();
+                move |_window, app| {
+                    app.new(|_cx| NativeResourceMeshPlotView {
+                        spec: initial_spec,
+                        frames,
+                        state,
+                        last_valid_spec: None,
+                        selection,
+                        payload,
+                        nested: false,
+                    })
+                }
+            })
+            .expect("open native malformed-frame recovery MeshPlot window");
+        let view = cx
+            .read_window(&window, |view, _| view)
+            .expect("read native malformed-frame recovery MeshPlot view");
+        let any_window: AnyWindowHandle = window.into();
+        cx.update_window(any_window, |_, window, app| {
+            let _ = window.draw(app);
+        })
+        .expect("draw initial resource-backed MeshPlot");
+        let initial_frame = cx
+            .capture_screenshot(any_window)
+            .expect("capture initial resource-backed MeshPlot frame");
+        let initial_field_revision = state.borrow().field_revision;
+
+        let mut malformed = frame(
+            "mesh-pressure",
+            MeshFrameKind::Field,
+            MeshDtype::F64LE,
+            &[4],
+            bytes(&[1.0_f64, 0.0, 1.0, 0.0], f64::to_le_bytes),
+        );
+        malformed.generation = 2;
+        malformed.payload.pop();
+        cx.update_entity(&view, |view, _cx| {
+            assert!(
+                view.frames.borrow_mut().ingest(malformed).is_err(),
+                "a malformed binary MeshFrame must be rejected before it reaches rendering"
+            );
+        });
+        cx.update_entity(&view, |_view, cx| cx.notify());
+        cx.update_window(any_window, |_, window, app| {
+            window.draw(app).clear();
+        })
+        .expect("redraw after malformed resource frame");
+        let fallback = cx
+            .capture_screenshot(any_window)
+            .expect("capture last-valid frame after malformed resource frame");
+        assert_eq!(
+            fallback.as_raw(),
+            initial_frame.as_raw(),
+            "a malformed binary frame must preserve the rendered last-valid frame"
+        );
+        assert_eq!(state.borrow().field_revision, initial_field_revision);
+        assert_eq!(
+            cx.read_entity(&view, |view, _| {
+                view.last_valid_spec
+                    .as_ref()
+                    .and_then(|spec| spec.field.as_ref())
+                    .and_then(|field| field.get("generation"))
+                    .and_then(Value::as_u64)
+            }),
+            Some(1),
+            "a malformed frame must not become the retained last-valid generation"
+        );
+
+        let mut corrected = frame(
+            "mesh-pressure",
+            MeshFrameKind::Field,
+            MeshDtype::F64LE,
+            &[4],
+            bytes(&[1.0_f64, 0.0, 1.0, 0.0], f64::to_le_bytes),
+        );
+        corrected.generation = 2;
+        cx.update_entity(&view, |view, _cx| {
+            view.frames
+                .borrow_mut()
+                .ingest(corrected)
+                .expect("corrected MeshFrame generation");
+            let mut updated = spec.clone();
+            updated.revision = 2;
+            updated.field.as_mut().expect("fixture includes a field")["generation"] =
+                Value::from(2);
+            view.spec = updated;
+        });
+        cx.update_entity(&view, |_view, cx| cx.notify());
+        cx.update_window(any_window, |_, window, app| {
+            window.draw(app).clear();
+        })
+        .expect("draw corrected resource-backed MeshPlot frame");
+        let recovered = cx
+            .capture_screenshot(any_window)
+            .expect("capture corrected resource-backed MeshPlot frame");
+        assert_ne!(
+            recovered.as_raw(),
+            initial_frame.as_raw(),
+            "a corrected generation must replace the last-valid rendered field"
+        );
+        assert_eq!(state.borrow().field_revision, initial_field_revision + 1);
+        assert_eq!(
+            cx.read_entity(&view, |view, _| {
+                view.last_valid_spec
+                    .as_ref()
+                    .and_then(|spec| spec.field.as_ref())
+                    .and_then(|field| field.get("generation"))
+                    .and_then(Value::as_u64)
+            }),
+            Some(2),
+            "the corrected frame must become the retained last-valid generation"
+        );
+
+        drop(view);
+        cx.update_window(any_window, |_, window, _| window.remove_window())
+            .expect("close native malformed-frame recovery MeshPlot window");
+        cx.run_until_parked();
+    }
+
+    #[test]
     fn native_metal_surface_resource_geometry_patch_replaces_only_the_retained_geometry_scene() {
-        let platform = MacPlatform::new(true);
-        let text_system = platform.text_system();
-        drop(platform);
+        let _platform_guard = native_platform_lock();
+        if !native_metal_available() {
+            return;
+        }
+        let text_system = native_text_system();
         let mut cx = HeadlessAppContext::with_platform(text_system, Arc::new(()), || {
             Some(Box::new(MetalHeadlessRenderer::new()))
         });
@@ -1121,6 +1316,202 @@ mod native_mesh_plot_tests {
         cx.update_window(any_window, |_, window, _| window.remove_window())
             .expect("close native Surface3d resource MeshPlot window");
         cx.run_until_parked();
+    }
+
+    #[test]
+    fn native_host_resource_ownership_keeps_active_plot_resources_until_release() {
+        let (spec, frames) = fixture_with_store(MeshFrameStore::with_budget(204));
+        let handles = mesh_plot_resource_handles(&spec).expect("fixture resource handles");
+        let mut showcase = PythonIrShowcase::new_empty(PresentationStore::open());
+        showcase.mesh_frames = Rc::try_unwrap(frames)
+            .expect("fixture frame store has one owner")
+            .into_inner();
+
+        showcase
+            .sync_mesh_plot_resource_refs_for_spec(&spec)
+            .expect("retain all resources referenced by the active plot");
+        let stats = showcase.mesh_frames.stats();
+        assert_eq!(stats.referenced_resources, handles.len());
+        assert_eq!(stats.references, handles.len());
+
+        for (resource_id, generation) in &handles {
+            assert!(
+                !showcase.mesh_frames.release(resource_id, *generation),
+                "an active native plot must prevent explicit resource drop"
+            );
+        }
+
+        assert!(
+            showcase
+                .mesh_frames
+                .ingest(frame(
+                    "budget-pressure",
+                    MeshFrameKind::Field,
+                    MeshDtype::U64LE,
+                    &[1],
+                    vec![0; 8],
+                ))
+                .is_err(),
+            "a full store must reject new resources when every active plot resource is retained"
+        );
+        assert_eq!(
+            showcase.mesh_frames.stats().referenced_resources,
+            handles.len(),
+            "budget pressure must not evict an active plot resource"
+        );
+
+        showcase
+            .sync_mesh_plot_resource_refs(std::collections::HashMap::new())
+            .expect("release resources when the plot is removed");
+        let stats = showcase.mesh_frames.stats();
+        assert_eq!(stats.referenced_resources, 0);
+        assert_eq!(stats.references, 0);
+        for (resource_id, generation) in handles {
+            assert!(
+                showcase.mesh_frames.release(&resource_id, generation),
+                "released plot ownership must allow resource cleanup"
+            );
+        }
+    }
+
+    #[test]
+    fn native_host_session_reset_releases_plot_state_and_allows_new_generations() {
+        let (spec, frames) = fixture();
+        let handles = mesh_plot_resource_handles(&spec).expect("fixture resource handles");
+        let mut showcase = PythonIrShowcase::new_empty(PresentationStore::open());
+        showcase.mesh_frames = Rc::try_unwrap(frames)
+            .expect("fixture frame store has one owner")
+            .into_inner();
+        showcase
+            .sync_mesh_plot_resource_refs_for_spec(&spec)
+            .expect("retain resources for the active plot");
+        showcase
+            .mesh_plots
+            .upsert(spec)
+            .expect("cache the active plot specification");
+        showcase
+            .session_state
+            .apply_patch_revision(&Patch {
+                revision: 4,
+                request_id: Some("old-session".into()),
+                ops: vec![PatchOp::ReplaceMeshField {
+                    plot_id: "resource-pressure-plot".into(),
+                    generation: 8,
+                    field: serde_json::json!({"values": [1.0]}),
+                }],
+            })
+            .expect("seed the old session revision history");
+        showcase.mesh_plot_states.insert(
+            "resource-pressure-plot".into(),
+            Rc::new(RefCell::new(MeshPlotState::new(0.0, 1.0, 0.0, 1.0))),
+        );
+        showcase
+            .mesh_plot_errors
+            .insert("resource-pressure-plot".into(), "stale frame".into());
+
+        showcase.reset_mesh_plot_runtime_state();
+
+        assert!(showcase.mesh_plot_resource_refs.is_empty());
+        assert!(showcase.mesh_plot_states.is_empty());
+        assert!(showcase.mesh_plot_errors.is_empty());
+        assert_eq!(showcase.mesh_plots.len(), 0);
+        assert_eq!(showcase.mesh_frames.stats().resources, 0);
+        assert_eq!(showcase.mesh_frames.stats().references, 0);
+        assert_eq!(showcase.session_state.revision(), 0);
+        assert_eq!(
+            showcase
+                .session_state
+                .mesh_generation("resource-pressure-plot"),
+            None
+        );
+        for (resource_id, generation) in handles {
+            assert!(showcase.mesh_frames.get(&resource_id, generation).is_none());
+        }
+
+        let fresh = frame(
+            "mesh-positions",
+            MeshFrameKind::Geometry,
+            MeshDtype::F64LE,
+            &[1, 3],
+            bytes(&[0.0_f64, 0.0, 0.0], f64::to_le_bytes),
+        );
+        assert!(matches!(
+            showcase.mesh_frames.ingest(fresh),
+            Ok(MeshFrameOutcome::Assembled(_))
+        ));
+    }
+
+    #[test]
+    fn native_host_shutdown_releases_runtime_ownership_idempotently() {
+        let (spec, frames) = fixture();
+        let handles = mesh_plot_resource_handles(&spec).expect("fixture resource handles");
+        let mut showcase = PythonIrShowcase::new_empty(PresentationStore::open());
+        showcase.mesh_frames = Rc::try_unwrap(frames)
+            .expect("fixture frame store has one owner")
+            .into_inner();
+        showcase
+            .sync_mesh_plot_resource_refs_for_spec(&spec)
+            .expect("retain resources for the active plot");
+        showcase
+            .mesh_plots
+            .upsert(spec)
+            .expect("cache the active plot specification");
+
+        let cancellation = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        showcase
+            .profiler_subscriptions
+            .insert("shutdown-test".into(), cancellation.clone());
+        assert_eq!(
+            showcase.mesh_frames.stats().referenced_resources,
+            handles.len()
+        );
+        assert_eq!(showcase.mesh_plots.len(), 1);
+
+        showcase.shutdown_runtime_state();
+
+        assert!(cancellation.load(Ordering::Acquire));
+        assert!(showcase.profiler_subscriptions.is_empty());
+        assert!(showcase.mesh_plot_resource_refs.is_empty());
+        assert_eq!(showcase.mesh_plots.len(), 0);
+        assert!(showcase.mesh_plot_states.is_empty());
+        assert!(showcase.mesh_plot_errors.is_empty());
+        assert_eq!(showcase.mesh_frames.stats().resources, 0);
+        assert_eq!(showcase.mesh_frames.stats().references, 0);
+        for (resource_id, generation) in &handles {
+            assert!(showcase.mesh_frames.get(resource_id, *generation).is_none());
+        }
+
+        // Drop calls the same cleanup after this explicit shutdown; a second
+        // direct call also proves that cleanup does not depend on live refs.
+        showcase.shutdown_runtime_state();
+        assert!(showcase.mesh_plot_resource_refs.is_empty());
+        assert_eq!(showcase.mesh_plots.len(), 0);
+        assert!(showcase.mesh_plot_states.is_empty());
+        assert!(showcase.mesh_plot_errors.is_empty());
+        assert_eq!(showcase.mesh_frames.stats().resources, 0);
+        assert_eq!(showcase.mesh_frames.stats().references, 0);
+    }
+
+    #[test]
+    fn native_mesh_patch_errors_are_localized_to_the_active_plot() {
+        let mut showcase = PythonIrShowcase::new_empty(PresentationStore::open());
+        let patch = gpui_python_runtime::session::Patch {
+            revision: 2,
+            request_id: Some("invalid-field".into()),
+            ops: vec![gpui_python_runtime::session::PatchOp::ReplaceMeshField {
+                plot_id: "plot".into(),
+                generation: 2,
+                field: Value::Null,
+            }],
+        };
+
+        showcase.record_mesh_patch_error(&patch, "invalid mesh field");
+
+        assert_eq!(showcase.load_error, None);
+        assert_eq!(
+            showcase.mesh_plot_errors.get("plot").map(String::as_str),
+            Some("invalid mesh field")
+        );
     }
 }
 
@@ -1273,6 +1664,16 @@ fn mesh_plot_ids(value: &Value, ids: &mut HashSet<String>) {
         if let Some(id) = value.get("id").and_then(Value::as_str) {
             ids.insert(id.to_owned());
         }
+        if let Some(spec_id) = value
+            .get("spec")
+            .and_then(|spec| spec.get("id"))
+            .and_then(Value::as_str)
+        {
+            // The UI node ID is the patch address, while the MeshPlot spec ID
+            // owns retained GPU/cache state. `ui.mesh_plot(..., id=...)`
+            // permits these IDs to differ, so both are live runtime aliases.
+            ids.insert(spec_id.to_owned());
+        }
     }
     if let Some(object) = value.as_object() {
         for child in object.values() {
@@ -1285,409 +1686,962 @@ fn mesh_plot_ids(value: &Value, ids: &mut HashSet<String>) {
     }
 }
 
-fn mesh_resource_ref<'a>(value: &'a Value, name: &str) -> Result<(&'a str, u64), String> {
-    let object = value
-        .as_object()
-        .ok_or_else(|| format!("{name} resource handle must be an object"))?;
-    let resource_id = object
-        .get("resource_id")
-        .or_else(|| object.get("id"))
-        .and_then(Value::as_str)
-        .filter(|id| !id.trim().is_empty())
-        .ok_or_else(|| format!("{name} resource_id must be a non-empty string"))?;
-    let generation = object
-        .get("generation")
-        .and_then(Value::as_u64)
-        .filter(|generation| *generation > 0)
-        .ok_or_else(|| format!("{name} resource generation must be positive"))?;
-    Ok((resource_id, generation))
-}
-
-fn mesh_resource<'a>(
-    store: &'a MeshFrameStore,
-    value: &Value,
-    name: &str,
-    expected_kind: MeshFrameKind,
-) -> Result<&'a RetainedMeshResource, String> {
-    let (resource_id, generation) = mesh_resource_ref(value, name)?;
-    let resource = store.get(resource_id, generation).ok_or_else(|| {
-        format!("missing {name} resource {resource_id:?} generation {generation}")
-    })?;
-    if resource.kind != expected_kind {
-        return Err(format!(
-            "{name} resource {resource_id:?} has kind {:?}, expected {:?}",
-            resource.kind, expected_kind
-        ));
-    }
-    Ok(resource)
-}
-
-fn resource_shape_elements(resource: &RetainedMeshResource, name: &str) -> Result<usize, String> {
-    if resource.shape.is_empty() || resource.shape.contains(&0) {
-        return Err(format!(
-            "{name} resource shape must contain positive dimensions"
-        ));
-    }
-    resource.shape.iter().try_fold(1usize, |count, dimension| {
-        count
-            .checked_mul(*dimension as usize)
-            .ok_or_else(|| format!("{name} resource shape is too large"))
-    })
-}
-
-fn decode_resource_floats(
-    resource: &RetainedMeshResource,
-    name: &str,
-    allow_nan: bool,
-) -> Result<Vec<f64>, String> {
-    let elements = resource_shape_elements(resource, name)?;
-    let width = match resource.dtype {
-        MeshDtype::F32LE => 4,
-        MeshDtype::F64LE => 8,
-        dtype => {
-            return Err(format!(
-                "{name} resource dtype {dtype:?} is not f32le/f64le"
-            ));
-        }
-    };
-    let expected = elements
-        .checked_mul(width)
-        .ok_or_else(|| format!("{name} resource payload is too large"))?;
-    if resource.payload.len() != expected {
-        return Err(format!(
-            "{name} resource payload has {} bytes, expected {expected}",
-            resource.payload.len()
-        ));
-    }
-    resource
-        .payload
-        .chunks_exact(width)
-        .map(|chunk| {
-            let value = if width == 4 {
-                f32::from_le_bytes(chunk.try_into().map_err(|_| "invalid f32 bytes")?) as f64
-            } else {
-                f64::from_le_bytes(chunk.try_into().map_err(|_| "invalid f64 bytes")?)
-            };
-            if value.is_infinite() || (!allow_nan && value.is_nan()) {
-                return Err(format!("{name} resource contains a non-finite value"));
-            }
-            Ok(value)
-        })
-        .collect()
-}
-
-fn decode_resource_u32(resource: &RetainedMeshResource, name: &str) -> Result<Vec<u32>, String> {
-    let elements = resource_shape_elements(resource, name)?;
-    if resource.dtype != MeshDtype::U32LE {
-        return Err(format!(
-            "{name} resource dtype {:?} is not u32le",
-            resource.dtype
-        ));
-    }
-    let expected = elements
-        .checked_mul(4)
-        .ok_or_else(|| format!("{name} resource payload is too large"))?;
-    if resource.payload.len() != expected {
-        return Err(format!(
-            "{name} resource payload has {} bytes, expected {expected}",
-            resource.payload.len()
-        ));
-    }
-    resource
-        .payload
-        .chunks_exact(4)
-        .map(|chunk| {
-            Ok(u32::from_le_bytes(
-                chunk.try_into().map_err(|_| "invalid u32 bytes")?,
-            ))
-        })
-        .collect()
-}
-
-fn decode_resource_u64(resource: &RetainedMeshResource, name: &str) -> Result<Vec<u64>, String> {
-    let elements = resource_shape_elements(resource, name)?;
-    if resource.dtype != MeshDtype::U64LE {
-        return Err(format!(
-            "{name} resource dtype {:?} is not u64le",
-            resource.dtype
-        ));
-    }
-    let expected = elements
-        .checked_mul(8)
-        .ok_or_else(|| format!("{name} resource payload is too large"))?;
-    if resource.payload.len() != expected {
-        return Err(format!(
-            "{name} resource payload has {} bytes, expected {expected}",
-            resource.payload.len()
-        ));
-    }
-    resource
-        .payload
-        .chunks_exact(8)
-        .map(|chunk| {
-            Ok(u64::from_le_bytes(
-                chunk.try_into().map_err(|_| "invalid u64 bytes")?,
-            ))
-        })
-        .collect()
-}
-
-fn decode_resource_bools(
-    resource: &RetainedMeshResource,
-    name: &str,
-    expected_elements: usize,
-) -> Result<Vec<bool>, String> {
-    let elements = resource_shape_elements(resource, name)?;
-    if resource.shape.len() != 1 {
-        return Err(format!("{name} resource shape must be [value_count]"));
-    }
-    if elements != expected_elements {
-        return Err(format!(
-            "{name} resource has {elements} values, expected {expected_elements}"
-        ));
-    }
-    let expected_bytes = match resource.dtype {
-        MeshDtype::BoolBytes => elements,
-        MeshDtype::BoolPacked => {
-            elements
-                .checked_add(7)
-                .ok_or_else(|| format!("{name} resource shape is too large"))?
-                / 8
-        }
-        dtype => {
-            return Err(format!(
-                "{name} resource dtype {dtype:?} is not bool_bytes/bool_packed"
-            ));
-        }
-    };
-    if resource.payload.len() != expected_bytes {
-        return Err(format!(
-            "{name} resource payload has {} bytes, expected {expected_bytes}",
-            resource.payload.len()
-        ));
-    }
-    match resource.dtype {
-        MeshDtype::BoolBytes => resource
-            .payload
-            .iter()
-            .enumerate()
-            .map(|(index, value)| match value {
-                0 => Ok(false),
-                1 => Ok(true),
-                _ => Err(format!("{name} resource byte {index} is not boolean")),
-            })
-            .collect(),
-        MeshDtype::BoolPacked => (0..elements)
-            .map(|index| Ok(resource.payload[index / 8] & (1 << (index % 8)) != 0))
-            .collect(),
-        _ => unreachable!("dtype checked above"),
-    }
-}
-
-fn decode_inline_ids(
-    geometry: &Value,
-    name: &str,
-    expected: usize,
-    store: &MeshFrameStore,
-) -> Result<Option<Vec<u64>>, String> {
-    gpui_python_runtime::native_mesh_plot::decode_ids(geometry, name, expected, store)
-}
-
-#[allow(dead_code)] // Transitional duplicate kept until the showcase-only helpers below are removed.
-fn legacy_decode_inline_ids(
-    geometry: &Value,
-    name: &str,
-    expected: usize,
-    store: &MeshFrameStore,
-) -> Result<Option<Vec<u64>>, String> {
-    let Some(value) = geometry.get(name) else {
-        return Ok(None);
-    };
-    if value.is_object() {
-        let resource = mesh_resource(
-            store,
-            value,
-            &format!("geometry.{name}"),
-            MeshFrameKind::Ids,
-        )?;
-        if resource.shape.len() != 1 || resource.shape[0] as usize != expected {
-            return Err(format!(
-                "geometry.{name} resource shape must be [{expected}]"
-            ));
-        }
-        return decode_resource_u64(resource, &format!("geometry.{name}")).map(Some);
-    }
-    let values = value
-        .as_array()
-        .ok_or_else(|| format!("mesh geometry {name} must be an array"))?;
-    if values.len() != expected {
-        return Err(format!(
-            "mesh geometry {name} has {}, expected {expected} values",
-            values.len()
-        ));
-    }
-    values
-        .iter()
-        .map(|value| {
-            value
-                .as_u64()
-                .ok_or_else(|| format!("mesh geometry {name} must contain u64 ids"))
-        })
-        .collect::<Result<Vec<_>, _>>()
-        .map(Some)
-}
-
-fn decode_mesh_geometry(
-    geometry: &Value,
-    store: &MeshFrameStore,
-) -> Result<(Vec<[f64; 3]>, Vec<[u32; 3]>), String> {
-    gpui_python_runtime::native_mesh_plot::decode_geometry(geometry, store)
-}
-
-#[allow(dead_code)] // Transitional duplicate kept until the showcase-only helpers below are removed.
-fn legacy_decode_mesh_geometry(
-    geometry: &Value,
-    store: &MeshFrameStore,
-) -> Result<(Vec<[f64; 3]>, Vec<[u32; 3]>), String> {
-    let split_resources = geometry.get("positions").is_some_and(Value::is_object)
-        || geometry.get("triangles").is_some_and(Value::is_object);
-    if split_resources {
-        let positions_resource = mesh_resource(
-            store,
-            geometry
-                .get("positions")
-                .ok_or("mesh geometry is missing positions resource")?,
-            "geometry.positions",
-            MeshFrameKind::Geometry,
-        )?;
-        let triangles_resource = mesh_resource(
-            store,
-            geometry
-                .get("triangles")
-                .ok_or("mesh geometry is missing triangles resource")?,
-            "geometry.triangles",
-            MeshFrameKind::Geometry,
-        )?;
-        if positions_resource.shape.len() != 2 || positions_resource.shape[1] != 3 {
-            return Err("geometry.positions resource shape must be [vertex_count, 3]".into());
-        }
-        if triangles_resource.shape.len() != 2 || triangles_resource.shape[1] != 3 {
-            return Err("geometry.triangles resource shape must be [triangle_count, 3]".into());
-        }
-        let position_values =
-            decode_resource_floats(positions_resource, "geometry.positions", false)?;
-        let triangle_values = decode_resource_u32(triangles_resource, "geometry.triangles")?;
-        let positions = position_values
-            .chunks_exact(3)
-            .map(|values| [values[0], values[1], values[2]])
-            .collect();
-        let triangles = triangle_values
-            .chunks_exact(3)
-            .map(|values| [values[0], values[1], values[2]])
-            .collect();
-        return Ok((positions, triangles));
-    }
-
-    let positions = geometry
-        .get("positions")
-        .and_then(Value::as_array)
-        .ok_or("native mesh plot requires inline positions or split resources")?
-        .iter()
-        .map(|point| {
-            let values = point.as_array().ok_or("mesh position must be an array")?;
-            let [x, y, z] = values.as_slice() else {
-                return Err("mesh position must contain three values".into());
-            };
-            Ok([
-                x.as_f64().ok_or("mesh x must be numeric")?,
-                y.as_f64().ok_or("mesh y must be numeric")?,
-                z.as_f64().ok_or("mesh z must be numeric")?,
-            ])
-        })
-        .collect::<Result<Vec<_>, String>>()?;
-    let triangles = geometry
-        .get("triangles")
-        .and_then(Value::as_array)
-        .ok_or("native mesh plot requires inline triangles or split resources")?
-        .iter()
-        .map(|triangle| {
-            let values = triangle
-                .as_array()
-                .ok_or("mesh triangle must be an array")?;
-            let [a, b, c] = values.as_slice() else {
-                return Err("mesh triangle must contain three indices".into());
-            };
-            Ok([
-                a.as_u64().ok_or("mesh index must be an integer")? as u32,
-                b.as_u64().ok_or("mesh index must be an integer")? as u32,
-                c.as_u64().ok_or("mesh index must be an integer")? as u32,
-            ])
-        })
-        .collect::<Result<Vec<_>, String>>()?;
-    Ok((positions, triangles))
-}
-
-fn decode_mesh_field(
-    field: &Value,
-    store: &MeshFrameStore,
-) -> Result<(Vec<f64>, Option<Vec<bool>>), String> {
-    gpui_python_runtime::native_mesh_plot::decode_field(field, store)
-}
-
-#[allow(dead_code)] // Transitional duplicate kept until the showcase-only helpers below are removed.
-fn legacy_decode_mesh_field(
-    field: &Value,
-    store: &MeshFrameStore,
-) -> Result<(Vec<f64>, Option<Vec<bool>>), String> {
-    let values = if field.get("resource_id").is_some() {
-        let resource = mesh_resource(store, field, "field", MeshFrameKind::Field)?;
-        if resource.shape.len() != 1 {
-            return Err("field resource shape must be [value_count]".into());
-        }
-        // Keep NaN samples intact for `MissingValuePolicy::MaskNaN`, but
-        // never accept infinities: they cannot be rendered or meaningfully
-        // masked by a scalar field.
-        decode_resource_floats(resource, "field", true)?
-    } else {
-        field
-            .get("values")
-            .and_then(Value::as_array)
-            .ok_or("native mesh plot requires inline field values or a field resource")?
-            .iter()
-            .map(|value| value.as_f64().ok_or("mesh field value must be numeric"))
-            .collect::<Result<Vec<_>, _>>()?
-    };
-    let valid = field
-        .get("valid")
-        .map(|value| {
-            if value.is_object() {
-                let resource = mesh_resource(store, value, "field.valid", MeshFrameKind::Mask)?;
-                return decode_resource_bools(resource, "field.valid", values.len());
-            }
-            Ok(value
-                .as_array()
-                .ok_or("mesh field valid mask must be an array")?
-                .iter()
-                .map(|value| {
-                    value
-                        .as_bool()
-                        .ok_or("mesh field valid mask must be boolean")
-                })
-                .collect::<Result<Vec<_>, _>>()?)
-        })
-        .transpose()?;
-    if valid
-        .as_ref()
-        .is_some_and(|valid| valid.len() != values.len())
+fn mesh_plot_spec_id_for_node(value: &Value, node_id: &str) -> Option<String> {
+    if value.get("kind").and_then(Value::as_str) == Some("mesh_plot")
+        && value.get("id").and_then(Value::as_str) == Some(node_id)
     {
-        return Err("mesh field valid mask length must match values".into());
+        return value
+            .get("spec")
+            .and_then(|spec| spec.get("id"))
+            .and_then(Value::as_str)
+            .map(str::to_owned);
     }
-    Ok((values, valid))
+    if let Some(object) = value.as_object() {
+        for child in object.values() {
+            if let Some(id) = mesh_plot_spec_id_for_node(child, node_id) {
+                return Some(id);
+            }
+        }
+    } else if let Some(array) = value.as_array() {
+        for child in array {
+            if let Some(id) = mesh_plot_spec_id_for_node(child, node_id) {
+                return Some(id);
+            }
+        }
+    }
+    None
+}
+
+fn mesh_plot_resource_handles(spec: &MeshPlotSpec) -> Result<Vec<(String, u64)>, String> {
+    let mut handles = spec
+        .resource_refs()?
+        .into_iter()
+        .map(|resource| (resource.resource_id, resource.generation))
+        .collect::<Vec<_>>();
+    // A plot can use one resource for more than one role (for example, a
+    // shared validity mask). One native plot is still one cache owner.
+    handles.sort_unstable();
+    handles.dedup();
+    Ok(handles)
+}
+
+fn collect_mesh_plot_resource_refs(
+    value: &Value,
+    refs: &mut HashMap<String, Vec<(String, u64)>>,
+) -> Result<(), String> {
+    if value.get("kind").and_then(Value::as_str) == Some("mesh_plot") {
+        let spec_value = value.get("spec").cloned().unwrap_or(Value::Null);
+        let spec = MeshPlotSpec::from_value(spec_value)?;
+        if refs
+            .insert(spec.id.clone(), mesh_plot_resource_handles(&spec)?)
+            .is_some()
+        {
+            return Err(format!("duplicate mesh_plot id {:?}", spec.id));
+        }
+    }
+    if let Some(object) = value.as_object() {
+        for child in object.values() {
+            collect_mesh_plot_resource_refs(child, refs)?;
+        }
+    } else if let Some(array) = value.as_array() {
+        for child in array {
+            collect_mesh_plot_resource_refs(child, refs)?;
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod runtime_resource_release_tests {
+    use super::{PresentationStore, PythonIrShowcase};
+    use gpui_python_runtime::audio_stream::{AudioFrame, AudioFrameKind};
+    use gpui_python_runtime::mesh_frames::{MeshDtype, MeshFrame, MeshFrameKind};
+    use gpui_python_runtime::meshplot::MeshPlotSpec;
+    use gpui_python_runtime::session::{Patch, PatchOp};
+    use gpui_python_runtime::ui_ir::{PythonAppIr, UiNode};
+    use std::{cell::RefCell, collections::HashMap, rc::Rc};
+
+    fn audio_frame(resource_id: &str) -> AudioFrame {
+        AudioFrame {
+            resource_id: resource_id.into(),
+            generation: 1,
+            sequence: 1,
+            frame_kind: AudioFrameKind::Meter,
+            byte_length: 4,
+            shape: vec![1, 1],
+            dtype: "f32".into(),
+            byte_order: "little".into(),
+            finite_policy: "drop_frame".into(),
+            coalesce: "latest".into(),
+            sample_rate: 48_000.0,
+            attack_ms: None,
+            release_ms: None,
+            minimum_frequency: None,
+            maximum_frequency: None,
+            payload: 0.0_f32.to_le_bytes().to_vec(),
+        }
+    }
+
+    fn mesh_frame(resource_id: &str) -> MeshFrame {
+        MeshFrame {
+            resource_id: resource_id.into(),
+            generation: 1,
+            sequence: 0,
+            chunk_count: 1,
+            kind: MeshFrameKind::Field,
+            dtype: MeshDtype::F64LE,
+            shape: vec![1],
+            payload: 0.0_f64.to_le_bytes().to_vec(),
+        }
+    }
+
+    fn app_with_resource_mesh(field_resource_id: &str, field_generation: u64) -> PythonAppIr {
+        serde_json::from_value(serde_json::json!({
+            "title": "MeshPlot patch transaction",
+            "sections": [{
+                "id": "main",
+                "label": "Main",
+                "content": {
+                    "kind": "mesh_plot",
+                    "id": "resource-node",
+                    "spec": {
+                        "schema_version": 1,
+                        "id": "resource-plot",
+                        "geometry": {
+                            "id": "resource-mesh",
+                            "positions": {"resource_id": "positions", "generation": 1, "dtype": "f64le"},
+                            "triangles": {"resource_id": "triangles", "generation": 1, "dtype": "u32le"}
+                        },
+                        "field": {
+                            "id": "pressure",
+                            "label": "Pressure",
+                            "unit": "Pa",
+                            "resource_id": field_resource_id,
+                            "generation": field_generation,
+                            "association": "vertex",
+                            "valid": {"resource_id": "valid", "generation": 1, "dtype": "bool_bytes"}
+                        },
+                        "view": "planar",
+                        "mode": "scalar_fill",
+                        "color_scale": "viridis",
+                        "equal_aspect": true
+                    }
+                }
+            }]
+        }))
+        .expect("valid resource-backed MeshPlot app")
+    }
+
+    fn resource_mesh_store() -> gpui_python_runtime::mesh_frames::MeshFrameStore {
+        use gpui_python_runtime::mesh_frames::MeshFrameStore;
+
+        let mut store = MeshFrameStore::new();
+        let add = |store: &mut MeshFrameStore,
+                   resource_id: &str,
+                   kind: MeshFrameKind,
+                   dtype: MeshDtype,
+                   shape: Vec<u32>,
+                   payload: Vec<u8>| {
+            store
+                .ingest(MeshFrame {
+                    resource_id: resource_id.into(),
+                    generation: 1,
+                    sequence: 0,
+                    chunk_count: 1,
+                    kind,
+                    dtype,
+                    shape,
+                    payload,
+                })
+                .expect("valid resource frame");
+        };
+        add(
+            &mut store,
+            "positions",
+            MeshFrameKind::Geometry,
+            MeshDtype::F64LE,
+            vec![3, 3],
+            [0.0_f64, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0]
+                .into_iter()
+                .flat_map(f64::to_le_bytes)
+                .collect(),
+        );
+        add(
+            &mut store,
+            "triangles",
+            MeshFrameKind::Geometry,
+            MeshDtype::U32LE,
+            vec![1, 3],
+            [0_u32, 1, 2]
+                .into_iter()
+                .flat_map(u32::to_le_bytes)
+                .collect(),
+        );
+        add(
+            &mut store,
+            "pressure",
+            MeshFrameKind::Field,
+            MeshDtype::F64LE,
+            vec![3],
+            [0.0_f64, 0.5, 1.0]
+                .into_iter()
+                .flat_map(f64::to_le_bytes)
+                .collect(),
+        );
+        add(
+            &mut store,
+            "valid",
+            MeshFrameKind::Mask,
+            MeshDtype::BoolBytes,
+            vec![3],
+            vec![1, 1, 1],
+        );
+        store
+    }
+
+    #[test]
+    fn shared_drop_resource_releases_audio_without_mesh_error() {
+        let mut showcase = PythonIrShowcase::new_empty(PresentationStore::open());
+        showcase
+            .audio_frames
+            .ingest(audio_frame("audio-only"))
+            .expect("valid audio frame");
+
+        showcase.release_runtime_resource("audio-only", 1);
+
+        assert!(showcase.audio_frames.get("audio-only").is_none());
+        assert!(showcase.mesh_frames.get("audio-only", 1).is_none());
+        assert_eq!(showcase.load_error, None);
+    }
+
+    #[test]
+    fn shared_drop_resource_releases_mesh_and_reports_unknown_handles() {
+        let mut showcase = PythonIrShowcase::new_empty(PresentationStore::open());
+        showcase
+            .mesh_frames
+            .ingest(mesh_frame("mesh-only"))
+            .expect("valid mesh frame");
+
+        showcase.release_runtime_resource("mesh-only", 1);
+        assert!(showcase.mesh_frames.get("mesh-only", 1).is_none());
+        assert_eq!(showcase.load_error, None);
+
+        showcase.release_runtime_resource("missing", 1);
+        assert_eq!(
+            showcase.load_error.as_deref(),
+            Some("mesh resource \"missing\" generation 1 was not retained")
+        );
+    }
+
+    #[test]
+    fn shared_mesh_generation_has_one_reference_per_active_plot() {
+        let mut showcase = PythonIrShowcase::new_empty(PresentationStore::open());
+        showcase
+            .mesh_frames
+            .ingest(mesh_frame("shared"))
+            .expect("valid mesh frame");
+
+        let mut one = HashMap::new();
+        one.insert("plot-a".into(), vec![("shared".into(), 1)]);
+        showcase
+            .sync_mesh_plot_resource_refs(one.clone())
+            .expect("retain first plot owner");
+        assert_eq!(showcase.mesh_frames.stats().references, 1);
+
+        let mut both = one;
+        both.insert("plot-b".into(), vec![("shared".into(), 1)]);
+        showcase
+            .sync_mesh_plot_resource_refs(both)
+            .expect("retain second plot owner");
+        assert_eq!(showcase.mesh_frames.stats().references, 2);
+        assert!(
+            !showcase.mesh_frames.release("shared", 1),
+            "an explicitly dropped generation remains owned by plot-b"
+        );
+        showcase.release_runtime_resource("shared", 1);
+        assert_eq!(
+            showcase.mesh_plot_errors.get("plot-a").map(String::as_str),
+            Some("mesh resource \"shared\" generation 1 is still owned by an active plot")
+        );
+
+        let mut plot_b = HashMap::new();
+        plot_b.insert("plot-b".into(), vec![("shared".into(), 1)]);
+        showcase
+            .sync_mesh_plot_resource_refs(plot_b)
+            .expect("release plot-a owner");
+        assert_eq!(showcase.mesh_frames.stats().references, 1);
+
+        showcase
+            .sync_mesh_plot_resource_refs(HashMap::new())
+            .expect("release plot-b owner");
+        assert_eq!(showcase.mesh_frames.stats().references, 0);
+        assert!(showcase.mesh_frames.release("shared", 1));
+    }
+
+    #[test]
+    fn unknown_mesh_generation_does_not_contaminate_other_generation_owner() {
+        let mut showcase = PythonIrShowcase::new_empty(PresentationStore::open());
+        showcase
+            .mesh_frames
+            .ingest(mesh_frame("shared"))
+            .expect("valid mesh frame");
+
+        let mut refs = HashMap::new();
+        refs.insert("plot-a".into(), vec![("shared".into(), 1)]);
+        showcase
+            .sync_mesh_plot_resource_refs(refs)
+            .expect("retain generation one for plot-a");
+
+        showcase.release_runtime_resource("shared", 2);
+
+        assert!(showcase.mesh_plot_errors.is_empty());
+        assert_eq!(
+            showcase.load_error.as_deref(),
+            Some("mesh resource \"shared\" generation 2 was not retained")
+        );
+    }
+
+    #[test]
+    fn native_patch_transaction_keeps_newest_valid_resources_and_rejects_late_updates() {
+        let mut showcase = PythonIrShowcase::new_empty(PresentationStore::open());
+        showcase.mesh_frames = resource_mesh_store();
+        showcase.app = Some(app_with_resource_mesh("pressure", 1));
+
+        let mut initial_refs = HashMap::new();
+        initial_refs.insert(
+            "resource-plot".to_string(),
+            vec![
+                ("positions".to_string(), 1),
+                ("triangles".to_string(), 1),
+                ("pressure".to_string(), 1),
+                ("valid".to_string(), 1),
+            ],
+        );
+        showcase
+            .sync_mesh_plot_resource_refs(initial_refs)
+            .expect("retain initial app resources");
+        showcase.mesh_plot_states.insert(
+            "resource-plot".into(),
+            Rc::new(RefCell::new(gpui_px::MeshPlotState::new(
+                0.0, 1.0, 0.0, 1.0,
+            ))),
+        );
+        assert_eq!(showcase.mesh_frames.stats().references, 4);
+
+        let mut replacement = mesh_frame("pressure");
+        replacement.generation = 2;
+        replacement.shape = vec![3];
+        replacement.payload = [1.0_f64, 1.5, 2.0]
+            .into_iter()
+            .flat_map(f64::to_le_bytes)
+            .collect();
+        showcase
+            .mesh_frames
+            .ingest(replacement)
+            .expect("ingest newer field generation");
+
+        showcase.apply_patch_message(Patch {
+            revision: 1,
+            request_id: Some("field-update".into()),
+            ops: vec![
+                PatchOp::ReplaceMeshField {
+                    plot_id: "resource-node".into(),
+                    generation: 2,
+                    field: serde_json::json!({
+                        "id": "pressure",
+                        "label": "Pressure",
+                        "unit": "Pa",
+                        "resource_id": "pressure",
+                        "generation": 2,
+                        "association": "vertex",
+                        "valid": {"resource_id": "valid", "generation": 1, "dtype": "bool_bytes"}
+                    }),
+                },
+                PatchOp::ClearMeshPlotSelection {
+                    plot_id: "resource-node".into(),
+                    generation: 2,
+                },
+            ],
+        });
+
+        assert_eq!(showcase.session_state.revision(), 1);
+        assert_eq!(
+            showcase.session_state.mesh_generation("resource-node"),
+            Some(2)
+        );
+        let UiNode::MeshPlot(committed_node) =
+            &showcase.app.as_ref().expect("committed app").sections[0].content
+        else {
+            panic!("expected MeshPlot node");
+        };
+        assert_eq!(committed_node.spec["field"]["generation"], 2);
+        assert_eq!(showcase.mesh_frames.stats().references, 4);
+        assert!(showcase.mesh_plot_states.contains_key("resource-plot"));
+        assert_eq!(
+            showcase
+                .mesh_plot_resource_refs
+                .get("resource-plot")
+                .expect("plot ownership")
+                .iter()
+                .filter(|(resource_id, generation)| {
+                    resource_id == "pressure" && *generation == 2
+                })
+                .count(),
+            1
+        );
+
+        let committed_app = showcase.app.clone().expect("committed app snapshot");
+        showcase.apply_patch_message(Patch {
+            revision: 2,
+            request_id: Some("missing-field".into()),
+            ops: vec![PatchOp::ReplaceMeshField {
+                plot_id: "resource-node".into(),
+                generation: 3,
+                field: serde_json::json!({
+                    "id": "pressure",
+                    "label": "Pressure",
+                    "unit": "Pa",
+                    "resource_id": "missing-pressure",
+                    "generation": 3,
+                    "association": "vertex"
+                }),
+            }],
+        });
+        assert_eq!(showcase.session_state.revision(), 1);
+        assert_eq!(
+            showcase.session_state.mesh_generation("resource-node"),
+            Some(2)
+        );
+        assert_eq!(showcase.app, Some(committed_app.clone()));
+        assert!(
+            showcase
+                .mesh_plot_errors
+                .get("resource-node")
+                .is_some_and(|message| message.contains("missing-pressure")
+                    && message.contains("missing-field"))
+        );
+        assert!(showcase.mesh_plot_errors.contains_key("resource-plot"));
+
+        showcase.apply_patch_message(Patch {
+            revision: 1,
+            request_id: Some("late-field".into()),
+            ops: vec![PatchOp::ReplaceMeshField {
+                plot_id: "resource-node".into(),
+                generation: 1,
+                field: serde_json::json!({
+                    "id": "pressure",
+                    "label": "Pressure",
+                    "unit": "Pa",
+                    "resource_id": "pressure",
+                    "generation": 1,
+                    "association": "vertex",
+                    "valid": {"resource_id": "valid", "generation": 1, "dtype": "bool_bytes"}
+                }),
+            }],
+        });
+        assert_eq!(showcase.session_state.revision(), 1);
+        assert_eq!(showcase.app, Some(committed_app));
+        assert!(
+            showcase
+                .mesh_plot_errors
+                .get("resource-node")
+                .is_some_and(|message| message.contains("stale") || message.contains("revision"))
+        );
+    }
+
+    #[test]
+    fn malformed_inline_mesh_patch_preserves_last_valid_commit_and_recovers() {
+        let mut showcase = PythonIrShowcase::new_empty(PresentationStore::open());
+        showcase.mesh_frames = resource_mesh_store();
+        let initial = app_with_resource_mesh("pressure", 1);
+        showcase.app = Some(initial.clone());
+
+        let mut refs = HashMap::new();
+        refs.insert(
+            "resource-plot".to_string(),
+            vec![
+                ("positions".to_string(), 1),
+                ("triangles".to_string(), 1),
+                ("pressure".to_string(), 1),
+                ("valid".to_string(), 1),
+            ],
+        );
+        showcase
+            .sync_mesh_plot_resource_refs(refs)
+            .expect("retain initial app resources");
+        let committed = showcase.app.clone().expect("initial app");
+
+        showcase.apply_patch_message(Patch {
+            revision: 1,
+            request_id: Some("malformed-inline-field".into()),
+            ops: vec![PatchOp::ReplaceMeshField {
+                plot_id: "resource-node".into(),
+                generation: 2,
+                field: serde_json::json!({
+                    "id": "pressure",
+                    "label": "Pressure",
+                    "association": "vertex",
+                    "values": [1.0, "not-a-number", 2.0]
+                }),
+            }],
+        });
+
+        assert_eq!(showcase.app, Some(committed.clone()));
+        assert_eq!(showcase.session_state.revision(), 0);
+        assert_eq!(
+            showcase.session_state.mesh_generation("resource-node"),
+            None
+        );
+        assert_eq!(showcase.mesh_frames.stats().references, 4);
+        assert!(
+            showcase
+                .mesh_plot_errors
+                .get("resource-node")
+                .is_some_and(|message| message.contains("mesh_plot field values must be finite"))
+        );
+
+        // The rejected revision must not poison the stream: a later valid
+        // patch at the same revision can commit and clear the localized error.
+        showcase.apply_patch_message(Patch {
+            revision: 1,
+            request_id: Some("recovered-field".into()),
+            ops: vec![PatchOp::ReplaceMeshField {
+                plot_id: "resource-node".into(),
+                generation: 2,
+                field: serde_json::json!({
+                    "id": "pressure",
+                    "label": "Recovered pressure",
+                    "unit": "Pa",
+                    "resource_id": "pressure",
+                    "generation": 1,
+                    "association": "vertex",
+                    "valid": {"resource_id": "valid", "generation": 1, "dtype": "bool_bytes"}
+                }),
+            }],
+        });
+
+        assert_eq!(showcase.session_state.revision(), 1);
+        assert_eq!(
+            showcase.session_state.mesh_generation("resource-node"),
+            Some(2)
+        );
+        assert_eq!(showcase.mesh_frames.stats().references, 4);
+        assert!(showcase.mesh_plot_errors.is_empty());
+        let UiNode::MeshPlot(node) =
+            &showcase.app.as_ref().expect("recovered app").sections[0].content
+        else {
+            panic!("expected MeshPlot node");
+        };
+        assert_eq!(node.spec["field"]["label"], "Recovered pressure");
+    }
+
+    #[test]
+    fn native_snapshot_transaction_replaces_owners_and_preserves_last_valid_state() {
+        let mut showcase = PythonIrShowcase::new_empty(PresentationStore::open());
+        showcase.mesh_frames = resource_mesh_store();
+
+        let initial = app_with_resource_mesh("pressure", 1);
+        showcase
+            .mesh_plots
+            .upsert(
+                MeshPlotSpec::from_value(serde_json::json!({
+                    "schema_version": 1,
+                    "id": "resource-plot",
+                    "geometry": {
+                        "id": "resource-mesh",
+                        "positions": {"resource_id": "positions", "generation": 1, "dtype": "f64le"},
+                        "triangles": {"resource_id": "triangles", "generation": 1, "dtype": "u32le"}
+                    },
+                    "field": {
+                        "id": "pressure",
+                        "resource_id": "pressure",
+                        "generation": 1,
+                        "association": "vertex",
+                        "valid": {"resource_id": "valid", "generation": 1, "dtype": "bool_bytes"}
+                    },
+                    "view": "planar",
+                    "mode": "scalar_fill",
+                    "color_scale": "viridis",
+                    "equal_aspect": true
+                }))
+                .expect("valid cached MeshPlot spec"),
+            )
+            .expect("valid cached MeshPlot spec");
+        showcase.apply_snapshot_message(initial.clone());
+        assert_eq!(showcase.app, Some(initial));
+        assert_eq!(showcase.mesh_frames.stats().references, 4);
+
+        let mut replacement = mesh_frame("pressure");
+        replacement.generation = 2;
+        replacement.shape = vec![3];
+        replacement.payload = [1.0_f64, 1.5, 2.0]
+            .into_iter()
+            .flat_map(f64::to_le_bytes)
+            .collect();
+        showcase
+            .mesh_frames
+            .ingest(replacement)
+            .expect("ingest newer field generation");
+        let updated = app_with_resource_mesh("pressure", 2);
+        showcase.apply_snapshot_message(updated.clone());
+        assert_eq!(showcase.app, Some(updated));
+        assert_eq!(showcase.mesh_frames.stats().references, 4);
+        assert_eq!(
+            showcase
+                .mesh_plot_resource_refs
+                .get("resource-plot")
+                .expect("retained snapshot resources")
+                .iter()
+                .filter(|(resource_id, generation)| {
+                    resource_id == "pressure" && *generation == 2
+                })
+                .count(),
+            1
+        );
+        assert!(
+            showcase.mesh_plots.get("resource-plot").is_some(),
+            "a same-id snapshot must retain the last-valid fallback cache"
+        );
+
+        let mut invalid = showcase.app.clone().expect("updated snapshot");
+        let UiNode::MeshPlot(node) = &mut invalid.sections[0].content else {
+            panic!("expected MeshPlot snapshot");
+        };
+        node.id.clear();
+        let committed = showcase.app.clone();
+        showcase.apply_snapshot_message(invalid);
+        assert_eq!(showcase.app, committed);
+        assert_eq!(showcase.mesh_frames.stats().references, 4);
+        assert!(
+            showcase
+                .load_error
+                .as_deref()
+                .is_some_and(|message| message.contains("stable id"))
+        );
+
+        let missing = app_with_resource_mesh("missing-pressure", 3);
+        showcase.apply_snapshot_message(missing.clone());
+        assert_eq!(showcase.app, Some(missing));
+        assert_eq!(showcase.mesh_frames.stats().references, 0);
+        assert_eq!(showcase.load_error, None);
+        assert!(
+            showcase.mesh_plots.get("resource-plot").is_some(),
+            "a snapshot that arrives before its frames must preserve the cached fallback"
+        );
+    }
+
+    #[test]
+    fn native_host_recovery_matrix_preserves_state_and_releases_plot_resources() {
+        let mut showcase = PythonIrShowcase::new_empty(PresentationStore::open());
+        showcase.mesh_frames = resource_mesh_store();
+
+        let initial = app_with_resource_mesh("pressure", 1);
+        let UiNode::MeshPlot(node) = &initial.sections[0].content else {
+            panic!("expected MeshPlot node");
+        };
+        showcase
+            .mesh_plots
+            .upsert(MeshPlotSpec::from_value(node.spec.clone()).expect("valid cached spec"))
+            .expect("cache initial fallback spec");
+        showcase.apply_snapshot_message(initial.clone());
+        assert_eq!(showcase.app, Some(initial));
+        assert_eq!(showcase.mesh_frames.stats().references, 4);
+
+        let mut generation_two = mesh_frame("pressure");
+        generation_two.generation = 2;
+        generation_two.shape = vec![3];
+        generation_two.payload = [1.0_f64, 1.5, 2.0]
+            .into_iter()
+            .flat_map(f64::to_le_bytes)
+            .collect();
+        showcase
+            .mesh_frames
+            .ingest(generation_two)
+            .expect("ingest valid replacement field");
+        showcase.apply_patch_message(Patch {
+            revision: 1,
+            request_id: Some("matrix-field-update".into()),
+            ops: vec![PatchOp::ReplaceMeshField {
+                plot_id: "resource-node".into(),
+                generation: 2,
+                field: serde_json::json!({
+                    "id": "pressure",
+                    "label": "Pressure",
+                    "unit": "Pa",
+                    "resource_id": "pressure",
+                    "generation": 2,
+                    "association": "vertex",
+                    "valid": {"resource_id": "valid", "generation": 1, "dtype": "bool_bytes"}
+                }),
+            }],
+        });
+        let committed = showcase.app.clone().expect("committed field replacement");
+        assert_eq!(showcase.session_state.revision(), 1);
+        assert_eq!(showcase.mesh_frames.stats().references, 4);
+        assert_eq!(showcase.app, Some(committed.clone()));
+
+        // A snapshot is allowed to arrive before its next binary generation.
+        // The old owners are released, but the cached generation remains
+        // available as the last-valid fallback while the stream recovers.
+        let pending = app_with_resource_mesh("pressure", 3);
+        showcase.apply_snapshot_message(pending.clone());
+        assert_eq!(showcase.app, Some(pending.clone()));
+        assert_eq!(showcase.mesh_frames.stats().references, 0);
+        assert!(showcase.mesh_plots.get("resource-plot").is_some());
+
+        let mut malformed = mesh_frame("pressure");
+        malformed.generation = 3;
+        malformed.payload.pop();
+        showcase.apply_mesh_frame_message(malformed);
+        assert!(showcase.mesh_frames.get("pressure", 3).is_none());
+        assert!(
+            showcase
+                .mesh_plot_errors
+                .get("resource-plot")
+                .is_some_and(
+                    |message| message.contains("pressure") && message.contains("generation 3")
+                )
+        );
+
+        let mut corrected = mesh_frame("pressure");
+        corrected.generation = 3;
+        corrected.shape = vec![3];
+        corrected.payload = [2.0_f64, 2.5, 3.0]
+            .into_iter()
+            .flat_map(f64::to_le_bytes)
+            .collect();
+        showcase.apply_mesh_frame_message(corrected);
+        assert!(showcase.mesh_plot_errors.is_empty());
+        assert!(showcase.mesh_frames.get("pressure", 3).is_some());
+
+        // A late frame from the superseded generation must be ignored after
+        // recovery. It must not replace the corrected payload, clear or
+        // reintroduce the plot-local diagnostic, or disturb active ownership.
+        let recovered_payload = showcase
+            .mesh_frames
+            .get("pressure", 3)
+            .expect("corrected generation is retained")
+            .payload
+            .clone();
+        let recovered_stats = showcase.mesh_frames.stats();
+        let mut stale = mesh_frame("pressure");
+        stale.generation = 2;
+        stale.shape = vec![3];
+        stale.payload = [9.0_f64, 9.5, 10.0]
+            .into_iter()
+            .flat_map(f64::to_le_bytes)
+            .collect();
+        showcase.apply_mesh_frame_message(stale);
+        assert_eq!(
+            showcase
+                .mesh_frames
+                .get("pressure", 3)
+                .expect("stale frame must not evict the recovered generation")
+                .payload,
+            recovered_payload
+        );
+        assert!(showcase.mesh_plot_errors.is_empty());
+        assert_eq!(showcase.load_error, None);
+        assert_eq!(showcase.mesh_frames.stats(), recovered_stats);
+
+        let UiNode::MeshPlot(node) = &pending.sections[0].content else {
+            panic!("expected pending MeshPlot node");
+        };
+        showcase
+            .sync_mesh_plot_resource_refs_for_spec(
+                &MeshPlotSpec::from_value(node.spec.clone()).expect("corrected spec"),
+            )
+            .expect("retain corrected snapshot resources");
+        assert_eq!(showcase.mesh_frames.stats().references, 4);
+
+        let committed_pending = showcase.app.clone().expect("pending snapshot");
+        showcase.apply_patch_message(Patch {
+            revision: 2,
+            request_id: Some("matrix-missing-field".into()),
+            ops: vec![PatchOp::ReplaceMeshField {
+                plot_id: "resource-node".into(),
+                generation: 4,
+                field: serde_json::json!({
+                    "id": "pressure",
+                    "label": "Pressure",
+                    "unit": "Pa",
+                    "resource_id": "missing-pressure",
+                    "generation": 4,
+                    "association": "vertex"
+                }),
+            }],
+        });
+        assert_eq!(showcase.app, Some(committed_pending));
+        assert_eq!(showcase.session_state.revision(), 1);
+        assert!(
+            showcase
+                .mesh_plot_errors
+                .get("resource-node")
+                .is_some_and(|message| message.contains("missing-pressure"))
+        );
+
+        // Explicit release remains rejected while the corrected plot owns the
+        // generation, then all ownership disappears with plot removal.
+        showcase.release_runtime_resource("pressure", 3);
+        assert!(showcase.mesh_plot_errors.contains_key("resource-plot"));
+        let replacement_app: PythonAppIr = serde_json::from_value(serde_json::json!({
+            "title": "Recovered",
+            "sections": [{
+                "id": "main",
+                "label": "Main",
+                "content": {"kind": "text", "id": "done", "text": "recovered"}
+            }]
+        }))
+        .expect("valid replacement app");
+        showcase.apply_snapshot_message(replacement_app);
+        assert!(showcase.mesh_plot_resource_refs.is_empty());
+        assert!(showcase.mesh_plot_states.is_empty());
+        assert!(showcase.mesh_plot_errors.is_empty());
+        assert_eq!(showcase.mesh_frames.stats().references, 0);
+        assert_eq!(showcase.load_error, None);
+        assert_eq!(
+            showcase.session_state.mesh_generation("resource-node"),
+            None,
+            "removing a plot must release its generation history"
+        );
+    }
+
+    #[test]
+    fn native_pre_frame_errors_are_localized_to_the_declared_snapshot_plot() {
+        let mut showcase = PythonIrShowcase::new_empty(PresentationStore::open());
+        showcase.mesh_frames = gpui_python_runtime::mesh_frames::MeshFrameStore::new();
+        showcase.apply_snapshot_message(app_with_resource_mesh("pressure", 2));
+
+        let mut invalid = mesh_frame("pressure");
+        invalid.generation = 2;
+        invalid.payload.pop();
+        showcase.apply_mesh_frame_message(invalid);
+
+        assert_eq!(showcase.load_error, None);
+        assert!(
+            showcase
+                .mesh_plot_errors
+                .get("resource-plot")
+                .is_some_and(
+                    |message| message.contains("pressure") && message.contains("generation 2")
+                )
+        );
+
+        let mut corrected = mesh_frame("pressure");
+        corrected.generation = 2;
+        corrected.shape = vec![3];
+        corrected.payload = [1.0_f64, 1.5, 2.0]
+            .into_iter()
+            .flat_map(f64::to_le_bytes)
+            .collect();
+        showcase.apply_mesh_frame_message(corrected);
+
+        assert!(showcase.mesh_plot_errors.is_empty());
+        assert_eq!(showcase.load_error, None);
+    }
+
+    #[test]
+    fn native_mesh_frame_decode_errors_are_localized_to_the_retained_plot() {
+        let mut showcase = PythonIrShowcase::new_empty(PresentationStore::open());
+        showcase.mesh_frames = gpui_python_runtime::mesh_frames::MeshFrameStore::new();
+        // The malformed frame is rejected before it can be retained. Keep
+        // the declared owner in the routing index so this test exercises the
+        // resource-id-plus-generation match independently of frame storage.
+        showcase
+            .mesh_plot_resource_refs
+            .insert("resource-plot".into(), vec![("pressure".into(), 2)]);
+        showcase.last_mesh_patch_id = Some("field-update".into());
+
+        let mut invalid = mesh_frame("pressure");
+        invalid.generation = 2;
+        invalid.payload.pop();
+        showcase.apply_mesh_frame_message(invalid);
+
+        assert!(showcase.mesh_frames.get("pressure", 2).is_none());
+        assert!(
+            showcase
+                .mesh_plot_errors
+                .get("resource-plot")
+                .is_some_and(|message| message.contains("pressure")
+                    && message.contains("generation 2")
+                    && message.contains("field-update"))
+        );
+        assert_eq!(showcase.load_error, None);
+
+        let mut corrected = mesh_frame("pressure");
+        corrected.generation = 2;
+        corrected.shape = vec![3];
+        corrected.payload = [1.0_f64, 1.5, 2.0]
+            .into_iter()
+            .flat_map(f64::to_le_bytes)
+            .collect();
+        showcase.apply_mesh_frame_message(corrected);
+        assert!(showcase.mesh_frames.get("pressure", 2).is_some());
+        assert!(!showcase.mesh_plot_errors.contains_key("resource-plot"));
+        assert_eq!(showcase.load_error, None);
+    }
+
+    #[test]
+    fn evicted_resource_patch_preserves_the_newest_valid_committed_state() {
+        let mut showcase = PythonIrShowcase::new_empty(PresentationStore::open());
+        showcase.mesh_frames = resource_mesh_store();
+        let initial = app_with_resource_mesh("pressure", 1);
+        let UiNode::MeshPlot(node) = &initial.sections[0].content else {
+            panic!("expected MeshPlot node");
+        };
+        showcase
+            .mesh_plots
+            .upsert(MeshPlotSpec::from_value(node.spec.clone()).expect("valid cached spec"))
+            .expect("cache initial spec");
+        showcase.apply_snapshot_message(initial.clone());
+        assert_eq!(showcase.mesh_frames.stats().references, 4);
+
+        // A plot removal releases ownership before the resource is evicted.
+        // The cached specification remains available as the last-valid state,
+        // but a later patch must not commit a handle that no longer exists.
+        showcase
+            .sync_mesh_plot_resource_refs(HashMap::new())
+            .expect("release removed plot ownership");
+        assert_eq!(showcase.mesh_frames.stats().references, 0);
+        assert!(showcase.mesh_frames.release("pressure", 1));
+        assert!(showcase.mesh_frames.get("pressure", 1).is_none());
+
+        let committed = showcase.app.clone();
+        showcase.apply_patch_message(Patch {
+            revision: 1,
+            request_id: Some("evicted-field".into()),
+            ops: vec![PatchOp::ReplaceMeshField {
+                plot_id: "resource-node".into(),
+                generation: 1,
+                field: serde_json::json!({
+                    "id": "pressure",
+                    "label": "Pressure",
+                    "unit": "Pa",
+                    "resource_id": "pressure",
+                    "generation": 1,
+                    "association": "vertex",
+                    "valid": {"resource_id": "valid", "generation": 1, "dtype": "bool_bytes"}
+                }),
+            }],
+        });
+
+        assert_eq!(showcase.session_state.revision(), 0);
+        assert_eq!(showcase.app, committed);
+        assert!(
+            showcase
+                .mesh_plot_errors
+                .get("resource-node")
+                .is_some_and(|message| {
+                    message.contains("pressure") && message.contains("evicted-field")
+                })
+        );
+    }
 }
 
 #[cfg(test)]
 mod mesh_resource_decode_tests {
     use super::*;
+    use gpui_python_runtime::mesh_frames::MeshDtype;
 
     fn retain(
         store: &mut MeshFrameStore,
@@ -5077,8 +6031,15 @@ pub(super) struct PythonIrShowcase {
     /// without routing high-rate decimal arrays through app patches.
     audio_frames: AudioFrameStore,
     mesh_frames: MeshFrameStore,
+    /// Native MeshPlot owners keep their decoded resource generations alive
+    /// until the corresponding plot is replaced or removed.
+    mesh_plot_resource_refs: HashMap<String, Vec<(String, u64)>>,
     /// Mesh interaction state is host-owned and survives declarative patches.
     mesh_plot_states: HashMap<String, Rc<RefCell<MeshPlotState>>>,
+    /// Recoverable resource/patch failures are kept with the affected plot so
+    /// its last valid frame remains visible instead of replacing the whole
+    /// application with a session error screen.
+    mesh_plot_errors: HashMap<String, String>,
     last_mesh_patch_id: Option<String>,
     table_scrolls: HashMap<String, UniformListScrollHandle>,
     table_focus: HashMap<String, FocusHandle>,
@@ -5153,7 +6114,9 @@ impl PythonIrShowcase {
             chart_hidden_series: HashMap::new(),
             audio_frames: AudioFrameStore::new(),
             mesh_frames: MeshFrameStore::new(),
+            mesh_plot_resource_refs: HashMap::new(),
             mesh_plot_states: HashMap::new(),
+            mesh_plot_errors: HashMap::new(),
             last_mesh_patch_id: None,
             table_scrolls: HashMap::new(),
             table_focus: HashMap::new(),
@@ -5221,8 +6184,267 @@ impl PythonIrShowcase {
         self.start_session_updates(cx);
     }
 
+    fn sync_mesh_plot_resource_refs(
+        &mut self,
+        next: HashMap<String, Vec<(String, u64)>>,
+    ) -> Result<(), String> {
+        let mut retained: Vec<(String, u64)> = Vec::new();
+        for (plot_id, handles) in &next {
+            let previous = self.mesh_plot_resource_refs.get(plot_id);
+            for (resource_id, generation) in handles {
+                if previous.is_some_and(|handles| {
+                    handles
+                        .iter()
+                        .any(|handle| handle == &(resource_id.clone(), *generation))
+                }) {
+                    continue;
+                }
+                if !self.mesh_frames.retain(resource_id, *generation) {
+                    for (retained_id, retained_generation) in retained {
+                        self.mesh_frames
+                            .release_reference(&retained_id, retained_generation);
+                    }
+                    return Err(format!(
+                        "mesh plot {plot_id:?} resource {resource_id:?} generation {generation} disappeared while retaining"
+                    ));
+                }
+                retained.push((resource_id.clone(), *generation));
+            }
+        }
+
+        for (plot_id, handles) in &self.mesh_plot_resource_refs {
+            let next_handles = next.get(plot_id);
+            for (resource_id, generation) in handles {
+                if next_handles.is_some_and(|handles| {
+                    handles
+                        .iter()
+                        .any(|handle| handle == &(resource_id.clone(), *generation))
+                }) {
+                    continue;
+                }
+                self.mesh_frames.release_reference(resource_id, *generation);
+            }
+        }
+        self.mesh_plot_resource_refs = next;
+        Ok(())
+    }
+
+    fn sync_mesh_plot_resource_refs_for_spec(&mut self, spec: &MeshPlotSpec) -> Result<(), String> {
+        let mut next = self.mesh_plot_resource_refs.clone();
+        next.insert(spec.id.clone(), mesh_plot_resource_handles(spec)?);
+        self.sync_mesh_plot_resource_refs(next)
+    }
+
+    fn release_mesh_plot_resource_refs(&mut self) {
+        let refs = std::mem::take(&mut self.mesh_plot_resource_refs);
+        for handles in refs.into_values() {
+            for (resource_id, generation) in handles {
+                self.mesh_frames.release_reference(&resource_id, generation);
+            }
+        }
+    }
+
+    fn reset_mesh_plot_runtime_state(&mut self) {
+        self.release_mesh_plot_resource_refs();
+        self.session_state.reset_for_new_session();
+        // A new Python child may restart generation numbering. Use a fresh
+        // frame store for a new session rather than preserving stale history
+        // across unrelated producers.
+        self.mesh_frames = MeshFrameStore::new();
+        self.mesh_plots.retain_only(std::iter::empty::<&str>());
+        self.mesh_plot_states.clear();
+        self.mesh_plot_errors.clear();
+        self.last_mesh_patch_id = None;
+    }
+
+    fn record_mesh_patch_error(&mut self, patch: &Patch, error: impl Into<String>) {
+        let error = error.into();
+        let mut recorded = false;
+        for operation in &patch.ops {
+            if let Some(plot_id) = mesh_plot_operation_id(operation) {
+                self.mesh_plot_errors
+                    .insert(plot_id.to_owned(), error.clone());
+                if let Some(spec_id) = self
+                    .app
+                    .as_ref()
+                    .and_then(|app| serde_json::to_value(app).ok())
+                    .and_then(|value| mesh_plot_spec_id_for_node(&value, plot_id))
+                {
+                    self.mesh_plot_errors.insert(spec_id, error.clone());
+                }
+                recorded = true;
+            }
+        }
+        if !recorded {
+            self.load_error = Some(error);
+        }
+    }
+
+    fn clear_mesh_patch_errors(&mut self, patch: &Patch) {
+        for operation in &patch.ops {
+            if let Some(plot_id) = mesh_plot_operation_id(operation) {
+                self.mesh_plot_errors.remove(plot_id);
+                if let Some(spec_id) = self
+                    .app
+                    .as_ref()
+                    .and_then(|app| serde_json::to_value(app).ok())
+                    .and_then(|value| mesh_plot_spec_id_for_node(&value, plot_id))
+                {
+                    self.mesh_plot_errors.remove(&spec_id);
+                }
+            }
+        }
+    }
+
+    fn record_mesh_resource_error(
+        &mut self,
+        resource_id: &str,
+        generation: u64,
+        error: impl Into<String>,
+    ) {
+        let error = error.into();
+        let mut plot_ids = Vec::new();
+        let mut add_plot_id = |plot_id: &str| {
+            if !plot_ids.iter().any(|existing| existing == plot_id) {
+                plot_ids.push(plot_id.to_owned());
+            }
+        };
+        for (plot_id, handles) in &self.mesh_plot_resource_refs {
+            if handles.iter().any(|(id, retained_generation)| {
+                id == resource_id && *retained_generation == generation
+            }) {
+                add_plot_id(plot_id);
+            }
+        }
+        // A snapshot may commit before its binary frames arrive. In that
+        // interval there are no retained owners yet, but the declarative app
+        // still identifies the plot that should receive a resource-local
+        // diagnostic rather than a global error.
+        if let Some(app_value) = self
+            .app
+            .as_ref()
+            .and_then(|app| serde_json::to_value(app).ok())
+        {
+            let mut declared_refs = HashMap::new();
+            if collect_mesh_plot_resource_refs(&app_value, &mut declared_refs).is_ok() {
+                for (plot_id, handles) in declared_refs {
+                    if handles.iter().any(|(id, retained_generation)| {
+                        id == resource_id && *retained_generation == generation
+                    }) {
+                        add_plot_id(&plot_id);
+                    }
+                }
+            }
+        }
+        if plot_ids.is_empty() {
+            self.load_error = Some(error);
+        } else {
+            for plot_id in plot_ids {
+                self.mesh_plot_errors.insert(plot_id, error.clone());
+            }
+        }
+    }
+
+    fn clear_mesh_resource_error(&mut self, resource_id: &str, generation: u64) {
+        let prefix = format!("mesh resource {resource_id:?} generation {generation}");
+        self.mesh_plot_errors
+            .retain(|_, message| !message.starts_with(&prefix));
+        if self
+            .load_error
+            .as_deref()
+            .is_some_and(|message| message.starts_with(&prefix))
+        {
+            self.load_error = None;
+        }
+    }
+
+    /// Commit a Python snapshot as one resource-ownership transaction.
+    ///
+    /// Snapshots may legally arrive before their binary MeshFrames. In that
+    /// case the new declarative app is committed so the first complete frame
+    /// can render it, while the previous plot cache remains available for the
+    /// last-valid fallback. If a snapshot is malformed, or retaining a fully
+    /// available snapshot fails, the previously committed app and ownership
+    /// remain untouched.
+    fn apply_snapshot_message(&mut self, app_ir: PythonAppIr) {
+        if let Err(error) = app_ir.validate() {
+            self.load_error = Some(error.to_string());
+            return;
+        }
+
+        let app_value = serde_json::to_value(&app_ir).unwrap_or(Value::Null);
+        let mut next_resource_refs = HashMap::new();
+        let mut live_ids = HashSet::new();
+        mesh_plot_ids(&app_value, &mut live_ids);
+        if let Err(error) = collect_mesh_plot_resource_refs(&app_value, &mut next_resource_refs) {
+            self.load_error = Some(error);
+            return;
+        }
+
+        let resources_available =
+            next_resource_refs
+                .values()
+                .flatten()
+                .all(|(resource_id, generation)| {
+                    self.mesh_frames.get(resource_id, *generation).is_some()
+                });
+        if resources_available {
+            if let Err(error) = self.sync_mesh_plot_resource_refs(next_resource_refs) {
+                self.load_error = Some(error);
+                return;
+            }
+        } else {
+            // Frames may legally arrive after a snapshot. Release the old
+            // owners now and let the first successful render acquire the new
+            // generations without mixing sessions or producers.
+            self.release_mesh_plot_resource_refs();
+        }
+
+        self.app = Some(app_ir);
+        self.prune_mesh_plot_runtime_ids(&live_ids);
+        self.load_error = None;
+        for live_id in live_ids {
+            self.mesh_plot_errors.remove(&live_id);
+        }
+    }
+
+    fn release_runtime_resource(&mut self, resource_id: &str, generation: u64) {
+        let released_audio = self.audio_frames.release(resource_id, generation);
+        let released_mesh = self.mesh_frames.release(resource_id, generation);
+        let active_plot_owns_generation =
+            self.mesh_plot_resource_refs
+                .values()
+                .flatten()
+                .any(|(id, retained_generation)| {
+                    id == resource_id && *retained_generation == generation
+                });
+        if (!released_mesh && active_plot_owns_generation) || (!released_audio && !released_mesh) {
+            let message = if active_plot_owns_generation && !released_mesh {
+                format!(
+                    "mesh resource {:?} generation {} is still owned by an active plot",
+                    resource_id, generation
+                )
+            } else {
+                format!(
+                    "mesh resource {:?} generation {} was not retained",
+                    resource_id, generation
+                )
+            };
+            self.record_mesh_resource_error(resource_id, generation, message);
+        }
+    }
+
+    fn prune_mesh_plot_runtime_ids(&mut self, live_ids: &HashSet<String>) {
+        self.session_state.retain_mesh_plot_generations(live_ids);
+        self.mesh_plots
+            .retain_only(live_ids.iter().map(String::as_str));
+        self.mesh_plot_states.retain(|id, _| live_ids.contains(id));
+        self.mesh_plot_errors.retain(|id, _| live_ids.contains(id));
+    }
+
     fn load_session(&mut self, cx: &mut Context<Self>) {
         self.load_error = None;
+        self.reset_mesh_plot_runtime_state();
         self.app = None;
         self.session = None;
         cx.spawn(async move |this: WeakEntity<Self>, cx| {
@@ -9526,13 +10748,18 @@ impl PythonIrShowcase {
                 "live_plot": live_plot.is_some(),
             }),
         );
+        if let Err(error) = self.sync_mesh_plot_resource_refs_for_spec(&spec) {
+            return self.render_meshplot_error_or_last_valid(node, &spec, &error, theme, ds, _cx);
+        }
         if let Err(error) = self.mesh_plots.upsert(spec.clone()) {
             return self.render_error(&error, theme, ds);
         }
         if let Some(state) = live_state {
             self.mesh_plot_states.insert(spec.id.clone(), state);
         }
+        let plot_error = self.mesh_plot_errors.get(&spec.id).cloned();
         let mut plot_container = div()
+            .relative()
             .flex_1()
             .size_full()
             .rounded(px(ds.corners.sm))
@@ -9548,6 +10775,20 @@ impl PythonIrShowcase {
                     ))
                     .into_any_element()
             }));
+        if let Some(error) = plot_error {
+            plot_container = plot_container.child(
+                div()
+                    .absolute()
+                    .top_0()
+                    .left_0()
+                    .right_0()
+                    .p(px(ds.spacing.grid_unit))
+                    .bg(theme.alert_error_bg)
+                    .text_color(theme.error)
+                    .text_size(px(ds.typography.small_size))
+                    .child(format!("MeshPlot update rejected: {error}")),
+            );
+        }
         if env::var_os("GPUI_TOOLKIT_QA_INNER_HIT_TRACE").is_some() {
             let trace_node_id = node.id.clone();
             plot_container = plot_container.on_mouse_down(
@@ -9622,155 +10863,6 @@ impl PythonIrShowcase {
             retained_state,
             selection_callback,
         );
-
-        let geometry = &spec.geometry;
-        let mesh_id = geometry.get("id").and_then(Value::as_str).unwrap_or("mesh");
-        let (positions, triangles) = decode_mesh_geometry(geometry, mesh_frames)?;
-        let vertex_ids =
-            decode_inline_ids(geometry, "vertex_ids", positions.len(), mesh_frames)?.map(Arc::from);
-        let cell_ids =
-            decode_inline_ids(geometry, "cell_ids", triangles.len(), mesh_frames)?.map(Arc::from);
-        let mesh = TriangleMesh {
-            id: Arc::from(mesh_id),
-            positions: positions.into(),
-            triangles: triangles.into(),
-            vertex_ids,
-            cell_ids,
-        };
-        let mut plot = mesh_plot(mesh.clone()).plot_id(spec.id.clone());
-        if let Some(field) = spec.field.as_ref() {
-            let (values, valid) = decode_mesh_field(field, mesh_frames)?;
-            let association = match field
-                .get("association")
-                .and_then(Value::as_str)
-                .unwrap_or("vertex")
-            {
-                "cell" => ScalarAssociation::Cell,
-                _ => ScalarAssociation::Vertex,
-            };
-            let scalar = ScalarField {
-                id: Arc::from(field.get("id").and_then(Value::as_str).unwrap_or("field")),
-                label: Arc::from(
-                    field
-                        .get("label")
-                        .and_then(Value::as_str)
-                        .unwrap_or("Field"),
-                ),
-                unit: field.get("unit").and_then(Value::as_str).map(Arc::from),
-                values: values.into(),
-                association,
-                valid: valid.map(Arc::from),
-            };
-            plot = plot.field(scalar);
-        }
-        let view = match spec.view.as_str() {
-            "axisymmetric_section" => MeshPlotView::AxisymmetricSection {
-                radial: CoordinateAxis::X,
-                axial: CoordinateAxis::Z,
-            },
-            "axisymmetric_revolve" => MeshPlotView::AxisymmetricRevolve(Default::default()),
-            "surface3d" => MeshPlotView::Surface3d,
-            _ => MeshPlotView::Planar {
-                horizontal: CoordinateAxis::X,
-                vertical: CoordinateAxis::Y,
-            },
-        };
-        let options = native_mesh_plot_options(spec, mesh_id)?;
-        let (horizontal, vertical) = match spec.view.as_str() {
-            "axisymmetric_section" | "axisymmetric_revolve" => {
-                (CoordinateAxis::X, CoordinateAxis::Z)
-            }
-            _ => (CoordinateAxis::X, CoordinateAxis::Y),
-        };
-        let mut x_min = f64::INFINITY;
-        let mut x_max = f64::NEG_INFINITY;
-        let mut y_min = f64::INFINITY;
-        let mut y_max = f64::NEG_INFINITY;
-        for position in mesh.positions.iter() {
-            let projected = project_2d(horizontal, vertical, *position);
-            x_min = x_min.min(projected[0]);
-            x_max = x_max.max(projected[0]);
-            y_min = y_min.min(projected[1]);
-            y_max = y_max.max(projected[1]);
-        }
-        let x_min = if x_min.is_finite() { x_min } else { 0.0 };
-        let y_min = if y_min.is_finite() { y_min } else { 0.0 };
-        let x_max = if x_max.is_finite() {
-            x_max.max(x_min + f64::EPSILON)
-        } else {
-            x_min + 1.0
-        };
-        let y_max = if y_max.is_finite() {
-            y_max.max(y_min + f64::EPSILON)
-        } else {
-            y_min + 1.0
-        };
-        let state = retained_state.unwrap_or_else(|| {
-            Rc::new(RefCell::new(MeshPlotState::new(x_min, x_max, y_min, y_max)))
-        });
-        if let Some([x_min, x_max, y_min, y_max]) = options.viewport {
-            state
-                .borrow_mut()
-                .set_viewport_without_history(x_min, x_max, y_min, y_max);
-        }
-        if let Some(selection) = &options.selection {
-            state.borrow_mut().set_selection(Some(selection.clone()));
-        }
-        state.borrow_mut().set_style(
-            options.mode.clone(),
-            if spec.wireframe {
-                Wireframe::Overlay
-            } else {
-                Wireframe::Hidden
-            },
-            options.color_range.clone(),
-        );
-        #[cfg(feature = "gpu-3d")]
-        if matches!(spec.view.as_str(), "surface3d" | "axisymmetric_revolve") {
-            apply_mesh_plot_camera(&mut state.borrow_mut(), spec.camera.as_ref())?;
-        }
-        plot = plot
-            .view(view)
-            .mode(options.mode)
-            .color_scale(options.color_scale)
-            .color_range(options.color_range)
-            .missing_value_policy(options.missing_value_policy)
-            .axes(options.axes)
-            .interactions(options.interactions)
-            .wireframe(if spec.wireframe {
-                Wireframe::Overlay
-            } else {
-                Wireframe::Hidden
-            })
-            .on_selection(move |selection| {
-                if let Some(callback) = &selection_callback {
-                    callback(selection);
-                }
-            })
-            .with_state(state.clone());
-        if let Some(selection) = options.selection {
-            plot = plot.selection(selection);
-        }
-        if let Some(field) = spec.field.as_ref() {
-            let label = field
-                .get("label")
-                .and_then(Value::as_str)
-                .unwrap_or("Field");
-            let mut colorbar = Colorbar::new(label);
-            if let Some(unit) = field.get("unit").and_then(Value::as_str) {
-                colorbar = colorbar.unit(unit);
-            }
-            plot = plot.colorbar(colorbar);
-        }
-        if let Some(title) = &spec.title {
-            plot = plot.title(title.clone());
-        }
-        if let (Some(width), Some(height)) = (spec.width, spec.height) {
-            plot = plot.size(width, height);
-        }
-        plot.build()
-            .map(|element| (div().size_full().child(element).into_any_element(), state))
-            .map_err(|error| error.to_string())
     }
 
     pub(super) fn render_surface_spec(
@@ -11646,6 +12738,116 @@ impl PythonIrShowcase {
         elements
     }
 
+    /// Apply a revisioned UI patch after validating both the generic session
+    /// ordering and all MeshPlot resource references. Keeping this transaction
+    /// separate from the GPUI message-drain loop makes the ownership and
+    /// last-valid-frame contract testable without starting a native window.
+    fn apply_patch_message(&mut self, patch: Patch) {
+        let mut next_state = self.session_state.clone();
+        if let Err(error) = next_state.apply_patch_revision(&patch) {
+            self.record_mesh_patch_error(&patch, error.to_string());
+        } else if patch
+            .request_id
+            .as_ref()
+            .is_some_and(|request_id| self.superseded_requests.contains(request_id))
+        {
+            // Consume the revision without mutating the UI. The handler
+            // completed after a newer event superseded it.
+            self.session_state = next_state;
+        } else if self.app.is_some() {
+            let mut next_app = self
+                .app
+                .as_ref()
+                .expect("app presence checked above")
+                .clone();
+            if let Err(error) = next_app.apply_patch_ops(&patch.ops) {
+                self.record_mesh_patch_error(&patch, error.to_string());
+            } else if let Err(error) = validate_mesh_plot_resources(
+                &serde_json::to_value(&next_app).unwrap_or(Value::Null),
+                &self.mesh_frames,
+                patch.request_id.as_deref(),
+            ) {
+                // Resource-backed patches are committed only when every
+                // referenced generation is already retained; the previous
+                // valid frame remains visible while a sender recovers from a
+                // stale or evicted handle.
+                self.record_mesh_patch_error(&patch, error.to_string());
+            } else {
+                let next_app_value = serde_json::to_value(&next_app).unwrap_or(Value::Null);
+                let mut next_resource_refs = HashMap::new();
+                if let Err(error) =
+                    collect_mesh_plot_resource_refs(&next_app_value, &mut next_resource_refs)
+                {
+                    self.record_mesh_patch_error(&patch, error);
+                } else if let Err(error) = self.sync_mesh_plot_resource_refs(next_resource_refs) {
+                    self.record_mesh_patch_error(&patch, error);
+                } else {
+                    self.app = Some(next_app);
+                    self.last_mesh_patch_id = patch.request_id.clone();
+                    self.session_state = next_state;
+                    self.clear_mesh_patch_errors(&patch);
+                    for operation in &patch.ops {
+                        match operation {
+                            PatchOp::ClearMeshPlotSelection { plot_id, .. } => {
+                                let runtime_id =
+                                    mesh_plot_spec_id_for_node(&next_app_value, plot_id)
+                                        .unwrap_or_else(|| plot_id.clone());
+                                if let Some(state) = self.mesh_plot_states.get(&runtime_id) {
+                                    state.borrow_mut().clear_selection();
+                                }
+                            }
+                            PatchOp::ResetMeshPlotViewport { plot_id, .. } => {
+                                let runtime_id =
+                                    mesh_plot_spec_id_for_node(&next_app_value, plot_id)
+                                        .unwrap_or_else(|| plot_id.clone());
+                                if let Some(state) = self.mesh_plot_states.get(&runtime_id) {
+                                    state.borrow_mut().interaction.reset_zoom();
+                                }
+                            }
+                            #[cfg(feature = "gpu-3d")]
+                            PatchOp::ResetMeshPlotCamera { plot_id, .. } => {
+                                let runtime_id =
+                                    mesh_plot_spec_id_for_node(&next_app_value, plot_id)
+                                        .unwrap_or_else(|| plot_id.clone());
+                                if let Some(state) = self.mesh_plot_states.get(&runtime_id) {
+                                    state.borrow_mut().orbit_reset();
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                    let mut live_ids = HashSet::new();
+                    mesh_plot_ids(&next_app_value, &mut live_ids);
+                    self.prune_mesh_plot_runtime_ids(&live_ids);
+                }
+            }
+        } else {
+            self.load_error = Some("patch before snapshot".into());
+        }
+    }
+
+    fn apply_mesh_frame_message(&mut self, frame: MeshFrame) {
+        let resource_id = frame.resource_id.clone();
+        let generation = frame.generation;
+        match self.mesh_frames.ingest(frame) {
+            Ok(MeshFrameOutcome::Assembled(_)) => {
+                self.clear_mesh_resource_error(&resource_id, generation);
+            }
+            Ok(MeshFrameOutcome::Incomplete) | Ok(MeshFrameOutcome::DroppedStale) => {}
+            Err(error) => {
+                let patch_id = self.last_mesh_patch_id.as_deref().unwrap_or("<stream>");
+                self.record_mesh_resource_error(
+                    &resource_id,
+                    generation,
+                    format!(
+                        "mesh resource {:?} generation {} (patch {}) failed: {}",
+                        resource_id, generation, patch_id, error
+                    ),
+                );
+            }
+        }
+    }
+
     fn drain_session(&mut self, cx: &mut Context<Self>) {
         let mut messages = Vec::new();
         if let Some(session) = &self.session {
@@ -11655,74 +12857,8 @@ impl PythonIrShowcase {
         }
         for message in messages {
             match message {
-                Ok(PythonMessage::Patch(patch)) => {
-                    let mut next_state = self.session_state.clone();
-                    if let Err(error) = next_state.apply_patch_revision(&patch) {
-                        self.load_error = Some(error.to_string());
-                    } else if patch
-                        .request_id
-                        .as_ref()
-                        .is_some_and(|request_id| self.superseded_requests.contains(request_id))
-                    {
-                        // Consume the revision without mutating the UI. The
-                        // handler completed after a newer event superseded it.
-                        self.session_state = next_state;
-                    } else if let Some(app) = self.app.as_mut() {
-                        let mut next_app = app.clone();
-                        if let Err(error) = next_app.apply_patch_ops(&patch.ops) {
-                            self.load_error = Some(error.to_string());
-                        } else if let Err(error) = validate_mesh_plot_resources(
-                            &serde_json::to_value(&next_app).unwrap_or(Value::Null),
-                            &self.mesh_frames,
-                            patch.request_id.as_deref(),
-                        ) {
-                            // Resource-backed patches are committed only when
-                            // every referenced generation is already retained;
-                            // the previous valid frame remains visible while a
-                            // sender recovers from a stale/evicted handle.
-                            self.load_error = Some(error.to_string());
-                        } else {
-                            *app = next_app;
-                            self.last_mesh_patch_id = patch.request_id.clone();
-                            self.session_state = next_state;
-                            for operation in &patch.ops {
-                                match operation {
-                                    PatchOp::ClearMeshPlotSelection { plot_id, .. } => {
-                                        if let Some(state) = self.mesh_plot_states.get(plot_id) {
-                                            state.borrow_mut().clear_selection();
-                                        }
-                                    }
-                                    PatchOp::ResetMeshPlotViewport { plot_id, .. } => {
-                                        if let Some(state) = self.mesh_plot_states.get(plot_id) {
-                                            state.borrow_mut().interaction.reset_zoom();
-                                        }
-                                    }
-                                    #[cfg(feature = "gpu-3d")]
-                                    PatchOp::ResetMeshPlotCamera { plot_id, .. } => {
-                                        if let Some(state) = self.mesh_plot_states.get(plot_id) {
-                                            state.borrow_mut().orbit_reset();
-                                        }
-                                    }
-                                    _ => {}
-                                }
-                            }
-                            let mut live_ids = HashSet::new();
-                            if let Ok(value) = serde_json::to_value(&*app) {
-                                mesh_plot_ids(&value, &mut live_ids);
-                            }
-                            self.mesh_plot_states.retain(|id, _| live_ids.contains(id));
-                        }
-                    } else {
-                        self.load_error = Some("patch before snapshot".into());
-                    }
-                }
-                Ok(PythonMessage::Snapshot { app_ir }) => {
-                    if let Err(error) = app_ir.validate() {
-                        self.load_error = Some(error.to_string());
-                    } else {
-                        self.app = Some(app_ir);
-                    }
-                }
+                Ok(PythonMessage::Patch(patch)) => self.apply_patch_message(patch),
+                Ok(PythonMessage::Snapshot { app_ir }) => self.apply_snapshot_message(app_ir),
                 Ok(PythonMessage::Job(update)) => {
                     if let Err(error) = self.jobs.update(update) {
                         self.load_error = Some(error.to_string());
@@ -11739,27 +12875,13 @@ impl PythonIrShowcase {
                     }
                 }
                 Ok(PythonMessage::MeshFrame(frame)) => {
-                    let resource_id = frame.resource_id.clone();
-                    let generation = frame.generation;
-                    match self.mesh_frames.ingest(frame) {
-                        Ok(MeshFrameOutcome::Assembled(_))
-                        | Ok(MeshFrameOutcome::Incomplete)
-                        | Ok(MeshFrameOutcome::DroppedStale) => {}
-                        Err(error) => {
-                            let patch_id = self.last_mesh_patch_id.as_deref().unwrap_or("<stream>");
-                            self.load_error = Some(format!(
-                                "mesh resource {:?} generation {} (patch {}) failed: {}",
-                                resource_id, generation, patch_id, error
-                            ));
-                        }
-                    }
+                    self.apply_mesh_frame_message(frame);
                 }
                 Ok(PythonMessage::DropResource {
                     resource_id,
                     generation,
                 }) => {
-                    self.audio_frames.release(&resource_id, generation);
-                    self.mesh_frames.release(&resource_id, generation);
+                    self.release_runtime_resource(&resource_id, generation);
                 }
                 Ok(PythonMessage::Effect {
                     request_id,
@@ -11894,11 +13016,37 @@ impl PythonIrShowcase {
 
 impl Drop for PythonIrShowcase {
     fn drop(&mut self) {
+        self.shutdown_runtime_state();
+    }
+}
+
+impl PythonIrShowcase {
+    fn shutdown_runtime_state(&mut self) {
         for cancellation in self.profiler_subscriptions.values() {
             cancellation.store(true, Ordering::Release);
         }
+        self.profiler_subscriptions.clear();
         self.audio_frames.clear();
-        self.mesh_frames.clear();
+        // Shutdown must release both decoded resources and the retained
+        // MeshPlot cache/state that can otherwise keep GPU-facing owners
+        // alive until the entity is finally dropped. Reuse the session-reset
+        // path so explicit cleanup and Drop remain idempotent and consistent.
+        self.reset_mesh_plot_runtime_state();
+    }
+}
+
+fn mesh_plot_operation_id(operation: &PatchOp) -> Option<&str> {
+    match operation {
+        PatchOp::ReplaceMeshGeometry { plot_id, .. }
+        | PatchOp::ReplaceMeshField { plot_id, .. }
+        | PatchOp::SetMeshPlotProp { plot_id, .. }
+        | PatchOp::SetMeshPlotSelection { plot_id, .. }
+        | PatchOp::ClearMeshPlotSelection { plot_id, .. }
+        | PatchOp::SetMeshPlotCamera { plot_id, .. }
+        | PatchOp::ResetMeshPlotCamera { plot_id, .. }
+        | PatchOp::SetMeshPlotViewport { plot_id, .. }
+        | PatchOp::ResetMeshPlotViewport { plot_id, .. } => Some(plot_id),
+        _ => None,
     }
 }
 

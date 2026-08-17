@@ -16,11 +16,11 @@ struct Uniforms {
 };
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
+@group(0) @binding(1) var<storage, read> values: array<f32>;
 
 struct VertexIn {
     @location(0) position: vec3<f32>,
     @location(1) normal: vec3<f32>,
-    @location(2) value: f32,
 };
 
 struct VertexOut {
@@ -30,12 +30,16 @@ struct VertexOut {
 };
 
 @vertex
-fn vs_main(input: VertexIn) -> VertexOut {
+fn vs_main(input: VertexIn, @builtin(vertex_index) vertex_index: u32) -> VertexOut {
     var output: VertexOut;
     let world = uniforms.model * vec4<f32>(input.position, 1.0);
     output.clip_position = uniforms.view_proj * world;
     output.normal = normalize((uniforms.model * vec4<f32>(input.normal, 0.0)).xyz);
-    output.value = input.value;
+    if (uniforms.value_range.z > 0.5) {
+        output.value = values[vertex_index];
+    } else {
+        output.value = 0.0;
+    }
     return output;
 }
 
@@ -130,7 +134,11 @@ fn isoline_alpha(value: f32, step: f32, width: f32) -> f32 {
     if (step <= 0.0 || width <= 0.0) { return 0.0; }
     let phase = value / step;
     let distance = abs(fract(phase + 0.5) - 0.5);
-    let phase_per_pixel = clamp(fwidth(phase), 0.0001, 0.5);
+    // Derivative implementations can differ by a few ulps between Metal and
+    // WGPU even when they target the same adapter. Quantize the pixel phase
+    // width before the smoothstep so antialiased isolines have stable 8-bit
+    // output at adapter boundaries.
+    let phase_per_pixel = clamp(round(clamp(fwidth(phase), 0.0001, 0.5) * 64.0) / 64.0, 0.0001, 0.5);
     let half_width = max(0.5 * width * phase_per_pixel, 0.35 * phase_per_pixel);
     return 1.0 - smoothstep(half_width, half_width + phase_per_pixel, distance);
 }
@@ -184,10 +192,19 @@ struct Uniforms {
 };
 
 struct VertexIn {
-    float3 position [[attribute(0)]];
-    float3 normal [[attribute(1)]];
+    float4 position [[attribute(0)]];
+    float4 normal [[attribute(1)]];
+    // Keep the raw Metal buffer stride identical to Rust's `MetalVertex`:
+    // position (16) + normal (16) + value (4) + padding (12).  The 3D
+    // scalar is read from the separate values buffer in `vs_main`, but it
+    // still occupies space in the interleaved upload and must be represented
+    // here so vertex_id advances by 48 bytes rather than 32. Keep the
+    // trailing padding as scalar members: Metal gives a float3 16-byte
+    // alignment, which would incorrectly make this struct 64 bytes.
     float value [[attribute(2)]];
+    float _padding[3];
 };
+static_assert(sizeof(VertexIn) == 48, "MetalVertex ABI must remain 48 bytes");
 
 struct VertexOut {
     float4 position [[position]];
@@ -198,13 +215,14 @@ struct VertexOut {
 vertex VertexOut vs_main(
     const device VertexIn* vertices [[buffer(0)]],
     uint vertex_id [[vertex_id]],
-    constant Uniforms& uniforms [[buffer(1)]]) {
+    constant Uniforms& uniforms [[buffer(1)]],
+    const device float* values [[buffer(2)]]) {
   VertexIn input = vertices[vertex_id];
     VertexOut output;
-    float4 world = uniforms.model * float4(input.position, 1.0);
+    float4 world = uniforms.model * float4(input.position.xyz, 1.0);
     output.position = uniforms.view_proj * world;
-    output.normal = normalize((uniforms.model * float4(input.normal, 0.0)).xyz);
-    output.value = input.value;
+    output.normal = normalize((uniforms.model * float4(input.normal.xyz, 0.0)).xyz);
+    output.value = uniforms.value_range.z > 0.5 ? values[vertex_id] : 0.0;
     return output;
 }
 
@@ -214,7 +232,7 @@ vertex VertexOut vs_triad(
   VertexIn input = vertices[vertex_id];
     VertexOut output;
     output.position = float4(input.position.xy, 0.0, 1.0);
-    output.normal = input.normal;
+    output.normal = input.normal.xyz;
     output.value = 1.0;
     return output;
 }
@@ -261,7 +279,9 @@ float isoline_alpha(float value, float step, float width) {
     if (step <= 0.0 || width <= 0.0) return 0.0;
     float phase = value / step;
     float distance = abs(fract(phase + 0.5) - 0.5);
-    float phase_per_pixel = clamp(fwidth(phase), 0.0001, 0.5);
+    // Keep antialiased isoline output stable across Metal and WGPU derivative
+    // implementations by using the same fixed phase-width quantization.
+    float phase_per_pixel = clamp(round(clamp(fwidth(phase), 0.0001, 0.5) * 64.0) / 64.0, 0.0001, 0.5);
     float half_width = max(0.5 * width * phase_per_pixel, 0.35 * phase_per_pixel);
     return 1.0 - smoothstep(half_width, half_width + phase_per_pixel, distance);
 }

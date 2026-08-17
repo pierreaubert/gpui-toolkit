@@ -159,8 +159,8 @@ impl Colorbar {
         let mut svg = String::new();
         let _ = writeln!(
             svg,
-            "<g class=\"gpui-px-colorbar\" data-orientation=\"{:?}\">",
-            self.orientation
+            "<g class=\"gpui-px-colorbar\" data-orientation=\"{:?}\" data-lower=\"{:.6}\" data-upper=\"{:.6}\">",
+            self.orientation, range[0], range[1]
         );
 
         for step in 0..12 {

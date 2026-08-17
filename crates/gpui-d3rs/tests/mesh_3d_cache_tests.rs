@@ -51,6 +51,17 @@ fn camera_only_change_does_not_reupload() {
 }
 
 #[test]
+fn stale_geometry_upload_cannot_replace_newer_retained_geometry() {
+    let mut renderer = Mesh3DRenderer::new();
+    renderer.upload_geometry(GeometryRevision(4), &square_upload());
+    renderer.upload_geometry(GeometryRevision(3), &square_upload());
+
+    assert_eq!(renderer.geometry_revision(), Some(GeometryRevision(4)));
+    assert_eq!(renderer.upload_count(), 1);
+    assert_eq!(renderer.upload_bytes(), square_upload().geometry_byte_len());
+}
+
+#[test]
 fn field_write_keeps_geometry() {
     let mut renderer = Mesh3DRenderer::new();
     renderer.upload_geometry(GeometryRevision(1), &square_upload());
@@ -60,6 +71,19 @@ fn field_write_keeps_geometry() {
     assert_eq!(renderer.field_revision(), Some(FieldRevision(2)));
     assert_eq!(renderer.upload_count(), 1);
     assert_eq!(renderer.upload_bytes(), square_upload().geometry_byte_len());
+}
+
+#[test]
+fn stale_field_write_cannot_overwrite_newer_retained_values() {
+    let mut renderer = Mesh3DRenderer::new();
+    renderer.upload_geometry(GeometryRevision(1), &square_upload());
+    renderer.write_field(FieldRevision(4), &[0.4, 0.3, 0.2, 0.1]);
+    renderer.write_field(FieldRevision(3), &[0.1, 0.2, 0.3, 0.4]);
+
+    assert_eq!(renderer.field_revision(), Some(FieldRevision(4)));
+    assert_eq!(renderer.backend().field_values(), &[0.4, 0.3, 0.2, 0.1]);
+    assert_eq!(renderer.backend().state().field_write_count, 1);
+    assert_eq!(renderer.upload_count(), 1);
 }
 
 #[test]
@@ -82,6 +106,14 @@ fn cell_field_duplicates_vertices_for_flat_shading() {
 fn shader_sources_include_surface_and_wireframe_entries() {
     assert!(shaders3d::wgsl().contains("fn fs_main"));
     assert!(shaders3d::wgsl().contains("fn fs_wireframe"));
+    assert!(shaders3d::wgsl().contains("var<storage, read> values"));
+    assert!(shaders3d::wgsl().contains("@builtin(vertex_index) vertex_index"));
+    assert!(shaders3d::wgsl().contains("uniforms.value_range.z > 0.5"));
     assert!(shaders3d::msl().contains("fragment float4 fs_main"));
     assert!(shaders3d::msl().contains("fragment float4 fs_wireframe"));
+    assert!(shaders3d::msl().contains("const device float* values [[buffer(2)]]"));
+    assert!(shaders3d::msl().contains("uniforms.value_range.z > 0.5 ? values[vertex_id] : 0.0"));
+    // The Metal vertex ABI carries the scalar slot and trailing padding so
+    // vertex_id advances over the same 48-byte stride as Rust's upload.
+    assert!(shaders3d::msl().contains("value [[attribute(2)]]"));
 }

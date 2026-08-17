@@ -10,11 +10,163 @@ use crate::mesh::{
     ContourBand, CoordinateAxis, IsolineSegment, MarchingTriangles, MeshTopology,
     MeshValidationError, ScalarField, TriangleMesh, project_2d,
 };
+use std::cell::Cell;
 use std::sync::Arc;
+
+const COMPUTE_TIMESTAMP_QUERY_COUNT: u32 = 2;
+const COMPUTE_TIMESTAMP_QUERY_BYTES: u64 =
+    COMPUTE_TIMESTAMP_QUERY_COUNT as u64 * std::mem::size_of::<u64>() as u64;
+
+/// Optional adapter timestamp instrumentation for one synchronous compute
+/// operation. Compute methods already wait for their readback buffer, so the
+/// timestamp readback can be resolved in the same submission without adding a
+/// second asynchronous state machine. The normal path remains unchanged until
+/// `SOTF_GPU_TIMESTAMPS=1` is explicitly requested.
+struct AdapterComputeTiming {
+    query_set: Option<wgpu::QuerySet>,
+    resolve_buffer: Option<wgpu::Buffer>,
+    readback_buffer: Option<wgpu::Buffer>,
+    timestamp_period_ns: f32,
+    last_gpu_time_ns: Cell<u64>,
+    gpu_time_count: Cell<u64>,
+}
+
+impl AdapterComputeTiming {
+    fn new(device: &wgpu::Device, queue: &wgpu::Queue, enabled: bool) -> Self {
+        if !enabled {
+            return Self {
+                query_set: None,
+                resolve_buffer: None,
+                readback_buffer: None,
+                timestamp_period_ns: 0.0,
+                last_gpu_time_ns: Cell::new(0),
+                gpu_time_count: Cell::new(0),
+            };
+        }
+
+        Self {
+            query_set: Some(device.create_query_set(&wgpu::QuerySetDescriptor {
+                label: Some("mesh_compute_timestamps"),
+                count: COMPUTE_TIMESTAMP_QUERY_COUNT,
+                ty: wgpu::QueryType::Timestamp,
+            })),
+            resolve_buffer: Some(device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("mesh_compute_timestamp_resolve"),
+                size: COMPUTE_TIMESTAMP_QUERY_BYTES,
+                usage: wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::QUERY_RESOLVE,
+                mapped_at_creation: false,
+            })),
+            readback_buffer: Some(device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("mesh_compute_timestamp_readback"),
+                size: COMPUTE_TIMESTAMP_QUERY_BYTES,
+                usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+                mapped_at_creation: false,
+            })),
+            timestamp_period_ns: queue.get_timestamp_period(),
+            last_gpu_time_ns: Cell::new(0),
+            gpu_time_count: Cell::new(0),
+        }
+    }
+
+    fn enabled(&self) -> bool {
+        self.query_set.is_some()
+    }
+
+    fn writes(
+        &self,
+        beginning: Option<u32>,
+        end: Option<u32>,
+    ) -> Option<wgpu::ComputePassTimestampWrites<'_>> {
+        self.query_set
+            .as_ref()
+            .map(|query_set| wgpu::ComputePassTimestampWrites {
+                query_set,
+                beginning_of_pass_write_index: beginning,
+                end_of_pass_write_index: end,
+            })
+    }
+
+    fn finish(&self, encoder: &mut wgpu::CommandEncoder, active: bool) {
+        if !active {
+            return;
+        }
+        let (Some(query_set), Some(resolve_buffer), Some(readback_buffer)) = (
+            self.query_set.as_ref(),
+            self.resolve_buffer.as_ref(),
+            self.readback_buffer.as_ref(),
+        ) else {
+            return;
+        };
+        encoder.resolve_query_set(
+            query_set,
+            0..COMPUTE_TIMESTAMP_QUERY_COUNT,
+            resolve_buffer,
+            0,
+        );
+        encoder.copy_buffer_to_buffer(
+            resolve_buffer,
+            0,
+            readback_buffer,
+            0,
+            COMPUTE_TIMESTAMP_QUERY_BYTES,
+        );
+    }
+
+    fn readback(&self, device: &wgpu::Device) {
+        let Some(readback_buffer) = self.readback_buffer.as_ref() else {
+            return;
+        };
+        let slice = readback_buffer.slice(..);
+        let (sender, receiver) = std::sync::mpsc::channel();
+        slice.map_async(wgpu::MapMode::Read, move |result| {
+            let _ = sender.send(result);
+        });
+        let _ = device.poll(wgpu::PollType::Wait {
+            submission_index: Default::default(),
+            timeout: Some(std::time::Duration::from_secs(5)),
+        });
+        if !matches!(
+            receiver.recv_timeout(std::time::Duration::from_secs(5)),
+            Ok(Ok(()))
+        ) {
+            return;
+        }
+        let data = slice.get_mapped_range();
+        let Some(timestamps) = bytemuck::try_cast_slice::<u8, u64>(&data).ok() else {
+            drop(data);
+            readback_buffer.unmap();
+            return;
+        };
+        let Some(&[start, end]) = timestamps.get(..2) else {
+            drop(data);
+            readback_buffer.unmap();
+            return;
+        };
+        let ticks = end.wrapping_sub(start);
+        let nanos = (ticks as f64 * f64::from(self.timestamp_period_ns)).round();
+        drop(data);
+        readback_buffer.unmap();
+        if nanos.is_finite() && nanos > 0.0 {
+            self.last_gpu_time_ns.set(nanos.min(u64::MAX as f64) as u64);
+            self.gpu_time_count
+                .set(self.gpu_time_count.get().saturating_add(1));
+        }
+    }
+
+    fn last_gpu_time_ns(&self) -> u64 {
+        self.last_gpu_time_ns.get()
+    }
+
+    fn gpu_time_count(&self) -> u64 {
+        self.gpu_time_count.get()
+    }
+}
 
 struct AdapterCompute {
     device: Arc<wgpu::Device>,
     queue: Arc<wgpu::Queue>,
+    backend: wgpu::Backend,
+    timing: AdapterComputeTiming,
     field_pipeline: wgpu::ComputePipeline,
     field_bind_group_layout: wgpu::BindGroupLayout,
     edge_pipeline: wgpu::ComputePipeline,
@@ -61,9 +213,20 @@ impl AdapterCompute {
             force_fallback_adapter: false,
         }))
         .ok()?;
+        let backend = adapter.get_info().backend;
+        let timestamp_features = adapter.features();
+        let timing_enabled = std::env::var_os("SOTF_GPU_TIMESTAMPS").as_deref()
+            == Some(std::ffi::OsStr::new("1"))
+            && timestamp_features.contains(wgpu::Features::TIMESTAMP_QUERY)
+            && timestamp_features.contains(wgpu::Features::TIMESTAMP_QUERY_INSIDE_PASSES);
+        let required_features = if timing_enabled {
+            wgpu::Features::TIMESTAMP_QUERY | wgpu::Features::TIMESTAMP_QUERY_INSIDE_PASSES
+        } else {
+            wgpu::Features::empty()
+        };
         let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
             label: Some("MeshCompute device"),
-            required_features: wgpu::Features::empty(),
+            required_features,
             required_limits: wgpu::Limits::default(),
             memory_hints: wgpu::MemoryHints::MemoryUsage,
             trace: wgpu::Trace::Off,
@@ -72,6 +235,7 @@ impl AdapterCompute {
         .ok()?;
         let device = Arc::new(device);
         let queue = Arc::new(queue);
+        let timing = AdapterComputeTiming::new(&device, &queue, timing_enabled);
         let field_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("mesh_compute_field_layout"),
@@ -140,6 +304,8 @@ impl AdapterCompute {
         Some(Self {
             device,
             queue,
+            backend,
+            timing,
             field_pipeline,
             field_bind_group_layout,
             edge_pipeline,
@@ -193,16 +359,18 @@ impl AdapterCompute {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("mesh_compute_field_encoder"),
             });
+        let timing_active = self.timing.enabled();
         {
             let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
                 label: Some("mesh_compute_field_pass"),
-                timestamp_writes: None,
+                timestamp_writes: self.timing.writes(Some(0), Some(1)),
             });
             pass.set_pipeline(&self.field_pipeline);
             pass.set_bind_group(0, &bind_group, &[]);
             pass.dispatch_workgroups(workgroups as u32, 1, 1);
         }
         encoder.copy_buffer_to_buffer(&partials, 0, &staging, 0, (workgroups * 16) as u64);
+        self.timing.finish(&mut encoder, timing_active);
         self.queue.submit(std::iter::once(encoder.finish()));
 
         let slice = staging.slice(..);
@@ -235,6 +403,7 @@ impl AdapterCompute {
         }
         drop(data);
         staging.unmap();
+        self.timing.readback(&self.device);
         Ok(valid.then_some(range))
     }
 
@@ -447,10 +616,11 @@ impl AdapterCompute {
                 .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                     label: Some("mesh_compute_contour_encoder"),
                 });
+            let timing_active = self.timing.enabled();
             {
                 let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
                     label: Some("mesh_compute_edge_pass"),
-                    timestamp_writes: None,
+                    timestamp_writes: self.timing.writes(Some(0), None),
                 });
                 pass.set_pipeline(&self.edge_pipeline);
                 pass.set_bind_group(0, &bind_group, &[]);
@@ -459,13 +629,14 @@ impl AdapterCompute {
             {
                 let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
                     label: Some("mesh_compute_triangle_pass"),
-                    timestamp_writes: None,
+                    timestamp_writes: self.timing.writes(None, Some(1)),
                 });
                 pass.set_pipeline(&self.triangle_pipeline);
                 pass.set_bind_group(0, &bind_group, &[]);
                 pass.dispatch_workgroups(triangle_count.div_ceil(256) as u32, 1, 1);
             }
             encoder.copy_buffer_to_buffer(&segments, 0, &staging, 0, segments_size);
+            self.timing.finish(&mut encoder, timing_active);
             self.queue.submit(std::iter::once(encoder.finish()));
 
             let slice = staging.slice(..);
@@ -516,6 +687,7 @@ impl AdapterCompute {
             }
             drop(data);
             staging.unmap();
+            self.timing.readback(&self.device);
         }
         Ok(output)
     }
@@ -718,16 +890,18 @@ impl AdapterCompute {
                 .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                     label: Some("mesh_compute_band_encoder"),
                 });
+            let timing_active = self.timing.enabled();
             {
                 let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
                     label: Some("mesh_compute_band_pass"),
-                    timestamp_writes: None,
+                    timestamp_writes: self.timing.writes(Some(0), Some(1)),
                 });
                 pass.set_pipeline(&self.band_pipeline);
                 pass.set_bind_group(0, &bind_group, &[]);
                 pass.dispatch_workgroups(triangle_count.div_ceil(256) as u32, 1, 1);
             }
             encoder.copy_buffer_to_buffer(&output, 0, &staging, 0, output_size);
+            self.timing.finish(&mut encoder, timing_active);
             self.queue.submit(std::iter::once(encoder.finish()));
             let slice = staging.slice(..);
             let (sender, receiver) = std::sync::mpsc::channel();
@@ -783,9 +957,30 @@ impl AdapterCompute {
             }
             drop(data);
             staging.unmap();
+            self.timing.readback(&self.device);
             bands.push(band);
         }
         Ok(bands)
+    }
+}
+
+/// The backend that produced the most recent reduction result.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MeshComputeBackend {
+    /// An adapter-backed compute pass produced the result.
+    Adapter,
+    /// The deterministic CPU reference implementation produced the result.
+    CpuReference,
+}
+
+impl MeshComputeBackend {
+    /// Stable machine-readable backend label for host diagnostics.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Adapter => "adapter",
+            Self::CpuReference => "cpu_reference",
+        }
     }
 }
 
@@ -797,9 +992,24 @@ pub struct MeshCompute {
     /// false; the field lets a host report the reduction backend explicitly.
     pub reference_backend: bool,
     adapter: Option<AdapterCompute>,
+    last_backend: Cell<MeshComputeBackend>,
 }
 
 impl MeshCompute {
+    /// Construct a deterministic CPU-only compute service.
+    ///
+    /// This is useful for hosts that intentionally disable adapter work and
+    /// for differential tests that need to exercise fallback reporting even
+    /// when the machine running the test has a usable graphics adapter.
+    #[must_use]
+    pub fn cpu_reference() -> Self {
+        Self {
+            reference_backend: true,
+            adapter: None,
+            last_backend: Cell::new(MeshComputeBackend::CpuReference),
+        }
+    }
+
     /// Construct a compute service.
     ///
     /// This returns `Some` even without a graphics adapter. Adapter-backed
@@ -808,10 +1018,32 @@ impl MeshCompute {
     #[must_use]
     pub fn try_new() -> Option<Self> {
         let adapter = AdapterCompute::try_new();
+        let last_backend = if adapter.is_some() {
+            MeshComputeBackend::Adapter
+        } else {
+            MeshComputeBackend::CpuReference
+        };
         Some(Self {
             reference_backend: adapter.is_none(),
             adapter,
+            last_backend: Cell::new(last_backend),
         })
+    }
+
+    /// Return the best backend available when this service was constructed.
+    #[must_use]
+    pub fn available_backend(&self) -> MeshComputeBackend {
+        if self.adapter.is_some() {
+            MeshComputeBackend::Adapter
+        } else {
+            MeshComputeBackend::CpuReference
+        }
+    }
+
+    /// Return the backend that produced the most recent reduction result.
+    #[must_use]
+    pub fn last_backend(&self) -> MeshComputeBackend {
+        self.last_backend.get()
     }
 
     /// Whether at least one operation is backed by an adapter compute pass.
@@ -820,14 +1052,49 @@ impl MeshCompute {
         self.adapter.is_some()
     }
 
+    /// Return the native backend used by adapter-backed compute, when one is
+    /// available. This lets platform QA distinguish Metal, Vulkan, and other
+    /// adapter paths while keeping CPU-reference fallback explicit.
+    #[must_use]
+    pub fn adapter_backend(&self) -> Option<wgpu::Backend> {
+        self.adapter.as_ref().map(|adapter| adapter.backend)
+    }
+
+    /// Whether opt-in adapter timestamp instrumentation is active for this
+    /// compute service. Unsupported adapters and normal runs report false.
+    #[must_use]
+    pub fn adapter_gpu_timing_enabled(&self) -> bool {
+        self.adapter
+            .as_ref()
+            .is_some_and(|adapter| adapter.timing.enabled())
+    }
+
+    /// Number of completed adapter compute timestamp samples.
+    #[must_use]
+    pub fn adapter_gpu_time_count(&self) -> u64 {
+        self.adapter
+            .as_ref()
+            .map_or(0, |adapter| adapter.timing.gpu_time_count())
+    }
+
+    /// Most recently completed adapter compute duration in nanoseconds.
+    #[must_use]
+    pub fn adapter_gpu_time_ns(&self) -> u64 {
+        self.adapter
+            .as_ref()
+            .map_or(0, |adapter| adapter.timing.last_gpu_time_ns())
+    }
+
     /// Return the finite min/max of a field, ignoring NaN and infinities.
     #[must_use]
     pub fn field_min_max(&self, values: &[f32]) -> Option<[f32; 2]> {
         if let Some(adapter) = &self.adapter
             && let Ok(result) = adapter.field_min_max(values)
         {
+            self.last_backend.set(MeshComputeBackend::Adapter);
             return result;
         }
+        self.last_backend.set(MeshComputeBackend::CpuReference);
         let mut range = [f32::INFINITY, f32::NEG_INFINITY];
         for &value in values {
             if value.is_finite() {
@@ -858,8 +1125,10 @@ impl MeshCompute {
         if let Some(adapter) = &self.adapter
             && let Ok(segments) = adapter.marching_segments(mesh, field, topology, levels)
         {
+            self.last_backend.set(MeshComputeBackend::Adapter);
             return Ok(segments);
         }
+        self.last_backend.set(MeshComputeBackend::CpuReference);
         let levels = levels.iter().map(|&level| level as f64).collect::<Vec<_>>();
         Ok(marching.isolines(&levels))
     }
@@ -920,9 +1189,11 @@ impl MeshCompute {
                         segment.level = level;
                     }
                 }
+                self.last_backend.set(MeshComputeBackend::Adapter);
                 return Ok(segments);
             }
         }
+        self.last_backend.set(MeshComputeBackend::CpuReference);
         let marching = MarchingTriangles::new(mesh, field, topology, horizontal, vertical)?;
         Ok(marching.isolines(levels))
     }
@@ -941,8 +1212,10 @@ impl MeshCompute {
         if let Some(adapter) = &self.adapter
             && let Ok(bands) = adapter.band_triangles(mesh, field, topology, levels)
         {
+            self.last_backend.set(MeshComputeBackend::Adapter);
             return Ok(bands);
         }
+        self.last_backend.set(MeshComputeBackend::CpuReference);
         let marching = MarchingTriangles::new(
             mesh,
             field,
@@ -999,9 +1272,11 @@ impl MeshCompute {
                     band.lower = Some(boundaries[0]);
                     band.upper = Some(boundaries[1]);
                 }
+                self.last_backend.set(MeshComputeBackend::Adapter);
                 return Ok(bands);
             }
         }
+        self.last_backend.set(MeshComputeBackend::CpuReference);
         let marching = MarchingTriangles::new(mesh, field, topology, horizontal, vertical)?;
         Ok(marching.filled_bands(levels))
     }
@@ -1100,6 +1375,89 @@ mod tests {
             Some([-2.0, 4.0])
         );
         assert_eq!(compute.field_min_max(&[f32::NAN]), None);
+    }
+
+    #[test]
+    fn compute_reports_available_and_last_backend() {
+        let compute = MeshCompute::try_new().unwrap();
+        assert_eq!(
+            compute.reference_backend,
+            matches!(
+                compute.available_backend(),
+                MeshComputeBackend::CpuReference
+            )
+        );
+        assert_eq!(
+            compute.adapter_backed(),
+            matches!(compute.available_backend(), MeshComputeBackend::Adapter)
+        );
+        assert_eq!(
+            compute.available_backend().as_str(),
+            match compute.available_backend() {
+                MeshComputeBackend::Adapter => "adapter",
+                MeshComputeBackend::CpuReference => "cpu_reference",
+            }
+        );
+
+        let (mesh, field, topology) = fixture();
+        let _ = compute
+            .marching_segments(&mesh, &field, &topology, &[0.5])
+            .expect("the reference fallback must always be available");
+        assert!(matches!(
+            compute.last_backend(),
+            MeshComputeBackend::Adapter | MeshComputeBackend::CpuReference
+        ));
+        if !compute.adapter_backed() {
+            assert_eq!(compute.last_backend(), MeshComputeBackend::CpuReference);
+        }
+    }
+
+    #[test]
+    fn cpu_reference_reports_fallback_for_every_reduction_path() {
+        let compute = MeshCompute::cpu_reference();
+        let (mesh, field, topology) = fixture();
+
+        assert_eq!(
+            compute.available_backend(),
+            MeshComputeBackend::CpuReference
+        );
+        assert_eq!(compute.last_backend(), MeshComputeBackend::CpuReference);
+        assert_eq!(compute.field_min_max(&[0.0, 1.0]), Some([0.0, 1.0]));
+        assert_eq!(compute.last_backend(), MeshComputeBackend::CpuReference);
+
+        compute
+            .marching_segments(&mesh, &field, &topology, &[0.5])
+            .expect("CPU isolines");
+        assert_eq!(compute.last_backend(), MeshComputeBackend::CpuReference);
+
+        compute
+            .marching_segments_projected(
+                &mesh,
+                &field,
+                &topology,
+                CoordinateAxis::X,
+                CoordinateAxis::Y,
+                &[0.5],
+            )
+            .expect("CPU projected isolines");
+        assert_eq!(compute.last_backend(), MeshComputeBackend::CpuReference);
+
+        compute
+            .band_triangles(&mesh, &field, &topology, &[0.5])
+            .expect("CPU filled bands");
+        assert_eq!(compute.last_backend(), MeshComputeBackend::CpuReference);
+
+        compute
+            .band_triangles_projected(
+                &mesh,
+                &field,
+                &topology,
+                CoordinateAxis::X,
+                CoordinateAxis::Y,
+                &[0.5],
+            )
+            .expect("CPU projected filled bands");
+        assert_eq!(compute.last_backend(), MeshComputeBackend::CpuReference);
     }
 
     #[test]

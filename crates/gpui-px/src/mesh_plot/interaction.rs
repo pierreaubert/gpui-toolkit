@@ -15,6 +15,7 @@ use d3rs::mesh::{MeshBounds, MeshBvh, RevolveSpec, RevolvedMesh};
 #[cfg(all(feature = "gpu-3d", not(test)))]
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::time::{Duration, Instant};
 
 /// GPU resources retained by one live 3D mesh-plot instance.
 ///
@@ -47,6 +48,98 @@ pub struct RetainedMesh3DStats {
     pub scene_identity: usize,
     pub geometry_upload_count: u64,
     pub geometry_upload_bytes: u64,
+    /// Geometry bytes currently resident in the retained upload.
+    pub geometry_resident_bytes: u64,
+    pub field_write_count: u64,
+    pub field_write_bytes: u64,
+    /// Scalar bytes currently resident in the retained upload.
+    pub field_resident_bytes: u64,
+    /// Scalar buffer capacity retained across field-only updates.
+    pub field_capacity_bytes: u64,
+    /// Adapter-backed geometry allocations observed by the custom draw.
+    pub gpu_geometry_upload_count: u64,
+    pub gpu_geometry_upload_bytes: u64,
+    /// Adapter-backed field writes observed by the custom draw.
+    pub gpu_field_write_count: u64,
+    pub gpu_field_write_bytes: u64,
+    /// Adapter-owned field capacity and approximate resident allocation.
+    pub gpu_field_capacity_bytes: u64,
+    pub gpu_resident_bytes: u64,
+    /// Platform driver allocation snapshot when exposed by the active
+    /// renderer; WGPU and non-native backends report `None`.
+    pub gpu_driver_allocated_bytes: Option<u64>,
+    pub gpu_peak_driver_allocated_bytes: u64,
+    /// Peak adapter-owned resident allocation observed by this plot.
+    pub gpu_peak_resident_bytes: u64,
+    /// Peak adapter-owned scalar-buffer capacity observed by this plot.
+    pub gpu_peak_field_capacity_bytes: u64,
+    /// Number of non-empty adapter resource releases observed by this plot.
+    pub gpu_memory_release_count: u64,
+    /// Whether the retained scene is currently displaying its drag proxy.
+    pub lod_proxy_active: bool,
+    /// Number of proxy uploads performed by the retained LOD controller.
+    pub lod_proxy_upload_count: u64,
+    /// Number of full-resolution restorations performed after a drag.
+    pub lod_full_restore_count: u64,
+    /// Triangle count of the active drag proxy, if one is available.
+    pub lod_proxy_triangle_count: u64,
+    /// Triangle count of the full-resolution retained mesh.
+    pub lod_full_triangle_count: u64,
+    /// CPU time spent swapping the retained scene to the drag proxy.
+    pub lod_proxy_upload_time_ns: u64,
+    /// CPU time spent restoring the full-resolution scene after a drag.
+    pub lod_full_restore_time_ns: u64,
+    /// CPU time spent creating/uploading adapter geometry resources.
+    pub gpu_geometry_upload_time_ns: u64,
+    /// CPU time spent submitting adapter scalar-buffer writes.
+    pub gpu_field_write_time_ns: u64,
+    /// CPU time spent recording retained adapter-backed frames.
+    pub gpu_frame_time_ns: u64,
+    pub gpu_frame_count: u64,
+    /// Asynchronously recovered GPU execution time for retained frames.
+    pub gpu_frame_gpu_time_ns: u64,
+    pub gpu_frame_gpu_time_count: u64,
+}
+
+/// CPU-side timing counters for expensive MeshPlot operations.
+///
+/// The counters stay in retained plot state so release hosts can sample them
+/// without adding file I/O to the render thread. Nanoseconds are totals across
+/// the lifetime of one plot owner.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct MeshPlotTimingStats {
+    pub contour_preparation_count: u64,
+    pub contour_preparation_ns: u64,
+    pub revolve_preparation_count: u64,
+    pub revolve_preparation_ns: u64,
+    pub pick_count: u64,
+    pub pick_ns: u64,
+}
+
+impl MeshPlotTimingStats {
+    fn duration_ns(duration: Duration) -> u64 {
+        duration.as_nanos().min(u128::from(u64::MAX)) as u64
+    }
+
+    fn record_contour_preparation(&mut self, duration: Duration) {
+        self.contour_preparation_count = self.contour_preparation_count.saturating_add(1);
+        self.contour_preparation_ns = self
+            .contour_preparation_ns
+            .saturating_add(Self::duration_ns(duration));
+    }
+
+    #[cfg(feature = "gpu-3d")]
+    fn record_revolve_preparation(&mut self, duration: Duration) {
+        self.revolve_preparation_count = self.revolve_preparation_count.saturating_add(1);
+        self.revolve_preparation_ns = self
+            .revolve_preparation_ns
+            .saturating_add(Self::duration_ns(duration));
+    }
+
+    fn record_pick(&mut self, duration: Duration) {
+        self.pick_count = self.pick_count.saturating_add(1);
+        self.pick_ns = self.pick_ns.saturating_add(Self::duration_ns(duration));
+    }
 }
 
 #[cfg(feature = "gpu-3d")]
@@ -55,6 +148,10 @@ pub(crate) struct RetainedMeshLod {
     full_upload: Option<d3rs::mesh::MeshUpload>,
     proxy_upload: Option<d3rs::mesh::MeshUpload>,
     displaying_proxy: bool,
+    proxy_upload_count: u64,
+    full_restore_count: u64,
+    proxy_upload_time_ns: u64,
+    full_restore_time_ns: u64,
 }
 
 type RetainedContourOutput = (Rc<Vec<ContourBand>>, Rc<Vec<IsolineSegment>>);
@@ -154,6 +251,10 @@ impl RetainedMeshLod {
             full_upload: None,
             proxy_upload: None,
             displaying_proxy: false,
+            proxy_upload_count: 0,
+            full_restore_count: 0,
+            proxy_upload_time_ns: 0,
+            full_restore_time_ns: 0,
         };
         result.update_field(field);
         result
@@ -181,12 +282,17 @@ impl RetainedMeshLod {
         let Some(proxy_upload) = self.proxy_upload.as_ref() else {
             return false;
         };
+        let started = Instant::now();
         self.full_upload = scene.upload.clone();
         scene.record_geometry_upload(proxy_upload);
         scene.geometry_rev.0 = scene.geometry_rev.0.saturating_add(1);
         scene.field_rev.0 = scene.field_rev.0.saturating_add(1);
         scene.upload = Some(proxy_upload.clone());
         self.displaying_proxy = true;
+        self.proxy_upload_count = self.proxy_upload_count.saturating_add(1);
+        self.proxy_upload_time_ns = self
+            .proxy_upload_time_ns
+            .saturating_add(MeshPlotTimingStats::duration_ns(started.elapsed()));
         true
     }
 
@@ -199,11 +305,16 @@ impl RetainedMeshLod {
             self.displaying_proxy = false;
             return false;
         };
+        let started = Instant::now();
         scene.record_geometry_upload(&full_upload);
         scene.geometry_rev.0 = scene.geometry_rev.0.saturating_add(1);
         scene.field_rev.0 = scene.field_rev.0.saturating_add(1);
         scene.upload = Some(full_upload);
         self.displaying_proxy = false;
+        self.full_restore_count = self.full_restore_count.saturating_add(1);
+        self.full_restore_time_ns = self
+            .full_restore_time_ns
+            .saturating_add(MeshPlotTimingStats::duration_ns(started.elapsed()));
         true
     }
 }
@@ -239,6 +350,7 @@ pub struct MeshPlotState {
     pub wireframe: super::Wireframe,
     pub render_mode: super::MeshRenderMode,
     pub color_range: crate::ColorRange,
+    timing: MeshPlotTimingStats,
     /// The planar picker uses projected coordinates, so its accelerator is
     /// retained independently from the 3D BVH.  Besides the host geometry
     /// revision, retain the source buffer identities and projection axes:
@@ -282,6 +394,28 @@ pub struct MeshPlotState {
     pub(crate) retained_3d: Option<RetainedMesh3D>,
 }
 
+/// The subset of retained plot state that native declarative hosts update
+/// while constructing a new element. It intentionally excludes geometry,
+/// field buffers, BVHs, timing counters, and prepared draw results so a
+/// failed builder validation can roll back configuration without cloning the
+/// expensive retained resources.
+#[derive(Clone)]
+pub struct MeshPlotStateConfiguration {
+    interaction: ChartInteraction,
+    selection: Option<MeshPlotPick>,
+    wireframe: super::Wireframe,
+    render_mode: super::MeshRenderMode,
+    color_range: crate::ColorRange,
+    retained_contours: Option<RetainedContours>,
+    contour_preparation_inflight: Option<ContourPreparationKey>,
+    #[cfg(feature = "gpu-3d")]
+    camera: Camera3D,
+    #[cfg(feature = "gpu-3d")]
+    orbit: OrbitControls,
+    #[cfg(feature = "gpu-3d")]
+    camera_fitted: bool,
+}
+
 impl MeshPlotState {
     pub fn new(x_min: f64, x_max: f64, y_min: f64, y_max: f64) -> Self {
         #[cfg(feature = "gpu-3d")]
@@ -296,6 +430,7 @@ impl MeshPlotState {
             wireframe: super::Wireframe::Overlay,
             render_mode: super::MeshRenderMode::Mesh,
             color_range: crate::ColorRange::Auto,
+            timing: MeshPlotTimingStats::default(),
             retained_planar_index: None,
             retained_contours: None,
             contour_preparation_inflight: None,
@@ -318,6 +453,46 @@ impl MeshPlotState {
         }
     }
 
+    /// Capture only the configuration fields changed by a native declarative
+    /// build. The snapshot is cheap even for a large retained mesh because it
+    /// shares prepared contour buffers and excludes geometry/BVH ownership.
+    pub fn configuration_snapshot(&self) -> MeshPlotStateConfiguration {
+        MeshPlotStateConfiguration {
+            interaction: self.interaction.clone(),
+            selection: self.selection.clone(),
+            wireframe: self.wireframe,
+            render_mode: self.render_mode.clone(),
+            color_range: self.color_range.clone(),
+            retained_contours: self.retained_contours.clone(),
+            contour_preparation_inflight: self.contour_preparation_inflight.clone(),
+            #[cfg(feature = "gpu-3d")]
+            camera: self.camera.clone(),
+            #[cfg(feature = "gpu-3d")]
+            orbit: self.orbit.clone(),
+            #[cfg(feature = "gpu-3d")]
+            camera_fitted: self.camera_fitted,
+        }
+    }
+
+    /// Restore a configuration snapshot after a declarative build fails.
+    /// Retained geometry, field revisions, BVHs, and prepared GPU resources
+    /// are deliberately untouched by this operation.
+    pub fn restore_configuration(&mut self, snapshot: MeshPlotStateConfiguration) {
+        self.interaction = snapshot.interaction;
+        self.selection = snapshot.selection;
+        self.wireframe = snapshot.wireframe;
+        self.render_mode = snapshot.render_mode;
+        self.color_range = snapshot.color_range;
+        self.retained_contours = snapshot.retained_contours;
+        self.contour_preparation_inflight = snapshot.contour_preparation_inflight;
+        #[cfg(feature = "gpu-3d")]
+        {
+            self.camera = snapshot.camera;
+            self.orbit = snapshot.orbit;
+            self.camera_fitted = snapshot.camera_fitted;
+        }
+    }
+
     /// Snapshot retained 3D upload ownership for runtime diagnostics.
     ///
     /// Returns `None` until a live 3D frame has created its retained scene.
@@ -325,12 +500,72 @@ impl MeshPlotState {
     pub fn retained_3d_stats(&self) -> Option<RetainedMesh3DStats> {
         let retained = self.retained_3d.as_ref()?;
         let scene = retained.scene.borrow();
+        let lod = retained.lod.borrow();
         Some(RetainedMesh3DStats {
             geometry_revision: retained.geometry_revision,
             scene_identity: Rc::as_ptr(&retained.scene) as usize,
             geometry_upload_count: scene.geometry_upload_count,
             geometry_upload_bytes: scene.geometry_upload_bytes,
+            geometry_resident_bytes: scene
+                .upload
+                .as_ref()
+                .map_or(0, d3rs::mesh::MeshUpload::geometry_byte_len),
+            field_write_count: scene.field_write_count,
+            field_write_bytes: scene.field_write_bytes,
+            field_resident_bytes: scene
+                .upload
+                .as_ref()
+                .map_or(0, d3rs::mesh::MeshUpload::field_byte_len),
+            field_capacity_bytes: scene
+                .upload
+                .as_ref()
+                .map_or(0, d3rs::mesh::MeshUpload::field_capacity_byte_len),
+            gpu_geometry_upload_count: scene.gpu_geometry_upload_count,
+            gpu_geometry_upload_bytes: scene.gpu_geometry_upload_bytes,
+            gpu_field_write_count: scene.gpu_field_write_count,
+            gpu_field_write_bytes: scene.gpu_field_write_bytes,
+            gpu_field_capacity_bytes: scene.gpu_field_capacity_bytes,
+            gpu_resident_bytes: scene.gpu_resident_bytes,
+            gpu_driver_allocated_bytes: scene.gpu_driver_allocated_bytes,
+            gpu_peak_driver_allocated_bytes: scene.gpu_peak_driver_allocated_bytes,
+            gpu_peak_resident_bytes: scene.gpu_peak_resident_bytes,
+            gpu_peak_field_capacity_bytes: scene.gpu_peak_field_capacity_bytes,
+            gpu_memory_release_count: scene.gpu_memory_release_count,
+            lod_proxy_active: lod.displaying_proxy,
+            lod_proxy_upload_count: lod.proxy_upload_count,
+            lod_full_restore_count: lod.full_restore_count,
+            lod_proxy_triangle_count: lod
+                .controller
+                .proxy_mesh()
+                .map_or(0, |mesh| mesh.triangles.len() as u64),
+            lod_full_triangle_count: lod.controller.full_mesh().triangles.len() as u64,
+            lod_proxy_upload_time_ns: lod.proxy_upload_time_ns,
+            lod_full_restore_time_ns: lod.full_restore_time_ns,
+            gpu_geometry_upload_time_ns: scene.gpu_geometry_upload_time_ns,
+            gpu_field_write_time_ns: scene.gpu_field_write_time_ns,
+            gpu_frame_time_ns: scene.gpu_frame_time_ns,
+            gpu_frame_count: scene.gpu_frame_count,
+            gpu_frame_gpu_time_ns: scene.gpu_frame_gpu_time_ns,
+            gpu_frame_gpu_time_count: scene.gpu_frame_gpu_time_count,
         })
+    }
+
+    /// Return non-I/O timing counters collected by this retained plot owner.
+    pub fn timing_stats(&self) -> MeshPlotTimingStats {
+        self.timing
+    }
+
+    pub(crate) fn record_contour_preparation(&mut self, duration: Duration) {
+        self.timing.record_contour_preparation(duration);
+    }
+
+    #[cfg(feature = "gpu-3d")]
+    pub(crate) fn record_revolve_preparation(&mut self, duration: Duration) {
+        self.timing.record_revolve_preparation(duration);
+    }
+
+    pub(crate) fn record_pick(&mut self, duration: Duration) {
+        self.timing.record_pick(duration);
     }
 
     /// Apply independently-versioned native resource changes from a retained
@@ -500,6 +735,7 @@ impl MeshPlotState {
     /// Return the retained planar spatial index for native hover/click
     /// inspection. Field and style changes deliberately do not invalidate the
     /// index; a geometry replacement or a different projected plane does.
+    #[cfg(any(feature = "gpu-2d", test))]
     pub(crate) fn planar_index_for(
         &mut self,
         projected: &[[f64; 2]],
@@ -777,9 +1013,11 @@ impl MeshPlotState {
         plot_id: &str,
         select: bool,
     ) -> Option<MeshPlotPick> {
+        let started = Instant::now();
         let pick = super::super::mesh_plot::picking::pick_2d(
             mesh, field, index, horizontal, vertical, point_2d, plot_id,
         );
+        self.record_pick(started.elapsed());
         self.hover = pick.clone();
         if select {
             self.selection = pick.clone();
@@ -859,18 +1097,46 @@ impl MeshPlotState {
 
     /// Apply a keyboard navigation action while retaining selection/hover.
     pub fn handle_key(&mut self, key: &str) -> bool {
+        self.handle_key_with_permissions(key, true, true, true, true)
+    }
+
+    /// Apply a keyboard navigation action subject to the plot's declared
+    /// interaction capabilities.
+    pub fn handle_key_with_permissions(
+        &mut self,
+        key: &str,
+        allow_pan: bool,
+        allow_zoom: bool,
+        allow_reset: bool,
+        allow_fit: bool,
+    ) -> bool {
+        if matches!(key.to_ascii_lowercase().as_str(), "f" | "fit") {
+            if !allow_fit {
+                return false;
+            }
+            // For a planar plot, fit and reset both restore the finite mesh
+            // domain captured when ChartInteraction was created. Keeping the
+            // operation here avoids a second keyboard-only viewport contract.
+            self.interaction.reset_zoom();
+            return true;
+        }
         let Some(action) = crate::interaction::keyboard_action_for_key(key) else {
             return false;
         };
         use crate::interaction::ChartKeyboardAction;
         match action {
-            ChartKeyboardAction::ZoomIn => self.interaction.zoom_around_pixel(300.0, 200.0, 0.8),
-            ChartKeyboardAction::ZoomOut => self.interaction.zoom_around_pixel(300.0, 200.0, 1.25),
-            ChartKeyboardAction::PanLeft => self.interaction.pan_by_pixels(-24.0, 0.0),
-            ChartKeyboardAction::PanRight => self.interaction.pan_by_pixels(24.0, 0.0),
-            ChartKeyboardAction::PanUp => self.interaction.pan_by_pixels(0.0, -24.0),
-            ChartKeyboardAction::PanDown => self.interaction.pan_by_pixels(0.0, 24.0),
-            ChartKeyboardAction::ResetZoom => self.interaction.reset_zoom(),
+            ChartKeyboardAction::ZoomIn if allow_zoom => {
+                self.interaction.zoom_around_pixel(300.0, 200.0, 0.8)
+            }
+            ChartKeyboardAction::ZoomOut if allow_zoom => {
+                self.interaction.zoom_around_pixel(300.0, 200.0, 1.25)
+            }
+            ChartKeyboardAction::PanLeft if allow_pan => self.interaction.pan_by_pixels(-24.0, 0.0),
+            ChartKeyboardAction::PanRight if allow_pan => self.interaction.pan_by_pixels(24.0, 0.0),
+            ChartKeyboardAction::PanUp if allow_pan => self.interaction.pan_by_pixels(0.0, -24.0),
+            ChartKeyboardAction::PanDown if allow_pan => self.interaction.pan_by_pixels(0.0, 24.0),
+            ChartKeyboardAction::ResetZoom if allow_reset => self.interaction.reset_zoom(),
+            _ => return false,
         }
         true
     }
@@ -882,7 +1148,17 @@ impl MeshPlotState {
     }
 
     /// Replace field values while preserving viewport and selection state.
-    pub fn replace_field_values(&mut self, revision: u64, values: &[f32]) {
+    ///
+    /// Revisions are monotonic: a late worker result cannot overwrite a newer
+    /// field. Replaying the exact current revision is idempotent, while a
+    /// different payload at that revision is rejected as ambiguous.
+    pub fn replace_field_values(&mut self, revision: u64, values: &[f32]) -> bool {
+        if revision < self.field_revision {
+            return false;
+        }
+        if revision == self.field_revision {
+            return self.field_values.as_slice() == values;
+        }
         self.field_values.clear();
         self.field_values.extend_from_slice(values);
         self.field_revision = revision;
@@ -890,6 +1166,7 @@ impl MeshPlotState {
         {
             self.retained_revolved_field = None;
         }
+        true
     }
 
     /// Return the retained field values for a backend upload.
@@ -941,30 +1218,65 @@ impl MeshPlotState {
 
     #[cfg(feature = "gpu-3d")]
     /// Apply the shared chart keys to 3D orbit navigation. Arrow keys pan,
-    /// plus/minus zoom, and Home/0/R restore the fitted camera.
+    /// plus/minus zoom, and Home/0/R restore the fitted camera. The direct
+    /// helper has no mesh bounds, so `f`/`fit` is handled by the live plot
+    /// wrapper that owns the current derived surface bounds.
     pub fn handle_3d_key(&mut self, key: &str) -> bool {
+        self.handle_3d_key_with_permissions(key, true, true, true, true)
+    }
+
+    #[cfg(feature = "gpu-3d")]
+    /// Apply a 3D keyboard action subject to the plot's declared capabilities.
+    pub fn handle_3d_key_with_permissions(
+        &mut self,
+        key: &str,
+        allow_pan: bool,
+        allow_zoom: bool,
+        allow_reset: bool,
+        allow_fit: bool,
+    ) -> bool {
+        self.handle_3d_key_with_fit(key, allow_pan, allow_zoom, allow_reset, allow_fit, None)
+    }
+
+    #[cfg(feature = "gpu-3d")]
+    pub(crate) fn handle_3d_key_with_fit(
+        &mut self,
+        key: &str,
+        allow_pan: bool,
+        allow_zoom: bool,
+        allow_reset: bool,
+        allow_fit: bool,
+        fit_bounds: Option<(MeshBounds, f32)>,
+    ) -> bool {
         match key.to_ascii_lowercase().as_str() {
-            "1" => self.orbit_standard_view(StandardView::Front),
-            "2" => self.orbit_standard_view(StandardView::Back),
-            "3" => self.orbit_standard_view(StandardView::Left),
-            "4" => self.orbit_standard_view(StandardView::Right),
-            "5" => self.orbit_standard_view(StandardView::Top),
-            "6" => self.orbit_standard_view(StandardView::Bottom),
-            "i" => self.orbit_standard_view(StandardView::Isometric),
-            "p" => self.toggle_projection(),
+            "f" | "fit" if allow_fit => {
+                let Some((bounds, aspect)) = fit_bounds else {
+                    return false;
+                };
+                self.fit_camera_to_bounds(bounds, aspect);
+            }
+            "1" if allow_fit => self.orbit_standard_view(StandardView::Front),
+            "2" if allow_fit => self.orbit_standard_view(StandardView::Back),
+            "3" if allow_fit => self.orbit_standard_view(StandardView::Left),
+            "4" if allow_fit => self.orbit_standard_view(StandardView::Right),
+            "5" if allow_fit => self.orbit_standard_view(StandardView::Top),
+            "6" if allow_fit => self.orbit_standard_view(StandardView::Bottom),
+            "i" if allow_fit => self.orbit_standard_view(StandardView::Isometric),
+            "p" if allow_fit => self.toggle_projection(),
             _ => {
                 use crate::interaction::ChartKeyboardAction;
                 let Some(action) = crate::interaction::keyboard_action_for_key(key) else {
                     return false;
                 };
                 match action {
-                    ChartKeyboardAction::ZoomIn => self.orbit_zoom(0.5),
-                    ChartKeyboardAction::ZoomOut => self.orbit_zoom(-0.5),
-                    ChartKeyboardAction::PanLeft => self.orbit_pan(-24.0, 0.0),
-                    ChartKeyboardAction::PanRight => self.orbit_pan(24.0, 0.0),
-                    ChartKeyboardAction::PanUp => self.orbit_pan(0.0, -24.0),
-                    ChartKeyboardAction::PanDown => self.orbit_pan(0.0, 24.0),
-                    ChartKeyboardAction::ResetZoom => self.orbit_reset(),
+                    ChartKeyboardAction::ZoomIn if allow_zoom => self.orbit_zoom(0.5),
+                    ChartKeyboardAction::ZoomOut if allow_zoom => self.orbit_zoom(-0.5),
+                    ChartKeyboardAction::PanLeft if allow_pan => self.orbit_pan(-24.0, 0.0),
+                    ChartKeyboardAction::PanRight if allow_pan => self.orbit_pan(24.0, 0.0),
+                    ChartKeyboardAction::PanUp if allow_pan => self.orbit_pan(0.0, -24.0),
+                    ChartKeyboardAction::PanDown if allow_pan => self.orbit_pan(0.0, 24.0),
+                    ChartKeyboardAction::ResetZoom if allow_reset => self.orbit_reset(),
+                    _ => return false,
                 }
             }
         }
@@ -1044,6 +1356,31 @@ mod tests {
     }
 
     #[test]
+    fn keyboard_navigation_honors_declared_capabilities() {
+        let mut state = MeshPlotState::new(0.0, 1.0, 0.0, 1.0);
+        let initial_x = state.interaction.x_domain();
+        assert!(!state.handle_key_with_permissions("arrowleft", false, true, false, false));
+        assert_eq!(state.interaction.x_domain(), initial_x);
+        assert!(state.handle_key_with_permissions("+", false, true, false, false));
+        assert_ne!(state.interaction.x_domain(), initial_x);
+    }
+
+    #[test]
+    fn keyboard_fit_restores_initial_domain_only_when_declared() {
+        let mut state = MeshPlotState::new(0.0, 1.0, 0.0, 1.0);
+        state.interaction.zoom_around_pixel(300.0, 200.0, 0.5);
+        assert_ne!(state.interaction.x_domain(), (0.0, 1.0));
+        assert!(!state.handle_key_with_permissions("f", true, true, true, false));
+        assert_ne!(state.interaction.x_domain(), (0.0, 1.0));
+        assert!(state.handle_key_with_permissions("f", true, true, true, true));
+        assert_eq!(state.interaction.x_domain(), (0.0, 1.0));
+
+        state.interaction.zoom_around_pixel(300.0, 200.0, 0.5);
+        assert!(state.handle_key_with_permissions("fit", true, true, true, true));
+        assert_eq!(state.interaction.x_domain(), (0.0, 1.0));
+    }
+
+    #[test]
     fn resource_dirty_domains_only_advance_their_matching_revision() {
         let mut state = MeshPlotState::new(0.0, 1.0, 0.0, 1.0);
         state.mark_resources_changed(true, true);
@@ -1120,6 +1457,37 @@ mod tests {
             d3rs::gpu3d::Projection::Orthographic { .. }
         ));
         assert_eq!(state.interaction.x_domain(), (0.0, 1.0));
+    }
+
+    #[cfg(feature = "gpu-3d")]
+    #[test]
+    fn three_d_keyboard_fit_uses_current_bounds_and_capability() {
+        let mut state = MeshPlotState::new(0.0, 1.0, 0.0, 1.0);
+        state.orbit_rotate(25.0, -10.0);
+        let before = state.camera.position;
+        let bounds = MeshBounds {
+            min: [-4.0, -2.0, -1.0],
+            max: [4.0, 2.0, 1.0],
+        };
+        assert!(!state.handle_3d_key_with_fit(
+            "f",
+            true,
+            true,
+            true,
+            false,
+            Some((bounds, 16.0 / 9.0)),
+        ));
+        assert_eq!(state.camera.position, before);
+        assert!(state.handle_3d_key_with_fit(
+            "fit",
+            true,
+            true,
+            true,
+            true,
+            Some((bounds, 16.0 / 9.0)),
+        ));
+        assert!(state.camera_fitted);
+        assert_ne!(state.camera.position, before);
     }
 
     #[cfg(feature = "gpu-3d")]
@@ -1254,6 +1622,131 @@ mod tests {
                 )
                 .is_none()
         );
+    }
+
+    #[test]
+    fn stale_contour_workers_cannot_commit_after_a_newer_field_revision() {
+        let mesh = TriangleMesh {
+            id: "mesh".into(),
+            positions: Arc::from([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]),
+            triangles: Arc::from([[0, 1, 2]]),
+            vertex_ids: None,
+            cell_ids: None,
+        };
+        let field = ScalarField {
+            id: "field".into(),
+            label: "Field".into(),
+            unit: None,
+            values: Arc::from([0.0, 0.5, 1.0]),
+            association: ScalarAssociation::Vertex,
+            valid: None,
+        };
+        let mode = crate::mesh_plot::MeshRenderMode::Isolines {
+            levels: d3rs::mesh::ContourLevels::Count(4),
+        };
+        let mut state = MeshPlotState::new(0.0, 1.0, 0.0, 1.0);
+
+        let first = state
+            .begin_contour_preparation(
+                &mesh,
+                Some(&field),
+                CoordinateAxis::X,
+                CoordinateAxis::Y,
+                &mode,
+                Some([0.0, 1.0]),
+            )
+            .expect("first contour preparation should be scheduled");
+        assert!(
+            state
+                .begin_contour_preparation(
+                    &mesh,
+                    Some(&field),
+                    CoordinateAxis::X,
+                    CoordinateAxis::Y,
+                    &mode,
+                    Some([0.0, 1.0]),
+                )
+                .is_none(),
+            "identical contour work must not be queued twice"
+        );
+
+        state.mark_resources_changed(false, true);
+        assert!(
+            !state.finish_contour_preparation(&first),
+            "a field revision must invalidate the older worker result"
+        );
+        assert!(state.previous_contours().is_none());
+
+        let newer = state
+            .begin_contour_preparation(
+                &mesh,
+                Some(&field),
+                CoordinateAxis::X,
+                CoordinateAxis::Y,
+                &mode,
+                Some([0.0, 1.0]),
+            )
+            .expect("newer contour preparation should be scheduled");
+        assert!(state.finish_contour_preparation(&newer));
+    }
+
+    #[test]
+    fn stale_field_replacements_cannot_overwrite_newer_results() {
+        let mut state = MeshPlotState::new(0.0, 1.0, 0.0, 1.0);
+        assert!(state.replace_field_values(4, &[4.0, 5.0]));
+        assert!(!state.replace_field_values(3, &[3.0, 4.0]));
+        assert_eq!(state.field_revision, 4);
+        assert_eq!(state.field_values(), &[4.0, 5.0]);
+
+        assert!(state.replace_field_values(4, &[4.0, 5.0]));
+        assert!(!state.replace_field_values(4, &[8.0, 9.0]));
+        assert_eq!(state.field_values(), &[4.0, 5.0]);
+    }
+
+    #[test]
+    fn timing_stats_track_retained_planar_picks() {
+        let mesh = TriangleMesh {
+            id: "mesh".into(),
+            positions: Arc::from([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]),
+            triangles: Arc::from([[0, 1, 2]]),
+            vertex_ids: None,
+            cell_ids: None,
+        };
+        let projected = [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]];
+        let index = TriGridIndex::build(&projected, &mesh.triangles);
+        let mut state = MeshPlotState::new(0.0, 1.0, 0.0, 1.0);
+
+        assert!(
+            state
+                .pick_at(
+                    &mesh,
+                    None,
+                    &index,
+                    CoordinateAxis::X,
+                    CoordinateAxis::Y,
+                    [0.25, 0.25],
+                    "plot",
+                    false,
+                )
+                .is_some()
+        );
+
+        let stats = state.timing_stats();
+        assert_eq!(stats.pick_count, 1);
+    }
+
+    #[cfg(feature = "gpu-3d")]
+    #[test]
+    fn timing_stats_track_revolve_preparation() {
+        let mut stats = MeshPlotTimingStats::default();
+        stats.record_revolve_preparation(Duration::from_nanos(17));
+        assert_eq!(stats.revolve_preparation_count, 1);
+        assert_eq!(stats.revolve_preparation_ns, 17);
+
+        let mut state = MeshPlotState::new(0.0, 1.0, 0.0, 1.0);
+        state.record_revolve_preparation(Duration::from_nanos(23));
+        assert_eq!(state.timing_stats().revolve_preparation_count, 1);
+        assert_eq!(state.timing_stats().revolve_preparation_ns, 23);
     }
 
     #[test]
@@ -1483,6 +1976,8 @@ mod tests {
             vertex_ids: None,
             cell_ids: None,
         };
+        let full_bounds = MeshBounds::from_positions(&mesh.positions);
+        let full_triangle_count = mesh.triangles.len();
         let field = ScalarField {
             id: "field".into(),
             label: "Field".into(),
@@ -1499,6 +1994,16 @@ mod tests {
             ..MeshSceneState::default()
         };
         let mut lod = RetainedMeshLod::with_lod_threshold(mesh, Some(&field), 1);
+        let proxy = lod
+            .controller
+            .proxy_mesh()
+            .expect("large mesh should have a drag proxy");
+        assert!(proxy.triangles.len() < full_triangle_count);
+        assert_eq!(
+            MeshBounds::from_positions(&proxy.positions),
+            full_bounds,
+            "drag proxy must preserve the full mesh bounds"
+        );
         assert!(lod.begin_drag(&mut scene));
         let proxy_upload = scene.upload.as_ref().unwrap();
         assert!(proxy_upload.positions_f32.len() < full_upload.positions_f32.len());
@@ -1512,5 +2017,15 @@ mod tests {
             full_upload.positions_f32
         );
         assert_eq!(scene.geometry_rev.0, 2);
+        assert_eq!(
+            scene.geometry_upload_count, 2,
+            "a drag must upload the proxy once and restore the full mesh once"
+        );
+        assert!(scene.geometry_upload_bytes >= full_upload.positions_f32.len() as u64);
+        assert!(!lod.displaying_proxy);
+        assert_eq!(lod.proxy_upload_count, 1);
+        assert_eq!(lod.full_restore_count, 1);
+        assert!(lod.proxy_upload_time_ns > 0);
+        assert!(lod.full_restore_time_ns > 0);
     }
 }

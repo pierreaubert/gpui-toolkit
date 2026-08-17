@@ -2,7 +2,9 @@
 //!
 //! Provides a complete menu system for application navigation and context menus.
 
-use crate::accessibility::{AccessibilityExt, AccessibilityNode, AriaProps, AriaRole};
+use crate::accessibility::{
+    AccessibilityExt, AccessibilityNode, AriaProps, AriaRole, AriaState, apply_native_accessibility,
+};
 use crate::mobile::is_mobile;
 use crate::swipe_panel::{SwipePanel, SwipePanelState};
 use crate::theme::{ThemeExt, glow_shadow};
@@ -23,6 +25,19 @@ pub use menu_bar::MenuBar;
 pub use menu_bar_item::MenuBarItem;
 pub use menu_item::MenuItem;
 pub use types::{MenuTheme, menu_bar_button};
+
+fn menu_item_accessibility(item: &menu_item::MenuItem) -> (SharedString, AriaProps) {
+    let role = if item.is_checkbox {
+        AriaRole::Checkbox
+    } else {
+        AriaRole::Menuitem
+    };
+    let props = AriaProps::with_role(role)
+        .maybe_state(item.disabled, AriaState::Disabled)
+        .maybe_state(item.is_checkbox, AriaState::Checked(item.checked));
+    (item.label.clone(), props)
+}
+
 /// A dropdown menu containing menu items
 ///
 /// # Keyboard Navigation
@@ -273,9 +288,10 @@ impl Menu {
                 let checked = item.checked;
                 let is_danger = item.is_danger;
                 let is_focused = focused_index == Some(index);
+                let (accessible_label, accessible_props) = menu_item_accessibility(&item);
 
                 let mut row = div()
-                    .id(item.element_id)
+                    .id(item.element_id.clone())
                     .px_3()
                     .py(px(6.0))
                     .mx_1()
@@ -333,6 +349,8 @@ impl Menu {
                 if let Some(icon) = item.icon {
                     row = row.child(div().w(px(16.0)).child(icon));
                 }
+
+                row = apply_native_accessibility(row, accessible_label, &accessible_props);
 
                 // Label (flex-1 to push shortcut to right)
                 row = row.child(div().flex_1().child(item.label));
@@ -411,11 +429,23 @@ impl Menu {
 
 impl RenderOnce for Menu {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let menu_label = self.aria_label.clone().unwrap_or_else(|| "Menu".into());
         cx.register_accessible(AccessibilityNode {
             element_id: self.id.clone(),
-            label: self.aria_label.clone().unwrap_or_default(),
+            label: menu_label,
             props: AriaProps::with_role(self.aria_role.unwrap_or(AriaRole::Menu)),
         });
+        for item in &self.items {
+            if item.is_separator {
+                continue;
+            }
+            let (label, props) = menu_item_accessibility(item);
+            cx.register_accessible(AccessibilityNode {
+                element_id: item.element_id.clone(),
+                label,
+                props,
+            });
+        }
 
         let id = self.id.clone();
         let global_theme = cx.theme();

@@ -43,10 +43,12 @@ pub struct MeshPlotSpec {
     pub viewport: Option<Value>,
     #[serde(default)]
     pub contour_levels: Option<Value>,
-    #[serde(default)]
+    #[serde(default = "default_equal_aspect")]
     pub equal_aspect: bool,
     #[serde(default)]
-    pub interactions: Vec<String>,
+    pub axes: Option<Value>,
+    #[serde(default)]
+    pub interactions: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -103,6 +105,9 @@ fn default_missing_value_policy() -> String {
 fn default_wireframe() -> bool {
     true
 }
+fn default_equal_aspect() -> bool {
+    true
+}
 
 impl MeshPlotSpec {
     /// Stable cache identity shared by retained host state and patch ordering.
@@ -149,7 +154,10 @@ impl MeshPlotSpec {
         let split_geometry_resources = self.geometry.get("positions").is_some_and(Value::is_object)
             || self.geometry.get("triangles").is_some_and(Value::is_object);
         if geometry_resource.is_some() {
-            validate_resource_handle(&self.geometry, "geometry")?;
+            return Err(
+                "mesh_plot geometry resource_id is unsupported; provide separate positions and triangles resource handles"
+                    .into(),
+            );
         } else if split_geometry_resources {
             validate_resource_handle(
                 self.geometry
@@ -266,6 +274,12 @@ impl MeshPlotSpec {
                 self.mode
             ));
         }
+        if self.revolve.is_some() && self.view != "axisymmetric_revolve" {
+            return Err("mesh_plot revolve settings require view='axisymmetric_revolve'".into());
+        }
+        if let Some(revolve) = &self.revolve {
+            validate_revolve(revolve)?;
+        }
         if let Some(field) = &self.field {
             if !field.is_object() {
                 return Err("mesh_plot field must be an object".into());
@@ -366,16 +380,21 @@ impl MeshPlotSpec {
         if let Some(levels) = &self.contour_levels {
             validate_contour_levels(levels)?;
         }
-        let mut seen_interactions = std::collections::HashSet::new();
-        for interaction in &self.interactions {
-            if !matches!(
-                interaction.as_str(),
-                "pan" | "zoom" | "inspect" | "select" | "reset" | "fit"
-            ) {
-                return Err(format!("unsupported mesh_plot interaction {interaction:?}"));
-            }
-            if !seen_interactions.insert(interaction) {
-                return Err(format!("duplicate mesh_plot interaction {interaction:?}"));
+        if let Some(axes) = &self.axes {
+            validate_axes(axes)?;
+        }
+        if let Some(interactions) = &self.interactions {
+            let mut seen_interactions = std::collections::HashSet::new();
+            for interaction in interactions {
+                if !matches!(
+                    interaction.as_str(),
+                    "pan" | "zoom" | "inspect" | "select" | "reset" | "fit"
+                ) {
+                    return Err(format!("unsupported mesh_plot interaction {interaction:?}"));
+                }
+                if !seen_interactions.insert(interaction) {
+                    return Err(format!("duplicate mesh_plot interaction {interaction:?}"));
+                }
             }
         }
         Ok(())
@@ -410,7 +429,10 @@ impl MeshPlotSpec {
 
         let geometry = &self.geometry;
         if geometry.get("resource_id").is_some() {
-            push("geometry", geometry)?;
+            return Err(
+                "mesh_plot geometry resource_id is unsupported; provide separate positions and triangles resource handles"
+                    .into(),
+            );
         } else if geometry.get("positions").is_some_and(Value::is_object)
             || geometry.get("triangles").is_some_and(Value::is_object)
         {
@@ -564,6 +586,106 @@ fn validate_contour_levels(value: &Value) -> Result<(), String> {
     Ok(())
 }
 
+fn validate_axes(value: &Value) -> Result<(), String> {
+    let object = value
+        .as_object()
+        .ok_or("mesh_plot axes must be an object")?;
+    const ALLOWED: [&str; 6] = [
+        "horizontal_label",
+        "vertical_label",
+        "unit",
+        "x_range",
+        "y_range",
+        "show_grid",
+    ];
+    if let Some(name) = object
+        .keys()
+        .find(|name| !ALLOWED.iter().any(|allowed| allowed == name))
+    {
+        return Err(format!("unsupported mesh_plot axes property {name:?}"));
+    }
+    for name in ["horizontal_label", "vertical_label", "unit"] {
+        if let Some(value) = object.get(name)
+            && !value.is_string()
+        {
+            return Err(format!("mesh_plot axes {name} must be a string"));
+        }
+    }
+    for name in ["x_range", "y_range"] {
+        if let Some(value) = object.get(name) {
+            let values = value
+                .as_array()
+                .ok_or_else(|| format!("mesh_plot axes {name} must be an array"))?;
+            if values.len() != 2
+                || values
+                    .iter()
+                    .any(|value| value.as_f64().is_none_or(|value| !value.is_finite()))
+                || values[0].as_f64() >= values[1].as_f64()
+            {
+                return Err(format!(
+                    "mesh_plot axes {name} must contain two increasing finite values"
+                ));
+            }
+        }
+    }
+    if let Some(value) = object.get("show_grid")
+        && !value.is_boolean()
+    {
+        return Err("mesh_plot axes show_grid must be boolean".into());
+    }
+    Ok(())
+}
+
+fn validate_revolve(value: &Value) -> Result<(), String> {
+    let object = value
+        .as_object()
+        .ok_or("mesh_plot revolve must be an object")?;
+    let axis = |name: &str, default: &str| -> Result<String, String> {
+        object.get(name).map_or_else(
+            || Ok(default.to_owned()),
+            |value| {
+                value
+                    .as_str()
+                    .filter(|axis| matches!(*axis, "x" | "y" | "z"))
+                    .map(str::to_owned)
+                    .ok_or_else(|| format!("mesh_plot revolve {name} must be 'x', 'y', or 'z'"))
+            },
+        )
+    };
+    let radial = axis("radial", "x")?;
+    let axial = axis("axial", "z")?;
+    if radial == axial {
+        return Err("mesh_plot revolve radial and axial axes must be distinct".into());
+    }
+    let finite_number = |name: &str, default: f64| {
+        object.get(name).map_or(Ok(default), |value| {
+            value
+                .as_f64()
+                .filter(|value| value.is_finite())
+                .ok_or_else(|| format!("mesh_plot revolve {name} must be finite"))
+        })
+    };
+    finite_number("start_angle", 0.0)?;
+    let sweep_angle = finite_number("sweep_angle", std::f64::consts::TAU)?;
+    if !(sweep_angle > 0.0 && sweep_angle <= std::f64::consts::TAU) {
+        return Err("mesh_plot revolve sweep_angle must be in (0, 2*pi]".into());
+    }
+    let segments = object.get("segments").map_or(Ok(64_u64), |value| {
+        value
+            .as_u64()
+            .ok_or("mesh_plot revolve segments must be an integer of at least 3")
+    })?;
+    if segments < 3 || segments > u32::MAX as u64 {
+        return Err("mesh_plot revolve segments must be an integer of at least 3".into());
+    }
+    if let Some(value) = object.get("end_caps")
+        && value.as_bool().is_none()
+    {
+        return Err("mesh_plot revolve end_caps must be boolean".into());
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -597,15 +719,27 @@ mod tests {
     }
 
     #[test]
-    fn accepts_resource_handles_and_rejects_bad_ranges() {
+    fn accepts_split_resource_handles_and_rejects_whole_geometry_handles() {
         let mut value = valid_spec();
         value["geometry"] = serde_json::json!({
-            "id": "mesh", "resource_id": "geometry", "generation": 4
+            "id": "mesh",
+            "positions": {"resource_id": "positions", "generation": 4},
+            "triangles": {"resource_id": "triangles", "generation": 4}
         });
         value["field"] = serde_json::json!({
             "resource_id": "field", "generation": 4, "association": "vertex"
         });
         assert!(MeshPlotSpec::from_value(value).is_ok());
+
+        let mut unsupported = valid_spec();
+        unsupported["geometry"] = serde_json::json!({
+            "id": "mesh", "resource_id": "geometry", "generation": 4
+        });
+        assert!(
+            MeshPlotSpec::from_value(unsupported)
+                .unwrap_err()
+                .contains("geometry resource_id is unsupported")
+        );
 
         let mut invalid = valid_spec();
         invalid["color_range"] = serde_json::json!([1.0, 1.0]);
@@ -647,6 +781,33 @@ mod tests {
         let mut invalid = valid_spec();
         invalid["missing_value_policy"] = serde_json::json!("interpolate");
         assert!(MeshPlotSpec::from_value(invalid).is_err());
+    }
+
+    #[test]
+    fn validates_revolve_settings_and_view_ownership() {
+        let mut valid = valid_spec();
+        valid["view"] = serde_json::json!("axisymmetric_revolve");
+        valid["revolve"] = serde_json::json!({
+            "radial": "y",
+            "axial": "z",
+            "start_angle": 0.25,
+            "sweep_angle": 1.5,
+            "segments": 32,
+            "end_caps": true
+        });
+        assert!(MeshPlotSpec::from_value(valid.clone()).is_ok());
+
+        let mut same_axes = valid.clone();
+        same_axes["revolve"]["axial"] = serde_json::json!("y");
+        assert!(MeshPlotSpec::from_value(same_axes).is_err());
+
+        let mut invalid_sweep = valid.clone();
+        invalid_sweep["revolve"]["sweep_angle"] = serde_json::json!(0.0);
+        assert!(MeshPlotSpec::from_value(invalid_sweep).is_err());
+
+        let mut wrong_view = valid;
+        wrong_view["view"] = serde_json::json!("planar");
+        assert!(MeshPlotSpec::from_value(wrong_view).is_err());
     }
 
     #[test]
@@ -710,5 +871,216 @@ mod tests {
                 .unwrap_err()
                 .contains("unsupported mesh_plot schema version")
         );
+    }
+
+    #[test]
+    fn validates_optional_axes_configuration() {
+        let mut value = valid_spec();
+        value["axes"] = serde_json::json!({
+            "horizontal_label": "distance",
+            "vertical_label": "height",
+            "unit": "m",
+            "x_range": [0.0, 2.0],
+            "y_range": [-1.0, 3.0],
+            "show_grid": false
+        });
+        let spec = MeshPlotSpec::from_value(value).unwrap();
+        assert_eq!(
+            spec.axes.as_ref().and_then(|axes| axes["unit"].as_str()),
+            Some("m")
+        );
+
+        for (property, invalid) in [
+            ("horizontal_label", serde_json::json!(12)),
+            ("x_range", serde_json::json!([1.0, 1.0])),
+            ("y_range", serde_json::json!([0.0, f64::NAN])),
+            ("show_grid", serde_json::json!("false")),
+            ("unknown", serde_json::json!(true)),
+        ] {
+            let mut invalid_spec = valid_spec();
+            invalid_spec["axes"] = serde_json::json!({property: invalid});
+            assert!(
+                MeshPlotSpec::from_value(invalid_spec).is_err(),
+                "{property}"
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_invalid_meshplot_validation_surface() {
+        let mut invalid = valid_spec();
+        invalid["geometry"] = serde_json::json!({
+            "positions": {"resource_id": "positions", "generation": 0},
+            "triangles": {"resource_id": "triangles", "generation": 1}
+        });
+        assert!(
+            MeshPlotSpec::from_value(invalid)
+                .unwrap_err()
+                .contains("geometry.positions resource generation must be positive")
+        );
+
+        let mut invalid = valid_spec();
+        invalid["geometry"] = serde_json::json!({
+            "positions": {"resource_id": "positions", "generation": 1}
+        });
+        assert!(
+            MeshPlotSpec::from_value(invalid)
+                .unwrap_err()
+                .contains("requires a triangles resource handle")
+        );
+
+        for (property, value, expected) in [
+            (
+                "view",
+                serde_json::json!("volume"),
+                "unsupported mesh_plot view",
+            ),
+            (
+                "mode",
+                serde_json::json!("volume_fill"),
+                "unsupported mesh_plot mode",
+            ),
+            (
+                "color_scale",
+                serde_json::json!("rainbow"),
+                "unsupported mesh_plot color scale",
+            ),
+        ] {
+            let mut invalid = valid_spec();
+            invalid[property] = value;
+            assert!(
+                MeshPlotSpec::from_value(invalid)
+                    .unwrap_err()
+                    .contains(expected),
+                "{property}"
+            );
+        }
+
+        let mut invalid = valid_spec();
+        invalid["mode"] = serde_json::json!("scalar_fill");
+        invalid["field"] = serde_json::Value::Null;
+        assert!(
+            MeshPlotSpec::from_value(invalid)
+                .unwrap_err()
+                .contains("requires a scalar field")
+        );
+
+        let mut invalid = valid_spec();
+        invalid["field"]["association"] = serde_json::json!("edge");
+        assert!(
+            MeshPlotSpec::from_value(invalid)
+                .unwrap_err()
+                .contains("unsupported mesh_plot field association")
+        );
+
+        let mut invalid = valid_spec();
+        invalid["mode"] = serde_json::json!("isolines");
+        invalid["field"]["association"] = serde_json::json!("cell");
+        invalid["field"]["values"] = serde_json::json!([1.0]);
+        assert!(
+            MeshPlotSpec::from_value(invalid)
+                .unwrap_err()
+                .contains("contours require a vertex field")
+        );
+
+        for (property, value, expected) in [
+            (
+                "values",
+                serde_json::json!([0.0, 0.5, f64::NAN]),
+                "field values must be finite",
+            ),
+            (
+                "valid",
+                serde_json::json!([true, false]),
+                "valid mask length does not match values",
+            ),
+            (
+                "valid",
+                serde_json::json!([true, "false", true]),
+                "valid mask must contain booleans",
+            ),
+        ] {
+            let mut invalid = valid_spec();
+            invalid["field"][property] = value;
+            assert!(
+                MeshPlotSpec::from_value(invalid)
+                    .unwrap_err()
+                    .contains(expected),
+                "field.{property}"
+            );
+        }
+
+        let mut invalid = valid_spec();
+        invalid["width"] = serde_json::json!(0.0);
+        assert!(
+            MeshPlotSpec::from_value(invalid)
+                .unwrap_err()
+                .contains("width must be positive and finite")
+        );
+
+        let mut invalid = valid_spec();
+        invalid["camera"] = serde_json::json!([0.0, 1.0]);
+        assert!(
+            MeshPlotSpec::from_value(invalid)
+                .unwrap_err()
+                .contains("camera must be an object")
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_meshplot_geometry_and_interactions() {
+        for (geometry, expected) in [
+            (
+                serde_json::json!({
+                    "positions": [[0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+                    "triangles": [[0, 1, 2]]
+                }),
+                "position 0 must contain three finite numbers",
+            ),
+            (
+                serde_json::json!({
+                    "positions": [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+                    "triangles": [[0, 1]]
+                }),
+                "triangle 0 must contain three indices",
+            ),
+            (
+                serde_json::json!({
+                    "positions": [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+                    "triangles": [[0, 1, "two"]]
+                }),
+                "triangle 0 has a non-integer index",
+            ),
+            (
+                serde_json::json!({
+                    "positions": [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+                    "triangles": [[0, 1, 2]],
+                    "vertex_ids": [10]
+                }),
+                "vertex_ids must contain 3 integer ids",
+            ),
+        ] {
+            let mut invalid = valid_spec();
+            invalid["geometry"] = geometry;
+            assert!(
+                MeshPlotSpec::from_value(invalid)
+                    .unwrap_err()
+                    .contains(expected),
+                "{expected}"
+            );
+        }
+
+        for interactions in [
+            serde_json::json!(["pan", "rotate"]),
+            serde_json::json!(["pan", "pan"]),
+        ] {
+            let mut invalid = valid_spec();
+            invalid["interactions"] = interactions;
+            assert!(
+                MeshPlotSpec::from_value(invalid)
+                    .unwrap_err()
+                    .contains("mesh_plot interaction")
+            );
+        }
     }
 }
