@@ -13,7 +13,7 @@ The `gpui-toolkit` workspace contains several related crates for building GPUI a
 | `gpui-showcase` | Component showcase with a wasm/browser entry point (gpui_web + gpui_wgpu canvas) | `just wasm-serve-showcase` |
 | `gpui-px` (px-showcase) | Chart showcase with a wasm/browser entry point | `just wasm-serve-px` |
 | `gpui-builder` | Generic constraint-based layout solver — priority collapse, auto-axis, display tiers, dividers | [README](gpui-builder/README.md) |
-| `gpui-d3rs` | Low-level D3.js-inspired visualization primitives | [README](gpui-d3rs/README.md) |
+| `gpui-d3rs` | Low-level D3.js-inspired visualization primitives, incl. vello-backed 2D rasterization (`vello2d` module, zero-copy via `WgpuCustomDraw`, vello_cpu fallback) | [README](gpui-d3rs/README.md) |
 | `gpui-design` | Platform-adaptive design system (Apple HIG, Material 3, Fluent, Neutral) — spacing, corners, typography, animation | [README](gpui-design/README.md) |
 | `gpui-ios` | iOS platform backend (Metal rendering, touch, text) | [README](gpui-ios/README.md), [AGENTS.md](gpui-ios/AGENTS.md) |
 | `gpui-pretext` | High-performance text measurement and multiline layout (Rust port of chenglou/pretext) | [README](gpui-pretext/README.md) |
@@ -176,7 +176,8 @@ Safari 26+); design in
 [docs/superpowers/specs/2026-08-15-wasm-browser-target-design.md](docs/superpowers/specs/2026-08-15-wasm-browser-target-design.md).
 wasm builds need nightly (`-Z build-std`), env-injected by the `just` recipes
 so the stable host toolchain is untouched. Visual QA baselines live at
-`qa/visual/wasm/baselines/`.
+`qa/visual/wasm/baselines/`. The px showcase honors `PX_SHOWCASE_SECTION`
+(case-insensitive section label) for headless section selection.
 
 gpu2d charts (`d3rs::gpu2d`, e.g. the px-showcase Heatmap/Contour/Isoline
 sections) render on wasm: device init is async and pixel readback is deferred

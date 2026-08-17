@@ -11,6 +11,7 @@ Provides a simple, high-level API for creating charts, similar to Plotly Express
 - `gpui` (default)
 - `gpu-2d` (default) - 2D GPU rendering
 - `gpu-3d` - 3D GPU rendering
+- `vello` - Vello-backed 2D chart rendering (enables `gpui-d3rs/vello-gpui`; scatter charts via `VelloChartElement`)
 
 ## Binaries
 

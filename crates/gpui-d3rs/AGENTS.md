@@ -19,6 +19,8 @@ D3.js-inspired GPU-accelerated plotting library for GPUI.
 - `gpu-2d` (default) - 2D GPU-accelerated rendering
 - `gpu-3d` - 3D surface rendering
 - `spinorama` - Spinorama API integration for speaker data
+- `vello` - Vello-backed 2D chart scene layer (`vello2d` module) + CPU rasterizer fallback (vello_cpu)
+- `vello-gpui` - `vello` + GPUI/wgpu element rendering (`VelloChartElement`, zero-copy `WgpuCustomDraw`)
 
 ## Binaries
 
@@ -33,6 +35,7 @@ D3.js-inspired GPU-accelerated plotting library for GPUI.
 
 ```bash
 cargo test -p gpui-d3rs --no-default-features --tests   # Golden + unit tests
+cargo test -p gpui-d3rs --no-default-features --features vello --tests   # + vello2d scene/CPU rasterizer tests
 cargo test -p gpui-d3rs --lib                            # Unit tests only
 cargo check -p gpui-d3rs && cargo clippy -p gpui-d3rs
 ```
