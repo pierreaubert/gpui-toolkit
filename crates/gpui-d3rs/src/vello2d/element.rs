@@ -242,9 +242,18 @@ impl Element for VelloChartElement {
             }
             Some(BackendState::Cpu(rasterizer)) => {
                 let (w, h) = (width as u16, height as u16);
-                let pixels = rasterizer.rasterize(&self.scene, w, h);
+                let mut pixels = rasterizer.rasterize(&self.scene, w, h);
                 if pixels.iter().all(|&b| b == 0) {
                     return;
+                }
+                // GPUI image atlases expect premultiplied BGRA (Metal uses
+                // BGRA8Unorm; the wgpu atlas prefers Bgra8Unorm and only
+                // swizzles when it falls back to Rgba8Unorm — see
+                // gpui::swap_rgba_pa_to_bgra and gpui_wgpu's
+                // swizzle_upload_data). vello_cpu yields premultiplied RGBA,
+                // so swap R<->B before handing the pixmap to paint_image.
+                for px in pixels.chunks_exact_mut(4) {
+                    px.swap(0, 2);
                 }
                 if let Some(rgba) = RgbaImage::from_raw(w as u32, h as u32, pixels) {
                     let image = RenderImage::new(vec![Frame::new(rgba)]);
