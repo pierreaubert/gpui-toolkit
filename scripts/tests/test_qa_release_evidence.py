@@ -708,13 +708,13 @@ class ReleaseEvidenceTests(unittest.TestCase):
         manifest = self.build(root, visual_members=members)
         self.assertEqual(len(manifest["artifacts"]), len(REQUIRED_ARTIFACTS) + 8)
 
-    def test_mesh_plot_local_capture_requires_99_actual_cases(self):
+    def test_mesh_plot_local_capture_requires_108_actual_cases(self):
         root = self.make_repo()
         capture = root / MESH_PLOT_VISUAL_CAPTURE_ARTIFACT
         data = json.loads(capture.read_text(encoding="utf-8"))
         data["captured_count"] = MESH_PLOT_LOCAL_CAPTURE_COUNT - 1
         capture.write_text(json.dumps(data), encoding="utf-8")
-        with self.assertRaisesRegex(EvidenceError, "99 requested/captured"):
+        with self.assertRaisesRegex(EvidenceError, "108 requested/captured"):
             self.build(root)
 
     def test_developer_visual_capture_accepts_explicit_adapter_skip(self):
@@ -766,13 +766,13 @@ class ReleaseEvidenceTests(unittest.TestCase):
                 source_revision="f" * 40,
             )
 
-    def test_mesh_plot_diff_must_match_99_baselines(self):
+    def test_mesh_plot_diff_must_match_108_baselines(self):
         root = self.make_repo()
         diff = root / MESH_PLOT_VISUAL_DIFF_ARTIFACT
         data = json.loads(diff.read_text(encoding="utf-8"))
         data["compared_count"] = MESH_PLOT_VERSIONED_BASELINE_COUNT - 1
         diff.write_text(json.dumps(data), encoding="utf-8")
-        with self.assertRaisesRegex(EvidenceError, "99 compared cases"):
+        with self.assertRaisesRegex(EvidenceError, "108 compared cases"):
             self.build(root)
 
     def test_developer_visual_diff_accepts_complete_stale_baselines(self):

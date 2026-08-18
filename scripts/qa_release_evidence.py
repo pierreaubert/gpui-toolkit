@@ -30,8 +30,8 @@ from mesh_plot_visual_compare import VisualCompareError, _decode_png
 SCHEMA_VERSION = 1
 REPORT_TYPE = "gpui-toolkit-release-evidence-manifest"
 
-MESH_PLOT_LOCAL_CAPTURE_COUNT = 99
-MESH_PLOT_VERSIONED_BASELINE_COUNT = 99
+MESH_PLOT_LOCAL_CAPTURE_COUNT = 108
+MESH_PLOT_VERSIONED_BASELINE_COUNT = 108
 MESH_PLOT_VISUAL_CAPTURE_ARTIFACT = "target/qa/visual/component-lab-capture.json"
 MESH_PLOT_VISUAL_DIFF_ARTIFACT = "target/qa/visual/component-lab-diff.json"
 MESH_PLOT_SCREEN_READER_RUNBOOK = "qa/accessibility/mesh-plot-screen-reader-qa.md"
@@ -323,7 +323,7 @@ def validate_mesh_plot_visual_capture(
     require_clean: bool = False,
     source_revision: str | None = None,
 ) -> None:
-    """Require all 99 local MeshPlot actual captures to be present."""
+    """Require all 108 local MeshPlot actual captures to be present."""
     capture = read_json_object(
         root / MESH_PLOT_VISUAL_CAPTURE_ARTIFACT,
         "MeshPlot local visual capture",
@@ -356,7 +356,7 @@ def validate_mesh_plot_visual_capture(
         or len(cases) != MESH_PLOT_LOCAL_CAPTURE_COUNT
     ):
         raise EvidenceError(
-            "MeshPlot local visual capture must report 99 requested/captured "
+            "MeshPlot local visual capture must report 108 requested/captured "
             "cases, zero failures, and a passing capture run"
         )
 
@@ -377,7 +377,7 @@ def validate_mesh_plot_visual_capture(
             or not actual_path_text
         ):
             raise EvidenceError(
-                "MeshPlot local visual capture must contain 99 unique Captured cases "
+                "MeshPlot local visual capture must contain 108 unique Captured cases "
                 "with actual_path entries"
             )
         candidate = (root / actual_path_text).resolve()
@@ -393,7 +393,7 @@ def validate_mesh_plot_visual_capture(
         actual_paths.add(candidate)
 
     if len(capture_ids) != MESH_PLOT_LOCAL_CAPTURE_COUNT or len(actual_paths) != MESH_PLOT_LOCAL_CAPTURE_COUNT:
-        raise EvidenceError("MeshPlot local visual capture does not contain 99 unique actual images")
+        raise EvidenceError("MeshPlot local visual capture does not contain 108 unique actual images")
 
 
 def validate_mesh_plot_benchmarks(
@@ -490,7 +490,7 @@ def visual_baseline_members(path: Path) -> list[str]:
 
 
 def validate_mesh_plot_visual_baseline(root: Path) -> set[str]:
-    """Require all 99 versioned MeshPlot entries in the visual archive."""
+    """Require all 108 versioned MeshPlot entries in the visual archive."""
     archive = root / "qa/visual/baselines/component-lab-metal-pr-v1.tar.zst"
     members = visual_baseline_members(archive)
     ids = [
@@ -505,7 +505,7 @@ def validate_mesh_plot_visual_baseline(root: Path) -> set[str]:
     ]
     if len(ids) != MESH_PLOT_VERSIONED_BASELINE_COUNT or len(set(ids)) != len(ids):
         raise EvidenceError(
-            "MeshPlot visual baseline evidence must contain exactly 99 unique "
+            "MeshPlot visual baseline evidence must contain exactly 108 unique "
             "versioned PNG captures"
         )
     return set(ids)
@@ -518,7 +518,7 @@ def validate_mesh_plot_visual_diff(
     strict: bool = False,
     source_revision: str | None = None,
 ) -> None:
-    """Validate all 99 visual cases, requiring zero diff only in strict mode.
+    """Validate all 108 visual cases, requiring zero diff only in strict mode.
 
     The developer lane must be able to describe a complete capture whose
     checked-in baselines are known to be stale. Release mode still requires a
@@ -557,7 +557,7 @@ def validate_mesh_plot_visual_diff(
         or not isinstance(cases, list)
         or len(cases) != MESH_PLOT_VERSIONED_BASELINE_COUNT
     ):
-        raise EvidenceError("MeshPlot visual diff must report all 99 compared cases")
+        raise EvidenceError("MeshPlot visual diff must report all 108 compared cases")
 
     diff_ids: list[str] = []
     for case in cases:
@@ -611,7 +611,7 @@ def validate_mesh_plot_visual_diff(
 
     if set(diff_ids) != baseline_ids:
         raise EvidenceError(
-            "MeshPlot visual diff cases must match the 99 versioned baseline captures"
+            "MeshPlot visual diff cases must match the 108 versioned baseline captures"
         )
     observed_failed = sum(case.get("status") == "Different" for case in cases)
     if diff.get("failed_count") != observed_failed or diff.get("passed") != (observed_failed == 0):
@@ -622,7 +622,7 @@ def validate_mesh_plot_visual_diff(
         or diff.get("passed") is not True
     ):
         raise EvidenceError(
-            "MeshPlot visual diff must report 99 compared cases, zero failures, "
+            "MeshPlot visual diff must report 108 compared cases, zero failures, "
             "zero changed pixels, and a passing diff run"
         )
 

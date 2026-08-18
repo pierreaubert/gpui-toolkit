@@ -197,7 +197,7 @@ cargo run -p gpui-component-lab --bin gpui-component-lab ${FEATURES} -- \
     --visual-manifest-markdown target/qa/visual/component-lab-manifest.md
 
 if ! command -v jq >/dev/null 2>&1; then
-    echo "MeshPlot visual QA requires jq to select the registered 99 MeshPlot cases" >&2
+    echo "MeshPlot visual QA requires jq to select the registered 108 MeshPlot cases" >&2
     exit 1
 fi
 mesh_plot_case_args=()
@@ -208,8 +208,8 @@ while IFS= read -r capture_id; do
     mesh_plot_case_count=$((mesh_plot_case_count + 1))
 done < <(jq -r '.cases[] | select(.story_id | startswith("px.mesh_plot")) | .capture_id' \
     target/qa/visual/component-lab-manifest.json)
-if [[ "$mesh_plot_case_count" -ne 99 ]]; then
-    echo "component-lab manifest must expose exactly 99 MeshPlot cases; found $mesh_plot_case_count" >&2
+if [[ "$mesh_plot_case_count" -ne 108 ]]; then
+    echo "component-lab manifest must expose exactly 108 MeshPlot cases; found $mesh_plot_case_count" >&2
     exit 1
 fi
 
@@ -240,11 +240,11 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
         -- "${capture_args[@]}"; then
         if visual_capture_artifact_is_complete \
             target/qa/visual/component-lab-capture.json \
-            gpui-component-lab-render-capture 99 \
+            gpui-component-lab-render-capture 108 \
             "$visual_root" "$capture_started_at"; then
-            echo "renderer teardown returned non-zero after a complete 99-case capture; accepting validated artifact"
+            echo "renderer teardown returned non-zero after a complete 108-case capture; accepting validated artifact"
         elif visual_capture_artifact_is_adapter_skip \
-            target/qa/visual/component-lab-capture.json 99; then
+            target/qa/visual/component-lab-capture.json 108; then
             echo "component-lab renderer capture skipped: no usable Metal adapter"
             visual_capture_skipped=1
         else
@@ -254,14 +254,14 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
     if [[ "$visual_capture_skipped" == "0" ]] \
         && ! visual_capture_artifact_is_complete \
             target/qa/visual/component-lab-capture.json \
-            gpui-component-lab-render-capture 99 \
+            gpui-component-lab-render-capture 108 \
             "$visual_root" "$capture_started_at"; then
         if visual_capture_artifact_is_adapter_skip \
-            target/qa/visual/component-lab-capture.json 99; then
+            target/qa/visual/component-lab-capture.json 108; then
             echo "component-lab renderer capture skipped: no usable Metal adapter"
             visual_capture_skipped=1
         else
-            echo "component-lab renderer capture did not produce a complete 99-case report" >&2
+            echo "component-lab renderer capture did not produce a complete 108-case report" >&2
             exit 1
         fi
     fi
@@ -279,7 +279,7 @@ path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 PY
         component_capture_status="skipped (no usable Metal adapter)"
     else
-        component_capture_status="passed (99 MeshPlot Metal captures)"
+        component_capture_status="passed (108 MeshPlot Metal captures)"
     fi
 
     if [[ "$visual_capture_skipped" == "1" ]]; then
@@ -328,22 +328,22 @@ PY
             --visual-diff-markdown target/qa/visual/component-lab-diff.md \
             "${mesh_plot_case_args[@]}"; then
             diff_command_passed=0
-            if visual_diff_artifact_is_complete target/qa/visual/component-lab-diff.json 99 \
+            if visual_diff_artifact_is_complete target/qa/visual/component-lab-diff.json 108 \
                 "$visual_root" "$diff_started_at"; then
-                echo "component-lab diff returned non-zero after a complete 99-case report; accepting the developer stale-baseline report"
+                echo "component-lab diff returned non-zero after a complete 108-case report; accepting the developer stale-baseline report"
             else
                 exit 1
             fi
         fi
-        if ! visual_diff_artifact_is_complete target/qa/visual/component-lab-diff.json 99 \
+        if ! visual_diff_artifact_is_complete target/qa/visual/component-lab-diff.json 108 \
             "$visual_root" "$diff_started_at"; then
-            echo "component-lab visual diff did not produce a complete 99-case report" >&2
+            echo "component-lab visual diff did not produce a complete 108-case report" >&2
             exit 1
         fi
         if [[ "$diff_command_passed" == "1" ]]; then
-            visual_diff_status="passed (99 MeshPlot renderer comparisons)"
+            visual_diff_status="passed (108 MeshPlot renderer comparisons)"
         else
-            visual_diff_status="complete (99 comparisons; stale baseline differences remain)"
+            visual_diff_status="complete (108 comparisons; stale baseline differences remain)"
         fi
     fi
 fi
