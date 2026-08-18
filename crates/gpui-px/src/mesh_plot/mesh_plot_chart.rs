@@ -1814,9 +1814,7 @@ impl MeshPlot {
                             selection_state.as_ref(),
                             static_selection.as_ref(),
                         );
-                        let Some(selection) = selection else {
-                            return None;
-                        };
+                        let selection = selection?;
                         let width = f32::from(bounds.size.width).max(1.0);
                         let height = f32::from(bounds.size.height).max(1.0);
                         let projector = MeshProjector::new(
@@ -4512,8 +4510,10 @@ mod tests {
             Err(ChartError::InvalidData { field: "field", .. })
         ));
 
-        let mut invalid_revolve = d3rs::mesh::RevolveSpec::default();
-        invalid_revolve.segments = 2;
+        let invalid_revolve = d3rs::mesh::RevolveSpec {
+            segments: 2,
+            ..Default::default()
+        };
         let invalid_revolve = mesh_plot(square_mesh())
             .view(MeshPlotView::AxisymmetricRevolve(invalid_revolve))
             .build();

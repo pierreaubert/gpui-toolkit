@@ -1,7 +1,7 @@
 //! Camera system for 3D surface visualization
 
 use crate::mesh::MeshBounds;
-use glam::{Mat4, Vec3};
+use glam::{Mat4, Vec3, camera::rh::proj::directx};
 use std::f32::consts::PI;
 
 /// The projection used by a [`Camera3D`].
@@ -145,7 +145,7 @@ impl Camera3D {
         } else {
             self.up
         };
-        Mat4::look_at_rh(self.position, self.target, up)
+        glam::camera::rh::view::look_at_mat4(self.position, self.target, up)
     }
 
     /// Get projection matrix
@@ -154,11 +154,11 @@ impl Camera3D {
         let near = self.near.max(1e-6);
         let far = self.far.max(near + 1e-6);
         match self.projection {
-            Projection::Perspective { .. } => Mat4::perspective_rh(self.fov, aspect, near, far),
+            Projection::Perspective { .. } => directx::perspective(self.fov, aspect, near, far),
             Projection::Orthographic { half_height } => {
                 let half_height = (half_height as f32).abs().max(1e-6);
                 let half_width = half_height * aspect;
-                Mat4::orthographic_rh(
+                directx::orthographic(
                     -half_width,
                     half_width,
                     -half_height,

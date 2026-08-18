@@ -649,7 +649,7 @@ impl MetalCustomDraw for MetalMeshDraw {
         let field_write_time = field_write_started.elapsed();
         let resident_bytes = resources.resident_bytes;
         let field_capacity_bytes = resources.field_capacity_bytes;
-        let driver_allocated_bytes = device.current_allocated_size() as u64;
+        let driver_allocated_bytes = device.current_allocated_size();
         drop(state);
         {
             let mut state = self.state.borrow_mut();
@@ -684,7 +684,7 @@ impl MetalCustomDraw for MetalMeshDraw {
         depth_attachment.set_load_action(MTLLoadAction::Clear);
         depth_attachment.set_clear_depth(1.0);
         depth_attachment.set_store_action(MTLStoreAction::DontCare);
-        let encoder = command_buffer.new_render_command_encoder(&descriptor);
+        let encoder = command_buffer.new_render_command_encoder(descriptor);
         let scale = if scale_factor.is_finite() && scale_factor > 0.0 {
             scale_factor
         } else {
@@ -726,7 +726,7 @@ impl MetalCustomDraw for MetalMeshDraw {
         encoder.set_vertex_buffer(0, Some(&resources.vertices), 0);
         encoder.set_vertex_buffer(1, Some(&resources.uniform), 0);
         if self.is_3d {
-            encoder.set_vertex_buffer(2, resources.values.as_ref().map(|value| &**value), 0);
+            encoder.set_vertex_buffer(2, resources.values.as_deref(), 0);
         }
         // Vertex and fragment stages have independent bindings. The old 2D
         // path used the same buffer layout; bind it explicitly so 3D scalar

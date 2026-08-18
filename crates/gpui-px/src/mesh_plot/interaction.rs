@@ -462,7 +462,7 @@ impl MeshPlotState {
             selection: self.selection.clone(),
             wireframe: self.wireframe,
             render_mode: self.render_mode.clone(),
-            color_range: self.color_range.clone(),
+            color_range: self.color_range,
             retained_contours: self.retained_contours.clone(),
             contour_preparation_inflight: self.contour_preparation_inflight.clone(),
             #[cfg(feature = "gpu-3d")]

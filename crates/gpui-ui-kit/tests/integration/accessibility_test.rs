@@ -28,7 +28,7 @@ async fn test_button_registers_in_accessibility_tree(cx: &mut TestAppContext) {
         let tree = cx.try_global::<AccessibilityTree>();
         assert!(tree.is_some(), "AccessibilityTree should be set as global");
         let tree = tree.unwrap();
-        assert!(tree.len() > 0, "Tree should have registered nodes");
+        assert!(!tree.is_empty(), "Tree should have registered nodes");
 
         let node = tree.get(&ElementId::Name("ok-btn".into()));
         assert!(node.is_some(), "Button should be registered");

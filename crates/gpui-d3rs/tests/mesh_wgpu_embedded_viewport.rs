@@ -205,13 +205,15 @@ fn offscreen_wgpu_readback_contains_retained_scalar_mesh() {
     let mut upload = square_upload();
     upload.values_f32 = Some(vec![0.0, 0.5, 1.0, 0.25]);
 
-    let mut state = MeshSceneState::default();
-    state.geometry_rev = GeometryRevision(1);
-    state.upload = Some(upload);
-    state.color = MeshColorConfig {
-        range: [0.0, 1.0],
-        unlit: true,
-        ..MeshColorConfig::default()
+    let state = MeshSceneState {
+        geometry_rev: GeometryRevision(1),
+        upload: Some(upload),
+        color: MeshColorConfig {
+            range: [0.0, 1.0],
+            unlit: true,
+            ..MeshColorConfig::default()
+        },
+        ..MeshSceneState::default()
     };
 
     let image = match render_offscreen_wgpu(&state, 64, 64) {
