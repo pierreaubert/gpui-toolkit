@@ -2,7 +2,8 @@
 
 Libraries, examples, and tooling for building GPUI applications with native
 `div()`-based rendering, reusable components, charting primitives, design
-tokens, and Apple mobile backends.
+tokens, working on all platforms: macOS, Linux, Windows, iOS, tvOS, Android
+and WASM.
 
 [![License](https://img.shields.io/crates/l/gpui-ui-kit)](LICENSE)
 
