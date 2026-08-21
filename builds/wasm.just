@@ -8,6 +8,13 @@
 wasm_target := "wasm32-unknown-unknown"
 wasm_packages := "-p gpui_web -p gpui-miniapp -p gpui-hello-web -p gpui-showcase -p gpui-px -p gpui-d3rs"
 
+# `wasm-build-site` produces release artifacts first, while `trunk serve`
+# performs its own debug build for the browser capture servers. Two apps build
+# concurrently, so cold GitHub-hosted runners can need several minutes before
+# the served page replaces Trunk's source index. Override this for slower
+# runners or local diagnostics.
+wasm_gallery_startup_timeout_s := env_var_or_default("WASM_GALLERY_STARTUP_TIMEOUT_S", "600")
+
 [group('wasm')]
 wasm-setup:
 	rustup toolchain install nightly --component rust-src --target {{wasm_target}}
@@ -69,12 +76,27 @@ wasm-build-site:
 	#!/usr/bin/env bash
 	set -euo pipefail
 	mkdir -p target/demo-site/hello target/demo-site/showcase target/demo-site/px
+	assert_wasm_public_url() {
+		local dist="$1"
+		local public_url="$2"
+		local index="$dist/index.html"
+		if ! grep -Fq "$public_url" "$index"; then
+			echo "wasm-build-site: $index does not reference assets under $public_url" >&2
+			sed -n '1,40p' "$index" >&2
+			exit 1
+		fi
+	}
+	# The Pages project is mounted at /gpui-toolkit; Trunk otherwise emits
+	# root-relative assets that resolve to the account site instead.
 	cd crates/gpui-hello-web
-	env -u NO_COLOR RUSTUP_TOOLCHAIN=nightly CARGO_UNSTABLE_BUILD_STD=std,panic_abort trunk build --release --dist ../../target/demo-site/hello
+	env -u NO_COLOR RUSTUP_TOOLCHAIN=nightly CARGO_UNSTABLE_BUILD_STD=std,panic_abort trunk build --release --public-url /gpui-toolkit/hello/ --dist ../../target/demo-site/hello
+	assert_wasm_public_url ../../target/demo-site/hello /gpui-toolkit/hello/
 	cd ../gpui-showcase
-	env -u NO_COLOR RUSTUP_TOOLCHAIN=nightly CARGO_UNSTABLE_BUILD_STD=std,panic_abort trunk build --release --dist ../../target/demo-site/showcase
+	env -u NO_COLOR RUSTUP_TOOLCHAIN=nightly CARGO_UNSTABLE_BUILD_STD=std,panic_abort trunk build --release --public-url /gpui-toolkit/showcase/ --dist ../../target/demo-site/showcase
+	assert_wasm_public_url ../../target/demo-site/showcase /gpui-toolkit/showcase/
 	cd ../gpui-px
-	env -u NO_COLOR RUSTUP_TOOLCHAIN=nightly CARGO_UNSTABLE_BUILD_STD=std,panic_abort trunk build --release --dist ../../target/demo-site/px
+	env -u NO_COLOR RUSTUP_TOOLCHAIN=nightly CARGO_UNSTABLE_BUILD_STD=std,panic_abort trunk build --release --public-url /gpui-toolkit/px/ --dist ../../target/demo-site/px
+	assert_wasm_public_url ../../target/demo-site/px /gpui-toolkit/px/
 
 # Capture every query-addressable showcase section, then generate thumbnails,
 # contact sheets, manifest.json, and the static gallery index.
@@ -99,7 +121,9 @@ wasm-gallery only="":
 	) & pids+=("$!")
 	for port in 8081 8082; do
 		server_up=""
-		for _ in $(seq 1 60); do
+		startup_interval_s=2
+		startup_attempts=$(( ({{wasm_gallery_startup_timeout_s}} + startup_interval_s - 1) / startup_interval_s ))
+		for _ in $(seq 1 "$startup_attempts"); do
 			page="$(curl -fsS --max-time 5 "http://127.0.0.1:$port" || true)"
 			# Trunk serves the source index even when its build pipeline failed;
 			# a successful build replaces data-trunk links with generated scripts.
@@ -107,7 +131,7 @@ wasm-gallery only="":
 				server_up=1
 				break
 			fi
-			sleep 2
+			sleep "$startup_interval_s"
 		done
 		if [ -z "$server_up" ]; then
 			echo "wasm-gallery: Trunk on port $port did not produce a built page" >&2
