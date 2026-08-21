@@ -7,6 +7,7 @@ use crate::{
     resolved_chart_dimensions, validate_data_array, validate_data_length, validate_dimensions,
 };
 use d3rs::color::D3Color;
+use d3rs::render2d::{Renderer2D, VelloBackend};
 use d3rs::shape::{Arc, Pie};
 use d3rs::text::{GlyphTextConfig, render_glyph_text};
 use gpui::prelude::*;
@@ -29,6 +30,8 @@ pub struct PieChart {
     inner_radius_fraction: f64, // 0.0 to 1.0 of outer radius
     pad_angle: f64,
     corner_radius: f64,
+    renderer_2d: Renderer2D,
+    vello_backend: VelloBackend,
     colors: Option<Vec<u32>>,
     width: f32,
     height: f32,
@@ -38,6 +41,18 @@ pub struct PieChart {
 }
 
 impl PieChart {
+    /// Select the high-level 2D renderer. Vello is the default when enabled.
+    pub fn renderer_2d(mut self, renderer: Renderer2D) -> Self {
+        self.renderer_2d = renderer;
+        self
+    }
+
+    /// Select the Vello WGPU/CPU backend.
+    pub fn vello_backend(mut self, backend: VelloBackend) -> Self {
+        self.vello_backend = backend;
+        self
+    }
+
     /// Export this pie or donut chart as deterministic SVG.
     pub fn to_svg(&self) -> Result<String, ChartError> {
         self.to_svg_with_options(crate::StaticSvgOptions::new(self.width, self.height))
@@ -253,8 +268,12 @@ impl PieChart {
             .into();
 
         // Render function
-        let render_element = canvas(
-            move |bounds, _, _| (slice_paths.clone(), custom_palette, bounds),
+        let renderer_2d = self.renderer_2d;
+        let vello_backend = self.vello_backend;
+        let legacy_slice_paths = slice_paths.clone();
+        let legacy_palette = custom_palette.clone();
+        let legacy_render_element = canvas(
+            move |bounds, _, _| (legacy_slice_paths, legacy_palette, bounds),
             move |_, (slice_paths, custom_palette, bounds), window, _| {
                 let palette: &[u32] = custom_palette.as_deref().unwrap_or(&DEFAULT_PALETTE);
                 let origin_x: f32 = bounds.origin.x.into();
@@ -290,6 +309,68 @@ impl PieChart {
                 }
             },
         );
+        let render_element: gpui::AnyElement = {
+            #[cfg(feature = "vello")]
+            if renderer_2d == Renderer2D::Vello {
+                let paths = slice_paths.clone();
+                let palette = custom_palette.clone();
+                d3rs::vello2d::VelloChartElement::with_builder(move |width, height| {
+                    use d3rs::vello2d::kurbo::{BezPath, PathEl};
+                    use d3rs::vello2d::peniko::{Brush, Color};
+                    let sx = if plot_width > 0.0 {
+                        width as f64 / plot_width as f64
+                    } else {
+                        1.0
+                    };
+                    let sy = if plot_height > 0.0 {
+                        height as f64 / plot_height as f64
+                    } else {
+                        1.0
+                    };
+                    let colors = palette.as_deref().unwrap_or(&DEFAULT_PALETTE);
+                    let mut scene = d3rs::vello2d::ChartScene::new();
+                    for (index, points) in paths.iter().enumerate() {
+                        let Some(first) = points.first() else {
+                            continue;
+                        };
+                        let mut path = BezPath::new();
+                        path.push(PathEl::MoveTo(
+                            (
+                                f32::from(first.x) as f64 * sx,
+                                f32::from(first.y) as f64 * sy,
+                            )
+                                .into(),
+                        ));
+                        for point in points.iter().skip(1) {
+                            path.push(PathEl::LineTo(
+                                (
+                                    f32::from(point.x) as f64 * sx,
+                                    f32::from(point.y) as f64 * sy,
+                                )
+                                    .into(),
+                            ));
+                        }
+                        path.push(PathEl::ClosePath);
+                        let color = D3Color::from_hex(colors[index % colors.len()]).to_rgba();
+                        scene.fill_path(
+                            path,
+                            Brush::Solid(Color::new([color.r, color.g, color.b, color.a])),
+                        );
+                    }
+                    scene
+                })
+                .backend(vello_backend)
+                .absolute()
+                .into_any_element()
+            } else {
+                legacy_render_element.into_any_element()
+            }
+            #[cfg(not(feature = "vello"))]
+            {
+                let _ = (renderer_2d, vello_backend);
+                legacy_render_element.into_any_element()
+            }
+        };
 
         // Build container
         let mut container = apply_chart_size(div(), self.chart_size)
@@ -351,6 +432,8 @@ pub fn pie(values: &[f64]) -> PieChart {
         inner_radius_fraction: 0.0,
         pad_angle: 0.0,
         corner_radius: 0.0,
+        renderer_2d: Renderer2D::default(),
+        vello_backend: VelloBackend::default(),
         colors: None,
         width: DEFAULT_WIDTH,
         height: DEFAULT_HEIGHT,

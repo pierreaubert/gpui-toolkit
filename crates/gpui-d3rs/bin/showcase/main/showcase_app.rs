@@ -1,6 +1,7 @@
 use super::contour_render_mode::ContourRenderMode;
 use super::demo_section::DemoSection;
 use super::geo_projection_type::GeoProjectionType;
+use d3rs::render2d::{Renderer2D, VelloBackend};
 use gpui::prelude::*;
 use gpui::*;
 use gpui_builder::{
@@ -127,6 +128,29 @@ pub struct ShowcaseApp {
 }
 
 impl ShowcaseApp {
+    /// Resolve the renderer override used by deterministic showcase captures.
+    ///
+    /// Browser captures use `?renderer=auto|cpu|legacy`; native captures use
+    /// `D3RS_SHOWCASE_RENDERER` with the same values. The default remains the
+    /// library's Vello/Auto selection.
+    pub(crate) fn renderer_selection(&self) -> (Renderer2D, VelloBackend, &'static str) {
+        let requested = {
+            #[cfg(target_family = "wasm")]
+            {
+                gpui_miniapp::web_query_param("renderer")
+            }
+            #[cfg(not(target_family = "wasm"))]
+            {
+                std::env::var("D3RS_SHOWCASE_RENDERER").ok()
+            }
+        };
+        renderer_selection_for(requested.as_deref())
+    }
+
+    pub(crate) fn renderer_label(&self) -> &'static str {
+        self.renderer_selection().2
+    }
+
     pub(super) fn new(_cx: &mut Context<Self>) -> Self {
         let args: Vec<String> = std::env::args().collect();
         let snapshot_mode = args.iter().any(|arg| arg == "--snapshot");
@@ -399,6 +423,13 @@ impl ShowcaseApp {
                     .text_color(theme.text_primary)
                     .mb(px(ds.spacing.control_gap))
                     .child("d3rs Showcase"),
+            )
+            .child(
+                div()
+                    .id("renderer-metadata")
+                    .text_size(px(ds.typography.small_size))
+                    .text_color(theme.text_muted)
+                    .child(format!("2D renderer: {}", self.renderer_label())),
             )
             .child(
                 div()
@@ -680,6 +711,32 @@ impl ShowcaseApp {
                         snapshot.bytes, snapshot.count
                     ))
             }))
+    }
+}
+
+fn renderer_selection_for(requested: Option<&str>) -> (Renderer2D, VelloBackend, &'static str) {
+    match requested
+        .map(str::trim)
+        .map(str::to_ascii_lowercase)
+        .as_deref()
+    {
+        Some("legacy") | Some("gpu2d") => (Renderer2D::Legacy, VelloBackend::Auto, "Legacy"),
+        #[cfg(feature = "vello")]
+        Some("cpu") | Some("vello-cpu") => (Renderer2D::Vello, VelloBackend::Cpu, "Vello · Cpu"),
+        #[cfg(not(feature = "vello"))]
+        Some("cpu") | Some("vello-cpu") => (
+            Renderer2D::Legacy,
+            VelloBackend::Auto,
+            "Legacy (Vello unavailable)",
+        ),
+        _ => {
+            let renderer = Renderer2D::default();
+            if renderer.is_vello() {
+                (renderer, VelloBackend::Auto, "Vello · Auto")
+            } else {
+                (renderer, VelloBackend::Auto, "Legacy")
+            }
+        }
     }
 }
 

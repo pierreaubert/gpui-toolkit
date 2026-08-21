@@ -3,6 +3,7 @@
 use crate::TickConfig;
 use crate::accessibility::AriaRole;
 use crate::audio_accessibility::AudioAccessibilitySummary;
+use d3rs::render2d::{Renderer2D, VelloBackend};
 use gpui::prelude::*;
 use gpui::*;
 use std::cell::RefCell;
@@ -12,6 +13,19 @@ use std::panic;
 thread_local! {
     static METER_VALUE_LABEL_CACHE: RefCell<HashMap<i64, SharedString>> =
         RefCell::new(HashMap::new());
+}
+
+#[cfg(test)]
+mod renderer_contract_tests {
+    use super::LevelMeterElement;
+    use d3rs::render2d::{Renderer2D, VelloBackend};
+
+    #[test]
+    fn level_meter_defaults_follow_shared_renderer_contract() {
+        let meter = LevelMeterElement::new(-12.0, "L");
+        assert_eq!(meter.renderer_2d, Renderer2D::default());
+        assert_eq!(meter.vello_backend, VelloBackend::default());
+    }
 }
 
 /// Format a meter value as a one-decimal string, reusing allocations for
@@ -181,6 +195,12 @@ pub fn horizontal_meter_accessibility_summary(
 struct GradientMeterFillElement {
     bar_color: Rgba,
     strips: usize,
+    #[cfg_attr(not(feature = "vello"), allow(dead_code))]
+    renderer_2d: Renderer2D,
+    #[cfg_attr(not(feature = "vello"), allow(dead_code))]
+    vello_backend: VelloBackend,
+    #[cfg(feature = "vello")]
+    painter: d3rs::vello2d::VelloScenePainter,
 }
 
 impl IntoElement for GradientMeterFillElement {
@@ -246,6 +266,37 @@ impl Element for GradientMeterFillElement {
     ) {
         let width: f32 = bounds.size.width.into();
         let height: f32 = bounds.size.height.into();
+
+        #[cfg(feature = "vello")]
+        if self.renderer_2d == Renderer2D::Vello {
+            use d3rs::vello2d::kurbo::Rect;
+            use d3rs::vello2d::peniko::{Brush, Color};
+            let mut scene = d3rs::vello2d::ChartScene::new();
+            let strips = self.strips.max(1);
+            for index in 0..strips {
+                let t0 = index as f32 / strips as f32;
+                let t1 = (index + 1) as f32 / strips as f32;
+                let alpha = 0.35 + 0.65 * (1.0 - (t0 + t1) * 0.5);
+                scene.fill_rect(
+                    Rect::new(
+                        0.0,
+                        t0 as f64 * height as f64,
+                        width as f64,
+                        t1 as f64 * height as f64,
+                    ),
+                    Brush::Solid(Color::new([
+                        self.bar_color.r,
+                        self.bar_color.g,
+                        self.bar_color.b,
+                        self.bar_color.a * alpha,
+                    ])),
+                );
+            }
+            self.painter.set_backend(self.vello_backend);
+            self.painter.paint(&scene, bounds, window);
+            return;
+        }
+
         let strips = self.strips.max(1);
         let strip_width = width / strips as f32;
         for index in 0..strips {
@@ -281,6 +332,28 @@ pub fn render_horizontal_meter_bar_with(
     value_text: impl Into<SharedString>,
     theme: HorizontalMeterTheme,
 ) -> impl IntoElement {
+    render_horizontal_meter_bar_with_renderer(
+        label,
+        ratio,
+        bar_color,
+        value_text,
+        theme,
+        Renderer2D::default(),
+        VelloBackend::default(),
+    )
+}
+
+/// Renderer-aware horizontal meter variant. The original function remains
+/// source-compatible and selects the default Vello renderer.
+pub fn render_horizontal_meter_bar_with_renderer(
+    label: impl Into<SharedString>,
+    ratio: f32,
+    bar_color: Rgba,
+    value_text: impl Into<SharedString>,
+    theme: HorizontalMeterTheme,
+    #[cfg_attr(not(feature = "vello"), allow(dead_code))] renderer_2d: Renderer2D,
+    #[cfg_attr(not(feature = "vello"), allow(dead_code))] vello_backend: VelloBackend,
+) -> impl IntoElement {
     let ratio = ratio.clamp(0.0, 1.0);
     let fill: Div = if theme.use_gradient {
         div()
@@ -290,6 +363,10 @@ pub fn render_horizontal_meter_bar_with(
             .child(GradientMeterFillElement {
                 bar_color,
                 strips: 10,
+                renderer_2d,
+                vello_backend,
+                #[cfg(feature = "vello")]
+                painter: d3rs::vello2d::VelloScenePainter::new().backend(vello_backend),
             })
     } else {
         div().h_full().w(relative(ratio)).bg(bar_color)
@@ -336,6 +413,10 @@ pub struct LevelMeterElement {
     is_clipping: bool,
     bar_width: Pixels,
     colors: MeterColors,
+    renderer_2d: Renderer2D,
+    vello_backend: VelloBackend,
+    #[cfg(feature = "vello")]
+    painter: d3rs::vello2d::VelloScenePainter,
 }
 
 impl LevelMeterElement {
@@ -347,6 +428,10 @@ impl LevelMeterElement {
             is_clipping: level_db > -0.1,
             bar_width: px(16.0),
             colors: MeterColors::default(),
+            renderer_2d: Renderer2D::default(),
+            vello_backend: VelloBackend::default(),
+            #[cfg(feature = "vello")]
+            painter: d3rs::vello2d::VelloScenePainter::new(),
         }
     }
 
@@ -362,6 +447,20 @@ impl LevelMeterElement {
 
     pub fn colors(mut self, colors: MeterColors) -> Self {
         self.colors = colors;
+        self
+    }
+
+    /// Select the high-level 2D renderer.
+    pub fn renderer_2d(mut self, renderer: Renderer2D) -> Self {
+        self.renderer_2d = renderer;
+        self
+    }
+
+    /// Select the Vello WGPU/CPU backend.
+    pub fn vello_backend(mut self, backend: VelloBackend) -> Self {
+        self.vello_backend = backend;
+        #[cfg(feature = "vello")]
+        self.painter.set_backend(backend);
         self
     }
 
@@ -489,6 +588,80 @@ impl Element for LevelMeterElement {
             .corner_radius
             .clamp(0.0, (meter_w_f / 2.0).min(8.0));
         let corner_radii = Corners::all(px(bar_radius));
+
+        #[cfg(feature = "vello")]
+        if self.renderer_2d == Renderer2D::Vello {
+            use d3rs::vello2d::kurbo::Rect;
+            use d3rs::vello2d::peniko::{Brush, Color};
+            let mut scene = d3rs::vello2d::ChartScene::new();
+            let brush = |color: Rgba, alpha: f32| {
+                Brush::Solid(Color::new([color.r, color.g, color.b, color.a * alpha]))
+            };
+            scene.fill_rect(
+                Rect::new(0.0, 0.0, meter_w_f as f64, meter_height_f as f64),
+                brush(self.colors.background, 1.0),
+            );
+            let segments = [
+                (0.0_f32, fill_ratio.min(yellow_threshold), self.colors.green),
+                (
+                    yellow_threshold,
+                    (fill_ratio - yellow_threshold).min(red_threshold - yellow_threshold)
+                        + yellow_threshold,
+                    self.colors.yellow,
+                ),
+                (red_threshold, fill_ratio, self.colors.red),
+            ];
+            for (bottom, top, color) in segments {
+                if top <= bottom {
+                    continue;
+                }
+                let y0 = meter_height_f * (1.0 - top.clamp(0.0, 1.0));
+                let y1 = meter_height_f * (1.0 - bottom.clamp(0.0, 1.0));
+                if self.colors.use_gradient {
+                    let strips = 12usize;
+                    for index in 0..strips {
+                        let t0 = index as f32 / strips as f32;
+                        let t1 = (index + 1) as f32 / strips as f32;
+                        let alpha = 0.4 + 0.6 * (1.0 - (t0 + t1) * 0.5);
+                        scene.fill_rect(
+                            Rect::new(
+                                0.0,
+                                y0 as f64 + (y1 - y0) as f64 * t0 as f64,
+                                meter_w_f as f64,
+                                y0 as f64 + (y1 - y0) as f64 * t1 as f64,
+                            ),
+                            brush(color, alpha),
+                        );
+                    }
+                } else {
+                    scene.fill_rect(
+                        Rect::new(0.0, y0 as f64, meter_w_f as f64, y1 as f64),
+                        brush(color, 1.0),
+                    );
+                }
+            }
+            if let Some(peak_db) = self.peak_db {
+                let peak_pos = db_to_position(peak_db);
+                let y = meter_height_f * (1.0 - peak_pos);
+                let color = if self.is_clipping {
+                    self.colors.red
+                } else {
+                    self.colors.peak
+                };
+                scene.fill_rect(
+                    Rect::new(
+                        0.0,
+                        (y - 1.0).max(0.0) as f64,
+                        meter_w_f as f64,
+                        (y + 1.0) as f64,
+                    ),
+                    brush(color, 1.0),
+                );
+            }
+            self.painter.set_backend(self.vello_backend);
+            self.painter.paint(&scene, meter_bounds, window);
+            return;
+        }
 
         window.paint_quad(PaintQuad {
             bounds: meter_bounds,

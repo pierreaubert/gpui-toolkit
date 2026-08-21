@@ -522,3 +522,6 @@ at a U.S. National Park
 ---
 
 Made with love for data visualization in Rust.
+## 2D renderer selection
+
+Ordinary 2D marks use Vello by default when the `vello-gpui` feature is enabled. `Renderer2D::Legacy` remains an explicit compatibility path for the original `gpu2d` painter. Vello's `VelloBackend::Auto` tries the zero-copy WGPU custom-draw path and falls back to the deterministic CPU rasterizer when custom drawing is unavailable; `Cpu` and `Wgpu` are available for QA and integration tests. Builds without Vello compile with the Legacy default and do not reference Vello-only APIs.

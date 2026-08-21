@@ -12,6 +12,7 @@ use d3rs::contour::ContourGenerator;
 #[cfg(feature = "gpu-2d")]
 use d3rs::gpu2d::render_contour;
 use d3rs::grid::{GridConfig, render_grid};
+use d3rs::render2d::{Renderer2D, VelloBackend};
 use d3rs::scale::{LinearScale, LogScale};
 use d3rs::shape::ContourConfig;
 #[cfg(not(feature = "gpu-2d"))]
@@ -49,9 +50,23 @@ pub struct IsolineChart {
     pub(super) x_range: Option<[f64; 2]>,
     pub(super) y_range: Option<[f64; 2]>,
     pub(super) design: Option<Arc<DesignSystem>>,
+    pub(super) renderer_2d: d3rs::render2d::Renderer2D,
+    pub(super) vello_backend: d3rs::render2d::VelloBackend,
 }
 
 impl IsolineChart {
+    /// Select the high-level 2D renderer. Vello is the default when enabled.
+    pub fn renderer_2d(mut self, renderer: d3rs::render2d::Renderer2D) -> Self {
+        self.renderer_2d = renderer;
+        self
+    }
+
+    /// Select the Vello WGPU/CPU backend.
+    pub fn vello_backend(mut self, backend: d3rs::render2d::VelloBackend) -> Self {
+        self.vello_backend = backend;
+        self
+    }
+
     /// Export this isoline chart as deterministic SVG.
     pub fn to_svg(&self) -> Result<String, ChartError> {
         self.to_svg_with_options(crate::StaticSvgOptions::new(self.width, self.height))
@@ -557,7 +572,9 @@ impl IsolineChart {
             .stroke_opacity(self.opacity)
             .smooth_strokes(self.smooth_strokes)
             .smoothing_iterations(self.smoothing_iterations)
-            .smoothing_max_deviation_px(self.smoothing_max_deviation_px);
+            .smoothing_max_deviation_px(self.smoothing_max_deviation_px)
+            .renderer_2d(self.renderer_2d)
+            .vello_backend(self.vello_backend);
 
         // Build the element based on scale types
         let isoline_element: AnyElement = match (self.x_scale_type, self.y_scale_type) {
@@ -596,9 +613,16 @@ impl IsolineChart {
                                         plot_height as f32,
                                         &theme,
                                     ))
-                                    .child(div().absolute().inset_0().child(render_contour(
-                                        contours, &x_scale, &y_scale, &config,
-                                    ))),
+                                    .child(div().absolute().inset_0().child(
+                                        render_contour_selected(
+                                            contours,
+                                            &x_scale,
+                                            &y_scale,
+                                            &config,
+                                            self.renderer_2d,
+                                            self.vello_backend,
+                                        ),
+                                    )),
                             )
                             .child(render_axis(
                                 &x_scale,
@@ -644,9 +668,16 @@ impl IsolineChart {
                                         plot_height as f32,
                                         &theme,
                                     ))
-                                    .child(div().absolute().inset_0().child(render_contour(
-                                        contours, &x_scale, &y_scale, &config,
-                                    ))),
+                                    .child(div().absolute().inset_0().child(
+                                        render_contour_selected(
+                                            contours,
+                                            &x_scale,
+                                            &y_scale,
+                                            &config,
+                                            self.renderer_2d,
+                                            self.vello_backend,
+                                        ),
+                                    )),
                             )
                             .child(render_axis(
                                 &x_scale,
@@ -692,9 +723,16 @@ impl IsolineChart {
                                         plot_height as f32,
                                         &theme,
                                     ))
-                                    .child(div().absolute().inset_0().child(render_contour(
-                                        contours, &x_scale, &y_scale, &config,
-                                    ))),
+                                    .child(div().absolute().inset_0().child(
+                                        render_contour_selected(
+                                            contours,
+                                            &x_scale,
+                                            &y_scale,
+                                            &config,
+                                            self.renderer_2d,
+                                            self.vello_backend,
+                                        ),
+                                    )),
                             )
                             .child(render_axis(
                                 &x_scale,
@@ -740,9 +778,16 @@ impl IsolineChart {
                                         plot_height as f32,
                                         &theme,
                                     ))
-                                    .child(div().absolute().inset_0().child(render_contour(
-                                        contours, &x_scale, &y_scale, &config,
-                                    ))),
+                                    .child(div().absolute().inset_0().child(
+                                        render_contour_selected(
+                                            contours,
+                                            &x_scale,
+                                            &y_scale,
+                                            &config,
+                                            self.renderer_2d,
+                                            self.vello_backend,
+                                        ),
+                                    )),
                             )
                             .child(render_axis(
                                 &x_scale,
@@ -833,7 +878,30 @@ pub fn isoline(z: &[f64], grid_width: usize, grid_height: usize) -> IsolineChart
         x_range: None,
         y_range: None,
         design: None,
+        renderer_2d: d3rs::render2d::Renderer2D::default(),
+        vello_backend: d3rs::render2d::VelloBackend::default(),
     }
+}
+
+fn render_contour_selected<XS, YS>(
+    contours: impl Into<Arc<[d3rs::contour::Contour]>>,
+    x_scale: &XS,
+    y_scale: &YS,
+    config: &ContourConfig,
+    renderer: Renderer2D,
+    backend: VelloBackend,
+) -> AnyElement
+where
+    XS: d3rs::scale::Scale<f64, f64> + Clone + 'static,
+    YS: d3rs::scale::Scale<f64, f64> + Clone + 'static,
+{
+    #[cfg(feature = "vello")]
+    if renderer == Renderer2D::Vello {
+        return d3rs::shape::render_contour_vello(contours, x_scale, y_scale, config, backend)
+            .into_any_element();
+    }
+    let _ = (renderer, backend);
+    render_contour(contours, x_scale, y_scale, config).into_any_element()
 }
 
 fn draw_static_isoline_axes(

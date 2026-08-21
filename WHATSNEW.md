@@ -5,6 +5,8 @@
 ### Feature: integrated with Vello with 2d plots ; benefit is that all
 operations execute on the GPU with no ping pong with the CPU
 
+Ordinary d3rs/px charts and audio visuals now default to Vello. `Auto` uses WGPU custom drawing when available and falls back to the CPU rasterizer; Legacy remains an explicit feature-off/compatibility path. The WASM gallery exposes `auto`, `cpu`, and `legacy` renderer queries for deterministic QA.
+
 ## 0.9.9
 
 ### Feature: added support for wasm/browser as a target
@@ -40,5 +42,4 @@ The first crates.io wave is intentionally small: `gpui-design`,
 in the source tag as beta while their unpublished runtime dependency prevents
 honest registry packaging. See `RELEASE.md` and `qa.md` for support and
 platform limits.
-
 

@@ -43,6 +43,7 @@ mod imp {
             )
             .expect("failed to open window");
             cx.activate(true);
+            gpui_miniapp::web_mark_ready();
         });
         std::mem::forget(handle);
     }

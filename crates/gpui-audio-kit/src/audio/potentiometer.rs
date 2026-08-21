@@ -25,6 +25,7 @@ use crate::audio_accessibility::{
     AudioAccessibilitySummary, normalized, range_description, value_text,
 };
 use crate::theme::ThemeExt;
+use d3rs::render2d::{Renderer2D, VelloBackend};
 use gpui::prelude::*;
 use gpui::*;
 
@@ -58,6 +59,8 @@ pub struct Potentiometer {
     accent_color: Option<Rgba>,
     /// Platform design tokens for arc geometry and sizing.
     design_tokens: crate::audio_design_tokens::AudioDesignTokens,
+    renderer_2d: Renderer2D,
+    vello_backend: VelloBackend,
     on_change: Option<Box<dyn Fn(f64, &mut Window, &mut App) + 'static>>,
     on_commit: Option<Box<dyn Fn(f64, &mut Window, &mut App) + 'static>>,
     on_drag_start: Option<Box<dyn Fn(f32, f64, &mut Window, &mut App) + 'static>>,
@@ -90,6 +93,8 @@ impl Potentiometer {
             theme: None,
             accent_color: None,
             design_tokens: Default::default(),
+            renderer_2d: Renderer2D::default(),
+            vello_backend: VelloBackend::default(),
             on_change: None,
             on_commit: None,
             on_drag_start: None,
@@ -190,6 +195,18 @@ impl Potentiometer {
     /// Use this to match the plugin's type color (e.g., blue for EQ, red for compressor).
     pub fn accent_color(mut self, color: Rgba) -> Self {
         self.accent_color = Some(color);
+        self
+    }
+
+    /// Select the high-level 2D renderer for custom-painted knob visuals.
+    pub fn renderer_2d(mut self, renderer: Renderer2D) -> Self {
+        self.renderer_2d = renderer;
+        self
+    }
+
+    /// Select the Vello WGPU/CPU backend.
+    pub fn vello_backend(mut self, backend: VelloBackend) -> Self {
+        self.vello_backend = backend;
         self
     }
 
@@ -804,6 +821,10 @@ impl RenderOnce for Potentiometer {
             ticks: tick_geometry.ticks.clone(),
             major_tick_width: tick_geometry.major_tick_width,
             minor_tick_width: tick_geometry.minor_tick_width,
+            renderer_2d: self.renderer_2d,
+            vello_backend: self.vello_backend,
+            #[cfg(feature = "vello")]
+            painter: d3rs::vello2d::VelloScenePainter::new().backend(self.vello_backend),
         });
 
         // Add cached tick labels as div children.
@@ -874,6 +895,10 @@ impl RenderOnce for Potentiometer {
                     + self.design_tokens.knob_arc_sweep_deg)
                     .to_radians(),
                 arc_segments: self.design_tokens.knob_arc_segments,
+                renderer_2d: self.renderer_2d,
+                vello_backend: self.vello_backend,
+                #[cfg(feature = "vello")]
+                painter: d3rs::vello2d::VelloScenePainter::new().backend(self.vello_backend),
             }),
         );
 
@@ -1026,6 +1051,14 @@ impl RenderOnce for Potentiometer {
 mod tests {
     use super::Potentiometer;
     use crate::{AudioScale as Scale, PotentiometerTheme};
+    use d3rs::render2d::{Renderer2D, VelloBackend};
+
+    #[test]
+    fn default_renderer_contract_is_shared_with_d3rs() {
+        let pot = Potentiometer::new("test");
+        assert_eq!(pot.renderer_2d, Renderer2D::default());
+        assert_eq!(pot.vello_backend, VelloBackend::default());
+    }
 
     #[test]
     fn format_label_wraps_shortcut_key() {

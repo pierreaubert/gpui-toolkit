@@ -17,6 +17,8 @@ use vello::{AaConfig, AaSupport, RenderParams, Renderer, RendererOptions};
 pub struct SharedScene {
     /// The chart scene in logical coordinates.
     pub scene: ChartScene,
+    /// Revision of the command stream currently submitted to the GPU.
+    pub revision: u64,
     /// Element-local logical size the scene was built for.
     pub logical_size: (f32, f32),
 }

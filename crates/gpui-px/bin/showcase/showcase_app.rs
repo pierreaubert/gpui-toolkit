@@ -39,19 +39,54 @@ pub(super) struct ShowcaseApp {
 }
 
 impl ShowcaseApp {
-    /// Optional initial-section override for headless QA capture, matched
-    /// case-insensitively against `ChartSection::label()`
-    /// (e.g. `PX_SHOWCASE_SECTION="Scatter (vello)"`).
+    fn section_key(value: &str) -> String {
+        value
+            .chars()
+            .filter(|character| character.is_ascii_alphanumeric())
+            .map(|character| character.to_ascii_lowercase())
+            .collect()
+    }
+
+    /// Optional initial-section override for browser capture, matched
+    /// case-insensitively against `ChartSection::label()` or its slug.
     fn initial_section() -> ChartSection {
-        std::env::var("PX_SHOWCASE_SECTION")
-            .ok()
+        #[cfg(target_family = "wasm")]
+        let requested = gpui_miniapp::web_query_param("section");
+        #[cfg(not(target_family = "wasm"))]
+        let requested = std::env::var("PX_SHOWCASE_SECTION").ok();
+
+        requested
             .and_then(|name| {
                 ChartSection::all()
                     .iter()
                     .copied()
-                    .find(|s| s.label().eq_ignore_ascii_case(name.trim()))
+                    .find(|s| Self::section_key(s.label()) == Self::section_key(name.trim()))
             })
             .unwrap_or_default()
+    }
+
+    /// Resolve the deterministic renderer override used by screenshot and
+    /// browser captures. Use ?renderer=auto|cpu|legacy on WASM or
+    /// PX_SHOWCASE_RENDERER on native; ordinary constructors remain Vello by
+    /// default when no override is supplied.
+    fn renderer_selection(
+        &self,
+    ) -> (
+        d3rs::render2d::Renderer2D,
+        d3rs::render2d::VelloBackend,
+        &'static str,
+    ) {
+        let requested = {
+            #[cfg(target_family = "wasm")]
+            {
+                gpui_miniapp::web_query_param("renderer")
+            }
+            #[cfg(not(target_family = "wasm"))]
+            {
+                std::env::var("PX_SHOWCASE_RENDERER").ok()
+            }
+        };
+        renderer_selection_for(requested.as_deref())
     }
 
     pub(super) fn new(_cx: &mut Context<Self>) -> Self {
@@ -230,6 +265,7 @@ impl ShowcaseApp {
             #[cfg(feature = "vello")]
             ChartSection::ScatterVello => self.render_scatter_vello_demo(&theme, &ds),
         };
+        let renderer_label = format!("Renderer: {}", self.renderer_selection().2);
 
         div()
             .id("content-scroll")
@@ -238,6 +274,14 @@ impl ShowcaseApp {
             .overflow_y_scroll()
             .bg(theme.background)
             .p(px(ds.spacing.section_gap * 2.0))
+            .child(
+                div()
+                    .id("renderer-metadata")
+                    .text_size(px(ds.typography.small_size))
+                    .text_color(theme.text_muted)
+                    .mb(px(ds.spacing.grid_unit))
+                    .child(renderer_label),
+            )
             .child(content)
     }
 
@@ -360,6 +404,7 @@ impl ShowcaseApp {
     pub(super) fn render_scatter_demo(&self, theme: &Theme, ds: &DesignSystem) -> Div {
         // Get zoom state
         let is_zoomed = self.scatter_chart_state.is_zoomed();
+        let (selected_renderer, selected_backend, selected_label) = self.renderer_selection();
 
         let mut chart_builder = scatter(&self.scatter_x, &self.scatter_y)
             .title(format!(
@@ -369,6 +414,11 @@ impl ShowcaseApp {
             .color(0x1f77b4)
             .point_radius(5.0)
             .size(600.0, 400.0);
+        chart_builder = if selected_renderer.is_vello() {
+            chart_builder.raster_backend(selected_backend)
+        } else {
+            chart_builder.renderer_2d(selected_renderer)
+        };
 
         // Only set explicit ranges when zoomed
         if is_zoomed {
@@ -391,7 +441,7 @@ impl ShowcaseApp {
                     .text_size(px(ds.typography.large_size))
                     .font_weight(FontWeight::BOLD)
                     .text_color(theme.text_primary)
-                    .child("Scatter Plot"),
+                .child(format!("Scatter Plot · {selected_label}")),
             )
             .child(
                 div()
@@ -447,6 +497,7 @@ impl ShowcaseApp {
 
     #[cfg(feature = "vello")]
     pub(super) fn render_scatter_vello_demo(&self, theme: &Theme, ds: &DesignSystem) -> Div {
+        let (selected_renderer, selected_backend, selected_label) = self.renderer_selection();
         // 100k deterministic points (no RNG): a dense sine sweep.
         let x: Vec<f64> = (0..100_000).map(|i| i as f64 * 0.001).collect();
         let y: Vec<f64> = (0..100_000).map(|i| (i as f64 * 0.013).sin()).collect();
@@ -460,14 +511,14 @@ impl ShowcaseApp {
                     .text_size(px(ds.typography.large_size))
                     .font_weight(FontWeight::BOLD)
                     .text_color(theme.text_primary)
-                    .child("Scatter Plot (vello)"),
+                .child(format!("Scatter Plot ({selected_label})")),
             )
             .child(
                 div()
                     .text_size(px(ds.typography.small_size))
                     .text_color(theme.text_secondary)
                     .max_w(px(600.0))
-                    .child("Same scatter chart rasterized through the vello 2D backend (RasterBackend::Auto: zero-copy wgpu where the wgpu renderer dispatches custom draws, vello_cpu pixmap fallback elsewhere — macOS Metal and wasm included). Points composite identically to the legacy GPUI path renderer."),
+                    .child(format!("Renderer-selected scatter path ({selected_label}); Auto uses zero-copy WGPU custom draw when available and vello_cpu fallback elsewhere.")),
             )
             .child(
                 scatter(&x, &y)
@@ -475,7 +526,8 @@ impl ShowcaseApp {
                     .color(0x1f77b4)
                     .point_radius(5.0)
                     .size(600.0, 400.0)
-                    .raster_backend(d3rs::vello2d::RasterBackend::Auto)
+                        .raster_backend(selected_backend)
+                        .renderer_2d(selected_renderer)
                     .build()
                     .unwrap(),
             )
@@ -1682,5 +1734,45 @@ impl Render for ShowcaseApp {
             .flex_row()
             .child(self.render_sidebar(sidebar_width, cx))
             .child(self.render_content(cx))
+    }
+}
+
+fn renderer_selection_for(
+    requested: Option<&str>,
+) -> (
+    d3rs::render2d::Renderer2D,
+    d3rs::render2d::VelloBackend,
+    &'static str,
+) {
+    match requested
+        .map(str::trim)
+        .map(str::to_ascii_lowercase)
+        .as_deref()
+    {
+        Some("legacy") | Some("gpu2d") => (
+            d3rs::render2d::Renderer2D::Legacy,
+            d3rs::render2d::VelloBackend::Auto,
+            "Legacy",
+        ),
+        #[cfg(feature = "vello")]
+        Some("cpu") | Some("vello-cpu") => (
+            d3rs::render2d::Renderer2D::Vello,
+            d3rs::render2d::VelloBackend::Cpu,
+            "Vello · Cpu",
+        ),
+        #[cfg(not(feature = "vello"))]
+        Some("cpu") | Some("vello-cpu") => (
+            d3rs::render2d::Renderer2D::Legacy,
+            d3rs::render2d::VelloBackend::Auto,
+            "Legacy (Vello unavailable)",
+        ),
+        _ => {
+            let renderer = d3rs::render2d::Renderer2D::default();
+            if renderer.is_vello() {
+                (renderer, d3rs::render2d::VelloBackend::Auto, "Vello · Auto")
+            } else {
+                (renderer, d3rs::render2d::VelloBackend::Auto, "Legacy")
+            }
+        }
     }
 }

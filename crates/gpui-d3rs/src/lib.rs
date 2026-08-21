@@ -75,6 +75,7 @@ pub mod mesh;
 pub mod polygon;
 pub mod quadtree;
 pub mod random;
+pub mod render2d;
 pub mod sankey;
 pub mod selection;
 pub mod shape;

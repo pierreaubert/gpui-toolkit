@@ -22,7 +22,12 @@ crates/gpui-showcase/android/gradle/app/src/main/jniLibs/
 /*.json.bz2
 /todos.md
 /docs
+!/docs/
+!/docs/demos/
+!/docs/demos/**
 /tmp
+# `uv run --with` creates a project lock while resolving gallery-only tools.
+uv.lock
 
 # node
 /node_modules

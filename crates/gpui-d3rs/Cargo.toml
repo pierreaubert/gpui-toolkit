@@ -14,7 +14,7 @@ exclude = ["bin/"]
 name = "d3rs"
 
 [features]
-default = ["gpui", "gpu-2d", "gpu-3d"]
+default = ["gpui", "gpu-2d", "gpu-3d", "vello-gpui"]
 autoeq = ["dep:autoeq"]
 gpui = ["dep:gpui", "dep:gpui-ui-kit", "dep:gpui-miniapp", "dep:gpui-builder", "dep:gpui-design", "gpui-design/gpui", "dep:smol", "dep:fontdue", "dep:image"]
 profiler = ["dep:gpui-profiler", "gpui-profiler/global-allocator"]

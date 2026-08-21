@@ -1,0 +1,94 @@
+name: WASM Demo Gallery
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    paths:
+      - "crates/gpui-showcase/**"
+      - "crates/gpui-px/**"
+      - "crates/gpui-miniapp/**"
+      - "crates/3rdparties/gpui_web/**"
+      - "scripts/build_wasm_demo_gallery.py"
+      - "scripts/qa_wasm_screenshot.py"
+      - "docs/demos/**"
+      - "builds/wasm.just"
+      - ".github/workflows/demos.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_UNSTABLE_BUILD_STD: std,panic_abort
+  RUST_BACKTRACE: 1
+
+jobs:
+  capture:
+    name: Capture WASM gallery
+    runs-on: macos-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install nightly Rust with wasm target
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          targets: wasm32-unknown-unknown
+          components: rust-src
+
+      - name: Install just and Trunk
+        run: |
+          brew install just
+          cargo install trunk --locked
+
+      - name: Install uv and browser capture dependencies
+        uses: astral-sh/setup-uv@v6
+
+      - name: Install Chromium for WebGPU capture
+        run: uv run --with playwright playwright install chromium
+
+      - name: Cache Rust and browser builds
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-wasm-gallery-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build live WASM routes
+        run: just wasm-build-site
+
+      - name: Capture snapshots and generate gallery
+        run: just wasm-gallery
+
+      - name: Upload gallery artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wasm-demo-gallery
+          path: target/demo-site/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload Pages artifact
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: target/demo-site/
+
+  deploy:
+    name: Publish snapshot gallery
+    if: github.event_name != 'pull_request'
+    needs: capture
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

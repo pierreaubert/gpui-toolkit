@@ -3,6 +3,7 @@ pub mod prelude;
 pub mod render_accessibility;
 pub mod render_accordion;
 pub mod render_alert;
+pub mod render_audio_visuals;
 pub mod render_avatar;
 pub mod render_badge;
 pub mod render_breadcrumbs;

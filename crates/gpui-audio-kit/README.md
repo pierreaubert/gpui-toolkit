@@ -85,3 +85,6 @@ assert!(manifest.validate_unique_capture_ids());
 elements, and reusable spectrum axes. The visual regression manifest uses the
 same story ids so screenshot runners can capture and diff those surfaces without
 duplicating the audio-kit coverage list.
+## 2D renderer selection
+
+Spectrum, meters, potentiometers, and volume knobs use Vello by default when the crate's `vello` feature is enabled. Their builders expose `renderer_2d` and `vello_backend` so automated QA can force Vello CPU/WGPU or the Legacy painter. `VelloBackend::Auto` falls back safely when a custom WGPU draw is unavailable; disabling the feature preserves the Legacy implementation.

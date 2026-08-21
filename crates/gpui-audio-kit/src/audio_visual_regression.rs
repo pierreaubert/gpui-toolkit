@@ -34,6 +34,10 @@ pub struct AudioVisualStory {
     pub id: &'static str,
     pub label: &'static str,
     pub component: &'static str,
+    /// Renderer shown by the ordinary showcase story.
+    pub renderer: &'static str,
+    /// Stable query overrides used by CPU/Legacy visual QA captures.
+    pub renderer_qa_queries: &'static [&'static str],
     pub scenario: &'static str,
     pub release_focus: &'static str,
 }
@@ -44,6 +48,8 @@ pub struct AudioVisualCapture {
     pub story_id: &'static str,
     pub story_label: &'static str,
     pub component: &'static str,
+    pub renderer: &'static str,
+    pub renderer_qa_queries: &'static [&'static str],
     pub scenario: &'static str,
     pub viewport_id: &'static str,
     pub viewport_label: &'static str,
@@ -109,13 +115,15 @@ impl AudioVisualRegressionManifest {
             self.color_schemes.len(),
             self.capture_count(),
         ));
-        output.push_str("| capture | component | scenario | viewport | scheme | baseline | actual | diff | focus |\n");
-        output.push_str("| --- | --- | --- | --- | --- | --- | --- | --- | --- |\n");
+        output.push_str("| capture | component | renderer | renderer QA | scenario | viewport | scheme | baseline | actual | diff | focus |\n");
+        output.push_str("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n");
         for capture in &self.captures {
             output.push_str(&format!(
-                "| `{}` | {} | {} | {} {}x{}@{}x | {} | `{}` | `{}` | `{}` | {} |\n",
+                "| `{}` | {} | {} | `{}` | {} | {} {}x{}@{}x | {} | `{}` | `{}` | `{}` | {} |\n",
                 capture.id,
                 capture.component,
+                capture.renderer,
+                capture.renderer_qa_queries.join(","),
                 capture.scenario,
                 capture.viewport_label,
                 capture.width,
@@ -148,6 +156,8 @@ pub fn audio_visual_regression_manifest() -> AudioVisualRegressionManifest {
                     story_id: story.id,
                     story_label: story.label,
                     component: story.component,
+                    renderer: story.renderer,
+                    renderer_qa_queries: story.renderer_qa_queries,
                     scenario: story.scenario,
                     viewport_id: viewport.id,
                     viewport_label: viewport.label,
@@ -199,11 +209,15 @@ pub const AUDIO_VISUAL_COLOR_SCHEMES: &[AudioVisualColorScheme] = &[
     AudioVisualColorScheme::HighContrast,
 ];
 
+pub const AUDIO_VISUAL_RENDERER_QA_QUERIES: &[&str] = &["auto", "cpu", "legacy"];
+
 pub const AUDIO_VISUAL_STORIES: &[AudioVisualStory] = &[
     AudioVisualStory {
         id: "audio-kit.potentiometer",
         label: "Potentiometer",
         component: "Potentiometer",
+        renderer: "Vello · Auto",
+        renderer_qa_queries: AUDIO_VISUAL_RENDERER_QA_QUERIES,
         scenario: "log-frequency parameter",
         release_focus: "rotary ticks, logarithmic labels, selected state, and drag affordance",
     },
@@ -211,6 +225,8 @@ pub const AUDIO_VISUAL_STORIES: &[AudioVisualStory] = &[
         id: "audio-kit.vertical-slider",
         label: "Vertical Slider",
         component: "VerticalSlider",
+        renderer: "Vello · Auto (descendant paints Legacy div geometry)",
+        renderer_qa_queries: AUDIO_VISUAL_RENDERER_QA_QUERIES,
         scenario: "channel fader",
         release_focus: "track fill, thumb position, peak marker, ticks, and dense layout",
     },
@@ -218,6 +234,8 @@ pub const AUDIO_VISUAL_STORIES: &[AudioVisualStory] = &[
         id: "audio-kit.volume-knob",
         label: "Volume Knob",
         component: "VolumeKnob",
+        renderer: "Vello · Auto",
+        renderer_qa_queries: AUDIO_VISUAL_RENDERER_QA_QUERIES,
         scenario: "monitor volume with mute",
         release_focus: "circular fill, mute state, percentage label, and focus ring",
     },
@@ -225,6 +243,8 @@ pub const AUDIO_VISUAL_STORIES: &[AudioVisualStory] = &[
         id: "audio-kit.meter",
         label: "Level Meter",
         component: "LevelMeterElement",
+        renderer: "Vello · Auto",
+        renderer_qa_queries: AUDIO_VISUAL_RENDERER_QA_QUERIES,
         scenario: "stereo level and peak feedback",
         release_focus: "gradient fill, clipping threshold, peak hold, and channel labels",
     },
@@ -232,6 +252,8 @@ pub const AUDIO_VISUAL_STORIES: &[AudioVisualStory] = &[
         id: "audio-kit.horizontal-meter",
         label: "Horizontal Meter",
         component: "HorizontalMeter",
+        renderer: "Vello · Auto (gradient path)",
+        renderer_qa_queries: AUDIO_VISUAL_RENDERER_QA_QUERIES,
         scenario: "LUFS or stereo-width strip",
         release_focus: "tick alignment, threshold colors, value text, and compact rows",
     },
@@ -239,6 +261,8 @@ pub const AUDIO_VISUAL_STORIES: &[AudioVisualStory] = &[
         id: "audio-kit.spectrum",
         label: "Spectrum",
         component: "SpectrumElement",
+        renderer: "Vello · Auto",
+        renderer_qa_queries: AUDIO_VISUAL_RENDERER_QA_QUERIES,
         scenario: "spectrum analyzer bins",
         release_focus: "bar density, smoothing, color gradient, and zero-data handling",
     },
@@ -246,6 +270,8 @@ pub const AUDIO_VISUAL_STORIES: &[AudioVisualStory] = &[
         id: "audio-kit.spectrum-axis",
         label: "Spectrum Axes",
         component: "SpectrumAxis",
+        renderer: "GPUI text/layout",
+        renderer_qa_queries: &["legacy"],
         scenario: "frequency and dB axis labels",
         release_focus: "log-frequency spacing, dB tick labels, and small text legibility",
     },
@@ -281,6 +307,29 @@ mod tests {
         assert_eq!(manifest.viewports.len(), 2);
         assert_eq!(manifest.color_schemes.len(), 3);
         assert!(manifest.validate_unique_capture_ids());
+        assert!(
+            manifest
+                .stories
+                .iter()
+                .all(|story| !story.renderer.is_empty())
+        );
+        assert!(manifest.stories.iter().all(|story| {
+            !story.renderer_qa_queries.is_empty()
+                && (story.renderer == "GPUI text/layout"
+                    || story.renderer_qa_queries == AUDIO_VISUAL_RENDERER_QA_QUERIES)
+        }));
+        assert!(
+            manifest
+                .captures
+                .iter()
+                .all(|capture| !capture.renderer.is_empty())
+        );
+        assert!(
+            manifest
+                .captures
+                .iter()
+                .all(|capture| !capture.renderer_qa_queries.is_empty())
+        );
     }
 
     #[test]
@@ -333,8 +382,10 @@ mod tests {
         let markdown = audio_visual_regression_manifest().to_markdown_table();
 
         assert!(markdown.contains(AUDIO_VISUAL_REGRESSION_REPORT_TYPE));
+        assert!(markdown.contains("renderer QA"));
         assert!(markdown.contains("audio-kit.potentiometer__desktop-panel__dark"));
         assert!(markdown.contains("LevelMeterElement"));
+        assert!(markdown.contains("Vello · Auto"));
         assert!(markdown.contains("artifacts/gpui-audio-kit/visual/diff"));
         assert!(markdown.contains("high_contrast"));
     }

@@ -122,13 +122,13 @@ mod wasm_state {
                 *s.borrow_mut() = State::Initializing;
                 wasm_bindgen_futures::spawn_local(async {
                     let next = match create_device().await {
-                        Ok((instance, device, queue)) => State::Ready(&*Box::leak(Box::new(
-                            Gpu2DContext {
+                        Ok((instance, device, queue)) => {
+                            State::Ready(&*Box::leak(Box::new(Gpu2DContext {
                                 device: std::sync::Arc::new(device),
                                 queue: std::sync::Arc::new(queue),
                                 _instance: instance,
-                            },
-                        ))),
+                            })))
+                        }
                         Err(err) => State::Failed(err),
                     };
                     STATE.with(|s| *s.borrow_mut() = next);

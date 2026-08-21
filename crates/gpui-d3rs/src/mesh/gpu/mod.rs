@@ -7,9 +7,9 @@
 mod retained;
 pub use retained::*;
 
-#[cfg(all(any(feature = "gpu-2d", feature = "gpu-3d"), not(test)))]
+#[cfg(all(feature = "gpu-3d", not(test)))]
 mod timestamp;
-#[cfg(all(any(feature = "gpu-2d", feature = "gpu-3d"), not(test)))]
+#[cfg(all(feature = "gpu-3d", not(test)))]
 pub(crate) use timestamp::GpuTimestampRecorder;
 
 #[cfg(all(feature = "gpu-2d", not(test)))]

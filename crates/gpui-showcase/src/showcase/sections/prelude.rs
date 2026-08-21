@@ -3,10 +3,17 @@
 pub use crate::Showcase;
 pub(crate) use crate::showcase::ShowcaseHandle;
 pub use crate::showcase::User;
+pub use d3rs::render2d::{Renderer2D, VelloBackend};
 pub use gpui::{
     AppContext, Context, Entity, FocusHandle, FontWeight, InteractiveElement, IntoElement,
     KeyDownEvent, MouseButton, ParentElement, Render, SharedString, StatefulInteractiveElement,
     Styled, WeakEntity, Window, div, px, rgb, rgba,
+};
+pub use gpui_audio_kit::meter::{
+    HorizontalMeterTheme, MeterColors, render_horizontal_meter_bar_with,
+};
+pub use gpui_audio_kit::{
+    LevelMeterElement, Potentiometer, PotentiometerSize, SpectrumElement, VolumeKnob,
 };
 pub use gpui_ui_kit::StepStatus;
 pub use gpui_ui_kit::accordion::AccordionOrientation;

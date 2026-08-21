@@ -46,6 +46,7 @@ pub enum ShowcaseSection {
     DragList,
     CommandPalette,
     Accessibility,
+    AudioVisuals,
 }
 
 impl ShowcaseSection {
@@ -93,6 +94,7 @@ impl ShowcaseSection {
             ShowcaseSection::DragList,
             ShowcaseSection::CommandPalette,
             ShowcaseSection::Accessibility,
+            ShowcaseSection::AudioVisuals,
         ]
     }
 
@@ -140,6 +142,7 @@ impl ShowcaseSection {
             ShowcaseSection::DragList => "Drag List",
             ShowcaseSection::CommandPalette => "Command Palette",
             ShowcaseSection::Accessibility => "Accessibility",
+            ShowcaseSection::AudioVisuals => "Audio Visuals",
         }
     }
 

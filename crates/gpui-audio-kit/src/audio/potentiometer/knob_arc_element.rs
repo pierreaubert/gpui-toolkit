@@ -1,3 +1,4 @@
+use d3rs::render2d::{Renderer2D, VelloBackend};
 use gpui::prelude::*;
 use gpui::*;
 
@@ -33,6 +34,12 @@ pub(super) struct KnobArcElement {
     pub(super) arc_end_rad: f32,
     /// Number of segments for arc smoothness (from design tokens)
     pub(super) arc_segments: u32,
+    #[cfg_attr(not(feature = "vello"), allow(dead_code))]
+    pub(super) renderer_2d: Renderer2D,
+    #[cfg_attr(not(feature = "vello"), allow(dead_code))]
+    pub(super) vello_backend: VelloBackend,
+    #[cfg(feature = "vello")]
+    pub(super) painter: d3rs::vello2d::VelloScenePainter,
 }
 
 impl IntoElement for KnobArcElement {
@@ -107,6 +114,97 @@ impl Element for KnobArcElement {
         let value_rad = start_rad + (end_rad - start_rad) * self.normalized;
         let segments = self.arc_segments;
         let total_span = end_rad - start_rad;
+
+        #[cfg(feature = "vello")]
+        if self.renderer_2d == Renderer2D::Vello {
+            use d3rs::vello2d::kurbo::{BezPath, PathEl};
+            use d3rs::vello2d::peniko::{Brush, Color};
+            let mut scene = d3rs::vello2d::ChartScene::new();
+            let mut sector = |from: f32, to: f32, outer: f32, inner: f32, color: Rgba| {
+                let span = to - from;
+                if span <= 0.01 || outer <= inner {
+                    return;
+                }
+                let count = ((segments as f32 * span.abs() / total_span.abs().max(0.0001))
+                    .ceil()
+                    .max(4.0)) as usize;
+                let mut path = BezPath::new();
+                for i in 0..=count {
+                    let t = i as f32 / count as f32;
+                    let angle = from + span * t;
+                    let point = (
+                        center_x + outer * angle.cos(),
+                        center_y + outer * angle.sin(),
+                    );
+                    path.push(if i == 0 {
+                        PathEl::MoveTo(point.into())
+                    } else {
+                        PathEl::LineTo(point.into())
+                    });
+                }
+                for i in (0..=count).rev() {
+                    let t = i as f32 / count as f32;
+                    let angle = from + span * t;
+                    path.push(PathEl::LineTo(
+                        (
+                            center_x + inner * angle.cos(),
+                            center_y + inner * angle.sin(),
+                        )
+                            .into(),
+                    ));
+                }
+                path.push(PathEl::ClosePath);
+                scene.fill_path(
+                    path,
+                    Brush::Solid(Color::new([color.r, color.g, color.b, color.a])),
+                );
+            };
+            if self.arc_glow > 0.0 && self.normalized > 0.005 {
+                let base = self.arc_glow.clamp(0.0, 1.0) * 0.45 * self.arc_color.a;
+                for (offset, multiplier) in [(1.0, 0.55), (2.5, 0.30), (4.5, 0.15)] {
+                    sector(
+                        start_rad,
+                        value_rad,
+                        self.knob_size / 2.0 + 1.0 + offset,
+                        (self.knob_size / 2.0 + 1.0 - self.arc_width - offset)
+                            .max(self.knob_size / 2.0),
+                        Rgba {
+                            r: self.arc_color.r,
+                            g: self.arc_color.g,
+                            b: self.arc_color.b,
+                            a: base * multiplier,
+                        },
+                    );
+                }
+            }
+            let outer = self.knob_size / 2.0 + 1.0;
+            if self.normalized > 0.005 {
+                sector(
+                    start_rad,
+                    value_rad,
+                    outer,
+                    outer - self.arc_width,
+                    self.arc_color,
+                );
+            }
+            if self.track_arc_width > 0.0 {
+                sector(
+                    value_rad,
+                    end_rad,
+                    outer,
+                    outer - self.track_arc_width,
+                    Rgba {
+                        r: self.arc_color.r,
+                        g: self.arc_color.g,
+                        b: self.arc_color.b,
+                        a: self.arc_color.a * 0.12,
+                    },
+                );
+            }
+            self.painter.set_backend(self.vello_backend);
+            self.painter.paint(&scene, bounds, window);
+            return;
+        }
 
         // Helper that builds a filled annular sector path between two angles.
         let build_sector = |from_rad: f32,

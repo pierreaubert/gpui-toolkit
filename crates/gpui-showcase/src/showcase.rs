@@ -34,6 +34,31 @@ fn showcase_layout_for_width(width: f32) -> ShowcaseLayout {
     }
 }
 
+#[cfg(target_family = "wasm")]
+fn normalized_section_key(value: &str) -> String {
+    value
+        .chars()
+        .filter(|character| character.is_ascii_alphanumeric())
+        .map(|character| character.to_ascii_lowercase())
+        .collect()
+}
+
+#[cfg(target_family = "wasm")]
+fn initial_section() -> ShowcaseSection {
+    if let Some(requested) = gpui_miniapp::web_query_param("section") {
+        let requested = normalized_section_key(&requested);
+        if let Some(section) = ShowcaseSection::all()
+            .iter()
+            .copied()
+            .find(|section| normalized_section_key(section.label()) == requested)
+        {
+            return section;
+        }
+    }
+
+    ShowcaseSection::default()
+}
+
 #[cfg(any(target_os = "ios", target_os = "tvos"))]
 fn platform_safe_area_insets() -> (f32, f32, f32, f32) {
     gpui_ios::safe_area_insets()
@@ -288,6 +313,9 @@ impl Showcase {
             popover_open: None,
             animated_qr_tiny,
             animated_qr_small,
+            #[cfg(target_family = "wasm")]
+            current_section: initial_section(),
+            #[cfg(not(target_family = "wasm"))]
             current_section: ShowcaseSection::default(),
             embedded: false,
             entity: Some(entity),
@@ -513,6 +541,9 @@ impl Showcase {
             }
             ShowcaseSection::Accessibility => {
                 self.render_accessibility_section(cx).into_any_element()
+            }
+            ShowcaseSection::AudioVisuals => {
+                self.render_audio_visuals_section(cx).into_any_element()
             }
         }
     }

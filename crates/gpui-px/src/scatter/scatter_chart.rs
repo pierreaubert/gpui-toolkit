@@ -189,8 +189,9 @@ pub struct ScatterChart {
     pub(super) color: u32,
     pub(super) point_radius: f32,
     pub(super) opacity: f32,
-    #[cfg(feature = "vello")]
-    pub(super) raster_backend: Option<d3rs::vello2d::RasterBackend>,
+    pub(super) renderer_2d: d3rs::render2d::Renderer2D,
+    #[allow(dead_code)]
+    pub(super) raster_backend: d3rs::render2d::VelloBackend,
     // Additional series
     pub(super) series: Vec<ScatterSeries>,
     // Common settings
@@ -422,9 +423,15 @@ impl ScatterChart {
     }
 
     /// Rasterize markers through vello instead of GPUI paths.
-    #[cfg(feature = "vello")]
-    pub fn raster_backend(mut self, backend: d3rs::vello2d::RasterBackend) -> Self {
-        self.raster_backend = Some(backend);
+    pub fn raster_backend(mut self, backend: d3rs::render2d::VelloBackend) -> Self {
+        self.raster_backend = backend;
+        self.renderer_2d = d3rs::render2d::Renderer2D::Vello;
+        self
+    }
+
+    /// Select the high-level 2D renderer. Vello is the default.
+    pub fn renderer_2d(mut self, renderer: d3rs::render2d::Renderer2D) -> Self {
+        self.renderer_2d = renderer;
         self
     }
 
@@ -836,16 +843,16 @@ impl ScatterChart {
                 // Render additional series first
                 for (series_data, series_config) in &series_data_configs {
                     #[cfg(feature = "vello")]
-                    let child: AnyElement = match self.raster_backend {
-                        Some(backend) => d3rs::shape::render_scatter_vello(
+                    let child: AnyElement = match self.renderer_2d {
+                        d3rs::render2d::Renderer2D::Vello => d3rs::shape::render_scatter_vello(
                             &$x_scale,
                             &$y_scale,
                             series_data.as_ref(),
                             series_config,
-                            backend,
+                            self.raster_backend,
                         )
                         .into_any_element(),
-                        None => render_scatter(
+                        d3rs::render2d::Renderer2D::Legacy => render_scatter(
                             &$x_scale,
                             &$y_scale,
                             series_data.as_ref(),
@@ -854,43 +861,32 @@ impl ScatterChart {
                         .into_any_element(),
                     };
                     #[cfg(not(feature = "vello"))]
-                    let child: AnyElement = render_scatter(
-                        &$x_scale,
-                        &$y_scale,
-                        series_data.as_ref(),
-                        series_config,
-                    )
-                    .into_any_element();
+                    let child: AnyElement =
+                        render_scatter(&$x_scale, &$y_scale, series_data.as_ref(), series_config)
+                            .into_any_element();
                     plot_area = plot_area.child(child);
                 }
 
                 // Render primary series on top
                 #[cfg(feature = "vello")]
-                let child: AnyElement = match self.raster_backend {
-                    Some(backend) => d3rs::shape::render_scatter_vello(
+                let child: AnyElement = match self.renderer_2d {
+                    d3rs::render2d::Renderer2D::Vello => d3rs::shape::render_scatter_vello(
                         &$x_scale,
                         &$y_scale,
                         primary_data.as_ref(),
                         &primary_config,
-                        backend,
+                        self.raster_backend,
                     )
                     .into_any_element(),
-                    None => render_scatter(
-                        &$x_scale,
-                        &$y_scale,
-                        primary_data.as_ref(),
-                        &primary_config,
-                    )
-                    .into_any_element(),
+                    d3rs::render2d::Renderer2D::Legacy => {
+                        render_scatter(&$x_scale, &$y_scale, primary_data.as_ref(), &primary_config)
+                            .into_any_element()
+                    }
                 };
                 #[cfg(not(feature = "vello"))]
-                let child: AnyElement = render_scatter(
-                    &$x_scale,
-                    &$y_scale,
-                    primary_data.as_ref(),
-                    &primary_config,
-                )
-                .into_any_element();
+                let child: AnyElement =
+                    render_scatter(&$x_scale, &$y_scale, primary_data.as_ref(), &primary_config)
+                        .into_any_element();
                 plot_area = plot_area.child(child);
 
                 plot_area
@@ -1172,8 +1168,8 @@ pub fn scatter(x: &[f64], y: &[f64]) -> ScatterChart {
         color: DEFAULT_COLOR,
         point_radius: 5.0,
         opacity: 0.7,
-        #[cfg(feature = "vello")]
-        raster_backend: None,
+        renderer_2d: d3rs::render2d::Renderer2D::default(),
+        raster_backend: d3rs::render2d::VelloBackend::default(),
         series: Vec::new(),
         title: None,
         width: DEFAULT_WIDTH,

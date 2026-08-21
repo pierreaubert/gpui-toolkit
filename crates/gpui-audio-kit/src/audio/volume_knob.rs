@@ -25,6 +25,7 @@ use crate::audio_accessibility::{
 };
 use crate::scale::Scale;
 use crate::theme::ThemeExt;
+use d3rs::render2d::{Renderer2D, VelloBackend};
 use gpui::*;
 
 mod misc;
@@ -62,6 +63,8 @@ pub struct VolumeKnob {
     focus_handle: Option<FocusHandle>,
     aria_label: Option<SharedString>,
     aria_role: Option<AriaRole>,
+    renderer_2d: Renderer2D,
+    vello_backend: VelloBackend,
 }
 
 impl VolumeKnob {
@@ -84,12 +87,26 @@ impl VolumeKnob {
             focus_handle: None,
             aria_label: None,
             aria_role: None,
+            renderer_2d: Renderer2D::default(),
+            vello_backend: VelloBackend::default(),
         }
     }
 
     /// Set the theme
     pub fn theme(mut self, theme: VolumeKnobTheme) -> Self {
         self.theme = Some(theme);
+        self
+    }
+
+    /// Select the high-level 2D renderer for custom-painted knob visuals.
+    pub fn renderer_2d(mut self, renderer: Renderer2D) -> Self {
+        self.renderer_2d = renderer;
+        self
+    }
+
+    /// Select the Vello WGPU/CPU backend.
+    pub fn vello_backend(mut self, backend: VelloBackend) -> Self {
+        self.vello_backend = backend;
         self
     }
 
@@ -458,13 +475,19 @@ impl RenderOnce for VolumeKnob {
 
         container
             // Custom painted fill element
-            .child(div().absolute().inset_0().child(VolumeKnobFillElement::new(
-                resolved_size,
-                display_value,
-                bg_color,
-                fill_color,
-                ring_color,
-            )))
+            .child(
+                div().absolute().inset_0().child(
+                    VolumeKnobFillElement::new(
+                        resolved_size,
+                        display_value,
+                        bg_color,
+                        fill_color,
+                        ring_color,
+                    )
+                    .renderer_2d(self.renderer_2d)
+                    .vello_backend(self.vello_backend),
+                ),
+            )
             // Label text in center
             .child(
                 div()

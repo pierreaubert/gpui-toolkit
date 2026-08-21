@@ -15,12 +15,12 @@ pub use showcase::Showcase;
 /// wasm `start` entry point.
 pub fn run_showcase() {
     use gpui::AppContext as _;
-    gpui_miniapp::MiniApp::run(
-        gpui_miniapp::MiniAppConfig::new("UI Kit Showcase")
-            .size(1200.0, 900.0)
-            .scrollable(true)
-            .with_theme(true)
-            .with_i18n(true),
-        |cx| cx.new(Showcase::new),
-    );
+    let config = gpui_miniapp::MiniAppConfig::new("UI Kit Showcase")
+        .size(1200.0, 900.0)
+        .scrollable(true)
+        .with_theme(true)
+        .with_i18n(true);
+    #[cfg(target_family = "wasm")]
+    let config = config.initial_theme(gpui_miniapp::web_initial_theme());
+    gpui_miniapp::MiniApp::run(config, |cx| cx.new(Showcase::new));
 }

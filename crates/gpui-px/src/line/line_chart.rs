@@ -18,6 +18,7 @@ use crate::{
 use d3rs::axis::{AxisConfig, render_axis};
 use d3rs::color::D3Color;
 use d3rs::grid::{GridConfig, render_grid};
+use d3rs::render2d::{Renderer2D, VelloBackend};
 use d3rs::scale::{LinearScale, LogScale, Scale};
 use d3rs::shape::{CurveType, LineConfig, LinePoint, StrokeDashArray, render_line};
 use d3rs::text::{GlyphTextConfig, render_glyph_text};
@@ -112,6 +113,27 @@ fn refill_line_points_if_reusable(
     Ok(true)
 }
 
+fn render_line_selected<XS, YS>(
+    x_scale: &XS,
+    y_scale: &YS,
+    data: &[LinePoint],
+    config: &LineConfig,
+    renderer: Renderer2D,
+    backend: VelloBackend,
+) -> AnyElement
+where
+    XS: Scale<f64, f64> + 'static,
+    YS: Scale<f64, f64> + 'static,
+{
+    #[cfg(feature = "vello")]
+    if renderer == Renderer2D::Vello {
+        return d3rs::shape::render_line_vello(x_scale, y_scale, data, config, backend)
+            .into_any_element();
+    }
+    let _ = (renderer, backend);
+    render_line(x_scale, y_scale, data, config).into_any_element()
+}
+
 #[cfg(test)]
 mod streaming_cache_tests {
     use super::*;
@@ -187,6 +209,8 @@ pub struct LineChart {
     pub(super) color: u32,
     pub(super) stroke_width: f32,
     pub(super) opacity: f32,
+    pub(super) renderer_2d: Renderer2D,
+    pub(super) vello_backend: VelloBackend,
     // Additional series
     pub(super) series: Vec<LineSeries>,
     // Common settings
@@ -238,6 +262,19 @@ impl std::fmt::Debug for LineChart {
 }
 
 impl LineChart {
+    /// Select the high-level 2D renderer. Vello is the default when enabled.
+    pub fn renderer_2d(mut self, renderer: Renderer2D) -> Self {
+        self.renderer_2d = renderer;
+        self
+    }
+
+    /// Select the Vello WGPU/CPU backend used when [`Renderer2D::Vello`] is
+    /// selected.
+    pub fn vello_backend(mut self, backend: VelloBackend) -> Self {
+        self.vello_backend = backend;
+        self
+    }
+
     /// Replace primary data using shared slices without copying the inputs.
     ///
     /// Same-length streaming updates reuse the mapped point allocation after
@@ -978,8 +1015,8 @@ impl LineChart {
         has_secondary_axis: bool,
     ) -> AnyElement
     where
-        XS: Scale<f64, f64>,
-        YS: Scale<f64, f64>,
+        XS: Scale<f64, f64> + 'static,
+        YS: Scale<f64, f64> + 'static,
     {
         let mut plot_area = div()
             .w(px(plot_width as f32))
@@ -997,25 +1034,35 @@ impl LineChart {
             ));
 
         for (series_data, series_config) in series_data_configs {
-            plot_area = plot_area.child(render_line(
+            plot_area = plot_area.child(render_line_selected(
                 x_scale,
                 y_scale,
                 series_data.as_ref(),
                 series_config,
+                self.renderer_2d,
+                self.vello_backend,
             ));
         }
 
         if !primary_hidden {
-            plot_area =
-                plot_area.child(render_line(x_scale, y_scale, primary_data, primary_config));
+            plot_area = plot_area.child(render_line_selected(
+                x_scale,
+                y_scale,
+                primary_data,
+                primary_config,
+                self.renderer_2d,
+                self.vello_backend,
+            ));
         }
 
         for (series_data, series_config) in secondary_series_data_configs {
-            plot_area = plot_area.child(render_line(
+            plot_area = plot_area.child(render_line_selected(
                 x_scale,
                 y2_scale,
                 series_data.as_ref(),
                 series_config,
+                self.renderer_2d,
+                self.vello_backend,
             ));
         }
 

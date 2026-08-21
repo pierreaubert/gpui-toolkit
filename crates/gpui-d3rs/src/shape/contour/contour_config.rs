@@ -1,4 +1,5 @@
 use crate::color::D3Color;
+use crate::render2d::{Renderer2D, VelloBackend};
 use crate::shape::contour_smoothing::{StrokePoint, smooth_stroke_segment as smooth_stroke_points};
 use gpui::*;
 use std::sync::Arc;
@@ -26,6 +27,10 @@ pub struct ContourConfig {
     pub smoothing_iterations: usize,
     /// Maximum allowed stroke deviation in pixels before smoothing is rejected
     pub smoothing_max_deviation_px: f32,
+    /// High-level renderer preference for contour/heatmap elements.
+    pub renderer_2d: Renderer2D,
+    /// Vello WGPU/CPU backend when `renderer_2d` is `Vello`.
+    pub vello_backend: VelloBackend,
 }
 
 impl Default for ContourConfig {
@@ -41,11 +46,25 @@ impl Default for ContourConfig {
             smooth_strokes: false,
             smoothing_iterations: 1,
             smoothing_max_deviation_px: 2.0,
+            renderer_2d: Renderer2D::default(),
+            vello_backend: VelloBackend::default(),
         }
     }
 }
 
 impl ContourConfig {
+    /// Select the high-level 2D renderer.
+    pub fn renderer_2d(mut self, renderer: Renderer2D) -> Self {
+        self.renderer_2d = renderer;
+        self
+    }
+
+    /// Select the Vello WGPU/CPU backend.
+    pub fn vello_backend(mut self, backend: VelloBackend) -> Self {
+        self.vello_backend = backend;
+        self
+    }
+
     /// Create a new contour configuration
     pub fn new() -> Self {
         Self::default()

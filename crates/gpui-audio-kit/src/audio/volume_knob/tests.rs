@@ -1,4 +1,12 @@
 use crate::audio::volume_knob::VolumeKnob;
+use d3rs::render2d::{Renderer2D, VelloBackend};
+
+#[test]
+fn default_renderer_contract_is_shared_with_d3rs() {
+    let knob = VolumeKnob::new();
+    assert_eq!(knob.renderer_2d, Renderer2D::default());
+    assert_eq!(knob.vello_backend, VelloBackend::default());
+}
 
 #[test]
 fn test_asin_clamp_prevents_nan() {

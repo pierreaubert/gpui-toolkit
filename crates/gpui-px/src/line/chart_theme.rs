@@ -66,6 +66,8 @@ pub fn line(x: &[f64], y: &[f64]) -> LineChart {
         color: DEFAULT_COLOR,
         stroke_width: 2.0,
         opacity: 1.0,
+        renderer_2d: d3rs::render2d::Renderer2D::default(),
+        vello_backend: d3rs::render2d::VelloBackend::default(),
         series: Vec::new(),
         curve: CurveType::Linear,
         show_points: false,

@@ -13,16 +13,16 @@ use std::panic::Location;
 use std::rc::Rc;
 use std::sync::Arc;
 
-/// Which rasterizer paints the scene.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum RasterBackend {
+/// Compatibility name for the Vello backend selector.
+pub type RasterBackend = crate::render2d::VelloBackend;
+/*
     /// Probe `gpui::wgpu_custom_draw_available()` at first paint.
     Auto,
     /// Zero-copy GPU path through `WgpuCustomDraw` (requires the wgpu renderer).
     Wgpu,
     /// `vello_cpu` pixmap + `paint_image`. Works on every renderer.
     Cpu,
-}
+}*/
 
 type SceneBuilder = Rc<dyn Fn(f32, f32) -> ChartScene>;
 
@@ -33,6 +33,10 @@ struct CpuState {
     /// before its replacement is painted so repeated repaints cannot grow
     /// the sprite atlas without bound.
     image: Option<Arc<RenderImage>>,
+    /// Last scene revision and physical raster dimensions represented by `image`.
+    /// Scale-factor bits are part of the key so a display/zoom change cannot
+    /// reuse a low-resolution image from the previous scale.
+    rendered: Option<(u64, u16, u16, u32)>,
 }
 
 enum BackendState {
@@ -43,6 +47,237 @@ enum BackendState {
         failed: Rc<Cell<bool>>,
     },
     Cpu(CpuState),
+}
+
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct PainterTestStats {
+    custom_registrations: u32,
+    custom_unregistrations: u32,
+    cpu_rasterizations: u32,
+    wgpu_submissions: u32,
+}
+
+/// Reusable scene painter for custom GPUI elements.
+///
+/// Unlike [`VelloChartElement`], this type does not own layout or scene
+/// construction. Callers can keep it in a custom element and submit a fresh
+/// scene on every paint, which is useful for live audio meters.
+pub struct VelloScenePainter {
+    backend_pref: RasterBackend,
+    state: Option<BackendState>,
+    #[cfg(test)]
+    test_stats: PainterTestStats,
+}
+
+impl Default for VelloScenePainter {
+    fn default() -> Self {
+        Self {
+            backend_pref: RasterBackend::Auto,
+            state: None,
+            #[cfg(test)]
+            test_stats: PainterTestStats::default(),
+        }
+    }
+}
+
+impl VelloScenePainter {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Set the preferred backend on a painter that is kept by a custom
+    /// element.  A resolved backend is discarded so the next paint resolves
+    /// the new preference; this also unregisters a previously registered
+    /// custom draw.
+    pub fn set_backend(&mut self, backend: RasterBackend) {
+        if self.backend_pref == backend {
+            return;
+        }
+        if let Some(BackendState::Wgpu { custom_id, .. }) = self.state.take() {
+            gpui::unregister_custom_draw(custom_id);
+            #[cfg(test)]
+            {
+                self.test_stats.custom_unregistrations += 1;
+            }
+        }
+        self.backend_pref = backend;
+    }
+
+    pub fn backend(mut self, backend: RasterBackend) -> Self {
+        self.set_backend(backend);
+        self
+    }
+
+    fn resolve(&mut self, scene: &ChartScene) {
+        if self.state.is_some() {
+            return;
+        }
+        let backend = resolve_backend(self.backend_pref, gpui::wgpu_custom_draw_available());
+        self.state = Some(match backend {
+            RasterBackend::Wgpu => {
+                let shared = Rc::new(RefCell::new(SharedScene {
+                    scene: scene.clone(),
+                    revision: scene.revision(),
+                    logical_size: (0.0, 0.0),
+                }));
+                let failed = Rc::new(Cell::new(false));
+                let draw = WgpuVelloDraw::new(Rc::clone(&shared), Rc::clone(&failed));
+                let custom_id = gpui::register_custom_draw(draw.into_custom_draw());
+                #[cfg(test)]
+                {
+                    self.test_stats.custom_registrations += 1;
+                }
+                BackendState::Wgpu {
+                    custom_id,
+                    shared,
+                    failed,
+                }
+            }
+            RasterBackend::Cpu | RasterBackend::Auto => BackendState::Cpu(CpuState {
+                rasterizer: Box::new(CpuRasterizer::new(1, 1)),
+                image: None,
+                rendered: None,
+            }),
+        });
+    }
+
+    fn fall_back_to_cpu_if_failed(&mut self) {
+        let failed = matches!(&self.state, Some(BackendState::Wgpu { failed, .. }) if failed.get());
+        if !failed {
+            return;
+        }
+        if let Some(BackendState::Wgpu { custom_id, .. }) = self.state.take() {
+            gpui::unregister_custom_draw(custom_id);
+            #[cfg(test)]
+            {
+                self.test_stats.custom_unregistrations += 1;
+            }
+        }
+        log::warn!("vello2d: wgpu vello init failed; falling back to CPU rasterizer");
+        self.state = Some(BackendState::Cpu(CpuState {
+            rasterizer: Box::new(CpuRasterizer::new(1, 1)),
+            image: None,
+            rendered: None,
+        }));
+    }
+
+    fn clear_cpu_image(state: &mut CpuState, window: &mut Window) {
+        if let Some(old) = state.image.take() {
+            let _ = window.drop_image(old);
+        }
+        state.rendered = None;
+    }
+
+    pub fn paint(&mut self, scene: &ChartScene, bounds: Bounds<Pixels>, window: &mut Window) {
+        let width: f32 = bounds.size.width.into();
+        let height: f32 = bounds.size.height.into();
+        let scale_factor = window.scale_factor().max(0.01);
+        if width < 1.0 || height < 1.0 || scene.is_empty() {
+            if let Some(BackendState::Cpu(state)) = self.state.as_mut() {
+                Self::clear_cpu_image(state, window);
+            }
+            return;
+        }
+
+        self.resolve(scene);
+        self.fall_back_to_cpu_if_failed();
+        match self.state.as_mut() {
+            Some(BackendState::Wgpu {
+                custom_id, shared, ..
+            }) => {
+                let mut shared = shared.borrow_mut();
+                if shared.revision != scene.revision() {
+                    shared.scene = scene.clone();
+                    shared.revision = scene.revision();
+                }
+                shared.logical_size = (width, height);
+                window.paint_custom(*custom_id, bounds);
+                #[cfg(test)]
+                {
+                    self.test_stats.wgpu_submissions += 1;
+                }
+            }
+            Some(BackendState::Cpu(state)) => {
+                let (w, h) = physical_raster_size(width, height, scale_factor);
+                let scale_bits = scale_factor.to_bits();
+                if state.rendered == Some((scene.revision(), w, h, scale_bits)) {
+                    if let Some(image) = state.image.as_ref() {
+                        let _ = window.paint_image(
+                            bounds,
+                            Corners::default(),
+                            Arc::clone(image),
+                            0,
+                            false,
+                        );
+                    }
+                    return;
+                }
+                let mut pixels = state.rasterizer.rasterize(scene, w, h);
+                #[cfg(test)]
+                {
+                    self.test_stats.cpu_rasterizations += 1;
+                }
+                if pixels.iter().all(|&b| b == 0) {
+                    Self::clear_cpu_image(state, window);
+                    return;
+                }
+                for px in pixels.chunks_exact_mut(4) {
+                    px.swap(0, 2);
+                }
+                if let Some(rgba) = RgbaImage::from_raw(w as u32, h as u32, pixels) {
+                    Self::clear_cpu_image(state, window);
+                    let image = Arc::new(RenderImage::new(vec![Frame::new(rgba)]));
+                    let _ = window.paint_image(
+                        bounds,
+                        Corners::default(),
+                        Arc::clone(&image),
+                        0,
+                        false,
+                    );
+                    state.image = Some(image);
+                    state.rendered = Some((scene.revision(), w, h, scale_bits));
+                }
+            }
+            None => {}
+        }
+    }
+}
+
+#[cfg(test)]
+impl VelloScenePainter {
+    fn test_stats(&self) -> PainterTestStats {
+        self.test_stats
+    }
+}
+
+/// Resolve the user-facing backend preference without touching GPUI globals.
+///
+/// Keeping this decision pure makes the Auto fallback contract testable on
+/// every target, including feature-off and browser builds where a custom draw
+/// adapter may not be available at all.
+fn resolve_backend(preference: RasterBackend, custom_draw_available: bool) -> RasterBackend {
+    match preference {
+        RasterBackend::Auto if custom_draw_available => RasterBackend::Wgpu,
+        RasterBackend::Auto => RasterBackend::Cpu,
+        explicit => explicit,
+    }
+}
+
+fn physical_raster_size(width: f32, height: f32, scale_factor: f32) -> (u16, u16) {
+    let scale_factor = scale_factor.max(0.01);
+    (
+        (width * scale_factor).max(1.0).ceil().min(u16::MAX as f32) as u16,
+        (height * scale_factor).max(1.0).ceil().min(u16::MAX as f32) as u16,
+    )
+}
+
+impl Drop for VelloScenePainter {
+    fn drop(&mut self) {
+        if let Some(BackendState::Wgpu { custom_id, .. }) = &self.state {
+            gpui::unregister_custom_draw(*custom_id);
+        }
+    }
 }
 
 /// Element painting a [`ChartScene`]. Build it in the chart's render method;
@@ -133,6 +368,7 @@ impl VelloChartElement {
             RasterBackend::Wgpu => {
                 let shared = Rc::new(RefCell::new(SharedScene {
                     scene: self.scene.clone(),
+                    revision: self.scene.revision(),
                     logical_size: self.scene_size.unwrap_or((0.0, 0.0)),
                 }));
                 let failed = Rc::new(Cell::new(false));
@@ -147,6 +383,7 @@ impl VelloChartElement {
             RasterBackend::Cpu | RasterBackend::Auto => BackendState::Cpu(CpuState {
                 rasterizer: Box::new(CpuRasterizer::new(1, 1)),
                 image: None,
+                rendered: None,
             }),
         });
     }
@@ -165,6 +402,7 @@ impl VelloChartElement {
         self.state = Some(BackendState::Cpu(CpuState {
             rasterizer: Box::new(CpuRasterizer::new(1, 1)),
             image: None,
+            rendered: None,
         }));
         true
     }
@@ -254,7 +492,11 @@ impl Element for VelloChartElement {
     ) {
         let width: f32 = bounds.size.width.into();
         let height: f32 = bounds.size.height.into();
+        let scale_factor = window.scale_factor().max(0.01);
         if width < 1.0 || height < 1.0 {
+            if let Some(BackendState::Cpu(state)) = self.state.as_mut() {
+                VelloScenePainter::clear_cpu_image(state, window);
+            }
             return;
         }
 
@@ -268,6 +510,9 @@ impl Element for VelloChartElement {
             scene_rebuilt = true;
         }
         if self.scene.is_empty() {
+            if let Some(BackendState::Cpu(state)) = self.state.as_mut() {
+                VelloScenePainter::clear_cpu_image(state, window);
+            }
             return;
         }
         self.resolve();
@@ -281,17 +526,32 @@ impl Element for VelloChartElement {
                 // Keep the logical size alongside so it can derive the scale.
                 {
                     let mut shared = shared.borrow_mut();
-                    if scene_rebuilt {
+                    if scene_rebuilt || shared.revision != self.scene.revision() {
                         shared.scene = self.scene.clone();
+                        shared.revision = self.scene.revision();
                     }
                     shared.logical_size = (width, height);
                 }
                 window.paint_custom(*custom_id, bounds);
             }
             Some(BackendState::Cpu(state)) => {
-                let (w, h) = (width as u16, height as u16);
+                let (w, h) = physical_raster_size(width, height, scale_factor);
+                let scale_bits = scale_factor.to_bits();
+                if state.rendered == Some((self.scene.revision(), w, h, scale_bits)) {
+                    if let Some(image) = state.image.as_ref() {
+                        let _ = window.paint_image(
+                            bounds,
+                            Corners::default(),
+                            Arc::clone(image),
+                            0,
+                            false,
+                        );
+                    }
+                    return;
+                }
                 let mut pixels = state.rasterizer.rasterize(&self.scene, w, h);
                 if pixels.iter().all(|&b| b == 0) {
+                    VelloScenePainter::clear_cpu_image(state, window);
                     return;
                 }
                 // GPUI image atlases expect premultiplied BGRA (Metal uses
@@ -307,9 +567,7 @@ impl Element for VelloChartElement {
                     // RenderImage ids are unique and paint_image caches each
                     // one in the sprite atlas; release the previous entry
                     // before inserting its replacement.
-                    if let Some(old) = state.image.take() {
-                        let _ = window.drop_image(old);
-                    }
+                    VelloScenePainter::clear_cpu_image(state, window);
                     let image = Arc::new(RenderImage::new(vec![Frame::new(rgba)]));
                     let _ = window.paint_image(
                         bounds,
@@ -319,6 +577,7 @@ impl Element for VelloChartElement {
                         false,
                     );
                     state.image = Some(image);
+                    state.rendered = Some((self.scene.revision(), w, h, scale_bits));
                 }
             }
             None => {}
@@ -361,5 +620,75 @@ mod tests {
         element.resolve();
         assert!(!element.fall_back_to_cpu_if_failed());
         assert!(matches!(element.state, Some(BackendState::Wgpu { .. })));
+    }
+
+    #[test]
+    fn painter_defaults_to_auto_and_can_switch_before_resolution() {
+        let mut painter = VelloScenePainter::new();
+        assert_eq!(painter.backend_pref, RasterBackend::Auto);
+        assert!(painter.state.is_none());
+        painter.set_backend(RasterBackend::Cpu);
+        assert_eq!(painter.backend_pref, RasterBackend::Cpu);
+        assert!(painter.state.is_none());
+    }
+
+    #[test]
+    fn painter_backend_switch_unregisters_wgpu_state() {
+        let mut painter = VelloScenePainter::new().backend(RasterBackend::Wgpu);
+        painter.resolve(&sample_scene());
+        assert!(matches!(painter.state, Some(BackendState::Wgpu { .. })));
+        painter.set_backend(RasterBackend::Cpu);
+        assert!(painter.state.is_none());
+        assert_eq!(painter.backend_pref, RasterBackend::Cpu);
+        assert_eq!(painter.test_stats().custom_registrations, 1);
+        assert_eq!(painter.test_stats().custom_unregistrations, 1);
+    }
+
+    #[test]
+    fn chart_backend_switch_is_kept_until_first_paint() {
+        let chart = VelloChartElement::new(sample_scene()).backend(RasterBackend::Cpu);
+        assert_eq!(chart.backend_pref, RasterBackend::Cpu);
+        assert!(chart.state.is_none());
+    }
+
+    #[test]
+    fn cpu_state_tracks_scene_revision_and_size() {
+        let state = CpuState {
+            rasterizer: Box::new(CpuRasterizer::new(1, 1)),
+            image: None,
+            rendered: Some((7, 32, 16, 0x3f80_0000)),
+        };
+        assert_eq!(state.rendered, Some((7, 32, 16, 0x3f80_0000)));
+    }
+
+    #[test]
+    fn auto_resolution_is_cpu_without_custom_draw_support() {
+        assert_eq!(
+            resolve_backend(RasterBackend::Auto, false),
+            RasterBackend::Cpu
+        );
+    }
+
+    #[test]
+    fn auto_resolution_is_wgpu_when_custom_draw_is_available() {
+        assert_eq!(
+            resolve_backend(RasterBackend::Auto, true),
+            RasterBackend::Wgpu
+        );
+    }
+
+    #[test]
+    fn explicit_backend_resolution_ignores_custom_draw_probe() {
+        for preference in [RasterBackend::Cpu, RasterBackend::Wgpu] {
+            assert_eq!(resolve_backend(preference, false), preference);
+            assert_eq!(resolve_backend(preference, true), preference);
+        }
+    }
+
+    #[test]
+    fn cpu_raster_size_tracks_scale_factor_and_clamps_small_bounds() {
+        assert_eq!(physical_raster_size(20.0, 10.0, 1.0), (20, 10));
+        assert_eq!(physical_raster_size(20.0, 10.0, 2.0), (40, 20));
+        assert_eq!(physical_raster_size(0.0, 0.0, 2.0), (1, 1));
     }
 }

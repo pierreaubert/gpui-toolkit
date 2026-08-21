@@ -26,8 +26,8 @@ pub fn try_render_line<XS, YS>(
     config: &LineConfig,
 ) -> Result<impl IntoElement + use<XS, YS>, LineRenderError>
 where
-    XS: Scale<f64, f64>,
-    YS: Scale<f64, f64>,
+    XS: Scale<f64, f64> + 'static,
+    YS: Scale<f64, f64> + 'static,
 {
     validate_line_inputs(x_scale, y_scale, data, config)?;
     Ok(render_line(x_scale, y_scale, data, config))
@@ -286,4 +286,101 @@ where
     .size_full()
     .absolute()
     .inset_0()
+}
+
+/// Render a line through the Vello scene painter.  The geometry is computed
+/// once from the supplied scales and rebuilt in element-local coordinates when
+/// GPUI gives the element a new size.
+#[cfg(all(feature = "vello-gpui", not(test)))]
+pub fn render_line_vello<XS, YS>(
+    x_scale: &XS,
+    y_scale: &YS,
+    data: &[LinePoint],
+    config: &LineConfig,
+    backend: crate::vello2d::RasterBackend,
+) -> impl IntoElement + use<XS, YS>
+where
+    XS: Scale<f64, f64> + 'static,
+    YS: Scale<f64, f64> + 'static,
+{
+    let (x_min, x_max) = x_scale.range();
+    let (y_min, y_max) = y_scale.range();
+    let x_span = x_max - x_min;
+    let y_span = y_max - y_min;
+    let points: Arc<[(f32, f32)]> = data
+        .iter()
+        .map(|point| {
+            let x = if x_span == 0.0 {
+                0.5
+            } else {
+                ((x_scale.scale(point.x) - x_min) / x_span) as f32
+            };
+            let y = if y_span == 0.0 {
+                0.5
+            } else if y_min > y_max {
+                ((y_scale.scale(point.y) - y_max) / (y_min - y_max)) as f32
+            } else {
+                ((y_scale.scale(point.y) - y_min) / y_span) as f32
+            };
+            (x, y)
+        })
+        .collect();
+    let segments: Arc<[(f32, f32, f32, f32)]> = compute_line_segments(&points, config.curve).into();
+    let stroke = config.stroke_color.to_rgba();
+    let fill = config
+        .point_fill_color
+        .as_ref()
+        .unwrap_or(&config.stroke_color)
+        .to_rgba();
+    let stroke_width = config.stroke_width as f64;
+    let opacity = config.opacity;
+    let show_points = config.show_points;
+    let point_radius = config.point_radius as f64;
+
+    crate::vello2d::VelloChartElement::with_builder(move |width, height| {
+        use crate::vello2d::kurbo::{BezPath, Circle, PathEl, Shape, Stroke};
+        use crate::vello2d::peniko::{Brush, Color};
+
+        let mut scene = crate::vello2d::ChartScene::new();
+        if !segments.is_empty() {
+            let mut path = BezPath::new();
+            for &(x0, y0, x1, y1) in segments.iter() {
+                path.push(PathEl::MoveTo(
+                    ((x0 * width) as f64, (y0 * height) as f64).into(),
+                ));
+                path.push(PathEl::LineTo(
+                    ((x1 * width) as f64, (y1 * height) as f64).into(),
+                ));
+            }
+            scene.stroke_path(
+                path,
+                Stroke::new(stroke_width),
+                Brush::Solid(Color::new([
+                    stroke.r,
+                    stroke.g,
+                    stroke.b,
+                    stroke.a * opacity,
+                ])),
+            );
+        }
+        if show_points && point_radius > 0.0 {
+            let mut path = BezPath::new();
+            for &(x, y) in points.iter() {
+                path.extend(
+                    Circle::new(
+                        (x as f64 * width as f64, y as f64 * height as f64),
+                        point_radius,
+                    )
+                    .to_path(0.1),
+                );
+            }
+            scene.fill_path(
+                path,
+                Brush::Solid(Color::new([fill.r, fill.g, fill.b, fill.a * opacity])),
+            );
+        }
+        scene
+    })
+    .backend(backend)
+    .absolute()
 }

@@ -27,6 +27,7 @@ use crate::{
     validate_dimensions,
 };
 use d3rs::color::{ColorScheme, D3Color};
+use d3rs::render2d::{Renderer2D, VelloBackend};
 use d3rs::text::{GlyphTextConfig, render_glyph_text};
 use gpui::prelude::*;
 use gpui::{
@@ -67,9 +68,35 @@ pub struct Treemap {
     on_click: Option<Rc<dyn Fn(&str, f64) + 'static>>,
     hover_enabled: bool,
     design: Option<Arc<DesignSystem>>,
+    renderer_2d: Renderer2D,
+    vello_backend: VelloBackend,
+}
+
+#[derive(Clone, Debug)]
+struct RectDrawData {
+    x0: f64,
+    y0: f64,
+    x1: f64,
+    y1: f64,
+    name: String,
+    value: f64,
+    fill: Rgba,
+    border: Rgba,
 }
 
 impl Treemap {
+    /// Select the high-level 2D renderer. Vello is the default when enabled.
+    pub fn renderer_2d(mut self, renderer: Renderer2D) -> Self {
+        self.renderer_2d = renderer;
+        self
+    }
+
+    /// Select the Vello WGPU/CPU backend.
+    pub fn vello_backend(mut self, backend: VelloBackend) -> Self {
+        self.vello_backend = backend;
+        self
+    }
+
     /// Export this treemap as deterministic SVG.
     pub fn to_svg(&self) -> Result<String, ChartError> {
         self.to_svg_with_options(crate::StaticSvgOptions::new(self.width, self.height))
@@ -372,18 +399,6 @@ impl Treemap {
 
         // Precompute per-rect colors and group by fill color so the canvas paint
         // callback can emit one path per color group instead of one quad per rect.
-        #[derive(Clone, Debug)]
-        struct RectDrawData {
-            x0: f64,
-            y0: f64,
-            x1: f64,
-            y1: f64,
-            name: String,
-            value: f64,
-            fill: Rgba,
-            border: Rgba,
-        }
-
         let mut draw_data: Vec<RectDrawData> = Vec::with_capacity(rects.len());
         let mut groups: BTreeMap<(u32, u32, u32, u32), Vec<usize>> = BTreeMap::new();
 
@@ -461,8 +476,12 @@ impl Treemap {
         let bounds_for_click = bounds.clone();
         let draw_data_for_click = draw_data.clone();
         let on_click = self.on_click;
+        let renderer_2d = self.renderer_2d;
+        let vello_backend = self.vello_backend;
+        #[cfg(feature = "vello")]
+        let vello_draw_data = draw_data.clone();
 
-        let canvas_element = canvas(
+        let legacy_canvas_element = canvas(
             move |_bounds, _window, _cx| (draw_data.clone(), groups.clone()),
             move |bounds, (draw_data, groups), window, _cx| {
                 let origin_x: f32 = bounds.origin.x.into();
@@ -504,6 +523,75 @@ impl Treemap {
         .w(px(plot_width as f32))
         .h(px(plot_height as f32))
         .absolute();
+
+        let canvas_element: gpui::AnyElement = {
+            #[cfg(feature = "vello")]
+            if renderer_2d == Renderer2D::Vello {
+                d3rs::vello2d::VelloChartElement::with_builder(move |width, height| {
+                    use d3rs::vello2d::kurbo::{BezPath, PathEl};
+                    use d3rs::vello2d::peniko::{Brush, Color};
+                    let sx = if plot_width > 0.0 {
+                        width as f64 / plot_width as f64
+                    } else {
+                        1.0
+                    };
+                    let sy = if plot_height > 0.0 {
+                        height as f64 / plot_height as f64
+                    } else {
+                        1.0
+                    };
+                    let mut scene = d3rs::vello2d::ChartScene::new();
+                    for rect in &vello_draw_data {
+                        let x0 = rect.x0 * sx;
+                        let y0 = rect.y0 * sy;
+                        let x1 = rect.x1 * sx;
+                        let y1 = rect.y1 * sy;
+                        let mut fill_path = BezPath::new();
+                        fill_path.push(PathEl::MoveTo((x0, y0).into()));
+                        fill_path.push(PathEl::LineTo((x1, y0).into()));
+                        fill_path.push(PathEl::LineTo((x1, y1).into()));
+                        fill_path.push(PathEl::LineTo((x0, y1).into()));
+                        fill_path.push(PathEl::ClosePath);
+                        scene.fill_path(
+                            fill_path,
+                            Brush::Solid(Color::new([
+                                rect.fill.r,
+                                rect.fill.g,
+                                rect.fill.b,
+                                rect.fill.a,
+                            ])),
+                        );
+                        let mut border_path = BezPath::new();
+                        border_path.push(PathEl::MoveTo((x0, y0).into()));
+                        border_path.push(PathEl::LineTo((x1, y0).into()));
+                        border_path.push(PathEl::LineTo((x1, y1).into()));
+                        border_path.push(PathEl::LineTo((x0, y1).into()));
+                        border_path.push(PathEl::ClosePath);
+                        scene.stroke_path(
+                            border_path,
+                            d3rs::vello2d::kurbo::Stroke::new(1.0),
+                            Brush::Solid(Color::new([
+                                rect.border.r,
+                                rect.border.g,
+                                rect.border.b,
+                                rect.border.a,
+                            ])),
+                        );
+                    }
+                    scene
+                })
+                .backend(vello_backend)
+                .absolute()
+                .into_any_element()
+            } else {
+                legacy_canvas_element.into_any_element()
+            }
+            #[cfg(not(feature = "vello"))]
+            {
+                let _ = (renderer_2d, vello_backend);
+                legacy_canvas_element.into_any_element()
+            }
+        };
 
         let mut plot_content = div()
             .w(px(plot_width as f32))

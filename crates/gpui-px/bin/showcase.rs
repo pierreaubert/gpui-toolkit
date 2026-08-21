@@ -21,17 +21,38 @@ mod showcase_app;
 use showcase_app::ShowcaseApp;
 
 fn run_app() {
-    MiniApp::run(
-        MiniAppConfig::new("gpui-px Showcase")
-            .size(1200.0, 800.0)
-            .with_theme(true)
-            .scrollable(false),
-        |cx| cx.new(ShowcaseApp::new),
-    );
+    let config = MiniAppConfig::new("gpui-px Showcase")
+        .size(1200.0, 800.0)
+        .with_theme(true)
+        .scrollable(false);
+    #[cfg(target_family = "wasm")]
+    let config = config.initial_theme(gpui_miniapp::web_initial_theme());
+    MiniApp::run(config, |cx| cx.new(ShowcaseApp::new));
 }
 
 #[cfg(not(target_family = "wasm"))]
 fn main() {
+    let mut args = std::env::args().skip(1);
+    if let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--visual-manifest" => {
+                if args.any(|arg| arg == "--json") {
+                    println!("{}", chart_section::visual_manifest_json());
+                } else {
+                    println!("gpui-px visual capture manifest");
+                    for section in chart_section::ChartSection::all() {
+                        println!("- {}", section.label());
+                    }
+                }
+                return;
+            }
+            "--help" | "-h" => {
+                println!("Usage: px-showcase [--visual-manifest [--json]]");
+                return;
+            }
+            _ => {}
+        }
+    }
     run_app();
 }
 

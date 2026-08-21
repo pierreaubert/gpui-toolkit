@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "title": "GPUI Toolkit demos",
+  "description": "Generated snapshots and live WebGPU demos for the GPUI Toolkit showcase applications.",
+  "public_base_url": "https://pierreaubert.github.io/gpui-toolkit/",
+  "apps": [
+    {
+      "id": "showcase",
+      "title": "UI Kit Showcase",
+      "description": "Buttons, forms, workflows, navigation, accessibility, and responsive GPUI components.",
+      "route": "showcase/",
+      "source_url": "https://github.com/pierreaubert/gpui-toolkit/tree/main/crates/gpui-showcase",
+      "port": 8081,
+      "manifest_command": [
+        "cargo",
+        "run",
+        "-p",
+        "gpui-showcase",
+        "--bin",
+        "gpui-showcase",
+        "--",
+        "--visual-manifest",
+        "--json"
+      ]
+    },
+    {
+      "id": "px",
+      "title": "Chart Showcase",
+      "description": "Plotly Express-style scatter, line, bar, heatmap, contour, isoline, and treemap charts.",
+      "route": "px/",
+      "source_url": "https://github.com/pierreaubert/gpui-toolkit/tree/main/crates/gpui-px",
+      "port": 8082,
+      "manifest_command": [
+        "cargo",
+        "run",
+        "-p",
+        "gpui-px",
+        "--features",
+        "vello",
+        "--bin",
+        "px-showcase",
+        "--",
+        "--visual-manifest",
+        "--json"
+      ]
+    },
+    {
+      "id": "hello",
+      "title": "Hello WebGPU",
+      "description": "The minimal GPUI-on-WASM smoke demo.",
+      "route": "hello/",
+      "source_url": "https://github.com/pierreaubert/gpui-toolkit/tree/main/crates/gpui-hello-web",
+      "static_image": "qa/visual/wasm/baselines/hello.png"
+    }
+  ],
+  "featured": [
+    "showcase-buttons-desktop",
+    "showcase-form-controls-desktop",
+    "showcase-workflow-desktop",
+    "px-scatter-desktop",
+    "px-heatmap-desktop",
+    "px-contour-desktop",
+    "hello"
+  ]
+}

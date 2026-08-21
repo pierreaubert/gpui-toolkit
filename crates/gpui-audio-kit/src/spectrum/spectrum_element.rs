@@ -5,6 +5,8 @@ use std::cell::RefCell;
 use std::panic;
 use std::sync::Arc;
 
+use d3rs::render2d::{Renderer2D, VelloBackend};
+
 /// GPU-accelerated spectrum analyzer element.
 pub struct SpectrumElement {
     pub(super) magnitudes: Arc<[f32]>,
@@ -16,6 +18,10 @@ pub struct SpectrumElement {
     pub(super) height: Pixels,
     pub(super) bar_gap: Pixels,
     scratch_heights: RefCell<Vec<f32>>,
+    renderer_2d: Renderer2D,
+    vello_backend: VelloBackend,
+    #[cfg(feature = "vello")]
+    painter: d3rs::vello2d::VelloScenePainter,
 }
 
 impl SpectrumElement {
@@ -30,6 +36,10 @@ impl SpectrumElement {
             height: px(120.0),
             bar_gap: px(1.0),
             scratch_heights: RefCell::new(Vec::new()),
+            renderer_2d: Renderer2D::default(),
+            vello_backend: VelloBackend::default(),
+            #[cfg(feature = "vello")]
+            painter: d3rs::vello2d::VelloScenePainter::new(),
         }
     }
 
@@ -61,6 +71,22 @@ impl SpectrumElement {
 
     pub fn bar_gap(mut self, gap: Pixels) -> Self {
         self.bar_gap = gap;
+        self
+    }
+
+    /// Select the high-level 2D renderer. Vello is the default.
+    pub fn renderer_2d(mut self, renderer: Renderer2D) -> Self {
+        self.renderer_2d = renderer;
+        self
+    }
+
+    /// Select the Vello WGPU/CPU backend.
+    pub fn vello_backend(mut self, backend: VelloBackend) -> Self {
+        self.vello_backend = backend;
+        #[cfg(feature = "vello")]
+        {
+            self.painter.set_backend(backend);
+        }
         self
     }
 
@@ -163,6 +189,73 @@ impl Element for SpectrumElement {
             self.db_to_height(smoothed_mag)
         }));
 
+        #[cfg(feature = "vello")]
+        if self.renderer_2d.is_vello() {
+            use d3rs::vello2d::ChartScene;
+            use d3rs::vello2d::kurbo::{BezPath, PathEl, Rect};
+            use d3rs::vello2d::peniko::{Brush, Color};
+
+            let width: f32 = bounds.size.width.into();
+            let height: f32 = bounds.size.height.into();
+            let yellow_threshold = self.db_to_height(-6.0);
+            let red_threshold = self.db_to_height(-1.0);
+            let mut scene = ChartScene::new();
+            let color_brush =
+                |color: Rgba| Brush::Solid(Color::new([color.r, color.g, color.b, color.a]));
+            scene.fill_rect(
+                Rect::new(0.0, 0.0, width as f64, height as f64),
+                color_brush(self.colors.background),
+            );
+
+            let mut bands = [BezPath::new(), BezPath::new(), BezPath::new()];
+            for (index, &ratio) in scratch.iter().enumerate() {
+                let x0 = width * index as f32 / bar_count as f32;
+                let x1 = width * (index + 1) as f32 / bar_count as f32;
+                let y = |value: f32| height - height * value;
+                let segments = [
+                    (0usize, ratio.min(yellow_threshold), self.colors.low),
+                    (
+                        1usize,
+                        (ratio - yellow_threshold).clamp(0.0, red_threshold - yellow_threshold),
+                        self.colors.mid,
+                    ),
+                    (2usize, (ratio - red_threshold).max(0.0), self.colors.high),
+                ];
+                for (band, amount, _) in segments {
+                    if amount <= 0.0 {
+                        continue;
+                    }
+                    let bottom = match band {
+                        0 => 1.0,
+                        1 => yellow_threshold,
+                        _ => red_threshold,
+                    };
+                    let top = match band {
+                        0 => amount,
+                        1 => yellow_threshold + amount,
+                        _ => red_threshold + amount,
+                    };
+                    bands[band].push(PathEl::MoveTo((x0 as f64, y(bottom) as f64).into()));
+                    bands[band].push(PathEl::LineTo((x1 as f64, y(bottom) as f64).into()));
+                    bands[band].push(PathEl::LineTo((x1 as f64, y(top) as f64).into()));
+                    bands[band].push(PathEl::LineTo((x0 as f64, y(top) as f64).into()));
+                    bands[band].push(PathEl::ClosePath);
+                }
+            }
+            for (path, color) in
+                bands
+                    .into_iter()
+                    .zip([self.colors.low, self.colors.mid, self.colors.high])
+            {
+                if !path.elements().is_empty() {
+                    scene.fill_path(path, color_brush(color));
+                }
+            }
+            self.painter.set_backend(self.vello_backend);
+            self.painter.paint(&scene, bounds, window);
+            return;
+        }
+
         let mut green_path = PathBuilder::fill();
         green_path.move_to(point(bounds.origin.x, bounds.origin.y + meter_height));
         let mut yellow_path = PathBuilder::fill();
@@ -252,6 +345,7 @@ impl Element for SpectrumElement {
 mod tests {
     use super::SpectrumElement;
     use crate::spectrum::SpectrumColors;
+    use d3rs::render2d::{Renderer2D, VelloBackend};
     use gpui::{Element, IntoElement, px};
 
     #[test]
@@ -322,5 +416,12 @@ mod tests {
         let element = SpectrumElement::new(vec![-30.0, -60.0]);
         let _same = element.into_element();
         assert!(_same.id().is_none());
+    }
+
+    #[test]
+    fn default_renderer_contract_is_vello_when_available() {
+        let element = SpectrumElement::new(vec![0.0]);
+        assert_eq!(element.renderer_2d, Renderer2D::default());
+        assert_eq!(element.vello_backend, VelloBackend::default());
     }
 }

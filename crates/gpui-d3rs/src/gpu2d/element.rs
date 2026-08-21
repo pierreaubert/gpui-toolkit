@@ -1,9 +1,9 @@
 //! GPUI Element wrapper for 2D chart rendering
 
-use super::primitives::Color4;
-use super::renderer::Chart2DRenderer;
 #[cfg(target_family = "wasm")]
 use super::device::Gpu2DContext;
+use super::primitives::Color4;
+use super::renderer::Chart2DRenderer;
 use gpui::*;
 use image::{Frame, RgbaImage};
 use std::cell::RefCell;

@@ -1,3 +1,4 @@
+use d3rs::render2d::{Renderer2D, VelloBackend};
 use gpui::prelude::*;
 use gpui::*;
 use std::cell::RefCell;
@@ -243,6 +244,12 @@ pub(super) struct PotentiometerTickLinesElement {
     pub ticks: Arc<[PotentiometerTickLine]>,
     pub major_tick_width: f32,
     pub minor_tick_width: f32,
+    #[cfg_attr(not(feature = "vello"), allow(dead_code))]
+    pub renderer_2d: Renderer2D,
+    #[cfg_attr(not(feature = "vello"), allow(dead_code))]
+    pub vello_backend: VelloBackend,
+    #[cfg(feature = "vello")]
+    pub painter: d3rs::vello2d::VelloScenePainter,
 }
 
 impl IntoElement for PotentiometerTickLinesElement {
@@ -313,6 +320,58 @@ impl Element for PotentiometerTickLinesElement {
         let mut minor_path = PathBuilder::fill();
         let mut has_major = false;
         let mut has_minor = false;
+
+        #[cfg(feature = "vello")]
+        if self.renderer_2d == Renderer2D::Vello {
+            use d3rs::vello2d::kurbo::{BezPath, PathEl};
+            use d3rs::vello2d::peniko::{Brush, Color};
+            let mut scene = d3rs::vello2d::ChartScene::new();
+            let mut major = BezPath::new();
+            let mut minor = BezPath::new();
+            for tick in self.ticks.iter() {
+                let width = if tick.is_major {
+                    self.major_tick_width
+                } else {
+                    self.minor_tick_width
+                };
+                let dx = tick.outer_x - tick.inner_x;
+                let dy = tick.outer_y - tick.inner_y;
+                let len = (dx * dx + dy * dy).sqrt().max(0.0001);
+                let perp_x = -dy / len * width * 0.5;
+                let perp_y = dx / len * width * 0.5;
+                let points = [
+                    (tick.inner_x + perp_x, tick.inner_y + perp_y),
+                    (tick.outer_x + perp_x, tick.outer_y + perp_y),
+                    (tick.outer_x - perp_x, tick.outer_y - perp_y),
+                    (tick.inner_x - perp_x, tick.inner_y - perp_y),
+                ];
+                let path = if tick.is_major {
+                    &mut major
+                } else {
+                    &mut minor
+                };
+                for (index, (x, y)) in points.iter().enumerate() {
+                    let point = (*x as f64, *y as f64);
+                    path.push(if index == 0 {
+                        PathEl::MoveTo(point.into())
+                    } else {
+                        PathEl::LineTo(point.into())
+                    });
+                }
+                path.push(PathEl::ClosePath);
+            }
+            if !major.is_empty() {
+                let c = self.major_tick_color;
+                scene.fill_path(major, Brush::Solid(Color::new([c.r, c.g, c.b, c.a])));
+            }
+            if !minor.is_empty() {
+                let c = self.minor_tick_color;
+                scene.fill_path(minor, Brush::Solid(Color::new([c.r, c.g, c.b, c.a])));
+            }
+            self.painter.set_backend(self.vello_backend);
+            self.painter.paint(&scene, bounds, window);
+            return;
+        }
 
         for tick in self.ticks.iter() {
             let (path, width, is_major) = if tick.is_major {

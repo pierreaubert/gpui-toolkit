@@ -287,6 +287,9 @@ impl MiniApp {
             }
 
             cx.activate(true);
+
+            #[cfg(target_family = "wasm")]
+            crate::web_mark_ready();
         };
 
         let app = gpui::Application::with_platform(platform);

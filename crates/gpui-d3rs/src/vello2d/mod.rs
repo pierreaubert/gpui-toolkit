@@ -16,6 +16,7 @@ mod wgpu_draw;
 
 // Re-exported so integration tests and downstream crates (gpui-px) use the
 // exact kurbo/peniko versions vello is compiled against.
+pub use crate::render2d::VelloBackend;
 pub use kurbo;
 pub use peniko;
 
@@ -24,7 +25,7 @@ pub use gpu_scene::to_vello_scene;
 pub use scene::{ChartCmd, ChartScene};
 
 #[cfg(feature = "vello-gpui")]
-pub use element::{RasterBackend, VelloChartElement};
+pub use element::{RasterBackend, VelloChartElement, VelloScenePainter};
 #[cfg(feature = "vello-gpui")]
 pub use wgpu_draw::{
     clip_src_rect as wgpu_draw_clip_src_rect, physical_size as wgpu_draw_physical_size,

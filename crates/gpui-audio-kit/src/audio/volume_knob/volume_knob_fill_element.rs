@@ -1,3 +1,4 @@
+use d3rs::render2d::{Renderer2D, VelloBackend};
 use gpui::*;
 use std::f32::consts::PI;
 
@@ -8,6 +9,10 @@ pub(super) struct VolumeKnobFillElement {
     pub(super) bg_color: Rgba,
     pub(super) fill_color: Rgba,
     pub(super) ring_color: Rgba,
+    pub(super) renderer_2d: Renderer2D,
+    pub(super) vello_backend: VelloBackend,
+    #[cfg(feature = "vello")]
+    pub(super) painter: d3rs::vello2d::VelloScenePainter,
 }
 
 impl VolumeKnobFillElement {
@@ -24,7 +29,23 @@ impl VolumeKnobFillElement {
             bg_color,
             fill_color,
             ring_color,
+            renderer_2d: Renderer2D::default(),
+            vello_backend: VelloBackend::default(),
+            #[cfg(feature = "vello")]
+            painter: d3rs::vello2d::VelloScenePainter::new(),
         }
+    }
+
+    pub(super) fn renderer_2d(mut self, renderer: Renderer2D) -> Self {
+        self.renderer_2d = renderer;
+        self
+    }
+
+    pub(super) fn vello_backend(mut self, backend: VelloBackend) -> Self {
+        self.vello_backend = backend;
+        #[cfg(feature = "vello")]
+        self.painter.set_backend(backend);
+        self
     }
 }
 
@@ -95,6 +116,66 @@ impl Element for VolumeKnobFillElement {
         let origin_x = bounds.origin.x;
         let origin_y = bounds.origin.y;
         let radius = size_f32 / 2.0;
+
+        #[cfg(feature = "vello")]
+        if self.renderer_2d == Renderer2D::Vello {
+            use d3rs::vello2d::kurbo::{BezPath, Circle, PathEl, Shape, Stroke};
+            use d3rs::vello2d::peniko::{Brush, Color};
+            let mut scene = d3rs::vello2d::ChartScene::new();
+            let color = |c: Rgba| Brush::Solid(Color::new([c.r, c.g, c.b, c.a]));
+            scene.fill_path(
+                Circle::new((radius as f64, radius as f64), radius as f64).to_path(0.1),
+                color(self.bg_color),
+            );
+            if self.value > 0.001 {
+                let value = self.value.clamp(0.0, 1.0);
+                let center = radius;
+                let water = center + radius - value * 2.0 * radius;
+                let dy = water - center;
+                let dx2 = radius * radius - dy * dy;
+                if dx2 > 0.0 {
+                    let dx = dx2.sqrt();
+                    let left = center - dx;
+                    let start = (dy / radius).clamp(-1.0, 1.0).asin();
+                    let end = PI - start;
+                    let mut path = BezPath::new();
+                    path.push(PathEl::MoveTo((left as f64, water as f64).into()));
+                    for index in 1..=32 {
+                        let t = index as f32 / 32.0;
+                        let angle = PI - (start + t * (end - start));
+                        path.push(PathEl::LineTo(
+                            (
+                                (center + radius * angle.cos()) as f64,
+                                (center + radius * angle.sin()) as f64,
+                            )
+                                .into(),
+                        ));
+                    }
+                    path.push(PathEl::ClosePath);
+                    scene.fill_path(path, color(self.fill_color));
+                } else if value > 0.99 {
+                    scene.fill_path(
+                        Circle::new((radius as f64, radius as f64), (radius - 1.0) as f64)
+                            .to_path(0.1),
+                        color(self.fill_color),
+                    );
+                }
+            }
+            let ring = Rgba {
+                r: self.ring_color.r,
+                g: self.ring_color.g,
+                b: self.ring_color.b,
+                a: self.ring_color.a * 0.3,
+            };
+            scene.stroke_path(
+                Circle::new((radius as f64, radius as f64), (radius - 3.0) as f64).to_path(0.1),
+                Stroke::new(2.0),
+                color(ring),
+            );
+            self.painter.set_backend(self.vello_backend);
+            self.painter.paint(&scene, bounds, window);
+            return;
+        }
 
         // Transparent color for borders we don't want to render
         let transparent = Rgba {

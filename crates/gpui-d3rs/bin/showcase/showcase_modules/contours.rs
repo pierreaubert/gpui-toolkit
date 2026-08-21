@@ -1,8 +1,13 @@
 use d3rs::contour::{ContourGenerator, DensityEstimator};
 use d3rs::prelude::*;
+use d3rs::render2d::{Renderer2D, VelloBackend};
 use d3rs::shape::contour::{
-    ContourConfig, HeatmapData, heat_color_scale, render_contour, render_contour_bands,
-    render_heatmap, viridis_color_scale,
+    ContourConfig, HeatmapData, heat_color_scale, render_contour as render_contour_legacy,
+    render_contour_bands, render_heatmap, viridis_color_scale,
+};
+#[cfg(feature = "vello")]
+use d3rs::shape::contour::{
+    render_contour_bands_vello, render_contour_vello, render_heatmap_vello,
 };
 use gpui::prelude::FluentBuilder;
 use gpui::*;
@@ -148,7 +153,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                     div()
                         .text_2xl()
                         .font_weight(FontWeight::BOLD)
-                        .child("Contours Demo"),
+                        .child(format!("Contours Demo · {}", app.renderer_label())),
                 )
                 // Marching Squares Contours with render mode switch
                 .child(
@@ -200,48 +205,42 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                 .border_color(ui_theme.border)
                                 .relative()
                                 .when(render_mode == ContourRenderMode::Isoline, |this| {
-                                    this.child(
-                                        render_contour(
-                                            contours.clone(),
-                                            &x_scale_gaussian,
-                                            &y_scale_gaussian,
-                                            &gaussian_config,
-                                        )
-                                        .height(px(gaussian_height)),
-                                    )
+                                    this.child(render_contour_selected(
+                                        contours.clone(),
+                                        &x_scale_gaussian,
+                                        &y_scale_gaussian,
+                                        &gaussian_config,
+                                        app.renderer_selection(),
+                                    ))
                                 })
                                 .when(render_mode == ContourRenderMode::Surface, |this| {
-                                    this.child(
-                                        render_contour_bands(
-                                            contour_bands.clone(),
-                                            &x_scale_gaussian,
-                                            &y_scale_gaussian,
-                                            &gaussian_config,
-                                        )
-                                        .height(px(gaussian_height)),
-                                    )
+                                    this.child(render_contour_bands_selected(
+                                        contour_bands.clone(),
+                                        &x_scale_gaussian,
+                                        &y_scale_gaussian,
+                                        &gaussian_config,
+                                        app.renderer_selection(),
+                                    ))
                                     .child(
-                                        render_contour(
+                                        render_contour_selected(
                                             contours.clone(),
                                             &x_scale_gaussian,
                                             &y_scale_gaussian,
                                             &gaussian_line_config,
-                                        )
-                                        .height(px(gaussian_height)),
+                                            app.renderer_selection(),
+                                        ),
                                     )
                                 })
                                 .when(render_mode == ContourRenderMode::Heatmap, |this| {
                                     let heatmap_config =
                                         ContourConfig::new().color_scale(viridis_color_scale());
-                                    this.child(
-                                        render_heatmap(
-                                            gaussian_heatmap.clone(),
-                                            &x_scale_gaussian,
-                                            &y_scale_gaussian,
-                                            &heatmap_config,
-                                        )
-                                        .height(px(gaussian_height)),
-                                    )
+                                    this.child(render_heatmap_selected(
+                                        gaussian_heatmap.clone(),
+                                        &x_scale_gaussian,
+                                        &y_scale_gaussian,
+                                        &heatmap_config,
+                                        app.renderer_selection(),
+                                    ))
                                 }),
                         )
                         .child(
@@ -274,24 +273,20 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                 .border_1()
                                 .border_color(ui_theme.border)
                                 .relative()
-                                .child(
-                                    render_contour_bands(
-                                        density_bands,
-                                        &x_scale_density,
-                                        &y_scale_density,
-                                        &density_config,
-                                    )
-                                    .height(px(density_size)),
-                                )
-                                .child(
-                                    render_contour(
-                                        density_contours,
-                                        &x_scale_density,
-                                        &y_scale_density,
-                                        &density_line_config,
-                                    )
-                                    .height(px(density_size)),
-                                )
+                                .child(render_contour_bands_selected(
+                                    density_bands,
+                                    &x_scale_density,
+                                    &y_scale_density,
+                                    &density_config,
+                                    app.renderer_selection(),
+                                ))
+                                .child(render_contour_selected(
+                                    density_contours,
+                                    &x_scale_density,
+                                    &y_scale_density,
+                                    &density_line_config,
+                                    app.renderer_selection(),
+                                ))
                                 // Overlay the original points
                                 .children(points.iter().map(|(x, y)| {
                                     div()
@@ -529,3 +524,78 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
 }
 
 use super::{ContourRenderMode, ShowcaseApp};
+
+fn render_contour_selected<XS, YS>(
+    contours: impl Into<std::sync::Arc<[d3rs::contour::Contour]>>,
+    x_scale: &XS,
+    y_scale: &YS,
+    config: &ContourConfig,
+    selection: (Renderer2D, VelloBackend, &'static str),
+) -> AnyElement
+where
+    XS: d3rs::scale::Scale<f64, f64> + Clone + 'static,
+    YS: d3rs::scale::Scale<f64, f64> + Clone + 'static,
+{
+    match selection.0 {
+        #[cfg(feature = "vello")]
+        Renderer2D::Vello => {
+            render_contour_vello(contours, x_scale, y_scale, config, selection.1).into_any_element()
+        }
+        #[cfg(not(feature = "vello"))]
+        Renderer2D::Vello => {
+            render_contour_legacy(contours, x_scale, y_scale, config).into_any_element()
+        }
+        Renderer2D::Legacy => {
+            render_contour_legacy(contours, x_scale, y_scale, config).into_any_element()
+        }
+    }
+}
+
+fn render_contour_bands_selected<XS, YS>(
+    bands: impl Into<std::sync::Arc<[d3rs::contour::ContourBand]>>,
+    x_scale: &XS,
+    y_scale: &YS,
+    config: &ContourConfig,
+    selection: (Renderer2D, VelloBackend, &'static str),
+) -> AnyElement
+where
+    XS: d3rs::scale::Scale<f64, f64> + Clone + 'static,
+    YS: d3rs::scale::Scale<f64, f64> + Clone + 'static,
+{
+    match selection.0 {
+        #[cfg(feature = "vello")]
+        Renderer2D::Vello => {
+            render_contour_bands_vello(bands, x_scale, y_scale, config, selection.1)
+                .into_any_element()
+        }
+        #[cfg(not(feature = "vello"))]
+        Renderer2D::Vello => {
+            render_contour_bands(bands, x_scale, y_scale, config).into_any_element()
+        }
+        Renderer2D::Legacy => {
+            render_contour_bands(bands, x_scale, y_scale, config).into_any_element()
+        }
+    }
+}
+
+fn render_heatmap_selected<XS, YS>(
+    data: HeatmapData,
+    x_scale: &XS,
+    y_scale: &YS,
+    config: &ContourConfig,
+    selection: (Renderer2D, VelloBackend, &'static str),
+) -> AnyElement
+where
+    XS: d3rs::scale::Scale<f64, f64> + Clone + 'static,
+    YS: d3rs::scale::Scale<f64, f64> + Clone + 'static,
+{
+    match selection.0 {
+        #[cfg(feature = "vello")]
+        Renderer2D::Vello => {
+            render_heatmap_vello(data, x_scale, y_scale, config, selection.1).into_any_element()
+        }
+        #[cfg(not(feature = "vello"))]
+        Renderer2D::Vello => render_heatmap(data, x_scale, y_scale, config).into_any_element(),
+        Renderer2D::Legacy => render_heatmap(data, x_scale, y_scale, config).into_any_element(),
+    }
+}

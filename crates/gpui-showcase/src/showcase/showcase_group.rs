@@ -106,7 +106,11 @@ impl ShowcaseGroup {
                 ShowcaseSection::StepIndicator,
                 ShowcaseSection::Workflow,
             ],
-            ShowcaseGroup::Media => &[ShowcaseSection::QrCode, ShowcaseSection::ImageView],
+            ShowcaseGroup::Media => &[
+                ShowcaseSection::QrCode,
+                ShowcaseSection::ImageView,
+                ShowcaseSection::AudioVisuals,
+            ],
         }
     }
 
@@ -195,7 +199,8 @@ Workflow is a node-and-edge graph editor for visual pipeline or flowchart buildi
             ShowcaseGroup::Media => {
                 "\
 QR Code generates and renders a QR code from data. \
-Image View displays images with optional zoom, pan, and loading states."
+Image View displays images with optional zoom, pan, and loading states. \
+Audio Visuals demonstrates Vello-backed spectrum, meters, potentiometers, and volume knobs."
             }
         }
     }

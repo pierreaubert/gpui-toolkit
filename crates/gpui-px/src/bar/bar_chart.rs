@@ -14,6 +14,7 @@ use crate::{
 use d3rs::axis::{AxisConfig, DefaultAxisTheme, render_axis};
 use d3rs::color::D3Color;
 use d3rs::grid::{GridConfig, render_grid};
+use d3rs::render2d::{Renderer2D, VelloBackend};
 use d3rs::scale::{LinearScale, LogScale, Scale};
 use d3rs::shape::{BarConfig, BarDatum, render_bars};
 use d3rs::text::{GlyphTextConfig, render_glyph_text};
@@ -31,6 +32,8 @@ pub struct BarChart {
     pub(super) label: Option<String>,
     pub(super) color: u32,
     pub(super) opacity: f32,
+    pub(super) renderer_2d: Renderer2D,
+    pub(super) vello_backend: VelloBackend,
     // Additional series
     pub(super) series: Vec<BarSeries>,
     // Common settings
@@ -55,6 +58,18 @@ pub struct BarChart {
 }
 
 impl BarChart {
+    /// Select the high-level 2D renderer. Vello is the default when enabled.
+    pub fn renderer_2d(mut self, renderer: Renderer2D) -> Self {
+        self.renderer_2d = renderer;
+        self
+    }
+
+    /// Select the Vello WGPU/CPU backend.
+    pub fn vello_backend(mut self, backend: VelloBackend) -> Self {
+        self.vello_backend = backend;
+        self
+    }
+
     /// Export this bar chart as deterministic SVG.
     pub fn to_svg(&self) -> Result<String, ChartError> {
         self.to_svg_with_options(crate::StaticSvgOptions::new(self.width, self.height))
@@ -627,16 +642,20 @@ impl BarChart {
                         self.border_radius,
                         plot_width as f32,
                         plot_height as f32,
+                        self.renderer_2d,
+                        self.vello_backend,
                     ))
                 } else {
                     // Use simple bar rendering
-                    plot_area.child(render_bars(
+                    plot_area.child(render_bars_selected(
                         &x_scale,
                         &$y_scale,
                         &primary_data,
                         plot_width as f32,
                         plot_height as f32,
                         &primary_config,
+                        self.renderer_2d,
+                        self.vello_backend,
                     ))
                 }
             }};
@@ -851,6 +870,8 @@ pub fn bar<S: AsRef<str>>(categories: &[S], values: &[f64]) -> BarChart {
         label: None,
         color: DEFAULT_COLOR,
         opacity: 0.8,
+        renderer_2d: d3rs::render2d::Renderer2D::default(),
+        vello_backend: d3rs::render2d::VelloBackend::default(),
         series: Vec::new(),
         title: None,
         bar_gap: 2.0,
@@ -870,6 +891,31 @@ pub fn bar<S: AsRef<str>>(categories: &[S], values: &[f64]) -> BarChart {
     }
 }
 
+fn render_bars_selected<XS, YS>(
+    x_scale: &XS,
+    y_scale: &YS,
+    data: &[BarDatum],
+    width: f32,
+    height: f32,
+    config: &BarConfig,
+    renderer: Renderer2D,
+    backend: VelloBackend,
+) -> AnyElement
+where
+    XS: Scale<f64, f64> + 'static,
+    YS: Scale<f64, f64> + 'static,
+{
+    #[cfg(feature = "vello")]
+    if renderer == Renderer2D::Vello {
+        return d3rs::shape::render_bars_vello(
+            x_scale, y_scale, data, width, height, config, backend,
+        )
+        .into_any_element();
+    }
+    let _ = (renderer, backend);
+    render_bars(x_scale, y_scale, data, width, height, config).into_any_element()
+}
+
 /// Render grouped bars without cloning category/series strings.
 ///
 /// Bar positions are computed directly from the original `categories`, `values`
@@ -886,7 +932,9 @@ fn render_grouped_bars_view<YS>(
     border_radius: f32,
     plot_width: f32,
     plot_height: f32,
-) -> impl IntoElement
+    renderer: Renderer2D,
+    backend: VelloBackend,
+) -> AnyElement
 where
     YS: Scale<f64, f64>,
 {
@@ -979,6 +1027,57 @@ where
         a_key.cmp(&b_key)
     });
 
+    #[cfg(feature = "vello")]
+    if renderer == Renderer2D::Vello {
+        let vello_quads = quads.clone();
+        return d3rs::vello2d::VelloChartElement::with_builder(move |width, height| {
+            use d3rs::vello2d::kurbo::{BezPath, PathEl};
+            use d3rs::vello2d::peniko::{Brush, Color};
+            let sx = if plot_width.abs() > f32::EPSILON {
+                width / plot_width
+            } else {
+                1.0
+            };
+            let sy = if plot_height.abs() > f32::EPSILON {
+                height / plot_height
+            } else {
+                1.0
+            };
+            let mut scene = d3rs::vello2d::ChartScene::new();
+            let mut start = 0usize;
+            while start < vello_quads.len() {
+                let color = vello_quads[start].color;
+                let mut end = start + 1;
+                while end < vello_quads.len() && vello_quads[end].color == color {
+                    end += 1;
+                }
+                let mut path = BezPath::new();
+                for quad in &vello_quads[start..end] {
+                    let x0 = quad.x * sx;
+                    let y0 = quad.y * sy;
+                    let x1 = (quad.x + quad.width) * sx;
+                    let y1 = (quad.y + quad.height) * sy;
+                    path.push(PathEl::MoveTo((x0 as f64, y0 as f64).into()));
+                    path.push(PathEl::LineTo((x1 as f64, y0 as f64).into()));
+                    path.push(PathEl::LineTo((x1 as f64, y1 as f64).into()));
+                    path.push(PathEl::LineTo((x0 as f64, y1 as f64).into()));
+                    path.push(PathEl::ClosePath);
+                }
+                let rgba = color.to_rgba();
+                scene.fill_path(
+                    path,
+                    Brush::Solid(Color::new([rgba.r, rgba.g, rgba.b, rgba.a * opacity])),
+                );
+                start = end;
+            }
+            scene
+        })
+        .backend(backend)
+        .absolute()
+        .into_any_element();
+    }
+    let _ = (renderer, backend);
+
     canvas(
         move |_bounds, _window, _cx| quads,
         move |bounds, quads, window, _cx| {
@@ -1017,6 +1116,7 @@ where
     .size_full()
     .absolute()
     .inset_0()
+    .into_any_element()
 }
 
 /// Append a rounded rectangle outline to a GPUI path builder.

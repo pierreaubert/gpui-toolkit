@@ -2923,7 +2923,6 @@ fn mesh_view_transform(
     ]
 }
 
-#[cfg(feature = "gpu-2d")]
 fn mesh_point_to_domain(
     state: &MeshPlotState,
     screen_x: f32,

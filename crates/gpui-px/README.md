@@ -461,3 +461,6 @@ match scatter(&x, &y).build() {
 ## License
 
 - [ISC License](https://en.wikipedia.org/wiki/ISC_license)
+## 2D renderer selection
+
+All ordinary chart builders (line, area, bar, scatter, boxplot, pie/donut, treemap, heatmap, contour, and isoline) select Vello by default through `gpui-d3rs` when the `vello` feature is enabled. Use `.renderer_2d(Renderer2D::Legacy)` for the original `gpu2d` path, or select `VelloBackend::Cpu`, `Wgpu`, or `Auto` for Vello backend QA. A no-default-features build keeps the Legacy escape hatch and does not require Vello.

@@ -56,3 +56,52 @@ pub fn web_init() {
     console_error_panic_hook::set_once();
     gpui_web::init_logging();
 }
+
+/// Read a simple query-string parameter from the hosting page.
+///
+/// Demo pages use this to select a deterministic initial story without
+/// synthesizing pointer events against GPUI's single canvas. Values used by
+/// the showcase catalog are ASCII slugs, so a small parser is preferable to
+/// pulling a URL parser into every wasm demo.
+#[cfg(target_family = "wasm")]
+pub fn web_query_param(name: &str) -> Option<String> {
+    let search = web_sys::window()?.location().search().ok()?;
+    search
+        .trim_start_matches('?')
+        .split('&')
+        .filter_map(|pair| pair.split_once('='))
+        .find_map(|(key, value)| (key == name).then(|| value.replace('+', " ")))
+}
+
+/// Resolve the optional `theme=` query parameter used by generated demo URLs.
+#[cfg(target_family = "wasm")]
+pub fn web_initial_theme() -> gpui_ui_kit::theme::ThemeVariant {
+    let value = web_query_param("theme")
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    match value.as_str() {
+        "light" => gpui_ui_kit::theme::ThemeVariant::Light,
+        "midnight" => gpui_ui_kit::theme::ThemeVariant::Midnight,
+        "forest" => gpui_ui_kit::theme::ThemeVariant::Forest,
+        "black-and-white" | "black_and_white" => gpui_ui_kit::theme::ThemeVariant::BlackAndWhite,
+        "onyx" => gpui_ui_kit::theme::ThemeVariant::Onyx,
+        "carbon-white" | "carbon_white" => gpui_ui_kit::theme::ThemeVariant::CarbonWhite,
+        "carbon-gray-10" | "carbon_gray_10" => gpui_ui_kit::theme::ThemeVariant::CarbonGray10,
+        "carbon-gray-90" | "carbon_gray_90" => gpui_ui_kit::theme::ThemeVariant::CarbonGray90,
+        "carbon-gray-100" | "carbon_gray_100" => gpui_ui_kit::theme::ThemeVariant::CarbonGray100,
+        _ => gpui_ui_kit::theme::ThemeVariant::Dark,
+    }
+}
+
+/// Mark the GPUI page ready for browser automation after its window has been
+/// opened. The capture harness still waits for a canvas and an additional
+/// settle period, but this removes the fragile fixed boot-only sleep.
+#[cfg(target_family = "wasm")]
+pub fn web_mark_ready() {
+    let Some(document) = web_sys::window().and_then(|window| window.document()) else {
+        return;
+    };
+    if let Some(root) = document.document_element() {
+        let _ = root.set_attribute("data-gpui-ready", "true");
+    }
+}

@@ -11,6 +11,7 @@ use d3rs::axis::{AxisConfig, DefaultAxisTheme, render_axis};
 use d3rs::color::D3Color;
 use d3rs::contour::ContourGenerator;
 use d3rs::grid::{GridConfig, render_grid};
+use d3rs::render2d::{Renderer2D, VelloBackend};
 use d3rs::scale::{LinearScale, LogScale};
 use d3rs::shape::{ContourConfig, render_contour_bands};
 use d3rs::text::{GlyphTextConfig, render_glyph_text};
@@ -35,6 +36,8 @@ pub struct ContourChart {
     pub(super) title: Option<String>,
     pub(super) opacity: f32,
     pub(super) contour_upsample_factor: usize,
+    pub(super) renderer_2d: Renderer2D,
+    pub(super) vello_backend: VelloBackend,
     pub(super) width: f32,
     pub(super) height: f32,
     pub(super) chart_size: ChartSize,
@@ -62,6 +65,18 @@ impl std::fmt::Debug for ContourChart {
 }
 
 impl ContourChart {
+    /// Select the high-level 2D renderer. Vello is the default when enabled.
+    pub fn renderer_2d(mut self, renderer: Renderer2D) -> Self {
+        self.renderer_2d = renderer;
+        self
+    }
+
+    /// Select the Vello WGPU/CPU backend.
+    pub fn vello_backend(mut self, backend: VelloBackend) -> Self {
+        self.vello_backend = backend;
+        self
+    }
+
     /// Export this contour chart as deterministic SVG.
     pub fn to_svg(&self) -> Result<String, ChartError> {
         self.to_svg_with_options(crate::StaticSvgOptions::new(self.width, self.height))
@@ -556,7 +571,9 @@ impl ContourChart {
             .fill_opacity(self.opacity)
             .stroke_width(0.5)
             .stroke_opacity(0.3)
-            .color_scale(color_fn);
+            .color_scale(color_fn)
+            .renderer_2d(self.renderer_2d)
+            .vello_backend(self.vello_backend);
 
         // Build the element based on scale types
         let contour_element: AnyElement = match (self.x_scale_type, self.y_scale_type) {
@@ -595,9 +612,16 @@ impl ContourChart {
                                         plot_height as f32,
                                         &theme,
                                     ))
-                                    .child(div().absolute().inset_0().child(render_contour_bands(
-                                        bands, &x_scale, &y_scale, &config,
-                                    ))),
+                                    .child(div().absolute().inset_0().child(
+                                        render_contour_bands_selected(
+                                            bands,
+                                            &x_scale,
+                                            &y_scale,
+                                            &config,
+                                            self.renderer_2d,
+                                            self.vello_backend,
+                                        ),
+                                    )),
                             )
                             .child(render_axis(
                                 &x_scale,
@@ -643,9 +667,16 @@ impl ContourChart {
                                         plot_height as f32,
                                         &theme,
                                     ))
-                                    .child(div().absolute().inset_0().child(render_contour_bands(
-                                        bands, &x_scale, &y_scale, &config,
-                                    ))),
+                                    .child(div().absolute().inset_0().child(
+                                        render_contour_bands_selected(
+                                            bands,
+                                            &x_scale,
+                                            &y_scale,
+                                            &config,
+                                            self.renderer_2d,
+                                            self.vello_backend,
+                                        ),
+                                    )),
                             )
                             .child(render_axis(
                                 &x_scale,
@@ -691,9 +722,16 @@ impl ContourChart {
                                         plot_height as f32,
                                         &theme,
                                     ))
-                                    .child(div().absolute().inset_0().child(render_contour_bands(
-                                        bands, &x_scale, &y_scale, &config,
-                                    ))),
+                                    .child(div().absolute().inset_0().child(
+                                        render_contour_bands_selected(
+                                            bands,
+                                            &x_scale,
+                                            &y_scale,
+                                            &config,
+                                            self.renderer_2d,
+                                            self.vello_backend,
+                                        ),
+                                    )),
                             )
                             .child(render_axis(
                                 &x_scale,
@@ -739,9 +777,16 @@ impl ContourChart {
                                         plot_height as f32,
                                         &theme,
                                     ))
-                                    .child(div().absolute().inset_0().child(render_contour_bands(
-                                        bands, &x_scale, &y_scale, &config,
-                                    ))),
+                                    .child(div().absolute().inset_0().child(
+                                        render_contour_bands_selected(
+                                            bands,
+                                            &x_scale,
+                                            &y_scale,
+                                            &config,
+                                            self.renderer_2d,
+                                            self.vello_backend,
+                                        ),
+                                    )),
                             )
                             .child(render_axis(
                                 &x_scale,
@@ -821,6 +866,8 @@ pub fn contour(z: &[f64], grid_width: usize, grid_height: usize) -> ContourChart
         title: None,
         opacity: 0.8,
         contour_upsample_factor: 1,
+        renderer_2d: Renderer2D::default(),
+        vello_backend: VelloBackend::default(),
         width: DEFAULT_WIDTH,
         height: DEFAULT_HEIGHT,
         chart_size: ChartSize::default(),
@@ -828,6 +875,27 @@ pub fn contour(z: &[f64], grid_width: usize, grid_height: usize) -> ContourChart
         y_range: None,
         design: None,
     }
+}
+
+fn render_contour_bands_selected<XS, YS>(
+    bands: impl Into<Arc<[d3rs::contour::ContourBand]>>,
+    x_scale: &XS,
+    y_scale: &YS,
+    config: &ContourConfig,
+    renderer: Renderer2D,
+    backend: VelloBackend,
+) -> AnyElement
+where
+    XS: d3rs::scale::Scale<f64, f64> + Clone + 'static,
+    YS: d3rs::scale::Scale<f64, f64> + Clone + 'static,
+{
+    #[cfg(feature = "vello")]
+    if renderer == Renderer2D::Vello {
+        return d3rs::shape::render_contour_bands_vello(bands, x_scale, y_scale, config, backend)
+            .into_any_element();
+    }
+    let _ = (renderer, backend);
+    render_contour_bands(bands, x_scale, y_scale, config).into_any_element()
 }
 
 fn draw_static_contour_axes(

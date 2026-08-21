@@ -67,23 +67,29 @@ pub use bar::{
     BarConfig, BarDatum, GroupedBarConfig, GroupedBarDatum, GroupedBarMeta, analyze_grouped_data,
     render_bars, render_grouped_bars,
 };
+#[cfg(all(feature = "vello-gpui", not(test)))]
+pub use bar::{render_bars_vello, render_grouped_bars_vello};
 #[cfg(all(feature = "gpui", not(test)))]
 pub use contour::{
     ContourBandElement, ContourConfig, ContourElement, HeatmapData, HeatmapElement,
     heat_color_scale, render_contour, render_contour_bands, render_heatmap, viridis_color_scale,
 };
+#[cfg(all(feature = "vello-gpui", not(test)))]
+pub use contour::{render_contour_bands_vello, render_contour_vello, render_heatmap_vello};
+#[cfg(all(feature = "vello-gpui", not(test)))]
+pub use line::render_line_vello;
 pub use line::{
     CurveType, LineConfig, LinePoint, LineRenderError, StrokeDashArray, validate_line_inputs,
 };
 #[cfg(all(feature = "gpui", not(test)))]
 pub use line::{render_line, try_render_line};
+#[cfg(all(feature = "vello-gpui", not(test)))]
+pub use scatter::render_scatter_vello;
+#[cfg(feature = "vello")]
+pub use scatter::scatter_chart_scene;
 pub use scatter::{ScatterConfig, ScatterPoint, ScatterRenderError, validate_scatter_inputs};
 #[cfg(all(feature = "gpui", not(test)))]
 pub use scatter::{render_scatter, try_render_scatter};
-#[cfg(feature = "vello")]
-pub use scatter::scatter_chart_scene;
-#[cfg(all(feature = "vello-gpui", not(test)))]
-pub use scatter::render_scatter_vello;
 
 // Re-export new shape utilities (no GPUI dependency)
 pub use arc::{Arc, ArcDatum, ArcGenerationError, arc_points, try_arc_points};

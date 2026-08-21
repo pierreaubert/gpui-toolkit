@@ -9,6 +9,7 @@ use crate::{
     validate_data_length, validate_dimensions, validate_positive,
 };
 use d3rs::color::D3Color;
+use d3rs::render2d::{Renderer2D, VelloBackend};
 use d3rs::scale::{LinearScale, LogScale, Scale};
 use d3rs::shape::{Area, Curve};
 use d3rs::text::{GlyphTextConfig, render_glyph_text};
@@ -26,6 +27,8 @@ pub struct AreaChart {
     title: Option<String>,
     color: u32,
     opacity: f32,
+    renderer_2d: Renderer2D,
+    vello_backend: VelloBackend,
     curve: Curve,
     width: f32,
     height: f32,
@@ -36,6 +39,18 @@ pub struct AreaChart {
 }
 
 impl AreaChart {
+    /// Select the high-level 2D renderer. Vello is the default when enabled.
+    pub fn renderer_2d(mut self, renderer: Renderer2D) -> Self {
+        self.renderer_2d = renderer;
+        self
+    }
+
+    /// Select the Vello WGPU/CPU backend.
+    pub fn vello_backend(mut self, backend: VelloBackend) -> Self {
+        self.vello_backend = backend;
+        self
+    }
+
     /// Export this area chart as deterministic SVG.
     pub fn to_svg(&self) -> Result<String, ChartError> {
         self.to_svg_with_options(crate::StaticSvgOptions::new(self.width, self.height))
@@ -287,7 +302,64 @@ impl AreaChart {
                 )
             };
 
+        let renderer_2d = self.renderer_2d;
+        let vello_backend = self.vello_backend;
         let render_element = move |points: Arc<Vec<gpui::Point<gpui::Pixels>>>| {
+            #[cfg(feature = "vello")]
+            if renderer_2d == Renderer2D::Vello {
+                let source_points = points.clone();
+                return d3rs::vello2d::VelloChartElement::with_builder(move |width, height| {
+                    use d3rs::vello2d::kurbo::{BezPath, PathEl};
+                    use d3rs::vello2d::peniko::{Brush, Color};
+                    let sx = if layout_width > 0.0 {
+                        width as f64 / layout_width as f64
+                    } else {
+                        1.0
+                    };
+                    let sy = if plot_height > 0.0 {
+                        height as f64 / plot_height as f64
+                    } else {
+                        1.0
+                    };
+                    let mut path = BezPath::new();
+                    if let Some(first) = source_points.first() {
+                        path.push(PathEl::MoveTo(
+                            (
+                                f32::from(first.x) as f64 * sx,
+                                f32::from(first.y) as f64 * sy,
+                            )
+                                .into(),
+                        ));
+                        for point in source_points.iter().skip(1) {
+                            path.push(PathEl::LineTo(
+                                (
+                                    f32::from(point.x) as f64 * sx,
+                                    f32::from(point.y) as f64 * sy,
+                                )
+                                    .into(),
+                            ));
+                        }
+                        path.push(PathEl::ClosePath);
+                    }
+                    let mut scene = d3rs::vello2d::ChartScene::new();
+                    if !path.is_empty() {
+                        scene.fill_path(
+                            path,
+                            Brush::Solid(Color::new([
+                                fill_color.r,
+                                fill_color.g,
+                                fill_color.b,
+                                fill_color.a * opacity,
+                            ])),
+                        );
+                    }
+                    scene
+                })
+                .backend(vello_backend)
+                .absolute()
+                .into_any_element();
+            }
+            let _ = (renderer_2d, vello_backend);
             canvas(
                 move |bounds, _, _| (points.clone(), bounds),
                 move |_, (points, bounds), window, _| {
@@ -328,6 +400,7 @@ impl AreaChart {
                     }
                 },
             )
+            .into_any_element()
         };
 
         // Build the element based on scale types
@@ -435,6 +508,8 @@ pub fn area(x: &[f64], y: &[f64]) -> AreaChart {
         title: None,
         color: DEFAULT_COLOR,
         opacity: 0.6,
+        renderer_2d: Renderer2D::default(),
+        vello_backend: VelloBackend::default(),
         curve: Curve::Linear,
         width: DEFAULT_WIDTH,
         height: DEFAULT_HEIGHT,

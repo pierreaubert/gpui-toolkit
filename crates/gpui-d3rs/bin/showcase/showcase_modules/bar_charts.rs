@@ -2,7 +2,13 @@ use d3rs::axis::{AxisConfig, DefaultAxisTheme, render_axis};
 use d3rs::color::ColorScheme;
 use d3rs::grid::{GridConfig, render_grid};
 use d3rs::prelude::*;
-use d3rs::shape::{GroupedBarConfig, GroupedBarDatum, analyze_grouped_data, render_grouped_bars};
+use d3rs::render2d::{Renderer2D, VelloBackend};
+use d3rs::shape::{
+    GroupedBarConfig, GroupedBarDatum, GroupedBarMeta, analyze_grouped_data, render_bars,
+    render_grouped_bars,
+};
+#[cfg(feature = "vello")]
+use d3rs::shape::{render_bars_vello, render_grouped_bars_vello};
 use gpui::*;
 use gpui_ui_kit::theme::ThemeExt;
 
@@ -66,7 +72,7 @@ pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
             div()
                 .text_2xl()
                 .font_weight(FontWeight::BOLD)
-                .child("Bar Charts Demo"),
+                .child(format!("Bar Charts Demo · {}", app.renderer_label())),
         )
         // Simple bar chart
         .child(
@@ -109,7 +115,7 @@ pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                             height,
                                             &theme,
                                         ))
-                                        .child(render_bars(
+                                        .child(render_bars_selected(
                                             &x_scale,
                                             &y_scale,
                                             &data,
@@ -118,6 +124,7 @@ pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                             &BarConfig::new()
                                                 .fill_color(scheme.color(0))
                                                 .opacity(0.85),
+                                            app.renderer_selection(),
                                         )),
                                 )
                                 .child(render_axis(
@@ -176,7 +183,7 @@ pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                             height,
                                             &theme,
                                         ))
-                                        .child(render_bars(
+                                        .child(render_bars_selected(
                                             &mixed_x_scale,
                                             &mixed_y_scale,
                                             &mixed_data,
@@ -185,6 +192,7 @@ pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                             &BarConfig::new()
                                                 .fill_color(scheme.color(2))
                                                 .bar_gap(4.0),
+                                            app.renderer_selection(),
                                         )),
                                 )
                                 .child(render_axis(
@@ -229,7 +237,7 @@ pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                         .bg(ui_theme.surface)
                                         .border_1()
                                         .border_color(ui_theme.border)
-                                        .child(render_grouped_bars(
+                                        .child(render_grouped_bars_selected(
                                             &grouped_y_scale,
                                             &grouped_data,
                                             &grouped_meta,
@@ -240,6 +248,7 @@ pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                                 .group_gap(16.0)
                                                 .bar_gap(2.0)
                                                 .opacity(0.9),
+                                            app.renderer_selection(),
                                         )),
                                 )
                                 // Legend for grouped bars
@@ -265,3 +274,60 @@ pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
 }
 
 use super::ShowcaseApp;
+
+fn render_bars_selected<XS, YS>(
+    x_scale: &XS,
+    y_scale: &YS,
+    data: &[BarDatum],
+    width: f32,
+    height: f32,
+    config: &BarConfig,
+    selection: (Renderer2D, VelloBackend, &'static str),
+) -> AnyElement
+where
+    XS: d3rs::scale::Scale<f64, f64> + Clone + 'static,
+    YS: d3rs::scale::Scale<f64, f64> + Clone + 'static,
+{
+    match selection.0 {
+        #[cfg(feature = "vello")]
+        Renderer2D::Vello => {
+            render_bars_vello(x_scale, y_scale, data, width, height, config, selection.1)
+                .into_any_element()
+        }
+        #[cfg(not(feature = "vello"))]
+        Renderer2D::Vello => {
+            render_bars(x_scale, y_scale, data, width, height, config).into_any_element()
+        }
+        Renderer2D::Legacy => {
+            render_bars(x_scale, y_scale, data, width, height, config).into_any_element()
+        }
+    }
+}
+
+fn render_grouped_bars_selected<YS>(
+    y_scale: &YS,
+    data: &[GroupedBarDatum],
+    meta: &GroupedBarMeta,
+    width: f32,
+    height: f32,
+    config: &GroupedBarConfig,
+    selection: (Renderer2D, VelloBackend, &'static str),
+) -> AnyElement
+where
+    YS: d3rs::scale::Scale<f64, f64> + Clone + 'static,
+{
+    match selection.0 {
+        #[cfg(feature = "vello")]
+        Renderer2D::Vello => {
+            render_grouped_bars_vello(y_scale, data, meta, width, height, config, selection.1)
+                .into_any_element()
+        }
+        #[cfg(not(feature = "vello"))]
+        Renderer2D::Vello => {
+            render_grouped_bars(y_scale, data, meta, width, height, config).into_any_element()
+        }
+        Renderer2D::Legacy => {
+            render_grouped_bars(y_scale, data, meta, width, height, config).into_any_element()
+        }
+    }
+}

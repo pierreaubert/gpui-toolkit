@@ -5,15 +5,21 @@
 //!
 //! The example shows both:
 //! 1. **Low-level API**: Direct use of ContourGenerator, scales, and manual rendering
-//! 2. **High-level API**: Using render_contour() and render_heatmap() helper functions
+//! 2. **High-level API**: Using the Vello-default contour and heatmap helpers
 
 use super::volcano_data::{VOLCANO_HEIGHT, VOLCANO_WIDTH, generate_volcano_data};
 use crate::ShowcaseApp;
 use d3rs::contour::ContourGenerator;
 use d3rs::prelude::*;
+use d3rs::render2d::{Renderer2D, VelloBackend};
 use d3rs::shape::contour::{
-    ContourConfig, HeatmapData, render_contour, render_contour_bands, render_heatmap,
+    ContourConfig, HeatmapData, render_contour as render_contour_legacy,
+    render_contour_bands as render_contour_bands_legacy, render_heatmap as render_heatmap_legacy,
     turbo_color_scale, viridis_color_scale,
+};
+#[cfg(feature = "vello")]
+use d3rs::shape::contour::{
+    render_contour_bands_vello, render_contour_vello, render_heatmap_vello,
 };
 use gpui::*;
 use gpui_ui_kit::Slider;
@@ -59,6 +65,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
     let num_thresholds = app.volcano_num_thresholds;
     let color_scale_type = app.volcano_color_scale;
     let show_stroke = app.volcano_show_stroke;
+    let renderer_selection = app.renderer_selection();
 
     // Generate thresholds evenly spaced across the elevation range.
     // Include max_elev so the top band is fully covered.
@@ -163,7 +170,10 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                             div()
                                                 .text_lg()
                                                 .font_weight(FontWeight::SEMIBOLD)
-                                                .child("High-level API: render_contour()"),
+                                                .child(format!(
+                                                    "High-level API: render_contour() · {}",
+                                                    renderer_selection.2
+                                                )),
                                         )
                                         .child(
                                             div()
@@ -189,26 +199,20 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                         .border_color(ui_theme.border)
                                         .rounded_md()
                                         .overflow_hidden()
-                                        .child(
-                                            render_contour_bands(
-                                                bands.clone(),
-                                                &x_scale,
-                                                &y_scale,
-                                                &band_config,
-                                            )
-                                            .value_range(min_elev, max_elev)
-                                            .height(px(plot_height as f32)),
-                                        )
-                                        .child(
-                                            render_contour(
-                                                contours.clone(),
-                                                &x_scale,
-                                                &y_scale,
-                                                &line_config,
-                                            )
-                                            .value_range(min_elev, max_elev)
-                                            .height(px(plot_height as f32)),
-                                        ),
+                                        .child(render_contour_bands_selected(
+                                            bands.clone(),
+                                            &x_scale,
+                                            &y_scale,
+                                            &band_config,
+                                            renderer_selection,
+                                        ))
+                                        .child(render_contour_selected(
+                                            contours.clone(),
+                                            &x_scale,
+                                            &y_scale,
+                                            &line_config,
+                                            renderer_selection,
+                                        )),
                                 ),
                         )
                         // High-level API: render_heatmap()
@@ -217,12 +221,12 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                 .flex()
                                 .flex_col()
                                 .gap_2()
-                                .child(
-                                    div()
-                                        .text_lg()
-                                        .font_weight(FontWeight::SEMIBOLD)
-                                        .child("High-level API: render_heatmap()"),
-                                )
+                                .child(div().text_lg().font_weight(FontWeight::SEMIBOLD).child(
+                                    format!(
+                                        "High-level API: render_heatmap() · {}",
+                                        renderer_selection.2
+                                    ),
+                                ))
                                 .child(
                                     div()
                                         .text_xs()
@@ -238,16 +242,13 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                         .border_color(ui_theme.border)
                                         .rounded_md()
                                         .overflow_hidden()
-                                        .child(
-                                            render_heatmap(
-                                                heatmap_data,
-                                                &x_scale,
-                                                &y_scale,
-                                                &band_config,
-                                            )
-                                            .value_range(min_elev, max_elev)
-                                            .height(px(plot_height as f32)),
-                                        ),
+                                        .child(render_heatmap_selected(
+                                            heatmap_data,
+                                            &x_scale,
+                                            &y_scale,
+                                            &band_config,
+                                            renderer_selection,
+                                        )),
                                 ),
                         ),
                 )
@@ -485,4 +486,83 @@ fn render_color_legend(scale_type: VolcanoColorScale, min_val: f64, max_val: f64
                 )
                 .child(div().text_xs().child(format!("{:.0}m", max_val))),
         )
+}
+
+fn render_contour_selected<XS, YS>(
+    contours: impl Into<std::sync::Arc<[d3rs::contour::Contour]>>,
+    x_scale: &XS,
+    y_scale: &YS,
+    config: &ContourConfig,
+    selection: (Renderer2D, VelloBackend, &'static str),
+) -> AnyElement
+where
+    XS: d3rs::scale::Scale<f64, f64> + Clone + 'static,
+    YS: d3rs::scale::Scale<f64, f64> + Clone + 'static,
+{
+    match selection.0 {
+        #[cfg(feature = "vello")]
+        Renderer2D::Vello => {
+            render_contour_vello(contours, x_scale, y_scale, config, selection.1).into_any_element()
+        }
+        #[cfg(not(feature = "vello"))]
+        Renderer2D::Vello => {
+            render_contour_legacy(contours, x_scale, y_scale, config).into_any_element()
+        }
+        Renderer2D::Legacy => {
+            render_contour_legacy(contours, x_scale, y_scale, config).into_any_element()
+        }
+    }
+}
+
+fn render_contour_bands_selected<XS, YS>(
+    bands: impl Into<std::sync::Arc<[d3rs::contour::ContourBand]>>,
+    x_scale: &XS,
+    y_scale: &YS,
+    config: &ContourConfig,
+    selection: (Renderer2D, VelloBackend, &'static str),
+) -> AnyElement
+where
+    XS: d3rs::scale::Scale<f64, f64> + Clone + 'static,
+    YS: d3rs::scale::Scale<f64, f64> + Clone + 'static,
+{
+    match selection.0 {
+        #[cfg(feature = "vello")]
+        Renderer2D::Vello => {
+            render_contour_bands_vello(bands, x_scale, y_scale, config, selection.1)
+                .into_any_element()
+        }
+        #[cfg(not(feature = "vello"))]
+        Renderer2D::Vello => {
+            render_contour_bands_legacy(bands, x_scale, y_scale, config).into_any_element()
+        }
+        Renderer2D::Legacy => {
+            render_contour_bands_legacy(bands, x_scale, y_scale, config).into_any_element()
+        }
+    }
+}
+
+fn render_heatmap_selected<XS, YS>(
+    data: HeatmapData,
+    x_scale: &XS,
+    y_scale: &YS,
+    config: &ContourConfig,
+    selection: (Renderer2D, VelloBackend, &'static str),
+) -> AnyElement
+where
+    XS: d3rs::scale::Scale<f64, f64> + Clone + 'static,
+    YS: d3rs::scale::Scale<f64, f64> + Clone + 'static,
+{
+    match selection.0 {
+        #[cfg(feature = "vello")]
+        Renderer2D::Vello => {
+            render_heatmap_vello(data, x_scale, y_scale, config, selection.1).into_any_element()
+        }
+        #[cfg(not(feature = "vello"))]
+        Renderer2D::Vello => {
+            render_heatmap_legacy(data, x_scale, y_scale, config).into_any_element()
+        }
+        Renderer2D::Legacy => {
+            render_heatmap_legacy(data, x_scale, y_scale, config).into_any_element()
+        }
+    }
 }

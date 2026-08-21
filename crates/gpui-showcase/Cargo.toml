@@ -11,6 +11,8 @@ publish = false
 [dependencies]
 gpui = { workspace = true }
 gpui-ui-kit = { workspace = true }
+gpui-audio-kit = { workspace = true }
+gpui-d3rs = { workspace = true }
 gpui-miniapp = { workspace = true }
 gpui-design = { workspace = true, features = ["gpui"] }
 

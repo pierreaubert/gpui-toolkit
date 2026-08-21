@@ -10,7 +10,8 @@ license.workspace = true
 repository.workspace = true
 
 [features]
-default = []
+default = ["vello"]
+vello = ["gpui-d3rs/vello-gpui"]
 autoeq = []
 gpu-2d = []
 gpu-3d = []
@@ -22,6 +23,7 @@ urlencoding = []
 
 [dependencies]
 gpui = { workspace = true }
+gpui-d3rs = { workspace = true, default-features = false, features = ["gpui"] }
 gpui-design = { workspace = true, features = ["gpui"] }
 gpui-ui-kit = { workspace = true }
 

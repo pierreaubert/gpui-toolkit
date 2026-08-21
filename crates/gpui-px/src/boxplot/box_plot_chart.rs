@@ -10,6 +10,7 @@ use crate::{
 use d3rs::axis::{AxisConfig, DefaultAxisTheme, render_axis};
 use d3rs::color::D3Color;
 use d3rs::grid::{GridConfig, render_grid};
+use d3rs::render2d::{Renderer2D, VelloBackend};
 use d3rs::scale::{LinearScale, LogScale, Scale};
 use d3rs::text::{GlyphTextConfig, render_glyph_text};
 use gpui::prelude::*;
@@ -28,6 +29,8 @@ pub struct BoxPlotChart {
     pub(super) whisker_color: u32,
     pub(super) outlier_color: u32,
     pub(super) box_opacity: f32,
+    pub(super) renderer_2d: Renderer2D,
+    pub(super) vello_backend: VelloBackend,
     pub(super) box_width: f32,
     pub(super) stroke_width: f32,
     pub(super) outlier_radius: f32,
@@ -40,7 +43,32 @@ pub struct BoxPlotChart {
     pub(super) design: Option<Arc<DesignSystem>>,
 }
 
+#[derive(Clone, Debug)]
+struct BoxDrawData {
+    x_px: f32,
+    half_width: f32,
+    box_top: f32,
+    box_height: f32,
+    whisker_low_px: f32,
+    whisker_high_px: f32,
+    q2_px: f32,
+    outliers_low: Vec<f32>,
+    outliers_high: Vec<f32>,
+}
+
 impl BoxPlotChart {
+    /// Select the high-level 2D renderer. Vello is the default when enabled.
+    pub fn renderer_2d(mut self, renderer: Renderer2D) -> Self {
+        self.renderer_2d = renderer;
+        self
+    }
+
+    /// Select the Vello WGPU/CPU backend.
+    pub fn vello_backend(mut self, backend: VelloBackend) -> Self {
+        self.vello_backend = backend;
+        self
+    }
+
     /// Export this box plot as deterministic SVG.
     pub fn to_svg(&self) -> Result<String, ChartError> {
         self.to_svg_with_options(crate::StaticSvgOptions::new(self.width, self.height))
@@ -450,19 +478,6 @@ impl BoxPlotChart {
         let y_axis_config = AxisConfig::left().with_design(design);
         let grid_config = GridConfig::default().with_design(design);
 
-        #[derive(Clone, Debug)]
-        struct BoxDrawData {
-            x_px: f32,
-            half_width: f32,
-            box_top: f32,
-            box_height: f32,
-            whisker_low_px: f32,
-            whisker_high_px: f32,
-            q2_px: f32,
-            outliers_low: Vec<f32>,
-            outliers_high: Vec<f32>,
-        }
-
         let box_width = self.box_width;
 
         let draw_data: Vec<BoxDrawData> = boxes
@@ -506,8 +521,12 @@ impl BoxPlotChart {
         let stroke_width = self.stroke_width;
         let box_opacity = self.box_opacity;
         let outlier_radius = self.outlier_radius;
+        let renderer_2d = self.renderer_2d;
+        let vello_backend = self.vello_backend;
+        #[cfg(feature = "vello")]
+        let vello_draw_data = draw_data.clone();
 
-        let plot = canvas(
+        let legacy_plot = canvas(
             move |_bounds, _window, _cx| draw_data.clone(),
             move |bounds, draw_data, window, _cx| {
                 let origin_x: f32 = bounds.origin.x.into();
@@ -592,6 +611,33 @@ impl BoxPlotChart {
         .absolute()
         .inset_0();
 
+        let plot: AnyElement = {
+            #[cfg(feature = "vello")]
+            if renderer_2d == Renderer2D::Vello {
+                let draw_data = vello_draw_data;
+                return_vello_boxplot(
+                    draw_data,
+                    plot_width as f32,
+                    plot_height as f32,
+                    box_color,
+                    median_color,
+                    whisker_color,
+                    outlier_color,
+                    box_opacity,
+                    outlier_radius,
+                    stroke_width,
+                    vello_backend,
+                )
+            } else {
+                legacy_plot.into_any_element()
+            }
+            #[cfg(not(feature = "vello"))]
+            {
+                let _ = (renderer_2d, vello_backend);
+                legacy_plot.into_any_element()
+            }
+        };
+
         div()
             .flex()
             .child(render_axis(
@@ -662,6 +708,8 @@ pub fn boxplot(x: &[f64], y: &[f64]) -> BoxPlotChart {
         whisker_color: 0x333333,
         outlier_color: DEFAULT_COLOR,
         box_opacity: 1.0,
+        renderer_2d: Renderer2D::default(),
+        vello_backend: VelloBackend::default(),
         box_width: 20.0,
         stroke_width: 2.0,
         outlier_radius: 3.0,
@@ -673,6 +721,97 @@ pub fn boxplot(x: &[f64], y: &[f64]) -> BoxPlotChart {
         y_scale_type: ScaleType::Linear,
         design: None,
     }
+}
+
+#[cfg(feature = "vello")]
+fn return_vello_boxplot(
+    draw_data: Vec<BoxDrawData>,
+    plot_width: f32,
+    plot_height: f32,
+    box_color: gpui::Rgba,
+    median_color: gpui::Rgba,
+    whisker_color: gpui::Rgba,
+    outlier_color: gpui::Rgba,
+    box_opacity: f32,
+    outlier_radius: f32,
+    stroke_width: f32,
+    backend: VelloBackend,
+) -> AnyElement {
+    d3rs::vello2d::VelloChartElement::with_builder(move |width, height| {
+        use d3rs::vello2d::kurbo::{BezPath, PathEl, Stroke};
+        use d3rs::vello2d::peniko::{Brush, Color};
+        let sx = if plot_width > 0.0 {
+            width / plot_width
+        } else {
+            1.0
+        };
+        let sy = if plot_height > 0.0 {
+            height / plot_height
+        } else {
+            1.0
+        };
+        let brush = |color: gpui::Rgba, alpha: f32| {
+            Brush::Solid(Color::new([color.r, color.g, color.b, color.a * alpha]))
+        };
+        let mut scene = d3rs::vello2d::ChartScene::new();
+        let mut whiskers = BezPath::new();
+        let mut boxes = BezPath::new();
+        let mut medians = BezPath::new();
+        let mut outliers = Vec::new();
+        for data in &draw_data {
+            let x = data.x_px * sx;
+            let half = data.half_width * sx;
+            let low = data.whisker_low_px * sy;
+            let high = data.whisker_high_px * sy;
+            whiskers.push(PathEl::MoveTo((x as f64, low as f64).into()));
+            whiskers.push(PathEl::LineTo((x as f64, high as f64).into()));
+            for y in [low, high] {
+                whiskers.push(PathEl::MoveTo(((x - half * 0.5) as f64, y as f64).into()));
+                whiskers.push(PathEl::LineTo(((x + half * 0.5) as f64, y as f64).into()));
+            }
+            let top = data.box_top * sy;
+            let bottom = (data.box_top + data.box_height) * sy;
+            boxes.push(PathEl::MoveTo(((x - half) as f64, top as f64).into()));
+            boxes.push(PathEl::LineTo(((x + half) as f64, top as f64).into()));
+            boxes.push(PathEl::LineTo(((x + half) as f64, bottom as f64).into()));
+            boxes.push(PathEl::LineTo(((x - half) as f64, bottom as f64).into()));
+            boxes.push(PathEl::ClosePath);
+            let median = data.q2_px * sy;
+            medians.push(PathEl::MoveTo(((x - half) as f64, median as f64).into()));
+            medians.push(PathEl::LineTo(((x + half) as f64, median as f64).into()));
+            for y in data.outliers_low.iter().chain(data.outliers_high.iter()) {
+                outliers.push((x, *y as f32 * sy));
+            }
+        }
+        if !whiskers.is_empty() {
+            scene.stroke_path(
+                whiskers,
+                Stroke::new(stroke_width as f64),
+                brush(whisker_color, 1.0),
+            );
+        }
+        if !boxes.is_empty() {
+            scene.fill_path(boxes, brush(box_color, box_opacity));
+        }
+        if !medians.is_empty() {
+            scene.stroke_path(
+                medians,
+                Stroke::new(stroke_width as f64 * 2.0),
+                brush(median_color, 1.0),
+            );
+        }
+        if !outliers.is_empty() {
+            let radius = outlier_radius * sx.min(sy);
+            let outlier_brush = brush(outlier_color, 0.7);
+            for (x, y) in outliers {
+                scene.fill_circle(x as f64, y as f64, radius as f64, outlier_brush.clone());
+            }
+        }
+        scene
+    })
+    .backend(backend)
+    .absolute()
+    .into_any_element()
 }
 
 /// Append a rectangle outline to a GPUI path builder.

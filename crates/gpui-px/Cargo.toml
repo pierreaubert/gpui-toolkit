@@ -10,7 +10,7 @@ repository.workspace = true
 description = "High-level Plotly Express-style charting API built on d3rs and GPUI"
 
 [features]
-default = ["gpui", "gpu-2d"]
+default = ["gpui", "gpu-2d", "vello"]
 autoeq = ["dep:autoeq"]
 gpui = ["dep:gpui", "dep:gpui-ui-kit", "dep:gpui-miniapp", "dep:gpui-builder", "dep:gpui-design", "gpui-design/gpui", "gpui-d3rs/gpui"]
 gpu-3d = ["gpui-d3rs/gpu-3d", "gpui-d3rs/gpu-compute", "dep:glam", "dep:image"]

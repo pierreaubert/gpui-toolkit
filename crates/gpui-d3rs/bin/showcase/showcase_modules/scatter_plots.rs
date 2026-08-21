@@ -3,6 +3,10 @@ use d3rs::color::{ColorScheme, D3Color};
 use d3rs::gpu2d::{LodScatterConfig, render_lod_scatter};
 use d3rs::grid::{GridConfig, render_grid};
 use d3rs::prelude::*;
+use d3rs::render2d::{Renderer2D, VelloBackend};
+use d3rs::shape::render_scatter;
+#[cfg(feature = "vello")]
+use d3rs::shape::render_scatter_vello;
 use gpui::*;
 use gpui_ui_kit::theme::ThemeExt;
 
@@ -52,7 +56,7 @@ pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
             div()
                 .text_2xl()
                 .font_weight(FontWeight::BOLD)
-                .child("Scatter Plots Demo"),
+                .child(format!("Scatter Plots Demo · {}", app.renderer_label())),
         )
         // Simple scatter
         .child(
@@ -219,7 +223,7 @@ pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                             height,
                                             &theme,
                                         ))
-                                        .child(render_scatter(
+                        .child(render_scatter_selected(
                                             &x_scale,
                                             &y_scale,
                                             &cluster1,
@@ -228,8 +232,9 @@ pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                                 .point_radius(5.0)
                                                 .stroke_color(D3Color::from_hex(0xffffff))
                                                 .stroke_width(1.5),
+                            app.renderer_selection(),
                                         ))
-                                        .child(render_scatter(
+                        .child(render_scatter_selected(
                                             &x_scale,
                                             &y_scale,
                                             &cluster2,
@@ -238,6 +243,7 @@ pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                                 .point_radius(5.0)
                                                 .stroke_color(D3Color::from_hex(0xffffff))
                                                 .stroke_width(1.5),
+                            app.renderer_selection(),
                                         )),
                                 )
                                 .child(render_axis(
@@ -275,7 +281,7 @@ pub fn render_lod(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
             div()
                 .text_2xl()
                 .font_weight(FontWeight::BOLD)
-                .child("Level of Detail / Large Data"),
+                .child("Level of Detail / Large Data · Legacy GPU2D"),
         )
         .child(
             div()
@@ -358,3 +364,25 @@ pub fn render_lod(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
 }
 
 use super::ShowcaseApp;
+
+fn render_scatter_selected<XS, YS>(
+    x_scale: &XS,
+    y_scale: &YS,
+    data: &[ScatterPoint],
+    config: &ScatterConfig,
+    selection: (Renderer2D, VelloBackend, &'static str),
+) -> AnyElement
+where
+    XS: d3rs::scale::Scale<f64, f64> + Clone + 'static,
+    YS: d3rs::scale::Scale<f64, f64> + Clone + 'static,
+{
+    match selection.0 {
+        #[cfg(feature = "vello")]
+        Renderer2D::Vello => {
+            render_scatter_vello(x_scale, y_scale, data, config, selection.1).into_any_element()
+        }
+        #[cfg(not(feature = "vello"))]
+        Renderer2D::Vello => render_scatter(x_scale, y_scale, data, config).into_any_element(),
+        Renderer2D::Legacy => render_scatter(x_scale, y_scale, data, config).into_any_element(),
+    }
+}

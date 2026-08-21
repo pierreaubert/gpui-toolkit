@@ -6,6 +6,23 @@ tokens, and Apple mobile backends.
 
 [![License](https://img.shields.io/crates/l/gpui-ui-kit)](LICENSE)
 
+## Explore the toolkit
+
+The browser gallery is generated from the real WASM showcases. It includes
+curated feature snapshots, contact sheets for the complete section matrix, and
+links to the live demos.
+
+| UI Kit · buttons | UI Kit · form controls | UI Kit · workflow |
+| --- | --- | --- |
+| [![UI Kit buttons](https://pierreaubert.github.io/gpui-toolkit/thumbnails/showcase/desktop/buttons.webp)](https://pierreaubert.github.io/gpui-toolkit/showcase/?section=buttons&theme=dark) | [![UI Kit form controls](https://pierreaubert.github.io/gpui-toolkit/thumbnails/showcase/desktop/form-controls.webp)](https://pierreaubert.github.io/gpui-toolkit/showcase/?section=form-controls&theme=dark) | [![UI Kit workflow](https://pierreaubert.github.io/gpui-toolkit/thumbnails/showcase/desktop/workflow.webp)](https://pierreaubert.github.io/gpui-toolkit/showcase/?section=workflow&theme=dark) |
+| Chart · scatter | Chart · heatmap | Chart · contour |
+| [![Chart scatter](https://pierreaubert.github.io/gpui-toolkit/thumbnails/px/desktop/scatter.webp)](https://pierreaubert.github.io/gpui-toolkit/px/?section=scatter&theme=dark) | [![Chart heatmap](https://pierreaubert.github.io/gpui-toolkit/thumbnails/px/desktop/heatmap.webp)](https://pierreaubert.github.io/gpui-toolkit/px/?section=heatmap&theme=dark) | [![Chart contour](https://pierreaubert.github.io/gpui-toolkit/thumbnails/px/desktop/contour.webp)](https://pierreaubert.github.io/gpui-toolkit/px/?section=contour&theme=dark) |
+
+[Browse the generated snapshot gallery and live WASM demos →](https://pierreaubert.github.io/gpui-toolkit/)
+
+The gallery is built with `just demo-site`; `just wasm-gallery` additionally
+captures every query-addressable section in the showcase applications.
+
 This is pre-1.0 software with a deliberately narrow crates.io surface. The
 first registry wave is `gpui-design`, `gpui-profiler`, and
 `gpui-ui-kit-macros`; GPUI-dependent crates are distributed as source beta.

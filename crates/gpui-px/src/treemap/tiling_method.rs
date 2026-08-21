@@ -38,6 +38,8 @@ pub fn treemap(root: &TreemapNode) -> Treemap {
         on_click: None,
         hover_enabled: true,
         design: None,
+        renderer_2d: d3rs::render2d::Renderer2D::default(),
+        vello_backend: d3rs::render2d::VelloBackend::default(),
     }
 }
 
