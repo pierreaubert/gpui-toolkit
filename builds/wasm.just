@@ -8,9 +8,9 @@
 wasm_target := "wasm32-unknown-unknown"
 wasm_packages := "-p gpui_web -p gpui-miniapp -p gpui-hello-web -p gpui-showcase -p gpui-px -p gpui-d3rs"
 
-# `wasm-build-site` produces release artifacts first, while `trunk serve`
-# performs its own debug build for the browser capture servers. Two apps build
-# concurrently, so cold GitHub-hosted runners can need several minutes before
+# `wasm-build-site` produces release artifacts first, while `trunk serve
+# --release` serves the browser capture servers. Two apps can still build
+# concurrently on cold GitHub-hosted runners, so allow several minutes before
 # the served page replaces Trunk's source index. Override this for slower
 # runners or local diagnostics.
 wasm_gallery_startup_timeout_s := env_var_or_default("WASM_GALLERY_STARTUP_TIMEOUT_S", "600")
@@ -111,13 +111,15 @@ wasm-gallery only="":
 		for pid in "${pids[@]}"; do wait "$pid" 2>/dev/null || true; done
 	}
 	trap cleanup EXIT INT TERM
+	# The gallery includes a 100k-point Vello capture. Serve release WASM so
+	# synchronous scene construction does not block browser canvas startup.
 	(
 		cd crates/gpui-showcase
-		env -u NO_COLOR RUSTUP_TOOLCHAIN=nightly CARGO_UNSTABLE_BUILD_STD=std,panic_abort trunk serve --port 8081 --open=false --no-autoreload
+		env -u NO_COLOR RUSTUP_TOOLCHAIN=nightly CARGO_UNSTABLE_BUILD_STD=std,panic_abort trunk serve --release --port 8081 --open=false --no-autoreload
 	) & pids+=("$!")
 	(
 		cd crates/gpui-px
-		env -u NO_COLOR RUSTUP_TOOLCHAIN=nightly CARGO_UNSTABLE_BUILD_STD=std,panic_abort trunk serve --port 8082 --open=false --no-autoreload
+		env -u NO_COLOR RUSTUP_TOOLCHAIN=nightly CARGO_UNSTABLE_BUILD_STD=std,panic_abort trunk serve --release --port 8082 --open=false --no-autoreload
 	) & pids+=("$!")
 	for port in 8081 8082; do
 		server_up=""
