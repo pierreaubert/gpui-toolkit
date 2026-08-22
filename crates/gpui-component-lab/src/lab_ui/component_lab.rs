@@ -95,128 +95,172 @@ use gpui_ui_kit::{
 use serde_json::json;
 use std::collections::{BTreeMap, HashSet};
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::{Duration, SystemTime};
 
 fn mesh_plot_square_mesh(id: &str, with_ids: bool) -> TriangleMesh {
+    static POSITIONS: OnceLock<Arc<[[f64; 3]]>> = OnceLock::new();
+    static TRIANGLES: OnceLock<Arc<[[u32; 3]]>> = OnceLock::new();
+    static VERTEX_IDS: OnceLock<Arc<[u64]>> = OnceLock::new();
+    static CELL_IDS: OnceLock<Arc<[u64]>> = OnceLock::new();
     TriangleMesh {
         id: id.into(),
-        positions: vec![
-            [0.0, 0.0, 0.0],
-            [1.0, 0.0, 0.0],
-            [1.0, 1.0, 0.0],
-            [0.0, 1.0, 0.0],
-        ]
-        .into(),
-        triangles: vec![[0, 1, 2], [0, 2, 3]].into(),
-        vertex_ids: with_ids.then(|| vec![100, 101, 102, 103].into()),
-        cell_ids: with_ids.then(|| vec![2000, 2001].into()),
+        positions: POSITIONS
+            .get_or_init(|| {
+                Arc::from([
+                    [0.0, 0.0, 0.0],
+                    [1.0, 0.0, 0.0],
+                    [1.0, 1.0, 0.0],
+                    [0.0, 1.0, 0.0],
+                ])
+            })
+            .clone(),
+        triangles: TRIANGLES
+            .get_or_init(|| Arc::from([[0, 1, 2], [0, 2, 3]]))
+            .clone(),
+        vertex_ids: with_ids.then(|| {
+            VERTEX_IDS
+                .get_or_init(|| Arc::from([100, 101, 102, 103]))
+                .clone()
+        }),
+        cell_ids: with_ids.then(|| CELL_IDS.get_or_init(|| Arc::from([2000, 2001])).clone()),
     }
 }
 
 fn mesh_plot_square_vertex_field(id: &str) -> ScalarField {
+    static VALUES: OnceLock<Arc<[f64]>> = OnceLock::new();
     ScalarField {
         id: id.into(),
         label: "Response".into(),
         unit: Some("dB".into()),
-        values: vec![0.0, 1.0, 2.0, 0.5].into(),
+        values: VALUES
+            .get_or_init(|| Arc::from([0.0, 1.0, 2.0, 0.5]))
+            .clone(),
         association: ScalarAssociation::Vertex,
         valid: None,
     }
 }
 
 fn mesh_plot_square_cell_field(id: &str) -> ScalarField {
+    static VALUES: OnceLock<Arc<[f64]>> = OnceLock::new();
     ScalarField {
         id: id.into(),
         label: "Cell response".into(),
         unit: Some("dB".into()),
-        values: vec![0.25, 1.25].into(),
+        values: VALUES.get_or_init(|| Arc::from([0.25, 1.25])).clone(),
         association: ScalarAssociation::Cell,
         valid: None,
     }
 }
 
 fn mesh_plot_saddle_mesh(id: &str) -> TriangleMesh {
+    static GEOMETRY: OnceLock<(Arc<[[f64; 3]]>, Arc<[[u32; 3]]>)> = OnceLock::new();
+    let (positions, triangles) = GEOMETRY.get_or_init(|| {
+        (
+            Arc::from([
+                [0.0, 0.0, 0.0],
+                [1.0, 0.0, 0.0],
+                [1.0, 1.0, 0.0],
+                [0.0, 1.0, 0.0],
+                [0.5, 0.5, 0.0],
+            ]),
+            Arc::from([[0, 1, 4], [1, 2, 4], [2, 3, 4], [3, 0, 4]]),
+        )
+    });
     TriangleMesh {
         id: id.into(),
-        positions: vec![
-            [0.0, 0.0, 0.0],
-            [1.0, 0.0, 0.0],
-            [1.0, 1.0, 0.0],
-            [0.0, 1.0, 0.0],
-            [0.5, 0.5, 0.0],
-        ]
-        .into(),
-        triangles: vec![[0, 1, 4], [1, 2, 4], [2, 3, 4], [3, 0, 4]].into(),
+        positions: positions.clone(),
+        triangles: triangles.clone(),
         vertex_ids: None,
         cell_ids: None,
     }
 }
 
 fn mesh_plot_saddle_field(id: &str) -> ScalarField {
+    static VALUES: OnceLock<Arc<[f64]>> = OnceLock::new();
     ScalarField {
         id: id.into(),
         label: "Saddle".into(),
         unit: None,
-        values: vec![-1.0, 1.0, -1.0, 1.0, 0.0].into(),
+        values: VALUES
+            .get_or_init(|| Arc::from([-1.0, 1.0, -1.0, 1.0, 0.0]))
+            .clone(),
         association: ScalarAssociation::Vertex,
         valid: None,
     }
 }
 
 fn mesh_plot_annulus_mesh(id: &str) -> TriangleMesh {
+    static GEOMETRY: OnceLock<(Arc<[[f64; 3]]>, Arc<[[u32; 3]]>)> = OnceLock::new();
+    let (positions, triangles) = GEOMETRY.get_or_init(|| {
+        (
+            Arc::from([
+                [0.35, 0.0, 0.0],
+                [1.0, 0.0, 0.0],
+                [1.0, 0.0, 1.0],
+                [0.35, 0.0, 1.0],
+            ]),
+            Arc::from([[0, 1, 2], [0, 2, 3]]),
+        )
+    });
     TriangleMesh {
         id: id.into(),
         // The X/Z plane is interpreted as radial/axial by the axisymmetric
         // stories. The inner radius stays positive so the revolve fixture is
         // an annulus rather than a degenerate disk.
-        positions: vec![
-            [0.35, 0.0, 0.0],
-            [1.0, 0.0, 0.0],
-            [1.0, 0.0, 1.0],
-            [0.35, 0.0, 1.0],
-        ]
-        .into(),
-        triangles: vec![[0, 1, 2], [0, 2, 3]].into(),
+        positions: positions.clone(),
+        triangles: triangles.clone(),
         vertex_ids: None,
         cell_ids: None,
     }
 }
 
 fn mesh_plot_annulus_field(id: &str) -> ScalarField {
+    static VALUES: OnceLock<Arc<[f64]>> = OnceLock::new();
     ScalarField {
         id: id.into(),
         label: "Radial response".into(),
         unit: Some("dB".into()),
-        values: vec![0.1, 0.9, 1.4, 0.4].into(),
+        values: VALUES
+            .get_or_init(|| Arc::from([0.1, 0.9, 1.4, 0.4]))
+            .clone(),
         association: ScalarAssociation::Vertex,
         valid: None,
     }
 }
 
 fn mesh_plot_surface_mesh(id: &str) -> TriangleMesh {
+    static GEOMETRY: OnceLock<(Arc<[[f64; 3]]>, Arc<[[u32; 3]]>)> = OnceLock::new();
+    let (positions, triangles) = GEOMETRY.get_or_init(|| {
+        (
+            Arc::from([
+                [0.0, 0.0, 0.0],
+                [1.0, 0.0, 0.35],
+                [1.0, 1.0, 0.9],
+                [0.0, 1.0, 0.25],
+                [0.5, 0.5, 0.8],
+            ]),
+            Arc::from([[0, 1, 4], [1, 2, 4], [2, 3, 4], [3, 0, 4]]),
+        )
+    });
     TriangleMesh {
         id: id.into(),
-        positions: vec![
-            [0.0, 0.0, 0.0],
-            [1.0, 0.0, 0.35],
-            [1.0, 1.0, 0.9],
-            [0.0, 1.0, 0.25],
-            [0.5, 0.5, 0.8],
-        ]
-        .into(),
-        triangles: vec![[0, 1, 4], [1, 2, 4], [2, 3, 4], [3, 0, 4]].into(),
+        positions: positions.clone(),
+        triangles: triangles.clone(),
         vertex_ids: None,
         cell_ids: None,
     }
 }
 
 fn mesh_plot_surface_field(id: &str) -> ScalarField {
+    static VALUES: OnceLock<Arc<[f64]>> = OnceLock::new();
     ScalarField {
         id: id.into(),
         label: "Surface response".into(),
         unit: Some("dB".into()),
-        values: vec![0.0, 0.8, 1.6, 0.3, 1.1].into(),
+        values: VALUES
+            .get_or_init(|| Arc::from([0.0, 0.8, 1.6, 0.3, 1.1]))
+            .clone(),
         association: ScalarAssociation::Vertex,
         valid: None,
     }
@@ -224,37 +268,41 @@ fn mesh_plot_surface_field(id: &str) -> ScalarField {
 
 fn mesh_plot_large_mesh(id: &str) -> TriangleMesh {
     const GRID: usize = 128;
-    let vertex_count = (GRID + 1) * (GRID + 1);
-    let mut positions = Vec::with_capacity(vertex_count);
-    let mut triangles = Vec::with_capacity(GRID * GRID * 2);
+    static GEOMETRY: OnceLock<(Arc<[[f64; 3]]>, Arc<[[u32; 3]]>)> = OnceLock::new();
+    let (positions, triangles) = GEOMETRY.get_or_init(|| {
+        let vertex_count = (GRID + 1) * (GRID + 1);
+        let mut positions = Vec::with_capacity(vertex_count);
+        let mut triangles = Vec::with_capacity(GRID * GRID * 2);
 
-    for y in 0..=GRID {
-        let v = y as f64 / GRID as f64;
-        for x in 0..=GRID {
-            let u = x as f64 / GRID as f64;
-            let dx = u - 0.5;
-            let dy = v - 0.5;
-            let z = 0.22 * (dx * 18.0).sin() * (dy * 18.0).cos()
-                + 0.12 * (dx * dx + dy * dy).sqrt().cos();
-            positions.push([u, v, z]);
+        for y in 0..=GRID {
+            let v = y as f64 / GRID as f64;
+            for x in 0..=GRID {
+                let u = x as f64 / GRID as f64;
+                let dx = u - 0.5;
+                let dy = v - 0.5;
+                let z = 0.22 * (dx * 18.0).sin() * (dy * 18.0).cos()
+                    + 0.12 * (dx * dx + dy * dy).sqrt().cos();
+                positions.push([u, v, z]);
+            }
         }
-    }
 
-    for y in 0..GRID {
-        for x in 0..GRID {
-            let top_left = y * (GRID + 1) + x;
-            let top_right = top_left + 1;
-            let bottom_left = (y + 1) * (GRID + 1) + x;
-            let bottom_right = bottom_left + 1;
-            triangles.push([top_left as u32, top_right as u32, bottom_right as u32]);
-            triangles.push([top_left as u32, bottom_right as u32, bottom_left as u32]);
+        for y in 0..GRID {
+            for x in 0..GRID {
+                let top_left = y * (GRID + 1) + x;
+                let top_right = top_left + 1;
+                let bottom_left = (y + 1) * (GRID + 1) + x;
+                let bottom_right = bottom_left + 1;
+                triangles.push([top_left as u32, top_right as u32, bottom_right as u32]);
+                triangles.push([top_left as u32, bottom_right as u32, bottom_left as u32]);
+            }
         }
-    }
+        (positions.into(), triangles.into())
+    });
 
     TriangleMesh {
         id: id.into(),
-        positions: positions.into(),
-        triangles: triangles.into(),
+        positions: positions.clone(),
+        triangles: triangles.clone(),
         vertex_ids: None,
         cell_ids: None,
     }
@@ -262,20 +310,24 @@ fn mesh_plot_large_mesh(id: &str) -> TriangleMesh {
 
 fn mesh_plot_large_field(id: &str) -> ScalarField {
     const GRID: usize = 128;
-    let mut values = Vec::with_capacity((GRID + 1) * (GRID + 1));
-    for y in 0..=GRID {
-        let v = y as f64 / GRID as f64;
-        for x in 0..=GRID {
-            let u = x as f64 / GRID as f64;
-            values.push((u * 14.0).sin() * (v * 11.0).cos());
+    static VALUES: OnceLock<Arc<[f64]>> = OnceLock::new();
+    let values = VALUES.get_or_init(|| {
+        let mut values = Vec::with_capacity((GRID + 1) * (GRID + 1));
+        for y in 0..=GRID {
+            let v = y as f64 / GRID as f64;
+            for x in 0..=GRID {
+                let u = x as f64 / GRID as f64;
+                values.push((u * 14.0).sin() * (v * 11.0).cos());
+            }
         }
-    }
+        values.into()
+    });
 
     ScalarField {
         id: id.into(),
         label: "Large mesh response".into(),
         unit: Some("a.u.".into()),
-        values: values.into(),
+        values: values.clone(),
         association: ScalarAssociation::Vertex,
         valid: None,
     }
@@ -307,6 +359,7 @@ pub struct ComponentLab {
     pub(super) selected_motion_id: String,
     pub(super) matrix_mode: bool,
     pub(super) layout_constraints: PreviewLayoutConstraints,
+    layout_state_dirty: bool,
     pub(super) save_status: Option<SharedString>,
     pub(super) live_status: Option<SharedString>,
     pub(super) live_preview: bool,
@@ -325,7 +378,7 @@ pub struct ComponentLab {
     alloc_probe: gpui_profiler::AllocProbe,
     last_render_alloc: gpui_profiler::AllocSnapshot,
     last_mouse_move_alloc: gpui_profiler::AllocSnapshot,
-    last_sample: Option<(String, gpui_profiler::AllocSnapshot)>,
+    last_sample: Option<(&'static str, gpui_profiler::AllocSnapshot)>,
     last_window_size: Option<Size<Pixels>>,
     visual_capture_mode: bool,
 }
@@ -348,12 +401,15 @@ impl ComponentLab {
 
         let story_ids: Vec<String> = registry.stories().map(|story| story.id.clone()).collect();
         let visual_capture = config.visual_capture.clone();
-        let showcase_story_ids = visual_capture
+        let selected_story_id = visual_capture
             .as_ref()
-            .map(|capture| std::slice::from_ref(&capture.story_id))
-            .unwrap_or(story_ids.as_slice());
-        let ui_showcases = build_ui_showcase_entities(showcase_story_ids, cx);
-        let selected_story_id = story_ids.first().cloned().unwrap_or_default();
+            .map(|capture| capture.story_id.clone())
+            .filter(|story_id| documents.contains_key(story_id))
+            .or_else(|| story_ids.first().cloned())
+            .unwrap_or_default();
+        // A showcase owns a full component-demo tree. Retain only the selected one at
+        // startup; subsequent showcase stories are initialized on first selection.
+        let ui_showcases = build_ui_showcase_entities(std::slice::from_ref(&selected_story_id), cx);
         let selected_document = documents
             .get(&selected_story_id)
             .expect("selected story exists");
@@ -385,6 +441,7 @@ impl ComponentLab {
             selected_motion_id: initial_state.motion_id,
             matrix_mode: initial_state.matrix_mode,
             layout_constraints: initial_state.layout_constraints,
+            layout_state_dirty: false,
             save_status: None,
             live_status: config.watch.then(|| "Live preview enabled".into()),
             live_preview: config.watch,
@@ -406,7 +463,7 @@ impl ComponentLab {
             visual_capture_mode: visual_capture.is_some(),
         };
         if let Some(capture) = visual_capture {
-            lab.select_story(capture.story_id);
+            lab.select_story(capture.story_id, cx);
             lab.set_viewport(capture.viewport_id);
             lab.set_theme(capture.theme_id);
             lab.set_motion(if capture.reduced_motion {
@@ -444,6 +501,9 @@ impl ComponentLab {
         self.cached_matrix = ResponsivePreviewMatrix::for_story(
             &self.documents.get(&self.selected_story_id).unwrap().story,
         );
+    }
+
+    fn rebuild_sidebar_labels(&mut self) {
         self.sidebar_labels = Self::build_sidebar_labels(&self.documents, &self.story_ids);
     }
 
@@ -453,10 +513,34 @@ impl ComponentLab {
                 cx.background_executor()
                     .timer(Duration::from_millis(750))
                     .await;
-                let alive = this.update(cx, |lab, cx| {
-                    lab.poll_live_preview(cx);
-                });
-                if alive.is_err() {
+                let Ok((stories_dir, token_paths, last_seen)) = this.update(cx, |lab, _cx| {
+                    (
+                        lab.stories_dir.clone(),
+                        lab.token_paths.clone(),
+                        lab.last_live_modified,
+                    )
+                }) else {
+                    break;
+                };
+
+                let (reload, error_latest) = cx
+                    .background_executor()
+                    .spawn(async move {
+                        let reload =
+                            reload_live_preview_state(&stories_dir, &token_paths, last_seen);
+                        let error_latest = reload.as_ref().err().and_then(|_| {
+                            latest_story_or_token_modified(&stories_dir, &token_paths).ok()
+                        });
+                        (reload, error_latest)
+                    })
+                    .await;
+
+                if this
+                    .update(cx, |lab, cx| {
+                        lab.apply_live_preview_result(reload, error_latest, cx);
+                    })
+                    .is_err()
+                {
                     break;
                 }
             }
@@ -464,21 +548,20 @@ impl ComponentLab {
         .detach();
     }
 
-    pub(super) fn poll_live_preview(&mut self, cx: &mut Context<Self>) {
-        match reload_live_preview_state(
-            &self.stories_dir,
-            &self.token_paths,
-            self.last_live_modified,
-        ) {
+    fn apply_live_preview_result(
+        &mut self,
+        reload: Result<Option<LivePreviewReload>>,
+        error_latest: Option<SystemTime>,
+        cx: &mut Context<Self>,
+    ) {
+        match reload {
             Ok(Some(reload)) => {
                 self.apply_live_reload(reload);
                 cx.notify();
             }
             Ok(None) => {}
             Err(err) => {
-                if let Ok(latest) =
-                    latest_story_or_token_modified(&self.stories_dir, &self.token_paths)
-                {
+                if let Some(latest) = error_latest {
                     self.last_live_modified = latest;
                 }
                 self.live_status = Some(format!("Live reload failed: {err}").into());
@@ -498,6 +581,7 @@ impl ComponentLab {
             self.documents.insert(doc.story.id.clone(), doc);
         }
         self.rebuild_derived_state();
+        self.rebuild_sidebar_labels();
 
         if selected_reloaded && let Some(document) = self.documents.get(&self.selected_story_id) {
             let state = InitialLabState::from_document(document);
@@ -558,9 +642,11 @@ impl ComponentLab {
             })
     }
 
-    pub(super) fn select_story(&mut self, story_id: String) {
+    pub(super) fn select_story(&mut self, story_id: String, cx: &mut Context<Self>) {
+        self.sync_layout_state();
         if self.documents.contains_key(&story_id) {
             let state = InitialLabState::from_document(&self.documents[&story_id]);
+            self.ensure_ui_showcase(&story_id, cx);
             self.selected_story_id = story_id;
             self.selected_viewport_id = state.viewport_id;
             self.selected_theme_id = state.theme_id;
@@ -569,6 +655,17 @@ impl ComponentLab {
             self.layout_constraints = state.layout_constraints;
             self.save_status = None;
             self.rebuild_derived_state();
+        }
+    }
+
+    fn ensure_ui_showcase(&mut self, story_id: &str, cx: &mut Context<Self>) {
+        if self.ui_showcases.contains_key(story_id) {
+            return;
+        }
+
+        if let Some(section) = showcase_section_for_story_id(story_id) {
+            let showcase = cx.new(|cx| Showcase::embedded_section(section, cx));
+            self.ui_showcases.insert(story_id.to_owned(), showcase);
         }
     }
 
@@ -582,88 +679,109 @@ impl ComponentLab {
     }
 
     /// Sample allocations and remember the result as the most recent sample.
-    fn record_sample(&mut self, label: &str) -> gpui_profiler::AllocSnapshot {
+    fn record_sample(&mut self, label: &'static str) -> gpui_profiler::AllocSnapshot {
         let delta = self.alloc_probe.sample(label);
-        self.last_sample = Some((label.to_string(), delta));
+        self.last_sample = Some((label, delta));
         delta
+    }
+
+    #[cfg(feature = "profiler")]
+    pub(super) fn last_allocation_sample(
+        &self,
+    ) -> Option<(&'static str, gpui_profiler::AllocSnapshot)> {
+        self.last_sample
+    }
+
+    #[cfg(feature = "profiler")]
+    pub(super) fn last_render_allocation_sample(&self) -> gpui_profiler::AllocSnapshot {
+        self.last_render_alloc
     }
 
     pub(super) fn set_viewport(&mut self, viewport_id: impl Into<String>) {
         self.selected_viewport_id = viewport_id.into();
-        self.sync_layout_state();
+        self.mark_layout_state_dirty();
     }
 
     pub(super) fn set_theme(&mut self, theme_id: impl Into<String>) {
         self.selected_theme_id = theme_id.into();
-        self.sync_layout_state();
+        self.mark_layout_state_dirty();
     }
 
     pub(super) fn set_motion(&mut self, motion_id: impl Into<String>) {
         self.selected_motion_id = motion_id.into();
-        self.sync_layout_state();
+        self.mark_layout_state_dirty();
     }
 
     pub(super) fn set_layout_sizing(&mut self, sizing: PreviewSizing) {
         self.layout_constraints.sizing = sizing;
-        self.sync_layout_state();
+        self.mark_layout_state_dirty();
     }
 
     pub(super) fn set_layout_min_width(&mut self, width: f64) {
         self.layout_constraints.min_width = clamp_f32(width, 160.0, 1600.0);
-        self.sync_layout_state();
+        self.mark_layout_state_dirty();
     }
 
     pub(super) fn set_layout_min_height(&mut self, height: f64) {
         self.layout_constraints.min_height = clamp_f32(height, 120.0, 1200.0);
-        self.sync_layout_state();
+        self.mark_layout_state_dirty();
     }
 
     pub(super) fn set_layout_aspect_ratio(&mut self, aspect_ratio: f64) {
         self.layout_constraints.aspect_ratio = clamp_f32(aspect_ratio, 0.5, 3.0);
-        self.sync_layout_state();
+        self.mark_layout_state_dirty();
     }
 
     pub(super) fn set_layout_padding(&mut self, padding: f64) {
         self.layout_constraints.padding = clamp_f32(padding, 0.0, 80.0);
-        self.sync_layout_state();
+        self.mark_layout_state_dirty();
     }
 
     pub(super) fn set_layout_horizontal_align(&mut self, align: PreviewAlign) {
         self.layout_constraints.horizontal_align = align;
-        self.sync_layout_state();
+        self.mark_layout_state_dirty();
     }
 
     pub(super) fn set_layout_vertical_align(&mut self, align: PreviewAlign) {
         self.layout_constraints.vertical_align = align;
-        self.sync_layout_state();
+        self.mark_layout_state_dirty();
     }
 
     pub(super) fn set_layout_overflow(&mut self, overflow: PreviewOverflow) {
         self.layout_constraints.overflow = overflow;
-        self.sync_layout_state();
+        self.mark_layout_state_dirty();
     }
 
     pub(super) fn set_layout_surface(&mut self, surface: PreviewSurface) {
         self.layout_constraints.surface = surface;
-        self.sync_layout_state();
+        self.mark_layout_state_dirty();
     }
 
     pub(super) fn set_layout_gap(&mut self, gap: f64) {
         self.layout_constraints.gap = clamp_f32(gap, 0.0, 80.0);
-        self.sync_layout_state();
+        self.mark_layout_state_dirty();
     }
 
     pub(super) fn set_layout_border(&mut self, border: bool) {
         self.layout_constraints.border = border;
-        self.sync_layout_state();
+        self.mark_layout_state_dirty();
     }
 
     pub(super) fn toggle_matrix(&mut self) {
         self.matrix_mode = !self.matrix_mode;
-        self.sync_layout_state();
+        self.mark_layout_state_dirty();
+    }
+
+    fn mark_layout_state_dirty(&mut self) {
+        self.layout_state_dirty = true;
+        self.save_status = Some("Unsaved changes".into());
     }
 
     pub(super) fn sync_layout_state(&mut self) {
+        if !self.layout_state_dirty {
+            return;
+        }
+
         if let Some(doc) = self.documents.get_mut(&self.selected_story_id) {
             doc.layout = json!({
                 "viewport": self.selected_viewport_id,
@@ -675,6 +793,7 @@ impl ComponentLab {
             });
         }
         self.save_status = Some("Unsaved changes".into());
+        self.layout_state_dirty = false;
     }
 
     pub(super) fn save_selected(&mut self) {
@@ -703,6 +822,7 @@ impl ComponentLab {
                     self.documents.insert(doc.story.id.clone(), doc);
                 }
                 self.rebuild_derived_state();
+                self.rebuild_sidebar_labels();
                 self.save_status = Some("Reloaded story JSON".into());
             }
             Err(err) => {
@@ -734,7 +854,9 @@ impl ComponentLab {
                     .size(ButtonSize::Sm)
                     .full_width(true)
                     .on_click(move |_window, cx| {
-                        entity.update(cx, |this, _| this.select_story(story_id_for_click.clone()));
+                        entity.update(cx, |this, cx| {
+                            this.select_story(story_id_for_click.clone(), cx)
+                        });
                     }),
             );
         }
@@ -3674,7 +3796,6 @@ impl Render for ComponentLab {
             }
         }
 
-        let entity = self.entity.clone();
         let result = div()
             .id("gpui-component-lab-root")
             .relative()
@@ -3682,37 +3803,40 @@ impl Render for ComponentLab {
             .bg(theme.background)
             .text_color(theme.text_primary)
             .flex()
-            .on_mouse_move({
-                let entity = entity.clone();
-                move |_event, _window, cx| {
-                    entity.update(cx, |this, _cx| {
-                        this.last_mouse_move_alloc = this.record_sample("mouse-move");
-                    });
-                }
-            })
-            .on_mouse_down(MouseButton::Left, {
-                let entity = entity.clone();
-                move |_event, _window, cx| {
-                    entity.update(cx, |this, _cx| {
-                        this.record_sample("mouse-down");
-                    });
-                }
-            })
-            .on_mouse_up(MouseButton::Left, {
-                let entity = entity.clone();
-                move |_event, _window, cx| {
-                    entity.update(cx, |this, _cx| {
-                        this.record_sample("mouse-up");
-                    });
-                }
-            })
-            .on_scroll_wheel({
-                let entity = entity.clone();
-                move |_event, _window, cx| {
-                    entity.update(cx, |this, _cx| {
-                        this.record_sample("scroll");
-                    });
-                }
+            .when(cfg!(feature = "profiler"), |el| {
+                let entity = self.entity.clone();
+                el.on_mouse_move({
+                    let entity = entity.clone();
+                    move |_event, _window, cx| {
+                        entity.update(cx, |this, _cx| {
+                            this.last_mouse_move_alloc = this.record_sample("mouse-move");
+                        });
+                    }
+                })
+                .on_mouse_down(MouseButton::Left, {
+                    let entity = entity.clone();
+                    move |_event, _window, cx| {
+                        entity.update(cx, |this, _cx| {
+                            this.record_sample("mouse-down");
+                        });
+                    }
+                })
+                .on_mouse_up(MouseButton::Left, {
+                    let entity = entity.clone();
+                    move |_event, _window, cx| {
+                        entity.update(cx, |this, _cx| {
+                            this.record_sample("mouse-up");
+                        });
+                    }
+                })
+                .on_scroll_wheel({
+                    let entity = entity.clone();
+                    move |_event, _window, cx| {
+                        entity.update(cx, |this, _cx| {
+                            this.record_sample("scroll");
+                        });
+                    }
+                })
             })
             .child(self.sidebar_entity.clone())
             .child(

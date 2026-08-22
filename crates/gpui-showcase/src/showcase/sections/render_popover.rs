@@ -56,7 +56,7 @@ impl Showcase {
                         } else {
                             this.popover_open = Some(id);
                         }
-                        cx.notify();
+                        this.notify_content(cx);
                     });
                 });
 
@@ -88,7 +88,7 @@ impl Showcase {
                         .on_close(move |_window, cx| {
                             entity_close.update(cx, |this, cx| {
                                 this.popover_open = None;
-                                cx.notify();
+                                this.notify_content(cx);
                             });
                         }),
                 );

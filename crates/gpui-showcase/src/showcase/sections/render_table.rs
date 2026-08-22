@@ -62,21 +62,21 @@ impl Showcase {
                                                 cmp.reverse()
                                             }
                                         });
-                                        cx.notify();
+                                        this.notify_content(cx);
                                     }))
                                     .selection_mode(SelectionMode::Multiple)
                                     .selected_indices(self.selected_users.clone())
                                     .on_selection_change(cx.listener(
                                         |this, indices: &HashSet<usize>, _window, cx| {
                                             this.selected_users = indices.clone();
-                                            cx.notify();
+                                            this.notify_content(cx);
                                         },
                                     ))
                                     .pagination(self.pagination.clone())
                                     .on_page_change(cx.listener(
                                         |this, page: &usize, _window, cx| {
                                             this.pagination.current_page = *page;
-                                            cx.notify();
+                                            this.notify_content(cx);
                                         },
                                     ))
                                     .show_footer(true),

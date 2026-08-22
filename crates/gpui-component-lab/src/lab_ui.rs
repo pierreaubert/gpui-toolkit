@@ -1,5 +1,8 @@
 //! Interactive GPUI component lab.
 
+#[cfg(feature = "profiler")]
+#[doc(hidden)]
+pub mod allocation_contracts;
 mod component_lab;
 mod first;
 mod initial_lab_state;

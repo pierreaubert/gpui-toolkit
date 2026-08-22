@@ -68,7 +68,7 @@ impl Showcase {
                         } else {
                             this.tooltip_hovered = Some(id);
                         }
-                        cx.notify();
+                        this.notify_content(cx);
                     });
                 });
 

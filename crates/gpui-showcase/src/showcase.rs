@@ -4,9 +4,9 @@
 //! This module exposes the Showcase component for embedding in other applications.
 
 use gpui::{
-    AppContext, Context, Entity, FocusHandle, FontWeight, InteractiveElement, IntoElement,
+    AnyView, AppContext, Context, Entity, FocusHandle, FontWeight, InteractiveElement, IntoElement,
     KeyDownEvent, MouseButton, ParentElement, Render, ScrollHandle, SharedString,
-    StatefulInteractiveElement, Styled, WeakEntity, Window, div, px, rgba,
+    StatefulInteractiveElement, StyleRefinement, Styled, WeakEntity, Window, div, px, rgba,
 };
 use gpui_ui_kit::i18n::{I18nExt, TranslationKey};
 use gpui_ui_kit::theme::ThemeExt;
@@ -17,6 +17,93 @@ use gpui_ui_kit::{
     SortState, Text,
 };
 use std::collections::HashSet;
+use std::sync::OnceLock;
+
+fn cached_navigation_id(section: ShowcaseSection, mobile: bool) -> SharedString {
+    static DESKTOP_IDS: OnceLock<Vec<SharedString>> = OnceLock::new();
+    static MOBILE_IDS: OnceLock<Vec<SharedString>> = OnceLock::new();
+
+    let ids = if mobile {
+        MOBILE_IDS.get_or_init(|| {
+            ShowcaseSection::all()
+                .iter()
+                .map(|section| SharedString::from(format!("mobile-nav-{section:?}")))
+                .collect()
+        })
+    } else {
+        DESKTOP_IDS.get_or_init(|| {
+            ShowcaseSection::all()
+                .iter()
+                .map(|section| SharedString::from(format!("nav-{section:?}")))
+                .collect()
+        })
+    };
+    let index = ShowcaseSection::all()
+        .iter()
+        .position(|candidate| *candidate == section)
+        .expect("all showcase sections have cached navigation ids");
+    ids[index].clone()
+}
+
+/// Measures the allocation behavior of the warmed navigation render inputs.
+#[cfg(feature = "profiler")]
+#[doc(hidden)]
+pub fn warmed_navigation_input_sample() -> gpui_profiler::AllocSnapshot {
+    use std::hint::black_box;
+
+    for section in ShowcaseSection::all() {
+        black_box(cached_navigation_id(*section, false));
+        black_box(cached_navigation_id(*section, true));
+    }
+    for group in ShowcaseGroup::all() {
+        black_box(group.uppercase_label());
+    }
+
+    let mut probe = gpui_profiler::AllocProbe::new();
+    probe.reset();
+    for _ in 0..1_000 {
+        for section in ShowcaseSection::all() {
+            black_box(cached_navigation_id(*section, false));
+            black_box(cached_navigation_id(*section, true));
+        }
+        for group in ShowcaseGroup::all() {
+            black_box(group.uppercase_label());
+        }
+    }
+    probe.sample("showcase-warmed-navigation-inputs-1000x")
+}
+
+/// Profiler-only interaction hooks used by the isolated allocation contract.
+#[cfg(feature = "profiler")]
+#[doc(hidden)]
+pub mod allocation_contracts {
+    use super::*;
+
+    pub fn select_section(
+        showcase: &mut Showcase,
+        section: ShowcaseSection,
+        cx: &mut Context<Showcase>,
+    ) {
+        showcase.select_section(section, cx);
+    }
+
+    pub fn type_input_character(
+        showcase: &mut Showcase,
+        window: &mut Window,
+        cx: &mut Context<Showcase>,
+    ) {
+        showcase.input_editing = true;
+        showcase.handle_key_down(
+            &KeyDownEvent {
+                keystroke: gpui::Keystroke::parse("a").expect("valid test keystroke"),
+                is_held: false,
+                prefer_character_input: false,
+            },
+            window,
+            cx,
+        );
+    }
+}
 
 const SHOWCASE_COMPACT_BREAKPOINT: f32 = 600.0;
 
@@ -69,11 +156,12 @@ fn platform_safe_area_insets() -> (f32, f32, f32, f32) {
     (0.0, 0.0, 0.0, 0.0)
 }
 
-fn showcase_scroll_diag(message: &str) {
+fn showcase_scroll_diag(message: impl FnOnce() -> String) {
     #[cfg(target_os = "ios")]
     {
         use std::io::Write;
 
+        let message = message();
         eprintln!("{message}");
         let path = std::env::temp_dir().join("gpui-ios-input-diag.log");
         if let Ok(mut file) = std::fs::OpenOptions::new()
@@ -94,6 +182,8 @@ mod showcase_section;
 mod types;
 
 pub mod sections;
+
+use sections::render_audio_visuals::AudioVisuals;
 
 pub use showcase_group::ShowcaseGroup;
 pub use showcase_section::ShowcaseSection;
@@ -168,8 +258,8 @@ pub struct Showcase {
     // Popover open state
     pub popover_open: Option<&'static str>,
     // Animated QR codes
-    pub animated_qr_tiny: Entity<AnimatedQrCode>,
-    pub animated_qr_small: Entity<AnimatedQrCode>,
+    pub animated_qr_tiny: Option<Entity<AnimatedQrCode>>,
+    pub animated_qr_small: Option<Entity<AnimatedQrCode>>,
     // Current section for navigation
     pub current_section: ShowcaseSection,
     // Render only the selected section when embedded in another tool.
@@ -182,6 +272,7 @@ pub struct Showcase {
     sidebar_entity: Entity<ShowcaseSidebar>,
     header_entity: Entity<ShowcaseHeader>,
     content_entity: Entity<ShowcaseContent>,
+    audio_visuals_entity: Entity<AudioVisuals>,
 }
 
 #[derive(Clone)]
@@ -202,16 +293,13 @@ impl ShowcaseHandle {
 impl Showcase {
     pub fn new(cx: &mut Context<Self>) -> Self {
         let workflow_canvas = cx.new(|cx| WorkflowCanvas::with_graph(WorkflowGraph::new(), cx));
-        let animated_qr_tiny =
-            cx.new(|cx| AnimatedQrCode::new("https://example.com/animated-qr-demo", px(50.0), cx));
-        let animated_qr_small =
-            cx.new(|cx| AnimatedQrCode::new("https://example.com/animated-qr-demo", px(80.0), cx));
         let entity = cx.entity().clone();
         let parent = entity.downgrade();
 
         let sidebar_entity = cx.new(|_cx| ShowcaseSidebar::new(parent.clone()));
         let header_entity = cx.new(|_cx| ShowcaseHeader::new());
         let content_entity = cx.new(|_cx| ShowcaseContent::new(parent.clone()));
+        let audio_visuals_entity = cx.new(|_cx| AudioVisuals::new());
 
         Self {
             toggle_on: true,
@@ -311,8 +399,8 @@ impl Showcase {
             accessibility_volume: 75.0,
             tooltip_hovered: None,
             popover_open: None,
-            animated_qr_tiny,
-            animated_qr_small,
+            animated_qr_tiny: None,
+            animated_qr_small: None,
             #[cfg(target_family = "wasm")]
             current_section: initial_section(),
             #[cfg(not(target_family = "wasm"))]
@@ -323,14 +411,46 @@ impl Showcase {
             sidebar_entity,
             header_entity,
             content_entity,
+            audio_visuals_entity,
         }
     }
 
     pub fn embedded_section(section: ShowcaseSection, cx: &mut Context<Self>) -> Self {
         let mut showcase = Self::new(cx);
         showcase.current_section = section;
+        showcase.ensure_animated_qr(section, cx);
         showcase.embedded = true;
         showcase
+    }
+
+    fn ensure_animated_qr(&mut self, section: ShowcaseSection, cx: &mut Context<Self>) {
+        if section != ShowcaseSection::QrCode || self.animated_qr_tiny.is_some() {
+            return;
+        }
+        self.animated_qr_tiny =
+            Some(cx.new(|cx| {
+                AnimatedQrCode::new("https://example.com/animated-qr-demo", px(50.0), cx)
+            }));
+        self.animated_qr_small =
+            Some(cx.new(|cx| {
+                AnimatedQrCode::new("https://example.com/animated-qr-demo", px(80.0), cx)
+            }));
+    }
+
+    fn select_section(&mut self, section: ShowcaseSection, cx: &mut Context<Self>) {
+        if section != ShowcaseSection::QrCode {
+            // AnimatedQrCode owns a 30 Hz timer. Releasing its entities while
+            // the section is hidden prevents idle redraws across the app.
+            self.animated_qr_tiny = None;
+            self.animated_qr_small = None;
+        }
+        self.ensure_animated_qr(section, cx);
+        self.current_section = section;
+        cx.notify();
+    }
+
+    fn notify_content(&self, cx: &mut Context<Self>) {
+        self.content_entity.update(cx, |_content, cx| cx.notify());
     }
 
     pub(crate) fn weak_entity_handle(&self) -> ShowcaseHandle {
@@ -405,6 +525,14 @@ impl Render for Showcase {
             (theme.background, theme.text_secondary)
         };
 
+        let cached_sidebar = {
+            let style = StyleRefinement::default().flex_none();
+            AnyView::from(self.sidebar_entity.clone()).cached(style)
+        };
+        let cached_header = {
+            let style = StyleRefinement::default().flex_shrink_0();
+            AnyView::from(self.header_entity.clone()).cached(style)
+        };
         if embedded {
             return div()
                 .id("showcase-embedded-root")
@@ -437,15 +565,13 @@ impl Render for Showcase {
             .min_w_0()
             .min_h_0()
             .overflow_hidden()
-            .child(self.header_entity.clone())
+            .child(cached_header)
             .child(self.content_entity.clone());
 
         if compact {
-            root.flex_col()
-                .child(self.sidebar_entity.clone())
-                .child(content)
+            root.flex_col().child(cached_sidebar).child(content)
         } else {
-            root.child(self.sidebar_entity.clone()).child(content)
+            root.child(cached_sidebar).child(content)
         }
     }
 }
@@ -457,6 +583,7 @@ impl Showcase {
         section: ShowcaseSection,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
+        self.ensure_animated_qr(section, cx);
         let entity = self.weak_entity_handle();
         let toggle_on = self.toggle_on;
         let checkbox_checked = self.checkbox_checked;
@@ -542,9 +669,9 @@ impl Showcase {
             ShowcaseSection::Accessibility => {
                 self.render_accessibility_section(cx).into_any_element()
             }
-            ShowcaseSection::AudioVisuals => {
-                self.render_audio_visuals_section(cx).into_any_element()
-            }
+            ShowcaseSection::AudioVisuals => AnyView::from(self.audio_visuals_entity.clone())
+                .cached(StyleRefinement::default())
+                .into_any_element(),
         }
     }
 }
@@ -564,13 +691,13 @@ impl Showcase {
                     self.input_editing = false;
                     self.input_edit_text.clear();
                     self.input_selected = false;
-                    cx.notify();
+                    self.notify_content(cx);
                 }
                 "escape" => {
                     self.input_editing = false;
                     self.input_edit_text.clear();
                     self.input_selected = false;
-                    cx.notify();
+                    self.notify_content(cx);
                 }
                 "backspace" => {
                     if self.input_selected {
@@ -579,7 +706,7 @@ impl Showcase {
                     } else {
                         self.input_edit_text.pop();
                     }
-                    cx.notify();
+                    self.notify_content(cx);
                 }
                 key if key.len() == 1 => {
                     let ch = key.chars().next().unwrap();
@@ -588,7 +715,7 @@ impl Showcase {
                         self.input_selected = false;
                     }
                     self.input_edit_text.push(ch);
-                    cx.notify();
+                    self.notify_content(cx);
                 }
                 _ => {}
             }
@@ -608,13 +735,13 @@ impl Showcase {
                     self.editing_number = None;
                     self.edit_text.clear();
                     self.text_selected = false;
-                    cx.notify();
+                    self.notify_content(cx);
                 }
                 "escape" => {
                     self.editing_number = None;
                     self.edit_text.clear();
                     self.text_selected = false;
-                    cx.notify();
+                    self.notify_content(cx);
                 }
                 "backspace" => {
                     if self.text_selected {
@@ -623,7 +750,7 @@ impl Showcase {
                     } else {
                         self.edit_text.pop();
                     }
-                    cx.notify();
+                    self.notify_content(cx);
                 }
                 key if key.len() == 1 => {
                     let ch = key.chars().next().unwrap();
@@ -633,7 +760,7 @@ impl Showcase {
                             self.text_selected = false;
                         }
                         self.edit_text.push(ch);
-                        cx.notify();
+                        self.notify_content(cx);
                     }
                 }
                 _ => {}
@@ -702,7 +829,7 @@ impl Render for ShowcaseSidebar {
                     let parent = self.parent.clone();
 
                     let mut item = div()
-                        .id(SharedString::from(format!("mobile-nav-{:?}", section)))
+                        .id(cached_navigation_id(section, true))
                         .flex_none()
                         .px_3()
                         .py_2()
@@ -727,8 +854,7 @@ impl Render for ShowcaseSidebar {
                         move |_event, _window, cx| {
                             if let Some(parent) = parent.upgrade() {
                                 parent.update(cx, |this, cx| {
-                                    this.current_section = section;
-                                    cx.notify();
+                                    this.select_section(section, cx);
                                 });
                             }
                         },
@@ -755,7 +881,7 @@ impl Render for ShowcaseSidebar {
                     .text_xs()
                     .font_weight(FontWeight::BOLD)
                     .text_color(text_muted_color)
-                    .child(group.label().to_uppercase()),
+                    .child(group.uppercase_label()),
             );
 
             for section in group.sections() {
@@ -764,7 +890,7 @@ impl Render for ShowcaseSidebar {
                 let parent = self.parent.clone();
 
                 let mut item = div()
-                    .id(SharedString::from(format!("nav-{:?}", section)))
+                    .id(cached_navigation_id(section, false))
                     .flex()
                     .items_center()
                     .gap_2()
@@ -791,8 +917,7 @@ impl Render for ShowcaseSidebar {
                     move |_event, _window, cx| {
                         if let Some(parent) = parent.upgrade() {
                             parent.update(cx, |this, cx| {
-                                this.current_section = section;
-                                cx.notify();
+                                this.select_section(section, cx);
                             });
                         }
                     },
@@ -815,7 +940,7 @@ impl Render for ShowcaseSidebar {
                 let delta = event.delta.pixel_delta(window.line_height());
                 let offset = log_handle.offset();
                 let max = log_handle.max_offset();
-                showcase_scroll_diag(&format!(
+                showcase_scroll_diag(|| format!(
                     "showcase sidebar scroll delta=({:.2},{:.2}) offset=({:.2},{:.2}) max=({:.2},{:.2}) phase={:?}",
                     delta.x.as_f32(),
                     delta.y.as_f32(),
@@ -961,7 +1086,7 @@ impl Render for ShowcaseContent {
                         .and_then(|ix| log_handle.bounds_for_item(ix));
                     let first_bottom = first.map_or(0.0, |bounds| bounds.bottom().as_f32());
                     let last_bottom = last.map_or(0.0, |bounds| bounds.bottom().as_f32());
-                    showcase_scroll_diag(&format!(
+                    showcase_scroll_diag(|| format!(
                         "showcase content scroll delta=({:.2},{:.2}) offset=({:.2},{:.2}) max=({:.2},{:.2}) children={} first_bottom={:.2} last_bottom={:.2} phase={:?}",
                         delta.x.as_f32(),
                         delta.y.as_f32(),

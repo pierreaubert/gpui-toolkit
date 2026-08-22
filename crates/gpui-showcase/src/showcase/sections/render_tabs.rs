@@ -83,7 +83,7 @@ impl Showcase {
                                 .on_mouse_down(MouseButton::Left, move |_, _, cx| {
                                     entity_clone.update(cx, |this, cx| {
                                         this.selected_tab = idx;
-                                        cx.notify();
+                    this.notify_content(cx);
                                     });
                                 });
 

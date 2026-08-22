@@ -1,13 +1,13 @@
 use gpui::SharedString;
 use gpui_px::ScaleType;
 use std::collections::HashMap;
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 
 #[derive(Clone)]
 pub(super) struct LineStoryData {
-    pub(super) x: Vec<f64>,
-    pub(super) y: Vec<f64>,
-    pub(super) comparison_y: Option<Vec<f64>>,
+    pub(super) x: Arc<[f64]>,
+    pub(super) y: Arc<[f64]>,
+    pub(super) comparison_y: Option<Arc<[f64]>>,
     pub(super) title: &'static str,
     pub(super) x_label: &'static str,
     pub(super) y_label: &'static str,
@@ -19,9 +19,9 @@ pub(super) struct LineStoryData {
 
 #[derive(Clone)]
 pub(super) struct AreaStoryData {
-    pub(super) x: Vec<f64>,
-    pub(super) y: Vec<f64>,
-    pub(super) y0: Option<Vec<f64>>,
+    pub(super) x: Arc<[f64]>,
+    pub(super) y: Arc<[f64]>,
+    pub(super) y0: Option<Arc<[f64]>>,
     pub(super) title: &'static str,
 }
 
@@ -38,14 +38,14 @@ fn line_story_data_inner(series: &str) -> LineStoryData {
                     (octave * 1.7).sin() * 2.4 - (frequency / 18_000.0).sqrt() * 1.6
                 })
                 .collect();
-            let comparison_y = x
+            let comparison_y: Vec<f64> = x
                 .iter()
                 .map(|frequency| -0.8 * (frequency / 20_000.0).sqrt())
                 .collect();
             LineStoryData {
-                x,
-                y,
-                comparison_y: Some(comparison_y),
+                x: x.into(),
+                y: y.into(),
+                comparison_y: Some(comparison_y.into()),
                 title: "Frequency Sweep",
                 x_label: "Hz",
                 y_label: "dB",
@@ -62,8 +62,8 @@ fn line_story_data_inner(series: &str) -> LineStoryData {
                 .map(|value| (value * 0.41).sin() * 0.18 + (value * 0.09).cos() * 0.08)
                 .collect();
             LineStoryData {
-                x,
-                y,
+                x: x.into(),
+                y: y.into(),
                 comparison_y: None,
                 title: "Flat Reference",
                 x_label: "Step",
@@ -80,9 +80,9 @@ fn line_story_data_inner(series: &str) -> LineStoryData {
             let comparison_y: Vec<f64> =
                 x.iter().map(|value| (value * 0.72).cos() * 0.62).collect();
             LineStoryData {
-                x,
-                y,
-                comparison_y: Some(comparison_y),
+                x: x.into(),
+                y: y.into(),
+                comparison_y: Some(comparison_y.into()),
                 title: "Sine Envelope",
                 x_label: "Time",
                 y_label: "Value",
@@ -118,8 +118,8 @@ fn area_story_data_inner(series: &str) -> AreaStoryData {
                 .map(|value| (value * 1.2).sin().abs() * (-value / 8.0).exp() + 0.04)
                 .collect();
             AreaStoryData {
-                x,
-                y,
+                x: x.into(),
+                y: y.into(),
                 y0: None,
                 title: "Decay Envelope",
             }
@@ -133,9 +133,9 @@ fn area_story_data_inner(series: &str) -> AreaStoryData {
                 .map(|(value, base)| base + 0.42 + (value * 1.4).cos().abs() * 0.28)
                 .collect();
             AreaStoryData {
-                x,
-                y,
-                y0: Some(y0),
+                x: x.into(),
+                y: y.into(),
+                y0: Some(y0.into()),
                 title: "Baseline Band",
             }
         }
@@ -146,8 +146,8 @@ fn area_story_data_inner(series: &str) -> AreaStoryData {
                 .map(|value| (value * 1.1).sin().abs() * 0.72 + (value * 0.45).cos() * 0.08)
                 .collect();
             AreaStoryData {
-                x,
-                y,
+                x: x.into(),
+                y: y.into(),
                 y0: None,
                 title: "Signal Envelope",
             }
@@ -171,9 +171,9 @@ pub(super) fn area_story_data(series: &str) -> AreaStoryData {
 
 #[derive(Clone)]
 pub(super) struct BarStoryData {
-    pub(super) categories: Vec<SharedString>,
-    pub(super) values: Vec<f64>,
-    pub(super) comparison_values: Vec<f64>,
+    pub(super) categories: Arc<[SharedString]>,
+    pub(super) values: Arc<[f64]>,
+    pub(super) comparison_values: Arc<[f64]>,
 }
 
 fn bar_story_data_inner(count: usize) -> BarStoryData {
@@ -186,7 +186,7 @@ fn bar_story_data_inner(count: usize) -> BarStoryData {
             34.0 + (t * std::f64::consts::TAU).sin().abs() * 42.0 + index as f64 * 1.8
         })
         .collect::<Vec<_>>();
-    let comparison_values = (0..count)
+    let comparison_values: Vec<f64> = (0..count)
         .map(|index| {
             let t = index as f64 / count.max(1) as f64;
             38.0 + (t * std::f64::consts::TAU + 0.8).cos().abs() * 34.0
@@ -194,9 +194,9 @@ fn bar_story_data_inner(count: usize) -> BarStoryData {
         .collect();
 
     BarStoryData {
-        categories,
-        values,
-        comparison_values,
+        categories: categories.into(),
+        values: values.into(),
+        comparison_values: comparison_values.into(),
     }
 }
 

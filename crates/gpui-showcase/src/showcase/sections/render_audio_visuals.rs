@@ -1,20 +1,34 @@
 use super::prelude::*;
+use std::sync::Arc;
 
 /// Showcase for the custom-painted audio surfaces. The first row deliberately
 /// uses ordinary constructors so it proves the public default is Vello; the
 /// matrix row exercises the deterministic CPU renderer and the Legacy escape
 /// hatch without changing the normal story.
-impl Showcase {
-    pub(crate) fn render_audio_visuals_section(&self, cx: &mut Context<Self>) -> impl IntoElement {
+pub(crate) struct AudioVisuals {
+    magnitudes: Arc<[f32]>,
+}
+
+impl AudioVisuals {
+    pub(crate) fn new() -> Self {
+        Self {
+            magnitudes: (0..32)
+                .map(|index| -54.0 + ((index as f32 * 0.47).sin() + 1.0) * 24.0)
+                .collect::<Vec<_>>()
+                .into(),
+        }
+    }
+}
+
+impl Render for AudioVisuals {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
         let default_renderer = if Renderer2D::default().is_vello() {
             "Vello · Auto (CPU fallback)"
         } else {
             "Legacy (Vello feature unavailable)"
         };
-        let magnitudes: Vec<f32> = (0..32)
-            .map(|index| -54.0 + ((index as f32 * 0.47).sin() + 1.0) * 24.0)
-            .collect();
+        let magnitudes = self.magnitudes.clone();
 
         let default_spectrum = SpectrumElement::new(magnitudes.clone())
             .height(px(150.0))

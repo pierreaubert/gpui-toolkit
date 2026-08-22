@@ -8,6 +8,10 @@ repository.workspace = true
 description = "Showcase application for gpui-ui-kit components"
 publish = false
 
+[features]
+profiler = ["gpui-profiler/global-allocator"]
+profiler-tests = ["profiler", "gpui/test-support"]
+
 [dependencies]
 gpui = { workspace = true }
 gpui-ui-kit = { workspace = true }
@@ -15,6 +19,7 @@ gpui-audio-kit = { workspace = true }
 gpui-d3rs = { workspace = true }
 gpui-miniapp = { workspace = true }
 gpui-design = { workspace = true, features = ["gpui"] }
+gpui-profiler = { workspace = true, optional = true }
 
 [target.'cfg(any(target_os = "ios", target_os = "tvos"))'.dependencies]
 gpui-ios = { workspace = true }

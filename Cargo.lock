@@ -3145,6 +3145,7 @@ dependencies = [
  "gpui-design",
  "gpui-ios",
  "gpui-miniapp",
+ "gpui-profiler",
  "gpui-ui-kit",
  "wasm-bindgen",
 ]

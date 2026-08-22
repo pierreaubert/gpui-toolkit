@@ -15,8 +15,8 @@ use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::sync::{Arc, Mutex, OnceLock};
 
-type VecPairCache = Mutex<HashMap<usize, (Vec<f64>, Vec<f64>)>>;
-type VecF64Cache = Mutex<HashMap<(usize, usize), Vec<f64>>>;
+type VecPairCache = Mutex<HashMap<usize, (Arc<[f64]>, Arc<[f64]>)>>;
+type VecF64Cache = Mutex<HashMap<(usize, usize), Arc<[f64]>>>;
 
 pub(super) fn showcase_section_for_story_id(story_id: &str) -> Option<ShowcaseSection> {
     Some(match story_id {
@@ -157,13 +157,16 @@ fn scatter_story_data_inner(count: usize) -> (Vec<f64>, Vec<f64>) {
     (x, y)
 }
 
-pub(super) fn scatter_story_data(count: usize) -> (Vec<f64>, Vec<f64>) {
+pub(super) fn scatter_story_data(count: usize) -> (Arc<[f64]>, Arc<[f64]>) {
     static CACHE: OnceLock<VecPairCache> = OnceLock::new();
     let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
     let mut guard = cache.lock().unwrap();
     guard
         .entry(count)
-        .or_insert_with(|| scatter_story_data_inner(count))
+        .or_insert_with(|| {
+            let (x, y) = scatter_story_data_inner(count);
+            (x.into(), y.into())
+        })
         .clone()
 }
 
@@ -181,13 +184,13 @@ fn scalar_field_data_inner(width: usize, height: usize) -> Vec<f64> {
     z
 }
 
-pub(super) fn scalar_field_data(width: usize, height: usize) -> Vec<f64> {
+pub(super) fn scalar_field_data(width: usize, height: usize) -> Arc<[f64]> {
     static CACHE: OnceLock<VecF64Cache> = OnceLock::new();
     let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
     let mut guard = cache.lock().unwrap();
     guard
         .entry((width, height))
-        .or_insert_with(|| scalar_field_data_inner(width, height))
+        .or_insert_with(|| scalar_field_data_inner(width, height).into())
         .clone()
 }
 
@@ -209,13 +212,16 @@ fn boxplot_story_data_inner(groups: usize) -> (Vec<f64>, Vec<f64>) {
     (x, y)
 }
 
-pub(super) fn boxplot_story_data(groups: usize) -> (Vec<f64>, Vec<f64>) {
+pub(super) fn boxplot_story_data(groups: usize) -> (Arc<[f64]>, Arc<[f64]>) {
     static CACHE: OnceLock<VecPairCache> = OnceLock::new();
     let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
     let mut guard = cache.lock().unwrap();
     guard
         .entry(groups)
-        .or_insert_with(|| boxplot_story_data_inner(groups))
+        .or_insert_with(|| {
+            let (x, y) = boxplot_story_data_inner(groups);
+            (x.into(), y.into())
+        })
         .clone()
 }
 
@@ -228,18 +234,18 @@ fn spectrum_magnitudes_inner(bins: usize) -> Vec<f32> {
         .collect()
 }
 
-pub(super) fn spectrum_magnitudes(bins: usize) -> Vec<f32> {
-    static CACHE: OnceLock<Mutex<HashMap<usize, Vec<f32>>>> = OnceLock::new();
+pub(super) fn spectrum_magnitudes(bins: usize) -> Arc<[f32]> {
+    static CACHE: OnceLock<Mutex<HashMap<usize, Arc<[f32]>>>> = OnceLock::new();
     let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
     let mut guard = cache.lock().unwrap();
     guard
         .entry(bins)
-        .or_insert_with(|| spectrum_magnitudes_inner(bins))
+        .or_insert_with(|| spectrum_magnitudes_inner(bins).into())
         .clone()
 }
 
-pub(super) fn spectrum_axis_magnitudes() -> Vec<f32> {
-    static CACHE: OnceLock<Vec<f32>> = OnceLock::new();
+pub(super) fn spectrum_axis_magnitudes() -> Arc<[f32]> {
+    static CACHE: OnceLock<Arc<[f32]>> = OnceLock::new();
     CACHE
         .get_or_init(|| {
             (0..72)
@@ -247,7 +253,8 @@ pub(super) fn spectrum_axis_magnitudes() -> Vec<f32> {
                     let t = index as f32 / 71.0;
                     -86.0 + (t * std::f32::consts::TAU * 1.5).sin().abs() * 54.0
                 })
-                .collect()
+                .collect::<Vec<_>>()
+                .into()
         })
         .clone()
 }

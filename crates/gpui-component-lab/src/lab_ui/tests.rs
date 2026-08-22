@@ -27,12 +27,13 @@ use crate::{
     UI_KIT_EXPORTED_COMPONENT_STORY_IDS,
 };
 use gpui::SharedString;
+#[cfg(feature = "profiler")]
 use gpui_px::{Colormap, ScaleType};
 use gpui_showcase::showcase::ShowcaseSection;
 use gpui_ui_kit::ButtonVariant;
 use serde_json::json;
 use std::collections::BTreeMap;
-
+#[cfg(feature = "profiler")]
 #[test]
 fn story_file_names_are_stable() {
     assert_eq!(
@@ -179,7 +180,7 @@ fn px_line_story_data_is_chart_safe() {
     assert!(sweep.x.iter().all(|value| *value > 0.0));
     assert_eq!(sweep.x_scale, ScaleType::Log);
     assert_eq!(
-        sweep.comparison_y.as_ref().map(Vec::len),
+        sweep.comparison_y.as_ref().map(|values| values.len()),
         Some(sweep.x.len())
     );
 

@@ -17,6 +17,22 @@ pub enum ShowcaseGroup {
 }
 
 impl ShowcaseGroup {
+    pub fn uppercase_label(&self) -> &'static str {
+        match self {
+            Self::Actions => "ACTIONS",
+            Self::TextAndLabels => "TEXT & LABELS",
+            Self::FormControls => "FORM CONTROLS",
+            Self::Navigation => "NAVIGATION",
+            Self::Feedback => "FEEDBACK",
+            Self::DataDisplay => "DATA DISPLAY",
+            Self::Overlays => "OVERLAYS & POPUPS",
+            Self::LayoutAndStructure => "LAYOUT & STRUCTURE",
+            Self::Controls => "CONTROLS",
+            Self::MultiStep => "MULTI-STEP",
+            Self::Media => "MEDIA & VISUALS",
+        }
+    }
+
     pub fn all() -> &'static [ShowcaseGroup] {
         &[
             ShowcaseGroup::Actions,

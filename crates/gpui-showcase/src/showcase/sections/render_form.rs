@@ -286,7 +286,7 @@ impl Showcase {
                                     .on_text_change({
                                         move |text, _window, cx| {
                                             entity.update(cx, |showcase, _| {
-                                                showcase.input_edit_text = text;
+                                                showcase.input_edit_text = text.to_string();
                                             });
                                         }
                                     })
