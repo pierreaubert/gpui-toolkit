@@ -1,5 +1,13 @@
 # Unreleased
 
+## 0.9.37
+
+### Maintenance
+
+- Removed the stale, unexported audio-control implementation and its orphaned
+  examples/tests; those controls are owned by `gpui-audio-kit`.
+- Removed unused `gpu-2d` and `gpu-3d` feature declarations.
+
 ## Features
 
 - Added bounded QR constructors with input/matrix limits and cooperative

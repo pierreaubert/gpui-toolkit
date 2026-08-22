@@ -1,24 +1,36 @@
 use crate::color::D3Color;
+use crate::shape::contour_smoothing::StrokePoint;
 use gpui::*;
 
-pub(super) fn split_stroke_segments(
-    points: &[Point<Pixels>],
+/// Split screen-space stroke points at discontinuities. Both the legacy GPUI
+/// painter and Vello scene builder use this so contour topology cannot drift
+/// between raster backends.
+pub(crate) fn split_stroke_points(
+    points: &[StrokePoint],
     x_jump_threshold: f32,
     y_jump_threshold: f32,
-) -> Vec<Vec<Point<Pixels>>> {
+) -> Vec<Vec<StrokePoint>> {
     let mut segments = Vec::new();
-    let mut current: Vec<Point<Pixels>> = Vec::new();
+    let mut current: Vec<StrokePoint> = Vec::new();
+    let mut distances: Vec<_> = points
+        .windows(2)
+        .map(|pair| (pair[1].x - pair[0].x).hypot(pair[1].y - pair[0].y))
+        .filter(|distance| distance.is_finite() && *distance > 0.0)
+        .collect();
+    distances.sort_by(|left, right| left.total_cmp(right));
+    let typical_distance = distances.get(distances.len() / 2).copied().unwrap_or(0.0);
+    let outlier_distance = typical_distance * 4.0;
 
     for point in points {
-        if let Some(prev) = current.last() {
-            let dx: f32 = (point.x - prev.x).abs().into();
-            let dy: f32 = (point.y - prev.y).abs().into();
-            if dx > x_jump_threshold || dy > y_jump_threshold {
-                if current.len() >= 2 {
-                    segments.push(current);
-                }
-                current = Vec::new();
+        if let Some(previous) = current.last()
+            && (((point.x - previous.x).abs() > x_jump_threshold
+                || (point.y - previous.y).abs() > y_jump_threshold)
+                && (point.x - previous.x).hypot(point.y - previous.y) > outlier_distance)
+        {
+            if current.len() >= 2 {
+                segments.push(current);
             }
+            current = Vec::new();
         }
         current.push(*point);
     }
@@ -26,8 +38,27 @@ pub(super) fn split_stroke_segments(
     if current.len() >= 2 {
         segments.push(current);
     }
-
     segments
+}
+
+pub(super) fn split_stroke_segments(
+    points: &[Point<Pixels>],
+    x_jump_threshold: f32,
+    y_jump_threshold: f32,
+) -> Vec<Vec<Point<Pixels>>> {
+    let points: Vec<_> = points
+        .iter()
+        .map(|point| StrokePoint::new(point.x.into(), point.y.into()))
+        .collect();
+    split_stroke_points(&points, x_jump_threshold, y_jump_threshold)
+        .into_iter()
+        .map(|segment| {
+            segment
+                .into_iter()
+                .map(|point| gpui::point(px(point.x), px(point.y)))
+                .collect()
+        })
+        .collect()
 }
 
 /// Create a viridis-like color scale for contours

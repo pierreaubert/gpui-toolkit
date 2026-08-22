@@ -15,15 +15,6 @@ use std::sync::Arc;
 
 /// Compatibility name for the Vello backend selector.
 pub type RasterBackend = crate::render2d::VelloBackend;
-/*
-    /// Probe `gpui::wgpu_custom_draw_available()` at first paint.
-    Auto,
-    /// Zero-copy GPU path through `WgpuCustomDraw` (requires the wgpu renderer).
-    Wgpu,
-    /// `vello_cpu` pixmap + `paint_image`. Works on every renderer.
-    Cpu,
-}*/
-
 type SceneBuilder = Rc<dyn Fn(f32, f32) -> ChartScene>;
 
 struct CpuState {

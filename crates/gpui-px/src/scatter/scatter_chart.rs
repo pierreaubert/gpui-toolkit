@@ -16,7 +16,7 @@ use d3rs::axis::{AxisConfig, DefaultAxisTheme, render_axis};
 use d3rs::color::D3Color;
 use d3rs::grid::{GridConfig, render_grid};
 use d3rs::scale::{LinearScale, LogScale};
-use d3rs::shape::{ScatterConfig, ScatterPoint, render_scatter};
+use d3rs::shape::{ScatterConfig, ScatterPoint, render_scatter_selected};
 use d3rs::text::{GlyphTextConfig, render_glyph_text};
 use gpui::prelude::*;
 use gpui::{AnyElement, IntoElement, div, px, rgb};
@@ -801,7 +801,9 @@ impl ScatterChart {
         let primary_config = ScatterConfig::new()
             .fill_color(D3Color::from_hex(self.color))
             .point_radius(self.point_radius)
-            .opacity(self.opacity);
+            .opacity(self.opacity)
+            .renderer_2d(self.renderer_2d)
+            .vello_backend(self.raster_backend);
 
         // Prepare additional series data and configs
         let series_data_configs: Vec<(Arc<[ScatterPoint]>, ScatterConfig)> = self
@@ -812,7 +814,9 @@ impl ScatterChart {
                 let config = ScatterConfig::new()
                     .fill_color(D3Color::from_hex(s.color))
                     .point_radius(s.point_radius)
-                    .opacity(s.opacity);
+                    .opacity(s.opacity)
+                    .renderer_2d(self.renderer_2d)
+                    .vello_backend(self.raster_backend);
                 (points, config)
             })
             .collect();
@@ -843,50 +847,22 @@ impl ScatterChart {
                 // Render additional series first
                 for (series_data, series_config) in &series_data_configs {
                     #[cfg(feature = "vello")]
-                    let child: AnyElement = match self.renderer_2d {
-                        d3rs::render2d::Renderer2D::Vello => d3rs::shape::render_scatter_vello(
-                            &$x_scale,
-                            &$y_scale,
-                            series_data.as_ref(),
-                            series_config,
-                            self.raster_backend,
-                        )
-                        .into_any_element(),
-                        d3rs::render2d::Renderer2D::Legacy => render_scatter(
-                            &$x_scale,
-                            &$y_scale,
-                            series_data.as_ref(),
-                            series_config,
-                        )
-                        .into_any_element(),
-                    };
-                    #[cfg(not(feature = "vello"))]
-                    let child: AnyElement =
-                        render_scatter(&$x_scale, &$y_scale, series_data.as_ref(), series_config)
-                            .into_any_element();
+                    let child: AnyElement = render_scatter_selected(
+                        &$x_scale,
+                        &$y_scale,
+                        series_data.as_ref(),
+                        series_config,
+                    );
                     plot_area = plot_area.child(child);
                 }
 
                 // Render primary series on top
-                #[cfg(feature = "vello")]
-                let child: AnyElement = match self.renderer_2d {
-                    d3rs::render2d::Renderer2D::Vello => d3rs::shape::render_scatter_vello(
-                        &$x_scale,
-                        &$y_scale,
-                        primary_data.as_ref(),
-                        &primary_config,
-                        self.raster_backend,
-                    )
-                    .into_any_element(),
-                    d3rs::render2d::Renderer2D::Legacy => {
-                        render_scatter(&$x_scale, &$y_scale, primary_data.as_ref(), &primary_config)
-                            .into_any_element()
-                    }
-                };
-                #[cfg(not(feature = "vello"))]
-                let child: AnyElement =
-                    render_scatter(&$x_scale, &$y_scale, primary_data.as_ref(), &primary_config)
-                        .into_any_element();
+                let child: AnyElement = render_scatter_selected(
+                    &$x_scale,
+                    &$y_scale,
+                    primary_data.as_ref(),
+                    &primary_config,
+                );
                 plot_area = plot_area.child(child);
 
                 plot_area

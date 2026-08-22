@@ -120,7 +120,7 @@ where
 }
 
 /// Render bars through the Vello scene painter.
-#[cfg(all(feature = "vello-gpui", not(test)))]
+#[cfg(feature = "vello-gpui")]
 pub fn render_bars_vello<XS, YS>(
     x_scale: &XS,
     y_scale: &YS,
@@ -135,69 +135,128 @@ where
     YS: Scale<f64, f64> + 'static,
 {
     let quads = compute_bars(x_scale, y_scale, data, width, height, config);
-    let fill = config.fill_color.to_rgba();
-    let opacity = config.opacity;
-    let stroke = config.stroke_color;
-    let stroke_width = config.stroke_width as f64;
+    let config = config.clone();
     crate::vello2d::VelloChartElement::with_builder(move |actual_width, actual_height| {
-        use crate::vello2d::kurbo::{BezPath, PathEl, Stroke};
-        use crate::vello2d::peniko::{Brush, Color};
-        let sx = if width.abs() > f32::EPSILON {
-            actual_width / width
-        } else {
-            1.0
-        };
-        let sy = if height.abs() > f32::EPSILON {
-            actual_height / height
-        } else {
-            1.0
-        };
-        let mut scene = crate::vello2d::ChartScene::new();
-        let mut fill_path = BezPath::new();
-        for quad in &quads {
-            let x0 = quad.x * sx;
-            let y0 = quad.y * sy;
-            let x1 = (quad.x + quad.width) * sx;
-            let y1 = (quad.y + quad.height) * sy;
-            fill_path.push(PathEl::MoveTo((x0 as f64, y0 as f64).into()));
-            fill_path.push(PathEl::LineTo((x1 as f64, y0 as f64).into()));
-            fill_path.push(PathEl::LineTo((x1 as f64, y1 as f64).into()));
-            fill_path.push(PathEl::LineTo((x0 as f64, y1 as f64).into()));
-            fill_path.push(PathEl::ClosePath);
-        }
-        if !fill_path.is_empty() {
-            scene.fill_path(
-                fill_path,
-                Brush::Solid(Color::new([fill.r, fill.g, fill.b, fill.a * opacity])),
-            );
-        }
-        if let Some(stroke_color) = stroke {
-            let mut stroke_path = BezPath::new();
-            for quad in &quads {
-                let inset = stroke_width as f32;
-                let x0 = (quad.x - inset) * sx;
-                let y0 = (quad.y - inset) * sy;
-                let x1 = (quad.x + quad.width + inset) * sx;
-                let y1 = (quad.y + quad.height + inset) * sy;
-                stroke_path.push(PathEl::MoveTo((x0 as f64, y0 as f64).into()));
-                stroke_path.push(PathEl::LineTo((x1 as f64, y0 as f64).into()));
-                stroke_path.push(PathEl::LineTo((x1 as f64, y1 as f64).into()));
-                stroke_path.push(PathEl::LineTo((x0 as f64, y1 as f64).into()));
-                stroke_path.push(PathEl::ClosePath);
-            }
-            if !stroke_path.is_empty() {
-                let color = stroke_color.to_rgba();
-                scene.stroke_path(
-                    stroke_path,
-                    Stroke::new(stroke_width),
-                    Brush::Solid(Color::new([color.r, color.g, color.b, color.a])),
-                );
-            }
-        }
-        scene
+        bar_scene_from_quads(&quads, &config, width, height, actual_width, actual_height)
     })
     .backend(backend)
     .absolute()
+}
+
+/// Dispatch bars through the renderer selected on [`BarConfig`].
+#[cfg(feature = "gpui")]
+pub fn render_bars_selected<XS, YS>(
+    x_scale: &XS,
+    y_scale: &YS,
+    data: &[BarDatum],
+    width: f32,
+    height: f32,
+    config: &BarConfig,
+) -> AnyElement
+where
+    XS: Scale<f64, f64> + 'static,
+    YS: Scale<f64, f64> + 'static,
+{
+    #[cfg(feature = "vello-gpui")]
+    if config.renderer_2d.is_vello() {
+        return render_bars_vello(
+            x_scale,
+            y_scale,
+            data,
+            width,
+            height,
+            config,
+            config.vello_backend,
+        )
+        .into_any_element();
+    }
+    render_bars(x_scale, y_scale, data, width, height, config).into_any_element()
+}
+
+/// Build a backend-neutral Vello scene for a bar series. This public builder
+/// is suitable for deterministic CPU fixtures; the GPUI adapter below keeps
+/// the already-normalized quads across resizes.
+#[cfg(feature = "vello-gpui")]
+pub fn bar_chart_scene<XS, YS>(
+    x_scale: &XS,
+    y_scale: &YS,
+    data: &[BarDatum],
+    config: &BarConfig,
+    width: f32,
+    height: f32,
+) -> crate::vello2d::ChartScene
+where
+    XS: Scale<f64, f64>,
+    YS: Scale<f64, f64>,
+{
+    let quads = compute_bars(x_scale, y_scale, data, width, height, config);
+    bar_scene_from_quads(&quads, config, width, height, width, height)
+}
+
+#[cfg(feature = "vello-gpui")]
+fn bar_scene_from_quads(
+    quads: &[BarQuad],
+    config: &BarConfig,
+    source_width: f32,
+    source_height: f32,
+    width: f32,
+    height: f32,
+) -> crate::vello2d::ChartScene {
+    use crate::vello2d::kurbo::{BezPath, Rect, RoundedRect, Shape, Stroke};
+    use crate::vello2d::peniko::{Brush, Color};
+
+    let sx = if source_width.abs() > f32::EPSILON {
+        width / source_width
+    } else {
+        1.0
+    };
+    let sy = if source_height.abs() > f32::EPSILON {
+        height / source_height
+    } else {
+        1.0
+    };
+    let radius = config.border_radius.max(0.0) as f64 * sx.abs().min(sy.abs()) as f64;
+    let fill = config.fill_color.to_rgba();
+    let mut scene = crate::vello2d::ChartScene::new();
+    for quad in quads {
+        let rect = Rect::new(
+            (quad.x * sx) as f64,
+            (quad.y * sy) as f64,
+            ((quad.x + quad.width) * sx) as f64,
+            ((quad.y + quad.height) * sy) as f64,
+        );
+        scene.fill_rounded_rect(
+            rect,
+            radius,
+            Brush::Solid(Color::new([
+                fill.r,
+                fill.g,
+                fill.b,
+                fill.a * config.opacity,
+            ])),
+        );
+    }
+    if let Some(stroke_color) = config.stroke_color {
+        let mut path = BezPath::new();
+        for quad in quads {
+            let rect = Rect::new(
+                (quad.x * sx) as f64,
+                (quad.y * sy) as f64,
+                ((quad.x + quad.width) * sx) as f64,
+                ((quad.y + quad.height) * sy) as f64,
+            );
+            path.extend(RoundedRect::from_rect(rect, radius).to_path(0.1));
+        }
+        if !path.is_empty() {
+            let color = stroke_color.to_rgba();
+            scene.stroke_path(
+                path,
+                Stroke::new(config.stroke_width as f64),
+                Brush::Solid(Color::new([color.r, color.g, color.b, color.a])),
+            );
+        }
+    }
+    scene
 }
 
 /// Compute bar quads in a single pass.
@@ -373,7 +432,7 @@ where
 }
 
 /// Render grouped bars through the Vello scene painter.
-#[cfg(all(feature = "vello-gpui", not(test)))]
+#[cfg(feature = "vello-gpui")]
 pub fn render_grouped_bars_vello<YS>(
     y_scale: &YS,
     data: &[GroupedBarDatum],
@@ -387,51 +446,111 @@ where
     YS: Scale<f64, f64> + 'static,
 {
     let quads = compute_grouped_bars(y_scale, data, meta, width, height, config);
-    let opacity = config.opacity;
+    let config = config.clone();
     crate::vello2d::VelloChartElement::with_builder(move |actual_width, actual_height| {
-        use crate::vello2d::kurbo::{BezPath, PathEl};
-        use crate::vello2d::peniko::{Brush, Color};
-        let sx = if width.abs() > f32::EPSILON {
-            actual_width / width
-        } else {
-            1.0
-        };
-        let sy = if height.abs() > f32::EPSILON {
-            actual_height / height
-        } else {
-            1.0
-        };
-        let mut scene = crate::vello2d::ChartScene::new();
-        let mut start = 0usize;
-        while start < quads.len() {
-            let color = quads[start].color;
-            let mut end = start + 1;
-            while end < quads.len() && quads[end].color == color {
-                end += 1;
-            }
-            let mut path = BezPath::new();
-            for quad in &quads[start..end] {
-                let x0 = quad.x * sx;
-                let y0 = quad.y * sy;
-                let x1 = (quad.x + quad.width) * sx;
-                let y1 = (quad.y + quad.height) * sy;
-                path.push(PathEl::MoveTo((x0 as f64, y0 as f64).into()));
-                path.push(PathEl::LineTo((x1 as f64, y0 as f64).into()));
-                path.push(PathEl::LineTo((x1 as f64, y1 as f64).into()));
-                path.push(PathEl::LineTo((x0 as f64, y1 as f64).into()));
-                path.push(PathEl::ClosePath);
-            }
-            let rgba = color.to_rgba();
-            scene.fill_path(
-                path,
-                Brush::Solid(Color::new([rgba.r, rgba.g, rgba.b, rgba.a * opacity])),
-            );
-            start = end;
-        }
-        scene
+        grouped_scene_from_quads(&quads, &config, width, height, actual_width, actual_height)
     })
     .backend(backend)
     .absolute()
+}
+
+/// Dispatch grouped bars through the renderer selected on [`GroupedBarConfig`].
+#[cfg(feature = "gpui")]
+pub fn render_grouped_bars_selected<YS>(
+    y_scale: &YS,
+    data: &[GroupedBarDatum],
+    meta: &GroupedBarMeta,
+    width: f32,
+    height: f32,
+    config: &GroupedBarConfig,
+) -> AnyElement
+where
+    YS: Scale<f64, f64> + 'static,
+{
+    #[cfg(feature = "vello-gpui")]
+    if config.renderer_2d.is_vello() {
+        return render_grouped_bars_vello(
+            y_scale,
+            data,
+            meta,
+            width,
+            height,
+            config,
+            config.vello_backend,
+        )
+        .into_any_element();
+    }
+    render_grouped_bars(y_scale, data, meta, width, height, config).into_any_element()
+}
+
+/// Build a backend-neutral Vello scene for grouped bars.
+#[cfg(feature = "vello-gpui")]
+pub fn grouped_bar_chart_scene<YS>(
+    y_scale: &YS,
+    data: &[GroupedBarDatum],
+    meta: &GroupedBarMeta,
+    config: &GroupedBarConfig,
+    width: f32,
+    height: f32,
+) -> crate::vello2d::ChartScene
+where
+    YS: Scale<f64, f64>,
+{
+    let quads = compute_grouped_bars(y_scale, data, meta, width, height, config);
+    grouped_scene_from_quads(&quads, config, width, height, width, height)
+}
+
+#[cfg(feature = "vello-gpui")]
+fn grouped_scene_from_quads(
+    quads: &[GroupedBarQuad],
+    config: &GroupedBarConfig,
+    source_width: f32,
+    source_height: f32,
+    width: f32,
+    height: f32,
+) -> crate::vello2d::ChartScene {
+    use crate::vello2d::kurbo::Rect;
+    use crate::vello2d::peniko::{Brush, Color};
+
+    let sx = if source_width.abs() > f32::EPSILON {
+        width / source_width
+    } else {
+        1.0
+    };
+    let sy = if source_height.abs() > f32::EPSILON {
+        height / source_height
+    } else {
+        1.0
+    };
+    let radius = config.border_radius.max(0.0) as f64 * sx.abs().min(sy.abs()) as f64;
+    let mut scene = crate::vello2d::ChartScene::new();
+    let mut start = 0usize;
+    while start < quads.len() {
+        let color = quads[start].color.to_rgba();
+        let mut end = start + 1;
+        while end < quads.len() && quads[end].color == quads[start].color {
+            end += 1;
+        }
+        for quad in &quads[start..end] {
+            scene.fill_rounded_rect(
+                Rect::new(
+                    (quad.x * sx) as f64,
+                    (quad.y * sy) as f64,
+                    ((quad.x + quad.width) * sx) as f64,
+                    ((quad.y + quad.height) * sy) as f64,
+                ),
+                radius,
+                Brush::Solid(Color::new([
+                    color.r,
+                    color.g,
+                    color.b,
+                    color.a * config.opacity,
+                ])),
+            );
+        }
+        start = end;
+    }
+    scene
 }
 
 /// Compute grouped bar quads in a single pass, pre-computing category/series indices.

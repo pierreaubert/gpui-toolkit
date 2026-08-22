@@ -315,49 +315,14 @@ impl PieChart {
                 let paths = slice_paths.clone();
                 let palette = custom_palette.clone();
                 d3rs::vello2d::VelloChartElement::with_builder(move |width, height| {
-                    use d3rs::vello2d::kurbo::{BezPath, PathEl};
-                    use d3rs::vello2d::peniko::{Brush, Color};
-                    let sx = if plot_width > 0.0 {
-                        width as f64 / plot_width as f64
-                    } else {
-                        1.0
-                    };
-                    let sy = if plot_height > 0.0 {
-                        height as f64 / plot_height as f64
-                    } else {
-                        1.0
-                    };
-                    let colors = palette.as_deref().unwrap_or(&DEFAULT_PALETTE);
-                    let mut scene = d3rs::vello2d::ChartScene::new();
-                    for (index, points) in paths.iter().enumerate() {
-                        let Some(first) = points.first() else {
-                            continue;
-                        };
-                        let mut path = BezPath::new();
-                        path.push(PathEl::MoveTo(
-                            (
-                                f32::from(first.x) as f64 * sx,
-                                f32::from(first.y) as f64 * sy,
-                            )
-                                .into(),
-                        ));
-                        for point in points.iter().skip(1) {
-                            path.push(PathEl::LineTo(
-                                (
-                                    f32::from(point.x) as f64 * sx,
-                                    f32::from(point.y) as f64 * sy,
-                                )
-                                    .into(),
-                            ));
-                        }
-                        path.push(PathEl::ClosePath);
-                        let color = D3Color::from_hex(colors[index % colors.len()]).to_rgba();
-                        scene.fill_path(
-                            path,
-                            Brush::Solid(Color::new([color.r, color.g, color.b, color.a])),
-                        );
-                    }
-                    scene
+                    pie_chart_scene(
+                        &paths,
+                        palette.as_deref().unwrap_or(&DEFAULT_PALETTE),
+                        plot_width,
+                        plot_height,
+                        width,
+                        height,
+                    )
                 })
                 .backend(vello_backend)
                 .absolute()
@@ -406,6 +371,64 @@ impl PieChart {
 
         Ok(container)
     }
+}
+
+/// Build a backend-neutral Vello scene for prepared pie or donut slice paths.
+#[cfg(feature = "vello")]
+pub fn pie_chart_scene(
+    paths: &[Vec<gpui::Point<gpui::Pixels>>],
+    colors: &[u32],
+    source_width: f32,
+    source_height: f32,
+    width: f32,
+    height: f32,
+) -> d3rs::vello2d::ChartScene {
+    use d3rs::vello2d::kurbo::{BezPath, PathEl};
+    use d3rs::vello2d::peniko::{Brush, Color};
+
+    let sx = if source_width > 0.0 {
+        width as f64 / source_width as f64
+    } else {
+        1.0
+    };
+    let sy = if source_height > 0.0 {
+        height as f64 / source_height as f64
+    } else {
+        1.0
+    };
+    let mut scene = d3rs::vello2d::ChartScene::new();
+    if colors.is_empty() {
+        return scene;
+    }
+    for (index, points) in paths.iter().enumerate() {
+        let Some(first) = points.first() else {
+            continue;
+        };
+        let mut path = BezPath::new();
+        path.push(PathEl::MoveTo(
+            (
+                f32::from(first.x) as f64 * sx,
+                f32::from(first.y) as f64 * sy,
+            )
+                .into(),
+        ));
+        for point in points.iter().skip(1) {
+            path.push(PathEl::LineTo(
+                (
+                    f32::from(point.x) as f64 * sx,
+                    f32::from(point.y) as f64 * sy,
+                )
+                    .into(),
+            ));
+        }
+        path.push(PathEl::ClosePath);
+        let color = D3Color::from_hex(colors[index % colors.len()]).to_rgba();
+        scene.fill_path(
+            path,
+            Brush::Solid(Color::new([color.r, color.g, color.b, color.a])),
+        );
+    }
+    scene
 }
 
 /// Create a pie chart from values.

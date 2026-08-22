@@ -16,7 +16,7 @@ use d3rs::color::D3Color;
 use d3rs::grid::{GridConfig, render_grid};
 use d3rs::render2d::{Renderer2D, VelloBackend};
 use d3rs::scale::{LinearScale, LogScale, Scale};
-use d3rs::shape::{BarConfig, BarDatum, render_bars};
+use d3rs::shape::{BarConfig, BarDatum};
 use d3rs::text::{GlyphTextConfig, render_glyph_text};
 use gpui::prelude::*;
 use gpui::{AnyElement, IntoElement, PathBuilder, canvas, div, point, px, rgb};
@@ -905,15 +905,8 @@ where
     XS: Scale<f64, f64> + 'static,
     YS: Scale<f64, f64> + 'static,
 {
-    #[cfg(feature = "vello")]
-    if renderer == Renderer2D::Vello {
-        return d3rs::shape::render_bars_vello(
-            x_scale, y_scale, data, width, height, config, backend,
-        )
-        .into_any_element();
-    }
-    let _ = (renderer, backend);
-    render_bars(x_scale, y_scale, data, width, height, config).into_any_element()
+    let config = config.clone().renderer_2d(renderer).vello_backend(backend);
+    d3rs::shape::render_bars_selected(x_scale, y_scale, data, width, height, &config)
 }
 
 /// Render grouped bars without cloning category/series strings.
@@ -1031,46 +1024,11 @@ where
     if renderer == Renderer2D::Vello {
         let vello_quads = quads.clone();
         return d3rs::vello2d::VelloChartElement::with_builder(move |width, height| {
-            use d3rs::vello2d::kurbo::{BezPath, PathEl};
-            use d3rs::vello2d::peniko::{Brush, Color};
-            let sx = if plot_width.abs() > f32::EPSILON {
-                width / plot_width
-            } else {
-                1.0
-            };
-            let sy = if plot_height.abs() > f32::EPSILON {
-                height / plot_height
-            } else {
-                1.0
-            };
-            let mut scene = d3rs::vello2d::ChartScene::new();
-            let mut start = 0usize;
-            while start < vello_quads.len() {
-                let color = vello_quads[start].color;
-                let mut end = start + 1;
-                while end < vello_quads.len() && vello_quads[end].color == color {
-                    end += 1;
-                }
-                let mut path = BezPath::new();
-                for quad in &vello_quads[start..end] {
-                    let x0 = quad.x * sx;
-                    let y0 = quad.y * sy;
-                    let x1 = (quad.x + quad.width) * sx;
-                    let y1 = (quad.y + quad.height) * sy;
-                    path.push(PathEl::MoveTo((x0 as f64, y0 as f64).into()));
-                    path.push(PathEl::LineTo((x1 as f64, y0 as f64).into()));
-                    path.push(PathEl::LineTo((x1 as f64, y1 as f64).into()));
-                    path.push(PathEl::LineTo((x0 as f64, y1 as f64).into()));
-                    path.push(PathEl::ClosePath);
-                }
-                let rgba = color.to_rgba();
-                scene.fill_path(
-                    path,
-                    Brush::Solid(Color::new([rgba.r, rgba.g, rgba.b, rgba.a * opacity])),
-                );
-                start = end;
-            }
-            scene
+            let quads: Vec<_> = vello_quads
+                .iter()
+                .map(|quad| (quad.x, quad.y, quad.width, quad.height, quad.color))
+                .collect();
+            bar_chart_scene(&quads, plot_width, plot_height, width, height, opacity)
         })
         .backend(backend)
         .absolute()
@@ -1117,6 +1075,54 @@ where
     .absolute()
     .inset_0()
     .into_any_element()
+}
+
+/// Build a backend-neutral Vello scene for prepared grouped-bar quads.
+#[cfg(feature = "vello")]
+pub fn bar_chart_scene(
+    quads: &[(f32, f32, f32, f32, D3Color)],
+    source_width: f32,
+    source_height: f32,
+    width: f32,
+    height: f32,
+    opacity: f32,
+) -> d3rs::vello2d::ChartScene {
+    use d3rs::vello2d::kurbo::Rect;
+    use d3rs::vello2d::peniko::{Brush, Color};
+
+    let sx = if source_width.abs() > f32::EPSILON {
+        width / source_width
+    } else {
+        1.0
+    };
+    let sy = if source_height.abs() > f32::EPSILON {
+        height / source_height
+    } else {
+        1.0
+    };
+    let mut scene = d3rs::vello2d::ChartScene::new();
+    let mut start = 0usize;
+    while start < quads.len() {
+        let color = quads[start].4;
+        let mut end = start + 1;
+        while end < quads.len() && quads[end].4 == color {
+            end += 1;
+        }
+        let rgba = color.to_rgba();
+        for &(x, y, quad_width, quad_height, _) in &quads[start..end] {
+            scene.fill_rect(
+                Rect::new(
+                    (x * sx) as f64,
+                    (y * sy) as f64,
+                    ((x + quad_width) * sx) as f64,
+                    ((y + quad_height) * sy) as f64,
+                ),
+                Brush::Solid(Color::new([rgba.r, rgba.g, rgba.b, rgba.a * opacity])),
+            );
+        }
+        start = end;
+    }
+    scene
 }
 
 /// Append a rounded rectangle outline to a GPUI path builder.

@@ -57,6 +57,16 @@ impl ChartScene {
         self.revision = self.revision.wrapping_add(1);
     }
 
+    /// Fill a compound path with the even-odd rule.
+    pub fn fill_path_even_odd(&mut self, path: BezPath, brush: Brush) {
+        self.cmds.push(ChartCmd::Fill {
+            path,
+            fill: Fill::EvenOdd,
+            brush,
+        });
+        self.revision = self.revision.wrapping_add(1);
+    }
+
     /// Fill a circle (the scatter-marker primitive).
     pub fn fill_circle(&mut self, cx: f64, cy: f64, radius: f64, brush: Brush) {
         if radius <= 0.0 {
@@ -94,6 +104,25 @@ impl ChartScene {
         brush: Brush,
     ) {
         let Some(path) = arc_path(cx, cy, radius, start_angle, sweep_angle, true) else {
+            return;
+        };
+        self.fill_path(path, brush);
+    }
+
+    /// Fill an annular wedge for donut and ring charts.
+    pub fn fill_annular_wedge(
+        &mut self,
+        cx: f64,
+        cy: f64,
+        inner_radius: f64,
+        outer_radius: f64,
+        start_angle: f64,
+        sweep_angle: f64,
+        brush: Brush,
+    ) {
+        let Some(path) =
+            annular_arc_path(cx, cy, inner_radius, outer_radius, start_angle, sweep_angle)
+        else {
             return;
         };
         self.fill_path(path, brush);
@@ -156,6 +185,68 @@ impl ChartScene {
     pub fn revision(&self) -> u64 {
         self.revision
     }
+}
+
+fn annular_arc_path(
+    cx: f64,
+    cy: f64,
+    inner_radius: f64,
+    outer_radius: f64,
+    start_angle: f64,
+    sweep_angle: f64,
+) -> Option<BezPath> {
+    if !cx.is_finite()
+        || !cy.is_finite()
+        || !inner_radius.is_finite()
+        || !outer_radius.is_finite()
+        || inner_radius <= 0.0
+        || outer_radius <= inner_radius
+        || !start_angle.is_finite()
+        || !sweep_angle.is_finite()
+        || sweep_angle.abs() <= f64::EPSILON
+    {
+        return None;
+    }
+    let segments =
+        ((sweep_angle.abs() / std::f64::consts::FRAC_PI_8).ceil() as usize).clamp(1, 256);
+    let mut path = BezPath::new();
+    path.push(PathEl::MoveTo(
+        (
+            cx + outer_radius * start_angle.cos(),
+            cy + outer_radius * start_angle.sin(),
+        )
+            .into(),
+    ));
+    for index in 1..=segments {
+        let angle = start_angle + sweep_angle * index as f64 / segments as f64;
+        path.push(PathEl::LineTo(
+            (
+                cx + outer_radius * angle.cos(),
+                cy + outer_radius * angle.sin(),
+            )
+                .into(),
+        ));
+    }
+    let end_angle = start_angle + sweep_angle;
+    path.push(PathEl::LineTo(
+        (
+            cx + inner_radius * end_angle.cos(),
+            cy + inner_radius * end_angle.sin(),
+        )
+            .into(),
+    ));
+    for index in (0..segments).rev() {
+        let angle = start_angle + sweep_angle * index as f64 / segments as f64;
+        path.push(PathEl::LineTo(
+            (
+                cx + inner_radius * angle.cos(),
+                cy + inner_radius * angle.sin(),
+            )
+                .into(),
+        ));
+    }
+    path.push(PathEl::ClosePath);
+    Some(path)
 }
 
 /// Build a deterministic polyline approximation of a circular arc. Vello
@@ -266,6 +357,34 @@ mod tests {
         assert_eq!(scene.revision(), initial + 2);
         assert!(matches!(scene.commands()[0], ChartCmd::Fill { .. }));
         assert!(matches!(scene.commands()[1], ChartCmd::Stroke { .. }));
+    }
+
+    #[test]
+    fn annular_wedge_and_even_odd_fill_are_recorded() {
+        let mut scene = ChartScene::new();
+        let revision = scene.revision();
+        scene.fill_annular_wedge(
+            10.0,
+            10.0,
+            2.0,
+            5.0,
+            0.0,
+            std::f64::consts::FRAC_PI_2,
+            Brush::Solid(Color::WHITE),
+        );
+        scene.fill_path_even_odd(
+            Rect::new(0.0, 0.0, 1.0, 1.0).to_path(0.1),
+            Brush::Solid(Color::WHITE),
+        );
+        assert_eq!(scene.len(), 2);
+        assert_eq!(scene.revision(), revision + 2);
+        assert!(matches!(
+            scene.commands()[1],
+            ChartCmd::Fill {
+                fill: Fill::EvenOdd,
+                ..
+            }
+        ));
     }
 
     #[test]

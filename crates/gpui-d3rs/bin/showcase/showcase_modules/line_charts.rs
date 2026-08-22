@@ -3,9 +3,7 @@ use d3rs::color::ColorScheme;
 use d3rs::grid::{GridConfig, render_grid};
 use d3rs::prelude::*;
 use d3rs::render2d::{Renderer2D, VelloBackend};
-use d3rs::shape::render_line;
-#[cfg(feature = "vello")]
-use d3rs::shape::render_line_vello;
+use d3rs::shape::render_line_selected as render_line_with_config;
 use gpui::*;
 use gpui_ui_kit::theme::ThemeExt;
 
@@ -207,13 +205,9 @@ where
     XS: d3rs::scale::Scale<f64, f64> + Clone + 'static,
     YS: d3rs::scale::Scale<f64, f64> + Clone + 'static,
 {
-    match selection.0 {
-        #[cfg(feature = "vello")]
-        Renderer2D::Vello => {
-            render_line_vello(x_scale, y_scale, data, config, selection.1).into_any_element()
-        }
-        #[cfg(not(feature = "vello"))]
-        Renderer2D::Vello => render_line(x_scale, y_scale, data, config).into_any_element(),
-        Renderer2D::Legacy => render_line(x_scale, y_scale, data, config).into_any_element(),
-    }
+    let config = config
+        .clone()
+        .renderer_2d(selection.0)
+        .vello_backend(selection.1);
+    render_line_with_config(x_scale, y_scale, data, &config)
 }

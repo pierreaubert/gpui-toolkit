@@ -1,5 +1,18 @@
 # Unreleased
 
+# 0.9.14
+
+## Features
+
+- Added deterministic Vello scene builders for ordinary chart marks and
+  library-owned renderer selection for line, bar, grouped-bar, scatter,
+  contour, contour-band, and heatmap rendering.
+
+## Fixes
+
+- Matched Vello contour fill, discontinuity splitting, and smoothing behavior
+  to the legacy renderer, and added even-odd and annular-wedge scene commands.
+
 # 0.9.13
 
 ## Features

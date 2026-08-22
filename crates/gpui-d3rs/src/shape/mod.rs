@@ -54,42 +54,48 @@ pub mod radial;
 pub mod stack;
 pub mod symbol;
 
-#[cfg(all(feature = "gpui", not(test)))]
+#[cfg(feature = "gpui")]
 mod bar;
-#[cfg(all(feature = "gpui", not(test)))]
+#[cfg(feature = "gpui")]
 pub mod contour;
 pub mod line;
 pub mod scatter;
 
 // Re-export existing chart rendering functions (GPUI only)
-#[cfg(all(feature = "gpui", not(test)))]
+#[cfg(feature = "gpui")]
 pub use bar::{
     BarConfig, BarDatum, GroupedBarConfig, GroupedBarDatum, GroupedBarMeta, analyze_grouped_data,
-    render_bars, render_grouped_bars,
+    render_bars, render_bars_selected, render_grouped_bars, render_grouped_bars_selected,
 };
-#[cfg(all(feature = "vello-gpui", not(test)))]
-pub use bar::{render_bars_vello, render_grouped_bars_vello};
-#[cfg(all(feature = "gpui", not(test)))]
+#[cfg(feature = "vello-gpui")]
+pub use bar::{
+    bar_chart_scene, grouped_bar_chart_scene, render_bars_vello, render_grouped_bars_vello,
+};
+#[cfg(feature = "gpui")]
 pub use contour::{
     ContourBandElement, ContourConfig, ContourElement, HeatmapData, HeatmapElement,
-    heat_color_scale, render_contour, render_contour_bands, render_heatmap, viridis_color_scale,
+    heat_color_scale, render_contour, render_contour_bands, render_contour_bands_selected,
+    render_contour_selected, render_heatmap, render_heatmap_selected, viridis_color_scale,
 };
-#[cfg(all(feature = "vello-gpui", not(test)))]
-pub use contour::{render_contour_bands_vello, render_contour_vello, render_heatmap_vello};
-#[cfg(all(feature = "vello-gpui", not(test)))]
-pub use line::render_line_vello;
+#[cfg(feature = "vello-gpui")]
+pub use contour::{
+    contour_bands_chart_scene, contour_chart_scene, heatmap_chart_scene,
+    render_contour_bands_vello, render_contour_vello, render_heatmap_vello,
+};
 pub use line::{
     CurveType, LineConfig, LinePoint, LineRenderError, StrokeDashArray, validate_line_inputs,
 };
-#[cfg(all(feature = "gpui", not(test)))]
-pub use line::{render_line, try_render_line};
-#[cfg(all(feature = "vello-gpui", not(test)))]
+#[cfg(feature = "vello-gpui")]
+pub use line::{LineSceneGeometry, line_chart_scene, line_scene_geometry, render_line_vello};
+#[cfg(feature = "gpui")]
+pub use line::{render_line, render_line_selected, try_render_line};
+#[cfg(feature = "vello-gpui")]
 pub use scatter::render_scatter_vello;
-#[cfg(feature = "vello")]
+#[cfg(feature = "vello-gpui")]
 pub use scatter::scatter_chart_scene;
 pub use scatter::{ScatterConfig, ScatterPoint, ScatterRenderError, validate_scatter_inputs};
-#[cfg(all(feature = "gpui", not(test)))]
-pub use scatter::{render_scatter, try_render_scatter};
+#[cfg(feature = "gpui")]
+pub use scatter::{render_scatter, render_scatter_selected, try_render_scatter};
 
 // Re-export new shape utilities (no GPUI dependency)
 pub use arc::{Arc, ArcDatum, ArcGenerationError, arc_points, try_arc_points};

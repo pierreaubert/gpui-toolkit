@@ -1,6 +1,6 @@
 [package]
 name = "gpui-ui-kit"
-version = "0.9.36"
+version = "0.9.37"
 authors.workspace = true
 edition.workspace = true
 keywords.workspace = true
@@ -49,8 +49,6 @@ smol = { workspace = true }
 default = []
 bench = []
 autoeq = []
-gpu-2d = []
-gpu-3d = []
 reqwest = []
 spinorama = []
 tokio = []

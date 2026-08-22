@@ -309,51 +309,15 @@ impl AreaChart {
             if renderer_2d == Renderer2D::Vello {
                 let source_points = points.clone();
                 return d3rs::vello2d::VelloChartElement::with_builder(move |width, height| {
-                    use d3rs::vello2d::kurbo::{BezPath, PathEl};
-                    use d3rs::vello2d::peniko::{Brush, Color};
-                    let sx = if layout_width > 0.0 {
-                        width as f64 / layout_width as f64
-                    } else {
-                        1.0
-                    };
-                    let sy = if plot_height > 0.0 {
-                        height as f64 / plot_height as f64
-                    } else {
-                        1.0
-                    };
-                    let mut path = BezPath::new();
-                    if let Some(first) = source_points.first() {
-                        path.push(PathEl::MoveTo(
-                            (
-                                f32::from(first.x) as f64 * sx,
-                                f32::from(first.y) as f64 * sy,
-                            )
-                                .into(),
-                        ));
-                        for point in source_points.iter().skip(1) {
-                            path.push(PathEl::LineTo(
-                                (
-                                    f32::from(point.x) as f64 * sx,
-                                    f32::from(point.y) as f64 * sy,
-                                )
-                                    .into(),
-                            ));
-                        }
-                        path.push(PathEl::ClosePath);
-                    }
-                    let mut scene = d3rs::vello2d::ChartScene::new();
-                    if !path.is_empty() {
-                        scene.fill_path(
-                            path,
-                            Brush::Solid(Color::new([
-                                fill_color.r,
-                                fill_color.g,
-                                fill_color.b,
-                                fill_color.a * opacity,
-                            ])),
-                        );
-                    }
-                    scene
+                    area_chart_scene(
+                        &source_points,
+                        layout_width,
+                        plot_height,
+                        width,
+                        height,
+                        fill_color,
+                        opacity,
+                    )
                 })
                 .backend(vello_backend)
                 .absolute()
@@ -481,6 +445,59 @@ impl AreaChart {
 
         Ok(container)
     }
+}
+
+/// Build the backend-neutral Vello scene for a prepared area polygon.
+#[cfg(feature = "vello")]
+pub fn area_chart_scene(
+    points: &[gpui::Point<gpui::Pixels>],
+    source_width: f32,
+    source_height: f32,
+    width: f32,
+    height: f32,
+    fill: gpui::Rgba,
+    opacity: f32,
+) -> d3rs::vello2d::ChartScene {
+    use d3rs::vello2d::kurbo::{BezPath, PathEl};
+    use d3rs::vello2d::peniko::{Brush, Color};
+
+    let sx = if source_width > 0.0 {
+        width as f64 / source_width as f64
+    } else {
+        1.0
+    };
+    let sy = if source_height > 0.0 {
+        height as f64 / source_height as f64
+    } else {
+        1.0
+    };
+    let mut scene = d3rs::vello2d::ChartScene::new();
+    let Some(first) = points.first() else {
+        return scene;
+    };
+    let mut path = BezPath::new();
+    path.push(PathEl::MoveTo(
+        (
+            f32::from(first.x) as f64 * sx,
+            f32::from(first.y) as f64 * sy,
+        )
+            .into(),
+    ));
+    for point in points.iter().skip(1) {
+        path.push(PathEl::LineTo(
+            (
+                f32::from(point.x) as f64 * sx,
+                f32::from(point.y) as f64 * sy,
+            )
+                .into(),
+        ));
+    }
+    path.push(PathEl::ClosePath);
+    scene.fill_path(
+        path,
+        Brush::Solid(Color::new([fill.r, fill.g, fill.b, fill.a * opacity])),
+    );
+    scene
 }
 
 /// Create an area chart from x and y data.

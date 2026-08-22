@@ -288,20 +288,26 @@ where
     .inset_0()
 }
 
-/// Render a line through the Vello scene painter.  The geometry is computed
-/// once from the supplied scales and rebuilt in element-local coordinates when
-/// GPUI gives the element a new size.
-#[cfg(all(feature = "vello-gpui", not(test)))]
-pub fn render_line_vello<XS, YS>(
+/// Normalized line geometry shared by the Vello scene builder and its GPUI
+/// adapter. Building it is independent of the eventual raster backend.
+#[cfg(feature = "vello-gpui")]
+#[derive(Clone, Debug)]
+pub struct LineSceneGeometry {
+    points: Arc<[(f32, f32)]>,
+    segments: Arc<[(f32, f32, f32, f32)]>,
+}
+
+/// Normalize a line series once for Vello scene construction.
+#[cfg(feature = "vello-gpui")]
+pub fn line_scene_geometry<XS, YS>(
     x_scale: &XS,
     y_scale: &YS,
     data: &[LinePoint],
     config: &LineConfig,
-    backend: crate::vello2d::RasterBackend,
-) -> impl IntoElement + use<XS, YS>
+) -> LineSceneGeometry
 where
-    XS: Scale<f64, f64> + 'static,
-    YS: Scale<f64, f64> + 'static,
+    XS: Scale<f64, f64>,
+    YS: Scale<f64, f64>,
 {
     let (x_min, x_max) = x_scale.range();
     let (y_min, y_max) = y_scale.range();
@@ -325,62 +331,113 @@ where
             (x, y)
         })
         .collect();
-    let segments: Arc<[(f32, f32, f32, f32)]> = compute_line_segments(&points, config.curve).into();
+    let segments = compute_line_segments(&points, config.curve).into();
+    LineSceneGeometry { points, segments }
+}
+
+/// Build a backend-neutral Vello scene from normalized line geometry.
+#[cfg(feature = "vello-gpui")]
+pub fn line_chart_scene(
+    geometry: &LineSceneGeometry,
+    config: &LineConfig,
+    width: f32,
+    height: f32,
+) -> crate::vello2d::ChartScene {
+    use crate::vello2d::kurbo::{BezPath, Circle, PathEl, Shape, Stroke};
+    use crate::vello2d::peniko::{Brush, Color};
+
     let stroke = config.stroke_color.to_rgba();
     let fill = config
         .point_fill_color
         .as_ref()
         .unwrap_or(&config.stroke_color)
         .to_rgba();
-    let stroke_width = config.stroke_width as f64;
-    let opacity = config.opacity;
-    let show_points = config.show_points;
-    let point_radius = config.point_radius as f64;
+    let mut scene = crate::vello2d::ChartScene::new();
+    if !geometry.segments.is_empty() {
+        let mut path = BezPath::new();
+        for &(x0, y0, x1, y1) in geometry.segments.iter() {
+            path.push(PathEl::MoveTo(
+                ((x0 * width) as f64, (y0 * height) as f64).into(),
+            ));
+            path.push(PathEl::LineTo(
+                ((x1 * width) as f64, (y1 * height) as f64).into(),
+            ));
+        }
+        scene.stroke_path(
+            path,
+            Stroke::new(config.stroke_width as f64),
+            Brush::Solid(Color::new([
+                stroke.r,
+                stroke.g,
+                stroke.b,
+                stroke.a * config.opacity,
+            ])),
+        );
+    }
+    if config.show_points && config.point_radius > 0.0 {
+        let mut path = BezPath::new();
+        for &(x, y) in geometry.points.iter() {
+            path.extend(
+                Circle::new(
+                    (x as f64 * width as f64, y as f64 * height as f64),
+                    config.point_radius as f64,
+                )
+                .to_path(0.1),
+            );
+        }
+        scene.fill_path(
+            path,
+            Brush::Solid(Color::new([
+                fill.r,
+                fill.g,
+                fill.b,
+                fill.a * config.opacity,
+            ])),
+        );
+    }
+    scene
+}
 
+/// Render a line through the Vello scene painter. The normalized geometry is
+/// built once, while element-size-dependent scene coordinates are rebuilt on
+/// resize.
+#[cfg(feature = "vello-gpui")]
+pub fn render_line_vello<XS, YS>(
+    x_scale: &XS,
+    y_scale: &YS,
+    data: &[LinePoint],
+    config: &LineConfig,
+    backend: crate::vello2d::RasterBackend,
+) -> impl IntoElement + use<XS, YS>
+where
+    XS: Scale<f64, f64> + 'static,
+    YS: Scale<f64, f64> + 'static,
+{
+    let geometry = line_scene_geometry(x_scale, y_scale, data, config);
+    let config = config.clone();
     crate::vello2d::VelloChartElement::with_builder(move |width, height| {
-        use crate::vello2d::kurbo::{BezPath, Circle, PathEl, Shape, Stroke};
-        use crate::vello2d::peniko::{Brush, Color};
-
-        let mut scene = crate::vello2d::ChartScene::new();
-        if !segments.is_empty() {
-            let mut path = BezPath::new();
-            for &(x0, y0, x1, y1) in segments.iter() {
-                path.push(PathEl::MoveTo(
-                    ((x0 * width) as f64, (y0 * height) as f64).into(),
-                ));
-                path.push(PathEl::LineTo(
-                    ((x1 * width) as f64, (y1 * height) as f64).into(),
-                ));
-            }
-            scene.stroke_path(
-                path,
-                Stroke::new(stroke_width),
-                Brush::Solid(Color::new([
-                    stroke.r,
-                    stroke.g,
-                    stroke.b,
-                    stroke.a * opacity,
-                ])),
-            );
-        }
-        if show_points && point_radius > 0.0 {
-            let mut path = BezPath::new();
-            for &(x, y) in points.iter() {
-                path.extend(
-                    Circle::new(
-                        (x as f64 * width as f64, y as f64 * height as f64),
-                        point_radius,
-                    )
-                    .to_path(0.1),
-                );
-            }
-            scene.fill_path(
-                path,
-                Brush::Solid(Color::new([fill.r, fill.g, fill.b, fill.a * opacity])),
-            );
-        }
-        scene
+        line_chart_scene(&geometry, &config, width, height)
     })
     .backend(backend)
     .absolute()
+}
+
+/// Dispatch a line through the renderer selected on [`LineConfig`].
+#[cfg(feature = "gpui")]
+pub fn render_line_selected<XS, YS>(
+    x_scale: &XS,
+    y_scale: &YS,
+    data: &[LinePoint],
+    config: &LineConfig,
+) -> AnyElement
+where
+    XS: Scale<f64, f64> + 'static,
+    YS: Scale<f64, f64> + 'static,
+{
+    #[cfg(feature = "vello-gpui")]
+    if config.renderer_2d.is_vello() {
+        return render_line_vello(x_scale, y_scale, data, config, config.vello_backend)
+            .into_any_element();
+    }
+    render_line(x_scale, y_scale, data, config).into_any_element()
 }

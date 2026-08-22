@@ -738,80 +738,112 @@ fn return_vello_boxplot(
     backend: VelloBackend,
 ) -> AnyElement {
     d3rs::vello2d::VelloChartElement::with_builder(move |width, height| {
-        use d3rs::vello2d::kurbo::{BezPath, PathEl, Stroke};
-        use d3rs::vello2d::peniko::{Brush, Color};
-        let sx = if plot_width > 0.0 {
-            width / plot_width
-        } else {
-            1.0
-        };
-        let sy = if plot_height > 0.0 {
-            height / plot_height
-        } else {
-            1.0
-        };
-        let brush = |color: gpui::Rgba, alpha: f32| {
-            Brush::Solid(Color::new([color.r, color.g, color.b, color.a * alpha]))
-        };
-        let mut scene = d3rs::vello2d::ChartScene::new();
-        let mut whiskers = BezPath::new();
-        let mut boxes = BezPath::new();
-        let mut medians = BezPath::new();
-        let mut outliers = Vec::new();
-        for data in &draw_data {
-            let x = data.x_px * sx;
-            let half = data.half_width * sx;
-            let low = data.whisker_low_px * sy;
-            let high = data.whisker_high_px * sy;
-            whiskers.push(PathEl::MoveTo((x as f64, low as f64).into()));
-            whiskers.push(PathEl::LineTo((x as f64, high as f64).into()));
-            for y in [low, high] {
-                whiskers.push(PathEl::MoveTo(((x - half * 0.5) as f64, y as f64).into()));
-                whiskers.push(PathEl::LineTo(((x + half * 0.5) as f64, y as f64).into()));
-            }
-            let top = data.box_top * sy;
-            let bottom = (data.box_top + data.box_height) * sy;
-            boxes.push(PathEl::MoveTo(((x - half) as f64, top as f64).into()));
-            boxes.push(PathEl::LineTo(((x + half) as f64, top as f64).into()));
-            boxes.push(PathEl::LineTo(((x + half) as f64, bottom as f64).into()));
-            boxes.push(PathEl::LineTo(((x - half) as f64, bottom as f64).into()));
-            boxes.push(PathEl::ClosePath);
-            let median = data.q2_px * sy;
-            medians.push(PathEl::MoveTo(((x - half) as f64, median as f64).into()));
-            medians.push(PathEl::LineTo(((x + half) as f64, median as f64).into()));
-            for y in data.outliers_low.iter().chain(data.outliers_high.iter()) {
-                outliers.push((x, *y as f32 * sy));
-            }
-        }
-        if !whiskers.is_empty() {
-            scene.stroke_path(
-                whiskers,
-                Stroke::new(stroke_width as f64),
-                brush(whisker_color, 1.0),
-            );
-        }
-        if !boxes.is_empty() {
-            scene.fill_path(boxes, brush(box_color, box_opacity));
-        }
-        if !medians.is_empty() {
-            scene.stroke_path(
-                medians,
-                Stroke::new(stroke_width as f64 * 2.0),
-                brush(median_color, 1.0),
-            );
-        }
-        if !outliers.is_empty() {
-            let radius = outlier_radius * sx.min(sy);
-            let outlier_brush = brush(outlier_color, 0.7);
-            for (x, y) in outliers {
-                scene.fill_circle(x as f64, y as f64, radius as f64, outlier_brush.clone());
-            }
-        }
-        scene
+        box_plot_chart_scene(
+            &draw_data,
+            plot_width,
+            plot_height,
+            width,
+            height,
+            box_color,
+            median_color,
+            whisker_color,
+            outlier_color,
+            box_opacity,
+            outlier_radius,
+            stroke_width,
+        )
     })
     .backend(backend)
     .absolute()
     .into_any_element()
+}
+
+#[cfg(feature = "vello")]
+fn box_plot_chart_scene(
+    draw_data: &[BoxDrawData],
+    plot_width: f32,
+    plot_height: f32,
+    width: f32,
+    height: f32,
+    box_color: gpui::Rgba,
+    median_color: gpui::Rgba,
+    whisker_color: gpui::Rgba,
+    outlier_color: gpui::Rgba,
+    box_opacity: f32,
+    outlier_radius: f32,
+    stroke_width: f32,
+) -> d3rs::vello2d::ChartScene {
+    use d3rs::vello2d::kurbo::{BezPath, PathEl, Stroke};
+    use d3rs::vello2d::peniko::{Brush, Color};
+
+    let sx = if plot_width > 0.0 {
+        width / plot_width
+    } else {
+        1.0
+    };
+    let sy = if plot_height > 0.0 {
+        height / plot_height
+    } else {
+        1.0
+    };
+    let brush = |color: gpui::Rgba, alpha: f32| {
+        Brush::Solid(Color::new([color.r, color.g, color.b, color.a * alpha]))
+    };
+    let mut scene = d3rs::vello2d::ChartScene::new();
+    let mut whiskers = BezPath::new();
+    let mut boxes = BezPath::new();
+    let mut medians = BezPath::new();
+    let mut outliers = Vec::new();
+    for data in draw_data {
+        let x = data.x_px * sx;
+        let half = data.half_width * sx;
+        let low = data.whisker_low_px * sy;
+        let high = data.whisker_high_px * sy;
+        whiskers.push(PathEl::MoveTo((x as f64, low as f64).into()));
+        whiskers.push(PathEl::LineTo((x as f64, high as f64).into()));
+        for y in [low, high] {
+            whiskers.push(PathEl::MoveTo(((x - half * 0.5) as f64, y as f64).into()));
+            whiskers.push(PathEl::LineTo(((x + half * 0.5) as f64, y as f64).into()));
+        }
+        let top = data.box_top * sy;
+        let bottom = (data.box_top + data.box_height) * sy;
+        boxes.push(PathEl::MoveTo(((x - half) as f64, top as f64).into()));
+        boxes.push(PathEl::LineTo(((x + half) as f64, top as f64).into()));
+        boxes.push(PathEl::LineTo(((x + half) as f64, bottom as f64).into()));
+        boxes.push(PathEl::LineTo(((x - half) as f64, bottom as f64).into()));
+        boxes.push(PathEl::ClosePath);
+        let median = data.q2_px * sy;
+        medians.push(PathEl::MoveTo(((x - half) as f64, median as f64).into()));
+        medians.push(PathEl::LineTo(((x + half) as f64, median as f64).into()));
+        for y in data.outliers_low.iter().chain(data.outliers_high.iter()) {
+            outliers.push((x, *y as f32 * sy));
+        }
+    }
+    if !whiskers.is_empty() {
+        scene.stroke_path(
+            whiskers,
+            Stroke::new(stroke_width as f64),
+            brush(whisker_color, 1.0),
+        );
+    }
+    if !boxes.is_empty() {
+        scene.fill_path(boxes, brush(box_color, box_opacity));
+    }
+    if !medians.is_empty() {
+        scene.stroke_path(
+            medians,
+            Stroke::new(stroke_width as f64 * 2.0),
+            brush(median_color, 1.0),
+        );
+    }
+    if !outliers.is_empty() {
+        let radius = outlier_radius * sx.min(sy);
+        let outlier_brush = brush(outlier_color, 0.7);
+        for (x, y) in outliers {
+            scene.fill_circle(x as f64, y as f64, radius as f64, outlier_brush.clone());
+        }
+    }
+    scene
 }
 
 /// Append a rectangle outline to a GPUI path builder.

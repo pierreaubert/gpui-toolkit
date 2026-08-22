@@ -1,4 +1,5 @@
 use crate::color::D3Color;
+use crate::render2d::{Renderer2D, VelloBackend};
 
 /// Configuration for bar chart rendering
 #[derive(Clone)]
@@ -15,6 +16,10 @@ pub struct BarConfig {
     pub stroke_color: Option<D3Color>,
     /// Stroke width in pixels
     pub stroke_width: f32,
+    /// High-level renderer selection for the bar mark.
+    pub renderer_2d: Renderer2D,
+    /// Vello raster backend when `renderer_2d` is [`Renderer2D::Vello`].
+    pub vello_backend: VelloBackend,
 }
 
 impl Default for BarConfig {
@@ -26,6 +31,8 @@ impl Default for BarConfig {
             border_radius: 2.0,
             stroke_color: None,
             stroke_width: 1.0,
+            renderer_2d: Renderer2D::default(),
+            vello_backend: VelloBackend::default(),
         }
     }
 }
@@ -34,6 +41,18 @@ impl BarConfig {
     /// Create a new bar configuration with defaults
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Select the renderer through the library-owned bar dispatch helper.
+    pub fn renderer_2d(mut self, renderer: Renderer2D) -> Self {
+        self.renderer_2d = renderer;
+        self
+    }
+
+    /// Select the Vello raster backend.
+    pub fn vello_backend(mut self, backend: VelloBackend) -> Self {
+        self.vello_backend = backend;
+        self
     }
 
     /// Create a bar configuration from design-system spacing and shape defaults.

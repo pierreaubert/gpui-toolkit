@@ -9,14 +9,10 @@ use crate::{
 use d3rs::axis::{AxisConfig, DefaultAxisTheme, render_axis};
 use d3rs::color::D3Color;
 use d3rs::contour::ContourGenerator;
-#[cfg(feature = "gpu-2d")]
-use d3rs::gpu2d::render_contour;
 use d3rs::grid::{GridConfig, render_grid};
 use d3rs::render2d::{Renderer2D, VelloBackend};
 use d3rs::scale::{LinearScale, LogScale};
 use d3rs::shape::ContourConfig;
-#[cfg(not(feature = "gpu-2d"))]
-use d3rs::shape::render_contour;
 use d3rs::text::{GlyphTextConfig, render_glyph_text};
 use gpui::prelude::*;
 use gpui::{AnyElement, IntoElement, div, hsla, px, rgb};
@@ -895,13 +891,8 @@ where
     XS: d3rs::scale::Scale<f64, f64> + Clone + 'static,
     YS: d3rs::scale::Scale<f64, f64> + Clone + 'static,
 {
-    #[cfg(feature = "vello")]
-    if renderer == Renderer2D::Vello {
-        return d3rs::shape::render_contour_vello(contours, x_scale, y_scale, config, backend)
-            .into_any_element();
-    }
-    let _ = (renderer, backend);
-    render_contour(contours, x_scale, y_scale, config).into_any_element()
+    let config = config.clone().renderer_2d(renderer).vello_backend(backend);
+    d3rs::shape::render_contour_selected(contours, x_scale, y_scale, &config)
 }
 
 fn draw_static_isoline_axes(

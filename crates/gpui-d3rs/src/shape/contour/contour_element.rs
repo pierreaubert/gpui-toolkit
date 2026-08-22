@@ -171,11 +171,9 @@ where
             if config.fill && screen_points.len() >= 3 && is_closed {
                 let x_jump_threshold = width * 0.15;
                 let y_jump_threshold = height * 0.15;
-                let has_jump = screen_points.windows(2).any(|pair| {
-                    let dx: f32 = (pair[1].x - pair[0].x).abs().into();
-                    let dy: f32 = (pair[1].y - pair[0].y).abs().into();
-                    dx > x_jump_threshold || dy > y_jump_threshold
-                });
+                let has_jump =
+                    split_stroke_segments(&screen_points, x_jump_threshold, y_jump_threshold).len()
+                        > 1;
 
                 if !has_jump {
                     let mut builder = PathBuilder::fill();

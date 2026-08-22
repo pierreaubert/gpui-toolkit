@@ -20,7 +20,7 @@ use d3rs::color::D3Color;
 use d3rs::grid::{GridConfig, render_grid};
 use d3rs::render2d::{Renderer2D, VelloBackend};
 use d3rs::scale::{LinearScale, LogScale, Scale};
-use d3rs::shape::{CurveType, LineConfig, LinePoint, StrokeDashArray, render_line};
+use d3rs::shape::{CurveType, LineConfig, LinePoint, StrokeDashArray};
 use d3rs::text::{GlyphTextConfig, render_glyph_text};
 use gpui::prelude::*;
 use gpui::{AnyElement, App, ElementId, IntoElement, Window, div, px, rgb};
@@ -125,13 +125,8 @@ where
     XS: Scale<f64, f64> + 'static,
     YS: Scale<f64, f64> + 'static,
 {
-    #[cfg(feature = "vello")]
-    if renderer == Renderer2D::Vello {
-        return d3rs::shape::render_line_vello(x_scale, y_scale, data, config, backend)
-            .into_any_element();
-    }
-    let _ = (renderer, backend);
-    render_line(x_scale, y_scale, data, config).into_any_element()
+    let config = config.clone().renderer_2d(renderer).vello_backend(backend);
+    d3rs::shape::render_line_selected(x_scale, y_scale, data, &config)
 }
 
 #[cfg(test)]

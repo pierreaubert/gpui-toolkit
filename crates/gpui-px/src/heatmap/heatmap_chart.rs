@@ -11,7 +11,6 @@ use d3rs::axis::{AxisConfig, DefaultAxisTheme, render_axis};
 use d3rs::grid::{GridConfig, render_grid};
 use d3rs::render2d::{Renderer2D, VelloBackend};
 use d3rs::scale::{LinearScale, LogScale};
-use d3rs::shape::render_heatmap;
 use d3rs::shape::{ContourConfig, HeatmapData};
 use d3rs::text::{GlyphTextConfig, render_glyph_text};
 use gpui::prelude::*;
@@ -698,13 +697,8 @@ where
     XS: d3rs::scale::Scale<f64, f64> + Clone + 'static,
     YS: d3rs::scale::Scale<f64, f64> + Clone + 'static,
 {
-    #[cfg(feature = "vello")]
-    if renderer == Renderer2D::Vello {
-        return d3rs::shape::render_heatmap_vello(data, x_scale, y_scale, config, backend)
-            .into_any_element();
-    }
-    let _ = (renderer, backend);
-    render_heatmap(data, x_scale, y_scale, config).into_any_element()
+    let config = config.clone().renderer_2d(renderer).vello_backend(backend);
+    d3rs::shape::render_heatmap_selected(data, x_scale, y_scale, &config)
 }
 
 #[cfg(test)]

@@ -13,13 +13,9 @@ use d3rs::contour::ContourGenerator;
 use d3rs::prelude::*;
 use d3rs::render2d::{Renderer2D, VelloBackend};
 use d3rs::shape::contour::{
-    ContourConfig, HeatmapData, render_contour as render_contour_legacy,
-    render_contour_bands as render_contour_bands_legacy, render_heatmap as render_heatmap_legacy,
-    turbo_color_scale, viridis_color_scale,
-};
-#[cfg(feature = "vello")]
-use d3rs::shape::contour::{
-    render_contour_bands_vello, render_contour_vello, render_heatmap_vello,
+    ContourConfig, HeatmapData, render_contour_bands_selected as render_contour_bands_with_config,
+    render_contour_selected as render_contour_with_config,
+    render_heatmap_selected as render_heatmap_with_config, turbo_color_scale, viridis_color_scale,
 };
 use gpui::*;
 use gpui_ui_kit::Slider;
@@ -499,19 +495,11 @@ where
     XS: d3rs::scale::Scale<f64, f64> + Clone + 'static,
     YS: d3rs::scale::Scale<f64, f64> + Clone + 'static,
 {
-    match selection.0 {
-        #[cfg(feature = "vello")]
-        Renderer2D::Vello => {
-            render_contour_vello(contours, x_scale, y_scale, config, selection.1).into_any_element()
-        }
-        #[cfg(not(feature = "vello"))]
-        Renderer2D::Vello => {
-            render_contour_legacy(contours, x_scale, y_scale, config).into_any_element()
-        }
-        Renderer2D::Legacy => {
-            render_contour_legacy(contours, x_scale, y_scale, config).into_any_element()
-        }
-    }
+    let config = config
+        .clone()
+        .renderer_2d(selection.0)
+        .vello_backend(selection.1);
+    render_contour_with_config(contours, x_scale, y_scale, &config)
 }
 
 fn render_contour_bands_selected<XS, YS>(
@@ -525,20 +513,11 @@ where
     XS: d3rs::scale::Scale<f64, f64> + Clone + 'static,
     YS: d3rs::scale::Scale<f64, f64> + Clone + 'static,
 {
-    match selection.0 {
-        #[cfg(feature = "vello")]
-        Renderer2D::Vello => {
-            render_contour_bands_vello(bands, x_scale, y_scale, config, selection.1)
-                .into_any_element()
-        }
-        #[cfg(not(feature = "vello"))]
-        Renderer2D::Vello => {
-            render_contour_bands_legacy(bands, x_scale, y_scale, config).into_any_element()
-        }
-        Renderer2D::Legacy => {
-            render_contour_bands_legacy(bands, x_scale, y_scale, config).into_any_element()
-        }
-    }
+    let config = config
+        .clone()
+        .renderer_2d(selection.0)
+        .vello_backend(selection.1);
+    render_contour_bands_with_config(bands, x_scale, y_scale, &config)
 }
 
 fn render_heatmap_selected<XS, YS>(
@@ -552,17 +531,9 @@ where
     XS: d3rs::scale::Scale<f64, f64> + Clone + 'static,
     YS: d3rs::scale::Scale<f64, f64> + Clone + 'static,
 {
-    match selection.0 {
-        #[cfg(feature = "vello")]
-        Renderer2D::Vello => {
-            render_heatmap_vello(data, x_scale, y_scale, config, selection.1).into_any_element()
-        }
-        #[cfg(not(feature = "vello"))]
-        Renderer2D::Vello => {
-            render_heatmap_legacy(data, x_scale, y_scale, config).into_any_element()
-        }
-        Renderer2D::Legacy => {
-            render_heatmap_legacy(data, x_scale, y_scale, config).into_any_element()
-        }
-    }
+    let config = config
+        .clone()
+        .renderer_2d(selection.0)
+        .vello_backend(selection.1);
+    render_heatmap_with_config(data, x_scale, y_scale, &config)
 }

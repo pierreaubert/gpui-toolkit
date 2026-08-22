@@ -21,9 +21,6 @@ use d3rs::axis::{AxisConfig, render_axis};
 use d3rs::brush::{BrushSelection, BrushState};
 use d3rs::color::D3Color;
 use d3rs::contour::ContourGenerator;
-use d3rs::gpu2d::{
-    ContourConfig, HeatmapData, render_contour, render_contour_bands, render_heatmap,
-};
 use d3rs::gpu3d::{
     Colormap as Surface3DColormap, Surface3DConfig, Surface3DElement, Surface3DState,
     SurfaceData as Surface3DData, SurfacePlotType,
@@ -31,6 +28,10 @@ use d3rs::gpu3d::{
 use d3rs::grid::{GridConfig, render_grid};
 use d3rs::prelude::{LinearScale, LogScale};
 use d3rs::shape::StrokeDashArray;
+use d3rs::shape::{
+    ContourConfig, HeatmapData, render_contour_bands_selected as render_contour_bands,
+    render_contour_selected as render_contour, render_heatmap_selected as render_heatmap,
+};
 use d3rs::text::{GlyphTextConfig, render_glyph_text};
 use d3rs::zoom::ZoomState;
 use gpui::prelude::*;

@@ -528,57 +528,11 @@ impl Treemap {
             #[cfg(feature = "vello")]
             if renderer_2d == Renderer2D::Vello {
                 d3rs::vello2d::VelloChartElement::with_builder(move |width, height| {
-                    use d3rs::vello2d::kurbo::{BezPath, PathEl};
-                    use d3rs::vello2d::peniko::{Brush, Color};
-                    let sx = if plot_width > 0.0 {
-                        width as f64 / plot_width as f64
-                    } else {
-                        1.0
-                    };
-                    let sy = if plot_height > 0.0 {
-                        height as f64 / plot_height as f64
-                    } else {
-                        1.0
-                    };
-                    let mut scene = d3rs::vello2d::ChartScene::new();
-                    for rect in &vello_draw_data {
-                        let x0 = rect.x0 * sx;
-                        let y0 = rect.y0 * sy;
-                        let x1 = rect.x1 * sx;
-                        let y1 = rect.y1 * sy;
-                        let mut fill_path = BezPath::new();
-                        fill_path.push(PathEl::MoveTo((x0, y0).into()));
-                        fill_path.push(PathEl::LineTo((x1, y0).into()));
-                        fill_path.push(PathEl::LineTo((x1, y1).into()));
-                        fill_path.push(PathEl::LineTo((x0, y1).into()));
-                        fill_path.push(PathEl::ClosePath);
-                        scene.fill_path(
-                            fill_path,
-                            Brush::Solid(Color::new([
-                                rect.fill.r,
-                                rect.fill.g,
-                                rect.fill.b,
-                                rect.fill.a,
-                            ])),
-                        );
-                        let mut border_path = BezPath::new();
-                        border_path.push(PathEl::MoveTo((x0, y0).into()));
-                        border_path.push(PathEl::LineTo((x1, y0).into()));
-                        border_path.push(PathEl::LineTo((x1, y1).into()));
-                        border_path.push(PathEl::LineTo((x0, y1).into()));
-                        border_path.push(PathEl::ClosePath);
-                        scene.stroke_path(
-                            border_path,
-                            d3rs::vello2d::kurbo::Stroke::new(1.0),
-                            Brush::Solid(Color::new([
-                                rect.border.r,
-                                rect.border.g,
-                                rect.border.b,
-                                rect.border.a,
-                            ])),
-                        );
-                    }
-                    scene
+                    let rects: Vec<_> = vello_draw_data
+                        .iter()
+                        .map(|rect| (rect.x0, rect.y0, rect.x1, rect.y1, rect.fill, rect.border))
+                        .collect();
+                    treemap_chart_scene(&rects, plot_width, plot_height, width, height)
                 })
                 .backend(vello_backend)
                 .absolute()
@@ -669,6 +623,44 @@ impl Treemap {
 
         Ok(container)
     }
+}
+
+/// Build a backend-neutral Vello scene for prepared treemap rectangles.
+#[cfg(feature = "vello")]
+pub fn treemap_chart_scene(
+    rectangles: &[(f64, f64, f64, f64, Rgba, Rgba)],
+    source_width: f64,
+    source_height: f64,
+    width: f32,
+    height: f32,
+) -> d3rs::vello2d::ChartScene {
+    use d3rs::vello2d::kurbo::{Rect, Shape, Stroke};
+    use d3rs::vello2d::peniko::{Brush, Color};
+
+    let sx = if source_width > 0.0 {
+        width as f64 / source_width
+    } else {
+        1.0
+    };
+    let sy = if source_height > 0.0 {
+        height as f64 / source_height
+    } else {
+        1.0
+    };
+    let mut scene = d3rs::vello2d::ChartScene::new();
+    for &(x0, y0, x1, y1, fill, border) in rectangles {
+        let rect = Rect::new(x0 * sx, y0 * sy, x1 * sx, y1 * sy);
+        scene.fill_rect(
+            rect,
+            Brush::Solid(Color::new([fill.r, fill.g, fill.b, fill.a])),
+        );
+        scene.stroke_path(
+            rect.to_path(0.1),
+            Stroke::new(1.0),
+            Brush::Solid(Color::new([border.r, border.g, border.b, border.a])),
+        );
+    }
+    scene
 }
 
 /// Append a rectangle outline to a GPUI path builder.

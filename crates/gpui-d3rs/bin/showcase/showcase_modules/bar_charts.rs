@@ -4,11 +4,10 @@ use d3rs::grid::{GridConfig, render_grid};
 use d3rs::prelude::*;
 use d3rs::render2d::{Renderer2D, VelloBackend};
 use d3rs::shape::{
-    GroupedBarConfig, GroupedBarDatum, GroupedBarMeta, analyze_grouped_data, render_bars,
-    render_grouped_bars,
+    GroupedBarConfig, GroupedBarDatum, GroupedBarMeta, analyze_grouped_data,
+    render_bars_selected as render_bars_with_config,
+    render_grouped_bars_selected as render_grouped_bars_with_config,
 };
-#[cfg(feature = "vello")]
-use d3rs::shape::{render_bars_vello, render_grouped_bars_vello};
 use gpui::*;
 use gpui_ui_kit::theme::ThemeExt;
 
@@ -288,20 +287,11 @@ where
     XS: d3rs::scale::Scale<f64, f64> + Clone + 'static,
     YS: d3rs::scale::Scale<f64, f64> + Clone + 'static,
 {
-    match selection.0 {
-        #[cfg(feature = "vello")]
-        Renderer2D::Vello => {
-            render_bars_vello(x_scale, y_scale, data, width, height, config, selection.1)
-                .into_any_element()
-        }
-        #[cfg(not(feature = "vello"))]
-        Renderer2D::Vello => {
-            render_bars(x_scale, y_scale, data, width, height, config).into_any_element()
-        }
-        Renderer2D::Legacy => {
-            render_bars(x_scale, y_scale, data, width, height, config).into_any_element()
-        }
-    }
+    let config = config
+        .clone()
+        .renderer_2d(selection.0)
+        .vello_backend(selection.1);
+    render_bars_with_config(x_scale, y_scale, data, width, height, &config)
 }
 
 fn render_grouped_bars_selected<YS>(
@@ -316,18 +306,9 @@ fn render_grouped_bars_selected<YS>(
 where
     YS: d3rs::scale::Scale<f64, f64> + Clone + 'static,
 {
-    match selection.0 {
-        #[cfg(feature = "vello")]
-        Renderer2D::Vello => {
-            render_grouped_bars_vello(y_scale, data, meta, width, height, config, selection.1)
-                .into_any_element()
-        }
-        #[cfg(not(feature = "vello"))]
-        Renderer2D::Vello => {
-            render_grouped_bars(y_scale, data, meta, width, height, config).into_any_element()
-        }
-        Renderer2D::Legacy => {
-            render_grouped_bars(y_scale, data, meta, width, height, config).into_any_element()
-        }
-    }
+    let config = config
+        .clone()
+        .renderer_2d(selection.0)
+        .vello_backend(selection.1);
+    render_grouped_bars_with_config(y_scale, data, meta, width, height, &config)
 }

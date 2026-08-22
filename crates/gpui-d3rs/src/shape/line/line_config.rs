@@ -1,6 +1,7 @@
 use super::style::CurveType;
 use super::style::StrokeDashArray;
 use crate::color::D3Color;
+use crate::render2d::{Renderer2D, VelloBackend};
 
 /// Configuration for line chart rendering
 #[derive(Clone)]
@@ -21,6 +22,10 @@ pub struct LineConfig {
     pub point_fill_color: Option<D3Color>,
     /// Stroke dash array pattern (None = solid line)
     pub dash_array: Option<StrokeDashArray>,
+    /// High-level renderer selection for the line mark.
+    pub renderer_2d: Renderer2D,
+    /// Vello raster backend when `renderer_2d` is [`Renderer2D::Vello`].
+    pub vello_backend: VelloBackend,
 }
 
 impl Default for LineConfig {
@@ -34,6 +39,8 @@ impl Default for LineConfig {
             point_radius: 3.0,
             point_fill_color: None,
             dash_array: None,
+            renderer_2d: Renderer2D::default(),
+            vello_backend: VelloBackend::default(),
         }
     }
 }
@@ -42,6 +49,18 @@ impl LineConfig {
     /// Create a new line configuration with defaults
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Select the renderer through the library-owned line dispatch helper.
+    pub fn renderer_2d(mut self, renderer: Renderer2D) -> Self {
+        self.renderer_2d = renderer;
+        self
+    }
+
+    /// Select the Vello raster backend.
+    pub fn vello_backend(mut self, backend: VelloBackend) -> Self {
+        self.vello_backend = backend;
+        self
     }
 
     /// Create a line configuration from design-system interaction defaults.

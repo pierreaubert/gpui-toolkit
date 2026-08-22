@@ -1,5 +1,18 @@
 # Unreleased
 
+# 0.9.10
+
+## Features
+
+- Routed ordinary PX chart marks through the d3rs renderer selection API,
+  including deterministic Vello scene construction for area, bar, box plot,
+  pie/donut, scatter, and treemap charts.
+
+## Fixes
+
+- Contour, heatmap, and isoline charts now honor their configured Vello
+  renderer and raster backend consistently.
+
 # 0.9.9
 
 ## Features

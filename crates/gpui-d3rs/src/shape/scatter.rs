@@ -1,10 +1,11 @@
 //! Scatter plot rendering
 
 use crate::color::D3Color;
+use crate::render2d::{Renderer2D, VelloBackend};
 use crate::scale::Scale;
-#[cfg(all(feature = "gpui", not(test)))]
+#[cfg(feature = "gpui")]
 use gpui::prelude::*;
-#[cfg(all(feature = "gpui", not(test)))]
+#[cfg(feature = "gpui")]
 use gpui::*;
 use std::fmt;
 
@@ -21,6 +22,10 @@ pub struct ScatterConfig {
     pub stroke_color: Option<D3Color>,
     /// Stroke width in pixels
     pub stroke_width: f32,
+    /// High-level renderer selection for the scatter mark.
+    pub renderer_2d: Renderer2D,
+    /// Vello raster backend when `renderer_2d` is [`Renderer2D::Vello`].
+    pub vello_backend: VelloBackend,
 }
 
 impl Default for ScatterConfig {
@@ -31,6 +36,8 @@ impl Default for ScatterConfig {
             opacity: 0.7,
             stroke_color: Some(D3Color::from_hex(0xffffff)),
             stroke_width: 1.0,
+            renderer_2d: Renderer2D::default(),
+            vello_backend: VelloBackend::default(),
         }
     }
 }
@@ -39,6 +46,18 @@ impl ScatterConfig {
     /// Create a new scatter configuration with defaults
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Select the renderer through the library-owned scatter dispatch helper.
+    pub fn renderer_2d(mut self, renderer: Renderer2D) -> Self {
+        self.renderer_2d = renderer;
+        self
+    }
+
+    /// Select the Vello raster backend.
+    pub fn vello_backend(mut self, backend: VelloBackend) -> Self {
+        self.vello_backend = backend;
+        self
     }
 
     /// Create a scatter configuration from design-system spacing and interaction defaults.
@@ -180,7 +199,7 @@ impl fmt::Display for ScatterRenderError {
 impl std::error::Error for ScatterRenderError {}
 
 /// Pre-computed screen-space point for a scatter plot.
-#[cfg(any(test, feature = "vello", all(feature = "gpui", not(test))))]
+#[cfg(any(test, feature = "vello", feature = "gpui"))]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(super) struct ScatterDrawPoint {
     pub x_rel: f32,
@@ -188,7 +207,7 @@ pub(super) struct ScatterDrawPoint {
 }
 
 /// Pre-compute normalized (0-1) point positions in a single pass.
-#[cfg(any(test, feature = "vello", all(feature = "gpui", not(test))))]
+#[cfg(any(test, feature = "vello", feature = "gpui"))]
 pub(super) fn compute_scatter_points<XS, YS>(
     x_scale: &XS,
     y_scale: &YS,
@@ -338,7 +357,7 @@ fn validate_scale_range(
 }
 
 /// Render a scatter plot after validating data, scale outputs, and config.
-#[cfg(all(feature = "gpui", not(test)))]
+#[cfg(feature = "gpui")]
 pub fn try_render_scatter<XS, YS>(
     x_scale: &XS,
     y_scale: &YS,
@@ -375,7 +394,7 @@ where
 ///     .point_radius(5.0);
 /// // render_scatter(&x_scale, &y_scale, &data, &config)
 /// ```
-#[cfg(all(feature = "gpui", not(test)))]
+#[cfg(feature = "gpui")]
 pub fn render_scatter<XS, YS>(
     x_scale: &XS,
     y_scale: &YS,
@@ -528,7 +547,7 @@ where
 /// Render a scatter series through the vello backend (GPU zero-copy where
 /// the wgpu renderer is active, vello_cpu otherwise). The scene is rebuilt
 /// from the actual paint bounds on resize.
-#[cfg(all(feature = "vello-gpui", not(test)))]
+#[cfg(feature = "vello-gpui")]
 pub fn render_scatter_vello<XS, YS>(
     x_scale: &XS,
     y_scale: &YS,
@@ -549,8 +568,29 @@ where
     .absolute()
 }
 
+/// Dispatch a scatter series through the renderer selected on
+/// [`ScatterConfig`].
+#[cfg(feature = "gpui")]
+pub fn render_scatter_selected<XS, YS>(
+    x_scale: &XS,
+    y_scale: &YS,
+    data: &[ScatterPoint],
+    config: &ScatterConfig,
+) -> AnyElement
+where
+    XS: Scale<f64, f64> + 'static,
+    YS: Scale<f64, f64> + 'static,
+{
+    #[cfg(feature = "vello-gpui")]
+    if config.renderer_2d.is_vello() {
+        return render_scatter_vello(x_scale, y_scale, data, config, config.vello_backend)
+            .into_any_element();
+    }
+    render_scatter(x_scale, y_scale, data, config).into_any_element()
+}
+
 /// Append a circle outline to a GPUI path builder.
-#[cfg(all(feature = "gpui", not(test)))]
+#[cfg(feature = "gpui")]
 fn add_circle_to_path(builder: &mut PathBuilder, cx: f32, cy: f32, r: f32) {
     if r <= 0.0 {
         return;
