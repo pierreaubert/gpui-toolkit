@@ -6,6 +6,7 @@ use super::state::Position;
 ///
 /// Uses de Casteljau subdivision to approximate the curve with line segments
 /// within the given tolerance.
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn flatten_cubic_bezier(
     p0: Position,
     p1: Position,
@@ -83,8 +84,23 @@ pub fn horizontal_bezier(from: Position, to: Position) -> (Position, Position, P
 
 /// Generate points for rendering a horizontal bezier connection
 pub fn connection_path(from: Position, to: Position, tolerance: f32) -> Vec<Position> {
+    let mut points = Vec::new();
+    connection_path_into(from, to, tolerance, &mut points);
+    points
+}
+
+/// Flatten a connection into caller-owned storage. Hot hit-testing paths keep
+/// this buffer around, avoiding a fresh polyline allocation for every click.
+pub fn connection_path_into(
+    from: Position,
+    to: Position,
+    tolerance: f32,
+    points: &mut Vec<Position>,
+) {
     let (p0, p1, p2, p3) = horizontal_bezier(from, to);
-    flatten_cubic_bezier(p0, p1, p2, p3, tolerance)
+    points.clear();
+    points.push(p0);
+    flatten_cubic_recursive(&p0, &p1, &p2, &p3, tolerance, points);
 }
 
 /// Rectangle representing a node bounding box used as a routing obstacle.
@@ -196,7 +212,7 @@ pub fn connection_path_avoiding(
 #[cfg(test)]
 mod tests {
     use super::super::Position;
-    use super::{connection_path, flatten_cubic_bezier, horizontal_bezier};
+    use super::{connection_path, connection_path_into, flatten_cubic_bezier, horizontal_bezier};
 
     #[test]
     fn test_flatten_straight_line() {
@@ -249,6 +265,19 @@ mod tests {
         assert!((points[0].x - from.x).abs() < 0.1);
         // Last point should be near end
         assert!((points.last().unwrap().x - to.x).abs() < 0.1);
+    }
+
+    #[test]
+    fn reused_connection_path_buffer_retains_capacity() {
+        let from = Position::new(0.0, 50.0);
+        let to = Position::new(200.0, 150.0);
+        let mut path = Vec::new();
+        connection_path_into(from, to, 1.0, &mut path);
+        let capacity = path.capacity();
+        for _ in 0..1_000 {
+            connection_path_into(from, to, 1.0, &mut path);
+            assert_eq!(path.capacity(), capacity);
+        }
     }
 
     use super::{ObstacleRect, connection_path_avoiding, lerp, path_hits_rect};

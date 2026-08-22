@@ -16,7 +16,7 @@ impl Render for InputClipboardTestView {
             .size_full()
             .child(Input::new("clipboard-test-input").value("").on_text_change(
                 move |text, _window, _cx| {
-                    text_changes.borrow_mut().push(text);
+                    text_changes.borrow_mut().push(text.to_string());
                 },
             ))
     }

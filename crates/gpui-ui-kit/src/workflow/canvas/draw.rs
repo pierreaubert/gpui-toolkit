@@ -1,6 +1,73 @@
 use super::super::bezier::{ObstacleRect, connection_path, connection_path_avoiding};
 use super::super::state::Position;
 use gpui::{PathBuilder, Rgba, Window, point, px};
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::sync::Arc;
+
+const CONNECTION_PATH_CACHE_CAPACITY: usize = 512;
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+struct ConnectionPathCacheKey {
+    from_x: u32,
+    from_y: u32,
+    to_x: u32,
+    to_y: u32,
+    margin: u32,
+    tolerance: u32,
+    obstacles_hash: u64,
+    obstacles_len: usize,
+}
+
+thread_local! {
+    /// Bounded per-UI-thread cache: paths normally stay identical across drag
+    /// repaint frames and only change with endpoints or routing obstacles.
+    static CONNECTION_PATH_CACHE: RefCell<HashMap<ConnectionPathCacheKey, Arc<[Position]>>> =
+        RefCell::new(HashMap::new());
+}
+
+fn obstacle_signature(obstacles: &[ObstacleRect]) -> u64 {
+    let mut hash = 0xcbf2_9ce4_8422_2325_u64;
+    for obstacle in obstacles {
+        for part in [obstacle.x, obstacle.y, obstacle.w, obstacle.h] {
+            hash ^= u64::from(part.to_bits());
+            hash = hash.wrapping_mul(0x100_0000_01b3);
+        }
+    }
+    hash
+}
+
+fn cached_connection_path(
+    from: Position,
+    to: Position,
+    obstacles: &[ObstacleRect],
+    margin: f32,
+    tolerance: f32,
+) -> Arc<[Position]> {
+    let key = ConnectionPathCacheKey {
+        from_x: from.x.to_bits(),
+        from_y: from.y.to_bits(),
+        to_x: to.x.to_bits(),
+        to_y: to.y.to_bits(),
+        margin: margin.to_bits(),
+        tolerance: tolerance.to_bits(),
+        obstacles_hash: obstacle_signature(obstacles),
+        obstacles_len: obstacles.len(),
+    };
+    CONNECTION_PATH_CACHE.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        if let Some(path) = cache.get(&key) {
+            return Arc::clone(path);
+        }
+        if cache.len() >= CONNECTION_PATH_CACHE_CAPACITY {
+            cache.clear();
+        }
+        let path: Arc<[Position]> =
+            connection_path_avoiding(from, to, obstacles, margin, tolerance).into();
+        cache.insert(key, Arc::clone(&path));
+        path
+    })
+}
 
 /// Draw a connection line between two ports, shortened at both ends by port_radius.
 /// Routes around `obstacles` (other node bounding rects) when necessary.
@@ -37,8 +104,7 @@ pub(super) fn draw_connection(
     let shortened_to = Position::new(to.x - nx * port_radius, to.y - ny * port_radius);
 
     let margin = 15.0;
-    let path_points =
-        connection_path_avoiding(shortened_from, shortened_to, obstacles, margin, 2.0);
+    let path_points = cached_connection_path(shortened_from, shortened_to, obstacles, margin, 2.0);
 
     if path_points.len() < 2 {
         return;

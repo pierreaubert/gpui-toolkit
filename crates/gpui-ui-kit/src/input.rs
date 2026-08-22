@@ -152,7 +152,7 @@ pub struct Input {
     /// Called when editing ends (Enter = Some(value), Escape = None)
     on_edit_end: Option<Rc<dyn Fn(Option<String>, &mut Window, &mut App) + 'static>>,
     /// Called on every text change during editing (for live updates)
-    on_text_change: Option<Rc<dyn Fn(String, &mut Window, &mut App) + 'static>>,
+    on_text_change: Option<Rc<dyn Fn(&str, &mut Window, &mut App) + 'static>>,
     /// Called when the cursor or selected range changes. The callback exposes
     /// positions only, never the selected value.
     on_selection_change: Option<Rc<dyn Fn(InputSelection, &mut Window, &mut App) + 'static>>,
@@ -315,7 +315,7 @@ impl Input {
     /// Set text change handler (called on every keystroke during editing)
     pub fn on_text_change(
         mut self,
-        handler: impl Fn(String, &mut Window, &mut App) + 'static,
+        handler: impl Fn(&str, &mut Window, &mut App) + 'static,
     ) -> Self {
         self.on_text_change = Some(Rc::new(handler));
         self
@@ -345,6 +345,20 @@ impl Input {
 }
 
 impl InputEntity {
+    fn cached_password_mask(
+        cache: &RefCell<Option<(SharedString, SharedString)>>,
+        source: &str,
+    ) -> SharedString {
+        if let Some((cached_source, mask)) = cache.borrow().as_ref()
+            && cached_source.as_ref() == source
+        {
+            return mask.clone();
+        }
+        let mask: SharedString = "•".repeat(source.chars().count()).into();
+        *cache.borrow_mut() = Some((source.into(), mask.clone()));
+        mask
+    }
+
     fn char_to_utf16(text: &str, char_idx: usize) -> usize {
         text.chars().take(char_idx).map(char::len_utf16).sum()
     }
@@ -361,21 +375,22 @@ impl InputEntity {
         text.chars().count()
     }
 
-    fn char_range_to_string(text: &str, range: Range<usize>) -> String {
-        let char_len = text.chars().count();
-        let start = range.start.min(char_len);
-        let end = range.end.min(char_len).max(start);
-        let start_byte = text
-            .char_indices()
-            .nth(start)
-            .map(|(idx, _)| idx)
-            .unwrap_or(text.len());
-        let end_byte = text
-            .char_indices()
-            .nth(end)
-            .map(|(idx, _)| idx)
-            .unwrap_or(text.len());
-        text[start_byte..end_byte].to_string()
+    /// Return the two UTF-8 byte boundaries in one character scan. Editing
+    /// rendering needs several character-indexed pieces per frame; deriving
+    /// both boundaries together avoids the old repeated O(n) `nth` walks.
+    fn char_range_byte_offsets(text: &str, start: usize, end: usize) -> (usize, usize) {
+        let mut start_byte = text.len();
+        let mut end_byte = text.len();
+        for (char_index, (byte_index, _)) in text.char_indices().enumerate() {
+            if char_index == start {
+                start_byte = byte_index;
+            }
+            if char_index == end {
+                end_byte = byte_index;
+                break;
+            }
+        }
+        (start_byte, end_byte)
     }
 
     fn replace_char_range(state: &mut EditState, range: Range<usize>, text: &str) {
@@ -416,7 +431,7 @@ impl InputEntity {
         }
     }
 
-    fn emit_text_change(&self, text: String, window: &mut Window, cx: &mut App) {
+    fn emit_text_change(&self, text: &str, window: &mut Window, cx: &mut App) {
         if let Some(ref handler) = self.props.on_text_change {
             handler(text, window, cx);
         }
@@ -596,11 +611,10 @@ impl InputEntity {
                     if let Some(selected) = state.get_selected_text() {
                         cx.write_to_clipboard(ClipboardItem::new_string(selected));
                         state.delete_selection();
-                        let text = state.text.clone();
-                        drop(state);
                         if let Some(ref handler) = self.props.on_text_change {
-                            handler(text, window, cx);
+                            handler(&state.text, window, cx);
                         }
+                        drop(state);
                         window.refresh();
                     }
                     return;
@@ -610,11 +624,10 @@ impl InputEntity {
                         && let Some(paste_text) = clipboard.text()
                     {
                         state.insert_text(&paste_text);
-                        let text = state.text.clone();
-                        drop(state);
                         if let Some(ref handler) = self.props.on_text_change {
-                            handler(text, window, cx);
+                            handler(&state.text, window, cx);
                         }
+                        drop(state);
                         window.refresh();
                     }
                     return;
@@ -680,21 +693,19 @@ impl InputEntity {
             match key {
                 "backspace" => {
                     state.kill_word_backward();
-                    let text = state.text.clone();
-                    drop(state);
                     if let Some(ref handler) = self.props.on_text_change {
-                        handler(text, window, cx);
+                        handler(&state.text, window, cx);
                     }
+                    drop(state);
                     window.refresh();
                     return;
                 }
                 "d" => {
                     state.kill_word_forward();
-                    let text = state.text.clone();
-                    drop(state);
                     if let Some(ref handler) = self.props.on_text_change {
-                        handler(text, window, cx);
+                        handler(&state.text, window, cx);
                     }
+                    drop(state);
                     window.refresh();
                     return;
                 }
@@ -737,11 +748,10 @@ impl InputEntity {
                 }
                 _ => {}
             }
-            let text = state.text.clone();
-            drop(state);
             if let Some(ref handler) = self.props.on_text_change {
-                handler(text, window, cx);
+                handler(&state.text, window, cx);
             }
+            drop(state);
             window.refresh();
             return;
         }
@@ -763,20 +773,18 @@ impl InputEntity {
             }
             "backspace" => {
                 state.do_backspace();
-                let text = state.text.clone();
-                drop(state);
                 if let Some(ref handler) = self.props.on_text_change {
-                    handler(text, window, cx);
+                    handler(&state.text, window, cx);
                 }
+                drop(state);
                 window.refresh();
             }
             "delete" => {
                 state.do_delete();
-                let text = state.text.clone();
-                drop(state);
                 if let Some(ref handler) = self.props.on_text_change {
-                    handler(text, window, cx);
+                    handler(&state.text, window, cx);
                 }
+                drop(state);
                 window.refresh();
             }
             "left" => {
@@ -826,11 +834,10 @@ impl InputEntity {
             _ => {
                 if let Some(ch) = keystroke_to_char(&event.keystroke) {
                     state.insert_char(ch);
-                    let text = state.text.clone();
-                    drop(state);
                     if let Some(ref handler) = self.props.on_text_change {
-                        handler(text, window, cx);
+                        handler(&state.text, window, cx);
                     }
+                    drop(state);
                     window.refresh();
                 }
             }
@@ -925,10 +932,9 @@ impl EntityInputHandler for InputEntity {
             })
             .unwrap_or_else(|| Self::current_selected_char_range(&state));
         Self::replace_char_range(&mut state, range, text);
-        let changed = state.text.clone();
         let selection = Self::selection_from_state(&state);
+        self.emit_text_change(&state.text, window, cx);
         drop(state);
-        self.emit_text_change(changed, window, cx);
         self.emit_selection_change(selection, window, cx);
         window.refresh();
     }
@@ -1093,7 +1099,7 @@ impl Render for InputEntity {
         let native_props = AriaProps::with_role(props.aria_role.unwrap_or(AriaRole::Textbox))
             .maybe_state(props.disabled, AriaState::Disabled)
             .value_text(if props.password {
-                "•".repeat(props.value.chars().count()).into()
+                Self::cached_password_mask(&self.aria_password_mask, props.value.as_ref())
             } else {
                 props.value.clone()
             });
@@ -1258,7 +1264,7 @@ impl Render for InputEntity {
         };
         let display_text: SharedString =
             if props.password && (editing_text || !props.value.is_empty()) {
-                "•".repeat(clear_display_text.chars().count()).into()
+                Self::cached_password_mask(&self.display_password_mask, clear_display_text.as_ref())
             } else {
                 clear_display_text
             };
@@ -1287,10 +1293,12 @@ impl Render for InputEntity {
             text_el = text_el.text_color(text_color).whitespace_nowrap();
 
             if sel_start != sel_end {
-                let text = display_text.to_string();
-                let before = Self::char_range_to_string(&text, 0..sel_start);
-                let selected = Self::char_range_to_string(&text, sel_start..sel_end);
-                let after = Self::char_range_to_string(&text, sel_end..len);
+                let text = display_text.as_ref();
+                let (sel_start_byte, sel_end_byte) =
+                    Self::char_range_byte_offsets(text, sel_start, sel_end);
+                let before: SharedString = text[..sel_start_byte].into();
+                let selected: SharedString = text[sel_start_byte..sel_end_byte].into();
+                let after: SharedString = text[sel_end_byte..].into();
 
                 if !before.is_empty() {
                     text_el = text_el.child(before);
@@ -1300,9 +1308,10 @@ impl Render for InputEntity {
                     text_el = text_el.child(after);
                 }
             } else {
-                let text = display_text.to_string();
-                let before = Self::char_range_to_string(&text, 0..cursor_pos);
-                let after = Self::char_range_to_string(&text, cursor_pos..len);
+                let text = display_text.as_ref();
+                let (cursor_byte, _) = Self::char_range_byte_offsets(text, cursor_pos, len);
+                let before: SharedString = text[..cursor_byte].into();
+                let after: SharedString = text[cursor_byte..].into();
                 let cursor_debug_id = format!("{}-cursor", props.id);
                 let cursor_height = match props.size {
                     InputSize::Xs => px(14.0),
@@ -1362,6 +1371,8 @@ pub struct InputEntity {
     focus_handle: FocusHandle,
     edit_state: Rc<RefCell<EditState>>,
     hovered: bool,
+    aria_password_mask: RefCell<Option<(SharedString, SharedString)>>,
+    display_password_mask: RefCell<Option<(SharedString, SharedString)>>,
 }
 
 impl RenderOnce for Input {
@@ -1396,6 +1407,8 @@ impl RenderOnce for Input {
                 focus_handle: focus_handle.clone(),
                 edit_state: edit_state.clone(),
                 hovered: false,
+                aria_password_mask: RefCell::new(None),
+                display_password_mask: RefCell::new(None),
             });
             map.insert(id.clone(), entity.downgrade());
             entity

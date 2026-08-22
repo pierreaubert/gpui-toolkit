@@ -61,7 +61,7 @@ impl Render for InputEmacsRegressionView {
                     .value("")
                     .placeholder("Type something here...")
                     .on_text_change(move |text, _window, _cx| {
-                        *live_text.borrow_mut() = text;
+                        *live_text.borrow_mut() = text.to_string();
                     }),
             ),
         )
@@ -93,8 +93,8 @@ impl Render for InputTypingRegressionView {
                     .value("")
                     .placeholder("Type something here...")
                     .on_text_change(move |text, _window, _cx| {
-                        *live_text.borrow_mut() = text.clone();
-                        text_changes.borrow_mut().push(text);
+                        *live_text.borrow_mut() = text.to_string();
+                        text_changes.borrow_mut().push(text.to_string());
                     }),
             ),
         )

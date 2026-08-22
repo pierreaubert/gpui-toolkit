@@ -16,7 +16,7 @@ impl Render for InputDragSelectTestView {
             Input::new("drag-select-input")
                 .value("Select some text here")
                 .on_text_change(move |text, _window, _cx| {
-                    text_changes.borrow_mut().push(text);
+                    text_changes.borrow_mut().push(text.to_string());
                 }),
         )
     }

@@ -1,105 +1,72 @@
 use super::misc::QUIET_ZONE;
-use gpui::{BorderStyle, Bounds, Corners, Edges, PaintQuad, Pixels, Rgba, Window, point, px, size};
+use gpui::{RenderImage, Rgba};
+use image::{Frame, RgbaImage};
 use qrcode::types::Color as QrColor;
+use std::sync::Arc;
 
-/// Paint the full QR matrix from pre-computed colors (used by static QrCode).
-pub(super) fn paint_qr_full_from_colors(
-    bounds: Bounds<Pixels>,
+/// Rasterize the QR matrix once in its native module resolution.
+///
+/// GPUI uploads the retained image to its sprite atlas and performs scale and
+/// compositing on the GPU. This keeps QR rendering at one image primitive per
+/// frame instead of one quad per dark module.
+pub(super) fn rasterize_qr_image(
     colors: &[QrColor],
     modules: usize,
-    size_f32: f32,
     fg_color: Rgba,
     bg_color: Rgba,
-    window: &mut Window,
-) {
-    if bg_color.a > 0.0 {
-        window.paint_quad(PaintQuad {
-            bounds,
-            corner_radii: Corners::default(),
-            background: bg_color.into(),
-            border_widths: Edges::default(),
-            border_color: bg_color.into(),
-            border_style: BorderStyle::default(),
-        });
-    }
-
-    if modules == 0 || colors.is_empty() {
-        return;
-    }
-
+) -> Option<Arc<RenderImage>> {
     let total_modules = modules + QUIET_ZONE * 2;
-    let module_px = size_f32 / total_modules as f32;
-    let origin_x: f32 = bounds.origin.x.into();
-    let origin_y: f32 = bounds.origin.y.into();
+    if total_modules == 0 || colors.len() < modules.saturating_mul(modules) {
+        return None;
+    }
+
+    let total = u32::try_from(total_modules).ok()?;
+    let rgba = |color: Rgba| {
+        [
+            (color.r.clamp(0.0, 1.0) * 255.0).round() as u8,
+            (color.g.clamp(0.0, 1.0) * 255.0).round() as u8,
+            (color.b.clamp(0.0, 1.0) * 255.0).round() as u8,
+            (color.a.clamp(0.0, 1.0) * 255.0).round() as u8,
+        ]
+    };
+    // RenderImage's image bytes are consumed as BGRA by GPUI's atlas.
+    let bg = rgba(bg_color);
+    let fg = rgba(fg_color);
+    let mut pixels = vec![0_u8; total_modules.checked_mul(total_modules)?.checked_mul(4)?];
+    for pixel in pixels.chunks_exact_mut(4) {
+        pixel.copy_from_slice(&[bg[2], bg[1], bg[0], bg[3]]);
+    }
 
     for row in 0..modules {
         for col in 0..modules {
             if colors[row * modules + col] == QrColor::Dark {
-                let x = origin_x + (col + QUIET_ZONE) as f32 * module_px;
-                let y = origin_y + (row + QUIET_ZONE) as f32 * module_px;
-                window.paint_quad(PaintQuad {
-                    bounds: Bounds {
-                        origin: point(px(x), px(y)),
-                        size: size(px(module_px), px(module_px)),
-                    },
-                    corner_radii: Corners::default(),
-                    background: fg_color.into(),
-                    border_widths: Edges::default(),
-                    border_color: fg_color.into(),
-                    border_style: BorderStyle::default(),
-                });
+                let index = ((row + QUIET_ZONE) * total_modules + col + QUIET_ZONE) * 4;
+                pixels[index..index + 4].copy_from_slice(&[fg[2], fg[1], fg[0], fg[3]]);
             }
         }
     }
+
+    RgbaImage::from_raw(total, total, pixels)
+        .map(|image| Arc::new(RenderImage::new(vec![Frame::new(image)])))
 }
 
-/// Paint a pre-extracted color slice (used by AnimatedQrCode static path).
-pub(super) fn paint_qr_static(
-    bounds: Bounds<Pixels>,
-    colors: &[QrColor],
-    modules: usize,
-    size_f32: f32,
-    fg_color: Rgba,
-    bg_color: Rgba,
-    window: &mut Window,
-) {
-    if bg_color.a > 0.0 {
-        window.paint_quad(PaintQuad {
-            bounds,
-            corner_radii: Corners::default(),
-            background: bg_color.into(),
-            border_widths: Edges::default(),
-            border_color: bg_color.into(),
-            border_style: BorderStyle::default(),
-        });
-    }
+#[cfg(test)]
+mod tests {
+    use super::rasterize_qr_image;
+    use gpui::rgba;
+    use qrcode::types::Color as QrColor;
 
-    if modules == 0 {
-        return;
-    }
-
-    let total_modules = modules + QUIET_ZONE * 2;
-    let module_px = size_f32 / total_modules as f32;
-    let origin_x: f32 = bounds.origin.x.into();
-    let origin_y: f32 = bounds.origin.y.into();
-
-    for row in 0..modules {
-        for col in 0..modules {
-            if colors[row * modules + col] == QrColor::Dark {
-                let x = origin_x + (col + QUIET_ZONE) as f32 * module_px;
-                let y = origin_y + (row + QUIET_ZONE) as f32 * module_px;
-                window.paint_quad(PaintQuad {
-                    bounds: Bounds {
-                        origin: point(px(x), px(y)),
-                        size: size(px(module_px), px(module_px)),
-                    },
-                    corner_radii: Corners::default(),
-                    background: fg_color.into(),
-                    border_widths: Edges::default(),
-                    border_color: fg_color.into(),
-                    border_style: BorderStyle::default(),
-                });
-            }
-        }
+    #[test]
+    fn raster_keeps_quiet_zone_and_bgra_module_colors() {
+        let image = rasterize_qr_image(&[QrColor::Dark], 1, rgba(0x112233ff), rgba(0xaabbccff))
+            .expect("one-module QR should rasterize");
+        let bytes = image.as_bytes(0).expect("single image frame");
+        // First pixel is quiet-zone background; module starts at row/column 4.
+        assert_eq!(&bytes[..4], &[0xcc, 0xbb, 0xaa, 0xff]);
+        let module_index = ((4 * 9) + 4) * 4;
+        assert_eq!(
+            &bytes[module_index..module_index + 4],
+            &[0x33, 0x22, 0x11, 0xff]
+        );
     }
 }

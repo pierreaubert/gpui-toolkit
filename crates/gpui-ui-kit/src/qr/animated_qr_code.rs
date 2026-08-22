@@ -2,16 +2,16 @@ use super::misc::MIN_MODULE_PX;
 use super::misc::QUIET_ZONE;
 use super::misc::clamped_scroll_range;
 use super::misc::ease_in_out_cubic;
-use super::paint::paint_qr_static;
+use super::paint::rasterize_qr_image;
 use super::{QrCodeError, QrCodeLimits};
 use crate::theme::ThemeExt;
 use gpui::prelude::{Context, IntoElement, Render, Styled};
 use gpui::{
-    BorderStyle, Bounds, Corners, Edges, PaintQuad, Pixels, Rgba, WeakEntity, Window, canvas,
-    point, px, size,
+    Bounds, Corners, Pixels, RenderImage, Rgba, WeakEntity, Window, canvas, point, px, size,
 };
 use qrcode::QrCode as QrMatrix;
 use qrcode::types::Color as QrColor;
+use std::sync::Arc;
 use std::time::Duration;
 // `std::time::Instant` panics on wasm32-unknown-unknown ("time not implemented
 // on this platform"); web-time aliases std on native targets.
@@ -34,7 +34,7 @@ pub struct AnimatedQrCode {
     /// Encoded QR matrix (None on encode failure).
     pub(super) matrix: Option<QrMatrix>,
     /// Pre-computed module colors (empty on encode failure).
-    pub(super) colors: Vec<QrColor>,
+    pub(super) colors: Arc<[QrColor]>,
     /// Number of modules on one side of the QR.
     pub(super) modules: usize,
     /// Display size in pixels.
@@ -51,6 +51,8 @@ pub struct AnimatedQrCode {
     pub(super) cycle_duration: Duration,
     /// Zoom factor: how many times larger we render modules vs the tiny size.
     pub(super) zoom: f32,
+    /// Theme-colored module raster, rebuilt only when its colors change.
+    raster: Option<(Rgba, Rgba, Arc<RenderImage>)>,
 }
 
 impl AnimatedQrCode {
@@ -61,7 +63,7 @@ impl AnimatedQrCode {
     pub fn new(data: impl AsRef<[u8]>, size: Pixels, cx: &mut Context<Self>) -> Self {
         Self::try_new(data, size, cx, QrCodeLimits::default()).unwrap_or_else(|_| Self {
             matrix: None,
-            colors: Vec::new(),
+            colors: Arc::from([]),
             modules: 0,
             size,
             fg: None,
@@ -70,6 +72,7 @@ impl AnimatedQrCode {
             start: Instant::now(),
             cycle_duration: Duration::ZERO,
             zoom: 1.0,
+            raster: None,
         })
     }
 
@@ -98,7 +101,7 @@ impl AnimatedQrCode {
                 actual: modules,
             });
         }
-        let colors = matrix.to_colors();
+        let colors: Arc<[QrColor]> = Arc::from(matrix.to_colors());
         let size_f32: f32 = size.into();
         let total_modules = modules + QUIET_ZONE * 2;
         let module_px = if total_modules > 0 {
@@ -158,6 +161,7 @@ impl AnimatedQrCode {
             start: Instant::now(),
             cycle_duration,
             zoom,
+            raster: None,
         })
     }
 
@@ -172,6 +176,19 @@ impl AnimatedQrCode {
         self.bg = Some(color);
         self
     }
+
+    fn raster_image(&mut self, fg: Rgba, bg: Rgba) -> Option<Arc<RenderImage>> {
+        if let Some((cached_fg, cached_bg, image)) = &self.raster
+            && *cached_fg == fg
+            && *cached_bg == bg
+        {
+            return Some(Arc::clone(image));
+        }
+
+        let image = rasterize_qr_image(&self.colors, self.modules, fg, bg)?;
+        self.raster = Some((fg, bg, Arc::clone(&image)));
+        Some(image)
+    }
 }
 
 impl Render for AnimatedQrCode {
@@ -184,15 +201,14 @@ impl Render for AnimatedQrCode {
 
         if !self.needs_animation || self.matrix.is_none() {
             // Static render — same as QrCode
-            let colors = self.colors.clone();
-            let modules = self.modules;
+            let image = self.raster_image(fg_color, bg_color);
 
             return canvas(
-                move |_bounds, _window, _cx| (colors, modules),
-                move |bounds, (colors, modules), window, _cx| {
-                    paint_qr_static(
-                        bounds, &colors, modules, size_f32, fg_color, bg_color, window,
-                    );
+                move |_bounds, _window, _cx| image,
+                move |bounds, image, window, _cx| {
+                    if let Some(image) = image {
+                        let _ = window.paint_image(bounds, Corners::default(), image, 0, false);
+                    }
                 },
             )
             .w(requested_size)
@@ -224,74 +240,36 @@ impl Render for AnimatedQrCode {
         // Scroll both axes together (diagonal pan)
         let offset_modules = eased * scroll_range;
 
-        let colors = self.colors.clone();
+        let image = self.raster_image(fg_color, bg_color);
 
         canvas(
-            move |_bounds, _window, _cx| colors,
-            move |bounds, colors, window, _cx| {
-                // Background
-                if bg_color.a > 0.0 {
-                    window.paint_quad(PaintQuad {
-                        bounds,
-                        corner_radii: Corners::default(),
-                        background: bg_color.into(),
-                        border_widths: Edges::default(),
-                        border_color: bg_color.into(),
-                        border_style: BorderStyle::default(),
-                    });
-                }
+            move |_bounds, _window, _cx| image,
+            move |bounds, image, window, _cx| {
+                let Some(image) = image else { return };
 
-                if modules == 0 {
-                    return;
-                }
-
-                let origin_x: f32 = bounds.origin.x.into();
-                let origin_y: f32 = bounds.origin.y.into();
-
-                // Pixel offset of the viewport into the full zoomed QR
+                // Paint the complete raster at the zoomed size, then shift it
+                // under this overflow-hidden canvas. The parent clip supplies
+                // the moving viewport without rebuilding module primitives.
                 let pixel_offset = offset_modules * zoomed_module_px;
-
-                for row in 0..modules {
-                    for col in 0..modules {
-                        if colors[row * modules + col] == QrColor::Dark {
-                            let x = (col + QUIET_ZONE) as f32 * zoomed_module_px - pixel_offset;
-                            let y = (row + QUIET_ZONE) as f32 * zoomed_module_px - pixel_offset;
-
-                            // Clip to viewport
-                            if x + zoomed_module_px < 0.0
-                                || x > size_f32
-                                || y + zoomed_module_px < 0.0
-                                || y > size_f32
-                            {
-                                continue;
-                            }
-
-                            // Clamp to viewport edges
-                            let draw_x = x.max(0.0);
-                            let draw_y = y.max(0.0);
-                            let draw_w = (x + zoomed_module_px).min(size_f32) - draw_x;
-                            let draw_h = (y + zoomed_module_px).min(size_f32) - draw_y;
-
-                            if draw_w > 0.0 && draw_h > 0.0 {
-                                window.paint_quad(PaintQuad {
-                                    bounds: Bounds {
-                                        origin: point(px(origin_x + draw_x), px(origin_y + draw_y)),
-                                        size: size(px(draw_w), px(draw_h)),
-                                    },
-                                    corner_radii: Corners::default(),
-                                    background: fg_color.into(),
-                                    border_widths: Edges::default(),
-                                    border_color: fg_color.into(),
-                                    border_style: BorderStyle::default(),
-                                });
-                            }
-                        }
-                    }
-                }
+                let full_size = size_f32 * zoom;
+                let _ = window.paint_image(
+                    Bounds {
+                        origin: point(
+                            bounds.origin.x - px(pixel_offset),
+                            bounds.origin.y - px(pixel_offset),
+                        ),
+                        size: size(px(full_size), px(full_size)),
+                    },
+                    Corners::default(),
+                    image,
+                    0,
+                    false,
+                );
             },
         )
         .w(requested_size)
         .h(requested_size)
+        .overflow_hidden()
         .into_any_element()
     }
 }

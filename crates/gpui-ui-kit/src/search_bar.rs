@@ -197,9 +197,7 @@ impl SearchBar {
             .border_color(theme.background);
 
         if let Some(handler) = on_change.clone() {
-            input = input.on_text_change(move |query, window, cx| {
-                handler(query.as_str(), window, cx);
-            });
+            input = input.on_text_change(move |query, window, cx| handler(query, window, cx));
         }
         if let Some(handler) = on_submit {
             input = input.on_change(move |query, window, cx| {

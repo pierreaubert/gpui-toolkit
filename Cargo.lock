@@ -3234,6 +3234,7 @@ dependencies = [
  "gpui-miniapp",
  "gpui-profiler",
  "gpui-ui-kit-macros",
+ "image",
  "objc",
  "qrcode",
  "rqrr",

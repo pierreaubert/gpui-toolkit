@@ -363,7 +363,7 @@ pub enum AriaLive {
 ///
 /// The accessible name (label) lives on [`AccessibilityNode`], not here.
 /// `AriaProps` carries the role, states, and value metadata.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct AriaProps {
     pub role: AriaRole,
     pub description: Option<SharedString>,
@@ -495,7 +495,7 @@ impl AriaLive {
 }
 
 /// A node in the accessibility tree
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct AccessibilityNode {
     pub element_id: ElementId,
     pub label: SharedString,
@@ -921,6 +921,16 @@ impl AccessibilityTree {
 
     pub fn register(&mut self, node: AccessibilityNode) {
         let id = node.element_id.clone();
+        // Components register on every render. When a node's semantic data is
+        // unchanged, preserve the existing allocation and map entry rather
+        // than replacing it just because the UI frame was rebuilt.
+        if self
+            .nodes
+            .get(&id)
+            .is_some_and(|existing| existing == &node)
+        {
+            return;
+        }
         if !self.nodes.contains_key(&id) {
             self.order.push(id.clone());
         }

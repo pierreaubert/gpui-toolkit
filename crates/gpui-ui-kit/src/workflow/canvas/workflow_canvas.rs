@@ -990,7 +990,36 @@ impl Render for WorkflowCanvas {
 
         let connection_drag = self.state.connection_drag.clone();
         let bulk_connect_drag = self.state.bulk_connect_drag.clone();
-        let graph = Arc::new(self.state.graph.clone());
+        // Paint callbacks only need the preview endpoints. Deriving them here
+        // avoids cloning the complete graph on every mouse-move render.
+        let connection_preview_data = connection_drag.as_ref().and_then(|drag| {
+            self.state
+                .graph
+                .nodes
+                .get(&drag.from_node)
+                .map(|from_node| {
+                    let port =
+                        port_screen_position(from_node, drag.from_port, !drag.is_output, &viewport);
+                    let cursor = viewport.canvas_to_screen(&drag.current_position);
+                    if drag.is_output {
+                        (port, cursor, true)
+                    } else {
+                        (cursor, port, false)
+                    }
+                })
+        });
+        let bulk_preview_data = bulk_connect_drag.as_ref().and_then(|drag| {
+            self.state
+                .graph
+                .nodes
+                .get(&drag.from_node)
+                .map(|from_node| {
+                    (
+                        viewport.canvas_to_screen(&from_node.center()),
+                        viewport.canvas_to_screen(&drag.current_position),
+                    )
+                })
+        });
 
         let conn_color = theme.connection_color;
         let conn_selected = theme.connection_selected;
@@ -1015,9 +1044,8 @@ impl Render for WorkflowCanvas {
                 });
                 (
                     Arc::clone(&connections),
-                    connection_drag.clone(),
-                    bulk_connect_drag.clone(),
-                    Arc::clone(&graph),
+                    connection_preview_data,
+                    bulk_preview_data,
                     bounds,
                     Arc::clone(&node_screen_rects),
                 )
@@ -1025,9 +1053,8 @@ impl Render for WorkflowCanvas {
             move |_,
                   (
                 connections,
-                connection_drag,
-                bulk_connect_drag,
-                graph,
+                connection_preview_data,
+                bulk_preview_data,
                 bounds,
                 node_screen_rects,
             ),
@@ -1075,26 +1102,7 @@ impl Render for WorkflowCanvas {
                 }
 
                 // Draw connection preview
-                if let Some(ref drag) = connection_drag
-                    && let Some(from_node) = graph.nodes.get(&drag.from_node)
-                {
-                    // Calculate port position in screen coordinates
-                    let port_screen_pos = port_screen_position(
-                        from_node,
-                        drag.from_port,
-                        !drag.is_output, // is_input is opposite of is_output
-                        &viewport,
-                    );
-
-                    // Convert drag position from canvas to screen coordinates
-                    let drag_screen_pos = viewport.canvas_to_screen(&drag.current_position);
-
-                    let (from, to) = if drag.is_output {
-                        (port_screen_pos, drag_screen_pos)
-                    } else {
-                        (drag_screen_pos, port_screen_pos)
-                    };
-
+                if let Some((from, to, from_is_port)) = connection_preview_data {
                     // For preview, only shorten the port end (not the mouse cursor end)
                     // Use fat width for preview (new connections default to fat)
                     draw_connection_preview(
@@ -1104,20 +1112,14 @@ impl Render for WorkflowCanvas {
                         conn_preview,
                         conn_width_fat,
                         port_radius,
-                        drag.is_output,
+                        from_is_port,
                         origin_x,
                         origin_y,
                     );
                 }
 
                 // Draw bulk-connect preview (line from source node center to cursor)
-                if let Some(ref drag) = bulk_connect_drag
-                    && let Some(from_node) = graph.nodes.get(&drag.from_node)
-                {
-                    let center = from_node.center();
-                    let center_screen = viewport.canvas_to_screen(&center);
-                    let cursor_screen = viewport.canvas_to_screen(&drag.current_position);
-
+                if let Some((center_screen, cursor_screen)) = bulk_preview_data {
                     draw_connection_preview(
                         window,
                         center_screen,

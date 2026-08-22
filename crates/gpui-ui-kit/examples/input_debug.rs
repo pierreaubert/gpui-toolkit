@@ -130,7 +130,7 @@ impl Render for InputDebug {
                                     let entity = entity.clone();
                                     move |text, _window, cx| {
                                         entity.update(cx, |this, _cx| {
-                                            this.input1_live_text = text;
+                                            this.input1_live_text = text.to_string();
                                         });
                                     }
                                 }),
@@ -174,7 +174,7 @@ impl Render for InputDebug {
                                     let entity = entity.clone();
                                     move |text, _window, cx| {
                                         entity.update(cx, |this, _cx| {
-                                            this.input2_live_text = text;
+                                            this.input2_live_text = text.to_string();
                                         });
                                     }
                                 }),

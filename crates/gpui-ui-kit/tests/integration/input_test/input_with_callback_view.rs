@@ -18,7 +18,7 @@ impl Render for InputWithCallbackView {
                 .placeholder("Type here...")
                 .value(value)
                 .on_text_change(move |text, _window, _cx| {
-                    *value_rc.borrow_mut() = text;
+                    *value_rc.borrow_mut() = text.to_string();
                 }),
         )
     }

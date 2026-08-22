@@ -17,7 +17,7 @@ impl Render for InputDisabledTestView {
                 .value("Cannot edit this")
                 .disabled(true)
                 .on_text_change(move |text, _window, _cx| {
-                    text_changes.borrow_mut().push(text);
+                    text_changes.borrow_mut().push(text.to_string());
                 }),
         )
     }

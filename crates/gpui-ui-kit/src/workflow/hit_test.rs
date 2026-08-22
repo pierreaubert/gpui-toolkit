@@ -1,9 +1,10 @@
 //! Hit testing for workflow canvas elements
 
-use super::bezier::connection_path;
+use super::bezier::{connection_path_into, horizontal_bezier};
 use super::state::{
     Connection, ConnectionId, NodeId, Position, ViewportState, WorkflowGraph, WorkflowNodeData,
 };
+use std::cell::RefCell;
 
 /// Result of a hit test
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -29,6 +30,9 @@ pub struct HitTester {
     port_radius: f32,
     /// Connection hit tolerance in screen pixels
     connection_tolerance: f32,
+    /// Reused while checking connection segments; one hit test only needs one
+    /// flattened path at a time.
+    path_scratch: RefCell<Vec<Position>>,
 }
 
 impl HitTester {
@@ -36,6 +40,7 @@ impl HitTester {
         Self {
             port_radius: 10.0,
             connection_tolerance: 5.0,
+            path_scratch: RefCell::new(Vec::new()),
         }
     }
 
@@ -212,8 +217,13 @@ impl HitTester {
         let from_pos = from_node.output_port_position(conn.from_port);
         let to_pos = to_node.input_port_position(conn.to_port);
 
+        if !self.point_in_connection_bounds(point, from_pos, to_pos) {
+            return false;
+        }
+
         // Get the connection path points
-        let path_points = connection_path(from_pos, to_pos, 2.0);
+        let mut path_points = self.path_scratch.borrow_mut();
+        connection_path_into(from_pos, to_pos, 2.0, &mut path_points);
 
         // Check if point is near any segment of the path
         for i in 0..path_points.len().saturating_sub(1) {
@@ -248,8 +258,13 @@ impl HitTester {
         let from_pos = self.port_screen_position(from_node, conn.from_port, false, viewport);
         let to_pos = self.port_screen_position(to_node, conn.to_port, true, viewport);
 
+        if !self.point_in_connection_bounds(point, from_pos, to_pos) {
+            return false;
+        }
+
         // Get the connection path points (in screen coordinates)
-        let path_points = connection_path(from_pos, to_pos, 2.0);
+        let mut path_points = self.path_scratch.borrow_mut();
+        connection_path_into(from_pos, to_pos, 2.0, &mut path_points);
 
         // Check if point is near any segment of the path
         for i in 0..path_points.len().saturating_sub(1) {
@@ -261,6 +276,18 @@ impl HitTester {
         }
 
         false
+    }
+
+    /// Conservative control-point bounds for the horizontal cubic. A Bezier
+    /// curve lies in the convex hull of its controls, so this eliminates the
+    /// allocation-heavy flattening path for clicks nowhere near a connection.
+    fn point_in_connection_bounds(&self, point: Position, from: Position, to: Position) -> bool {
+        let (p0, p1, p2, p3) = horizontal_bezier(from, to);
+        let min_x = p0.x.min(p1.x).min(p2.x).min(p3.x) - self.connection_tolerance;
+        let max_x = p0.x.max(p1.x).max(p2.x).max(p3.x) + self.connection_tolerance;
+        let min_y = p0.y.min(p1.y).min(p2.y).min(p3.y) - self.connection_tolerance;
+        let max_y = p0.y.max(p1.y).max(p2.y).max(p3.y) + self.connection_tolerance;
+        point.x >= min_x && point.x <= max_x && point.y >= min_y && point.y <= max_y
     }
 
     /// Find all nodes within a rectangle

@@ -1,8 +1,8 @@
-use super::paint::paint_qr_full_from_colors;
+use super::paint::rasterize_qr_image;
 use super::{QrCodeError, QrCodeLimits};
 use crate::theme::ThemeExt;
 use gpui::prelude::{IntoElement, RenderOnce, Styled};
-use gpui::{App, Pixels, Rgba, Window, canvas, px};
+use gpui::{App, Corners, Pixels, Rgba, Window, canvas, px};
 use qrcode::QrCode as QrMatrix;
 
 /// A QR code display component.
@@ -109,16 +109,15 @@ impl QrCode {
     /// Build the canvas element with explicit colors.
     pub(super) fn build(self, fg_color: Rgba, bg_color: Rgba) -> impl IntoElement {
         let requested_size = self.size;
-        let size_f32: f32 = requested_size.into();
-        let colors = self.colors;
         let modules = self.modules;
+        let image = rasterize_qr_image(&self.colors, modules, fg_color, bg_color);
 
         canvas(
-            move |_bounds, _window, _cx| (colors, modules),
-            move |bounds, (colors, modules), window, _cx| {
-                paint_qr_full_from_colors(
-                    bounds, &colors, modules, size_f32, fg_color, bg_color, window,
-                );
+            move |_bounds, _window, _cx| image,
+            move |bounds, image, window, _cx| {
+                if let Some(image) = image {
+                    let _ = window.paint_image(bounds, Corners::default(), image, 0, false);
+                }
             },
         )
         .w(requested_size)

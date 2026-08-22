@@ -21,7 +21,7 @@ impl Render for InputKeyboardTestView {
                 .placeholder("Type here...")
                 .value("")
                 .on_text_change(move |text, _window, _cx| {
-                    text_changes.borrow_mut().push(text);
+                    text_changes.borrow_mut().push(text.to_string());
                 }),
         )
     }

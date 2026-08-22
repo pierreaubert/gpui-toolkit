@@ -25,6 +25,7 @@ uuid = { workspace = true }
 
 # QR code generation
 qrcode = { workspace = true }
+image = { workspace = true }
 
 # Proc macros for theme generation
 gpui-ui-kit-macros = { workspace = true }
