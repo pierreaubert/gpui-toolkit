@@ -268,7 +268,21 @@ fn hash_value(value: &Value, hasher: &mut impl Hasher) {
     match value {
         Value::Null => {}
         Value::Bool(value) => value.hash(hasher),
-        Value::Number(value) => value.to_string().hash(hasher),
+        Value::Number(value) => {
+            // `Number::to_string` allocates for every numeric payload value;
+            // large surface grids used to create one String per cell on each
+            // render-cache lookup. Hash its exact numeric representation.
+            if let Some(value) = value.as_i64() {
+                0_u8.hash(hasher);
+                value.hash(hasher);
+            } else if let Some(value) = value.as_u64() {
+                1_u8.hash(hasher);
+                value.hash(hasher);
+            } else if let Some(value) = value.as_f64() {
+                2_u8.hash(hasher);
+                value.to_bits().hash(hasher);
+            }
+        }
         Value::String(value) => value.hash(hasher),
         Value::Array(values) => {
             values.len().hash(hasher);

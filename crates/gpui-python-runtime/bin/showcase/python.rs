@@ -291,8 +291,9 @@ fn read_python_messages<R: BufRead>(
     tx: SyncSender<Result<PythonMessage, String>>,
     reader_wake: PythonSessionWake,
 ) {
+    let mut line = Vec::new();
     loop {
-        let mut line = Vec::new();
+        line.clear();
         match reader.read_until(b'\n', &mut line) {
             Ok(0) => break,
             Ok(_) => {}
@@ -351,18 +352,7 @@ fn read_python_messages<R: BufRead>(
                 return;
             }
         } else if let PythonMessage::MeshFrame(frame) = &mut parsed {
-            let byte_length = match serde_json::from_slice::<serde_json::Value>(&line)
-                .ok()
-                .and_then(|value| value.get("byte_length").and_then(serde_json::Value::as_u64))
-                .and_then(|length| usize::try_from(length).ok())
-            {
-                Some(length) => length,
-                None => {
-                    let _ = tx.send(Err("Python mesh frame has invalid byte_length".into()));
-                    reader_wake.notify();
-                    return;
-                }
-            };
+            let byte_length = frame.payload.len();
             if byte_length > gpui_python_runtime::mesh_frames::MAX_MESH_FRAME_BYTES {
                 let _ = tx.send(Err("Python mesh frame exceeds maximum size".into()));
                 reader_wake.notify();

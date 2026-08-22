@@ -575,7 +575,7 @@ fn inline_float(value: &Value, name: &str, allow_nan: bool) -> Result<f64, Strin
 pub fn decode_geometry(
     geometry: &Value,
     store: &MeshFrameStore,
-) -> Result<(Vec<[f64; 3]>, Vec<[u32; 3]>), String> {
+) -> Result<(Arc<[[f64; 3]]>, Arc<[[u32; 3]]>), String> {
     if geometry.get("resource_id").is_some() {
         return Err(
             "native mesh plot geometry resource_id is unsupported; provide separate positions and triangles resource handles"
@@ -585,37 +585,22 @@ pub fn decode_geometry(
     let split_resources = geometry.get("positions").is_some_and(Value::is_object)
         || geometry.get("triangles").is_some_and(Value::is_object);
     if split_resources {
-        let positions_resource = resource(
-            store,
+        let (positions_id, positions_generation) = resource_ref(
             geometry
                 .get("positions")
                 .ok_or("mesh geometry is missing positions resource")?,
             "geometry.positions",
-            MeshFrameKind::Geometry,
         )?;
-        let triangles_resource = resource(
-            store,
+        let (triangles_id, triangles_generation) = resource_ref(
             geometry
                 .get("triangles")
                 .ok_or("mesh geometry is missing triangles resource")?,
             "geometry.triangles",
-            MeshFrameKind::Geometry,
         )?;
-        if positions_resource.shape.len() != 2 || positions_resource.shape[1] != 3 {
-            return Err("geometry.positions resource shape must be [vertex_count, 3]".into());
-        }
-        if triangles_resource.shape.len() != 2 || triangles_resource.shape[1] != 3 {
-            return Err("geometry.triangles resource shape must be [triangle_count, 3]".into());
-        }
-        let positions = floats(positions_resource, "geometry.positions", false)?
-            .chunks_exact(3)
-            .map(|values| [values[0], values[1], values[2]])
-            .collect();
-        let triangles = u32s(triangles_resource, "geometry.triangles")?
-            .chunks_exact(3)
-            .map(|values| [values[0], values[1], values[2]])
-            .collect();
-        return Ok((positions, triangles));
+        return Ok((
+            store.decoded_positions(positions_id, positions_generation)?,
+            store.decoded_triangles(triangles_id, triangles_generation)?,
+        ));
     }
     let positions = geometry
         .get("positions")
@@ -633,7 +618,8 @@ pub fn decode_geometry(
                 inline_float(z, "mesh z", false)?,
             ])
         })
-        .collect::<Result<Vec<_>, String>>()?;
+        .collect::<Result<Vec<_>, String>>()?
+        .into();
     let triangles = geometry
         .get("triangles")
         .and_then(Value::as_array)
@@ -652,7 +638,8 @@ pub fn decode_geometry(
                 c.as_u64().ok_or("mesh index must be an integer")? as u32,
             ])
         })
-        .collect::<Result<Vec<_>, String>>()?;
+        .collect::<Result<Vec<_>, String>>()?
+        .into();
     Ok((positions, triangles))
 }
 
@@ -661,13 +648,10 @@ pub fn decode_geometry(
 pub fn decode_field(
     field: &Value,
     store: &MeshFrameStore,
-) -> Result<(Vec<f64>, Option<Vec<bool>>), String> {
+) -> Result<(Arc<[f64]>, Option<Arc<[bool]>>), String> {
     let values = if field.get("resource_id").is_some() {
-        let resource = resource(store, field, "field", MeshFrameKind::Field)?;
-        if resource.shape.len() != 1 {
-            return Err("field resource shape must be [value_count]".into());
-        }
-        floats(resource, "field", true)?
+        let (resource_id, generation) = resource_ref(field, "field")?;
+        store.decoded_field(resource_id, generation)?
     } else {
         field
             .get("values")
@@ -676,72 +660,28 @@ pub fn decode_field(
             .iter()
             .map(|value| inline_float(value, "mesh field value", true))
             .collect::<Result<Vec<_>, _>>()?
+            .into()
     };
-    let valid = field
-        .get("valid")
-        .map(|value| {
-            if value.is_object() {
-                let resource = resource(store, value, "field.valid", MeshFrameKind::Mask)?;
-                let elements = shape_elements(resource, "field.valid")?;
-                if resource.shape.len() != 1 {
-                    return Err("field.valid resource shape must be [value_count]".into());
-                }
-                if elements != values.len() {
-                    return Err(format!(
-                        "field.valid resource has {elements} values, expected {}",
-                        values.len()
-                    ));
-                }
-                let expected = match resource.dtype {
-                    MeshDtype::BoolBytes => elements,
-                    MeshDtype::BoolPacked => {
-                        elements
-                            .checked_add(7)
-                            .ok_or("field.valid resource shape is too large")?
-                            / 8
-                    }
-                    dtype => {
-                        return Err(format!(
-                            "field.valid resource dtype {dtype:?} is not bool_bytes/bool_packed"
-                        ));
-                    }
-                };
-                if resource.payload.len() != expected {
-                    return Err(format!(
-                        "field.valid resource payload has {} bytes, expected {expected}",
-                        resource.payload.len()
-                    ));
-                }
-                match resource.dtype {
-                    MeshDtype::BoolBytes => resource
-                        .payload
-                        .iter()
-                        .enumerate()
-                        .map(|(index, value)| match value {
-                            0 => Ok(false),
-                            1 => Ok(true),
-                            _ => Err(format!("field.valid resource byte {index} is not boolean")),
-                        })
-                        .collect::<Result<Vec<bool>, String>>(),
-                    MeshDtype::BoolPacked => (0..elements)
-                        .map(|index| Ok(resource.payload[index / 8] & (1 << (index % 8)) != 0))
-                        .collect::<Result<Vec<bool>, String>>(),
-                    _ => unreachable!("dtype checked above"),
-                }
-            } else {
-                value
-                    .as_array()
-                    .ok_or("mesh field valid mask must be an array")?
-                    .iter()
-                    .map(|value| {
-                        value
-                            .as_bool()
-                            .ok_or_else(|| "mesh field valid mask must be boolean".to_string())
-                    })
-                    .collect::<Result<Vec<bool>, String>>()
-            }
-        })
-        .transpose()?;
+    let valid = match field.get("valid") {
+        Some(value) if value.is_object() => {
+            let (resource_id, generation) = resource_ref(value, "field.valid")?;
+            Some(store.decoded_mask(resource_id, generation, values.len())?)
+        }
+        Some(value) => Some(
+            value
+                .as_array()
+                .ok_or("mesh field valid mask must be an array")?
+                .iter()
+                .map(|value| {
+                    value
+                        .as_bool()
+                        .ok_or_else(|| "mesh field valid mask must be boolean".to_string())
+                })
+                .collect::<Result<Vec<bool>, String>>()?
+                .into(),
+        ),
+        None => None,
+    };
     if valid
         .as_ref()
         .is_some_and(|valid| valid.len() != values.len())
@@ -757,23 +697,16 @@ pub fn decode_ids(
     name: &str,
     expected: usize,
     store: &MeshFrameStore,
-) -> Result<Option<Vec<u64>>, String> {
+) -> Result<Option<Arc<[u64]>>, String> {
     let Some(value) = geometry.get(name) else {
         return Ok(None);
     };
     if value.is_object() {
-        let resource = resource(
-            store,
-            value,
-            &format!("geometry.{name}"),
-            MeshFrameKind::Ids,
-        )?;
-        if resource.shape.len() != 1 || resource.shape[0] as usize != expected {
-            return Err(format!(
-                "geometry.{name} resource shape must be [{expected}]"
-            ));
-        }
-        return u64s(resource, &format!("geometry.{name}")).map(Some);
+        let label = format!("geometry.{name}");
+        let (resource_id, generation) = resource_ref(value, &label)?;
+        return store
+            .decoded_ids(resource_id, generation, expected, &label)
+            .map(Some);
     }
     let values = value
         .as_array()
@@ -792,7 +725,7 @@ pub fn decode_ids(
                 .ok_or_else(|| format!("mesh geometry {name} must contain u64 ids"))
         })
         .collect::<Result<Vec<_>, _>>()
-        .map(Some)
+        .map(|values| Some(values.into()))
 }
 
 /// Callback emitted when the retained native plot changes its selection.
@@ -812,13 +745,12 @@ pub fn build(
     let geometry = &spec.geometry;
     let mesh_id = geometry.get("id").and_then(Value::as_str).unwrap_or("mesh");
     let (positions, triangles) = decode_geometry(geometry, mesh_frames)?;
-    let vertex_ids =
-        decode_ids(geometry, "vertex_ids", positions.len(), mesh_frames)?.map(Arc::from);
-    let cell_ids = decode_ids(geometry, "cell_ids", triangles.len(), mesh_frames)?.map(Arc::from);
+    let vertex_ids = decode_ids(geometry, "vertex_ids", positions.len(), mesh_frames)?;
+    let cell_ids = decode_ids(geometry, "cell_ids", triangles.len(), mesh_frames)?;
     let mesh = TriangleMesh {
         id: Arc::from(mesh_id),
-        positions: positions.into(),
-        triangles: triangles.into(),
+        positions,
+        triangles,
         vertex_ids,
         cell_ids,
     };
@@ -842,9 +774,9 @@ pub fn build(
                     .unwrap_or("Field"),
             ),
             unit: field.get("unit").and_then(Value::as_str).map(Arc::from),
-            values: values.into(),
+            values,
             association,
-            valid: valid.map(Arc::from),
+            valid,
         });
     }
     let view = match spec.view.as_str() {

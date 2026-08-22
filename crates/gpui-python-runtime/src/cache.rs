@@ -2,7 +2,7 @@ use crate::error::Scene3DError;
 use crate::meshplot::MeshPlotSpec;
 use crate::scene3d::{LinesSpec, MeshSpec, SceneFingerprints, SceneSpec, SurfaceSpec};
 use std::collections::HashMap;
-use std::hash::{Hash, Hasher};
+use std::hash::Hasher;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct DirtyResources {
@@ -260,8 +260,48 @@ fn mesh_plot_fingerprints(spec: &MeshPlotSpec) -> MeshPlotFingerprints {
 
 fn json_fingerprint(value: &serde_json::Value) -> u64 {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    value.to_string().hash(&mut hasher);
+    hash_json_value(value, &mut hasher);
     hasher.finish()
+}
+
+/// Allocation-free structural JSON fingerprint used for dirty domains that
+/// may carry dense inline mesh geometry. Keep object keys sorted so protocol
+/// payload insertion order does not affect cache invalidation.
+fn hash_json_value(value: &serde_json::Value, hasher: &mut impl std::hash::Hasher) {
+    use std::hash::Hash;
+
+    std::mem::discriminant(value).hash(hasher);
+    match value {
+        serde_json::Value::Null => {}
+        serde_json::Value::Bool(value) => value.hash(hasher),
+        serde_json::Value::Number(value) => {
+            if let Some(value) = value.as_i64() {
+                0_u8.hash(hasher);
+                value.hash(hasher);
+            } else if let Some(value) = value.as_u64() {
+                1_u8.hash(hasher);
+                value.hash(hasher);
+            } else if let Some(value) = value.as_f64() {
+                2_u8.hash(hasher);
+                value.to_bits().hash(hasher);
+            }
+        }
+        serde_json::Value::String(value) => value.hash(hasher),
+        serde_json::Value::Array(values) => {
+            values.len().hash(hasher);
+            for value in values {
+                hash_json_value(value, hasher);
+            }
+        }
+        serde_json::Value::Object(values) => {
+            let mut keys = values.keys().collect::<Vec<_>>();
+            keys.sort_unstable();
+            for key in keys {
+                key.hash(hasher);
+                hash_json_value(&values[key], hasher);
+            }
+        }
+    }
 }
 
 #[cfg(test)]

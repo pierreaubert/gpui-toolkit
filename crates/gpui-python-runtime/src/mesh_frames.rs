@@ -6,7 +6,9 @@
 //! only after all chunks have arrived.
 
 use serde::{Deserialize, Serialize};
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::sync::Arc;
 use thiserror::Error;
 
 pub const MAX_MESH_FRAME_BYTES: usize = 16 * 1024 * 1024;
@@ -71,7 +73,7 @@ impl MeshDtype {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct MeshFrame {
     pub resource_id: String,
     pub generation: u64,
@@ -83,6 +85,24 @@ pub struct MeshFrame {
     /// Filled by the framed stdout reader and omitted from the JSON header.
     #[serde(skip)]
     pub payload: Vec<u8>,
+}
+
+impl<'de> Deserialize<'de> for MeshFrame {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let header = DecodedMeshFrameHeader::deserialize(deserializer)?;
+        if header.byte_length > MAX_MESH_FRAME_BYTES {
+            return Err(serde::de::Error::custom(format!(
+                "mesh frame exceeds the {MAX_MESH_FRAME_BYTES}-byte frame limit"
+            )));
+        }
+        let byte_length = header.byte_length;
+        header
+            .into_frame(vec![0; byte_length])
+            .map_err(serde::de::Error::custom)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Error)]
@@ -147,6 +167,34 @@ struct DecodedMeshFrameHeader {
     byte_length: usize,
 }
 
+impl DecodedMeshFrameHeader {
+    fn into_frame(self, payload: Vec<u8>) -> Result<MeshFrame, MeshFrameError> {
+        if let Some(message_type) = self.message_type
+            && message_type != "mesh_frame"
+        {
+            return Err(MeshFrameError::UnexpectedType {
+                received: message_type,
+            });
+        }
+        if self.byte_length != payload.len() {
+            return Err(MeshFrameError::HeaderPayloadMismatch {
+                declared: self.byte_length,
+                received: payload.len(),
+            });
+        }
+        Ok(MeshFrame {
+            resource_id: self.resource_id,
+            generation: self.generation,
+            sequence: self.sequence,
+            chunk_count: self.chunk_count,
+            kind: self.kind,
+            dtype: self.dtype,
+            shape: self.shape,
+            payload,
+        })
+    }
+}
+
 impl MeshFrame {
     /// Encode a JSON header, newline, exact payload, and the framing newline.
     pub fn encode(&self) -> Vec<u8> {
@@ -175,29 +223,7 @@ impl MeshFrame {
             serde_json::from_str(header).map_err(|error| MeshFrameError::InvalidHeader {
                 message: error.to_string(),
             })?;
-        if let Some(message_type) = header.message_type
-            && message_type != "mesh_frame"
-        {
-            return Err(MeshFrameError::UnexpectedType {
-                received: message_type,
-            });
-        }
-        if header.byte_length != payload.len() {
-            return Err(MeshFrameError::HeaderPayloadMismatch {
-                declared: header.byte_length,
-                received: payload.len(),
-            });
-        }
-        let frame = Self {
-            resource_id: header.resource_id,
-            generation: header.generation,
-            sequence: header.sequence,
-            chunk_count: header.chunk_count,
-            kind: header.kind,
-            dtype: header.dtype,
-            shape: header.shape,
-            payload: payload.to_vec(),
-        };
+        let frame = header.into_frame(payload.to_vec())?;
         frame.validate()?;
         Ok(frame)
     }
@@ -273,6 +299,156 @@ fn shape_elements(shape: &[u32]) -> Result<usize, MeshFrameError> {
     })
 }
 
+fn decode_floats(
+    resource: &RetainedMeshResource,
+    name: &str,
+    allow_nan: bool,
+) -> Result<Vec<f64>, String> {
+    let elements = shape_elements(&resource.shape).map_err(|error| error.to_string())?;
+    let bytes_per_value = match resource.dtype {
+        MeshDtype::F32LE => 4,
+        MeshDtype::F64LE => 8,
+        _ => {
+            return Err(format!(
+                "{name} resource dtype {:?} is not f32le/f64le",
+                resource.dtype
+            ));
+        }
+    };
+    let expected = elements
+        .checked_mul(bytes_per_value)
+        .ok_or_else(|| format!("{name} resource payload is too large"))?;
+    if resource.payload.len() != expected {
+        return Err(format!(
+            "{name} resource payload {} bytes, expected {expected}",
+            resource.payload.len()
+        ));
+    }
+    resource
+        .payload
+        .chunks_exact(bytes_per_value)
+        .map(|chunk| {
+            let value = match resource.dtype {
+                MeshDtype::F32LE => {
+                    f32::from_le_bytes(chunk.try_into().map_err(|_| "invalid f32 bytes")?) as f64
+                }
+                MeshDtype::F64LE => {
+                    f64::from_le_bytes(chunk.try_into().map_err(|_| "invalid f64 bytes")?)
+                }
+                _ => unreachable!("dtype checked above"),
+            };
+            if value.is_infinite() || (!allow_nan && value.is_nan()) {
+                return Err(format!("{name} resource contains non-finite value"));
+            }
+            Ok(value)
+        })
+        .collect()
+}
+
+fn decode_u32s(resource: &RetainedMeshResource, name: &str) -> Result<Vec<u32>, String> {
+    let elements = shape_elements(&resource.shape).map_err(|error| error.to_string())?;
+    if resource.dtype != MeshDtype::U32LE {
+        return Err(format!(
+            "{name} resource dtype {:?} is not u32le",
+            resource.dtype
+        ));
+    }
+    let expected = elements
+        .checked_mul(4)
+        .ok_or_else(|| format!("{name} resource payload is too large"))?;
+    if resource.payload.len() != expected {
+        return Err(format!(
+            "{name} resource payload {} bytes, expected {expected}",
+            resource.payload.len()
+        ));
+    }
+    resource
+        .payload
+        .chunks_exact(4)
+        .map(|chunk| {
+            Ok(u32::from_le_bytes(
+                chunk.try_into().map_err(|_| "invalid u32 bytes")?,
+            ))
+        })
+        .collect()
+}
+
+fn decode_mask(resource: &RetainedMeshResource, value_count: usize) -> Result<Vec<bool>, String> {
+    let expected = match resource.dtype {
+        MeshDtype::BoolBytes => value_count,
+        MeshDtype::BoolPacked => {
+            value_count
+                .checked_add(7)
+                .ok_or_else(|| "field.valid resource payload is too large".to_string())?
+                / 8
+        }
+        _ => {
+            return Err(format!(
+                "field.valid resource dtype {:?} is not bool_bytes/bool_packed",
+                resource.dtype
+            ));
+        }
+    };
+    if resource.payload.len() != expected {
+        return Err(format!(
+            "field.valid resource payload {} bytes, expected {expected}",
+            resource.payload.len()
+        ));
+    }
+    match resource.dtype {
+        MeshDtype::BoolBytes => resource
+            .payload
+            .iter()
+            .enumerate()
+            .map(|(index, &value)| match value {
+                0 => Ok(false),
+                1 => Ok(true),
+                _ => Err(format!("field.valid resource byte {index} is not boolean")),
+            })
+            .collect(),
+        MeshDtype::BoolPacked => Ok((0..value_count)
+            .map(|index| resource.payload[index / 8] & (1 << (index % 8)) != 0)
+            .collect()),
+        _ => unreachable!("dtype checked above"),
+    }
+}
+
+fn decode_ids(resource: &RetainedMeshResource, name: &str) -> Result<Vec<u64>, String> {
+    let elements = shape_elements(&resource.shape).map_err(|error| error.to_string())?;
+    let bytes_per_value = match resource.dtype {
+        MeshDtype::U32LE => 4,
+        MeshDtype::U64LE => 8,
+        _ => {
+            return Err(format!(
+                "{name} resource dtype {:?} is not u32le/u64le",
+                resource.dtype
+            ));
+        }
+    };
+    let expected = elements
+        .checked_mul(bytes_per_value)
+        .ok_or_else(|| format!("{name} resource payload is too large"))?;
+    if resource.payload.len() != expected {
+        return Err(format!(
+            "{name} resource payload {} bytes, expected {expected}",
+            resource.payload.len()
+        ));
+    }
+    resource
+        .payload
+        .chunks_exact(bytes_per_value)
+        .map(|chunk| match resource.dtype {
+            MeshDtype::U32LE => {
+                Ok(u32::from_le_bytes(chunk.try_into().map_err(|_| "invalid u32 bytes")?) as u64)
+            }
+            MeshDtype::U64LE => Ok(u64::from_le_bytes(
+                chunk.try_into().map_err(|_| "invalid u64 bytes")?,
+            )),
+            _ => unreachable!("dtype checked above"),
+        })
+        .collect()
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct RetainedMeshResource {
     pub resource_id: String,
@@ -319,6 +495,17 @@ enum MeshEntry {
 
 type MeshKey = (String, u64);
 
+/// Decoded retained resource data. Entries use the same `(resource_id,
+/// generation)` key and are removed alongside their binary resource.
+#[derive(Debug, Default)]
+struct DecodedMeshCache {
+    positions: HashMap<MeshKey, Arc<[[f64; 3]]>>,
+    triangles: HashMap<MeshKey, Arc<[[u32; 3]]>>,
+    fields: HashMap<MeshKey, Arc<[f64]>>,
+    masks: HashMap<MeshKey, Arc<[bool]>>,
+    ids: HashMap<MeshKey, Arc<[u64]>>,
+}
+
 /// Reassembles mesh chunks and retains completed resources under a bounded,
 /// deterministic FIFO eviction policy.
 #[derive(Debug)]
@@ -331,6 +518,7 @@ pub struct MeshFrameStore {
     /// eviction, and clear still make a generation permanently stale.
     recoverable_generations: HashSet<MeshKey>,
     references: HashMap<MeshKey, usize>,
+    decoded: RefCell<DecodedMeshCache>,
     byte_budget: usize,
     bytes_used: usize,
     evictions: u64,
@@ -354,6 +542,7 @@ impl MeshFrameStore {
             latest_generation: HashMap::new(),
             recoverable_generations: HashSet::new(),
             references: HashMap::new(),
+            decoded: RefCell::new(DecodedMeshCache::default()),
             byte_budget: byte_budget.clamp(1, MAX_MESH_RESOURCE_BYTES),
             bytes_used: 0,
             evictions: 0,
@@ -365,6 +554,150 @@ impl MeshFrameStore {
             Some(MeshEntry::Resource(resource)) => Some(resource),
             _ => None,
         }
+    }
+
+    /// Decode geometry positions once for the lifetime of a retained resource
+    /// generation. The returned `Arc` is cheap to share with repeated plots.
+    pub fn decoded_positions(
+        &self,
+        resource_id: &str,
+        generation: u64,
+    ) -> Result<Arc<[[f64; 3]]>, String> {
+        let key = (resource_id.to_owned(), generation);
+        if let Some(positions) = self.decoded.borrow().positions.get(&key) {
+            return Ok(positions.clone());
+        }
+        let resource = self.decode_resource(&key, MeshFrameKind::Geometry, "positions")?;
+        if resource.shape.len() != 2 || resource.shape[1] != 3 {
+            return Err("geometry.positions resource shape must be [vertex_count, 3]".into());
+        }
+        let values = decode_floats(resource, "geometry.positions", false)?;
+        let positions: Arc<[[f64; 3]]> = values
+            .chunks_exact(3)
+            .map(|values| [values[0], values[1], values[2]])
+            .collect::<Vec<_>>()
+            .into();
+        self.decoded
+            .borrow_mut()
+            .positions
+            .insert(key, positions.clone());
+        Ok(positions)
+    }
+
+    /// Decode triangle indices once for the lifetime of a retained resource
+    /// generation.
+    pub fn decoded_triangles(
+        &self,
+        resource_id: &str,
+        generation: u64,
+    ) -> Result<Arc<[[u32; 3]]>, String> {
+        let key = (resource_id.to_owned(), generation);
+        if let Some(triangles) = self.decoded.borrow().triangles.get(&key) {
+            return Ok(triangles.clone());
+        }
+        let resource = self.decode_resource(&key, MeshFrameKind::Geometry, "triangles")?;
+        if resource.shape.len() != 2 || resource.shape[1] != 3 {
+            return Err("geometry.triangles resource shape must be [triangle_count, 3]".into());
+        }
+        let values = decode_u32s(resource, "geometry.triangles")?;
+        let triangles: Arc<[[u32; 3]]> = values
+            .chunks_exact(3)
+            .map(|values| [values[0], values[1], values[2]])
+            .collect::<Vec<_>>()
+            .into();
+        self.decoded
+            .borrow_mut()
+            .triangles
+            .insert(key, triangles.clone());
+        Ok(triangles)
+    }
+
+    /// Decode scalar field samples once for the lifetime of a retained
+    /// resource generation. NaNs are preserved for missing-value policies;
+    /// infinities are rejected.
+    pub fn decoded_field(&self, resource_id: &str, generation: u64) -> Result<Arc<[f64]>, String> {
+        let key = (resource_id.to_owned(), generation);
+        if let Some(values) = self.decoded.borrow().fields.get(&key) {
+            return Ok(values.clone());
+        }
+        let resource = self.decode_resource(&key, MeshFrameKind::Field, "field")?;
+        if resource.shape.len() != 1 {
+            return Err("field resource shape must be [value_count]".into());
+        }
+        let values: Arc<[f64]> = decode_floats(resource, "field", true)?.into();
+        self.decoded.borrow_mut().fields.insert(key, values.clone());
+        Ok(values)
+    }
+
+    /// Decode a packed or byte-per-value validity mask once for the lifetime
+    /// of its retained generation.
+    pub fn decoded_mask(
+        &self,
+        resource_id: &str,
+        generation: u64,
+        value_count: usize,
+    ) -> Result<Arc<[bool]>, String> {
+        let key = (resource_id.to_owned(), generation);
+        if let Some(mask) = self.decoded.borrow().masks.get(&key) {
+            if mask.len() == value_count {
+                return Ok(mask.clone());
+            }
+        }
+        let resource = self.decode_resource(&key, MeshFrameKind::Mask, "field.valid")?;
+        if resource.shape.len() != 1 || resource.shape[0] as usize != value_count {
+            return Err("field.valid resource shape must be [value_count]".into());
+        }
+        let mask: Arc<[bool]> = decode_mask(resource, value_count)?.into();
+        self.decoded.borrow_mut().masks.insert(key, mask.clone());
+        Ok(mask)
+    }
+
+    /// Decode stable vertex or cell IDs once for the lifetime of their
+    /// retained generation.
+    pub fn decoded_ids(
+        &self,
+        resource_id: &str,
+        generation: u64,
+        expected: usize,
+        name: &str,
+    ) -> Result<Arc<[u64]>, String> {
+        let key = (resource_id.to_owned(), generation);
+        if let Some(ids) = self.decoded.borrow().ids.get(&key) {
+            if ids.len() == expected {
+                return Ok(ids.clone());
+            }
+        }
+        let resource = self.decode_resource(&key, MeshFrameKind::Ids, name)?;
+        if resource.shape.len() != 1 || resource.shape[0] as usize != expected {
+            return Err(format!("{name} resource shape must be [{expected}]"));
+        }
+        let ids: Arc<[u64]> = decode_ids(resource, name)?.into();
+        self.decoded.borrow_mut().ids.insert(key, ids.clone());
+        Ok(ids)
+    }
+
+    fn decode_resource<'a>(
+        &'a self,
+        key: &MeshKey,
+        expected_kind: MeshFrameKind,
+        name: &str,
+    ) -> Result<&'a RetainedMeshResource, String> {
+        let resource = match self.entries.get(key) {
+            Some(MeshEntry::Resource(resource)) => resource,
+            _ => {
+                return Err(format!(
+                    "missing {name} resource {:?} generation {}",
+                    key.0, key.1
+                ));
+            }
+        };
+        if resource.kind != expected_kind {
+            return Err(format!(
+                "{name} resource {:?} has kind {:?}, expected {:?}",
+                resource.resource_id, resource.kind, expected_kind
+            ));
+        }
+        Ok(resource)
     }
 
     pub fn stats(&self) -> MeshFrameStats {
@@ -544,6 +877,11 @@ impl MeshFrameStore {
         self.order.clear();
         self.recoverable_generations.clear();
         self.references.clear();
+        self.decoded.get_mut().fields.clear();
+        self.decoded.get_mut().positions.clear();
+        self.decoded.get_mut().triangles.clear();
+        self.decoded.get_mut().masks.clear();
+        self.decoded.get_mut().ids.clear();
         self.bytes_used = 0;
     }
 
@@ -599,6 +937,12 @@ impl MeshFrameStore {
         let entry = self.entries.remove(key)?;
         self.order.retain(|queued| queued != key);
         self.references.remove(key);
+        let decoded = self.decoded.get_mut();
+        decoded.positions.remove(key);
+        decoded.triangles.remove(key);
+        decoded.fields.remove(key);
+        decoded.masks.remove(key);
+        decoded.ids.remove(key);
         self.bytes_used = self.bytes_used.saturating_sub(match &entry {
             MeshEntry::Assembly(assembly) => assembly.bytes,
             MeshEntry::Resource(resource) => resource.payload.len(),
@@ -656,6 +1000,72 @@ mod tests {
         let (header, payload) = split_header(&bytes);
         let decoded = MeshFrame::decode(header, payload).unwrap();
         assert_eq!(decoded.payload, frame.payload);
+    }
+
+    #[test]
+    fn json_header_deserialization_presizes_mesh_payload_once() {
+        let header = serde_json::json!({
+            "type": "mesh_frame",
+            "resource_id": "field",
+            "generation": 1,
+            "sequence": 0,
+            "chunk_count": 1,
+            "kind": "field",
+            "dtype": "f64le",
+            "shape": [1],
+            "byte_length": 8,
+        });
+
+        let frame: MeshFrame = serde_json::from_value(header).expect("header deserializes");
+        assert_eq!(frame.payload, vec![0; 8]);
+    }
+
+    #[test]
+    fn decoded_positions_are_shared_and_generation_scoped() {
+        let mut store = MeshFrameStore::new();
+        store.ingest(fixture()).expect("fixture ingests");
+
+        let first = store
+            .decoded_positions("geometry", 1)
+            .expect("positions decode");
+        let repeated = store
+            .decoded_positions("geometry", 1)
+            .expect("positions reuse");
+        assert!(Arc::ptr_eq(&first, &repeated));
+
+        let mut replacement = fixture();
+        replacement.generation = 2;
+        store.ingest(replacement).expect("replacement ingests");
+        let newer = store
+            .decoded_positions("geometry", 2)
+            .expect("new generation decodes");
+        assert!(!Arc::ptr_eq(&first, &newer));
+        assert!(store.decoded_positions("geometry", 1).is_err());
+    }
+
+    #[test]
+    fn decoded_field_preserves_nans_and_reuses_the_arc() {
+        let payload = [1.0_f64, f64::NAN]
+            .into_iter()
+            .flat_map(f64::to_le_bytes)
+            .collect();
+        let frame = MeshFrame {
+            resource_id: "field".into(),
+            generation: 1,
+            sequence: 0,
+            chunk_count: 1,
+            kind: MeshFrameKind::Field,
+            dtype: MeshDtype::F64LE,
+            shape: vec![2],
+            payload,
+        };
+        let mut store = MeshFrameStore::new();
+        store.ingest(frame).expect("field ingests");
+
+        let first = store.decoded_field("field", 1).expect("field decodes");
+        let repeated = store.decoded_field("field", 1).expect("field reuses");
+        assert!(first[1].is_nan());
+        assert!(Arc::ptr_eq(&first, &repeated));
     }
 
     #[test]

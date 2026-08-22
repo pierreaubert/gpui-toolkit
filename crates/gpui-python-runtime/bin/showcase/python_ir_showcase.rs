@@ -6754,26 +6754,26 @@ impl PythonIrShowcase {
         ds: &DesignSystem,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        let (content, scrollable) = {
-            let app = self.app.as_ref().expect("render_content called after load");
-            (
-                app.sections
-                    .iter()
-                    .find(|section| section.id == self.current_section)
-                    .or_else(|| app.sections.first())
-                    .map(|section| section.content.clone()),
-                app.miniapp
-                    .as_ref()
-                    .map_or(true, |config| config.scrollable),
-            )
-        };
-
-        let content = content
+        // Temporarily move the app out so a section can be borrowed while the
+        // renderer mutates its independent retained caches. This avoids a
+        // per-frame deep clone of potentially large IR subtrees.
+        let app = self.app.take().expect("render_content called after load");
+        let scrollable = app
+            .miniapp
             .as_ref()
+            .map_or(true, |config| config.scrollable);
+        let selected_content = app
+            .sections
+            .iter()
+            .find(|section| section.id == self.current_section)
+            .or_else(|| app.sections.first())
+            .map(|section| &section.content);
+        let content = selected_content
             .map(|node| self.render_node(node, theme, ds, cx))
             .unwrap_or_else(|| {
                 self.render_error("Python app did not define any sections", theme, ds)
             });
+        self.app = Some(app);
 
         let jobs = self.render_job_panel(theme, ds, cx);
         let scroll_handle = self.content_scroll.clone();
@@ -12755,15 +12755,15 @@ impl PythonIrShowcase {
             // completed after a newer event superseded it.
             self.session_state = next_state;
         } else if self.app.is_some() {
-            let mut next_app = self
-                .app
-                .as_ref()
-                .expect("app presence checked above")
-                .clone();
-            if let Err(error) = next_app.apply_patch_ops(&patch.ops) {
+            let mut next_app_value =
+                serde_json::to_value(self.app.as_ref().expect("app presence checked above"))
+                    .unwrap_or(Value::Null);
+            if let Err(error) =
+                PythonAppIr::apply_patch_ops_to_value(&mut next_app_value, &patch.ops)
+            {
                 self.record_mesh_patch_error(&patch, error.to_string());
             } else if let Err(error) = validate_mesh_plot_resources(
-                &serde_json::to_value(&next_app).unwrap_or(Value::Null),
+                &next_app_value,
                 &self.mesh_frames,
                 patch.request_id.as_deref(),
             ) {
@@ -12773,7 +12773,6 @@ impl PythonIrShowcase {
                 // stale or evicted handle.
                 self.record_mesh_patch_error(&patch, error.to_string());
             } else {
-                let next_app_value = serde_json::to_value(&next_app).unwrap_or(Value::Null);
                 let mut next_resource_refs = HashMap::new();
                 if let Err(error) =
                     collect_mesh_plot_resource_refs(&next_app_value, &mut next_resource_refs)
@@ -12782,6 +12781,13 @@ impl PythonIrShowcase {
                 } else if let Err(error) = self.sync_mesh_plot_resource_refs(next_resource_refs) {
                     self.record_mesh_patch_error(&patch, error);
                 } else {
+                    let next_app = match PythonAppIr::from_patched_value(next_app_value) {
+                        Ok(app) => app,
+                        Err(error) => {
+                            self.record_mesh_patch_error(&patch, error.to_string());
+                            return;
+                        }
+                    };
                     self.app = Some(next_app);
                     self.last_mesh_patch_id = patch.request_id.clone();
                     self.session_state = next_state;

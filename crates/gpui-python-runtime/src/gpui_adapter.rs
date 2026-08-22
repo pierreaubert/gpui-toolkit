@@ -170,19 +170,20 @@ impl Gpui3DCache {
         let extent = (max - min).max_element().max(f32::EPSILON);
         let scale = 2.0 / extent;
         let normalized = |point: Point3| (vec3(point) - center) * scale;
-        let polygons = spec
-            .indices
-            .chunks_exact(3)
-            .enumerate()
-            .map(|(triangle_index, triangle)| Polygon3D {
-                vertices: triangle
+        let mut polygons = Vec::with_capacity(spec.indices.len() / 3);
+        for (triangle_index, triangle) in spec.indices.chunks_exact(3).enumerate() {
+            let mut vertices = Vec::with_capacity(3);
+            vertices.extend(
+                triangle
                     .iter()
-                    .map(|&index| normalized(spec.vertices[index as usize]))
-                    .collect(),
+                    .map(|&index| normalized(spec.vertices[index as usize])),
+            );
+            polygons.push(Polygon3D {
+                vertices,
                 fill: Some(mesh_triangle_fill(spec, triangle, triangle_index)),
                 stroke: None,
-            })
-            .collect();
+            });
+        }
         let state = match self.mesh_states.entry(spec.id.clone()) {
             Entry::Occupied(entry) => entry.get().clone(),
             Entry::Vacant(entry) => entry

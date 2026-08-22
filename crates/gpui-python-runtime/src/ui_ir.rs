@@ -172,6 +172,28 @@ impl PythonAppIr {
         *self = next;
         Ok(())
     }
+
+    /// Apply operations to the canonical JSON transaction tree. Hosts that
+    /// also need to inspect mesh-resource references can reuse this value for
+    /// validation and commit, avoiding repeated typed-IR serialization.
+    pub fn apply_patch_ops_to_value(
+        tree: &mut Value,
+        ops: &[crate::session::PatchOp],
+    ) -> Result<(), UiIrError> {
+        for op in ops {
+            apply_patch_op(tree, op)?;
+        }
+        Ok(())
+    }
+
+    /// Deserialize and validate a successfully patched transaction tree.
+    pub fn from_patched_value(tree: Value) -> Result<Self, UiIrError> {
+        let next: Self = serde_json::from_value(tree).map_err(|error| UiIrError::InvalidPatch {
+            message: error.to_string(),
+        })?;
+        next.validate()?;
+        Ok(next)
+    }
 }
 
 fn node_id(value: &Value) -> Option<&str> {
