@@ -118,9 +118,9 @@ impl Element for KnobArcElement {
         #[cfg(feature = "vello")]
         if self.renderer_2d == Renderer2D::Vello {
             use d3rs::vello2d::kurbo::{BezPath, PathEl};
-            use d3rs::vello2d::peniko::{Brush, Color};
+            use d3rs::vello2d::peniko::{Brush, Color, Gradient};
             let mut scene = d3rs::vello2d::ChartScene::new();
-            let mut sector = |from: f32, to: f32, outer: f32, inner: f32, color: Rgba| {
+            let mut sector = |from: f32, to: f32, outer: f32, inner: f32, brush: Brush| {
                 let span = to - from;
                 if span <= 0.01 || outer <= inner {
                     return;
@@ -154,28 +154,35 @@ impl Element for KnobArcElement {
                     ));
                 }
                 path.push(PathEl::ClosePath);
-                scene.fill_path(
-                    path,
-                    Brush::Solid(Color::new([color.r, color.g, color.b, color.a])),
-                );
+                scene.fill_path(path, brush);
             };
             if self.arc_glow > 0.0 && self.normalized > 0.005 {
                 let base = self.arc_glow.clamp(0.0, 1.0) * 0.45 * self.arc_color.a;
-                for (offset, multiplier) in [(1.0, 0.55), (2.5, 0.30), (4.5, 0.15)] {
-                    sector(
-                        start_rad,
-                        value_rad,
-                        self.knob_size / 2.0 + 1.0 + offset,
-                        (self.knob_size / 2.0 + 1.0 - self.arc_width - offset)
-                            .max(self.knob_size / 2.0),
-                        Rgba {
-                            r: self.arc_color.r,
-                            g: self.arc_color.g,
-                            b: self.arc_color.b,
-                            a: base * multiplier,
-                        },
-                    );
-                }
+                let outer = self.knob_size / 2.0 + 1.0;
+                let halo_outer = outer + 4.5;
+                let halo_inner = (outer - self.arc_width - 4.5).max(self.knob_size / 2.0);
+                let stop = |radius: f32, alpha: f32| {
+                    (
+                        (radius / halo_outer).clamp(0.0, 1.0),
+                        Color::new([self.arc_color.r, self.arc_color.g, self.arc_color.b, alpha]),
+                    )
+                };
+                // One radial gradient has the same soft falloff as the old
+                // three nested sectors, while issuing one fill command.
+                sector(
+                    start_rad,
+                    value_rad,
+                    halo_outer,
+                    halo_inner,
+                    Brush::Gradient(
+                        Gradient::new_radial((center_x as f64, center_y as f64), halo_outer)
+                            .with_stops([
+                                stop(halo_inner, 0.0),
+                                stop(outer, base * 0.55),
+                                stop(halo_outer, 0.0),
+                            ]),
+                    ),
+                );
             }
             let outer = self.knob_size / 2.0 + 1.0;
             if self.normalized > 0.005 {
@@ -184,7 +191,12 @@ impl Element for KnobArcElement {
                     value_rad,
                     outer,
                     outer - self.arc_width,
-                    self.arc_color,
+                    Brush::Solid(Color::new([
+                        self.arc_color.r,
+                        self.arc_color.g,
+                        self.arc_color.b,
+                        self.arc_color.a,
+                    ])),
                 );
             }
             if self.track_arc_width > 0.0 {
@@ -193,16 +205,16 @@ impl Element for KnobArcElement {
                     end_rad,
                     outer,
                     outer - self.track_arc_width,
-                    Rgba {
-                        r: self.arc_color.r,
-                        g: self.arc_color.g,
-                        b: self.arc_color.b,
-                        a: self.arc_color.a * 0.12,
-                    },
+                    Brush::Solid(Color::new([
+                        self.arc_color.r,
+                        self.arc_color.g,
+                        self.arc_color.b,
+                        self.arc_color.a * 0.12,
+                    ])),
                 );
             }
             self.painter.set_backend(self.vello_backend);
-            self.painter.paint(&scene, bounds, window);
+            self.painter.paint_owned(scene, bounds, window);
             return;
         }
 

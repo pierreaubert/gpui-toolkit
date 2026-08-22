@@ -15,6 +15,7 @@ use d3rs::mesh::{MeshBounds, MeshBvh, RevolveSpec, RevolvedMesh};
 #[cfg(all(feature = "gpu-3d", not(test)))]
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 /// GPU resources retained by one live 3D mesh-plot instance.
@@ -108,6 +109,11 @@ pub struct RetainedMesh3DStats {
 /// the lifetime of one plot owner.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct MeshPlotTimingStats {
+    /// CPU time spent validating and preparing the planar frame before chart
+    /// elements are composed. This makes revision-cache effectiveness visible
+    /// to app-level performance QA.
+    pub frame_preparation_count: u64,
+    pub frame_preparation_ns: u64,
     pub contour_preparation_count: u64,
     pub contour_preparation_ns: u64,
     pub revolve_preparation_count: u64,
@@ -125,6 +131,13 @@ impl MeshPlotTimingStats {
         self.contour_preparation_count = self.contour_preparation_count.saturating_add(1);
         self.contour_preparation_ns = self
             .contour_preparation_ns
+            .saturating_add(Self::duration_ns(duration));
+    }
+
+    pub(crate) fn record_frame_preparation(&mut self, duration: Duration) {
+        self.frame_preparation_count = self.frame_preparation_count.saturating_add(1);
+        self.frame_preparation_ns = self
+            .frame_preparation_ns
             .saturating_add(Self::duration_ns(duration));
     }
 
@@ -557,6 +570,10 @@ impl MeshPlotState {
 
     pub(crate) fn record_contour_preparation(&mut self, duration: Duration) {
         self.timing.record_contour_preparation(duration);
+    }
+
+    pub(crate) fn record_frame_preparation(&mut self, duration: Duration) {
+        self.timing.record_frame_preparation(duration);
     }
 
     #[cfg(feature = "gpu-3d")]
@@ -1013,8 +1030,33 @@ impl MeshPlotState {
         plot_id: &str,
         select: bool,
     ) -> Option<MeshPlotPick> {
+        self.pick_at_shared(
+            mesh,
+            field,
+            index,
+            horizontal,
+            vertical,
+            point_2d,
+            &Arc::from(plot_id),
+            select,
+        )
+    }
+
+    /// Pointer handlers pass the plot's retained Arc so a successful pick
+    /// shares the identifier instead of allocating it again.
+    pub(crate) fn pick_at_shared(
+        &mut self,
+        mesh: &TriangleMesh,
+        field: Option<&ScalarField>,
+        index: &TriGridIndex,
+        horizontal: CoordinateAxis,
+        vertical: CoordinateAxis,
+        point_2d: [f64; 2],
+        plot_id: &Arc<str>,
+        select: bool,
+    ) -> Option<MeshPlotPick> {
         let started = Instant::now();
-        let pick = super::super::mesh_plot::picking::pick_2d(
+        let pick = super::super::mesh_plot::picking::pick_2d_with_shared_plot_id(
             mesh, field, index, horizontal, vertical, point_2d, plot_id,
         );
         self.record_pick(started.elapsed());

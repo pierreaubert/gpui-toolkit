@@ -52,6 +52,7 @@ use misc::format_value_abbrev;
 #[derive(IntoElement)]
 pub struct VerticalSlider {
     id: ElementId,
+    track_id: ElementId,
     value: f64,
     min: f64,
     max: f64,
@@ -86,8 +87,11 @@ pub struct VerticalSlider {
 impl VerticalSlider {
     /// Create a new vertical slider with the given ID
     pub fn new(id: impl Into<ElementId>) -> Self {
+        let id = id.into();
+        let track_id = ElementId::Name(SharedString::from(format!("{}-track", id)));
         Self {
-            id: id.into(),
+            id,
+            track_id,
             value: 0.0,
             min: 0.0,
             max: 100.0,
@@ -709,8 +713,7 @@ impl RenderOnce for VerticalSlider {
         );
 
         // Track ID for click-to-position handling
-        let track_id: ElementId =
-            ElementId::Name(SharedString::from(format!("{}-track", element_id)));
+        let track_id = self.track_id.clone();
 
         // Track with fill and thumb. Track corners are driven by the meter
         // corner-radius design token so a brutalist preset can render a

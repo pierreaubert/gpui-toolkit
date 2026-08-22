@@ -304,6 +304,12 @@ impl RenderOnce for MeshPlotElement {
             if shares_retained_state {
                 let (geometry_changed, field_changed) =
                     mesh_plot_resource_domains_changed(&live.plot, &plot);
+                if !geometry_changed {
+                    // Recreated declarative builders normally have no local
+                    // cache. Preserve preparation that is still keyed to the
+                    // exact same geometry and plane.
+                    plot.prepared_planar_frame = live.plot.prepared_planar_frame.clone();
+                }
                 #[cfg(all(feature = "gpu-2d", any(not(test), feature = "native-qa")))]
                 if !geometry_changed {
                     // Keep the platform custom draw registered across
@@ -418,8 +424,25 @@ pub struct MeshPlot {
     pub(crate) show_toolbar: bool,
     pub(crate) hidden_toolbar_actions: Vec<PlotToolbarAction>,
     pub(crate) renderer_backend: MeshPlotBackend,
+    /// Geometry-only preparation shared by live interaction frames. The
+    /// cache deliberately keys Arc backing pointers as well as the projected
+    /// plane so declarative parent rerenders can reuse O(N + T) work without
+    /// retaining stale data after a resource replacement.
+    prepared_planar_frame: Option<PreparedPlanarFrame>,
     #[cfg(all(feature = "gpu-2d", any(not(test), feature = "native-qa")))]
     retained_2d_draw_owner: Option<Rc<Mesh2dDrawOwner>>,
+}
+
+#[derive(Clone)]
+struct PreparedPlanarFrame {
+    positions_ptr: usize,
+    triangles_ptr: usize,
+    horizontal: CoordinateAxis,
+    vertical: CoordinateAxis,
+    projected: Rc<Vec<[f64; 2]>>,
+    x_domain: [f64; 2],
+    y_domain: [f64; 2],
+    topology: Rc<MeshTopology>,
 }
 
 impl MeshPlot {
@@ -600,6 +623,57 @@ impl MeshPlot {
         Ok(MeshPlotElement { plot: self })
     }
 
+    fn prepared_planar_frame(
+        &mut self,
+        horizontal: CoordinateAxis,
+        vertical: CoordinateAxis,
+    ) -> Result<PreparedPlanarFrame, ChartError> {
+        let positions_ptr = self.mesh.positions.as_ptr() as usize;
+        let triangles_ptr = self.mesh.triangles.as_ptr() as usize;
+        if let Some(cached) = &self.prepared_planar_frame
+            && cached.positions_ptr == positions_ptr
+            && cached.triangles_ptr == triangles_ptr
+            && cached.horizontal == horizontal
+            && cached.vertical == vertical
+        {
+            return Ok(cached.clone());
+        }
+
+        // Mesh validation, projection, domains, and topology construction are
+        // invariant while the geometry and view plane are unchanged. Pointer
+        // identities cover declarative builders that replace Arc storage
+        // without updating the retained revision themselves.
+        self.mesh.validate()?;
+        let projected = Rc::new(
+            self.mesh
+                .positions
+                .iter()
+                .copied()
+                .map(|point| project_2d(horizontal, vertical, point))
+                .collect::<Vec<_>>(),
+        );
+        let x_domain = finite_domain(&projected, 0).ok_or(ChartError::InvalidData {
+            field: "mesh.positions",
+            reason: "mesh projection must contain finite coordinates",
+        })?;
+        let y_domain = finite_domain(&projected, 1).ok_or(ChartError::InvalidData {
+            field: "mesh.positions",
+            reason: "mesh projection must contain finite coordinates",
+        })?;
+        let prepared = PreparedPlanarFrame {
+            positions_ptr,
+            triangles_ptr,
+            horizontal,
+            vertical,
+            projected,
+            x_domain,
+            y_domain,
+            topology: Rc::new(MeshTopology::build(&self.mesh.triangles)),
+        };
+        self.prepared_planar_frame = Some(prepared.clone());
+        Ok(prepared)
+    }
+
     /// Compose the current frame of a retained live plot. The public builder
     /// validates once, then this method is re-entered whenever the live owner
     /// is notified by navigation, toolbar actions, or preparation completion.
@@ -612,32 +686,22 @@ impl MeshPlot {
         toolbar_menu_focus_handle: &FocusHandle,
     ) -> Result<AnyElement, ChartError> {
         let live = cx.entity().clone();
-        self.validate()?;
+        let preparation_started = Instant::now();
+        self.validate_without_mesh()?;
         let accessibility = self.accessibility_summary();
         let design = self.design.clone().unwrap_or_else(default_design);
         let (layout_width, layout_height) = resolved_chart_dimensions(self.chart_size);
         crate::validate::validate_dimensions(layout_width, layout_height)?;
 
         let (horizontal, vertical) = view_axes(&self.view);
-        let projected: Vec<[f64; 2]> = self
-            .mesh
-            .positions
-            .iter()
-            .copied()
-            .map(|point| project_2d(horizontal, vertical, point))
-            .collect();
-        let mesh_x_domain = finite_domain(&projected, 0).ok_or(ChartError::InvalidData {
-            field: "mesh.positions",
-            reason: "mesh projection must contain finite coordinates",
-        })?;
-        let mesh_y_domain = finite_domain(&projected, 1).ok_or(ChartError::InvalidData {
-            field: "mesh.positions",
-            reason: "mesh projection must contain finite coordinates",
-        })?;
+        let prepared = self.prepared_planar_frame(horizontal, vertical)?;
+        let projected = prepared.projected;
+        let mesh_x_domain = prepared.x_domain;
+        let mesh_y_domain = prepared.y_domain;
         let (configured_x_domain, configured_y_domain) = self.axes.configured_ranges();
         let x_domain = configured_x_domain.unwrap_or(mesh_x_domain);
         let y_domain = configured_y_domain.unwrap_or(mesh_y_domain);
-        let topology = MeshTopology::build(&self.mesh.triangles);
+        let topology = prepared.topology;
 
         let margin_left = 50.0;
         let margin_right = if self.colorbar.is_some() { 86.0 } else { 20.0 };
@@ -733,6 +797,11 @@ impl MeshPlot {
         } else {
             None
         };
+        if let Some(state) = interaction_state.as_ref() {
+            state
+                .borrow_mut()
+                .record_frame_preparation(preparation_started.elapsed());
+        }
 
         // After the initial frame, the live state is authoritative for all
         // style values that native controls can mutate. Rebuilding from the
@@ -750,7 +819,7 @@ impl MeshPlot {
             .unwrap_or_else(|| (self.mode.clone(), self.wireframe, self.color_range));
         let value_range = resolve_value_range(self.field.as_ref(), active_color_range)?;
         let range_for_render = value_range;
-        let toolbar_mode_label = format!("{mode:?}");
+        let toolbar_mode_label = toolbar_mode_name(&mode);
         let (visible_x_domain, visible_y_domain) = interaction_state
             .as_ref()
             .map(|state| {
@@ -999,6 +1068,7 @@ impl MeshPlot {
             &mesh,
             field.as_ref(),
             &projected,
+            &topology,
             x_domain,
             y_domain,
             plot_width,
@@ -1629,7 +1699,7 @@ impl MeshPlot {
                             window.refresh();
                         }
                     } else if allow_inspect {
-                        state.pick_at(
+                        state.pick_at_shared(
                             &hover_mesh,
                             hover_field.as_ref(),
                             hover_index.as_ref(),
@@ -1685,7 +1755,7 @@ impl MeshPlot {
                             *drag_down.borrow_mut() = None;
                         } else {
                             if allow_select {
-                                let pick = state.pick_at(
+                                let pick = state.pick_at_shared(
                                     &select_mesh,
                                     select_field.as_ref(),
                                     select_index.as_ref(),
@@ -2495,6 +2565,13 @@ impl MeshPlot {
 
     fn validate(&self) -> Result<(), ChartError> {
         self.mesh.validate()?;
+        self.validate_without_mesh()
+    }
+
+    /// Validate data domains that can change independently of the mesh
+    /// geometry. Geometry validation belongs to `prepared_planar_frame`,
+    /// where it is cached with projection and topology work.
+    fn validate_without_mesh(&self) -> Result<(), ChartError> {
         if let Some(field) = &self.field {
             field.validate(&self.mesh)?;
         }
@@ -2639,6 +2716,7 @@ pub fn mesh_plot(mesh: TriangleMesh) -> MeshPlot {
         show_toolbar: false,
         hidden_toolbar_actions: Vec::new(),
         renderer_backend: MeshPlotBackend::default(),
+        prepared_planar_frame: None,
         #[cfg(all(feature = "gpu-2d", any(not(test), feature = "native-qa")))]
         retained_2d_draw_owner: None,
     }
@@ -2650,6 +2728,7 @@ fn build_retained_scene_state(
     mesh: &TriangleMesh,
     field: Option<&ScalarField>,
     projected: &[[f64; 2]],
+    topology: &MeshTopology,
     x_domain: [f64; 2],
     y_domain: [f64; 2],
     plot_width: f32,
@@ -2665,8 +2744,53 @@ fn build_retained_scene_state(
     use d3rs::mesh::gpu::{FieldRevision, GeometryRevision, MeshColorConfig, MeshSceneState};
     use d3rs::mesh::{prepare_field, prepare_upload};
 
-    let topology = MeshTopology::build(&mesh.triangles);
-    let mut upload = prepare_upload(mesh, &topology);
+    let geometry_revision = GeometryRevision(geometry_revision.max(1));
+    let field_revision = FieldRevision(field_revision);
+    let color_range = range.unwrap_or([0.0, 1.0]);
+    let color = MeshColorConfig {
+        colormap: color_scale.to_colormap_index(),
+        range: [color_range[0] as f32, color_range[1] as f32],
+        wireframe: wireframe == Wireframe::Overlay || matches!(mode, MeshRenderMode::Mesh),
+        isoline_step: isoline_step(mode, range).unwrap_or(0.0) as f32,
+        isoline_width_px: 1.0,
+        unlit: true,
+    };
+
+    if let Some(scene) = retained.as_ref() {
+        let mut state = scene.borrow_mut();
+        let geometry_unchanged = state.geometry_rev == geometry_revision && state.upload.is_some();
+        if geometry_unchanged {
+            if state.field_rev != field_revision {
+                let upload = state.upload.as_mut().expect("checked above");
+                upload.values_f32 = None;
+                upload.cell_values_f32 = None;
+                if let Some(field) = field {
+                    let values = prepare_field(field);
+                    match field.association {
+                        ScalarAssociation::Vertex => upload.values_f32 = Some(values),
+                        ScalarAssociation::Cell => upload.cell_values_f32 = Some(values),
+                    }
+                }
+                state.field_rev = field_revision;
+            }
+            // Camera/viewport and style changes do not require CPU geometry
+            // preparation or a new retained upload.
+            let origin = state.upload.as_ref().expect("checked above").origin;
+            state.view_transform = mesh_view_transform(
+                origin,
+                x_domain,
+                y_domain,
+                plot_width,
+                plot_height,
+                equal_aspect,
+            );
+            state.color = color;
+            drop(state);
+            return Rc::clone(scene);
+        }
+    }
+
+    let mut upload = prepare_upload(mesh, topology);
     // The 2D scene consumes projected coordinates. Rebase those projected
     // values in f64 before the final f32 conversion, preserving precision for
     // large world coordinates and arbitrary X/Y/Z axis choices.
@@ -2699,7 +2823,6 @@ fn build_retained_scene_state(
             ScalarAssociation::Cell => upload.cell_values_f32 = Some(values),
         }
     }
-    let color_range = range.unwrap_or([0.0, 1.0]);
     let view_transform = mesh_view_transform(
         origin,
         x_domain,
@@ -2718,8 +2841,8 @@ fn build_retained_scene_state(
     };
     if let Some(scene) = retained {
         let mut state = scene.borrow_mut();
-        state.geometry_rev = GeometryRevision(geometry_revision.max(1));
-        state.field_rev = FieldRevision(field_revision);
+        state.geometry_rev = geometry_revision;
+        state.field_rev = field_revision;
         state.upload = Some(upload);
         state.view_transform = view_transform;
         state.color = color;
@@ -2727,8 +2850,8 @@ fn build_retained_scene_state(
         return scene;
     }
     Rc::new(RefCell::new(MeshSceneState {
-        geometry_rev: GeometryRevision(geometry_revision.max(1)),
-        field_rev: FieldRevision(field_revision),
+        geometry_rev: geometry_revision,
+        field_rev: field_revision,
         upload: Some(upload),
         geometry_upload_count: 0,
         geometry_upload_bytes: 0,
@@ -3094,6 +3217,16 @@ fn pick_3d_for_view_retained(
     })();
     state.record_pick(started.elapsed());
     result
+}
+
+fn toolbar_mode_name(mode: &MeshRenderMode) -> &'static str {
+    match mode {
+        MeshRenderMode::Mesh => "Mesh",
+        MeshRenderMode::ScalarFill { .. } => "Scalar fill",
+        MeshRenderMode::FilledContours { .. } => "Filled contours",
+        MeshRenderMode::Isolines { .. } => "Isolines",
+        MeshRenderMode::FillAndIsolines { .. } => "Fill + isolines",
+    }
 }
 
 fn toolbar_view_name(view: &MeshPlotView) -> &'static str {
@@ -3599,6 +3732,26 @@ mod tests {
             association: ScalarAssociation::Vertex,
             valid: None,
         }
+    }
+
+    #[test]
+    fn prepared_planar_frame_reuses_projection_and_topology_until_plane_changes() {
+        let mut plot = mesh_plot(square_mesh());
+        let first = plot
+            .prepared_planar_frame(CoordinateAxis::X, CoordinateAxis::Y)
+            .unwrap();
+        let second = plot
+            .prepared_planar_frame(CoordinateAxis::X, CoordinateAxis::Y)
+            .unwrap();
+
+        assert!(Rc::ptr_eq(&first.projected, &second.projected));
+        assert!(Rc::ptr_eq(&first.topology, &second.topology));
+
+        let changed_plane = plot
+            .prepared_planar_frame(CoordinateAxis::X, CoordinateAxis::Z)
+            .unwrap();
+        assert!(!Rc::ptr_eq(&first.projected, &changed_plane.projected));
+        assert!(!Rc::ptr_eq(&first.topology, &changed_plane.topology));
     }
 
     #[cfg(feature = "gpu-2d")]
@@ -4755,6 +4908,7 @@ mod tests {
             &mesh,
             Some(&cell_field),
             &projected,
+            &MeshTopology::build(&mesh.triangles),
             [10.0, 11.0],
             [20.0, 21.0],
             400.0,
@@ -4788,6 +4942,7 @@ mod tests {
             &mesh,
             None,
             &projected,
+            &MeshTopology::build(&mesh.triangles),
             [10.0, 11.0],
             [20.0, 21.0],
             400.0,
@@ -4825,6 +4980,7 @@ mod tests {
             &mesh,
             None,
             &projected,
+            &MeshTopology::build(&mesh.triangles),
             [10.0, 11.0],
             [20.0, 21.0],
             400.0,
@@ -4852,6 +5008,7 @@ mod tests {
             &mesh,
             Some(&field),
             &projected,
+            &MeshTopology::build(&mesh.triangles),
             [10.0, 11.0],
             [20.0, 21.0],
             400.0,

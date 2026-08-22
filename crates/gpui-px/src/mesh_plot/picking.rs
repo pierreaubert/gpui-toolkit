@@ -28,6 +28,28 @@ pub fn pick_2d(
     point_2d: [f64; 2],
     plot_id: &str,
 ) -> Option<MeshPlotPick> {
+    pick_2d_with_shared_plot_id(
+        mesh,
+        field,
+        index,
+        horizontal,
+        vertical,
+        point_2d,
+        &Arc::from(plot_id),
+    )
+}
+
+/// Pick using an already-interned plot id. Live pointer handlers use this
+/// variant so a successful hover/click does not allocate a new `Arc<str>`.
+pub(crate) fn pick_2d_with_shared_plot_id(
+    mesh: &TriangleMesh,
+    field: Option<&ScalarField>,
+    index: &TriGridIndex,
+    horizontal: CoordinateAxis,
+    vertical: CoordinateAxis,
+    point_2d: [f64; 2],
+    plot_id: &Arc<str>,
+) -> Option<MeshPlotPick> {
     if !point_2d.iter().all(|component| component.is_finite()) {
         return None;
     }
@@ -99,7 +121,7 @@ pub fn pick_2d(
             .and_then(|ids| ids.get(cell_index).copied());
 
         return Some(MeshPlotPick {
-            plot_id: Arc::from(plot_id),
+            plot_id: Arc::clone(plot_id),
             mesh_id: mesh.id.clone(),
             cell_index: triangle_index,
             cell_id,

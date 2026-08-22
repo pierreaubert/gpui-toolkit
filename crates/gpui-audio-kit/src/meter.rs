@@ -270,30 +270,27 @@ impl Element for GradientMeterFillElement {
         #[cfg(feature = "vello")]
         if self.renderer_2d == Renderer2D::Vello {
             use d3rs::vello2d::kurbo::Rect;
-            use d3rs::vello2d::peniko::{Brush, Color};
+            use d3rs::vello2d::peniko::{Brush, Color, Gradient};
             let mut scene = d3rs::vello2d::ChartScene::new();
-            let strips = self.strips.max(1);
-            for index in 0..strips {
-                let t0 = index as f32 / strips as f32;
-                let t1 = (index + 1) as f32 / strips as f32;
-                let alpha = 0.35 + 0.65 * (1.0 - (t0 + t1) * 0.5);
-                scene.fill_rect(
-                    Rect::new(
-                        0.0,
-                        t0 as f64 * height as f64,
-                        width as f64,
-                        t1 as f64 * height as f64,
-                    ),
-                    Brush::Solid(Color::new([
-                        self.bar_color.r,
-                        self.bar_color.g,
-                        self.bar_color.b,
-                        self.bar_color.a * alpha,
-                    ])),
-                );
-            }
+            let color = |alpha| {
+                Color::new([
+                    self.bar_color.r,
+                    self.bar_color.g,
+                    self.bar_color.b,
+                    self.bar_color.a * alpha,
+                ])
+            };
+            // Peniko interpolates this one brush on the GPU. The old Vello
+            // path emitted one rect per strip for this same vertical fade.
+            scene.fill_rect(
+                Rect::new(0.0, 0.0, width as f64, height as f64),
+                Brush::Gradient(
+                    Gradient::new_linear((0.0, 0.0), (0.0, height as f64))
+                        .with_stops([(0.0, color(1.0)), (1.0, color(0.35))]),
+                ),
+            );
             self.painter.set_backend(self.vello_backend);
-            self.painter.paint(&scene, bounds, window);
+            self.painter.paint_owned(scene, bounds, window);
             return;
         }
 
@@ -592,7 +589,7 @@ impl Element for LevelMeterElement {
         #[cfg(feature = "vello")]
         if self.renderer_2d == Renderer2D::Vello {
             use d3rs::vello2d::kurbo::Rect;
-            use d3rs::vello2d::peniko::{Brush, Color};
+            use d3rs::vello2d::peniko::{Brush, Color, Gradient};
             let mut scene = d3rs::vello2d::ChartScene::new();
             let brush = |color: Rgba, alpha: f32| {
                 Brush::Solid(Color::new([color.r, color.g, color.b, color.a * alpha]))
@@ -618,21 +615,17 @@ impl Element for LevelMeterElement {
                 let y0 = meter_height_f * (1.0 - top.clamp(0.0, 1.0));
                 let y1 = meter_height_f * (1.0 - bottom.clamp(0.0, 1.0));
                 if self.colors.use_gradient {
-                    let strips = 12usize;
-                    for index in 0..strips {
-                        let t0 = index as f32 / strips as f32;
-                        let t1 = (index + 1) as f32 / strips as f32;
-                        let alpha = 0.4 + 0.6 * (1.0 - (t0 + t1) * 0.5);
-                        scene.fill_rect(
-                            Rect::new(
-                                0.0,
-                                y0 as f64 + (y1 - y0) as f64 * t0 as f64,
-                                meter_w_f as f64,
-                                y0 as f64 + (y1 - y0) as f64 * t1 as f64,
-                            ),
-                            brush(color, alpha),
-                        );
-                    }
+                    // A single GPU gradient replaces the twelve solid fill
+                    // strips previously used to approximate this fade.
+                    scene.fill_rect(
+                        Rect::new(0.0, y0 as f64, meter_w_f as f64, y1 as f64),
+                        Brush::Gradient(
+                            Gradient::new_linear((0.0, y0 as f64), (0.0, y1 as f64)).with_stops([
+                                (0.0, Color::new([color.r, color.g, color.b, color.a])),
+                                (1.0, Color::new([color.r, color.g, color.b, color.a * 0.4])),
+                            ]),
+                        ),
+                    );
                 } else {
                     scene.fill_rect(
                         Rect::new(0.0, y0 as f64, meter_w_f as f64, y1 as f64),
@@ -659,7 +652,7 @@ impl Element for LevelMeterElement {
                 );
             }
             self.painter.set_backend(self.vello_backend);
-            self.painter.paint(&scene, meter_bounds, window);
+            self.painter.paint_owned(scene, meter_bounds, window);
             return;
         }
 

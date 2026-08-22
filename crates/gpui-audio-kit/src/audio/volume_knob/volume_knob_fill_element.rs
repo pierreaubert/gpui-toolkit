@@ -173,7 +173,7 @@ impl Element for VolumeKnobFillElement {
                 color(ring),
             );
             self.painter.set_backend(self.vello_backend);
-            self.painter.paint(&scene, bounds, window);
+            self.painter.paint_owned(scene, bounds, window);
             return;
         }
 

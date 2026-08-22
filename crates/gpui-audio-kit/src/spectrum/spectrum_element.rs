@@ -49,6 +49,12 @@ impl SpectrumElement {
         self
     }
 
+    /// Blend the current magnitudes with [`Self::previous`].
+    ///
+    /// For audio-rate updates, keep the previous magnitudes in an `Arc<[f32]>`
+    /// (or update a [`super::MeterData`] in place) and reuse that buffer across
+    /// frames; passing a freshly allocated vector each repaint defeats the
+    /// spectrum's allocation-free smoothing path.
     pub fn smoothing(mut self, smoothing: f32) -> Self {
         self.smoothing = smoothing.clamp(0.0, 0.99);
         self
@@ -252,7 +258,7 @@ impl Element for SpectrumElement {
                 }
             }
             self.painter.set_backend(self.vello_backend);
-            self.painter.paint(&scene, bounds, window);
+            self.painter.paint_owned(scene, bounds, window);
             return;
         }
 

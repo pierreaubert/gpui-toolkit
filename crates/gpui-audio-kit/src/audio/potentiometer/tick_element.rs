@@ -39,6 +39,37 @@ struct GeometryCacheKey {
     sweep_deg: i32,
 }
 
+#[cfg(feature = "vello")]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+struct TickSceneCacheKey {
+    ticks_ptr: usize,
+    major_tick_width: u32,
+    minor_tick_width: u32,
+    major_color: [u32; 4],
+    minor_color: [u32; 4],
+}
+
+#[cfg(feature = "vello")]
+impl TickSceneCacheKey {
+    fn new(element: &PotentiometerTickLinesElement) -> Self {
+        let rgba_bits = |color: Rgba| {
+            [
+                color.r.to_bits(),
+                color.g.to_bits(),
+                color.b.to_bits(),
+                color.a.to_bits(),
+            ]
+        };
+        Self {
+            ticks_ptr: element.ticks.as_ptr() as usize,
+            major_tick_width: element.major_tick_width.to_bits(),
+            minor_tick_width: element.minor_tick_width.to_bits(),
+            major_color: rgba_bits(element.major_tick_color),
+            minor_color: rgba_bits(element.minor_tick_color),
+        }
+    }
+}
+
 impl GeometryCacheKey {
     fn new(
         min: f64,
@@ -63,6 +94,9 @@ impl GeometryCacheKey {
 
 thread_local! {
     static GEOMETRY_CACHE: RefCell<HashMap<GeometryCacheKey, Arc<PotentiometerTickGeometry>>> =
+        RefCell::new(HashMap::new());
+    #[cfg(feature = "vello")]
+    static TICK_SCENE_CACHE: RefCell<HashMap<TickSceneCacheKey, Arc<d3rs::vello2d::ChartScene>>> =
         RefCell::new(HashMap::new());
 }
 
@@ -325,6 +359,14 @@ impl Element for PotentiometerTickLinesElement {
         if self.renderer_2d == Renderer2D::Vello {
             use d3rs::vello2d::kurbo::{BezPath, PathEl};
             use d3rs::vello2d::peniko::{Brush, Color};
+            let scene_key = TickSceneCacheKey::new(self);
+            if let Some(scene) =
+                TICK_SCENE_CACHE.with(|cache| cache.borrow().get(&scene_key).cloned())
+            {
+                self.painter.set_backend(self.vello_backend);
+                self.painter.paint(scene.as_ref(), bounds, window);
+                return;
+            }
             let mut scene = d3rs::vello2d::ChartScene::new();
             let mut major = BezPath::new();
             let mut minor = BezPath::new();
@@ -368,8 +410,16 @@ impl Element for PotentiometerTickLinesElement {
                 let c = self.minor_tick_color;
                 scene.fill_path(minor, Brush::Solid(Color::new([c.r, c.g, c.b, c.a])));
             }
+            let scene = Arc::new(scene);
+            TICK_SCENE_CACHE.with(|cache| {
+                let mut cache = cache.borrow_mut();
+                if cache.len() >= 64 {
+                    cache.clear();
+                }
+                cache.insert(scene_key, Arc::clone(&scene));
+            });
             self.painter.set_backend(self.vello_backend);
-            self.painter.paint(&scene, bounds, window);
+            self.painter.paint(scene.as_ref(), bounds, window);
             return;
         }
 

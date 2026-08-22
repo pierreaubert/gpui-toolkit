@@ -53,6 +53,20 @@ enum BackendState {
     Cpu(CpuState),
 }
 
+enum SceneInput<'a> {
+    Borrowed(&'a ChartScene),
+    Owned(ChartScene),
+}
+
+impl SceneInput<'_> {
+    fn as_scene(&self) -> &ChartScene {
+        match self {
+            Self::Borrowed(scene) => scene,
+            Self::Owned(scene) => scene,
+        }
+    }
+}
+
 #[cfg(test)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 struct PainterTestStats {
@@ -113,7 +127,7 @@ impl VelloScenePainter {
         self
     }
 
-    fn resolve(&mut self, scene: &ChartScene) {
+    fn resolve(&mut self) {
         if self.state.is_some() {
             return;
         }
@@ -121,8 +135,12 @@ impl VelloScenePainter {
         self.state = Some(match backend {
             RasterBackend::Wgpu => {
                 let shared = Rc::new(RefCell::new(SharedScene {
-                    scene: scene.clone(),
-                    revision: scene.revision(),
+                    // The first scene is installed by `paint_scene` below.
+                    // Starting with a sentinel revision lets an owned dynamic
+                    // scene move straight into the shared draw state instead
+                    // of being cloned during initialization.
+                    scene: ChartScene::new(),
+                    revision: 0,
                     logical_size: (0.0, 0.0),
                 }));
                 let failed = Rc::new(Cell::new(false));
@@ -173,27 +191,46 @@ impl VelloScenePainter {
         state.rendered = None;
     }
 
+    /// Paint a borrowed scene. Prefer [`Self::paint_owned`] for dynamically
+    /// built scenes so the WGPU path can retain it without a full clone.
     pub fn paint(&mut self, scene: &ChartScene, bounds: Bounds<Pixels>, window: &mut Window) {
+        self.paint_scene(SceneInput::Borrowed(scene), bounds, window);
+    }
+
+    /// Paint a newly-built scene by value.
+    ///
+    /// The WGPU custom-draw backend retains the scene until its revision
+    /// changes, so accepting ownership avoids cloning every dynamic chart
+    /// scene on the UI/audio repaint path.
+    pub fn paint_owned(&mut self, scene: ChartScene, bounds: Bounds<Pixels>, window: &mut Window) {
+        self.paint_scene(SceneInput::Owned(scene), bounds, window);
+    }
+
+    fn paint_scene(&mut self, scene: SceneInput<'_>, bounds: Bounds<Pixels>, window: &mut Window) {
         let width: f32 = bounds.size.width.into();
         let height: f32 = bounds.size.height.into();
         let scale_factor = window.scale_factor().max(0.01);
-        if width < 1.0 || height < 1.0 || scene.is_empty() {
+        if width < 1.0 || height < 1.0 || scene.as_scene().is_empty() {
             if let Some(BackendState::Cpu(state)) = self.state.as_mut() {
                 Self::clear_cpu_image(state, window);
             }
             return;
         }
 
-        self.resolve(scene);
+        self.resolve();
         self.fall_back_to_cpu_if_failed();
         match self.state.as_mut() {
             Some(BackendState::Wgpu {
                 custom_id, shared, ..
             }) => {
                 let mut shared = shared.borrow_mut();
-                if shared.revision != scene.revision() {
-                    shared.scene = scene.clone();
-                    shared.revision = scene.revision();
+                let revision = scene.as_scene().revision();
+                if shared.revision != revision {
+                    shared.scene = match scene {
+                        SceneInput::Borrowed(scene) => scene.clone(),
+                        SceneInput::Owned(scene) => scene,
+                    };
+                    shared.revision = revision;
                 }
                 shared.logical_size = (width, height);
                 window.paint_custom(*custom_id, bounds);
@@ -205,7 +242,7 @@ impl VelloScenePainter {
             Some(BackendState::Cpu(state)) => {
                 let (w, h) = physical_raster_size(width, height, scale_factor);
                 let scale_bits = scale_factor.to_bits();
-                if state.rendered == Some((scene.revision(), w, h, scale_bits)) {
+                if state.rendered == Some((scene.as_scene().revision(), w, h, scale_bits)) {
                     if let Some(image) = state.image.as_ref() {
                         let _ = window.paint_image(
                             bounds,
@@ -217,7 +254,7 @@ impl VelloScenePainter {
                     }
                     return;
                 }
-                let mut pixels = state.rasterizer.rasterize(scene, w, h);
+                let mut pixels = state.rasterizer.rasterize(scene.as_scene(), w, h);
                 #[cfg(test)]
                 {
                     self.test_stats.cpu_rasterizations += 1;
@@ -237,7 +274,7 @@ impl VelloScenePainter {
                         false,
                     );
                     state.image = Some(image);
-                    state.rendered = Some((scene.revision(), w, h, scale_bits));
+                    state.rendered = Some((scene.as_scene().revision(), w, h, scale_bits));
                 }
             }
             None => {}
@@ -633,13 +670,25 @@ mod tests {
     #[test]
     fn painter_backend_switch_unregisters_wgpu_state() {
         let mut painter = VelloScenePainter::new().backend(RasterBackend::Wgpu);
-        painter.resolve(&sample_scene());
+        painter.resolve();
         assert!(matches!(painter.state, Some(BackendState::Wgpu { .. })));
         painter.set_backend(RasterBackend::Cpu);
         assert!(painter.state.is_none());
         assert_eq!(painter.backend_pref, RasterBackend::Cpu);
         assert_eq!(painter.test_stats().custom_registrations, 1);
         assert_eq!(painter.test_stats().custom_unregistrations, 1);
+    }
+
+    #[test]
+    fn retained_painter_resolves_custom_draw_once() {
+        let mut painter = VelloScenePainter::new().backend(RasterBackend::Wgpu);
+        // A component that keeps its painter across drag frames must retain
+        // the custom draw registration rather than recreating it per frame.
+        painter.resolve();
+        painter.resolve();
+
+        assert_eq!(painter.test_stats().custom_registrations, 1);
+        assert_eq!(painter.test_stats().custom_unregistrations, 0);
     }
 
     #[test]
