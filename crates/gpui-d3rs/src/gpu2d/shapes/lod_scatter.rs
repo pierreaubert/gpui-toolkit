@@ -6,12 +6,16 @@
 
 use super::misc::to_color4;
 use crate::color::D3Color;
+#[cfg(not(feature = "vello-gpui"))]
 use crate::gpu2d::element::Chart2DElement;
+#[cfg(not(feature = "vello-gpui"))]
 use crate::gpu2d::primitives::Rect;
 use crate::lod::{DensityPyramid, LodBounds};
 use crate::scale::Scale;
 use crate::shape::ScatterPoint;
-use gpui::{Bounds, IntoElement, Pixels};
+use gpui::IntoElement;
+#[cfg(not(feature = "vello-gpui"))]
+use gpui::{Bounds, Pixels};
 use std::sync::Arc;
 
 /// Rendering policy for [`render_lod_scatter`].
@@ -126,11 +130,18 @@ impl LodScatter {
     }
 
     /// Render with a configurable direct/density tier policy.
+    #[cfg(not(feature = "vello-gpui"))]
     pub fn render(&self, config: &LodScatterConfig) -> Chart2DElement {
         render_cached_scatter(self.normalized.clone(), self.pyramid.clone(), config)
     }
+
+    #[cfg(feature = "vello-gpui")]
+    pub fn render(&self, config: &LodScatterConfig) -> crate::vello2d::VelloChartElement {
+        render_cached_scatter_vello(self.normalized.clone(), self.pyramid.clone(), config)
+    }
 }
 
+#[cfg(not(feature = "vello-gpui"))]
 fn render_cached_scatter(
     normalized: Arc<[(f64, f64)]>,
     pyramid: Option<Arc<DensityPyramid>>,
@@ -211,6 +222,90 @@ fn render_cached_scatter(
         }
     })
     .transparent()
+    .absolute()
+}
+
+#[cfg(feature = "vello-gpui")]
+fn render_cached_scatter_vello(
+    normalized: Arc<[(f64, f64)]>,
+    pyramid: Option<Arc<DensityPyramid>>,
+    config: &LodScatterConfig,
+) -> crate::vello2d::VelloChartElement {
+    use crate::vello2d::kurbo::Rect;
+    use crate::vello2d::peniko::{Brush, Color};
+
+    let direct = normalized.len() <= config.direct_point_budget || pyramid.is_none();
+    let color = to_color4(&config.color, config.opacity);
+    let point_radius = config.point_radius.max(0.0);
+    let viewport = config.viewport;
+    let max_upsample = config.max_upsample.max(1);
+
+    crate::vello2d::VelloChartElement::with_builder(move |width, height| {
+        let mut scene = crate::vello2d::ChartScene::new();
+        let brush = |rgba: [f32; 4]| Brush::Solid(Color::new(rgba));
+        if direct {
+            for &(x, y) in normalized.iter() {
+                if (0.0..=1.0).contains(&x) && (0.0..=1.0).contains(&y) {
+                    scene.fill_circle(
+                        x * width as f64,
+                        (1.0 - y) * height as f64,
+                        point_radius as f64,
+                        brush(color),
+                    );
+                }
+            }
+            return scene;
+        }
+
+        let grid_width = width.ceil().clamp(1.0, MAX_DENSITY_DIMENSION as f32) as usize;
+        let grid_height = height.ceil().clamp(1.0, MAX_DENSITY_DIMENSION as f32) as usize;
+        let Some(grid) = pyramid
+            .as_ref()
+            .and_then(|pyramid| pyramid.compose(viewport, grid_width, grid_height, max_upsample))
+        else {
+            let x_span = viewport.x1 - viewport.x0;
+            let y_span = viewport.y1 - viewport.y0;
+            for &(x, y) in normalized.iter() {
+                if x < viewport.x0 || x > viewport.x1 || y < viewport.y0 || y > viewport.y1 {
+                    continue;
+                }
+                scene.fill_circle(
+                    (x - viewport.x0) / x_span * width as f64,
+                    (1.0 - (y - viewport.y0) / y_span) * height as f64,
+                    point_radius.max(1.5) as f64,
+                    brush(color),
+                );
+            }
+            return scene;
+        };
+        let maximum = grid.values.iter().copied().fold(0.0_f32, f32::max);
+        if maximum <= 0.0 {
+            return scene;
+        }
+        let denominator = (1.0 + maximum).ln();
+        let cell_width = width / grid.width as f32;
+        let cell_height = height / grid.height as f32;
+        for (index, count) in grid.values.iter().copied().enumerate() {
+            if count <= 0.0 {
+                continue;
+            }
+            let column = index % grid.width;
+            let row = grid.height - index / grid.width - 1;
+            let alpha = color[3] * ((1.0 + count).ln() / denominator);
+            let x = column as f32 * cell_width;
+            let y = row as f32 * cell_height;
+            scene.fill_rect(
+                Rect::new(
+                    x as f64,
+                    y as f64,
+                    (x + cell_width.ceil()) as f64,
+                    (y + cell_height.ceil()) as f64,
+                ),
+                brush([color[0], color[1], color[2], alpha]),
+            );
+        }
+        scene
+    })
     .absolute()
 }
 

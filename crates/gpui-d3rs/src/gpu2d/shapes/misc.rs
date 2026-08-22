@@ -1,5 +1,6 @@
 use super::super::primitives::Color4;
 use crate::color::D3Color;
+#[cfg(not(feature = "vello-gpui"))]
 use std::sync::Arc;
 
 /// Convert D3Color + opacity to Color4
@@ -10,6 +11,7 @@ pub(super) fn to_color4(color: &D3Color, opacity: f32) -> Color4 {
 
 /// Clip a line segment to the unit rectangle [0,1] x [0,1] using Cohen-Sutherland algorithm
 /// Returns Some((x0, y0, x1, y1)) if the clipped segment is visible, None if entirely outside
+#[cfg(not(feature = "vello-gpui"))]
 pub(super) fn clip_line_segment(
     x0: f32,
     y0: f32,
@@ -80,12 +82,14 @@ pub(super) fn clip_line_segment(
     }
 }
 
+#[cfg(not(feature = "vello-gpui"))]
 use gpui::SharedString;
 
 /// Format a tick value using the optional custom formatter.
 ///
 /// Returns a `SharedString` so formatted labels can be cached and reused by
 /// GPU renderers without repeated per-frame `String` allocations.
+#[cfg(not(feature = "vello-gpui"))]
 pub(super) fn format_tick(value: f64, formatter: &Option<fn(f64) -> String>) -> SharedString {
     match formatter {
         Some(f) => f(value).into(),
@@ -103,6 +107,7 @@ pub(super) fn format_tick(value: f64, formatter: &Option<fn(f64) -> String>) -> 
     }
 }
 
+#[cfg(not(feature = "vello-gpui"))]
 pub(super) fn normalize_value(value: f64, min: f64, max: f64) -> f64 {
     if (max - min).abs() < 1e-10 {
         0.5
@@ -111,6 +116,7 @@ pub(super) fn normalize_value(value: f64, min: f64, max: f64) -> f64 {
     }
 }
 
+#[cfg(not(feature = "vello-gpui"))]
 pub(super) fn get_contour_color(
     t: f64,
     color_scale: &Option<Arc<dyn Fn(f64) -> D3Color + Send + Sync>>,

@@ -2,6 +2,8 @@ use super::super::mesh::{GalleryVertex, generate_sphere_mesh};
 use super::super::shaders;
 use super::Uniforms;
 use super::sphere_gallery_config::SphereGalleryConfig;
+#[cfg(feature = "gpu-2d")]
+use crate::gpu2d::Gpu2DContext;
 use crate::gpu3d::Camera3D;
 use glam::Mat4;
 use std::sync::Arc;
@@ -30,11 +32,19 @@ pub struct SphereGalleryRenderer {
 }
 
 impl SphereGalleryRenderer {
+    fn shared_or_new_device() -> (Arc<wgpu::Device>, Arc<wgpu::Queue>) {
+        #[cfg(feature = "gpu-2d")]
+        if let Ok(context) = Gpu2DContext::try_global() {
+            return (context.device(), context.queue());
+        }
+
+        let (device, queue) = pollster::block_on(Self::create_device());
+        (Arc::new(device), Arc::new(queue))
+    }
+
     /// Create a new renderer
     pub fn new(config: SphereGalleryConfig) -> Self {
-        let (device, queue) = pollster::block_on(Self::create_device());
-        let device = Arc::new(device);
-        let queue = Arc::new(queue);
+        let (device, queue) = Self::shared_or_new_device();
 
         // Create sampler
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {

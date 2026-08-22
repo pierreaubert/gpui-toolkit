@@ -1,6 +1,8 @@
 use crate::ShowcaseApp;
 use crate::demo_section::DemoSection;
-use d3rs::gpu2d::Chart2DElement;
+use d3rs::vello2d::kurbo::Rect;
+use d3rs::vello2d::peniko::{Brush, Color};
+use d3rs::vello2d::{ChartScene, VelloChartElement};
 use gpui::*;
 use gpui_ui_kit::theme::ThemeExt;
 use std::cell::RefCell;
@@ -75,12 +77,19 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                 .border_color(ui_theme.border)
                 .overflow_hidden()
                 .child(
-                    Chart2DElement::new(move |renderer, _bounds| {
+                    VelloChartElement::with_builder(move |width, height| {
+                        let mut scene = ChartScene::new();
+                        scene.fill_rect(
+                            Rect::new(0.0, 0.0, width as f64, height as f64),
+                            Brush::Solid(Color::new([0.94, 0.94, 0.94, 1.0])),
+                        );
+                        let node_brush = Brush::Solid(Color::new([1.0, 0.2, 0.2, 1.0]));
                         for (x, y) in node_data.borrow().iter() {
-                            renderer.draw_circle(*x, *y, 5.0, [1.0, 0.2, 0.2, 1.0]);
+                            scene.fill_circle(*x as f64, *y as f64, 5.0, node_brush.clone());
                         }
+                        scene
                     })
-                    .background_color([0.94, 0.94, 0.94, 1.0]),
+                    .absolute(),
                 )
         })
 }

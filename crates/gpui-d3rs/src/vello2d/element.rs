@@ -15,6 +15,19 @@ use std::sync::Arc;
 
 /// Compatibility name for the Vello backend selector.
 pub type RasterBackend = crate::render2d::VelloBackend;
+
+/// Convert vello_cpu's premultiplied RGBA pixels to GPUI's atlas format while
+/// determining whether the raster contains drawable coverage. Combining those
+/// operations avoids a separate full-image clear scan on every cache miss.
+fn swizzle_rgba_to_bgra(pixels: &mut [u8]) -> bool {
+    let mut has_coverage = false;
+    for pixel in pixels.chunks_exact_mut(4) {
+        has_coverage |= pixel[3] != 0;
+        pixel.swap(0, 2);
+    }
+    has_coverage
+}
+
 type SceneBuilder = Rc<dyn Fn(f32, f32) -> ChartScene>;
 
 struct CpuState {
@@ -209,12 +222,9 @@ impl VelloScenePainter {
                 {
                     self.test_stats.cpu_rasterizations += 1;
                 }
-                if pixels.iter().all(|&b| b == 0) {
+                if !swizzle_rgba_to_bgra(&mut pixels) {
                     Self::clear_cpu_image(state, window);
                     return;
-                }
-                for px in pixels.chunks_exact_mut(4) {
-                    px.swap(0, 2);
                 }
                 if let Some(rgba) = RgbaImage::from_raw(w as u32, h as u32, pixels) {
                     Self::clear_cpu_image(state, window);
@@ -541,7 +551,7 @@ impl Element for VelloChartElement {
                     return;
                 }
                 let mut pixels = state.rasterizer.rasterize(&self.scene, w, h);
-                if pixels.iter().all(|&b| b == 0) {
+                if !swizzle_rgba_to_bgra(&mut pixels) {
                     VelloScenePainter::clear_cpu_image(state, window);
                     return;
                 }
@@ -551,9 +561,6 @@ impl Element for VelloChartElement {
                 // gpui::swap_rgba_pa_to_bgra and gpui_wgpu's
                 // swizzle_upload_data). vello_cpu yields premultiplied RGBA,
                 // so swap R<->B before handing the pixmap to paint_image.
-                for px in pixels.chunks_exact_mut(4) {
-                    px.swap(0, 2);
-                }
                 if let Some(rgba) = RgbaImage::from_raw(w as u32, h as u32, pixels) {
                     // RenderImage ids are unique and paint_image caches each
                     // one in the sprite atlas; release the previous entry
@@ -681,5 +688,15 @@ mod tests {
         assert_eq!(physical_raster_size(20.0, 10.0, 1.0), (20, 10));
         assert_eq!(physical_raster_size(20.0, 10.0, 2.0), (40, 20));
         assert_eq!(physical_raster_size(0.0, 0.0, 2.0), (1, 1));
+    }
+
+    #[test]
+    fn swizzle_detects_coverage_in_the_same_pass() {
+        let mut transparent = [0, 0, 0, 0];
+        assert!(!swizzle_rgba_to_bgra(&mut transparent));
+
+        let mut pixels = [10, 20, 30, 255, 0, 0, 0, 0];
+        assert!(swizzle_rgba_to_bgra(&mut pixels));
+        assert_eq!(pixels, [30, 20, 10, 255, 0, 0, 0, 0]);
     }
 }

@@ -19,6 +19,47 @@ pub struct SphereGalleryItem {
     pub label: Option<SharedString>,
 }
 
+#[derive(Clone, PartialEq, Eq)]
+struct GalleryPaintKey {
+    width: u32,
+    height: u32,
+    camera: [u32; 13],
+    selected: Option<u32>,
+    hovered: Option<u32>,
+    item_count: u32,
+}
+
+pub(crate) struct CachedGalleryImage {
+    key: GalleryPaintKey,
+    image: Arc<RenderImage>,
+}
+
+fn gallery_paint_key(state: &SphereGalleryState, width: u32, height: u32) -> GalleryPaintKey {
+    let camera = &state.camera;
+    GalleryPaintKey {
+        width,
+        height,
+        camera: [
+            camera.position.x.to_bits(),
+            camera.position.y.to_bits(),
+            camera.position.z.to_bits(),
+            camera.target.x.to_bits(),
+            camera.target.y.to_bits(),
+            camera.target.z.to_bits(),
+            camera.up.x.to_bits(),
+            camera.up.y.to_bits(),
+            camera.up.z.to_bits(),
+            camera.fov.to_bits(),
+            camera.aspect.to_bits(),
+            camera.near.to_bits(),
+            camera.far.to_bits(),
+        ],
+        selected: state.selected,
+        hovered: state.hovered,
+        item_count: state.item_count,
+    }
+}
+
 /// Interactive state for the sphere gallery
 #[derive(Debug, Clone)]
 pub struct SphereGalleryState {
@@ -135,6 +176,7 @@ pub struct SphereGalleryElement {
     state: Rc<RefCell<SphereGalleryState>>,
     renderer: Rc<RefCell<Option<SphereGalleryRenderer>>>,
     images_uploaded: Rc<RefCell<bool>>,
+    paint_cache: Rc<RefCell<Option<CachedGalleryImage>>>,
     items: Vec<SphereGalleryItem>,
 }
 
@@ -150,6 +192,7 @@ impl SphereGalleryElement {
             state,
             renderer: Rc::new(RefCell::new(None)),
             images_uploaded: Rc::new(RefCell::new(false)),
+            paint_cache: Rc::new(RefCell::new(None)),
             items,
         }
     }
@@ -163,6 +206,15 @@ impl SphereGalleryElement {
     /// Share the upload flag
     pub fn with_upload_flag(mut self, flag: Rc<RefCell<bool>>) -> Self {
         self.images_uploaded = flag;
+        self
+    }
+
+    /// Share the retained CPU-readback image across rebuilt GPUI elements.
+    pub(crate) fn with_paint_cache(
+        mut self,
+        cache: Rc<RefCell<Option<CachedGalleryImage>>>,
+    ) -> Self {
+        self.paint_cache = cache;
         self
     }
 
@@ -189,6 +241,7 @@ impl SphereGalleryElement {
                 .collect();
             renderer.upload_images(&image_refs);
             *self.images_uploaded.borrow_mut() = true;
+            self.paint_cache.borrow_mut().take();
         }
     }
 }
@@ -264,12 +317,25 @@ impl Element for SphereGalleryElement {
         let height_u32 = height as u32;
 
         if width_u32 > 0 && height_u32 > 0 {
+            let key = {
+                let state = self.state.borrow();
+                gallery_paint_key(&state, width_u32, height_u32)
+            };
+            if let Some(image) = self
+                .paint_cache
+                .borrow()
+                .as_ref()
+                .filter(|cache| cache.key == key)
+                .map(|cache| Arc::clone(&cache.image))
+            {
+                let _ = window.paint_image(bounds, Corners::default(), image, 0, false);
+                return;
+            }
+
             self.ensure_renderer();
             self.ensure_images_uploaded();
-
             if let Some(renderer) = self.renderer.borrow_mut().as_mut() {
                 renderer.resize(width_u32, height_u32);
-
                 let state = self.state.borrow();
                 if let Some(pixels) = renderer.render(
                     &state.camera,
@@ -278,15 +344,15 @@ impl Element for SphereGalleryElement {
                     state.hovered,
                 ) && let Some(rgba_image) = RgbaImage::from_raw(width_u32, height_u32, pixels)
                 {
-                    let frame = Frame::new(rgba_image);
-                    let render_image = RenderImage::new(vec![frame]);
+                    let image = Arc::new(RenderImage::new(vec![Frame::new(rgba_image)]));
                     let _ = window.paint_image(
                         bounds,
                         Corners::default(),
-                        Arc::new(render_image),
+                        Arc::clone(&image),
                         0,
                         false,
                     );
+                    *self.paint_cache.borrow_mut() = Some(CachedGalleryImage { key, image });
                 }
             }
         }
@@ -309,6 +375,7 @@ pub struct SphereGalleryView {
     pub items: Vec<SphereGalleryItem>,
     renderer: Rc<RefCell<Option<SphereGalleryRenderer>>>,
     images_uploaded: Rc<RefCell<bool>>,
+    paint_cache: Rc<RefCell<Option<CachedGalleryImage>>>,
     on_select: Option<OnSelectCallback>,
     on_hover: Option<OnHoverCallback>,
 }
@@ -329,6 +396,7 @@ impl SphereGalleryView {
             items,
             renderer: Rc::new(RefCell::new(None)),
             images_uploaded: Rc::new(RefCell::new(false)),
+            paint_cache: Rc::new(RefCell::new(None)),
             on_select: None,
             on_hover: None,
         }
@@ -352,6 +420,7 @@ impl SphereGalleryView {
         self.items = items;
         self.state.borrow_mut().item_count = item_count;
         *self.images_uploaded.borrow_mut() = false;
+        self.paint_cache.borrow_mut().take();
     }
 }
 
@@ -360,7 +429,8 @@ impl Render for SphereGalleryView {
         let element =
             SphereGalleryElement::new(self.items.clone(), self.config.clone(), self.state.clone())
                 .with_renderer(self.renderer.clone())
-                .with_upload_flag(self.images_uploaded.clone());
+                .with_upload_flag(self.images_uploaded.clone())
+                .with_paint_cache(self.paint_cache.clone());
 
         div()
             .id("sphere-gallery")

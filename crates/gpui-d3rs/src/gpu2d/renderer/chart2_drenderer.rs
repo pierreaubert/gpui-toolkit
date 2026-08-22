@@ -8,7 +8,83 @@ use super::super::text::{TextAtlas, TextBatch, TextVertex};
 use super::Uniforms;
 use super::misc::DEFAULT_FONT;
 use std::sync::Arc;
-use wgpu::util::DeviceExt;
+
+/// GPU allocation retained across chart frames. Capacity grows geometrically
+/// so animated data writes do not recreate a buffer every repaint.
+struct ReusableBuffer {
+    buffer: wgpu::Buffer,
+    capacity: u64,
+}
+
+#[derive(Default)]
+struct FrameBuffers {
+    triangle_vertices: Option<ReusableBuffer>,
+    triangle_indices: Option<ReusableBuffer>,
+    rect_vertices: Option<ReusableBuffer>,
+    rect_indices: Option<ReusableBuffer>,
+    line_vertices: Option<ReusableBuffer>,
+    line_indices: Option<ReusableBuffer>,
+    circle_vertices: Option<ReusableBuffer>,
+    circle_indices: Option<ReusableBuffer>,
+    text_vertices: Option<ReusableBuffer>,
+    text_indices: Option<ReusableBuffer>,
+    staging: Option<ReusableBuffer>,
+}
+
+fn upload_buffer(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    slot: &mut Option<ReusableBuffer>,
+    contents: &[u8],
+    usage: wgpu::BufferUsages,
+    label: &'static str,
+) -> wgpu::Buffer {
+    let required = (contents.len() as u64).max(4);
+    if slot
+        .as_ref()
+        .is_none_or(|buffer| buffer.capacity < required)
+    {
+        let capacity = required.next_power_of_two();
+        *slot = Some(ReusableBuffer {
+            buffer: device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some(label),
+                size: capacity,
+                usage: usage | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            }),
+            capacity,
+        });
+    }
+    let buffer = slot.as_ref().expect("buffer inserted");
+    queue.write_buffer(&buffer.buffer, 0, contents);
+    buffer.buffer.clone()
+}
+
+fn reusable_buffer(
+    device: &wgpu::Device,
+    slot: &mut Option<ReusableBuffer>,
+    required: u64,
+    usage: wgpu::BufferUsages,
+    label: &'static str,
+) -> wgpu::Buffer {
+    let required = required.max(4);
+    if slot
+        .as_ref()
+        .is_none_or(|buffer| buffer.capacity < required)
+    {
+        let capacity = required.next_power_of_two();
+        *slot = Some(ReusableBuffer {
+            buffer: device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some(label),
+                size: capacity,
+                usage,
+                mapped_at_creation: false,
+            }),
+            capacity,
+        });
+    }
+    slot.as_ref().expect("buffer inserted").buffer.clone()
+}
 
 /// GPU-accelerated 2D chart renderer
 pub struct Chart2DRenderer {
@@ -45,6 +121,7 @@ pub struct Chart2DRenderer {
 
     // Background color
     pub(super) background_color: [f32; 4],
+    frame_buffers: FrameBuffers,
 
     // Deferred readback state (wasm only): the browser event loop delivers
     // the map_async callback, so pixels arrive one frame later.
@@ -147,6 +224,7 @@ impl Chart2DRenderer {
             width: 0,
             height: 0,
             background_color: [0.0, 0.0, 0.0, 0.0], // Transparent by default
+            frame_buffers: FrameBuffers::default(),
             #[cfg(target_family = "wasm")]
             readback: std::rc::Rc::new(std::cell::RefCell::new(Readback::default())),
         })
@@ -705,20 +783,22 @@ impl Chart2DRenderer {
 
             // Draw triangles (filled polygons, background layer)
             if !self.triangle_batch.is_empty() {
-                let vertex_buffer =
-                    self.device
-                        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                            label: Some("Triangle Vertex Buffer"),
-                            contents: self.triangle_batch.vertex_bytes(),
-                            usage: wgpu::BufferUsages::VERTEX,
-                        });
-                let index_buffer =
-                    self.device
-                        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                            label: Some("Triangle Index Buffer"),
-                            contents: self.triangle_batch.index_bytes(),
-                            usage: wgpu::BufferUsages::INDEX,
-                        });
+                let vertex_buffer = upload_buffer(
+                    &self.device,
+                    &self.queue,
+                    &mut self.frame_buffers.triangle_vertices,
+                    self.triangle_batch.vertex_bytes(),
+                    wgpu::BufferUsages::VERTEX,
+                    "Triangle Vertex Buffer",
+                );
+                let index_buffer = upload_buffer(
+                    &self.device,
+                    &self.queue,
+                    &mut self.frame_buffers.triangle_indices,
+                    self.triangle_batch.index_bytes(),
+                    wgpu::BufferUsages::INDEX,
+                    "Triangle Index Buffer",
+                );
 
                 render_pass.set_pipeline(&self.triangle_pipeline);
                 render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
@@ -729,20 +809,22 @@ impl Chart2DRenderer {
 
             // Draw rectangles
             if !self.rect_batch.is_empty() {
-                let vertex_buffer =
-                    self.device
-                        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                            label: Some("Rect Vertex Buffer"),
-                            contents: self.rect_batch.vertex_bytes(),
-                            usage: wgpu::BufferUsages::VERTEX,
-                        });
-                let index_buffer =
-                    self.device
-                        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                            label: Some("Rect Index Buffer"),
-                            contents: self.rect_batch.index_bytes(),
-                            usage: wgpu::BufferUsages::INDEX,
-                        });
+                let vertex_buffer = upload_buffer(
+                    &self.device,
+                    &self.queue,
+                    &mut self.frame_buffers.rect_vertices,
+                    self.rect_batch.vertex_bytes(),
+                    wgpu::BufferUsages::VERTEX,
+                    "Rect Vertex Buffer",
+                );
+                let index_buffer = upload_buffer(
+                    &self.device,
+                    &self.queue,
+                    &mut self.frame_buffers.rect_indices,
+                    self.rect_batch.index_bytes(),
+                    wgpu::BufferUsages::INDEX,
+                    "Rect Index Buffer",
+                );
 
                 render_pass.set_pipeline(&self.rect_pipeline);
                 render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
@@ -753,20 +835,22 @@ impl Chart2DRenderer {
 
             // Draw lines
             if !self.line_batch.is_empty() {
-                let vertex_buffer =
-                    self.device
-                        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                            label: Some("Line Vertex Buffer"),
-                            contents: self.line_batch.vertex_bytes(),
-                            usage: wgpu::BufferUsages::VERTEX,
-                        });
-                let index_buffer =
-                    self.device
-                        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                            label: Some("Line Index Buffer"),
-                            contents: self.line_batch.index_bytes(),
-                            usage: wgpu::BufferUsages::INDEX,
-                        });
+                let vertex_buffer = upload_buffer(
+                    &self.device,
+                    &self.queue,
+                    &mut self.frame_buffers.line_vertices,
+                    self.line_batch.vertex_bytes(),
+                    wgpu::BufferUsages::VERTEX,
+                    "Line Vertex Buffer",
+                );
+                let index_buffer = upload_buffer(
+                    &self.device,
+                    &self.queue,
+                    &mut self.frame_buffers.line_indices,
+                    self.line_batch.index_bytes(),
+                    wgpu::BufferUsages::INDEX,
+                    "Line Index Buffer",
+                );
 
                 render_pass.set_pipeline(&self.line_pipeline);
                 render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
@@ -777,20 +861,22 @@ impl Chart2DRenderer {
 
             // Draw circles
             if !self.circle_batch.is_empty() {
-                let vertex_buffer =
-                    self.device
-                        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                            label: Some("Circle Vertex Buffer"),
-                            contents: self.circle_batch.vertex_bytes(),
-                            usage: wgpu::BufferUsages::VERTEX,
-                        });
-                let index_buffer =
-                    self.device
-                        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                            label: Some("Circle Index Buffer"),
-                            contents: self.circle_batch.index_bytes(),
-                            usage: wgpu::BufferUsages::INDEX,
-                        });
+                let vertex_buffer = upload_buffer(
+                    &self.device,
+                    &self.queue,
+                    &mut self.frame_buffers.circle_vertices,
+                    self.circle_batch.vertex_bytes(),
+                    wgpu::BufferUsages::VERTEX,
+                    "Circle Vertex Buffer",
+                );
+                let index_buffer = upload_buffer(
+                    &self.device,
+                    &self.queue,
+                    &mut self.frame_buffers.circle_indices,
+                    self.circle_batch.index_bytes(),
+                    wgpu::BufferUsages::INDEX,
+                    "Circle Index Buffer",
+                );
 
                 render_pass.set_pipeline(&self.circle_pipeline);
                 render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
@@ -804,20 +890,22 @@ impl Chart2DRenderer {
                 && let (Some(pipeline), Some(atlas)) = (&self.text_pipeline, &self.text_atlas)
                 && let Some(bind_group) = atlas.bind_group()
             {
-                let vertex_buffer =
-                    self.device
-                        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                            label: Some("Text Vertex Buffer"),
-                            contents: self.text_batch.vertex_bytes(),
-                            usage: wgpu::BufferUsages::VERTEX,
-                        });
-                let index_buffer =
-                    self.device
-                        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                            label: Some("Text Index Buffer"),
-                            contents: self.text_batch.index_bytes(),
-                            usage: wgpu::BufferUsages::INDEX,
-                        });
+                let vertex_buffer = upload_buffer(
+                    &self.device,
+                    &self.queue,
+                    &mut self.frame_buffers.text_vertices,
+                    self.text_batch.vertex_bytes(),
+                    wgpu::BufferUsages::VERTEX,
+                    "Text Vertex Buffer",
+                );
+                let index_buffer = upload_buffer(
+                    &self.device,
+                    &self.queue,
+                    &mut self.frame_buffers.text_indices,
+                    self.text_batch.index_bytes(),
+                    wgpu::BufferUsages::INDEX,
+                    "Text Index Buffer",
+                );
 
                 render_pass.set_pipeline(pipeline);
                 render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
@@ -830,12 +918,13 @@ impl Chart2DRenderer {
 
         // Copy to staging buffer for readback
         let bytes_per_row = (self.width * 4 + 255) & !255; // Align to 256
-        let staging_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Chart2D Staging Buffer"),
-            size: (bytes_per_row * self.height) as u64,
-            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-            mapped_at_creation: false,
-        });
+        let staging_buffer = reusable_buffer(
+            &self.device,
+            &mut self.frame_buffers.staging,
+            (bytes_per_row * self.height) as u64,
+            wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            "Chart2D Staging Buffer",
+        );
 
         encoder.copy_texture_to_buffer(
             wgpu::TexelCopyTextureInfo {

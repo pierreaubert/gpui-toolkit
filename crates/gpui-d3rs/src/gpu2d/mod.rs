@@ -34,6 +34,15 @@ pub mod primitives;
 pub mod text;
 
 pub use device::Gpu2DContext;
+/// Legacy GPU-to-CPU-readback chart element.
+///
+/// Prefer [`crate::vello2d::VelloChartElement`] or one of the Vello-backed
+/// shape renderers. This compatibility API re-uploads an image after each
+/// invalidated paint.
+#[deprecated(
+    since = "0.1.0",
+    note = "use vello2d::VelloChartElement or a *_vello shape renderer; Chart2DElement performs a GPU readback"
+)]
 pub use element::Chart2DElement;
 pub use renderer::Chart2DRenderer;
 
@@ -62,15 +71,19 @@ pub use shapes::{
     inferno_color_scale,
     magma_color_scale,
     plasma_color_scale,
-    render_axis,
-    render_bars,
-    render_contour,
-    render_contour_bands,
-    render_grid,
-    render_heatmap,
-    render_line,
-    render_lod_scatter,
-    render_scatter,
     turbo_color_scale,
     viridis_color_scale,
+};
+
+/// Legacy readback-backed shape renderers.
+///
+/// Prefer the `crate::shape` renderers, including their `*_vello` variants,
+/// which paint through `WgpuCustomDraw` when the Vello backend is available.
+#[deprecated(
+    since = "0.1.0",
+    note = "use the Vello-backed crate::shape renderers; gpu2d shape renderers perform a GPU readback"
+)]
+pub use shapes::{
+    render_axis, render_bars, render_contour, render_contour_bands, render_grid, render_heatmap,
+    render_line, render_lod_scatter, render_scatter,
 };

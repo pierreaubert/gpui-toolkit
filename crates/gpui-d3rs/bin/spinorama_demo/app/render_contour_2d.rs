@@ -72,27 +72,45 @@ impl SpinoramaApp {
 
         // Create contour generator with explicit log-transformed x values
         let generator = ContourGenerator::new(freq_count, angle_count)
-            .x_values(log_freq_values)
+            .x_values(log_freq_values.clone())
             .y_values(contour_data.angles.clone());
 
         // Generate contours and heatmap data based on render mode
         let is_isoline = render_mode == ContourRenderMode::Isoline;
         let is_surface = render_mode == ContourRenderMode::Surface;
         let is_heatmap = render_mode == ContourRenderMode::Heatmap;
+        let cache_hit = self.contour_geometry_cache.borrow().as_ref().is_some_and(|cache| {
+            cache.data_revision == self.contour_data_revision && cache.mode == render_mode
+        });
         // Generate contours for Isoline mode
-        let contours = if is_isoline {
+        let contours = if cache_hit {
+            self.contour_geometry_cache
+                .borrow()
+                .as_ref()
+                .and_then(|cache| cache.contours.clone())
+        } else if is_isoline {
             Some(generator.contours(&contour_data.spl, &thresholds))
         } else {
             None
         };
         // Generate contour bands for Surface mode (filled polygons between levels)
-        let contour_bands = if is_surface {
+        let contour_bands = if cache_hit {
+            self.contour_geometry_cache
+                .borrow()
+                .as_ref()
+                .and_then(|cache| cache.bands.clone())
+        } else if is_surface {
             Some(generator.contour_bands(&contour_data.spl, &thresholds))
         } else {
             None
         };
         // For heatmap mode, use HeatmapData (renders using quads without anti-aliasing gaps)
-        let heatmap_data = if is_heatmap {
+        let heatmap_data = if cache_hit {
+            self.contour_geometry_cache
+                .borrow()
+                .as_ref()
+                .and_then(|cache| cache.heatmap.clone())
+        } else if is_heatmap {
             // Use log-transformed frequencies for the heatmap x-values
             let log_freq_values: Vec<f64> = contour_data.freq.iter().map(|f| f.ln()).collect();
             Some(HeatmapData::new(
@@ -103,6 +121,16 @@ impl SpinoramaApp {
         } else {
             None
         };
+
+        if !cache_hit {
+            *self.contour_geometry_cache.borrow_mut() = Some(ContourGeometryCache {
+                data_revision: self.contour_data_revision,
+                mode: render_mode,
+                contours: contours.clone(),
+                bands: contour_bands.clone(),
+                heatmap: heatmap_data.clone(),
+            });
+        }
 
         let chart_width = self.content_width;
         let chart_height = (chart_width * 0.375).min(self.content_height * 0.5);

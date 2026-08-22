@@ -107,7 +107,7 @@ harness = false
 [[bin]]
 name = "d3rs-showcase"
 path = "bin/showcase/main.rs"
-required-features = ["gpui", "gpu-2d"]
+required-features = ["vello-gpui"]
 
 
 [[bin]]
@@ -179,7 +179,7 @@ required-features = ["gpu-3d"]
 [[example]]
 name = "gpu2d_demo"
 path = "examples/gpu2d_demo.rs"
-required-features = ["gpu-2d"]
+required-features = ["vello-gpui"]
 
 [[example]]
 name = "gpu2d_shapes_demo"

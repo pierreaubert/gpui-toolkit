@@ -45,6 +45,7 @@
 pub mod arc;
 pub mod area;
 #[cfg(any(test, all(feature = "gpui", not(test))))]
+#[cfg_attr(feature = "vello-gpui", allow(dead_code))]
 pub(crate) mod contour_smoothing;
 pub mod curve;
 pub mod link;

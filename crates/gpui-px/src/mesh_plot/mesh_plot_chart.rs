@@ -44,6 +44,8 @@ use std::fs;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
+#[cfg(feature = "gpu-3d")]
+use std::sync::{Mutex, OnceLock};
 use std::time::Instant;
 
 type MeshPlotExportCallback = Rc<dyn Fn(Result<String, ChartError>)>;
@@ -1332,118 +1334,141 @@ impl MeshPlot {
             scene.into_any_element()
         } else {
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                let render = d3rs::gpu2d::Chart2DElement::new(move |renderer, bounds| {
-                    let width: f32 = bounds.size.width.into();
-                    let height: f32 = bounds.size.height.into();
-                    let projector = MeshProjector::new(
-                        &projected_for_render,
-                        width.max(1.0),
-                        height.max(1.0),
-                        equal_aspect,
-                    )
-                    .with_viewport(visible_x_domain, visible_y_domain);
-                    let value_to_color = |value: f64| {
-                        let t = range_for_render
-                            .map(|range| {
-                                ((value - range[0]) / (range[1] - range[0]).max(f64::EPSILON))
-                                    .clamp(0.0, 1.0)
-                            })
-                            .unwrap_or(0.5);
-                        let color = color_scale.map(t);
-                        [color.r, color.g, color.b, color.a]
-                    };
-                    let default_color = [0.35, 0.39, 0.46, 1.0];
+                let render =
+                    d3rs::vello2d::VelloChartElement::with_builder(move |width, height| {
+                        use d3rs::vello2d::kurbo::{BezPath, PathEl, Stroke};
+                        use d3rs::vello2d::peniko::{Brush, Color};
 
-                    if !matches!(mode, MeshRenderMode::Isolines { .. }) {
-                        for (cell_index, triangle) in mesh_for_render.triangles.iter().enumerate() {
-                            let Some(points) =
-                                triangle_points(&projector, &projected_for_render, *triangle)
-                            else {
-                                continue;
+                        let mut scene = d3rs::vello2d::ChartScene::new();
+                        let draw_triangle =
+                            |scene: &mut d3rs::vello2d::ChartScene,
+                             points: [[f32; 2]; 3],
+                             color: [f32; 4]| {
+                                let mut path = BezPath::new();
+                                path.push(PathEl::MoveTo(
+                                    (points[0][0] as f64, points[0][1] as f64).into(),
+                                ));
+                                path.push(PathEl::LineTo(
+                                    (points[1][0] as f64, points[1][1] as f64).into(),
+                                ));
+                                path.push(PathEl::LineTo(
+                                    (points[2][0] as f64, points[2][1] as f64).into(),
+                                ));
+                                path.push(PathEl::ClosePath);
+                                scene.fill_path(path, Brush::Solid(Color::new(color)));
                             };
-                            let Some(value) =
-                                triangle_value(field_for_render.as_ref(), *triangle, cell_index)
-                            else {
-                                if field_for_render.is_some() {
-                                    continue;
-                                }
-                                renderer.draw_triangle(
-                                    points[0],
-                                    points[1],
-                                    points[2],
-                                    default_color,
-                                );
-                                continue;
-                            };
-                            let color = if matches!(mode, MeshRenderMode::Mesh) {
-                                default_color
-                            } else {
-                                value_to_color(value)
-                            };
-                            renderer.draw_triangle(points[0], points[1], points[2], color);
-                        }
-                    }
-
-                    for band in contour_bands.iter() {
-                        let value = band
-                            .lower
-                            .unwrap_or_else(|| range_for_render.map_or(0.0, |r| r[0]));
-                        let color = value_to_color(value);
-                        for triangle in &band.triangles {
-                            let Some(points) =
-                                triangle_points_from_band(&projector, &band.positions, *triangle)
-                            else {
-                                continue;
-                            };
-                            renderer.draw_triangle(points[0], points[1], points[2], color);
-                        }
-                    }
-
-                    for segment in isolines.iter() {
-                        let start = projector.point(segment.start);
-                        let end = projector.point(segment.end);
-                        if (start[0] - end[0]).abs() <= 1e-6 && (start[1] - end[1]).abs() <= 1e-6 {
-                            continue;
-                        }
-                        renderer.draw_line(
-                            start[0],
-                            start[1],
-                            end[0],
-                            end[1],
-                            1.25,
-                            [0.1, 0.1, 0.1, 0.9],
-                        );
-                    }
-
-                    if wireframe == Wireframe::Overlay || matches!(mode, MeshRenderMode::Mesh) {
-                        for edge in topology.unique_edges.iter() {
-                            let Some(a) = projected_for_render.get(edge[0] as usize).copied()
-                            else {
-                                continue;
-                            };
-                            let Some(b) = projected_for_render.get(edge[1] as usize).copied()
-                            else {
-                                continue;
-                            };
-                            let a = projector.point(a);
-                            let b = projector.point(b);
-                            renderer.draw_line(
-                                a[0],
-                                a[1],
-                                b[0],
-                                b[1],
-                                1.0,
-                                [0.12, 0.14, 0.18, 0.9],
+                        let draw_line = |scene: &mut d3rs::vello2d::ChartScene,
+                                         start: [f32; 2],
+                                         end: [f32; 2],
+                                         width: f32,
+                                         color: [f32; 4]| {
+                            scene.stroke_polyline(
+                                &[
+                                    (start[0] as f64, start[1] as f64),
+                                    (end[0] as f64, end[1] as f64),
+                                ],
+                                Stroke::new(width as f64),
+                                Brush::Solid(Color::new(color)),
                             );
+                        };
+                        let projector = MeshProjector::new(
+                            &projected_for_render,
+                            width.max(1.0),
+                            height.max(1.0),
+                            equal_aspect,
+                        )
+                        .with_viewport(visible_x_domain, visible_y_domain);
+                        let value_to_color = |value: f64| {
+                            let t = range_for_render
+                                .map(|range| {
+                                    ((value - range[0]) / (range[1] - range[0]).max(f64::EPSILON))
+                                        .clamp(0.0, 1.0)
+                                })
+                                .unwrap_or(0.5);
+                            let color = color_scale.map(t);
+                            [color.r, color.g, color.b, color.a]
+                        };
+                        let default_color = [0.35, 0.39, 0.46, 1.0];
+
+                        if !matches!(mode, MeshRenderMode::Isolines { .. }) {
+                            for (cell_index, triangle) in
+                                mesh_for_render.triangles.iter().enumerate()
+                            {
+                                let Some(points) =
+                                    triangle_points(&projector, &projected_for_render, *triangle)
+                                else {
+                                    continue;
+                                };
+                                let Some(value) = triangle_value(
+                                    field_for_render.as_ref(),
+                                    *triangle,
+                                    cell_index,
+                                ) else {
+                                    if field_for_render.is_some() {
+                                        continue;
+                                    }
+                                    draw_triangle(&mut scene, points, default_color);
+                                    continue;
+                                };
+                                let color = if matches!(mode, MeshRenderMode::Mesh) {
+                                    default_color
+                                } else {
+                                    value_to_color(value)
+                                };
+                                draw_triangle(&mut scene, points, color);
+                            }
                         }
-                    }
-                })
-                .transparent();
+
+                        for band in contour_bands.iter() {
+                            let value = band
+                                .lower
+                                .unwrap_or_else(|| range_for_render.map_or(0.0, |r| r[0]));
+                            let color = value_to_color(value);
+                            for triangle in &band.triangles {
+                                let Some(points) = triangle_points_from_band(
+                                    &projector,
+                                    &band.positions,
+                                    *triangle,
+                                ) else {
+                                    continue;
+                                };
+                                draw_triangle(&mut scene, points, color);
+                            }
+                        }
+
+                        for segment in isolines.iter() {
+                            let start = projector.point(segment.start);
+                            let end = projector.point(segment.end);
+                            if (start[0] - end[0]).abs() <= 1e-6
+                                && (start[1] - end[1]).abs() <= 1e-6
+                            {
+                                continue;
+                            }
+                            draw_line(&mut scene, start, end, 1.25, [0.1, 0.1, 0.1, 0.9]);
+                        }
+
+                        if wireframe == Wireframe::Overlay || matches!(mode, MeshRenderMode::Mesh) {
+                            for edge in topology.unique_edges.iter() {
+                                let Some(a) = projected_for_render.get(edge[0] as usize).copied()
+                                else {
+                                    continue;
+                                };
+                                let Some(b) = projected_for_render.get(edge[1] as usize).copied()
+                                else {
+                                    continue;
+                                };
+                                let a = projector.point(a);
+                                let b = projector.point(b);
+                                draw_line(&mut scene, a, b, 1.0, [0.12, 0.14, 0.18, 0.9]);
+                            }
+                        }
+                        scene
+                    });
                 render.into_any_element()
             }))
             .unwrap_or_else(|_| {
-                // Chart2DElement creates a renderer eagerly. Keep chart construction usable in
-                // headless/unit-test processes where no Metal/wgpu device is available.
+                // Keep chart construction usable in headless/unit-test
+                // processes if the Vello element cannot be created.
                 div().size_full().bg(rgb(0xf4f5f7)).into_any_element()
             })
         };
@@ -3312,26 +3337,14 @@ fn contour_geometry_with_compute(
     let marching = MarchingTriangles::new(mesh, field, topology, horizontal, vertical)?;
     let cpu_bands = || marching.filled_bands(&levels);
     let cpu_lines = || marching.isolines(&levels);
-    let Some(compute) = MeshCompute::try_new() else {
-        return Ok((
-            if matches!(
-                mode,
-                MeshRenderMode::FilledContours { .. } | MeshRenderMode::FillAndIsolines { .. }
-            ) {
-                cpu_bands()
-            } else {
-                Vec::new()
-            },
-            if matches!(
-                mode,
-                MeshRenderMode::Isolines { .. } | MeshRenderMode::FillAndIsolines { .. }
-            ) {
-                cpu_lines()
-            } else {
-                Vec::new()
-            },
-        ));
-    };
+    // Adapter creation and pipeline compilation are expensive. Contours are
+    // prepared on background workers, so keep one service for the process and
+    // serialize its blocking readbacks rather than creating a device per plot
+    // revision. `try_new` always supplies a CPU-reference service when an
+    // adapter is unavailable.
+    let compute = shared_mesh_compute()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let bands = if matches!(
         mode,
         MeshRenderMode::FilledContours { .. } | MeshRenderMode::FillAndIsolines { .. }
@@ -3353,6 +3366,17 @@ fn contour_geometry_with_compute(
         Vec::new()
     };
     Ok((bands, lines))
+}
+
+/// Process-wide mesh-compute service used by retained contour preparation.
+///
+/// `MeshCompute` records the last backend in interior state, hence the mutex;
+/// it also ensures concurrent background contour jobs do not issue competing
+/// synchronous readbacks to the same device.
+#[cfg(feature = "gpu-3d")]
+fn shared_mesh_compute() -> &'static Mutex<MeshCompute> {
+    static COMPUTE: OnceLock<Mutex<MeshCompute>> = OnceLock::new();
+    COMPUTE.get_or_init(|| Mutex::new(MeshCompute::try_new().expect("mesh compute is available")))
 }
 
 /// Above this size, marching-triangle bands and isolines are prepared on the

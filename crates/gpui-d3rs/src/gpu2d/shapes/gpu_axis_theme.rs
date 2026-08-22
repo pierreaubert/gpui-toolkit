@@ -40,3 +40,27 @@ impl GpuAxisTheme {
         Self::default()
     }
 }
+
+impl crate::axis::AxisTheme for GpuAxisTheme {
+    fn axis_line_color(&self) -> gpui::Rgba {
+        gpui::Rgba {
+            r: self.line_color[0],
+            g: self.line_color[1],
+            b: self.line_color[2],
+            a: self.line_color[3],
+        }
+    }
+
+    fn axis_label_color(&self) -> gpui::Rgba {
+        gpui::Rgba {
+            r: self.label_color[0],
+            g: self.label_color[1],
+            b: self.label_color[2],
+            a: self.label_color[3],
+        }
+    }
+
+    fn background_color(&self) -> Option<gpui::Rgba> {
+        None
+    }
+}

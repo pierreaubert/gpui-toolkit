@@ -5,7 +5,9 @@ use crate::vello2d::{ChartScene, to_vello_scene};
 use gpui::{Bounds, CustomDraw, Pixels};
 use gpui_wgpu::{WgpuContext, WgpuCustomDraw, WgpuCustomDrawAdapter};
 use std::cell::{Cell, RefCell};
-use std::rc::Rc;
+use std::collections::HashMap;
+use std::rc::{Rc, Weak};
+use std::sync::Arc;
 use vello::kurbo::Affine;
 use vello::peniko::Color;
 use vello::{AaConfig, AaSupport, RenderParams, Renderer, RendererOptions};
@@ -34,10 +36,35 @@ pub struct WgpuVelloDraw {
 }
 
 struct GpuState {
-    renderer: Renderer,
+    shared: Rc<SharedGpuState>,
     offscreen_view: Option<wgpu::TextureView>,
     size: [u32; 2],
+    encoded_scene: Option<EncodedScene>,
     composite: Option<CompositePipeline>,
+}
+
+/// Encoded vello scene retained until the chart revision or physical scale
+/// changes. Encoding path commands is measurable for dense plots, whereas a
+/// steady-state custom draw only needs to submit the retained scene.
+struct EncodedScene {
+    revision: u64,
+    size: [u32; 2],
+    logical_size: [u32; 2],
+    scene: vello::Scene,
+}
+
+/// Device-scoped state that can safely be shared by every chart custom draw.
+/// Offscreen textures and uniform buffers remain draw-local: they encode
+/// per-element dimensions and commands recorded into the same frame.
+struct SharedGpuState {
+    renderer: RefCell<Renderer>,
+    composites: RefCell<HashMap<wgpu::TextureFormat, Rc<CompositeResources>>>,
+}
+
+thread_local! {
+    /// Wgpu custom draws execute on GPUI's render thread. A weak registry
+    /// avoids extending a device's lifetime after its window is destroyed.
+    static SHARED_GPU_STATES: RefCell<HashMap<usize, Weak<SharedGpuState>>> = RefCell::default();
 }
 
 /// Bounds size (GPUI px) → physical texture size, clamped to >= 1.
@@ -87,6 +114,45 @@ pub fn clip_src_rect(
     )
 }
 
+fn shared_gpu_state(ctx: &WgpuContext) -> Option<Rc<SharedGpuState>> {
+    let device_id = Arc::as_ptr(&ctx.device) as usize;
+    SHARED_GPU_STATES.with(|states| {
+        let mut states = states.borrow_mut();
+        states.retain(|_, state| state.upgrade().is_some());
+        if let Some(state) = states.get(&device_id).and_then(Weak::upgrade) {
+            return Some(state);
+        }
+
+        let renderer = Renderer::new(
+            &ctx.device,
+            RendererOptions {
+                antialiasing_support: AaSupport::area_only(),
+                ..Default::default()
+            },
+        )
+        .ok()?;
+        let state = Rc::new(SharedGpuState {
+            renderer: RefCell::new(renderer),
+            composites: RefCell::default(),
+        });
+        states.insert(device_id, Rc::downgrade(&state));
+        Some(state)
+    })
+}
+
+fn composite_resources(
+    ctx: &WgpuContext,
+    shared: &SharedGpuState,
+    target_format: wgpu::TextureFormat,
+) -> Rc<CompositeResources> {
+    let mut composites = shared.composites.borrow_mut();
+    Rc::clone(
+        composites
+            .entry(target_format)
+            .or_insert_with(|| Rc::new(CompositeResources::new(ctx, target_format))),
+    )
+}
+
 impl WgpuVelloDraw {
     pub fn new(scene: Rc<RefCell<SharedScene>>, failed: Rc<Cell<bool>>) -> Self {
         Self {
@@ -126,45 +192,30 @@ impl WgpuCustomDraw for WgpuVelloDraw {
         let full_h: f32 = full_bounds.size.height.into();
         let size = physical_size(full_w, full_h, scale_factor);
 
-        let vello_scene = {
+        let (revision, logical_size) = {
             let shared = self.scene.borrow();
             if shared.scene.is_empty() {
                 return;
             }
-            let [sx, sy] = scene_scale(
-                shared.logical_size.0,
-                shared.logical_size.1,
-                size[0] as f32,
-                size[1] as f32,
-            );
-            to_vello_scene(&shared.scene, Affine::scale_non_uniform(sx, sy))
+            (shared.revision, shared.logical_size)
         }; // RefCell borrow released before GPU work
 
         let mut gpu_slot = self.gpu.borrow_mut();
         if gpu_slot.is_none() {
-            match Renderer::new(
-                &ctx.device,
-                RendererOptions {
-                    antialiasing_support: AaSupport::area_only(),
-                    ..Default::default()
-                },
-            ) {
-                Ok(renderer) => {
-                    *gpu_slot = Some(GpuState {
-                        renderer,
-                        offscreen_view: None,
-                        size: [0, 0],
-                        composite: None,
-                    });
-                }
-                Err(err) => {
-                    log::error!(
-                        "vello2d: vello::Renderer::new failed ({err}); element falls back to CPU"
-                    );
-                    self.failed.set(true);
-                    return;
-                }
-            }
+            let Some(shared) = shared_gpu_state(ctx) else {
+                log::error!(
+                    "vello2d: shared vello renderer initialization failed; element falls back to CPU"
+                );
+                self.failed.set(true);
+                return;
+            };
+            *gpu_slot = Some(GpuState {
+                shared,
+                offscreen_view: None,
+                size: [0, 0],
+                encoded_scene: None,
+                composite: None,
+            });
         }
         let Some(gpu) = gpu_slot.as_mut() else { return };
 
@@ -186,18 +237,52 @@ impl WgpuCustomDraw for WgpuVelloDraw {
             gpu.offscreen_view = Some(texture.create_view(&Default::default()));
             gpu.size = size;
         }
-        if gpu.composite.is_none() {
-            gpu.composite = Some(CompositePipeline::new(ctx, target_format));
+        if gpu
+            .composite
+            .as_ref()
+            .is_none_or(|composite| composite.target_format != target_format)
+        {
+            gpu.composite = Some(CompositePipeline::new(
+                ctx,
+                target_format,
+                composite_resources(ctx, &gpu.shared, target_format),
+            ));
         }
+        let logical_size = [logical_size.0.to_bits(), logical_size.1.to_bits()];
+        if gpu.encoded_scene.as_ref().is_none_or(|scene| {
+            scene.revision != revision || scene.size != size || scene.logical_size != logical_size
+        }) {
+            let [sx, sy] = scene_scale(
+                f32::from_bits(logical_size[0]),
+                f32::from_bits(logical_size[1]),
+                size[0] as f32,
+                size[1] as f32,
+            );
+            let scene = {
+                let shared = self.scene.borrow();
+                to_vello_scene(&shared.scene, Affine::scale_non_uniform(sx, sy))
+            };
+            gpu.encoded_scene = Some(EncodedScene {
+                revision,
+                size,
+                logical_size,
+                scene,
+            });
+        }
+
         if gpu.offscreen_view.is_none() || gpu.composite.is_none() {
             return;
         }
 
-        // Disjoint field borrows: &mut gpu.renderer + &gpu.offscreen_view.
-        if let Err(err) = gpu.renderer.render_to_texture(
+        // The renderer is shared by the device; each element still owns its
+        // offscreen texture and composite uniform buffer.
+        if let Err(err) = gpu.shared.renderer.borrow_mut().render_to_texture(
             &ctx.device,
             &ctx.queue,
-            &vello_scene,
+            &gpu.encoded_scene
+                .as_ref()
+                .expect("encoded vello scene")
+                .scene,
             gpu.offscreen_view.as_ref().unwrap(),
             &RenderParams {
                 base_color: Color::TRANSPARENT,
@@ -232,9 +317,16 @@ impl WgpuCustomDraw for WgpuVelloDraw {
 // Composite: draw the premultiplied-RGBA offscreen texture over the frame.
 
 struct CompositePipeline {
+    target_format: wgpu::TextureFormat,
+    resources: Rc<CompositeResources>,
+    uniform: wgpu::Buffer,
+}
+
+/// Shader, pipeline, bind-group layout, and sampler shared by all custom
+/// draws targeting the same device and frame format.
+struct CompositeResources {
     pipeline: wgpu::RenderPipeline,
     bind_group_layout: wgpu::BindGroupLayout,
-    uniform: wgpu::Buffer,
     sampler: wgpu::Sampler,
 }
 
@@ -279,7 +371,7 @@ fn fs(in: VsOut) -> @location(0) vec4<f32> {
 }
 "#;
 
-impl CompositePipeline {
+impl CompositeResources {
     fn new(ctx: &WgpuContext, target_format: wgpu::TextureFormat) -> Self {
         let device = &ctx.device;
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -348,12 +440,6 @@ impl CompositePipeline {
             multiview_mask: None,
             cache: None,
         });
-        let uniform = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("vello2d_composite_uniform"),
-            size: 48,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("vello2d_composite_sampler"),
             mag_filter: wgpu::FilterMode::Nearest,
@@ -363,8 +449,27 @@ impl CompositePipeline {
         Self {
             pipeline,
             bind_group_layout,
-            uniform,
             sampler,
+        }
+    }
+}
+
+impl CompositePipeline {
+    fn new(
+        ctx: &WgpuContext,
+        target_format: wgpu::TextureFormat,
+        resources: Rc<CompositeResources>,
+    ) -> Self {
+        let uniform = ctx.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("vello2d_composite_uniform"),
+            size: 48,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        Self {
+            target_format,
+            resources,
+            uniform,
         }
     }
 
@@ -399,7 +504,7 @@ impl CompositePipeline {
             .write_buffer(&self.uniform, 0, bytemuck::cast_slice(&uniforms));
         let bind_group = ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("vello2d_composite_bind_group"),
-            layout: &self.bind_group_layout,
+            layout: &self.resources.bind_group_layout,
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
@@ -411,7 +516,7 @@ impl CompositePipeline {
                 },
                 wgpu::BindGroupEntry {
                     binding: 2,
-                    resource: wgpu::BindingResource::Sampler(&self.sampler),
+                    resource: wgpu::BindingResource::Sampler(&self.resources.sampler),
                 },
             ],
         });
@@ -429,7 +534,7 @@ impl CompositePipeline {
             depth_stencil_attachment: None,
             ..Default::default()
         });
-        pass.set_pipeline(&self.pipeline);
+        pass.set_pipeline(&self.resources.pipeline);
         pass.set_bind_group(0, &bind_group, &[]);
         pass.draw(0..6, 0..1);
     }

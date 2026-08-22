@@ -25,6 +25,18 @@ use std::rc::Rc;
 use std::sync::Arc;
 use tokio::runtime::Runtime;
 
+/// Expensive marching-squares output retained independently from GPUI element
+/// construction. Elements are rebuilt on ordinary invalidations; contour
+/// geometry only changes when the fetched data or selected render mode does.
+#[derive(Clone)]
+pub(super) struct ContourGeometryCache {
+    pub(super) data_revision: u64,
+    pub(super) mode: ContourRenderMode,
+    pub(super) contours: Option<Vec<d3rs::contour::Contour>>,
+    pub(super) bands: Option<Vec<d3rs::contour::ContourBand>>,
+    pub(super) heatmap: Option<d3rs::shape::HeatmapData>,
+}
+
 /// Main application state
 pub struct SpinoramaApp {
     pub runtime: Arc<Runtime>,
@@ -42,6 +54,8 @@ pub struct SpinoramaApp {
     pub cea2034_curves: HashMap<String, Curve>,
     pub directivity_data: Option<DirectivityData>,
     pub contour_data: Option<ContourPlotData>,
+    pub(super) contour_data_revision: u64,
+    pub(super) contour_geometry_cache: Rc<RefCell<Option<ContourGeometryCache>>>,
     pub data_load_state: LoadState,
     // UI state
     pub current_section: PlotSection,
@@ -145,6 +159,8 @@ impl SpinoramaApp {
             cea2034_curves: HashMap::new(),
             directivity_data: None,
             contour_data: None,
+            contour_data_revision: 0,
+            contour_geometry_cache: Rc::new(RefCell::new(None)),
             data_load_state: LoadState::Idle,
             current_section: PlotSection::default(),
             speaker_dropdown_open: false,
@@ -352,6 +368,8 @@ impl SpinoramaApp {
                         app.cea2034_curves = curves;
                         app.directivity_data = directivity_result;
                         app.contour_data = contour_result;
+                        app.contour_data_revision = app.contour_data_revision.wrapping_add(1);
+                        app.contour_geometry_cache.borrow_mut().take();
                         app.data_load_state = LoadState::Loaded;
                         cx.notify();
                     });

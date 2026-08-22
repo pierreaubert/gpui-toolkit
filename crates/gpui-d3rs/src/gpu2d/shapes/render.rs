@@ -1,23 +1,37 @@
+#[cfg(not(feature = "vello-gpui"))]
 use super::super::element::Chart2DElement;
+#[cfg(not(feature = "vello-gpui"))]
 use super::super::primitives::Rect;
 use super::gpu_axis_theme::GpuAxisTheme;
 use super::gpu_grid_config::GpuGridConfig;
+#[cfg(not(feature = "vello-gpui"))]
 use super::misc::clip_line_segment;
+#[cfg(not(feature = "vello-gpui"))]
 use super::misc::format_tick;
+#[cfg(not(feature = "vello-gpui"))]
 use super::misc::get_contour_color;
+#[cfg(not(feature = "vello-gpui"))]
 use super::misc::normalize_value;
+#[cfg(not(feature = "vello-gpui"))]
 use super::misc::to_color4;
+#[cfg(not(feature = "vello-gpui"))]
 use super::types::BandDrawData;
+#[cfg(not(feature = "vello-gpui"))]
 use super::types::CellDrawData;
+#[cfg(not(feature = "vello-gpui"))]
 use super::types::ContourDrawData;
+#[allow(unused_imports)]
 pub use crate::axis::{AxisConfig, AxisOrientation};
 pub use crate::contour::{Contour, ContourBand};
+#[cfg(not(feature = "vello-gpui"))]
 use crate::lod::m4_point_indices;
 use crate::scale::Scale;
 pub use crate::shape::contour::{ContourConfig, HeatmapData};
+#[cfg(not(feature = "vello-gpui"))]
 use crate::shape::contour_smoothing::{
     StrokePoint, smooth_stroke_segment as smooth_stroke_points, split_stroke_segments,
 };
+#[allow(unused_imports)]
 pub use crate::shape::{
     BarConfig, BarDatum, CurveType, LineConfig, LinePoint, ScatterConfig, ScatterPoint,
 };
@@ -27,6 +41,7 @@ use std::sync::Arc;
 /// Render a scatter plot using GPU acceleration
 ///
 /// This is a drop-in replacement for `crate::shape::render_scatter`.
+#[cfg(not(feature = "vello-gpui"))]
 pub fn render_scatter<XS, YS>(
     x_scale: &XS,
     y_scale: &YS,
@@ -85,6 +100,7 @@ where
 /// Render a bar chart using GPU acceleration
 ///
 /// This is a drop-in replacement for `crate::shape::render_bars`.
+#[cfg(not(feature = "vello-gpui"))]
 pub fn render_bars<XS, YS>(
     x_scale: &XS,
     y_scale: &YS,
@@ -181,6 +197,7 @@ where
 /// Render a line chart using GPU acceleration
 ///
 /// This is a drop-in replacement for `crate::shape::render_line`.
+#[cfg(not(feature = "vello-gpui"))]
 pub fn render_line<XS, YS>(
     x_scale: &XS,
     y_scale: &YS,
@@ -331,6 +348,7 @@ where
 }
 
 /// Render a grid overlay using GPU acceleration
+#[cfg(not(feature = "vello-gpui"))]
 pub fn render_grid<XS, YS>(x_scale: &XS, y_scale: &YS, config: &GpuGridConfig) -> impl IntoElement
 where
     XS: Scale<f64, f64>,
@@ -432,6 +450,7 @@ where
 /// Render an axis using GPU acceleration
 ///
 /// This is a drop-in replacement for `crate::axis::render_axis`.
+#[cfg(not(feature = "vello-gpui"))]
 pub fn render_axis<S>(
     scale: &S,
     config: &AxisConfig,
@@ -680,6 +699,7 @@ where
 /// Render contour lines using GPU acceleration
 ///
 /// This is a drop-in replacement for `crate::shape::contour::render_contour`.
+#[cfg(not(feature = "vello-gpui"))]
 pub fn render_contour<XS, YS>(
     contours: impl Into<Arc<[Contour]>>,
     x_scale: &XS,
@@ -855,6 +875,7 @@ where
 /// Render filled contour bands using GPU acceleration
 ///
 /// This is a drop-in replacement for `crate::shape::contour::render_contour_bands`.
+#[cfg(not(feature = "vello-gpui"))]
 pub fn render_contour_bands<XS, YS>(
     bands: impl Into<Arc<[ContourBand]>>,
     x_scale: &XS,
@@ -963,6 +984,7 @@ where
 /// Render a heatmap (2D grid of colored cells) using GPU acceleration
 ///
 /// This is a drop-in replacement for `crate::shape::contour::render_heatmap`.
+#[cfg(not(feature = "vello-gpui"))]
 pub fn render_heatmap<XS, YS>(
     data: HeatmapData,
     x_scale: &XS,
@@ -1064,6 +1086,245 @@ where
         }
     })
     .transparent()
+    .absolute()
+}
+
+/// Compatibility entry point that delegates axis labels and ticks to GPUI's
+/// retained text painter instead of the legacy readback renderer.
+#[cfg(feature = "vello-gpui")]
+pub fn render_axis<S>(scale: &S, config: &AxisConfig, size: f32, theme: &GpuAxisTheme) -> AnyElement
+where
+    S: Scale<f64, f64>,
+{
+    crate::axis::render_axis(scale, config, size, theme)
+}
+
+/// Vello-backed compatibility entry point for legacy grid rendering.
+#[cfg(feature = "vello-gpui")]
+pub fn render_grid<XS, YS>(x_scale: &XS, y_scale: &YS, config: &GpuGridConfig) -> impl IntoElement
+where
+    XS: Scale<f64, f64>,
+    YS: Scale<f64, f64>,
+{
+    use crate::vello2d::kurbo::Stroke;
+    use crate::vello2d::peniko::{Brush, Color};
+
+    let x_ticks = config
+        .vertical_line_values
+        .clone()
+        .unwrap_or_else(|| x_scale.ticks(10));
+    let y_ticks = config
+        .horizontal_line_values
+        .clone()
+        .unwrap_or_else(|| y_scale.ticks(10));
+    let (x_min, x_max) = x_scale.range();
+    let (y_min, y_max) = y_scale.range();
+    let x_span = x_max - x_min;
+    let y_span = y_max - y_min;
+    let x_positions = (x_span != 0.0)
+        .then(|| {
+            x_ticks
+                .iter()
+                .map(|&x| ((x_scale.scale(x) - x_min) / x_span) as f32)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let y_positions = (y_span != 0.0)
+        .then(|| {
+            y_ticks
+                .iter()
+                .map(|&y| (1.0 - (y_scale.scale(y) - y_min) / y_span) as f32)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let line_width = config.line_width;
+    let line_color = [
+        config.line_color[0],
+        config.line_color[1],
+        config.line_color[2],
+        config.line_color[3] * config.line_opacity,
+    ];
+    let dot_radius = config.dot_radius;
+    let dot_color = [
+        config.line_color[0],
+        config.line_color[1],
+        config.line_color[2],
+        config.line_color[3] * config.dot_opacity,
+    ];
+    let show_vertical = config.show_vertical_lines;
+    let show_horizontal = config.show_horizontal_lines;
+    let show_dots = config.show_dots;
+
+    crate::vello2d::VelloChartElement::with_builder(move |width, height| {
+        let mut scene = crate::vello2d::ChartScene::new();
+        let line_brush = Brush::Solid(Color::new(line_color));
+        if show_vertical {
+            for &x in &x_positions {
+                let x = x * width;
+                scene.stroke_polyline(
+                    &[(x as f64, 0.0), (x as f64, height as f64)],
+                    Stroke::new(line_width as f64),
+                    line_brush.clone(),
+                );
+            }
+        }
+        if show_horizontal {
+            for &y in &y_positions {
+                let y = y * height;
+                scene.stroke_polyline(
+                    &[(0.0, y as f64), (width as f64, y as f64)],
+                    Stroke::new(line_width as f64),
+                    line_brush.clone(),
+                );
+            }
+        }
+        if show_dots {
+            let dot_brush = Brush::Solid(Color::new(dot_color));
+            for &y in &y_positions {
+                for &x in &x_positions {
+                    scene.fill_circle(
+                        (x * width) as f64,
+                        (y * height) as f64,
+                        dot_radius as f64,
+                        dot_brush.clone(),
+                    );
+                }
+            }
+        }
+        scene
+    })
+    .absolute()
+}
+
+/// Vello-backed compatibility entry point for legacy scatter rendering.
+#[cfg(feature = "vello-gpui")]
+pub fn render_scatter<XS, YS>(
+    x_scale: &XS,
+    y_scale: &YS,
+    data: &[ScatterPoint],
+    config: &ScatterConfig,
+) -> impl IntoElement
+where
+    XS: Scale<f64, f64> + 'static,
+    YS: Scale<f64, f64> + 'static,
+{
+    crate::shape::render_scatter_vello(
+        x_scale,
+        y_scale,
+        data,
+        config,
+        crate::vello2d::RasterBackend::Auto,
+    )
+}
+
+/// Vello-backed compatibility entry point for legacy bar rendering.
+#[cfg(feature = "vello-gpui")]
+pub fn render_bars<XS, YS>(
+    x_scale: &XS,
+    y_scale: &YS,
+    data: &[BarDatum],
+    width: f32,
+    height: f32,
+    config: &BarConfig,
+) -> impl IntoElement
+where
+    XS: Scale<f64, f64> + 'static,
+    YS: Scale<f64, f64> + 'static,
+{
+    crate::shape::render_bars_vello(
+        x_scale,
+        y_scale,
+        data,
+        width,
+        height,
+        config,
+        crate::vello2d::RasterBackend::Auto,
+    )
+}
+
+/// Vello-backed compatibility entry point for legacy line rendering.
+#[cfg(feature = "vello-gpui")]
+pub fn render_line<XS, YS>(
+    x_scale: &XS,
+    y_scale: &YS,
+    data: &[LinePoint],
+    config: &LineConfig,
+) -> impl IntoElement
+where
+    XS: Scale<f64, f64> + 'static,
+    YS: Scale<f64, f64> + 'static,
+{
+    crate::shape::render_line_vello(
+        x_scale,
+        y_scale,
+        data,
+        config,
+        crate::vello2d::RasterBackend::Auto,
+    )
+}
+
+/// Vello-backed compatibility entry point for legacy `gpu2d::render_contour`.
+#[cfg(feature = "vello-gpui")]
+pub fn render_contour<XS, YS>(
+    contours: impl Into<Arc<[Contour]>>,
+    x_scale: &XS,
+    y_scale: &YS,
+    config: &ContourConfig,
+) -> impl IntoElement
+where
+    XS: Scale<f64, f64> + Clone + 'static,
+    YS: Scale<f64, f64> + Clone + 'static,
+{
+    let contours = contours.into();
+    let x_scale = x_scale.clone();
+    let y_scale = y_scale.clone();
+    let config = config.clone();
+    crate::vello2d::VelloChartElement::with_builder(move |width, height| {
+        crate::shape::contour_chart_scene(&contours, &x_scale, &y_scale, &config, width, height)
+    })
+    .absolute()
+}
+
+/// Vello-backed compatibility entry point for legacy contour-band rendering.
+#[cfg(feature = "vello-gpui")]
+pub fn render_contour_bands<XS, YS>(
+    bands: impl Into<Arc<[ContourBand]>>,
+    x_scale: &XS,
+    y_scale: &YS,
+    config: &ContourConfig,
+) -> impl IntoElement
+where
+    XS: Scale<f64, f64> + Clone + 'static,
+    YS: Scale<f64, f64> + Clone + 'static,
+{
+    let bands = bands.into();
+    let x_scale = x_scale.clone();
+    let y_scale = y_scale.clone();
+    let config = config.clone();
+    crate::vello2d::VelloChartElement::with_builder(move |width, height| {
+        crate::shape::contour_bands_chart_scene(&bands, &x_scale, &y_scale, &config, width, height)
+    })
+    .absolute()
+}
+
+/// Vello-backed compatibility entry point for legacy heatmap rendering.
+#[cfg(feature = "vello-gpui")]
+pub fn render_heatmap<XS, YS>(
+    data: HeatmapData,
+    x_scale: &XS,
+    y_scale: &YS,
+    config: &ContourConfig,
+) -> impl IntoElement
+where
+    XS: Scale<f64, f64> + Clone + 'static,
+    YS: Scale<f64, f64> + Clone + 'static,
+{
+    let x_scale = x_scale.clone();
+    let y_scale = y_scale.clone();
+    let config = config.clone();
+    crate::vello2d::VelloChartElement::with_builder(move |width, height| {
+        crate::shape::heatmap_chart_scene(&data, &x_scale, &y_scale, &config, width, height)
+    })
     .absolute()
 }
 

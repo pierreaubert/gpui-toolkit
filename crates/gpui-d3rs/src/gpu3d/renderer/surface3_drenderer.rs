@@ -7,6 +7,8 @@ use super::Uniforms;
 use super::misc::background_surface_clear_color;
 use super::transparent::transparent_surface_clear_color;
 use super::unpremultiply::unpremultiply_rgba;
+#[cfg(feature = "gpu-2d")]
+use crate::gpu2d::Gpu2DContext;
 use std::sync::Arc;
 use wgpu::util::DeviceExt;
 
@@ -38,11 +40,19 @@ pub struct Surface3DRenderer {
 }
 
 impl Surface3DRenderer {
+    fn shared_or_new_device() -> (Arc<wgpu::Device>, Arc<wgpu::Queue>) {
+        #[cfg(feature = "gpu-2d")]
+        if let Ok(context) = Gpu2DContext::try_global() {
+            return (context.device(), context.queue());
+        }
+
+        let (device, queue) = pollster::block_on(Self::create_device());
+        (Arc::new(device), Arc::new(queue))
+    }
+
     /// Create a new renderer with the given configuration
     pub fn new(config: Surface3DConfig) -> Self {
-        let (device, queue) = pollster::block_on(Self::create_device());
-        let device = Arc::new(device);
-        let queue = Arc::new(queue);
+        let (device, queue) = Self::shared_or_new_device();
 
         let (
             surface_pipeline,

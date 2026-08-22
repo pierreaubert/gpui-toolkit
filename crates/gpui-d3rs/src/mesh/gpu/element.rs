@@ -1,12 +1,89 @@
 //! GPUI element for a retained mesh scene.
 
-use super::{MeshSceneState, render_offscreen};
+use super::{FieldRevision, GeometryRevision, MeshColorConfig, MeshSceneState, render_offscreen};
 use gpui::*;
 use image::Frame;
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::panic;
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
 use std::sync::Arc;
+
+const OFFSCREEN_CACHE_CAPACITY: usize = 32;
+
+#[derive(Clone, PartialEq)]
+struct OffscreenCacheKey {
+    geometry_revision: GeometryRevision,
+    field_revision: FieldRevision,
+    width: u32,
+    height: u32,
+    view_transform: [[f32; 4]; 4],
+    color: MeshColorConfig,
+}
+
+struct OffscreenCacheEntry {
+    state: Weak<RefCell<MeshSceneState>>,
+    key: OffscreenCacheKey,
+    image: Arc<RenderImage>,
+}
+
+thread_local! {
+    /// Element values are rebuilt by GPUI, while their retained scene state is
+    /// stable. Keep fallback images beside that state without extending its
+    /// lifetime or retaining stale scenes indefinitely.
+    static OFFSCREEN_CACHE: RefCell<HashMap<usize, OffscreenCacheEntry>> = RefCell::default();
+}
+
+fn cached_offscreen_image(
+    scene: &Rc<RefCell<MeshSceneState>>,
+    width: u32,
+    height: u32,
+) -> Arc<RenderImage> {
+    let key = {
+        let state = scene.borrow();
+        OffscreenCacheKey {
+            geometry_revision: state.geometry_rev,
+            field_revision: state.field_rev,
+            width,
+            height,
+            view_transform: state.view_transform,
+            color: state.color.clone(),
+        }
+    };
+    let scene_id = Rc::as_ptr(scene) as usize;
+
+    OFFSCREEN_CACHE.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        cache.retain(|_, entry| entry.state.upgrade().is_some());
+        if let Some(entry) = cache.get(&scene_id)
+            && entry.key == key
+        {
+            return Arc::clone(&entry.image);
+        }
+
+        let image = {
+            let state = scene.borrow();
+            Arc::new(RenderImage::new(vec![Frame::new(render_offscreen(
+                state.upload.as_ref(),
+                &state,
+                width,
+                height,
+            ))]))
+        };
+        if cache.len() >= OFFSCREEN_CACHE_CAPACITY {
+            cache.clear();
+        }
+        cache.insert(
+            scene_id,
+            OffscreenCacheEntry {
+                state: Rc::downgrade(scene),
+                key,
+                image: Arc::clone(&image),
+            },
+        );
+        image
+    })
+}
 
 pub struct MeshSceneElement {
     state: Rc<RefCell<MeshSceneState>>,
@@ -97,14 +174,8 @@ impl Element for MeshSceneElement {
             // the retained upload and painted as one GPUI image.
             let width = f32::from(bounds.size.width).max(1.0) as u32;
             let height = f32::from(bounds.size.height).max(1.0) as u32;
-            let image = {
-                let state = self.state.borrow();
-                render_offscreen(state.upload.as_ref(), &state, width, height)
-            };
-            let frame = Frame::new(image);
-            let render_image = RenderImage::new(vec![frame]);
-            let _ =
-                window.paint_image(bounds, Corners::default(), Arc::new(render_image), 0, false);
+            let image = cached_offscreen_image(&self.state, width, height);
+            let _ = window.paint_image(bounds, Corners::default(), image, 0, false);
         }
     }
 }
@@ -214,6 +285,20 @@ fn make_proxy(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn offscreen_fallback_reuses_only_an_unchanged_scene_image() {
+        OFFSCREEN_CACHE.with(|cache| cache.borrow_mut().clear());
+        let state = Rc::new(RefCell::new(MeshSceneState::default()));
+        let first = cached_offscreen_image(&state, 8, 8);
+        let second = cached_offscreen_image(&state, 8, 8);
+        assert!(Arc::ptr_eq(&first, &second));
+
+        state.borrow_mut().field_rev = FieldRevision(1);
+        let updated = cached_offscreen_image(&state, 8, 8);
+        assert!(!Arc::ptr_eq(&first, &updated));
+    }
+
     fn mesh() -> crate::mesh::TriangleMesh {
         crate::mesh::TriangleMesh {
             id: "grid".into(),

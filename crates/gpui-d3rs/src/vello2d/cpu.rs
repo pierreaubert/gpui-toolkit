@@ -52,11 +52,10 @@ impl CpuRasterizer {
         self.ctx.flush();
         let mut pixmap = Pixmap::new(width, height);
         self.ctx.render(&mut pixmap, &mut self.resources);
-        pixmap
-            .data()
-            .iter()
-            .flat_map(|p| [p.r, p.g, p.b, p.a])
-            .collect()
+        // `Pixmap` stores premultiplied RGBA8 in a byte-backed buffer. Copy
+        // that buffer directly instead of allocating an iterator item for
+        // every pixel channel.
+        pixmap.data_as_u8_slice().to_vec()
     }
 }
 
