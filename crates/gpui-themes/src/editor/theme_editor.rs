@@ -15,6 +15,32 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::OnceLock;
 
+#[derive(Clone)]
+struct ColorDetailText {
+    hex: SharedString,
+    rgba: SharedString,
+    hsl: SharedString,
+}
+
+impl ColorDetailText {
+    fn from_color(color: Color) -> Self {
+        let (h, s, l) = color.to_hsl();
+        Self {
+            hex: SharedString::from(color.to_hex_string()),
+            rgba: SharedString::from(format!(
+                "RGBA: {}, {}, {}, {}",
+                color.r, color.g, color.b, color.a
+            )),
+            hsl: SharedString::from(format!(
+                "HSL: {:.0}°, {:.0}%, {:.0}%",
+                h * 360.0,
+                s * 100.0,
+                l * 100.0
+            )),
+        }
+    }
+}
+
 /// Theme editor state
 pub struct ThemeEditor {
     /// Current theme being edited
@@ -46,9 +72,11 @@ pub struct ThemeEditor {
     /// Cached export filename derived from theme name and format
     cached_export_filename: SharedString,
     /// Theme Arc that `cached_export_content` corresponds to
-    cached_theme: Arc<EditorTheme>,
+    /// Set by edits; export content is regenerated only when it is viewed or used.
+    export_cache_dirty: bool,
     /// Cached hex strings for color fields, keyed by field name
     hex_cache: HashMap<&'static str, SharedString>,
+    color_detail_cache: HashMap<&'static str, ColorDetailText>,
 }
 
 /// Stable element ID for a color group row.
@@ -131,6 +159,7 @@ impl ThemeEditor {
         let showcase = cx.new(|_| ComponentShowcase::new(theme.clone()));
 
         let hex_cache = Self::build_hex_cache(&theme);
+        let color_detail_cache = Self::build_color_detail_cache(&theme);
         let cached_export_content =
             SharedString::from(theme.to_json().unwrap_or_else(|e| format!("Error: {}", e)));
         let cached_export_filename = SharedString::from(format!(
@@ -154,8 +183,9 @@ impl ThemeEditor {
             cached_export_format: "json".to_string(),
             cached_export_content,
             cached_export_filename,
-            cached_theme: theme,
+            export_cache_dirty: false,
             hex_cache,
+            color_detail_cache,
         }
     }
 
@@ -195,13 +225,27 @@ impl ThemeEditor {
         cache
     }
 
+    fn build_color_detail_cache(
+        theme: &Arc<EditorTheme>,
+    ) -> HashMap<&'static str, ColorDetailText> {
+        all_color_fields()
+            .iter()
+            .map(|field| {
+                (
+                    field.name,
+                    ColorDetailText::from_color((field.getter)(theme)),
+                )
+            })
+            .collect()
+    }
+
     /// Refresh the export tab cache if the format or theme Arc has changed.
     fn refresh_export_cache(&mut self) {
-        if self.cached_export_format != self.export_format
-            || !Arc::ptr_eq(&self.cached_theme, &self.theme)
-        {
+        if self.current_tab != EditorTab::Export {
+            return;
+        }
+        if self.export_cache_dirty || self.cached_export_format != self.export_format {
             self.cached_export_format.clone_from(&self.export_format);
-            self.cached_theme = self.theme.clone();
             let content = if self.export_format == "json" {
                 self.theme
                     .to_json()
@@ -216,6 +260,7 @@ impl ThemeEditor {
                 self.export_format
             );
             self.cached_export_filename = SharedString::from(filename);
+            self.export_cache_dirty = false;
         }
     }
 
@@ -226,14 +271,18 @@ impl ThemeEditor {
         color: Color,
         cx: &mut Context<Self>,
     ) {
-        let theme = Arc::make_mut(&mut self.theme);
-        (field.setter)(theme, color);
+        let mut theme = (*self.theme).clone();
+        (field.setter)(&mut theme, color);
+        self.theme = Arc::new(theme);
         // Refresh cached hex for the changed field
+        self.export_cache_dirty = true;
         let updated_color = (field.getter)(&self.theme);
         self.hex_cache.insert(
             field.name,
             SharedString::from(updated_color.to_hex_string()),
         );
+        self.color_detail_cache
+            .insert(field.name, ColorDetailText::from_color(updated_color));
         // Export content depends on the theme, so refresh it
         self.refresh_export_cache();
         // Update showcase with a cheap Arc clone
@@ -253,6 +302,8 @@ impl ThemeEditor {
         );
         // Rebuild the hex cache for the new preset theme
         self.hex_cache = Self::build_hex_cache(&self.theme);
+        self.color_detail_cache = Self::build_color_detail_cache(&self.theme);
+        self.export_cache_dirty = true;
         // Export content depends on the theme, so refresh it
         self.refresh_export_cache();
         self.showcase.update(cx, |showcase, _| {
@@ -450,6 +501,12 @@ impl ThemeEditor {
         if let Some(field) = self.current_field() {
             let color = (field.getter)(&self.theme);
 
+            let detail = self
+                .color_detail_cache
+                .get(field.name)
+                .cloned()
+                .unwrap_or_else(|| ColorDetailText::from_color(color));
+
             div().p_4().child(
                 VStack::new()
                     .spacing(StackSpacing::Md)
@@ -488,7 +545,7 @@ impl ThemeEditor {
                                     .color(theme.text_secondary.to_rgba()),
                             )
                             .child(
-                                Text::new(SharedString::from(color.to_hex_string()))
+                                Text::new(detail.hex.clone())
                                     .size(TextSize::Md)
                                     .weight(TextWeight::Medium)
                                     .color(theme.text_primary.to_rgba()),
@@ -497,25 +554,16 @@ impl ThemeEditor {
                     )
                     // RGBA display
                     .child(
-                        Text::new(SharedString::from(format!(
-                            "RGBA: {}, {}, {}, {}",
-                            color.r, color.g, color.b, color.a
-                        )))
-                        .size(TextSize::Sm)
-                        .color(theme.text_muted.to_rgba()),
+                        Text::new(detail.rgba.clone())
+                            .size(TextSize::Sm)
+                            .color(theme.text_muted.to_rgba()),
                     )
                     // HSL display
-                    .child({
-                        let (h, s, l) = color.to_hsl();
-                        Text::new(SharedString::from(format!(
-                            "HSL: {:.0}°, {:.0}%, {:.0}%",
-                            h * 360.0,
-                            s * 100.0,
-                            l * 100.0
-                        )))
-                        .size(TextSize::Sm)
-                        .color(theme.text_muted.to_rgba())
-                    })
+                    .child(
+                        Text::new(detail.hsl.clone())
+                            .size(TextSize::Sm)
+                            .color(theme.text_muted.to_rgba()),
+                    )
                     // Edit button
                     .child(
                         Button::new("edit-color-btn", "Edit Color")

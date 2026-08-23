@@ -1,6 +1,6 @@
 //! Design-system helpers shared by UI-kit components.
 
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use gpui::App;
 use gpui_design::{DesignExt, DesignSystem};
@@ -12,10 +12,12 @@ pub fn resolve_design(explicit: Option<Arc<DesignSystem>>, cx: &mut App) -> Arc<
 
 /// Neutral design fallback for direct `build()` calls outside a GPUI context.
 pub fn neutral_design() -> Arc<DesignSystem> {
-    Arc::new(DesignSystem::neutral())
+    static NEUTRAL_DESIGN: OnceLock<Arc<DesignSystem>> = OnceLock::new();
+    Arc::clone(NEUTRAL_DESIGN.get_or_init(|| Arc::new(DesignSystem::neutral())))
 }
 
 /// Platform-default design fallback for helpers that are not tied to an app.
 pub fn platform_design() -> Arc<DesignSystem> {
-    Arc::new(DesignSystem::platform_default())
+    static PLATFORM_DESIGN: OnceLock<Arc<DesignSystem>> = OnceLock::new();
+    Arc::clone(PLATFORM_DESIGN.get_or_init(|| Arc::new(DesignSystem::platform_default())))
 }

@@ -19,6 +19,7 @@
 use super::camera::{Camera3D, OrbitControls};
 use glam::Vec3;
 use gpui::*;
+use smallvec::SmallVec;
 use std::cell::RefCell;
 use std::panic;
 use std::rc::Rc;
@@ -84,7 +85,10 @@ pub struct Line3D {
 /// outlined with `stroke`.
 #[derive(Debug, Clone)]
 pub struct Polygon3D {
-    pub vertices: Vec<Vec3>,
+    /// Mesh and surface polygons are triangles in the hot path. Keep their
+    /// three vertices inline so rebuilding a CPU fallback scene does not
+    /// allocate one heap `Vec` for every triangle.
+    pub vertices: SmallVec<[Vec3; 3]>,
     pub fill: Option<Rgba>,
     pub stroke: Option<(Rgba, f32)>,
 }
@@ -332,5 +336,16 @@ mod tests {
         assert!(s.lines.is_empty());
         assert!(s.polygons.is_empty());
         assert!(s.background.is_none());
+    }
+
+    #[test]
+    fn triangle_polygon_vertices_stay_inline() {
+        let polygon = Polygon3D {
+            vertices: smallvec::smallvec![Vec3::ZERO, Vec3::X, Vec3::Y],
+            fill: None,
+            stroke: None,
+        };
+
+        assert!(!polygon.vertices.spilled());
     }
 }

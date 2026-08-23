@@ -1,7 +1,7 @@
 use crate::types::Axis;
 use gpui_pretext::{
-    EngineProfile, PrepareOptions, PreparedText, PreparedTextWithSegments, layout,
-    layout_with_lines, prepare, prepare_with_segments,
+    EngineProfile, PrepareOptions, PreparedText, PreparedTextWithSegments, layout, prepare,
+    prepare_with_segments, walk_line_ranges,
 };
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -137,9 +137,11 @@ pub(super) fn compute_text_size<'a>(
                 .or_insert_with(|| {
                     prepare_with_segments(input.text, input.measure, input.profile, input.options)
                 });
-            let result =
-                layout_with_lines(prepared, f64::MAX, input.line_height as f64, input.profile);
-            result.lines.iter().map(|l| l.width).fold(0.0_f64, f64::max) as f32
+            let mut max_width = 0.0_f64;
+            walk_line_ranges(prepared, f64::MAX, input.profile, |line| {
+                max_width = max_width.max(line.width);
+            });
+            max_width as f32
         }
     };
 

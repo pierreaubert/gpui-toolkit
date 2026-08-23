@@ -31,8 +31,6 @@ gpui-ios = { workspace = true, optional = true }
 [features]
 default = []
 autoeq = []
-gpu-2d = []
-gpu-3d = []
 reqwest = []
 showcase = [
     "dep:gpui",

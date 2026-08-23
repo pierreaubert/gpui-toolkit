@@ -788,6 +788,13 @@ impl AndroidWindow {
     /// callback runs layout → paint → `PlatformWindow::draw` →
     /// `AndroidWindow::draw`, which needs to acquire the same `state` lock
     /// to access the renderer.
+    /// Whether the event loop must continue polling at the frame cadence to
+    /// deliver a coalesced scroll or decelerating fling.
+    pub fn needs_frame_pump(&self) -> bool {
+        let momentum = self.momentum.lock();
+        momentum.has_pending_scroll || momentum.scroller.is_active()
+    }
+
     pub fn request_frame(&self) {
         // Take the callback out of the lock so it can be invoked without
         // holding it.  This lets `draw()` (called from inside the callback)

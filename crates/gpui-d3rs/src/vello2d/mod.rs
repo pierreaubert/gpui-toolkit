@@ -25,7 +25,10 @@ pub use gpu_scene::to_vello_scene;
 pub use scene::{ChartCmd, ChartScene};
 
 #[cfg(feature = "vello-gpui")]
-pub use element::{RasterBackend, VelloChartElement, VelloScenePainter};
+pub use element::{
+    RasterBackend, RetainedVelloChart, RetainedVelloChartElement, VelloChartElement,
+    VelloScenePainter,
+};
 #[cfg(feature = "vello-gpui")]
 pub use wgpu_draw::{
     clip_src_rect as wgpu_draw_clip_src_rect, physical_size as wgpu_draw_physical_size,

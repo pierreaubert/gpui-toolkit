@@ -1,6 +1,7 @@
 use super::accessibility_palette::AccessibilityPalette;
 use super::editor_theme::EditorTheme;
 use super::misc::normalize_theme_id;
+use super::types::ThemeAppearance;
 use serde::{Deserialize, Serialize};
 
 /// Built-in editor theme presets.
@@ -79,6 +80,20 @@ impl BuiltInThemePreset {
             BuiltInThemePreset::Deuteranopia => AccessibilityPalette::Deuteranopia,
             BuiltInThemePreset::Tritanopia => AccessibilityPalette::Tritanopia,
             _ => AccessibilityPalette::Standard,
+        }
+    }
+
+    /// Appearance metadata without constructing the full editor theme.
+    pub fn appearance(self) -> ThemeAppearance {
+        match self {
+            BuiltInThemePreset::Light => ThemeAppearance::Light,
+            BuiltInThemePreset::Dark
+            | BuiltInThemePreset::HighContrast
+            | BuiltInThemePreset::Nord
+            | BuiltInThemePreset::Dracula
+            | BuiltInThemePreset::Protanopia
+            | BuiltInThemePreset::Deuteranopia
+            | BuiltInThemePreset::Tritanopia => ThemeAppearance::Dark,
         }
     }
 

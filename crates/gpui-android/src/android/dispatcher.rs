@@ -147,6 +147,10 @@ pub struct AndroidDispatcher {
     pool: ThreadPool,
     /// Delayed background tasks sorted by due time.
     delayed: Mutex<Vec<DelayedTask>>,
+    /// Set whenever a foreground task wakes the looper. The event loop uses
+    /// this after `poll_events` to schedule a GPUI frame even when the looper
+    /// callback drained the task before yielding `PollEvent::Wake`.
+    main_thread_wake_pending: AtomicBool,
     /// Set to `true` once `shutdown()` is called.
     shutdown: AtomicBool,
 }
@@ -194,6 +198,7 @@ impl AndroidDispatcher {
             looper,
             pool: ThreadPool::new(pool_threads),
             delayed: Mutex::new(Vec::new()),
+            main_thread_wake_pending: AtomicBool::new(false),
             shutdown: AtomicBool::new(false),
         });
 
@@ -230,6 +235,7 @@ impl AndroidDispatcher {
             looper: std::ptr::null_mut(), // no real looper in headless mode
             pool: ThreadPool::new(pool_threads),
             delayed: Mutex::new(Vec::new()),
+            main_thread_wake_pending: AtomicBool::new(false),
             shutdown: AtomicBool::new(false),
         })
     }
@@ -255,6 +261,7 @@ impl AndroidDispatcher {
         }
         let mut q = self.main_queue.lock();
         q.tasks.push_back(Box::new(f));
+        self.main_thread_wake_pending.store(true, Ordering::Release);
         wake_pipe(q.write_fd);
     }
 
@@ -285,6 +292,24 @@ impl AndroidDispatcher {
         });
         // Keep sorted by ascending due time.
         delayed.sort_by_key(|d| d.due);
+        // Make a blocking looper recompute its timeout if this is the new
+        // earliest deadline.
+        let write_fd = self.main_queue.lock().write_fd;
+        wake_pipe(write_fd);
+    }
+
+    /// Time until the earliest delayed task is due. `None` means the main
+    /// looper may block until an Android event or foreground-task wake arrives.
+    pub fn next_delayed_task_in(&self, now: Instant) -> Option<Duration> {
+        self.delayed
+            .lock()
+            .first()
+            .map(|task| task.due.saturating_duration_since(now))
+    }
+
+    /// Returns whether a foreground task woke the looper since the last call.
+    pub fn take_main_thread_wake(&self) -> bool {
+        self.main_thread_wake_pending.swap(false, Ordering::AcqRel)
     }
 
     /// Process any delayed background tasks whose due time has passed.
@@ -592,6 +617,7 @@ mod tests {
             looper: std::ptr::null_mut(),
             pool: ThreadPool::new(1),
             delayed: Mutex::new(Vec::new()),
+            main_thread_wake_pending: AtomicBool::new(false),
             shutdown: AtomicBool::new(false),
         };
 
@@ -612,6 +638,20 @@ mod tests {
             libc_close(read_fd);
             libc_close(write_fd);
         }
+    }
+
+    #[test]
+    fn delayed_deadline_and_foreground_wake_are_observable() {
+        let dispatcher = AndroidDispatcher::new_headless();
+        assert_eq!(dispatcher.next_delayed_task_in(Instant::now()), None);
+        assert!(!dispatcher.take_main_thread_wake());
+
+        dispatcher.dispatch_after(Duration::from_secs(60), || {});
+        assert!(dispatcher.next_delayed_task_in(Instant::now()).is_some());
+
+        dispatcher.dispatch_on_main_thread(|| {});
+        assert!(dispatcher.take_main_thread_wake());
+        assert!(!dispatcher.take_main_thread_wake());
     }
 
     /// Verify pipe creation succeeds.

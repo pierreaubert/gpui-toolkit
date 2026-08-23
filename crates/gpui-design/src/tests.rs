@@ -274,6 +274,15 @@ fn style_dictionary_tokens_are_cached_and_borrowable() {
 }
 
 #[test]
+fn clone_preserves_cached_style_dictionary_tokens() {
+    let design = DesignSystem::neutral();
+    let original = design.style_dictionary_tokens();
+    let cloned = design.clone();
+
+    assert_eq!(original.as_ptr(), cloned.style_dictionary_tokens().as_ptr());
+}
+
+#[test]
 fn design_token_name_is_precomputed() {
     let ds = DesignSystem::neutral();
     let tokens = ds.style_dictionary_tokens();

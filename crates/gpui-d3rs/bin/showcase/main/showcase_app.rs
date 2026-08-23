@@ -12,29 +12,7 @@ use gpui_ui_kit::theme::ThemeExt;
 use std::cell::RefCell;
 use std::rc::Rc;
 
-#[cfg(feature = "profiler")]
 use gpui_profiler::{AllocProbe, AllocSnapshot};
-
-/// No-op snapshot/probe used when the `profiler` feature is disabled.
-#[cfg(not(feature = "profiler"))]
-#[derive(Debug, Clone, Copy, Default)]
-struct AllocSnapshot {
-    pub bytes: usize,
-    pub count: usize,
-}
-
-#[cfg(not(feature = "profiler"))]
-struct AllocProbe;
-
-#[cfg(not(feature = "profiler"))]
-impl AllocProbe {
-    fn new() -> Self {
-        Self
-    }
-    fn sample(&mut self, _label: &str) -> AllocSnapshot {
-        AllocSnapshot::default()
-    }
-}
 
 pub struct ShowcaseApp {
     pub current_section: DemoSection,
@@ -118,7 +96,7 @@ pub struct ShowcaseApp {
     alloc_probe: AllocProbe,
     last_render_alloc: AllocSnapshot,
     last_mouse_move_alloc: AllocSnapshot,
-    last_sample: Option<(String, AllocSnapshot)>,
+    last_sample: Option<(&'static str, AllocSnapshot)>,
     last_window_size: Option<Size<Pixels>>,
     // Snapshot state
     pub snapshot_mode: bool,
@@ -282,9 +260,9 @@ impl ShowcaseApp {
     }
 
     /// Sample allocations and remember the result as the most recent sample.
-    fn record_sample(&mut self, label: &str) -> AllocSnapshot {
+    fn record_sample(&mut self, label: &'static str) -> AllocSnapshot {
         let delta = self.alloc_probe.sample(label);
-        self.last_sample = Some((label.to_string(), delta));
+        self.last_sample = Some((label, delta));
         delta
     }
 
@@ -848,10 +826,9 @@ impl Render for ShowcaseApp {
                 this.record_sample("scroll");
             }))
             .child(self.render_sidebar(sidebar_width, cx))
-            .child(self.render_content(cx))
-            .child(self.render_alloc_overlay(cx));
+            .child(self.render_content(cx));
 
         self.last_render_alloc = self.record_sample("render");
-        result
+        result.child(self.render_alloc_overlay(cx))
     }
 }

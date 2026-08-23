@@ -530,6 +530,21 @@ fn process_input_events(app: &AndroidApp) {
 ///
 /// Called from `android_main` after the platform is initialised.
 /// Runs until the platform requests quit or the activity is destroyed.
+/// Keep momentum scrolling responsive, but otherwise let the Android looper
+/// sleep until a platform event, foreground-task wake, or delayed task is due.
+const FRAME_POLL_INTERVAL: Duration = Duration::from_millis(8);
+
+fn event_loop_poll_timeout(
+    needs_frame_pump: bool,
+    next_delayed_task: Option<Duration>,
+) -> Option<Duration> {
+    if needs_frame_pump {
+        Some(FRAME_POLL_INTERVAL)
+    } else {
+        next_delayed_task
+    }
+}
+
 pub fn run_event_loop(app: &AndroidApp) {
     log::info!("run_event_loop: entering main loop");
 
@@ -575,18 +590,39 @@ pub fn run_event_loop(app: &AndroidApp) {
             platform.tick();
         }
 
+        let (poll_timeout, force_frame_after_poll) = PLATFORM
+            .get()
+            .map(|platform| {
+                let needs_frame_pump = app_is_active
+                    && platform
+                        .primary_window()
+                        .is_some_and(|window| window.needs_frame_pump());
+                (
+                    event_loop_poll_timeout(
+                        needs_frame_pump,
+                        platform.next_delayed_task_in(Instant::now()),
+                    ),
+                    !INIT_WINDOW_DONE.load(Ordering::Relaxed),
+                )
+            })
+            .unwrap_or((None, false));
+        let mut platform_event_woke_frame = false;
+
         // ── Poll for events (non-blocking) ──
         //
         // Non-blocking poll: process any pending events then immediately
         // continue to rendering. No sleep — the GPU present call
         // (get_current_texture / Mailbox) provides natural frame pacing.
-        app.poll_events(Some(Duration::from_millis(8)), |event| match event {
-            PollEvent::Main(main_event) => {
-                handle_main_event(app, main_event);
+        app.poll_events(poll_timeout, |event| {
+            platform_event_woke_frame |= !matches!(&event, PollEvent::Timeout);
+            match event {
+                PollEvent::Main(main_event) => {
+                    handle_main_event(app, main_event);
+                }
+                PollEvent::Wake => {}
+                PollEvent::Timeout => {}
+                _ => {}
             }
-            PollEvent::Wake => {}
-            PollEvent::Timeout => {}
-            _ => {}
         });
 
         // Some NativeActivity launches can enter `android_main` after the
@@ -802,7 +838,10 @@ pub fn run_event_loop(app: &AndroidApp) {
 
         // ── Render ──
         if let Some(platform) = PLATFORM.get() {
-            if INIT_WINDOW_DONE.load(Ordering::Relaxed) && app_is_active {
+            let should_pump_frame = force_frame_after_poll
+                || platform_event_woke_frame
+                || platform.take_main_thread_wake();
+            if INIT_WINDOW_DONE.load(Ordering::Relaxed) && app_is_active && should_pump_frame {
                 platform.flush_main_thread_tasks();
                 if let Some(win) = platform.primary_window() {
                     win.request_frame();
@@ -1343,11 +1382,19 @@ fn enqueue_string_ime_event(
     make_event: impl FnOnce(String) -> crate::ImeEvent,
 ) {
     let value_raw = value as jni::sys::jobject;
-    let _ = with_env(|env| {
+    let queued = with_env(|env| {
         let value = unsafe { JObject::from_raw(env, value_raw) };
         crate::enqueue_ime_event(make_event(get_string(env, &value)));
         Ok(())
-    });
+    })
+    .is_ok();
+    if queued && let Some(platform) = PLATFORM.get() {
+        // IME callbacks can arrive while the native loop is idle. Wake its
+        // registered looper pipe so the next frame drains the queued event.
+        platform
+            .foreground_executor()
+            .dispatch_on_main_thread(|| {});
+    }
 }
 
 /// Commit finalized text from Android's `InputConnection`.
@@ -1471,6 +1518,19 @@ pub unsafe extern "C" fn Java_dev_gpui_mobile_GpuiMediaSession_nativeMediaSeek(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn event_loop_blocks_without_frame_or_delayed_work() {
+        assert_eq!(event_loop_poll_timeout(false, None), None);
+        assert_eq!(
+            event_loop_poll_timeout(false, Some(Duration::from_millis(25))),
+            Some(Duration::from_millis(25))
+        );
+        assert_eq!(
+            event_loop_poll_timeout(true, Some(Duration::from_secs(1))),
+            Some(FRAME_POLL_INTERVAL)
+        );
+    }
 
     #[test]
     fn poll_events_returns_false_when_no_platform() {

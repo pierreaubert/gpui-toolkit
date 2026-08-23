@@ -17,6 +17,7 @@ use super::preview_layout_constraints::PreviewLayoutConstraints;
 use super::preview_overflow::PreviewOverflow;
 use super::preview_sizing::PreviewSizing;
 use super::preview_surface::PreviewSurface;
+#[cfg(feature = "profiler")]
 use super::story::story_file_name;
 use super::story::text_prop;
 use super::types::area_story_data;
@@ -27,7 +28,6 @@ use crate::{
     UI_KIT_EXPORTED_COMPONENT_STORY_IDS,
 };
 use gpui::SharedString;
-#[cfg(feature = "profiler")]
 use gpui_px::{Colormap, ScaleType};
 use gpui_showcase::showcase::ShowcaseSection;
 use gpui_ui_kit::ButtonVariant;

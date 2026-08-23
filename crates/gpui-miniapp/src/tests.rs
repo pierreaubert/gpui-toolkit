@@ -329,26 +329,17 @@ fn test_current_platform_returns_ok() {
 }
 
 // ========================================================================
-// Performance Cache Tests
+// Performance behavior tests
 // ========================================================================
 
 #[cfg(feature = "builder")]
 #[test]
-fn test_content_size_cache_reuses_result() {
-    use gpui_design::DesignSystem;
-
-    MiniAppShell::clear_content_size_cache();
-    let design = DesignSystem::neutral();
-
-    let first = MiniAppShell::content_size(800.0, 600.0, &design);
-    assert!(MiniAppShell::content_size_cache_is_populated());
-
-    // Same window size and design grid unit should return the cached value.
-    let second = MiniAppShell::content_size(800.0, 600.0, &design);
+fn content_size_fills_the_shell_without_retained_cache_state() {
+    let first = MiniAppShell::content_size(800.0, 600.0);
+    let second = MiniAppShell::content_size(800.0, 600.0);
     assert_eq!(first, second);
 
-    // A different window size should recompute and update the cache.
-    let third = MiniAppShell::content_size(1024.0, 768.0, &design);
+    let third = MiniAppShell::content_size(1024.0, 768.0);
     assert_ne!(first, third);
 }
 

@@ -520,14 +520,14 @@ fn flat_tree_as_map_get_matches_find() {
 }
 
 #[test]
-fn as_map_is_cached() {
+fn as_map_reuses_the_retained_lookup_index() {
     let root = sample_layout_tree();
     let flat = solve_tree(&root, 1000.0, 800.0, &LayoutPreferences::default());
 
     assert_eq!(
         flat.cached_index_len(),
-        0,
-        "index should not be built until as_map is called"
+        flat.len(),
+        "the retained lookup index should be populated by the solver"
     );
 
     let first = flat.as_map();
@@ -544,6 +544,18 @@ fn as_map_is_cached() {
     assert_eq!(second.len(), first.len());
     for (id, node) in &first {
         assert_eq!(second.get(id).unwrap().width, node.width);
+    }
+}
+
+#[test]
+fn iter_by_id_matches_find_without_materializing_a_map() {
+    let root = sample_layout_tree();
+    let flat = solve_tree(&root, 1000.0, 800.0, &LayoutPreferences::default());
+
+    for (id, node) in flat.iter_by_id() {
+        let found = flat.find(id).expect("id in retained index");
+        assert_eq!(found.id(), node.id());
+        assert_eq!(found.width(), node.width());
     }
 }
 

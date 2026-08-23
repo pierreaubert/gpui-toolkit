@@ -63,11 +63,13 @@ fn main() -> Result<()> {
         }
     }
 
+    let validation_result = ensure_passed(&report);
+
     if let Some(path) = args.report_json.as_deref() {
         write_report(path, serde_json::to_string_pretty(&report)?)?;
     }
     if let Some(path) = args.report_markdown.as_deref() {
-        let mut markdown = report.conformance_markdown.clone();
+        let mut markdown = report.conformance_markdown;
         if report.findings.is_empty() {
             markdown.push_str("\n\nDesign token validation passed.\n");
         } else {
@@ -79,7 +81,7 @@ fn main() -> Result<()> {
         write_report(path, markdown)?;
     }
 
-    ensure_passed(&report)
+    validation_result
 }
 
 fn write_report(path: &std::path::Path, body: String) -> Result<()> {

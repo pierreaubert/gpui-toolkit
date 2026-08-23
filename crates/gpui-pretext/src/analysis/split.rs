@@ -115,11 +115,12 @@ pub(super) fn split_hyphenated_numeric_runs(seg: MergedSegmentation) -> MergedSe
                     } else {
                         (*part).to_string()
                     };
-                    texts.push(split_text.clone());
+                    let split_len = split_text.len();
+                    texts.push(split_text);
                     is_word_like.push(true);
                     kinds.push(SegmentBreakKind::Text);
                     starts.push(seg.starts[i] + offset);
-                    offset += split_text.len();
+                    offset += split_len;
                 }
                 continue;
             }

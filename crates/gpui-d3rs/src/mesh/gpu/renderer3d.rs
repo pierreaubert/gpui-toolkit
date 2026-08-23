@@ -303,6 +303,7 @@ struct WgpuMesh3DDraw {
 struct Mesh3DVertex {
     position: [f32; 3],
     normal: [f32; 3],
+    color: [f32; 4],
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -355,7 +356,7 @@ impl WgpuMesh3DResources {
         // values. Expand those triangles once per geometry revision so flat
         // cell shading is correct on the retained WGPU path.
         let render_upload = expand_cell_upload(upload);
-        let vertices = build_3d_vertices(&render_upload);
+        let vertices = build_3d_vertices(&render_upload, state.vertex_colors.as_deref());
         let field_values = mesh_field_values(&render_upload);
         let field_layout = mesh_field_layout(upload);
         let triad_vertices = triad_vertices(&Camera3D::default());
@@ -469,6 +470,11 @@ impl WgpuMesh3DResources {
                     format: wgpu::VertexFormat::Float32x3,
                     offset: 12,
                     shader_location: 1,
+                },
+                wgpu::VertexAttribute {
+                    format: wgpu::VertexFormat::Float32x4,
+                    offset: 24,
+                    shader_location: 2,
                 },
             ],
         };
@@ -683,7 +689,12 @@ impl WgpuMesh3DResources {
                 0.3,
                 0.7,
             ],
-            value_range: [range[0], range[1], field_enabled as u32 as f32, 0.0],
+            value_range: [
+                range[0],
+                range[1],
+                field_enabled as u32 as f32,
+                state.vertex_colors.is_some() as u32 as f32,
+            ],
             isoline: [
                 state.color.isoline_step,
                 state.color.isoline_width_px,
@@ -749,7 +760,7 @@ fn write_chunked_buffer(ctx: &gpui_wgpu::WgpuContext, buffer: &wgpu::Buffer, byt
 }
 
 #[cfg(not(test))]
-fn build_3d_vertices(upload: &MeshUpload) -> Vec<Mesh3DVertex> {
+fn build_3d_vertices(upload: &MeshUpload, colors: Option<&[[f32; 4]]>) -> Vec<Mesh3DVertex> {
     let mut normals = vec![[0.0f32; 3]; upload.positions_f32.len()];
     for triangle in upload.indices.chunks_exact(3) {
         let Some(a) = upload.positions_f32.get(triangle[0] as usize) else {
@@ -791,6 +802,10 @@ fn build_3d_vertices(upload: &MeshUpload) -> Vec<Mesh3DVertex> {
         .map(|(index, &position)| Mesh3DVertex {
             position,
             normal: normals[index],
+            color: colors
+                .and_then(|colors| colors.get(index))
+                .copied()
+                .unwrap_or([0.35, 0.55, 0.75, 1.0]),
         })
         .collect()
 }
@@ -807,6 +822,7 @@ fn triad_vertices(camera: &Camera3D) -> [Mesh3DVertex; 6] {
     let mut output = [Mesh3DVertex {
         position: [0.0; 3],
         normal: [0.0; 3],
+        color: [1.0; 4],
     }; 6];
     for (axis, (direction, color)) in axes.into_iter().enumerate() {
         let screen_direction = (view * direction.extend(0.0)).truncate();
@@ -820,10 +836,12 @@ fn triad_vertices(camera: &Camera3D) -> [Mesh3DVertex; 6] {
         output[base] = Mesh3DVertex {
             position: [origin[0], origin[1], 0.0],
             normal: color,
+            color: [1.0; 4],
         };
         output[base + 1] = Mesh3DVertex {
             position: [end[0], end[1], 0.0],
             normal: color,
+            color: [1.0; 4],
         };
     }
     output

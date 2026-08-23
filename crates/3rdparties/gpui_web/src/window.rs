@@ -331,7 +331,9 @@ impl WebWindowInner {
                 |callbacks| &mut callbacks.request_frame,
                 |callback| {
                     callback(RequestFrameOptions {
-                        require_presentation: true,
+                        // Keep the rAF pump alive for timers and cursor blinking,
+                        // but let GPUI's invalidator decide whether a present is due.
+                        require_presentation: false,
                         force_render: false,
                     })
                 },

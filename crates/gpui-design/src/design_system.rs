@@ -61,6 +61,10 @@ pub struct DesignSystem {
 
 impl Clone for DesignSystem {
     fn clone(&self) -> Self {
+        let cached_tokens = OnceLock::new();
+        if let Some(tokens) = self.cached_tokens.get() {
+            let _ = cached_tokens.set(Arc::clone(tokens));
+        }
         Self {
             language: self.language,
             corners: self.corners,
@@ -74,7 +78,7 @@ impl Clone for DesignSystem {
             toggle_variant: self.toggle_variant,
             label_position: self.label_position,
             group_separator: self.group_separator,
-            cached_tokens: OnceLock::new(),
+            cached_tokens,
         }
     }
 }

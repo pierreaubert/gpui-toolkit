@@ -81,15 +81,62 @@ pub struct KeybindingHint {
     pub has_children: bool,
 }
 
-fn hash_documented_bindings(bindings: &[DocumentedKeybinding]) -> u64 {
-    let mut hasher = DefaultHasher::new();
-    for binding in bindings {
-        binding.key.hash(&mut hasher);
-        binding.raw_key_spec.hash(&mut hasher);
-        binding.description.hash(&mut hasher);
-        binding.category.hash(&mut hasher);
+/// Identity of an immutable documented-binding slice.
+///
+/// Registry updates replace their cached `Rc` slice and clear their local
+/// hint cache, so deriving this key from the backing allocation avoids an
+/// O(bindings × strings) content hash on every chord keystroke. The first
+/// and last binding identities guard against allocator address reuse.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+struct DocumentedBindingsKey {
+    data: usize,
+    len: usize,
+    first: Option<BindingBoundary>,
+    last: Option<BindingBoundary>,
+}
+
+/// Constant-time identity guard for allocation-address reuse.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+struct BindingBoundary {
+    key: StrIdentity,
+    raw_key_spec: Option<StrIdentity>,
+    description: StrIdentity,
+    category: StrIdentity,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+struct StrIdentity {
+    data: usize,
+    len: usize,
+}
+
+impl From<&str> for StrIdentity {
+    fn from(value: &str) -> Self {
+        Self {
+            data: value.as_ptr() as usize,
+            len: value.len(),
+        }
     }
-    hasher.finish()
+}
+
+impl From<&DocumentedKeybinding> for BindingBoundary {
+    fn from(binding: &DocumentedKeybinding) -> Self {
+        Self {
+            key: binding.key.as_str().into(),
+            raw_key_spec: binding.raw_key_spec.as_deref().map(Into::into),
+            description: binding.description.as_str().into(),
+            category: binding.category.name().into(),
+        }
+    }
+}
+
+fn documented_bindings_key(bindings: &[DocumentedKeybinding]) -> DocumentedBindingsKey {
+    DocumentedBindingsKey {
+        data: bindings.as_ptr() as usize,
+        len: bindings.len(),
+        first: bindings.first().map(Into::into),
+        last: bindings.last().map(Into::into),
+    }
 }
 
 fn hash_palette_entries(entries: &[CommandPaletteEntry]) -> u64 {
@@ -103,7 +150,7 @@ fn hash_palette_entries(entries: &[CommandPaletteEntry]) -> u64 {
 type PaletteQueryCache = HashMap<String, Rc<[CommandPaletteEntry]>>;
 type PaletteSearchCache = HashMap<u64, PaletteQueryCache>;
 type HintPrefixCache = HashMap<String, Rc<[KeybindingHint]>>;
-type KeybindingHintsCache = HashMap<u64, HintPrefixCache>;
+type KeybindingHintsCache = HashMap<DocumentedBindingsKey, HintPrefixCache>;
 
 thread_local! {
     static SEARCH_CACHE: RefCell<PaletteSearchCache> = RefCell::new(HashMap::new());
@@ -223,8 +270,9 @@ pub fn keybinding_hints_cached(
     bindings: &[DocumentedKeybinding],
     prefix: &str,
 ) -> Rc<[KeybindingHint]> {
+    const MAX_HINT_BINDING_SETS: usize = 32;
     let prefix_normalized = normalized_ascii_lowercase(prefix);
-    let bindings_hash = hash_documented_bindings(bindings);
+    let bindings_hash = documented_bindings_key(bindings);
 
     HINTS_CACHE.with(|cache| {
         if let Some(cached) = cache
@@ -237,8 +285,11 @@ pub fn keybinding_hints_cached(
 
         let result = build_keybinding_hints(bindings, prefix);
         let result: Rc<[KeybindingHint]> = result.into();
+        let mut cache = cache.borrow_mut();
+        if cache.len() >= MAX_HINT_BINDING_SETS && !cache.contains_key(&bindings_hash) {
+            cache.clear();
+        }
         cache
-            .borrow_mut()
             .entry(bindings_hash)
             .or_default()
             .insert(prefix_normalized.into_owned(), Rc::clone(&result));
@@ -247,30 +298,34 @@ pub fn keybinding_hints_cached(
 }
 
 fn build_keybinding_hints(bindings: &[DocumentedKeybinding], prefix: &str) -> Vec<KeybindingHint> {
-    let prefix_parts: Vec<&str> = prefix.split_whitespace().collect();
     let mut hints: BTreeMap<&str, KeybindingHint> = BTreeMap::new();
 
     for binding in bindings {
         let spec = binding.raw_key_spec.as_deref().unwrap_or(&binding.key);
-        let parts: Vec<&str> = spec.split_whitespace().collect();
-        if parts.is_empty() || !starts_with_parts(&parts, &prefix_parts) {
+        let mut parts = spec.split_whitespace();
+        let mut prefix_matches = true;
+        for expected in prefix.split_whitespace() {
+            if parts.next() != Some(expected) {
+                prefix_matches = false;
+                break;
+            }
+        }
+        if !prefix_matches {
             continue;
         }
 
-        if parts.len() == prefix_parts.len() {
-            if let Some(last) = parts.last() {
+        let Some(next) = parts.next() else {
+            if let Some(last) = prefix.split_whitespace().last() {
                 let entry = hints
-                    .entry(*last)
+                    .entry(last)
                     .or_insert_with(|| hint_from_binding(last, binding, true, false));
                 entry.is_terminal = true;
                 entry.description = Some(binding.description.clone());
                 entry.category = binding.category.clone();
             }
             continue;
-        }
-
-        let next = parts[prefix_parts.len()];
-        let completes_command = parts.len() == prefix_parts.len() + 1;
+        };
+        let completes_command = parts.next().is_none();
         let entry = hints
             .entry(next)
             .or_insert_with(|| hint_from_binding(next, binding, completes_command, false));
@@ -389,14 +444,6 @@ fn hint_from_binding(
         is_terminal,
         has_children,
     }
-}
-
-fn starts_with_parts(parts: &[&str], prefix_parts: &[&str]) -> bool {
-    prefix_parts.len() <= parts.len()
-        && parts
-            .iter()
-            .zip(prefix_parts.iter())
-            .all(|(part, prefix)| part == prefix)
 }
 
 fn push_search_text(out: &mut String, value: &str) {

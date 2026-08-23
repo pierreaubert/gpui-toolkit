@@ -45,12 +45,14 @@ use parking_lot::Mutex;
 use std::{
     cell::RefCell,
     collections::HashMap,
+    io::Read,
     path::{Path, PathBuf},
     rc::Rc,
     sync::{
         Arc,
         atomic::{AtomicBool, AtomicU64, Ordering},
     },
+    time::{Duration, Instant},
 };
 
 use super::{
@@ -75,6 +77,15 @@ struct PlatformCallbacks {
 }
 
 static NEXT_PLATFORM_CALLBACK_ID: AtomicU64 = AtomicU64::new(1);
+
+/// PowerManager access crosses JNI and may allocate Java objects. The event
+/// loop ticks much more frequently than Android can report a useful thermal
+/// change, so keep this deliberately coarse.
+const THERMAL_POLL_INTERVAL: Duration = Duration::from_secs(1);
+
+fn thermal_check_is_due(last_check: Option<Instant>, now: Instant) -> bool {
+    last_check.is_none_or(|last_check| now.duration_since(last_check) >= THERMAL_POLL_INTERVAL)
+}
 
 thread_local! {
     static PLATFORM_CALLBACKS: RefCell<HashMap<PlatformCallbackId, PlatformCallbacks>> =
@@ -403,6 +414,9 @@ struct AndroidPlatformState {
 
     /// Last known Android thermal state.
     thermal_state: ThermalState,
+    /// Last PowerManager query. Keeping this in platform state makes the
+    /// main-loop gate work for both native and headless dispatchers.
+    last_thermal_check: Option<Instant>,
 
     // ── miscellaneous ─────────────────────────────────────────────────────────
     /// `true` while the app is active (foreground).
@@ -468,6 +482,25 @@ fn font_has_cbdt_tables(data: &[u8]) -> bool {
         }
     }
     false
+}
+
+/// Inspect just the OpenType table directory to determine whether a font can
+/// provide CBDT emoji. This avoids copying a multi-megabyte system emoji font
+/// into process memory merely to choose its loading strategy.
+fn font_file_has_cbdt_tables(path: &Path) -> Result<bool> {
+    let mut file = std::fs::File::open(path)?;
+    let mut header = [0_u8; 12];
+    file.read_exact(&mut header)?;
+    let num_tables = u16::from_be_bytes([header[4], header[5]]) as usize;
+
+    for _ in 0..num_tables {
+        let mut table_record = [0_u8; 16];
+        file.read_exact(&mut table_record)?;
+        if &table_record[..4] == b"CBDT" {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 /// Load a file from the Android APK assets directory via the NDK
@@ -580,7 +613,7 @@ impl AndroidPlatform {
 
             // APK assets are not files, so bundled emoji continues through the
             // owned-byte path below. System fonts above remain file-backed.
-            let mut font_data: Vec<std::borrow::Cow<'static, [u8]>> = Vec::new();
+            let mut owned_font_data: Vec<std::borrow::Cow<'static, [u8]>> = Vec::new();
 
             // ── Emoji font: prefer CBDT (bitmap) over COLR v1 ───────────
             //
@@ -588,21 +621,30 @@ impl AndroidPlatform {
             // outlines, but NOT COLR v1 (used by Android 13+ / API 33+).
             // If the system font lacks CBDT tables we load a bundled
             // CBDT-based NotoColorEmoji from the APK assets instead.
-            let system_emoji_path = "/system/fonts/NotoColorEmoji.ttf";
+            let system_emoji_path = Path::new("/system/fonts/NotoColorEmoji.ttf");
             let mut emoji_loaded = false;
 
-            if let Ok(system_emoji_bytes) = std::fs::read(system_emoji_path) {
-                if font_has_cbdt_tables(&system_emoji_bytes) {
-                    log::info!(
-                        "system emoji font has CBDT tables — using it ({} bytes)",
-                        system_emoji_bytes.len()
-                    );
-                    font_data.push(std::borrow::Cow::Owned(system_emoji_bytes));
-                    emoji_loaded = true;
-                } else {
-                    log::info!(
-                        "system emoji font is COLR v1 (no CBDT) — will try bundled fallback"
-                    );
+            if system_emoji_path.is_file() {
+                match font_file_has_cbdt_tables(system_emoji_path) {
+                    Ok(true) => match text_system.add_font_paths([system_emoji_path]) {
+                        Ok(()) => {
+                            log::info!(
+                                "system emoji font has CBDT tables — using file-backed font"
+                            );
+                            emoji_loaded = true;
+                        }
+                        Err(error) => {
+                            log::warn!("failed to add system emoji font path: {error:#}");
+                        }
+                    },
+                    Ok(false) => {
+                        log::info!(
+                            "system emoji font is COLR v1 (no CBDT) — will try bundled fallback"
+                        );
+                    }
+                    Err(error) => {
+                        log::warn!("failed to inspect system emoji font: {error:#}");
+                    }
                 }
             }
 
@@ -615,7 +657,7 @@ impl AndroidPlatform {
                                 "loaded bundled CBDT emoji font from assets ({} bytes)",
                                 bytes.len()
                             );
-                            font_data.push(std::borrow::Cow::Owned(bytes));
+                            owned_font_data.push(std::borrow::Cow::Owned(bytes));
                             emoji_loaded = true;
                         }
                         Err(e) => {
@@ -631,12 +673,10 @@ impl AndroidPlatform {
                 log::warn!("no compatible emoji font loaded — emoji glyphs may not render");
             }
 
-            if !font_data.is_empty() {
-                if let Err(e) = text_system.add_fonts(font_data) {
-                    log::warn!("failed to add system fonts: {e:#}");
+            if !owned_font_data.is_empty() {
+                if let Err(e) = text_system.add_fonts(owned_font_data) {
+                    log::warn!("failed to add bundled emoji font: {e:#}");
                 }
-            } else {
-                log::warn!("no system fonts found in /system/fonts/");
             }
         }
 
@@ -661,6 +701,7 @@ impl AndroidPlatform {
                 clipboard: AndroidClipboard::default(),
                 credentials: AndroidCredentialStore::default(),
                 thermal_state: ThermalState::Nominal,
+                last_thermal_check: None,
                 is_active: false,
                 headless,
                 preferred_backend: AndroidBackend::Vulkan,
@@ -719,6 +760,18 @@ impl AndroidPlatform {
     /// Returns the foreground-task executor (ALooper main-thread queue).
     pub fn foreground_executor(&self) -> Arc<AndroidDispatcher> {
         self.state.lock().dispatcher.clone()
+    }
+
+    /// Time until the next delayed dispatcher task. The Android event loop
+    /// uses this to block while idle without delaying scheduled UI work.
+    pub fn next_delayed_task_in(&self, now: Instant) -> Option<Duration> {
+        self.foreground_executor().next_delayed_task_in(now)
+    }
+
+    /// Returns whether a foreground task woke the Android looper since the
+    /// last call. Such a wake needs a frame pump after its task has run.
+    pub fn take_main_thread_wake(&self) -> bool {
+        self.foreground_executor().take_main_thread_wake()
     }
 
     // ── text system ───────────────────────────────────────────────────────────
@@ -1180,6 +1233,15 @@ impl AndroidPlatform {
     }
 
     fn check_thermal_state(&self) {
+        let now = Instant::now();
+        {
+            let mut state = self.state.lock();
+            if !thermal_check_is_due(state.last_thermal_check, now) {
+                return;
+            }
+            state.last_thermal_check = Some(now);
+        }
+
         let Some(next_thermal_state) = self.current_thermal_state_via_jni() else {
             return;
         };
@@ -2023,6 +2085,20 @@ mod tests {
     }
 
     // ── thermal state ────────────────────────────────────────────────────────
+
+    #[test]
+    fn thermal_jni_poll_is_throttled_to_one_second() {
+        let started = Instant::now();
+        assert!(thermal_check_is_due(None, started));
+        assert!(!thermal_check_is_due(
+            Some(started),
+            started + Duration::from_millis(999)
+        ));
+        assert!(thermal_check_is_due(
+            Some(started),
+            started + THERMAL_POLL_INTERVAL
+        ));
+    }
 
     #[test]
     fn android_thermal_status_maps_to_gpui_state() {

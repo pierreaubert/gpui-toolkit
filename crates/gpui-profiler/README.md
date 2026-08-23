@@ -91,6 +91,8 @@ recent sample from any probed event (`mouse-down`, `mouse-up`, `scroll`,
 any of those samples allocated, giving you immediate visual feedback without
 reading logs.
 
+> Do not use a binary built with `global-allocator` or a `profiler` feature for wall-clock benchmarking. The global allocator records every allocation with atomic updates, so timing results include diagnostic overhead. Use an ordinary release build for latency or throughput benchmarks.
+
 ## Integration with gpui-component-lab
 
 The component lab is already instrumented. Run it with the `profiler` feature
@@ -121,6 +123,21 @@ path is still allocating.
 - The counters are atomics, so allocation counting is thread-safe but not
   synchronized with `sample`; treat the numbers as approximate event-level
   totals rather than exact frame budgets.
+
+## Allocation-contract test template
+
+Allocation counters are process-wide. Contract tests must serialize their measured section and skip under coverage, where instrumentation and parallel work make deltas unreliable. Use either one dedicated integration test containing every allocation assertion, or protect each measured test with the same static `Mutex`.
+
+```rust
+if std::env::var_os("CARGO_LLVM_COV").is_some() {
+    return;
+}
+
+static ALLOCATION_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+let _lock = ALLOCATION_TEST_LOCK.lock().expect("allocation test lock");
+```
+
+Warm caches and reserve buffers before `probe.reset()`; only then sample the steady-state operation. Keep the lock for the full reset → operation → assertion interval.
 
 ## Allocation budgets
 

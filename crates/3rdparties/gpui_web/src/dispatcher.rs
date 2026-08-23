@@ -307,7 +307,11 @@ fn schedule_runnable(window: &web_sys::Window, runnable: RunnableVariant, priori
     let callback: &js_sys::Function = callback.unchecked_ref();
 
     match priority {
-        Priority::RealtimeAudio => {
+        // High-priority UI work should run in the current browser turn rather
+        // than waiting for timer clamping. Keep medium/low work on the timer
+        // queue so a long chain of ordinary tasks still yields to input and
+        // painting.
+        Priority::RealtimeAudio | Priority::High => {
             window.queue_microtask(callback);
         }
         _ => {

@@ -6,7 +6,6 @@ use super::types::LayoutDebugWarningKind;
 use crate::types::{Axis, LayoutNode};
 use crate::util::format_number;
 use std::collections::HashMap;
-use std::sync::OnceLock;
 
 /// Index into a [`SolvedTree`] node vector.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -127,8 +126,6 @@ pub struct SolvedTree<'a> {
     index: HashMap<&'a str, NodeIndex>,
     /// Recycled child-index buffers, one per previously solved container.
     child_index_pool: Vec<Vec<NodeIndex>>,
-    /// Lazily-built id → node index map reused by [`Self::as_map`].
-    cached_as_map_index: OnceLock<HashMap<&'a str, NodeIndex>>,
 }
 
 impl<'a> SolvedTree<'a> {
@@ -145,7 +142,6 @@ impl<'a> SolvedTree<'a> {
             nodes,
             index,
             child_index_pool: Vec::new(),
-            cached_as_map_index: OnceLock::new(),
         }
     }
 
@@ -157,7 +153,6 @@ impl<'a> SolvedTree<'a> {
             nodes: Vec::with_capacity(node_capacity),
             index: HashMap::with_capacity(node_capacity),
             child_index_pool: Vec::new(),
-            cached_as_map_index: OnceLock::new(),
         }
     }
 
@@ -184,7 +179,6 @@ impl<'a> SolvedTree<'a> {
         if self.index.capacity() < node_capacity {
             self.index.reserve(node_capacity);
         }
-        let _ = self.cached_as_map_index.take();
     }
 
     pub(crate) fn reusable_parts(
@@ -224,19 +218,29 @@ impl<'a> SolvedTree<'a> {
             })
     }
 
-    /// Build a flat id → node map for O(1) repeated lookups.
+    /// Iterate id → node pairs without allocating a temporary map.
     ///
-    /// The first call walks the node list once and caches an internal id →
-    /// index map. Subsequent calls reuse that cached index, so repeated
-    /// lookups are cheap even when callers discard the returned map.
+    /// Prefer this for a complete pass over the solved tree. For targeted
+    /// repeated lookups, use [`Self::find`], whose retained index is O(1).
+    pub fn iter_by_id(&self) -> impl Iterator<Item = (&'a str, SolvedNodeRef<'_, 'a>)> {
+        self.nodes.iter().enumerate().map(move |(i, node)| {
+            (
+                node.id,
+                SolvedNodeRef {
+                    tree: self,
+                    idx: NodeIndex(i),
+                },
+            )
+        })
+    }
+
+    /// Build an owned flat id → node map.
+    ///
+    /// This allocates on every call for API compatibility. Prefer
+    /// [`Self::find`] for O(1) lookups or [`Self::iter_by_id`] for an
+    /// allocation-free complete pass.
     pub fn as_map(&self) -> HashMap<&str, &SolvedNodeData<'a>> {
-        let index = self.cached_as_map_index.get_or_init(|| {
-            let mut map = HashMap::with_capacity(self.nodes.len());
-            for (i, node) in self.nodes.iter().enumerate() {
-                map.insert(node.id, NodeIndex(i));
-            }
-            map
-        });
+        let index = &self.index;
 
         index
             .iter()
@@ -244,13 +248,10 @@ impl<'a> SolvedTree<'a> {
             .collect()
     }
 
-    /// Length of the lazily-built index used by [`Self::as_map`].
-    ///
-    /// Returns `0` before the first `as_map` call, and the number of indexed
-    /// ids afterwards.
+    /// Number of entries in the retained O(1) lookup index.
     #[cfg(test)]
     pub(super) fn cached_index_len(&self) -> usize {
-        self.cached_as_map_index.get().map_or(0, |m| m.len())
+        self.index.len()
     }
 
     /// Iterate over collapsed slots in stable pre-order declaration order.

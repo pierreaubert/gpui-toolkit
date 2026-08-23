@@ -2962,6 +2962,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "smallvec",
  "smol",
  "thiserror 2.0.20",
  "tokio",

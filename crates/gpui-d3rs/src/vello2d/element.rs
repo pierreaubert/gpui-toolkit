@@ -318,6 +318,166 @@ impl Drop for VelloScenePainter {
     }
 }
 
+/// Retained chart scene for components whose declarative element is rebuilt
+/// more often than its chart data changes.
+///
+/// The owning component keeps this value in an `Rc<RefCell<_>>` and replaces
+/// its builder only when its input changes. That preserves the painter's WGPU
+/// custom-draw registration and the scene built for the current layout size.
+pub struct RetainedVelloChart {
+    painter: VelloScenePainter,
+    builder: SceneBuilder,
+    scene: ChartScene,
+    scene_size: Option<(f32, f32)>,
+}
+
+impl RetainedVelloChart {
+    /// Create a retained chart with a size-dependent scene builder.
+    pub fn new(builder: impl Fn(f32, f32) -> ChartScene + 'static) -> Self {
+        Self {
+            painter: VelloScenePainter::new(),
+            builder: Rc::new(builder),
+            scene: ChartScene::new(),
+            scene_size: None,
+        }
+    }
+
+    /// Replace chart inputs and invalidate the size-specific scene.
+    ///
+    /// Call this only when the builder's captured chart data changes. Reusing
+    /// the existing builder leaves both the Vello scene and custom-draw
+    /// registration intact across GPUI element reconstruction.
+    pub fn set_builder(&mut self, builder: impl Fn(f32, f32) -> ChartScene + 'static) {
+        self.builder = Rc::new(builder);
+        self.scene = ChartScene::new();
+        self.scene_size = None;
+    }
+
+    /// Set the preferred raster backend for subsequent paints.
+    pub fn set_backend(&mut self, backend: RasterBackend) {
+        self.painter.set_backend(backend);
+    }
+
+    fn rebuild_for_size(&mut self, width: f32, height: f32) -> bool {
+        let size = (width, height);
+        if self.scene_size == Some(size) {
+            return false;
+        }
+        self.scene = (self.builder)(width.max(1.0), height.max(1.0));
+        self.scene_size = Some(size);
+        true
+    }
+
+    fn paint(&mut self, bounds: Bounds<Pixels>, window: &mut Window) {
+        let width: f32 = bounds.size.width.into();
+        let height: f32 = bounds.size.height.into();
+        self.rebuild_for_size(width, height);
+        self.painter.paint(&self.scene, bounds, window);
+    }
+}
+
+/// GPUI element facade for [`RetainedVelloChart`].
+///
+/// This element is intentionally cheap to construct: the mutable renderer and
+/// size-specific chart scene live in the shared retained chart instead.
+pub struct RetainedVelloChartElement {
+    chart: Rc<RefCell<RetainedVelloChart>>,
+    absolute: bool,
+}
+
+impl RetainedVelloChartElement {
+    pub fn new(chart: Rc<RefCell<RetainedVelloChart>>) -> Self {
+        Self {
+            chart,
+            absolute: false,
+        }
+    }
+
+    pub fn absolute(mut self) -> Self {
+        self.absolute = true;
+        self
+    }
+}
+
+impl IntoElement for RetainedVelloChartElement {
+    type Element = Self;
+
+    fn into_element(self) -> Self::Element {
+        self
+    }
+}
+
+impl Element for RetainedVelloChartElement {
+    type RequestLayoutState = ();
+    type PrepaintState = ();
+
+    fn id(&self) -> Option<ElementId> {
+        None
+    }
+
+    fn source_location(&self) -> Option<&'static Location<'static>> {
+        None
+    }
+
+    fn request_layout(
+        &mut self,
+        _id: Option<&GlobalElementId>,
+        _inspector_id: Option<&InspectorElementId>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> (LayoutId, Self::RequestLayoutState) {
+        let style = if self.absolute {
+            Style {
+                position: Position::Absolute,
+                inset: Edges {
+                    top: px(0.0).into(),
+                    right: px(0.0).into(),
+                    bottom: px(0.0).into(),
+                    left: px(0.0).into(),
+                },
+                size: Size {
+                    width: relative(1.0).into(),
+                    height: relative(1.0).into(),
+                },
+                ..Default::default()
+            }
+        } else {
+            Style {
+                size: Size {
+                    width: relative(1.0).into(),
+                    height: relative(1.0).into(),
+                },
+                ..Default::default()
+            }
+        };
+        (window.request_layout(style, [], cx), ())
+    }
+
+    fn prepaint(
+        &mut self,
+        _id: Option<&GlobalElementId>,
+        _inspector_id: Option<&InspectorElementId>,
+        _bounds: Bounds<Pixels>,
+        _request_layout: &mut Self::RequestLayoutState,
+        _window: &mut Window,
+        _cx: &mut App,
+    ) -> Self::PrepaintState {
+    }
+
+    fn paint(
+        &mut self,
+        _id: Option<&GlobalElementId>,
+        _inspector_id: Option<&InspectorElementId>,
+        bounds: Bounds<Pixels>,
+        _request_layout: &mut Self::RequestLayoutState,
+        _prepaint: &mut Self::PrepaintState,
+        window: &mut Window,
+        _cx: &mut App,
+    ) {
+        self.chart.borrow_mut().paint(bounds, window);
+    }
+}
+
 /// Element painting a [`ChartScene`]. Build it in the chart's render method;
 /// `Drop` unregisters the custom draw. With `with_builder`, the scene is
 /// (re)generated whenever paint bounds change size.
@@ -633,6 +793,29 @@ mod tests {
             Brush::Solid(Color::from_rgb8(9, 9, 9)),
         );
         scene
+    }
+
+    #[test]
+    fn retained_chart_rebuilds_only_for_new_size_or_builder() {
+        let builds = Rc::new(Cell::new(0));
+        let first_builds = Rc::clone(&builds);
+        let mut chart = RetainedVelloChart::new(move |_, _| {
+            first_builds.set(first_builds.get() + 1);
+            sample_scene()
+        });
+
+        assert!(chart.rebuild_for_size(320.0, 180.0));
+        assert!(!chart.rebuild_for_size(320.0, 180.0));
+        assert_eq!(builds.get(), 1);
+
+        let second_builds = Rc::clone(&builds);
+        chart.set_builder(move |_, _| {
+            second_builds.set(second_builds.get() + 1);
+            sample_scene()
+        });
+        assert!(chart.rebuild_for_size(320.0, 180.0));
+        assert!(chart.rebuild_for_size(640.0, 180.0));
+        assert_eq!(builds.get(), 3);
     }
 
     #[test]

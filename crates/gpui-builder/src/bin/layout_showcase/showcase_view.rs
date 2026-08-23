@@ -15,12 +15,94 @@ use gpui::{
     SharedString, Stateful, StatefulInteractiveElement, Styled, Window, div, px, rgba,
 };
 use gpui_builder::types::LayoutPreferences;
-use gpui_builder::{Axis, ContainerNode, LayoutNode, Sizing, SlotNode, SolvedTree, solve_tree};
+use gpui_builder::{
+    Axis, ContainerNode, LayoutNode, RetainedLayoutSolver, Sizing, SlotNode, SolvedTree,
+};
 use gpui_design::DesignExt;
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
 };
+
+fn build_showcase_layout_root() -> &'static LayoutNode<'static> {
+    let content_children = Box::leak(Box::new([
+        LayoutNode::Slot(SlotNode {
+            id: "sidebar",
+            sizing: Sizing::fractional(0.22, 80.0),
+            priority: 0.5,
+            collapsible: true,
+            display_tiers: &[],
+            collapse_label: Some("Sidebar"),
+        }),
+        LayoutNode::Slot(SlotNode {
+            id: "main",
+            sizing: Sizing::flex(200.0),
+            priority: 1.0,
+            collapsible: false,
+            display_tiers: &[],
+            collapse_label: None,
+        }),
+        LayoutNode::Slot(SlotNode {
+            id: "inspector",
+            sizing: Sizing::fractional(0.25, 0.0),
+            priority: 0.3,
+            collapsible: true,
+            display_tiers: INSPECTOR_TIERS,
+            collapse_label: Some("Inspector"),
+        }),
+    ]));
+    let root_children = Box::leak(Box::new([
+        LayoutNode::Slot(SlotNode {
+            id: "header",
+            sizing: Sizing::Fixed(44.0),
+            priority: 1.0,
+            collapsible: false,
+            display_tiers: &[],
+            collapse_label: None,
+        }),
+        LayoutNode::Container(ContainerNode {
+            id: "content",
+            axis: Axis::Horizontal,
+            auto_axis: Some(1.0),
+            sizing: Sizing::flex(0.0),
+            children: content_children,
+            divider_size: 6.0,
+        }),
+        LayoutNode::Slot(SlotNode {
+            id: "footer",
+            sizing: Sizing::Fixed(32.0),
+            priority: 1.0,
+            collapsible: false,
+            display_tiers: &[],
+            collapse_label: None,
+        }),
+    ]));
+    Box::leak(Box::new(LayoutNode::Container(ContainerNode {
+        id: "root",
+        axis: Axis::Vertical,
+        auto_axis: None,
+        sizing: Sizing::flex(0.0),
+        children: root_children,
+        divider_size: 0.0,
+    })))
+}
+
+thread_local! {
+    static SHOWCASE_LAYOUT_ROOT: &'static LayoutNode<'static> = build_showcase_layout_root();
+}
+
+fn showcase_layout_root() -> &'static LayoutNode<'static> {
+    SHOWCASE_LAYOUT_ROOT.with(|root| *root)
+}
+
+static DEFAULT_RATIOS: [(&str, Axis, f32); 4] = [
+    ("sidebar", Axis::Horizontal, 0.22),
+    ("sidebar", Axis::Vertical, 0.25),
+    ("inspector", Axis::Horizontal, 0.25),
+    ("inspector", Axis::Vertical, 0.20),
+];
+
+static DEFAULT_COLLAPSED: [(&str, bool); 2] = [("sidebar", false), ("inspector", false)];
 
 pub(super) struct ShowcaseView {
     pub(super) sidebar_ratio_h: f32,
@@ -33,10 +115,14 @@ pub(super) struct ShowcaseView {
     pub(super) drag_moved: bool,
     pub(super) selected_node: Option<String>,
     pub(super) render_probe: Option<Arc<AtomicUsize>>,
+    layout_solver: RetainedLayoutSolver<'static>,
+    layout_preferences: LayoutPreferences<'static>,
+    layout_root: &'static LayoutNode<'static>,
 }
 
 impl ShowcaseView {
     pub(super) fn new(render_probe: Option<Arc<AtomicUsize>>) -> Self {
+        let layout_root = showcase_layout_root();
         Self {
             sidebar_ratio_h: 0.22,
             sidebar_ratio_v: 0.25,
@@ -48,6 +134,9 @@ impl ShowcaseView {
             drag_moved: false,
             selected_node: Some("root".to_string()),
             render_probe,
+            layout_solver: RetainedLayoutSolver::with_capacity(layout_root.node_count()),
+            layout_preferences: LayoutPreferences::new(&DEFAULT_RATIOS, &DEFAULT_COLLAPSED),
+            layout_root,
         }
     }
 
@@ -98,8 +187,24 @@ impl ShowcaseView {
         }
 
         *ratio = next;
+        self.sync_layout_preferences();
         self.drag_moved = true;
         true
+    }
+
+    fn sync_layout_preferences(&mut self) {
+        self.layout_preferences
+            .set_ratio("sidebar", Axis::Horizontal, self.sidebar_ratio_h);
+        self.layout_preferences
+            .set_ratio("sidebar", Axis::Vertical, self.sidebar_ratio_v);
+        self.layout_preferences
+            .set_ratio("inspector", Axis::Horizontal, self.inspector_ratio_h);
+        self.layout_preferences
+            .set_ratio("inspector", Axis::Vertical, self.inspector_ratio_v);
+        self.layout_preferences
+            .set_collapsed("sidebar", self.sidebar_collapsed);
+        self.layout_preferences
+            .set_collapsed("inspector", self.inspector_collapsed);
     }
 
     pub(super) fn finish_drag(&mut self, position: Point<Pixels>) -> bool {
@@ -113,6 +218,7 @@ impl ShowcaseView {
                 DragTarget::Inspector => self.inspector_collapsed = !self.inspector_collapsed,
             }
         }
+        self.sync_layout_preferences();
         self.drag_moved = false;
         true
     }
@@ -127,6 +233,7 @@ impl Render for ShowcaseView {
                 window.on_next_frame(move |window, cx| {
                     view.update(cx, |view, cx| {
                         view.sidebar_collapsed = true;
+                        view.sync_layout_preferences();
                         cx.notify();
                     });
                     window.refresh();
@@ -140,89 +247,26 @@ impl Render for ShowcaseView {
         let w: f32 = bounds.size.width.into();
         let h: f32 = bounds.size.height.into();
 
-        let content_children: &[LayoutNode<'_>] = &[
-            LayoutNode::Slot(SlotNode {
-                id: "sidebar",
-                sizing: Sizing::fractional(0.22, 80.0),
-                priority: 0.5,
-                collapsible: true,
-                display_tiers: &[],
-                collapse_label: Some("Sidebar"),
-            }),
-            LayoutNode::Slot(SlotNode {
-                id: "main",
-                sizing: Sizing::flex(200.0),
-                priority: 1.0,
-                collapsible: false,
-                display_tiers: &[],
-                collapse_label: None,
-            }),
-            LayoutNode::Slot(SlotNode {
-                id: "inspector",
-                sizing: Sizing::fractional(0.25, 0.0),
-                priority: 0.3,
-                collapsible: true,
-                display_tiers: INSPECTOR_TIERS,
-                collapse_label: Some("Inspector"),
-            }),
-        ];
+        let solved = self
+            .layout_solver
+            .solve(self.layout_root, w, h, &self.layout_preferences);
 
-        let root_children: &[LayoutNode<'_>] = &[
-            LayoutNode::Slot(SlotNode {
-                id: "header",
-                sizing: Sizing::Fixed(44.0),
-                priority: 1.0,
-                collapsible: false,
-                display_tiers: &[],
-                collapse_label: None,
-            }),
-            LayoutNode::Container(ContainerNode {
-                id: "content",
-                axis: Axis::Horizontal,
-                auto_axis: Some(1.0),
-                sizing: Sizing::flex(0.0),
-                children: content_children,
-                divider_size: 6.0,
-            }),
-            LayoutNode::Slot(SlotNode {
-                id: "footer",
-                sizing: Sizing::Fixed(32.0),
-                priority: 1.0,
-                collapsible: false,
-                display_tiers: &[],
-                collapse_label: None,
-            }),
-        ];
-
-        let root = LayoutNode::Container(ContainerNode {
-            id: "root",
-            axis: Axis::Vertical,
-            auto_axis: None,
-            sizing: Sizing::flex(0.0),
-            children: root_children,
-            divider_size: 0.0,
-        });
-
-        let ratios = [
-            ("sidebar", Axis::Horizontal, self.sidebar_ratio_h),
-            ("sidebar", Axis::Vertical, self.sidebar_ratio_v),
-            ("inspector", Axis::Horizontal, self.inspector_ratio_h),
-            ("inspector", Axis::Vertical, self.inspector_ratio_v),
-        ];
-        let collapsed = [
-            ("sidebar", self.sidebar_collapsed),
-            ("inspector", self.inspector_collapsed),
-        ];
-        let prefs = LayoutPreferences::new(&ratios, &collapsed);
-
-        let solved = solve_tree(&root, w, h, &prefs);
         let selected_id = self.selected_node.as_deref().unwrap_or("root");
 
         let content = solved.find("content").unwrap();
         let is_h = content.resolved_axis() == Some(Axis::Horizontal);
         let header_h = solved.find("header").unwrap().height();
         let footer_h = solved.find("footer").unwrap().height();
-        let tabs = solved.collapsed_tabs();
+        let mut tab_storage = [("", ""); 2];
+        let mut tab_count = 0;
+        for slot in solved.collapsed_slots() {
+            debug_assert!(tab_count < tab_storage.len());
+            if let Some(tab) = tab_storage.get_mut(tab_count) {
+                *tab = (slot.id, slot.label);
+                tab_count += 1;
+            }
+        }
+        let tabs = &tab_storage[..tab_count];
 
         let sidebar = solved.find("sidebar").unwrap();
         let main_n = solved.find("main").unwrap();
@@ -326,7 +370,7 @@ impl Render for ShowcaseView {
                     ),
             )
             // ---- Content ----
-            .child(self.render_content(
+            .child(Self::render_content(
                 &solved,
                 selected_id,
                 is_h,
@@ -387,7 +431,6 @@ impl Render for ShowcaseView {
 impl ShowcaseView {
     #[allow(clippy::too_many_arguments)]
     pub(super) fn render_content(
-        &self,
         solved: &SolvedTree,
         selected_id: &str,
         is_h: bool,
@@ -450,7 +493,13 @@ impl ShowcaseView {
                     )
                 })
                 // Sidebar divider
-                .child(self.divider_v("sidebar", divider_color, accent, content_w, cx))
+                .child(Self::divider_v(
+                    "sidebar",
+                    divider_color,
+                    accent,
+                    content_w,
+                    cx,
+                ))
                 // Main
                 .child(
                     div()
@@ -458,7 +507,7 @@ impl ShowcaseView {
                         .h_full()
                         .min_w_0()
                         .overflow_hidden()
-                        .child(self.main_panel(
+                        .child(Self::main_panel(
                             main_n,
                             main_bg,
                             fg,
@@ -472,29 +521,35 @@ impl ShowcaseView {
                 )
                 // Inspector divider + panel
                 .when(inspector.visible(), |d: Stateful<Div>| {
-                    d.child(self.divider_v("inspector", divider_color, accent, content_w, cx))
-                        .child(
-                            div()
-                                .w(px(inspector.width()))
-                                .h_full()
-                                .min_w_0()
-                                .overflow_hidden()
-                                .when(selected_id == "inspector", |d| {
-                                    d.border_1().border_color(muted(accent, 0.8))
-                                })
-                                .child(self.visual_tree_inspector(
-                                    solved,
-                                    inspector,
-                                    selected_id,
-                                    inspector_bg,
-                                    fg,
-                                    theme,
-                                    &ds,
-                                    base_sz,
-                                    small_sz,
-                                    cx,
-                                )),
-                        )
+                    d.child(Self::divider_v(
+                        "inspector",
+                        divider_color,
+                        accent,
+                        content_w,
+                        cx,
+                    ))
+                    .child(
+                        div()
+                            .w(px(inspector.width()))
+                            .h_full()
+                            .min_w_0()
+                            .overflow_hidden()
+                            .when(selected_id == "inspector", |d| {
+                                d.border_1().border_color(muted(accent, 0.8))
+                            })
+                            .child(Self::visual_tree_inspector(
+                                solved,
+                                inspector,
+                                selected_id,
+                                inspector_bg,
+                                fg,
+                                theme,
+                                &ds,
+                                base_sz,
+                                small_sz,
+                                cx,
+                            )),
+                    )
                 })
                 .into_any_element()
         } else {
@@ -525,14 +580,20 @@ impl ShowcaseView {
                             )),
                     )
                 })
-                .child(self.divider_h("sidebar", divider_color, accent, content_h, cx))
+                .child(Self::divider_h(
+                    "sidebar",
+                    divider_color,
+                    accent,
+                    content_h,
+                    cx,
+                ))
                 .child(
                     div()
                         .flex_1()
                         .w_full()
                         .min_h_0()
                         .overflow_hidden()
-                        .child(self.main_panel(
+                        .child(Self::main_panel(
                             main_n,
                             main_bg,
                             fg,
@@ -545,29 +606,35 @@ impl ShowcaseView {
                         )),
                 )
                 .when(inspector.visible(), |d: Stateful<Div>| {
-                    d.child(self.divider_h("inspector", divider_color, accent, content_h, cx))
-                        .child(
-                            div()
-                                .h(px(inspector.height()))
-                                .w_full()
-                                .min_h_0()
-                                .overflow_hidden()
-                                .when(selected_id == "inspector", |d| {
-                                    d.border_1().border_color(muted(accent, 0.8))
-                                })
-                                .child(self.visual_tree_inspector(
-                                    solved,
-                                    inspector,
-                                    selected_id,
-                                    inspector_bg,
-                                    fg,
-                                    theme,
-                                    &ds,
-                                    base_sz,
-                                    small_sz,
-                                    cx,
-                                )),
-                        )
+                    d.child(Self::divider_h(
+                        "inspector",
+                        divider_color,
+                        accent,
+                        content_h,
+                        cx,
+                    ))
+                    .child(
+                        div()
+                            .h(px(inspector.height()))
+                            .w_full()
+                            .min_h_0()
+                            .overflow_hidden()
+                            .when(selected_id == "inspector", |d| {
+                                d.border_1().border_color(muted(accent, 0.8))
+                            })
+                            .child(Self::visual_tree_inspector(
+                                solved,
+                                inspector,
+                                selected_id,
+                                inspector_bg,
+                                fg,
+                                theme,
+                                &ds,
+                                base_sz,
+                                small_sz,
+                                cx,
+                            )),
+                    )
                 })
                 .into_any_element()
         }
@@ -578,7 +645,6 @@ impl ShowcaseView {
         reason = "showcase rendering helper keeps visual styling inputs explicit at call sites"
     )]
     pub(super) fn main_panel(
-        &self,
         node: gpui_builder::SolvedNodeRef<'_, '_>,
         bg: Rgba,
         fg: Rgba,
@@ -647,7 +713,6 @@ impl ShowcaseView {
 
     #[allow(clippy::too_many_arguments)]
     pub(super) fn visual_tree_inspector(
-        &self,
         solved: &SolvedTree,
         panel: gpui_builder::SolvedNodeRef<'_, '_>,
         selected_id: &str,
@@ -669,8 +734,7 @@ impl ShowcaseView {
         let tree_rows: Vec<AnyElement> = rows
             .into_iter()
             .map(|row| {
-                self.visual_tree_row(row, selected_id, theme, ds, small_sz, cx)
-                    .into_any_element()
+                Self::visual_tree_row(row, selected_id, theme, ds, small_sz, cx).into_any_element()
             })
             .collect();
 
@@ -752,7 +816,6 @@ impl ShowcaseView {
     }
 
     pub(super) fn visual_tree_row(
-        &self,
         row: VisualTreeRow,
         selected_id: &str,
         theme: &ShowcaseTheme,
@@ -831,7 +894,6 @@ impl ShowcaseView {
     }
 
     pub(super) fn divider_v(
-        &self,
         panel: &str,
         bg: Rgba,
         hover_bg: Rgba,
@@ -865,7 +927,6 @@ impl ShowcaseView {
     }
 
     pub(super) fn divider_h(
-        &self,
         panel: &str,
         bg: Rgba,
         hover_bg: Rgba,

@@ -248,6 +248,86 @@ struct MeshPlotElement {
     plot: MeshPlot,
 }
 
+#[cfg(feature = "gpu-2d")]
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum VelloColorScaleKey {
+    Builtin(u8),
+    Custom(usize),
+}
+
+#[cfg(feature = "gpu-2d")]
+#[derive(Clone, PartialEq)]
+struct VelloChartContentKey {
+    positions_ptr: usize,
+    triangles_ptr: usize,
+    field_values_ptr: Option<usize>,
+    field_valid_ptr: Option<usize>,
+    field_is_cell_associated: Option<bool>,
+    contour_bands_ptr: usize,
+    isolines_ptr: usize,
+    mode: MeshRenderMode,
+    wireframe: Wireframe,
+    color_scale: VelloColorScaleKey,
+    range: Option<[u64; 2]>,
+    viewport: [u64; 4],
+    equal_aspect: bool,
+}
+
+#[cfg(feature = "gpu-2d")]
+fn vello_color_scale_key(scale: &ColorScale) -> VelloColorScaleKey {
+    match scale {
+        ColorScale::Viridis => VelloColorScaleKey::Builtin(0),
+        ColorScale::Plasma => VelloColorScaleKey::Builtin(1),
+        ColorScale::Inferno => VelloColorScaleKey::Builtin(2),
+        ColorScale::Magma => VelloColorScaleKey::Builtin(3),
+        ColorScale::Heat => VelloColorScaleKey::Builtin(4),
+        ColorScale::Coolwarm => VelloColorScaleKey::Builtin(5),
+        ColorScale::Greys => VelloColorScaleKey::Builtin(6),
+        ColorScale::Custom(mapper) => {
+            VelloColorScaleKey::Custom(Arc::as_ptr(mapper) as *const () as usize)
+        }
+    }
+}
+
+#[cfg(feature = "gpu-2d")]
+fn vello_chart_content_key(
+    mesh: &TriangleMesh,
+    field: Option<&ScalarField>,
+    contour_bands: &Rc<Vec<ContourBand>>,
+    isolines: &Rc<Vec<IsolineSegment>>,
+    mode: &MeshRenderMode,
+    wireframe: Wireframe,
+    color_scale: &ColorScale,
+    range: Option<[f64; 2]>,
+    visible_x_domain: [f64; 2],
+    visible_y_domain: [f64; 2],
+    equal_aspect: bool,
+) -> VelloChartContentKey {
+    VelloChartContentKey {
+        positions_ptr: mesh.positions.as_ptr() as usize,
+        triangles_ptr: mesh.triangles.as_ptr() as usize,
+        field_values_ptr: field.map(|field| field.values.as_ptr() as usize),
+        field_valid_ptr: field
+            .and_then(|field| field.valid.as_ref())
+            .map(|valid| valid.as_ptr() as usize),
+        field_is_cell_associated: field
+            .map(|field| matches!(field.association, ScalarAssociation::Cell)),
+        contour_bands_ptr: Rc::as_ptr(contour_bands) as usize,
+        isolines_ptr: Rc::as_ptr(isolines) as usize,
+        mode: mode.clone(),
+        wireframe,
+        color_scale: vello_color_scale_key(color_scale),
+        range: range.map(|[min, max]| [min.to_bits(), max.to_bits()]),
+        viewport: [
+            visible_x_domain[0].to_bits(),
+            visible_x_domain[1].to_bits(),
+            visible_y_domain[0].to_bits(),
+            visible_y_domain[1].to_bits(),
+        ],
+        equal_aspect,
+    }
+}
+
 struct MeshPlotLiveElement {
     plot: MeshPlot,
     /// The most recent plot that successfully built a frame. Retaining the
@@ -318,6 +398,8 @@ impl RenderOnce for MeshPlotElement {
                     // patch can write only the scalar buffer instead of
                     // allocating a new geometry resource.
                     plot.retained_2d_draw_owner = live.plot.retained_2d_draw_owner.clone();
+                    plot.retained_vello_chart = live.plot.retained_vello_chart.clone();
+                    plot.retained_vello_content = live.plot.retained_vello_content.clone();
                 }
                 if (geometry_changed || field_changed)
                     && let Some(state) = plot.state.as_ref()
@@ -431,6 +513,10 @@ pub struct MeshPlot {
     prepared_planar_frame: Option<PreparedPlanarFrame>,
     #[cfg(all(feature = "gpu-2d", any(not(test), feature = "native-qa")))]
     retained_2d_draw_owner: Option<Rc<Mesh2dDrawOwner>>,
+    #[cfg(feature = "gpu-2d")]
+    retained_vello_chart: Option<Rc<RefCell<d3rs::vello2d::RetainedVelloChart>>>,
+    #[cfg(feature = "gpu-2d")]
+    retained_vello_content: Option<VelloChartContentKey>,
 }
 
 #[derive(Clone)]
@@ -1404,8 +1490,22 @@ impl MeshPlot {
             scene.into_any_element()
         } else {
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                let render =
-                    d3rs::vello2d::VelloChartElement::with_builder(move |width, height| {
+                let content_key = vello_chart_content_key(
+                    &mesh_for_render,
+                    field_for_render.as_ref(),
+                    &contour_bands,
+                    &isolines,
+                    &mode,
+                    wireframe,
+                    &color_scale,
+                    range_for_render,
+                    visible_x_domain,
+                    visible_y_domain,
+                    equal_aspect,
+                );
+                let scene_changed = self.retained_vello_content.as_ref() != Some(&content_key);
+                if scene_changed {
+                    let builder = move |width: f32, height: f32| {
                         use d3rs::vello2d::kurbo::{BezPath, PathEl, Stroke};
                         use d3rs::vello2d::peniko::{Brush, Color};
 
@@ -1533,8 +1633,22 @@ impl MeshPlot {
                             }
                         }
                         scene
-                    });
-                render.into_any_element()
+                    };
+                    if let Some(chart) = self.retained_vello_chart.as_ref() {
+                        chart.borrow_mut().set_builder(builder);
+                    } else {
+                        self.retained_vello_chart = Some(Rc::new(RefCell::new(
+                            d3rs::vello2d::RetainedVelloChart::new(builder),
+                        )));
+                    }
+                    self.retained_vello_content = Some(content_key);
+                }
+                d3rs::vello2d::RetainedVelloChartElement::new(Rc::clone(
+                    self.retained_vello_chart
+                        .as_ref()
+                        .expect("contour scene builder initializes retained Vello chart"),
+                ))
+                .into_any_element()
             }))
             .unwrap_or_else(|_| {
                 // Keep chart construction usable in headless/unit-test
@@ -2719,6 +2833,10 @@ pub fn mesh_plot(mesh: TriangleMesh) -> MeshPlot {
         prepared_planar_frame: None,
         #[cfg(all(feature = "gpu-2d", any(not(test), feature = "native-qa")))]
         retained_2d_draw_owner: None,
+        #[cfg(feature = "gpu-2d")]
+        retained_vello_chart: None,
+        #[cfg(feature = "gpu-2d")]
+        retained_vello_content: None,
     }
 }
 
@@ -2853,6 +2971,7 @@ fn build_retained_scene_state(
         geometry_rev: geometry_revision,
         field_rev: field_revision,
         upload: Some(upload),
+        vertex_colors: None,
         geometry_upload_count: 0,
         geometry_upload_bytes: 0,
         field_write_count: 0,
@@ -2956,6 +3075,7 @@ pub(crate) fn build_retained_3d_scene_state(
         geometry_rev: GeometryRevision(1),
         field_rev: FieldRevision(u64::from(render_field.is_some())),
         upload: Some(upload),
+        vertex_colors: None,
         geometry_upload_count: 0,
         geometry_upload_bytes: 0,
         field_write_count: 0,

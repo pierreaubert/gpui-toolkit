@@ -8,7 +8,6 @@ use gpui::{
 use log::warn;
 #[cfg(not(target_family = "wasm"))]
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
-#[cfg(feature = "headless-qa")]
 use std::cell::RefCell;
 use std::num::NonZeroU64;
 use std::rc::Rc;
@@ -85,6 +84,78 @@ struct PathRasterizationVertex {
     bounds: Bounds<ScaledPixels>,
 }
 
+/// Keep the most recent instance payload at each buffer offset so a present of
+/// an unchanged scene does not need to submit the same data to the queue again.
+/// The cache is intentionally bounded: a chart with highly dynamic or very
+/// large instance data should not trade transfer churn for unbounded CPU RAM.
+const MAX_INSTANCE_UPLOAD_CACHE_BYTES: usize = 8 * 1024 * 1024;
+
+struct CachedInstanceUpload {
+    offset: u64,
+    bytes: Box<[u8]>,
+}
+
+#[derive(Default)]
+struct InstanceUploadCache {
+    entries: Vec<CachedInstanceUpload>,
+    bytes: usize,
+    next_index: usize,
+    disabled_this_frame: bool,
+}
+
+impl InstanceUploadCache {
+    fn begin_frame(&mut self) {
+        self.next_index = 0;
+        self.disabled_this_frame = false;
+    }
+
+    fn clear(&mut self) {
+        self.entries.clear();
+        self.bytes = 0;
+        self.next_index = 0;
+        self.disabled_this_frame = false;
+    }
+
+    /// Returns true when `data` must be written to the GPU buffer.
+    fn needs_upload(&mut self, offset: u64, data: &[u8]) -> bool {
+        if self.disabled_this_frame {
+            return true;
+        }
+
+        let index = self.next_index;
+        self.next_index += 1;
+        if let Some(entry) = self.entries.get(index)
+            && entry.offset == offset
+            && entry.bytes.as_ref() == data
+        {
+            return false;
+        }
+
+        let replaced_bytes = self.entries.get(index).map_or(0, |entry| entry.bytes.len());
+        let new_total = self
+            .bytes
+            .saturating_sub(replaced_bytes)
+            .saturating_add(data.len());
+        if new_total > MAX_INSTANCE_UPLOAD_CACHE_BYTES {
+            self.clear();
+            self.disabled_this_frame = true;
+            return true;
+        }
+
+        let entry = CachedInstanceUpload {
+            offset,
+            bytes: data.into(),
+        };
+        if let Some(previous) = self.entries.get_mut(index) {
+            *previous = entry;
+        } else {
+            self.entries.push(entry);
+        }
+        self.bytes = new_total;
+        true
+    }
+}
+
 pub struct WgpuRenderer {
     /// Shared GPU context for device recovery coordination (unused on WASM).
     #[allow(dead_code)]
@@ -111,6 +182,7 @@ pub struct WgpuRenderer {
     failed_frame_count: u32,
     device_lost: std::sync::Arc<std::sync::atomic::AtomicBool>,
     needs_redraw: bool,
+    instance_upload_cache: RefCell<InstanceUploadCache>,
 }
 
 impl WgpuRenderer {
@@ -519,6 +591,7 @@ impl WgpuRenderer {
             failed_frame_count: 0,
             device_lost: context.device_lost_flag(),
             needs_redraw: false,
+            instance_upload_cache: RefCell::new(InstanceUploadCache::default()),
         };
         gpui::set_wgpu_custom_draw_available(has_context);
         Ok(renderer)
@@ -1091,6 +1164,7 @@ impl WgpuRenderer {
     pub fn draw(&mut self, scene: &Scene) {
         let last_error = self.last_error.lock().unwrap().take();
         if let Some(error) = last_error {
+            self.instance_upload_cache.borrow_mut().clear();
             self.failed_frame_count += 1;
             log::error!(
                 "GPU error during frame (failure {} of 20): {error}",
@@ -1103,6 +1177,7 @@ impl WgpuRenderer {
             self.failed_frame_count = 0;
         }
 
+        self.instance_upload_cache.borrow_mut().begin_frame();
         self.atlas.before_frame();
 
         let frame = {
@@ -1970,6 +2045,7 @@ impl WgpuRenderer {
             mapped_at_creation: false,
         });
         self.instance_buffer_capacity = new_capacity;
+        self.instance_upload_cache.borrow_mut().clear();
     }
 
     fn write_to_instance_buffer(
@@ -1982,10 +2058,16 @@ impl WgpuRenderer {
         if offset + size > self.instance_buffer_capacity {
             return None;
         }
-        let resources = self.resources();
-        resources
-            .queue
-            .write_buffer(&resources.instance_buffer, offset, data);
+        if self
+            .instance_upload_cache
+            .borrow_mut()
+            .needs_upload(offset, data)
+        {
+            let resources = self.resources();
+            resources
+                .queue
+                .write_buffer(&resources.instance_buffer, offset, data);
+        }
         *instance_offset = offset + size;
         Some((offset, NonZeroU64::new(size).expect("size is at least 16")))
     }
@@ -2257,6 +2339,33 @@ impl gpui::PlatformHeadlessRenderer for WgpuHeadlessRenderer {
 #[cfg(test)]
 mod custom_draw_tests {
     use super::*;
+
+    #[test]
+    fn instance_upload_cache_only_skips_exact_repeated_payloads() {
+        let mut cache = InstanceUploadCache::default();
+        let payload = [1, 2, 3, 4];
+
+        cache.begin_frame();
+        assert!(cache.needs_upload(0, &payload));
+
+        cache.begin_frame();
+        assert!(!cache.needs_upload(0, &payload));
+
+        cache.begin_frame();
+        assert!(cache.needs_upload(16, &payload));
+        assert!(cache.needs_upload(32, &[1, 2, 3, 5]));
+    }
+
+    #[test]
+    fn instance_upload_cache_disables_itself_for_oversized_frames() {
+        let mut cache = InstanceUploadCache::default();
+        let payload = vec![0; MAX_INSTANCE_UPLOAD_CACHE_BYTES + 1];
+
+        cache.begin_frame();
+        assert!(cache.needs_upload(0, &payload));
+        assert!(cache.entries.is_empty());
+        assert!(cache.disabled_this_frame);
+    }
 
     #[test]
     fn custom_draw_bounds_are_clipped_by_the_ancestor_content_mask() {

@@ -3861,11 +3861,12 @@ impl Render for ComponentLab {
                             )
                             .child(self.controls_panel_entity.clone()),
                     ),
-            )
-            .child(self.render_alloc_overlay(cx));
+            );
 
         self.last_render_alloc = self.record_sample("render");
-        result.into_any_element()
+        result
+            .child(self.render_alloc_overlay(cx))
+            .into_any_element()
     }
 }
 

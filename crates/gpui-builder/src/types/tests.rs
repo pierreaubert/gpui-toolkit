@@ -244,6 +244,18 @@ fn layout_preferences_accessors_expose_maps() {
 }
 
 #[test]
+fn layout_preferences_updates_existing_overrides() {
+    let mut prefs =
+        LayoutPreferences::new(&[("panel", Axis::Horizontal, 0.2)], &[("panel", false)]);
+
+    prefs.set_ratio("panel", Axis::Horizontal, 0.6);
+    prefs.set_collapsed("panel", true);
+
+    assert_eq!(prefs.ratio_for("panel", Axis::Horizontal), Some(0.6));
+    assert!(prefs.is_collapsed("panel"));
+}
+
+#[test]
 fn layout_node_constructors_and_from_impls() {
     let slot = SlotNode::new("s", Sizing::Fixed(1.0));
     let container = ContainerNode::new("c", Axis::Vertical, Sizing::flex(0.0), &[]);

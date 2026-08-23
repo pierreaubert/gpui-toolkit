@@ -13,15 +13,12 @@ impl ThemeGallery {
     pub fn from_built_ins() -> Self {
         let entries = BuiltInThemePreset::all()
             .iter()
-            .map(|preset| {
-                let theme = preset.to_theme();
-                ThemeGalleryEntry {
-                    id: preset.id().to_string(),
-                    display_name: preset.name().to_string(),
-                    tags: vec!["built-in".to_string()],
-                    accessibility: preset.accessibility(),
-                    appearance: theme.appearance(),
-                }
+            .map(|preset| ThemeGalleryEntry {
+                id: preset.id().to_string(),
+                display_name: preset.name().to_string(),
+                tags: vec!["built-in".to_string()],
+                accessibility: preset.accessibility(),
+                appearance: preset.appearance(),
             })
             .collect();
         Self { entries }

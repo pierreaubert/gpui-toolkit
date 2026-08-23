@@ -81,13 +81,23 @@ impl ChassisLayout {
     ///    min_width` of visible sections (clamped at preferred_width).
     /// 4. Any leftover space flexes the highest-priority visible section.
     pub fn solve(&self, available_width: f32) -> SolvedChassis {
+        let mut solved = SolvedChassis {
+            sections: Vec::new(),
+            total_width: 0.0,
+        };
+        self.solve_into(available_width, &mut solved);
+        solved
+    }
+
+    /// Solve into a caller-retained result, reusing its section and id
+    /// allocations across interactive layout updates.
+    pub fn solve_into(&self, available_width: f32, solved: &mut SolvedChassis) {
         let n = self.sections.len();
 
         if n == 0 {
-            return SolvedChassis {
-                sections: vec![],
-                total_width: 0.0,
-            };
+            solved.sections.clear();
+            solved.total_width = 0.0;
+            return;
         }
 
         with_chassis_scratch(n, |visible, widths, visible_indices| {
@@ -193,22 +203,27 @@ impl ChassisLayout {
 
             let total_width: f32 = visible_indices.iter().map(|&i| widths[i]).sum();
 
-            let solved_sections: Vec<SolvedSection> = (0..n)
-                .map(|i| SolvedSection {
+            let reused_count = solved.sections.len().min(n);
+            for i in 0..reused_count {
+                let section = &mut solved.sections[i];
+                section.id.clone_from(&self.sections[i].id);
+                section.width = widths[i];
+                section.visible = visible[i];
+            }
+
+            solved.sections.truncate(n);
+            for i in reused_count..n {
+                solved.sections.push(SolvedSection {
                     id: self.sections[i].id.clone(),
                     width: widths[i],
                     visible: visible[i],
-                })
-                .collect();
-
-            SolvedChassis {
-                sections: solved_sections,
-                total_width: if clipped {
-                    available_width
-                } else {
-                    total_width
-                },
+                });
             }
+            solved.total_width = if clipped {
+                available_width
+            } else {
+                total_width
+            };
         })
     }
 }

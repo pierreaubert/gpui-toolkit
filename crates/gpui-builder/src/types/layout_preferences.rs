@@ -40,6 +40,16 @@ impl<'a> LayoutPreferences<'a> {
         &self.collapsed
     }
 
+    /// Update a ratio override while retaining the existing lookup map.
+    pub fn set_ratio(&mut self, id: &'a str, axis: Axis, ratio: f32) {
+        self.ratios.insert((id, axis), ratio);
+    }
+
+    /// Update an explicit collapse override while retaining the existing lookup map.
+    pub fn set_collapsed(&mut self, id: &'a str, collapsed: bool) {
+        self.collapsed.insert(id, collapsed);
+    }
+
     /// Look up the user's ratio override for a slot in a given axis.
     pub fn ratio_for(&self, id: &str, axis: Axis) -> Option<f32> {
         self.ratios.get(&(id, axis)).copied()

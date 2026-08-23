@@ -159,6 +159,13 @@ fn platform_safe_area_insets() -> (f32, f32, f32, f32) {
 fn showcase_scroll_diag(message: impl FnOnce() -> String) {
     #[cfg(target_os = "ios")]
     {
+        static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        if !*ENABLED.get_or_init(|| {
+            cfg!(debug_assertions) && std::env::var_os("GPUI_SHOWCASE_SCROLL_DIAG").is_some()
+        }) {
+            return;
+        }
+
         use std::io::Write;
 
         let message = message();

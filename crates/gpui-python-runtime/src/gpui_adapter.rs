@@ -10,6 +10,11 @@ use d3rs::gpu3d::{
     Colormap, Line3D, Lines3DElement, Lines3DScene, Lines3DState, Polygon3D, Surface3DConfig,
     Surface3DElement, Surface3DState, SurfaceData,
 };
+use d3rs::mesh::MeshUpload;
+use d3rs::mesh::gpu::{
+    FieldRevision, GeometryRevision, MeshColorConfig, MeshSceneElement, MeshSceneState,
+    WgpuMesh3DRenderer,
+};
 use glam::Vec3;
 use gpui::Rgba;
 use std::cell::RefCell;
@@ -22,10 +27,12 @@ pub struct Gpui3DCache {
     surfaces: HashMap<String, Surface3DElement>,
     line_states: HashMap<String, Rc<RefCell<Lines3DState>>>,
     lines: HashMap<String, Lines3DElement>,
-    meshes: HashMap<String, Lines3DElement>,
+    meshes: HashMap<String, MeshSceneElement>,
     mesh_states: HashMap<String, Rc<RefCell<Lines3DState>>>,
     scene_states: HashMap<String, Rc<RefCell<Lines3DState>>>,
-    scenes: HashMap<String, Lines3DElement>,
+    scenes: HashMap<String, MeshSceneElement>,
+    gpu_states: HashMap<String, Rc<RefCell<MeshSceneState>>>,
+    gpu_renderers: HashMap<String, Rc<WgpuMesh3DRenderer>>,
 }
 
 /// Host-side retained state for declarative mesh plots.
@@ -152,52 +159,31 @@ impl Gpui3DCache {
         Ok(element)
     }
 
-    /// Build a retained mesh element using the same camera and GPUI path
-    /// renderer as sparse 3D lines. Mesh vertices are normalized to a unit
-    /// cube, then emitted as filled triangle polygons with the requested
-    /// material. This is a real renderer path rather than a validation-only
-    /// summary, while keeping dense GPU surface rendering separate.
-    pub fn mesh_element(&mut self, spec: &MeshSpec) -> Result<Lines3DElement, Scene3DError> {
+    /// Build a retained indexed mesh GPU draw while retaining the same orbit
+    /// state used by sparse 3D lines. Material colors are passed directly to
+    /// the WGPU vertex stream instead of expanding triangles into CPU paths.
+    pub fn mesh_element(&mut self, spec: &MeshSpec) -> Result<MeshSceneElement, Scene3DError> {
         let update = self.resources.upsert_mesh(spec)?;
         if update.dirty.is_unchanged()
             && let Some(element) = self.meshes.get(&spec.id)
         {
+            if let (Some(renderer), Some(state)) = (
+                self.gpu_renderers.get(&spec.id),
+                self.mesh_states.get(&spec.id),
+            ) {
+                renderer.set_camera(&state.borrow().camera);
+            }
             return Ok(element.clone());
         }
 
-        let (min, max) = mesh_bounds(spec);
-        let center = (min + max) * 0.5;
-        let extent = (max - min).max_element().max(f32::EPSILON);
-        let scale = 2.0 / extent;
-        let normalized = |point: Point3| (vec3(point) - center) * scale;
-        let mut polygons = Vec::with_capacity(spec.indices.len() / 3);
-        for (triangle_index, triangle) in spec.indices.chunks_exact(3).enumerate() {
-            let mut vertices = Vec::with_capacity(3);
-            vertices.extend(
-                triangle
-                    .iter()
-                    .map(|&index| normalized(spec.vertices[index as usize])),
-            );
-            polygons.push(Polygon3D {
-                vertices,
-                fill: Some(mesh_triangle_fill(spec, triangle, triangle_index)),
-                stroke: None,
-            });
-        }
         let state = match self.mesh_states.entry(spec.id.clone()) {
             Entry::Occupied(entry) => entry.get().clone(),
             Entry::Vacant(entry) => entry
                 .insert(Rc::new(RefCell::new(Lines3DState::default())))
                 .clone(),
         };
-        let element = Lines3DElement::new(
-            state,
-            Lines3DScene {
-                background: None,
-                lines: Vec::new(),
-                polygons,
-            },
-        );
+        let (upload, vertex_colors) = mesh_gpu_upload(spec);
+        let element = self.gpu_element(&spec.id, state, upload, vertex_colors, false);
         self.meshes.insert(spec.id.clone(), element.clone());
         Ok(element)
     }
@@ -206,7 +192,7 @@ impl Gpui3DCache {
     /// retained orbit state. Geometry/material/camera fingerprints are tracked
     /// independently, so camera-only patches preserve the element and its GPU
     /// scene while geometry/material patches rebuild only the draw data.
-    pub fn scene_element(&mut self, spec: &SceneSpec) -> Result<Lines3DElement, Scene3DError> {
+    pub fn scene_element(&mut self, spec: &SceneSpec) -> Result<MeshSceneElement, Scene3DError> {
         let update = self.resources.upsert_scene(spec)?;
         let state = match self.scene_states.entry(spec.id.clone()) {
             Entry::Occupied(entry) => entry.get().clone(),
@@ -220,12 +206,70 @@ impl Gpui3DCache {
         if update.dirty.is_unchanged()
             && let Some(element) = self.scenes.get(&spec.id)
         {
+            if let Some(renderer) = self.gpu_renderers.get(&spec.id) {
+                renderer.set_camera(&state.borrow().camera);
+            }
             return Ok(element.clone());
         }
 
-        let element = Lines3DElement::new(state, scene_scene(spec));
+        let (upload, vertex_colors, wireframe) = scene_gpu_upload(spec);
+        let element = self.gpu_element(&spec.id, state, upload, vertex_colors, wireframe);
         self.scenes.insert(spec.id.clone(), element.clone());
         Ok(element)
+    }
+
+    fn gpu_element(
+        &mut self,
+        id: &str,
+        orbit_state: Rc<RefCell<Lines3DState>>,
+        upload: MeshUpload,
+        vertex_colors: Vec<[f32; 4]>,
+        wireframe: bool,
+    ) -> MeshSceneElement {
+        let state = self
+            .gpu_states
+            .entry(id.to_string())
+            .or_insert_with(|| {
+                Rc::new(RefCell::new(MeshSceneState {
+                    geometry_rev: GeometryRevision(0),
+                    field_rev: FieldRevision(0),
+                    ..MeshSceneState::default()
+                }))
+            })
+            .clone();
+
+        let changed = {
+            let current = state.borrow();
+            current.upload.as_ref() != Some(&upload)
+                || current.vertex_colors != Some(vertex_colors.clone())
+        };
+        if changed {
+            let mut current = state.borrow_mut();
+            current.geometry_rev = GeometryRevision(current.geometry_rev.0.saturating_add(1));
+            current.field_rev = FieldRevision(current.field_rev.0.saturating_add(1));
+            current.upload = Some(upload);
+            current.vertex_colors = Some(vertex_colors);
+            current.color = MeshColorConfig {
+                // Direct RGBA material colors are already lit by the typed
+                // scene adapter, so every child can share one depth pass.
+                unlit: true,
+                wireframe,
+                ..MeshColorConfig::default()
+            };
+        }
+
+        let renderer = self
+            .gpu_renderers
+            .entry(id.to_string())
+            .or_insert_with(|| {
+                Rc::new(WgpuMesh3DRenderer::new_with_camera(
+                    state.clone(),
+                    Rc::new(RefCell::new(orbit_state.borrow().camera.clone())),
+                ))
+            })
+            .clone();
+        renderer.set_camera(&orbit_state.borrow().camera);
+        MeshSceneElement::new(state).with_custom_id(renderer.custom_id())
     }
 
     pub fn retain_only<I, S>(&mut self, ids: I)
@@ -243,6 +287,8 @@ impl Gpui3DCache {
         self.mesh_states.retain(|id, _| live.contains(id));
         self.scene_states.retain(|id, _| live.contains(id));
         self.scenes.retain(|id, _| live.contains(id));
+        self.gpu_states.retain(|id, _| live.contains(id));
+        self.gpu_renderers.retain(|id, _| live.contains(id));
     }
 
     /// Shared state for a retained lines viewport. The host owns transient
@@ -272,6 +318,343 @@ fn mesh_bounds(spec: &MeshSpec) -> (Vec3, Vec3) {
         max = max.max(vertex);
     }
     (min, max)
+}
+
+fn push_colored_triangle(
+    positions: &mut Vec<[f32; 3]>,
+    colors: &mut Vec<[f32; 4]>,
+    indices: &mut Vec<u32>,
+    vertices: [Point3; 3],
+    color: Rgba,
+    normalize: impl Fn(Point3) -> Vec3,
+) {
+    let base = positions.len() as u32;
+    positions.extend(
+        vertices
+            .into_iter()
+            .map(|point| normalize(point).to_array()),
+    );
+    colors.extend(std::iter::repeat_n([color.r, color.g, color.b, color.a], 3));
+    indices.extend([base, base + 1, base + 2]);
+}
+
+fn push_colored_line(
+    positions: &mut Vec<[f32; 3]>,
+    colors: &mut Vec<[f32; 4]>,
+    edges: &mut Vec<u32>,
+    from: Point3,
+    to: Point3,
+    color: Rgba,
+    normalize: impl Fn(Point3) -> Vec3,
+) {
+    let base = positions.len() as u32;
+    positions.extend([normalize(from).to_array(), normalize(to).to_array()]);
+    let color = [color.r, color.g, color.b, color.a];
+    colors.extend([color, color]);
+    edges.extend([base, base + 1]);
+}
+
+fn mesh_gpu_upload(spec: &MeshSpec) -> (MeshUpload, Vec<[f32; 4]>) {
+    let (min, max) = mesh_bounds(spec);
+    let center = (min + max) * 0.5;
+    let scale = 2.0 / (max - min).max_element().max(f32::EPSILON);
+    let normalize = |point: Point3| (vec3(point) - center) * scale;
+    let mut positions = Vec::with_capacity(spec.indices.len());
+    let mut colors = Vec::with_capacity(spec.indices.len());
+    let mut indices = Vec::with_capacity(spec.indices.len());
+    for (triangle_index, triangle) in spec.indices.chunks_exact(3).enumerate() {
+        let vertices = [
+            spec.vertices[triangle[0] as usize],
+            spec.vertices[triangle[1] as usize],
+            spec.vertices[triangle[2] as usize],
+        ];
+        push_colored_triangle(
+            &mut positions,
+            &mut colors,
+            &mut indices,
+            vertices,
+            mesh_triangle_fill(spec, triangle, triangle_index),
+            normalize,
+        );
+    }
+    (
+        MeshUpload {
+            positions_f32: positions,
+            origin: [0.0; 3],
+            indices,
+            edge_indices: Vec::new(),
+            values_f32: None,
+            cell_values_f32: None,
+        },
+        colors,
+    )
+}
+
+fn scene_gpu_upload(spec: &SceneSpec) -> (MeshUpload, Vec<[f32; 4]>, bool) {
+    let (min, max) = scene_bounds(spec);
+    let center = (min + max) * 0.5;
+    let scale = 2.0 / (max - min).max_element().max(f32::EPSILON);
+    let normalize = |point: Point3| (vec3(point) - center) * scale;
+    let lights = spec
+        .children
+        .iter()
+        .filter_map(|child| match child {
+            SceneNode::Light(light) => Some(light),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    let mut positions = Vec::new();
+    let mut colors = Vec::new();
+    let mut indices = Vec::new();
+    let mut edges = Vec::new();
+
+    for child in &spec.children {
+        match child {
+            SceneNode::Lines(lines) => {
+                for segment in lines.flattened_segments() {
+                    push_colored_line(
+                        &mut positions,
+                        &mut colors,
+                        &mut edges,
+                        segment.from,
+                        segment.to,
+                        rgba(segment.color),
+                        normalize,
+                    );
+                }
+            }
+            SceneNode::Mesh(mesh) => {
+                for (triangle_index, triangle) in mesh.indices.chunks_exact(3).enumerate() {
+                    let vertices = [
+                        mesh.vertices[triangle[0] as usize],
+                        mesh.vertices[triangle[1] as usize],
+                        mesh.vertices[triangle[2] as usize],
+                    ];
+                    let color = scene_lit_color(
+                        mesh_triangle_fill(mesh, triangle, triangle_index),
+                        &vertices,
+                        &lights,
+                    );
+                    push_colored_triangle(
+                        &mut positions,
+                        &mut colors,
+                        &mut indices,
+                        vertices,
+                        color,
+                        normalize,
+                    );
+                }
+            }
+            SceneNode::Surface(surface) => {
+                let xs = surface.x_values();
+                let ys = surface.y_values();
+                let (z_flat, width, height) = surface.z.as_flat();
+                let (minimum, maximum) = surface.z_range.map_or_else(
+                    || {
+                        surface
+                            .z
+                            .values
+                            .iter()
+                            .fold((f64::INFINITY, f64::NEG_INFINITY), |(min, max), value| {
+                                (min.min(*value), max.max(*value))
+                            })
+                    },
+                    |range| (range.min, range.max),
+                );
+                for row in 0..height.saturating_sub(1) {
+                    for column in 0..width.saturating_sub(1) {
+                        let first = row * width + column;
+                        for cell in [
+                            [first, first + 1, first + width],
+                            [first + 1, first + width + 1, first + width],
+                        ] {
+                            let vertices = cell.map(|index| {
+                                let row = index / width;
+                                let column = index % width;
+                                Point3::new(xs[column] as f32, ys[row] as f32, z_flat[index] as f32)
+                            });
+                            let value =
+                                vertices.iter().map(|point| point.z as f64).sum::<f64>() / 3.0;
+                            let normalized_value = if maximum > minimum {
+                                ((value - minimum) / (maximum - minimum)).clamp(0.0, 1.0) as f32
+                            } else {
+                                0.5
+                            };
+                            let color = scene_lit_color(
+                                scalar_color(surface.colormap, normalized_value),
+                                &vertices,
+                                &lights,
+                            );
+                            if surface.wireframe {
+                                push_colored_line(
+                                    &mut positions,
+                                    &mut colors,
+                                    &mut edges,
+                                    vertices[0],
+                                    vertices[1],
+                                    color,
+                                    normalize,
+                                );
+                                push_colored_line(
+                                    &mut positions,
+                                    &mut colors,
+                                    &mut edges,
+                                    vertices[1],
+                                    vertices[2],
+                                    color,
+                                    normalize,
+                                );
+                                push_colored_line(
+                                    &mut positions,
+                                    &mut colors,
+                                    &mut edges,
+                                    vertices[2],
+                                    vertices[0],
+                                    color,
+                                    normalize,
+                                );
+                            } else {
+                                push_colored_triangle(
+                                    &mut positions,
+                                    &mut colors,
+                                    &mut indices,
+                                    vertices,
+                                    color,
+                                    normalize,
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+            SceneNode::Light(_) => {}
+        }
+    }
+
+    let wireframe = !edges.is_empty();
+    (
+        MeshUpload {
+            positions_f32: positions,
+            origin: [0.0; 3],
+            indices,
+            edge_indices: edges,
+            values_f32: None,
+            cell_values_f32: None,
+        },
+        colors,
+        wireframe,
+    )
+}
+
+fn scene_bounds(spec: &SceneSpec) -> (Vec3, Vec3) {
+    let mut bounds: Option<(Vec3, Vec3)> = None;
+    let mut include = |point: Point3| {
+        let point = vec3(point);
+        bounds = Some(match bounds {
+            Some((min, max)) => (min.min(point), max.max(point)),
+            None => (point, point),
+        });
+    };
+    for child in &spec.children {
+        match child {
+            SceneNode::Lines(lines) => {
+                for segment in lines.flattened_segments() {
+                    include(segment.from);
+                    include(segment.to);
+                }
+            }
+            SceneNode::Mesh(mesh) => mesh.vertices.iter().copied().for_each(&mut include),
+            SceneNode::Surface(surface) => {
+                surface_points(surface).into_iter().for_each(&mut include)
+            }
+            SceneNode::Light(_) => {}
+        }
+    }
+    bounds.unwrap_or((Vec3::ZERO, Vec3::ONE))
+}
+
+#[allow(dead_code)] // Reserved for a non-WGPU platform fallback.
+fn mesh_polygons(spec: &MeshSpec) -> Vec<Polygon3D> {
+    let (min, max) = mesh_bounds(spec);
+    let center = (min + max) * 0.5;
+    let scale = 2.0 / (max - min).max_element().max(f32::EPSILON);
+    let normalize = |point: Point3| (vec3(point) - center) * scale;
+    spec.indices
+        .chunks_exact(3)
+        .enumerate()
+        .map(|(triangle_index, triangle)| Polygon3D {
+            vertices: triangle
+                .iter()
+                .map(|&index| normalize(spec.vertices[index as usize]))
+                .collect(),
+            fill: Some(mesh_triangle_fill(spec, triangle, triangle_index)),
+            stroke: None,
+        })
+        .collect()
+}
+
+/// Convert the typed CPU scene into one indexed GPU upload. Positions in the
+/// `Lines3DScene` are already normalized by `scene_scene`, and colors include
+/// each mesh material, surface colormap, opacity, and declarative lighting.
+/// Keeping all triangles in one draw is what gives overlapping scene children
+/// a single depth buffer instead of GPUI-child paint ordering.
+#[allow(dead_code)] // Reserved for a non-WGPU platform fallback.
+fn legacy_scene_gpu_upload(scene: &Lines3DScene) -> (MeshUpload, Vec<[f32; 4]>) {
+    let triangle_vertices = scene
+        .polygons
+        .iter()
+        .map(|polygon| polygon.vertices.len())
+        .sum();
+    let mut positions = Vec::with_capacity(triangle_vertices + scene.lines.len() * 2);
+    let mut colors = Vec::with_capacity(positions.capacity());
+    let mut indices = Vec::with_capacity(triangle_vertices);
+    let mut edges = Vec::new();
+
+    for polygon in &scene.polygons {
+        let Some(color) = polygon
+            .fill
+            .or_else(|| polygon.stroke.map(|(color, _)| color))
+        else {
+            continue;
+        };
+        let base = positions.len() as u32;
+        positions.extend(polygon.vertices.iter().map(|point| point.to_array()));
+        colors.extend(std::iter::repeat_n(
+            [color.r, color.g, color.b, color.a],
+            polygon.vertices.len(),
+        ));
+        for index in 1..polygon.vertices.len().saturating_sub(1) {
+            indices.extend([base, base + index as u32, base + index as u32 + 1]);
+        }
+        if polygon.stroke.is_some() {
+            for index in 0..polygon.vertices.len() {
+                edges.extend([
+                    base + index as u32,
+                    base + ((index + 1) % polygon.vertices.len()) as u32,
+                ]);
+            }
+        }
+    }
+
+    for line in &scene.lines {
+        let base = positions.len() as u32;
+        positions.extend([line.from.to_array(), line.to.to_array()]);
+        let color = [line.color.r, line.color.g, line.color.b, line.color.a];
+        colors.extend([color, color]);
+        edges.extend([base, base + 1]);
+    }
+
+    (
+        MeshUpload {
+            positions_f32: positions,
+            origin: [0.0; 3],
+            indices,
+            edge_indices: edges,
+            values_f32: None,
+            cell_values_f32: None,
+        },
+        colors,
+    )
 }
 
 fn surface_data(spec: &SurfaceSpec) -> SurfaceData {
@@ -368,6 +751,7 @@ fn scene_state(spec: &SceneSpec) -> Result<Lines3DState, Scene3DError> {
     ))
 }
 
+#[allow(dead_code)] // Reserved for a non-WGPU platform fallback.
 fn scene_scene(spec: &SceneSpec) -> Lines3DScene {
     let points = spec
         .children
@@ -469,6 +853,7 @@ fn surface_points(spec: &SurfaceSpec) -> Vec<Point3> {
     points
 }
 
+#[allow(dead_code)] // Used only by the retained CPU fallback above.
 fn surface_polygons(
     spec: &SurfaceSpec,
     normalize: &impl Fn(Point3) -> Vec3,
@@ -630,6 +1015,44 @@ fn rgba(color: ColorRgba) -> Rgba {
 mod tests {
     use super::*;
     use crate::scene3d::{CameraSpec, LineStripSpec, PerspectiveCameraSpec};
+
+    #[test]
+    fn indexed_mesh_uses_one_retained_gpu_upload_with_direct_colors() {
+        let spec = MeshSpec {
+            id: "gpu-mesh".into(),
+            vertices: vec![
+                Point3::new(-1.0, -1.0, 0.0),
+                Point3::new(1.0, -1.0, 0.0),
+                Point3::new(0.0, 1.0, 0.0),
+            ],
+            indices: vec![0, 1, 2],
+            material: crate::scene3d::MaterialSpec {
+                color: ColorRgba {
+                    r: 0.2,
+                    g: 0.4,
+                    b: 0.6,
+                    a: 0.5,
+                },
+                opacity: 0.5,
+            },
+            scalar_field: None,
+        };
+        let mut cache = Gpui3DCache::new();
+
+        cache.mesh_element(&spec).expect("valid mesh");
+        let state = cache
+            .gpu_states
+            .get("gpu-mesh")
+            .expect("retained state")
+            .borrow();
+        let upload = state.upload.as_ref().expect("geometry upload");
+        assert_eq!(upload.indices, vec![0, 1, 2]);
+        assert_eq!(state.vertex_colors.as_ref().map(Vec::len), Some(3));
+        assert_eq!(
+            state.vertex_colors.as_ref().expect("direct colors")[0],
+            [0.2, 0.4, 0.6, 0.25]
+        );
+    }
 
     #[test]
     fn retained_surface_cache_reuses_element_state() {

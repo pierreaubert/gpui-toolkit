@@ -53,7 +53,10 @@ pub fn layout_with_lines<'a>(
         };
     }
 
-    let mut lines = Vec::new();
+    // The line-break count is allocation-free and gives the exact capacity
+    // needed before we materialize line text/cursors below.
+    let expected_line_count = count_prepared_lines(&data, max_width, profile);
+    let mut lines = Vec::with_capacity(expected_line_count);
     let segments = &prepared.segments;
     let kinds = &prepared.core.kinds;
 
@@ -83,6 +86,7 @@ pub fn layout_with_lines<'a>(
             });
         }),
     );
+    debug_assert_eq!(line_count, expected_line_count);
 
     LayoutLinesResult {
         line_count,

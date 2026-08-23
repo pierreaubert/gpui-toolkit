@@ -165,7 +165,7 @@ impl MeasureCache {
                         .iter()
                         .map(|(start, end)| self.get_width(&seg[*start..*end], measure)),
                 );
-                let widths_arc: Arc<[f64]> = Arc::from(widths.clone());
+                let widths_arc: Arc<[f64]> = Arc::from(widths.as_slice());
                 widths.clear();
                 widths_arc
             });
@@ -218,7 +218,7 @@ impl MeasureCache {
                 running += *w;
                 *w = running;
             }
-            let prefix_arc: Arc<[f64]> = Arc::from(scratch.clone());
+            let prefix_arc: Arc<[f64]> = Arc::from(scratch.as_slice());
             scratch.clear();
             prefix_arc
         });

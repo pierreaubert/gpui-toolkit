@@ -62,6 +62,19 @@ fn wide_chassis_all_visible() {
 }
 
 #[test]
+fn solve_into_reuses_retained_sections() {
+    let chassis = loudness_chassis();
+    let mut solved = chassis.solve(1500.0);
+    let sections_ptr = solved.sections.as_ptr();
+
+    chassis.solve_into(1000.0, &mut solved);
+
+    assert_eq!(solved.sections.as_ptr(), sections_ptr);
+    assert_eq!(solved.sections.len(), chassis.sections.len());
+    assert_eq!(solved.visible().count(), 4);
+}
+
+#[test]
 fn wide_chassis_uses_full_width() {
     let solved = loudness_chassis().solve(1500.0);
     // With plenty of room, every section gets at least its preferred width

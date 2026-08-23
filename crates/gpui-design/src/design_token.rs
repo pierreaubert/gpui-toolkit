@@ -35,7 +35,7 @@ pub(super) fn token(
     token_type: &'static str,
 ) -> DesignToken {
     let path_vec: Vec<&'static str> = path.split('.').collect();
-    let name = path_vec.join(".");
+    let name = path.to_owned();
     DesignToken {
         name,
         path: path_vec,

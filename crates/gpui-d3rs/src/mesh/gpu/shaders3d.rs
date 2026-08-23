@@ -21,12 +21,14 @@ struct Uniforms {
 struct VertexIn {
     @location(0) position: vec3<f32>,
     @location(1) normal: vec3<f32>,
+    @location(2) color: vec4<f32>,
 };
 
 struct VertexOut {
     @builtin(position) clip_position: vec4<f32>,
     @location(0) normal: vec3<f32>,
     @location(1) value: f32,
+    @location(2) color: vec4<f32>,
 };
 
 @vertex
@@ -35,6 +37,7 @@ fn vs_main(input: VertexIn, @builtin(vertex_index) vertex_index: u32) -> VertexO
     let world = uniforms.model * vec4<f32>(input.position, 1.0);
     output.clip_position = uniforms.view_proj * world;
     output.normal = normalize((uniforms.model * vec4<f32>(input.normal, 0.0)).xyz);
+    output.color = input.color;
     if (uniforms.value_range.z > 0.5) {
         output.value = values[vertex_index];
     } else {
@@ -52,6 +55,7 @@ fn vs_triad(input: VertexIn) -> VertexOut {
     output.clip_position = vec4<f32>(input.position.xy, 0.0, 1.0);
     output.normal = input.normal;
     output.value = 1.0;
+    output.color = vec4<f32>(1.0);
     return output;
 }
 
@@ -160,13 +164,25 @@ fn fs_main(input: VertexOut) -> @location(0) vec4<f32> {
         (input.value - uniforms.value_range.x) /
             max(uniforms.value_range.y - uniforms.value_range.x, 1e-6),
         0.0, 1.0);
-    let base = colormap(normalized, uniforms.params.x);
+    let base = select(
+        colormap(normalized, uniforms.params.x),
+        input.color.rgb,
+        uniforms.value_range.w > 0.5,
+    );
     let line = isoline_alpha(normalized, uniforms.isoline.x, uniforms.isoline.y) * uniforms.isoline.z;
-    return vec4<f32>(mix(base * lambert, uniforms.isoline_color.rgb, line), uniforms.isoline_color.a);
+    let alpha = select(
+        uniforms.isoline_color.a,
+        input.color.a,
+        uniforms.value_range.w > 0.5,
+    );
+    return vec4<f32>(mix(base * lambert, uniforms.isoline_color.rgb, line), alpha);
 }
 
 @fragment
-fn fs_wireframe(_input: VertexOut) -> @location(0) vec4<f32> {
+fn fs_wireframe(input: VertexOut) -> @location(0) vec4<f32> {
+    if (uniforms.value_range.w > 0.5) {
+        return input.color;
+    }
     return vec4<f32>(uniforms.isoline_color.rgb, uniforms.isoline_color.a);
 }
 

@@ -52,6 +52,12 @@ pub struct MeshSceneState {
     pub geometry_rev: GeometryRevision,
     pub field_rev: FieldRevision,
     pub upload: Option<MeshUpload>,
+    /// Optional direct RGBA colors in mesh-vertex order.
+    ///
+    /// Scalar fields remain part of `MeshUpload`; this separate optional
+    /// stream lets retained composed scenes preserve material colors without
+    /// changing the general mesh upload contract.
+    pub vertex_colors: Option<Vec<[f32; 4]>>,
     /// Number of backend geometry uploads represented by this scene.
     pub geometry_upload_count: u64,
     /// Sum of retained geometry payload bytes sent to the backend.
@@ -121,6 +127,7 @@ impl Default for MeshSceneState {
             geometry_rev: GeometryRevision(0),
             field_rev: FieldRevision(0),
             upload: None,
+            vertex_colors: None,
             geometry_upload_count: 0,
             geometry_upload_bytes: 0,
             field_write_count: 0,

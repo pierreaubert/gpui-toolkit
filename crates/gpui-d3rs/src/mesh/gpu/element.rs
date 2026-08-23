@@ -85,6 +85,7 @@ fn cached_offscreen_image(
     })
 }
 
+#[derive(Clone)]
 pub struct MeshSceneElement {
     state: Rc<RefCell<MeshSceneState>>,
     custom_id: Option<CustomDrawId>,
