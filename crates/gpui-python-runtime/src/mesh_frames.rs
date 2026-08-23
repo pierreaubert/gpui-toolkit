@@ -5,6 +5,8 @@
 //! may be split into several frames; the store validates the complete shape
 //! only after all chunks have arrived.
 
+#[cfg(feature = "showcase")]
+use d3rs::mesh::{ScalarField, TriangleMesh};
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -504,6 +506,10 @@ struct DecodedMeshCache {
     fields: HashMap<MeshKey, Arc<[f64]>>,
     masks: HashMap<MeshKey, Arc<[bool]>>,
     ids: HashMap<MeshKey, Arc<[u64]>>,
+    #[cfg(feature = "showcase")]
+    triangle_meshes: HashMap<u64, Arc<TriangleMesh>>,
+    #[cfg(feature = "showcase")]
+    scalar_fields: HashMap<u64, Arc<ScalarField>>,
 }
 
 /// Reassembles mesh chunks and retains completed resources under a bounded,
@@ -554,6 +560,44 @@ impl MeshFrameStore {
             Some(MeshEntry::Resource(resource)) => Some(resource),
             _ => None,
         }
+    }
+
+    /// Retain a fully validated mesh object across declarative host rebuilds.
+    #[cfg(feature = "showcase")]
+    pub(crate) fn cached_triangle_mesh(
+        &self,
+        key: u64,
+        build: impl FnOnce() -> Result<TriangleMesh, String>,
+    ) -> Result<Arc<TriangleMesh>, String> {
+        if let Some(mesh) = self.decoded.borrow().triangle_meshes.get(&key) {
+            return Ok(mesh.clone());
+        }
+        let mesh = Arc::new(build()?);
+        let mut decoded = self.decoded.borrow_mut();
+        if decoded.triangle_meshes.len() >= 64 {
+            decoded.triangle_meshes.clear();
+        }
+        decoded.triangle_meshes.insert(key, mesh.clone());
+        Ok(mesh)
+    }
+
+    /// Retain a complete scalar field across declarative host rebuilds.
+    #[cfg(feature = "showcase")]
+    pub(crate) fn cached_scalar_field(
+        &self,
+        key: u64,
+        build: impl FnOnce() -> Result<ScalarField, String>,
+    ) -> Result<Arc<ScalarField>, String> {
+        if let Some(field) = self.decoded.borrow().scalar_fields.get(&key) {
+            return Ok(field.clone());
+        }
+        let field = Arc::new(build()?);
+        let mut decoded = self.decoded.borrow_mut();
+        if decoded.scalar_fields.len() >= 64 {
+            decoded.scalar_fields.clear();
+        }
+        decoded.scalar_fields.insert(key, field.clone());
+        Ok(field)
     }
 
     /// Decode geometry positions once for the lifetime of a retained resource
@@ -943,6 +987,13 @@ impl MeshFrameStore {
         decoded.fields.remove(key);
         decoded.masks.remove(key);
         decoded.ids.remove(key);
+        // Complete objects may combine several resource generations. Any
+        // resource retirement invalidates these small bounded object caches.
+        #[cfg(feature = "showcase")]
+        {
+            decoded.triangle_meshes.clear();
+            decoded.scalar_fields.clear();
+        }
         self.bytes_used = self.bytes_used.saturating_sub(match &entry {
             MeshEntry::Assembly(assembly) => assembly.bytes,
             MeshEntry::Resource(resource) => resource.payload.len(),
@@ -1460,5 +1511,46 @@ mod tests {
         assert_eq!(stats.resources, 0);
         assert_eq!(stats.bytes_used, 0);
         assert_eq!(stats.references, 0);
+    }
+
+    #[cfg(feature = "showcase")]
+    #[test]
+    fn complete_mesh_and_field_objects_are_reused_by_identity() {
+        use d3rs::mesh::ScalarAssociation;
+        use std::cell::Cell;
+
+        let store = MeshFrameStore::new();
+        let mesh_builds = Cell::new(0);
+        let make_mesh = || {
+            mesh_builds.set(mesh_builds.get() + 1);
+            Ok(TriangleMesh {
+                id: "mesh".into(),
+                positions: Arc::from([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]),
+                triangles: Arc::from([[0, 1, 2]]),
+                vertex_ids: None,
+                cell_ids: None,
+            })
+        };
+        let first = store.cached_triangle_mesh(7, make_mesh).unwrap();
+        let second = store.cached_triangle_mesh(7, make_mesh).unwrap();
+        assert!(Arc::ptr_eq(&first, &second));
+        assert_eq!(mesh_builds.get(), 1);
+
+        let field_builds = Cell::new(0);
+        let make_field = || {
+            field_builds.set(field_builds.get() + 1);
+            Ok(ScalarField {
+                id: "field".into(),
+                label: "Field".into(),
+                unit: None,
+                values: Arc::from([1.0, 2.0, 3.0]),
+                association: ScalarAssociation::Vertex,
+                valid: None,
+            })
+        };
+        let first = store.cached_scalar_field(11, make_field).unwrap();
+        let second = store.cached_scalar_field(11, make_field).unwrap();
+        assert!(Arc::ptr_eq(&first, &second));
+        assert_eq!(field_builds.get(), 1);
     }
 }

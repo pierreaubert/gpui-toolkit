@@ -162,6 +162,29 @@ pub struct Input {
     aria_role: Option<AriaRole>,
 }
 
+impl std::fmt::Debug for Input {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut debug = f.debug_struct("Input");
+        debug
+            .field("id", &self.id)
+            .field("placeholder", &self.placeholder)
+            .field("label", &self.label)
+            .field("size", &self.size)
+            .field("variant", &self.variant)
+            .field("disabled", &self.disabled)
+            .field("readonly", &self.readonly)
+            .field("password", &self.password);
+        if self.password {
+            debug
+                .field("value", &"<redacted>")
+                .field("value_char_count", &self.value.chars().count());
+        } else {
+            debug.field("value", &self.value);
+        }
+        debug.finish_non_exhaustive()
+    }
+}
+
 impl Input {
     /// Create a new input
     pub fn new(id: impl Into<ElementId>) -> Self {
@@ -346,16 +369,19 @@ impl Input {
 
 impl InputEntity {
     fn cached_password_mask(
-        cache: &RefCell<Option<(SharedString, SharedString)>>,
+        cache: &RefCell<Option<(usize, SharedString)>>,
         source: &str,
     ) -> SharedString {
-        if let Some((cached_source, mask)) = cache.borrow().as_ref()
-            && cached_source.as_ref() == source
+        let char_count = source.chars().count();
+        if let Some((cached_char_count, mask)) = cache.borrow().as_ref()
+            && *cached_char_count == char_count
         {
             return mask.clone();
         }
-        let mask: SharedString = "•".repeat(source.chars().count()).into();
-        *cache.borrow_mut() = Some((source.into(), mask.clone()));
+        let mask: SharedString = "•".repeat(char_count).into();
+        // Deliberately retain only the public character count and mask. A
+        // password must not be duplicated into a render/accessibility cache.
+        *cache.borrow_mut() = Some((char_count, mask.clone()));
         mask
     }
 
@@ -394,6 +420,7 @@ impl InputEntity {
     }
 
     fn replace_char_range(state: &mut EditState, range: Range<usize>, text: &str) {
+        state.begin_text_edit();
         let char_len = state.text.chars().count();
         let start = range.start.min(char_len);
         let end = range.end.min(char_len).max(start);
@@ -460,9 +487,7 @@ impl InputEntity {
             return;
         }
 
-        let text = state.text.clone();
-        state.editing = false;
-        state.clear_selection();
+        let text = state.finish_edit();
         drop(state);
 
         if let Some(ref handler) = self.props.on_change {
@@ -598,9 +623,12 @@ impl InputEntity {
 
         // Platform modifier handles clipboard shortcuts and select-all. Keep
         // ctrl+a available for the Emacs start-of-line binding below.
-        if cmd || (ctrl && matches!(key, "c" | "x" | "v")) {
+        if cmd || (ctrl && matches!(key, "c" | "x" | "v" | "z" | "y")) {
             match key {
                 "c" => {
+                    if self.props.password {
+                        return;
+                    }
                     if let Some(selected) = state.get_selected_text() {
                         drop(state);
                         cx.write_to_clipboard(ClipboardItem::new_string(selected));
@@ -608,6 +636,9 @@ impl InputEntity {
                     return;
                 }
                 "x" => {
+                    if self.props.password {
+                        return;
+                    }
                     if let Some(selected) = state.get_selected_text() {
                         cx.write_to_clipboard(ClipboardItem::new_string(selected));
                         state.delete_selection();
@@ -638,6 +669,27 @@ impl InputEntity {
                     drop(state);
                     self.emit_selection_change(selection, window, cx);
                     window.refresh();
+                    return;
+                }
+                "z" => {
+                    let changed = if shift { state.redo() } else { state.undo() };
+                    if changed {
+                        let selection = Self::selection_from_state(&state);
+                        self.emit_text_change(&state.text, window, cx);
+                        drop(state);
+                        self.emit_selection_change(selection, window, cx);
+                        window.refresh();
+                    }
+                    return;
+                }
+                "y" if ctrl => {
+                    if state.redo() {
+                        let selection = Self::selection_from_state(&state);
+                        self.emit_text_change(&state.text, window, cx);
+                        drop(state);
+                        self.emit_selection_change(selection, window, cx);
+                        window.refresh();
+                    }
                     return;
                 }
                 _ => {}
@@ -763,8 +815,7 @@ impl InputEntity {
                 window.blur();
             }
             "escape" => {
-                state.editing = false;
-                state.clear_selection();
+                state.abandon_edit();
                 drop(state);
                 window.blur();
                 if let Some(ref handler) = self.props.on_edit_end {
@@ -1371,8 +1422,8 @@ pub struct InputEntity {
     focus_handle: FocusHandle,
     edit_state: Rc<RefCell<EditState>>,
     hovered: bool,
-    aria_password_mask: RefCell<Option<(SharedString, SharedString)>>,
-    display_password_mask: RefCell<Option<(SharedString, SharedString)>>,
+    aria_password_mask: RefCell<Option<(usize, SharedString)>>,
+    display_password_mask: RefCell<Option<(usize, SharedString)>>,
 }
 
 impl RenderOnce for Input {

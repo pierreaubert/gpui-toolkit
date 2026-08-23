@@ -155,7 +155,7 @@ fn layout_cache_is_bounded() {
 }
 
 #[test]
-fn rasterize_glyph_reuses_context() {
+fn rasterize_glyph_reuses_caller_buffer() {
     let mut state = empty_state();
     let font_id = load_system_family(&mut state, ".AppleSystemUIFont")
         .expect("system font should be available");
@@ -174,22 +174,25 @@ fn rasterize_glyph_reuses_context() {
     };
     let bounds = state.raster_bounds(&params).expect("bounds");
 
-    let count_before = context_create_count();
-    let (size1, _) = state.rasterize_glyph(&params, bounds).expect("rasterize");
-    let count_after_first = context_create_count();
+    let mut bitmap = Vec::new();
+    let size1 = state
+        .rasterize_glyph_into(&params, bounds, &mut bitmap)
+        .expect("rasterize");
+    let capacity = bitmap.capacity();
+    let allocation = bitmap.as_ptr();
     assert_eq!(
-        count_after_first,
-        count_before + 1,
-        "first rasterization should create a context"
+        bitmap.capacity(),
+        capacity,
+        "first rasterization should preserve caller-buffer capacity"
     );
 
-    let (size2, _) = state
-        .rasterize_glyph(&params, bounds)
+    let size2 = state
+        .rasterize_glyph_into(&params, bounds, &mut bitmap)
         .expect("rasterize again");
-    let count_after_second = context_create_count();
     assert_eq!(size1, size2);
     assert_eq!(
-        count_after_second, count_after_first,
-        "second rasterization should reuse the existing context"
+        bitmap.as_ptr(),
+        allocation,
+        "second rasterization should reuse the caller-buffer allocation"
     );
 }

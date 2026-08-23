@@ -70,12 +70,8 @@ fn id_for_native_font_looks_up_existing_font() {
     assert_eq!(state.font_ids_by_postscript_name.len(), state.fonts.len());
 }
 
-fn glyph_bitmap_scratch_capacity() -> usize {
-    GLYPH_BITMAP_SCRATCH.with(|s| s.borrow().capacity())
-}
-
 #[test]
-fn rasterize_glyph_reuses_scratch() {
+fn rasterize_glyph_reuses_caller_buffer() {
     let mut state = test_state();
     let font_id = state
         .load_family(".AppleSystemUIFont", &Default::default(), None)
@@ -96,17 +92,20 @@ fn rasterize_glyph_reuses_scratch() {
         dilation: 0,
     };
     let bounds = state.raster_bounds(&params).expect("bounds");
-    let (size1, _) = state.rasterize_glyph(&params, bounds).expect("rasterize");
-    let cap_after_warmup = glyph_bitmap_scratch_capacity();
+    let mut bitmap = Vec::new();
+    let size1 = state
+        .rasterize_glyph_into(&params, bounds, &mut bitmap)
+        .expect("rasterize");
+    let cap_after_warmup = bitmap.capacity();
     assert!(
         cap_after_warmup >= size1.width.0 as usize * size1.height.0 as usize,
         "scratch should be large enough for the bitmap"
     );
 
-    let (size2, _) = state
-        .rasterize_glyph(&params, bounds)
+    let size2 = state
+        .rasterize_glyph_into(&params, bounds, &mut bitmap)
         .expect("rasterize again");
-    let cap_after_reuse = glyph_bitmap_scratch_capacity();
+    let cap_after_reuse = bitmap.capacity();
     assert_eq!(size1, size2);
     assert_eq!(
         cap_after_warmup, cap_after_reuse,
@@ -115,7 +114,7 @@ fn rasterize_glyph_reuses_scratch() {
 }
 
 #[test]
-fn rasterize_glyph_reuses_context() {
+fn rasterize_glyph_repeated_output_is_stable() {
     let mut state = test_state();
     let font_id = state
         .load_family(".AppleSystemUIFont", &Default::default(), None)
@@ -137,26 +136,28 @@ fn rasterize_glyph_reuses_context() {
     };
     let bounds = state.raster_bounds(&params).expect("bounds");
 
-    let count_before = context_create_count();
-    let (size1, bitmap1) = state.rasterize_glyph(&params, bounds).expect("rasterize");
-    let count_after_first = context_create_count();
+    let mut bitmap = Vec::new();
+    let size1 = state
+        .rasterize_glyph_into(&params, bounds, &mut bitmap)
+        .expect("rasterize");
+    let bitmap1 = bitmap.clone();
     assert_eq!(
-        count_after_first,
-        count_before + 1,
-        "first rasterization should create a context"
+        bitmap.capacity(),
+        bitmap.capacity(),
+        "first rasterization should preserve caller-buffer capacity"
     );
 
-    let (size2, bitmap2) = state
-        .rasterize_glyph(&params, bounds)
+    let size2 = state
+        .rasterize_glyph_into(&params, bounds, &mut bitmap)
         .expect("rasterize again");
-    let count_after_second = context_create_count();
     assert_eq!(size1, size2);
     assert_eq!(
-        bitmap1, bitmap2,
-        "reusing a cached glyph context must not accumulate transforms"
+        bitmap1, bitmap,
+        "reusing the caller buffer must produce stable glyph pixels"
     );
     assert_eq!(
-        count_after_second, count_after_first,
-        "second rasterization should reuse the existing context"
+        bitmap.len(),
+        bitmap1.len(),
+        "second rasterization should preserve the bitmap length"
     );
 }

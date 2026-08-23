@@ -1,5 +1,12 @@
 # Unreleased
 
+## 0.9.15 - 2026-08-23
+
+### Performance
+
+- Removed the legacy GPU2D readback/re-upload renderer and retained Vello element and mesh-compute state across frames.
+- Added allocation-contract coverage for the retained renderer path.
+
 # 0.9.14
 
 ## Features

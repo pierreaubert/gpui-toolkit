@@ -4,7 +4,7 @@ use d3rs::mesh::{
     CoordinateAxis, ScalarAssociation, ScalarField, TriGridIndex, TriangleMesh, project_2d,
 };
 use gpui_profiler::{AllocProbe, AllocationBudget};
-use gpui_px::mesh_plot::{MeshPlotState, pick_2d};
+use gpui_px::mesh_plot::{MeshPlotPick, MeshPlotState, pick_2d};
 use std::hint::black_box;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -20,6 +20,38 @@ static TEST_LOCK: Mutex<()> = Mutex::new(());
 
 fn skip_instrumented_runs() -> bool {
     std::env::var_os("CARGO_LLVM_COV").is_some()
+}
+
+#[test]
+fn hover_replacement_after_warmup_is_allocation_free() {
+    let _guard = TEST_LOCK.lock().unwrap();
+    if skip_instrumented_runs() {
+        return;
+    }
+    let mut state = MeshPlotState::new(0.0, 1.0, 0.0, 1.0);
+    let pick = MeshPlotPick {
+        plot_id: Arc::from("plot"),
+        mesh_id: Arc::from("mesh"),
+        cell_index: 3,
+        cell_id: Some(42),
+        nearest_vertex_index: Some(1),
+        vertex_id: Some(7),
+        world_position: [0.25, 0.5, 0.0],
+        displayed_value: Some(2.5),
+        field_id: Some(Arc::from("field")),
+    };
+    state.set_hover(Some(pick.clone()));
+    let mut probe = AllocProbe::new();
+    probe.reset();
+    for _ in 0..1_000 {
+        state.set_hover(Some(pick.clone()));
+        black_box(state.hover.as_ref());
+    }
+    // The profiler/runtime lazily initializes up to four tiny bookkeeping
+    // allocations in this integration process; the 1,000 hover replacements
+    // themselves must remain flat beyond that bounded constant.
+    AllocationBudget::new("mesh-plot-hover-replace-1000x", 4, 512)
+        .assert_contains(probe.sample("mesh-plot-hover-replace-1000x"));
 }
 
 #[test]

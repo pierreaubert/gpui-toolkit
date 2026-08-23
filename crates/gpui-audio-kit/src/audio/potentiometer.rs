@@ -814,6 +814,7 @@ impl RenderOnce for Potentiometer {
         );
 
         knob_container = knob_container.child(PotentiometerTickLinesElement {
+            id: ElementId::named_usize("potentiometer-ticks", 0),
             container_width,
             container_height,
             major_tick_color,
@@ -880,6 +881,7 @@ impl RenderOnce for Potentiometer {
         let track_arc_width = self.design_tokens.knob_arc_track_widths[size_idx].max(0.0);
         knob_container = knob_container.child(
             div().absolute().inset_0().child(KnobArcElement {
+                id: ElementId::named_usize("potentiometer-arc", 0),
                 container_width,
                 container_height,
                 knob_offset_x: tick_geometry.knob_offset_x,

@@ -1,6 +1,6 @@
 use gpui_keybinding::{
-    DocumentedKeybinding, KeybindingCategory, command_palette_entries,
-    keybinding_hints_cached, search_command_palette_cached,
+    DocumentedKeybinding, KeybindingCategory, command_palette_entries, keybinding_hints_cached,
+    search_command_palette_cached,
 };
 use gpui_profiler::{AllocProbe, AllocationBudget};
 use std::hint::black_box;
@@ -36,12 +36,11 @@ fn assert_hint_cache_hits_are_allocation_free() {
     if std::env::var_os("CARGO_LLVM_COV").is_some() {
         return;
     }
-    let bindings = [DocumentedKeybinding::new(
-        "Ctrl+K Ctrl+S",
-        "Save all",
-        KeybindingCategory::FileOps,
-    )
-    .with_raw_key_spec("ctrl-k ctrl-s")];
+    let bindings =
+        [
+            DocumentedKeybinding::new("Ctrl+K Ctrl+S", "Save all", KeybindingCategory::FileOps)
+                .with_raw_key_spec("ctrl-k ctrl-s"),
+        ];
     black_box(keybinding_hints_cached(&bindings, "ctrl-k"));
 
     let mut probe = AllocProbe::new();

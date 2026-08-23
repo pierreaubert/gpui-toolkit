@@ -993,6 +993,7 @@ pub struct Window {
     display_id: Option<DisplayId>,
     sprite_atlas: Arc<dyn PlatformAtlas>,
     text_system: Arc<WindowTextSystem>,
+    glyph_bitmap_scratch: Vec<u8>,
     text_rendering_mode: Rc<Cell<TextRenderingMode>>,
     rem_size: Pixels,
     /// The stack of override values for the window's rem size.
@@ -1706,6 +1707,7 @@ impl Window {
             display_id,
             sprite_atlas,
             text_system,
+            glyph_bitmap_scratch: Vec::new(),
             text_rendering_mode: cx.text_rendering_mode.clone(),
             rem_size: px(16.),
             rem_size_override_stack: SmallVec::new(),
@@ -3894,11 +3896,19 @@ impl Window {
 
         let raster_bounds = self.text_system().raster_bounds(&params)?;
         if !raster_bounds.is_zero() {
+            let text_system = Arc::clone(&self.text_system);
+            let scratch = &mut self.glyph_bitmap_scratch;
             let tile = self
                 .sprite_atlas
                 .get_or_insert_with(&params.clone().into(), &mut || {
-                    let (size, bytes) = self.text_system().rasterize_glyph(&params)?;
-                    Ok(Some((size, Cow::Owned(bytes))))
+                    let size = text_system.rasterize_glyph_into(&params, scratch)?;
+                    // SAFETY: PlatformAtlas consumes the callback's bytes
+                    // synchronously during this get_or_insert_with call and
+                    // cannot retain the borrow in AtlasTile. The scratch Vec
+                    // is not touched again until the call returns.
+                    let bytes =
+                        unsafe { std::slice::from_raw_parts(scratch.as_ptr(), scratch.len()) };
+                    Ok(Some((size, Cow::Borrowed(bytes))))
                 })?
                 .expect("Callback above only errors or returns Some");
             let bounds = Bounds {
@@ -3984,11 +3994,16 @@ impl Window {
 
         let raster_bounds = self.text_system().raster_bounds(&params)?;
         if !raster_bounds.is_zero() {
+            let text_system = Arc::clone(&self.text_system);
+            let scratch = &mut self.glyph_bitmap_scratch;
             let tile = self
                 .sprite_atlas
                 .get_or_insert_with(&params.clone().into(), &mut || {
-                    let (size, bytes) = self.text_system().rasterize_glyph(&params)?;
-                    Ok(Some((size, Cow::Owned(bytes))))
+                    let size = text_system.rasterize_glyph_into(&params, scratch)?;
+                    // SAFETY: see the identical glyph-atlas path above.
+                    let bytes =
+                        unsafe { std::slice::from_raw_parts(scratch.as_ptr(), scratch.len()) };
+                    Ok(Some((size, Cow::Borrowed(bytes))))
                 })?
                 .expect("Callback above only errors or returns Some");
 

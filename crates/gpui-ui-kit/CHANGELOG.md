@@ -1,5 +1,16 @@
 # Unreleased
 
+## 0.9.38 - 2026-08-23
+
+### Security
+
+- Added `Input::password(bool)`: password text and native accessibility values render as fixed masks while callbacks retain the raw value.
+- Redacted password-mode diagnostics and edit-state history; password copy and cut are disabled while paste, IME, selection, undo, and redo remain supported.
+
+### Performance
+
+- Retained workflow-canvas snapshots and added allocation contracts for interactive UI-kit paths.
+
 ## 0.9.37
 
 ### Maintenance

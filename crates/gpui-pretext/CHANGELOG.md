@@ -1,5 +1,11 @@
 # Unreleased
 
+## 0.9.9 - 2026-08-23
+
+### Performance
+
+- Reused segmentation, text-analysis, measurement, and line-breaking buffers to reduce repeated layout allocations.
+
 ## Performance
 
 - Added bounded text preparation APIs with byte, grapheme, and segment limits

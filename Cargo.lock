@@ -2080,7 +2080,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -2742,7 +2742,7 @@ dependencies = [
 
 [[package]]
 name = "gpui"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "accesskit",
  "anyhow",
@@ -2831,7 +2831,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-android"
-version = "0.9.4"
+version = "0.9.5"
 dependencies = [
  "accesskit",
  "android-activity",
@@ -2856,7 +2856,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-au"
-version = "0.9.7"
+version = "0.9.8"
 dependencies = [
  "anyhow",
  "core-foundation 0.10.0",
@@ -2879,7 +2879,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-audio-kit"
-version = "0.9.5"
+version = "0.9.6"
 dependencies = [
  "gpui",
  "gpui-d3rs",
@@ -2891,7 +2891,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-builder"
-version = "0.9.8"
+version = "0.9.9"
 dependencies = [
  "criterion 0.8.2",
  "gpui",
@@ -2932,7 +2932,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-d3rs"
-version = "0.9.14"
+version = "0.9.15"
 dependencies = [
  "approx",
  "autoeq",
@@ -2995,7 +2995,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-hello-web"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "gpui",
  "gpui-miniapp",
@@ -3005,7 +3005,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-ios"
-version = "0.9.11"
+version = "0.9.12"
 dependencies = [
  "anyhow",
  "block2 0.6.2",
@@ -3031,7 +3031,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-keybinding"
-version = "0.9.5"
+version = "0.9.6"
 dependencies = [
  "criterion 0.8.2",
  "gpui",
@@ -3060,10 +3060,11 @@ dependencies = [
 
 [[package]]
 name = "gpui-pretext"
-version = "0.9.8"
+version = "0.9.9"
 dependencies = [
  "criterion 0.8.2",
  "gpui-profiler",
+ "hashbrown 0.16.1",
  "serde",
  "serde_json",
  "unicode-bidi",
@@ -3079,7 +3080,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-px"
-version = "0.9.10"
+version = "0.9.11"
 dependencies = [
  "autoeq",
  "criterion 0.8.2",
@@ -3103,7 +3104,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-python-runtime"
-version = "0.9.9"
+version = "0.9.10"
 dependencies = [
  "glam",
  "gpui",
@@ -3190,7 +3191,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-themes"
-version = "0.9.5"
+version = "0.9.6"
 dependencies = [
  "gpui",
  "gpui-design",
@@ -3202,7 +3203,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-toolkit"
-version = "0.9.9"
+version = "0.9.10"
 dependencies = [
  "gpui-au",
  "gpui-audio-kit",
@@ -3226,7 +3227,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-ui-kit"
-version = "0.9.37"
+version = "0.9.38"
 dependencies = [
  "block2 0.6.2",
  "criterion 0.8.2",
@@ -3308,7 +3309,7 @@ dependencies = [
 
 [[package]]
 name = "gpui_macos"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "accesskit",
  "accesskit_macos",
@@ -3383,7 +3384,7 @@ dependencies = [
 
 [[package]]
 name = "gpui_web"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "console_error_panic_hook",
@@ -3406,7 +3407,7 @@ dependencies = [
 
 [[package]]
 name = "gpui_wgpu"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -3434,7 +3435,7 @@ dependencies = [
 
 [[package]]
 name = "gpui_windows"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "collections",
@@ -4030,7 +4031,7 @@ checksum = "3640c1c38b8e4e43584d8df18be5fc6b0aa314ce6ebf51b53313d4306cca8e46"
 dependencies = [
  "hermit-abi",
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -5955,7 +5956,7 @@ dependencies = [
  "once_cell",
  "socket2",
  "tracing",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -6496,7 +6497,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.4.15",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -6509,7 +6510,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.12.1",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -6566,7 +6567,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -7461,7 +7462,7 @@ dependencies = [
  "getrandom 0.4.3",
  "once_cell",
  "rustix 1.1.4",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -8733,7 +8734,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]

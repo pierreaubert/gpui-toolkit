@@ -1,5 +1,11 @@
 # Unreleased
 
+## 0.9.6 - 2026-08-23
+
+### Performance
+
+- Retained Vello element state for meters, spectrum, and knob controls; added allocation-contract coverage for interactive rendering paths.
+
 # 0.9.5
 
 ## Features

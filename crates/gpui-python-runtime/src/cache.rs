@@ -261,67 +261,10 @@ impl io::Write for FingerprintWriter {
     }
 }
 
-fn structural_fingerprint(value: &impl serde::Serialize) -> u64 {
+pub(crate) fn structural_fingerprint(value: &impl serde::Serialize) -> u64 {
     let mut writer = FingerprintWriter(std::collections::hash_map::DefaultHasher::new());
     serde_json::to_writer(&mut writer, value).expect("fingerprint serialization cannot fail");
     writer.0.finish()
-}
-
-#[cfg(test)]
-fn json_fingerprint(value: &serde_json::Value) -> u64 {
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    hash_json_value(value, &mut hasher);
-    hasher.finish()
-}
-
-/// Allocation-free structural JSON fingerprint used for dirty domains that
-/// may carry dense inline mesh geometry. Keep object keys sorted so protocol
-/// payload insertion order does not affect cache invalidation.
-#[cfg(test)]
-fn hash_json_value(value: &serde_json::Value, hasher: &mut impl std::hash::Hasher) {
-    use std::hash::Hash;
-
-    std::mem::discriminant(value).hash(hasher);
-    match value {
-        serde_json::Value::Null => {}
-        serde_json::Value::Bool(value) => value.hash(hasher),
-        serde_json::Value::Number(value) => {
-            if let Some(value) = value.as_i64() {
-                0_u8.hash(hasher);
-                value.hash(hasher);
-            } else if let Some(value) = value.as_u64() {
-                1_u8.hash(hasher);
-                value.hash(hasher);
-            } else if let Some(value) = value.as_f64() {
-                2_u8.hash(hasher);
-                value.to_bits().hash(hasher);
-            }
-        }
-        serde_json::Value::String(value) => value.hash(hasher),
-        serde_json::Value::Array(values) => {
-            values.len().hash(hasher);
-            for value in values {
-                hash_json_value(value, hasher);
-            }
-        }
-        serde_json::Value::Object(values) => {
-            // Combine independently hashed entries so insertion order does
-            // not affect the result, without allocating and sorting keys.
-            let mut xor = 0_u64;
-            let mut sum = 0_u64;
-            for (key, value) in values {
-                let mut entry = std::collections::hash_map::DefaultHasher::new();
-                key.hash(&mut entry);
-                hash_json_value(value, &mut entry);
-                let fingerprint = entry.finish();
-                xor ^= fingerprint.rotate_left((fingerprint & 63) as u32);
-                sum = sum.wrapping_add(fingerprint);
-            }
-            values.len().hash(hasher);
-            xor.hash(hasher);
-            sum.hash(hasher);
-        }
-    }
 }
 
 #[cfg(test)]

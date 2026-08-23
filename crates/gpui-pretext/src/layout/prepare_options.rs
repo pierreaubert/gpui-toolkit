@@ -4,7 +4,6 @@ use super::types::PreparedTextWithSegments;
 use super::types::measure_analysis;
 use crate::analysis::{AnalysisProfile, WhiteSpaceMode, analyze_text};
 use crate::measurement::{EngineProfile, TextMeasure};
-use unicode_segmentation::UnicodeSegmentation;
 
 #[derive(Debug, Clone, Copy)]
 pub struct PrepareOptions {
@@ -94,21 +93,16 @@ fn analyze_with_budget<F: FnMut() -> bool>(
             actual: text.len(),
         });
     }
-    let graphemes = text
-        .graphemes(true)
-        .take(budget.max_graphemes.saturating_add(1))
-        .count();
-    if graphemes > budget.max_graphemes {
-        return Err(TextPrepareError::GraphemesExceeded {
-            limit: budget.max_graphemes,
-            actual: graphemes,
-        });
-    }
-
     let analysis_profile = AnalysisProfile {
         carry_cjk_after_closing_quote: profile.carry_cjk_after_closing_quote,
     };
     let analysis = analyze_text(text, &analysis_profile, options.white_space);
+    if analysis.grapheme_count > budget.max_graphemes {
+        return Err(TextPrepareError::GraphemesExceeded {
+            limit: budget.max_graphemes,
+            actual: analysis.grapheme_count,
+        });
+    }
     if cancelled() {
         return Err(TextPrepareError::Cancelled);
     }

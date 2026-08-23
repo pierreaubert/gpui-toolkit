@@ -187,8 +187,8 @@ impl PythonAppIr {
     }
 
     /// Deserialize and validate a successfully patched transaction tree.
-    pub fn from_patched_value(tree: Value) -> Result<Self, UiIrError> {
-        let next: Self = serde_json::from_value(tree).map_err(|error| UiIrError::InvalidPatch {
+    pub fn from_patched_value(tree: &Value) -> Result<Self, UiIrError> {
+        let next = Self::deserialize(tree).map_err(|error| UiIrError::InvalidPatch {
             message: error.to_string(),
         })?;
         next.validate()?;

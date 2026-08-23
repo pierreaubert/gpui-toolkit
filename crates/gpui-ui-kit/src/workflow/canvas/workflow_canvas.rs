@@ -995,50 +995,50 @@ impl Render for WorkflowCanvas {
         {
             // Build connection render data with screen-space port positions
             let connections: Arc<[ConnectionRenderData]> = Arc::from(
-            self.state
-                .graph
-                .connections
-                .iter()
-                .filter_map(|conn| {
-                    let from_node = self.state.graph.nodes.get(&conn.from_node)?;
-                    let to_node = self.state.graph.nodes.get(&conn.to_node)?;
-                    // Calculate port positions in screen coordinates (not canvas coordinates)
-                    let from_pos =
-                        port_screen_position(from_node, conn.from_port, false, &viewport);
-                    let to_pos = port_screen_position(to_node, conn.to_port, true, &viewport);
-                    let selected = self.state.selection.is_connection_selected(conn.id);
-                    let link_type = conn.link_type;
-                    Some((
-                        from_pos,
-                        to_pos,
-                        selected,
-                        link_type,
-                        conn.from_node,
-                        conn.to_node,
-                    ))
-                })
-                .collect::<Vec<_>>(),
+                self.state
+                    .graph
+                    .connections
+                    .iter()
+                    .filter_map(|conn| {
+                        let from_node = self.state.graph.nodes.get(&conn.from_node)?;
+                        let to_node = self.state.graph.nodes.get(&conn.to_node)?;
+                        // Calculate port positions in screen coordinates (not canvas coordinates)
+                        let from_pos =
+                            port_screen_position(from_node, conn.from_port, false, &viewport);
+                        let to_pos = port_screen_position(to_node, conn.to_port, true, &viewport);
+                        let selected = self.state.selection.is_connection_selected(conn.id);
+                        let link_type = conn.link_type;
+                        Some((
+                            from_pos,
+                            to_pos,
+                            selected,
+                            link_type,
+                            conn.from_node,
+                            conn.to_node,
+                        ))
+                    })
+                    .collect::<Vec<_>>(),
             );
 
             // Collect node bounding rects in screen coordinates for obstacle avoidance
             let node_screen_rects: Arc<[(NodeId, ObstacleRect)]> = Arc::from(
-            self.state
-                .graph
-                .nodes
-                .values()
-                .map(|node| {
-                    let sp = viewport.canvas_to_screen(&node.position);
-                    (
-                        node.id,
-                        ObstacleRect::new(
-                            sp.x,
-                            sp.y,
-                            node.width * viewport.zoom,
-                            node.height * viewport.zoom,
-                        ),
-                    )
-                })
-                .collect::<Vec<_>>(),
+                self.state
+                    .graph
+                    .nodes
+                    .values()
+                    .map(|node| {
+                        let sp = viewport.canvas_to_screen(&node.position);
+                        (
+                            node.id,
+                            ObstacleRect::new(
+                                sp.x,
+                                sp.y,
+                                node.width * viewport.zoom,
+                                node.height * viewport.zoom,
+                            ),
+                        )
+                    })
+                    .collect::<Vec<_>>(),
             );
             self.render_snapshot = Some(WorkflowRenderSnapshot {
                 key: snapshot_key,

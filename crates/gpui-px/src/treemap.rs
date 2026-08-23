@@ -527,6 +527,24 @@ impl Treemap {
         let canvas_element: gpui::AnyElement = {
             #[cfg(feature = "vello")]
             if renderer_2d == Renderer2D::Vello {
+                let mut cache_key = d3rs::vello2d::SceneCacheKey::new();
+                cache_key.add_f64(plot_width).add_f64(plot_height);
+                for rect in vello_draw_data.iter() {
+                    cache_key
+                        .add_f64(rect.x0)
+                        .add_f64(rect.y0)
+                        .add_f64(rect.x1)
+                        .add_f64(rect.y1)
+                        .add_f32(rect.fill.r)
+                        .add_f32(rect.fill.g)
+                        .add_f32(rect.fill.b)
+                        .add_f32(rect.fill.a)
+                        .add_f32(rect.border.r)
+                        .add_f32(rect.border.g)
+                        .add_f32(rect.border.b)
+                        .add_f32(rect.border.a);
+                }
+                let cache_key = cache_key.finish();
                 d3rs::vello2d::VelloChartElement::with_builder(move |width, height| {
                     let rects: Vec<_> = vello_draw_data
                         .iter()
@@ -534,6 +552,7 @@ impl Treemap {
                         .collect();
                     treemap_chart_scene(&rects, plot_width, plot_height, width, height)
                 })
+                .cache_key(cache_key)
                 .backend(vello_backend)
                 .absolute()
                 .into_any_element()

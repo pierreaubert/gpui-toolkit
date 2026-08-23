@@ -1,5 +1,11 @@
 # Unreleased
 
+## 0.9.5 - 2026-08-23
+
+### Performance
+
+- Retained Android keyboard-character-map state and reduced dispatcher and platform hot-path churn.
+
 ## Fixed
 
 - Removed unsound `Send` transmutes from platform callbacks. Non-`Send`

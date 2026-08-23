@@ -1,6 +1,6 @@
 [package]
 name = "gpui-pretext"
-version = "0.9.8"
+version = "0.9.9"
 authors.workspace = true
 edition.workspace = true
 rust-version = "1.89"
@@ -24,6 +24,7 @@ urlencoding = []
 [dependencies]
 unicode-segmentation = { workspace = true }
 unicode-bidi = "0.3"
+hashbrown = "0.16"
 
 [dev-dependencies]
 criterion = { workspace = true }

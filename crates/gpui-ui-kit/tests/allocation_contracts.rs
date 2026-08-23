@@ -2,6 +2,8 @@
 
 use gpui_profiler::{AllocProbe, AllocationBudget};
 use gpui_ui_kit::input::edit_state::EditState;
+use gpui_ui_kit::workflow::{NodeDragState, Position};
+use std::collections::HashMap;
 use std::hint::black_box;
 
 #[test]
@@ -39,4 +41,21 @@ fn warmed_edit_cycles_are_allocation_free() {
 
     AllocationBudget::zero("ui-kit-warmed-edit-cycle-1000x")
         .assert_contains(probe.sample("ui-kit-warmed-edit-cycle-1000x"));
+
+    let node_id = uuid::Uuid::nil();
+    let mut original_positions = HashMap::new();
+    original_positions.insert(node_id, Position::new(10.0, 20.0));
+    let mut drag = NodeDragState {
+        dragging_nodes: vec![node_id],
+        start_mouse: Position::new(0.0, 0.0),
+        original_positions,
+    };
+    probe.reset();
+    for frame in 0..ITERATIONS {
+        drag.start_mouse.x = frame as f32 * 0.1;
+        drag.start_mouse.y = frame as f32 * 0.05;
+        black_box(drag.original_positions.get(&node_id));
+    }
+    AllocationBudget::zero("workflow-node-drag-update-1000x")
+        .assert_contains(probe.sample("workflow-node-drag-update-1000x"));
 }

@@ -247,10 +247,12 @@ pub fn search_command_palette_cached(
         if cache.len() >= MAX_PALETTE_ENTRY_SETS && !cache.contains_key(&entries_key) {
             cache.clear();
         }
-        let entry = cache.entry(entries_key).or_insert_with(|| PaletteCacheEntry {
-            _source: Rc::clone(&entries),
-            queries: HashMap::new(),
-        });
+        let entry = cache
+            .entry(entries_key)
+            .or_insert_with(|| PaletteCacheEntry {
+                _source: Rc::clone(&entries),
+                queries: HashMap::new(),
+            });
         if entry.queries.len() >= MAX_QUERIES_PER_SET
             && !entry.queries.contains_key(normalized.as_ref())
         {

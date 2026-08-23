@@ -1,5 +1,11 @@
 # Unreleased
 
+## 0.9.10 - 2026-08-23
+
+### Performance
+
+- Completed retained mesh and field object caching with structural fingerprints and stable element identifiers for Python-rendered scenes.
+
 # 0.9.7
 
 ## Features

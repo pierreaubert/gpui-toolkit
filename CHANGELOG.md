@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Performance and platform
+
+- Retained core text and glyph-layout storage across frames, and reduced platform text-system allocation and lock contention on macOS, Windows, and wgpu.
+- Routed browser medium- and low-priority dispatch through `MessageChannel` and added an opt-in scheduling-baseline harness.
+
 ### Release Readiness
 
 - Added a three-lane public release policy, contributor/security/support

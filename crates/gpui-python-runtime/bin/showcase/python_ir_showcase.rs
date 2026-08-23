@@ -69,7 +69,9 @@ use serde_json::Value;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::env;
+use std::fmt;
 use std::fs;
+use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::{
@@ -77,6 +79,22 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
 };
 use std::time::Duration;
+
+struct ElementIdHasher(std::collections::hash_map::DefaultHasher);
+
+impl fmt::Write for ElementIdHasher {
+    fn write_str(&mut self, value: &str) -> fmt::Result {
+        value.hash(&mut self.0);
+        Ok(())
+    }
+}
+
+/// Build stable showcase IDs without allocating formatted names every render.
+fn stable_element_id(arguments: fmt::Arguments<'_>) -> ElementId {
+    let mut hasher = ElementIdHasher(Default::default());
+    fmt::write(&mut hasher, arguments).expect("hash writer is infallible");
+    ElementId::named_usize("python", hasher.0.finish() as usize)
+}
 
 fn select_wire_value(value: &Value) -> String {
     match value {
@@ -2713,13 +2731,13 @@ mod mesh_resource_decode_tests {
             decode_inline_ids(&geometry, "vertex_ids", 3, &store)
                 .unwrap()
                 .unwrap(),
-            vec![10, 20, 30]
+            Arc::from([10, 20, 30])
         );
         assert_eq!(
             decode_inline_ids(&geometry, "cell_ids", 1, &store)
                 .unwrap()
                 .unwrap(),
-            vec![99]
+            Arc::from([99])
         );
 
         for resource_id in ["packed_mask", "byte_mask"] {
@@ -2729,7 +2747,7 @@ mod mesh_resource_decode_tests {
             });
             assert_eq!(
                 decode_mesh_field(&field, &store).unwrap().1,
-                Some(vec![true, false, true])
+                Some(Arc::from([true, false, true]))
             );
         }
     }
@@ -4963,9 +4981,9 @@ fn interactive_3d_view<S: InteractiveOrbitState + 'static>(
     let wheel_state = state.clone();
     let reset_state = state.clone();
     let mut viewport = div()
-        .id(ElementId::Name(
-            format!("python-scene-controls-{id}").into(),
-        ))
+        .id(stable_element_id(format_args!(
+            "python-scene-controls-{id}"
+        )))
         .size_full()
         .relative()
         .cursor_pointer()
@@ -5002,7 +5020,7 @@ fn interactive_3d_view<S: InteractiveOrbitState + 'static>(
     if reset {
         viewport = viewport.child(
             div()
-                .id(ElementId::Name(format!("python-scene-reset-{id}").into()))
+                .id(stable_element_id(format_args!("python-scene-reset-{id}")))
                 .absolute()
                 .right(px(ds.spacing.grid_unit))
                 .top(px(ds.spacing.grid_unit))
@@ -6994,9 +7012,10 @@ impl PythonIrShowcase {
             {
                 summary = summary.child(
                     div()
-                        .id(ElementId::Name(
-                            format!("python-form-focus-first-{}", node.id).into(),
-                        ))
+                        .id(stable_element_id(format_args!(
+                            "python-form-focus-first-{}",
+                            node.id
+                        )))
                         .cursor_pointer()
                         .child("Focus first invalid control")
                         .on_click(move |_, window, cx| handle.focus(window, cx)),
@@ -7004,9 +7023,10 @@ impl PythonIrShowcase {
             }
             for (index, error) in node.errors.iter().enumerate() {
                 let entry = div()
-                    .id(ElementId::Name(
-                        format!("python-form-error-{}-{index}", node.id).into(),
-                    ))
+                    .id(stable_element_id(format_args!(
+                        "python-form-error-{}-{index}",
+                        node.id
+                    )))
                     .cursor_pointer()
                     .child(format!("{}: {}", error.control_id, error.message));
                 summary = if let Some(handle) = self.form_focus.get(&error.control_id).cloned() {
@@ -7248,7 +7268,7 @@ impl PythonIrShowcase {
                 label.clone()
             }
         });
-        let mut input = Input::new(ElementId::Name(format!("python-form-{id}").into()))
+        let mut input = Input::new(stable_element_id(format_args!("python-form-{id}")))
             .value(node.value.clone())
             .disabled(node.disabled)
             .readonly(node.read_only)
@@ -7347,7 +7367,7 @@ impl PythonIrShowcase {
             .or_insert_with(|| cx.focus_handle())
             .clone();
         if let Some(raw_value) = node.value.as_str() {
-            let mut input = Input::new(ElementId::Name(format!("python-form-{id}").into()))
+            let mut input = Input::new(stable_element_id(format_args!("python-form-{id}")))
                 .value(raw_value.to_string())
                 .disabled(node.disabled)
                 .readonly(node.read_only)
@@ -7407,7 +7427,7 @@ impl PythonIrShowcase {
                 ds,
             );
         }
-        let mut input = NumberInput::new(ElementId::Name(format!("python-form-{id}").into()))
+        let mut input = NumberInput::new(stable_element_id(format_args!("python-form-{id}")))
             .range(
                 node.minimum.unwrap_or(f64::NEG_INFINITY),
                 node.maximum.unwrap_or(f64::INFINITY),
@@ -7453,7 +7473,7 @@ impl PythonIrShowcase {
 
     fn render_slider(&self, node: &SliderNode, theme: &Theme, ds: &DesignSystem) -> AnyElement {
         let id = node.id.clone();
-        let mut slider = Slider::new(ElementId::Name(format!("python-slider-{id}").into()))
+        let mut slider = Slider::new(stable_element_id(format_args!("python-slider-{id}")))
             .range(node.minimum, node.maximum)
             .value(node.value)
             .disabled(node.disabled)
@@ -7507,9 +7527,10 @@ impl PythonIrShowcase {
         } else {
             gpui_audio_kit::AudioScale::Linear
         };
-        let mut control = Potentiometer::new(ElementId::Name(
-            format!("python-audio-potentiometer-{}", node.id).into(),
-        ))
+        let mut control = Potentiometer::new(stable_element_id(format_args!(
+            "python-audio-potentiometer-{}",
+            node.id
+        )))
         .value(node.value)
         .min(node.minimum)
         .max(node.maximum)
@@ -7566,9 +7587,10 @@ impl PythonIrShowcase {
         } else {
             gpui_audio_kit::AudioScale::Linear
         };
-        let mut control = VerticalSlider::new(ElementId::Name(
-            format!("python-audio-vertical-slider-{}", node.id).into(),
-        ))
+        let mut control = VerticalSlider::new(stable_element_id(format_args!(
+            "python-audio-vertical-slider-{}",
+            node.id
+        )))
         .value(node.value)
         .min(node.minimum)
         .max(node.maximum)
@@ -7623,9 +7645,10 @@ impl PythonIrShowcase {
 
     fn render_audio_volume_knob(&self, node: &AudioControlNode) -> AnyElement {
         let mut control = VolumeKnob::new()
-            .id(ElementId::Name(
-                format!("python-audio-volume-knob-{}", node.id).into(),
-            ))
+            .id(stable_element_id(format_args!(
+                "python-audio-volume-knob-{}",
+                node.id
+            )))
             .value(node.value as f32)
             .label(node.label.clone())
             .muted(node.muted)
@@ -7804,7 +7827,7 @@ impl PythonIrShowcase {
                 .disabled(option.disabled)
             })
             .collect();
-        let mut select = Select::new(ElementId::Name(format!("python-form-{id}").into()))
+        let mut select = Select::new(stable_element_id(format_args!("python-form-{id}")))
             .options(options)
             .selected(select_wire_value(&node.value))
             .disabled(node.disabled)
@@ -7852,7 +7875,7 @@ impl PythonIrShowcase {
                 label.clone()
             }
         });
-        let mut input = Input::new(ElementId::Name(format!("python-path-{id}").into()))
+        let mut input = Input::new(stable_element_id(format_args!("python-path-{id}")))
             .value(node.value.clone())
             .disabled(node.disabled)
             .readonly(node.read_only)
@@ -7909,9 +7932,9 @@ impl PythonIrShowcase {
             let sink = self.session.as_ref().map(|session| session.event_sink());
             row = row.child(
                 div()
-                    .id(ElementId::Name(
-                        format!("python-path-browse-{node_id}").into(),
-                    ))
+                    .id(stable_element_id(format_args!(
+                        "python-path-browse-{node_id}"
+                    )))
                     .px(px(ds.spacing.control_padding_x))
                     .py(px(ds.spacing.control_padding_y))
                     .rounded(px(ds.corners.md))
@@ -8038,9 +8061,9 @@ impl PythonIrShowcase {
                         let action = action.clone();
                         let node_id = node_id.clone();
                         div()
-                            .id(ElementId::Name(
-                                format!("python-path-recent-{node_id}-{index}").into(),
-                            ))
+                            .id(stable_element_id(format_args!(
+                                "python-path-recent-{node_id}-{index}"
+                            )))
                             .px(px(ds.spacing.grid_unit))
                             .py(px(ds.spacing.grid_unit / 2.0))
                             .rounded(px(ds.corners.sm))
@@ -8081,7 +8104,7 @@ impl PythonIrShowcase {
         ds: &DesignSystem,
     ) -> AnyElement {
         let mut checkbox =
-            Checkbox::new(ElementId::Name(format!("python-form-{}", node.id).into()))
+            Checkbox::new(stable_element_id(format_args!("python-form-{}", node.id)))
                 .checked(node.value)
                 .indeterminate(node.indeterminate)
                 .label(node.label.clone())
@@ -8108,7 +8131,7 @@ impl PythonIrShowcase {
         theme: &Theme,
         ds: &DesignSystem,
     ) -> AnyElement {
-        let mut toggle = Toggle::new(ElementId::Name(format!("python-form-{}", node.id).into()))
+        let mut toggle = Toggle::new(stable_element_id(format_args!("python-form-{}", node.id)))
             .checked(node.value)
             .label(node.label.clone())
             .disabled(node.disabled)
@@ -8202,9 +8225,9 @@ impl PythonIrShowcase {
         let filter_button = |label: &'static str, filter: Option<LogSeverity>| {
             let selected = self.job_log_filter == filter;
             div()
-                .id(ElementId::Name(
-                    format!("python-job-log-filter-{label}").into(),
-                ))
+                .id(stable_element_id(format_args!(
+                    "python-job-log-filter-{label}"
+                )))
                 .px(px(ds.spacing.grid_unit))
                 .py(px(ds.spacing.grid_unit / 2.0))
                 .rounded(px(ds.corners.sm))
@@ -8350,9 +8373,9 @@ impl PythonIrShowcase {
                                 .gap(px(ds.spacing.grid_unit))
                                 .child(
                                     div()
-                                        .id(ElementId::Name(
-                                            format!("python-job-log-pause-{job_id}").into(),
-                                        ))
+                                        .id(stable_element_id(format_args!(
+                                            "python-job-log-pause-{job_id}"
+                                        )))
                                         .px(px(ds.spacing.grid_unit))
                                         .py(px(ds.spacing.grid_unit / 2.0))
                                         .rounded(px(ds.corners.sm))
@@ -8376,9 +8399,10 @@ impl PythonIrShowcase {
                                 .child({
                                     let copied_logs = copied_logs.clone();
                                     div()
-                                        .id(ElementId::Name(
-                                            format!("python-job-log-copy-{}", job.id).into(),
-                                        ))
+                                        .id(stable_element_id(format_args!(
+                                            "python-job-log-copy-{}",
+                                            job.id
+                                        )))
                                         .px(px(ds.spacing.grid_unit))
                                         .py(px(ds.spacing.grid_unit / 2.0))
                                         .rounded(px(ds.corners.sm))
@@ -8395,9 +8419,9 @@ impl PythonIrShowcase {
                                 .child({
                                     let job_id = job.id.clone();
                                     div()
-                                        .id(ElementId::Name(
-                                            format!("python-job-log-clear-{job_id}").into(),
-                                        ))
+                                        .id(stable_element_id(format_args!(
+                                            "python-job-log-clear-{job_id}"
+                                        )))
                                         .px(px(ds.spacing.grid_unit))
                                         .py(px(ds.spacing.grid_unit / 2.0))
                                         .rounded(px(ds.corners.sm))
@@ -8416,9 +8440,10 @@ impl PythonIrShowcase {
                                 .child({
                                     let copied_logs = copied_logs.clone();
                                     div()
-                                        .id(ElementId::Name(
-                                            format!("python-job-log-export-{}", job.id).into(),
-                                        ))
+                                        .id(stable_element_id(format_args!(
+                                            "python-job-log-export-{}",
+                                            job.id
+                                        )))
                                         .px(px(ds.spacing.grid_unit))
                                         .py(px(ds.spacing.grid_unit / 2.0))
                                         .rounded(px(ds.corners.sm))
@@ -8445,7 +8470,7 @@ impl PythonIrShowcase {
                         )
                         .child(
                             uniform_list(
-                                ElementId::Name(format!("python-job-log-lines-{job_id}").into()),
+                                stable_element_id(format_args!("python-job-log-lines-{job_id}")),
                                 log_lines.len(),
                                 move |range, _, _| {
                                     range
@@ -8473,7 +8498,7 @@ impl PythonIrShowcase {
                     if cancel {
                         row = row.child(
                             div()
-                                .id(ElementId::Name(format!("python-cancel-{}", job_id).into()))
+                                .id(stable_element_id(format_args!("python-cancel-{}", job_id)))
                                 .self_start()
                                 .px(px(ds.spacing.control_padding_x))
                                 .py(px(ds.spacing.grid_unit))
@@ -8665,7 +8690,7 @@ impl PythonIrShowcase {
             _ => AlertVariant::Info,
         };
         let mut alert = Alert::new(
-            ElementId::Name(format!("python-alert-{}", node.id).into()),
+            stable_element_id(format_args!("python-alert-{}", node.id)),
             node.message.clone(),
         )
         .variant(variant)
@@ -8693,7 +8718,7 @@ impl PythonIrShowcase {
             _ => ToastVariant::Info,
         };
         let mut toast = Toast::new(
-            ElementId::Name(format!("python-toast-{}", node.id).into()),
+            stable_element_id(format_args!("python-toast-{}", node.id)),
             node.message.clone(),
         )
         .variant(variant)
@@ -8731,9 +8756,10 @@ impl PythonIrShowcase {
             self.render_node(&node.child, theme, ds, cx),
             node.content.clone(),
         )
-        .id(ElementId::Name(
-            format!("python-tooltip-{}", node.id).into(),
-        ))
+        .id(stable_element_id(format_args!(
+            "python-tooltip-{}",
+            node.id
+        )))
         .placement(placement)
         .delay(node.delay_ms);
         if let Some(show) = node.show {
@@ -8790,7 +8816,7 @@ impl PythonIrShowcase {
                     .iter()
                     .map(|child| self.render_node(child, theme, ds, cx)),
             );
-        let mut dialog = Dialog::new(ElementId::Name(format!("python-dialog-{}", node.id).into()))
+        let mut dialog = Dialog::new(stable_element_id(format_args!("python-dialog-{}", node.id)))
             .size(size)
             .content(content)
             .footer(footer)
@@ -8821,9 +8847,10 @@ impl PythonIrShowcase {
             "warning" => ConfirmDialogVariant::Warning,
             _ => ConfirmDialogVariant::Default,
         };
-        let mut dialog = ConfirmDialog::new(ElementId::Name(
-            format!("python-confirm-dialog-{}", node.id).into(),
-        ))
+        let mut dialog = ConfirmDialog::new(stable_element_id(format_args!(
+            "python-confirm-dialog-{}",
+            node.id
+        )))
         .message(node.message.clone())
         .variant(variant)
         .confirm_label(node.confirm_label.clone())
@@ -8887,7 +8914,7 @@ impl PythonIrShowcase {
 
     fn render_context_menu(&self, node: &ContextMenuNode, cx: &mut Context<Self>) -> AnyElement {
         let mut menu = ContextMenu::new(
-            ElementId::Name(format!("python-context-menu-{}", node.id).into()),
+            stable_element_id(format_args!("python-context-menu-{}", node.id)),
             Self::menu_items(&node.items),
         )
         .position(point(px(node.position[0]), px(node.position[1])))
@@ -8938,7 +8965,7 @@ impl PythonIrShowcase {
 
     fn render_menu(&self, node: &MenuNode, cx: &mut Context<Self>) -> AnyElement {
         let mut menu = Menu::new(
-            ElementId::Name(format!("python-menu-{}", node.id).into()),
+            stable_element_id(format_args!("python-menu-{}", node.id)),
             Self::menu_items(&node.items),
         )
         .min_width(px(node.min_width))
@@ -9015,7 +9042,7 @@ impl PythonIrShowcase {
             && let Some(active) = node.items.iter().find(|item| &item.id == active_id)
         {
             let mut menu = Menu::new(
-                ElementId::Name(format!("python-menu-bar-{}-{active_id}", node.id).into()),
+                stable_element_id(format_args!("python-menu-bar-{}-{active_id}", node.id)),
                 Self::menu_items(&active.items),
             )
             .focus_handle(cx.focus_handle());
@@ -9074,9 +9101,10 @@ impl PythonIrShowcase {
                 .iter()
                 .map(|child| self.render_node(child, theme, ds, cx)),
         );
-        let mut popover = Popover::new(ElementId::Name(
-            format!("python-popover-{}", node.id).into(),
-        ))
+        let mut popover = Popover::new(stable_element_id(format_args!(
+            "python-popover-{}",
+            node.id
+        )))
         .placement(placement)
         .content(content)
         .show_backdrop(node.show_backdrop)
@@ -9119,7 +9147,7 @@ impl PythonIrShowcase {
         let items = node.items.clone();
         let active = node.active;
         apply_native_accessibility(
-            div().id(ElementId::Name(format!("python-tablist-{tab_id}").into())),
+            div().id(stable_element_id(format_args!("python-tablist-{tab_id}"))),
             format!("Tabs {tab_id}"),
             &AriaProps::with_role(AriaRole::Tablist),
         )
@@ -9131,13 +9159,10 @@ impl PythonIrShowcase {
             let active = index == node.active;
             let tab = apply_native_accessibility(
                 div()
-                    .id(ElementId::Name(
-                        format!(
-                            "python-tab-{}-{index}",
-                            node.id.as_deref().unwrap_or("unbound")
-                        )
-                        .into(),
-                    ))
+                    .id(stable_element_id(format_args!(
+                        "python-tab-{}-{index}",
+                        node.id.as_deref().unwrap_or("unbound")
+                    )))
                     .px(px(ds.spacing.control_padding_x))
                     .py(px(ds.spacing.control_padding_y))
                     .rounded(px(ds.corners.md))
@@ -9204,9 +9229,10 @@ impl PythonIrShowcase {
                 let active = index == node.active;
                 let disabled = node.disabled_steps.contains(&index);
                 let mut item = div()
-                    .id(ElementId::Name(
-                        format!("python-stepper-{}-{index}", node.id).into(),
-                    ))
+                    .id(stable_element_id(format_args!(
+                        "python-stepper-{}-{index}",
+                        node.id
+                    )))
                     .flex()
                     .items_center()
                     .gap(px(ds.spacing.grid_unit))
@@ -9311,18 +9337,20 @@ impl PythonIrShowcase {
             let row_value = row.value.clone();
             let remove = if node.disabled || row.disabled || node.remove_action.is_none() {
                 div()
-                    .id(ElementId::Name(
-                        format!("python-list-remove-{}-{}", node.id, row.id).into(),
-                    ))
+                    .id(stable_element_id(format_args!(
+                        "python-list-remove-{}-{}",
+                        node.id, row.id
+                    )))
                     .text_color(theme.text_muted)
                     .child("Remove")
             } else if let Some(sink) = self.session.as_ref().map(|session| session.event_sink()) {
                 let list_id = node.id.clone();
                 let action = node.remove_action.clone();
                 div()
-                    .id(ElementId::Name(
-                        format!("python-list-remove-{}-{}", node.id, row.id).into(),
-                    ))
+                    .id(stable_element_id(format_args!(
+                        "python-list-remove-{}-{}",
+                        node.id, row.id
+                    )))
                     .px(px(ds.spacing.grid_unit))
                     .py(px(ds.spacing.grid_unit / 2.0))
                     .rounded(px(ds.corners.sm))
@@ -9340,9 +9368,10 @@ impl PythonIrShowcase {
                     })
             } else {
                 div()
-                    .id(ElementId::Name(
-                        format!("python-list-remove-{}-{}", node.id, row.id).into(),
-                    ))
+                    .id(stable_element_id(format_args!(
+                        "python-list-remove-{}-{}",
+                        node.id, row.id
+                    )))
                     .text_color(theme.text_muted)
                     .child("Remove")
             };
@@ -9370,7 +9399,7 @@ impl PythonIrShowcase {
             items.push(DragItem::new(row.id.clone(), content));
         }
         let mut list = DragList::new(
-            ElementId::Name(format!("python-list-editor-{}", node.id).into()),
+            stable_element_id(format_args!("python-list-editor-{}", node.id)),
             items,
         )
         .show_handles(!node.disabled)
@@ -9418,9 +9447,10 @@ impl PythonIrShowcase {
                 let list_id = node.id.clone();
                 editor = editor.child(
                     div()
-                        .id(ElementId::Name(
-                            format!("python-list-add-{}", node.id).into(),
-                        ))
+                        .id(stable_element_id(format_args!(
+                            "python-list-add-{}",
+                            node.id
+                        )))
                         .px(px(ds.spacing.control_padding_x))
                         .py(px(ds.spacing.control_padding_y))
                         .rounded(px(ds.corners.sm))
@@ -9454,7 +9484,7 @@ impl PythonIrShowcase {
             format!("legacy-{}", self.legacy_table_id_counter)
         });
         let mut table = apply_native_accessibility(
-            div().id(ElementId::Name(format!("python-table-{dom_id}").into())),
+            div().id(stable_element_id(format_args!("python-table-{dom_id}"))),
             format!("Table {dom_id}"),
             &AriaProps::with_role(AriaRole::Table),
         )
@@ -9550,7 +9580,7 @@ impl PythonIrShowcase {
             let table_small_text = ds.typography.small_size;
             table = table.child(
                 uniform_list(
-                    ElementId::Name(format!("python-table-virtual-{table_id}").into()),
+                    stable_element_id(format_args!("python-table-virtual-{table_id}")),
                     rows.len(),
                     move |range, _, _| {
                         range
@@ -9564,9 +9594,7 @@ impl PythonIrShowcase {
                                 let sink = list_sink.clone();
                                 let focus_handle = list_focus.clone();
                                 div()
-                                    .id(ElementId::Name(
-                                        format!("python-table-row-{list_table_id}-{row_id}").into(),
-                                    ))
+                                    .id(stable_element_id(format_args!("python-table-row-{list_table_id}-{row_id}")))
                                     .h(px(row_height))
                                     .flex()
                                     .items_center()
@@ -9738,7 +9766,7 @@ impl PythonIrShowcase {
                     .and_then(|table_id| widths.borrow().get(&(table_id.clone(), column.id.clone())).copied())
                     .unwrap_or_else(|| column.width.unwrap_or(180.0));
                 let mut cell = div()
-                    .id(ElementId::Name(format!("python-table-header-{}", column.id).into()))
+                    .id(stable_element_id(format_args!("python-table-header-{}", column.id)))
                     .relative()
                     .w(px(width))
                     .px(px(ds.spacing.control_padding_x))
@@ -9758,7 +9786,7 @@ impl PythonIrShowcase {
                     let column_id = column.id.clone();
                     let initial_width = width;
                     let grip = div()
-                        .id(ElementId::Name(format!("python-table-resize-{table_id}-{column_id}").into()))
+                        .id(stable_element_id(format_args!("python-table-resize-{table_id}-{column_id}")))
                         .absolute()
                         .right_0()
                         .top_0()
@@ -10345,7 +10373,7 @@ impl PythonIrShowcase {
         });
         let chart = match interaction {
             Some(state) => interactive(
-                ElementId::Name(format!("python-chart-{}", node.id).into()),
+                stable_element_id(format_args!("python-chart-{}", node.id)),
                 chart,
                 state,
             )
@@ -10427,9 +10455,9 @@ impl PythonIrShowcase {
                         },
                     ));
                     div()
-                        .id(ElementId::Name(
-                            format!("python-chart-legend-{chart_id}-{series_id}").into(),
-                        ))
+                        .id(stable_element_id(format_args!(
+                            "python-chart-legend-{chart_id}-{series_id}"
+                        )))
                         .flex()
                         .items_center()
                         .gap(px(ds.spacing.grid_unit / 2.0))
@@ -10467,9 +10495,10 @@ impl PythonIrShowcase {
             .children(legend)
             .child(
                 div()
-                    .id(ElementId::Name(
-                        format!("python-chart-export-{}", node.id).into(),
-                    ))
+                    .id(stable_element_id(format_args!(
+                        "python-chart-export-{}",
+                        node.id
+                    )))
                     .self_start()
                     .px(px(ds.spacing.grid_unit))
                     .py(px(ds.spacing.grid_unit / 2.0))
@@ -10494,9 +10523,10 @@ impl PythonIrShowcase {
             )
             .child(
                 div()
-                    .id(ElementId::Name(
-                        format!("python-chart-export-svg-{}", node.id).into(),
-                    ))
+                    .id(stable_element_id(format_args!(
+                        "python-chart-export-svg-{}",
+                        node.id
+                    )))
                     .self_start()
                     .px(px(ds.spacing.grid_unit))
                     .py(px(ds.spacing.grid_unit / 2.0))
@@ -10521,9 +10551,10 @@ impl PythonIrShowcase {
             )
             .child(
                 div()
-                    .id(ElementId::Name(
-                        format!("python-chart-export-png-{}", node.id).into(),
-                    ))
+                    .id(stable_element_id(format_args!(
+                        "python-chart-export-png-{}",
+                        node.id
+                    )))
                     .self_start()
                     .px(px(ds.spacing.grid_unit))
                     .py(px(ds.spacing.grid_unit / 2.0))
@@ -10573,7 +10604,7 @@ impl PythonIrShowcase {
         };
 
         let container = div()
-            .id(ElementId::Name(format!("python-scene-{}", node.id).into()))
+            .id(stable_element_id(format_args!("python-scene-{}", node.id)))
             .w(px(width))
             .h(px(height))
             .rounded(px(ds.corners.md))
@@ -10807,9 +10838,10 @@ impl PythonIrShowcase {
         }
 
         let mut container = div()
-            .id(ElementId::Name(
-                format!("python-mesh-plot-{}", node.id).into(),
-            ))
+            .id(stable_element_id(format_args!(
+                "python-mesh-plot-{}",
+                node.id
+            )))
             .w(px(width))
             .h(px(height))
             .flex()
@@ -12645,9 +12677,9 @@ impl PythonIrShowcase {
             let confirm_id = request_id.clone();
             let cancel_id = request_id.clone();
             let confirm_button = div()
-                .id(ElementId::Name(
-                    format!("python-confirm-{confirm_id}").into(),
-                ))
+                .id(stable_element_id(format_args!(
+                    "python-confirm-{confirm_id}"
+                )))
                 .px(px(ds.spacing.control_padding_x))
                 .py(px(ds.spacing.control_padding_y))
                 .rounded(px(ds.corners.md))
@@ -12670,9 +12702,9 @@ impl PythonIrShowcase {
                     cx.notify();
                 }));
             let cancel_button = div()
-                .id(ElementId::Name(
-                    format!("python-cancel-confirm-{cancel_id}").into(),
-                ))
+                .id(stable_element_id(format_args!(
+                    "python-cancel-confirm-{cancel_id}"
+                )))
                 .px(px(ds.spacing.control_padding_x))
                 .py(px(ds.spacing.control_padding_y))
                 .rounded(px(ds.corners.md))
@@ -12691,9 +12723,9 @@ impl PythonIrShowcase {
                 }));
             elements.push(
                 div()
-                    .id(ElementId::Name(
-                        format!("python-confirm-overlay-{request_id}").into(),
-                    ))
+                    .id(stable_element_id(format_args!(
+                        "python-confirm-overlay-{request_id}"
+                    )))
                     .absolute()
                     .inset_0()
                     .flex()
@@ -12781,7 +12813,7 @@ impl PythonIrShowcase {
                 } else if let Err(error) = self.sync_mesh_plot_resource_refs(next_resource_refs) {
                     self.record_mesh_patch_error(&patch, error);
                 } else {
-                    let next_app = match PythonAppIr::from_patched_value(next_app_value) {
+                    let next_app = match PythonAppIr::from_patched_value(&next_app_value) {
                         Ok(app) => app,
                         Err(error) => {
                             self.record_mesh_patch_error(&patch, error.to_string());

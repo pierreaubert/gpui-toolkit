@@ -271,6 +271,7 @@ fn build_tick_geometry(
 
 /// Custom element that paints all potentiometer tick lines in two batched paths.
 pub(super) struct PotentiometerTickLinesElement {
+    pub id: ElementId,
     pub container_width: f32,
     pub container_height: f32,
     pub major_tick_color: Rgba,
@@ -298,7 +299,7 @@ impl Element for PotentiometerTickLinesElement {
     type PrepaintState = ();
 
     fn id(&self) -> Option<ElementId> {
-        None
+        Some(self.id.clone())
     }
 
     fn source_location(&self) -> Option<&'static std::panic::Location<'static>> {
@@ -339,7 +340,7 @@ impl Element for PotentiometerTickLinesElement {
 
     fn paint(
         &mut self,
-        _id: Option<&GlobalElementId>,
+        id: Option<&GlobalElementId>,
         _inspector_id: Option<&InspectorElementId>,
         bounds: Bounds<Pixels>,
         _request_layout: &mut Self::RequestLayoutState,
@@ -364,7 +365,8 @@ impl Element for PotentiometerTickLinesElement {
                 TICK_SCENE_CACHE.with(|cache| cache.borrow().get(&scene_key).cloned())
             {
                 self.painter.set_backend(self.vello_backend);
-                self.painter.paint(scene.as_ref(), bounds, window);
+                self.painter
+                    .paint_retained(id, scene.as_ref(), bounds, window);
                 return;
             }
             let mut scene = d3rs::vello2d::ChartScene::new();
@@ -419,7 +421,8 @@ impl Element for PotentiometerTickLinesElement {
                 cache.insert(scene_key, Arc::clone(&scene));
             });
             self.painter.set_backend(self.vello_backend);
-            self.painter.paint(scene.as_ref(), bounds, window);
+            self.painter
+                .paint_retained(id, scene.as_ref(), bounds, window);
             return;
         }
 

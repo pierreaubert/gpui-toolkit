@@ -5,7 +5,9 @@
 //! noisy. Caches are explicitly warmed before the probe baseline is reset.
 
 use gpui_audio_kit::meter::format_meter_value;
+use gpui_audio_kit::scale::Scale;
 use gpui_audio_kit::spectrum::MeterData;
+use gpui_audio_kit::{DragState, InteractionConfig, handle_drag};
 use gpui_profiler::{AllocProbe, AllocationBudget};
 use std::hint::black_box;
 
@@ -51,10 +53,30 @@ fn warmed_spectrum_meter_updates_are_allocation_free() {
         .assert_contains(probe.sample("spectrum-meter-update-1024-bins-1000x"));
 }
 
+fn warmed_knob_drag_math_is_allocation_free() {
+    if std::env::var_os("CARGO_LLVM_COV").is_some() {
+        return;
+    }
+    let drag = DragState {
+        start_pos: 120.0,
+        start_value: 0.5,
+    };
+    let config = InteractionConfig::rotational(0.0, 1.0, Scale::Linear, 48.0);
+    black_box(handle_drag(119.0, &drag, &config));
+    let mut probe = AllocProbe::new();
+    probe.reset();
+    for frame in 0..1_000 {
+        black_box(handle_drag(120.0 - frame as f32 * 0.01, &drag, &config));
+    }
+    AllocationBudget::zero("audio-knob-drag-1000x")
+        .assert_contains(probe.sample("audio-knob-drag-1000x"));
+}
+
 #[test]
 fn allocation_contracts_run_serially() {
     // Allocation counters are process-wide, so these measurements must not
     // execute concurrently in the same integration-test binary.
     cached_meter_formatting_is_allocation_free();
     warmed_spectrum_meter_updates_are_allocation_free();
+    warmed_knob_drag_math_is_allocation_free();
 }

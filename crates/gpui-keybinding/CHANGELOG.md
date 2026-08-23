@@ -1,3 +1,9 @@
+# 0.9.6 - 2026-08-23
+
+## Performance
+
+- Bounded key-discovery cache growth and reduced keybinding lookup/hash hot-path work.
+
 # 0.7.3
 
 ## Maintenance

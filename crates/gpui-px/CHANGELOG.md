@@ -1,5 +1,11 @@
 # Unreleased
 
+## 0.9.11 - 2026-08-23
+
+### Performance
+
+- Added stable Vello cache keys for common chart marks and allocation contracts for mesh-plot interaction paths.
+
 # 0.9.10
 
 ## Features

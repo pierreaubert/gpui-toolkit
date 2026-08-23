@@ -278,14 +278,16 @@ impl PlatformTextSystem for DirectWriteTextSystem {
     }
 
     fn layout_line(&self, text: &str, font_size: Pixels, runs: &[FontRun]) -> Arc<LineLayout> {
-        Arc::new(self.state
-            .write()
-            .layout_line(&self.components, text, font_size, runs)
-            .log_err()
-            .unwrap_or(LineLayout {
-                font_size,
-                ..Default::default()
-            }))
+        Arc::new(
+            self.state
+                .write()
+                .layout_line(&self.components, text, font_size, runs)
+                .log_err()
+                .unwrap_or(LineLayout {
+                    font_size,
+                    ..Default::default()
+                }),
+        )
     }
 
     fn recommended_rendering_mode(

@@ -1,5 +1,11 @@
 # Unreleased
 
+## 0.9.9 - 2026-08-23
+
+### Performance
+
+- Added stable text-measure cache keys so repeated solver passes can reuse measured text safely.
+
 ## Performance
 
 - Added `RetainedLayoutSolver`, a stateful convenience API that reuses the

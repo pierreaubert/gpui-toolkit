@@ -1552,7 +1552,7 @@ fn test_knuth_plass_chunk_empty_items() {
     let items: Vec<KPItem> = Vec::new();
     let params = kp_params();
     let result = knuth_plass_chunk(&items, 100.0, &params, params.tolerance);
-    assert_eq!(result, Some(Vec::new()));
+    assert!(result.as_deref().is_some_and(<[_]>::is_empty));
 }
 
 #[test]

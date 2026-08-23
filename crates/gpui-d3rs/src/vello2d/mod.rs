@@ -26,7 +26,7 @@ pub use scene::{ChartCmd, ChartScene};
 
 #[cfg(feature = "vello-gpui")]
 pub use element::{
-    RasterBackend, RetainedVelloChart, RetainedVelloChartElement, VelloChartElement,
+    RasterBackend, RetainedVelloChart, RetainedVelloChartElement, SceneCacheKey, VelloChartElement,
     VelloScenePainter,
 };
 #[cfg(feature = "vello-gpui")]

@@ -1,3 +1,9 @@
+# 0.9.6 - 2026-08-23
+
+## Fixed
+
+- Restored child notification propagation for edited and built-in theme state.
+
 # 0.7.4
 
 ## Maintenance

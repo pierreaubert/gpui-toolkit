@@ -1,9 +1,10 @@
+use hashbrown::HashMap;
+use hashbrown::hash_map::RawEntryMut;
 /// Text measurement abstraction and caching, ported from chenglou/pretext.
 ///
 /// Instead of the browser's canvas `measureText()`, users provide a [`TextMeasure`]
 /// implementation backed by their text rendering system (e.g., GPUI, CoreText, etc.).
 use std::cell::RefCell;
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use unicode_segmentation::UnicodeSegmentation;
@@ -30,6 +31,15 @@ thread_local! {
 pub trait TextMeasure {
     /// Measure the advance width (in pixels/points) of the given text string.
     fn measure_width(&self, text: &str) -> f64;
+
+    /// Stable identity and revision token for retained measurement caches.
+    ///
+    /// Implementations whose metrics change in place should override this and
+    /// change the token whenever font, scale, locale, or shaping state changes.
+    /// The default distinguishes measure instances for compatibility.
+    fn cache_key(&self) -> u64 {
+        (self as *const Self as *const () as usize) as u64
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -94,20 +104,23 @@ impl MeasureCache {
     }
 
     pub fn get_segment_metrics(&mut self, seg: &str, measure: &dyn TextMeasure) -> &SegmentMetrics {
-        if !self.cache.contains_key(seg) {
-            let width = measure.measure_width(seg);
-            let contains_cjk = is_cjk(seg);
-            self.cache.insert(
-                Arc::from(seg),
-                SegmentMetrics {
-                    width,
-                    contains_cjk,
-                    grapheme_widths: None,
-                    grapheme_prefix_widths: None,
-                },
-            );
+        match self.cache.raw_entry_mut().from_key(seg) {
+            RawEntryMut::Occupied(entry) => entry.into_mut(),
+            RawEntryMut::Vacant(entry) => {
+                let width = measure.measure_width(seg);
+                let contains_cjk = is_cjk(seg);
+                let (_, metrics) = entry.insert(
+                    Arc::from(seg),
+                    SegmentMetrics {
+                        width,
+                        contains_cjk,
+                        grapheme_widths: None,
+                        grapheme_prefix_widths: None,
+                    },
+                );
+                metrics
+            }
         }
-        self.cache.get(seg).unwrap()
     }
 
     pub fn get_width(&mut self, seg: &str, measure: &dyn TextMeasure) -> f64 {
@@ -163,7 +176,10 @@ impl MeasureCache {
                 widths.extend(
                     graphemes
                         .iter()
-                        .map(|(start, end)| self.get_width(&seg[*start..*end], measure)),
+                        // These widths are single-use inputs to the parent
+                        // segment. Caching each slice creates one Arc/HashMap
+                        // entry per grapheme with no later hit.
+                        .map(|(start, end)| measure.measure_width(&seg[*start..*end])),
                 );
                 let widths_arc: Arc<[f64]> = Arc::from(widths.as_slice());
                 widths.clear();

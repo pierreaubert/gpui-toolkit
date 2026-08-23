@@ -9,6 +9,8 @@ use d3rs::render2d::{Renderer2D, VelloBackend};
 
 /// GPU-accelerated spectrum analyzer element.
 pub struct SpectrumElement {
+    id: ElementId,
+    source_location: &'static panic::Location<'static>,
     pub(super) magnitudes: Arc<[f32]>,
     pub(super) min_freq: f32,
     pub(super) max_freq: f32,
@@ -25,8 +27,12 @@ pub struct SpectrumElement {
 }
 
 impl SpectrumElement {
+    #[track_caller]
     pub fn new(magnitudes: impl Into<Arc<[f32]>>) -> Self {
+        let source_location = panic::Location::caller();
         Self {
+            id: ElementId::CodeLocation(*source_location),
+            source_location,
             magnitudes: magnitudes.into(),
             min_freq: 20.0,
             max_freq: 20000.0,
@@ -114,11 +120,11 @@ impl Element for SpectrumElement {
     type PrepaintState = ();
 
     fn id(&self) -> Option<ElementId> {
-        None
+        Some(self.id.clone())
     }
 
     fn source_location(&self) -> Option<&'static panic::Location<'static>> {
-        None
+        Some(self.source_location)
     }
 
     fn request_layout(
@@ -153,7 +159,7 @@ impl Element for SpectrumElement {
 
     fn paint(
         &mut self,
-        _id: Option<&GlobalElementId>,
+        id: Option<&GlobalElementId>,
         _inspector_id: Option<&InspectorElementId>,
         bounds: Bounds<Pixels>,
         _request_layout: &mut Self::RequestLayoutState,
@@ -258,7 +264,7 @@ impl Element for SpectrumElement {
                 }
             }
             self.painter.set_backend(self.vello_backend);
-            self.painter.paint_owned(scene, bounds, window);
+            self.painter.paint_retained(id, &scene, bounds, window);
             return;
         }
 

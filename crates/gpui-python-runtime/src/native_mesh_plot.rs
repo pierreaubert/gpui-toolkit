@@ -5,7 +5,8 @@
 //! binary: every native host must reject unsupported configuration before it
 //! mutates a retained plot or its last valid frame.
 
-use crate::mesh_frames::{MeshDtype, MeshFrameKind, MeshFrameStore, RetainedMeshResource};
+use crate::cache::structural_fingerprint;
+use crate::mesh_frames::MeshFrameStore;
 use crate::meshplot::MeshPlotSpec;
 use d3rs::mesh::{ContourLevels, MissingValuePolicy, RevolveSpec};
 use gpui_px::{
@@ -432,135 +433,6 @@ fn resource_ref<'a>(value: &'a Value, name: &str) -> Result<(&'a str, u64), Stri
     Ok((resource_id, generation))
 }
 
-fn resource<'a>(
-    store: &'a MeshFrameStore,
-    value: &Value,
-    name: &str,
-    expected_kind: MeshFrameKind,
-) -> Result<&'a RetainedMeshResource, String> {
-    let (resource_id, generation) = resource_ref(value, name)?;
-    let resource = store.get(resource_id, generation).ok_or_else(|| {
-        format!("missing {name} resource {resource_id:?} generation {generation}")
-    })?;
-    if resource.kind != expected_kind {
-        return Err(format!(
-            "{name} resource {resource_id:?} has kind {:?}, expected {:?}",
-            resource.kind, expected_kind
-        ));
-    }
-    Ok(resource)
-}
-
-fn shape_elements(resource: &RetainedMeshResource, name: &str) -> Result<usize, String> {
-    if resource.shape.is_empty() || resource.shape.contains(&0) {
-        return Err(format!(
-            "{name} resource shape must contain positive dimensions"
-        ));
-    }
-    resource.shape.iter().try_fold(1usize, |count, dimension| {
-        count
-            .checked_mul(*dimension as usize)
-            .ok_or_else(|| format!("{name} resource shape is too large"))
-    })
-}
-
-fn floats(
-    resource: &RetainedMeshResource,
-    name: &str,
-    allow_nan: bool,
-) -> Result<Vec<f64>, String> {
-    let elements = shape_elements(resource, name)?;
-    let width = match resource.dtype {
-        MeshDtype::F32LE => 4,
-        MeshDtype::F64LE => 8,
-        dtype => {
-            return Err(format!(
-                "{name} resource dtype {dtype:?} is not f32le/f64le"
-            ));
-        }
-    };
-    let expected = elements
-        .checked_mul(width)
-        .ok_or_else(|| format!("{name} resource payload is too large"))?;
-    if resource.payload.len() != expected {
-        return Err(format!(
-            "{name} resource payload has {} bytes, expected {expected}",
-            resource.payload.len()
-        ));
-    }
-    resource
-        .payload
-        .chunks_exact(width)
-        .map(|chunk| {
-            let value = if width == 4 {
-                f32::from_le_bytes(chunk.try_into().map_err(|_| "invalid f32 bytes")?) as f64
-            } else {
-                f64::from_le_bytes(chunk.try_into().map_err(|_| "invalid f64 bytes")?)
-            };
-            if value.is_infinite() || (!allow_nan && value.is_nan()) {
-                return Err(format!("{name} resource contains a non-finite value"));
-            }
-            Ok(value)
-        })
-        .collect()
-}
-
-fn u32s(resource: &RetainedMeshResource, name: &str) -> Result<Vec<u32>, String> {
-    let elements = shape_elements(resource, name)?;
-    if resource.dtype != MeshDtype::U32LE {
-        return Err(format!(
-            "{name} resource dtype {:?} is not u32le",
-            resource.dtype
-        ));
-    }
-    let expected = elements
-        .checked_mul(4)
-        .ok_or_else(|| format!("{name} resource payload is too large"))?;
-    if resource.payload.len() != expected {
-        return Err(format!(
-            "{name} resource payload has {} bytes, expected {expected}",
-            resource.payload.len()
-        ));
-    }
-    resource
-        .payload
-        .chunks_exact(4)
-        .map(|chunk| {
-            Ok(u32::from_le_bytes(
-                chunk.try_into().map_err(|_| "invalid u32 bytes")?,
-            ))
-        })
-        .collect()
-}
-
-fn u64s(resource: &RetainedMeshResource, name: &str) -> Result<Vec<u64>, String> {
-    let elements = shape_elements(resource, name)?;
-    if resource.dtype != MeshDtype::U64LE {
-        return Err(format!(
-            "{name} resource dtype {:?} is not u64le",
-            resource.dtype
-        ));
-    }
-    let expected = elements
-        .checked_mul(8)
-        .ok_or_else(|| format!("{name} resource payload is too large"))?;
-    if resource.payload.len() != expected {
-        return Err(format!(
-            "{name} resource payload has {} bytes, expected {expected}",
-            resource.payload.len()
-        ));
-    }
-    resource
-        .payload
-        .chunks_exact(8)
-        .map(|chunk| {
-            Ok(u64::from_le_bytes(
-                chunk.try_into().map_err(|_| "invalid u64 bytes")?,
-            ))
-        })
-        .collect()
-}
-
 fn inline_float(value: &Value, name: &str, allow_nan: bool) -> Result<f64, String> {
     let value = value
         .as_f64()
@@ -744,40 +616,45 @@ pub fn build(
 ) -> Result<(AnyElement, Rc<RefCell<MeshPlotState>>), String> {
     let geometry = &spec.geometry;
     let mesh_id = geometry.get("id").and_then(Value::as_str).unwrap_or("mesh");
-    let (positions, triangles) = decode_geometry(geometry, mesh_frames)?;
-    let vertex_ids = decode_ids(geometry, "vertex_ids", positions.len(), mesh_frames)?;
-    let cell_ids = decode_ids(geometry, "cell_ids", triangles.len(), mesh_frames)?;
-    let mesh = TriangleMesh {
-        id: Arc::from(mesh_id),
-        positions,
-        triangles,
-        vertex_ids,
-        cell_ids,
-    };
-    let mut plot = mesh_plot(mesh.clone()).plot_id(spec.id.clone());
+    let mesh = mesh_frames.cached_triangle_mesh(structural_fingerprint(geometry), || {
+        let (positions, triangles) = decode_geometry(geometry, mesh_frames)?;
+        let vertex_ids = decode_ids(geometry, "vertex_ids", positions.len(), mesh_frames)?;
+        let cell_ids = decode_ids(geometry, "cell_ids", triangles.len(), mesh_frames)?;
+        Ok(TriangleMesh {
+            id: Arc::from(mesh_id),
+            positions,
+            triangles,
+            vertex_ids,
+            cell_ids,
+        })
+    })?;
+    let mut plot = mesh_plot((*mesh).clone()).plot_id(spec.id.clone());
     if let Some(field) = spec.field.as_ref() {
-        let (values, valid) = decode_field(field, mesh_frames)?;
-        let association = match field
-            .get("association")
-            .and_then(Value::as_str)
-            .unwrap_or("vertex")
-        {
-            "cell" => ScalarAssociation::Cell,
-            _ => ScalarAssociation::Vertex,
-        };
-        plot = plot.field(ScalarField {
-            id: Arc::from(field.get("id").and_then(Value::as_str).unwrap_or("field")),
-            label: Arc::from(
-                field
-                    .get("label")
-                    .and_then(Value::as_str)
-                    .unwrap_or("Field"),
-            ),
-            unit: field.get("unit").and_then(Value::as_str).map(Arc::from),
-            values,
-            association,
-            valid,
-        });
+        let field = mesh_frames.cached_scalar_field(structural_fingerprint(field), || {
+            let (values, valid) = decode_field(field, mesh_frames)?;
+            let association = match field
+                .get("association")
+                .and_then(Value::as_str)
+                .unwrap_or("vertex")
+            {
+                "cell" => ScalarAssociation::Cell,
+                _ => ScalarAssociation::Vertex,
+            };
+            Ok(ScalarField {
+                id: Arc::from(field.get("id").and_then(Value::as_str).unwrap_or("field")),
+                label: Arc::from(
+                    field
+                        .get("label")
+                        .and_then(Value::as_str)
+                        .unwrap_or("Field"),
+                ),
+                unit: field.get("unit").and_then(Value::as_str).map(Arc::from),
+                values,
+                association,
+                valid,
+            })
+        })?;
+        plot = plot.field((*field).clone());
     }
     let view = match spec.view.as_str() {
         "axisymmetric_section" => MeshPlotView::AxisymmetricSection {
@@ -1230,16 +1107,15 @@ mod tests {
         });
         let (positions, triangles) = decode_geometry(&geometry, &store).unwrap();
         assert_eq!(positions.len(), 3);
-        assert_eq!(triangles, vec![[0, 1, 2]]);
+        assert_eq!(triangles.as_ref(), &[[0, 1, 2]]);
 
         let field = serde_json::json!({
             "values": [1.0, 2.0, 3.0],
             "valid": [true, false, true]
         });
-        assert_eq!(
-            decode_field(&field, &store).unwrap(),
-            (vec![1.0, 2.0, 3.0], Some(vec![true, false, true]))
-        );
+        let (values, valid) = decode_field(&field, &store).unwrap();
+        assert_eq!(values.as_ref(), &[1.0, 2.0, 3.0]);
+        assert_eq!(valid.as_deref(), Some(&[true, false, true][..]));
     }
 
     #[test]

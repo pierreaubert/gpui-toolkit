@@ -1,5 +1,11 @@
 # Unreleased
 
+## 0.9.8 - 2026-08-23
+
+### Performance
+
+- Reused caller-owned glyph-layout buffers in the Audio Unit text system to reduce realtime UI allocation and lock contention.
+
 # 0.9.7
 
 ## New

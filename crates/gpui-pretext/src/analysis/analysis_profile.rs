@@ -29,6 +29,7 @@ use super::types::WhiteSpaceMode;
 use super::types::WhiteSpaceProfile;
 use super::types::compile_analysis_chunks;
 use super::types::get_white_space_profile;
+use std::sync::Arc;
 /// Text segmentation and normalization, ported from chenglou/pretext.
 ///
 /// Handles whitespace normalization, word boundary segmentation via
@@ -226,9 +227,10 @@ pub fn analyze_text(
 
     if normalized.is_empty() {
         return TextAnalysis {
-            normalized: normalized.into_owned(),
+            normalized: Arc::from(normalized.into_owned()),
+            grapheme_count: 0,
             chunks: Vec::new(),
-            texts: Vec::new(),
+            texts: Default::default(),
             is_word_like: Vec::new(),
             kinds: Vec::new(),
             starts: Vec::new(),
@@ -238,11 +240,25 @@ pub fn analyze_text(
     let normalized_str = normalized.as_ref();
     let segmentation = build_merged_segmentation(normalized_str, profile, &ws_profile);
     let chunks = compile_analysis_chunks(&segmentation, &ws_profile);
+    // Count on the already-segmented representation so bounded preparation
+    // does not run a separate whole-input grapheme pass before analysis.
+    let grapheme_count = segmentation
+        .texts
+        .iter()
+        .map(|segment| segment.graphemes(true).count())
+        .sum();
 
+    let normalized: Arc<str> = Arc::from(normalized.into_owned());
+    let texts = super::text_analysis::SegmentTexts::new(
+        normalized.clone(),
+        &segmentation.texts,
+        &segmentation.starts,
+    );
     TextAnalysis {
-        normalized: normalized.into_owned(),
+        normalized,
+        grapheme_count,
         chunks,
-        texts: segmentation.texts,
+        texts,
         is_word_like: segmentation.is_word_like,
         kinds: segmentation.kinds,
         starts: segmentation.starts,

@@ -16,6 +16,8 @@ use d3rs::text::{GlyphTextConfig, render_glyph_text};
 use gpui::prelude::*;
 use gpui::{AnyElement, IntoElement, PathBuilder, Rgba, canvas, div, hsla, px};
 use gpui_design::DesignSystem;
+#[cfg(feature = "vello")]
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::Arc;
 
 /// Area chart builder.
@@ -307,6 +309,19 @@ impl AreaChart {
         let render_element = move |points: Arc<Vec<gpui::Point<gpui::Pixels>>>| {
             #[cfg(feature = "vello")]
             if renderer_2d == Renderer2D::Vello {
+                let mut cache_key = DefaultHasher::new();
+                for point in points.iter() {
+                    f32::from(point.x).to_bits().hash(&mut cache_key);
+                    f32::from(point.y).to_bits().hash(&mut cache_key);
+                }
+                layout_width.to_bits().hash(&mut cache_key);
+                plot_height.to_bits().hash(&mut cache_key);
+                fill_color.r.to_bits().hash(&mut cache_key);
+                fill_color.g.to_bits().hash(&mut cache_key);
+                fill_color.b.to_bits().hash(&mut cache_key);
+                fill_color.a.to_bits().hash(&mut cache_key);
+                opacity.to_bits().hash(&mut cache_key);
+                let cache_key = cache_key.finish();
                 let source_points = points.clone();
                 return d3rs::vello2d::VelloChartElement::with_builder(move |width, height| {
                     area_chart_scene(
@@ -319,6 +334,7 @@ impl AreaChart {
                         opacity,
                     )
                 })
+                .cache_key(cache_key)
                 .backend(vello_backend)
                 .absolute()
                 .into_any_element();

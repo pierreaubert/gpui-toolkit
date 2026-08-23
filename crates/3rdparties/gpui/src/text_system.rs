@@ -333,6 +333,7 @@ impl TextSystem {
         }
     }
 
+    #[allow(dead_code)]
     pub(crate) fn rasterize_glyph(
         &self,
         params: &RenderGlyphParams,
@@ -340,6 +341,16 @@ impl TextSystem {
         let raster_bounds = self.raster_bounds(params)?;
         self.platform_text_system
             .rasterize_glyph(params, raster_bounds)
+    }
+
+    pub(crate) fn rasterize_glyph_into(
+        &self,
+        params: &RenderGlyphParams,
+        output: &mut Vec<u8>,
+    ) -> Result<Size<DevicePixels>> {
+        let raster_bounds = self.raster_bounds(params)?;
+        self.platform_text_system
+            .rasterize_glyph_into(params, raster_bounds, output)
     }
 
     /// Returns the dilation level to use for a glyph painted in the given color.

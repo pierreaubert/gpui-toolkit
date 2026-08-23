@@ -312,6 +312,21 @@ impl PieChart {
         let render_element: gpui::AnyElement = {
             #[cfg(feature = "vello")]
             if renderer_2d == Renderer2D::Vello {
+                let mut cache_key = d3rs::vello2d::SceneCacheKey::new();
+                cache_key.add_f32(plot_width).add_f32(plot_height);
+                for path in slice_paths.iter() {
+                    for point in path {
+                        cache_key
+                            .add_f32(f32::from(point.x))
+                            .add_f32(f32::from(point.y));
+                    }
+                }
+                if let Some(palette) = custom_palette.as_ref() {
+                    for color in palette {
+                        cache_key.add(*color);
+                    }
+                }
+                let cache_key = cache_key.finish();
                 let paths = slice_paths.clone();
                 let palette = custom_palette.clone();
                 d3rs::vello2d::VelloChartElement::with_builder(move |width, height| {
@@ -324,6 +339,7 @@ impl PieChart {
                         height,
                     )
                 })
+                .cache_key(cache_key)
                 .backend(vello_backend)
                 .absolute()
                 .into_any_element()

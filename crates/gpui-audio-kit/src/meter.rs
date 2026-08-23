@@ -8,6 +8,7 @@ use gpui::prelude::*;
 use gpui::*;
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::panic;
 
 thread_local! {
@@ -193,6 +194,8 @@ pub fn horizontal_meter_accessibility_summary(
 /// Paints the gradient directly instead of creating a child `div` per strip,
 /// removing per-frame allocations for the gradient meter path.
 struct GradientMeterFillElement {
+    id: ElementId,
+    source_location: &'static panic::Location<'static>,
     bar_color: Rgba,
     strips: usize,
     #[cfg_attr(not(feature = "vello"), allow(dead_code))]
@@ -215,11 +218,11 @@ impl Element for GradientMeterFillElement {
     type PrepaintState = ();
 
     fn id(&self) -> Option<ElementId> {
-        None
+        Some(self.id.clone())
     }
 
     fn source_location(&self) -> Option<&'static panic::Location<'static>> {
-        None
+        Some(self.source_location)
     }
 
     fn request_layout(
@@ -256,7 +259,7 @@ impl Element for GradientMeterFillElement {
 
     fn paint(
         &mut self,
-        _id: Option<&GlobalElementId>,
+        id: Option<&GlobalElementId>,
         _inspector_id: Option<&InspectorElementId>,
         bounds: Bounds<Pixels>,
         _request_layout: &mut Self::RequestLayoutState,
@@ -290,7 +293,7 @@ impl Element for GradientMeterFillElement {
                 ),
             );
             self.painter.set_backend(self.vello_backend);
-            self.painter.paint_owned(scene, bounds, window);
+            self.painter.paint_retained(id, &scene, bounds, window);
             return;
         }
 
@@ -351,6 +354,12 @@ pub fn render_horizontal_meter_bar_with_renderer(
     #[cfg_attr(not(feature = "vello"), allow(dead_code))] renderer_2d: Renderer2D,
     #[cfg_attr(not(feature = "vello"), allow(dead_code))] vello_backend: VelloBackend,
 ) -> impl IntoElement {
+    let label: SharedString = label.into();
+    let source_location = panic::Location::caller();
+    let mut id_hash = DefaultHasher::new();
+    label.as_ref().hash(&mut id_hash);
+    let gradient_id =
+        ElementId::named_usize("horizontal-meter-gradient", id_hash.finish() as usize);
     let ratio = ratio.clamp(0.0, 1.0);
     let fill: Div = if theme.use_gradient {
         div()
@@ -358,6 +367,8 @@ pub fn render_horizontal_meter_bar_with_renderer(
             .w(relative(ratio))
             .flex()
             .child(GradientMeterFillElement {
+                id: gradient_id,
+                source_location,
                 bar_color,
                 strips: 10,
                 renderer_2d,
@@ -378,7 +389,7 @@ pub fn render_horizontal_meter_bar_with_renderer(
                 .w(px(theme.label_width))
                 .text_size(theme.text_size)
                 .text_color(theme.color_text)
-                .child(label.into()),
+                .child(label),
         )
         .child(
             div()
@@ -404,6 +415,8 @@ pub fn render_horizontal_meter_bar_with_renderer(
 
 /// GPU-accelerated vertical level meter element.
 pub struct LevelMeterElement {
+    id: ElementId,
+    source_location: &'static panic::Location<'static>,
     level_db: f64,
     peak_db: Option<f64>,
     channel_name: SharedString,
@@ -417,11 +430,18 @@ pub struct LevelMeterElement {
 }
 
 impl LevelMeterElement {
+    #[track_caller]
     pub fn new(level_db: f64, channel_name: impl Into<SharedString>) -> Self {
+        let channel_name = channel_name.into();
+        let source_location = panic::Location::caller();
+        let mut id_hash = DefaultHasher::new();
+        channel_name.as_ref().hash(&mut id_hash);
         Self {
+            id: ElementId::named_usize("level-meter", id_hash.finish() as usize),
+            source_location,
             level_db,
             peak_db: None,
-            channel_name: channel_name.into(),
+            channel_name,
             is_clipping: level_db > -0.1,
             bar_width: px(16.0),
             colors: MeterColors::default(),
@@ -519,11 +539,11 @@ impl Element for LevelMeterElement {
     type PrepaintState = ();
 
     fn id(&self) -> Option<ElementId> {
-        None
+        Some(self.id.clone())
     }
 
     fn source_location(&self) -> Option<&'static panic::Location<'static>> {
-        None
+        Some(self.source_location)
     }
 
     fn request_layout(
@@ -560,7 +580,7 @@ impl Element for LevelMeterElement {
 
     fn paint(
         &mut self,
-        _id: Option<&GlobalElementId>,
+        id: Option<&GlobalElementId>,
         _inspector_id: Option<&InspectorElementId>,
         bounds: Bounds<Pixels>,
         _request_layout: &mut Self::RequestLayoutState,
@@ -652,7 +672,8 @@ impl Element for LevelMeterElement {
                 );
             }
             self.painter.set_backend(self.vello_backend);
-            self.painter.paint_owned(scene, meter_bounds, window);
+            self.painter
+                .paint_retained(id, &scene, meter_bounds, window);
             return;
         }
 

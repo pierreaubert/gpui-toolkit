@@ -1,6 +1,6 @@
 [package]
 name = "gpui-d3rs"
-version = "0.9.14"
+version = "0.9.15"
 edition.workspace = true
 repository.workspace = true
 authors.workspace = true
@@ -25,7 +25,7 @@ tokio = ["dep:tokio"]
 gpu-3d = ["dep:wgpu", "dep:bytemuck", "dep:glam", "dep:pollster", "dep:gpui_wgpu", "gpui"]
 gpu-2d = ["dep:wgpu", "dep:bytemuck", "dep:glam", "dep:pollster", "dep:gpui_wgpu", "gpui", "vello-gpui"]
 vello = ["dep:vello", "dep:vello_cpu", "dep:peniko", "dep:kurbo", "dep:bytemuck", "dep:log"]
-vello-gpui = ["vello", "gpui"]
+vello-gpui = ["vello", "gpui", "dep:wgpu", "dep:gpui_wgpu"]
 gpu-metal = ["gpu-2d", "gpu-3d", "gpui", "dep:metal", "dep:objc", "dep:gpui_macos"]
 metal-qa = ["gpu-metal", "gpui/test-support", "gpui_macos/test-support"]
 gpu-compute = ["gpu-2d"]

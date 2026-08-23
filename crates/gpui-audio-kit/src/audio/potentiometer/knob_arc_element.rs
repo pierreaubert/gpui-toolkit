@@ -8,6 +8,7 @@ use gpui::*;
 /// current value angle. It is rendered as a filled annular sector using
 /// `PathBuilder`, sitting just outside the knob circle.
 pub(super) struct KnobArcElement {
+    pub(super) id: ElementId,
     /// Width of the container (matches knob_container)
     pub(super) container_width: f32,
     /// Height of the container (matches knob_container)
@@ -54,7 +55,7 @@ impl Element for KnobArcElement {
     type PrepaintState = ();
 
     fn id(&self) -> Option<ElementId> {
-        None
+        Some(self.id.clone())
     }
 
     fn source_location(&self) -> Option<&'static std::panic::Location<'static>> {
@@ -95,7 +96,7 @@ impl Element for KnobArcElement {
 
     fn paint(
         &mut self,
-        _id: Option<&GlobalElementId>,
+        id: Option<&GlobalElementId>,
         _inspector_id: Option<&InspectorElementId>,
         bounds: Bounds<Pixels>,
         _request_layout: &mut Self::RequestLayoutState,
@@ -214,7 +215,7 @@ impl Element for KnobArcElement {
                 );
             }
             self.painter.set_backend(self.vello_backend);
-            self.painter.paint_owned(scene, bounds, window);
+            self.painter.paint_retained(id, &scene, bounds, window);
             return;
         }
 

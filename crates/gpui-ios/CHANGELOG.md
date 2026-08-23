@@ -1,5 +1,11 @@
 # Unreleased
 
+## 0.9.12 - 2026-08-23
+
+### Performance
+
+- Reused glyph-layout buffers in the iOS text system and coalesced redundant frame requests.
+
 # 0.9.11
 
 ## New

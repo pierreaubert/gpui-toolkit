@@ -478,6 +478,7 @@ impl RenderOnce for VolumeKnob {
             .child(
                 div().absolute().inset_0().child(
                     VolumeKnobFillElement::new(
+                        ElementId::named_usize("volume-knob-fill", 0),
                         resolved_size,
                         display_value,
                         bg_color,

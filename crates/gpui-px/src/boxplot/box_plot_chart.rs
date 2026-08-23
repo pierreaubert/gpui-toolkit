@@ -737,6 +737,34 @@ fn return_vello_boxplot(
     stroke_width: f32,
     backend: VelloBackend,
 ) -> AnyElement {
+    let mut cache_key = d3rs::vello2d::SceneCacheKey::new();
+    cache_key
+        .add_f32(plot_width)
+        .add_f32(plot_height)
+        .add_f32(box_opacity)
+        .add_f32(outlier_radius)
+        .add_f32(stroke_width);
+    for color in [box_color, median_color, whisker_color, outlier_color] {
+        cache_key
+            .add_f32(color.r)
+            .add_f32(color.g)
+            .add_f32(color.b)
+            .add_f32(color.a);
+    }
+    for data in &draw_data {
+        cache_key
+            .add_f32(data.x_px)
+            .add_f32(data.half_width)
+            .add_f32(data.box_top)
+            .add_f32(data.box_height)
+            .add_f32(data.whisker_low_px)
+            .add_f32(data.whisker_high_px)
+            .add_f32(data.q2_px);
+        for value in data.outliers_low.iter().chain(&data.outliers_high) {
+            cache_key.add_f32(*value);
+        }
+    }
+    let cache_key = cache_key.finish();
     d3rs::vello2d::VelloChartElement::with_builder(move |width, height| {
         box_plot_chart_scene(
             &draw_data,
@@ -753,6 +781,7 @@ fn return_vello_boxplot(
             stroke_width,
         )
     })
+    .cache_key(cache_key)
     .backend(backend)
     .absolute()
     .into_any_element()

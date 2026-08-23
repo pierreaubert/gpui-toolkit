@@ -4,6 +4,7 @@ use std::f32::consts::PI;
 
 /// Custom element that paints the volume knob fill using paths
 pub(super) struct VolumeKnobFillElement {
+    pub(super) id: ElementId,
     pub(super) size: Pixels,
     pub(super) value: f32,
     pub(super) bg_color: Rgba,
@@ -17,6 +18,7 @@ pub(super) struct VolumeKnobFillElement {
 
 impl VolumeKnobFillElement {
     pub(super) fn new(
+        id: ElementId,
         size: Pixels,
         value: f32,
         bg_color: Rgba,
@@ -24,6 +26,7 @@ impl VolumeKnobFillElement {
         ring_color: Rgba,
     ) -> Self {
         Self {
+            id,
             size,
             value,
             bg_color,
@@ -62,7 +65,7 @@ impl Element for VolumeKnobFillElement {
     type PrepaintState = ();
 
     fn id(&self) -> Option<ElementId> {
-        None
+        Some(self.id.clone())
     }
 
     fn source_location(&self) -> Option<&'static std::panic::Location<'static>> {
@@ -103,7 +106,7 @@ impl Element for VolumeKnobFillElement {
 
     fn paint(
         &mut self,
-        _id: Option<&GlobalElementId>,
+        id: Option<&GlobalElementId>,
         _inspector_id: Option<&InspectorElementId>,
         bounds: Bounds<Pixels>,
         _request_layout: &mut Self::RequestLayoutState,
@@ -173,7 +176,7 @@ impl Element for VolumeKnobFillElement {
                 color(ring),
             );
             self.painter.set_backend(self.vello_backend);
-            self.painter.paint_owned(scene, bounds, window);
+            self.painter.paint_retained(id, &scene, bounds, window);
             return;
         }
 

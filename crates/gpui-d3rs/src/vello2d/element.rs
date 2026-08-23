@@ -9,6 +9,7 @@ use gpui::{
 };
 use image::{Frame, RgbaImage};
 use std::cell::{Cell, RefCell};
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::panic::Location;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -29,6 +30,33 @@ fn swizzle_rgba_to_bgra(pixels: &mut [u8]) -> bool {
 }
 
 type SceneBuilder = Rc<dyn Fn(f32, f32) -> ChartScene>;
+
+/// Allocation-free cache-key builder for retained declarative scenes.
+#[derive(Default)]
+pub struct SceneCacheKey(DefaultHasher);
+
+impl SceneCacheKey {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn add<T: Hash>(&mut self, value: T) -> &mut Self {
+        value.hash(&mut self.0);
+        self
+    }
+
+    pub fn add_f32(&mut self, value: f32) -> &mut Self {
+        self.add(value.to_bits())
+    }
+
+    pub fn add_f64(&mut self, value: f64) -> &mut Self {
+        self.add(value.to_bits())
+    }
+
+    pub fn finish(&self) -> u64 {
+        self.0.finish()
+    }
+}
 
 struct CpuState {
     // Boxed: vello_cpu's RenderContext makes the bare variant ~1.2 KiB.
@@ -102,6 +130,37 @@ impl Default for VelloScenePainter {
 impl VelloScenePainter {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Paint while retaining the resolved backend in GPUI element state.
+    ///
+    /// This is intended for custom elements reconstructed by their parent on
+    /// every frame. The backend registration survives reconstruction and is
+    /// released automatically when GPUI retires the element id.
+    pub fn paint_retained(
+        &mut self,
+        id: Option<&GlobalElementId>,
+        scene: &ChartScene,
+        bounds: Bounds<Pixels>,
+        window: &mut Window,
+    ) {
+        let retained = id.map(|id| {
+            window.with_element_state::<Rc<RefCell<RetainedVelloBackend>>, _>(
+                id,
+                |state, _window| {
+                    let state = state
+                        .unwrap_or_else(|| Rc::new(RefCell::new(RetainedVelloBackend::default())));
+                    (Rc::clone(&state), state)
+                },
+            )
+        });
+        if let Some(retained) = retained.as_ref() {
+            self.state = retained.borrow_mut().backend.take();
+        }
+        self.paint(scene, bounds, window);
+        if let Some(retained) = retained {
+            retained.borrow_mut().backend = self.state.take();
+        }
     }
 
     /// Set the preferred backend on a painter that is kept by a custom
@@ -482,9 +541,12 @@ impl Element for RetainedVelloChartElement {
 /// `Drop` unregisters the custom draw. With `with_builder`, the scene is
 /// (re)generated whenever paint bounds change size.
 pub struct VelloChartElement {
+    id: ElementId,
+    source_location: &'static Location<'static>,
     scene: ChartScene,
     builder: Option<SceneBuilder>,
     scene_size: Option<(f32, f32)>,
+    scene_key: Option<u64>,
     backend_pref: RasterBackend,
     state: Option<BackendState>,
     absolute: bool,
@@ -513,11 +575,16 @@ impl std::fmt::Debug for VelloChartElement {
 impl VelloChartElement {
     /// Static scene, baked in the coordinates it will be painted at. The
     /// caller must rebuild the element when the chart's pixel size changes.
+    #[track_caller]
     pub fn new(scene: ChartScene) -> Self {
+        let source_location = Location::caller();
         Self {
+            id: ElementId::CodeLocation(*source_location),
+            source_location,
             scene,
             builder: None,
             scene_size: None,
+            scene_key: None,
             backend_pref: RasterBackend::Auto,
             state: None,
             absolute: false,
@@ -526,11 +593,16 @@ impl VelloChartElement {
 
     /// Scene is (re)built at paint time from the actual bounds size
     /// (`builder(width, height)` in element-local pixels).
+    #[track_caller]
     pub fn with_builder(builder: impl Fn(f32, f32) -> ChartScene + 'static) -> Self {
+        let source_location = Location::caller();
         Self {
+            id: ElementId::CodeLocation(*source_location),
+            source_location,
             scene: ChartScene::new(),
             builder: Some(Rc::new(builder)),
             scene_size: None,
+            scene_key: None,
             backend_pref: RasterBackend::Auto,
             state: None,
             absolute: false,
@@ -539,6 +611,21 @@ impl VelloChartElement {
 
     pub fn backend(mut self, backend: RasterBackend) -> Self {
         self.backend_pref = backend;
+        self
+    }
+
+    /// Override the default call-site identity when multiple charts are built
+    /// from the same source location.
+    pub fn id(mut self, id: impl Into<ElementId>) -> Self {
+        self.id = id.into();
+        self
+    }
+
+    /// Identify the declarative scene inputs across element reconstruction.
+    /// Equal keys allow the encoded scene and size to be retained; callers
+    /// must change the key whenever captured builder data changes.
+    pub fn cache_key(mut self, key: u64) -> Self {
+        self.scene_key = Some(key);
         self
     }
 
@@ -614,6 +701,20 @@ impl Drop for VelloChartElement {
     }
 }
 
+#[derive(Default)]
+struct RetainedVelloBackend {
+    backend: Option<BackendState>,
+    scene: Option<(u64, ChartScene, Option<(f32, f32)>)>,
+}
+
+impl Drop for RetainedVelloBackend {
+    fn drop(&mut self) {
+        if let Some(BackendState::Wgpu { custom_id, .. }) = self.backend.take() {
+            gpui::unregister_custom_draw(custom_id);
+        }
+    }
+}
+
 impl IntoElement for VelloChartElement {
     type Element = Self;
     fn into_element(self) -> Self::Element {
@@ -626,11 +727,11 @@ impl Element for VelloChartElement {
     type PrepaintState = ();
 
     fn id(&self) -> Option<ElementId> {
-        None
+        Some(self.id.clone())
     }
 
     fn source_location(&self) -> Option<&'static Location<'static>> {
-        None
+        Some(self.source_location)
     }
 
     fn request_layout(
@@ -680,7 +781,7 @@ impl Element for VelloChartElement {
 
     fn paint(
         &mut self,
-        _id: Option<&GlobalElementId>,
+        id: Option<&GlobalElementId>,
         _inspector_id: Option<&InspectorElementId>,
         bounds: Bounds<Pixels>,
         _request_layout: &mut Self::RequestLayoutState,
@@ -688,94 +789,131 @@ impl Element for VelloChartElement {
         window: &mut Window,
         _cx: &mut App,
     ) {
-        let width: f32 = bounds.size.width.into();
-        let height: f32 = bounds.size.height.into();
-        let scale_factor = window.scale_factor().max(0.01);
-        if width < 1.0 || height < 1.0 {
-            if let Some(BackendState::Cpu(state)) = self.state.as_mut() {
-                VelloScenePainter::clear_cpu_image(state, window);
+        let retained = id.map(|id| {
+            window.with_element_state::<Rc<RefCell<RetainedVelloBackend>>, _>(
+                id,
+                |state, _window| {
+                    let state = state
+                        .unwrap_or_else(|| Rc::new(RefCell::new(RetainedVelloBackend::default())));
+                    (Rc::clone(&state), state)
+                },
+            )
+        });
+        if let Some(retained) = retained.as_ref() {
+            let mut retained = retained.borrow_mut();
+            self.state = retained.backend.take();
+            if let Some(key) = self.scene_key
+                && retained
+                    .scene
+                    .as_ref()
+                    .is_some_and(|(cached, _, _)| *cached == key)
+                && let Some((_, scene, size)) = retained.scene.take()
+            {
+                self.scene = scene;
+                self.scene_size = size;
             }
-            return;
         }
 
-        // (Re)build the scene when the builder exists and the size changed.
-        let mut scene_rebuilt = false;
-        if let Some(builder) = self.builder.clone()
-            && self.scene_size != Some((width, height))
-        {
-            self.scene = builder(width, height);
-            self.scene_size = Some((width, height));
-            scene_rebuilt = true;
-        }
-        if self.scene.is_empty() {
-            if let Some(BackendState::Cpu(state)) = self.state.as_mut() {
-                VelloScenePainter::clear_cpu_image(state, window);
-            }
-            return;
-        }
-        self.resolve();
-        self.fall_back_to_cpu_if_failed();
-
-        match self.state.as_mut() {
-            Some(BackendState::Wgpu {
-                custom_id, shared, ..
-            }) => {
-                // The scene is logical; the draw receives physical bounds.
-                // Keep the logical size alongside so it can derive the scale.
-                {
-                    let mut shared = shared.borrow_mut();
-                    if scene_rebuilt || shared.revision != self.scene.revision() {
-                        shared.scene = self.scene.clone();
-                        shared.revision = self.scene.revision();
-                    }
-                    shared.logical_size = (width, height);
+        'paint: {
+            let width: f32 = bounds.size.width.into();
+            let height: f32 = bounds.size.height.into();
+            let scale_factor = window.scale_factor().max(0.01);
+            if width < 1.0 || height < 1.0 {
+                if let Some(BackendState::Cpu(state)) = self.state.as_mut() {
+                    VelloScenePainter::clear_cpu_image(state, window);
                 }
-                window.paint_custom(*custom_id, bounds);
+                break 'paint;
             }
-            Some(BackendState::Cpu(state)) => {
-                let (w, h) = physical_raster_size(width, height, scale_factor);
-                let scale_bits = scale_factor.to_bits();
-                if state.rendered == Some((self.scene.revision(), w, h, scale_bits)) {
-                    if let Some(image) = state.image.as_ref() {
+
+            // (Re)build the scene when the builder exists and the size changed.
+            let mut scene_rebuilt = false;
+            if let Some(builder) = self.builder.clone()
+                && self.scene_size != Some((width, height))
+            {
+                self.scene = builder(width, height);
+                self.scene_size = Some((width, height));
+                scene_rebuilt = true;
+            }
+            if self.scene.is_empty() {
+                if let Some(BackendState::Cpu(state)) = self.state.as_mut() {
+                    VelloScenePainter::clear_cpu_image(state, window);
+                }
+                break 'paint;
+            }
+            self.resolve();
+            self.fall_back_to_cpu_if_failed();
+
+            match self.state.as_mut() {
+                Some(BackendState::Wgpu {
+                    custom_id, shared, ..
+                }) => {
+                    // The scene is logical; the draw receives physical bounds.
+                    // Keep the logical size alongside so it can derive the scale.
+                    {
+                        let mut shared = shared.borrow_mut();
+                        if scene_rebuilt || shared.revision != self.scene.revision() {
+                            shared.scene = self.scene.clone();
+                            shared.revision = self.scene.revision();
+                        }
+                        shared.logical_size = (width, height);
+                    }
+                    window.paint_custom(*custom_id, bounds);
+                }
+                Some(BackendState::Cpu(state)) => {
+                    let (w, h) = physical_raster_size(width, height, scale_factor);
+                    let scale_bits = scale_factor.to_bits();
+                    if state.rendered == Some((self.scene.revision(), w, h, scale_bits)) {
+                        if let Some(image) = state.image.as_ref() {
+                            let _ = window.paint_image(
+                                bounds,
+                                Corners::default(),
+                                Arc::clone(image),
+                                0,
+                                false,
+                            );
+                        }
+                        break 'paint;
+                    }
+                    let mut pixels = state.rasterizer.rasterize(&self.scene, w, h);
+                    if !swizzle_rgba_to_bgra(&mut pixels) {
+                        VelloScenePainter::clear_cpu_image(state, window);
+                        return;
+                    }
+                    // GPUI image atlases expect premultiplied BGRA (Metal uses
+                    // BGRA8Unorm; the wgpu atlas prefers Bgra8Unorm and only
+                    // swizzles when it falls back to Rgba8Unorm — see
+                    // gpui::swap_rgba_pa_to_bgra and gpui_wgpu's
+                    // swizzle_upload_data). vello_cpu yields premultiplied RGBA,
+                    // so swap R<->B before handing the pixmap to paint_image.
+                    if let Some(rgba) = RgbaImage::from_raw(w as u32, h as u32, pixels) {
+                        // RenderImage ids are unique and paint_image caches each
+                        // one in the sprite atlas; release the previous entry
+                        // before inserting its replacement.
+                        VelloScenePainter::clear_cpu_image(state, window);
+                        let image = Arc::new(RenderImage::new(vec![Frame::new(rgba)]));
                         let _ = window.paint_image(
                             bounds,
                             Corners::default(),
-                            Arc::clone(image),
+                            Arc::clone(&image),
                             0,
                             false,
                         );
+                        state.image = Some(image);
+                        state.rendered = Some((self.scene.revision(), w, h, scale_bits));
                     }
-                    return;
                 }
-                let mut pixels = state.rasterizer.rasterize(&self.scene, w, h);
-                if !swizzle_rgba_to_bgra(&mut pixels) {
-                    VelloScenePainter::clear_cpu_image(state, window);
-                    return;
-                }
-                // GPUI image atlases expect premultiplied BGRA (Metal uses
-                // BGRA8Unorm; the wgpu atlas prefers Bgra8Unorm and only
-                // swizzles when it falls back to Rgba8Unorm — see
-                // gpui::swap_rgba_pa_to_bgra and gpui_wgpu's
-                // swizzle_upload_data). vello_cpu yields premultiplied RGBA,
-                // so swap R<->B before handing the pixmap to paint_image.
-                if let Some(rgba) = RgbaImage::from_raw(w as u32, h as u32, pixels) {
-                    // RenderImage ids are unique and paint_image caches each
-                    // one in the sprite atlas; release the previous entry
-                    // before inserting its replacement.
-                    VelloScenePainter::clear_cpu_image(state, window);
-                    let image = Arc::new(RenderImage::new(vec![Frame::new(rgba)]));
-                    let _ = window.paint_image(
-                        bounds,
-                        Corners::default(),
-                        Arc::clone(&image),
-                        0,
-                        false,
-                    );
-                    state.image = Some(image);
-                    state.rendered = Some((self.scene.revision(), w, h, scale_bits));
-                }
+                None => {}
             }
-            None => {}
+        }
+
+        if let Some(retained) = retained {
+            let mut retained = retained.borrow_mut();
+            retained.backend = self.state.take();
+            if let Some(key) = self.scene_key {
+                retained.scene = Some((key, std::mem::take(&mut self.scene), self.scene_size));
+            } else {
+                retained.scene = None;
+            }
         }
     }
 }

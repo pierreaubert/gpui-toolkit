@@ -235,6 +235,37 @@ pub(crate) struct KPItem {
     pub(super) glue_shrink: f64,
 }
 
+/// Breakpoint result that returns its allocation to the thread-local pool.
+#[derive(Debug)]
+pub(super) struct KpBreaks(Vec<(usize, usize)>);
+
+impl PartialEq<Vec<(usize, usize)>> for KpBreaks {
+    fn eq(&self, other: &Vec<(usize, usize)>) -> bool {
+        self.0 == *other
+    }
+}
+
+impl std::ops::Deref for KpBreaks {
+    type Target = [(usize, usize)];
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl Drop for KpBreaks {
+    fn drop(&mut self) {
+        let mut returned = std::mem::take(&mut self.0);
+        returned.clear();
+        KP_BREAKS_SCRATCH.with(|scratch| {
+            let mut scratch = scratch.borrow_mut();
+            if returned.capacity() > scratch.capacity() {
+                *scratch = returned;
+            }
+        });
+    }
+}
+
 /// An active node in the Knuth-Plass DP.
 #[derive(Debug, Clone)]
 pub(super) struct ActiveNode {
@@ -539,9 +570,9 @@ pub(super) fn knuth_plass_chunk(
     max_width: f64,
     params: &KnuthPlassParams,
     tolerance: f64,
-) -> Option<Vec<(usize, usize)>> {
+) -> Option<KpBreaks> {
     if items.len() < 2 {
-        return Some(Vec::new());
+        return Some(KpBreaks(Vec::new()));
     }
 
     KP_NODES_SCRATCH.with(|nodes_scratch| {
@@ -695,7 +726,7 @@ pub(super) fn knuth_plass_chunk(
                     // The first break is the start-of-paragraph (segment 0, grapheme 0),
                     // and the last is end-of-paragraph. We include both — callers interpret
                     // consecutive pairs as line ranges.
-                    Some(breaks.clone())
+                    Some(KpBreaks(std::mem::take(&mut *breaks)))
                 })
             })
         })
@@ -837,5 +868,5 @@ pub(super) fn breakpoints_to_lines(
 
 #[cfg(test)]
 pub(super) fn knuth_plass_chunk_breaks_scratch_capacity() -> usize {
-    KP_BREAKS_SCRATCH.with(|s| s.borrow().capacity())
+    KP_BREAKS_SCRATCH.with(|scratch| scratch.borrow().capacity())
 }

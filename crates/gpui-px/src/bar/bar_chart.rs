@@ -1022,6 +1022,23 @@ where
 
     #[cfg(feature = "vello")]
     if renderer == Renderer2D::Vello {
+        let mut cache_key = d3rs::vello2d::SceneCacheKey::new();
+        cache_key
+            .add_f32(plot_width)
+            .add_f32(plot_height)
+            .add_f32(opacity);
+        for quad in &quads {
+            cache_key
+                .add_f32(quad.x)
+                .add_f32(quad.y)
+                .add_f32(quad.width)
+                .add_f32(quad.height)
+                .add_f32(quad.color.r)
+                .add_f32(quad.color.g)
+                .add_f32(quad.color.b)
+                .add_f32(quad.color.a);
+        }
+        let cache_key = cache_key.finish();
         let vello_quads = quads.clone();
         return d3rs::vello2d::VelloChartElement::with_builder(move |width, height| {
             let quads: Vec<_> = vello_quads
@@ -1030,6 +1047,7 @@ where
                 .collect();
             bar_chart_scene(&quads, plot_width, plot_height, width, height, opacity)
         })
+        .cache_key(cache_key)
         .backend(backend)
         .absolute()
         .into_any_element();

@@ -831,6 +831,18 @@ pub trait PlatformTextSystem: Send + Sync {
         params: &RenderGlyphParams,
         raster_bounds: Bounds<DevicePixels>,
     ) -> Result<(Size<DevicePixels>, Vec<u8>)>;
+    /// Rasterize into caller-retained storage. Platforms should override this
+    /// when their rasterizer can write directly into the supplied buffer.
+    fn rasterize_glyph_into(
+        &self,
+        params: &RenderGlyphParams,
+        raster_bounds: Bounds<DevicePixels>,
+        output: &mut Vec<u8>,
+    ) -> Result<Size<DevicePixels>> {
+        let (size, bytes) = self.rasterize_glyph(params, raster_bounds)?;
+        *output = bytes;
+        Ok(size)
+    }
     /// Layout a line of text with the given font runs.
     fn layout_line(&self, text: &str, font_size: Pixels, runs: &[FontRun]) -> Arc<LineLayout>;
     /// Returns the recommended text rendering mode for the given font and size.

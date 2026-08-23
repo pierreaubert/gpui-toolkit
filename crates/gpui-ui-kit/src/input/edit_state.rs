@@ -1,4 +1,12 @@
-/// Internal editing state for the input
+/// An internal point-in-time text state for undo/redo.
+#[derive(Clone)]
+struct EditSnapshot {
+    text: String,
+    cursor: usize,
+    selection_anchor: Option<usize>,
+}
+
+/// Internal editing state for input.
 #[derive(Clone, Default)]
 pub struct EditState {
     /// Whether currently editing
@@ -11,9 +19,93 @@ pub struct EditState {
     pub(super) selection_anchor: Option<usize>,
     /// Whether currently dragging to select
     pub(super) is_dragging: bool,
+    /// Previous text states. This is intentionally not exposed through Debug:
+    /// password inputs may retain their own undo history here.
+    undo_stack: Vec<EditSnapshot>,
+    /// States reverted by undo that may be restored by redo.
+    redo_stack: Vec<EditSnapshot>,
+}
+
+impl std::fmt::Debug for EditState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("EditState")
+            .field("editing", &self.editing)
+            .field("text", &"<redacted>")
+            .field("text_char_count", &self.text.chars().count())
+            .field("cursor", &self.cursor)
+            .field("selection_anchor", &self.selection_anchor)
+            .field("is_dragging", &self.is_dragging)
+            .field("undo_depth", &self.undo_stack.len())
+            .field("redo_depth", &self.redo_stack.len())
+            .finish()
+    }
 }
 
 impl EditState {
+    fn snapshot(&self) -> EditSnapshot {
+        EditSnapshot {
+            text: self.text.clone(),
+            cursor: self.cursor,
+            selection_anchor: self.selection_anchor,
+        }
+    }
+
+    fn restore_snapshot(&mut self, snapshot: EditSnapshot) {
+        self.text = snapshot.text;
+        self.cursor = snapshot.cursor;
+        self.selection_anchor = snapshot.selection_anchor;
+        self.is_dragging = false;
+    }
+
+    /// Start a single undoable text mutation. Cursor-only operations must not
+    /// call this, so undo returns to the previous text edit rather than a
+    /// navigation position.
+    pub(super) fn begin_text_edit(&mut self) {
+        self.undo_stack.push(self.snapshot());
+        self.redo_stack.clear();
+    }
+
+    pub fn undo(&mut self) -> bool {
+        let Some(previous) = self.undo_stack.pop() else {
+            return false;
+        };
+        self.redo_stack.push(self.snapshot());
+        self.restore_snapshot(previous);
+        true
+    }
+
+    pub fn redo(&mut self) -> bool {
+        let Some(next) = self.redo_stack.pop() else {
+            return false;
+        };
+        self.undo_stack.push(self.snapshot());
+        self.restore_snapshot(next);
+        true
+    }
+
+    /// End an edit and return its raw value to the caller. The edit buffer and
+    /// history are cleared immediately so a password is not retained in the
+    /// thread-local widget state after focus leaves the field.
+    pub(super) fn finish_edit(&mut self) -> String {
+        self.editing = false;
+        self.clear_selection();
+        self.is_dragging = false;
+        self.undo_stack.clear();
+        self.redo_stack.clear();
+        self.cursor = 0;
+        std::mem::take(&mut self.text)
+    }
+
+    /// Discard an uncommitted edit without retaining its raw text or history.
+    pub(super) fn abandon_edit(&mut self) {
+        self.editing = false;
+        self.clear_selection();
+        self.is_dragging = false;
+        self.undo_stack.clear();
+        self.redo_stack.clear();
+        self.cursor = 0;
+        self.text.clear();
+    }
     pub fn new(value: &str) -> Self {
         let len = value.chars().count();
         Self {
@@ -22,6 +114,8 @@ impl EditState {
             cursor: len,
             selection_anchor: Some(0), // Select all by default
             is_dragging: false,
+            undo_stack: Vec::new(),
+            redo_stack: Vec::new(),
         }
     }
 
@@ -134,12 +228,14 @@ impl EditState {
     }
 
     pub fn kill_to_end(&mut self) {
+        self.begin_text_edit();
         let byte_pos = self.char_index_to_byte(self.cursor);
         self.text.truncate(byte_pos);
         self.clear_selection();
     }
 
     pub fn kill_to_start(&mut self) {
+        self.begin_text_edit();
         let byte_pos = self.char_index_to_byte(self.cursor);
         self.text.replace_range(0..byte_pos, "");
         self.cursor = 0;
@@ -150,6 +246,7 @@ impl EditState {
         if self.cursor == 0 {
             return;
         }
+        self.begin_text_edit();
         let new_pos = self.word_start_backward();
         let start_byte = self.char_index_to_byte(new_pos);
         let end_byte = self.char_index_to_byte(self.cursor);
@@ -159,6 +256,7 @@ impl EditState {
     }
 
     pub fn kill_word_forward(&mut self) {
+        self.begin_text_edit();
         let new_pos = self.word_end_forward();
         let start_byte = self.char_index_to_byte(self.cursor);
         let end_byte = self.char_index_to_byte(new_pos);
@@ -263,6 +361,18 @@ impl EditState {
 
     /// Delete selected text, returning true if something was deleted
     pub fn delete_selection(&mut self) -> bool {
+        if self
+            .selection_range()
+            .is_some_and(|(start, end)| start != end)
+        {
+            self.begin_text_edit();
+            self.delete_selection_inner()
+        } else {
+            false
+        }
+    }
+
+    fn delete_selection_inner(&mut self) -> bool {
         if let Some((start, end)) = self.selection_range()
             && start != end
         {
@@ -277,10 +387,16 @@ impl EditState {
     }
 
     pub fn do_backspace(&mut self) {
-        if self.delete_selection() {
+        if self
+            .selection_range()
+            .is_some_and(|(start, end)| start != end)
+        {
+            self.begin_text_edit();
+            self.delete_selection_inner();
             return;
         }
         if self.cursor > 0 {
+            self.begin_text_edit();
             // Find byte positions for character before cursor
             let byte_pos = self
                 .text
@@ -300,11 +416,17 @@ impl EditState {
     }
 
     pub fn do_delete(&mut self) {
-        if self.delete_selection() {
+        if self
+            .selection_range()
+            .is_some_and(|(start, end)| start != end)
+        {
+            self.begin_text_edit();
+            self.delete_selection_inner();
             return;
         }
         let len = self.text.chars().count();
         if self.cursor < len {
+            self.begin_text_edit();
             // Find byte positions for character at cursor
             let byte_pos = self
                 .text
@@ -323,7 +445,8 @@ impl EditState {
     }
 
     pub fn insert_text(&mut self, char_text: &str) {
-        self.delete_selection();
+        self.begin_text_edit();
+        self.delete_selection_inner();
         // Find byte position for insertion
         let byte_pos = self
             .text
@@ -337,7 +460,8 @@ impl EditState {
 
     /// Insert a single character without allocating a temporary `String`.
     pub fn insert_char(&mut self, ch: char) {
-        self.delete_selection();
+        self.begin_text_edit();
+        self.delete_selection_inner();
         // Find byte position for insertion
         let byte_pos = self
             .text
@@ -666,5 +790,50 @@ mod tests {
         assert_eq!(state.char_before_byte(2).unwrap().1, 'α');
         assert_eq!(state.char_after_byte(0).unwrap().1, 'α');
         assert!(state.char_after_byte(4).is_none());
+    }
+}
+
+#[cfg(test)]
+mod password_history_tests {
+    use super::EditState;
+
+    #[test]
+    fn undo_redo_restores_text_cursor_and_selection() {
+        let mut state = EditState::new("sëcret");
+        state.clear_selection();
+        state.cursor = 1;
+        state.insert_text("•");
+        assert_eq!(state.text, "s•ëcret");
+        assert_eq!(state.cursor, 2);
+
+        assert!(state.undo());
+        assert_eq!(state.text, "sëcret");
+        assert_eq!(state.cursor, 1);
+        assert!(state.redo());
+        assert_eq!(state.text, "s•ëcret");
+        assert_eq!(state.cursor, 2);
+    }
+
+    #[test]
+    fn debug_output_redacts_edit_text_and_history() {
+        let mut state = EditState::new("not-for-debug-output");
+        state.clear_selection();
+        state.insert_char('!');
+
+        let dump = format!("{state:?}");
+        assert!(dump.contains("<redacted>"));
+        assert!(!dump.contains("not-for-debug-output"));
+    }
+
+    #[test]
+    fn finish_edit_releases_text_and_undo_history() {
+        let mut state = EditState::new("not-retained-after-focus-loss");
+        state.clear_selection();
+        state.insert_char('!');
+
+        assert_eq!(state.finish_edit(), "not-retained-after-focus-loss!");
+        assert!(state.text.is_empty());
+        assert!(!state.undo());
+        assert!(!state.redo());
     }
 }
