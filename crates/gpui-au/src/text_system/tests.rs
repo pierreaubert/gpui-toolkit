@@ -133,6 +133,28 @@ fn test_layout_line_uses_cache_for_repeated_calls() {
 }
 
 #[test]
+fn layout_cache_is_bounded() {
+    let mut state = empty_state();
+    let font_id = match load_system_family(&mut state, ".AppleSystemUIFont") {
+        Some(id) => id,
+        None => return,
+    };
+
+    for index in 0..1_025 {
+        let text = format!("layout cache entry {index}");
+        let runs = [FontRun {
+            font_id,
+            len: text.len(),
+        }];
+        state.layout_line(&text, px(12.0), &runs);
+    }
+
+    // The cache is cleared before inserting the entry that would exceed its
+    // cap, which bounds long-lived meter/readout sessions without an LRU cost.
+    assert_eq!(state.layout_cache.len(), 1);
+}
+
+#[test]
 fn rasterize_glyph_reuses_context() {
     let mut state = empty_state();
     let font_id = load_system_family(&mut state, ".AppleSystemUIFont")

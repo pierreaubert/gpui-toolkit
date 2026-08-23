@@ -132,10 +132,14 @@ impl PlatformTextSystem for AuTextSystem {
     }
 
     fn layout_line(&self, text: &str, font_size: Pixels, font_runs: &[FontRun]) -> LineLayout {
-        if let Some(layout) = self.0.read().cached_layout_line(text, font_size, font_runs) {
+        // Keep an upgradable read lock across the cache lookup. A miss can then
+        // promote the same lock instead of dropping a read lock and queuing for
+        // an exclusive lock while another caller fills the entry.
+        let lock = self.0.upgradable_read();
+        if let Some(layout) = lock.cached_layout_line(text, font_size, font_runs) {
             return layout;
         }
-        self.0.write().layout_line(text, font_size, font_runs)
+        RwLockUpgradableReadGuard::upgrade(lock).layout_line(text, font_size, font_runs)
     }
 
     fn recommended_rendering_mode(
