@@ -48,10 +48,12 @@ use std::hash::{Hash, Hasher};
 use std::{borrow::Borrow, borrow::Cow, char, sync::Arc};
 
 thread_local! {
+    /// Reusable CTFonts for glyph rendering at a given font size.
+    static GLYPH_FONT_CACHE: RefCell<HashMap<(usize, u32), CTFont>> = RefCell::new(HashMap::new());
     /// Reusable bitmap scratch buffer for glyph rasterization.
     static GLYPH_BITMAP_SCRATCH: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
-    /// Reusable Core Graphics context for text glyphs (grayscale).
-    static GLYPH_TEXT_CONTEXT_CACHE: RefCell<Option<CachedContext>> = const { RefCell::new(None) };
+    /// Reusable Core Graphics color space for emoji glyph rasterization.
+    static GLYPH_EMOJI_COLOR_SPACE: RefCell<Option<CGColorSpace>> = const { RefCell::new(None) };
     /// Reusable Core Graphics context for emoji glyphs (RGBA).
     static GLYPH_EMOJI_CONTEXT_CACHE: RefCell<Option<CachedContext>> = const { RefCell::new(None) };
     /// Test-only counter for how many bitmap contexts have been created.
@@ -146,6 +148,24 @@ pub(super) struct IosTextSystemState {
 }
 
 impl IosTextSystemState {
+    fn glyph_font(&self, font_id: FontId, font_size: Pixels) -> CTFont {
+        let key = (font_id.0, f32::from(font_size).to_bits());
+        GLYPH_FONT_CACHE.with(|cache| {
+            let mut cache = cache.borrow_mut();
+            if cache.len() >= 256 && !cache.contains_key(&key) {
+                cache.clear();
+            }
+            cache
+                .entry(key)
+                .or_insert_with(|| {
+                    self.fonts[font_id.0]
+                        .native_font()
+                        .clone_with_font_size(f32::from(font_size) as CGFloat)
+                })
+                .clone()
+        })
+    }
+
     pub(super) fn add_fonts(&mut self, fonts: Vec<Cow<'static, [u8]>>) -> Result<()> {
         let fonts = fonts
             .into_iter()
@@ -336,11 +356,7 @@ impl IosTextSystemState {
             return Ok((bitmap_size, canvas.pixels));
         }
 
-        let needed = if params.is_emoji {
-            bitmap_size.width.0 as usize * 4 * bitmap_size.height.0 as usize
-        } else {
-            bitmap_size.width.0 as usize * bitmap_size.height.0 as usize
-        };
+        let needed = bitmap_size.width.0 as usize * 4 * bitmap_size.height.0 as usize;
         let mut bitmap = Vec::with_capacity(needed);
         // SAFETY: every byte in [0, needed) is initialized by the
         // copy_from_slice calls below before the Vec is returned.
@@ -348,35 +364,23 @@ impl IosTextSystemState {
 
         let req_width = bitmap_size.width.0 as usize;
         let req_height = bitmap_size.height.0 as usize;
-        let is_emoji = params.is_emoji;
-
         GLYPH_BITMAP_SCRATCH.with(|scratch| {
             let mut scratch = scratch.borrow_mut();
             scratch.resize(needed, 0);
 
-            let (color_space, alpha_info, out_bytes_per_row) = if is_emoji {
-                (
-                    CGColorSpace::create_device_rgb(),
-                    kCGImageAlphaPremultipliedLast,
-                    req_width * 4,
-                )
-            } else {
-                (
-                    CGColorSpace::create_device_gray(),
-                    kCGImageAlphaOnly,
-                    req_width,
-                )
-            };
+            let color_space = GLYPH_EMOJI_COLOR_SPACE.with(|color_space| {
+                color_space
+                    .borrow_mut()
+                    .get_or_insert_with(CGColorSpace::create_device_rgb)
+                    .clone()
+            });
+            let alpha_info = kCGImageAlphaPremultipliedLast;
+            let out_bytes_per_row = req_width * 4;
 
             // Reuse an existing context if it is at least as large as the
             // requested bitmap; otherwise create a new one sized exactly to the
-            // current glyph. Text and emoji use separate caches so interleaved
-            // glyph types do not evict each other.
-            let cache = if is_emoji {
-                &GLYPH_EMOJI_CONTEXT_CACHE
-            } else {
-                &GLYPH_TEXT_CONTEXT_CACHE
-            };
+            // current glyph.
+            let cache = &GLYPH_EMOJI_CONTEXT_CACHE;
             cache.with(|c| {
                 let mut c = c.borrow_mut();
                 let fits = c
@@ -435,9 +439,7 @@ impl IosTextSystemState {
                 cx.set_should_subpixel_position_fonts(true);
                 cx.set_allows_font_subpixel_quantization(false);
                 cx.set_should_subpixel_quantize_fonts(false);
-                self.fonts[params.font_id.0]
-                    .native_font()
-                    .clone_with_font_size(f32::from(params.font_size) as CGFloat)
+                self.glyph_font(params.font_id, params.font_size)
                     .draw_glyphs(
                         &[params.glyph_id.0 as CGGlyph],
                         &[CGPoint::new(
@@ -448,10 +450,8 @@ impl IosTextSystemState {
                     );
                 cx.restore();
 
-                if is_emoji {
-                    for pixel in cached.bytes.chunks_exact_mut(4) {
-                        gpui::swap_rgba_pa_to_bgra(pixel);
-                    }
+                for pixel in cached.bytes.chunks_exact_mut(4) {
+                    gpui::swap_rgba_pa_to_bgra(pixel);
                 }
 
                 // Copy only the requested sub-rectangle, in case the cached
@@ -471,6 +471,22 @@ impl IosTextSystemState {
         });
 
         Ok((bitmap_size, bitmap))
+    }
+
+    pub(super) fn cached_layout_line(
+        &self,
+        text: &str,
+        font_size: Pixels,
+        font_runs: &[FontRun],
+    ) -> Option<LineLayout> {
+        let key_ref = LayoutCacheKeyRef {
+            text,
+            font_size,
+            runs: font_runs,
+        };
+        self.layout_cache
+            .get(&key_ref as &dyn AsLayoutCacheKeyRef)
+            .map(|layout| Self::clone_layout(layout))
     }
 
     pub(super) fn layout_line(
@@ -494,6 +510,9 @@ impl IosTextSystemState {
             runs: font_runs.iter().copied().collect(),
         };
         let result = self.layout_line_uncached(text, font_size, font_runs);
+        if self.layout_cache.len() >= 1_024 {
+            self.layout_cache.clear();
+        }
         self.layout_cache
             .insert(key, Arc::new(Self::clone_layout(&result)));
         result
@@ -544,7 +563,7 @@ impl IosTextSystemState {
                     string.set_attribute(
                         cf_range,
                         kCTFontAttributeName,
-                        &font.native_font().clone_with_font_size(font_size.into()),
+                        &self.glyph_font(run.font_id, font_size),
                     );
                 }
                 break_ligature = !break_ligature;
@@ -563,6 +582,7 @@ impl IosTextSystemState {
                     .unwrap()
             };
             let font_id = self.id_for_native_font(font);
+            let is_emoji = self.is_emoji(font_id);
             let glyphs = match runs.last_mut() {
                 Some(run) if run.font_id == font_id => &mut run.glyphs,
                 _ => {
@@ -588,7 +608,7 @@ impl IosTextSystemState {
                     id: GlyphId(glyph_id as u32),
                     position: point(position.x as f32, position.y as f32).map(px),
                     index: ix_converter.utf8_ix,
-                    is_emoji: self.is_emoji(font_id),
+                    is_emoji,
                 });
             }
         }

@@ -1,5 +1,6 @@
 //! Debug instrumentation hooks for Instruments and Metal capture.
 
+use std::collections::VecDeque;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -23,11 +24,13 @@ pub struct IosSignpostEvent {
     pub unix_micros: u128,
 }
 
-static SIGNPOSTS: OnceLock<Mutex<Vec<IosSignpostEvent>>> = OnceLock::new();
+const SIGNPOST_CAPACITY: usize = 4_096;
+
+static SIGNPOSTS: OnceLock<Mutex<VecDeque<IosSignpostEvent>>> = OnceLock::new();
 static METAL_CAPTURE_ACTIVE: OnceLock<Mutex<Option<String>>> = OnceLock::new();
 
-fn signposts() -> &'static Mutex<Vec<IosSignpostEvent>> {
-    SIGNPOSTS.get_or_init(|| Mutex::new(Vec::new()))
+fn signposts() -> &'static Mutex<VecDeque<IosSignpostEvent>> {
+    SIGNPOSTS.get_or_init(|| Mutex::new(VecDeque::with_capacity(SIGNPOST_CAPACITY)))
 }
 
 fn capture_label() -> &'static Mutex<Option<String>> {
@@ -39,7 +42,11 @@ pub fn emit_signpost(category: IosSignpostCategory, name: impl Into<Arc<str>>) {
     if log::log_enabled!(log::Level::Info) {
         log::info!("GPUI iOS signpost {:?}: {}", category, name);
     }
-    signposts().lock().unwrap().push(IosSignpostEvent {
+    let mut signposts = signposts().lock().unwrap();
+    if signposts.len() == SIGNPOST_CAPACITY {
+        signposts.pop_front();
+    }
+    signposts.push_back(IosSignpostEvent {
         category,
         name,
         unix_micros: now_unix_micros(),
@@ -47,7 +54,7 @@ pub fn emit_signpost(category: IosSignpostCategory, name: impl Into<Arc<str>>) {
 }
 
 pub fn signpost_snapshot() -> Vec<IosSignpostEvent> {
-    signposts().lock().unwrap().clone()
+    signposts().lock().unwrap().iter().cloned().collect()
 }
 
 pub fn clear_signposts() {
@@ -107,6 +114,18 @@ mod tests {
         assert!(is_metal_capture_active());
         end_metal_capture();
         assert!(!is_metal_capture_active());
+    }
+
+    #[test]
+    fn signpost_history_is_bounded() {
+        let _guard = SIGNPOST_TEST_LOCK.lock().unwrap();
+        clear_signposts();
+        for index in 0..=SIGNPOST_CAPACITY {
+            emit_signpost(IosSignpostCategory::Frame, format!("frame-{index}"));
+        }
+        let snapshot = signpost_snapshot();
+        assert_eq!(snapshot.len(), SIGNPOST_CAPACITY);
+        assert_eq!(snapshot.first().unwrap().name.as_ref(), "frame-1");
     }
 
     #[test]

@@ -187,7 +187,7 @@ pub fn android_meta_caps_lock(meta_state: i32) -> bool {
 ///
 /// Returns `None` for key codes that should be ignored (e.g. pure modifier
 /// keys, volume buttons, etc.).
-pub fn android_keycode_to_key(key_code: i32) -> Option<String> {
+pub fn android_keycode_to_key(key_code: i32) -> Option<&'static str> {
     let key = match key_code {
         // Letters
         AKEYCODE_A => "a",
@@ -310,7 +310,7 @@ pub fn android_keycode_to_key(key_code: i32) -> Option<String> {
         _ => return None,
     };
 
-    Some(key.to_string())
+    Some(key)
 }
 
 /// Build a GPUI [`Keystroke`] from an Android key event.
@@ -337,7 +337,7 @@ pub fn android_key_to_keystroke(
         if modifiers.shift && ch.is_ascii_alphabetic() {
             Some(ch.to_ascii_uppercase().to_string())
         } else {
-            Some(key.clone())
+            Some(key.to_owned())
         }
     } else {
         None
@@ -345,7 +345,7 @@ pub fn android_key_to_keystroke(
 
     Some(Keystroke {
         modifiers,
-        key,
+        key: key.to_owned(),
         key_char,
     })
 }

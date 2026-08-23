@@ -580,7 +580,7 @@ pub fn run_event_loop(app: &AndroidApp) {
         // Non-blocking poll: process any pending events then immediately
         // continue to rendering. No sleep — the GPU present call
         // (get_current_texture / Mailbox) provides natural frame pacing.
-        app.poll_events(Some(Duration::ZERO), |event| match event {
+        app.poll_events(Some(Duration::from_millis(8)), |event| match event {
             PollEvent::Main(main_event) => {
                 handle_main_event(app, main_event);
             }
@@ -815,10 +815,6 @@ pub fn run_event_loop(app: &AndroidApp) {
                 process_input_events(app);
             }
         }
-
-        // Yield CPU to avoid starving system threads and causing ANR.
-        // Keep this short — at 120Hz the frame budget is only 8.3ms.
-        std::thread::sleep(Duration::from_micros(500));
     }
 
     log::info!("run_event_loop: exiting main loop");

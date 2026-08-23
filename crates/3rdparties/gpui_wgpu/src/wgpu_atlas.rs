@@ -111,7 +111,7 @@ impl PlatformAtlas for WgpuAtlas {
             let tile = lock
                 .allocate(size, key.texture_kind())
                 .context("failed to allocate")?;
-            lock.upload_texture(tile.texture_id, tile.bounds, &bytes);
+            lock.upload_texture(tile.texture_id, tile.bounds, bytes);
             lock.tiles_by_key.insert(key.clone(), tile);
             Ok(Some(tile))
         }
@@ -233,12 +233,16 @@ impl WgpuAtlasState {
         }
     }
 
-    fn upload_texture(&mut self, id: AtlasTextureId, bounds: Bounds<DevicePixels>, bytes: &[u8]) {
-        let data = self
-            .storage
-            .get(id)
-            .map(|texture| swizzle_upload_data(bytes, texture.format))
-            .unwrap_or_else(|| bytes.to_vec());
+    fn upload_texture(
+        &mut self,
+        id: AtlasTextureId,
+        bounds: Bounds<DevicePixels>,
+        bytes: Cow<'_, [u8]>,
+    ) {
+        let data = match self.storage.get(id) {
+            Some(texture) => swizzle_upload_data(bytes, texture.format).into_owned(),
+            None => bytes.into_owned(),
+        };
 
         self.pending_uploads
             .push(PendingUpload { id, bounds, data });
@@ -369,15 +373,15 @@ impl WgpuAtlasTexture {
     }
 }
 
-fn swizzle_upload_data(bytes: &[u8], format: wgpu::TextureFormat) -> Vec<u8> {
+fn swizzle_upload_data<'a>(bytes: Cow<'a, [u8]>, format: wgpu::TextureFormat) -> Cow<'a, [u8]> {
     match format {
         wgpu::TextureFormat::Rgba8Unorm => {
-            let mut data = bytes.to_vec();
+            let mut data = bytes.into_owned();
             for pixel in data.chunks_exact_mut(4) {
                 pixel.swap(0, 2);
             }
-            data
+            Cow::Owned(data)
         }
-        _ => bytes.to_vec(),
+        _ => bytes,
     }
 }

@@ -357,8 +357,8 @@ fn modifiers_from_ns_event(flags: u32) -> gpui::Modifiers {
     }
 }
 
-fn mac_key_code_to_key(key_code: u16, characters: Option<&str>) -> String {
-    let named = match key_code {
+fn mac_key_code_to_key(key_code: u16) -> Option<&'static str> {
+    match key_code {
         36 => Some("enter"),
         48 => Some("tab"),
         49 => Some("space"),
@@ -374,15 +374,7 @@ fn mac_key_code_to_key(key_code: u16, characters: Option<&str>) -> String {
         125 => Some("down"),
         126 => Some("up"),
         _ => None,
-    };
-    named
-        .map(str::to_owned)
-        .or_else(|| {
-            characters
-                .filter(|value| !value.is_empty())
-                .map(str::to_owned)
-        })
-        .unwrap_or_else(|| format!("keycode-{key_code}"))
+    }
 }
 
 fn optional_c_string(value: *const c_char) -> Option<String> {
@@ -394,8 +386,20 @@ fn optional_c_string(value: *const c_char) -> Option<String> {
 }
 
 fn key_event(key_code: u16, characters: *const c_char, modifier_flags: u32) -> gpui::Keystroke {
-    let characters = optional_c_string(characters);
-    let key = mac_key_code_to_key(key_code, characters.as_deref());
+    let named_key = mac_key_code_to_key(key_code);
+    let characters = named_key
+        .is_none()
+        .then(|| optional_c_string(characters))
+        .flatten();
+    let key = named_key
+        .map(str::to_owned)
+        .or_else(|| {
+            characters
+                .as_deref()
+                .filter(|value| !value.is_empty())
+                .map(str::to_owned)
+        })
+        .unwrap_or_else(|| format!("keycode-{key_code}"));
     let key_char = characters.filter(|value| !value.is_empty() && key.chars().count() == 1);
     gpui::Keystroke {
         modifiers: modifiers_from_ns_event(modifier_flags),
@@ -505,9 +509,9 @@ mod tests {
 
     #[test]
     fn mac_key_codes_and_modifiers_map_to_gpui_keystrokes() {
-        assert_eq!(mac_key_code_to_key(123, None), "left");
-        assert_eq!(mac_key_code_to_key(0, Some("a")), "a");
-        assert_eq!(mac_key_code_to_key(999, None), "keycode-999");
+        assert_eq!(mac_key_code_to_key(123), Some("left"));
+        assert_eq!(mac_key_code_to_key(0), None);
+        assert_eq!(mac_key_code_to_key(999), None);
 
         let modifiers = modifiers_from_ns_event((1 << 17) | (1 << 20));
         assert!(modifiers.shift);

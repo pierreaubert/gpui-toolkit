@@ -40,6 +40,7 @@ use gpui::{
     RequestFrameOptions, WindowBackgroundAppearance, WindowBounds, WindowControlArea,
 };
 use gpui_wgpu::{GpuContext, WgpuRenderer, WgpuSurfaceConfig, wgpu};
+use jni::objects::GlobalRef;
 use parking_lot::Mutex;
 use raw_window_handle::{
     AndroidDisplayHandle, AndroidNdkWindowHandle, HasDisplayHandle, HasWindowHandle,
@@ -414,6 +415,9 @@ struct WindowState {
     /// and the bottom inset accounts for the navigation bar / gesture area.
     safe_area_insets: SafeAreaInsets,
 
+    /// Last IME anchor sent to Java. Avoid repeated JNI work for unchanged carets.
+    last_ime_bounds: Option<(f32, f32, f32)>,
+
     /// Current appearance.
     appearance: WindowAppearance,
 
@@ -515,6 +519,7 @@ impl AndroidWindow {
             height,
             scale_factor,
             safe_area_insets: SafeAreaInsets::default(),
+            last_ime_bounds: None,
             appearance: WindowAppearance::Light,
             is_active: true,
             transparent,
@@ -546,6 +551,7 @@ impl AndroidWindow {
             height,
             scale_factor,
             safe_area_insets: SafeAreaInsets::default(),
+            last_ime_bounds: None,
             appearance: WindowAppearance::Light,
             is_active: false,
             transparent: false,
@@ -667,6 +673,7 @@ impl AndroidWindow {
 
             state.width = new_w;
             state.height = new_h;
+            state.last_ime_bounds = None;
             let scale = state.scale_factor;
 
             // update_drawable_size calls device.poll(Wait) which can take
@@ -1194,6 +1201,13 @@ pub struct AndroidPlatformWindow {
     /// replaced when `on_input` is called.
     momentum_input_cb:
         Arc<Mutex<Box<dyn FnMut(gpui::PlatformInput) -> DispatchEventResult + Send>>>,
+    /// Java objects retained after the first successful IME anchor update.
+    ime_jni_cache: Mutex<Option<ImeJniCache>>,
+}
+
+struct ImeJniCache {
+    input_method_manager: GlobalRef,
+    decor_view: GlobalRef,
 }
 
 struct MainThreadInputHandler(Option<PlatformInputHandler>);
@@ -1226,6 +1240,7 @@ impl AndroidPlatformWindow {
                 pending_scroll_phase: gpui::TouchPhase::Moved,
             })),
             momentum_input_cb: Arc::new(Mutex::new(noop_input_cb)),
+            ime_jni_cache: Mutex::new(None),
         }
     }
 
@@ -1714,6 +1729,10 @@ impl PlatformWindow for AndroidPlatformWindow {
                         }
                         drop(ms);
 
+                        if matches!(state.gesture, AndroidTouchGesture::Scrolling { .. }) {
+                            return;
+                        }
+
                         let mut guard = cb.lock();
                         let _ = guard(gpui::PlatformInput::MouseMove(gpui::MouseMoveEvent {
                             position,
@@ -1999,8 +2018,38 @@ impl PlatformWindow for AndroidPlatformWindow {
         let x: f32 = bounds.origin.x.into();
         let y: f32 = bounds.origin.y.into();
         let h: f32 = bounds.size.height.into();
+        let ime_bounds = (x, y, h);
+        if self.state.lock().last_ime_bounds == Some(ime_bounds) {
+            return;
+        }
 
-        let _ = jni_helpers::with_env(|env| {
+        let cached_refs = self
+            .ime_jni_cache
+            .lock()
+            .as_ref()
+            .map(|cache| (cache.input_method_manager.clone(), cache.decor_view.clone()));
+        if let Some((input_method_manager, decor_view)) = cached_refs {
+            let updated = jni_helpers::with_env(|env| {
+                update_cursor_anchor_info(
+                    env,
+                    input_method_manager.as_obj(),
+                    decor_view.as_obj(),
+                    x,
+                    y,
+                    h,
+                )
+            });
+            if updated.is_ok() {
+                self.state.lock().last_ime_bounds = Some(ime_bounds);
+            } else {
+                // The Activity/view may have been recreated; resolve fresh
+                // objects on the next update rather than retaining stale refs.
+                self.ime_jni_cache.lock().take();
+            }
+            return;
+        }
+
+        let updated = jni_helpers::with_env(|env| {
             let activity = jni_helpers::activity(env)?;
 
             // 1. Get InputMethodManager
@@ -2097,19 +2146,95 @@ impl PlatformWindow for AndroidPlatformWindow {
             }
 
             // 4. imm.updateCursorAnchorInfo(view, info)
-            let _ = env.call_method(
+            let update = env.call_method(
                 &imm,
                 jni::jni_str!("updateCursorAnchorInfo"),
                 jni::jni_sig!("(Landroid/view/View;Landroid/view/inputmethod/CursorAnchorInfo;)V"),
                 &[JValue::Object(&decor_view), JValue::Object(&anchor_info)],
             );
-            env.exception_clear();
+            if let Err(error) = update {
+                env.exception_clear();
+                return Err(error.to_string());
+            }
+
+            if let (Ok(input_method_manager), Ok(decor_view)) =
+                (env.new_global_ref(&imm), env.new_global_ref(&decor_view))
+            {
+                *self.ime_jni_cache.lock() = Some(ImeJniCache {
+                    input_method_manager,
+                    decor_view,
+                });
+            }
 
             log::trace!("update_ime_position: x={:.0} y={:.0} h={:.0}", x, y, h);
 
             Ok(())
         });
+        if updated.is_ok() {
+            self.state.lock().last_ime_bounds = Some(ime_bounds);
+        }
     }
+}
+
+fn update_cursor_anchor_info(
+    env: &mut jni::JNIEnv<'_>,
+    input_method_manager: &jni::objects::JObject<'_>,
+    decor_view: &jni::objects::JObject<'_>,
+    x: f32,
+    y: f32,
+    height: f32,
+) -> std::result::Result<(), String> {
+    use jni::objects::JValue;
+
+    let builder = env
+        .new_object(
+            jni::jni_str!("android/view/inputmethod/CursorAnchorInfo$Builder"),
+            jni::jni_sig!("()V"),
+            &[],
+        )
+        .map_err(|error| {
+            env.exception_clear();
+            error.to_string()
+        })?;
+
+    let _ = env.call_method(
+        &builder,
+        jni::jni_str!("setInsertionMarkerLocation"),
+        jni::jni_sig!("(FFFFI)Landroid/view/inputmethod/CursorAnchorInfo$Builder;"),
+        &[
+            JValue::Float(x),
+            JValue::Float(y),
+            JValue::Float(y + height * 0.8),
+            JValue::Float(y + height),
+            JValue::Int(0),
+        ],
+    );
+    env.exception_clear();
+
+    let anchor_info = env
+        .call_method(
+            &builder,
+            jni::jni_str!("build"),
+            jni::jni_sig!("()Landroid/view/inputmethod/CursorAnchorInfo;"),
+            &[],
+        )
+        .and_then(|value| value.l())
+        .map_err(|error| {
+            env.exception_clear();
+            error.to_string()
+        })?;
+    if anchor_info.is_null() {
+        return Err("CursorAnchorInfo.build() returned null".to_string());
+    }
+
+    let _ = env.call_method(
+        input_method_manager,
+        jni::jni_str!("updateCursorAnchorInfo"),
+        jni::jni_sig!("(Landroid/view/View;Landroid/view/inputmethod/CursorAnchorInfo;)V"),
+        &[JValue::Object(decor_view), JValue::Object(&anchor_info)],
+    );
+    env.exception_clear();
+    Ok(())
 }
 
 // ── Fallback atlas ────────────────────────────────────────────────────────────
@@ -2152,7 +2277,10 @@ impl PlatformAtlas for FallbackAtlas {
             return Ok(Some(tile.clone()));
         }
 
-        let data = build()?;
+        // A fallback atlas has no drawable backing store. Defer rasterization
+        // until the real atlas is restored with the surface.
+        let _ = build;
+        let data = None;
         if let Some((size, _pixels)) = data {
             let id = state.next_id;
             state.next_id += 1;

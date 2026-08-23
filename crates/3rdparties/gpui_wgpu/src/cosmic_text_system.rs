@@ -25,6 +25,14 @@ use font_key::FontKey;
 pub struct CosmicTextSystem(RwLock<CosmicTextSystemState>);
 
 impl CosmicTextSystem {
+    /// Load system font files through fontdb's file-backed path.
+    pub fn add_font_paths<'a>(
+        &self,
+        paths: impl IntoIterator<Item = &'a std::path::Path>,
+    ) -> Result<()> {
+        self.0.write().add_font_paths(paths)
+    }
+
     pub fn new(system_font_fallback: &str) -> Self {
         let font_system = FontSystem::new();
 

@@ -79,9 +79,11 @@ pub(super) fn handle_touches(view: &mut Object, touches: *mut Object, event: *mu
         {
             let event_type: i64 = msg_send![event, type];
             let event_subtype: i64 = msg_send![event, subtype];
-            register::input_diag_log(&format!(
-                "view touches event_type={event_type} subtype={event_subtype} count={count}"
-            ));
+            register::input_diag_log(|| {
+                format!(
+                    "view touches event_type={event_type} subtype={event_subtype} count={count}"
+                )
+            });
         }
 
         for i in 0..count {
@@ -105,9 +107,11 @@ pub(super) fn handle_indirect_scroll(view: &mut Object, recognizer: *mut Object)
         let touches: usize = msg_send![recognizer, numberOfTouches];
         let modifiers: usize = msg_send![recognizer, modifierFlags];
         let buttons: isize = msg_send![recognizer, buttonMask];
-        register::input_diag_log(&format!(
-            "indirect_scroll callback state={state} touches={touches} modifiers=0x{modifiers:x} buttons=0x{buttons:x}"
-        ));
+        register::input_diag_log(|| {
+            format!(
+                "indirect_scroll callback state={state} touches={touches} modifiers=0x{modifiers:x} buttons=0x{buttons:x}"
+            )
+        });
 
         let window = &*(window_ptr as *const IosWindow);
         window.handle_indirect_scroll(recognizer);

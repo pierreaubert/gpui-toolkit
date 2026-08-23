@@ -207,12 +207,11 @@ impl IosWindow {
             let window: *mut Object = msg_send![window_class, alloc];
             let window: *mut Object = msg_send![window, initWithFrame: screen_bounds_cg];
             #[cfg(target_os = "ios")]
-            input_diag_log("window using legacy initWithFrame");
+            input_diag_log(|| "window using legacy initWithFrame".to_owned());
             #[cfg(target_os = "ios")]
-            input_diag_log(&format!(
-                "window created temp_dir={}",
-                std::env::temp_dir().display()
-            ));
+            input_diag_log(|| {
+                format!("window created temp_dir={}", std::env::temp_dir().display())
+            });
 
             // Create our custom UIViewController subclass that supports
             // dynamic `preferredStatusBarStyle` overrides.
@@ -254,7 +253,7 @@ impl IosWindow {
                 let _: () = msg_send![recognizer, setDelaysTouchesBegan: NO];
                 let _: () = msg_send![recognizer, setDelaysTouchesEnded: NO];
                 let _: () = msg_send![view, addGestureRecognizer: recognizer];
-                input_diag_log("installed indirect scroll pan recognizer");
+                input_diag_log(|| "installed indirect scroll pan recognizer".to_owned());
             }
 
             // Set the view as the view controller's view
@@ -408,9 +407,12 @@ impl IosWindow {
                     Ok(context) => {
                         let gpu_context: Rc<RefCell<Option<WgpuContext>>> =
                             Rc::new(RefCell::new(Some(context)));
-                        drop(surface); // no longer needed — new() creates its own
-
-                        match WgpuRenderer::new(gpu_context, &raw_handles, config, None) {
+                        match WgpuRenderer::new_from_existing_surface(
+                            gpu_context,
+                            surface,
+                            config,
+                            None,
+                        ) {
                             Ok(renderer) => {
                                 log::info!("iOS wgpu renderer created (Metal)");
                                 *ios_window.renderer.lock() = Some(renderer);
@@ -761,9 +763,11 @@ impl IosWindow {
                                 // buttons would treat the beginning of a scroll
                                 // as an activation.
                                 #[cfg(target_os = "ios")]
-                                input_diag_log(&format!(
-                                    "direct_touch scroll started dx={dx:.2} dy={dy:.2} pos=({logical_x:.2},{logical_y:.2})"
-                                ));
+                                input_diag_log(|| {
+                                    format!(
+                                        "direct_touch scroll started dx={dx:.2} dy={dy:.2} pos=({logical_x:.2},{logical_y:.2})"
+                                    )
+                                });
                                 emit(PlatformInput::ScrollWheel(gpui::ScrollWheelEvent {
                                     position,
                                     delta: gpui::ScrollDelta::Pixels(gpui::point(
@@ -844,9 +848,11 @@ impl IosWindow {
                         }));
                         // Scroll event for scrollable containers.
                         #[cfg(target_os = "ios")]
-                        input_diag_log(&format!(
-                            "direct_touch scroll moved dx={dx:.2} dy={dy:.2} pos=({logical_x:.2},{logical_y:.2})"
-                        ));
+                        input_diag_log(|| {
+                            format!(
+                                "direct_touch scroll moved dx={dx:.2} dy={dy:.2} pos=({logical_x:.2},{logical_y:.2})"
+                            )
+                        });
                         emit(PlatformInput::ScrollWheel(gpui::ScrollWheelEvent {
                             position,
                             delta: gpui::ScrollDelta::Pixels(gpui::point(
@@ -908,9 +914,11 @@ impl IosWindow {
                         let dx = logical_x - prev_x;
                         let dy = logical_y - prev_y;
                         #[cfg(target_os = "ios")]
-                        input_diag_log(&format!(
-                            "direct_touch scroll ended dx={dx:.2} dy={dy:.2} pos=({logical_x:.2},{logical_y:.2})"
-                        ));
+                        input_diag_log(|| {
+                            format!(
+                                "direct_touch scroll ended dx={dx:.2} dy={dy:.2} pos=({logical_x:.2},{logical_y:.2})"
+                            )
+                        });
                         emit(PlatformInput::ScrollWheel(gpui::ScrollWheelEvent {
                             position,
                             delta: gpui::ScrollDelta::Pixels(gpui::point(
@@ -986,10 +994,12 @@ impl IosWindow {
                 gpui::px(translation.x as f32),
                 gpui::px(translation.y as f32),
             );
-            input_diag_log(&format!(
-                "indirect_scroll translation=({:.2},{:.2}) location=({:.2},{:.2}) state={state}",
-                translation.x, translation.y, location.x, location.y
-            ));
+            input_diag_log(|| {
+                format!(
+                    "indirect_scroll translation=({:.2},{:.2}) location=({:.2},{:.2}) state={state}",
+                    translation.x, translation.y, location.x, location.y
+                )
+            });
 
             if translation.x != 0.0 || translation.y != 0.0 || state != GESTURE_CHANGED {
                 if let Some(callback) = self.input_callback.borrow_mut().as_mut() {
@@ -1025,14 +1035,20 @@ impl IosWindow {
         logical_x: f32,
         logical_y: f32,
     ) {
-        if touch.is_null() {
+        if touch.is_null() || !crate::pencil::has_pencil_callback() {
             return;
         }
         unsafe {
             // SAFETY: UIKit supplies a live UITouch pointer while processing the
             // touch callback on the main thread. Selectors used here are stable
             // UITouch APIs on the supported iOS deployment target.
-            let touch_type: i64 = (&*touch).send_message(Sel::register("type"), ()).unwrap();
+            static TOUCH_TYPE_SELECTOR: std::sync::OnceLock<Sel> = std::sync::OnceLock::new();
+            let touch_type: i64 = (&*touch)
+                .send_message(
+                    *TOUCH_TYPE_SELECTOR.get_or_init(|| Sel::register("type")),
+                    (),
+                )
+                .unwrap();
             let force: core_graphics::base::CGFloat = msg_send![touch, force];
             let max_force: core_graphics::base::CGFloat = msg_send![touch, maximumPossibleForce];
             let altitude_angle: core_graphics::base::CGFloat = msg_send![touch, altitudeAngle];

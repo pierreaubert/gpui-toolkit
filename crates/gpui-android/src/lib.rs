@@ -124,7 +124,11 @@ pub(crate) fn enqueue_ime_event(event: ImeEvent) {
 
 #[cfg(target_os = "android")]
 pub(crate) fn drain_ime_events() -> Vec<ImeEvent> {
-    IME_EVENTS.lock().unwrap().drain(..).collect()
+    let mut events = IME_EVENTS.lock().unwrap();
+    if events.is_empty() {
+        return Vec::new();
+    }
+    events.drain(..).collect()
 }
 
 thread_local! {

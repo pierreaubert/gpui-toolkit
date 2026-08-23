@@ -194,6 +194,33 @@ impl WgpuRenderer {
         )
     }
 
+    /// Construct a renderer from a surface that was already created to select
+    /// the shared GPU context. This avoids recreating a native surface during
+    /// platform-window startup.
+    #[cfg(not(target_family = "wasm"))]
+    pub fn new_from_existing_surface(
+        gpu_context: GpuContext,
+        surface: wgpu::Surface<'static>,
+        config: WgpuSurfaceConfig,
+        compositor_gpu: Option<CompositorGpuHint>,
+    ) -> anyhow::Result<Self> {
+        let mut ctx_ref = gpu_context.borrow_mut();
+        let context = ctx_ref
+            .as_mut()
+            .ok_or_else(|| anyhow::anyhow!("GPU context must be initialized before reuse"))?;
+        context.check_compatible_with_surface(&surface)?;
+
+        let atlas = Arc::new(WgpuAtlas::from_context(context));
+        Self::new_internal(
+            Some(Rc::clone(&gpu_context)),
+            context,
+            Some(surface),
+            config,
+            compositor_gpu,
+            atlas,
+        )
+    }
+
     #[cfg(target_family = "wasm")]
     pub fn new_from_canvas(
         context: &WgpuContext,
@@ -948,11 +975,9 @@ impl WgpuRenderer {
 
             let resources = self.resources_mut();
 
-            // Wait for any in-flight GPU work to complete before destroying textures
-            if let Err(e) = resources.device.poll(wgpu::PollType::Wait {
-                submission_index: None,
-                timeout: None,
-            }) {
+            // Poll completed work without stalling the platform UI thread.
+            // `Texture::destroy` is deferred by wgpu until in-flight uses retire.
+            if let Err(e) = resources.device.poll(wgpu::PollType::Poll) {
                 warn!("Failed to poll device during resize: {e:?}");
             }
 

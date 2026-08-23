@@ -41,8 +41,12 @@ use std::hash::{Hash, Hasher};
 use std::{borrow::Borrow, borrow::Cow, char, sync::Arc};
 
 thread_local! {
+    /// Reusable CTFonts for glyph rendering at a given font size.
+    static GLYPH_FONT_CACHE: RefCell<HashMap<(usize, u32), CTFont>> = RefCell::new(HashMap::new());
     /// Reusable bitmap scratch buffer for glyph rasterization.
     static GLYPH_BITMAP_SCRATCH: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
+    /// Reusable Core Graphics color spaces for glyph rasterization.
+    static GLYPH_COLOR_SPACES: RefCell<Option<(CGColorSpace, CGColorSpace)>> = const { RefCell::new(None) };
     /// Reusable Core Graphics context for text glyphs (grayscale).
     static GLYPH_TEXT_CONTEXT_CACHE: RefCell<Option<CachedContext>> = const { RefCell::new(None) };
     /// Reusable Core Graphics context for emoji glyphs (RGBA).
@@ -139,6 +143,24 @@ pub(super) struct AuTextSystemState {
 }
 
 impl AuTextSystemState {
+    fn glyph_font(&self, font_id: FontId, font_size: Pixels) -> CTFont {
+        let key = (font_id.0, f32::from(font_size).to_bits());
+        GLYPH_FONT_CACHE.with(|cache| {
+            let mut cache = cache.borrow_mut();
+            if cache.len() >= 256 && !cache.contains_key(&key) {
+                cache.clear();
+            }
+            cache
+                .entry(key)
+                .or_insert_with(|| {
+                    self.fonts[font_id.0]
+                        .native_font()
+                        .clone_with_font_size(f32::from(font_size) as CGFloat)
+                })
+                .clone()
+        })
+    }
+
     pub(super) fn add_fonts(&mut self, fonts: Vec<Cow<'static, [u8]>>) -> Result<()> {
         let fonts = fonts
             .into_iter()
@@ -311,18 +333,20 @@ impl AuTextSystemState {
             let mut scratch = scratch.borrow_mut();
             scratch.resize(needed, 0);
 
-            let (color_space, alpha_info, out_bytes_per_row) = if is_emoji {
-                (
-                    CGColorSpace::create_device_rgb(),
-                    kCGImageAlphaPremultipliedLast,
-                    req_width * 4,
-                )
+            let color_space = GLYPH_COLOR_SPACES.with(|spaces| {
+                let mut spaces = spaces.borrow_mut();
+                let (rgb, gray) = spaces.get_or_insert_with(|| {
+                    (
+                        CGColorSpace::create_device_rgb(),
+                        CGColorSpace::create_device_gray(),
+                    )
+                });
+                if is_emoji { rgb.clone() } else { gray.clone() }
+            });
+            let (alpha_info, out_bytes_per_row) = if is_emoji {
+                (kCGImageAlphaPremultipliedLast, req_width * 4)
             } else {
-                (
-                    CGColorSpace::create_device_gray(),
-                    kCGImageAlphaOnly,
-                    req_width,
-                )
+                (kCGImageAlphaOnly, req_width)
             };
 
             // Reuse an existing context if it is at least as large as the
@@ -391,9 +415,7 @@ impl AuTextSystemState {
                 cx.set_should_subpixel_position_fonts(true);
                 cx.set_allows_font_subpixel_quantization(false);
                 cx.set_should_subpixel_quantize_fonts(false);
-                self.fonts[params.font_id.0]
-                    .native_font()
-                    .clone_with_font_size(f32::from(params.font_size) as CGFloat)
+                self.glyph_font(params.font_id, params.font_size)
                     .draw_glyphs(
                         &[params.glyph_id.0 as CGGlyph],
                         &[CGPoint::new(
@@ -427,6 +449,22 @@ impl AuTextSystemState {
         Ok((bitmap_size, bitmap))
     }
 
+    pub(super) fn cached_layout_line(
+        &self,
+        text: &str,
+        font_size: Pixels,
+        font_runs: &[FontRun],
+    ) -> Option<LineLayout> {
+        let key_ref = LayoutCacheKeyRef {
+            text,
+            font_size,
+            runs: font_runs,
+        };
+        self.layout_cache
+            .get(&key_ref as &dyn AsLayoutCacheKeyRef)
+            .map(|layout| Self::clone_layout(layout))
+    }
+
     pub(super) fn layout_line(
         &mut self,
         text: &str,
@@ -448,6 +486,9 @@ impl AuTextSystemState {
             runs: font_runs.iter().copied().collect(),
         };
         let result = self.layout_line_uncached(text, font_size, font_runs);
+        if self.layout_cache.len() >= 1_024 {
+            self.layout_cache.clear();
+        }
         self.layout_cache
             .insert(key, Arc::new(Self::clone_layout(&result)));
         result
@@ -498,9 +539,7 @@ impl AuTextSystemState {
                     string.set_attribute(
                         cf_range,
                         kCTFontAttributeName,
-                        &font
-                            .native_font()
-                            .clone_with_font_size(run_font_size.into()),
+                        &self.glyph_font(run.font_id, run_font_size),
                     );
                 }
                 break_ligature = !break_ligature;
@@ -519,6 +558,7 @@ impl AuTextSystemState {
                     .unwrap()
             };
             let font_id = self.id_for_native_font(font);
+            let is_emoji = self.is_emoji(font_id);
             let glyphs = match runs.last_mut() {
                 Some(run) if run.font_id == font_id => &mut run.glyphs,
                 _ => {
@@ -541,7 +581,7 @@ impl AuTextSystemState {
                     id: GlyphId(glyph_id as u32),
                     position: point(position.x as f32, position.y as f32).map(px),
                     index: ix_converter.utf8_ix,
-                    is_emoji: self.is_emoji(font_id),
+                    is_emoji,
                 });
             }
         }

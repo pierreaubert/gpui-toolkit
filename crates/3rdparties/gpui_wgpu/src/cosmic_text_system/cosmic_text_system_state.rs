@@ -14,7 +14,7 @@ use gpui::{
     point, size,
 };
 use smallvec::SmallVec;
-use std::borrow::Cow;
+use std::{borrow::Cow, path::Path};
 use swash::{
     scale::{Render, ScaleContext, Source, StrikeWith},
     zeno::{Format, Vector},
@@ -49,6 +49,21 @@ impl CosmicTextSystemState {
                     db.load_font_data(bytes);
                 }
             }
+        }
+        Ok(())
+    }
+
+    /// Register font files without first copying their bytes into an owned
+    /// buffer. fontdb maps file-backed fonts when its `memmap` feature is on.
+    #[profiling::function]
+    pub(super) fn add_font_paths<'a>(
+        &mut self,
+        paths: impl IntoIterator<Item = &'a Path>,
+    ) -> Result<()> {
+        let db = self.font_system.db_mut();
+        for path in paths {
+            db.load_font_file(path)
+                .with_context(|| format!("failed to load font file {}", path.display()))?;
         }
         Ok(())
     }

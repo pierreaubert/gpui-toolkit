@@ -569,18 +569,18 @@ impl AndroidPlatform {
                 "/system/fonts/NotoSerif-Regular.ttf",
                 "/system/fonts/NotoSerif-Bold.ttf",
             ];
-            let mut font_data: Vec<std::borrow::Cow<'static, [u8]>> = Vec::new();
-            for path in font_paths {
-                match std::fs::read(path) {
-                    Ok(bytes) => {
-                        log::info!("loaded system font: {path} ({} bytes)", bytes.len());
-                        font_data.push(std::borrow::Cow::Owned(bytes));
-                    }
-                    Err(e) => {
-                        log::debug!("skipping system font {path}: {e}");
-                    }
-                }
+            let available_font_paths = font_paths
+                .iter()
+                .map(std::path::Path::new)
+                .filter(|path| path.is_file())
+                .collect::<Vec<_>>();
+            if let Err(error) = text_system.add_font_paths(available_font_paths.iter().copied()) {
+                log::warn!("failed to add system font paths: {error:#}");
             }
+
+            // APK assets are not files, so bundled emoji continues through the
+            // owned-byte path below. System fonts above remain file-backed.
+            let mut font_data: Vec<std::borrow::Cow<'static, [u8]>> = Vec::new();
 
             // ── Emoji font: prefer CBDT (bitmap) over COLR v1 ───────────
             //

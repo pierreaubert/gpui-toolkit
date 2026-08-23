@@ -46,7 +46,11 @@ unsafe impl Encode for ObjcRange {
 }
 
 #[cfg(target_os = "ios")]
-pub(super) fn input_diag_log(message: &str) {
+pub(super) fn input_diag_log(message: impl FnOnce() -> String) {
+    if std::env::var_os("GPUI_IOS_INPUT_DIAG").is_none() {
+        return;
+    }
+    let message = message();
     log::info!("GPUI iOS input diag: {message}");
     eprintln!("{message}");
     let path = std::env::temp_dir().join("gpui-ios-input-diag.log");
@@ -74,7 +78,7 @@ pub(super) fn register_window_class() -> &'static Class {
                     let event_subtype: i64 = msg_send![event, subtype];
                     let modifiers: usize = msg_send![event, modifierFlags];
                     let buttons: isize = msg_send![event, buttonMask];
-                    input_diag_log(&format!(
+                input_diag_log(|| format!(
                         "window sendEvent type={event_type} subtype={event_subtype} modifiers=0x{modifiers:x} buttons=0x{buttons:x}"
                     ));
                 }
@@ -236,7 +240,7 @@ pub(super) fn register_metal_view_class() -> &'static Class {
                 let event_subtype: i64 = msg_send![event, subtype];
                 let modifiers: usize = msg_send![event, modifierFlags];
                 let buttons: isize = msg_send![event, buttonMask];
-                input_diag_log(&format!(
+                input_diag_log(|| format!(
                     "indirect_scroll delegate event type={event_type} subtype={event_subtype} modifiers=0x{modifiers:x} buttons=0x{buttons:x}"
                 ));
                 YES
@@ -256,7 +260,7 @@ pub(super) fn register_metal_view_class() -> &'static Class {
 
             unsafe {
                 let touch_type: i64 = msg_send![touch, type];
-                input_diag_log(&format!(
+                input_diag_log(|| format!(
                     "indirect_scroll delegate touch type={touch_type}"
                 ));
                 if touch_type == 0 { NO } else { YES }
@@ -276,7 +280,7 @@ pub(super) fn register_metal_view_class() -> &'static Class {
 
             unsafe {
                 let press_type: i64 = msg_send![press, type];
-                input_diag_log(&format!(
+                input_diag_log(|| format!(
                     "indirect_scroll delegate press type={press_type}"
                 ));
                 YES
