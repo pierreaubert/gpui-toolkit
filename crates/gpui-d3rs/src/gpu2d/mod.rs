@@ -8,43 +8,17 @@
 //!
 //! # Architecture
 //!
-//! The module follows the same pattern as `surface3d`: render to a wgpu texture,
-//! copy pixels back, and paint via GPUI's `window.paint_image()`.
-//!
-//! # Example
-//!
-//! ```rust,ignore
-//! use d3rs::gpu2d::{Chart2DElement, Chart2DRenderer};
-//!
-//! // Create a chart element
-//! let element = Chart2DElement::new(|renderer, bounds| {
-//!     renderer.draw_line(0.0, 0.0, 100.0, 100.0, 2.0, [1.0, 0.0, 0.0, 1.0]);
-//!     renderer.draw_rect(Rect::new(10.0, 10.0, 50.0, 30.0), [0.0, 1.0, 0.0, 1.0], 4.0);
-//!     renderer.draw_circle(75.0, 75.0, 10.0, [0.0, 0.0, 1.0, 1.0]);
-//! });
-//! ```
+//! GPUI presentation uses the Vello custom-draw path. The former
+//! render/readback/re-upload compatibility element has been removed; this
+//! module now contains shared device, primitive, and shape data.
 
 mod device;
-mod element;
-mod renderer;
-mod shaders;
 mod shapes;
 
 pub mod primitives;
 pub mod text;
 
 pub use device::Gpu2DContext;
-/// Legacy GPU-to-CPU-readback chart element.
-///
-/// Prefer [`crate::vello2d::VelloChartElement`] or one of the Vello-backed
-/// shape renderers. This compatibility API re-uploads an image after each
-/// invalidated paint.
-#[deprecated(
-    since = "0.1.0",
-    note = "use vello2d::VelloChartElement or a *_vello shape renderer; Chart2DElement performs a GPU readback"
-)]
-pub use element::Chart2DElement;
-pub use renderer::Chart2DRenderer;
 
 // GPU-accelerated shape rendering functions
 pub use shapes::{

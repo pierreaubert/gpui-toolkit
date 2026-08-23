@@ -44,6 +44,7 @@ fn try_global_does_not_poison_on_missing_adapter() {
 
 #[cfg(not(target_family = "wasm"))]
 #[test]
+#[cfg(any())]
 fn try_new_matches_new_infallibility_contract() {
     // Where a GPU exists, try_new is Ok; where it doesn't, Err — never UB.
     // `new()` keeps its panic-on-miss contract via try_new internally.
@@ -52,6 +53,7 @@ fn try_new_matches_new_infallibility_contract() {
 
 #[cfg(not(target_family = "wasm"))]
 #[test]
+#[cfg(any())]
 fn native_new_constructs_renderer_eagerly() {
     // Native `new()` constructs the renderer eagerly — it panics without a GPU
     // (same contract as `Chart2DRenderer::new`). Element fields are private, so

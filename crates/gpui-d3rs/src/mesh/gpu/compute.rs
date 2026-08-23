@@ -11,7 +11,7 @@ use crate::mesh::{
     MeshValidationError, ScalarField, TriangleMesh, project_2d,
 };
 use std::cell::Cell;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, OnceLock};
 
 const COMPUTE_TIMESTAMP_QUERY_COUNT: u32 = 2;
 const COMPUTE_TIMESTAMP_QUERY_BYTES: u64 =
@@ -993,6 +993,20 @@ pub struct MeshCompute {
     pub reference_backend: bool,
     adapter: Option<AdapterCompute>,
     last_backend: Cell<MeshComputeBackend>,
+}
+
+/// Return the process-wide mesh compute service.
+///
+/// Adapter discovery, device creation, and pipeline compilation are expensive.
+/// Keeping their ownership in d3rs lets every chart host share the same service
+/// instead of independently constructing GPU state. The mutex also serializes
+/// the service's synchronous readbacks and last-backend diagnostic state.
+#[must_use]
+pub fn shared_mesh_compute() -> &'static Mutex<MeshCompute> {
+    static COMPUTE: OnceLock<Mutex<MeshCompute>> = OnceLock::new();
+    COMPUTE.get_or_init(|| {
+        Mutex::new(MeshCompute::try_new().expect("mesh compute service is available"))
+    })
 }
 
 impl MeshCompute {

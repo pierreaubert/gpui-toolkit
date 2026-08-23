@@ -86,7 +86,7 @@ use android_activity::{AndroidApp, MainEvent, PollEvent};
 use super::platform::{AndroidPlatform, SharedPlatform};
 
 use jni::JavaVM;
-use jni::objects::{JObject, JString, JValue};
+use jni::objects::{GlobalRef, JObject, JString, JValue};
 
 // ── JNI helpers (safe `jni` crate wrappers) ──────────────────────────────────
 
@@ -231,28 +231,38 @@ static ANDROID_APP: OnceLock<AndroidApp> = OnceLock::new();
 /// Initialised once during `android_main`; read-only thereafter.
 static PLATFORM: OnceLock<Arc<AndroidPlatform>> = OnceLock::new();
 
+/// Immutable virtual-keyboard character map shared by hardware key events.
+static KEY_CHARACTER_MAP: OnceLock<GlobalRef> = OnceLock::new();
+
 /// Get the unicode character produced by an Android key event via JNI.
 ///
-/// This creates a `android.view.KeyEvent` Java object and calls
-/// `getUnicodeChar(metaState)` on it.  Returns 0 on failure.
-pub fn unicode_char_for_key_event(key_code: i32, action: i32, meta_state: i32) -> u32 {
+/// Uses a retained `KeyCharacterMap`, avoiding a Java `KeyEvent` allocation on
+/// every transition. Returns 0 on failure.
+pub fn unicode_char_for_key_event(key_code: i32, _action: i32, meta_state: i32) -> u32 {
     with_env(|env| {
-        let key_event = match env.new_object(
-            jni::jni_str!("android/view/KeyEvent"),
-            jni::jni_sig!("(II)V"),
-            &[JValue::Int(action), JValue::Int(key_code)],
-        ) {
-            Ok(o) => o,
-            Err(_) => {
-                env.exception_clear();
-                return Ok(0);
-            }
+        if KEY_CHARACTER_MAP.get().is_none() {
+            let local = match env.call_static_method(
+                jni::jni_str!("android/view/KeyCharacterMap"),
+                jni::jni_str!("load"),
+                jni::jni_sig!("(I)Landroid/view/KeyCharacterMap;"),
+                &[JValue::Int(-1)],
+            ) {
+                Ok(value) => value.l().map_err(|error| error.to_string())?,
+                Err(error) => return Err(error.to_string()),
+            };
+            let global = env
+                .new_global_ref(local)
+                .map_err(|error| error.to_string())?;
+            let _ = KEY_CHARACTER_MAP.set(global);
+        }
+        let Some(key_character_map) = KEY_CHARACTER_MAP.get() else {
+            return Ok(0);
         };
         match env.call_method(
-            &key_event,
-            jni::jni_str!("getUnicodeChar"),
-            jni::jni_sig!("(I)I"),
-            &[JValue::Int(meta_state)],
+            key_character_map.as_obj(),
+            jni::jni_str!("get"),
+            jni::jni_sig!("(II)I"),
+            &[JValue::Int(key_code), JValue::Int(meta_state)],
         ) {
             Ok(v) => {
                 let c = v.i().unwrap_or(0);

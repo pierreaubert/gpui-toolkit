@@ -8,6 +8,7 @@ use gpui::{
 use itertools::Itertools;
 use parking_lot::RwLock;
 use std::borrow::Cow;
+use std::sync::Arc;
 use swash::scale::ScaleContext;
 mod cosmic_text_system_state;
 mod find;
@@ -156,8 +157,8 @@ impl PlatformTextSystem for CosmicTextSystem {
         self.0.write().rasterize_glyph(params, raster_bounds)
     }
 
-    fn layout_line(&self, text: &str, font_size: Pixels, runs: &[FontRun]) -> LineLayout {
-        self.0.write().layout_line(text, font_size, runs)
+    fn layout_line(&self, text: &str, font_size: Pixels, runs: &[FontRun]) -> Arc<LineLayout> {
+        Arc::new(self.0.write().layout_line(text, font_size, runs))
     }
 
     fn recommended_rendering_mode(

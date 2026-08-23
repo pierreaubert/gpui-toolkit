@@ -301,24 +301,35 @@ fn execute_on_main_thread(window: &web_sys::Window, item: MainThreadItem) {
 }
 
 fn schedule_runnable(window: &web_sys::Window, runnable: RunnableVariant, priority: Priority) {
-    let callback = Closure::once_into_js(move || {
-        runnable.run();
-    });
-    let callback: &js_sys::Function = callback.unchecked_ref();
-
     match priority {
         // High-priority UI work should run in the current browser turn rather
         // than waiting for timer clamping. Keep medium/low work on the timer
         // queue so a long chain of ordinary tasks still yields to input and
         // painting.
         Priority::RealtimeAudio | Priority::High => {
-            window.queue_microtask(callback);
+            let callback = Closure::once_into_js(move || runnable.run());
+            window.queue_microtask(callback.unchecked_ref());
         }
         _ => {
-            // TODO-Wasm: this ought to enqueue so we can dequeue with proper priority
-            window
-                .set_timeout_with_callback_and_timeout_and_arguments_0(callback, 0)
-                .ok();
+            // MessageChannel schedules a task without the 4ms clamp browsers
+            // apply to nested setTimeout(0) chains. It remains a task (rather
+            // than a microtask), so medium/low work still yields to rendering
+            // and input between dispatches.
+            let Ok(channel) = web_sys::MessageChannel::new() else {
+                let callback = Closure::once_into_js(move || runnable.run());
+                let callback: &js_sys::Function = callback.unchecked_ref();
+                window
+                    .set_timeout_with_callback_and_timeout_and_arguments_0(callback, 0)
+                    .ok();
+                return;
+            };
+            let callback = Closure::once_into_js(move |_event: web_sys::MessageEvent| {
+                runnable.run();
+            });
+            channel
+                .port1()
+                .set_onmessage(Some(callback.unchecked_ref()));
+            let _ = channel.port2().post_message(&wasm_bindgen::JsValue::NULL);
         }
     }
 }

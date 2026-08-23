@@ -832,7 +832,7 @@ pub trait PlatformTextSystem: Send + Sync {
         raster_bounds: Bounds<DevicePixels>,
     ) -> Result<(Size<DevicePixels>, Vec<u8>)>;
     /// Layout a line of text with the given font runs.
-    fn layout_line(&self, text: &str, font_size: Pixels, runs: &[FontRun]) -> LineLayout;
+    fn layout_line(&self, text: &str, font_size: Pixels, runs: &[FontRun]) -> Arc<LineLayout>;
     /// Returns the recommended text rendering mode for the given font and size.
     fn recommended_rendering_mode(&self, _font_id: FontId, _font_size: Pixels)
     -> TextRenderingMode;
@@ -916,7 +916,7 @@ impl PlatformTextSystem for NoopTextSystem {
         Ok((raster_bounds.size, Vec::new()))
     }
 
-    fn layout_line(&self, text: &str, font_size: Pixels, _runs: &[FontRun]) -> LineLayout {
+    fn layout_line(&self, text: &str, font_size: Pixels, _runs: &[FontRun]) -> Arc<LineLayout> {
         let mut position = px(0.);
         let metrics = self.font_metrics(FontId(0));
         let em_width = font_size
@@ -953,14 +953,14 @@ impl PlatformTextSystem for NoopTextSystem {
             position = px(0.);
         }
 
-        LineLayout {
+        Arc::new(LineLayout {
             font_size,
             width: position,
             ascent: font_size * (metrics.ascent / metrics.units_per_em as f32),
             descent: font_size * (metrics.descent / metrics.units_per_em as f32),
             runs,
             len: text.len(),
-        }
+        })
     }
 
     fn recommended_rendering_mode(

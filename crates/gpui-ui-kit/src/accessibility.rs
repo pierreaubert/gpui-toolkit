@@ -902,6 +902,9 @@ fn escape_markdown_cell(value: &str) -> String {
 pub struct AccessibilityTree {
     nodes: HashMap<ElementId, AccessibilityNode>,
     order: Vec<ElementId>,
+    last_seen: HashMap<ElementId, u64>,
+    generation: u64,
+    frame_active: bool,
 }
 
 impl Global for AccessibilityTree {}
@@ -911,16 +914,53 @@ impl AccessibilityTree {
         Self {
             nodes: HashMap::new(),
             order: Vec::new(),
+            last_seen: HashMap::new(),
+            generation: 0,
+            frame_active: false,
         }
     }
 
     pub fn clear(&mut self) {
         self.nodes.clear();
         self.order.clear();
+        self.last_seen.clear();
+        self.frame_active = false;
+    }
+
+    /// Begin collecting the accessibility nodes rendered in a UI frame.
+    ///
+    /// Pair this with [`Self::end_frame`]. Nodes not registered between the
+    /// two calls are removed, preventing hidden or unmounted components from
+    /// accumulating stale native accessibility entries.
+    pub fn begin_frame(&mut self) {
+        debug_assert!(!self.frame_active, "accessibility frame already active");
+        self.generation = self.generation.wrapping_add(1);
+        if self.generation == 0 {
+            self.last_seen.clear();
+            self.generation = 1;
+        }
+        self.frame_active = true;
+    }
+
+    /// Finish the current frame and discard nodes that were not rendered.
+    pub fn end_frame(&mut self) {
+        if !self.frame_active {
+            return;
+        }
+        let generation = self.generation;
+        self.nodes
+            .retain(|id, _| self.last_seen.get(id) == Some(&generation));
+        self.order.retain(|id| self.nodes.contains_key(id));
+        self.last_seen
+            .retain(|id, seen| *seen == generation && self.nodes.contains_key(id));
+        self.frame_active = false;
     }
 
     pub fn register(&mut self, node: AccessibilityNode) {
         let id = node.element_id.clone();
+        if self.frame_active {
+            self.last_seen.insert(id.clone(), self.generation);
+        }
         // Components register on every render. When a node's semantic data is
         // unchanged, preserve the existing allocation and map entry rather
         // than replacing it just because the UI frame was rebuilt.
@@ -1355,5 +1395,29 @@ mod tests {
         assert!(markdown.contains("component-tested"));
         assert!(markdown.contains("platform-qa-pending"));
         assert!(markdown.contains("VoiceOver"));
+    }
+
+    #[test]
+    fn frame_lifecycle_removes_unmounted_nodes_and_preserves_order() {
+        let node = |id: &'static str| AccessibilityNode {
+            element_id: ElementId::Name(id.into()),
+            label: id.into(),
+            props: AriaProps::with_role(AriaRole::Button),
+        };
+        let mut tree = AccessibilityTree::new();
+
+        tree.begin_frame();
+        tree.register(node("first"));
+        tree.register(node("second"));
+        tree.end_frame();
+        assert_eq!(tree.len(), 2);
+
+        tree.begin_frame();
+        tree.register(node("second"));
+        tree.end_frame();
+
+        assert_eq!(tree.len(), 1);
+        assert!(tree.get(&ElementId::Name("first".into())).is_none());
+        assert_eq!(tree.nodes_in_order()[0].label.as_ref(), "second");
     }
 }

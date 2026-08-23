@@ -2,6 +2,7 @@ use std::{
     borrow::Cow,
     ffi::{c_uint, c_void},
     mem::ManuallyDrop,
+    sync::Arc,
 };
 
 use ::util::{ResultExt, maybe};
@@ -276,15 +277,15 @@ impl PlatformTextSystem for DirectWriteTextSystem {
             .rasterize_glyph(&self.components, params, raster_bounds)
     }
 
-    fn layout_line(&self, text: &str, font_size: Pixels, runs: &[FontRun]) -> LineLayout {
-        self.state
+    fn layout_line(&self, text: &str, font_size: Pixels, runs: &[FontRun]) -> Arc<LineLayout> {
+        Arc::new(self.state
             .write()
             .layout_line(&self.components, text, font_size, runs)
             .log_err()
             .unwrap_or(LineLayout {
                 font_size,
                 ..Default::default()
-            })
+            }))
     }
 
     fn recommended_rendering_mode(

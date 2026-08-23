@@ -287,8 +287,9 @@ impl ThemeEditor {
         self.refresh_export_cache();
         // Update showcase with a cheap Arc clone
         let new_theme = self.theme.clone();
-        self.showcase.update(cx, |showcase, _| {
+        self.showcase.update(cx, |showcase, cx| {
             showcase.set_theme(new_theme);
+            cx.notify();
         });
         cx.notify();
     }
@@ -306,8 +307,9 @@ impl ThemeEditor {
         self.export_cache_dirty = true;
         // Export content depends on the theme, so refresh it
         self.refresh_export_cache();
-        self.showcase.update(cx, |showcase, _| {
+        self.showcase.update(cx, |showcase, cx| {
             showcase.set_theme(self.theme.clone());
+            cx.notify();
         });
         cx.notify();
     }

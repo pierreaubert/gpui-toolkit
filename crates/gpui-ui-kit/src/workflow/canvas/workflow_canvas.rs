@@ -28,6 +28,7 @@ use gpui::{
 };
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -35,6 +36,15 @@ thread_local! {
     /// Reusable obstacle buffer for connection routing. Retains capacity across
     /// frames so we avoid allocating a fresh `Vec` for every connection.
     static CONNECTION_OBSTACLES: RefCell<Vec<ObstacleRect>> = const { RefCell::new(Vec::new()) };
+}
+
+type ConnectionRenderData = (Position, Position, bool, LinkType, NodeId, NodeId);
+
+#[derive(Clone)]
+struct WorkflowRenderSnapshot {
+    key: u64,
+    connections: Arc<[ConnectionRenderData]>,
+    node_screen_rects: Arc<[(NodeId, ObstacleRect)]>,
 }
 
 /// Workflow canvas component
@@ -63,6 +73,9 @@ pub struct WorkflowCanvas {
     pub(super) on_graph_change: Option<GraphChangeCallback>,
     /// Callback for node-context-menu item selection
     pub(super) on_node_menu_select: Option<SharedNodeMenuSelectCallback>,
+    /// Derived screen-space geometry retained until graph, selection, or
+    /// viewport inputs actually change.
+    render_snapshot: Option<WorkflowRenderSnapshot>,
 }
 
 impl WorkflowCanvas {
@@ -80,6 +93,7 @@ impl WorkflowCanvas {
             on_node_double_click: None,
             on_graph_change: None,
             on_node_menu_select: None,
+            render_snapshot: None,
         }
     }
 
@@ -98,6 +112,7 @@ impl WorkflowCanvas {
             on_node_double_click: None,
             on_graph_change: None,
             on_node_menu_select: None,
+            render_snapshot: None,
         }
     }
 
@@ -929,6 +944,38 @@ impl WorkflowCanvas {
     }
 }
 
+impl WorkflowCanvas {
+    fn render_snapshot_key(&self, viewport: ViewportState) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        viewport.offset.x.to_bits().hash(&mut hasher);
+        viewport.offset.y.to_bits().hash(&mut hasher);
+        viewport.zoom.to_bits().hash(&mut hasher);
+        self.state.graph.nodes.len().hash(&mut hasher);
+        for node in self.state.graph.nodes.values() {
+            node.id.hash(&mut hasher);
+            node.position.x.to_bits().hash(&mut hasher);
+            node.position.y.to_bits().hash(&mut hasher);
+            node.width.to_bits().hash(&mut hasher);
+            node.height.to_bits().hash(&mut hasher);
+            node.input_count.hash(&mut hasher);
+            node.output_count.hash(&mut hasher);
+        }
+        self.state.graph.connections.len().hash(&mut hasher);
+        for connection in &self.state.graph.connections {
+            connection.id.hash(&mut hasher);
+            connection.from_node.hash(&mut hasher);
+            connection.from_port.hash(&mut hasher);
+            connection.to_node.hash(&mut hasher);
+            connection.to_port.hash(&mut hasher);
+            (connection.link_type as u8).hash(&mut hasher);
+        }
+        for id in &self.state.selection.selected_connections {
+            id.hash(&mut hasher);
+        }
+        hasher.finish()
+    }
+}
+
 /// GPUI View implementation
 impl Render for WorkflowCanvas {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -940,8 +987,14 @@ impl Render for WorkflowCanvas {
         let viewport = self.state.viewport;
         let scaled_theme = theme.scale(viewport.zoom);
 
-        // Build connection render data with screen-space port positions
-        let connections: Arc<[_]> = Arc::from(
+        let snapshot_key = self.render_snapshot_key(viewport);
+        if self
+            .render_snapshot
+            .as_ref()
+            .is_none_or(|snapshot| snapshot.key != snapshot_key)
+        {
+            // Build connection render data with screen-space port positions
+            let connections: Arc<[ConnectionRenderData]> = Arc::from(
             self.state
                 .graph
                 .connections
@@ -965,10 +1018,10 @@ impl Render for WorkflowCanvas {
                     ))
                 })
                 .collect::<Vec<_>>(),
-        );
+            );
 
-        // Collect node bounding rects in screen coordinates for obstacle avoidance
-        let node_screen_rects: Arc<[_]> = Arc::from(
+            // Collect node bounding rects in screen coordinates for obstacle avoidance
+            let node_screen_rects: Arc<[(NodeId, ObstacleRect)]> = Arc::from(
             self.state
                 .graph
                 .nodes
@@ -986,7 +1039,19 @@ impl Render for WorkflowCanvas {
                     )
                 })
                 .collect::<Vec<_>>(),
-        );
+            );
+            self.render_snapshot = Some(WorkflowRenderSnapshot {
+                key: snapshot_key,
+                connections,
+                node_screen_rects,
+            });
+        }
+        let snapshot = self
+            .render_snapshot
+            .as_ref()
+            .expect("workflow render snapshot was initialized");
+        let connections = snapshot.connections.clone();
+        let node_screen_rects = snapshot.node_screen_rects.clone();
 
         let connection_drag = self.state.connection_drag.clone();
         let bulk_connect_drag = self.state.bulk_connect_drag.clone();

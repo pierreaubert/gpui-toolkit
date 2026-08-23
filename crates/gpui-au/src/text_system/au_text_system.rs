@@ -131,7 +131,12 @@ impl PlatformTextSystem for AuTextSystem {
         self.0.read().rasterize_glyph(glyph_id, raster_bounds)
     }
 
-    fn layout_line(&self, text: &str, font_size: Pixels, font_runs: &[FontRun]) -> LineLayout {
+    fn layout_line(
+        &self,
+        text: &str,
+        font_size: Pixels,
+        font_runs: &[FontRun],
+    ) -> Arc<LineLayout> {
         // Keep an upgradable read lock across the cache lookup. A miss can then
         // promote the same lock instead of dropping a read lock and queuing for
         // an exclusive lock while another caller fills the entry.

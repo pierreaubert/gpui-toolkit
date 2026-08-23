@@ -11,6 +11,64 @@ use std::collections::HashMap;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct NodeIndex(pub usize);
 
+/// Allocation-free map-like view over a solved tree's retained id index.
+#[derive(Clone, Copy)]
+pub struct SolvedTreeMap<'tree, 'a> {
+    tree: &'tree SolvedTree<'a>,
+}
+
+pub struct SolvedTreeMapIter<'tree, 'a> {
+    index: std::collections::hash_map::Iter<'tree, &'a str, NodeIndex>,
+    nodes: &'tree [SolvedNodeData<'a>],
+}
+
+impl<'tree, 'a> Iterator for SolvedTreeMapIter<'tree, 'a> {
+    type Item = (&'a str, &'tree SolvedNodeData<'a>);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.index
+            .next()
+            .map(|(&id, index)| (id, &self.nodes[index.0]))
+    }
+}
+
+impl<'view, 'tree, 'a> IntoIterator for &'view SolvedTreeMap<'tree, 'a> {
+    type Item = (&'a str, &'tree SolvedNodeData<'a>);
+    type IntoIter = SolvedTreeMapIter<'tree, 'a>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        SolvedTreeMapIter {
+            index: self.tree.index.iter(),
+            nodes: &self.tree.nodes,
+        }
+    }
+}
+
+impl<'tree, 'a> SolvedTreeMap<'tree, 'a> {
+    #[must_use]
+    pub fn get(&self, id: &str) -> Option<&'tree SolvedNodeData<'a>> {
+        self.tree
+            .index
+            .get(id)
+            .map(|index| &self.tree.nodes[index.0])
+    }
+
+    #[must_use]
+    pub fn contains_key(&self, id: &str) -> bool {
+        self.tree.index.contains_key(id)
+    }
+
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.tree.index.len()
+    }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.tree.index.is_empty()
+    }
+}
+
 /// Stable identity and display label for a collapsed layout slot.
 ///
 /// Both strings borrow from the source [`LayoutNode`], so iterating collapsed
@@ -234,18 +292,9 @@ impl<'a> SolvedTree<'a> {
         })
     }
 
-    /// Build an owned flat id → node map.
-    ///
-    /// This allocates on every call for API compatibility. Prefer
-    /// [`Self::find`] for O(1) lookups or [`Self::iter_by_id`] for an
-    /// allocation-free complete pass.
-    pub fn as_map(&self) -> HashMap<&str, &SolvedNodeData<'a>> {
-        let index = &self.index;
-
-        index
-            .iter()
-            .map(|(&id, &idx)| (id, &self.nodes[idx.0]))
-            .collect()
+    /// Borrow the retained id index through an allocation-free map-like view.
+    pub fn as_map(&self) -> SolvedTreeMap<'_, 'a> {
+        SolvedTreeMap { tree: self }
     }
 
     /// Number of entries in the retained O(1) lookup index.

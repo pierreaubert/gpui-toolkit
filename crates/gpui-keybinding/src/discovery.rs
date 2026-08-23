@@ -2,8 +2,7 @@ use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
+use std::hash::Hash;
 use std::rc::Rc;
 
 use crate::{
@@ -139,16 +138,18 @@ fn documented_bindings_key(bindings: &[DocumentedKeybinding]) -> DocumentedBindi
     }
 }
 
-fn hash_palette_entries(entries: &[CommandPaletteEntry]) -> u64 {
-    let mut hasher = DefaultHasher::new();
-    for entry in entries {
-        entry.hash(&mut hasher);
-    }
-    hasher.finish()
+fn palette_entries_key(entries: &[CommandPaletteEntry]) -> (usize, usize) {
+    (entries.as_ptr() as usize, entries.len())
 }
 
 type PaletteQueryCache = HashMap<String, Rc<[CommandPaletteEntry]>>;
-type PaletteSearchCache = HashMap<u64, PaletteQueryCache>;
+struct PaletteCacheEntry {
+    // Retaining the source allocation makes the pointer identity key immune to
+    // allocator address reuse while this cache entry exists.
+    _source: Rc<[CommandPaletteEntry]>,
+    queries: PaletteQueryCache,
+}
+type PaletteSearchCache = HashMap<(usize, usize), PaletteCacheEntry>;
 type HintPrefixCache = HashMap<String, Rc<[KeybindingHint]>>;
 type KeybindingHintsCache = HashMap<DocumentedBindingsKey, HintPrefixCache>;
 
@@ -203,19 +204,21 @@ pub fn search_command_palette_cached(
     query: &str,
 ) -> Rc<[CommandPaletteEntry]> {
     let normalized = normalized_ascii_lowercase(query);
-    let entries_hash = hash_palette_entries(&entries);
+    const MAX_PALETTE_ENTRY_SETS: usize = 16;
+    const MAX_QUERIES_PER_SET: usize = 64;
+    let entries_key = palette_entries_key(&entries);
 
     SEARCH_CACHE.with(|cache| {
         if let Some(cached) = cache
             .borrow()
-            .get(&entries_hash)
-            .and_then(|queries| queries.get(normalized.as_ref()))
+            .get(&entries_key)
+            .and_then(|entry| entry.queries.get(normalized.as_ref()))
         {
             return Rc::clone(cached);
         }
 
         let result: Rc<[CommandPaletteEntry]> = if normalized.is_empty() {
-            entries
+            Rc::clone(&entries)
         } else {
             let mut matches: Vec<_> = entries
                 .iter()
@@ -240,10 +243,21 @@ pub fn search_command_palette_cached(
                 .into()
         };
 
-        cache
-            .borrow_mut()
-            .entry(entries_hash)
-            .or_default()
+        let mut cache = cache.borrow_mut();
+        if cache.len() >= MAX_PALETTE_ENTRY_SETS && !cache.contains_key(&entries_key) {
+            cache.clear();
+        }
+        let entry = cache.entry(entries_key).or_insert_with(|| PaletteCacheEntry {
+            _source: Rc::clone(&entries),
+            queries: HashMap::new(),
+        });
+        if entry.queries.len() >= MAX_QUERIES_PER_SET
+            && !entry.queries.contains_key(normalized.as_ref())
+        {
+            entry.queries.clear();
+        }
+        entry
+            .queries
             .insert(normalized.into_owned(), Rc::clone(&result));
         result
     })
@@ -271,6 +285,7 @@ pub fn keybinding_hints_cached(
     prefix: &str,
 ) -> Rc<[KeybindingHint]> {
     const MAX_HINT_BINDING_SETS: usize = 32;
+    const MAX_HINT_PREFIXES_PER_SET: usize = 64;
     let prefix_normalized = normalized_ascii_lowercase(prefix);
     let bindings_hash = documented_bindings_key(bindings);
 
@@ -289,10 +304,13 @@ pub fn keybinding_hints_cached(
         if cache.len() >= MAX_HINT_BINDING_SETS && !cache.contains_key(&bindings_hash) {
             cache.clear();
         }
-        cache
-            .entry(bindings_hash)
-            .or_default()
-            .insert(prefix_normalized.into_owned(), Rc::clone(&result));
+        let prefixes = cache.entry(bindings_hash).or_default();
+        if prefixes.len() >= MAX_HINT_PREFIXES_PER_SET
+            && !prefixes.contains_key(prefix_normalized.as_ref())
+        {
+            prefixes.clear();
+        }
+        prefixes.insert(prefix_normalized.into_owned(), Rc::clone(&result));
         result
     })
 }

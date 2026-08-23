@@ -399,7 +399,10 @@ fn key_event(key_code: u16, characters: *const c_char, modifier_flags: u32) -> g
                 .filter(|value| !value.is_empty())
                 .map(str::to_owned)
         })
-        .unwrap_or_else(|| format!("keycode-{key_code}"));
+        // Unknown hardware codes are not useful binding identifiers. Keep a
+        // stable fallback and avoid formatting a fresh diagnostic string on
+        // every repeat event.
+        .unwrap_or_else(|| "unknown".to_owned());
     let key_char = characters.filter(|value| !value.is_empty() && key.chars().count() == 1);
     gpui::Keystroke {
         modifiers: modifiers_from_ns_event(modifier_flags),

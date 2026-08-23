@@ -131,7 +131,12 @@ impl PlatformTextSystem for IosTextSystem {
         self.0.read().rasterize_glyph(glyph_id, raster_bounds)
     }
 
-    fn layout_line(&self, text: &str, font_size: Pixels, font_runs: &[FontRun]) -> LineLayout {
+    fn layout_line(
+        &self,
+        text: &str,
+        font_size: Pixels,
+        font_runs: &[FontRun],
+    ) -> Arc<LineLayout> {
         if let Some(layout) = self.0.read().cached_layout_line(text, font_size, font_runs) {
             return layout;
         }

@@ -89,6 +89,8 @@ pub(crate) struct IosWindow {
     /// Note: pub(super) to allow ffi.rs to access this for the display link callback
     pub(in super::super) request_frame_callback:
         RefCell<Option<Box<dyn FnMut(RequestFrameOptions)>>>,
+    /// Coalesces touch/scroll forced renders until the next display-link tick.
+    pub(in super::super) forced_frame_pending: Cell<bool>,
     /// Callback for input events
     pub(super) input_callback:
         RefCell<Option<Box<dyn FnMut(PlatformInput) -> DispatchEventResult>>>,
@@ -325,7 +327,8 @@ impl IosWindow {
                 bounds: Cell::new(initial_bounds),
                 scale_factor: Cell::new(initial_metrics.scale_factor),
                 input_handler: RefCell::new(None),
-                request_frame_callback: RefCell::new(None),
+            request_frame_callback: RefCell::new(None),
+            forced_frame_pending: Cell::new(false),
                 input_callback: RefCell::new(None),
                 active_status_callback: RefCell::new(None),
                 hover_status_callback: RefCell::new(None),
@@ -585,11 +588,16 @@ impl IosWindow {
     }
 
     fn request_forced_frame(&self) {
+        if self.forced_frame_pending.replace(true) {
+            return;
+        }
         if let Some(callback) = self.request_frame_callback.borrow_mut().as_mut() {
             callback(RequestFrameOptions {
                 force_render: true,
                 ..Default::default()
             });
+        } else {
+            self.forced_frame_pending.set(false);
         }
     }
 

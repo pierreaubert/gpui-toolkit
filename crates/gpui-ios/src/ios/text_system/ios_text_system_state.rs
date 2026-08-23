@@ -478,7 +478,7 @@ impl IosTextSystemState {
         text: &str,
         font_size: Pixels,
         font_runs: &[FontRun],
-    ) -> Option<LineLayout> {
+    ) -> Option<Arc<LineLayout>> {
         let key_ref = LayoutCacheKeyRef {
             text,
             font_size,
@@ -486,7 +486,7 @@ impl IosTextSystemState {
         };
         self.layout_cache
             .get(&key_ref as &dyn AsLayoutCacheKeyRef)
-            .map(|layout| Self::clone_layout(layout))
+            .cloned()
     }
 
     pub(super) fn layout_line(
@@ -494,14 +494,14 @@ impl IosTextSystemState {
         text: &str,
         font_size: Pixels,
         font_runs: &[FontRun],
-    ) -> LineLayout {
+    ) -> Arc<LineLayout> {
         let key_ref = LayoutCacheKeyRef {
             text,
             font_size,
             runs: font_runs,
         };
         if let Some(cached) = self.layout_cache.get(&key_ref as &dyn AsLayoutCacheKeyRef) {
-            return Self::clone_layout(cached);
+            return Arc::clone(cached);
         }
 
         let key = LayoutCacheKey {
@@ -509,24 +509,12 @@ impl IosTextSystemState {
             font_size,
             runs: font_runs.iter().copied().collect(),
         };
-        let result = self.layout_line_uncached(text, font_size, font_runs);
+        let result = Arc::new(self.layout_line_uncached(text, font_size, font_runs));
         if self.layout_cache.len() >= 1_024 {
             self.layout_cache.clear();
         }
-        self.layout_cache
-            .insert(key, Arc::new(Self::clone_layout(&result)));
+        self.layout_cache.insert(key, Arc::clone(&result));
         result
-    }
-
-    fn clone_layout(layout: &LineLayout) -> LineLayout {
-        LineLayout {
-            font_size: layout.font_size,
-            width: layout.width,
-            ascent: layout.ascent,
-            descent: layout.descent,
-            runs: layout.runs.clone(),
-            len: layout.len,
-        }
     }
 
     fn layout_line_uncached(

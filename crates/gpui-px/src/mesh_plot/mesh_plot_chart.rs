@@ -11,7 +11,7 @@ use d3rs::grid::{GridConfig, render_grid};
 #[cfg(feature = "gpu-3d")]
 use d3rs::mesh::MeshBounds;
 #[cfg(feature = "gpu-3d")]
-use d3rs::mesh::gpu::compute::MeshCompute;
+use d3rs::mesh::gpu::compute::shared_mesh_compute;
 use d3rs::mesh::{
     ContourBand, CoordinateAxis, IsolineSegment, MarchingTriangles, MeshTopology,
     MeshValidationError, ScalarAssociation, ScalarField, TriangleMesh, project_2d,
@@ -44,8 +44,6 @@ use std::fs;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
-#[cfg(feature = "gpu-3d")]
-use std::sync::{Mutex, OnceLock};
 use std::time::Instant;
 
 type MeshPlotExportCallback = Rc<dyn Fn(Result<String, ChartError>)>;
@@ -3619,17 +3617,6 @@ fn contour_geometry_with_compute(
         Vec::new()
     };
     Ok((bands, lines))
-}
-
-/// Process-wide mesh-compute service used by retained contour preparation.
-///
-/// `MeshCompute` records the last backend in interior state, hence the mutex;
-/// it also ensures concurrent background contour jobs do not issue competing
-/// synchronous readbacks to the same device.
-#[cfg(feature = "gpu-3d")]
-fn shared_mesh_compute() -> &'static Mutex<MeshCompute> {
-    static COMPUTE: OnceLock<Mutex<MeshCompute>> = OnceLock::new();
-    COMPUTE.get_or_init(|| Mutex::new(MeshCompute::try_new().expect("mesh compute is available")))
 }
 
 /// Above this size, marching-triangle bands and isolines are prepared on the

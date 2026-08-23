@@ -3,6 +3,7 @@ use crate::meshplot::MeshPlotSpec;
 use crate::scene3d::{LinesSpec, MeshSpec, SceneFingerprints, SceneSpec, SurfaceSpec};
 use std::collections::HashMap;
 use std::hash::Hasher;
+use std::io;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct DirtyResources {
@@ -221,43 +222,52 @@ fn spec_id(spec: &MeshPlotSpec) -> String {
 
 fn mesh_plot_fingerprints(spec: &MeshPlotSpec) -> MeshPlotFingerprints {
     MeshPlotFingerprints {
-        geometry: json_fingerprint(&serde_json::json!({
-            "geometry": spec.geometry,
-            "view": spec.view,
-            "revolve": spec.revolve,
-        })),
+        geometry: structural_fingerprint(&(&spec.geometry, &spec.view, &spec.revolve)),
         // The missing-value policy changes how the native field is validated
         // and masked, so it belongs to the field dirty domain whenever a
         // field is present. Keep a field-less plot at the zero fingerprint so
         // changing an unused policy does not trigger a needless field write.
         field: spec.field.as_ref().map_or(0, |field| {
-            json_fingerprint(&serde_json::json!({
-                "field": field,
-                "missing_value_policy": spec.missing_value_policy,
-            }))
+            structural_fingerprint(&(field, &spec.missing_value_policy))
         }),
-        style: json_fingerprint(&serde_json::json!({
-            "mode": spec.mode,
-            "color_scale": spec.color_scale,
-            "color_range": spec.color_range,
-            "wireframe": spec.wireframe,
-            "title": spec.title,
-            "width": spec.width,
-            "height": spec.height,
-            "selection": spec.selection,
-            "contour_levels": spec.contour_levels,
-            "equal_aspect": spec.equal_aspect,
-            "axes": spec.axes,
-            "interactions": spec.interactions,
-        })),
-        camera: json_fingerprint(&serde_json::json!({
-            "view": spec.view,
-            "camera": spec.camera,
-            "viewport": spec.viewport,
-        })),
+        style: structural_fingerprint(&(
+            &spec.mode,
+            &spec.color_scale,
+            &spec.color_range,
+            &spec.wireframe,
+            &spec.title,
+            &spec.width,
+            &spec.height,
+            &spec.selection,
+            &spec.contour_levels,
+            &spec.equal_aspect,
+            &spec.axes,
+            &spec.interactions,
+        )),
+        camera: structural_fingerprint(&(&spec.view, &spec.camera, &spec.viewport)),
     }
 }
 
+struct FingerprintWriter(std::collections::hash_map::DefaultHasher);
+
+impl io::Write for FingerprintWriter {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        self.0.write(bytes);
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+fn structural_fingerprint(value: &impl serde::Serialize) -> u64 {
+    let mut writer = FingerprintWriter(std::collections::hash_map::DefaultHasher::new());
+    serde_json::to_writer(&mut writer, value).expect("fingerprint serialization cannot fail");
+    writer.0.finish()
+}
+
+#[cfg(test)]
 fn json_fingerprint(value: &serde_json::Value) -> u64 {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     hash_json_value(value, &mut hasher);
@@ -267,6 +277,7 @@ fn json_fingerprint(value: &serde_json::Value) -> u64 {
 /// Allocation-free structural JSON fingerprint used for dirty domains that
 /// may carry dense inline mesh geometry. Keep object keys sorted so protocol
 /// payload insertion order does not affect cache invalidation.
+#[cfg(test)]
 fn hash_json_value(value: &serde_json::Value, hasher: &mut impl std::hash::Hasher) {
     use std::hash::Hash;
 
@@ -294,12 +305,21 @@ fn hash_json_value(value: &serde_json::Value, hasher: &mut impl std::hash::Hashe
             }
         }
         serde_json::Value::Object(values) => {
-            let mut keys = values.keys().collect::<Vec<_>>();
-            keys.sort_unstable();
-            for key in keys {
-                key.hash(hasher);
-                hash_json_value(&values[key], hasher);
+            // Combine independently hashed entries so insertion order does
+            // not affect the result, without allocating and sorting keys.
+            let mut xor = 0_u64;
+            let mut sum = 0_u64;
+            for (key, value) in values {
+                let mut entry = std::collections::hash_map::DefaultHasher::new();
+                key.hash(&mut entry);
+                hash_json_value(value, &mut entry);
+                let fingerprint = entry.finish();
+                xor ^= fingerprint.rotate_left((fingerprint & 63) as u32);
+                sum = sum.wrapping_add(fingerprint);
             }
+            values.len().hash(hasher);
+            xor.hash(hasher);
+            sum.hash(hasher);
         }
     }
 }

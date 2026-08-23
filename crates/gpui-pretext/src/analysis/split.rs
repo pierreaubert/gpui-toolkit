@@ -90,11 +90,11 @@ pub(super) fn split_segment_by_break_kind<'a>(
     pieces
 }
 
-pub(super) fn split_hyphenated_numeric_runs(seg: MergedSegmentation) -> MergedSegmentation {
-    let mut texts = Vec::new();
-    let mut is_word_like = Vec::new();
-    let mut kinds = Vec::new();
-    let mut starts = Vec::new();
+pub(super) fn split_hyphenated_numeric_runs(mut seg: MergedSegmentation) -> MergedSegmentation {
+    let mut texts = Vec::with_capacity(seg.len());
+    let mut is_word_like = Vec::with_capacity(seg.len());
+    let mut kinds = Vec::with_capacity(seg.len());
+    let mut starts = Vec::with_capacity(seg.len());
 
     for i in 0..seg.len() {
         let text = &seg.texts[i];
@@ -126,7 +126,7 @@ pub(super) fn split_hyphenated_numeric_runs(seg: MergedSegmentation) -> MergedSe
             }
         }
 
-        texts.push(text.clone());
+        texts.push(std::mem::take(&mut seg.texts[i]));
         is_word_like.push(seg.is_word_like[i]);
         kinds.push(seg.kinds[i]);
         starts.push(seg.starts[i]);

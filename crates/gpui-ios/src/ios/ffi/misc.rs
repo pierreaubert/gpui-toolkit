@@ -18,11 +18,12 @@ unsafe extern "C" {
 pub(super) fn request_frame_for_window(window: &super::super::window::IosWindow) {
     window.pump_momentum();
     let text_dirty = crate::TEXT_INPUT_DIRTY.swap(false, Ordering::AcqRel);
+    let forced_frame = window.forced_frame_pending.replace(false);
     let callback = window.request_frame_callback.borrow_mut().take();
     if let Some(mut cb) = callback {
         let result = panic::catch_unwind(AssertUnwindSafe(|| {
             cb(RequestFrameOptions {
-                force_render: text_dirty,
+                force_render: text_dirty || forced_frame,
                 ..Default::default()
             });
         }));

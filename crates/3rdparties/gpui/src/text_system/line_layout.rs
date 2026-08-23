@@ -13,6 +13,7 @@ use super::LineWrapper;
 
 /// A laid out and styled line of text
 #[derive(Default, Debug)]
+#[derive(Clone)]
 pub struct LineLayout {
     /// The font size for this line
     pub font_size: Pixels,
@@ -610,7 +611,7 @@ impl LineLayoutCache {
                 .layout_line(&text, font_size, runs);
 
             if let Some(force_width) = force_width {
-                apply_force_width_to_layout(&mut layout, force_width);
+                apply_force_width_to_layout(Arc::make_mut(&mut layout), force_width);
             }
 
             let key = Arc::new(CacheKey {
@@ -620,7 +621,6 @@ impl LineLayoutCache {
                 wrap_width: None,
                 force_width,
             });
-            let layout = Arc::new(layout);
             current_frame.lines.insert(key.clone(), layout.clone());
             current_frame.used_lines.push(key);
             layout
@@ -759,7 +759,7 @@ impl LineLayoutCache {
             .layout_line(&text, font_size, runs);
 
         if let Some(force_width) = force_width {
-            apply_force_width_to_layout(&mut layout, force_width);
+            apply_force_width_to_layout(Arc::make_mut(&mut layout), force_width);
         }
 
         let key = Arc::new(HashedCacheKey {
@@ -770,7 +770,6 @@ impl LineLayoutCache {
             wrap_width: None,
             force_width,
         });
-        let layout = Arc::new(layout);
         current_frame
             .lines_by_hash
             .insert(key.clone(), layout.clone());
