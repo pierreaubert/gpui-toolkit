@@ -24,7 +24,7 @@ urlencoding = []
 [dependencies]
 unicode-segmentation = { workspace = true }
 unicode-bidi = "0.3"
-hashbrown = "0.16"
+hashbrown = "0.17"
 
 [dev-dependencies]
 criterion = { workspace = true }
