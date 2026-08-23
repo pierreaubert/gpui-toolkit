@@ -163,7 +163,7 @@ impl CosmicTextSystemState {
         match image.content {
             swash::scale::image::Content::Color | swash::scale::image::Content::SubpixelMask => {
                 // Convert from RGBA to BGRA.
-                for pixel in image.data.chunks_exact_mut(4) {
+                for pixel in image.data.as_chunks_mut::<4>().0 {
                     pixel.swap(0, 2);
                 }
                 Ok((bitmap_size, image.data))

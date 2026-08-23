@@ -366,12 +366,10 @@ fn decode_u32s(resource: &RetainedMeshResource, name: &str) -> Result<Vec<u32>, 
     }
     resource
         .payload
-        .chunks_exact(4)
-        .map(|chunk| {
-            Ok(u32::from_le_bytes(
-                chunk.try_into().map_err(|_| "invalid u32 bytes")?,
-            ))
-        })
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|chunk| Ok(u32::from_le_bytes(*chunk)))
         .collect()
 }
 
@@ -617,7 +615,9 @@ impl MeshFrameStore {
         }
         let values = decode_floats(resource, "geometry.positions", false)?;
         let positions: Arc<[[f64; 3]]> = values
-            .chunks_exact(3)
+            .as_chunks::<3>()
+            .0
+            .iter()
             .map(|values| [values[0], values[1], values[2]])
             .collect::<Vec<_>>()
             .into();
@@ -645,7 +645,9 @@ impl MeshFrameStore {
         }
         let values = decode_u32s(resource, "geometry.triangles")?;
         let triangles: Arc<[[u32; 3]]> = values
-            .chunks_exact(3)
+            .as_chunks::<3>()
+            .0
+            .iter()
             .map(|values| [values[0], values[1], values[2]])
             .collect::<Vec<_>>()
             .into();
@@ -682,10 +684,10 @@ impl MeshFrameStore {
         value_count: usize,
     ) -> Result<Arc<[bool]>, String> {
         let key = (resource_id.to_owned(), generation);
-        if let Some(mask) = self.decoded.borrow().masks.get(&key) {
-            if mask.len() == value_count {
-                return Ok(mask.clone());
-            }
+        if let Some(mask) = self.decoded.borrow().masks.get(&key)
+            && mask.len() == value_count
+        {
+            return Ok(mask.clone());
         }
         let resource = self.decode_resource(&key, MeshFrameKind::Mask, "field.valid")?;
         if resource.shape.len() != 1 || resource.shape[0] as usize != value_count {
@@ -706,10 +708,10 @@ impl MeshFrameStore {
         name: &str,
     ) -> Result<Arc<[u64]>, String> {
         let key = (resource_id.to_owned(), generation);
-        if let Some(ids) = self.decoded.borrow().ids.get(&key) {
-            if ids.len() == expected {
-                return Ok(ids.clone());
-            }
+        if let Some(ids) = self.decoded.borrow().ids.get(&key)
+            && ids.len() == expected
+        {
+            return Ok(ids.clone());
         }
         let resource = self.decode_resource(&key, MeshFrameKind::Ids, name)?;
         if resource.shape.len() != 1 || resource.shape[0] as usize != expected {

@@ -195,6 +195,7 @@ impl PlatformTextSystem for MacTextSystem {
         self.0.read().raster_bounds(params)
     }
 
+    #[allow(clippy::needless_late_init)] // Emoji and grayscale glyph paths initialize matching buffer/context pairs.
     fn rasterize_glyph(
         &self,
         glyph_id: &RenderGlyphParams,
@@ -409,6 +410,7 @@ impl MacTextSystemState {
         Ok(bounds.dilate(DevicePixels(1)))
     }
 
+    #[allow(clippy::needless_late_init)] // Emoji and grayscale paths initialize matching buffer/context pairs.
     fn rasterize_glyph(
         &self,
         params: &RenderGlyphParams,
@@ -496,7 +498,7 @@ impl MacTextSystemState {
 
             if params.is_emoji {
                 // Convert from RGBA with premultiplied alpha to BGRA with straight alpha.
-                for pixel in bytes.chunks_exact_mut(4) {
+                for pixel in bytes.as_chunks_mut::<4>().0 {
                     swap_rgba_pa_to_bgra(pixel);
                 }
             }

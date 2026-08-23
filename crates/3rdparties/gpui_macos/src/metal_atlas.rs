@@ -136,19 +136,17 @@ impl MetalAtlasState {
         let texture_descriptor = metal::TextureDescriptor::new();
         texture_descriptor.set_width(size.width.into());
         texture_descriptor.set_height(size.height.into());
-        let pixel_format;
-        let usage;
-        match kind {
-            AtlasTextureKind::Monochrome => {
-                pixel_format = metal::MTLPixelFormat::A8Unorm;
-                usage = metal::MTLTextureUsage::ShaderRead;
-            }
-            AtlasTextureKind::Polychrome => {
-                pixel_format = metal::MTLPixelFormat::BGRA8Unorm;
-                usage = metal::MTLTextureUsage::ShaderRead;
-            }
+        let (pixel_format, usage) = match kind {
+            AtlasTextureKind::Monochrome => (
+                metal::MTLPixelFormat::A8Unorm,
+                metal::MTLTextureUsage::ShaderRead,
+            ),
+            AtlasTextureKind::Polychrome => (
+                metal::MTLPixelFormat::BGRA8Unorm,
+                metal::MTLTextureUsage::ShaderRead,
+            ),
             AtlasTextureKind::Subpixel => unreachable!(),
-        }
+        };
         texture_descriptor.set_pixel_format(pixel_format);
         texture_descriptor.set_usage(usage);
         // Shared memory mode can be used only on Apple GPU families

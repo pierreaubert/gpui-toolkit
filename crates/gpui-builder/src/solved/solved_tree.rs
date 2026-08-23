@@ -32,7 +32,7 @@ impl<'tree, 'a> Iterator for SolvedTreeMapIter<'tree, 'a> {
     }
 }
 
-impl<'view, 'tree, 'a> IntoIterator for &'view SolvedTreeMap<'tree, 'a> {
+impl<'tree, 'a> IntoIterator for &SolvedTreeMap<'tree, 'a> {
     type Item = (&'a str, &'tree SolvedNodeData<'a>);
     type IntoIter = SolvedTreeMapIter<'tree, 'a>;
 

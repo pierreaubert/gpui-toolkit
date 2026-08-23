@@ -33,7 +33,7 @@ pub(super) fn rasterize_qr_image(
     let bg = rgba(bg_color);
     let fg = rgba(fg_color);
     let mut pixels = vec![0_u8; total_modules.checked_mul(total_modules)?.checked_mul(4)?];
-    for pixel in pixels.chunks_exact_mut(4) {
+    for pixel in pixels.as_chunks_mut::<4>().0 {
         pixel.copy_from_slice(&[bg[2], bg[1], bg[0], bg[3]]);
     }
 

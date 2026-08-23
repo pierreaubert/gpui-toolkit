@@ -2205,7 +2205,7 @@ impl Image {
             let mut data = image::load_from_memory_with_format(bytes, format)?.into_rgba8();
 
             // Convert from RGBA to BGRA.
-            for pixel in data.chunks_exact_mut(4) {
+            for pixel in data.as_chunks_mut::<4>().0 {
                 pixel.swap(0, 2);
             }
 
@@ -2221,7 +2221,7 @@ impl Image {
                     match frame {
                         Ok(mut frame) => {
                             // Convert from RGBA to BGRA.
-                            for pixel in frame.buffer_mut().chunks_exact_mut(4) {
+                            for pixel in frame.buffer_mut().as_chunks_mut::<4>().0 {
                                 pixel.swap(0, 2);
                             }
                             frames.push(frame);
@@ -2347,7 +2347,7 @@ mod image_tests {
         let render_image = image.to_image_data(SvgRenderer::new(Arc::new(()))).unwrap();
         let bytes = render_image.as_bytes(0).unwrap();
 
-        for pixel in bytes.chunks_exact(4) {
+        for pixel in bytes.as_chunks::<4>().0 {
             assert_eq!(pixel, &[0xF8, 0xBD, 0x38, 0xFF]);
         }
     }

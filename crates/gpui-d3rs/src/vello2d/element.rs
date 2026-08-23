@@ -701,10 +701,12 @@ impl Drop for VelloChartElement {
     }
 }
 
+type CachedChartScene = (u64, ChartScene, Option<(f32, f32)>);
+
 #[derive(Default)]
 struct RetainedVelloBackend {
     backend: Option<BackendState>,
-    scene: Option<(u64, ChartScene, Option<(f32, f32)>)>,
+    scene: Option<CachedChartScene>,
 }
 
 impl Drop for RetainedVelloBackend {

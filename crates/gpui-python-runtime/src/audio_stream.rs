@@ -162,7 +162,9 @@ impl AudioFrameStore {
 
         let values = frame
             .payload
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .map(|bytes| f32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
             .collect::<Vec<_>>();
         if values.iter().any(|value| !value.is_finite()) {

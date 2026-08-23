@@ -301,6 +301,7 @@ impl WrappedLineLayout {
         self._index_for_position(position, line_height, true)
     }
 
+    #[allow(clippy::needless_late_init)] // Boundary branches initialize paired index/x values together.
     fn _index_for_position(
         &self,
         mut position: Point<Pixels>,

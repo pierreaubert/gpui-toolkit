@@ -386,7 +386,7 @@ impl AuTextSystemState {
         cx.restore();
         drop(cx);
         if is_emoji {
-            for pixel in bitmap.chunks_exact_mut(4) {
+            for pixel in bitmap.as_chunks_mut::<4>().0 {
                 gpui::swap_rgba_pa_to_bgra(pixel);
             }
         }

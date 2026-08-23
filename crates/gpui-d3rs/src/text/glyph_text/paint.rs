@@ -131,12 +131,14 @@ fn cache_hash(value: &impl Hash) -> u64 {
     hasher.finish()
 }
 
+type ChartTextLayoutCache = HashMap<u64, Vec<(ChartTextKey, Arc<ChartTextLayout>)>>;
+
 thread_local! {
     /// GPUI paints on one UI thread. Keeping the cache thread-local avoids a
     /// lock in tick-heavy axis and legend painting while retaining the image
     /// allocation across ordinary rerenders.
     static GLYPH_RASTER_CACHE: RefCell<HashMap<u64, Vec<(GlyphRasterKey, CachedRaster)>>> = RefCell::default();
-    static CHART_TEXT_LAYOUT_CACHE: RefCell<HashMap<u64, Vec<(ChartTextKey, Arc<ChartTextLayout>)>>> = RefCell::default();
+    static CHART_TEXT_LAYOUT_CACHE: RefCell<ChartTextLayoutCache> = RefCell::default();
 }
 
 #[allow(

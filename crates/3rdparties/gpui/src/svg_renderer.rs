@@ -184,7 +184,7 @@ impl SvgRenderer {
                 image::ImageBuffer::from_raw(pixmap.width(), pixmap.height(), pixmap.take())
                     .unwrap();
 
-            for pixel in buffer.chunks_exact_mut(4) {
+            for pixel in buffer.as_chunks_mut::<4>().0 {
                 swap_rgba_pa_to_bgra(pixel);
             }
 

@@ -612,7 +612,7 @@ impl MetalRenderer {
                     );
 
                     // Convert BGRA to RGBA (swap B and R channels)
-                    for chunk in pixels.chunks_exact_mut(4) {
+                    for chunk in pixels.as_chunks_mut::<4>().0 {
                         chunk.swap(0, 2);
                     }
 
@@ -732,7 +732,7 @@ impl MetalRenderer {
                     );
 
                     // Convert BGRA to RGBA (swap B and R channels)
-                    for chunk in pixels.chunks_exact_mut(4) {
+                    for chunk in pixels.as_chunks_mut::<4>().0 {
                         chunk.swap(0, 2);
                     }
 
@@ -1267,21 +1267,20 @@ impl MetalRenderer {
         // disjoint, so we can copy each path's bounds individually. If this
         // batch combines different draw orders, we perform a single copy
         // for a minimal spanning rect.
-        let sprites;
-        if paths.last().unwrap().order == first_path.order {
-            sprites = paths
+        let sprites = if paths.last().unwrap().order == first_path.order {
+            paths
                 .iter()
                 .map(|path| PathSprite {
                     bounds: path.clipped_bounds(),
                 })
-                .collect();
+                .collect()
         } else {
             let mut bounds = first_path.clipped_bounds();
             for path in paths.iter().skip(1) {
                 bounds = bounds.union(&path.clipped_bounds());
             }
-            sprites = vec![PathSprite { bounds }];
-        }
+            vec![PathSprite { bounds }]
+        };
 
         align_offset(instance_offset);
         let sprite_bytes_len = mem::size_of_val(sprites.as_slice());
