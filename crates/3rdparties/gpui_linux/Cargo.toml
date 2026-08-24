@@ -27,7 +27,7 @@ gpui = { workspace = true, default-features = false }
 gpui_util = { workspace = true }
 gpui_wgpu = { workspace = true, features = ["font-kit"], optional = true }
 http_client = { workspace = true }
-itertools = "0.14.0"
+itertools = "0.15.0"
 libc = "0.2"
 log = { version = "0.4.16", features = ["kv_unstable_serde", "serde"] }
 parking_lot = "0.12.1"

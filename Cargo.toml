@@ -206,7 +206,7 @@ windows-core = "0.61"
 # Utilities
 approx = "0.5"
 criterion = "0.8"
-itertools = "0.14"
+itertools = "0.15"
 proptest = "1.9"
 rand = "0.10.2"
 unicode-normalization = "0.1"

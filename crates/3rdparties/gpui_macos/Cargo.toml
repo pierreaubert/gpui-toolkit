@@ -40,7 +40,7 @@ foreign-types = "0.5"
 futures = "0.3.32"
 gpui_util = { workspace = true }
 image = { version = "0.25.1", default-features = false, features = ["bmp", "gif", "ico", "jpeg", "png", "pnm", "tiff", "webp"] }
-itertools = "0.14.0"
+itertools = "0.15.0"
 libc = "0.2"
 log = { version = "0.4.16", features = ["kv_unstable_serde", "serde"] }
 mach2 = "0.5"
