@@ -65,6 +65,7 @@ pub mod spinner;
 pub mod step_indicator;
 pub mod table;
 pub mod text;
+pub mod thinking_orb;
 
 // Feedback
 pub mod alert;
@@ -173,6 +174,8 @@ pub use table::{
     Column, PaginationState, SelectionMode, SortDirection, SortState, Table, TableTheme,
 };
 pub use text::{Code, Heading, Link, Text, TextSize, TextWeight, code_text_color};
+pub use thinking_orb::engine::ModeKey;
+pub use thinking_orb::presets::{OrbSize, OrbState, Preset, Resolved, resolve_preset};
 // Feedback
 pub use search_bar::{SearchBar, SearchBarSize, SearchBarTheme};
 pub use tooltip::{Tooltip, TooltipPlacement, WithTooltip};

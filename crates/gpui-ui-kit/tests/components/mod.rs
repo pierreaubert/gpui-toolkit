@@ -78,6 +78,9 @@ mod settings_form_test;
 mod split_pane_test;
 mod step_indicator_test;
 
+// Thinking Orb (engine golden-vector parity)
+mod thinking_orb_parity_test;
+
 // Tier 3 Components
 mod command_palette_test;
 mod drag_list_test;
