@@ -1,6 +1,6 @@
 use d3rs::axis::{AxisConfig, DefaultAxisTheme, render_axis};
-use d3rs::prelude::*;
 use d3rs::quadtree::{QuadNode, QuadTree};
+use d3rs::scale::{LinearScale, Scale};
 use gpui::prelude::FluentBuilder;
 use gpui::*;
 use gpui_ui_kit::Slider;

@@ -9,7 +9,7 @@
 //! ```rust,no_run
 //! # #[cfg(feature = "gpui")]
 //! # {
-//! use d3rs::prelude::*;
+//! use d3rs::scale::LinearScale;
 //! use d3rs::axis::{render_axis, AxisConfig, DefaultAxisTheme};
 //!
 //! let scale = LinearScale::new().domain(0.0, 100.0).range(0.0, 400.0);

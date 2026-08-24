@@ -1,10 +1,10 @@
 use d3rs::axis::{AxisConfig, DefaultAxisTheme, render_axis};
 use d3rs::color::ColorScheme;
 use d3rs::grid::{GridConfig, render_grid};
-use d3rs::prelude::*;
 use d3rs::render2d::{Renderer2D, VelloBackend};
+use d3rs::scale::LinearScale;
 use d3rs::shape::{
-    GroupedBarConfig, GroupedBarDatum, GroupedBarMeta, analyze_grouped_data,
+    BarConfig, BarDatum, GroupedBarConfig, GroupedBarDatum, GroupedBarMeta, analyze_grouped_data,
     render_bars_selected as render_bars_with_config,
     render_grouped_bars_selected as render_grouped_bars_with_config,
 };

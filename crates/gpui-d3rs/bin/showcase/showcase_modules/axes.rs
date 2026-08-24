@@ -1,5 +1,5 @@
 use d3rs::axis::{AxisConfig, DefaultAxisTheme, render_axis};
-use d3rs::prelude::*;
+use d3rs::scale::{LinearScale, LogScale};
 use gpui::*;
 use gpui_ui_kit::theme::ThemeExt;
 

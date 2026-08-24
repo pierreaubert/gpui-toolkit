@@ -26,7 +26,7 @@ use d3rs::gpu3d::{
     SurfaceData as Surface3DData, SurfacePlotType,
 };
 use d3rs::grid::{GridConfig, render_grid};
-use d3rs::prelude::{LinearScale, LogScale};
+use d3rs::scale::{LinearScale, LogScale};
 use d3rs::shape::StrokeDashArray;
 use d3rs::shape::{
     ContourConfig, HeatmapData, render_contour_bands_selected as render_contour_bands,

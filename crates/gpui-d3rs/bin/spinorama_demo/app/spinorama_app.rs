@@ -9,7 +9,7 @@ use autoeq::read::{
 use autoeq::{Curve, DirectivityData};
 use d3rs::brush::{BrushSelection, BrushState};
 use d3rs::gpu3d::{Surface3DState, SurfacePlotType};
-use d3rs::prelude::{LinearScale, LogScale};
+use d3rs::scale::{LinearScale, LogScale};
 use d3rs::zoom::ZoomState;
 use gpui::prelude::*;
 use gpui::{deferred, *};

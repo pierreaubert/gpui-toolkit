@@ -7,7 +7,7 @@ use super::misc::kde;
 use super::misc::uniform_kernel;
 use crate::ShowcaseApp;
 use d3rs::color::D3Color;
-use d3rs::prelude::*;
+use d3rs::scale::{LinearScale, Scale};
 use gpui::prelude::*;
 use gpui::*;
 use gpui_ui_kit::Slider;

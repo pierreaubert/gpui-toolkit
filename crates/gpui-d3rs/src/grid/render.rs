@@ -12,7 +12,7 @@ use std::borrow::Cow;
 /// # Example
 ///
 /// ```rust,no_run
-/// use d3rs::prelude::*;
+/// use d3rs::scale::LinearScale;
 /// use d3rs::grid::{render_grid, GridConfig};
 /// use d3rs::axis::DefaultAxisTheme;
 ///

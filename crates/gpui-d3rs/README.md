@@ -183,7 +183,7 @@ let ticks = scale.ticks(10);  // [0, 10, 20, 30, ..., 100]
 ### Bar Chart Example
 
 ```rust
-use d3rs::prelude::*;
+use d3rs::scale::LinearScale;
 use gpui::*;
 
 fn render_chart(cx: &mut Context<Self>) -> impl IntoElement {
@@ -209,7 +209,7 @@ fn render_chart(cx: &mut Context<Self>) -> impl IntoElement {
 ### Line Chart with Curves
 
 ```rust
-use d3rs::prelude::*;
+use d3rs::scale::LinearScale;
 use d3rs::shape::CurveType;
 
 let points = vec![

@@ -2,9 +2,11 @@ use d3rs::axis::{AxisConfig, DefaultAxisTheme, render_axis};
 use d3rs::color::{ColorScheme, D3Color};
 use d3rs::gpu2d::{LodScatterConfig, render_lod_scatter};
 use d3rs::grid::{GridConfig, render_grid};
-use d3rs::prelude::*;
+use d3rs::lod::LodBounds;
 use d3rs::render2d::{Renderer2D, VelloBackend};
+use d3rs::scale::LinearScale;
 use d3rs::shape::render_scatter_selected as render_scatter_with_config;
+use d3rs::shape::{ScatterConfig, ScatterPoint};
 use gpui::*;
 use gpui_ui_kit::theme::ThemeExt;
 
