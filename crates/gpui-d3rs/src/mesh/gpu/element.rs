@@ -1,7 +1,10 @@
 //! GPUI element for a retained mesh scene.
 
 use super::{FieldRevision, GeometryRevision, MeshColorConfig, MeshSceneState, render_offscreen};
-use gpui::*;
+use gpui::{
+    App, Bounds, Corners, CustomDrawId, Element, ElementId, GlobalElementId, InspectorElementId,
+    IntoElement, LayoutId, Pixels, RenderImage, Size, Style, Window, relative,
+};
 use image::Frame;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -285,7 +288,12 @@ fn make_proxy(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::{
+        FieldRevision, MeshLodController, MeshSceneState, OFFSCREEN_CACHE, cached_offscreen_image,
+    };
+    use std::cell::RefCell;
+    use std::rc::Rc;
+    use std::sync::Arc;
 
     #[test]
     fn offscreen_fallback_reuses_only_an_unchanged_scene_image() {
@@ -315,7 +323,7 @@ mod tests {
             cell_ids: None,
         }
     }
-    #[::core::prelude::v1::test]
+    #[test]
     fn lod_controller_restores_full_mesh_after_drag() {
         let mesh = mesh();
         let count = mesh.triangles.len();
@@ -325,14 +333,14 @@ mod tests {
         controller.end_camera_drag();
         assert_eq!(controller.active_mesh().triangles.len(), count);
     }
-    #[::core::prelude::v1::test]
+    #[test]
     fn small_mesh_does_not_allocate_proxy() {
         let mut controller = MeshLodController::with_lod_threshold(mesh(), 100);
         controller.begin_camera_drag();
         assert!(!controller.uses_proxy());
     }
 
-    #[::core::prelude::v1::test]
+    #[test]
     fn lod_controller_maps_the_active_proxy_field() {
         let mut controller = MeshLodController::with_lod_threshold(mesh(), 1);
         let field = crate::mesh::ScalarField {
