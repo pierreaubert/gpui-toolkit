@@ -1,4 +1,6 @@
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
+use d3rs::color::D3Color;
+use d3rs::scale::LinearScale;
 use d3rs::shape::{ScatterConfig, ScatterPoint, scatter_chart_scene};
 use d3rs::vello2d::CpuRasterizer;
 
