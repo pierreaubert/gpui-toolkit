@@ -80,6 +80,8 @@ mod step_indicator_test;
 
 // Thinking Orb (engine golden-vector parity)
 mod thinking_orb_parity_test;
+// Thinking Orb (API/behavior)
+mod thinking_orb_test;
 
 // Tier 3 Components
 mod command_palette_test;

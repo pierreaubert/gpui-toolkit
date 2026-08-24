@@ -8,7 +8,7 @@ Read `GPUI.md` at the project root before working on GPUI code.
 
 - Button, Input, Slider, Dropdown, Modal, Tabs, Toggle, Select, NumberInput, ColorPicker
 - Audio controls live in sibling crate `gpui-audio-kit`
-- Data display: Table, Badge, Avatar, Progress, Spinner, QrCode, KeyboardShortcutLabel, EmptyState
+- Data display: Table, Badge, Avatar, Progress, Spinner, QrCode, KeyboardShortcutLabel, EmptyState, ThinkingOrb
 - Layout: VStack, HStack, PaneDivider, Sidebar, StatusBar, Accordion, Breadcrumbs
 - Navigation: Tabs, Menu, ContextMenu, Wizard
 - Feedback: Alert, Toast, Tooltip, Dialog, ConfirmDialog, Popover, SearchBar
@@ -462,6 +462,9 @@ Never wrap a NumberInput (or Input) in a parent `div().on_key_down(|..| cx.stop_
 ## Dependencies
 
 - `gpui` - GPU-accelerated UI framework
+- `gpui-builder` - Constraint-based layout solver
+- `gpui-design` - Platform-adaptive design system
+- `gpui-d3rs` - Visualization primitives; the `vello-gpui` feature (enabled by ui-kit's `vello` feature) renders `ThinkingOrb`
 - `gpui-ui-kit-macros` - Procedural macros for component definitions
 - `serde`, `uuid`
 

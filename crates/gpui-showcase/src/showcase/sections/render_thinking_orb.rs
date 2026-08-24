@@ -92,7 +92,7 @@ impl Render for ThinkingOrbsLab {
             .flex()
             .flex_col()
             .gap_4()
-            .child(Heading::h2("Thinking Orbs"))
+            .child(Heading::h2(cx.t(TranslationKey::SectionThinkingOrbs)))
             .child(
                 div()
                     .flex()

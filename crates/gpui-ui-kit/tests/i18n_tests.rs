@@ -72,6 +72,7 @@ fn test_all_languages_have_section_translations() {
         TranslationKey::SectionTooltips,
         TranslationKey::SectionPotentiometers,
         TranslationKey::SectionAccordion,
+        TranslationKey::SectionThinkingOrbs,
     ];
 
     for lang in Language::all() {
@@ -332,6 +333,7 @@ fn test_all_translation_keys_have_entries() {
         TranslationKey::SectionTooltips,
         TranslationKey::SectionPotentiometers,
         TranslationKey::SectionAccordion,
+        TranslationKey::SectionThinkingOrbs,
         // Labels
         TranslationKey::LabelVariants,
         TranslationKey::LabelSizes,

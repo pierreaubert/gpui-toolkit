@@ -57,6 +57,7 @@ gpui-ui-kit = { version = "0.6.12", git="https://github.com/pierreaubert/sotf/tr
 | `Badge` / `BadgeDot` | Status badges with variants |
 | `Progress` / `CircularProgress` | Progress bars and circular indicators |
 | `Spinner` / `LoadingDots` | Loading indicators |
+| `ThinkingOrb` | Dotted 3D "thinking orb" status animations (9 states, GPU-rendered via vello, requires the `vello` feature) |
 | `Avatar` / `AvatarGroup` | User avatars with status indicators |
 | `Table` | Data table with sorting, selection, and pagination |
 | `QrCode` | QR code display with custom size, foreground, and background colors |
@@ -535,6 +536,29 @@ QrCode::new("https://example.com")
     .size(px(200.0))
     .fg(rgba(0x1a1a1aFF))
     .bg(rgba(0xFFFFFFFF))
+```
+
+### ThinkingOrb
+
+```rust
+use gpui_ui_kit::{OrbState, ThinkingOrb};
+
+// Entity component: create it once in a Context, then render the entity.
+let orb = cx.new(|cx| ThinkingOrb::new(OrbState::Working, px(64.0), cx));
+// In render: parent.child(orb.clone())
+
+// Builder configuration
+cx.new(|cx| {
+    ThinkingOrb::new(OrbState::Searching, px(96.0), cx)
+        .speed(2.0)              // multiply the preset animation speed
+        .count_scale(1.5)        // dot density (radii counter-scale: constant ink)
+        .paused(true)            // freeze the clock
+        .aria_label("Searching") // override the state's default label
+});
+
+// Live updates
+orb.update(cx, |orb, cx| orb.set_count_scale(2.0, cx));
+orb.update(cx, |orb, cx| orb.set_paused(false, cx));
 ```
 
 ### Checkbox and Toggle

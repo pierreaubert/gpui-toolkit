@@ -99,6 +99,7 @@ impl Translations {
             "Command Palette",
         );
         t.insert((L, TranslationKey::SectionAccessibility), "Accessibility");
+        t.insert((L, TranslationKey::SectionThinkingOrbs), "Thinking Orbs");
 
         // Labels
         t.insert((L, TranslationKey::LabelVariants), "Variants");
@@ -256,6 +257,10 @@ impl Translations {
             "Palette de commandes",
         );
         t.insert((L, TranslationKey::SectionAccessibility), "Accessibilite");
+        t.insert(
+            (L, TranslationKey::SectionThinkingOrbs),
+            "Orbes de réflexion",
+        );
 
         // Labels
         t.insert((L, TranslationKey::LabelVariants), "Variantes");
@@ -398,6 +403,7 @@ impl Translations {
             (L, TranslationKey::SectionAccessibility),
             "Barrierefreiheit",
         );
+        t.insert((L, TranslationKey::SectionThinkingOrbs), "Denk-Orbs");
 
         // Labels
         t.insert((L, TranslationKey::LabelVariants), "Varianten");
@@ -549,6 +555,10 @@ impl Translations {
             "Paleta de comandos",
         );
         t.insert((L, TranslationKey::SectionAccessibility), "Accesibilidad");
+        t.insert(
+            (L, TranslationKey::SectionThinkingOrbs),
+            "Orbes de pensamiento",
+        );
 
         // Labels
         t.insert((L, TranslationKey::LabelVariants), "Variantes");
@@ -706,6 +716,7 @@ impl Translations {
             (L, TranslationKey::SectionAccessibility),
             "アクセシビリティ",
         );
+        t.insert((L, TranslationKey::SectionThinkingOrbs), "思考オーブ");
 
         // Labels
         t.insert((L, TranslationKey::LabelVariants), "バリエーション");

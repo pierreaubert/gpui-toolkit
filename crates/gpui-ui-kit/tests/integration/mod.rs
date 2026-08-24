@@ -58,6 +58,7 @@ mod search_bar_test;
 
 // Component integration tests - Data Display
 mod qr_test;
+mod thinking_orb_test;
 
 // Tier 2 integration tests
 mod image_view_test;
