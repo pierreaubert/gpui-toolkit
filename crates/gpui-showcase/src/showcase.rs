@@ -4,9 +4,9 @@
 //! This module exposes the Showcase component for embedding in other applications.
 
 use gpui::{
-    AnyView, AppContext, Context, Entity, FocusHandle, FontWeight, InteractiveElement, IntoElement,
+    AppContext, Context, Entity, FocusHandle, FontWeight, InteractiveElement, IntoElement,
     KeyDownEvent, MouseButton, ParentElement, Render, ScrollHandle, SharedString,
-    StatefulInteractiveElement, StyleRefinement, Styled, WeakEntity, Window, div, px, rgba,
+    StatefulInteractiveElement, Styled, WeakEntity, Window, div, px, rgba,
 };
 use gpui_ui_kit::i18n::{I18nExt, TranslationKey};
 use gpui_ui_kit::theme::ThemeExt;
@@ -679,12 +679,11 @@ impl Showcase {
             ShowcaseSection::Accessibility => {
                 self.render_accessibility_section(cx).into_any_element()
             }
-            ShowcaseSection::AudioVisuals => AnyView::from(self.audio_visuals_entity.clone())
-                .cached(StyleRefinement::default())
-                .into_any_element(),
-            ShowcaseSection::ThinkingOrbs => AnyView::from(self.thinking_orbs_entity.clone())
-                .cached(StyleRefinement::default())
-                .into_any_element(),
+            // These section roots determine their size from their rendered
+            // children. A default cached refinement reserves no layout space,
+            // making the entire demo invisible while it still paints.
+            ShowcaseSection::AudioVisuals => self.audio_visuals_entity.clone().into_any_element(),
+            ShowcaseSection::ThinkingOrbs => self.thinking_orbs_entity.clone().into_any_element(),
         }
     }
 }
