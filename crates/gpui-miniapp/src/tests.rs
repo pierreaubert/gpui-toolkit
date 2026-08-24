@@ -54,6 +54,61 @@ fn test_config_min_size() {
 }
 
 #[test]
+fn test_window_min_size_is_clamped_to_visible_display() {
+    assert_eq!(
+        super::mini_app::clamp_window_min_size(
+            Some(size(px(400.0), px(300.0))),
+            Some(size(px(1920.0), px(1080.0))),
+        ),
+        Some(size(px(400.0), px(300.0)))
+    );
+    assert_eq!(
+        super::mini_app::clamp_window_min_size(
+            Some(size(px(3000.0), px(1200.0))),
+            Some(size(px(1920.0), px(1080.0))),
+        ),
+        Some(size(px(1920.0), px(1080.0)))
+    );
+    assert_eq!(
+        super::mini_app::clamp_window_min_size(None, Some(size(px(1920.0), px(1080.0)))),
+        None
+    );
+}
+
+#[cfg(not(target_family = "wasm"))]
+#[test]
+fn test_window_min_size_cli_parser() {
+    assert_eq!(
+        super::mini_app::parse_window_min_size(["--window-min-size".into(), "400x300".into()]),
+        Ok(Some((400.0, 300.0)))
+    );
+    assert_eq!(
+        super::mini_app::parse_window_min_size(["--window-min-size".into(), "400X300".into()]),
+        Ok(Some((400.0, 300.0)))
+    );
+}
+
+#[cfg(not(target_family = "wasm"))]
+#[test]
+fn test_window_min_size_cli_parser_rejects_invalid_dimensions() {
+    let error =
+        super::mini_app::parse_window_min_size(["--window-min-size".into(), "400-by-300".into()])
+            .expect_err("a malformed dimension must be rejected");
+    assert!(error.contains("WIDTHxHEIGHT"));
+
+    for value in ["0x300", "400x0", "-1x300", "400x-1", "NaNx300"] {
+        let error =
+            super::mini_app::parse_window_min_size(["--window-min-size".into(), value.into()])
+                .expect_err("invalid dimensions must be rejected");
+        assert!(error.contains("positive WIDTHxHEIGHT"));
+    }
+
+    let error = super::mini_app::parse_window_min_size(["--window-min-size".into()])
+        .expect_err("a missing dimension must be rejected");
+    assert!(error.contains("requires WIDTHxHEIGHT"));
+}
+
+#[test]
 fn test_config_app_name() {
     let config = MiniAppConfig::new("Window Title").app_name("Menu Name");
     assert_eq!(config.title.as_ref(), "Window Title");

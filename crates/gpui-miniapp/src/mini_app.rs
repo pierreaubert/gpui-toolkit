@@ -119,6 +119,13 @@ impl MiniApp {
         V: Render + 'static,
         F: FnOnce(&mut App) -> Entity<V> + 'static,
     {
+        let config = match Self::config_with_cli_window_min_size(config) {
+            Ok(config) => config,
+            Err(error) => {
+                eprintln!("MiniApp argument error: {error}");
+                return;
+            }
+        };
         let config_rc = Rc::new(config);
 
         let platform = match current_platform() {
@@ -261,14 +268,26 @@ impl MiniApp {
             }
 
             // Create window
-            let bounds =
-                Bounds::centered(None, size(px(config_rc.width), px(config_rc.height)), cx);
+            let display_size = cx
+                .primary_display()
+                .map(|display| display.visible_bounds().size);
+            let window_min_size = clamp_window_min_size(config_rc.min_size, display_size);
+            let initial_size = size(px(config_rc.width), px(config_rc.height));
+            let initial_size = window_min_size
+                .as_ref()
+                .map(|min_size| initial_size.max(min_size))
+                .unwrap_or(initial_size);
+            let initial_size = display_size
+                .as_ref()
+                .map(|display_size| initial_size.min(display_size))
+                .unwrap_or(initial_size);
+            let bounds = Bounds::centered(None, initial_size, cx);
 
             let scrollable = config_rc.scrollable;
             if let Err(e) = cx.open_window(
                 WindowOptions {
                     window_bounds: Some(WindowBounds::Windowed(bounds)),
-                    window_min_size: config_rc.min_size,
+                    window_min_size,
                     titlebar: Some(TitlebarOptions {
                         title: Some(config_rc.title.clone()),
                         ..Default::default()
@@ -303,6 +322,27 @@ impl MiniApp {
         }
         #[cfg(not(target_family = "wasm"))]
         app.run(launch);
+    }
+
+    /// Apply the shared native-window CLI overrides to a configuration.
+    ///
+    /// `--window-min-size WIDTHxHEIGHT` takes precedence over the builder
+    /// value, for example `--window-min-size 400x400`.
+    #[cfg(not(target_family = "wasm"))]
+    pub(super) fn config_with_cli_window_min_size(
+        config: MiniAppConfig,
+    ) -> Result<MiniAppConfig, String> {
+        match parse_window_min_size(std::env::args().skip(1))? {
+            Some((width, height)) => Ok(config.min_size(width, height)),
+            None => Ok(config),
+        }
+    }
+
+    #[cfg(target_family = "wasm")]
+    pub(super) fn config_with_cli_window_min_size(
+        config: MiniAppConfig,
+    ) -> Result<MiniAppConfig, String> {
+        Ok(config)
     }
 
     /// Build the menu bar based on configuration and current language
@@ -416,4 +456,57 @@ impl MiniApp {
     {
         Self::run(MiniAppConfig::default(), build_view);
     }
+}
+
+/// Clamp a requested minimum window size to the usable dimensions of the
+/// display that will host the new window. If no display is known, preserve the
+/// requested value and let the platform select the appropriate display.
+pub(super) fn clamp_window_min_size(
+    min_size: Option<Size<Pixels>>,
+    display_size: Option<Size<Pixels>>,
+) -> Option<Size<Pixels>> {
+    match (min_size, display_size) {
+        (Some(min_size), Some(display_size)) => Some(min_size.min(&display_size)),
+        (min_size, _) => min_size,
+    }
+}
+
+#[cfg(not(target_family = "wasm"))]
+pub(super) fn parse_window_min_size<I>(args: I) -> Result<Option<(f32, f32)>, String>
+where
+    I: IntoIterator<Item = String>,
+{
+    let mut args = args.into_iter();
+    let mut min_size = None;
+    while let Some(argument) = args.next() {
+        if argument != "--window-min-size" {
+            continue;
+        }
+        let value = args
+            .next()
+            .ok_or_else(|| "--window-min-size requires WIDTHxHEIGHT".to_string())?;
+        let (width, height) = value
+            .split_once('x')
+            .or_else(|| value.split_once('X'))
+            .ok_or_else(|| {
+                format!(
+                    "invalid --window-min-size '{value}'; expected WIDTHxHEIGHT (for example 400x400)"
+                )
+            })?;
+        let width = width.parse::<f32>().ok();
+        let height = height.parse::<f32>().ok();
+        match (width, height) {
+            (Some(width), Some(height))
+                if width.is_finite() && height.is_finite() && width > 0.0 && height > 0.0 =>
+            {
+                min_size = Some((width, height));
+            }
+            _ => {
+                return Err(format!(
+                    "invalid --window-min-size '{value}'; expected positive WIDTHxHEIGHT (for example 400x400)"
+                ));
+            }
+        }
+    }
+    Ok(min_size)
 }
