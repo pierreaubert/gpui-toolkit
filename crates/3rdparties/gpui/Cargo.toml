@@ -137,7 +137,7 @@ pathfinder_geometry = "0.5"
 scap = { package = "zed-scap", version = "0.0.8-zed", git = "https://github.com/zed-industries/scap", rev = "4afea48c3b002197176fb19cd0f9b180dd36eaac", default-features = false, optional = true }
 
 [target.'cfg(target_os = "windows")'.dependencies]
-windows = { version = "0.61", features = ["Win32_Foundation"] }
+windows = { version = "0.62", features = ["Win32_Foundation"] }
 
 [target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
 http_client = { workspace = true, features = ["test-support"] }
