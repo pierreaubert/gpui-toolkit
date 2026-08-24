@@ -91,7 +91,13 @@ wasm-bindgen-futures = { workspace = true }
 # tests) so that gpui-ui-kit can depend on gpui-d3rs for the vello2d painter
 # without a package cycle — Cargo's cycle check is feature-blind for
 # optional path deps.
-gpui-ui-kit = { workspace = true }
+# default-features = false keeps ui-kit's `vello` default (vello+wgpu+vello_cpu
+# for ThinkingOrb, unused by these demos) out of `--no-default-features` d3rs
+# builds via feature unification; d3rs's own `vello-gpui` feature gates the
+# vello demos instead. A direct path dep is used because Cargo rejects
+# `default-features = false` on a `workspace = true` dep whose package
+# depends back on this crate (the ui-kit → d3rs vello2d edge above).
+gpui-ui-kit = { path = "../gpui-ui-kit", default-features = false }
 gpui-miniapp = { workspace = true }
 gpui-builder = { workspace = true }
 approx = { workspace = true }

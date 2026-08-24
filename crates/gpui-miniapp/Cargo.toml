@@ -36,7 +36,13 @@ urlencoding = []
 gpui = { workspace = true }
 gpui-builder = { workspace = true, optional = true }
 gpui-design = { workspace = true, features = ["gpui"] }
-gpui-ui-kit = { workspace = true }
+# default-features = false keeps ui-kit's `vello` default (ThinkingOrb; pulls
+# vello+wgpu+vello_cpu) out of `--no-default-features` gpui-d3rs demo builds,
+# which use this shell via dev-dependencies. Consumers that render ThinkingOrb
+# enable ui-kit's `vello` through their own direct ui-kit dependency.
+# A direct path dep is used because Cargo rejects `default-features = false`
+# on a `workspace = true` dep inside the d3rs ↔ ui-kit dev-dependency cycle.
+gpui-ui-kit = { path = "../gpui-ui-kit", default-features = false }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 gpui_macos = { workspace = true }
