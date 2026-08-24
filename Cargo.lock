@@ -3221,7 +3221,7 @@ dependencies = [
  "waker-fn",
  "wasm-bindgen",
  "web-time",
- "windows 0.61.3",
+ "windows 0.62.2",
  "zed-font-kit",
  "zed-scap",
 ]
@@ -3420,7 +3420,7 @@ dependencies = [
  "raw-window-handle",
  "smallvec",
  "uuid",
- "windows 0.61.3",
+ "windows 0.62.2",
  "windows-core 0.61.2",
  "windows-numerics 0.2.0",
  "windows-registry 0.5.3",
@@ -3546,7 +3546,7 @@ dependencies = [
  "url",
  "walkdir",
  "which",
- "windows 0.61.3",
+ "windows 0.62.2",
 ]
 
 [[package]]

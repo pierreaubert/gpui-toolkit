@@ -146,7 +146,7 @@ derive_refineable = { package = "gpui-toolkit-derive-refineable", path = "crates
 scap = { git = "https://github.com/zed-industries/scap", rev = "4afea48c3b002197176fb19cd0f9b180dd36eaac", default-features = false, package = "zed-scap", version = "0.0.8-zed" }
 
 # Windows crate used by gpui_windows
-windows = { version = "0.61", features = [
+windows = { version = "0.62", features = [
     "Foundation_Numerics",
     "Globalization_DateTimeFormatting",
     "Storage_Search",
