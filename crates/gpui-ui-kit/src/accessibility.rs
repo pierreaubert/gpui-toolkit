@@ -7,7 +7,7 @@
 //! separate release-QA requirement.
 
 use gpui::prelude::StatefulInteractiveElement;
-use gpui::{App, Div, ElementId, Global, Role, SharedString, Stateful};
+use gpui::{App, Div, ElementId, Global, Role, SharedString, Stateful, Window};
 use std::collections::HashMap;
 
 /// Schema version for platform-neutral accessibility bridge snapshots.
@@ -644,6 +644,11 @@ pub struct AccessibilityBridgeNode {
     pub live: Option<&'static str>,
     pub level: Option<u8>,
     pub value: AccessibilityBridgeValue,
+    /// Whether this node owns keyboard focus in the queried GPUI window.
+    ///
+    /// The default bridge snapshot leaves this false because it has no window
+    /// context. Use `to_bridge_snapshot_for_window` for live focus evidence.
+    pub focused: bool,
 }
 
 impl AccessibilityBridgeNode {
@@ -673,6 +678,7 @@ impl AccessibilityBridgeNode {
                 max: node.props.value_max,
                 text: node.props.value_text.clone(),
             },
+            focused: false,
         }
     }
 
@@ -851,7 +857,7 @@ impl AccessibilityBridgeSnapshot {
 
     pub fn to_markdown_table(&self) -> String {
         let mut markdown = format!(
-            "# {}\n\nschema_version: {}\n\n| Element | Role | Label | States | Value |\n|---|---|---|---|---|\n",
+            "# {}\n\nschema_version: {}\n\n| Element | Role | Label | States | Value | Focused |\n|---|---|---|---|---|---|\n",
             self.report_type, self.schema_version
         );
 
@@ -881,12 +887,13 @@ impl AccessibilityBridgeSnapshot {
             };
 
             markdown.push_str(&format!(
-                "| `{:?}` | `{}` | {} | {} | {} |\n",
+                "| `{:?}` | `{}` | {} | {} | {} | {} |\n",
                 node.element_id,
                 node.role_name,
                 escape_markdown_cell(node.label.as_ref()),
                 escape_markdown_cell(&states),
-                escape_markdown_cell(&value)
+                escape_markdown_cell(&value),
+                node.focused,
             ));
         }
 
@@ -989,13 +996,35 @@ impl AccessibilityTree {
     }
 
     pub fn to_bridge_snapshot(&self) -> AccessibilityBridgeSnapshot {
+        self.to_bridge_snapshot_for_focused_element(None)
+    }
+
+    /// Export an accessibility snapshot with focused state resolved against a
+    /// specific GPUI window's current rendered frame.
+    pub fn to_bridge_snapshot_for_window(
+        &self,
+        window: &Window,
+        cx: &App,
+    ) -> AccessibilityBridgeSnapshot {
+        let focused_element = window.focused_element_id(cx);
+        self.to_bridge_snapshot_for_focused_element(focused_element.as_ref())
+    }
+
+    fn to_bridge_snapshot_for_focused_element(
+        &self,
+        focused_element: Option<&ElementId>,
+    ) -> AccessibilityBridgeSnapshot {
         AccessibilityBridgeSnapshot {
             schema_version: ACCESSIBILITY_BRIDGE_SCHEMA_VERSION,
             report_type: ACCESSIBILITY_BRIDGE_REPORT_TYPE,
             nodes: self
                 .nodes_in_order()
                 .into_iter()
-                .map(AccessibilityBridgeNode::from_node)
+                .map(|node| {
+                    let mut node = AccessibilityBridgeNode::from_node(node);
+                    node.focused = focused_element == Some(&node.element_id);
+                    node
+                })
                 .collect(),
         }
     }

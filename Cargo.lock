@@ -3104,7 +3104,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-python-runtime"
-version = "0.9.10"
+version = "0.9.11"
 dependencies = [
  "glam",
  "gpui",
@@ -3203,7 +3203,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-toolkit"
-version = "0.9.10"
+version = "0.9.11"
 dependencies = [
  "gpui-au",
  "gpui-audio-kit",
@@ -3227,7 +3227,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-ui-kit"
-version = "0.9.38"
+version = "0.9.39"
 dependencies = [
  "block2 0.6.2",
  "criterion 0.8.2",

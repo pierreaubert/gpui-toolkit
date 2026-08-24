@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Accessibility
+
+- Added stable, frame-scoped `ElementId`/`FocusId` mapping with per-window focused-element queries, rerender cleanup, and duplicate-registration diagnostics.
+- Added focused state to UI-kit accessibility bridge snapshots and wired core controls to the mapping for reliable automation assertions.
+
 ### Performance and platform
 
 - Retained core text and glyph-layout storage across frames, and reduced platform text-system allocation and lock contention on macOS, Windows, and wgpu.

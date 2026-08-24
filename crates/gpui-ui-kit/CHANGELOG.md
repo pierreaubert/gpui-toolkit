@@ -1,5 +1,12 @@
 # Unreleased
 
+## 0.9.39 - 2026-08-24
+
+### Accessibility
+
+- Added stable element-to-focus mapping with per-window focused-element queries, rerender cleanup, nested-focus handling, and duplicate-ID diagnostics.
+- Added focused state to accessibility bridge snapshots and enabled the Button, Input, and Tabs components to report their rendered focus elements.
+
 ## 0.9.38 - 2026-08-23
 
 ### Security

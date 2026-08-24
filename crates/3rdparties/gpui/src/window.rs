@@ -349,6 +349,70 @@ pub(crate) struct FocusRef {
     pub(crate) tab_stop: bool,
 }
 
+#[derive(Default)]
+struct ElementFocusRegistry {
+    by_focus: FxHashMap<FocusId, ElementId>,
+    by_element: FxHashMap<ElementId, ElementFocusRegistration>,
+}
+
+struct ElementFocusRegistration {
+    focus_id: FocusId,
+    location: &'static std::panic::Location<'static>,
+}
+
+impl ElementFocusRegistry {
+    #[track_caller]
+    fn register(&mut self, element_id: ElementId, focus_id: FocusId) {
+        let location = std::panic::Location::caller();
+
+        if let Some(existing) = self.by_element.get(&element_id) {
+            if existing.focus_id != focus_id {
+                let message = format!(
+                    "element {:?} was registered with distinct focus handles at {}:{}:{} and {}:{}:{}",
+                    element_id,
+                    existing.location.file(),
+                    existing.location.line(),
+                    existing.location.column(),
+                    location.file(),
+                    location.line(),
+                    location.column(),
+                );
+                log::error!("element focus registration conflict: {message}");
+                debug_assert!(false, "{message}");
+                // Release builds keep the first registration so that a duplicate
+                // cannot make focus queries depend on hash-map iteration order.
+                return;
+            }
+
+            return;
+        }
+
+        self.by_element.insert(
+            element_id.clone(),
+            ElementFocusRegistration { focus_id, location },
+        );
+        // A handle may be reused by nested wrappers. Keep the first rendered
+        // element as the deterministic owner for the focused-element query.
+        self.by_focus.entry(focus_id).or_insert(element_id);
+    }
+
+    fn clear(&mut self) {
+        self.by_focus.clear();
+        self.by_element.clear();
+    }
+
+    fn focused_element(&self, focus_id: FocusId) -> Option<&ElementId> {
+        self.by_focus.get(&focus_id)
+    }
+
+    #[cfg(any(feature = "inspector", debug_assertions))]
+    fn entries(&self) -> impl Iterator<Item = (&ElementId, FocusId)> {
+        self.by_element
+            .iter()
+            .map(|(element_id, registration)| (element_id, registration.focus_id))
+    }
+}
+
 impl FocusId {
     /// Obtains whether the element associated with this handle is currently focused.
     pub fn is_focused(&self, window: &Window) -> bool {
@@ -456,6 +520,16 @@ impl FocusHandle {
     /// Moves the focus to the element associated with this handle.
     pub fn focus(&self, window: &mut Window, cx: &mut App) {
         window.focus(self, cx)
+    }
+
+    /// Associates this handle with an element for the current rendered frame.
+    ///
+    /// Registration is frame-scoped: callers must register the same pair on
+    /// every render where the element is present. The handle is not focused or
+    /// otherwise changed by this method.
+    #[track_caller]
+    pub fn track_element(&self, element_id: ElementId, window: &mut Window, _cx: &mut App) {
+        window.register_element_focus(element_id, self.id);
     }
 
     /// Obtains whether the element associated with this handle is currently focused.
@@ -822,6 +896,7 @@ pub(crate) struct DeferredDraw {
 
 pub(crate) struct Frame {
     pub(crate) focus: Option<FocusId>,
+    element_focus_registry: ElementFocusRegistry,
     pub(crate) window_active: bool,
     pub(crate) element_states: FxHashMap<(GlobalElementId, TypeId), ElementStateBox>,
     accessed_element_states: Vec<(GlobalElementId, TypeId)>,
@@ -868,6 +943,7 @@ impl Frame {
     pub(crate) fn new(dispatch_tree: DispatchTree) -> Self {
         Frame {
             focus: None,
+            element_focus_registry: ElementFocusRegistry::default(),
             window_active: false,
             element_states: FxHashMap::default(),
             accessed_element_states: Vec::new(),
@@ -907,6 +983,7 @@ impl Frame {
         self.deferred_draws.clear();
         self.tab_stops.clear();
         self.focus = None;
+        self.element_focus_registry.clear();
 
         #[cfg(any(test, feature = "test-support"))]
         {
@@ -1913,6 +1990,47 @@ impl Window {
     pub fn focused(&self, cx: &App) -> Option<FocusHandle> {
         self.focus
             .and_then(|id| FocusHandle::for_id(id, &cx.focus_handles))
+    }
+
+    #[track_caller]
+    fn register_element_focus(&mut self, element_id: ElementId, focus_id: FocusId) {
+        self.next_frame
+            .element_focus_registry
+            .register(element_id, focus_id);
+    }
+
+    /// Returns the rendered element associated with the focused handle in this
+    /// window, if that handle was registered during the current frame.
+    pub fn focused_element_id(&self, cx: &App) -> Option<ElementId> {
+        let focused_id = self.focused(cx)?.id;
+        self.rendered_frame
+            .element_focus_registry
+            .focused_element(focused_id)
+            .cloned()
+    }
+
+    /// Returns whether `element_id` is the rendered element that owns keyboard
+    /// focus in this window.
+    pub fn is_element_focused(&self, element_id: &ElementId, cx: &App) -> bool {
+        self.focused_element_id(cx).as_ref() == Some(element_id)
+    }
+
+    /// Returns the current element-to-focus registrations for inspector and
+    /// diagnostic tooling. Entries are sorted by their stable element ID.
+    #[cfg(any(feature = "inspector", debug_assertions))]
+    pub fn focus_element_mapping(&self, cx: &App) -> Vec<(ElementId, bool)> {
+        let focused = self.focused_element_id(cx);
+        let mut entries: Vec<_> = self
+            .rendered_frame
+            .element_focus_registry
+            .entries()
+            .map(|(element_id, _)| {
+                let is_focused = focused.as_ref() == Some(element_id);
+                (element_id.clone(), is_focused)
+            })
+            .collect();
+        entries.sort_by(|left, right| left.0.to_string().cmp(&right.0.to_string()));
+        entries
     }
 
     /// Move focus to the element associated with the given [`FocusHandle`].

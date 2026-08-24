@@ -706,6 +706,19 @@ pub trait InteractiveElement: Sized {
         self
     }
 
+    /// Track the given focus handle and associate this element's resolved ID
+    /// with it for focused-element queries in the current rendered frame.
+    ///
+    /// The element must have an ID (normally supplied by [`Self::id`]). The
+    /// resolved leaf ID is registered during prepaint, so callers do not need
+    /// to duplicate an ID string in the focus mapping.
+    fn track_focus_element(mut self, focus_handle: &FocusHandle) -> Self {
+        self.interactivity().focusable = true;
+        self.interactivity().tracked_focus_handle = Some(focus_handle.clone());
+        self.interactivity().track_element_focus = true;
+        self
+    }
+
     /// Set whether this element is a tab stop.
     ///
     /// When false, the element remains in tab-index order but cannot be reached via keyboard navigation.
@@ -1884,6 +1897,7 @@ pub struct Interactivity {
     pub(crate) key_context: Option<KeyContext>,
     pub(crate) focusable: bool,
     pub(crate) tracked_focus_handle: Option<FocusHandle>,
+    pub(crate) track_element_focus: bool,
     pub(crate) tracked_scroll_handle: Option<ScrollHandle>,
     pub(crate) scroll_anchor: Option<ScrollAnchor>,
     pub(crate) scroll_offset: Option<Rc<RefCell<Point<Pixels>>>>,
@@ -2071,6 +2085,12 @@ impl Interactivity {
 
         if let Some(focus_handle) = self.tracked_focus_handle.as_ref() {
             window.set_focus_handle(focus_handle, cx);
+
+            if self.track_element_focus
+                && let Some(element_id) = global_id.and_then(|id| id.last()).cloned()
+            {
+                focus_handle.track_element(element_id, window, cx);
+            }
 
             if window.a11y.is_active() {
                 if let Some(global_id) = global_id {

@@ -356,7 +356,7 @@ impl RenderOnce for Button {
 
         let mut el = div()
             .id(self.id.clone())
-            .track_focus(&focus_handle)
+            .track_focus_element(&focus_handle)
             .font_family(global_theme.font_family.clone())
             .flex()
             .items_center()

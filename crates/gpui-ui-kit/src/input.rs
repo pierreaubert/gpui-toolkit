@@ -1224,7 +1224,7 @@ impl Render for InputEntity {
             .id(props.id.clone())
             .debug_selector(move || input_debug_id)
             .font_family(global_theme.font_family.clone())
-            .track_focus(&self.focus_handle)
+            .track_focus_element(&self.focus_handle)
             .flex()
             .items_center()
             .gap_2()

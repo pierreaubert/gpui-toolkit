@@ -270,7 +270,7 @@ impl Render for TabsEntity {
         let mut container = div()
             .id(id.clone())
             .font_family(global_theme.font_family.clone())
-            .track_focus(&self.focus_handle)
+            .track_focus_element(&self.focus_handle)
             .flex()
             .items_center()
             .focusable();
