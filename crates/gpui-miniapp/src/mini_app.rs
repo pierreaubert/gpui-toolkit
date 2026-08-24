@@ -268,6 +268,7 @@ impl MiniApp {
             if let Err(e) = cx.open_window(
                 WindowOptions {
                     window_bounds: Some(WindowBounds::Windowed(bounds)),
+                    window_min_size: config_rc.min_size,
                     titlebar: Some(TitlebarOptions {
                         title: Some(config_rc.title.clone()),
                         ..Default::default()

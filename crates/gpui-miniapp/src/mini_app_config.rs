@@ -11,6 +11,8 @@ pub struct MiniAppConfig {
     pub width: f32,
     /// Window height in pixels
     pub height: f32,
+    /// Optional minimum native window size.
+    pub min_size: Option<Size<Pixels>>,
     /// Application name shown in menu bar
     pub app_name: SharedString,
     /// Enable vertical scrollbar for content
@@ -35,6 +37,7 @@ impl MiniAppConfig {
             title: title.clone(),
             width: 900.0,
             height: 700.0,
+            min_size: None,
             app_name: title,
             scrollable: true,
             with_theme: false,
@@ -48,6 +51,14 @@ impl MiniAppConfig {
     pub fn size(mut self, width: f32, height: f32) -> Self {
         self.width = width;
         self.height = height;
+        self
+    }
+
+    /// Set the minimum native window size.
+    ///
+    /// This is enforced by GPUI's macOS, Windows, and Linux window backends.
+    pub fn min_size(mut self, width: f32, height: f32) -> Self {
+        self.min_size = Some(size(px(width), px(height)));
         self
     }
 

@@ -2,7 +2,7 @@ use super::mini_app::MiniApp;
 use super::mini_app_config::MiniAppConfig;
 use super::mini_app_shell::MiniAppShell;
 use super::misc::current_platform;
-use gpui::{Menu, MenuItem};
+use gpui::{Menu, MenuItem, px, size};
 use gpui_design::DesignLanguage;
 use gpui_ui_kit::i18n::Language;
 use gpui_ui_kit::theme::ThemeVariant;
@@ -45,6 +45,12 @@ fn test_config_size() {
     let config = MiniAppConfig::new("Test").size(1200.0, 800.0);
     assert_eq!(config.width, 1200.0);
     assert_eq!(config.height, 800.0);
+}
+
+#[test]
+fn test_config_min_size() {
+    let config = MiniAppConfig::new("Test").min_size(640.0, 480.0);
+    assert_eq!(config.min_size, Some(size(px(640.0), px(480.0))));
 }
 
 #[test]

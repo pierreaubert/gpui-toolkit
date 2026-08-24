@@ -202,6 +202,7 @@ impl Checkbox {
         let mut container = div()
             .id(self.id)
             .flex()
+            .flex_none()
             .items_center()
             .gap(px(design.spacing.control_gap))
             .cursor_pointer();
@@ -213,6 +214,7 @@ impl Checkbox {
         // Checkbox box
         let mut checkbox = div()
             .flex()
+            .flex_none()
             .items_center()
             .justify_center()
             .w(size)
