@@ -536,14 +536,6 @@ impl Render for Showcase {
             (theme.background, theme.text_secondary)
         };
 
-        let cached_sidebar = {
-            let style = StyleRefinement::default().flex_none();
-            AnyView::from(self.sidebar_entity.clone()).cached(style)
-        };
-        let cached_header = {
-            let style = StyleRefinement::default().flex_shrink_0();
-            AnyView::from(self.header_entity.clone()).cached(style)
-        };
         if embedded {
             return div()
                 .id("showcase-embedded-root")
@@ -576,13 +568,20 @@ impl Render for Showcase {
             .min_w_0()
             .min_h_0()
             .overflow_hidden()
-            .child(cached_header)
+            // These views own their layout-defining styles: the sidebar has a
+            // fixed width and the header derives its height from padding and
+            // contents. `AnyView::cached` only uses the supplied refinement
+            // during layout, so caching them with partial styles collapses
+            // their slots while their descendants still paint.
+            .child(self.header_entity.clone())
             .child(self.content_entity.clone());
 
         if compact {
-            root.flex_col().child(cached_sidebar).child(content)
+            root.flex_col()
+                .child(self.sidebar_entity.clone())
+                .child(content)
         } else {
-            root.child(cached_sidebar).child(content)
+            root.child(self.sidebar_entity.clone()).child(content)
         }
     }
 }
