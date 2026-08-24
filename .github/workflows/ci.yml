@@ -366,7 +366,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Install Just
-        uses: extractions/setup-just@v2
+        uses: extractions/setup-just@v4
 
       - name: Verify public release contract
         run: just qa-release-contract
