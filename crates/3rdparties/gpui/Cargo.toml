@@ -60,7 +60,7 @@ raw-window-handle = "0.6"
 regex = "1.5"
 refineable = { workspace = true }
 scheduler = { workspace = true }
-resvg = { version = "0.46.0", default-features = false, features = ["text", "system-fonts", "memmap-fonts", "raster-images"] }
+resvg = { version = "0.48.1", default-features = false, features = ["text", "system-fonts", "memmap-fonts", "raster-images"] }
 usvg = { version = "0.46.0", default-features = false }
 ttf-parser = "0.25"
 util_macros = { workspace = true }
