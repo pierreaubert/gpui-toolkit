@@ -93,6 +93,7 @@ impl ShowcaseGroup {
                 ShowcaseSection::Notification,
                 ShowcaseSection::Progress,
                 ShowcaseSection::Spinners,
+                ShowcaseSection::ThinkingOrbs,
                 ShowcaseSection::LoadingOverlay,
                 ShowcaseSection::EmptyState,
             ],
@@ -170,6 +171,7 @@ Toasts are temporary, auto-dismissing notifications that stack at a screen edge.
 Notifications are richer, persistent messages with actions (mark read, dismiss). \
 Progress shows determinate completion (0-100%). \
 Spinners show indeterminate loading with no known duration. \
+Thinking Orbs render animated dotted-sphere status indicators with an adjustable point density. \
 Loading Overlay covers a region with a spinner and optional message, blocking interaction. \
 Empty State is a placeholder shown when a list or view has no data."
             }

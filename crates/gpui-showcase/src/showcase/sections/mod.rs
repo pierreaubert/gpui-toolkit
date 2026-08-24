@@ -37,6 +37,7 @@ pub mod render_table;
 pub mod render_tabs;
 pub mod render_tag;
 pub mod render_text;
+pub mod render_thinking_orb;
 pub mod render_toast;
 pub mod render_toolbar;
 pub mod render_tooltip;

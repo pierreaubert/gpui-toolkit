@@ -191,6 +191,7 @@ mod types;
 pub mod sections;
 
 use sections::render_audio_visuals::AudioVisuals;
+use sections::render_thinking_orb::ThinkingOrbsLab;
 
 pub use showcase_group::ShowcaseGroup;
 pub use showcase_section::ShowcaseSection;
@@ -280,6 +281,7 @@ pub struct Showcase {
     header_entity: Entity<ShowcaseHeader>,
     content_entity: Entity<ShowcaseContent>,
     audio_visuals_entity: Entity<AudioVisuals>,
+    thinking_orbs_entity: Entity<ThinkingOrbsLab>,
 }
 
 #[derive(Clone)]
@@ -307,6 +309,7 @@ impl Showcase {
         let header_entity = cx.new(|_cx| ShowcaseHeader::new());
         let content_entity = cx.new(|_cx| ShowcaseContent::new(parent.clone()));
         let audio_visuals_entity = cx.new(|_cx| AudioVisuals::new());
+        let thinking_orbs_entity = cx.new(ThinkingOrbsLab::new);
 
         Self {
             toggle_on: true,
@@ -419,6 +422,7 @@ impl Showcase {
             header_entity,
             content_entity,
             audio_visuals_entity,
+            thinking_orbs_entity,
         }
     }
 
@@ -677,6 +681,9 @@ impl Showcase {
                 self.render_accessibility_section(cx).into_any_element()
             }
             ShowcaseSection::AudioVisuals => AnyView::from(self.audio_visuals_entity.clone())
+                .cached(StyleRefinement::default())
+                .into_any_element(),
+            ShowcaseSection::ThinkingOrbs => AnyView::from(self.thinking_orbs_entity.clone())
                 .cached(StyleRefinement::default())
                 .into_any_element(),
         }

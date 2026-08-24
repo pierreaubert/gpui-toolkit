@@ -47,6 +47,7 @@ pub enum ShowcaseSection {
     CommandPalette,
     Accessibility,
     AudioVisuals,
+    ThinkingOrbs,
 }
 
 impl ShowcaseSection {
@@ -95,6 +96,7 @@ impl ShowcaseSection {
             ShowcaseSection::CommandPalette,
             ShowcaseSection::Accessibility,
             ShowcaseSection::AudioVisuals,
+            ShowcaseSection::ThinkingOrbs,
         ]
     }
 
@@ -143,6 +145,7 @@ impl ShowcaseSection {
             ShowcaseSection::CommandPalette => "Command Palette",
             ShowcaseSection::Accessibility => "Accessibility",
             ShowcaseSection::AudioVisuals => "Audio Visuals",
+            ShowcaseSection::ThinkingOrbs => "Thinking Orbs",
         }
     }
 
