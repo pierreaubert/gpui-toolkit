@@ -1,5 +1,11 @@
 # Unreleased
 
+## 0.9.40 - 2026-08-24
+
+### Fixes
+
+- fixed #34 : Checkbox gets squeezed below its natural width under flex-column pressure, i.e. when box + label width > bounding box
+
 ## 0.9.39 - 2026-08-24
 
 ### Accessibility

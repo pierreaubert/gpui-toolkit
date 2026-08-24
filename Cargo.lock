@@ -3560,7 +3560,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-ui-kit"
-version = "0.9.39"
+version = "0.9.40"
 dependencies = [
  "block2 0.6.2",
  "criterion 0.8.2",
