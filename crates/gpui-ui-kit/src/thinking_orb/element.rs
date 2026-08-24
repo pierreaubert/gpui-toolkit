@@ -23,8 +23,8 @@ fn ink_brush(white: f64, a: Option<f64>, dark: bool) -> Brush {
 }
 
 /// Vello-painted element for a single finished [`OrbFrame`], laid out as a
-/// fixed `size` × `size` square. Engine coordinates are `0..size` local, so
-/// every mark is offset by the element bounds origin at paint time.
+/// fixed `size` × `size` square. Engine coordinates remain local to that
+/// square: both Vello backends rasterize an element-local scene.
 pub struct ThinkingOrbElement {
     id: ElementId,
     source_location: &'static Location<'static>,
@@ -46,6 +46,22 @@ impl ThinkingOrbElement {
             painter: VelloScenePainter::new(),
         }
     }
+}
+
+fn scene_for_frame(frame: &OrbFrame, dark: bool) -> ChartScene {
+    let mut scene = ChartScene::new();
+    // Lines first, then the z-sorted (far→near) dots.
+    for line in &frame.lines {
+        scene.stroke_polyline(
+            &[(line.x1, line.y1), (line.x2, line.y2)],
+            Stroke::new(line.w),
+            ink_brush(line.white, line.a, dark),
+        );
+    }
+    for dot in &frame.dots {
+        scene.fill_circle(dot.x, dot.y, dot.r, ink_brush(dot.white, dot.a, dark));
+    }
+    scene
 }
 
 impl IntoElement for ThinkingOrbElement {
@@ -107,27 +123,28 @@ impl Element for ThinkingOrbElement {
         window: &mut Window,
         _cx: &mut App,
     ) {
-        let origin_x: f32 = bounds.origin.x.into();
-        let origin_y: f32 = bounds.origin.y.into();
-        let (ox, oy) = (origin_x as f64, origin_y as f64);
-
-        let mut scene = ChartScene::new();
-        // Lines first, then the z-sorted (far→near) dots.
-        for line in &self.frame.lines {
-            scene.stroke_polyline(
-                &[(line.x1 + ox, line.y1 + oy), (line.x2 + ox, line.y2 + oy)],
-                Stroke::new(line.w),
-                ink_brush(line.white, line.a, self.dark),
-            );
-        }
-        for dot in &self.frame.dots {
-            scene.fill_circle(
-                dot.x + ox,
-                dot.y + oy,
-                dot.r,
-                ink_brush(dot.white, dot.a, self.dark),
-            );
-        }
+        let scene = scene_for_frame(&self.frame, self.dark);
         self.painter.paint_retained(id, &scene, bounds, window);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::thinking_orb::engine;
+    use crate::thinking_orb::presets::{OrbSize, OrbState, resolve_preset};
+    use d3rs::vello2d::CpuRasterizer;
+
+    #[test]
+    fn cpu_scene_has_coverage_at_its_local_raster_origin() {
+        let resolved = resolve_preset(OrbState::Working, OrbSize::Px64);
+        let frame = engine::frame(resolved.mode, 96.0, 0.0, &resolved.opts);
+        let scene = scene_for_frame(&frame, true);
+
+        let pixels = CpuRasterizer::new(96, 96).rasterize(&scene, 96, 96);
+        assert!(
+            pixels.chunks_exact(4).any(|pixel| pixel[3] != 0),
+            "local orb geometry must cover the CPU fallback raster"
+        );
     }
 }
