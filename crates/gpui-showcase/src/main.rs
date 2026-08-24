@@ -27,7 +27,9 @@ fn main() {
                 return;
             }
             "--help" | "-h" => {
-                println!("Usage: gpui-showcase [--release-artifacts | --visual-manifest [--json]]");
+                println!(
+                    "Usage: gpui-showcase [--window-min-size WIDTHxHEIGHT] [--release-artifacts | --visual-manifest [--json]]\n\nOptions:\n  --window-min-size WIDTHxHEIGHT  Set a native minimum window size (for example 400x400)"
+                );
                 return;
             }
             _ => {}
