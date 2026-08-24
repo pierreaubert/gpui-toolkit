@@ -1,4 +1,4 @@
-use d3rs::prelude::*;
+use d3rs::scale::{LinearScale, LogScale, Scale};
 use gpui::*;
 use gpui_ui_kit::theme::ThemeExt;
 

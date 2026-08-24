@@ -1,5 +1,5 @@
 use d3rs::contour::{Contour, ContourRing};
-use d3rs::prelude::*;
+use d3rs::scale::LinearScale;
 use d3rs::shape::{
     BarConfig, BarDatum, ContourConfig, HeatmapData, LineConfig, LinePoint, bar_chart_scene,
     contour_chart_scene, heatmap_chart_scene, line_chart_scene, line_scene_geometry,

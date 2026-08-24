@@ -71,8 +71,8 @@ fn resize_reallocates_and_clears() {
     );
 }
 
-use d3rs::prelude::*;
 use d3rs::shape::{ScatterConfig, ScatterPoint, scatter_chart_scene};
+use d3rs::{color::D3Color, scale::LinearScale};
 
 #[test]
 fn scatter_scene_golden_pixels() {

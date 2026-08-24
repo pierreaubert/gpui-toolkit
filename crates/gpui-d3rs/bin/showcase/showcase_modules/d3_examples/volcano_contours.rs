@@ -10,8 +10,8 @@
 use super::volcano_data::{VOLCANO_HEIGHT, VOLCANO_WIDTH, generate_volcano_data};
 use crate::ShowcaseApp;
 use d3rs::contour::ContourGenerator;
-use d3rs::prelude::*;
 use d3rs::render2d::{Renderer2D, VelloBackend};
+use d3rs::scale::LinearScale;
 use d3rs::shape::contour::{
     ContourConfig, HeatmapData, render_contour_bands_selected as render_contour_bands_with_config,
     render_contour_selected as render_contour_with_config,

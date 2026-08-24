@@ -1,6 +1,6 @@
 use d3rs::contour::{ContourGenerator, DensityEstimator};
-use d3rs::prelude::*;
 use d3rs::render2d::{Renderer2D, VelloBackend};
+use d3rs::scale::LinearScale;
 use d3rs::shape::contour::{
     ContourConfig, HeatmapData, heat_color_scale,
     render_contour_bands_selected as render_contour_bands_with_config,

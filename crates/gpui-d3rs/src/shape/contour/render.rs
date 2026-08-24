@@ -21,7 +21,7 @@ use gpui::prelude::*;
 /// # Example
 ///
 /// ```rust,no_run
-/// use d3rs::prelude::*;
+/// use d3rs::scale::LinearScale;
 /// use d3rs::shape::contour::{render_contour, ContourConfig};
 /// use d3rs::contour::ContourGenerator;
 ///

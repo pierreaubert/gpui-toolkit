@@ -38,7 +38,7 @@ where
 /// # Example
 ///
 /// ```rust,no_run
-/// use d3rs::prelude::*;
+/// use d3rs::{color::D3Color, scale::LinearScale};
 /// use d3rs::shape::{render_line, LineConfig, LinePoint, CurveType};
 ///
 /// let x_scale = LinearScale::new().domain(0.0, 100.0).range(0.0, 400.0);

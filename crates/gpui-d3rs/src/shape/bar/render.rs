@@ -33,7 +33,7 @@ pub(super) struct GroupedBarQuad {
 /// # Example
 ///
 /// ```rust,no_run
-/// use d3rs::prelude::*;
+/// use d3rs::{color::D3Color, scale::LinearScale};
 /// use d3rs::shape::{render_bars, BarConfig, BarDatum};
 ///
 /// let x_scale = LinearScale::new().domain(0.0, 5.0).range(0.0, 400.0);
@@ -339,7 +339,7 @@ where
 /// # Example
 ///
 /// ```rust,no_run
-/// use d3rs::prelude::*;
+/// use d3rs::{color::D3Color, scale::LinearScale};
 /// use d3rs::shape::{render_grouped_bars, GroupedBarConfig, GroupedBarDatum, analyze_grouped_data};
 ///
 /// let data = vec![

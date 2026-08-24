@@ -1,5 +1,5 @@
 use super::ShowcaseApp;
-use d3rs::prelude::*;
+use d3rs::color::D3Color;
 use d3rs::surface::{ColorScaleType, SurfaceConfig, SurfaceData, render_surface};
 use gpui::*;
 use gpui_ui_kit::theme::ThemeExt;

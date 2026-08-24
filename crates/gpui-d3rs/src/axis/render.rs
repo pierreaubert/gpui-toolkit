@@ -19,7 +19,7 @@ use misc::format_tick;
 /// # Example
 ///
 /// ```rust,no_run
-/// use d3rs::prelude::*;
+/// use d3rs::scale::LinearScale;
 /// use d3rs::axis::{render_axis, AxisConfig, DefaultAxisTheme};
 /// use gpui::*;
 ///

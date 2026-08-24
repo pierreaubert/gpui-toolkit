@@ -1,6 +1,6 @@
 use d3rs::axis::{AxisConfig, render_axis};
 use d3rs::grid::{GridConfig, render_grid};
-use d3rs::prelude::*;
+use d3rs::scale::{LinearScale, LogScale};
 use d3rs::shape::{CurveType, LineConfig, render_line};
 use gpui::prelude::FluentBuilder;
 use gpui::{Div, ParentElement, Styled, div, px};
