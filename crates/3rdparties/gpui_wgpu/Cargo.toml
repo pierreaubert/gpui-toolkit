@@ -21,7 +21,7 @@ bytemuck = "1"
 collections = { workspace = true }
 cosmic-text = "0.17.0"
 etagere = "0.2"
-itertools = "0.14.0"
+itertools = "0.15.0"
 log = "0.4"
 parking_lot = "0.12"
 profiling = "1"

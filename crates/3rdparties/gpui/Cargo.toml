@@ -46,7 +46,7 @@ gpui_shared_string = { workspace = true }
 http_client = { workspace = true }
 image = { version = "0.25.1", default-features = false, features = ["bmp", "gif", "ico", "jpeg", "png", "pnm", "tiff", "webp"] }
 inventory = "0.3.19"
-itertools = "0.14.0"
+itertools = "0.15.0"
 log = { version = "0.4.16", features = ["kv_unstable_serde", "serde"] }
 num_cpus = "1.13"
 parking = "2.0.0"
