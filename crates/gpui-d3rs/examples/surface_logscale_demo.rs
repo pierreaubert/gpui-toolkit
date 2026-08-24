@@ -176,5 +176,5 @@ fn main() {
 
     println!("\n=== Demo Complete ===");
     println!("\nNote: For visual rendering of these surfaces, use the showcase");
-    println!("binary with GPUI enabled: cargo run --bin d3rs-showcase --release");
+    println!("demo with GPUI enabled: cargo run -p gpui-d3rs --example d3rs-showcase --release");
 }

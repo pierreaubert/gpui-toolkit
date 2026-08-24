@@ -108,7 +108,7 @@ The d3rs showcase is also instrumented. Run it with the `profiler` feature to
 see allocation reports for render and mouse-move events:
 
 ```bash
-cargo run --bin d3rs-showcase --features profiler
+cargo run -p gpui-d3rs --example d3rs-showcase --features profiler
 ```
 
 Any non-zero allocation count during those events is a signal that the hot

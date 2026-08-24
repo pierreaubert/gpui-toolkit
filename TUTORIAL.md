@@ -341,7 +341,7 @@ let nearest = mesh.find(0.5, 0.5, None);
 Run:
 
 ```bash
-cargo run -p gpui-d3rs --bin d3rs-showcase --features "gpui,gpu-2d"
+cargo run -p gpui-d3rs --example d3rs-showcase --features "gpui,gpu-2d"
 cargo run -p gpui-d3rs --example delaunay_demo
 ```
 

@@ -49,7 +49,7 @@ let triangles: Vec<_> = mesh.triangles().collect();
 cargo run -p gpui-d3rs --example scale_demo
 cargo run -p gpui-d3rs --example delaunay_demo
 cargo run -p gpui-d3rs --example surface3d_demo --features gpu-3d
-cargo run -p gpui-d3rs --bin d3rs-showcase --features "gpui,gpu-2d"
+cargo run -p gpui-d3rs --example d3rs-showcase --features "gpui,gpu-2d"
 ```
 
 ## 6. Verify
