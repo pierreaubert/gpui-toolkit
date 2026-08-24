@@ -386,8 +386,8 @@ demo-component-lab:
 
 [group('demo')]
 demo-d3rs:
-	cargo build --release --bin d3rs-showcase -p gpui-d3rs {{features}}
-	cargo build --release --bin d3rs-spinorama -p gpui-d3rs {{features}}
+	cargo build --release --example d3rs-showcase -p gpui-d3rs {{features}}
+	cargo build --release --example d3rs-spinorama -p gpui-d3rs {{features}}
 	cargo build --release --examples -p gpui-d3rs {{features}}
 
 [group('demo')]

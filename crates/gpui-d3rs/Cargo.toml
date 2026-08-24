@@ -16,7 +16,7 @@ name = "d3rs"
 [features]
 default = ["gpui", "gpu-2d", "gpu-3d", "vello-gpui"]
 autoeq = ["dep:autoeq"]
-gpui = ["dep:gpui", "dep:gpui-ui-kit", "dep:gpui-miniapp", "dep:gpui-builder", "dep:gpui-design", "gpui-design/gpui", "dep:smol", "dep:fontdue", "dep:image"]
+gpui = ["dep:gpui", "dep:gpui-design", "gpui-design/gpui", "dep:smol", "dep:fontdue", "dep:image"]
 profiler = ["gpui-profiler/global-allocator"]
 reqwest = ["dep:reqwest"]
 showcase = []
@@ -35,10 +35,7 @@ urlencoding = ["dep:urlencoding"]
 
 [dependencies]
 gpui = { workspace = true, optional = true }
-gpui-ui-kit = { workspace = true, optional = true }
-gpui-miniapp = { workspace = true, optional = true }
 gpui-profiler = { workspace = true }
-gpui-builder = { workspace = true, optional = true }
 gpui-design = { workspace = true, optional = true }
 regex = { workspace = true }
 delaunator = { workspace = true }
@@ -67,8 +64,9 @@ image = { workspace = true, optional = true }
 fontdue = { workspace = true, optional = true }
 
 # Per-platform GPUI backends (gpui_macos, gpui_linux, gpui_windows) come in
-# transitively via the optional `gpui-miniapp` dep. Don't declare them here —
-# they aren't on crates.io and would block publication of any crate that does.
+# transitively via the `gpui-miniapp` dev-dependency (used by the demo
+# examples). Don't declare them here — they aren't on crates.io and would
+# block publication of any crate that does.
 
 [target.'cfg(target_os = "macos")'.dependencies]
 metal = { version = "0.33", optional = true }
@@ -88,6 +86,14 @@ smol = { workspace = true, optional = true }
 wasm-bindgen-futures = { workspace = true }
 
 [dev-dependencies]
+# Demo examples/tests use the ui-kit components, the MiniApp shell, and the
+# layout builder. These live in dev-dependencies (available to examples and
+# tests) so that gpui-ui-kit can depend on gpui-d3rs for the vello2d painter
+# without a package cycle — Cargo's cycle check is feature-blind for
+# optional path deps.
+gpui-ui-kit = { workspace = true }
+gpui-miniapp = { workspace = true }
+gpui-builder = { workspace = true }
 approx = { workspace = true }
 criterion = { workspace = true }
 serde = { workspace = true }
@@ -105,13 +111,18 @@ harness = false
 name = "mesh_prep"
 harness = false
 
-[[bin]]
+# The demo apps are example targets (not bins) so they can use the
+# dev-dependency shell crates (gpui-ui-kit, gpui-miniapp, gpui-builder) —
+# keeping them out of [dependencies] lets gpui-ui-kit depend on gpui-d3rs for
+# the vello2d painter without a package cycle. Run with
+# `cargo run -p gpui-d3rs --example d3rs-showcase --release`.
+[[example]]
 name = "d3rs-showcase"
 path = "bin/showcase/main.rs"
 required-features = ["vello-gpui"]
 
 
-[[bin]]
+[[example]]
 name = "d3rs-spinorama"
 path = "bin/spinorama_demo/main.rs"
 required-features = ["spinorama", "gpu-2d", "gpu-3d"]

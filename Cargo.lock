@@ -3564,6 +3564,7 @@ dependencies = [
  "block2 0.6.2",
  "criterion 0.8.2",
  "gpui-builder",
+ "gpui-d3rs",
  "gpui-design",
  "gpui-miniapp",
  "gpui-profiler",

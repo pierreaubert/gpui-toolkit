@@ -15,6 +15,7 @@ autoexamples = false
 gpui = { workspace = true }
 gpui-builder = { workspace = true }
 gpui-design = { workspace = true, features = ["gpui"] }
+gpui-d3rs = { workspace = true, default-features = false, features = ["gpui"] }
 
 # Serialization for Color type
 serde = { workspace = true }
@@ -47,7 +48,8 @@ web-time = "1.1.0"
 smol = { workspace = true }
 
 [features]
-default = []
+default = ["vello"]
+vello = ["gpui-d3rs/vello-gpui"]
 bench = []
 autoeq = []
 reqwest = []
@@ -194,6 +196,10 @@ name = "tag_debug"
 
 [[example]]
 name = "text_debug"
+
+[[example]]
+name = "thinking_orb_debug"
+required-features = ["vello"]
 
 [[example]]
 name = "toast_debug"

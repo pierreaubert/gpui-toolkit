@@ -176,6 +176,8 @@ pub use table::{
 pub use text::{Code, Heading, Link, Text, TextSize, TextWeight, code_text_color};
 pub use thinking_orb::engine::ModeKey;
 pub use thinking_orb::presets::{OrbSize, OrbState, Preset, Resolved, resolve_preset};
+#[cfg(feature = "vello")]
+pub use thinking_orb::{FrameStats, ThinkingOrb};
 // Feedback
 pub use search_bar::{SearchBar, SearchBarSize, SearchBarTheme};
 pub use tooltip::{Tooltip, TooltipPlacement, WithTooltip};

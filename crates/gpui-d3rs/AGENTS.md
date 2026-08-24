@@ -22,10 +22,15 @@ D3.js-inspired GPU-accelerated plotting library for GPUI.
 - `vello` - Vello-backed 2D chart scene layer (`vello2d` module) + CPU rasterizer fallback (vello_cpu)
 - `vello-gpui` - `vello` + GPUI/wgpu element rendering (`VelloChartElement`, zero-copy `WgpuCustomDraw`)
 
-## Binaries
+## Demo apps (example targets)
 
-- `d3rs-showcase` - Chart gallery
-- `d3rs-spinorama` - Spinorama visualization demo
+- `d3rs-showcase` - Chart gallery — `cargo run -p gpui-d3rs --example d3rs-showcase --release`
+- `d3rs-spinorama` - Spinorama visualization demo — `cargo run -p gpui-d3rs --example d3rs-spinorama --features spinorama --release`
+
+The demos are `[[example]]` targets (sources under `bin/`) so they can use the
+dev-dependency shell crates (`gpui-ui-kit`, `gpui-miniapp`, `gpui-builder`).
+Keeping those crates out of `[dependencies]` is what allows `gpui-ui-kit` to
+depend on `gpui-d3rs` for the vello2d painter without a package cycle.
 
 ## Examples
 

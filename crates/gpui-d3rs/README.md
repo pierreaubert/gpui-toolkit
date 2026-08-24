@@ -283,7 +283,7 @@ Run them with:
 
 ```bash
 # Showcase application (all features in one interactive demo)
-cargo run --bin d3rs-showcase --release
+cargo run --example d3rs-showcase --release
 
 # Individual feature demos (CLI output)
 cargo run --example scale_demo --no-default-features      # Scales and tick generation
@@ -300,11 +300,11 @@ cargo run --example shape_demo --no-default-features      # Shape generators
 cargo run --example timer_demo --no-default-features      # Timing utilities
 
 # Spinorama demo (requires spinorama feature)
-cargo run --features spinorama --bin spinorama-demo --release
+cargo run --features spinorama --example d3rs-spinorama --release
 
 # Generate showcase snapshots (macOS only)
 # This will iterate through all demos and save screenshots to docs/images/
-cargo run --bin d3rs-showcase -- --snapshot
+cargo run --example d3rs-showcase -- --snapshot
 ```
 
 ## API Philosophy: D3.js vs gpui-d3rs
