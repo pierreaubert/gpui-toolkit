@@ -16,6 +16,7 @@ profiler-tests = ["profiler", "gpui/test-support"]
 gpui = { workspace = true }
 gpui-ui-kit = { workspace = true }
 gpui-audio-kit = { workspace = true }
+gpui-builder = { workspace = true }
 gpui-d3rs = { workspace = true }
 gpui-miniapp = { workspace = true }
 gpui-design = { workspace = true, features = ["gpui"] }

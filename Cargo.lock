@@ -3035,6 +3035,7 @@ name = "gpui-showcase"
 version = "0.9.3"
 dependencies = [
  "gpui-audio-kit",
+ "gpui-builder",
  "gpui-d3rs",
  "gpui-design",
  "gpui-ios",

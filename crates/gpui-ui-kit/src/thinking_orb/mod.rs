@@ -156,6 +156,16 @@ mod component {
             cx.notify();
         }
 
+        /// Update the square render size without recreating the animation.
+        pub fn set_size(&mut self, size: Pixels, cx: &mut Context<Self>) {
+            let size = size.max(px(1.0));
+            if self.size == size {
+                return;
+            }
+            self.size = size;
+            cx.notify();
+        }
+
         /// Freeze or resume the animation clock at runtime. Resuming does not
         /// jump: the accumulated clock simply starts advancing again.
         pub fn set_paused(&mut self, paused: bool, cx: &mut Context<Self>) {

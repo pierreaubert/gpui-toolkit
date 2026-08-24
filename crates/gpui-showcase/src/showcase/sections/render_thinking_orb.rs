@@ -1,4 +1,5 @@
 use super::prelude::*;
+use gpui_builder::{Axis, ContainerNode, LayoutNode, LayoutPreferences, Sizing, SlotNode, solve};
 use gpui_ui_kit::thinking_orb::{engine, presets};
 use gpui_ui_kit::{OrbSize, OrbState, ThinkingOrb};
 use std::time::Duration;
@@ -7,12 +8,31 @@ use std::time::Duration;
 const DEFAULT_POINTS_PER_SPHERE: f32 = 256.0;
 /// On-canvas orb size in the demo grid.
 const ORB_SIZE: f32 = 96.0;
+/// Largest interactive sphere size, expressed as a multiple of [`ORB_SIZE`].
+const MAX_ORB_SIZE_SCALE: f32 = 8.0;
+const ORB_GRID_GAP: f32 = 16.0;
+const SHOWCASE_SIDEBAR_WIDTH: f32 = 220.0;
+const SHOWCASE_WIDE_CONTENT_PADDING: f32 = 64.0;
+const SHOWCASE_COMPACT_CONTENT_PADDING: f32 = 32.0;
+const SHOWCASE_COMPACT_BREAKPOINT: f32 = 600.0;
+const ORB_GRID_SLOT_IDS: [&str; 9] = [
+    "orb-grid-slot-0",
+    "orb-grid-slot-1",
+    "orb-grid-slot-2",
+    "orb-grid-slot-3",
+    "orb-grid-slot-4",
+    "orb-grid-slot-5",
+    "orb-grid-slot-6",
+    "orb-grid-slot-7",
+    "orb-grid-slot-8",
+];
 
 /// Interactive lab for the `ThinkingOrb` component: all nine states in a 3×3
 /// grid with a shared density slider and a live-load stats line.
 pub(crate) struct ThinkingOrbsLab {
     orbs: Vec<(OrbState, Entity<ThinkingOrb>)>,
     points_per_sphere: f32,
+    sphere_size_scale: f32,
     /// Preset-native dot counts at t=0 (Px64 tuning), per state — the slider
     /// maps its absolute point target to a per-orb `count_scale` factor.
     base_counts: Vec<usize>,
@@ -37,6 +57,7 @@ impl ThinkingOrbsLab {
         Self {
             orbs,
             points_per_sphere: DEFAULT_POINTS_PER_SPHERE,
+            sphere_size_scale: 1.0,
             base_counts,
         }
     }
@@ -47,7 +68,45 @@ impl ThinkingOrbsLab {
             let scale = f64::from(target) / self.base_counts[index] as f64;
             orb.update(cx, |orb, cx| orb.set_count_scale(scale, cx));
         }
+        cx.notify();
     }
+
+    fn apply_size_scale(&mut self, scale: f32, cx: &mut Context<Self>) {
+        self.sphere_size_scale = scale;
+        let size = px(ORB_SIZE * scale);
+        for (_state, orb) in &self.orbs {
+            orb.update(cx, |orb, cx| orb.set_size(size, cx));
+        }
+        cx.notify();
+    }
+}
+
+fn orb_grid_columns(available_width: f32, card_width: f32) -> usize {
+    (1..=ORB_GRID_SLOT_IDS.len())
+        .rev()
+        .find(|&columns| {
+            let slots: Vec<LayoutNode<'_>> = ORB_GRID_SLOT_IDS[..columns]
+                .iter()
+                .map(|id| SlotNode::new(id, Sizing::Fixed(card_width)).into_node())
+                .collect();
+            let root = ContainerNode::new(
+                "thinking-orbs-grid",
+                Axis::Horizontal,
+                Sizing::flex(0.0),
+                &slots,
+            )
+            .divider_size(ORB_GRID_GAP)
+            .into_node();
+            solve(
+                &root,
+                available_width.max(card_width),
+                card_width,
+                &LayoutPreferences::default(),
+            )
+            .debug_report()
+            .is_clean()
+        })
+        .unwrap_or(1)
 }
 
 /// Capitalize the lowercase engine state key for display ("working" → "Working").
@@ -69,10 +128,33 @@ fn format_geometry_time(duration: Duration) -> String {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn grid_column_count_tracks_fixed_card_capacity() {
+        assert_eq!(orb_grid_columns(128.0, 128.0), 1);
+        assert_eq!(orb_grid_columns(272.0, 128.0), 2);
+        assert_eq!(orb_grid_columns(9.0 * 128.0 + 8.0 * ORB_GRID_GAP, 128.0), 9);
+    }
+}
+
 impl Render for ThinkingOrbsLab {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
         let entity = cx.entity().clone();
+        let sphere_size = ORB_SIZE * self.sphere_size_scale;
+        let card_width = sphere_size.max(128.0);
+        let viewport_width = window.viewport_size().width.as_f32();
+        let content_width = if viewport_width < SHOWCASE_COMPACT_BREAKPOINT {
+            viewport_width - SHOWCASE_COMPACT_CONTENT_PADDING
+        } else {
+            viewport_width - SHOWCASE_SIDEBAR_WIDTH - SHOWCASE_WIDE_CONTENT_PADDING
+        };
+        let grid_columns = orb_grid_columns(content_width, card_width);
+        let grid_width =
+            card_width * grid_columns as f32 + ORB_GRID_GAP * grid_columns.saturating_sub(1) as f32;
 
         let mut total_dots = 0usize;
         let mut slowest_geometry = Duration::ZERO;
@@ -123,6 +205,37 @@ impl Render for ThinkingOrbsLab {
             )
             .child(
                 div()
+                    .flex()
+                    .flex_col()
+                    .gap_2()
+                    .child(
+                        Text::new(format!(
+                            "Sphere size: {:.2}× ({sphere_size:.0} px)",
+                            self.sphere_size_scale,
+                        ))
+                        .weight(TextWeight::Medium),
+                    )
+                    .child(
+                        div().w(px(300.0)).child(
+                            Slider::new("orbs-size")
+                                .min(1.0)
+                                .max(MAX_ORB_SIZE_SCALE)
+                                .step(0.25)
+                                .value(self.sphere_size_scale)
+                                .size(SliderSize::Md)
+                                .on_change({
+                                    let entity = entity.clone();
+                                    move |value, _window, cx| {
+                                        entity.update(cx, |lab, cx| {
+                                            lab.apply_size_scale(value, cx);
+                                        });
+                                    }
+                                }),
+                        ),
+                    ),
+            )
+            .child(
+                div()
                     .id("thinking-orbs-stats")
                     .text_sm()
                     .text_color(theme.text_muted)
@@ -133,19 +246,26 @@ impl Render for ThinkingOrbsLab {
             )
             .child(
                 div()
-                    .flex()
-                    .flex_wrap()
-                    .gap_4()
-                    .children(self.orbs.iter().map(|(state, orb)| {
+                    .id("thinking-orbs-grid-scroll")
+                    .w_full()
+                    .overflow_x_scroll()
+                    .child(
                         div()
-                            .flex()
-                            .flex_col()
-                            .items_center()
-                            .gap_1()
-                            .w(px(128.0))
-                            .child(capitalize_state(*state))
-                            .child(orb.clone())
-                    })),
+                            .w(px(grid_width))
+                            .grid()
+                            .grid_cols(grid_columns as u16)
+                            .gap_4()
+                            .children(self.orbs.iter().map(|(state, orb)| {
+                                div()
+                                    .flex()
+                                    .flex_col()
+                                    .items_center()
+                                    .gap_1()
+                                    .w(px(card_width))
+                                    .child(capitalize_state(*state))
+                                    .child(orb.clone())
+                            })),
+                    ),
             )
     }
 }
