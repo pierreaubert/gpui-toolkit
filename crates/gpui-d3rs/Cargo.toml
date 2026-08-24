@@ -62,7 +62,7 @@ vello_cpu = { workspace = true, optional = true }
 peniko = { workspace = true, optional = true }
 kurbo = { workspace = true, optional = true }
 log = { workspace = true, optional = true } # d3rs has no log dep on main; workspace pins log 0.4.28 (root Cargo.toml :80)
-gpui_wgpu = { path = "../3rdparties/gpui_wgpu", optional = true }
+gpui_wgpu = { workspace = true, optional = true }
 image = { workspace = true, optional = true }
 fontdue = { workspace = true, optional = true }
 
@@ -73,7 +73,7 @@ fontdue = { workspace = true, optional = true }
 [target.'cfg(target_os = "macos")'.dependencies]
 metal = { version = "0.33", optional = true }
 objc = { workspace = true, optional = true }
-gpui_macos = { path = "../3rdparties/gpui_macos", optional = true }
+gpui_macos = { workspace = true, optional = true }
 
 # Async runtime for GPUI-era helpers. smol (via async-io/polling) has no
 # wasm32-unknown-unknown support, so it stays native-only (same pattern as

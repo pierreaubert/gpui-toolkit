@@ -1,14 +1,14 @@
 [package]
-name = "gpui_windows"
+name = "gpui-toolkit-gpui-windows"
 version = "0.1.2"
 edition.workspace = true
-publish = false
 license = "Apache-2.0"
 
 [lints]
 workspace = true
 
 [lib]
+name = "gpui_windows"
 path = "src/gpui_windows.rs"
 
 [features]

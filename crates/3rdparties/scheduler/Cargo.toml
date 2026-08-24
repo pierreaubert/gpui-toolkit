@@ -1,11 +1,11 @@
 [package]
-name = "scheduler"
+name = "gpui-toolkit-scheduler"
 version = "0.1.0"
 edition = "2024"
 license = "Apache-2.0"
-publish = false
 
 [lib]
+name = "scheduler"
 path = "src/scheduler.rs"
 doctest = false
 

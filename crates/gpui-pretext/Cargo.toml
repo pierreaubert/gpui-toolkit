@@ -28,7 +28,7 @@ hashbrown = "0.16"
 
 [dev-dependencies]
 criterion = { workspace = true }
-gpui-profiler = { workspace = true, features = ["global-allocator"] }
+gpui-profiler = { path = "../gpui-profiler", features = ["global-allocator"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 

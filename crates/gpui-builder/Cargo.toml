@@ -51,10 +51,10 @@ path = "src/bin/layout_showcase.rs"
 required-features = ["showcase"]
 
 [dev-dependencies]
-gpui = { workspace = true, features = ["test-support"] }
+gpui = { package = "gpui-toolkit-gpui", path = "../3rdparties/gpui", features = ["test-support"] }
 serde_json = { workspace = true }
 criterion = { workspace = true }
-gpui-profiler = { workspace = true, features = ["global-allocator"] }
+gpui-profiler = { path = "../gpui-profiler", features = ["global-allocator"] }
 proptest = { workspace = true }
 
 [[bench]]

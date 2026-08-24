@@ -1,11 +1,11 @@
 [package]
-name = "gpui_wgpu"
+name = "gpui-toolkit-gpui-wgpu"
 version = "0.1.2"
 edition = "2024"
-publish = false
 license = "Apache-2.0"
 
 [lib]
+name = "gpui_wgpu"
 path = "src/gpui_wgpu.rs"
 
 [features]
@@ -15,10 +15,10 @@ font-kit = ["dep:font-kit"]
 headless-qa = ["gpui/test-support", "dep:image"]
 
 [dependencies]
-gpui = { version = "0.2.2", git = "https://github.com/zed-industries/zed.git", tag = "v1.9.0", default-features = false }
+gpui = { workspace = true, default-features = false }
 anyhow = "1.0"
 bytemuck = "1"
-collections = { version = "0.1.0", git = "https://github.com/zed-industries/zed.git", tag = "v1.9.0" }
+collections = { workspace = true }
 cosmic-text = "0.17.0"
 etagere = "0.2"
 itertools = "0.14.0"
@@ -28,7 +28,7 @@ profiling = "1"
 raw-window-handle = "0.6"
 smallvec = { version = "1.6", features = ["union", "const_new"] }
 swash = "0.2.6"
-gpui_util = { version = "0.1.0", git = "https://github.com/zed-industries/zed.git", tag = "v1.9.0" }
+gpui_util = { workspace = true }
 wgpu = { version = "29.0.0", git = "https://github.com/zed-industries/wgpu.git", rev = "357a0c56e0070480ad9daea5d2eaa83150b79e88" }
 image = { workspace = true, optional = true }
 

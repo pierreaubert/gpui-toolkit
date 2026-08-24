@@ -56,13 +56,13 @@ tokio = []
 urlencoding = []
 
 [dev-dependencies]
-gpui = { workspace = true, features = ["test-support"] }
+gpui = { package = "gpui-toolkit-gpui", path = "../3rdparties/gpui", features = ["test-support"] }
 rqrr = { workspace = true }
 criterion = { workspace = true }
-gpui-profiler = { workspace = true, features = ["global-allocator"] }
+gpui-profiler = { path = "../gpui-profiler", features = ["global-allocator"] }
 # Examples in `examples/` use the MiniApp shell, which lives in a workspace-
 # only crate (it transitively pulls in non-publishable platform backends).
-gpui-miniapp = { workspace = true }
+gpui-miniapp = { path = "../gpui-miniapp" }
 
 [target.'cfg(target_os = "macos")'.dev-dependencies]
 block2 = { workspace = true }

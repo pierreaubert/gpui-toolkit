@@ -1,12 +1,12 @@
 [package]
-name = "derive_refineable"
+name = "gpui-toolkit-derive-refineable"
 version = "0.1.0"
 edition = "2024"
 description = "A derive macro for creating refinement types in Rust"
 license = "Apache-2.0"
-publish = false
 
 [lib]
+name = "derive_refineable"
 path = "src/derive_refineable.rs"
 proc-macro = true
 doctest = false

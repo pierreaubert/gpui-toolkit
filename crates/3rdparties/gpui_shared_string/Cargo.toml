@@ -1,11 +1,11 @@
 [package]
-name = "gpui_shared_string"
+name = "gpui-toolkit-gpui-shared-string"
 version = "0.1.0"
 edition = "2024"
 license = "Apache-2.0"
-publish = false
 
 [lib]
+name = "gpui_shared_string"
 path = "gpui_shared_string.rs"
 
 [dependencies]

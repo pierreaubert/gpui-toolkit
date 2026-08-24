@@ -34,7 +34,7 @@ urlencoding = []
 
 [dependencies]
 gpui = { workspace = true }
-gpui-builder = { path = "../gpui-builder", optional = true, default-features = false }
+gpui-builder = { workspace = true, optional = true }
 gpui-design = { workspace = true, features = ["gpui"] }
 gpui-ui-kit = { workspace = true }
 

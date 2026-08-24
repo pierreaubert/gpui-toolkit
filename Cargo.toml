@@ -115,23 +115,34 @@ gpui-toolkit = { path = "crates/gpui-toolkit", version = "0.9" }
 gpui-ui-kit = { path = "crates/gpui-ui-kit", version = "0.9" }
 gpui-ui-kit-macros = { path = "crates/gpui-ui-kit-macros", version = "0.9" }
 
-# GPUI framework - all packages must use the same Zed tag.
-gpui = { version = "0.2.2", git = "https://github.com/zed-industries/zed.git", tag = "v1.9.0", default-features = false }
-gpui_macros = { version = "0.1.0", git = "https://github.com/zed-industries/zed.git", tag = "v1.9.0" }
-gpui_macos = { version = "0.1.0", git = "https://github.com/zed-industries/zed.git", tag = "v1.9.0", default-features = false, features = ["font-kit"] }
-gpui_linux = { version = "0.1.0", git = "https://github.com/zed-industries/zed.git", tag = "v1.9.0", default-features = false }
-gpui_windows = { version = "0.1.0", git = "https://github.com/zed-industries/zed.git", tag = "v1.9.0", default-features = false }
-gpui_wgpu = { version = "0.1.0", git = "https://github.com/zed-industries/zed.git", tag = "v1.9.0" }
-gpui_web = { version = "0.1.0", git = "https://github.com/zed-industries/zed.git", tag = "v1.9.0" }
+# GPUI framework derived from Zed. The dependency keys retain the upstream
+# Rust crate names, while package names are namespaced for crates.io.
+gpui = { package = "gpui-toolkit-gpui", path = "crates/3rdparties/gpui", version = "0.2.3", default-features = false }
+gpui_macros = { package = "gpui-toolkit-gpui-macros", path = "crates/3rdparties/gpui_macros", version = "0.1.0" }
+gpui_macos = { package = "gpui-toolkit-gpui-macos", path = "crates/3rdparties/gpui_macos", version = "0.1.1", default-features = false, features = ["font-kit"] }
+gpui_linux = { package = "gpui-toolkit-gpui-linux", path = "crates/3rdparties/gpui_linux", version = "0.1.0", default-features = false }
+gpui_windows = { package = "gpui-toolkit-gpui-windows", path = "crates/3rdparties/gpui_windows", version = "0.1.2", default-features = false }
+gpui_wgpu = { package = "gpui-toolkit-gpui-wgpu", path = "crates/3rdparties/gpui_wgpu", version = "0.1.2" }
+gpui_web = { package = "gpui-toolkit-gpui-web", path = "crates/3rdparties/gpui_web", version = "0.1.1" }
 wgpu = { version = "29.0.0", git = "https://github.com/zed-industries/wgpu.git", rev = "357a0c56e0070480ad9daea5d2eaa83150b79e88" }
 vello = { version = "0.10.0", default-features = false, features = ["wgpu"] }
 vello_cpu = { version = "0.2.0" }
 peniko = { version = "0.6.1" }
 kurbo = { version = "0.13.1" }
 
-# Zed internal crates used by vendored platform backends
-collections = { version = "0.1.0", git = "https://github.com/zed-industries/zed.git", tag = "v1.9.0" }
-util = { version = "0.1.0", git = "https://github.com/zed-industries/zed.git", tag = "v1.9.0" }
+# Internal crates derived from Zed, published under the gpui-toolkit namespace.
+collections = { package = "gpui-toolkit-collections", path = "crates/3rdparties/collections", version = "0.1.0" }
+util = { package = "gpui-toolkit-util", path = "crates/3rdparties/util", version = "0.1.1" }
+util_macros = { package = "gpui-toolkit-util-macros", path = "crates/3rdparties/util_macros", version = "0.1.0" }
+perf = { package = "gpui-toolkit-perf", path = "crates/3rdparties/perf", version = "0.1.0" }
+gpui_util = { package = "gpui-toolkit-gpui-util", path = "crates/3rdparties/gpui_util", version = "0.1.0" }
+gpui_shared_string = { package = "gpui-toolkit-gpui-shared-string", path = "crates/3rdparties/gpui_shared_string", version = "0.1.0" }
+http_client = { package = "gpui-toolkit-http-client", path = "crates/3rdparties/http_client", version = "0.1.0" }
+media = { package = "gpui-toolkit-media", path = "crates/3rdparties/media", version = "0.1.0" }
+scheduler = { package = "gpui-toolkit-scheduler", path = "crates/3rdparties/scheduler", version = "0.1.0" }
+sum_tree = { package = "gpui-toolkit-sum-tree", path = "crates/3rdparties/sum_tree", version = "0.1.0" }
+refineable = { package = "gpui-toolkit-refineable", path = "crates/3rdparties/refineable", version = "0.1.0" }
+derive_refineable = { package = "gpui-toolkit-derive-refineable", path = "crates/3rdparties/derive_refineable", version = "0.1.0" }
 scap = { git = "https://github.com/zed-industries/scap", rev = "4afea48c3b002197176fb19cd0f9b180dd36eaac", default-features = false, package = "zed-scap", version = "0.0.8-zed" }
 
 # Windows crate used by gpui_windows
@@ -302,27 +313,6 @@ codegen-units = 256
 # use the vendored manifest with Apple mobile target fixes.
 [patch."https://github.com/zed-industries/font-kit"]
 zed-font-kit = { path = "crates/3rdparties/zed-font-kit" }
-
-[patch."https://github.com/zed-industries/zed.git"]
-util = { path = "crates/3rdparties/util" }
-util_macros = { path = "crates/3rdparties/util_macros" }
-perf = { path = "crates/3rdparties/perf" }
-collections = { path = "crates/3rdparties/collections" }
-gpui_util = { path = "crates/3rdparties/gpui_util" }
-gpui_linux = { path = "crates/3rdparties/gpui_linux" }
-http_client = { path = "crates/3rdparties/http_client" }
-gpui_wgpu = { path = "crates/3rdparties/gpui_wgpu" }
-gpui_web = { path = "crates/3rdparties/gpui_web" }
-gpui_windows = { path = "crates/3rdparties/gpui_windows" }
-gpui = { path = "crates/3rdparties/gpui" }
-media = { path = "crates/3rdparties/media" }
-scheduler = { path = "crates/3rdparties/scheduler" }
-sum_tree = { path = "crates/3rdparties/sum_tree" }
-refineable = { path = "crates/3rdparties/refineable" }
-derive_refineable = { path = "crates/3rdparties/derive_refineable" }
-gpui_shared_string = { path = "crates/3rdparties/gpui_shared_string" }
-gpui_macros = { path = "crates/3rdparties/gpui_macros" }
-gpui_macos = { path = "crates/3rdparties/gpui_macos" }
 
 [patch.crates-io]
 block = { path = "crates/3rdparties/block" }

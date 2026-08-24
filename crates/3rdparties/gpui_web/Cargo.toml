@@ -1,11 +1,11 @@
 [package]
-name = "gpui_web"
+name = "gpui-toolkit-gpui-web"
 version = "0.1.1"
 edition = "2024"
 license = "Apache-2.0"
-publish = false
 
 [lib]
+name = "gpui_web"
 path = "src/gpui_web.rs"
 
 [features]
@@ -13,10 +13,10 @@ default = ["multithreaded"]
 multithreaded = ["dep:wasm_thread"]
 
 [target.'cfg(target_family = "wasm")'.dependencies]
-gpui = { version = "0.2.2", git = "https://github.com/zed-industries/zed.git", tag = "v1.9.0" }
+gpui = { workspace = true }
 parking_lot = { version = "0.12.1", features = ["nightly"] }
-gpui_wgpu = { version = "0.1.0", git = "https://github.com/zed-industries/zed.git", tag = "v1.9.0" }
-http_client = { version = "0.1.0", git = "https://github.com/zed-industries/zed.git", tag = "v1.9.0" }
+gpui_wgpu = { workspace = true }
+http_client = { workspace = true }
 anyhow = "1.0.86"
 futures = "0.3.32"
 log = { version = "0.4.16", features = ["kv_unstable_serde", "serde"] }

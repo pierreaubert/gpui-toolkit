@@ -1,12 +1,12 @@
 [package]
-name = "media"
+name = "gpui-toolkit-media"
 version = "0.1.0"
 edition = "2024"
 description = "Bindings to macos media handling APIs for Zed"
 license = "Apache-2.0"
-publish = false
 
 [lib]
+name = "media"
 path = "src/media.rs"
 doctest = false
 
