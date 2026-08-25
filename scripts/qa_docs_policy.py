@@ -63,10 +63,18 @@ def check() -> list[str]:
     if missing:
         errors.append("README workspace inventory missing: " + ", ".join(missing))
 
-    gpui_tag = re.search(
-        r'^gpui\s*=.*?tag\s*=\s*"([^"]+)"', cargo_text, re.MULTILINE
-    )
-    if not gpui_tag or gpui_tag.group(1) not in readme:
+    gpui_dependency = cargo["workspace"]["dependencies"]["gpui"]
+    gpui_revision = gpui_dependency.get("tag")
+    if gpui_revision is None and (gpui_path := gpui_dependency.get("path")):
+        vendored = ROOT / gpui_path / "VENDORED.md"
+        if vendored.is_file():
+            revision = re.search(
+                r"^- Base ref:\s*(\S+)\s*$", vendored.read_text(), re.MULTILINE
+            )
+            if revision:
+                gpui_revision = revision.group(1)
+
+    if not gpui_revision or gpui_revision not in readme:
         errors.append("README GPUI revision does not match Cargo.toml")
 
     manifest = (ROOT / "crates/gpui-toolkit/src/vendored_patches.rs").read_text()
