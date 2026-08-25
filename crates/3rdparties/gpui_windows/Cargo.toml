@@ -2,7 +2,12 @@
 name = "gpui-toolkit-gpui-windows"
 version = "0.1.2"
 edition.workspace = true
+description.workspace = true
 license = "Apache-2.0"
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
 
 [lints]
 workspace = true

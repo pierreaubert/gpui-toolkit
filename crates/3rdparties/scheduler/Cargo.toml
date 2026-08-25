@@ -2,7 +2,12 @@
 name = "gpui-toolkit-scheduler"
 version = "0.1.0"
 edition = "2024"
+description.workspace = true
 license = "Apache-2.0"
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
 
 [lib]
 name = "scheduler"

@@ -2029,7 +2029,7 @@ impl Window {
                 (element_id.clone(), is_focused)
             })
             .collect();
-        entries.sort_by(|left, right| left.0.to_string().cmp(&right.0.to_string()));
+        entries.sort_by_key(|entry| entry.0.to_string());
         entries
     }
 

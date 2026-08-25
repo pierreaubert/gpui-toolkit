@@ -98,6 +98,8 @@ use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, SystemTime};
 
+type MeshGeometry = (Arc<[[f64; 3]]>, Arc<[[u32; 3]]>);
+
 fn mesh_plot_square_mesh(id: &str, with_ids: bool) -> TriangleMesh {
     static POSITIONS: OnceLock<Arc<[[f64; 3]]>> = OnceLock::new();
     static TRIANGLES: OnceLock<Arc<[[u32; 3]]>> = OnceLock::new();
@@ -154,7 +156,7 @@ fn mesh_plot_square_cell_field(id: &str) -> ScalarField {
 }
 
 fn mesh_plot_saddle_mesh(id: &str) -> TriangleMesh {
-    static GEOMETRY: OnceLock<(Arc<[[f64; 3]]>, Arc<[[u32; 3]]>)> = OnceLock::new();
+    static GEOMETRY: OnceLock<MeshGeometry> = OnceLock::new();
     let (positions, triangles) = GEOMETRY.get_or_init(|| {
         (
             Arc::from([
@@ -191,7 +193,7 @@ fn mesh_plot_saddle_field(id: &str) -> ScalarField {
 }
 
 fn mesh_plot_annulus_mesh(id: &str) -> TriangleMesh {
-    static GEOMETRY: OnceLock<(Arc<[[f64; 3]]>, Arc<[[u32; 3]]>)> = OnceLock::new();
+    static GEOMETRY: OnceLock<MeshGeometry> = OnceLock::new();
     let (positions, triangles) = GEOMETRY.get_or_init(|| {
         (
             Arc::from([
@@ -230,7 +232,7 @@ fn mesh_plot_annulus_field(id: &str) -> ScalarField {
 }
 
 fn mesh_plot_surface_mesh(id: &str) -> TriangleMesh {
-    static GEOMETRY: OnceLock<(Arc<[[f64; 3]]>, Arc<[[u32; 3]]>)> = OnceLock::new();
+    static GEOMETRY: OnceLock<MeshGeometry> = OnceLock::new();
     let (positions, triangles) = GEOMETRY.get_or_init(|| {
         (
             Arc::from([
@@ -268,7 +270,7 @@ fn mesh_plot_surface_field(id: &str) -> ScalarField {
 
 fn mesh_plot_large_mesh(id: &str) -> TriangleMesh {
     const GRID: usize = 128;
-    static GEOMETRY: OnceLock<(Arc<[[f64; 3]]>, Arc<[[u32; 3]]>)> = OnceLock::new();
+    static GEOMETRY: OnceLock<MeshGeometry> = OnceLock::new();
     let (positions, triangles) = GEOMETRY.get_or_init(|| {
         let vertex_count = (GRID + 1) * (GRID + 1);
         let mut positions = Vec::with_capacity(vertex_count);

@@ -128,18 +128,6 @@ fn format_geometry_time(duration: Duration) -> String {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn grid_column_count_tracks_fixed_card_capacity() {
-        assert_eq!(orb_grid_columns(128.0, 128.0), 1);
-        assert_eq!(orb_grid_columns(272.0, 128.0), 2);
-        assert_eq!(orb_grid_columns(9.0 * 128.0 + 8.0 * ORB_GRID_GAP, 128.0), 9);
-    }
-}
-
 impl Render for ThinkingOrbsLab {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
@@ -267,5 +255,17 @@ impl Render for ThinkingOrbsLab {
                             })),
                     ),
             )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn grid_column_count_tracks_fixed_card_capacity() {
+        assert_eq!(orb_grid_columns(128.0, 128.0), 1);
+        assert_eq!(orb_grid_columns(272.0, 128.0), 2);
+        assert_eq!(orb_grid_columns(9.0 * 128.0 + 8.0 * ORB_GRID_GAP, 128.0), 9);
     }
 }

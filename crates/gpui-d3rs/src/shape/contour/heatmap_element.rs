@@ -261,12 +261,6 @@ where
         self.cached_quads = self.build_quads(&bounds);
         self.cache_generation = generation;
     }
-
-    /// Return the cached quads for inspection (tests).
-    #[cfg(test)]
-    pub(super) fn cached_quads(&self) -> &[HeatmapQuad] {
-        &self.cached_quads
-    }
 }
 
 fn hash_color(color: &D3Color, hasher: &mut std::collections::hash_map::DefaultHasher) {

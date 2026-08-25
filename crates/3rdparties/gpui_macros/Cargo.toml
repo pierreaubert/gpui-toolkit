@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2024"
 description = "Macros used by gpui"
 license = "Apache-2.0"
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
 
 [lib]
 name = "gpui_macros"

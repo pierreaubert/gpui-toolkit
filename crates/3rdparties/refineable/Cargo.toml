@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2024"
 description = "A macro for creating 'refinement' types that can be used to partially initialize or mutate a complex struct"
 license = "Apache-2.0"
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
 
 [lib]
 name = "refineable"

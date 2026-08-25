@@ -3,7 +3,6 @@
 //! GPUI keeps emitting compatibility mouse/touch events. These samples expose
 //! extra iPad-only stylus data to professional drawing or spatial UIs.
 
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -75,7 +74,6 @@ type PencilCallback = Box<dyn FnMut(IosPencilSample) + Send>;
 type HoverCallback = Box<dyn FnMut(IosHoverSample) + Send>;
 
 static PENCIL_CALLBACK: OnceLock<Mutex<Option<PencilCallback>>> = OnceLock::new();
-static PENCIL_CALLBACK_ACTIVE: AtomicBool = AtomicBool::new(false);
 static HOVER_CALLBACK: OnceLock<Mutex<Option<HoverCallback>>> = OnceLock::new();
 
 fn pencil_callback_slot() -> &'static Mutex<Option<PencilCallback>> {
@@ -87,14 +85,7 @@ fn hover_callback_slot() -> &'static Mutex<Option<HoverCallback>> {
 }
 
 pub fn set_pencil_event_callback(callback: Option<PencilCallback>) {
-    let active = callback.is_some();
     *pencil_callback_slot().lock().unwrap() = callback;
-    PENCIL_CALLBACK_ACTIVE.store(active, Ordering::Release);
-}
-
-/// Whether collecting a high-detail pointer sample can reach an observer.
-pub(crate) fn has_pencil_callback() -> bool {
-    PENCIL_CALLBACK_ACTIVE.load(Ordering::Acquire)
 }
 
 pub fn set_hover_event_callback(callback: Option<HoverCallback>) {
