@@ -166,12 +166,18 @@ impl Platform for WebPlatform {
         handle: AnyWindowHandle,
         params: WindowParams,
     ) -> anyhow::Result<Box<dyn PlatformWindow>> {
-        let context_ref = self.wgpu_context.borrow();
-        let context = context_ref.as_ref().ok_or_else(|| {
-            anyhow::anyhow!("WebGPU context not initialized. Was Platform::run() called?")
-        })?;
+        if self.wgpu_context.borrow().is_none() {
+            return Err(anyhow::anyhow!(
+                "WebGPU context not initialized. Was Platform::run() called?"
+            ));
+        }
 
-        let window = WebWindow::new(handle, params, context, self.browser_window.clone())?;
+        let window = WebWindow::new(
+            handle,
+            params,
+            Rc::clone(&self.wgpu_context),
+            self.browser_window.clone(),
+        )?;
         *self.active_window.borrow_mut() = Some(handle);
         Ok(Box::new(window))
     }

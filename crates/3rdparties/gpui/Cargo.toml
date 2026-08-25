@@ -9,7 +9,7 @@ homepage = "https://gpui.rs"
 repository = "https://github.com/zed-industries/zed"
 keywords = ["desktop", "gui", "immediate"]
 categories = ["gui"]
-readme.workspace = true
+readme = "README.md"
 
 [lib]
 name = "gpui"

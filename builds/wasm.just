@@ -6,7 +6,7 @@
 # ----------------------------------------------------------------------
 
 wasm_target := "wasm32-unknown-unknown"
-wasm_packages := "-p gpui_web -p gpui-miniapp -p gpui-hello-web -p gpui-showcase -p gpui-px -p gpui-d3rs"
+wasm_packages := "-p gpui-toolkit-gpui-web -p gpui-miniapp -p gpui-hello-web -p gpui-showcase -p gpui-px -p gpui-d3rs"
 
 # `wasm-build-site` produces release artifacts first, while `trunk serve
 # --release` serves the browser capture servers. Two apps can still build

@@ -157,7 +157,7 @@ impl InstanceUploadCache {
 }
 
 pub struct WgpuRenderer {
-    /// Shared GPU context for device recovery coordination (unused on WASM).
+    /// Shared GPU context for custom draws and device recovery coordination.
     #[allow(dead_code)]
     context: Option<GpuContext>,
     /// Compositor GPU hint for adapter selection (unused on WASM).
@@ -295,10 +295,14 @@ impl WgpuRenderer {
 
     #[cfg(target_family = "wasm")]
     pub fn new_from_canvas(
-        context: &WgpuContext,
+        gpu_context: GpuContext,
         canvas: &web_sys::HtmlCanvasElement,
         config: WgpuSurfaceConfig,
     ) -> anyhow::Result<Self> {
+        let context_guard = gpu_context.borrow();
+        let context = context_guard
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("WebGPU context must be initialized before use"))?;
         let surface = context
             .instance
             .create_surface(wgpu::SurfaceTarget::Canvas(canvas.clone()))
@@ -306,7 +310,14 @@ impl WgpuRenderer {
 
         let atlas = Arc::new(WgpuAtlas::from_context(context));
 
-        Self::new_internal(None, context, Some(surface), config, None, atlas)
+        Self::new_internal(
+            Some(Rc::clone(&gpu_context)),
+            context,
+            Some(surface),
+            config,
+            None,
+            atlas,
+        )
     }
 
     /// Construct the GPUI renderer against an offscreen WGPU texture.
@@ -565,9 +576,9 @@ impl WgpuRenderer {
             path_msaa_view: None,
         };
 
-        // Canvas (wasm) renderers have no stored GpuContext, so the
-        // `PrimitiveBatch::Custom` dispatch arm silently skips their batches.
-        // Keep the probe truthful: only native renderers advertise custom draw.
+        // Custom draws require the shared context during command encoding.
+        // Every interactive renderer, including the browser canvas renderer,
+        // retains it; callers without one keep custom draws disabled.
         let has_context = gpu_context.is_some();
         let renderer = Self {
             context: gpu_context,

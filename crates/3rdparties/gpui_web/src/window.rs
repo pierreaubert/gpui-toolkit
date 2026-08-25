@@ -10,7 +10,7 @@ use gpui::{
     ResizeEdge, Scene, Size, WindowAppearance, WindowBackgroundAppearance, WindowBounds,
     WindowControlArea, WindowControls, WindowDecorations, WindowParams, px,
 };
-use gpui_wgpu::{WgpuContext, WgpuRenderer, WgpuSurfaceConfig};
+use gpui_wgpu::{GpuContext, WgpuRenderer, WgpuSurfaceConfig};
 use wasm_bindgen::prelude::*;
 
 #[derive(Default)]
@@ -75,7 +75,7 @@ impl WebWindow {
     pub fn new(
         handle: AnyWindowHandle,
         _params: WindowParams,
-        context: &WgpuContext,
+        gpu_context: GpuContext,
         browser_window: web_sys::Window,
     ) -> anyhow::Result<Self> {
         let document = browser_window
@@ -89,7 +89,13 @@ impl WebWindow {
             .map_err(|e| anyhow::anyhow!("Created element is not a canvas: {e:?}"))?;
 
         let dpr = browser_window.device_pixel_ratio() as f32;
-        let max_texture_dimension = context.device.limits().max_texture_dimension_2d;
+        let max_texture_dimension = gpu_context
+            .borrow()
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("WebGPU context not initialized"))?
+            .device
+            .limits()
+            .max_texture_dimension_2d;
         let has_device_pixel_support = check_device_pixel_support();
 
         canvas.set_tab_index(-1);
@@ -144,7 +150,8 @@ impl WebWindow {
             preferred_present_mode: None,
         };
 
-        let renderer = WgpuRenderer::new_from_canvas(context, &canvas, renderer_config)?;
+        let renderer =
+            WgpuRenderer::new_from_canvas(Rc::clone(&gpu_context), &canvas, renderer_config)?;
 
         let display: Rc<dyn PlatformDisplay> = Rc::new(WebDisplay::new(browser_window.clone()));
 
