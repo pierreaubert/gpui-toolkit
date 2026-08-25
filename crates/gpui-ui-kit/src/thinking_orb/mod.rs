@@ -33,7 +33,7 @@ mod component {
     use crate::accessibility::{AccessibilityExt, AccessibilityNode, AriaProps, AriaRole};
     use crate::theme::ThemeExt;
     use gpui::{
-        Context, ElementId, IntoElement, Pixels, Render, SharedString, WeakEntity, Window, px,
+        Context, ElementId, IntoElement, Pixels, Render, Rgba, SharedString, WeakEntity, Window, px,
     };
     use std::time::Duration;
     // `std::time::Instant` panics on wasm32-unknown-unknown ("time not
@@ -45,6 +45,9 @@ mod component {
     /// Lower clamp for [`ThinkingOrb::count_scale`] so radii scaling
     /// (`1 / √factor`) stays finite.
     const MIN_COUNT_SCALE: f64 = 0.01;
+    /// Lower clamp for dot-radius scaling so invalid slider or API input never
+    /// produces zero, negative, or non-finite paint geometry.
+    const MIN_DOT_SCALE: f64 = 0.05;
 
     /// Per-frame geometry statistics for debugging overlays.
     #[derive(Clone, Copy, Debug, Default)]
@@ -81,6 +84,10 @@ mod component {
         speed: f32,
         /// Density multiplier (1.0 = preset-native density).
         count_scale: f64,
+        /// Optional dot tint. Lines retain their preset-native ink.
+        dot_color: Option<Rgba>,
+        /// Dot-radius multiplier (1.0 = preset-native radius).
+        dot_scale: f64,
         paused: bool,
         aria_label: Option<SharedString>,
         /// Preset-native resolution (mode + clock multiplier + base opts).
@@ -109,6 +116,8 @@ mod component {
                 size,
                 speed: 1.0,
                 count_scale: 1.0,
+                dot_color: None,
+                dot_scale: 1.0,
                 paused: false,
                 aria_label: None,
                 resolved,
@@ -124,7 +133,20 @@ mod component {
 
         /// Multiply the preset animation speed (1.0 = preset speed).
         pub fn speed(mut self, speed: f32) -> Self {
-            self.speed = speed;
+            self.speed = valid_speed(speed);
+            self
+        }
+
+        /// Tint dots while preserving their depth and alpha shading. Lines
+        /// retain their preset-native monochrome ink.
+        pub fn dot_color(mut self, color: Rgba) -> Self {
+            self.dot_color = Some(color);
+            self
+        }
+
+        /// Scale every dot radius (1.0 = preset-native radius).
+        pub fn dot_scale(mut self, scale: f64) -> Self {
+            self.dot_scale = valid_dot_scale(scale);
             self
         }
 
@@ -153,6 +175,35 @@ mod component {
         pub fn set_count_scale(&mut self, scale: f64, cx: &mut Context<Self>) {
             self.count_scale = scale.max(MIN_COUNT_SCALE);
             self.opts = scaled_opts(&self.resolved, self.count_scale);
+            cx.notify();
+        }
+
+        /// Update the animation clock multiplier without resetting its phase.
+        pub fn set_speed(&mut self, speed: f32, cx: &mut Context<Self>) {
+            let speed = valid_speed(speed);
+            if self.speed == speed {
+                return;
+            }
+            self.speed = speed;
+            cx.notify();
+        }
+
+        /// Update the live dot tint.
+        pub fn set_dot_color(&mut self, color: Rgba, cx: &mut Context<Self>) {
+            if self.dot_color == Some(color) {
+                return;
+            }
+            self.dot_color = Some(color);
+            cx.notify();
+        }
+
+        /// Update the live dot-radius multiplier.
+        pub fn set_dot_scale(&mut self, scale: f64, cx: &mut Context<Self>) {
+            let scale = valid_dot_scale(scale);
+            if self.dot_scale == scale {
+                return;
+            }
+            self.dot_scale = scale;
             cx.notify();
         }
 
@@ -201,7 +252,7 @@ mod component {
                             return false;
                         }
                         let now = Instant::now();
-                        this.elapsed += now - this.last_tick;
+                        this.elapsed += (now - this.last_tick).mul_f32(this.speed);
                         this.last_tick = now;
                         cx.notify();
                         true
@@ -235,7 +286,7 @@ mod component {
             let size_px: f32 = self.size.into();
             // `Resolved.speed` is the renderer-side clock multiplier — the
             // engine takes a raw t.
-            let t = self.elapsed.as_secs_f64() * f64::from(self.speed) * self.resolved.speed;
+            let t = self.elapsed.as_secs_f64() * self.resolved.speed;
             let start = Instant::now();
             let frame = engine::frame(self.resolved.mode, f64::from(size_px), t, &self.opts);
             self.stats = FrameStats {
@@ -244,7 +295,14 @@ mod component {
                 geometry_time: start.elapsed(),
             };
 
-            ThinkingOrbElement::new(self.id.clone(), frame, self.size, dark)
+            ThinkingOrbElement::new(
+                self.id.clone(),
+                frame,
+                self.size,
+                dark,
+                self.dot_color,
+                self.dot_scale,
+            )
         }
     }
 
@@ -262,5 +320,34 @@ mod component {
     fn scaled_opts(resolved: &Resolved, factor: f64) -> ModeOpts {
         let opts = scale_counts(&resolved.opts, factor);
         scale_radii(&opts, 1.0 / factor.sqrt())
+    }
+
+    fn valid_dot_scale(scale: f64) -> f64 {
+        if scale.is_finite() {
+            scale.max(MIN_DOT_SCALE)
+        } else {
+            1.0
+        }
+    }
+
+    fn valid_speed(speed: f32) -> f32 {
+        if speed.is_finite() {
+            speed.max(0.0)
+        } else {
+            1.0
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::{MIN_DOT_SCALE, valid_dot_scale, valid_speed};
+
+        #[test]
+        fn live_control_values_are_bounded_and_finite() {
+            assert_eq!(valid_dot_scale(-1.0), MIN_DOT_SCALE);
+            assert_eq!(valid_dot_scale(f64::INFINITY), 1.0);
+            assert_eq!(valid_speed(-1.0), 0.0);
+            assert_eq!(valid_speed(f32::NAN), 1.0);
+        }
     }
 }

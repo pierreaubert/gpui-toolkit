@@ -1,7 +1,9 @@
 use super::prelude::*;
+use gpui::Subscription;
 use gpui_builder::{Axis, ContainerNode, LayoutNode, LayoutPreferences, Sizing, SlotNode, solve};
+use gpui_ui_kit::color::Color;
 use gpui_ui_kit::thinking_orb::{engine, presets};
-use gpui_ui_kit::{OrbSize, OrbState, ThinkingOrb};
+use gpui_ui_kit::{ColorPickerView, OrbSize, OrbState, ThinkingOrb};
 use std::time::Duration;
 
 /// Default slider position: points rendered per sphere.
@@ -10,6 +12,12 @@ const DEFAULT_POINTS_PER_SPHERE: f32 = 256.0;
 const ORB_SIZE: f32 = 96.0;
 /// Largest interactive sphere size, expressed as a multiple of [`ORB_SIZE`].
 const MAX_ORB_SIZE_SCALE: f32 = 8.0;
+const DEFAULT_DOT_SIZE_SCALE: f32 = 1.0;
+const MIN_DOT_SIZE_SCALE: f32 = 0.25;
+const MAX_DOT_SIZE_SCALE: f32 = 4.0;
+const DEFAULT_ORB_SPEED: f32 = 0.5;
+const MIN_ORB_SPEED: f32 = 0.05;
+const MAX_ORB_SPEED: f32 = 2.0;
 const ORB_GRID_GAP: f32 = 16.0;
 const SHOWCASE_SIDEBAR_WIDTH: f32 = 220.0;
 const SHOWCASE_WIDE_CONTENT_PADDING: f32 = 64.0;
@@ -33,6 +41,10 @@ pub(crate) struct ThinkingOrbsLab {
     orbs: Vec<(OrbState, Entity<ThinkingOrb>)>,
     points_per_sphere: f32,
     sphere_size_scale: f32,
+    dot_size_scale: f32,
+    speed_scale: f32,
+    dot_color_picker: Entity<ColorPickerView>,
+    _dot_color_subscription: Subscription,
     /// Preset-native dot counts at t=0 (Px64 tuning), per state — the slider
     /// maps its absolute point target to a per-orb `count_scale` factor.
     base_counts: Vec<usize>,
@@ -40,6 +52,7 @@ pub(crate) struct ThinkingOrbsLab {
 
 impl ThinkingOrbsLab {
     pub(crate) fn new(cx: &mut Context<Self>) -> Self {
+        let dot_color = Color::rgb(96, 165, 250);
         let mut orbs = Vec::with_capacity(OrbState::ALL.len());
         let mut base_counts = Vec::with_capacity(OrbState::ALL.len());
         for state in OrbState::ALL {
@@ -49,15 +62,27 @@ impl ThinkingOrbsLab {
                 .len()
                 .max(1);
             base_counts.push(base);
-            let orb = cx.new(|cx| ThinkingOrb::new(state, px(ORB_SIZE), cx));
+            let orb = cx.new(|cx| {
+                ThinkingOrb::new(state, px(ORB_SIZE), cx)
+                    .speed(DEFAULT_ORB_SPEED)
+                    .dot_color(dot_color.to_rgba())
+            });
             let factor = f64::from(DEFAULT_POINTS_PER_SPHERE) / base as f64;
             orb.update(cx, |orb, cx| orb.set_count_scale(factor, cx));
             orbs.push((state, orb));
         }
+        let dot_color_picker = cx.new(|_| ColorPickerView::new("Small dot color", dot_color));
+        let dot_color_subscription = cx.observe(&dot_color_picker, |this, picker, cx| {
+            this.apply_dot_color(picker.read(cx).color(), cx);
+        });
         Self {
             orbs,
             points_per_sphere: DEFAULT_POINTS_PER_SPHERE,
             sphere_size_scale: 1.0,
+            dot_size_scale: DEFAULT_DOT_SIZE_SCALE,
+            speed_scale: DEFAULT_ORB_SPEED,
+            dot_color_picker,
+            _dot_color_subscription: dot_color_subscription,
             base_counts,
         }
     }
@@ -76,6 +101,30 @@ impl ThinkingOrbsLab {
         let size = px(ORB_SIZE * scale);
         for (_state, orb) in &self.orbs {
             orb.update(cx, |orb, cx| orb.set_size(size, cx));
+        }
+        cx.notify();
+    }
+
+    fn apply_dot_size_scale(&mut self, scale: f32, cx: &mut Context<Self>) {
+        self.dot_size_scale = scale;
+        for (_state, orb) in &self.orbs {
+            orb.update(cx, |orb, cx| orb.set_dot_scale(f64::from(scale), cx));
+        }
+        cx.notify();
+    }
+
+    fn apply_speed_scale(&mut self, scale: f32, cx: &mut Context<Self>) {
+        self.speed_scale = scale;
+        for (_state, orb) in &self.orbs {
+            orb.update(cx, |orb, cx| orb.set_speed(scale, cx));
+        }
+        cx.notify();
+    }
+
+    fn apply_dot_color(&mut self, color: Color, cx: &mut Context<Self>) {
+        let rgba = color.to_rgba();
+        for (_state, orb) in &self.orbs {
+            orb.update(cx, |orb, cx| orb.set_dot_color(rgba, cx));
         }
         cx.notify();
     }
@@ -141,6 +190,7 @@ impl Render for ThinkingOrbsLab {
             viewport_width - SHOWCASE_SIDEBAR_WIDTH - SHOWCASE_WIDE_CONTENT_PADDING
         };
         let grid_columns = orb_grid_columns(content_width, card_width);
+        let control_columns = orb_grid_columns(content_width, 300.0).min(3);
         let grid_width =
             card_width * grid_columns as f32 + ORB_GRID_GAP * grid_columns.saturating_sub(1) as f32;
 
@@ -165,61 +215,133 @@ impl Render for ThinkingOrbsLab {
             .child(Heading::h2(cx.t(TranslationKey::SectionThinkingOrbs)))
             .child(
                 div()
-                    .flex()
-                    .flex_col()
-                    .gap_2()
+                    .w_full()
+                    .grid()
+                    .grid_cols(control_columns as u16)
+                    .gap_4()
                     .child(
-                        Text::new(format!("Points per sphere: {:.0}", self.points_per_sphere))
-                            .weight(TextWeight::Medium),
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap_2()
+                            .child(
+                                Text::new(format!(
+                                    "Points per sphere: {:.0}",
+                                    self.points_per_sphere
+                                ))
+                                .weight(TextWeight::Medium),
+                            )
+                            .child(
+                                div().w(px(300.0)).child(
+                                    Slider::new("orbs-density")
+                                        .min(64.0)
+                                        .max(1024.0)
+                                        .step(1.0)
+                                        .value(self.points_per_sphere)
+                                        .size(SliderSize::Md)
+                                        .on_change({
+                                            let entity = entity.clone();
+                                            move |value, _window, cx| {
+                                                entity.update(cx, |lab, cx| {
+                                                    lab.apply_density(value, cx);
+                                                });
+                                            }
+                                        }),
+                                ),
+                            ),
                     )
                     .child(
-                        div().w(px(300.0)).child(
-                            Slider::new("orbs-density")
-                                .min(64.0)
-                                .max(1024.0)
-                                .step(1.0)
-                                .value(self.points_per_sphere)
-                                .size(SliderSize::Md)
-                                .on_change({
-                                    let entity = entity.clone();
-                                    move |value, _window, cx| {
-                                        entity.update(cx, |lab, cx| {
-                                            lab.apply_density(value, cx);
-                                        });
-                                    }
-                                }),
-                        ),
-                    ),
-            )
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap_2()
-                    .child(
-                        Text::new(format!(
-                            "Sphere size: {:.2}× ({sphere_size:.0} px)",
-                            self.sphere_size_scale,
-                        ))
-                        .weight(TextWeight::Medium),
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap_2()
+                            .child(
+                                Text::new(format!(
+                                    "Sphere size: {:.2}× ({sphere_size:.0} px)",
+                                    self.sphere_size_scale,
+                                ))
+                                .weight(TextWeight::Medium),
+                            )
+                            .child(
+                                div().w(px(300.0)).child(
+                                    Slider::new("orbs-size")
+                                        .min(1.0)
+                                        .max(MAX_ORB_SIZE_SCALE)
+                                        .step(0.25)
+                                        .value(self.sphere_size_scale)
+                                        .size(SliderSize::Md)
+                                        .on_change({
+                                            let entity = entity.clone();
+                                            move |value, _window, cx| {
+                                                entity.update(cx, |lab, cx| {
+                                                    lab.apply_size_scale(value, cx);
+                                                });
+                                            }
+                                        }),
+                                ),
+                            ),
                     )
                     .child(
-                        div().w(px(300.0)).child(
-                            Slider::new("orbs-size")
-                                .min(1.0)
-                                .max(MAX_ORB_SIZE_SCALE)
-                                .step(0.25)
-                                .value(self.sphere_size_scale)
-                                .size(SliderSize::Md)
-                                .on_change({
-                                    let entity = entity.clone();
-                                    move |value, _window, cx| {
-                                        entity.update(cx, |lab, cx| {
-                                            lab.apply_size_scale(value, cx);
-                                        });
-                                    }
-                                }),
-                        ),
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap_2()
+                            .child(
+                                Text::new(format!("Small dot size: {:.2}×", self.dot_size_scale))
+                                    .weight(TextWeight::Medium),
+                            )
+                            .child(
+                                div().w(px(300.0)).child(
+                                    Slider::new("orbs-dot-size")
+                                        .min(MIN_DOT_SIZE_SCALE)
+                                        .max(MAX_DOT_SIZE_SCALE)
+                                        .step(0.05)
+                                        .value(self.dot_size_scale)
+                                        .size(SliderSize::Md)
+                                        .on_change({
+                                            let entity = entity.clone();
+                                            move |value, _window, cx| {
+                                                entity.update(cx, |lab, cx| {
+                                                    lab.apply_dot_size_scale(value, cx);
+                                                });
+                                            }
+                                        }),
+                                ),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap_2()
+                            .child(
+                                Text::new(format!("Animation speed: {:.2}×", self.speed_scale))
+                                    .weight(TextWeight::Medium),
+                            )
+                            .child(
+                                div().w(px(300.0)).child(
+                                    Slider::new("orbs-speed")
+                                        .min(MIN_ORB_SPEED)
+                                        .max(MAX_ORB_SPEED)
+                                        .step(0.05)
+                                        .value(self.speed_scale)
+                                        .size(SliderSize::Md)
+                                        .on_change({
+                                            let entity = entity.clone();
+                                            move |value, _window, cx| {
+                                                entity.update(cx, |lab, cx| {
+                                                    lab.apply_speed_scale(value, cx);
+                                                });
+                                            }
+                                        }),
+                                ),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .id("thinking-orbs-color-picker")
+                            .w(px(300.0))
+                            .child(self.dot_color_picker.clone()),
                     ),
             )
             .child(
