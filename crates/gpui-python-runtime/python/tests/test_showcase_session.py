@@ -15,6 +15,33 @@ from showcase import RuntimeShowcase
 
 
 class RuntimeShowcaseSessionTests(unittest.TestCase):
+    def test_orb_controls_patch_every_native_orb(self):
+        output = io.StringIO()
+        context = SessionContext()
+        event = Event(
+            id="event-orb-size",
+            sequence=1,
+            node_id="orb-size",
+            event="change",
+            action="set_orb_size",
+            payload={"value": 2.0},
+        )
+        with contextlib.redirect_stdout(output):
+            RuntimeShowcase().on_action(event, context)
+
+        messages = [json.loads(line) for line in output.getvalue().splitlines()]
+        patch = next(message for message in messages if message.get("type") == "patch")
+        sphere_ops = [
+            op
+            for op in patch["ops"]
+            if op.get("property") == "size" and op.get("id", "").startswith("thinking-orb-")
+        ]
+        cell_ops = [op for op in patch["ops"] if op.get("property") == "width"]
+        self.assertEqual(len(sphere_ops), 9)
+        self.assertTrue(all(op["value"] == 192.0 for op in sphere_ops))
+        self.assertEqual(len(cell_ops), 9)
+        self.assertTrue(all(op["value"] == 192.0 for op in cell_ops))
+
     def test_run_action_streams_a_job_and_result_patch(self):
         output = io.StringIO()
         context = SessionContext()

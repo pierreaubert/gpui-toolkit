@@ -144,6 +144,37 @@ def spinner(label: str | None = None, **props: Any) -> Node:
     return Node("spinner", {"label": label, **props})
 
 
+def thinking_orb(
+    state: str,
+    *,
+    id: str,
+    size: float = 96.0,
+    points_per_sphere: float = 256.0,
+    speed: float = 0.5,
+    dot_scale: float = 1.0,
+    dot_color: str = "#60a5fa",
+    paused: bool = False,
+    aria_label: str | None = None,
+    **props: Any,
+) -> Node:
+    """Render the native animated dotted-sphere status indicator."""
+    return Node(
+        "thinking_orb",
+        {
+            "id": id,
+            "state": state,
+            "size": float(size),
+            "points_per_sphere": float(points_per_sphere),
+            "speed": float(speed),
+            "dot_scale": float(dot_scale),
+            "dot_color": dot_color,
+            "paused": paused,
+            "aria_label": aria_label,
+            **props,
+        },
+    )
+
+
 def breadcrumbs(
     *, id: str, items: Sequence[dict[str, Any] | tuple[str, str]],
     separator: str = "slash", action: str | None = None, **props: Any,

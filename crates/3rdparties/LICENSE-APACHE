@@ -1,0 +1,11 @@
+--2026-08-25 16:26:52--  https://www.apache.org/licenses/LICENSE-2.0.txt
+Resolving www.apache.org (www.apache.org)... 151.101.2.132
+Connecting to www.apache.org (www.apache.org)|151.101.2.132|:443... connected.
+HTTP request sent, awaiting response... 200 OK
+Length: 11358 (11K) [text/plain]
+Saving to: ‘LICENSE-2.0.txt’
+
+     0K .......... .                                          100%  266K=0.04s
+
+2026-08-25 16:26:53 (266 KB/s) - ‘LICENSE-2.0.txt’ saved [11358/11358]
+

@@ -598,6 +598,7 @@ pub enum UiNode {
     Metric(MetricNode),
     Progress(ProgressNode),
     Spinner(SpinnerNode),
+    ThinkingOrb(ThinkingOrbNode),
     Breadcrumbs(BreadcrumbsNode),
     Alert(AlertNode),
     Toast(ToastNode),
@@ -673,6 +674,7 @@ impl UiNode {
             Self::TextInput(node) => node.validate(),
             Self::NumberInput(node) => node.validate(),
             Self::Slider(node) => node.validate(),
+            Self::ThinkingOrb(node) => node.validate(),
             Self::AudioPotentiometer(node)
             | Self::AudioVerticalSlider(node)
             | Self::AudioVolumeKnob(node) => node.validate(),
@@ -907,6 +909,93 @@ pub struct SpinnerNode {
     #[serde(default)]
     pub id: Option<String>,
     pub label: Option<String>,
+}
+
+fn default_thinking_orb_size() -> f32 {
+    96.0
+}
+
+fn default_thinking_orb_points() -> f32 {
+    256.0
+}
+
+fn default_thinking_orb_speed() -> f32 {
+    0.5
+}
+
+fn default_thinking_orb_dot_scale() -> f64 {
+    1.0
+}
+
+fn default_thinking_orb_dot_color() -> String {
+    "#60a5fa".into()
+}
+
+/// Animated dotted-sphere status indicator rendered by the native
+/// `gpui-ui-kit` ThinkingOrb component.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ThinkingOrbNode {
+    pub id: String,
+    pub state: String,
+    #[serde(default = "default_thinking_orb_size")]
+    pub size: f32,
+    #[serde(default = "default_thinking_orb_points")]
+    pub points_per_sphere: f32,
+    #[serde(default = "default_thinking_orb_speed")]
+    pub speed: f32,
+    #[serde(default = "default_thinking_orb_dot_scale")]
+    pub dot_scale: f64,
+    #[serde(default = "default_thinking_orb_dot_color")]
+    pub dot_color: String,
+    #[serde(default)]
+    pub paused: bool,
+    pub aria_label: Option<String>,
+}
+
+impl ThinkingOrbNode {
+    fn validate(&self) -> Result<(), UiIrError> {
+        if self.id.trim().is_empty() {
+            return Err(UiIrError::InvalidPatch {
+                message: "thinking orb id must not be empty".into(),
+            });
+        }
+        if !matches!(
+            self.state.as_str(),
+            "working"
+                | "searching"
+                | "solving"
+                | "listening"
+                | "connecting"
+                | "weaving"
+                | "composing"
+                | "breathing"
+                | "shaping"
+        ) {
+            return Err(UiIrError::InvalidPatch {
+                message: format!("unknown thinking orb state {:?}", self.state),
+            });
+        }
+        if !self.size.is_finite()
+            || self.size <= 0.0
+            || !self.points_per_sphere.is_finite()
+            || self.points_per_sphere <= 0.0
+            || !self.speed.is_finite()
+            || self.speed < 0.0
+            || !self.dot_scale.is_finite()
+            || self.dot_scale <= 0.0
+        {
+            return Err(UiIrError::InvalidPatch {
+                message: format!("thinking orb {:?} has invalid numeric properties", self.id),
+            });
+        }
+        let color = self.dot_color.strip_prefix('#').unwrap_or(&self.dot_color);
+        if !matches!(color.len(), 6 | 8) || !color.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            return Err(UiIrError::InvalidPatch {
+                message: "thinking orb dot_color must be #RRGGBB or #RRGGBBAA".into(),
+            });
+        }
+        Ok(())
+    }
 }
 
 /// Native navigation breadcrumbs.  Items use application-stable IDs so the
@@ -2917,6 +3006,42 @@ mod tests {
             invalid.validate(),
             Err(UiIrError::InvalidPatch { .. })
         ));
+    }
+
+    #[test]
+    fn validates_native_thinking_orb_contract() {
+        let app: PythonAppIr = serde_json::from_value(serde_json::json!({
+            "title": "Demo",
+            "sections": [{"id": "main", "label": "Main", "content": {
+                "kind": "thinking_orb",
+                "id": "working-orb",
+                "state": "working",
+                "size": 192.0,
+                "points_per_sphere": 512.0,
+                "speed": 0.25,
+                "dot_scale": 4.0,
+                "dot_color": "#60a5fa"
+            }}]
+        }))
+        .unwrap();
+        assert!(app.validate().is_ok());
+
+        for (property, value) in [
+            ("state", serde_json::json!("unknown")),
+            ("size", serde_json::json!(-1.0)),
+            ("points_per_sphere", serde_json::json!(0.0)),
+            ("speed", serde_json::json!(-0.5)),
+            ("dot_scale", serde_json::json!(0.0)),
+            ("dot_color", serde_json::json!("blue")),
+        ] {
+            let mut content = serde_json::json!({
+                "kind": "thinking_orb",
+                "id": "working-orb",
+                "state": "working"
+            });
+            content[property] = value;
+            assert_invalid_content(content);
+        }
     }
 
     #[test]

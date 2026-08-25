@@ -45,11 +45,13 @@ use gpui_python_runtime::ui_ir::{
     EmptyStateNode, FormNode, ListEditorNode, MenuBarNode, MenuItemNode, MenuNode, MeshPlotNode,
     MiniAppShellConfig, NumberInputNode, PathInputNode, PopoverNode, ProgressNode, PythonAppIr,
     Scene3dNode, SectionHeaderNode, SelectNode, SimpleNode, SliderNode, SpinnerNode, StackNode,
-    StepperNode, TableNode, TabsNode, TextInputNode, TextNode, ToastNode, TooltipNode, UiNode,
+    StepperNode, TableNode, TabsNode, TextInputNode, TextNode, ThinkingOrbNode, ToastNode,
+    TooltipNode, UiNode,
 };
 use gpui_ui_kit::color::Color;
 use gpui_ui_kit::data_navigation::{DataNavigationAction, DataNavigationState};
 use gpui_ui_kit::theme::{Theme, ThemeExt, ThemeState, ThemeVariant};
+use gpui_ui_kit::thinking_orb::{engine as thinking_orb_engine, presets as thinking_orb_presets};
 use gpui_ui_kit::{
     Alert, AlertVariant, BreadcrumbItem, BreadcrumbSeparator, Breadcrumbs, ColorPickerView,
     ConfirmDialog, ConfirmDialogVariant, ContextMenu, Dialog, DialogSize, DragItem, DragList,
@@ -64,6 +66,7 @@ use gpui_ui_kit::{
     toggle::Toggle,
 };
 use gpui_ui_kit::{AriaProps, AriaRole, AriaState, apply_native_accessibility};
+use gpui_ui_kit::{OrbSize, OrbState, ThinkingOrb};
 use serde::Deserialize;
 use serde_json::Value;
 use std::cell::RefCell;
@@ -6038,6 +6041,7 @@ pub(super) struct PythonIrShowcase {
     color_pickers: HashMap<String, Entity<ColorPickerView>>,
     color_picker_subscriptions: HashMap<String, Subscription>,
     color_picker_actions: HashMap<String, Option<String>>,
+    thinking_orbs: HashMap<String, (OrbState, Entity<ThinkingOrb>)>,
     tab_focus: HashMap<String, FocusHandle>,
     /// Retained per-chart interaction state. Re-renders rebuild the draw list
     /// from this state, so data patches do not discard a user's zoom or pan.
@@ -6127,6 +6131,7 @@ impl PythonIrShowcase {
             color_pickers: HashMap::new(),
             color_picker_subscriptions: HashMap::new(),
             color_picker_actions: HashMap::new(),
+            thinking_orbs: HashMap::new(),
             tab_focus: HashMap::new(),
             chart_interactions: HashMap::new(),
             chart_hidden_series: HashMap::new(),
@@ -6844,6 +6849,7 @@ impl PythonIrShowcase {
             UiNode::Metric(node) => self.render_metric(node, theme, ds),
             UiNode::Progress(node) => self.render_progress(node, theme, ds),
             UiNode::Spinner(node) => self.render_spinner(node, theme, ds),
+            UiNode::ThinkingOrb(node) => self.render_thinking_orb(node, theme, ds, cx),
             UiNode::Breadcrumbs(node) => self.render_breadcrumbs(node),
             UiNode::Alert(node) => self.render_alert(node),
             UiNode::Toast(node) => self.render_toast(node),
@@ -8642,6 +8648,89 @@ impl PythonIrShowcase {
                     .child(label.clone())
             }))
             .into_any_element()
+    }
+
+    fn render_thinking_orb(
+        &mut self,
+        node: &ThinkingOrbNode,
+        theme: &Theme,
+        ds: &DesignSystem,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let state = match node.state.parse::<OrbState>() {
+            Ok(state) => state,
+            Err(()) => {
+                return self.render_error(
+                    &format!("Invalid thinking orb state {:?}", node.state),
+                    theme,
+                    ds,
+                );
+            }
+        };
+        let color = match Color::from_hex_string(&node.dot_color) {
+            Some(color) => color.to_rgba(),
+            None => {
+                return self.render_error(
+                    &format!("Invalid thinking orb color {:?}", node.dot_color),
+                    theme,
+                    ds,
+                );
+            }
+        };
+        let preset_size = if node.size <= 40.0 {
+            OrbSize::Px20
+        } else {
+            OrbSize::Px64
+        };
+        let resolved = thinking_orb_presets::resolve_preset(state, preset_size);
+        let base_count =
+            thinking_orb_engine::frame(resolved.mode, f64::from(node.size), 0.0, &resolved.opts)
+                .dots
+                .len()
+                .max(1);
+        let count_scale = f64::from(node.points_per_sphere) / base_count as f64;
+        let size = px(node.size);
+
+        if self
+            .thinking_orbs
+            .get(&node.id)
+            .is_none_or(|(current_state, _)| *current_state != state)
+        {
+            let aria_label = node.aria_label.clone();
+            let speed = node.speed;
+            let dot_scale = node.dot_scale;
+            let paused = node.paused;
+            let entity = cx.new(move |cx| {
+                let mut orb = ThinkingOrb::new(state, size, cx)
+                    .speed(speed)
+                    .count_scale(count_scale)
+                    .dot_scale(dot_scale)
+                    .dot_color(color)
+                    .paused(paused);
+                if let Some(label) = aria_label {
+                    orb = orb.aria_label(label);
+                }
+                orb
+            });
+            self.thinking_orbs.insert(node.id.clone(), (state, entity));
+        }
+
+        let orb = self
+            .thinking_orbs
+            .get(&node.id)
+            .expect("thinking orb cache populated")
+            .1
+            .clone();
+        orb.update(cx, |orb, cx| {
+            orb.set_size(size, cx);
+            orb.set_speed(node.speed, cx);
+            orb.set_count_scale(count_scale, cx);
+            orb.set_dot_scale(node.dot_scale, cx);
+            orb.set_dot_color(color, cx);
+            orb.set_paused(node.paused, cx);
+        });
+
+        div().w(size).h(size).child(orb).into_any_element()
     }
 
     fn render_breadcrumbs(&self, node: &BreadcrumbsNode) -> AnyElement {

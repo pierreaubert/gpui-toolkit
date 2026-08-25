@@ -217,6 +217,24 @@ class UiBuilderTests(unittest.TestCase):
         self.assertEqual(spec["kind"], "color_picker")
         self.assertEqual(spec["value"], "#ff00ffaa")
 
+    def test_thinking_orb_exposes_native_animation_controls(self):
+        spec = ui.thinking_orb(
+            "working",
+            id="status-orb",
+            size=192.0,
+            points_per_sphere=512.0,
+            speed=0.25,
+            dot_scale=4.0,
+            dot_color="#60a5fa",
+        ).to_spec()
+        self.assertEqual(spec["kind"], "thinking_orb")
+        self.assertEqual(spec["state"], "working")
+        self.assertEqual(spec["size"], 192.0)
+        self.assertEqual(spec["points_per_sphere"], 512.0)
+        self.assertEqual(spec["speed"], 0.25)
+        self.assertEqual(spec["dot_scale"], 4.0)
+        self.assertEqual(spec["dot_color"], "#60a5fa")
+
     def test_navigation_and_feedback_nodes_preserve_native_event_contracts(self):
         crumbs = ui.breadcrumbs(
             id="location", items=[("home", "Home"), {"id": "run", "label": "Run"}],

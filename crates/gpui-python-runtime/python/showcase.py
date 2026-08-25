@@ -7,11 +7,83 @@ import time
 
 from gpui_toolkit import App, Event, SessionContext, charts, scene3d as s3, section, ui
 
+ORB_STATES = (
+    "working",
+    "searching",
+    "solving",
+    "listening",
+    "connecting",
+    "weaving",
+    "composing",
+    "breathing",
+    "shaping",
+)
+ORB_BASE_SIZE = 96.0
+ORB_COLOR = "#60a5fa"
+
 
 class RuntimeShowcase(App):
     """A small live-session path exercised by the bundled native showcase."""
 
     def on_action(self, event: Event, context: SessionContext) -> None:
+        orb_slider_actions = {
+            "set_orb_density": ("orb-density", "points_per_sphere"),
+            "set_orb_size": ("orb-size", "size"),
+            "set_orb_dot_size": ("orb-dot-size", "dot_scale"),
+            "set_orb_speed": ("orb-speed", "speed"),
+        }
+        if event.action in orb_slider_actions:
+            control_id, property_name = orb_slider_actions[event.action]
+            value = float(event.payload.get("value", 0.0))
+            orb_value = ORB_BASE_SIZE * value if property_name == "size" else value
+            ops = [
+                {"op": "set", "id": control_id, "property": "value", "value": value}
+            ]
+            for state in ORB_STATES:
+                ops.append(
+                    {
+                        "op": "set",
+                        "id": f"thinking-orb-{state}",
+                        "property": property_name,
+                        "value": orb_value,
+                    }
+                )
+                if property_name == "size":
+                    ops.append(
+                        {
+                            "op": "set",
+                            "id": f"thinking-orb-cell-{state}",
+                            "property": "width",
+                            "value": max(128.0, orb_value),
+                        }
+                    )
+            context.acknowledge(event)
+            context.patch(ops, request_id=event.id)
+            return
+
+        if event.action == "set_orb_color":
+            color = str(event.payload.get("value", ORB_COLOR))
+            ops = [
+                {
+                    "op": "set",
+                    "id": "orb-dot-color",
+                    "property": "value",
+                    "value": color,
+                }
+            ]
+            ops.extend(
+                {
+                    "op": "set",
+                    "id": f"thinking-orb-{state}",
+                    "property": "dot_color",
+                    "value": color,
+                }
+                for state in ORB_STATES
+            )
+            context.acknowledge(event)
+            context.patch(ops, request_id=event.id)
+            return
+
         if event.action == "set_simulation_step":
             context.acknowledge(event)
             context.patch([
@@ -61,6 +133,7 @@ def build_app() -> App:
         sections=[
             section("overview", "Overview", overview_section()),
             section("ui-kit", "UI Kit", ui_kit_section()),
+            section("thinking-orbs", "Thinking Orbs", thinking_orbs_section()),
             section(
                 "charts",
                 "gpui-px Charts",
@@ -213,7 +286,7 @@ def overview_section() -> ui.Node:
             ui.section_header("Python-authored Showcase", "The app shell, sections, charts, and 3D specs are Python data"),
             ui.wrap(
                 [
-                    ui.metric("UI sections", 6),
+                ui.metric("UI sections", 7),
                     ui.metric("Chart demos", 4),
                     ui.metric("3D specs", 3),
                     ui.metric("Raw wgpu exposed", 0),
@@ -236,6 +309,94 @@ def overview_section() -> ui.Node:
                 ],
                 width=760.0,
             ),
+        ],
+        gap=20.0,
+    )
+
+
+def thinking_orbs_section() -> ui.Node:
+    controls = ui.vstack(
+        [
+            ui.slider(
+                id="orb-density",
+                label="Points per sphere",
+                value=256.0,
+                minimum=64.0,
+                maximum=1024.0,
+                step=1.0,
+                action="set_orb_density",
+                width=300.0,
+            ),
+            ui.slider(
+                id="orb-size",
+                label="Sphere size (×)",
+                value=1.0,
+                minimum=1.0,
+                maximum=8.0,
+                step=0.25,
+                action="set_orb_size",
+                width=300.0,
+            ),
+            ui.slider(
+                id="orb-dot-size",
+                label="Small dot size (×)",
+                value=1.0,
+                minimum=0.25,
+                maximum=20.0,
+                step=0.05,
+                action="set_orb_dot_size",
+                width=300.0,
+            ),
+            ui.slider(
+                id="orb-speed",
+                label="Animation speed (×)",
+                value=0.5,
+                minimum=0.05,
+                maximum=2.0,
+                step=0.05,
+                action="set_orb_speed",
+                width=300.0,
+            ),
+        ],
+        gap=12.0,
+        width=340.0,
+    )
+    color_picker = ui.color_picker(
+        id="orb-dot-color",
+        label="Small dot color",
+        value=ORB_COLOR,
+        action="set_orb_color",
+        width=400.0,
+    )
+    orbs = [
+        ui.vstack(
+            [
+                ui.text(state.capitalize()),
+                ui.thinking_orb(
+                    state,
+                    id=f"thinking-orb-{state}",
+                    size=ORB_BASE_SIZE,
+                    points_per_sphere=256.0,
+                    speed=0.5,
+                    dot_scale=1.0,
+                    dot_color=ORB_COLOR,
+                    aria_label=f"{state.capitalize()} thinking orb",
+                ),
+            ],
+            id=f"thinking-orb-cell-{state}",
+            gap=8.0,
+            width=128.0,
+        )
+        for state in ORB_STATES
+    ]
+    return ui.vstack(
+        [
+            ui.section_header(
+                "Thinking Orbs",
+                "All nine native status animations with shared appearance and speed controls.",
+            ),
+            ui.wrap([controls, color_picker], gap=20.0),
+            ui.wrap(orbs, gap=16.0),
         ],
         gap=20.0,
     )
