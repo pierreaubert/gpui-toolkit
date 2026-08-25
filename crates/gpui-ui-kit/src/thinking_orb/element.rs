@@ -9,7 +9,7 @@ use d3rs::vello2d::peniko::{Brush, Color};
 use d3rs::vello2d::{ChartScene, VelloScenePainter};
 use gpui::{
     App, Bounds, Element, ElementId, GlobalElementId, InspectorElementId, IntoElement, LayoutId,
-    Pixels, Style, Window, size,
+    Pixels, Rgba, Style, Window, size,
 };
 use std::panic::Location;
 
@@ -22,6 +22,15 @@ fn ink_brush(white: f64, a: Option<f64>, dark: bool) -> Brush {
     Brush::Solid(Color::new([gray, gray, gray, alpha]))
 }
 
+/// Tint preset ink while retaining its light/dark depth fade and alpha.
+fn tint_brush(tint: Rgba, white: f64, a: Option<f64>, dark: bool) -> Brush {
+    let strength = white.clamp(0.0, 1.0) as f32;
+    let background = if dark { 0.0 } else { 1.0 };
+    let mix = |component: f32| background + (component - background) * strength;
+    let alpha = tint.a * a.unwrap_or(1.0).clamp(0.0, 1.0) as f32;
+    Brush::Solid(Color::new([mix(tint.r), mix(tint.g), mix(tint.b), alpha]))
+}
+
 /// Vello-painted element for a single finished [`OrbFrame`], laid out as a
 /// fixed `size` × `size` square. Engine coordinates remain local to that
 /// square: both Vello backends rasterize an element-local scene.
@@ -31,24 +40,40 @@ pub struct ThinkingOrbElement {
     frame: OrbFrame,
     size: Pixels,
     dark: bool,
+    dot_color: Option<Rgba>,
+    dot_scale: f64,
     painter: VelloScenePainter,
 }
 
 impl ThinkingOrbElement {
     #[track_caller]
-    pub fn new(id: ElementId, frame: OrbFrame, size: Pixels, dark: bool) -> Self {
+    pub fn new(
+        id: ElementId,
+        frame: OrbFrame,
+        size: Pixels,
+        dark: bool,
+        dot_color: Option<Rgba>,
+        dot_scale: f64,
+    ) -> Self {
         Self {
             id,
             source_location: Location::caller(),
             frame,
             size,
             dark,
+            dot_color,
+            dot_scale,
             painter: VelloScenePainter::new(),
         }
     }
 }
 
-fn scene_for_frame(frame: &OrbFrame, dark: bool) -> ChartScene {
+fn scene_for_frame(
+    frame: &OrbFrame,
+    dark: bool,
+    dot_color: Option<Rgba>,
+    dot_scale: f64,
+) -> ChartScene {
     let mut scene = ChartScene::new();
     // Lines first, then the z-sorted (far→near) dots.
     for line in &frame.lines {
@@ -59,7 +84,11 @@ fn scene_for_frame(frame: &OrbFrame, dark: bool) -> ChartScene {
         );
     }
     for dot in &frame.dots {
-        scene.fill_circle(dot.x, dot.y, dot.r, ink_brush(dot.white, dot.a, dark));
+        let brush = dot_color.map_or_else(
+            || ink_brush(dot.white, dot.a, dark),
+            |color| tint_brush(color, dot.white, dot.a, dark),
+        );
+        scene.fill_circle(dot.x, dot.y, dot.r * dot_scale, brush);
     }
     scene
 }
@@ -123,7 +152,7 @@ impl Element for ThinkingOrbElement {
         window: &mut Window,
         _cx: &mut App,
     ) {
-        let scene = scene_for_frame(&self.frame, self.dark);
+        let scene = scene_for_frame(&self.frame, self.dark, self.dot_color, self.dot_scale);
         self.painter.paint_retained(id, &scene, bounds, window);
     }
 }
@@ -139,7 +168,7 @@ mod tests {
     fn cpu_scene_has_coverage_at_its_local_raster_origin() {
         let resolved = resolve_preset(OrbState::Working, OrbSize::Px64);
         let frame = engine::frame(resolved.mode, 96.0, 0.0, &resolved.opts);
-        let scene = scene_for_frame(&frame, true);
+        let scene = scene_for_frame(&frame, true, None, 1.0);
 
         let pixels = CpuRasterizer::new(96, 96).rasterize(&scene, 96, 96);
         assert!(
