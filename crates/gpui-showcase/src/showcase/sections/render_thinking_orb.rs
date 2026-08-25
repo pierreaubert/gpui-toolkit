@@ -1,5 +1,6 @@
 use super::prelude::*;
 use gpui::Subscription;
+use gpui::prelude::FluentBuilder as _;
 use gpui_builder::{Axis, ContainerNode, LayoutNode, LayoutPreferences, Sizing, SlotNode, solve};
 use gpui_ui_kit::color::Color;
 use gpui_ui_kit::thinking_orb::{engine, presets};
@@ -14,7 +15,7 @@ const ORB_SIZE: f32 = 96.0;
 const MAX_ORB_SIZE_SCALE: f32 = 8.0;
 const DEFAULT_DOT_SIZE_SCALE: f32 = 1.0;
 const MIN_DOT_SIZE_SCALE: f32 = 0.25;
-const MAX_DOT_SIZE_SCALE: f32 = 4.0;
+const MAX_DOT_SIZE_SCALE: f32 = 20.0;
 const DEFAULT_ORB_SPEED: f32 = 0.5;
 const MIN_ORB_SPEED: f32 = 0.05;
 const MAX_ORB_SPEED: f32 = 2.0;
@@ -190,7 +191,7 @@ impl Render for ThinkingOrbsLab {
             viewport_width - SHOWCASE_SIDEBAR_WIDTH - SHOWCASE_WIDE_CONTENT_PADDING
         };
         let grid_columns = orb_grid_columns(content_width, card_width);
-        let control_columns = orb_grid_columns(content_width, 300.0).min(3);
+        let control_columns = orb_grid_columns(content_width, 400.0).min(2);
         let grid_width =
             card_width * grid_columns as f32 + ORB_GRID_GAP * grid_columns.saturating_sub(1) as f32;
 
@@ -224,6 +225,7 @@ impl Render for ThinkingOrbsLab {
                             .flex()
                             .flex_col()
                             .gap_2()
+                            .when(control_columns == 2, |el| el.col_start(1).col_end(2))
                             .child(
                                 Text::new(format!(
                                     "Points per sphere: {:.0}",
@@ -255,6 +257,7 @@ impl Render for ThinkingOrbsLab {
                             .flex()
                             .flex_col()
                             .gap_2()
+                            .when(control_columns == 2, |el| el.col_start(1).col_end(2))
                             .child(
                                 Text::new(format!(
                                     "Sphere size: {:.2}× ({sphere_size:.0} px)",
@@ -286,6 +289,7 @@ impl Render for ThinkingOrbsLab {
                             .flex()
                             .flex_col()
                             .gap_2()
+                            .when(control_columns == 2, |el| el.col_start(1).col_end(2))
                             .child(
                                 Text::new(format!("Small dot size: {:.2}×", self.dot_size_scale))
                                     .weight(TextWeight::Medium),
@@ -314,6 +318,7 @@ impl Render for ThinkingOrbsLab {
                             .flex()
                             .flex_col()
                             .gap_2()
+                            .when(control_columns == 2, |el| el.col_start(1).col_end(2))
                             .child(
                                 Text::new(format!("Animation speed: {:.2}×", self.speed_scale))
                                     .weight(TextWeight::Medium),
@@ -340,7 +345,10 @@ impl Render for ThinkingOrbsLab {
                     .child(
                         div()
                             .id("thinking-orbs-color-picker")
-                            .w(px(300.0))
+                            .w(px(400.0))
+                            .when(control_columns == 2, |el| {
+                                el.col_start(2).col_end(3).row_start(1).row_end(5)
+                            })
                             .child(self.dot_color_picker.clone()),
                     ),
             )
