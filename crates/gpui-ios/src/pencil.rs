@@ -93,7 +93,6 @@ pub fn set_pencil_event_callback(callback: Option<PencilCallback>) {
 }
 
 /// Whether collecting a high-detail pointer sample can reach an observer.
-#[cfg(target_os = "ios")]
 pub(crate) fn has_pencil_callback() -> bool {
     PENCIL_CALLBACK_ACTIVE.load(Ordering::Acquire)
 }

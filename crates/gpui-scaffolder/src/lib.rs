@@ -1478,56 +1478,68 @@ mod tests {
 
     /// Keep compile-smoke tests offline without changing the published
     /// scaffold template: generated apps intentionally point at the public
-    /// Zed tag, while this test-only patch redirects that source to the
-    /// workspace's vendored crates.
+    /// Zed tag, while this test-only replacement redirects that dependency to
+    /// the workspace's namespaced vendored GPUI crate.
     fn patch_scaffold_for_local_workspace(manifest_path: &Path) -> Result<()> {
         let toolkit_root = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../..")
             .canonicalize()?;
         let workspace_manifest: toml::Value = toml::from_str(include_str!("../../../Cargo.toml"))?;
-        let patches = workspace_manifest
+        let crates_io_patches = workspace_manifest
             .get("patch")
-            .and_then(|patch| patch.get("https://github.com/zed-industries/zed.git"))
+            .and_then(|patch| patch.get("crates-io"))
             .and_then(toml::Value::as_table)
-            .context("workspace must define local Zed patches")?;
+            .context("workspace must define crates.io patches")?;
 
         let mut manifest = fs::read_to_string(manifest_path)?;
         let generated_gpui = format!(
             r#"gpui = {{ version = "{GPUI_VERSION}", git = "https://github.com/zed-industries/zed.git", tag = "{GPUI_ZED_TAG}" }}"#
         );
         let local_gpui = toolkit_root.join("crates/3rdparties/gpui").canonicalize()?;
-        let local_gpui = format!(r#"gpui = {{ path = "{}" }}"#, cargo_path(&local_gpui));
+        let local_gpui = format!(
+            r#"gpui = {{ package = "gpui-toolkit-gpui", path = "{}" }}"#,
+            cargo_path(&local_gpui),
+        );
         if !manifest.contains(&generated_gpui) {
             bail!("generated scaffold must contain the expected GPUI Git dependency");
         }
         manifest = manifest.replace(&generated_gpui, &local_gpui);
-        manifest
-            .push_str("\n# Test-only local patch: keep generated-project compile smoke offline.\n");
-        manifest.push_str("[patch.\"https://github.com/zed-industries/zed.git\"]\n");
-        for (name, dependency) in patches {
-            let relative_path = dependency
-                .get("path")
+
+        let generated_manifest: toml::Value = toml::from_str(&manifest)?;
+        let existing_patches = generated_manifest
+            .get("patch")
+            .and_then(|patch| patch.get("crates-io"))
+            .and_then(toml::Value::as_table)
+            .context("generated scaffold must define crates.io patches")?;
+        manifest.push_str("\n# Test-only patches inherited from the local workspace.\n");
+        for (name, dependency) in crates_io_patches {
+            if existing_patches.contains_key(name) {
+                continue;
+            }
+
+            if let Some(relative_path) = dependency.get("path").and_then(toml::Value::as_str) {
+                let path = toolkit_root.join(relative_path).canonicalize()?;
+                manifest.push_str(&format!(
+                    "{name} = {{ path = \"{}\" }}\n",
+                    cargo_path(&path),
+                ));
+                continue;
+            }
+
+            let git = dependency
+                .get("git")
                 .and_then(toml::Value::as_str)
-                .with_context(|| format!("local Zed patch {name} must have a path"))?;
-            let path = toolkit_root.join(relative_path).canonicalize()?;
-            manifest.push_str(&format!(
-                "{name} = {{ path = \"{}\" }}\n",
-                cargo_path(&path),
-            ));
-        }
-        // Dependencies inside the vendored GPUI package retain Cargo's
-        // tagged-source spelling, which some standalone-workspace versions
-        // match including the query string.
-        manifest.push_str("[patch.\"https://github.com/zed-industries/zed.git?tag=v1.9.0\"]\n");
-        for (name, dependency) in patches {
-            let relative_path = dependency
-                .get("path")
+                .with_context(|| {
+                    format!("workspace crates.io patch {name} must have a path or git")
+                })?;
+            let rev = dependency
+                .get("rev")
                 .and_then(toml::Value::as_str)
-                .with_context(|| format!("local Zed patch {name} must have a path"))?;
-            let path = toolkit_root.join(relative_path).canonicalize()?;
+                .with_context(|| format!("workspace crates.io Git patch {name} must have a rev"))?;
             manifest.push_str(&format!(
-                "{name} = {{ path = \"{}\" }}\n",
-                cargo_path(&path),
+                "{name} = {{ git = \"{}\", rev = \"{}\" }}\n",
+                toml_string(git),
+                toml_string(rev),
             ));
         }
         fs::write(manifest_path, manifest)?;
@@ -1590,17 +1602,14 @@ mod tests {
     }
 
     #[test]
-    fn generated_gpui_tag_matches_workspace_dependency() -> Result<()> {
-        let manifest: toml::Value = toml::from_str(include_str!("../../../Cargo.toml"))?;
-        let workspace_tag = manifest
-            .get("workspace")
-            .and_then(|workspace| workspace.get("dependencies"))
-            .and_then(|dependencies| dependencies.get("gpui"))
-            .and_then(|gpui| gpui.get("tag"))
-            .and_then(toml::Value::as_str)
-            .context("workspace gpui dependency must have a tag")?;
+    fn generated_gpui_tag_matches_vendored_revision() -> Result<()> {
+        let vendored = include_str!("../../3rdparties/gpui/VENDORED.md");
+        let vendored_ref = vendored
+            .lines()
+            .find_map(|line| line.strip_prefix("- Base ref: "))
+            .context("vendored GPUI provenance must declare a base ref")?;
 
-        assert_eq!(GPUI_ZED_TAG, workspace_tag);
+        assert_eq!(GPUI_ZED_TAG, vendored_ref);
         Ok(())
     }
 

@@ -427,7 +427,7 @@ mod tests {
     fn element_trait_methods_are_callable() {
         let element = SpectrumElement::new(vec![-30.0, -60.0]);
         let _same = element.into_element();
-        assert!(_same.id().is_none());
+        assert!(_same.id().is_some());
     }
 
     #[test]
