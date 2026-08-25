@@ -7,15 +7,16 @@
 
 use crate::color::Color;
 use crate::{
-    Button, ButtonSize, ButtonVariant, HStack, StackSpacing, Text, TextSize, TextWeight, VStack,
+    Button, ButtonSize, ButtonVariant, HStack, NumberInput, NumberInputSize, StackSpacing, Text,
+    TextSize, TextWeight, VStack,
 };
 use gpui::prelude::{
     Context, FluentBuilder as _, InteractiveElement, IntoElement, ParentElement, Render,
     StatefulInteractiveElement, Styled,
 };
 use gpui::{
-    ClickEvent, MouseButton, MouseDownEvent, MouseMoveEvent, Rgba, ScrollWheelEvent, SharedString,
-    Window, div, px,
+    ClickEvent, ElementId, MouseButton, MouseDownEvent, MouseMoveEvent, Rgba, ScrollWheelEvent,
+    SharedString, Window, div, px,
 };
 
 /// Color picker mode
@@ -27,12 +28,31 @@ pub enum ColorPickerMode {
     HSL,
 }
 
+#[derive(Clone, Copy)]
+struct ColorSliderDrag {
+    mode: ColorPickerMode,
+    label: &'static str,
+    start_x: f32,
+    start_value: f32,
+}
+
+fn slider_value_from_drag(
+    start_value: f32,
+    start_x: f32,
+    current_x: f32,
+    bar_width: f32,
+    max: f32,
+) -> f32 {
+    (start_value + (current_x - start_x) / bar_width * max).clamp(0.0, max)
+}
+
 /// Standalone color picker view for use in dialogs
 pub struct ColorPickerView {
     color: Color,
     original_color: Color,
     mode: ColorPickerMode,
     label: SharedString,
+    active_drag: Option<ColorSliderDrag>,
 }
 
 impl ColorPickerView {
@@ -42,6 +62,7 @@ impl ColorPickerView {
             original_color: color,
             mode: ColorPickerMode::RGB,
             label: label.into(),
+            active_drag: None,
         }
     }
 
@@ -108,7 +129,8 @@ impl ColorPickerView {
     }
 
     /// Render a slider with full mouse interaction support:
-    /// - Click and drag to set value
+    /// - Drag left or right to adjust the value
+    /// - Enter an exact value in the adjacent number input
     /// - Scroll wheel to adjust value (shift for fine control)
     /// - Double-click to reset to default
     fn render_slider(
@@ -123,6 +145,9 @@ impl ColorPickerView {
         let mode = self.mode;
         let ratio = value / max;
         let bar_width = 200.0;
+        let channel_id = ElementId::from((ElementId::View(cx.entity_id()), label));
+        let track_id = ElementId::from((channel_id.clone(), "track"));
+        let input_id = ElementId::from((channel_id, "input"));
 
         // Track colors
         let track_bg = Rgba {
@@ -138,8 +163,7 @@ impl ColorPickerView {
             a: 1.0,
         });
 
-        // Helper to calculate new value from x position
-        let calc_value = move |x: f32| -> f32 { (x / bar_width).clamp(0.0, 1.0) * max };
+        let entity = cx.entity().clone();
 
         HStack::new()
             .spacing(StackSpacing::Sm)
@@ -150,7 +174,7 @@ impl ColorPickerView {
             )
             .child(
                 div()
-                    .id(SharedString::from(format!("slider-{}", label)))
+                    .id(track_id)
                     .w(px(bar_width))
                     .h(px(20.0))
                     .bg(track_bg)
@@ -187,21 +211,48 @@ impl ColorPickerView {
                             .border_color(fill_bg)
                             .shadow_sm(),
                     )
-                    // Mouse down - set value on click
+                    // Record absolute pointer position and use movement deltas, so
+                    // the picker works regardless of where it is embedded.
                     .on_mouse_down(
                         MouseButton::Left,
                         cx.listener(move |this, event: &MouseDownEvent, _window, cx| {
-                            let new_val = calc_value(event.position.x.into());
-                            Self::apply_slider_value(this, mode, label, new_val, cx);
+                            this.active_drag = Some(ColorSliderDrag {
+                                mode,
+                                label,
+                                start_x: event.position.x.into(),
+                                start_value: value,
+                            });
+                            cx.stop_propagation();
                         }),
                     )
                     // Mouse move while pressed - drag to change value
                     .on_mouse_move(
                         cx.listener(move |this, event: &MouseMoveEvent, _window, cx| {
-                            if event.pressed_button == Some(MouseButton::Left) {
-                                let new_val = calc_value(event.position.x.into());
-                                Self::apply_slider_value(this, mode, label, new_val, cx);
+                            if event.pressed_button != Some(MouseButton::Left) {
+                                return;
                             }
+                            let Some(drag) = this
+                                .active_drag
+                                .filter(|drag| drag.mode == mode && drag.label == label)
+                            else {
+                                return;
+                            };
+                            let new_val = slider_value_from_drag(
+                                drag.start_value,
+                                drag.start_x,
+                                event.position.x.into(),
+                                bar_width,
+                                max,
+                            );
+                            Self::apply_slider_value(this, mode, label, new_val, cx);
+                            cx.stop_propagation();
+                        }),
+                    )
+                    .on_mouse_up(
+                        MouseButton::Left,
+                        cx.listener(|this, _event, _window, cx| {
+                            this.active_drag = None;
+                            cx.stop_propagation();
                         }),
                     )
                     // Double-click to reset
@@ -236,9 +287,19 @@ impl ColorPickerView {
                     )),
             )
             .child(
-                div().w(px(50.0)).child(
-                    Text::new(SharedString::from(format!("{:.0}", value))).size(TextSize::Sm),
-                ),
+                NumberInput::new(input_id)
+                    .value(f64::from(value))
+                    .min(0.0)
+                    .max(f64::from(max))
+                    .step(1.0)
+                    .decimals(0)
+                    .size(NumberInputSize::Sm)
+                    .width(72.0)
+                    .on_change(move |new_val, _window, cx| {
+                        entity.update(cx, |this, cx| {
+                            Self::apply_slider_value(this, mode, label, new_val as f32, cx);
+                        });
+                    }),
             )
             .build()
     }
@@ -497,5 +558,26 @@ impl Render for ColorPickerView {
                     )
                     .build(),
             )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::slider_value_from_drag;
+
+    #[test]
+    fn slider_drag_uses_pointer_delta_and_clamps_to_channel_range() {
+        assert_eq!(
+            slider_value_from_drag(100.0, 500.0, 600.0, 200.0, 255.0),
+            227.5
+        );
+        assert_eq!(
+            slider_value_from_drag(100.0, 500.0, 200.0, 200.0, 255.0),
+            0.0
+        );
+        assert_eq!(
+            slider_value_from_drag(100.0, 500.0, 900.0, 200.0, 255.0),
+            255.0
+        );
     }
 }
