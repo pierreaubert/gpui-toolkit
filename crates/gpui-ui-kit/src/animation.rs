@@ -151,10 +151,23 @@ impl Animation {
         }
 
         let effective_elapsed = elapsed - self.delay;
-        let t = if self.duration.is_zero() {
-            1.0
+        if self.duration.is_zero() {
+            return ease(self.easing, self.final_progress());
+        }
+
+        let total_play_duration = self.play_duration();
+        if effective_elapsed >= total_play_duration {
+            return ease(self.easing, self.final_progress());
+        }
+
+        let duration_nanos = self.duration.as_nanos();
+        let elapsed_nanos = effective_elapsed.as_nanos();
+        let cycle = elapsed_nanos / duration_nanos;
+        let cycle_progress = (elapsed_nanos % duration_nanos) as f64 / duration_nanos as f64;
+        let t = if self.alternate && cycle % 2 == 1 {
+            1.0 - cycle_progress as f32
         } else {
-            (effective_elapsed.as_secs_f32() / self.duration.as_secs_f32()).min(1.0)
+            cycle_progress as f32
         };
 
         ease(self.easing, t)
@@ -162,12 +175,29 @@ impl Animation {
 
     /// Check if the animation is complete
     pub fn is_complete(&self, elapsed: Duration) -> bool {
-        elapsed >= self.delay + self.duration
+        elapsed >= self.total_duration()
     }
 
     /// Get the total duration including delay
     pub fn total_duration(&self) -> Duration {
-        self.delay + self.duration
+        self.delay
+            .checked_add(self.play_duration())
+            .unwrap_or(Duration::MAX)
+    }
+
+    fn play_duration(&self) -> Duration {
+        self.duration
+            .checked_mul(self.repeat)
+            .and_then(|repeated_duration| repeated_duration.checked_add(self.duration))
+            .unwrap_or(Duration::MAX)
+    }
+
+    fn final_progress(&self) -> f32 {
+        if self.alternate && self.repeat % 2 == 1 {
+            0.0
+        } else {
+            1.0
+        }
     }
 }
 

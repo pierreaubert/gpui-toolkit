@@ -50,6 +50,23 @@ fn action_callback_dispatches_node_actions() {
 }
 
 #[test]
+fn action_callback_can_unregister_itself() {
+    set_accessibility_action_callback(Some(Box::new(|_, _| {
+        set_accessibility_action_callback(None);
+        true
+    })));
+
+    assert!(dispatch_accessibility_action(
+        "volume",
+        IosAccessibilityAction::Increment
+    ));
+    assert!(!dispatch_accessibility_action(
+        "volume",
+        IosAccessibilityAction::Increment
+    ));
+}
+
+#[test]
 fn snapshot_is_shared_via_arc() {
     clear_accessibility_snapshot();
     let snapshot = IosAccessibilitySnapshot::new(

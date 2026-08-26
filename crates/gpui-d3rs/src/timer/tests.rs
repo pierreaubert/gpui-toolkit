@@ -281,6 +281,15 @@ fn test_timer_is_stopped() {
 }
 
 #[test]
+fn try_join_times_out_without_blocking() {
+    let timer = timeout(|_| {}, 1_000.0, None);
+
+    assert!(!timer.try_join(Duration::from_millis(1)));
+    timer.stop();
+    assert!(timer.try_join(Duration::from_millis(100)));
+}
+
+#[test]
 fn test_timer_id_unique() {
     let t1 = timer(|_| false, None, None);
     let t2 = timer(|_| false, None, None);

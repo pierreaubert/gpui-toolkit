@@ -41,6 +41,47 @@ fn layout_preferences_last_ratio_wins_for_duplicate_keys() {
 }
 
 #[test]
+fn layout_preferences_sanitize_ratio_inputs() {
+    let mut prefs = LayoutPreferences::new(
+        &[
+            ("nan", Axis::Horizontal, f32::NAN),
+            ("negative", Axis::Horizontal, -0.25),
+            ("large", Axis::Horizontal, 2.0),
+        ],
+        &[],
+    );
+
+    assert_eq!(prefs.ratio_for("nan", Axis::Horizontal), Some(0.0));
+    assert_eq!(prefs.ratio_for("negative", Axis::Horizontal), Some(0.0));
+    assert_eq!(prefs.ratio_for("large", Axis::Horizontal), Some(1.0));
+
+    prefs.set_ratio("panel", Axis::Vertical, f32::INFINITY);
+    assert_eq!(prefs.ratio_for("panel", Axis::Vertical), Some(0.0));
+}
+
+#[test]
+fn inverted_fractional_bounds_do_not_panic_or_produce_nan() {
+    let children = [
+        LayoutNode::slot(
+            "fractional",
+            Sizing::Fractional {
+                initial: f32::NAN,
+                min: 100.0,
+                max: 50.0,
+            },
+        ),
+        LayoutNode::slot("main", Sizing::flex(0.0)),
+    ];
+    let root =
+        ContainerNode::new("root", Axis::Horizontal, Sizing::flex(0.0), &children).into_node();
+
+    let solved = solve(&root, 200.0, 100.0, &LayoutPreferences::default());
+    let width = solved.find("fractional").unwrap().width;
+    assert_eq!(width, 100.0);
+    assert!(width.is_finite());
+}
+
+#[test]
 fn layout_preferences_collapsed_true_wins_for_duplicates() {
     let collapsed = [("panel", false), ("panel", true)];
     let prefs = LayoutPreferences::new(&[], &collapsed);

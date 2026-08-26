@@ -145,7 +145,7 @@ impl DragList {
 
         for (idx, item) in self.items.into_iter().enumerate() {
             let mut row = div()
-                .id(ElementId::from(item.id))
+                .id(ElementId::from((self.id.clone(), item.id)))
                 .flex()
                 .items_center()
                 .gap_2()

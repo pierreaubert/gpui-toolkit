@@ -48,6 +48,9 @@ impl KeybindingRegistry {
     }
 
     /// Register a keybinding provider.
+    ///
+    /// Providers are collected in registration order. Later bindings have the
+    /// higher precedence when the returned list is passed to GPUI.
     pub fn register(&mut self, provider: impl KeybindingProvider + 'static) {
         self.providers.push(Box::new(provider));
         self.clear_caches();

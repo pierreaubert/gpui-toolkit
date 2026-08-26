@@ -362,8 +362,9 @@ impl NumberInputEntity {
         window: &mut Window,
         _cx: &mut Context<Self>,
     ) {
-        _cx.stop_propagation();
-
+        if event.keystroke.key.as_str() == "tab" {
+            return;
+        }
         let key = event.keystroke.key.as_str();
         let ctrl = event.keystroke.modifiers.control;
         let cmd = event.keystroke.modifiers.platform;
@@ -373,6 +374,7 @@ impl NumberInputEntity {
 
         if state.editing {
             if matches!(key, "up" | "down") {
+                _cx.stop_propagation();
                 let new_value = if key == "up" {
                     (self.props.value + self.props.step).clamp(self.props.min, self.props.max)
                 } else {
@@ -383,7 +385,8 @@ impl NumberInputEntity {
                 return;
             }
 
-            if cmd || (ctrl && matches!(key, "c" | "x" | "v" | "a")) {
+            if (cmd || ctrl) && matches!(key, "c" | "x" | "v" | "a") {
+                _cx.stop_propagation();
                 match key {
                     "a" => {
                         state.select_all();
@@ -421,7 +424,9 @@ impl NumberInputEntity {
                 }
             }
 
-            if alt {
+            if alt && matches!(key, "backspace" | "d") {
+                _cx.stop_propagation();
+
                 match key {
                     "backspace" => {
                         state.kill_word_backward();
@@ -439,7 +444,9 @@ impl NumberInputEntity {
                 }
             }
 
-            if ctrl {
+            if ctrl && matches!(key, "a" | "e" | "k" | "u" | "w" | "h" | "d" | "f" | "b" | "y") {
+                _cx.stop_propagation();
+
                 match key {
                     "a" => state.move_to_start(),
                     "e" => state.move_to_end(),
@@ -460,9 +467,20 @@ impl NumberInputEntity {
                     _ => {}
                 }
                 drop(state);
-                window.refresh();
+     window.refresh();
                 return;
             }
+
+            if ctrl || cmd || alt {
+                return;
+            }
+
+            if !matches!(key, "enter" | "escape" | "backspace" | "delete" | "left" | "right" | "home" | "end")
+                && keystroke_to_char(&event.keystroke).is_none()
+            {
+                return;
+            }
+            _cx.stop_propagation();
 
             match key {
                 "enter" => {
@@ -542,6 +560,7 @@ impl NumberInputEntity {
             drop(state);
 
             if let Some(value) = new_value {
+                _cx.stop_propagation();
                 self.emit_change(value, window, _cx);
             }
         }
@@ -986,19 +1005,19 @@ impl RenderOnce for NumberInput {
         // Register a focus-out subscription once per element id. The
         // subscription weakly references the entity so it can call the current
         // blur handler without capturing a fresh closure each render.
+        // Replace the subscription on every render so an element moved to a
+        // different window cannot retain the old window's blur listener.
+        // Replacing the map entry drops the old subscription.
         NUMBER_INPUT_FOCUS_SUBS.with(|subs| {
-            let mut subs = subs.borrow_mut();
-            if !subs.contains_key(&id) {
-                let entity_weak = entity.downgrade();
-                let sub = window.on_focus_out(&focus_handle, cx, move |_event, window, cx| {
-                    if let Some(entity) = entity_weak.upgrade() {
-                        entity.update(cx, |model, cx| {
-                            model.handle_blur(window, cx);
-                        });
-                    }
-                });
-                subs.insert(id.clone(), sub);
-            }
+            let entity_weak = entity.downgrade();
+            let sub = window.on_focus_out(&focus_handle, cx, move |_event, window, cx| {
+                if let Some(entity) = entity_weak.upgrade() {
+                    entity.update(cx, |model, cx| {
+                        model.handle_blur(window, cx);
+                    });
+                }
+            });
+            subs.borrow_mut().insert(id.clone(), sub);
         });
 
         entity.update(cx, |model, _cx| {

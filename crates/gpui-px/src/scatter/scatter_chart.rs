@@ -7,10 +7,10 @@ use crate::{
     ChartAccessibilitySummary, ChartAnnotation, ChartAnnotationSummary, ChartLegendItem,
     ChartLegendMarker, ChartLegendSummary, ChartSize, DEFAULT_COLOR, DEFAULT_HEIGHT,
     DEFAULT_PADDING_FRACTION, DEFAULT_TITLE_FONT_SIZE, DEFAULT_WIDTH, ScaleType, TITLE_AREA_HEIGHT,
-    apply_chart_size, default_design, extent_padded_iter, finite_range_owned, format_range,
-    format_scale, indexed_label, resolved_chart_dimensions, validate_data_array,
-    validate_data_length, validate_dimensions, validate_positive, validate_range,
-    validate_range_log,
+    apply_chart_size, default_design, extent_log_padded_iter, extent_padded_iter,
+    finite_range_owned, format_range, format_scale, indexed_label, resolved_chart_dimensions,
+    validate_data_array, validate_data_length, validate_dimensions, validate_positive,
+    validate_range, validate_range_log,
 };
 use d3rs::axis::{AxisConfig, DefaultAxisTheme, render_axis};
 use d3rs::color::D3Color;
@@ -773,6 +773,14 @@ impl ScatterChart {
         // Calculate domains with padding - include all series, or use explicit ranges if set
         let (x_min, x_max) = if let Some([min, max]) = self.x_range {
             (min, max)
+        } else if self.x_scale_type == ScaleType::Log {
+            extent_log_padded_iter(
+                self.x
+                    .iter()
+                    .chain(self.series.iter().flat_map(|series| series.x.iter()))
+                    .copied(),
+                DEFAULT_PADDING_FRACTION,
+            )
         } else {
             extent_padded_iter(
                 self.x
@@ -784,6 +792,14 @@ impl ScatterChart {
         };
         let (y_min, y_max) = if let Some([min, max]) = self.y_range {
             (min, max)
+        } else if self.y_scale_type == ScaleType::Log {
+            extent_log_padded_iter(
+                self.y
+                    .iter()
+                    .chain(self.series.iter().flat_map(|series| series.y.iter()))
+                    .copied(),
+                DEFAULT_PADDING_FRACTION,
+            )
         } else {
             extent_padded_iter(
                 self.y

@@ -2,12 +2,15 @@
 
 use super::mesh::{SphereMeshConfig, cell_center_3d};
 use super::renderer::{SphereGalleryConfig, SphereGalleryRenderer};
+use super::wgpu_draw::{GalleryWgpuDraw, GalleryWgpuRegistration};
 use crate::gpu3d::{Camera3D, OrbitControls};
 use glam::Vec3;
 use gpui::*;
+#[cfg(feature = "headless-qa")]
 use image::{Frame, RgbaImage};
 use std::cell::RefCell;
 use std::rc::Rc;
+#[cfg(feature = "headless-qa")]
 use std::sync::Arc;
 
 /// A single item in the sphere gallery
@@ -19,6 +22,7 @@ pub struct SphereGalleryItem {
     pub label: Option<SharedString>,
 }
 
+#[cfg(feature = "headless-qa")]
 #[derive(Clone, PartialEq, Eq)]
 struct GalleryPaintKey {
     width: u32,
@@ -29,11 +33,13 @@ struct GalleryPaintKey {
     item_count: u32,
 }
 
+#[cfg(feature = "headless-qa")]
 pub(crate) struct CachedGalleryImage {
     key: GalleryPaintKey,
     image: Arc<RenderImage>,
 }
 
+#[cfg(feature = "headless-qa")]
 fn gallery_paint_key(state: &SphereGalleryState, width: u32, height: u32) -> GalleryPaintKey {
     let camera = &state.camera;
     GalleryPaintKey {
@@ -176,6 +182,8 @@ pub struct SphereGalleryElement {
     state: Rc<RefCell<SphereGalleryState>>,
     renderer: Rc<RefCell<Option<SphereGalleryRenderer>>>,
     images_uploaded: Rc<RefCell<bool>>,
+    gpu_draw: Rc<GalleryWgpuRegistration>,
+    #[cfg(feature = "headless-qa")]
     paint_cache: Rc<RefCell<Option<CachedGalleryImage>>>,
     items: Vec<SphereGalleryItem>,
 }
@@ -187,46 +195,63 @@ impl SphereGalleryElement {
         config: SphereGalleryConfig,
         state: Rc<RefCell<SphereGalleryState>>,
     ) -> Self {
+        let renderer = Rc::new(RefCell::new(None));
+        let images_uploaded = Rc::new(RefCell::new(false));
+        let gpu_draw = GalleryWgpuDraw::register(
+            config.clone(),
+            items.clone(),
+            Rc::clone(&renderer),
+            Rc::clone(&images_uploaded),
+        );
         Self {
             config,
             state,
-            renderer: Rc::new(RefCell::new(None)),
-            images_uploaded: Rc::new(RefCell::new(false)),
+            renderer,
+            images_uploaded,
+            gpu_draw,
+            #[cfg(feature = "headless-qa")]
             paint_cache: Rc::new(RefCell::new(None)),
             items,
         }
     }
 
+    fn rebuild_gpu_draw(&mut self) {
+        self.gpu_draw = GalleryWgpuDraw::register(
+            self.config.clone(),
+            self.items.clone(),
+            Rc::clone(&self.renderer),
+            Rc::clone(&self.images_uploaded),
+        );
+    }
+
     /// Share the renderer across repaints (call from view, pass same Rc each time)
     pub fn with_renderer(mut self, renderer: Rc<RefCell<Option<SphereGalleryRenderer>>>) -> Self {
         self.renderer = renderer;
+        self.rebuild_gpu_draw();
         self
     }
 
     /// Share the upload flag
     pub fn with_upload_flag(mut self, flag: Rc<RefCell<bool>>) -> Self {
         self.images_uploaded = flag;
+        self.rebuild_gpu_draw();
         self
     }
 
-    /// Share the retained CPU-readback image across rebuilt GPUI elements.
-    pub(crate) fn with_paint_cache(
-        mut self,
-        cache: Rc<RefCell<Option<CachedGalleryImage>>>,
-    ) -> Self {
-        self.paint_cache = cache;
-        self
-    }
-
-    fn ensure_renderer(&self) {
+    #[cfg(feature = "headless-qa")]
+    fn ensure_renderer(&self) -> bool {
         let mut renderer_ref = self.renderer.borrow_mut();
         if renderer_ref.is_none() {
-            let mut renderer = SphereGalleryRenderer::new(self.config.clone());
+            let Some(mut renderer) = SphereGalleryRenderer::new(self.config.clone()) else {
+                return false;
+            };
             renderer.build_mesh();
             *renderer_ref = Some(renderer);
         }
+        true
     }
 
+    #[cfg(feature = "headless-qa")]
     fn ensure_images_uploaded(&self) {
         if *self.images_uploaded.borrow() {
             return;
@@ -301,6 +326,34 @@ impl Element for SphereGalleryElement {
         }
     }
 
+    #[cfg(not(feature = "headless-qa"))]
+    fn paint(
+        &mut self,
+        _id: Option<&GlobalElementId>,
+        _inspector_id: Option<&InspectorElementId>,
+        bounds: Bounds<Pixels>,
+        _request_layout: &mut Self::RequestLayoutState,
+        _prepaint: &mut Self::PrepaintState,
+        window: &mut Window,
+        _cx: &mut App,
+    ) {
+        let width: f32 = bounds.size.width.into();
+        let height: f32 = bounds.size.height.into();
+        if width <= 0.0 || height <= 0.0 {
+            return;
+        }
+        let state = self.state.borrow();
+        self.gpu_draw.draw.update(
+            state.camera.clone(),
+            state.item_count,
+            state.selected,
+            state.hovered,
+        );
+        drop(state);
+        window.paint_custom(self.gpu_draw.id, bounds);
+    }
+
+    #[cfg(feature = "headless-qa")]
     fn paint(
         &mut self,
         _id: Option<&GlobalElementId>,
@@ -332,7 +385,9 @@ impl Element for SphereGalleryElement {
                 return;
             }
 
-            self.ensure_renderer();
+            if !self.ensure_renderer() {
+                return;
+            }
             self.ensure_images_uploaded();
             if let Some(renderer) = self.renderer.borrow_mut().as_mut() {
                 renderer.resize(width_u32, height_u32);
@@ -375,7 +430,6 @@ pub struct SphereGalleryView {
     pub items: Vec<SphereGalleryItem>,
     renderer: Rc<RefCell<Option<SphereGalleryRenderer>>>,
     images_uploaded: Rc<RefCell<bool>>,
-    paint_cache: Rc<RefCell<Option<CachedGalleryImage>>>,
     on_select: Option<OnSelectCallback>,
     on_hover: Option<OnHoverCallback>,
 }
@@ -396,7 +450,6 @@ impl SphereGalleryView {
             items,
             renderer: Rc::new(RefCell::new(None)),
             images_uploaded: Rc::new(RefCell::new(false)),
-            paint_cache: Rc::new(RefCell::new(None)),
             on_select: None,
             on_hover: None,
         }
@@ -420,7 +473,6 @@ impl SphereGalleryView {
         self.items = items;
         self.state.borrow_mut().item_count = item_count;
         *self.images_uploaded.borrow_mut() = false;
-        self.paint_cache.borrow_mut().take();
     }
 }
 
@@ -429,8 +481,7 @@ impl Render for SphereGalleryView {
         let element =
             SphereGalleryElement::new(self.items.clone(), self.config.clone(), self.state.clone())
                 .with_renderer(self.renderer.clone())
-                .with_upload_flag(self.images_uploaded.clone())
-                .with_paint_cache(self.paint_cache.clone());
+                .with_upload_flag(self.images_uploaded.clone());
 
         div()
             .id("sphere-gallery")

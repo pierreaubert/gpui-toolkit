@@ -211,7 +211,9 @@ impl ContextMenu {
                 .left(pos.x)
                 .top(pos.y)
                 // Stop propagation so clicking menu doesn't close it
-                .on_mouse_down(MouseButton::Left, |_event, _window, _cx| {})
+                .on_mouse_down(MouseButton::Left, |_event, _window, cx| {
+                    cx.stop_propagation();
+                })
                 .child(menu.build_with_theme(&menu_theme)),
         )
     }

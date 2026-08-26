@@ -138,7 +138,7 @@ pub(super) fn tile_squarify(
         .filter(|&i| children[i].total_value() > 0.0)
         .collect();
     if indices.is_empty() {
-        return Vec::new();
+        return vec![(x0, y0, x0, y0); children.len()];
     }
 
     let width = x1 - x0;
@@ -151,12 +151,16 @@ pub(super) fn tile_squarify(
             .total_cmp(&children[a].total_value())
     });
 
-    let mut rects = Vec::with_capacity(indices.len());
+    // Keep output in declaration order. Squarify must sort by value to pack
+    // well, but callers associate each returned rectangle with the child at
+    // the matching declaration index.
+    let mut rects = vec![(x0, y0, x0, y0); children.len()];
     let mut remaining_start = 0;
     let mut x = x0;
     let mut y = y0;
     let mut w = width;
     let mut h = height;
+    let mut remaining_value = total;
 
     while remaining_start < indices.len() {
         let remaining = &indices[remaining_start..];
@@ -196,33 +200,33 @@ pub(super) fn tile_squarify(
         let row_sum: f64 = row.iter().map(|&i| children[i].total_value()).sum();
 
         let use_width = w <= h;
-        let area = w * h;
         if use_width {
             // Layout horizontally
-            let row_height = (row_sum / total) * area / w;
+            let row_height = (row_sum / remaining_value) * h;
             let mut rx = x;
             for &i in row {
                 let value = children[i].total_value();
                 let rw = (value / row_sum) * w;
-                rects.push((rx, y, rx + rw, y + row_height));
+                rects[i] = (rx, y, rx + rw, y + row_height);
                 rx += rw;
             }
             y += row_height;
             h -= row_height;
         } else {
             // Layout vertically
-            let row_width = (row_sum / total) * area / h;
+            let row_width = (row_sum / remaining_value) * w;
             let mut ry = y;
             for &i in row {
                 let value = children[i].total_value();
                 let rh = (value / row_sum) * h;
-                rects.push((x, ry, x + row_width, ry + rh));
+                rects[i] = (x, ry, x + row_width, ry + rh);
                 ry += rh;
             }
             x += row_width;
             w -= row_width;
         }
 
+        remaining_value -= row_sum;
         remaining_start += best_row_len;
     }
 

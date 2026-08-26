@@ -1173,10 +1173,12 @@ impl MeshPlotState {
             ChartKeyboardAction::ZoomOut if allow_zoom => {
                 self.interaction.zoom_around_pixel(300.0, 200.0, 1.25)
             }
-            ChartKeyboardAction::PanLeft if allow_pan => self.interaction.pan_by_pixels(-24.0, 0.0),
-            ChartKeyboardAction::PanRight if allow_pan => self.interaction.pan_by_pixels(24.0, 0.0),
-            ChartKeyboardAction::PanUp if allow_pan => self.interaction.pan_by_pixels(0.0, -24.0),
-            ChartKeyboardAction::PanDown if allow_pan => self.interaction.pan_by_pixels(0.0, 24.0),
+            ChartKeyboardAction::PanLeft if allow_pan => self.interaction.pan_by_pixels(24.0, 0.0),
+            ChartKeyboardAction::PanRight if allow_pan => {
+                self.interaction.pan_by_pixels(-24.0, 0.0)
+            }
+            ChartKeyboardAction::PanUp if allow_pan => self.interaction.pan_by_pixels(0.0, 24.0),
+            ChartKeyboardAction::PanDown if allow_pan => self.interaction.pan_by_pixels(0.0, -24.0),
             ChartKeyboardAction::ResetZoom if allow_reset => self.interaction.reset_zoom(),
             _ => return false,
         }
@@ -1395,6 +1397,24 @@ mod tests {
                 .hover_tooltip()
                 .is_some_and(|text| text.contains("42"))
         );
+    }
+
+    #[test]
+    fn keyboard_navigation_pans_planar_viewport_in_chart_direction() {
+        let mut state = MeshPlotState::new(0.0, 100.0, 0.0, 100.0);
+        state.interaction.zoom_to(25.0, 75.0, 25.0, 75.0);
+
+        let initial_x = state.interaction.x_domain();
+        assert!(state.handle_key_with_permissions("arrowleft", true, false, false, false));
+        let left_x = state.interaction.x_domain();
+        assert!(left_x.0 < initial_x.0);
+        assert!(left_x.1 < initial_x.1);
+
+        let initial_y = state.interaction.y_domain();
+        assert!(state.handle_key_with_permissions("arrowup", true, false, false, false));
+        let up_y = state.interaction.y_domain();
+        assert!(up_y.0 > initial_y.0);
+        assert!(up_y.1 > initial_y.1);
     }
 
     #[test]

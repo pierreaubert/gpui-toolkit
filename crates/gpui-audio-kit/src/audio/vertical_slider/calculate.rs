@@ -219,6 +219,8 @@ thread_local! {
     static TICK_CACHE: RefCell<HashMap<TickCacheKey, Arc<[TickMark]>>> = RefCell::new(HashMap::new());
 }
 
+const TICK_CACHE_CAPACITY: usize = 64;
+
 /// Calculate tick marks based on scale type
 ///
 /// Results are cached by `(min, max, scale, track_height)` so repeated renders
@@ -241,14 +243,20 @@ pub(super) fn calculate_ticks(
         };
 
         let ticks: Arc<[TickMark]> = ticks.into();
-        cache.borrow_mut().insert(key, ticks.clone());
+        let mut cache = cache.borrow_mut();
+        if cache.len() >= TICK_CACHE_CAPACITY {
+            if let Some(evicted_key) = cache.keys().next().copied() {
+                cache.remove(&evicted_key);
+            }
+        }
+        cache.insert(key, ticks.clone());
         ticks
     })
 }
 
 #[cfg(test)]
 mod tests {
-    use super::calculate_ticks;
+    use super::{TICK_CACHE, TICK_CACHE_CAPACITY, calculate_ticks};
     use crate::AudioScale as Scale;
 
     #[test]
@@ -272,6 +280,14 @@ mod tests {
         let b = calculate_ticks(0.0, 100.0, Scale::Linear, 160.0);
         assert_eq!(a.len(), b.len());
         assert!(std::ptr::eq(a.as_ptr(), b.as_ptr()));
+    }
+
+    #[test]
+    fn tick_cache_is_bounded() {
+        for index in 0..=(TICK_CACHE_CAPACITY as u32 + 1) {
+            calculate_ticks(0.0, 100.0 + index as f64, Scale::Linear, 160.0);
+        }
+        TICK_CACHE.with(|cache| assert!(cache.borrow().len() <= TICK_CACHE_CAPACITY));
     }
 
     #[test]

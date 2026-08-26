@@ -42,6 +42,8 @@ impl std::fmt::Debug for EditState {
 }
 
 impl EditState {
+    const MAX_UNDO_HISTORY: usize = 200;
+
     fn snapshot(&self) -> EditSnapshot {
         EditSnapshot {
             text: self.text.clone(),
@@ -61,6 +63,9 @@ impl EditState {
     /// call this, so undo returns to the previous text edit rather than a
     /// navigation position.
     pub(super) fn begin_text_edit(&mut self) {
+        if self.undo_stack.len() == Self::MAX_UNDO_HISTORY {
+            self.undo_stack.remove(0);
+        }
         self.undo_stack.push(self.snapshot());
         self.redo_stack.clear();
     }
@@ -823,6 +828,21 @@ mod password_history_tests {
         let dump = format!("{state:?}");
         assert!(dump.contains("<redacted>"));
         assert!(!dump.contains("not-for-debug-output"));
+    }
+
+    #[test]
+    fn undo_history_is_bounded() {
+        let mut state = EditState::new("");
+
+        for _ in 0..(EditState::MAX_UNDO_HISTORY + 5) {
+            state.insert_char('x');
+        }
+
+        assert_eq!(state.undo_stack.len(), EditState::MAX_UNDO_HISTORY);
+        for _ in 0..EditState::MAX_UNDO_HISTORY {
+            assert!(state.undo());
+        }
+        assert!(!state.undo());
     }
 
     #[test]

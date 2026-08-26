@@ -50,6 +50,15 @@ mod imp {
 }
 
 #[cfg(not(target_family = "wasm"))]
-fn main() {
+fn main() -> std::process::ExitCode {
     eprintln!("gpui-hello-web only runs on wasm32-unknown-unknown; use `just wasm-serve-hello`");
+    std::process::ExitCode::FAILURE
+}
+
+#[cfg(all(test, not(target_family = "wasm")))]
+mod tests {
+    #[test]
+    fn native_binary_reports_failure() {
+        assert_eq!(super::main(), std::process::ExitCode::FAILURE);
+    }
 }

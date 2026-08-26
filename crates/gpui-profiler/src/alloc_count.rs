@@ -78,17 +78,21 @@ impl AllocSnapshot {
     pub fn now() -> Self {
         #[cfg(feature = "global-allocator")]
         {
-            let stats = crate::global::GLOBAL.stats();
-            Self {
-                bytes: stats
-                    .bytes_allocated
-                    .saturating_add(stats.bytes_reallocated.max(0).unsigned_abs()),
-                count: stats.allocations.saturating_add(stats.reallocations),
-            }
+            Self::from_stats(crate::global::GLOBAL.stats())
         }
         #[cfg(not(feature = "global-allocator"))]
         {
             Self::default()
+        }
+    }
+
+    #[cfg(feature = "global-allocator")]
+    fn from_stats(stats: stats_alloc::Stats) -> Self {
+        // stats_alloc already includes positive realloc growth in
+        // `bytes_allocated`; `bytes_reallocated` is the net diagnostic delta.
+        Self {
+            bytes: stats.bytes_allocated,
+            count: stats.allocations.saturating_add(stats.reallocations),
         }
     }
 
@@ -197,6 +201,22 @@ mod tests {
         let now = AllocSnapshot::now();
         assert_eq!(delta.bytes, now.bytes.saturating_sub(start.bytes));
         assert_eq!(delta.count, now.count.saturating_sub(start.count));
+    }
+
+    #[cfg(feature = "global-allocator")]
+    #[test]
+    fn snapshot_does_not_double_count_reallocation_growth() {
+        let snapshot = AllocSnapshot::from_stats(stats_alloc::Stats {
+            allocations: 3,
+            deallocations: 1,
+            reallocations: 2,
+            bytes_allocated: 96,
+            bytes_deallocated: 16,
+            bytes_reallocated: 64,
+        });
+
+        assert_eq!(snapshot.bytes, 96);
+        assert_eq!(snapshot.count, 5);
     }
 
     #[test]

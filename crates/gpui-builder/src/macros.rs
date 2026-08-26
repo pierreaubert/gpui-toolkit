@@ -3,9 +3,11 @@
 /// Build and solve a nested layout tree in one expression.
 ///
 /// The macro expands to local borrowed `LayoutNode` arrays and immediately
-/// passes the root to [`solve`](crate::solve), returning a [`SolvedNode`](crate::SolvedNode).
-/// This keeps the existing borrowed layout API intact while avoiding manual
-/// child-array plumbing in examples and debug tools.
+/// passes the root to [`solve`](crate::solve), returning an
+/// [`OwnedSolvedNode`](crate::OwnedSolvedNode). The owned result lets the
+/// macro release its temporary child arrays immediately instead of leaking
+/// declaration storage. For allocation-sensitive repeated solves, build a
+/// borrowed tree explicitly and use [`RetainedLayoutSolver`](crate::RetainedLayoutSolver).
 ///
 /// Node names are Rust identifiers and become layout ids via `stringify!`.
 ///
@@ -44,24 +46,22 @@ macro_rules! solve_layout {
         $(,)?
     ) => {{
         $crate::__gpui_builder_layout_declare_children! { $($children)* }
-        let $id: &'static [$crate::LayoutNode<'static>] = {
+        let $id = {
             let mut __gpui_builder_children = ::std::vec::Vec::new();
             $crate::__gpui_builder_layout_push_children! {
                 __gpui_builder_children,
                 $($children)*
             }
-            ::std::boxed::Box::leak(__gpui_builder_children.into_boxed_slice())
+            __gpui_builder_children.into_boxed_slice()
         };
-        let __gpui_builder_root: &'static $crate::LayoutNode<'static> = ::std::boxed::Box::leak(
-            ::std::boxed::Box::new($crate::__gpui_builder_layout_container_node!(
-                $id,
-                $axis,
-                $sizing,
-                $id
-                $(; $($opts)*)?
-            ))
+        let __gpui_builder_root = $crate::__gpui_builder_layout_container_node!(
+            $id,
+            $axis,
+            $sizing,
+            &$id
+            $(; $($opts)*)?
         );
-        $crate::solve(__gpui_builder_root, $width, $height, $prefs)
+        $crate::solve(&__gpui_builder_root, $width, $height, $prefs).into_owned()
     }};
 }
 
@@ -84,13 +84,13 @@ macro_rules! __gpui_builder_layout_declare_children {
         $($rest:tt)*
     ) => {
         $crate::__gpui_builder_layout_declare_children! { $($children)* }
-        let $id: &'static [$crate::LayoutNode<'static>] = {
+        let $id = {
             let mut __gpui_builder_children = ::std::vec::Vec::new();
             $crate::__gpui_builder_layout_push_children! {
                 __gpui_builder_children,
                 $($children)*
             }
-            ::std::boxed::Box::leak(__gpui_builder_children.into_boxed_slice())
+            __gpui_builder_children.into_boxed_slice()
         };
         $crate::__gpui_builder_layout_declare_children! { $($rest)* }
     };
@@ -122,7 +122,7 @@ macro_rules! __gpui_builder_layout_push_children {
             $id,
             $axis,
             $sizing,
-            $id
+            &$id
             $(; $($opts)*)?
         ));
         $crate::__gpui_builder_layout_push_children! { $children, $($rest)* }
@@ -339,13 +339,33 @@ mod tests {
                 "visibility mismatch for {id}"
             );
             assert_eq!(
-                from_macro.active_tier, explicit.active_tier,
+                from_macro.active_tier.as_deref(), explicit.active_tier,
                 "tier mismatch for {id}"
             );
             assert_eq!(
-                from_macro.collapse_label, explicit.collapse_label,
+                from_macro.collapse_label.as_deref(), explicit.collapse_label,
                 "collapse label mismatch for {id}"
             );
         }
+    }
+
+    #[test]
+    fn solve_layout_macro_returns_owned_result_after_declarations_drop() {
+        let solved = {
+            let label = String::from("Temporary label");
+            let prefs = LayoutPreferences::new(&[], &[("panel", true)]);
+            solve_layout! {
+                width: 200.0,
+                height: 100.0,
+                prefs: &prefs,
+                container root(Axis::Horizontal, Sizing::flex(0.0)) {
+                    slot panel(Sizing::flex(0.0); collapsible = true, collapse_label = label.as_str());
+                }
+            }
+        };
+
+        let panel = solved.find("panel").unwrap();
+        assert!(!panel.visible);
+        assert_eq!(panel.collapse_label.as_deref(), Some("Temporary label"));
     }
 }

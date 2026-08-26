@@ -2849,7 +2849,7 @@ mod mesh_resource_decode_tests {
             "generation": 1
         });
         let error = decode_mesh_field(&field, &store).unwrap_err();
-        assert!(error.contains("field resource contains a non-finite value"));
+        assert!(error.contains("field resource contains non-finite value"));
     }
 
     #[::core::prelude::v1::test]
@@ -6031,6 +6031,9 @@ fn scene_selection_object_id(node_id: &str, spec: &Value) -> String {
 
 pub(super) struct PythonIrShowcase {
     pub(super) app: Option<PythonAppIr>,
+    /// JSON form of the committed app, retained for patch/resource bookkeeping.
+    /// Render code continues to use the typed IR above.
+    app_value: Option<Value>,
     pub(super) load_error: Option<String>,
     pub(super) current_section: String,
     pub(super) gpui_3d: Gpui3DCache,
@@ -6053,6 +6056,7 @@ pub(super) struct PythonIrShowcase {
     /// without routing high-rate decimal arrays through app patches.
     audio_frames: AudioFrameStore,
     mesh_frames: MeshFrameStore,
+    prepared_mesh_plots: HashMap<String, CachedNativeMeshPlot>,
     /// Native MeshPlot owners keep their decoded resource generations alive
     /// until the corresponding plot is replaced or removed.
     mesh_plot_resource_refs: HashMap<String, Vec<(String, u64)>>,
@@ -6104,6 +6108,13 @@ struct PendingConfirmation {
     cancel_label: String,
 }
 
+#[derive(Clone)]
+struct CachedNativeMeshPlot {
+    source_address: usize,
+    spec: Rc<MeshPlotSpec>,
+    prepared: gpui_python_runtime::native_mesh_plot::PreparedMeshPlot,
+}
+
 /// A transient native drag; the authoritative width remains application state
 /// once the corresponding resize action has been handled by Python.
 #[derive(Clone)]
@@ -6121,6 +6132,7 @@ impl PythonIrShowcase {
         content_scroll.set_offset(point(px(0.0), px(-presentation_state.scroll_y)));
         Self {
             app: None,
+            app_value: None,
             load_error: None,
             current_section: presentation_state.section.unwrap_or_default(),
             gpui_3d: Gpui3DCache::new(),
@@ -6137,6 +6149,7 @@ impl PythonIrShowcase {
             chart_hidden_series: HashMap::new(),
             audio_frames: AudioFrameStore::new(),
             mesh_frames: MeshFrameStore::new(),
+            prepared_mesh_plots: HashMap::new(),
             mesh_plot_resource_refs: HashMap::new(),
             mesh_plot_states: HashMap::new(),
             mesh_plot_errors: HashMap::new(),
@@ -6202,6 +6215,7 @@ impl PythonIrShowcase {
             self.current_section = section.id.clone();
             self.presentation.set_section(Some(section.id.clone()));
         }
+        self.app_value = serde_json::to_value(&app).ok();
         self.app = Some(app);
         self.session = Some(session);
         self.start_session_updates(cx);
@@ -6275,23 +6289,26 @@ impl PythonIrShowcase {
         // across unrelated producers.
         self.mesh_frames = MeshFrameStore::new();
         self.mesh_plots.retain_only(std::iter::empty::<&str>());
+        self.prepared_mesh_plots.clear();
         self.mesh_plot_states.clear();
         self.mesh_plot_errors.clear();
         self.last_mesh_patch_id = None;
     }
 
-    fn record_mesh_patch_error(&mut self, patch: &Patch, error: impl Into<String>) {
+    fn record_mesh_patch_error(
+        &mut self,
+        patch: &Patch,
+        app_value: Option<&Value>,
+        error: impl Into<String>,
+    ) {
         let error = error.into();
         let mut recorded = false;
         for operation in &patch.ops {
             if let Some(plot_id) = mesh_plot_operation_id(operation) {
                 self.mesh_plot_errors
                     .insert(plot_id.to_owned(), error.clone());
-                if let Some(spec_id) = self
-                    .app
-                    .as_ref()
-                    .and_then(|app| serde_json::to_value(app).ok())
-                    .and_then(|value| mesh_plot_spec_id_for_node(&value, plot_id))
+                if let Some(spec_id) =
+                    app_value.and_then(|value| mesh_plot_spec_id_for_node(value, plot_id))
                 {
                     self.mesh_plot_errors.insert(spec_id, error.clone());
                 }
@@ -6303,15 +6320,12 @@ impl PythonIrShowcase {
         }
     }
 
-    fn clear_mesh_patch_errors(&mut self, patch: &Patch) {
+    fn clear_mesh_patch_errors(&mut self, patch: &Patch, app_value: Option<&Value>) {
         for operation in &patch.ops {
             if let Some(plot_id) = mesh_plot_operation_id(operation) {
                 self.mesh_plot_errors.remove(plot_id);
-                if let Some(spec_id) = self
-                    .app
-                    .as_ref()
-                    .and_then(|app| serde_json::to_value(app).ok())
-                    .and_then(|value| mesh_plot_spec_id_for_node(&value, plot_id))
+                if let Some(spec_id) =
+                    app_value.and_then(|value| mesh_plot_spec_id_for_node(value, plot_id))
                 {
                     self.mesh_plot_errors.remove(&spec_id);
                 }
@@ -6343,13 +6357,18 @@ impl PythonIrShowcase {
         // interval there are no retained owners yet, but the declarative app
         // still identifies the plot that should receive a resource-local
         // diagnostic rather than a global error.
-        if let Some(app_value) = self
-            .app
-            .as_ref()
-            .and_then(|app| serde_json::to_value(app).ok())
-        {
+        // Normal snapshot and patch commits retain this value, so resource
+        // errors do not serialize the complete app again. The lazy branch
+        // keeps direct host/test construction compatible.
+        if self.app_value.is_none() {
+            self.app_value = self
+                .app
+                .as_ref()
+                .and_then(|app| serde_json::to_value(app).ok());
+        }
+        if let Some(app_value) = self.app_value.as_ref() {
             let mut declared_refs = HashMap::new();
-            if collect_mesh_plot_resource_refs(&app_value, &mut declared_refs).is_ok() {
+            if collect_mesh_plot_resource_refs(app_value, &mut declared_refs).is_ok() {
                 for (plot_id, handles) in declared_refs {
                     if handles.iter().any(|(id, retained_generation)| {
                         id == resource_id && *retained_generation == generation
@@ -6423,6 +6442,7 @@ impl PythonIrShowcase {
             self.release_mesh_plot_resource_refs();
         }
 
+        self.app_value = Some(app_value);
         self.app = Some(app_ir);
         self.prune_mesh_plot_runtime_ids(&live_ids);
         self.load_error = None;
@@ -6461,6 +6481,8 @@ impl PythonIrShowcase {
         self.session_state.retain_mesh_plot_generations(live_ids);
         self.mesh_plots
             .retain_only(live_ids.iter().map(String::as_str));
+        self.prepared_mesh_plots
+            .retain(|id, _| live_ids.contains(id));
         self.mesh_plot_states.retain(|id, _| live_ids.contains(id));
         self.mesh_plot_errors.retain(|id, _| live_ids.contains(id));
     }
@@ -6469,6 +6491,7 @@ impl PythonIrShowcase {
         self.load_error = None;
         self.reset_mesh_plot_runtime_state();
         self.app = None;
+        self.app_value = None;
         self.session = None;
         cx.spawn(async move |this: WeakEntity<Self>, cx| {
             let result = super::python::load_python_session_async().await;
@@ -6796,6 +6819,7 @@ impl PythonIrShowcase {
             .unwrap_or_else(|| {
                 self.render_error("Python app did not define any sections", theme, ds)
             });
+        self.app_value = serde_json::to_value(&app).ok();
         self.app = Some(app);
 
         let jobs = self.render_job_panel(theme, ds, cx);
@@ -10736,58 +10760,67 @@ impl PythonIrShowcase {
         ds: &DesignSystem,
         _cx: &mut Context<Self>,
     ) -> AnyElement {
-        let spec = match MeshPlotSpec::from_value(node.spec.clone()) {
-            Ok(spec) => spec,
-            Err(error) => return self.render_error(&error, theme, ds),
-        };
-        if self
-            .mesh_plots
-            .get(&spec.id)
-            .is_some_and(|previous| spec.revision < previous.revision)
+        let source_address = (&node.spec as *const Value) as usize;
+        let cached = self.prepared_mesh_plots.get(&node.id).cloned();
+        let (spec, prepared, unchanged_source) = if let Some(cached) = cached.as_ref()
+            && cached.source_address == source_address
         {
-            return self.render_meshplot_error_or_last_valid(
-                node,
-                &spec,
-                "stale mesh_plot revision",
-                theme,
-                ds,
-                _cx,
-            );
-        }
-        if let Err(error) = validate_mesh_plot_spec_resources(
-            &spec,
-            &self.mesh_frames,
-            self.last_mesh_patch_id.as_deref(),
-        ) {
-            return self.render_meshplot_error_or_last_valid(
-                node,
-                &spec,
-                &error.to_string(),
-                theme,
-                ds,
-                _cx,
-            );
-        }
-        let (resolved_positions, resolved_triangles) =
-            match decode_mesh_geometry(&spec.geometry, &self.mesh_frames) {
-                Ok(geometry) => geometry,
-                Err(error) => {
-                    return self
-                        .render_meshplot_error_or_last_valid(node, &spec, &error, theme, ds, _cx);
-                }
+            (Rc::clone(&cached.spec), cached.prepared.clone(), true)
+        } else {
+            let spec = match MeshPlotSpec::from_value(node.spec.clone()) {
+                Ok(spec) => Rc::new(spec),
+                Err(error) => return self.render_error(&error, theme, ds),
             };
-        let field_values = match spec.field.as_ref() {
-            Some(field) => match decode_mesh_field(field, &self.mesh_frames) {
-                Ok((values, _)) => values.len(),
-                Err(error) => {
-                    return self
-                        .render_meshplot_error_or_last_valid(node, &spec, &error, theme, ds, _cx);
-                }
-            },
-            None => 0,
+            if self
+                .mesh_plots
+                .get(&spec.id)
+                .is_some_and(|previous| spec.revision < previous.revision)
+            {
+                return self.render_meshplot_error_or_last_valid(
+                    node,
+                    &spec,
+                    "stale mesh_plot revision",
+                    theme,
+                    ds,
+                    _cx,
+                );
+            }
+            if let Err(error) = validate_mesh_plot_spec_resources(
+                &spec,
+                &self.mesh_frames,
+                self.last_mesh_patch_id.as_deref(),
+            ) {
+                return self.render_meshplot_error_or_last_valid(
+                    node,
+                    &spec,
+                    &error.to_string(),
+                    theme,
+                    ds,
+                    _cx,
+                );
+            }
+            let prepared =
+                match gpui_python_runtime::native_mesh_plot::prepare(&spec, &self.mesh_frames) {
+                    Ok(prepared) => prepared,
+                    Err(error) => {
+                        return self.render_meshplot_error_or_last_valid(
+                            node, &spec, &error, theme, ds, _cx,
+                        );
+                    }
+                };
+            self.prepared_mesh_plots.insert(
+                node.id.clone(),
+                CachedNativeMeshPlot {
+                    source_address,
+                    spec: Rc::clone(&spec),
+                    prepared: prepared.clone(),
+                },
+            );
+            (spec, prepared, false)
         };
-        let positions = resolved_positions.len();
-        let triangles = resolved_triangles.len();
+        let positions = prepared.mesh().positions.len();
+        let triangles = prepared.mesh().triangles.len();
+        let field_values = prepared.field().map_or(0, |field| field.values.len());
         let width = node.width.or(spec.width).unwrap_or(560.0);
         let height = node.height.or(spec.height).unwrap_or(360.0);
         let mesh_id = spec
@@ -10795,9 +10828,7 @@ impl PythonIrShowcase {
             .get("id")
             .and_then(Value::as_str)
             .unwrap_or("mesh");
-        if let Err(error) = native_mesh_plot_options(&spec, mesh_id) {
-            return self.render_meshplot_error_or_last_valid(node, &spec, &error, theme, ds, _cx);
-        }
+
         let geometry_changed = self
             .mesh_plots
             .get(&spec.id)
@@ -10836,7 +10867,7 @@ impl PythonIrShowcase {
         };
         let (live_plot, live_state) = match Self::build_native_mesh_plot(
             &spec,
-            &self.mesh_frames,
+            &prepared,
             retained_state.clone(),
             host_selection_callback,
         ) {
@@ -10868,11 +10899,14 @@ impl PythonIrShowcase {
                 "live_plot": live_plot.is_some(),
             }),
         );
-        if let Err(error) = self.sync_mesh_plot_resource_refs_for_spec(&spec) {
-            return self.render_meshplot_error_or_last_valid(node, &spec, &error, theme, ds, _cx);
-        }
-        if let Err(error) = self.mesh_plots.upsert(spec.clone()) {
-            return self.render_error(&error, theme, ds);
+        if !unchanged_source {
+            if let Err(error) = self.sync_mesh_plot_resource_refs_for_spec(&spec) {
+                return self
+                    .render_meshplot_error_or_last_valid(node, &spec, &error, theme, ds, _cx);
+            }
+            if let Err(error) = self.mesh_plots.upsert((*spec).clone()) {
+                return self.render_error(&error, theme, ds);
+            }
         }
         if let Some(state) = live_state {
             self.mesh_plot_states.insert(spec.id.clone(), state);
@@ -10945,7 +10979,7 @@ impl PythonIrShowcase {
                 div()
                     .text_color(theme.text_primary)
                     .font_weight(FontWeight::BOLD)
-                    .child(spec.title.unwrap_or_else(|| "Mesh plot".into())),
+                    .child(spec.title.clone().unwrap_or_else(|| "Mesh plot".into())),
             )
             .child(div().text_color(theme.text_secondary).child(format!(
                 "{} · {} vertices · {} triangles · {} field values",
@@ -10974,16 +11008,16 @@ impl PythonIrShowcase {
     #[allow(unreachable_code)] // Retained temporarily while the legacy builder is removed.
     fn build_native_mesh_plot(
         spec: &MeshPlotSpec,
-        mesh_frames: &MeshFrameStore,
+        prepared: &gpui_python_runtime::native_mesh_plot::PreparedMeshPlot,
         retained_state: Option<Rc<RefCell<MeshPlotState>>>,
         selection_callback: Option<Rc<dyn Fn(Option<MeshPlotPick>)>>,
     ) -> Result<(gpui::AnyElement, Rc<RefCell<MeshPlotState>>), String> {
-        return gpui_python_runtime::native_mesh_plot::build(
+        gpui_python_runtime::native_mesh_plot::build_prepared(
             spec,
-            mesh_frames,
+            prepared,
             retained_state,
             selection_callback,
-        );
+        )
     }
 
     pub(super) fn render_surface_spec(
@@ -12864,25 +12898,26 @@ impl PythonIrShowcase {
     /// separate from the GPUI message-drain loop makes the ownership and
     /// last-valid-frame contract testable without starting a native window.
     fn apply_patch_message(&mut self, patch: Patch) {
+        let app_value = self
+            .app
+            .as_ref()
+            .map(|app| serde_json::to_value(app).unwrap_or(Value::Null));
         let mut next_state = self.session_state.clone();
         if let Err(error) = next_state.apply_patch_revision(&patch) {
-            self.record_mesh_patch_error(&patch, error.to_string());
+            self.record_mesh_patch_error(&patch, app_value.as_ref(), error.to_string());
         } else if patch
             .request_id
             .as_ref()
-            .is_some_and(|request_id| self.superseded_requests.contains(request_id))
+            .is_some_and(|request_id| self.superseded_requests.remove(request_id))
         {
             // Consume the revision without mutating the UI. The handler
             // completed after a newer event superseded it.
             self.session_state = next_state;
-        } else if self.app.is_some() {
-            let mut next_app_value =
-                serde_json::to_value(self.app.as_ref().expect("app presence checked above"))
-                    .unwrap_or(Value::Null);
+        } else if let Some(mut next_app_value) = app_value {
             if let Err(error) =
                 PythonAppIr::apply_patch_ops_to_value(&mut next_app_value, &patch.ops)
             {
-                self.record_mesh_patch_error(&patch, error.to_string());
+                self.record_mesh_patch_error(&patch, Some(&next_app_value), error.to_string());
             } else if let Err(error) = validate_mesh_plot_resources(
                 &next_app_value,
                 &self.mesh_frames,
@@ -12892,27 +12927,31 @@ impl PythonIrShowcase {
                 // referenced generation is already retained; the previous
                 // valid frame remains visible while a sender recovers from a
                 // stale or evicted handle.
-                self.record_mesh_patch_error(&patch, error.to_string());
+                self.record_mesh_patch_error(&patch, Some(&next_app_value), error.to_string());
             } else {
                 let mut next_resource_refs = HashMap::new();
                 if let Err(error) =
                     collect_mesh_plot_resource_refs(&next_app_value, &mut next_resource_refs)
                 {
-                    self.record_mesh_patch_error(&patch, error);
+                    self.record_mesh_patch_error(&patch, Some(&next_app_value), error);
                 } else if let Err(error) = self.sync_mesh_plot_resource_refs(next_resource_refs) {
-                    self.record_mesh_patch_error(&patch, error);
+                    self.record_mesh_patch_error(&patch, Some(&next_app_value), error);
                 } else {
                     let next_app = match PythonAppIr::from_patched_value(&next_app_value) {
                         Ok(app) => app,
                         Err(error) => {
-                            self.record_mesh_patch_error(&patch, error.to_string());
+                            self.record_mesh_patch_error(
+                                &patch,
+                                Some(&next_app_value),
+                                error.to_string(),
+                            );
                             return;
                         }
                     };
                     self.app = Some(next_app);
                     self.last_mesh_patch_id = patch.request_id.clone();
                     self.session_state = next_state;
-                    self.clear_mesh_patch_errors(&patch);
+                    self.clear_mesh_patch_errors(&patch, Some(&next_app_value));
                     for operation in &patch.ops {
                         match operation {
                             PatchOp::ClearMeshPlotSelection { plot_id, .. } => {
@@ -12946,6 +12985,7 @@ impl PythonIrShowcase {
                     let mut live_ids = HashSet::new();
                     mesh_plot_ids(&next_app_value, &mut live_ids);
                     self.prune_mesh_plot_runtime_ids(&live_ids);
+                    self.app_value = Some(next_app_value);
                 }
             }
         } else {
@@ -13024,7 +13064,7 @@ impl PythonIrShowcase {
                     if !error
                         .request_id
                         .as_ref()
-                        .is_some_and(|request_id| self.superseded_requests.contains(request_id))
+                        .is_some_and(|request_id| self.superseded_requests.remove(request_id))
                     {
                         self.load_error = Some(format!("{}: {}", error.code, error.message))
                     }

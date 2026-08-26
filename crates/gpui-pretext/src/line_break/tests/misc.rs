@@ -286,8 +286,8 @@ fn test_kp_even_distribution() {
 fn test_kp_soft_hyphen_penalty() {
     // Verify soft hyphens get flagged penalty.
     let len = 5;
-    let mut widths = vec![50.0, 0.0, 50.0, 0.0, 30.0];
-    let mut kinds = vec![
+    let widths = vec![50.0, 0.0, 50.0, 0.0, 30.0];
+    let kinds = vec![
         SegmentBreakKind::Text,
         SegmentBreakKind::SoftHyphen,
         SegmentBreakKind::Text,

@@ -8,7 +8,6 @@ use crate::analysis::{
     SegmentBreakKind, TextAnalysis, ends_with_closing_quote, is_cjk, is_kinsoku_end,
     is_kinsoku_start, is_left_sticky_punctuation,
 };
-use crate::bidi::compute_segment_levels;
 use crate::line_break::{KPItem, PreparedLineChunk};
 use crate::measurement::{EngineProfile, MeasureCache, TextMeasure};
 /// Main public API for text measurement and layout, ported from chenglou/pretext.
@@ -19,12 +18,18 @@ use crate::measurement::{EngineProfile, MeasureCache, TextMeasure};
 use unicode_segmentation::UnicodeSegmentation;
 
 /// Opaque handle to prepared text data. Returned by [`crate::prepare()`].
+///
+/// This type is not [`Sync`] because it keeps an internal Knuth-Plass cache.
+/// Keep one prepared value per thread instead of sharing it concurrently.
 #[derive(Debug, Clone)]
 pub struct PreparedText {
     pub(super) core: PreparedCore,
 }
 
 /// Prepared text with segment strings exposed for custom rendering.
+///
+/// Like [`PreparedText`], this type is not [`Sync`] because it shares the
+/// same internal Knuth-Plass cache.
 #[derive(Debug, Clone)]
 pub struct PreparedTextWithSegments {
     pub(super) core: PreparedCore,
@@ -38,8 +43,6 @@ pub(super) struct PreparedCore {
     pub(super) line_end_paint_advances: Vec<f64>,
     pub(super) kinds: Vec<SegmentBreakKind>,
     pub(super) simple_line_walk_fast_path: bool,
-    #[allow(dead_code)]
-    pub(super) seg_levels: Option<Vec<i8>>,
     pub(super) breakable_widths: Vec<Option<Arc<[f64]>>>,
     pub(super) breakable_prefix_widths: Vec<Option<Arc<[f64]>>>,
     pub(super) discretionary_hyphen_width: f64,
@@ -123,7 +126,6 @@ pub(super) fn measure_analysis(
                 line_end_paint_advances: Vec::new(),
                 kinds: Vec::new(),
                 simple_line_walk_fast_path: true,
-                seg_levels: None,
                 breakable_widths: Vec::new(),
                 breakable_prefix_widths: Vec::new(),
                 discretionary_hyphen_width: 0.0,
@@ -144,7 +146,6 @@ pub(super) fn measure_analysis(
     let mut line_end_paint_advances = Vec::new();
     let mut kinds = Vec::new();
     let mut simple_fast_path = analysis.chunks.len() <= 1;
-    let mut seg_starts: Vec<usize> = Vec::new();
     let mut breakable_widths_out: Vec<Option<Arc<[f64]>>> = Vec::new();
     let mut breakable_prefix_widths_out: Vec<Option<Arc<[f64]>>> = Vec::new();
     let mut segments: Vec<String> = Vec::new();
@@ -156,14 +157,13 @@ pub(super) fn measure_analysis(
                         fit_adv: f64,
                         paint_adv: f64,
                         kind: SegmentBreakKind,
-                        start: usize,
+                        _start: usize,
                         breakable: Option<Arc<[f64]>>,
                         breakable_prefix: Option<Arc<[f64]>>,
                         widths_v: &mut Vec<f64>,
                         fit_v: &mut Vec<f64>,
                         paint_v: &mut Vec<f64>,
                         kinds_v: &mut Vec<SegmentBreakKind>,
-                        starts_v: &mut Vec<usize>,
                         bw_v: &mut Vec<Option<Arc<[f64]>>>,
                         bpw_v: &mut Vec<Option<Arc<[f64]>>>,
                         segs_v: &mut Vec<String>,
@@ -179,7 +179,6 @@ pub(super) fn measure_analysis(
         fit_v.push(fit_adv);
         paint_v.push(paint_adv);
         kinds_v.push(kind);
-        starts_v.push(start);
         bw_v.push(breakable);
         bpw_v.push(breakable_prefix);
         if include_segs {
@@ -209,7 +208,6 @@ pub(super) fn measure_analysis(
                     &mut line_end_fit_advances,
                     &mut line_end_paint_advances,
                     &mut kinds,
-                    &mut seg_starts,
                     &mut breakable_widths_out,
                     &mut breakable_prefix_widths_out,
                     &mut segments,
@@ -233,7 +231,6 @@ pub(super) fn measure_analysis(
                     &mut line_end_fit_advances,
                     &mut line_end_paint_advances,
                     &mut kinds,
-                    &mut seg_starts,
                     &mut breakable_widths_out,
                     &mut breakable_prefix_widths_out,
                     &mut segments,
@@ -289,7 +286,6 @@ pub(super) fn measure_analysis(
                     &mut line_end_fit_advances,
                     &mut line_end_paint_advances,
                     &mut kinds,
-                    &mut seg_starts,
                     &mut breakable_widths_out,
                     &mut breakable_prefix_widths_out,
                     &mut segments,
@@ -317,7 +313,6 @@ pub(super) fn measure_analysis(
                     &mut line_end_fit_advances,
                     &mut line_end_paint_advances,
                     &mut kinds,
-                    &mut seg_starts,
                     &mut breakable_widths_out,
                     &mut breakable_prefix_widths_out,
                     &mut segments,
@@ -366,7 +361,6 @@ pub(super) fn measure_analysis(
             &mut line_end_fit_advances,
             &mut line_end_paint_advances,
             &mut kinds,
-            &mut seg_starts,
             &mut breakable_widths_out,
             &mut breakable_prefix_widths_out,
             &mut segments,
@@ -382,19 +376,12 @@ pub(super) fn measure_analysis(
         &prepared_end_by_analysis,
     );
 
-    let seg_levels = if include_segments {
-        compute_segment_levels(&analysis.normalized, &seg_starts)
-    } else {
-        None
-    };
-
     let core = PreparedCore {
         widths,
         line_end_fit_advances,
         line_end_paint_advances,
         kinds,
         simple_line_walk_fast_path: simple_fast_path,
-        seg_levels,
         breakable_widths: breakable_widths_out,
         breakable_prefix_widths: breakable_prefix_widths_out,
         discretionary_hyphen_width,

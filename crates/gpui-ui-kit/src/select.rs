@@ -33,6 +33,8 @@ thread_local! {
         RefCell::new(HashMap::new());
 }
 
+const MAX_SELECT_FOCUS_ENTRIES: usize = 1024;
+
 mod select_option;
 mod select_size;
 #[cfg(test)]
@@ -237,6 +239,9 @@ impl Select {
         // never reach the trigger after a mouse click.
         let focus_handle = SELECT_FOCUS_HANDLES.with(|handles| {
             let mut handles = handles.borrow_mut();
+            if !handles.contains_key(&self.id) && handles.len() >= MAX_SELECT_FOCUS_ENTRIES {
+                handles.clear();
+            }
             handles
                 .entry(self.id.clone())
                 .or_insert_with(|| cx.focus_handle())
@@ -292,19 +297,24 @@ impl Select {
         let on_change_rc = self.on_change.map(std::rc::Rc::new);
         let on_highlight_rc = self.on_highlight.map(std::rc::Rc::new);
 
-        // Register focus-out handler once per select id to close the dropdown
-        // when the user clicks outside. The focus handle is stable per id, so
-        // re-registration only happens when the id first appears.
-        let needs_focus_sub =
-            SELECT_FOCUS_SUBS.with(|subs| !subs.borrow().contains_key(&dropdown_id));
-        if needs_focus_sub && let Some(ref toggle_handler) = on_toggle_rc {
+        // Replace the subscription on every render so a select moved to a
+        // different window, or supplied a new toggle callback, cannot retain
+        // a stale blur listener. Replacing the map entry drops the old one.
+        if let Some(ref toggle_handler) = on_toggle_rc {
             let toggle_for_blur = toggle_handler.clone();
             let sub = window.on_focus_out(&focus_handle, cx, move |_event, window, cx| {
                 toggle_for_blur(false, window, cx);
             });
             SELECT_FOCUS_SUBS.with(|subs| {
                 let mut subs = subs.borrow_mut();
+                if !subs.contains_key(&dropdown_id) && subs.len() >= MAX_SELECT_FOCUS_ENTRIES {
+                    subs.clear();
+                }
                 subs.insert(dropdown_id.clone(), sub);
+            });
+        } else {
+            SELECT_FOCUS_SUBS.with(|subs| {
+                subs.borrow_mut().remove(&dropdown_id);
             });
         }
 

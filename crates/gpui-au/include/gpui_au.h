@@ -21,29 +21,38 @@ AuContext *gpui_au_create(
 void gpui_au_destroy(AuContext *context);
 void gpui_au_request_frame(AuContext *context);
 void gpui_au_resize(AuContext *context, float width, float height, float scale);
+void gpui_au_set_active(AuContext *context, bool is_active);
+void gpui_au_set_hovered(AuContext *context, bool is_hovered);
 
 void gpui_au_mouse_down(
     AuContext *context,
     float x,
     float y,
     int32_t button,
-    int32_t click_count
+    int32_t click_count,
+    uint32_t modifier_flags
 );
-void gpui_au_mouse_up(AuContext *context, float x, float y, int32_t button);
-void gpui_au_mouse_moved(AuContext *context, float x, float y);
-void gpui_au_mouse_dragged(AuContext *context, float x, float y, int32_t button);
+void gpui_au_mouse_up(
+    AuContext *context, float x, float y, int32_t button, uint32_t modifier_flags
+);
+void gpui_au_mouse_moved(AuContext *context, float x, float y, uint32_t modifier_flags);
+void gpui_au_mouse_dragged(
+    AuContext *context, float x, float y, int32_t button, uint32_t modifier_flags
+);
 void gpui_au_scroll_wheel(
     AuContext *context,
     float x,
     float y,
     float delta_x,
-    float delta_y
+    float delta_y,
+    uint32_t modifier_flags
 );
 
 void gpui_au_key_down(
     AuContext *context,
     uint16_t key_code,
     const char *characters,
+    const char *characters_ignoring_modifiers,
     uint32_t modifier_flags,
     bool is_repeat
 );
@@ -51,6 +60,7 @@ void gpui_au_key_up(
     AuContext *context,
     uint16_t key_code,
     const char *characters,
+    const char *characters_ignoring_modifiers,
     uint32_t modifier_flags
 );
 

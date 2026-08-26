@@ -3,7 +3,10 @@
 //! GPUI keeps emitting compatibility mouse/touch events. These samples expose
 //! extra iPad-only stylus data to professional drawing or spatial UIs.
 
-use std::sync::{Mutex, OnceLock};
+use std::sync::{
+    Mutex, OnceLock,
+    atomic::{AtomicU64, Ordering},
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum IosPointerDevice {
@@ -75,6 +78,8 @@ type HoverCallback = Box<dyn FnMut(IosHoverSample) + Send>;
 
 static PENCIL_CALLBACK: OnceLock<Mutex<Option<PencilCallback>>> = OnceLock::new();
 static HOVER_CALLBACK: OnceLock<Mutex<Option<HoverCallback>>> = OnceLock::new();
+static PENCIL_CALLBACK_GENERATION: AtomicU64 = AtomicU64::new(0);
+static HOVER_CALLBACK_GENERATION: AtomicU64 = AtomicU64::new(0);
 
 fn pencil_callback_slot() -> &'static Mutex<Option<PencilCallback>> {
     PENCIL_CALLBACK.get_or_init(|| Mutex::new(None))
@@ -85,16 +90,32 @@ fn hover_callback_slot() -> &'static Mutex<Option<HoverCallback>> {
 }
 
 pub fn set_pencil_event_callback(callback: Option<PencilCallback>) {
+    PENCIL_CALLBACK_GENERATION.fetch_add(1, Ordering::Release);
     *pencil_callback_slot().lock().unwrap() = callback;
 }
 
 pub fn set_hover_event_callback(callback: Option<HoverCallback>) {
+    HOVER_CALLBACK_GENERATION.fetch_add(1, Ordering::Release);
     *hover_callback_slot().lock().unwrap() = callback;
 }
 
+/// Avoid querying extra UIKit stylus properties unless an application has
+/// registered an Apple Pencil consumer.
+pub fn has_pencil_callback() -> bool {
+    pencil_callback_slot()
+        .lock()
+        .map(|callback| callback.is_some())
+        .unwrap_or(false)
+}
+
 pub fn dispatch_pencil_sample(sample: IosPencilSample) -> bool {
-    if let Some(callback) = pencil_callback_slot().lock().unwrap().as_mut() {
-        callback(sample.normalized());
+    let generation = PENCIL_CALLBACK_GENERATION.load(Ordering::Acquire);
+    let mut callback = pencil_callback_slot().lock().unwrap().take();
+    if let Some(handler) = callback.as_mut() {
+        handler(sample.normalized());
+        if PENCIL_CALLBACK_GENERATION.load(Ordering::Acquire) == generation {
+            *pencil_callback_slot().lock().unwrap() = callback;
+        }
         true
     } else {
         false
@@ -102,8 +123,13 @@ pub fn dispatch_pencil_sample(sample: IosPencilSample) -> bool {
 }
 
 pub fn dispatch_hover_sample(sample: IosHoverSample) -> bool {
-    if let Some(callback) = hover_callback_slot().lock().unwrap().as_mut() {
-        callback(sample.normalized());
+    let generation = HOVER_CALLBACK_GENERATION.load(Ordering::Acquire);
+    let mut callback = hover_callback_slot().lock().unwrap().take();
+    if let Some(handler) = callback.as_mut() {
+        handler(sample.normalized());
+        if HOVER_CALLBACK_GENERATION.load(Ordering::Acquire) == generation {
+            *hover_callback_slot().lock().unwrap() = callback;
+        }
         true
     } else {
         false
@@ -113,6 +139,7 @@ pub fn dispatch_hover_sample(sample: IosHoverSample) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
 
     #[test]
     fn pencil_samples_are_normalized() {
@@ -132,5 +159,19 @@ mod tests {
         assert_eq!(sample.altitude_angle, 0.0);
         assert!(sample.azimuth_angle > 0.0);
         assert_eq!(sample.timestamp_seconds, 0.0);
+    }
+
+    #[test]
+    fn pencil_callback_can_unregister_itself() {
+        let calls = Arc::new(AtomicU64::new(0));
+        let calls_for_callback = Arc::clone(&calls);
+        set_pencil_event_callback(Some(Box::new(move |_| {
+            calls_for_callback.fetch_add(1, Ordering::Relaxed);
+            set_pencil_event_callback(None);
+        })));
+
+        assert!(dispatch_pencil_sample(IosPencilSample::default()));
+        assert!(!dispatch_pencil_sample(IosPencilSample::default()));
+        assert_eq!(calls.load(Ordering::Relaxed), 1);
     }
 }

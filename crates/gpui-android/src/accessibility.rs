@@ -4,7 +4,10 @@ use accesskit::{Action, ActionRequest, Node, NodeId, TreeId, TreeUpdate};
 use gpui::A11yCallbacks;
 use parking_lot::Mutex;
 use serde_json::{Value, json};
-use std::{collections::HashMap, sync::OnceLock};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::OnceLock,
+};
 
 #[derive(Default)]
 struct AccessibilityTree {
@@ -23,6 +26,29 @@ impl AccessibilityTree {
         }
         self.focus = Some(update.focus);
         self.nodes.extend(update.nodes);
+        self.retain_reachable_nodes();
+    }
+
+    /// Tree updates are incremental, so removed nodes are absent from an
+    /// update. Prune nodes no longer reachable from the current root after
+    /// applying the update rather than retaining stale accessibility objects
+    /// forever.
+    fn retain_reachable_nodes(&mut self) {
+        let Some(root) = self.root else {
+            return;
+        };
+
+        let mut reachable = HashSet::new();
+        let mut pending = vec![root];
+        while let Some(id) = pending.pop() {
+            if !reachable.insert(id) {
+                continue;
+            }
+            if let Some(node) = self.nodes.get(&id) {
+                pending.extend(node.children().iter().copied());
+            }
+        }
+        self.nodes.retain(|id, _| reachable.contains(id));
     }
 
     fn snapshot(&self) -> String {
@@ -150,5 +176,46 @@ mod tests {
         assert_eq!(button["label"], "Play");
         assert_eq!(button["bounds"], json!([10.0, 20.0, 110.0, 70.0]));
         assert_eq!(button["click"], true);
+    }
+
+    #[test]
+    fn snapshot_drops_nodes_disconnected_by_an_incremental_update() {
+        let root_id = NodeId(1);
+        let removed_id = NodeId(2);
+        let retained_id = NodeId(3);
+
+        let mut root = Node::new(Role::Window);
+        root.set_children(vec![removed_id]);
+        let mut tree = AccessibilityTree::default();
+        tree.apply(TreeUpdate {
+            nodes: vec![(root_id, root), (removed_id, Node::new(Role::Button))],
+            tree: Some(Tree::new(root_id)),
+            tree_id: TreeId::ROOT,
+            focus: removed_id,
+        });
+
+        let mut updated_root = Node::new(Role::Window);
+        updated_root.set_children(vec![retained_id]);
+        tree.apply(TreeUpdate {
+            nodes: vec![
+                (root_id, updated_root),
+                (retained_id, Node::new(Role::Button)),
+            ],
+            tree: None,
+            tree_id: TreeId::ROOT,
+            focus: retained_id,
+        });
+
+        let snapshot: Value = serde_json::from_str(&tree.snapshot()).unwrap();
+        let node_ids = snapshot["nodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|node| node["id"].as_u64().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(node_ids.len(), 2);
+        assert!(node_ids.contains(&root_id.0));
+        assert!(node_ids.contains(&retained_id.0));
+        assert!(!node_ids.contains(&removed_id.0));
     }
 }

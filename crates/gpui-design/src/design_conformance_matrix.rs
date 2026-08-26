@@ -19,7 +19,7 @@ impl DesignConformanceMatrix {
                     reduced_motion,
                     report: system.conformance_report(reduced_motion),
                     motion: system.motion_spec(reduced_motion),
-                    token_count: system.style_dictionary_tokens_ref().len(),
+                    token_count: system.style_dictionary_tokens().len(),
                 });
             }
         }

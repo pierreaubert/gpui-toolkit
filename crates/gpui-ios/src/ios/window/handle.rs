@@ -22,27 +22,37 @@ pub(super) fn handle_presses(
 
         let all: *mut Object = msg_send![presses, allObjects];
         let count: usize = msg_send![all, count];
-        let event_type: i64 = msg_send![event, type];
-        let event_subtype: i64 = msg_send![event, subtype];
-        let event_modifiers: usize = msg_send![event, modifierFlags];
-        let button_mask: isize = msg_send![event, buttonMask];
-        eprintln!(
-            "GPUI iOS diag: presses {phase_name} count={count} event_type={event_type} subtype={event_subtype} modifiers=0x{event_modifiers:x} button_mask=0x{button_mask:x}"
-        );
+        #[cfg(target_os = "ios")]
+        if register::input_diag_enabled() {
+            let event_type: i64 = msg_send![event, type];
+            let event_subtype: i64 = msg_send![event, subtype];
+            let event_modifiers: usize = msg_send![event, modifierFlags];
+            let button_mask: isize = msg_send![event, buttonMask];
+            register::input_diag_log(|| {
+                format!(
+                    "presses {phase_name} count={count} event_type={event_type} subtype={event_subtype} modifiers=0x{event_modifiers:x} button_mask=0x{button_mask:x}"
+                )
+            });
+        }
 
         for i in 0..count {
             let press: *mut Object = msg_send![all, objectAtIndex: i];
-            let press_phase: i64 = msg_send![press, phase];
             let press_type: i64 = msg_send![press, type];
-            let force: f64 = msg_send![press, force];
             let key: *mut Object = msg_send![press, key];
             if !key.is_null() {
                 let key_code: usize = msg_send![key, keyCode];
                 let modifier_flags: usize = msg_send![key, modifierFlags];
                 let characters: *mut Object = msg_send![key, characters];
-                eprintln!(
-                    "GPUI iOS diag: press[{i}] phase={press_phase} type={press_type} force={force:.3} key_code=0x{key_code:x} key_modifiers=0x{modifier_flags:x}"
-                );
+                #[cfg(target_os = "ios")]
+                if register::input_diag_enabled() {
+                    let press_phase: i64 = msg_send![press, phase];
+                    let force: f64 = msg_send![press, force];
+                    register::input_diag_log(|| {
+                        format!(
+                            "press[{i}] phase={press_phase} type={press_type} force={force:.3} key_code=0x{key_code:x} key_modifiers=0x{modifier_flags:x}"
+                        )
+                    });
+                }
                 window.handle_key_event_with_characters(
                     key_code as u32,
                     modifier_flags as u32,
@@ -76,7 +86,7 @@ pub(super) fn handle_touches(view: &mut Object, touches: *mut Object, event: *mu
         let all_touches: *mut Object = msg_send![touches, allObjects];
         let count: usize = msg_send![all_touches, count];
         #[cfg(target_os = "ios")]
-        {
+        if register::input_diag_enabled() {
             let event_type: i64 = msg_send![event, type];
             let event_subtype: i64 = msg_send![event, subtype];
             register::input_diag_log(|| {
@@ -103,15 +113,17 @@ pub(super) fn handle_indirect_scroll(view: &mut Object, recognizer: *mut Object)
             return;
         }
 
-        let state: i64 = msg_send![recognizer, state];
-        let touches: usize = msg_send![recognizer, numberOfTouches];
-        let modifiers: usize = msg_send![recognizer, modifierFlags];
-        let buttons: isize = msg_send![recognizer, buttonMask];
-        register::input_diag_log(|| {
-            format!(
-                "indirect_scroll callback state={state} touches={touches} modifiers=0x{modifiers:x} buttons=0x{buttons:x}"
-            )
-        });
+        if register::input_diag_enabled() {
+            let state: i64 = msg_send![recognizer, state];
+            let touches: usize = msg_send![recognizer, numberOfTouches];
+            let modifiers: usize = msg_send![recognizer, modifierFlags];
+            let buttons: isize = msg_send![recognizer, buttonMask];
+            register::input_diag_log(|| {
+                format!(
+                    "indirect_scroll callback state={state} touches={touches} modifiers=0x{modifiers:x} buttons=0x{buttons:x}"
+                )
+            });
+        }
 
         let window = &*(window_ptr as *const IosWindow);
         window.handle_indirect_scroll(recognizer);

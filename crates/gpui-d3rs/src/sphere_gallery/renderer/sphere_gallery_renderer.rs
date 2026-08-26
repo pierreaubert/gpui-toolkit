@@ -32,20 +32,28 @@ pub struct SphereGalleryRenderer {
 }
 
 impl SphereGalleryRenderer {
-    fn shared_or_new_device() -> (Arc<wgpu::Device>, Arc<wgpu::Queue>) {
+    fn shared_or_new_device() -> Option<(Arc<wgpu::Device>, Arc<wgpu::Queue>)> {
         #[cfg(feature = "gpu-2d")]
         if let Ok(context) = Gpu2DContext::try_global() {
-            return (context.device(), context.queue());
+            return Some((context.device(), context.queue()));
         }
 
-        let (device, queue) = pollster::block_on(Self::create_device());
-        (Arc::new(device), Arc::new(queue))
+        let (device, queue) = pollster::block_on(Self::create_device())?;
+        Some((Arc::new(device), Arc::new(queue)))
     }
 
     /// Create a new renderer
-    pub fn new(config: SphereGalleryConfig) -> Self {
-        let (device, queue) = Self::shared_or_new_device();
+    pub fn new(config: SphereGalleryConfig) -> Option<Self> {
+        let (device, queue) = Self::shared_or_new_device()?;
+        Self::with_device(device, queue, config)
+    }
 
+    /// Construct resources on a caller-owned WGPU device and queue.
+    pub(crate) fn with_device(
+        device: Arc<wgpu::Device>,
+        queue: Arc<wgpu::Queue>,
+        config: SphereGalleryConfig,
+    ) -> Option<Self> {
         // Create sampler
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("Gallery Atlas Sampler"),
@@ -219,7 +227,7 @@ impl SphereGalleryRenderer {
             cache: None,
         });
 
-        Self {
+        Some(Self {
             device,
             queue,
             pipeline,
@@ -238,10 +246,10 @@ impl SphereGalleryRenderer {
             width: 0,
             height: 0,
             config,
-        }
+        })
     }
 
-    pub(super) async fn create_device() -> (wgpu::Device, wgpu::Queue) {
+    pub(super) async fn create_device() -> Option<(wgpu::Device, wgpu::Queue)> {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends: wgpu::Backends::all(),
             ..wgpu::InstanceDescriptor::new_without_display_handle()
@@ -254,7 +262,7 @@ impl SphereGalleryRenderer {
                 force_fallback_adapter: false,
             })
             .await
-            .expect("Failed to find suitable GPU adapter");
+            .ok()?;
 
         adapter
             .request_device(&wgpu::DeviceDescriptor {
@@ -266,7 +274,7 @@ impl SphereGalleryRenderer {
                 experimental_features: wgpu::ExperimentalFeatures::default(),
             })
             .await
-            .expect("Failed to create device")
+            .ok()
     }
 
     /// Upload the sphere mesh to the GPU
@@ -394,14 +402,95 @@ impl SphereGalleryRenderer {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::COPY_SRC
+                | wgpu::TextureUsages::TEXTURE_BINDING,
             view_formats: &[],
         });
         self.render_texture_view = Some(render_texture.create_view(&Default::default()));
         self.render_texture = Some(render_texture);
     }
 
+    /// Encode the gallery into its retained same-device texture and return the
+    /// source view for in-frame compositing. This does not submit or read back.
+    pub(in crate::sphere_gallery) fn encode_render_to_texture(
+        &mut self,
+        encoder: &mut wgpu::CommandEncoder,
+        camera: &Camera3D,
+        cell_count: u32,
+        selected_index: Option<u32>,
+        hovered_index: Option<u32>,
+    ) -> Option<&wgpu::TextureView> {
+        if self.vertex_buffer.is_none() || self.width == 0 || self.height == 0 {
+            return None;
+        }
+
+        let uniforms = Uniforms {
+            view_proj: camera.view_projection_matrix().to_cols_array_2d(),
+            model: Mat4::IDENTITY.to_cols_array_2d(),
+            atlas_cols: self.config.cols as f32,
+            atlas_rows: self.config.rows as f32,
+            cell_count: cell_count as f32,
+            selected_index: selected_index.map(|index| index as f32).unwrap_or(-1.0),
+            hovered_index: hovered_index.map(|index| index as f32).unwrap_or(-1.0),
+            ambient: self.config.ambient,
+            diffuse: self.config.diffuse,
+            _pad: 0.0,
+        };
+        self.queue
+            .write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(&uniforms));
+
+        {
+            let background = &self.config.background_color;
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Gallery custom-draw render pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: self.render_texture_view.as_ref()?,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color {
+                            r: background[0] as f64,
+                            g: background[1] as f64,
+                            b: background[2] as f64,
+                            a: 1.0,
+                        }),
+                        store: wgpu::StoreOp::Store,
+                    },
+                    depth_slice: None,
+                })],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: self.depth_texture.as_ref()?,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0),
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
+                ..Default::default()
+            });
+            render_pass.set_pipeline(&self.pipeline);
+            render_pass.set_bind_group(0, &self.bind_group, &[]);
+            render_pass.set_vertex_buffer(0, self.vertex_buffer.as_ref()?.slice(..));
+            render_pass.set_index_buffer(
+                self.index_buffer.as_ref()?.slice(..),
+                wgpu::IndexFormat::Uint32,
+            );
+            render_pass.draw_indexed(0..self.index_count, 0, 0..1);
+        }
+
+        self.render_texture_view.as_ref()
+    }
+
+    pub(in crate::sphere_gallery) fn uses_device(&self, device: &Arc<wgpu::Device>) -> bool {
+        Arc::ptr_eq(&self.device, device)
+    }
+
+    pub(in crate::sphere_gallery) fn dimensions(&self) -> (u32, u32) {
+        (self.width, self.height)
+    }
+
     /// Render the gallery and return RGBA pixel data
+    #[cfg(feature = "headless-qa")]
     pub fn render(
         &mut self,
         camera: &Camera3D,

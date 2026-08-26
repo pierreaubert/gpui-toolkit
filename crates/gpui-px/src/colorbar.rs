@@ -123,10 +123,16 @@ impl Colorbar {
             gradient = gradient.child(div().flex_1().bg(self.scale.map(t).to_rgba()));
         }
 
-        let mut tick_labels = div().flex().flex_col().justify_between().h(px(height));
+        let mut tick_labels = div().relative().h(px(height));
         for tick in ticks {
             let text = format_tick(tick);
-            tick_labels = tick_labels.child(render_glyph_text(&text, &text_config()));
+            let top = (height as f64 * tick_fraction(range, tick)) as f32;
+            tick_labels = tick_labels.child(
+                div()
+                    .absolute()
+                    .top(px(top))
+                    .child(render_glyph_text(&text, &text_config())),
+            );
         }
 
         let mut title = div().flex().flex_col();
@@ -196,11 +202,7 @@ impl Colorbar {
         }
 
         for tick in ticks {
-            let fraction = if range[1] == range[0] {
-                0.0
-            } else {
-                ((range[1] - tick) / (range[1] - range[0])).clamp(0.0, 1.0)
-            };
+            let fraction = tick_fraction(range, tick);
             let tick_y = y + height * fraction;
             let text = format_tick(tick);
             let _ = writeln!(
@@ -218,6 +220,14 @@ fn format_tick(value: f64) -> String {
         "0".to_string()
     } else {
         format!("{value:.3}")
+    }
+}
+
+fn tick_fraction(range: [f64; 2], tick: f64) -> f64 {
+    if range[1] == range[0] {
+        0.0
+    } else {
+        ((range[1] - tick) / (range[1] - range[0])).clamp(0.0, 1.0)
     }
 }
 
@@ -242,5 +252,15 @@ mod tests {
         assert!(svg.contains("Sound pressure level"));
         assert!(svg.contains("dB SPL"));
         assert!(svg.contains("dB SPL") || svg.contains("<rect"));
+    }
+
+    #[test]
+    fn colorbar_tick_fraction_preserves_nonuniform_positions() {
+        let range = [0.0, 100.0];
+
+        assert_eq!(tick_fraction(range, 100.0), 0.0);
+        assert_eq!(tick_fraction(range, 75.0), 0.25);
+        assert_eq!(tick_fraction(range, 25.0), 0.75);
+        assert_eq!(tick_fraction(range, 0.0), 1.0);
     }
 }

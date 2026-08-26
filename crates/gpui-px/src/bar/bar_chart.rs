@@ -909,6 +909,15 @@ where
     d3rs::shape::render_bars_selected(x_scale, y_scale, data, width, height, &config)
 }
 
+#[derive(Clone, Debug)]
+struct GroupedBarQuad {
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+    color: D3Color,
+}
+
 /// Render grouped bars without cloning category/series strings.
 ///
 /// Bar positions are computed directly from the original `categories`, `values`
@@ -931,15 +940,6 @@ fn render_grouped_bars_view<YS>(
 where
     YS: Scale<f64, f64>,
 {
-    #[derive(Clone, Debug)]
-    struct GroupedBarQuad {
-        x: f32,
-        y: f32,
-        width: f32,
-        height: f32,
-        color: D3Color,
-    }
-
     let num_categories = categories.len() as f32;
     let num_series = (series.len() + 1) as f32;
 
@@ -1022,30 +1022,27 @@ where
 
     #[cfg(feature = "vello")]
     if renderer == Renderer2D::Vello {
-        let mut cache_key = d3rs::vello2d::SceneCacheKey::new();
-        cache_key
-            .add_f32(plot_width)
-            .add_f32(plot_height)
-            .add_f32(opacity);
-        for quad in &quads {
-            cache_key
-                .add_f32(quad.x)
-                .add_f32(quad.y)
-                .add_f32(quad.width)
-                .add_f32(quad.height)
-                .add_f32(quad.color.r)
-                .add_f32(quad.color.g)
-                .add_f32(quad.color.b)
-                .add_f32(quad.color.a);
-        }
-        let cache_key = cache_key.finish();
+        let cache_key =
+            grouped_bar_scene_cache_key(&quads, plot_width, plot_height, opacity, border_radius);
         let vello_quads = quads.clone();
         return d3rs::vello2d::VelloChartElement::with_builder(move |width, height| {
             let quads: Vec<_> = vello_quads
                 .iter()
                 .map(|quad| (quad.x, quad.y, quad.width, quad.height, quad.color))
                 .collect();
-            bar_chart_scene(&quads, plot_width, plot_height, width, height, opacity)
+            if border_radius <= 0.0 {
+                bar_chart_scene(&quads, plot_width, plot_height, width, height, opacity)
+            } else {
+                bar_chart_scene_with_radius(
+                    &quads,
+                    plot_width,
+                    plot_height,
+                    width,
+                    height,
+                    opacity,
+                    border_radius,
+                )
+            }
         })
         .cache_key(cache_key)
         .backend(backend)
@@ -1105,6 +1102,27 @@ pub fn bar_chart_scene(
     height: f32,
     opacity: f32,
 ) -> d3rs::vello2d::ChartScene {
+    bar_chart_scene_with_radius(
+        quads,
+        source_width,
+        source_height,
+        width,
+        height,
+        opacity,
+        0.0,
+    )
+}
+
+#[cfg(feature = "vello")]
+fn bar_chart_scene_with_radius(
+    quads: &[(f32, f32, f32, f32, D3Color)],
+    source_width: f32,
+    source_height: f32,
+    width: f32,
+    height: f32,
+    opacity: f32,
+    border_radius: f32,
+) -> d3rs::vello2d::ChartScene {
     use d3rs::vello2d::kurbo::Rect;
     use d3rs::vello2d::peniko::{Brush, Color};
 
@@ -1118,6 +1136,7 @@ pub fn bar_chart_scene(
     } else {
         1.0
     };
+    let radius = border_radius.max(0.0) as f64 * sx.abs().min(sy.abs()) as f64;
     let mut scene = d3rs::vello2d::ChartScene::new();
     let mut start = 0usize;
     while start < quads.len() {
@@ -1128,19 +1147,48 @@ pub fn bar_chart_scene(
         }
         let rgba = color.to_rgba();
         for &(x, y, quad_width, quad_height, _) in &quads[start..end] {
-            scene.fill_rect(
+            scene.fill_rounded_rect(
                 Rect::new(
                     (x * sx) as f64,
                     (y * sy) as f64,
                     ((x + quad_width) * sx) as f64,
                     ((y + quad_height) * sy) as f64,
                 ),
+                radius,
                 Brush::Solid(Color::new([rgba.r, rgba.g, rgba.b, rgba.a * opacity])),
             );
         }
         start = end;
     }
     scene
+}
+
+#[cfg(feature = "vello")]
+fn grouped_bar_scene_cache_key(
+    quads: &[GroupedBarQuad],
+    plot_width: f32,
+    plot_height: f32,
+    opacity: f32,
+    border_radius: f32,
+) -> u64 {
+    let mut cache_key = d3rs::vello2d::SceneCacheKey::new();
+    cache_key
+        .add_f32(plot_width)
+        .add_f32(plot_height)
+        .add_f32(opacity)
+        .add_f32(border_radius);
+    for quad in quads {
+        cache_key
+            .add_f32(quad.x)
+            .add_f32(quad.y)
+            .add_f32(quad.width)
+            .add_f32(quad.height)
+            .add_f32(quad.color.r)
+            .add_f32(quad.color.g)
+            .add_f32(quad.color.b)
+            .add_f32(quad.color.a);
+    }
+    cache_key.finish()
 }
 
 /// Append a rounded rectangle outline to a GPUI path builder.
@@ -1460,6 +1508,31 @@ mod tests {
                 .build();
             assert!(result.is_ok(), "failed for {position:?}");
         }
+    }
+
+    #[cfg(feature = "vello")]
+    #[test]
+    fn vello_grouped_bars_honor_border_radius_and_cache_it() {
+        let scene_quads = [(0.0, 0.0, 10.0, 20.0, D3Color::from_hex(0x123456))];
+        let square = bar_chart_scene_with_radius(&scene_quads, 10.0, 20.0, 10.0, 20.0, 1.0, 0.0);
+        let rounded = bar_chart_scene_with_radius(&scene_quads, 10.0, 20.0, 10.0, 20.0, 1.0, 4.0);
+        let path_element_count = |scene: &d3rs::vello2d::ChartScene| match &scene.commands()[0] {
+            d3rs::vello2d::ChartCmd::Fill { path, .. } => path.elements().len(),
+            d3rs::vello2d::ChartCmd::Stroke { .. } => 0,
+        };
+        assert!(path_element_count(&rounded) > path_element_count(&square));
+
+        let cache_quads = [GroupedBarQuad {
+            x: 0.0,
+            y: 0.0,
+            width: 10.0,
+            height: 20.0,
+            color: D3Color::from_hex(0x123456),
+        }];
+        assert_ne!(
+            grouped_bar_scene_cache_key(&cache_quads, 10.0, 20.0, 1.0, 0.0),
+            grouped_bar_scene_cache_key(&cache_quads, 10.0, 20.0, 1.0, 4.0),
+        );
     }
 
     #[test]

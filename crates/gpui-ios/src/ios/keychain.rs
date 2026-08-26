@@ -41,14 +41,12 @@ pub fn write_credentials(url: &str, username: &str, password: &[u8]) -> Result<(
     unsafe {
         use security::*;
 
-        let mut query_attrs = CFMutableDictionary::with_capacity(2);
+        let mut query_attrs = CFMutableDictionary::with_capacity(3);
         query_attrs.set(kSecClass as *const _, kSecClassInternetPassword as *const _);
         query_attrs.set(kSecAttrServer as *const _, url.as_CFTypeRef());
+        query_attrs.set(kSecAttrAccount as *const _, username.as_CFTypeRef());
 
-        let mut attrs = CFMutableDictionary::with_capacity(4);
-        attrs.set(kSecClass as *const _, kSecClassInternetPassword as *const _);
-        attrs.set(kSecAttrServer as *const _, url.as_CFTypeRef());
-        attrs.set(kSecAttrAccount as *const _, username.as_CFTypeRef());
+        let mut attrs = CFMutableDictionary::with_capacity(1);
         attrs.set(kSecValueData as *const _, password.as_CFTypeRef());
 
         let mut verb = "updating";
@@ -58,7 +56,12 @@ pub fn write_credentials(url: &str, username: &str, password: &[u8]) -> Result<(
         );
         if status == ERR_SEC_ITEM_NOT_FOUND {
             verb = "creating";
-            status = SecItemAdd(attrs.as_concrete_TypeRef(), ptr::null_mut());
+            let mut add_attrs = CFMutableDictionary::with_capacity(4);
+            add_attrs.set(kSecClass as *const _, kSecClassInternetPassword as *const _);
+            add_attrs.set(kSecAttrServer as *const _, url.as_CFTypeRef());
+            add_attrs.set(kSecAttrAccount as *const _, username.as_CFTypeRef());
+            add_attrs.set(kSecValueData as *const _, password.as_CFTypeRef());
+            status = SecItemAdd(add_attrs.as_concrete_TypeRef(), ptr::null_mut());
         }
 
         anyhow::ensure!(

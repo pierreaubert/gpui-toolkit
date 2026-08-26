@@ -47,6 +47,7 @@ mod element;
 mod mesh;
 mod renderer;
 mod shaders;
+mod wgpu_draw;
 
 pub use element::{SphereGalleryElement, SphereGalleryItem, SphereGalleryState, SphereGalleryView};
 pub use mesh::{Projection, SphereMeshConfig};

@@ -34,6 +34,19 @@ pub(crate) fn extent_padded_iter(
     (min - padding, max + padding)
 }
 
+/// Calculate a positive extent with multiplicative padding for log scales.
+#[cfg(any(feature = "gpui", test))]
+pub(crate) fn extent_log_padded_iter(
+    iter: impl Iterator<Item = f64>,
+    padding_fraction: f64,
+) -> (f64, f64) {
+    let (min, max) = iter.fold((f64::INFINITY, f64::NEG_INFINITY), |(min, max), value| {
+        (min.min(value), max.max(value))
+    });
+    let padding_factor = 1.0 + padding_fraction;
+    (min / padding_factor, max * padding_factor)
+}
+
 /// Calculate extent (min, max) with padding.
 ///
 /// Returns `(min - padding, max + padding)` where padding is calculated

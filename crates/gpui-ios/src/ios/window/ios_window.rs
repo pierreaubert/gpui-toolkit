@@ -43,7 +43,7 @@ use parking_lot::Mutex;
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle, UiKitDisplayHandle, UiKitWindowHandle};
 use std::{
     cell::{Cell, RefCell},
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     ffi::c_void,
     ptr::{self, NonNull},
     rc::Rc,
@@ -94,6 +94,11 @@ pub(crate) struct IosWindow {
     /// Callback for input events
     pub(super) input_callback:
         RefCell<Option<Box<dyn FnMut(PlatformInput) -> DispatchEventResult>>>,
+    /// Prevents nested UIKit/FFI input dispatch from borrowing the callback
+    /// while it is already running. Nested events are delivered in order when
+    /// the active callback returns.
+    input_dispatching: Cell<bool>,
+    pending_input_events: RefCell<VecDeque<PlatformInput>>,
     /// Callback for active status changes
     pub(super) active_status_callback: RefCell<Option<Box<dyn FnMut(bool)>>>,
     /// Callback for hover status changes (not really applicable on iOS)
@@ -119,6 +124,11 @@ pub(crate) struct IosWindow {
     /// Per-touch gesture state machine — distinguishes taps from scroll drags.
     /// Keyed by the UITouch pointer address.
     pub(super) touch_states: RefCell<TouchStateMap>,
+    /// UIKit can be re-entered by application code invoked from an input
+    /// callback. Retain and defer nested touches until their active state map
+    /// is no longer borrowed.
+    touch_dispatching: Cell<bool>,
+    pending_touches: RefCell<VecDeque<*mut Object>>,
     /// Active two-finger pinch recognizer state.
     pub(super) pinch_state: RefCell<PinchState>,
     /// Velocity tracker — records recent touch samples during drag gestures
@@ -127,6 +137,7 @@ pub(crate) struct IosWindow {
     /// Momentum scroller — produces decelerating scroll deltas after a fling
     /// gesture, driven by the CADisplayLink frame callback.
     pub(super) momentum_scroller: RefCell<MomentumScroller>,
+    momentum_pumping: Cell<bool>,
     /// NotificationCenter observer tokens for keyboard show/hide callbacks.
     pub(super) keyboard_observers: RefCell<Vec<*mut Object>>,
     /// The wgpu renderer (Metal backend on iOS).
@@ -149,6 +160,14 @@ pub(crate) struct IosWindow {
     pub(super) platform_view_host: NativePlatformViewHost,
 }
 
+struct ReentrancyGuard<'a>(&'a Cell<bool>);
+
+impl Drop for ReentrancyGuard<'_> {
+    fn drop(&mut self) {
+        self.0.set(false);
+    }
+}
+
 unsafe impl Send for IosWindow {}
 
 unsafe impl Sync for IosWindow {}
@@ -156,6 +175,13 @@ unsafe impl Sync for IosWindow {}
 impl Drop for IosWindow {
     fn drop(&mut self) {
         self.unregister_keyboard_observers();
+        unsafe {
+            for touch in self.pending_touches.get_mut().drain(..) {
+                if !touch.is_null() {
+                    let _: () = msg_send![touch, release];
+                }
+            }
+        }
 
         // Release any accessibility elements we retained for reuse.
         unsafe {
@@ -330,6 +356,8 @@ impl IosWindow {
                 request_frame_callback: RefCell::new(None),
                 forced_frame_pending: Cell::new(false),
                 input_callback: RefCell::new(None),
+                input_dispatching: Cell::new(false),
+                pending_input_events: RefCell::new(VecDeque::new()),
                 active_status_callback: RefCell::new(None),
                 hover_status_callback: RefCell::new(None),
                 resize_callback: RefCell::new(None),
@@ -342,9 +370,12 @@ impl IosWindow {
                 modifiers: Cell::new(Modifiers::default()),
                 touch_pressed: Cell::new(false),
                 touch_states: RefCell::new(TouchStateMap::new()),
+                touch_dispatching: Cell::new(false),
+                pending_touches: RefCell::new(VecDeque::new()),
                 pinch_state: RefCell::new(PinchState::default()),
                 velocity_tracker: RefCell::new(VelocityTracker::new()),
                 momentum_scroller: RefCell::new(MomentumScroller::new()),
+                momentum_pumping: Cell::new(false),
                 keyboard_observers: RefCell::new(Vec::new()),
                 renderer: Mutex::new(None),
                 sprite_atlas: Mutex::new(None),
@@ -421,16 +452,20 @@ impl IosWindow {
                                 *ios_window.renderer.lock() = Some(renderer);
                             }
                             Err(e) => {
-                                log::error!("Failed to create iOS wgpu renderer: {e:#}");
+                                return Err(anyhow::anyhow!(
+                                    "failed to create iOS wgpu renderer: {e:#}"
+                                ));
                             }
                         }
                     }
                     Err(e) => {
-                        log::error!("Failed to create iOS WgpuContext: {e:#}");
+                        return Err(anyhow::anyhow!("failed to create iOS WgpuContext: {e:#}"));
                     }
                 },
                 Err(e) => {
-                    log::error!("Failed to create iOS wgpu Metal surface: {e:#}");
+                    return Err(anyhow::anyhow!(
+                        "failed to create iOS wgpu Metal surface: {e:#}"
+                    ));
                 }
             }
 
@@ -587,17 +622,47 @@ impl IosWindow {
         }
     }
 
+    fn dispatch_input(&self, input: PlatformInput) -> DispatchEventResult {
+        if self.input_dispatching.replace(true) {
+            self.pending_input_events.borrow_mut().push_back(input);
+            return DispatchEventResult::default();
+        }
+        let _dispatch_guard = ReentrancyGuard(&self.input_dispatching);
+
+        let mut first_result = None;
+        let mut next_input = Some(input);
+        while let Some(input) = next_input {
+            let mut callback = self.input_callback.borrow_mut().take();
+            let result = callback
+                .as_mut()
+                .map_or_else(DispatchEventResult::default, |callback| callback(input));
+
+            if self.input_callback.borrow().is_none() {
+                *self.input_callback.borrow_mut() = callback;
+            }
+
+            first_result.get_or_insert(result);
+            next_input = self.pending_input_events.borrow_mut().pop_front();
+        }
+
+        first_result.unwrap_or_default()
+    }
+
     fn request_forced_frame(&self) {
         if self.forced_frame_pending.replace(true) {
             return;
         }
-        if let Some(callback) = self.request_frame_callback.borrow_mut().as_mut() {
+        let mut callback = self.request_frame_callback.borrow_mut().take();
+        if let Some(callback) = callback.as_mut() {
             callback(RequestFrameOptions {
                 force_render: true,
                 ..Default::default()
             });
         } else {
             self.forced_frame_pending.set(false);
+        }
+        if callback.is_some() && self.request_frame_callback.borrow().is_none() {
+            *self.request_frame_callback.borrow_mut() = callback;
         }
     }
 
@@ -678,7 +743,26 @@ impl IosWindow {
     /// near a button or tab doesn't accidentally trigger navigation.
     /// Interactive screens use `MouseMove` to track the finger during drags
     /// and `MouseUp` to detect the end of a throw/drag gesture.
-    pub fn handle_touch(&self, touch: *mut Object, _event: *mut Object) {
+    pub fn handle_touch(&self, touch: *mut Object, event: *mut Object) {
+        if self.touch_dispatching.replace(true) {
+            unsafe {
+                let _: *mut Object = msg_send![touch, retain];
+            }
+            self.pending_touches.borrow_mut().push_back(touch);
+            return;
+        }
+        let _dispatch_guard = ReentrancyGuard(&self.touch_dispatching);
+
+        self.handle_touch_inner(touch, event);
+        while let Some(touch) = self.pending_touches.borrow_mut().pop_front() {
+            self.handle_touch_inner(touch, std::ptr::null_mut());
+            unsafe {
+                let _: () = msg_send![touch, release];
+            }
+        }
+    }
+
+    fn handle_touch_inner(&self, touch: *mut Object, _event: *mut Object) {
         let position = touch_location_in_view(touch, self.view);
         let phase = touch_phase(touch);
         let tap_count = touch_tap_count(touch);
@@ -691,20 +775,10 @@ impl IosWindow {
         self.dispatch_pointer_sample(touch, logical_x, logical_y);
 
         let touch_id: usize = unsafe { msg_send![touch, hash] };
-        let mut callback = self.input_callback.borrow_mut();
         let mut states = self.touch_states.borrow_mut();
         let mut ts = states.get(touch_id).unwrap_or(TouchState::Idle);
 
-        let mut emit = |input: PlatformInput| -> DispatchEventResult {
-            if let Some(callback) = callback.as_mut() {
-                callback(input)
-            } else {
-                DispatchEventResult {
-                    propagate: true,
-                    default_prevented: false,
-                }
-            }
-        };
+        let mut emit = |input: PlatformInput| self.dispatch_input(input);
 
         match phase {
             UITouchPhase::Began => {
@@ -1010,14 +1084,12 @@ impl IosWindow {
             });
 
             if translation.x != 0.0 || translation.y != 0.0 || state != GESTURE_CHANGED {
-                if let Some(callback) = self.input_callback.borrow_mut().as_mut() {
-                    callback(PlatformInput::ScrollWheel(gpui::ScrollWheelEvent {
-                        position,
-                        delta: gpui::ScrollDelta::Pixels(delta),
-                        modifiers: self.modifiers.get(),
-                        touch_phase,
-                    }));
-                }
+                self.dispatch_input(PlatformInput::ScrollWheel(gpui::ScrollWheelEvent {
+                    position,
+                    delta: gpui::ScrollDelta::Pixels(delta),
+                    modifiers: self.modifiers.get(),
+                    touch_phase,
+                }));
                 self.request_forced_frame();
             }
 
@@ -1360,9 +1432,7 @@ impl IosWindow {
         let position = self.mouse_position.get();
 
         let emit = |input: PlatformInput| {
-            if let Some(callback) = self.input_callback.borrow_mut().as_mut() {
-                callback(input);
-            }
+            self.dispatch_input(input);
         };
 
         // UIPressType constants
@@ -1412,6 +1482,11 @@ impl IosWindow {
     /// **before** the GPUI render callback runs, so that the scroll delta
     /// is picked up during the current frame's layout/paint cycle.
     pub(crate) fn pump_momentum(&self) {
+        if self.momentum_pumping.replace(true) {
+            return;
+        }
+        let _pump_guard = ReentrancyGuard(&self.momentum_pumping);
+
         let mut scroller = self.momentum_scroller.borrow_mut();
         if !scroller.is_active() {
             return;
@@ -1421,29 +1496,30 @@ impl IosWindow {
             let modifiers = self.modifiers.get();
             let position = gpui::point(gpui::px(delta.position_x), gpui::px(delta.position_y));
             let fling_ended = !scroller.is_active();
-
-            if let Some(callback) = self.input_callback.borrow_mut().as_mut() {
-                callback(PlatformInput::ScrollWheel(gpui::ScrollWheelEvent {
+            let moved = PlatformInput::ScrollWheel(gpui::ScrollWheelEvent {
+                position,
+                delta: gpui::ScrollDelta::Pixels(gpui::point(
+                    gpui::px(delta.dx),
+                    gpui::px(delta.dy),
+                )),
+                modifiers,
+                touch_phase: gpui::TouchPhase::Moved,
+            });
+            let ended = fling_ended.then(|| {
+                PlatformInput::ScrollWheel(gpui::ScrollWheelEvent {
                     position,
-                    delta: gpui::ScrollDelta::Pixels(gpui::point(
-                        gpui::px(delta.dx),
-                        gpui::px(delta.dy),
-                    )),
+                    delta: gpui::ScrollDelta::Pixels(gpui::point(gpui::px(0.0), gpui::px(0.0))),
                     modifiers,
-                    touch_phase: gpui::TouchPhase::Moved,
-                }));
-                self.request_forced_frame();
+                    touch_phase: gpui::TouchPhase::Ended,
+                })
+            });
+            drop(scroller);
 
-                // If this was the last momentum frame, send Ended now.
-                if fling_ended {
-                    callback(PlatformInput::ScrollWheel(gpui::ScrollWheelEvent {
-                        position,
-                        delta: gpui::ScrollDelta::Pixels(gpui::point(gpui::px(0.0), gpui::px(0.0))),
-                        modifiers,
-                        touch_phase: gpui::TouchPhase::Ended,
-                    }));
-                    self.request_forced_frame();
-                }
+            self.dispatch_input(moved);
+            self.request_forced_frame();
+            if let Some(ended) = ended {
+                self.dispatch_input(ended);
+                self.request_forced_frame();
             }
         } else if scroller.is_finished() {
             // Fling truly finished — emit one final Ended event so GPUI knows
@@ -1456,15 +1532,15 @@ impl IosWindow {
                 gpui::px(scroller.position_y()),
             );
             let modifiers = self.modifiers.get();
-            if let Some(callback) = self.input_callback.borrow_mut().as_mut() {
-                callback(PlatformInput::ScrollWheel(gpui::ScrollWheelEvent {
-                    position,
-                    delta: gpui::ScrollDelta::Pixels(gpui::point(gpui::px(0.0), gpui::px(0.0))),
-                    modifiers,
-                    touch_phase: gpui::TouchPhase::Ended,
-                }));
-                self.request_forced_frame();
-            }
+            let ended = PlatformInput::ScrollWheel(gpui::ScrollWheelEvent {
+                position,
+                delta: gpui::ScrollDelta::Pixels(gpui::point(gpui::px(0.0), gpui::px(0.0))),
+                modifiers,
+                touch_phase: gpui::TouchPhase::Ended,
+            });
+            drop(scroller);
+            self.dispatch_input(ended);
+            self.request_forced_frame();
         }
     }
 
@@ -1594,9 +1670,7 @@ impl IosWindow {
                 prefer_character_input: true,
             });
 
-            if let Some(callback) = self.input_callback.borrow_mut().as_mut() {
-                callback(event);
-            }
+            self.dispatch_input(event);
         }
     }
 
@@ -1653,9 +1727,7 @@ impl IosWindow {
             is_held: false,
             prefer_character_input: false,
         });
-        if let Some(callback) = self.input_callback.borrow_mut().as_mut() {
-            callback(event);
-        }
+        self.dispatch_input(event);
     }
 
     /// Handle a key event from an external keyboard
@@ -1722,9 +1794,7 @@ impl IosWindow {
             key_code_to_key_up(key_code, modifier_flags)
         };
 
-        if let Some(callback) = self.input_callback.borrow_mut().as_mut() {
-            callback(event);
-        }
+        self.dispatch_input(event);
     }
 
     /// Notify the window of active status changes (foreground/background).

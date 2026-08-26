@@ -4,7 +4,10 @@
 //! component code publish a compact snapshot here. The iOS window bridge mirrors
 //! that snapshot into `UIAccessibilityElement`s attached to the Metal view.
 
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{
+    Arc, Mutex, OnceLock,
+    atomic::{AtomicU64, Ordering},
+};
 
 use std::collections::HashMap;
 
@@ -474,6 +477,7 @@ static ACCESSIBILITY_SNAPSHOT: OnceLock<Mutex<Option<Arc<IosAccessibilitySnapsho
     OnceLock::new();
 static ACCESSIBILITY_ACTION_CALLBACK: OnceLock<Mutex<Option<AccessibilityActionCallback>>> =
     OnceLock::new();
+static ACCESSIBILITY_ACTION_CALLBACK_GENERATION: AtomicU64 = AtomicU64::new(0);
 
 fn snapshot_slot() -> &'static Mutex<Option<Arc<IosAccessibilitySnapshot>>> {
     ACCESSIBILITY_SNAPSHOT.get_or_init(|| Mutex::new(None))
@@ -494,15 +498,22 @@ pub fn set_accessibility_snapshot(snapshot: IosAccessibilitySnapshot) -> Result<
 }
 
 pub fn set_accessibility_action_callback(callback: Option<AccessibilityActionCallback>) {
+    ACCESSIBILITY_ACTION_CALLBACK_GENERATION.fetch_add(1, Ordering::Release);
     *action_callback_slot().lock().unwrap() = callback;
 }
 
 pub fn dispatch_accessibility_action(id: &str, action: IosAccessibilityAction) -> bool {
-    action_callback_slot()
-        .lock()
-        .unwrap()
-        .as_mut()
-        .is_some_and(|callback| callback(id, action))
+    let generation = ACCESSIBILITY_ACTION_CALLBACK_GENERATION.load(Ordering::Acquire);
+    let mut callback = action_callback_slot().lock().unwrap().take();
+    if let Some(handler) = callback.as_mut() {
+        let handled = handler(id, action);
+        if ACCESSIBILITY_ACTION_CALLBACK_GENERATION.load(Ordering::Acquire) == generation {
+            *action_callback_slot().lock().unwrap() = callback;
+        }
+        handled
+    } else {
+        false
+    }
 }
 
 pub fn accessibility_snapshot() -> Option<Arc<IosAccessibilitySnapshot>> {

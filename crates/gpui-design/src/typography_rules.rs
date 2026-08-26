@@ -1,11 +1,10 @@
-use serde::Serialize;
-use std::borrow::Cow;
+use serde::{Deserialize, Serialize};
 
 /// Typography rules.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TypographyRules {
     /// Preferred font family name.
-    pub font_family: Cow<'static, str>,
+    pub font_family: String,
     /// Whether to use dynamic type sizes (Apple) or fixed scale.
     pub dynamic_sizing: bool,
     /// Base font size in px.
@@ -18,7 +17,7 @@ pub struct TypographyRules {
 
 impl TypographyRules {
     pub fn new(
-        font_family: impl Into<Cow<'static, str>>,
+        font_family: impl Into<String>,
         dynamic_sizing: bool,
         base_size: f32,
         small_size: f32,

@@ -13,6 +13,7 @@ import android.os.Bundle;
 import android.security.keystore.KeyGenParameterSpec;
 import android.security.keystore.KeyProperties;
 import android.text.Editable;
+import android.text.Selection;
 import android.text.SpannableStringBuilder;
 import android.util.Base64;
 import android.view.Gravity;
@@ -30,7 +31,9 @@ import java.io.File;
 import java.io.IOException;
 import java.security.KeyStore;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import javax.crypto.Cipher;
 import javax.crypto.KeyGenerator;
@@ -53,6 +56,7 @@ public class GpuiActivity extends NativeActivity {
     private static final String KEYSTORE = "AndroidKeyStore";
     private static final String CREDENTIAL_PREFS = "gpui_secure_credentials";
     private GpuiInputView inputView;
+    private final AtomicBoolean accessibilityChangeScheduled = new AtomicBoolean();
 
     private static native boolean nativeIsInitialized();
     private static native void nativeOnDeepLink(String url);
@@ -143,10 +147,32 @@ public class GpuiActivity extends NativeActivity {
         });
     }
 
+    /** Clears IME-owned context when focus moves to a different GPUI input. */
+    public void gpuiResetInputShadow() {
+        runOnUiThread(() -> {
+            if (inputView != null) {
+                inputView.resetEditable();
+            }
+        });
+    }
+
     /** Called by Rust after an AccessKit tree update. */
     public void gpuiAccessibilityChanged() {
-        runOnUiThread(() -> inputView.sendAccessibilityEvent(
-                AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED));
+        if (!accessibilityChangeScheduled.compareAndSet(false, true)) {
+            return;
+        }
+        runOnUiThread(() -> {
+            if (inputView == null) {
+                accessibilityChangeScheduled.set(false);
+                return;
+            }
+            inputView.postOnAnimation(() -> {
+                accessibilityChangeScheduled.set(false);
+                inputView.accessibilityProvider.invalidateSnapshot();
+                inputView.sendAccessibilityEvent(
+                        AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED);
+            });
+        });
     }
 
     /**
@@ -257,6 +283,7 @@ public class GpuiActivity extends NativeActivity {
     }
 
     private static final class GpuiInputView extends View {
+        private static final int MAX_SHADOW_CODE_UNITS = 4096;
         private final Editable editable = new SpannableStringBuilder();
         private final GpuiAccessibilityProvider accessibilityProvider;
         private int inputType = EditorInfo.TYPE_CLASS_TEXT;
@@ -282,6 +309,18 @@ public class GpuiActivity extends NativeActivity {
             return accessibilityProvider;
         }
 
+        void resetEditable() {
+            editable.clear();
+            Selection.setSelection(editable, 0);
+        }
+
+        private void trimEditable() {
+            int excess = editable.length() - MAX_SHADOW_CODE_UNITS;
+            if (excess > 0) {
+                editable.delete(0, excess);
+            }
+        }
+
         @Override
         public InputConnection onCreateInputConnection(EditorInfo attributes) {
             attributes.inputType = inputType;
@@ -298,13 +337,17 @@ public class GpuiActivity extends NativeActivity {
                 @Override
                 public boolean commitText(CharSequence text, int newCursorPosition) {
                     nativeCommitText(text == null ? "" : text.toString());
-                    return super.commitText(text, newCursorPosition);
+                    boolean committed = super.commitText(text, newCursorPosition);
+                    trimEditable();
+                    return committed;
                 }
 
                 @Override
                 public boolean setComposingText(CharSequence text, int newCursorPosition) {
                     nativeSetComposingText(text == null ? "" : text.toString());
-                    return super.setComposingText(text, newCursorPosition);
+                    boolean composing = super.setComposingText(text, newCursorPosition);
+                    trimEditable();
+                    return composing;
                 }
 
                 @Override
@@ -316,7 +359,9 @@ public class GpuiActivity extends NativeActivity {
                 @Override
                 public boolean deleteSurroundingText(int beforeLength, int afterLength) {
                     nativeDeleteSurroundingText(beforeLength, afterLength);
-                    return super.deleteSurroundingText(beforeLength, afterLength);
+                    boolean deleted = super.deleteSurroundingText(beforeLength, afterLength);
+                    trimEditable();
+                    return deleted;
                 }
             };
         }
@@ -332,6 +377,9 @@ public class GpuiActivity extends NativeActivity {
         private final View host;
         private final Map<Long, Integer> virtualIds = new HashMap<>();
         private final Map<Integer, Long> nodeIds = new HashMap<>();
+        private final Map<Long, JSONObject> nodesById = new HashMap<>();
+        private final Map<Long, Long> parentIds = new HashMap<>();
+        private JSONObject cachedSnapshot;
         private int nextVirtualId = 1;
         private int accessibilityFocusedId = HOST_ID;
 
@@ -340,8 +388,52 @@ public class GpuiActivity extends NativeActivity {
         }
 
         private JSONObject snapshot() throws JSONException {
+            if (cachedSnapshot != null) {
+                return cachedSnapshot;
+            }
             String json = nativeAccessibilitySnapshot();
-            return new JSONObject(json == null || json.isEmpty() ? "{}" : json);
+            JSONObject snapshot = new JSONObject(json == null || json.isEmpty() ? "{}" : json);
+            rebuildNodeIndex(snapshot);
+            cachedSnapshot = snapshot;
+            return snapshot;
+        }
+
+        void invalidateSnapshot() {
+            cachedSnapshot = null;
+            nodesById.clear();
+            parentIds.clear();
+        }
+
+        private void rebuildNodeIndex(JSONObject snapshot) throws JSONException {
+            nodesById.clear();
+            parentIds.clear();
+            JSONArray nodes = snapshot.optJSONArray("nodes");
+            if (nodes != null) {
+                for (int index = 0; index < nodes.length(); index++) {
+                    JSONObject node = nodes.getJSONObject(index);
+                    if (node.has("id")) {
+                        nodesById.put(node.getLong("id"), node);
+                    }
+                }
+                for (Map.Entry<Long, JSONObject> entry : nodesById.entrySet()) {
+                    JSONArray children = entry.getValue().optJSONArray("children");
+                    if (children == null) {
+                        continue;
+                    }
+                    for (int index = 0; index < children.length(); index++) {
+                        parentIds.put(children.getLong(index), entry.getKey());
+                    }
+                }
+            }
+
+            Iterator<Map.Entry<Long, Integer>> ids = virtualIds.entrySet().iterator();
+            while (ids.hasNext()) {
+                Map.Entry<Long, Integer> entry = ids.next();
+                if (!nodesById.containsKey(entry.getKey())) {
+                    nodeIds.remove(entry.getValue());
+                    ids.remove();
+                }
+            }
         }
 
         private int virtualId(long nodeId) {
@@ -355,38 +447,12 @@ public class GpuiActivity extends NativeActivity {
             return id;
         }
 
-        private JSONObject findNode(JSONObject snapshot, long nodeId) throws JSONException {
-            JSONArray nodes = snapshot.optJSONArray("nodes");
-            if (nodes == null) {
-                return null;
-            }
-            for (int index = 0; index < nodes.length(); index++) {
-                JSONObject node = nodes.getJSONObject(index);
-                if (node.optLong("id", -1) == nodeId) {
-                    return node;
-                }
-            }
-            return null;
+        private JSONObject findNode(long nodeId) {
+            return nodesById.get(nodeId);
         }
 
-        private Long findParent(JSONObject snapshot, long nodeId) throws JSONException {
-            JSONArray nodes = snapshot.optJSONArray("nodes");
-            if (nodes == null) {
-                return null;
-            }
-            for (int index = 0; index < nodes.length(); index++) {
-                JSONObject candidate = nodes.getJSONObject(index);
-                JSONArray children = candidate.optJSONArray("children");
-                if (children == null) {
-                    continue;
-                }
-                for (int child = 0; child < children.length(); child++) {
-                    if (children.getLong(child) == nodeId) {
-                        return candidate.getLong("id");
-                    }
-                }
-            }
-            return null;
+        private Long findParent(long nodeId) {
+            return parentIds.get(nodeId);
         }
 
         @Override
@@ -401,7 +467,7 @@ public class GpuiActivity extends NativeActivity {
                     info.setSource(host);
                     info.setVisibleToUser(true);
                     if (!snapshot.isNull("root")) {
-                        JSONObject root = findNode(snapshot, snapshot.getLong("root"));
+                    JSONObject root = findNode(snapshot.getLong("root"));
                         JSONArray children = root == null ? null : root.optJSONArray("children");
                         if (children != null) {
                             for (int index = 0; index < children.length(); index++) {
@@ -416,7 +482,7 @@ public class GpuiActivity extends NativeActivity {
                 if (nodeId == null) {
                     return null;
                 }
-                JSONObject node = findNode(snapshot, nodeId);
+                JSONObject node = findNode(nodeId);
                 if (node == null) {
                     return null;
                 }
@@ -424,7 +490,7 @@ public class GpuiActivity extends NativeActivity {
                 AccessibilityNodeInfo info = AccessibilityNodeInfo.obtain();
                 info.setPackageName(host.getContext().getPackageName());
                 info.setSource(host, virtualViewId);
-                Long parent = findParent(snapshot, nodeId);
+                Long parent = findParent(nodeId);
                 long rootId = snapshot.optLong("root", -1);
                 if (parent == null || parent == rootId) {
                     info.setParent(host);

@@ -40,8 +40,8 @@ use super::sample::sample_wizard_steps;
 use super::sample::sample_workflow_graph;
 use super::story::bool_prop;
 use super::story::choice_prop;
-use super::story::story_file_name;
 use super::story::text_prop;
+use super::story::{legacy_story_file_name, story_file_name};
 use super::types::area_story_data;
 use super::types::bar_story_data;
 use super::types::line_story_data;
@@ -348,6 +348,18 @@ pub fn run_lab_app(config: LabAppConfig) -> Result<()> {
     Ok(())
 }
 
+/// Stateful preview entities retained while their story is selected.
+///
+/// These components own interaction or animation state internally. Recreating
+/// them from the parent render path would reset that state on every unrelated
+/// Component Lab redraw.
+enum StatefulPreview {
+    ColorPicker(Entity<ColorPickerView>),
+    AnimatedQrCode(Entity<AnimatedQrCode>),
+    WorkflowCanvas(Entity<WorkflowCanvas>),
+    Showcase(Entity<Showcase>),
+}
+
 /// Interactive storybook/designer view.
 pub struct ComponentLab {
     pub(super) registry: StoryRegistry,
@@ -355,6 +367,7 @@ pub struct ComponentLab {
     pub(super) documents: BTreeMap<String, StoryDocument>,
     pub(super) story_ids: Vec<String>,
     pub(super) ui_showcases: BTreeMap<String, Entity<Showcase>>,
+    stateful_preview: Option<StatefulPreview>,
     pub(super) selected_story_id: String,
     pub(super) selected_viewport_id: String,
     pub(super) selected_theme_id: String,
@@ -370,6 +383,7 @@ pub struct ComponentLab {
     pub(super) token_paths: Vec<PathBuf>,
     pub(super) entity: Entity<Self>,
     pub(super) cached_matrix: ResponsivePreviewMatrix,
+    story_revision: u64,
     pub(super) sidebar_labels: BTreeMap<String, SharedString>,
     // Persistent child render entities to avoid rebuilding stable UI every frame.
     sidebar_entity: Entity<LabSidebar>,
@@ -437,6 +451,7 @@ impl ComponentLab {
             documents,
             story_ids,
             ui_showcases,
+            stateful_preview: None,
             selected_story_id,
             selected_viewport_id: initial_state.viewport_id,
             selected_theme_id: initial_state.theme_id,
@@ -452,6 +467,7 @@ impl ComponentLab {
             token_paths: config.token_paths,
             entity,
             cached_matrix,
+            story_revision: 0,
             sidebar_labels,
             sidebar_entity,
             toolbar_entity,
@@ -464,15 +480,19 @@ impl ComponentLab {
             last_window_size: None,
             visual_capture_mode: visual_capture.is_some(),
         };
+        lab.refresh_stateful_preview(cx);
         if let Some(capture) = visual_capture {
             lab.select_story(capture.story_id, cx);
-            lab.set_viewport(capture.viewport_id);
-            lab.set_theme(capture.theme_id);
-            lab.set_motion(if capture.reduced_motion {
-                "reduced"
-            } else {
-                "system"
-            });
+            lab.set_viewport(capture.viewport_id, cx);
+            lab.set_theme(capture.theme_id, cx);
+            lab.set_motion(
+                if capture.reduced_motion {
+                    "reduced"
+                } else {
+                    "system"
+                },
+                cx,
+            );
             lab.matrix_mode = false;
         }
         if lab.live_preview {
@@ -558,7 +578,7 @@ impl ComponentLab {
     ) {
         match reload {
             Ok(Some(reload)) => {
-                self.apply_live_reload(reload);
+                self.apply_live_reload(reload, cx);
                 cx.notify();
             }
             Ok(None) => {}
@@ -572,7 +592,7 @@ impl ComponentLab {
         }
     }
 
-    pub(super) fn apply_live_reload(&mut self, reload: LivePreviewReload) {
+    pub(super) fn apply_live_reload(&mut self, reload: LivePreviewReload, cx: &mut Context<Self>) {
         let selected_reloaded = reload
             .story_documents
             .iter()
@@ -585,13 +605,9 @@ impl ComponentLab {
         self.rebuild_derived_state();
         self.rebuild_sidebar_labels();
 
-        if selected_reloaded && let Some(document) = self.documents.get(&self.selected_story_id) {
-            let state = InitialLabState::from_document(document);
-            self.selected_viewport_id = state.viewport_id;
-            self.selected_theme_id = state.theme_id;
-            self.selected_motion_id = state.motion_id;
-            self.matrix_mode = state.matrix_mode;
-            self.layout_constraints = state.layout_constraints;
+        if selected_reloaded {
+            self.restore_selected_document_state();
+            self.refresh_stateful_preview(cx);
         }
 
         self.last_live_modified = reload.latest_modified;
@@ -602,6 +618,26 @@ impl ComponentLab {
         self.documents
             .get(&self.selected_story_id)
             .expect("selected story document")
+    }
+
+    /// Restores the persisted presentation state for the selected document.
+    ///
+    /// A document replacement (live or manual reload) must also replace the
+    /// in-memory state derived from its `layout` object. Otherwise the next
+    /// save can overwrite the freshly reloaded layout, and retained preview
+    /// entities can continue rendering a stale story revision.
+    fn restore_selected_document_state(&mut self) {
+        let Some(document) = self.documents.get(&self.selected_story_id) else {
+            return;
+        };
+        let state = InitialLabState::from_document(document);
+        self.selected_viewport_id = state.viewport_id;
+        self.selected_theme_id = state.theme_id;
+        self.selected_motion_id = state.motion_id;
+        self.matrix_mode = state.matrix_mode;
+        self.layout_constraints = state.layout_constraints;
+        self.layout_state_dirty = false;
+        self.story_revision = self.story_revision.wrapping_add(1);
     }
 
     pub(super) fn selected_story(&self) -> &ComponentStory {
@@ -657,27 +693,131 @@ impl ComponentLab {
             self.layout_constraints = state.layout_constraints;
             self.save_status = None;
             self.rebuild_derived_state();
+            self.refresh_stateful_preview(cx);
+            cx.notify();
         }
     }
 
     fn ensure_ui_showcase(&mut self, story_id: &str, cx: &mut Context<Self>) {
-        if self.ui_showcases.contains_key(story_id) {
-            return;
+        let section = showcase_section_for_story_id(story_id);
+        let stale_showcases: Vec<_> = self
+            .ui_showcases
+            .iter()
+            .filter(|(existing_story_id, _)| existing_story_id.as_str() != story_id)
+            .map(|(_, showcase)| showcase.clone())
+            .collect();
+        for showcase in stale_showcases {
+            showcase.update(cx, |showcase, _cx| showcase.release_entity_handle());
         }
+        self.ui_showcases
+            .retain(|existing_story_id, _| existing_story_id.as_str() == story_id);
 
-        if let Some(section) = showcase_section_for_story_id(story_id) {
+        if let Some(section) = section
+            && !self.ui_showcases.contains_key(story_id)
+        {
             let showcase = cx.new(|cx| Showcase::embedded_section(section, cx));
             self.ui_showcases.insert(story_id.to_owned(), showcase);
         }
     }
 
-    pub(super) fn set_prop(&mut self, story_id: &str, prop_name: &str, value: StoryPropValue) {
+    /// Creates the one stateful preview needed by the selected story.
+    ///
+    /// Keeping the cache to a single selected-story entity bounds memory use
+    /// while preserving picker input, workflow canvas state, and animation
+    /// progress across ordinary parent redraws.
+    fn refresh_stateful_preview(&mut self, cx: &mut Context<Self>) {
+        self.stateful_preview = match self.selected_story_id.as_str() {
+            "ui-kit.color-picker" => {
+                let label = text_prop(self.selected_story(), "label", "Color");
+                Some(StatefulPreview::ColorPicker(cx.new(|_| {
+                    ColorPickerView::new(label, Color::from_hex(0x3b82f6))
+                })))
+            }
+            "ui-kit.animated-qr-code" => {
+                Some(StatefulPreview::AnimatedQrCode(cx.new(|cx| {
+                    AnimatedQrCode::new("https://sotf.dev/lab", px(48.0), cx)
+                })))
+            }
+            "ui-kit.workflow-canvas" => {
+                let label = text_prop(self.selected_story(), "label", "Workflow");
+                Some(StatefulPreview::WorkflowCanvas(cx.new(|cx| {
+                    WorkflowCanvas::with_graph(sample_workflow_graph(label), cx)
+                })))
+            }
+            "ui-kit.showcase-component" => {
+                Some(StatefulPreview::Showcase(cx.new(|cx| {
+                    Showcase::embedded_section(ShowcaseSection::Buttons, cx)
+                })))
+            }
+            _ => None,
+        };
+    }
+
+    fn retained_stateful_preview(&self, story_id: &str, interactive: bool) -> Option<AnyElement> {
+        if !interactive || story_id != self.selected_story_id {
+            return None;
+        }
+
+        match (story_id, self.stateful_preview.as_ref()) {
+            ("ui-kit.color-picker", Some(StatefulPreview::ColorPicker(entity))) => {
+                Some(entity.clone().into_any_element())
+            }
+            ("ui-kit.animated-qr-code", Some(StatefulPreview::AnimatedQrCode(entity))) => {
+                Some(entity.clone().into_any_element())
+            }
+            ("ui-kit.workflow-canvas", Some(StatefulPreview::WorkflowCanvas(entity))) => {
+                Some(entity.clone().into_any_element())
+            }
+            ("ui-kit.showcase-component", Some(StatefulPreview::Showcase(entity))) => {
+                Some(entity.clone().into_any_element())
+            }
+            _ => None,
+        }
+    }
+
+    #[cfg(all(test, feature = "visual-capture"))]
+    pub(super) fn retained_stateful_preview_id(&self) -> Option<u64> {
+        self.stateful_preview.as_ref().map(|preview| match preview {
+            StatefulPreview::ColorPicker(entity) => entity.entity_id().as_u64(),
+            StatefulPreview::AnimatedQrCode(entity) => entity.entity_id().as_u64(),
+            StatefulPreview::WorkflowCanvas(entity) => entity.entity_id().as_u64(),
+            StatefulPreview::Showcase(entity) => entity.entity_id().as_u64(),
+        })
+    }
+
+    pub(super) fn set_prop(
+        &mut self,
+        story_id: &str,
+        prop_name: &str,
+        value: StoryPropValue,
+        cx: &mut Context<Self>,
+    ) {
+        if self.set_prop_without_notify(story_id, prop_name, value) {
+            if story_id == self.selected_story_id {
+                self.refresh_stateful_preview(cx);
+            }
+            cx.notify();
+        }
+    }
+
+    /// Applies a prop mutation without scheduling a render. This is reserved
+    /// for the allocation contract, which samples the mutation separately
+    /// from the following render.
+    pub(super) fn set_prop_without_notify(
+        &mut self,
+        story_id: &str,
+        prop_name: &str,
+        value: StoryPropValue,
+    ) -> bool {
         if let Some(doc) = self.documents.get_mut(story_id)
             && doc.set_prop_value(prop_name, value).is_ok()
         {
             self.record_sample("prop-change");
             self.save_status = Some("Unsaved changes".into());
+            self.story_revision = self.story_revision.wrapping_add(1);
+            return true;
         }
+        false
     }
 
     /// Sample allocations and remember the result as the most recent sample.
@@ -685,6 +825,14 @@ impl ComponentLab {
         let delta = self.alloc_probe.sample(label);
         self.last_sample = Some((label, delta));
         delta
+    }
+
+    /// Begins a fresh allocation interval after a scheduled render has
+    /// settled. The visual allocation contract measures state mutation and
+    /// rendering independently.
+    #[cfg(feature = "profiler")]
+    pub(super) fn reset_allocation_delta(&mut self) {
+        self.record_sample("post-render-reset");
     }
 
     #[cfg(feature = "profiler")]
@@ -699,84 +847,97 @@ impl ComponentLab {
         self.last_render_alloc
     }
 
-    pub(super) fn set_viewport(&mut self, viewport_id: impl Into<String>) {
+    pub(super) fn set_viewport(&mut self, viewport_id: impl Into<String>, cx: &mut Context<Self>) {
         self.selected_viewport_id = viewport_id.into();
-        self.mark_layout_state_dirty();
+        self.mark_layout_state_dirty(cx);
     }
 
-    pub(super) fn set_theme(&mut self, theme_id: impl Into<String>) {
+    pub(super) fn set_theme(&mut self, theme_id: impl Into<String>, cx: &mut Context<Self>) {
         self.selected_theme_id = theme_id.into();
-        self.mark_layout_state_dirty();
+        self.mark_layout_state_dirty(cx);
     }
 
-    pub(super) fn set_motion(&mut self, motion_id: impl Into<String>) {
+    pub(super) fn set_motion(&mut self, motion_id: impl Into<String>, cx: &mut Context<Self>) {
         self.selected_motion_id = motion_id.into();
-        self.mark_layout_state_dirty();
+        self.mark_layout_state_dirty(cx);
     }
 
-    pub(super) fn set_layout_sizing(&mut self, sizing: PreviewSizing) {
+    pub(super) fn set_layout_sizing(&mut self, sizing: PreviewSizing, cx: &mut Context<Self>) {
         self.layout_constraints.sizing = sizing;
-        self.mark_layout_state_dirty();
+        self.mark_layout_state_dirty(cx);
     }
 
-    pub(super) fn set_layout_min_width(&mut self, width: f64) {
+    pub(super) fn set_layout_min_width(&mut self, width: f64, cx: &mut Context<Self>) {
         self.layout_constraints.min_width = clamp_f32(width, 160.0, 1600.0);
-        self.mark_layout_state_dirty();
+        self.mark_layout_state_dirty(cx);
     }
 
-    pub(super) fn set_layout_min_height(&mut self, height: f64) {
+    pub(super) fn set_layout_min_height(&mut self, height: f64, cx: &mut Context<Self>) {
         self.layout_constraints.min_height = clamp_f32(height, 120.0, 1200.0);
-        self.mark_layout_state_dirty();
+        self.mark_layout_state_dirty(cx);
     }
 
-    pub(super) fn set_layout_aspect_ratio(&mut self, aspect_ratio: f64) {
+    pub(super) fn set_layout_aspect_ratio(&mut self, aspect_ratio: f64, cx: &mut Context<Self>) {
         self.layout_constraints.aspect_ratio = clamp_f32(aspect_ratio, 0.5, 3.0);
-        self.mark_layout_state_dirty();
+        self.mark_layout_state_dirty(cx);
     }
 
-    pub(super) fn set_layout_padding(&mut self, padding: f64) {
+    pub(super) fn set_layout_padding(&mut self, padding: f64, cx: &mut Context<Self>) {
         self.layout_constraints.padding = clamp_f32(padding, 0.0, 80.0);
-        self.mark_layout_state_dirty();
+        self.mark_layout_state_dirty(cx);
     }
 
-    pub(super) fn set_layout_horizontal_align(&mut self, align: PreviewAlign) {
+    pub(super) fn set_layout_horizontal_align(
+        &mut self,
+        align: PreviewAlign,
+        cx: &mut Context<Self>,
+    ) {
         self.layout_constraints.horizontal_align = align;
-        self.mark_layout_state_dirty();
+        self.mark_layout_state_dirty(cx);
     }
 
-    pub(super) fn set_layout_vertical_align(&mut self, align: PreviewAlign) {
+    pub(super) fn set_layout_vertical_align(
+        &mut self,
+        align: PreviewAlign,
+        cx: &mut Context<Self>,
+    ) {
         self.layout_constraints.vertical_align = align;
-        self.mark_layout_state_dirty();
+        self.mark_layout_state_dirty(cx);
     }
 
-    pub(super) fn set_layout_overflow(&mut self, overflow: PreviewOverflow) {
+    pub(super) fn set_layout_overflow(
+        &mut self,
+        overflow: PreviewOverflow,
+        cx: &mut Context<Self>,
+    ) {
         self.layout_constraints.overflow = overflow;
-        self.mark_layout_state_dirty();
+        self.mark_layout_state_dirty(cx);
     }
 
-    pub(super) fn set_layout_surface(&mut self, surface: PreviewSurface) {
+    pub(super) fn set_layout_surface(&mut self, surface: PreviewSurface, cx: &mut Context<Self>) {
         self.layout_constraints.surface = surface;
-        self.mark_layout_state_dirty();
+        self.mark_layout_state_dirty(cx);
     }
 
-    pub(super) fn set_layout_gap(&mut self, gap: f64) {
+    pub(super) fn set_layout_gap(&mut self, gap: f64, cx: &mut Context<Self>) {
         self.layout_constraints.gap = clamp_f32(gap, 0.0, 80.0);
-        self.mark_layout_state_dirty();
+        self.mark_layout_state_dirty(cx);
     }
 
-    pub(super) fn set_layout_border(&mut self, border: bool) {
+    pub(super) fn set_layout_border(&mut self, border: bool, cx: &mut Context<Self>) {
         self.layout_constraints.border = border;
-        self.mark_layout_state_dirty();
+        self.mark_layout_state_dirty(cx);
     }
 
-    pub(super) fn toggle_matrix(&mut self) {
+    pub(super) fn toggle_matrix(&mut self, cx: &mut Context<Self>) {
         self.matrix_mode = !self.matrix_mode;
-        self.mark_layout_state_dirty();
+        self.mark_layout_state_dirty(cx);
     }
 
-    fn mark_layout_state_dirty(&mut self) {
+    fn mark_layout_state_dirty(&mut self, cx: &mut Context<Self>) {
         self.layout_state_dirty = true;
         self.save_status = Some("Unsaved changes".into());
+        cx.notify();
     }
 
     pub(super) fn sync_layout_state(&mut self) {
@@ -813,24 +974,47 @@ impl ComponentLab {
         let path = self
             .stories_dir
             .join(story_file_name(&self.selected_story_id));
+        let legacy_path = self
+            .stories_dir
+            .join(legacy_story_file_name(&self.selected_story_id));
+        if path != legacy_path && !path.exists() && legacy_path.exists() {
+            let legacy_document = StoryDocument::load_story_json(&legacy_path)?;
+            if legacy_document.story.id == self.selected_story_id {
+                std::fs::rename(&legacy_path, &path).with_context(|| {
+                    format!(
+                        "migrate legacy story file {} to {}",
+                        legacy_path.display(),
+                        path.display()
+                    )
+                })?;
+            }
+        }
         self.selected_document().save_story_json(&path)?;
         Ok(path)
     }
 
-    pub(super) fn reload_documents(&mut self) {
+    pub(super) fn reload_documents(&mut self, cx: &mut Context<Self>) {
         match load_story_documents(&self.stories_dir) {
             Ok(docs) => {
+                let selected_reloaded = docs
+                    .iter()
+                    .any(|doc| doc.story.id == self.selected_story_id);
                 for doc in docs {
                     self.documents.insert(doc.story.id.clone(), doc);
                 }
                 self.rebuild_derived_state();
                 self.rebuild_sidebar_labels();
+                if selected_reloaded {
+                    self.restore_selected_document_state();
+                    self.refresh_stateful_preview(cx);
+                }
                 self.save_status = Some("Reloaded story JSON".into());
             }
             Err(err) => {
                 self.save_status = Some(format!("Reload failed: {err}").into());
             }
         }
+        cx.notify();
     }
 
     pub(super) fn render_sidebar(&self, cx: &mut Context<Self>) -> AnyElement {
@@ -881,7 +1065,14 @@ impl ComponentLab {
                     .child(Heading::h3("Component Lab"))
                     .child(Text::new(format!("{} stories", self.registry.len())).muted(true)),
             )
-            .child(list)
+            .child(
+                div()
+                    .id(lab_id(&["story-list"]))
+                    .flex_1()
+                    .min_h_0()
+                    .overflow_y_scroll()
+                    .child(list),
+            )
             .child(self.render_token_status(cx))
             .into_any_element()
     }
@@ -974,7 +1165,7 @@ impl ComponentLab {
                         .variant(ButtonVariant::Secondary)
                         .size(ButtonSize::Sm)
                         .on_click(move |_window, cx| {
-                            entity.update(cx, |this, _| this.toggle_matrix());
+                            entity.update(cx, |this, cx| this.toggle_matrix(cx));
                         }),
                     )
                     .child({
@@ -983,7 +1174,7 @@ impl ComponentLab {
                             .variant(ButtonVariant::Ghost)
                             .size(ButtonSize::Sm)
                             .on_click(move |_window, cx| {
-                                entity.update(cx, |this, _| this.reload_documents());
+                                entity.update(cx, |this, cx| this.reload_documents(cx));
                             })
                     })
                     .child({
@@ -1011,6 +1202,9 @@ impl ComponentLab {
         div()
             .w(px(340.0))
             .h_full()
+            .id(lab_id(&["controls-panel"]))
+            .min_h_0()
+            .overflow_y_scroll()
             .flex()
             .flex_col()
             .gap_5()
@@ -1167,11 +1361,12 @@ impl ComponentLab {
                     .size(ToggleSize::Sm)
                     .style(ToggleStyle::Sliding)
                     .on_change(move |checked, _window, cx| {
-                        entity.update(cx, |this, _| {
+                        entity.update(cx, |this, cx| {
                             this.set_prop(
                                 story_id.as_str(),
                                 prop_name.as_str(),
                                 StoryPropValue::Bool(checked),
+                                cx,
                             );
                         });
                     })
@@ -1187,11 +1382,12 @@ impl ComponentLab {
                     .width(150.0)
                     .size(NumberInputSize::Sm)
                     .on_change(move |number, _window, cx| {
-                        entity.update(cx, |this, _| {
+                        entity.update(cx, |this, cx| {
                             this.set_prop(
                                 story_id.as_str(),
                                 prop_name.as_str(),
                                 StoryPropValue::Number(number),
+                                cx,
                             );
                         });
                     })
@@ -1207,13 +1403,13 @@ impl ComponentLab {
                     .size(InputSize::Sm)
                     .placeholder(prop_label)
                     .on_text_change(move |text, _window, cx| {
-                        entity.update(cx, |this, _| {
+                        entity.update(cx, |this, cx| {
                             let value = if is_color {
                                 StoryPropValue::Color(SharedString::new(text))
                             } else {
                                 StoryPropValue::Text(SharedString::new(text))
                             };
-                            this.set_prop(story_id.as_str(), prop_name.as_str(), value);
+                            this.set_prop(story_id.as_str(), prop_name.as_str(), value, cx);
                         });
                     })
                     .into_any_element()
@@ -1237,11 +1433,12 @@ impl ComponentLab {
                         })
                         .size(ButtonSize::Xs)
                         .on_click(move |_window, cx| {
-                            entity.update(cx, |this, _| {
+                            entity.update(cx, |this, cx| {
                                 this.set_prop(
                                     story_id.as_str(),
                                     prop_name.as_str(),
                                     StoryPropValue::Choice(option_label.clone()),
+                                    cx,
                                 );
                             });
                         }),
@@ -1292,7 +1489,7 @@ impl ComponentLab {
                     })
                     .size(ButtonSize::Xs)
                     .on_click(move |_window, cx| {
-                        entity.update(cx, |this, _| this.set_viewport(viewport_id.clone()));
+                        entity.update(cx, |this, cx| this.set_viewport(viewport_id.clone(), cx));
                     }),
             );
         }
@@ -1313,7 +1510,7 @@ impl ComponentLab {
                 })
                 .size(ButtonSize::Xs)
                 .on_click(move |_window, cx| {
-                    entity.update(cx, |this, _| this.set_theme(theme_id.clone()));
+                    entity.update(cx, |this, cx| this.set_theme(theme_id.clone(), cx));
                 }),
             );
         }
@@ -1331,7 +1528,7 @@ impl ComponentLab {
                     })
                     .size(ButtonSize::Xs)
                     .on_click(move |_window, cx| {
-                        entity.update(cx, |this, _| this.set_motion(motion_id.clone()));
+                        entity.update(cx, |this, cx| this.set_motion(motion_id.clone(), cx));
                     }),
             );
         }
@@ -1348,7 +1545,7 @@ impl ComponentLab {
                     })
                     .size(ButtonSize::Xs)
                     .on_click(move |_window, cx| {
-                        entity.update(cx, |this, _| this.set_layout_sizing(sizing));
+                        entity.update(cx, |this, cx| this.set_layout_sizing(sizing, cx));
                     }),
             );
         }
@@ -1365,7 +1562,7 @@ impl ComponentLab {
                     })
                     .size(ButtonSize::Xs)
                     .on_click(move |_window, cx| {
-                        entity.update(cx, |this, _| this.set_layout_horizontal_align(align));
+                        entity.update(cx, |this, cx| this.set_layout_horizontal_align(align, cx));
                     }),
             );
         }
@@ -1382,7 +1579,7 @@ impl ComponentLab {
                     })
                     .size(ButtonSize::Xs)
                     .on_click(move |_window, cx| {
-                        entity.update(cx, |this, _| this.set_layout_vertical_align(align));
+                        entity.update(cx, |this, cx| this.set_layout_vertical_align(align, cx));
                     }),
             );
         }
@@ -1402,7 +1599,7 @@ impl ComponentLab {
                 })
                 .size(ButtonSize::Xs)
                 .on_click(move |_window, cx| {
-                    entity.update(cx, |this, _| this.set_layout_overflow(overflow));
+                    entity.update(cx, |this, cx| this.set_layout_overflow(overflow, cx));
                 }),
             );
         }
@@ -1422,7 +1619,7 @@ impl ComponentLab {
                 })
                 .size(ButtonSize::Xs)
                 .on_click(move |_window, cx| {
-                    entity.update(cx, |this, _| this.set_layout_surface(surface));
+                    entity.update(cx, |this, cx| this.set_layout_surface(surface, cx));
                 }),
             );
         }
@@ -1500,7 +1697,9 @@ impl ComponentLab {
                             .on_change({
                                 let entity = self.entity.clone();
                                 move |value, _window, cx| {
-                                    entity.update(cx, |this, _| this.set_layout_min_width(value));
+                                    entity.update(cx, |this, cx| {
+                                        this.set_layout_min_width(value, cx)
+                                    });
                                 }
                             }),
                     )
@@ -1517,7 +1716,9 @@ impl ComponentLab {
                             .on_change({
                                 let entity = self.entity.clone();
                                 move |value, _window, cx| {
-                                    entity.update(cx, |this, _| this.set_layout_min_height(value));
+                                    entity.update(cx, |this, cx| {
+                                        this.set_layout_min_height(value, cx)
+                                    });
                                 }
                             }),
                     ),
@@ -1538,8 +1739,9 @@ impl ComponentLab {
                             .on_change({
                                 let entity = self.entity.clone();
                                 move |value, _window, cx| {
-                                    entity
-                                        .update(cx, |this, _| this.set_layout_aspect_ratio(value));
+                                    entity.update(cx, |this, cx| {
+                                        this.set_layout_aspect_ratio(value, cx)
+                                    });
                                 }
                             }),
                     )
@@ -1556,7 +1758,8 @@ impl ComponentLab {
                             .on_change({
                                 let entity = self.entity.clone();
                                 move |value, _window, cx| {
-                                    entity.update(cx, |this, _| this.set_layout_padding(value));
+                                    entity
+                                        .update(cx, |this, cx| this.set_layout_padding(value, cx));
                                 }
                             }),
                     ),
@@ -1579,7 +1782,7 @@ impl ComponentLab {
                             .on_change({
                                 let entity = self.entity.clone();
                                 move |value, _window, cx| {
-                                    entity.update(cx, |this, _| this.set_layout_gap(value));
+                                    entity.update(cx, |this, cx| this.set_layout_gap(value, cx));
                                 }
                             }),
                     )
@@ -1591,7 +1794,8 @@ impl ComponentLab {
                             .on_change({
                                 let entity = self.entity.clone();
                                 move |checked, _window, cx| {
-                                    entity.update(cx, |this, _| this.set_layout_border(checked));
+                                    entity
+                                        .update(cx, |this, cx| this.set_layout_border(checked, cx));
                                 }
                             }),
                     ),
@@ -1604,7 +1808,7 @@ impl ComponentLab {
                     .on_change({
                         let entity = self.entity.clone();
                         move |_checked, _window, cx| {
-                            entity.update(cx, |this, _| this.toggle_matrix());
+                            entity.update(cx, |this, cx| this.toggle_matrix(cx));
                         }
                     }),
             )
@@ -1893,9 +2097,12 @@ impl ComponentLab {
                 .size(CheckboxSize::Md)
                 .design(design)
                 .into_any_element(),
-            "ui-kit.color-picker" => cx
-                .new(|_| ColorPickerView::new(label, Color::from_hex(0x3b82f6)))
-                .into_any_element(),
+            "ui-kit.color-picker" => self
+                .retained_stateful_preview(story_id, _interactive)
+                .unwrap_or_else(|| {
+                    cx.new(|_| ColorPickerView::new(label, Color::from_hex(0x3b82f6)))
+                        .into_any_element()
+                }),
             "ui-kit.input" => Input::new(scoped("input"))
                 .label("Label")
                 .value(label)
@@ -1987,9 +2194,12 @@ impl ComponentLab {
             "ui-kit.qr-code-component" => QrCode::new("https://sotf.dev")
                 .size(px(128.0))
                 .into_any_element(),
-            "ui-kit.animated-qr-code" => cx
-                .new(|cx| AnimatedQrCode::new("https://sotf.dev/lab", px(48.0), cx))
-                .into_any_element(),
+            "ui-kit.animated-qr-code" => self
+                .retained_stateful_preview(story_id, _interactive)
+                .unwrap_or_else(|| {
+                    cx.new(|cx| AnimatedQrCode::new("https://sotf.dev/lab", px(48.0), cx))
+                        .into_any_element()
+                }),
             "ui-kit.spinner" => Spinner::new()
                 .size(SpinnerSize::Lg)
                 .label(label)
@@ -2284,14 +2494,28 @@ impl ComponentLab {
                 .border_color(theme.border)
                 .rounded_md()
                 .overflow_hidden()
-                .child(cx.new(|cx| WorkflowCanvas::with_graph(sample_workflow_graph(label), cx)))
+                .child(
+                    self.retained_stateful_preview(story_id, _interactive)
+                        .unwrap_or_else(|| {
+                            cx.new(|cx| {
+                                WorkflowCanvas::with_graph(sample_workflow_graph(label), cx)
+                            })
+                            .into_any_element()
+                        }),
+                )
                 .into_any_element(),
             "ui-kit.showcase-component" => div()
                 .id(scoped("showcase-component"))
                 .w(px(420.0))
                 .max_h(px(300.0))
                 .overflow_y_scroll()
-                .child(cx.new(|cx| Showcase::embedded_section(ShowcaseSection::Buttons, cx)))
+                .child(
+                    self.retained_stateful_preview(story_id, _interactive)
+                        .unwrap_or_else(|| {
+                            cx.new(|cx| Showcase::embedded_section(ShowcaseSection::Buttons, cx))
+                                .into_any_element()
+                        }),
+                )
                 .into_any_element(),
             _ => div()
                 .child(Text::new("No exported component renderer registered").muted(true))
@@ -2357,8 +2581,13 @@ impl ComponentLab {
             .width(220.0);
         if interactive {
             slider = slider.on_change(move |new_value, _window, cx| {
-                entity.update(cx, |this, _| {
-                    this.set_prop(&story_id, "value", StoryPropValue::Number(new_value as f64));
+                entity.update(cx, |this, cx| {
+                    this.set_prop(
+                        &story_id,
+                        "value",
+                        StoryPropValue::Number(new_value as f64),
+                        cx,
+                    );
                 });
             });
         }
@@ -2609,8 +2838,8 @@ impl ComponentLab {
             .size(PotentiometerSize::Lg);
         if interactive {
             knob = knob.on_change(move |new_value, _window, cx| {
-                entity.update(cx, |this, _| {
-                    this.set_prop(&story_id, "value", StoryPropValue::Number(new_value));
+                entity.update(cx, |this, cx| {
+                    this.set_prop(&story_id, "value", StoryPropValue::Number(new_value), cx);
                 });
             });
         }
@@ -2666,8 +2895,8 @@ impl ComponentLab {
 
         if interactive {
             slider = slider.on_change(move |new_value, _window, cx| {
-                entity.update(cx, |this, _| {
-                    this.set_prop(&story_id, "value", StoryPropValue::Number(new_value));
+                entity.update(cx, |this, cx| {
+                    this.set_prop(&story_id, "value", StoryPropValue::Number(new_value), cx);
                 });
             });
         }
@@ -2722,13 +2951,18 @@ impl ComponentLab {
         if interactive {
             knob = knob
                 .on_change(move |new_value, _window, cx| {
-                    entity.update(cx, |this, _| {
-                        this.set_prop(&story_id, "value", StoryPropValue::Number(new_value as f64));
+                    entity.update(cx, |this, cx| {
+                        this.set_prop(
+                            &story_id,
+                            "value",
+                            StoryPropValue::Number(new_value as f64),
+                            cx,
+                        );
                     });
                 })
                 .on_mute_toggle(move |new_muted, _window, cx| {
-                    mute_entity.update(cx, |this, _| {
-                        this.set_prop(&mute_story_id, "muted", StoryPropValue::Bool(new_muted));
+                    mute_entity.update(cx, |this, cx| {
+                        this.set_prop(&mute_story_id, "muted", StoryPropValue::Bool(new_muted), cx);
                     });
                 });
         }
@@ -3715,11 +3949,11 @@ impl Render for ComponentLab {
         // not marked dirty on every frame.
         {
             let sidebar = self.sidebar_entity.read(cx);
-            let live_status = self.live_status.clone();
             if sidebar.selected_story_id != self.selected_story_id
-                || sidebar.live_status != live_status
+                || sidebar.live_status != self.live_status
                 || sidebar.registry_len != self.registry.len()
             {
+                let live_status = self.live_status.clone();
                 self.sidebar_entity.update(cx, |sidebar, _cx| {
                     sidebar.selected_story_id = self.selected_story_id.clone();
                     sidebar.live_status = live_status;
@@ -3749,17 +3983,19 @@ impl Render for ComponentLab {
 
         {
             let controls = self.controls_panel_entity.read(cx);
-            let story_id = self.selected_story().id.clone();
+            let story_id = self.selected_story().id.as_str();
             let constraints = self.layout_constraints;
-            let save_status = self.save_status.clone();
             if controls.story_id != story_id
+                || controls.story_revision != self.story_revision
                 || controls.layout_constraints != constraints
-                || controls.save_status != save_status
+                || controls.save_status != self.save_status
             {
-                let story = self.selected_story().clone();
+                let story_id = story_id.to_owned();
+                let story_revision = self.story_revision;
+                let save_status = self.save_status.clone();
                 self.controls_panel_entity.update(cx, |controls, _cx| {
                     controls.story_id = story_id;
-                    controls.story = story;
+                    controls.story_revision = story_revision;
                     controls.layout_constraints = constraints;
                     controls.save_status = save_status;
                 });
@@ -3768,32 +4004,32 @@ impl Render for ComponentLab {
 
         {
             let preview = self.preview_area_entity.read(cx);
-            let story_id = self.selected_story().id.clone();
-            let viewport_id = self.selected_viewport().id.clone();
-            let theme_id = self.selected_theme_preset().id.clone();
-            let motion_id = self.selected_motion_preset().id.clone();
+            let story_id = self.selected_story().id.as_str();
+            let viewport_id = self.selected_viewport().id.as_ref();
+            let theme_id = self.selected_theme_preset().id.as_ref();
+            let motion_id = self.selected_motion_preset().id.as_ref();
             let constraints = self.layout_constraints;
             if preview.story_id != story_id
-                || preview.viewport.id != viewport_id
-                || preview.theme.id != theme_id
-                || preview.motion.id != motion_id
+                || preview.viewport_id != viewport_id
+                || preview.theme_id != theme_id
+                || preview.motion_id != motion_id
+                || preview.story_revision != self.story_revision
                 || preview.layout_constraints != constraints
                 || preview.matrix_mode != self.matrix_mode
             {
-                let story = self.selected_story().clone();
-                let viewport = self.selected_viewport().clone();
-                let theme = self.selected_theme_preset().clone();
-                let motion = self.selected_motion_preset().clone();
-                let matrix = self.cached_matrix.clone();
+                let story_id = story_id.to_owned();
+                let viewport_id = viewport_id.to_owned();
+                let theme_id = theme_id.to_owned();
+                let motion_id = motion_id.to_owned();
+                let story_revision = self.story_revision;
                 self.preview_area_entity.update(cx, |preview, _cx| {
                     preview.story_id = story_id;
-                    preview.story = story;
-                    preview.viewport = viewport;
-                    preview.theme = theme;
-                    preview.motion = motion;
+                    preview.viewport_id = viewport_id;
+                    preview.theme_id = theme_id;
+                    preview.motion_id = motion_id;
+                    preview.story_revision = story_revision;
                     preview.layout_constraints = constraints;
                     preview.matrix_mode = self.matrix_mode;
-                    preview.cached_matrix = matrix;
                 });
             }
         }
@@ -3951,7 +4187,7 @@ impl Render for LabToolbar {
 /// changes.
 struct LabControlsPanel {
     story_id: String,
-    story: ComponentStory,
+    story_revision: u64,
     layout_constraints: PreviewLayoutConstraints,
     save_status: Option<SharedString>,
     parent: WeakEntity<ComponentLab>,
@@ -3961,7 +4197,7 @@ impl LabControlsPanel {
     fn new(parent: WeakEntity<ComponentLab>) -> Self {
         Self {
             story_id: String::new(),
-            story: ComponentStory::new("", "", "", ""),
+            story_revision: 0,
             layout_constraints: PreviewLayoutConstraints::default(),
             save_status: None,
             parent,
@@ -3987,13 +4223,12 @@ impl Render for LabControlsPanel {
 /// constraints or matrix mode changes.
 struct LabPreviewArea {
     story_id: String,
-    story: ComponentStory,
-    viewport: ViewportPreset,
-    theme: ThemePreset,
-    motion: MotionPreset,
+    viewport_id: String,
+    theme_id: String,
+    motion_id: String,
+    story_revision: u64,
     layout_constraints: PreviewLayoutConstraints,
     matrix_mode: bool,
-    cached_matrix: ResponsivePreviewMatrix,
     parent: WeakEntity<ComponentLab>,
 }
 
@@ -4001,13 +4236,12 @@ impl LabPreviewArea {
     fn new(parent: WeakEntity<ComponentLab>) -> Self {
         Self {
             story_id: String::new(),
-            story: ComponentStory::new("", "", "", ""),
-            viewport: ViewportPreset::new("", "", 0.0, 0.0),
-            theme: ThemePreset::new("", "", "", false),
-            motion: MotionPreset::new("", "", false),
+            viewport_id: String::new(),
+            theme_id: String::new(),
+            motion_id: String::new(),
+            story_revision: 0,
             layout_constraints: PreviewLayoutConstraints::default(),
             matrix_mode: false,
-            cached_matrix: ResponsivePreviewMatrix { cells: Vec::new() },
             parent,
         }
     }

@@ -27,6 +27,8 @@ fn surface_x_values_returns_borrowed_for_explicit_axis() {
 fn surface_default_axis_values_are_cached() {
     let spec_a = SurfaceSpec::from_flat("surface", vec![1.0, 2.0, 3.0, 4.0], 2, 2);
     let spec_b = SurfaceSpec::from_flat("other", vec![5.0, 6.0, 7.0, 8.0], 2, 2);
+    assert!(matches!(spec_a.x_values(), Cow::Borrowed(_)));
+    assert!(matches!(spec_a.y_values(), Cow::Borrowed(_)));
 
     let x_a: Vec<f64> = spec_a.x_values().into();
     let x_b: Vec<f64> = spec_b.x_values().into();
@@ -859,6 +861,50 @@ fn surface_spec_y_log_and_z_range_positive() {
 
     spec.z_range = Some(ScalarRange::new(1.0, 2.0));
     assert!(spec.validate().is_ok());
+}
+
+#[test]
+fn composed_surface_rejects_axis_metadata_it_cannot_render() {
+    let mut surface = SurfaceSpec::from_flat("labeled-surface", vec![1.0, 2.0, 3.0, 4.0], 2, 2);
+    surface.labels.x = Some("Frequency".into());
+    let scene = SceneSpec {
+        id: "labeled-scene".into(),
+        camera: CameraSpec::Orbit(OrbitCameraSpec::new(3.5, 45.0, 25.0)),
+        children: vec![SceneNode::Surface(surface)],
+        interactions: Vec::new(),
+        background: None,
+        size: None,
+    };
+
+    assert_eq!(
+        scene.validate(),
+        Err(Scene3DError::UnsupportedNode {
+            kind: "surface axis metadata in composed scenes",
+        })
+    );
+}
+
+#[test]
+fn composed_surface_rejects_valid_log_axes_it_cannot_render() {
+    let mut surface = SurfaceSpec::from_flat("log-surface", vec![1.0, 2.0, 3.0, 4.0], 2, 2);
+    surface.x = Some(vec![1.0, 2.0]);
+    surface.y = Some(vec![1.0, 2.0]);
+    surface.x_log = true;
+    let scene = SceneSpec {
+        id: "log-scene".into(),
+        camera: CameraSpec::Orbit(OrbitCameraSpec::new(3.5, 45.0, 25.0)),
+        children: vec![SceneNode::Surface(surface)],
+        interactions: Vec::new(),
+        background: None,
+        size: None,
+    };
+
+    assert_eq!(
+        scene.validate(),
+        Err(Scene3DError::UnsupportedNode {
+            kind: "surface axis metadata in composed scenes",
+        })
+    );
 }
 
 #[test]

@@ -428,6 +428,7 @@ impl Showcase {
         let dragging = self.pane_dragging_left;
 
         // Build the demo layout
+        let entity_up_out = entity.clone();
         let mut container = div()
             .id("pane-divider-demo-container")
             .w(px(600.0))
@@ -437,7 +438,15 @@ impl Showcase {
             .rounded_lg()
             .border_1()
             .border_color(theme.border)
-            .overflow_hidden();
+            .overflow_hidden()
+            .on_mouse_up_out(MouseButton::Left, move |_event, _window, cx| {
+                entity_up_out.update(cx, |state, cx| {
+                    if state.pane_dragging_left {
+                        state.pane_dragging_left = false;
+                        cx.notify();
+                    }
+                });
+            });
 
         // Left panel (collapsible)
         if !left_collapsed {

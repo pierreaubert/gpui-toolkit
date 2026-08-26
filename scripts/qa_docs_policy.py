@@ -80,6 +80,20 @@ def check() -> list[str]:
     manifest = (ROOT / "crates/gpui-toolkit/src/vendored_patches.rs").read_text()
     paths = re.findall(r'local_path:\s*"([^"]+)"', manifest)
     today = dt.date.today()
+    for patch in manifest.split("\n    VendoredPatch {")[1:]:
+        name = re.search(r'name:\s*"([^"]+)"', patch)
+        last_reviewed = re.search(r'last_reviewed:\s*"(\d{4}-\d{2}-\d{2})"', patch)
+        cadence = re.search(r'review_cadence_days:\s*(\d+)', patch)
+        if not (name and last_reviewed and cadence):
+            errors.append("vendored patch maintenance metadata is incomplete")
+            continue
+        reviewed_on = dt.date.fromisoformat(last_reviewed.group(1))
+        cadence_days = int(cadence.group(1))
+        if (today - reviewed_on).days > cadence_days:
+            errors.append(
+                f"vendored patch review overdue: {name.group(1)} "
+                f"({(today - reviewed_on).days} days > {cadence_days} days)"
+            )
     for path in paths:
         directory = ROOT / path
         if not directory.is_dir():

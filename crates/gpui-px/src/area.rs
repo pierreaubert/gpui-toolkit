@@ -4,8 +4,8 @@ use crate::error::ChartError;
 use crate::{
     ChartAccessibilitySummary, ChartSize, DEFAULT_COLOR, DEFAULT_HEIGHT, DEFAULT_PADDING_FRACTION,
     DEFAULT_TITLE_FONT_SIZE, DEFAULT_WIDTH, ScaleType, TITLE_AREA_HEIGHT, apply_chart_size,
-    default_design, extent_padded, extent_padded_iter, finite_range, finite_range_owned,
-    format_range, format_scale, resolved_chart_dimensions, validate_data_array,
+    default_design, extent_log_padded_iter, extent_padded, extent_padded_iter, finite_range,
+    finite_range_owned, format_range, format_scale, resolved_chart_dimensions, validate_data_array,
     validate_data_length, validate_dimensions, validate_positive,
 };
 use d3rs::color::D3Color;
@@ -230,18 +230,29 @@ impl AreaChart {
         let plot_height = layout_height - title_height;
 
         // Calculate domains with padding
-        let (x_min, x_max) = extent_padded(&self.x, DEFAULT_PADDING_FRACTION);
+        let (x_min, x_max) = if self.x_scale_type == ScaleType::Log {
+            extent_log_padded_iter(self.x.iter().copied(), DEFAULT_PADDING_FRACTION)
+        } else {
+            extent_padded(&self.x, DEFAULT_PADDING_FRACTION)
+        };
 
         // Calculate Y domain considering y and y0 without intermediate allocations.
         let y_data_min = self.y.iter().copied().fold(f64::INFINITY, f64::min);
         let (y_min, y_max) = if let Some(ref y0) = self.y0 {
-            extent_padded_iter(
-                self.y.iter().chain(y0.iter()).copied(),
-                DEFAULT_PADDING_FRACTION,
-            )
+            if self.y_scale_type == ScaleType::Log {
+                extent_log_padded_iter(
+                    self.y.iter().chain(y0.iter()).copied(),
+                    DEFAULT_PADDING_FRACTION,
+                )
+            } else {
+                extent_padded_iter(
+                    self.y.iter().chain(y0.iter()).copied(),
+                    DEFAULT_PADDING_FRACTION,
+                )
+            }
         } else if self.y_scale_type == ScaleType::Log {
             // For log scale, use data minimum as baseline instead of 0.0
-            extent_padded(&self.y, DEFAULT_PADDING_FRACTION)
+            extent_log_padded_iter(self.y.iter().copied(), DEFAULT_PADDING_FRACTION)
         } else {
             extent_padded_iter(
                 self.y.iter().copied().chain(std::iter::once(0.0)),

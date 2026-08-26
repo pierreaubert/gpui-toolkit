@@ -93,6 +93,9 @@ impl Action for SetDesignLanguage {
 /// - Keyboard shortcut binding (Cmd+Q to quit)
 pub struct MiniApp;
 
+pub(super) const QUIT_KEYSTROKE: &str = "secondary-q";
+pub(super) const TOGGLE_THEME_KEYSTROKE: &str = "secondary-t";
+
 impl MiniApp {
     /// Run a MiniApp with the given configuration and view builder
     ///
@@ -123,6 +126,9 @@ impl MiniApp {
             Ok(config) => config,
             Err(error) => {
                 eprintln!("MiniApp argument error: {error}");
+                #[cfg(not(target_family = "wasm"))]
+                std::process::exit(2);
+                #[cfg(target_family = "wasm")]
                 return;
             }
         };
@@ -162,109 +168,65 @@ impl MiniApp {
 
             // Register theme actions if enabled
             if config_rc.with_theme {
-                cx.on_action::<ToggleTheme>(|_action, cx| {
+                let config_for_theme = config_rc.clone();
+                cx.on_action::<ToggleTheme>(move |_action, cx| {
                     cx.update_global::<ThemeState, _>(|state, _cx| {
                         state.toggle();
                     });
+                    Self::refresh_menus(cx, &config_for_theme);
                     cx.refresh_windows();
                 });
 
-                cx.on_action::<SetThemeVariant>(|action, cx| {
+                let config_for_theme = config_rc.clone();
+                cx.on_action::<SetThemeVariant>(move |action, cx| {
                     Self::set_theme_variant(cx, action.variant);
+                    Self::refresh_menus(cx, &config_for_theme);
                 });
             }
 
             // Register design system actions
-            cx.on_action::<SetDesignLanguage>(|action, cx| {
+            let config_for_design = config_rc.clone();
+            cx.on_action::<SetDesignLanguage>(move |action, cx| {
                 Self::set_design_language(cx, action.language);
+                Self::refresh_menus(cx, &config_for_design);
             });
 
             // Register language actions if enabled
             if config_rc.with_i18n {
                 let config_for_lang = config_rc.clone();
                 cx.on_action::<SetLanguageEnglish>(move |_action, cx| {
-                    cx.update_global::<I18nState, _>(|state, _cx| {
-                        state.set_language(Language::English);
-                    });
-                    let current_language = cx
-                        .try_global::<I18nState>()
-                        .map(|state| state.language)
-                        .unwrap_or(Language::English);
-                    let menus = Self::build_menus_with_language(&config_for_lang, current_language);
-                    cx.set_menus(menus);
-                    cx.refresh_windows();
+                    Self::set_language(cx, &config_for_lang, Language::English);
                 });
 
                 let config_for_lang = config_rc.clone();
                 cx.on_action::<SetLanguageFrench>(move |_action, cx| {
-                    cx.update_global::<I18nState, _>(|state, _cx| {
-                        state.set_language(Language::French);
-                    });
-                    let current_language = cx
-                        .try_global::<I18nState>()
-                        .map(|state| state.language)
-                        .unwrap_or(Language::English);
-                    let menus = Self::build_menus_with_language(&config_for_lang, current_language);
-                    cx.set_menus(menus);
-                    cx.refresh_windows();
+                    Self::set_language(cx, &config_for_lang, Language::French);
                 });
 
                 let config_for_lang = config_rc.clone();
                 cx.on_action::<SetLanguageGerman>(move |_action, cx| {
-                    cx.update_global::<I18nState, _>(|state, _cx| {
-                        state.set_language(Language::German);
-                    });
-                    let current_language = cx
-                        .try_global::<I18nState>()
-                        .map(|state| state.language)
-                        .unwrap_or(Language::English);
-                    let menus = Self::build_menus_with_language(&config_for_lang, current_language);
-                    cx.set_menus(menus);
-                    cx.refresh_windows();
+                    Self::set_language(cx, &config_for_lang, Language::German);
                 });
 
                 let config_for_lang = config_rc.clone();
                 cx.on_action::<SetLanguageSpanish>(move |_action, cx| {
-                    cx.update_global::<I18nState, _>(|state, _cx| {
-                        state.set_language(Language::Spanish);
-                    });
-                    let current_language = cx
-                        .try_global::<I18nState>()
-                        .map(|state| state.language)
-                        .unwrap_or(Language::English);
-                    let menus = Self::build_menus_with_language(&config_for_lang, current_language);
-                    cx.set_menus(menus);
-                    cx.refresh_windows();
+                    Self::set_language(cx, &config_for_lang, Language::Spanish);
                 });
 
                 let config_for_lang = config_rc.clone();
                 cx.on_action::<SetLanguageJapanese>(move |_action, cx| {
-                    cx.update_global::<I18nState, _>(|state, _cx| {
-                        state.set_language(Language::Japanese);
-                    });
-                    let current_language = cx
-                        .try_global::<I18nState>()
-                        .map(|state| state.language)
-                        .unwrap_or(Language::English);
-                    let menus = Self::build_menus_with_language(&config_for_lang, current_language);
-                    cx.set_menus(menus);
-                    cx.refresh_windows();
+                    Self::set_language(cx, &config_for_lang, Language::Japanese);
                 });
             }
 
-            // Build menu bar
-            let current_language = cx
-                .try_global::<I18nState>()
-                .map(|state| state.language)
-                .unwrap_or(config_rc.initial_language);
-            let menus = Self::build_menus_with_language(&config_rc, current_language);
-            cx.set_menus(menus);
+            // Build menu bar.
+            Self::refresh_menus(cx, &config_rc);
 
             // Bind keyboard shortcuts
-            cx.bind_keys([KeyBinding::new("cmd-q", Quit, None)]);
+            cx.bind_keys([KeyBinding::new(QUIT_KEYSTROKE, Quit, None)]);
 
             if config_rc.with_theme {
-                cx.bind_keys([KeyBinding::new("cmd-t", ToggleTheme, None)]);
+                cx.bind_keys([KeyBinding::new(TOGGLE_THEME_KEYSTROKE, ToggleTheme, None)]);
             }
 
             // Create window
@@ -303,6 +265,8 @@ impl MiniApp {
                 },
             ) {
                 eprintln!("MiniApp window error: {e:?}");
+                #[cfg(not(target_family = "wasm"))]
+                cx.quit();
                 return;
             }
 
@@ -346,8 +310,23 @@ impl MiniApp {
     }
 
     /// Build the menu bar based on configuration and current language
+    #[cfg(test)]
     pub(super) fn build_menus_with_language(
         config: &MiniAppConfig,
+        current_language: Language,
+    ) -> Vec<Menu> {
+        Self::build_menus(
+            config,
+            config.initial_theme,
+            DesignSystem::platform_default().language,
+            current_language,
+        )
+    }
+
+    pub(super) fn build_menus(
+        config: &MiniAppConfig,
+        current_theme: ThemeVariant,
+        current_design: DesignLanguage,
         current_language: Language,
     ) -> Vec<Menu> {
         let mut menus = Vec::new();
@@ -368,7 +347,7 @@ impl MiniApp {
                 let mut theme_items = ThemeVariant::all()
                     .iter()
                     .copied()
-                    .map(Self::theme_menu_item)
+                    .map(|variant| Self::theme_menu_item(variant, current_theme))
                     .collect::<Vec<_>>();
                 theme_items.push(MenuItem::separator());
                 theme_items.push(MenuItem::action("Toggle Theme  Cmd+T", ToggleTheme));
@@ -380,13 +359,21 @@ impl MiniApp {
                 }));
             }
 
+            #[cfg(not(target_os = "macos"))]
+            {
+                // `secondary-t` is Ctrl+T here, so do not show a macOS-only
+                // accelerator in the native menu label.
+                theme_items.pop();
+                theme_items.push(MenuItem::action("Toggle Theme", ToggleTheme));
+            }
+
             view_items.push(MenuItem::submenu(Menu {
                 name: "Design System".into(),
                 disabled: false,
                 items: DesignLanguage::all()
                     .iter()
                     .copied()
-                    .map(Self::design_menu_item)
+                    .map(|language| Self::design_menu_item(language, current_design))
                     .collect(),
             }));
 
@@ -412,11 +399,16 @@ impl MiniApp {
                 name: menu_title.into(),
                 disabled: false,
                 items: vec![
-                    MenuItem::action("English", SetLanguageEnglish),
-                    MenuItem::action("Français", SetLanguageFrench),
-                    MenuItem::action("Deutsch", SetLanguageGerman),
-                    MenuItem::action("Español", SetLanguageSpanish),
-                    MenuItem::action("日本語", SetLanguageJapanese),
+                    MenuItem::action("English", SetLanguageEnglish)
+                        .checked(current_language == Language::English),
+                    MenuItem::action("Français", SetLanguageFrench)
+                        .checked(current_language == Language::French),
+                    MenuItem::action("Deutsch", SetLanguageGerman)
+                        .checked(current_language == Language::German),
+                    MenuItem::action("Español", SetLanguageSpanish)
+                        .checked(current_language == Language::Spanish),
+                    MenuItem::action("日本語", SetLanguageJapanese)
+                        .checked(current_language == Language::Japanese),
                 ],
             });
         }
@@ -424,12 +416,43 @@ impl MiniApp {
         menus
     }
 
-    fn theme_menu_item(variant: ThemeVariant) -> MenuItem {
+    fn theme_menu_item(variant: ThemeVariant, current_theme: ThemeVariant) -> MenuItem {
         MenuItem::action(variant.name(), SetThemeVariant { variant })
+            .checked(variant == current_theme)
     }
 
-    fn design_menu_item(language: DesignLanguage) -> MenuItem {
+    fn design_menu_item(language: DesignLanguage, current_design: DesignLanguage) -> MenuItem {
         MenuItem::action(language.label(), SetDesignLanguage { language })
+            .checked(language == current_design)
+    }
+
+    fn refresh_menus(cx: &mut App, config: &MiniAppConfig) {
+        let current_theme = cx
+            .try_global::<ThemeState>()
+            .map(|state| state.theme.variant)
+            .unwrap_or(config.initial_theme);
+        let current_design = cx
+            .try_global::<DesignSystemState>()
+            .map(|state| state.system.language)
+            .unwrap_or_else(|| DesignSystem::platform_default().language);
+        let current_language = cx
+            .try_global::<I18nState>()
+            .map(|state| state.language)
+            .unwrap_or(config.initial_language);
+        cx.set_menus(Self::build_menus(
+            config,
+            current_theme,
+            current_design,
+            current_language,
+        ));
+    }
+
+    fn set_language(cx: &mut App, config: &MiniAppConfig, language: Language) {
+        cx.update_global::<I18nState, _>(|state, _cx| {
+            state.set_language(language);
+        });
+        Self::refresh_menus(cx, config);
+        cx.refresh_windows();
     }
 
     fn set_theme_variant(cx: &mut App, variant: ThemeVariant) {

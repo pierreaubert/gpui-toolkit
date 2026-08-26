@@ -1,10 +1,12 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use clap::Parser;
 use gpui_design_tools::{
     DesignTokenFormat, ensure_passed, validate_current_design_tokens,
     validate_design_tokens_from_path,
 };
 use std::path::PathBuf;
+
+use gpui_design_tools::write_text_atomically;
 
 #[derive(Parser)]
 #[command(
@@ -49,8 +51,15 @@ fn main() -> Result<()> {
         validate_current_design_tokens(need_markdown)?
     };
 
+    let json_report = (args.json || args.report_json.is_some())
+        .then(|| serde_json::to_string_pretty(&report))
+        .transpose()?;
+
     if args.json {
-        println!("{}", serde_json::to_string_pretty(&report)?);
+        println!(
+            "{}",
+            json_report.as_deref().expect("JSON report is available")
+        );
     } else {
         println!("{}", report.conformance_markdown);
         if report.findings.is_empty() {
@@ -66,7 +75,10 @@ fn main() -> Result<()> {
     let validation_result = ensure_passed(&report);
 
     if let Some(path) = args.report_json.as_deref() {
-        write_report(path, serde_json::to_string_pretty(&report)?)?;
+        write_report(
+            path,
+            json_report.as_deref().expect("JSON report is available"),
+        )?;
     }
     if let Some(path) = args.report_markdown.as_deref() {
         let mut markdown = report.conformance_markdown;
@@ -84,10 +96,6 @@ fn main() -> Result<()> {
     validation_result
 }
 
-fn write_report(path: &std::path::Path, body: String) -> Result<()> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
-    }
-    std::fs::write(path, body).with_context(|| format!("write {}", path.display()))?;
-    Ok(())
+fn write_report(path: &std::path::Path, body: impl AsRef<[u8]>) -> Result<()> {
+    write_text_atomically(path, body)
 }

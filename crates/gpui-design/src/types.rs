@@ -1,8 +1,8 @@
 use super::design_token::DesignToken;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// Corner radius rendering strategy.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CornerRadiusStyle {
     /// Apple continuous corners (squircle). Renderer should use smooth curves.
     Continuous,
@@ -11,7 +11,7 @@ pub enum CornerRadiusStyle {
 }
 
 /// Toggle control visual style.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ToggleVariant {
     /// iOS-style capsule slider with thumb.
     Capsule,
@@ -24,7 +24,7 @@ pub enum ToggleVariant {
 }
 
 /// Where labels appear relative to their control.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum LabelPosition {
     /// Label below the control (Apple, Material).
     Below,
@@ -33,7 +33,7 @@ pub enum LabelPosition {
 }
 
 /// Visual style for grouping controls.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum GroupSeparatorStyle {
     /// Subtle hairline divider (Apple).
     Divider,

@@ -4,7 +4,7 @@ use crate::helpers::nslog;
 use crate::window::{PENDING_VIEW, PendingViewInfo, with_au_window};
 use gpui::{
     App, AppCell, AppContext, Context, ElementId, InteractiveElement as _, IntoElement,
-    MouseButton, ParentElement, PlatformInput, Render, RequestFrameOptions, SharedString,
+    MouseButton, ParentElement, PlatformInput, Render, SharedString,
     StatefulInteractiveElement as _, Styled, Window, WindowOptions, div, point, px, rgb,
 };
 use objc::runtime::Object;
@@ -104,19 +104,9 @@ impl AuContext {
 }
 
 fn clone_application_cell(app: &gpui::Application) -> Rc<AppCell> {
-    // GPUI does not expose the AppCell handle, but AU embeddings need to keep
-    // it alive after Application::run returns because AuPlatform::run invokes
-    // the launch callback synchronously. Clone the inner Rc; never copy it
-    // bitwise, or the refcount is not incremented.
-    debug_assert_eq!(
-        std::mem::size_of::<gpui::Application>(),
-        std::mem::size_of::<Rc<AppCell>>(),
-        "Application layout changed -- AU AppCell clone assumption broken"
-    );
-    unsafe {
-        let rc: &Rc<AppCell> = std::mem::transmute(app);
-        Rc::clone(rc)
-    }
+    // Keep the app state alive after Application::run returns because
+    // AuPlatform::run invokes the launch callback synchronously.
+    app.clone_app_cell()
 }
 
 // ── Lifecycle ─────────────────────────────────────────────────────────────────
@@ -234,13 +224,7 @@ pub extern "C" fn gpui_au_request_frame(context: *mut AuContext) {
     if context.is_null() {
         return;
     }
-    with_au_window(|window| {
-        let cb = window.request_frame_callback.borrow_mut().take();
-        if let Some(mut cb) = cb {
-            cb(RequestFrameOptions::default());
-            window.request_frame_callback.borrow_mut().replace(cb);
-        }
-    });
+    with_au_window(|window| window.request_frame());
 }
 
 /// Handle view resize from the host.
@@ -254,6 +238,24 @@ pub extern "C" fn gpui_au_resize(context: *mut AuContext, width: f32, height: f3
     });
 }
 
+/// Report AU host focus changes for GPUI window activation state.
+#[unsafe(no_mangle)]
+pub extern "C" fn gpui_au_set_active(context: *mut AuContext, is_active: bool) {
+    if context.is_null() {
+        return;
+    }
+    with_au_window(|window| window.update_active_status(is_active));
+}
+
+/// Report whether the pointer is currently inside the AU view.
+#[unsafe(no_mangle)]
+pub extern "C" fn gpui_au_set_hovered(context: *mut AuContext, is_hovered: bool) {
+    if context.is_null() {
+        return;
+    }
+    with_au_window(|window| window.update_hover_status(is_hovered));
+}
+
 // ── Mouse Events ──────────────────────────────────────────────────────────────
 
 #[unsafe(no_mangle)]
@@ -263,6 +265,7 @@ pub extern "C" fn gpui_au_mouse_down(
     y: f32,
     button: i32,
     click_count: i32,
+    modifier_flags: u32,
 ) {
     if context.is_null() {
         return;
@@ -275,14 +278,20 @@ pub extern "C" fn gpui_au_mouse_down(
     dispatch_to_window(PlatformInput::MouseDown(gpui::MouseDownEvent {
         button: mouse_button,
         position: point(px(x), px(y)),
-        modifiers: gpui::Modifiers::default(),
+        modifiers: modifiers_from_ns_event(modifier_flags),
         click_count: click_count as usize,
         first_mouse: false,
     }));
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn gpui_au_mouse_up(context: *mut AuContext, x: f32, y: f32, button: i32) {
+pub extern "C" fn gpui_au_mouse_up(
+    context: *mut AuContext,
+    x: f32,
+    y: f32,
+    button: i32,
+    modifier_flags: u32,
+) {
     if context.is_null() {
         return;
     }
@@ -294,25 +303,36 @@ pub extern "C" fn gpui_au_mouse_up(context: *mut AuContext, x: f32, y: f32, butt
     dispatch_to_window(PlatformInput::MouseUp(gpui::MouseUpEvent {
         button: mouse_button,
         position: point(px(x), px(y)),
-        modifiers: gpui::Modifiers::default(),
+        modifiers: modifiers_from_ns_event(modifier_flags),
         click_count: 1,
     }));
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn gpui_au_mouse_moved(context: *mut AuContext, x: f32, y: f32) {
+pub extern "C" fn gpui_au_mouse_moved(
+    context: *mut AuContext,
+    x: f32,
+    y: f32,
+    modifier_flags: u32,
+) {
     if context.is_null() {
         return;
     }
     dispatch_to_window(PlatformInput::MouseMove(gpui::MouseMoveEvent {
         position: point(px(x), px(y)),
         pressed_button: None,
-        modifiers: gpui::Modifiers::default(),
+        modifiers: modifiers_from_ns_event(modifier_flags),
     }));
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn gpui_au_mouse_dragged(context: *mut AuContext, x: f32, y: f32, button: i32) {
+pub extern "C" fn gpui_au_mouse_dragged(
+    context: *mut AuContext,
+    x: f32,
+    y: f32,
+    button: i32,
+    modifier_flags: u32,
+) {
     if context.is_null() {
         return;
     }
@@ -324,19 +344,26 @@ pub extern "C" fn gpui_au_mouse_dragged(context: *mut AuContext, x: f32, y: f32,
     dispatch_to_window(PlatformInput::MouseMove(gpui::MouseMoveEvent {
         position: point(px(x), px(y)),
         pressed_button: Some(mouse_button),
-        modifiers: gpui::Modifiers::default(),
+        modifiers: modifiers_from_ns_event(modifier_flags),
     }));
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn gpui_au_scroll_wheel(context: *mut AuContext, x: f32, y: f32, dx: f32, dy: f32) {
+pub extern "C" fn gpui_au_scroll_wheel(
+    context: *mut AuContext,
+    x: f32,
+    y: f32,
+    dx: f32,
+    dy: f32,
+    modifier_flags: u32,
+) {
     if context.is_null() {
         return;
     }
     dispatch_to_window(PlatformInput::ScrollWheel(gpui::ScrollWheelEvent {
         position: point(px(x), px(y)),
         delta: gpui::ScrollDelta::Pixels(point(px(dx), px(dy))),
-        modifiers: gpui::Modifiers::default(),
+        modifiers: modifiers_from_ns_event(modifier_flags),
         touch_phase: gpui::TouchPhase::Moved,
     }));
 }
@@ -385,19 +412,28 @@ fn optional_c_string(value: *const c_char) -> Option<String> {
     }
 }
 
-fn key_event(key_code: u16, characters: *const c_char, modifier_flags: u32) -> gpui::Keystroke {
+fn key_event(
+    key_code: u16,
+    characters: *const c_char,
+    characters_ignoring_modifiers: *const c_char,
+    modifier_flags: u32,
+) -> gpui::Keystroke {
     let named_key = mac_key_code_to_key(key_code);
     let characters = named_key
         .is_none()
         .then(|| optional_c_string(characters))
         .flatten();
+    let characters_ignoring_modifiers = named_key
+        .is_none()
+        .then(|| optional_c_string(characters_ignoring_modifiers))
+        .flatten();
     let key = named_key
         .map(str::to_owned)
         .or_else(|| {
-            characters
+            characters_ignoring_modifiers
                 .as_deref()
                 .filter(|value| !value.is_empty())
-                .map(str::to_owned)
+                .map(str::to_lowercase)
         })
         // Unknown hardware codes are not useful binding identifiers. Keep a
         // stable fallback and avoid formatting a fresh diagnostic string on
@@ -417,6 +453,7 @@ pub extern "C" fn gpui_au_key_down(
     context: *mut AuContext,
     key_code: u16,
     characters: *const c_char,
+    characters_ignoring_modifiers: *const c_char,
     modifier_flags: u32,
     is_repeat: bool,
 ) {
@@ -424,7 +461,12 @@ pub extern "C" fn gpui_au_key_down(
         return;
     }
     dispatch_to_window(PlatformInput::KeyDown(gpui::KeyDownEvent {
-        keystroke: key_event(key_code, characters, modifier_flags),
+        keystroke: key_event(
+            key_code,
+            characters,
+            characters_ignoring_modifiers,
+            modifier_flags,
+        ),
         is_held: is_repeat,
         prefer_character_input: false,
     }));
@@ -436,13 +478,19 @@ pub extern "C" fn gpui_au_key_up(
     context: *mut AuContext,
     key_code: u16,
     characters: *const c_char,
+    characters_ignoring_modifiers: *const c_char,
     modifier_flags: u32,
 ) {
     if context.is_null() {
         return;
     }
     dispatch_to_window(PlatformInput::KeyUp(gpui::KeyUpEvent {
-        keystroke: key_event(key_code, characters, modifier_flags),
+        keystroke: key_event(
+            key_code,
+            characters,
+            characters_ignoring_modifiers,
+            modifier_flags,
+        ),
     }));
 }
 
@@ -523,18 +571,32 @@ mod tests {
     }
 
     #[test]
+    fn modified_characters_keep_the_unmodified_binding_key() {
+        let shifted = std::ffi::CString::new("P").unwrap();
+        let unmodified = std::ffi::CString::new("p").unwrap();
+
+        let keystroke = key_event(0, shifted.as_ptr(), unmodified.as_ptr(), 1 << 17);
+
+        assert_eq!(keystroke.key, "p");
+        assert_eq!(keystroke.key_char.as_deref(), Some("P"));
+        assert!(keystroke.modifiers.shift);
+    }
+
+    #[test]
     fn exported_host_entry_points_are_null_safe() {
         let context = std::ptr::null_mut();
         gpui_au_destroy(context);
         gpui_au_request_frame(context);
         gpui_au_resize(context, 320.0, 200.0, 2.0);
-        gpui_au_mouse_down(context, 0.0, 0.0, 0, 1);
-        gpui_au_mouse_up(context, 0.0, 0.0, 0);
-        gpui_au_mouse_moved(context, 0.0, 0.0);
-        gpui_au_mouse_dragged(context, 0.0, 0.0, 0);
-        gpui_au_scroll_wheel(context, 0.0, 0.0, 0.0, 0.0);
-        gpui_au_key_down(context, 0, std::ptr::null(), 0, false);
-        gpui_au_key_up(context, 0, std::ptr::null(), 0);
+        gpui_au_set_active(context, false);
+        gpui_au_set_hovered(context, false);
+        gpui_au_mouse_down(context, 0.0, 0.0, 0, 1, 0);
+        gpui_au_mouse_up(context, 0.0, 0.0, 0, 0);
+        gpui_au_mouse_moved(context, 0.0, 0.0, 0);
+        gpui_au_mouse_dragged(context, 0.0, 0.0, 0, 0);
+        gpui_au_scroll_wheel(context, 0.0, 0.0, 0.0, 0.0, 0);
+        gpui_au_key_down(context, 0, std::ptr::null(), std::ptr::null(), 0, false);
+        gpui_au_key_up(context, 0, std::ptr::null(), std::ptr::null(), 0);
         gpui_au_insert_text(context, std::ptr::null());
         gpui_au_set_marked_text(context, std::ptr::null(), 0, 0);
         gpui_au_unmark_text(context);

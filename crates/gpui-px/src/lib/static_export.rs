@@ -1,9 +1,10 @@
 //! Static SVG export helpers for renderer-backed chart builders.
 
 use crate::{
-    ChartError, ColorScale, DEFAULT_PADDING_FRACTION, ScaleType, extent_padded, extent_padded_iter,
-    validate_data_array, validate_data_length, validate_dimensions, validate_grid_dimensions,
-    validate_monotonic, validate_positive, validate_range, validate_range_log,
+    ChartError, ColorScale, DEFAULT_PADDING_FRACTION, ScaleType, extent_log_padded_iter,
+    extent_padded, extent_padded_iter, validate_data_array, validate_data_length,
+    validate_dimensions, validate_grid_dimensions, validate_monotonic, validate_positive,
+    validate_range, validate_range_log,
 };
 use std::fmt::Write;
 
@@ -350,13 +351,13 @@ pub(crate) fn render_area_svg(
         EitherBaseline::Constant(0.0)
     };
     let y_domain = match baseline {
-        EitherBaseline::Explicit(y0) => extent_padded_iter(
+        EitherBaseline::Explicit(y0) => auto_xy_domain(
+            y_scale_type,
             series.y.iter().copied().chain(y0.iter().copied()),
-            DEFAULT_PADDING_FRACTION,
         ),
-        EitherBaseline::Constant(y0) => extent_padded_iter(
+        EitherBaseline::Constant(y0) => auto_xy_domain(
+            y_scale_type,
             series.y.iter().copied().chain(std::iter::once(y0)),
-            DEFAULT_PADDING_FRACTION,
         ),
     };
 
@@ -1102,7 +1103,15 @@ fn resolve_xy_domain(
         }
         Ok((min, max))
     } else {
-        Ok(extent_padded_iter(values, DEFAULT_PADDING_FRACTION))
+        Ok(auto_xy_domain(scale_type, values))
+    }
+}
+
+fn auto_xy_domain(scale_type: ScaleType, values: impl Iterator<Item = f64>) -> (f64, f64) {
+    if scale_type == ScaleType::Log {
+        extent_log_padded_iter(values, DEFAULT_PADDING_FRACTION)
+    } else {
+        extent_padded_iter(values, DEFAULT_PADDING_FRACTION)
     }
 }
 
@@ -1525,6 +1534,30 @@ mod tests {
         assert!(svg.contains("class=\"gpui-px-area\""));
         assert!(!svg.contains("inf"));
         assert!(!svg.contains("NaN"));
+    }
+
+    #[test]
+    fn static_export_auto_log_domains_stay_finite() {
+        let x = [1.0, 2.0];
+        let y = [0.001, 1.0];
+
+        for svg in [
+            line(&x, &y)
+                .y_scale(ScaleType::Log)
+                .to_svg()
+                .expect("line SVG with an automatic log domain should export"),
+            scatter(&x, &y)
+                .y_scale(ScaleType::Log)
+                .to_svg()
+                .expect("scatter SVG with an automatic log domain should export"),
+            area(&x, &y)
+                .y_scale(ScaleType::Log)
+                .to_svg()
+                .expect("area SVG with an automatic log domain should export"),
+        ] {
+            assert!(!svg.contains("NaN"));
+            assert!(!svg.contains("inf"));
+        }
     }
 
     #[test]

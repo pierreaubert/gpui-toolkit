@@ -72,13 +72,10 @@ fn miniapp_config(app: &PythonAppIr, presentation: &PresentationStore) -> MiniAp
     let saved = presentation.snapshot();
     let shell = app.miniapp.as_ref();
     let title = shell.map_or(&app.title, |config| &config.title);
-    let width = shell.map_or(app.width, |config| config.width);
-    let height = shell.map_or(app.height, |config| config.height);
+    let width = shell.map_or(app.width, |config| Some(config.width));
+    let height = shell.map_or(app.height, |config| Some(config.height));
     let mut config = MiniAppConfig::new(title)
-        .size(
-            if width > 0.0 { width } else { saved.width },
-            if height > 0.0 { height } else { saved.height },
-        )
+        .size(width.unwrap_or(saved.width), height.unwrap_or(saved.height))
         // PythonIrShowcase owns its content scroll so the shell must not add a
         // second, competing scroll container.
         .scrollable(false);

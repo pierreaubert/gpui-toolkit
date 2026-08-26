@@ -1,7 +1,7 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// Animation timing rules.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct AnimationRules {
     /// Default transition duration in milliseconds.
     pub duration_ms: u32,
@@ -29,8 +29,18 @@ impl AnimationRules {
         assert!(duration_ms > 0, "duration_ms must be > 0");
         assert!(fast_ms > 0, "fast_ms must be > 0");
         assert!(slow_ms > 0, "slow_ms must be > 0");
-        assert!(spring_stiffness > 0.0, "spring_stiffness must be > 0");
-        assert!(spring_damping > 0.0, "spring_damping must be > 0");
+        assert!(
+            fast_ms <= duration_ms && duration_ms <= slow_ms,
+            "durations must satisfy fast_ms <= duration_ms <= slow_ms"
+        );
+        assert!(
+            spring_stiffness.is_finite() && spring_stiffness > 0.0,
+            "spring_stiffness must be finite and > 0"
+        );
+        assert!(
+            spring_damping.is_finite() && spring_damping > 0.0,
+            "spring_damping must be finite and > 0"
+        );
         Self {
             duration_ms,
             fast_ms,

@@ -150,7 +150,13 @@ pub fn normalize_line_start(
         return None;
     }
     if start.grapheme_index > 0 {
-        return Some(start);
+        if prepared.breakable_widths[seg_idx].is_some() {
+            return Some(start);
+        }
+        return Some(LineBreakCursor {
+            segment_index: seg_idx,
+            grapheme_index: 0,
+        });
     }
 
     let chunk_idx = find_chunk_index_for_start(prepared, seg_idx)?;
@@ -765,7 +771,7 @@ pub(super) fn breakpoints_to_lines(
 
         // Normalize start: skip leading spaces.
         let mut actual_start_seg = start_seg;
-        let mut actual_start_graph = start_graph;
+        let actual_start_graph = start_graph;
         if actual_start_graph == 0 {
             while actual_start_seg < end_seg.min(widths.len()) {
                 let k = kinds[actual_start_seg];

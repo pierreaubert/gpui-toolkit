@@ -46,7 +46,10 @@ pub fn new_component_lab(config: LabAppConfig, cx: &mut Context<ComponentLab>) -
 }
 
 /// Applies one valid selected-story prop mutation and returns its allocation sample.
-pub fn selected_story_prop_change_sample(lab: &mut ComponentLab) -> AllocSnapshot {
+pub fn selected_story_prop_change_sample(
+    lab: &mut ComponentLab,
+    cx: &mut Context<ComponentLab>,
+) -> AllocSnapshot {
     let story_id = lab.selected_story_id.clone();
     let (prop_name, value): (String, StoryPropValue) = lab.documents[&story_id]
         .story
@@ -54,10 +57,19 @@ pub fn selected_story_prop_change_sample(lab: &mut ComponentLab) -> AllocSnapsho
         .first()
         .map(|prop| (prop.name.clone(), changed_prop_value(&prop.value)))
         .expect("every selected component-lab story has a prop for the allocation contract");
-    lab.set_prop(&story_id, &prop_name, value);
-    lab.last_allocation_sample()
+    lab.set_prop_without_notify(&story_id, &prop_name, value);
+    let sample = lab
+        .last_allocation_sample()
         .expect("set_prop records a profiler allocation sample")
-        .1
+        .1;
+    cx.notify();
+    sample
+}
+
+/// Clears the process-wide allocation interval after visual work settles so
+/// the next interaction sample excludes the preceding render.
+pub fn reset_after_render(lab: &mut ComponentLab) {
+    lab.reset_allocation_delta();
 }
 
 fn changed_prop_value(value: &StoryPropValue) -> StoryPropValue {

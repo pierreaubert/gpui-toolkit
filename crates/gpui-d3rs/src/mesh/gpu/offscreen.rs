@@ -424,22 +424,23 @@ pub fn render_offscreen_wgpu_with_camera(
         .and_then(|width| usize::try_from(height).ok().map(|height| width * height))
         .ok_or_else(|| "WGPU readback image size overflow".to_string())?;
     let mut rgba = vec![0u8; pixel_count * 4];
+    if format != wgpu::TextureFormat::Bgra8Unorm && format != wgpu::TextureFormat::Rgba8Unorm {
+        drop(data);
+        staging.unmap();
+        return Err(format!("unsupported WGPU readback format {format:?}"));
+    }
+
+    let row_bytes = row_bytes as usize;
     for y in 0..height as usize {
-        let source_row = y * padded_row_bytes as usize;
-        let target_row = y * width as usize * 4;
-        for x in 0..width as usize {
-            let source = source_row + x * 4;
-            let target = target_row + x * 4;
-            let pixel = &data[source..source + 4];
-            if format == wgpu::TextureFormat::Bgra8Unorm {
-                rgba[target..target + 4].copy_from_slice(&[pixel[2], pixel[1], pixel[0], pixel[3]]);
-            } else if format == wgpu::TextureFormat::Rgba8Unorm {
-                rgba[target..target + 4].copy_from_slice(pixel);
-            } else {
-                drop(data);
-                staging.unmap();
-                return Err(format!("unsupported WGPU readback format {format:?}"));
-            }
+        let source_start = y * padded_row_bytes as usize;
+        let source_end = source_start + row_bytes;
+        let target_start = y * row_bytes;
+        rgba[target_start..target_start + row_bytes]
+            .copy_from_slice(&data[source_start..source_end]);
+    }
+    if format == wgpu::TextureFormat::Bgra8Unorm {
+        for pixel in rgba.chunks_exact_mut(4) {
+            pixel.swap(0, 2);
         }
     }
     drop(data);

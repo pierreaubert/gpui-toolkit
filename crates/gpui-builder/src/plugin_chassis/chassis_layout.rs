@@ -121,30 +121,19 @@ impl ChassisLayout {
                 // Find the visible section with the lowest priority. If multiple
                 // tie, drop the rightmost (later in input order) — this keeps
                 // earlier "primary" sections visible longer.
-                let drop_idx = (0..n).filter(|i| visible[*i]).min_by(|a, b| {
-                    let pa = effective_priority(self.sections[*a].priority);
-                    let pb = effective_priority(self.sections[*b].priority);
-                    pa.partial_cmp(&pb)
-                        .unwrap_or(std::cmp::Ordering::Equal)
-                        .then(b.cmp(a)) // tie-break: later index drops first
-                });
+                let drop_idx = (0..n)
+                    .filter(|i| visible[*i] && effective_priority(self.sections[*i].priority) < 1.0)
+                    .min_by(|a, b| {
+                        let pa = effective_priority(self.sections[*a].priority);
+                        let pb = effective_priority(self.sections[*b].priority);
+                        pa.partial_cmp(&pb)
+                            .unwrap_or(std::cmp::Ordering::Equal)
+                            .then(b.cmp(a)) // tie-break: later index drops first
+                    });
 
                 match drop_idx {
                     Some(i) => visible[i] = false,
                     None => break, // nothing left to drop
-                }
-
-                // Defensive: priority 1.0 sections should never be dropped. If
-                // every visible section has priority >= 1.0 we exit the loop —
-                // the chassis simply doesn't fit. We accept clipping rather
-                // than dropping a never-collapse section.
-                if visible
-                    .iter()
-                    .zip(self.sections.iter())
-                    .filter(|(v, _)| **v)
-                    .all(|(_, s)| effective_priority(s.priority) >= 1.0)
-                {
-                    break;
                 }
             }
 

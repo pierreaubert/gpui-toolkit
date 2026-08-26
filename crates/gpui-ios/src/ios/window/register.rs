@@ -46,8 +46,13 @@ unsafe impl Encode for ObjcRange {
 }
 
 #[cfg(target_os = "ios")]
+pub(super) fn input_diag_enabled() -> bool {
+    std::env::var_os("GPUI_IOS_INPUT_DIAG").is_some()
+}
+
+#[cfg(target_os = "ios")]
 pub(super) fn input_diag_log(message: impl FnOnce() -> String) {
-    if std::env::var_os("GPUI_IOS_INPUT_DIAG").is_none() {
+    if !input_diag_enabled() {
         return;
     }
     let message = message();
@@ -73,7 +78,7 @@ pub(super) fn register_window_class() -> &'static Class {
 
         extern "C" fn send_event(this: &Object, _sel: Sel, event: *mut Object) {
             unsafe {
-                if !event.is_null() {
+            if !event.is_null() && input_diag_enabled() {
                     let event_type: i64 = msg_send![event, type];
                     let event_subtype: i64 = msg_send![event, subtype];
                     let modifiers: usize = msg_send![event, modifierFlags];
@@ -236,13 +241,15 @@ pub(super) fn register_metal_view_class() -> &'static Class {
             }
 
             unsafe {
-                let event_type: i64 = msg_send![event, type];
+                if input_diag_enabled() {
+                    let event_type: i64 = msg_send![event, type];
                 let event_subtype: i64 = msg_send![event, subtype];
                 let modifiers: usize = msg_send![event, modifierFlags];
                 let buttons: isize = msg_send![event, buttonMask];
                 input_diag_log(|| format!(
                     "indirect_scroll delegate event type={event_type} subtype={event_subtype} modifiers=0x{modifiers:x} buttons=0x{buttons:x}"
                 ));
+                }
                 YES
             }
         }
@@ -279,10 +286,12 @@ pub(super) fn register_metal_view_class() -> &'static Class {
             }
 
             unsafe {
-                let press_type: i64 = msg_send![press, type];
+                if input_diag_enabled() {
+                    let press_type: i64 = msg_send![press, type];
                 input_diag_log(|| format!(
                     "indirect_scroll delegate press type={press_type}"
                 ));
+                }
                 YES
             }
         }

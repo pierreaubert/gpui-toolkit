@@ -5,6 +5,7 @@ use gpui_design::{DesignConformanceMatrix, DesignTokenExport};
 use serde::Serialize;
 use serde_json::Value;
 use std::borrow::Cow;
+use std::io::Write as _;
 use std::path::Path;
 
 /// Current schema version for `DesignTokenValidationReport` JSON output.
@@ -291,7 +292,32 @@ fn validate_raw_tokens(raw: &Value, render_markdown: bool) -> Result<DesignToken
 /// Export tokens to a path.
 pub fn export_design_tokens_to_path(path: &Path, format: DesignTokenFormat) -> Result<()> {
     let output = export_design_tokens(format)?;
-    std::fs::write(path, output).with_context(|| format!("write {}", path.display()))
+    write_text_atomically(path, output)
+}
+
+/// Write a text report through a same-directory temporary file before replacing
+/// the destination, so an interrupted write cannot leave a truncated report.
+pub fn write_text_atomically(path: &Path, contents: impl AsRef<[u8]>) -> Result<()> {
+    let parent = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    std::fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
+
+    let mut temporary = tempfile::NamedTempFile::new_in(parent)
+        .with_context(|| format!("create temporary file next to {}", path.display()))?;
+    temporary
+        .write_all(contents.as_ref())
+        .with_context(|| format!("write temporary file for {}", path.display()))?;
+    temporary
+        .as_file()
+        .sync_all()
+        .with_context(|| format!("sync temporary file for {}", path.display()))?;
+    temporary
+        .persist(path)
+        .map_err(|error| error.error)
+        .with_context(|| format!("replace {}", path.display()))?;
+    Ok(())
 }
 
 /// Import tokens from a path.
@@ -343,11 +369,15 @@ fn inspect_token_value(raw: &Value) -> (usize, usize, Vec<Cow<'static, str>>) {
                 });
                 findings.push(Cow::Owned(format!("{p}.name must be a string")));
             }
-            if token.get("path").and_then(Value::as_array).is_none() {
+            if !token
+                .get("path")
+                .and_then(Value::as_array)
+                .is_some_and(|path| path.iter().all(Value::is_string))
+            {
                 let p = prefix.get_or_insert_with(|| {
                     format!("presets[{preset_index}].tokens[{token_index}]")
                 });
-                findings.push(Cow::Owned(format!("{p}.path must be an array")));
+                findings.push(Cow::Owned(format!("{p}.path must be an array of strings")));
             }
             if token.get("value").and_then(Value::as_str).is_none() {
                 let p = prefix.get_or_insert_with(|| {
@@ -727,6 +757,38 @@ mod tests {
     }
 
     #[test]
+    fn export_design_tokens_to_path_creates_missing_parent_directories() {
+        let root = std::env::temp_dir().join(format!(
+            "gpui-design-tools-export-parent-test-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir(&root).unwrap();
+        let path = root.join("nested/gpui-tokens.json");
+
+        export_design_tokens_to_path(&path, DesignTokenFormat::StyleDictionaryJson).unwrap();
+
+        assert!(path.is_file());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn export_design_tokens_to_path_replaces_existing_output() {
+        let root = std::env::temp_dir().join(format!(
+            "gpui-design-tools-export-replace-test-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir(&root).unwrap();
+        let path = root.join("gpui-tokens.json");
+        std::fs::write(&path, "incomplete output").unwrap();
+
+        export_design_tokens_to_path(&path, DesignTokenFormat::StyleDictionaryJson).unwrap();
+
+        let contents = std::fs::read_to_string(&path).unwrap();
+        assert!(contents.contains("presets"));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn import_design_tokens_from_path_round_trip() {
         let json = export_design_tokens(DesignTokenFormat::StyleDictionaryJson).unwrap();
         let path = std::env::temp_dir().join(format!(
@@ -821,6 +883,29 @@ mod tests {
         });
         let (_, _, findings) = inspect_token_value(&raw);
         assert!(findings.iter().any(|f| f.contains("path must be an array")));
+    }
+
+    #[test]
+    fn inspect_token_value_rejects_non_string_path_segments() {
+        let raw = serde_json::json!({
+            "presets": [{
+                "preset_id": "test",
+                "tokens": [{
+                    "name": "color.primary",
+                    "path": ["color", 1],
+                    "value": "#ffffff",
+                    "token_type": "color"
+                }]
+            }]
+        });
+
+        let (_, _, findings) = inspect_token_value(&raw);
+
+        assert!(
+            findings
+                .iter()
+                .any(|finding| finding.contains("path must be an array of strings"))
+        );
     }
 
     #[test]

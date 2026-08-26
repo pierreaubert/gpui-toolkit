@@ -30,6 +30,8 @@ thread_local! {
         RefCell::new(HashMap::new());
 }
 
+const FREQUENCY_AXIS_LABEL_CACHE_CAPACITY: usize = 64;
+
 /// Generate non-overlapping frequency labels for a logarithmic spectrum axis.
 ///
 /// Results are cached keyed by `(min_freq, max_freq)` so repeated renders with
@@ -77,7 +79,13 @@ pub fn spectrum_frequency_axis_labels(min_freq: f32, max_freq: f32) -> Arc<[Spec
         }
 
         let arc: Arc<[SpectrumAxisLabel]> = filtered.into();
-        cache.borrow_mut().insert(key, arc.clone());
+        let mut cache = cache.borrow_mut();
+        if cache.len() >= FREQUENCY_AXIS_LABEL_CACHE_CAPACITY {
+            if let Some(evicted_key) = cache.keys().next().copied() {
+                cache.remove(&evicted_key);
+            }
+        }
+        cache.insert(key, arc.clone());
         arc
     })
 }

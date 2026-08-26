@@ -30,6 +30,8 @@ thread_local! {
         RefCell::new(HashMap::new());
 }
 
+const MAX_TABS_ENTITIES: usize = 1024;
+
 /// A tabs component with theming support
 pub struct Tabs {
     id: ElementId,
@@ -636,8 +638,12 @@ impl RenderOnce for Tabs {
         let tab_count = self.tabs.len();
 
         let entity: Entity<TabsEntity> = TABS_ENTITIES.with(|map| {
-            let mut map = map.borrow_mut();
-            if let Some(weak) = map.get(&id)
+        let mut map = map.borrow_mut();
+        map.retain(|_, weak| weak.upgrade().is_some());
+        if !map.contains_key(&id) && map.len() >= MAX_TABS_ENTITIES {
+            map.clear();
+        }
+        if let Some(weak) = map.get(&id)
                 && let Some(entity) = weak.upgrade()
             {
                 return entity;

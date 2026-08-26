@@ -84,7 +84,7 @@ pub use inspector::{
 pub use snapshots::{LayoutSnapshot, LayoutSnapshotMatrix, LayoutViewport, solve_snapshot_matrix};
 pub use solved::{
     CollapsedSlot, LayoutDebugReport, LayoutDebugWarning, LayoutDebugWarningKind, NodeIndex,
-    SolvedNode, SolvedNodeData, SolvedNodeRef, SolvedTree, SolvedTreeMap,
+    OwnedSolvedNode, SolvedNode, SolvedNodeData, SolvedNodeRef, SolvedTree, SolvedTreeMap,
 };
 pub use solver::{
     RetainedLayoutSolver, TextMeasureCache, solve, solve_tree, solve_tree_into,

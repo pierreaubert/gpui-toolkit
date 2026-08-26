@@ -682,8 +682,15 @@ async fn test_vertical_slider_double_click_reset(cx: &mut TestAppContext) {
         cx.simulate_mouse_up(center, gpui::MouseButton::Left, gpui::Modifiers::default());
         cx.run_until_parked();
 
-        // Note: The component uses on_click with click_count() == 2
-        // GPUI test framework handles this via the click event simulation
+        assert_eq!(
+            reset_count.load(Ordering::SeqCst),
+            1,
+            "double-clicking the track should reset exactly once"
+        );
+        assert!(
+            (*value.borrow() - 50.0).abs() < 0.01,
+            "reset should restore the default value"
+        );
     }
 }
 

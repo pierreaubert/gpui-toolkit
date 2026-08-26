@@ -2,6 +2,23 @@ use crate::{ComponentStory, StoryPropValue};
 use gpui::SharedString;
 
 pub(super) fn story_file_name(story_id: &str) -> String {
+    let mut name = String::with_capacity(story_id.len().saturating_mul(3) + ".story.json".len());
+    for byte in story_id.bytes() {
+        if byte.is_ascii_lowercase() || byte.is_ascii_digit() {
+            name.push(byte as char);
+        } else {
+            use std::fmt::Write as _;
+            write!(&mut name, "~{byte:02x}").expect("write into String cannot fail");
+        }
+    }
+    name.push_str(".story.json");
+    name
+}
+
+/// Legacy lossy name used before story filenames escaped their raw ids.
+/// Existing files are migrated on the next save when their JSON confirms the
+/// same story id.
+pub(super) fn legacy_story_file_name(story_id: &str) -> String {
     let mut name = String::with_capacity(story_id.len() + ".story.json".len());
     for ch in story_id.chars() {
         if ch.is_ascii_alphanumeric() {

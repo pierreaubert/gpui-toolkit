@@ -1,4 +1,4 @@
-# gpui-ui-kit-macros (proc-macro, version: 0.6.0)
+# gpui-ui-kit-macros (proc-macro, version: 0.9.6)
 
 Procedural macros for the gpui-ui-kit component library.
 

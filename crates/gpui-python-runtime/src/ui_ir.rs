@@ -118,10 +118,10 @@ pub struct PythonAppIr {
     #[serde(default = "default_python_app_ir_schema_version")]
     pub schema_version: u32,
     pub title: String,
-    #[serde(default = "default_width")]
-    pub width: f32,
-    #[serde(default = "default_height")]
-    pub height: f32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub width: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub height: Option<f32>,
     #[serde(default = "default_sidebar_title")]
     pub sidebar_title: String,
     #[serde(default)]
@@ -145,6 +145,17 @@ impl PythonAppIr {
         }
         if self.sections.is_empty() {
             return Err(UiIrError::EmptySections);
+        }
+        if self
+            .width
+            .is_some_and(|width| !width.is_finite() || width <= 0.0)
+            || self
+                .height
+                .is_some_and(|height| !height.is_finite() || height <= 0.0)
+        {
+            return Err(UiIrError::InvalidPatch {
+                message: "app width and height must be finite and positive when specified".into(),
+            });
         }
         if let Some(miniapp) = &self.miniapp {
             miniapp.validate()?;
@@ -204,12 +215,22 @@ fn find_node_mut<'a>(value: &'a mut Value, id: &str) -> Option<&'a mut Value> {
     if node_id(value) == Some(id) {
         return Some(value);
     }
-    if let Some(children) = value.get_mut("children")?.as_array_mut() {
-        for child in children {
-            if let Some(found) = find_node_mut(child, id) {
-                return Some(found);
+    match value {
+        Value::Object(object) => {
+            for child in object.values_mut() {
+                if let Some(found) = find_node_mut(child, id) {
+                    return Some(found);
+                }
             }
         }
+        Value::Array(values) => {
+            for child in values {
+                if let Some(found) = find_node_mut(child, id) {
+                    return Some(found);
+                }
+            }
+        }
+        _ => {}
     }
     None
 }
@@ -2518,6 +2539,11 @@ impl ChartNode {
         valid_range("y_range", self.y_range)?;
         valid_range("color_range", self.color_range)?;
         valid_range("y2_range", self.y2_range)?;
+        if !supported_chart_color_scale(&self.color_scale) {
+            return Err(UiIrError::InvalidPatch {
+                message: format!("chart {:?} invalid color_scale", self.id),
+            });
+        }
         if !matches!(
             self.curve.as_str(),
             "linear"
@@ -2688,7 +2714,7 @@ impl ChartNode {
                         id: self.id.clone(),
                         field: "height_count",
                     })?;
-                let expected = width * height;
+                let expected = width.checked_mul(height).unwrap_or(usize::MAX);
                 if z.len() != expected {
                     return Err(UiIrError::HeatmapDimensionMismatch {
                         id: self.id.clone(),
@@ -2925,16 +2951,8 @@ impl Scene3dNode {
     }
 }
 
-fn default_width() -> f32 {
-    1240.0
-}
-
 fn default_python_app_ir_schema_version() -> u32 {
     PYTHON_APP_IR_SCHEMA_VERSION
-}
-
-fn default_height() -> f32 {
-    820.0
 }
 
 fn default_sidebar_title() -> String {
@@ -2947,6 +2965,14 @@ fn default_tone() -> String {
 
 fn default_color_scale() -> String {
     "viridis".to_string()
+}
+
+fn supported_chart_color_scale(value: &str) -> bool {
+    let normalized = value.trim().replace(['-', '_'], "").to_ascii_lowercase();
+    matches!(
+        normalized.as_str(),
+        "viridis" | "plasma" | "inferno" | "magma" | "heat" | "coolwarm" | "greys" | "grays"
+    )
 }
 
 fn default_chart_width() -> f32 {
@@ -2980,6 +3006,24 @@ mod tests {
     fn assert_invalid_content(content: Value) {
         assert!(matches!(
             app_with_content(content).validate(),
+            Err(UiIrError::InvalidPatch { .. })
+        ));
+    }
+
+    #[test]
+    fn app_window_size_is_optional_but_rejects_invalid_explicit_values() {
+        let mut app = app_with_content(serde_json::json!({
+            "kind": "text",
+            "id": "body",
+            "text": "Ready"
+        }));
+        assert_eq!(app.width, None);
+        assert_eq!(app.height, None);
+        assert!(app.validate().is_ok());
+
+        app.width = Some(-1.0);
+        assert!(matches!(
+            app.validate(),
             Err(UiIrError::InvalidPatch { .. })
         ));
     }
@@ -4312,6 +4356,7 @@ mod tests {
     fn rejects_invalid_chart_shapes_annotations_and_options() {
         let invalid = [
             serde_json::json!({"kind": "chart", "id": "line", "chart": "line", "x": [1.0], "y": [1.0], "aspect_ratio": 0.0}),
+            serde_json::json!({"kind": "chart", "id": "line", "chart": "line", "x": [1.0], "y": [1.0], "color_scale": "turbo"}),
             serde_json::json!({"kind": "chart", "id": "line", "chart": "line", "x": [1.0], "y": [1.0], "annotations": [{"id": "a", "label": "A", "target": "x_value"}]}),
             serde_json::json!({"kind": "chart", "id": "line", "chart": "line", "series": [{"id": "", "x": [1.0], "y": [1.0]}]}),
             serde_json::json!({"kind": "chart", "id": "line", "chart": "line", "series": [{"id": "s", "x": [1.0], "y": []}]}),

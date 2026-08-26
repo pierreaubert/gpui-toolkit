@@ -7,7 +7,8 @@
 
 ## Local patches
 
-- root `Cargo.toml` (not this crate): mirrored zed v1.9.0 `[patch.crates-io]` for `async-process` (rev 0b6d671) + `async-task` (rev b4486cd) — `src/command/darwin.rs` calls `smol::process::Child::adopt_raw_pid`, which exists only in zed's async-process fork; crates-io 2.5.0 fails with E0599
+- `src/command/darwin.rs`: locally owns and reaps the PID returned by the custom Darwin `posix_spawn` path. This avoids Zed's non-publishable `async-process::Child::adopt_raw_pid` fork API while preserving `kill_on_drop` and asynchronous waiting with crates.io `smol`.
+- root `Cargo.toml` (not this crate): mirrored zed v1.9.0 `[patch.crates-io]` for `async-task` (rev b4486cd).
 - `src/util.rs`: use `Vec::clear` instead of `truncate(0)` so Rust 1.97's
   `clippy::manual_clear` lint passes under `-D warnings`.
 

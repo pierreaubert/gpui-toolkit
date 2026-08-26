@@ -28,16 +28,24 @@ use std::{
 /// Avoids allocating a fresh `Mutex`+`HashMap` on every `sprite_atlas()` call.
 static FALLBACK_ATLAS: OnceLock<Arc<FallbackAtlas>> = OnceLock::new();
 
+fn previous_utf16_code_point_start(caret: usize, suffix: &str) -> usize {
+    suffix.chars().last().map_or(caret, |character| {
+        caret.saturating_sub(character.len_utf16())
+    })
+}
+
 /// Execute a callback with a reference to the current AU window, if any.
-/// The mutex guard is held for the duration of the callback, ensuring the
-/// window pointer remains valid.
+///
+/// Registration, unregistration, and all dereferences are serialized on the
+/// host main thread. Copy the pointer while holding the mutex, then release it
+/// before entering arbitrary GPUI or host callbacks so re-entry cannot
+/// deadlock on `AU_WINDOW`.
 pub(crate) fn with_au_window<F, R>(f: F) -> Option<R>
 where
     F: FnOnce(&AuWindow) -> R,
 {
     AuWindowPtr::assert_main_thread();
-    let guard = AU_WINDOW.lock().ok()?;
-    let ptr = guard.as_ref()?.0;
+    let ptr = AU_WINDOW.lock().ok()?.as_ref()?.0;
     if ptr.is_null() {
         return None;
     }
@@ -63,6 +71,8 @@ pub(crate) struct AuWindow {
     pub(super) appearance_changed_callback: RefCell<Option<Box<dyn FnMut()>>>,
     pub(super) mouse_position: Cell<Point<Pixels>>,
     pub(super) modifiers: Cell<Modifiers>,
+    is_active: Cell<bool>,
+    is_hovered: Cell<bool>,
     pub(super) renderer: Mutex<Option<WgpuRenderer>>,
 }
 
@@ -103,6 +113,8 @@ impl AuWindow {
                     appearance_changed_callback: RefCell::new(None),
                     mouse_position: Cell::new(Point::default()),
                     modifiers: Cell::new(Modifiers::default()),
+                    is_active: Cell::new(true),
+                    is_hovered: Cell::new(false),
                     renderer: Mutex::new(None),
                 });
             }
@@ -143,6 +155,8 @@ impl AuWindow {
             appearance_changed_callback: RefCell::new(None),
             mouse_position: Cell::new(Point::default()),
             modifiers: Cell::new(Modifiers::default()),
+            is_active: Cell::new(true),
+            is_hovered: Cell::new(false),
             renderer: Mutex::new(None),
         };
 
@@ -183,6 +197,7 @@ impl AuWindow {
     /// Called from AuPlatform::open_window after Boxing.
     pub(crate) fn register_global(boxed: &AuWindow) {
         use crate::helpers::nslog;
+        AuWindowPtr::assert_main_thread();
         let ptr: *const AuWindow = boxed;
         if let Ok(mut guard) = AU_WINDOW.lock() {
             *guard = Some(AuWindowPtr(ptr));
@@ -192,7 +207,6 @@ impl AuWindow {
     }
 
     /// Request a frame render (called from Swift via FFI)
-    #[allow(dead_code)]
     pub fn request_frame(&self) {
         let cb = self.request_frame_callback.borrow_mut().take();
         if let Some(mut cb) = cb {
@@ -200,6 +214,36 @@ impl AuWindow {
             let mut slot = self.request_frame_callback.borrow_mut();
             if slot.is_none() {
                 *slot = Some(cb);
+            }
+        }
+    }
+
+    /// Update host focus state and notify GPUI only on a transition.
+    pub fn update_active_status(&self, is_active: bool) {
+        if self.is_active.replace(is_active) == is_active {
+            return;
+        }
+        let callback = self.active_status_callback.borrow_mut().take();
+        if let Some(mut callback) = callback {
+            callback(is_active);
+            let mut slot = self.active_status_callback.borrow_mut();
+            if slot.is_none() {
+                *slot = Some(callback);
+            }
+        }
+    }
+
+    /// Update pointer-in-view state and notify GPUI only on a transition.
+    pub fn update_hover_status(&self, is_hovered: bool) {
+        if self.is_hovered.replace(is_hovered) == is_hovered {
+            return;
+        }
+        let callback = self.hover_status_callback.borrow_mut().take();
+        if let Some(mut callback) = callback {
+            callback(is_hovered);
+            let mut slot = self.hover_status_callback.borrow_mut();
+            if slot.is_none() {
+                *slot = Some(callback);
             }
         }
     }
@@ -255,9 +299,21 @@ impl AuWindow {
     pub fn dispatch_input(&self, event: PlatformInput) {
         // Update tracked mouse position for MouseMove/Down/Up
         match &event {
-            PlatformInput::MouseDown(e) => self.mouse_position.set(e.position),
-            PlatformInput::MouseUp(e) => self.mouse_position.set(e.position),
-            PlatformInput::MouseMove(e) => self.mouse_position.set(e.position),
+            PlatformInput::MouseDown(e) => {
+                self.mouse_position.set(e.position);
+                self.modifiers.set(e.modifiers);
+            }
+            PlatformInput::MouseUp(e) => {
+                self.mouse_position.set(e.position);
+                self.modifiers.set(e.modifiers);
+            }
+            PlatformInput::MouseMove(e) => {
+                self.mouse_position.set(e.position);
+                self.modifiers.set(e.modifiers);
+            }
+            PlatformInput::ScrollWheel(e) => self.modifiers.set(e.modifiers),
+            PlatformInput::KeyDown(e) => self.modifiers.set(e.keystroke.modifiers),
+            PlatformInput::KeyUp(e) => self.modifiers.set(e.keystroke.modifiers),
             _ => {}
         }
 
@@ -292,7 +348,14 @@ impl AuWindow {
             && let Some(selection) = handler.selected_text_range(true)
         {
             let start = if selection.range.is_empty() {
-                selection.range.start.saturating_sub(1)
+                let caret = selection.range.start;
+                let mut adjusted = None;
+                handler
+                    .text_for_range(caret.saturating_sub(2)..caret, &mut adjusted)
+                    .map_or_else(
+                        || caret.saturating_sub(1),
+                        |suffix| previous_utf16_code_point_start(caret, &suffix),
+                    )
             } else {
                 selection.range.start
             };
@@ -361,9 +424,7 @@ impl PlatformWindow for AuWindow {
             if name.is_null() {
                 return WindowAppearance::Light;
             }
-            let dark_aqua: *mut Object = msg_send![class!(NSString), stringWithUTF8String: c"NSAppearanceNameDarkAqua".as_ptr()];
-            let is_dark: bool = msg_send![name, isEqualToString: dark_aqua];
-            if is_dark {
+            if crate::helpers::is_dark_aqua_appearance_name(name) {
                 WindowAppearance::Dark
             } else {
                 WindowAppearance::Light
@@ -409,11 +470,11 @@ impl PlatformWindow for AuWindow {
     fn activate(&self) {}
 
     fn is_active(&self) -> bool {
-        true // AU view is always considered active when visible
+        self.is_active.get()
     }
 
     fn is_hovered(&self) -> bool {
-        false
+        self.is_hovered.get()
     }
 
     fn set_title(&mut self, _title: &str) {}
@@ -527,6 +588,8 @@ mod tests {
             appearance_changed_callback: RefCell::new(None),
             mouse_position: Cell::new(Point::default()),
             modifiers: Cell::new(Modifiers::default()),
+            is_active: Cell::new(true),
+            is_hovered: Cell::new(false),
             renderer: Mutex::new(None),
         }
     }
@@ -536,6 +599,38 @@ mod tests {
         // Ensure that with_au_window returns None when no window is registered
         let result = with_au_window(|_window| 42);
         assert!(result.is_none());
+    }
+
+    #[test]
+    fn host_focus_and_hover_transitions_update_state_once() {
+        let window = empty_window();
+        let active_transitions = Rc::new(RefCell::new(Vec::new()));
+        let hover_transitions = Rc::new(RefCell::new(Vec::new()));
+        let active_capture = Rc::clone(&active_transitions);
+        let hover_capture = Rc::clone(&hover_transitions);
+        *window.active_status_callback.borrow_mut() = Some(Box::new(move |active| {
+            active_capture.borrow_mut().push(active);
+        }));
+        *window.hover_status_callback.borrow_mut() = Some(Box::new(move |hovered| {
+            hover_capture.borrow_mut().push(hovered);
+        }));
+
+        window.update_active_status(false);
+        window.update_active_status(false);
+        window.update_hover_status(true);
+        window.update_hover_status(true);
+
+        assert_eq!(&*active_transitions.borrow(), &[false]);
+        assert_eq!(&*hover_transitions.borrow(), &[true]);
+        assert!(!PlatformWindow::is_active(&window));
+        assert!(PlatformWindow::is_hovered(&window));
+    }
+
+    #[test]
+    fn backspace_moves_over_a_complete_utf16_code_point() {
+        assert_eq!(previous_utf16_code_point_start(1, "a"), 0);
+        assert_eq!(previous_utf16_code_point_start(2, "😀"), 0);
+        assert_eq!(previous_utf16_code_point_start(4, "a😀"), 2);
     }
 
     #[test]

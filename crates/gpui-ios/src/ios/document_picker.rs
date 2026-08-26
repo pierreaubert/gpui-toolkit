@@ -59,6 +59,9 @@ impl PendingPicker {
 
 static PENDING_PICKER: Mutex<Option<PendingPicker>> = Mutex::new(None);
 static PICKER_DELEGATE: AtomicPtr<Object> = AtomicPtr::new(std::ptr::null_mut());
+/// `UIDocumentPickerModeImport`: UIKit copies the selected resource into this
+/// app's sandbox, so the returned path remains usable after the delegate call.
+const UIDOCUMENT_PICKER_MODE_IMPORT: isize = 0;
 static REGISTER_DELEGATE: Once = Once::new();
 static DELEGATE_CLASS: OnceLock<&'static Class> = OnceLock::new();
 
@@ -207,7 +210,8 @@ pub fn prompt_for_paths(
             return receiver;
         }
         let picker: *mut Object = msg_send![class!(UIDocumentPickerViewController), alloc];
-        let picker: *mut Object = msg_send![picker, initWithDocumentTypes: types inMode: 1_isize];
+        let picker: *mut Object =
+            msg_send![picker, initWithDocumentTypes: types inMode: UIDOCUMENT_PICKER_MODE_IMPORT];
         let _: () = msg_send![picker, setAllowsMultipleSelection: options.multiple];
         present(picker, PendingPicker::Open(sender));
     }

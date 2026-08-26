@@ -4,7 +4,8 @@ use super::misc::TRANSPARENT;
 use super::misc::editor_header_presets;
 use super::types::EditorTab;
 use crate::showcase::ComponentShowcase;
-use crate::theme::{BuiltInThemePreset, Color, ColorGroup, EditorTheme};
+use crate::theme::{BuiltInThemePreset, Color, ColorGroup, EditorTheme, slugify_theme_name};
+use gpui::prelude::StatefulInteractiveElement;
 use gpui::prelude::*;
 use gpui::*;
 use gpui_ui_kit::{
@@ -71,6 +72,8 @@ pub struct ThemeEditor {
     cached_export_content: SharedString,
     /// Cached export filename derived from theme name and format
     cached_export_filename: SharedString,
+    /// Last file-export outcome shown in the export tab.
+    export_status: Option<SharedString>,
     /// Theme Arc that `cached_export_content` corresponds to
     /// Set by edits; export content is regenerated only when it is viewed or used.
     export_cache_dirty: bool,
@@ -162,11 +165,8 @@ impl ThemeEditor {
         let color_detail_cache = Self::build_color_detail_cache(&theme);
         let cached_export_content =
             SharedString::from(theme.to_json().unwrap_or_else(|e| format!("Error: {}", e)));
-        let cached_export_filename = SharedString::from(format!(
-            "{}_theme.{}",
-            theme.name.to_lowercase().replace(' ', "_"),
-            "json"
-        ));
+        let cached_export_filename =
+            SharedString::from(format!("{}_theme.json", slugify_theme_name(&theme.name)));
 
         Self {
             theme: theme.clone(),
@@ -183,6 +183,7 @@ impl ThemeEditor {
             cached_export_format: "json".to_string(),
             cached_export_content,
             cached_export_filename,
+            export_status: None,
             export_cache_dirty: false,
             hex_cache,
             color_detail_cache,
@@ -256,7 +257,7 @@ impl ThemeEditor {
             self.cached_export_content = SharedString::from(content);
             let filename = format!(
                 "{}_theme.{}",
-                self.theme.name.to_lowercase().replace(' ', "_"),
+                slugify_theme_name(&self.theme.name),
                 self.export_format
             );
             self.cached_export_filename = SharedString::from(filename);
@@ -637,6 +638,7 @@ impl ThemeEditor {
         let theme = &self.theme;
         let export_format = self.export_format.clone();
         let export_content = self.cached_export_content.clone();
+        let export_status = self.export_status.clone();
 
         div().p_6().size_full().child(
             VStack::new()
@@ -702,8 +704,11 @@ impl ThemeEditor {
                 // Export preview
                 .child(
                     div()
+                        .id("theme-export-preview")
                         .flex_1()
+                        .min_h_0()
                         .w_full()
+                        .overflow_y_scroll()
                         .p_4()
                         .bg(theme.background_tertiary.to_rgba())
                         .rounded_lg()
@@ -736,17 +741,28 @@ impl ThemeEditor {
                                 .variant(ButtonVariant::Secondary)
                                 .size(ButtonSize::Md)
                                 .build()
-                                .on_click(cx.listener(|this, _: &ClickEvent, _window, _cx| {
+                                .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
                                     this.refresh_export_cache();
                                     let content = this.cached_export_content.to_string();
                                     let filename = this.cached_export_filename.to_string();
-                                    if let Err(e) = std::fs::write(&filename, content) {
-                                        eprintln!("Failed to save theme to {filename}: {e}");
+                                    if let Err(error) = std::fs::write(&filename, content) {
+                                        this.export_status = Some(SharedString::from(format!(
+                                            "Could not save {filename}: {error}"
+                                        )));
                                     } else {
-                                        println!("Theme saved to {filename}");
+                                        this.export_status =
+                                            Some(SharedString::from(format!("Saved {filename}")));
                                     }
+                                    cx.notify();
                                 })),
                         )
+                        .when_some(export_status, |row, status| {
+                            row.child(
+                                Text::new(status)
+                                    .size(TextSize::Sm)
+                                    .color(theme.text_secondary.to_rgba()),
+                            )
+                        })
                         .build(),
                 )
                 .build(),
@@ -893,8 +909,9 @@ impl ThemeEditor {
             a: 0.6,
         };
 
-        // The modal is a child of the backdrop. The dialog stops propagation so clicks
-        // on it don't trigger the backdrop's close handler.
+        // Backdrop clicks intentionally do nothing: an accidental click must
+        // not discard an in-progress color selection. Cancel and Escape are
+        // explicit close actions.
         div()
             .id("modal-backdrop")
             .absolute()
@@ -903,12 +920,6 @@ impl ThemeEditor {
             .items_center()
             .justify_center()
             .bg(backdrop_color)
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(|this, _: &MouseDownEvent, _window, cx| {
-                    this.close_color_modal(cx);
-                }),
-            )
             .child(
                 div()
                     .id("color-modal-dialog")

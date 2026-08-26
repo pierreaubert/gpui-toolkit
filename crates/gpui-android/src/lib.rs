@@ -92,12 +92,14 @@ pub fn hide_keyboard() {
     }
 }
 
+#[cfg(target_os = "android")]
+use parking_lot::Mutex;
 use std::cell::RefCell;
 #[cfg(target_os = "android")]
 use std::collections::VecDeque;
-use std::sync::atomic::{AtomicBool, Ordering};
 #[cfg(target_os = "android")]
-use std::sync::{LazyLock, Mutex};
+use std::sync::LazyLock;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 type TextInputCallbackFn = Box<dyn FnMut(&str)>;
 
@@ -118,13 +120,13 @@ static IME_EVENTS: LazyLock<Mutex<VecDeque<ImeEvent>>> =
 
 #[cfg(target_os = "android")]
 pub(crate) fn enqueue_ime_event(event: ImeEvent) {
-    IME_EVENTS.lock().unwrap().push_back(event);
+    IME_EVENTS.lock().push_back(event);
     TEXT_INPUT_DIRTY.store(true, Ordering::Release);
 }
 
 #[cfg(target_os = "android")]
 pub(crate) fn drain_ime_events() -> Vec<ImeEvent> {
-    let mut events = IME_EVENTS.lock().unwrap();
+    let mut events = IME_EVENTS.lock();
     if events.is_empty() {
         return Vec::new();
     }

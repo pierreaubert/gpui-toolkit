@@ -38,7 +38,6 @@ pub mod analysis;
 pub mod bidi;
 pub mod language_support;
 pub mod layout;
-#[allow(unused_assignments, unused_variables, unused_mut)]
 pub mod line_break;
 pub mod measurement;
 pub mod rich_text;

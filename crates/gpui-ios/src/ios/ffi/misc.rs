@@ -1,4 +1,4 @@
-use gpui::{AppCell, RequestFrameOptions};
+use gpui::RequestFrameOptions;
 use objc::{
     class, msg_send,
     runtime::{BOOL, Object},
@@ -6,7 +6,6 @@ use objc::{
 };
 use std::ffi::c_void;
 use std::panic::{self, AssertUnwindSafe};
-use std::rc::Rc;
 use std::sync::atomic::Ordering;
 
 #[link(name = "Metal", kind = "framework")]
@@ -34,6 +33,13 @@ pub(super) fn request_frame_for_window(window: &super::super::window::IosWindow)
         drop(slot);
         if let Err(payload) = result {
             panic::resume_unwind(payload);
+        }
+    } else {
+        if text_dirty {
+            crate::TEXT_INPUT_DIRTY.store(true, Ordering::Release);
+        }
+        if forced_frame {
+            window.forced_frame_pending.set(true);
         }
     }
 }
@@ -107,21 +113,9 @@ pub(super) fn panic_payload_message(payload: &(dyn std::any::Any + Send)) -> &st
 }
 
 pub(super) fn retain_application_for_process_lifetime(app: &gpui::Application) {
-    // SAFETY: `gpui::Application` is a private single-field tuple struct
-    // containing `Rc<AppCell>` in the pinned GPUI revision. iOS does not let
-    // `Platform::run` block forever like desktop platforms do, so `run_app`
-    // would otherwise drop the application after the launch callback returns.
-    // Clone the hidden Rc and intentionally leak it so GPUI's AppCell, windows,
-    // and frame callbacks live for the process lifetime.
-    debug_assert_eq!(
-        std::mem::size_of::<gpui::Application>(),
-        std::mem::size_of::<Rc<AppCell>>(),
-        "Application layout changed -- iOS AppCell clone assumption broken"
-    );
-    let retained: Rc<AppCell> = unsafe {
-        let app_cell: &Rc<AppCell> = std::mem::transmute(app);
-        Rc::clone(app_cell)
-    };
+    // iOS does not let `Platform::run` block forever like desktop platforms do,
+    // so retain the app state after the launch callback returns.
+    let retained = app.clone_app_cell();
     std::mem::forget(retained);
     log::info!("GPUI iOS: Retained application for process lifetime");
 }

@@ -243,7 +243,7 @@ const RELEASE_NOTES_ENTRIES: &[ReleaseNotesEntry] = &[
         crate_name: "gpui-ui-kit",
         lane: "public-core",
         status: ReleaseNotesStatus::PendingArtifact,
-        stability: "release-candidate with keyboard/accessibility caveats",
+        stability: "beta",
         platform_support: "desktop GPUI first; mobile surfaces require simulator/device QA",
         required_sections: "stability, focus integration report, accessibility limitations, publish dry-run",
         evidence: "Focus/behavior/accessibility reports and deterministic desktop evidence cover pointer, keyboard, focus, disabled state, names/actions, native-adapter parity, reduced motion, and high contrast; workflow/mobile/native screen-reader gates remain explicit.",
@@ -253,7 +253,7 @@ const RELEASE_NOTES_ENTRIES: &[ReleaseNotesEntry] = &[
         crate_name: "gpui-audio-kit",
         lane: "public-core",
         status: ReleaseNotesStatus::PendingArtifact,
-        stability: "release-candidate",
+        stability: "beta",
         platform_support: "desktop GPUI controls; native accessibility bridge remains app-level",
         required_sections: "stability, audio-control accessibility summaries, visual QA, publish dry-run",
         evidence: "Audio accessibility summaries and renderer-backed component-lab visual captures exist; registry publication remains outside wave 1.",
@@ -273,7 +273,7 @@ const RELEASE_NOTES_ENTRIES: &[ReleaseNotesEntry] = &[
         crate_name: "gpui-keybinding",
         lane: "public-core",
         status: ReleaseNotesStatus::PendingArtifact,
-        stability: "release-candidate",
+        stability: "beta",
         platform_support: "desktop keybinding presets for macOS, Windows, and Linux labels",
         required_sections: "stability, shortcut policy, conflict checks, publish dry-run",
         evidence: "Shortcut policy and conflict examples are documented; publish dry-run is not recorded.",
@@ -283,7 +283,7 @@ const RELEASE_NOTES_ENTRIES: &[ReleaseNotesEntry] = &[
         crate_name: "gpui-themes",
         lane: "public-core",
         status: ReleaseNotesStatus::PendingArtifact,
-        stability: "release-candidate",
+        stability: "beta",
         platform_support: "theme JSON import/export across supported GPUI app targets",
         required_sections: "stability, schema version policy, compatibility test, publish dry-run",
         evidence: "Community theme schema/version policy is documented and v1 import compatibility is tested.",
@@ -631,4 +631,16 @@ mod tests {
         assert!(markdown.contains("release_qa_matrix"));
         assert!(markdown.contains("pending-command"));
     }
+    #[test]
+    fn release_note_stability_labels_match_manifest() {
+        for entry in release_notes_entries() {
+            if let Some(manifest) = crate::crate_stability_manifest()
+                .iter()
+                .find(|manifest| manifest.crate_name == entry.crate_name)
+            {
+                assert_eq!(entry.stability, manifest.stability.as_str(), "{}", entry.crate_name);
+            }
+        }
+    }
+
 }

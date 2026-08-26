@@ -50,7 +50,7 @@
 //!     release_notes_artifact_report, release_notes_report, release_packaging_report,
 //!     release_qa_matrix,
 //!     platform_capability_matrix,
-//!     vendored_patch_manifest, gpui_ui_kit, gpui_design
+//!     vendored_patch_manifest
 //! };
 //!
 //! assert!(!crate_stability_manifest().is_empty());

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import asyncio
 import inspect
@@ -75,8 +76,8 @@ class App:
     # state and action handlers may update it off the native render thread.
     title: str = "GPUI Python App"
     sections: Sequence[Section] = field(default_factory=list)
-    width: float = 1240.0
-    height: float = 820.0
+    width: float | None = None
+    height: float | None = None
     sidebar_title: str = "Python UI"
     sidebar_subtitle: str = "Python declarations, Rust renderers"
     required_capabilities: Sequence[str] = field(default_factory=tuple)
@@ -89,16 +90,22 @@ class App:
         title = self.title if miniapp is None else self.miniapp.title
         width = self.width if miniapp is None else self.miniapp.width
         height = self.height if miniapp is None else self.miniapp.height
-        return {
+        for name, value in (("width", width), ("height", height)):
+            if value is not None and (not math.isfinite(float(value)) or float(value) <= 0.0):
+                raise ValueError(f"App {name} must be finite and positive when specified")
+        spec = {
             "schema_version": PYTHON_APP_IR_SCHEMA_VERSION,
             "title": title,
-            "width": float(width),
-            "height": float(height),
             "sidebar_title": self.sidebar_title,
             "sidebar_subtitle": self.sidebar_subtitle,
             "sections": [section.to_spec() for section in self.sections],
             "miniapp": miniapp,
         }
+        if width is not None:
+            spec["width"] = float(width)
+        if height is not None:
+            spec["height"] = float(height)
+        return spec
 
     def run(self) -> None:
         _validate_python_runtime()

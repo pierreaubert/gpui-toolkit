@@ -2,14 +2,14 @@ use gpui_ui_kit_macros::{ComponentBuilder, ComponentTheme, FormField};
 
 mod gpui {
     #[derive(Debug, Clone, Copy, PartialEq)]
-    pub struct Rgba(pub u32);
+    pub struct Rgba(pub u32, pub bool);
 
     pub fn rgb(val: u32) -> Rgba {
-        Rgba(val)
+        Rgba(val, false)
     }
 
     pub fn rgba(val: u32) -> Rgba {
-        Rgba(val)
+        Rgba(val, true)
     }
 }
 
@@ -39,6 +39,33 @@ pub struct TransparentTheme {
 }
 
 #[derive(Debug, Clone, ComponentTheme)]
+pub struct LiteralTheme {
+    #[theme(default = 16777215, from = accent)]
+    pub decimal_white: gpui::Rgba,
+    #[theme(default = 0x007accffu32, from = accent)]
+    pub suffixed_rgba: gpui::Rgba,
+    #[theme(default = 0x00000000u32, from = accent)]
+    pub suffixed_transparent: gpui::Rgba,
+    #[theme(default = 0x00_7a_cc_ff, from = accent)]
+    pub underscored_rgba: gpui::Rgba,
+}
+
+#[derive(Debug, Clone, ComponentTheme)]
+pub struct FloatTheme {
+    #[theme(default_f32 = 1.0, from_expr = "1.0")]
+    pub opacity: f32,
+}
+
+#[derive(Debug, Clone, ComponentTheme)]
+pub struct GenericTheme<T>
+where
+    T: Default,
+{
+    #[theme(default_expr = "T::default()", from_expr = "T::default()")]
+    pub value: T,
+}
+
+#[derive(Debug, Clone, ComponentTheme)]
 #[theme_path = "theme::Theme"]
 #[gpui_path = "gpui"]
 pub struct ExplicitPathTheme {
@@ -57,6 +84,32 @@ fn test_rgb_uses_rgb() {
 fn test_transparent_uses_rgba() {
     let theme = TransparentTheme::default();
     assert_eq!(theme.transparent, gpui::rgba(0x00000000));
+}
+
+#[test]
+fn test_integer_literal_color_defaults_preserve_rgb_and_rgba() {
+    let theme = LiteralTheme::default();
+    assert_eq!(theme.decimal_white, gpui::rgb(16777215));
+    assert_eq!(theme.suffixed_rgba, gpui::rgba(0x007accff));
+    assert_eq!(theme.suffixed_transparent, gpui::rgba(0x00000000));
+    assert_eq!(theme.underscored_rgba, gpui::rgba(0x00_7a_cc_ff));
+}
+
+#[test]
+fn test_float_default_matches_documented_attribute() {
+    assert_eq!(FloatTheme::default().opacity, 1.0);
+}
+
+#[test]
+fn test_component_theme_preserves_type_generics() {
+    assert_eq!(GenericTheme::<u8>::default().value, 0);
+
+    let global = theme::Theme {
+        accent: gpui::rgb(0),
+        surface: gpui::rgb(0),
+        transparent: gpui::rgba(0),
+    };
+    assert_eq!(GenericTheme::<u8>::from(&global).value, 0);
 }
 
 #[test]

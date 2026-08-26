@@ -1,4 +1,4 @@
-use gpui::{ElementId, SharedString};
+use gpui::SharedString;
 
 /// A single menu item
 #[derive(Clone)]
@@ -15,12 +15,12 @@ pub struct MenuItem {
     pub(super) children: Vec<MenuItem>,
     /// Pre-computed element ID so `Menu::build_with_theme` does not format a
     /// string for every item on every render.
-    pub(super) element_id: ElementId,
+    pub(super) element_id: SharedString,
 }
 
 impl MenuItem {
-    fn make_element_id(id: &SharedString) -> ElementId {
-        ElementId::Name(SharedString::from(format!("menu-item-{id}")))
+    fn make_element_id(id: &SharedString) -> SharedString {
+        SharedString::from(format!("menu-item-{id}"))
     }
 
     /// Create a new menu item

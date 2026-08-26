@@ -16,6 +16,77 @@ use super::types::AccentSource;
 use super::types::ThemeAppearance;
 pub use gpui_ui_kit::Color;
 
+#[test]
+fn community_bundle_replaces_a_gallery_entry_with_the_same_id() {
+    let theme = EditorTheme::dark();
+    let mut manifest = CommunityThemeManifest::for_theme(&theme);
+    manifest.id = "nord".into();
+    manifest.display_name = "Community Nord".into();
+    let bundle = CommunityThemeBundle::new(manifest, theme);
+
+    let gallery = ThemeGallery::from_built_ins().with_community_bundle(&bundle);
+    let entries = gallery
+        .entries
+        .iter()
+        .filter(|entry| entry.id == "nord")
+        .collect::<Vec<_>>();
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].display_name, "Community Nord");
+}
+#[test]
+fn rust_export_escapes_metadata_and_preserves_separator_precision() {
+    let mut theme = EditorTheme::dark();
+    theme.name = "123 \\\"generated\\\"\\nname".into();
+    theme.font_family = "Font \\\"Family\\\"".into();
+    theme.design_language = "custom\\nmode".into();
+    theme.separator_size = 20.25;
+
+    let code = theme.to_rust_code();
+    let function_name = code
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("pub fn "))
+        .and_then(|line| line.split('(').next())
+        .expect("generated Rust must contain a function declaration");
+    assert!(
+        function_name
+            .chars()
+            .enumerate()
+            .all(|(index, character)| character == '_'
+                || character.is_ascii_alphanumeric()
+                    && (index > 0 || character.is_ascii_alphabetic()))
+    );
+    assert!(code.contains(&format!("name: {:?}.to_string()", theme.name)));
+    assert!(code.contains(&format!("font_family: {:?}.to_string()", theme.font_family)));
+    assert!(code.contains(&format!(
+        "design_language: {:?}.to_string()",
+        theme.design_language
+    )));
+    assert!(code.contains("separator_size: 20.25,"));
+
+    theme.separator_size = f32::NAN;
+    assert!(theme.to_rust_code().contains("separator_size: f32::NAN,"));
+}
+
+#[test]
+fn time_of_day_deserialization_rejects_invalid_ranges() {
+    assert!(serde_json::from_str::<TimeOfDay>(r#"{"hour": 24, "minute": 0}"#).is_err());
+    assert!(serde_json::from_str::<TimeOfDay>(r#"{"hour": 0, "minute": 60}"#).is_err());
+    assert_eq!(
+        serde_json::from_str::<TimeOfDay>(r#"{"hour": 23, "minute": 59}"#).unwrap(),
+        TimeOfDay::new(23, 59)
+    );
+}
+
+#[test]
+fn terminal_presets_convert_to_accessible_editor_themes() {
+    for preset in TuiThemePreset::all() {
+        preset
+            .palette()
+            .to_editor_theme()
+            .validate_accessibility()
+            .unwrap_or_else(|error| panic!("{}: {error}", preset.name()));
+    }
+}
 fn assert_rgba_eq(actual: gpui::Rgba, expected: gpui::Rgba) {
     assert!((actual.r - expected.r).abs() <= f32::EPSILON);
     assert!((actual.g - expected.g).abs() <= f32::EPSILON);

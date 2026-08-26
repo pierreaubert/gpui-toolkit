@@ -30,14 +30,14 @@ impl GridData {
         if width == 0 {
             return Err(Scene3DError::EmptyData { field: "z" });
         }
-        let mut values = Vec::with_capacity(width * height);
+        let mut values = Vec::new();
         for row in rows {
             if row.len() != width {
                 return Err(Scene3DError::GridDimensionMismatch {
                     z_len: values.len() + row.len(),
                     width,
                     height,
-                    expected: width * height,
+                    expected: width.checked_mul(height).unwrap_or(usize::MAX),
                 });
             }
             values.extend(row);
@@ -53,7 +53,7 @@ impl GridData {
         if self.width == 0 || self.height == 0 || self.values.is_empty() {
             return Err(Scene3DError::EmptyData { field: "z" });
         }
-        let expected = self.width * self.height;
+        let expected = self.width.checked_mul(self.height).unwrap_or(usize::MAX);
         if self.values.len() != expected {
             return Err(Scene3DError::GridDimensionMismatch {
                 z_len: self.values.len(),

@@ -4,6 +4,65 @@ use syn::punctuated::Punctuated;
 use syn::spanned::Spanned;
 use syn::{Expr, Ident, Lit, Meta, Token, Type};
 
+fn is_rust_keyword(identifier: &str) -> bool {
+    matches!(
+        identifier,
+        "as" | "async"
+            | "await"
+            | "break"
+            | "const"
+            | "continue"
+            | "crate"
+            | "dyn"
+            | "else"
+            | "enum"
+            | "extern"
+            | "false"
+            | "fn"
+            | "for"
+            | "gen"
+            | "if"
+            | "impl"
+            | "in"
+            | "let"
+            | "loop"
+            | "match"
+            | "mod"
+            | "move"
+            | "mut"
+            | "pub"
+            | "ref"
+            | "return"
+            | "self"
+            | "Self"
+            | "static"
+            | "struct"
+            | "super"
+            | "trait"
+            | "true"
+            | "type"
+            | "unsafe"
+            | "use"
+            | "where"
+            | "while"
+            | "abstract"
+            | "become"
+            | "box"
+            | "do"
+            | "final"
+            | "macro"
+            | "override"
+            | "priv"
+            | "try"
+            | "typeof"
+            | "unsized"
+            | "virtual"
+            | "yield"
+            | "macro_rules"
+            | "union"
+    )
+}
+
 pub(super) struct BuilderField<'a> {
     pub(super) ident: &'a Ident,
     pub(super) ty: &'a Type,
@@ -94,8 +153,15 @@ impl<'a> BuilderField<'a> {
                             if let Expr::Lit(lit) = &nv.value
                                 && let Lit::Str(value) = &lit.lit
                             {
+                                let rename = value.value();
+                                if is_rust_keyword(&rename) {
+                                    return Err(syn::Error::new(
+                                        value.span(),
+                                        "rename must not be a Rust keyword; use a raw identifier such as `r#type` instead",
+                                    ));
+                                }
                                 setter_name =
-                                    syn::parse_str::<Ident>(&value.value()).map_err(|error| {
+                                    syn::parse_str::<Ident>(&rename).map_err(|error| {
                                         syn::Error::new(
                                             value.span(),
                                             format!(
@@ -138,6 +204,14 @@ impl<'a> BuilderField<'a> {
             return Err(error);
         }
 
+        let option_inner_ty = option_inner_type(&field.ty);
+        if optional && option_inner_ty.is_none() {
+            return Err(syn::Error::new(
+                optional_span.unwrap_or_else(|| field.span()),
+                "`optional` requires a field whose type is `Option<T>`, `std::option::Option<T>`, or `core::option::Option<T>`",
+            ));
+        }
+
         Ok(Self {
             ident,
             ty: &field.ty,
@@ -147,7 +221,7 @@ impl<'a> BuilderField<'a> {
             generate_setter,
             default_expr,
             setter_name,
-            option_inner_ty: option_inner_type(&field.ty),
+            option_inner_ty,
         })
     }
 
@@ -321,6 +395,35 @@ mod tests {
     }
 
     #[test]
+    fn parse_keyword_rename_reports_attribute_error() {
+        let src = r#"
+            #[field(rename = "fn")]
+            pub id: String
+        "#;
+        let wrapped = format!("struct __TestStruct {{ {src} }}");
+        let input: syn::DeriveInput = syn::parse_str(&wrapped).unwrap();
+        let err = match BuilderField::parse(extract_field(&input)) {
+            Ok(_) => panic!("expected an error"),
+            Err(error) => error,
+        };
+        assert!(err.to_string().contains("must not be a Rust keyword"));
+
+        let src = r#"
+            #[field(rename = "r#type")]
+            pub id: String
+        "#;
+        let wrapped = format!("struct __TestStruct {{ {src} }}");
+        let input: syn::DeriveInput = syn::parse_str(&wrapped).unwrap();
+        assert_eq!(
+            BuilderField::parse(extract_field(&input))
+                .unwrap()
+                .setter_name
+                .to_string(),
+            "r#type"
+        );
+    }
+
+    #[test]
     fn parse_required_optional_reports_both_conflicting_attributes() {
         let src = r#"
             #[field(required, optional)]
@@ -336,5 +439,47 @@ mod tests {
         let out = err.to_compile_error().to_string();
         assert!(out.contains("remove `required` or `optional`"));
         assert!(out.contains("`optional` conflicts with `required`"));
+    }
+
+    #[test]
+    fn parse_optional_requires_a_standard_option_type() {
+        let src = r#"
+            #[field(optional)]
+            pub label: String
+        "#;
+        let wrapped = format!("struct __TestStruct {{ {src} }}");
+        let input: syn::DeriveInput = syn::parse_str(&wrapped).unwrap();
+        let err = match BuilderField::parse(extract_field(&input)) {
+            Ok(_) => panic!("expected an error"),
+            Err(error) => error,
+        };
+        assert!(
+            err.to_string()
+                .contains("`optional` requires a field whose type")
+        );
+
+        for ty in [
+            "Option<String>",
+            "std::option::Option<String>",
+            "core::option::Option<String>",
+        ] {
+            let wrapped = format!("struct __TestStruct {{ #[field(optional)] pub label: {ty} }}");
+            let input: syn::DeriveInput = syn::parse_str(&wrapped).unwrap();
+            assert!(
+                BuilderField::parse(extract_field(&input))
+                    .unwrap()
+                    .option_inner_ty
+                    .is_some()
+            );
+        }
+
+        let wrapped = "struct __TestStruct { pub label: my_mod::Option<String> }";
+        let input: syn::DeriveInput = syn::parse_str(wrapped).unwrap();
+        assert!(
+            BuilderField::parse(extract_field(&input))
+                .unwrap()
+                .option_inner_ty
+                .is_none()
+        );
     }
 }

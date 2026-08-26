@@ -1,8 +1,8 @@
 use super::types::CornerRadiusStyle;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// Corner radius values for different element sizes.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct CornerRadii {
     /// Small elements (badges, chips): px.
     pub sm: f32,

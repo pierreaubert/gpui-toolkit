@@ -1,7 +1,7 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// Audio control geometry — knob arc, slider tracks.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct AudioControlRules {
     /// Knob arc start angle in degrees from 12 o'clock, clockwise.
     pub knob_arc_start_deg: f32,
@@ -26,11 +26,33 @@ impl AudioControlRules {
         knob_border_width: f32,
         slider_track_widths: [f32; 3],
     ) -> Self {
-        assert!(knob_arc_segments > 0, "knob_arc_segments must be > 0");
-        assert!(knob_arc_width >= 0.0, "knob_arc_width must be >= 0");
-        assert!(knob_border_width >= 0.0, "knob_border_width must be >= 0");
+        assert!(
+            knob_arc_start_deg.is_finite(),
+            "knob_arc_start_deg must be finite"
+        );
+        assert!(
+            knob_arc_sweep_deg.is_finite()
+                && knob_arc_sweep_deg > 0.0
+                && knob_arc_sweep_deg <= 360.0,
+            "knob_arc_sweep_deg must be finite and in (0, 360]"
+        );
+        assert!(
+            knob_arc_segments >= 12,
+            "knob_arc_segments must be at least 12"
+        );
+        assert!(
+            knob_arc_width.is_finite() && knob_arc_width >= 0.0,
+            "knob_arc_width must be finite and >= 0"
+        );
+        assert!(
+            knob_border_width.is_finite() && knob_border_width >= 0.0,
+            "knob_border_width must be finite and >= 0"
+        );
         for (i, &w) in slider_track_widths.iter().enumerate() {
-            assert!(w >= 0.0, "slider_track_widths[{i}] must be >= 0");
+            assert!(
+                w.is_finite() && w > 0.0,
+                "slider_track_widths[{i}] must be finite and > 0"
+            );
         }
         Self {
             knob_arc_start_deg,

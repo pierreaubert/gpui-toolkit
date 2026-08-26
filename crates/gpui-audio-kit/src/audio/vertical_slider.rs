@@ -37,6 +37,8 @@ thread_local! {
         RefCell::new(HashMap::new());
 }
 
+const VERTICAL_SLIDER_FOCUS_HANDLE_CAPACITY: usize = 256;
+
 mod calculate;
 mod misc;
 mod types;
@@ -359,21 +361,32 @@ impl VerticalSlider {
 
     /// Format the value display
     fn format_value(&self) -> SharedString {
+        let value = self.value.clamp(self.min, self.max);
         let unit = self.unit.as_ref();
         SharedString::new(if unit == ":1" {
-            format!("{:.1}{}", self.value, unit)
+            format!("{:.1}{}", value, unit)
         } else if unit == "%" {
-            format!("{:.0}{}", self.value * 100.0, unit)
+            let percentage = if self.max > self.min {
+                (value - self.min) / (self.max - self.min) * 100.0
+            } else {
+                0.0
+            };
+            format!("{:.0}{}", percentage, unit)
         } else if unit.is_empty() {
-            format!("{:.1}", self.value)
+            format!("{:.1}", value)
         } else {
-            format!("{:.1} {}", self.value, unit)
+            format!("{:.1} {}", value, unit)
         })
     }
 }
 
 impl RenderOnce for VerticalSlider {
     fn render(mut self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+        // Clamp before formatting and accessibility registration so the
+        // displayed value, slider position, and ARIA range remain consistent.
+        self.value = self.value.clamp(self.min, self.max);
+        self.formatted_value = self.format_value();
+
         // Register in accessibility tree
         let effective_label = self
             .aria_label
@@ -387,9 +400,6 @@ impl RenderOnce for VerticalSlider {
                 .value_range(self.value, self.min, self.max)
                 .maybe_state(self.disabled, AriaState::Disabled),
         });
-
-        // Clamp value to min/max range now that both are set
-        self.value = self.value.clamp(self.min, self.max);
 
         let global_theme = cx.theme();
         let theme = self
@@ -502,6 +512,11 @@ impl RenderOnce for VerticalSlider {
                     return handle.clone();
                 }
                 let handle = cx.focus_handle();
+                if handles.len() >= VERTICAL_SLIDER_FOCUS_HANDLE_CAPACITY {
+                    if let Some(evicted_id) = handles.keys().next().cloned() {
+                        handles.remove(&evicted_id);
+                    }
+                }
                 handles.insert(element_id.clone(), handle.clone());
                 handle
             })
@@ -554,10 +569,15 @@ impl RenderOnce for VerticalSlider {
             };
         let on_select_rc: Option<std::rc::Rc<Box<dyn Fn(&mut Window, &mut App) + 'static>>> =
             if !disabled {
-                self.on_select.map(|h| std::rc::Rc::new(h))
+                self.on_select.map(std::rc::Rc::new)
             } else {
                 None
             };
+        let on_drag_start_rc = if !disabled {
+            self.on_drag_start.map(std::rc::Rc::new)
+        } else {
+            None
+        };
 
         // Shared current value tracker and interaction config
         let current_value = value_tracker(value);
@@ -567,7 +587,7 @@ impl RenderOnce for VerticalSlider {
         if !disabled {
             // Mouse down on container - focus, select, and external drag start
             let on_select_container = on_select_rc.clone();
-            let on_drag_start = self.on_drag_start;
+            let on_drag_start = on_drag_start_rc.clone();
             let current_value_container = current_value.clone();
             let focus_handle_container = focus_handle.clone();
 
@@ -616,19 +636,6 @@ impl RenderOnce for VerticalSlider {
                     }
                 });
             }
-
-            // Focus on mouse enter - keyboard follows hover like scroll wheel
-            let focus_handle_hover = focus_handle.clone();
-            container = container.on_mouse_move(move |event, window, cx| {
-                // Only focus when mouse enters (not on every move)
-                // We use mouse_move because mouse_enter doesn't exist in GPUI
-                if let Some(ref fh) = focus_handle_hover
-                    && !fh.is_focused(window)
-                    && event.pressed_button.is_none()
-                {
-                    fh.focus(window, cx);
-                }
-            });
 
             // Keyboard navigation - register on container (which has track_focus)
             if on_change_rc.is_some() || on_reset_rc.is_some() {
@@ -827,14 +834,14 @@ impl RenderOnce for VerticalSlider {
 
             // Mouse down - focus, select, and start drag
             let on_select_track = on_select_rc.clone();
+            let on_drag_start_track = on_drag_start_rc.clone();
             let current_value_at_click = current_value.clone();
             let has_change_handler = on_change_rc.is_some();
             let focus_handle_track = focus_handle.clone();
             track = track.on_mouse_down(MouseButton::Left, move |event, window, cx| {
-                // Note: we do NOT call cx.stop_propagation() here.
-                // The container also has an on_mouse_down that handles focus,
-                // selection, and external drag_start. Stopping propagation
-                // would break those handlers when the user clicks on the track.
+                // The track owns this gesture and stops bubbling after it has
+                // invoked the same focus, selection, and drag-start hooks as
+                // the surrounding control.
 
                 // Focus for keyboard navigation (focus follows click)
                 if let Some(ref fh) = focus_handle_track {
@@ -846,6 +853,15 @@ impl RenderOnce for VerticalSlider {
                     handler(window, cx);
                 }
 
+                if let Some(ref handler) = on_drag_start_track {
+                    handler(
+                        event.position.y.into(),
+                        current_value_at_click.get(),
+                        window,
+                        cx,
+                    );
+                }
+
                 // Store drag state only if we have a change handler
                 if has_change_handler {
                     let click_pos: f32 = event.position.y.into();
@@ -855,15 +871,19 @@ impl RenderOnce for VerticalSlider {
                         current_value_at_click.get(),
                     );
                 }
+
+                cx.stop_propagation();
             });
 
-            // Double-click on track - reset (since stop_propagation prevents container from getting it)
+            // Double-clicking the track resets once rather than bubbling to
+            // the container's reset handler too.
             if let Some(ref reset_rc) = on_reset_rc {
                 let reset_handler = reset_rc.clone();
                 track = track.on_click(move |event, window, cx| {
                     if event.click_count() == 2 {
                         reset_handler(window, cx);
                     }
+                    cx.stop_propagation();
                 });
             }
 
@@ -895,6 +915,31 @@ impl RenderOnce for VerticalSlider {
                         commit(current_value_up.get(), window, cx);
                     }
                     clear_drag_state(drag_key_up.clone());
+                });
+
+                // Capture a release beyond the narrow track. Without this,
+                // the final automation commit is lost and retained drag state
+                // survives until the next press on this slider.
+                let handler_drag_out = handler_rc.clone();
+                let commit_drag_out = on_commit_rc.clone();
+                let current_value_up_out = current_value.clone();
+                let config_up_out = interaction_config.clone();
+                let drag_key_up_out = element_id.clone();
+                track = track.on_mouse_up_out(MouseButton::Left, move |event, window, cx| {
+                    if let Some(state) = get_drag_state(&drag_key_up_out) {
+                        let position: f32 = event.position.y.into();
+                        let previous_value = current_value_up_out.get();
+                        let final_value =
+                            handle_drag(position, &state, &config_up_out).unwrap_or(previous_value);
+                        current_value_up_out.set(final_value);
+                        if final_value != previous_value {
+                            handler_drag_out(final_value, window, cx);
+                        }
+                        if let Some(ref commit) = commit_drag_out {
+                            commit(final_value, window, cx);
+                        }
+                    }
+                    clear_drag_state(drag_key_up_out.clone());
                 });
 
                 // Scroll wheel handler on track
@@ -1044,10 +1089,18 @@ mod tests {
     #[test]
     #[allow(clippy::approx_constant)]
     fn format_value_respects_units() {
-        let slider_pct = VerticalSlider::new("test").value(0.75).unit("%");
+        let slider_pct = VerticalSlider::new("test")
+            .value(0.75)
+            .min(0.0)
+            .max(1.0)
+            .unit("%");
         assert_eq!(slider_pct.format_value(), "75%");
 
-        let slider_hz = VerticalSlider::new("test").value(1000.0).unit("Hz");
+        let slider_hz = VerticalSlider::new("test")
+            .value(1000.0)
+            .min(20.0)
+            .max(20_000.0)
+            .unit("Hz");
         assert_eq!(slider_hz.format_value(), "1000.0 Hz");
 
         let slider_default = VerticalSlider::new("test").value(3.14);
@@ -1055,6 +1108,23 @@ mod tests {
 
         let slider_ratio = VerticalSlider::new("test").value(4.0).unit(":1");
         assert_eq!(slider_ratio.format_value(), "4.0:1");
+    }
+
+    #[test]
+    fn format_value_clamps_and_uses_range_relative_percentages() {
+        let out_of_range = VerticalSlider::new("test")
+            .value(150.0)
+            .min(0.0)
+            .max(100.0)
+            .unit("%");
+        assert_eq!(out_of_range.format_value(), "100%");
+
+        let offset_range = VerticalSlider::new("test")
+            .value(50.0)
+            .min(20.0)
+            .max(120.0)
+            .unit("%");
+        assert_eq!(offset_range.format_value(), "30%");
     }
 
     #[test]

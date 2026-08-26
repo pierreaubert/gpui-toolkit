@@ -12,6 +12,7 @@ use serde_json::Value;
 use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::fmt::Write as _;
 use std::hash::{Hash, Hasher};
 use std::sync::{Arc, Mutex, OnceLock};
 
@@ -296,7 +297,7 @@ pub(super) fn treemap_story_data() -> TreemapNode {
 }
 
 thread_local! {
-    static LAB_ID_CACHE: RefCell<HashMap<u64, SharedString>> = RefCell::new(HashMap::new());
+    static LAB_ID_CACHE: RefCell<HashMap<u64, Vec<(Box<[String]>, SharedString)>>> = RefCell::new(HashMap::new());
 }
 
 fn lab_id_hash(parts: &[&str]) -> u64 {
@@ -313,7 +314,14 @@ pub(super) fn lab_id(parts: &[&str]) -> SharedString {
     LAB_ID_CACHE.with(|cache| {
         {
             let cache = cache.borrow();
-            if let Some(cached) = cache.get(&key) {
+            if let Some((_, cached)) = cache.get(&key).and_then(|entries| {
+                entries.iter().find(|(cached_parts, _)| {
+                    cached_parts
+                        .iter()
+                        .map(String::as_str)
+                        .eq(parts.iter().copied())
+                })
+            }) {
                 return cached.clone();
             }
         }
@@ -326,7 +334,10 @@ pub(super) fn lab_id(parts: &[&str]) -> SharedString {
             s.push_str(id_fragment(part).as_ref());
         }
         let shared = SharedString::new(s);
-        cache.borrow_mut().insert(key, shared.clone());
+        cache.borrow_mut().entry(key).or_default().push((
+            parts.iter().map(|part| (*part).to_owned()).collect(),
+            shared.clone(),
+        ));
         shared
     })
 }
@@ -335,12 +346,15 @@ pub(super) fn id_fragment(value: &str) -> Cow<'_, str> {
     if value.chars().all(|ch| ch.is_ascii_alphanumeric()) {
         Cow::Borrowed(value)
     } else {
-        Cow::Owned(
-            value
-                .chars()
-                .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '-' })
-                .collect(),
-        )
+        let mut encoded = String::with_capacity(value.len().saturating_mul(3));
+        for byte in value.bytes() {
+            if byte.is_ascii_alphanumeric() {
+                encoded.push(byte as char);
+            } else {
+                write!(&mut encoded, "~{byte:02x}").expect("write into String cannot fail");
+            }
+        }
+        Cow::Owned(encoded)
     }
 }
 

@@ -8,13 +8,14 @@ use gpui::prelude::*;
 use gpui::*;
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::hash::{DefaultHasher, Hash, Hasher};
 use std::panic;
 
 thread_local! {
     static METER_VALUE_LABEL_CACHE: RefCell<HashMap<i64, SharedString>> =
         RefCell::new(HashMap::new());
 }
+
+const METER_VALUE_LABEL_CACHE_CAPACITY: usize = 256;
 
 #[cfg(test)]
 mod renderer_contract_tests {
@@ -32,13 +33,27 @@ mod renderer_contract_tests {
 /// Format a meter value as a one-decimal string, reusing allocations for
 /// commonly occurring values.
 pub fn format_meter_value(value: f64) -> SharedString {
+    // Floating point casts map NaN to zero, which would incorrectly share
+    // the cached label for a real 0.0 reading. Non-finite meter input is
+    // exceptional, so format it directly instead of admitting it to the
+    // finite-value cache.
+    if !value.is_finite() {
+        return format!("{value:.1}").into();
+    }
+
     let key = (value * 10.0).round() as i64;
     METER_VALUE_LABEL_CACHE.with(|cache| {
         if let Some(cached) = cache.borrow().get(&key) {
             return cached.clone();
         }
         let s: SharedString = format!("{value:.1}").into();
-        cache.borrow_mut().insert(key, s.clone());
+        let mut cache = cache.borrow_mut();
+        if cache.len() >= METER_VALUE_LABEL_CACHE_CAPACITY {
+            if let Some(evicted_key) = cache.keys().next().copied() {
+                cache.remove(&evicted_key);
+            }
+        }
+        cache.insert(key, s.clone());
         s
     })
 }
@@ -145,6 +160,7 @@ impl HorizontalMeterTheme {
 }
 
 /// Render a horizontal meter bar using a tick config for value positioning.
+#[track_caller]
 pub fn render_horizontal_meter_bar(
     label: impl Into<SharedString>,
     value: f64,
@@ -345,6 +361,7 @@ pub fn render_horizontal_meter_bar_with(
 
 /// Renderer-aware horizontal meter variant. The original function remains
 /// source-compatible and selects the default Vello renderer.
+#[track_caller]
 pub fn render_horizontal_meter_bar_with_renderer(
     label: impl Into<SharedString>,
     ratio: f32,
@@ -356,10 +373,10 @@ pub fn render_horizontal_meter_bar_with_renderer(
 ) -> impl IntoElement {
     let label: SharedString = label.into();
     let source_location = panic::Location::caller();
-    let mut id_hash = DefaultHasher::new();
-    label.as_ref().hash(&mut id_hash);
-    let gradient_id =
-        ElementId::named_usize("horizontal-meter-gradient", id_hash.finish() as usize);
+    let gradient_id = ElementId::NamedChild(
+        std::sync::Arc::new(ElementId::CodeLocation(*source_location)),
+        label.clone(),
+    );
     let ratio = ratio.clamp(0.0, 1.0);
     let fill: Div = if theme.use_gradient {
         div()
@@ -434,10 +451,11 @@ impl LevelMeterElement {
     pub fn new(level_db: f64, channel_name: impl Into<SharedString>) -> Self {
         let channel_name = channel_name.into();
         let source_location = panic::Location::caller();
-        let mut id_hash = DefaultHasher::new();
-        channel_name.as_ref().hash(&mut id_hash);
         Self {
-            id: ElementId::named_usize("level-meter", id_hash.finish() as usize),
+            id: ElementId::NamedChild(
+                std::sync::Arc::new(ElementId::CodeLocation(*source_location)),
+                channel_name.clone(),
+            ),
             source_location,
             level_db,
             peak_db: None,
@@ -454,6 +472,13 @@ impl LevelMeterElement {
 
     pub fn peak(mut self, peak_db: f64) -> Self {
         self.peak_db = Some(peak_db);
+        self
+    }
+
+    /// Override the stable default ID when rendering repeated channel labels
+    /// from one call site.
+    pub fn id(mut self, id: impl Into<ElementId>) -> Self {
+        self.id = id.into();
         self
     }
 
@@ -873,6 +898,24 @@ mod tests {
     }
 
     #[::core::prelude::v1::test]
+    fn format_meter_value_keeps_non_finite_values_out_of_the_finite_cache() {
+        assert_eq!(format_meter_value(f64::NAN), "NaN");
+        assert_eq!(format_meter_value(0.0), "0.0");
+        assert_eq!(format_meter_value(f64::INFINITY), "inf");
+        assert_eq!(format_meter_value(f64::NEG_INFINITY), "-inf");
+    }
+
+    #[::core::prelude::v1::test]
+    fn meter_value_label_cache_is_bounded() {
+        for value in 0..=(METER_VALUE_LABEL_CACHE_CAPACITY as i64 + 1) {
+            format_meter_value(value as f64);
+        }
+        METER_VALUE_LABEL_CACHE.with(|cache| {
+            assert!(cache.borrow().len() <= METER_VALUE_LABEL_CACHE_CAPACITY);
+        });
+    }
+
+    #[::core::prelude::v1::test]
     fn gradient_meter_bar_is_constructible() {
         let theme = HorizontalMeterTheme {
             use_gradient: true,
@@ -908,6 +951,26 @@ mod tests {
         assert!(theme.bar_height > 0.0);
         assert!(theme.label_width > 0.0);
         assert!(theme.value_width > 0.0);
+    }
+
+    fn meter_from_one_call_site(channel_name: &str) -> LevelMeterElement {
+        LevelMeterElement::new(-12.0, channel_name)
+    }
+
+    #[::core::prelude::v1::test]
+    fn meter_default_ids_are_stable_and_channel_scoped() {
+        assert_eq!(
+            meter_from_one_call_site("L").id,
+            meter_from_one_call_site("L").id
+        );
+        assert_ne!(
+            meter_from_one_call_site("L").id,
+            meter_from_one_call_site("R").id
+        );
+        assert_eq!(
+            LevelMeterElement::new(-12.0, "L").id("explicit-meter").id,
+            ElementId::from("explicit-meter")
+        );
     }
 
     #[::core::prelude::v1::test]

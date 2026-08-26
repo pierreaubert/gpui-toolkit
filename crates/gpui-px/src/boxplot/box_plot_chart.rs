@@ -16,6 +16,7 @@ use d3rs::text::{GlyphTextConfig, render_glyph_text};
 use gpui::prelude::*;
 use gpui::{AnyElement, IntoElement, PathBuilder, canvas, div, hsla, point, px, rgb};
 use gpui_design::DesignSystem;
+use std::rc::Rc;
 use std::sync::Arc;
 
 /// Box plot builder.
@@ -518,16 +519,17 @@ impl BoxPlotChart {
             })
             .collect();
 
+        let draw_data = Rc::new(draw_data);
         let stroke_width = self.stroke_width;
         let box_opacity = self.box_opacity;
         let outlier_radius = self.outlier_radius;
         let renderer_2d = self.renderer_2d;
         let vello_backend = self.vello_backend;
         #[cfg(feature = "vello")]
-        let vello_draw_data = draw_data.clone();
+        let vello_draw_data = (renderer_2d == Renderer2D::Vello).then(|| Rc::clone(&draw_data));
 
         let legacy_plot = canvas(
-            move |_bounds, _window, _cx| draw_data.clone(),
+            move |_bounds, _window, _cx| Rc::clone(&draw_data),
             move |bounds, draw_data, window, _cx| {
                 let origin_x: f32 = bounds.origin.x.into();
                 let origin_y: f32 = bounds.origin.y.into();
@@ -537,7 +539,7 @@ impl BoxPlotChart {
                 let mut median_builder = PathBuilder::stroke(px(stroke_width * 2.0));
                 let mut outlier_builder = PathBuilder::fill();
 
-                for box_data in &draw_data {
+                for box_data in draw_data.iter() {
                     let x = origin_x + box_data.x_px;
 
                     // Whisker line (vertical from low to high)
@@ -614,7 +616,8 @@ impl BoxPlotChart {
         let plot: AnyElement = {
             #[cfg(feature = "vello")]
             if renderer_2d == Renderer2D::Vello {
-                let draw_data = vello_draw_data;
+                let draw_data = vello_draw_data
+                    .expect("Vello draw data is retained when the Vello renderer is selected");
                 return_vello_boxplot(
                     draw_data,
                     plot_width as f32,
@@ -725,7 +728,7 @@ pub fn boxplot(x: &[f64], y: &[f64]) -> BoxPlotChart {
 
 #[cfg(feature = "vello")]
 fn return_vello_boxplot(
-    draw_data: Vec<BoxDrawData>,
+    draw_data: Rc<Vec<BoxDrawData>>,
     plot_width: f32,
     plot_height: f32,
     box_color: gpui::Rgba,
@@ -751,7 +754,7 @@ fn return_vello_boxplot(
             .add_f32(color.b)
             .add_f32(color.a);
     }
-    for data in &draw_data {
+    for data in draw_data.iter() {
         cache_key
             .add_f32(data.x_px)
             .add_f32(data.half_width)

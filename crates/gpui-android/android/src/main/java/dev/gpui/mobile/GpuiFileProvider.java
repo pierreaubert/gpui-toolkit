@@ -7,7 +7,10 @@ import android.content.Context;
 import android.database.Cursor;
 import android.database.MatrixCursor;
 import android.net.Uri;
+import android.os.Handler;
+import android.os.Looper;
 import android.os.ParcelFileDescriptor;
+import android.os.SystemClock;
 import android.provider.OpenableColumns;
 import android.webkit.MimeTypeMap;
 
@@ -29,8 +32,20 @@ import java.util.concurrent.ConcurrentHashMap;
 public final class GpuiFileProvider extends ContentProvider {
     public static final String AUTHORITY_SUFFIX = ".gpui.fileprovider";
 
-    private static final ConcurrentHashMap<String, File> FILES =
+    private static final long LEASE_MILLIS = 10 * 60 * 1_000L;
+    private static final Handler CLEANUP_HANDLER = new Handler(Looper.getMainLooper());
+    private static final ConcurrentHashMap<String, FileLease> FILES =
             new ConcurrentHashMap<>();
+
+    private static final class FileLease {
+        final File file;
+        final long expiresAtUptimeMillis;
+
+        FileLease(File file, long expiresAtUptimeMillis) {
+            this.file = file;
+            this.expiresAtUptimeMillis = expiresAtUptimeMillis;
+        }
+    }
 
     static Uri registerFile(Context context, File file) throws IOException {
         File canonical = file.getCanonicalFile();
@@ -39,7 +54,10 @@ public final class GpuiFileProvider extends ContentProvider {
         }
 
         String token = UUID.randomUUID().toString();
-        FILES.put(token, canonical);
+        long expiresAtUptimeMillis = SystemClock.uptimeMillis() + LEASE_MILLIS;
+        FileLease lease = new FileLease(canonical, expiresAtUptimeMillis);
+        FILES.put(token, lease);
+        CLEANUP_HANDLER.postAtTime(() -> FILES.remove(token, lease), expiresAtUptimeMillis);
         return new Uri.Builder()
                 .scheme(ContentResolver.SCHEME_CONTENT)
                 .authority(context.getPackageName() + AUTHORITY_SUFFIX)
@@ -136,6 +154,17 @@ public final class GpuiFileProvider extends ContentProvider {
 
     private static File resolve(Uri uri) {
         String token = token(uri);
-        return token == null ? null : FILES.get(token);
+        if (token == null) {
+            return null;
+        }
+        FileLease lease = FILES.get(token);
+        if (lease == null) {
+            return null;
+        }
+        if (lease.expiresAtUptimeMillis <= SystemClock.uptimeMillis()) {
+            FILES.remove(token, lease);
+            return null;
+        }
+        return lease.file;
     }
 }

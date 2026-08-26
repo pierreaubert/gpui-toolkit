@@ -28,6 +28,7 @@ impl MiniAppShell {
             active_tier: None,
             collapse_label: None,
             resolved_axis: Some(Axis::Vertical),
+            divider_size: 0.0,
             children: vec![SolvedNode {
                 id: "content",
                 width,
@@ -36,6 +37,7 @@ impl MiniAppShell {
                 active_tier: None,
                 collapse_label: None,
                 resolved_axis: None,
+                divider_size: 0.0,
                 children: Vec::new(),
             }],
         }

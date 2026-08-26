@@ -6,13 +6,17 @@ use mach2::thread_status::{THREAD_STATE_NONE, thread_state_flavor_t};
 use smol::Async;
 use std::collections::BTreeMap;
 use std::ffi::{CString, OsStr, OsString};
+use std::future::Future;
 use std::io;
 use std::os::fd::AsRawFd;
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::os::unix::io::FromRawFd;
+use std::os::unix::process::ExitStatusExt as _;
 use std::path::{Path, PathBuf};
+use std::pin::Pin;
 use std::process::{ExitStatus, Output};
 use std::ptr;
+use std::sync::{Arc, Mutex, MutexGuard};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Stdio {
@@ -229,10 +233,128 @@ impl Command {
 
 #[derive(Debug)]
 pub struct Child {
-    inner: smol::process::Child,
+    inner: Arc<PosixChild>,
     pub stdin: Option<Async<std::fs::File>>,
     pub stdout: Option<Async<std::fs::File>>,
     pub stderr: Option<Async<std::fs::File>>,
+}
+
+/// Async-process cannot adopt a `posix_spawn` PID on crates.io. Keep the
+/// small ownership/reaping layer here so this crate remains publishable while
+/// retaining the Darwin-specific spawn setup above.
+#[derive(Debug)]
+struct PosixChild {
+    state: Mutex<PosixChildState>,
+}
+
+#[derive(Debug)]
+struct PosixChildState {
+    pid: libc::pid_t,
+    kill_on_drop: bool,
+    status: Option<ExitStatus>,
+}
+
+impl PosixChild {
+    fn new(pid: libc::pid_t, kill_on_drop: bool) -> Self {
+        Self {
+            state: Mutex::new(PosixChildState {
+                pid,
+                kill_on_drop,
+                status: None,
+            }),
+        }
+    }
+
+    fn state(&self) -> io::Result<MutexGuard<'_, PosixChildState>> {
+        self.state
+            .lock()
+            .map_err(|_| io::Error::other("posix child state lock poisoned"))
+    }
+
+    fn id(&self) -> u32 {
+        self.state()
+            .map(|state| state.pid as u32)
+            .unwrap_or_default()
+    }
+
+    fn kill(&self) -> io::Result<()> {
+        let state = self.state()?;
+        if state.status.is_some() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "process has already exited",
+            ));
+        }
+        cvt_nz(unsafe { libc::kill(state.pid, libc::SIGKILL) })
+    }
+
+    fn try_status(&self) -> io::Result<Option<ExitStatus>> {
+        let mut state = self.state()?;
+        if let Some(status) = state.status {
+            return Ok(Some(status));
+        }
+        let mut status = 0;
+        loop {
+            let result = unsafe { libc::waitpid(state.pid, &mut status, libc::WNOHANG) };
+            if result == 0 {
+                return Ok(None);
+            }
+            if result == state.pid {
+                let status = ExitStatus::from_raw(status);
+                state.status = Some(status);
+                return Ok(Some(status));
+            }
+            if result == -1 && io::Error::last_os_error().kind() == io::ErrorKind::Interrupted {
+                continue;
+            }
+            return Err(io::Error::last_os_error());
+        }
+    }
+
+    fn wait(&self) -> io::Result<ExitStatus> {
+        let mut state = self.state()?;
+        if let Some(status) = state.status {
+            return Ok(status);
+        }
+        let mut status = 0;
+        loop {
+            let result = unsafe { libc::waitpid(state.pid, &mut status, 0) };
+            if result == state.pid {
+                let status = ExitStatus::from_raw(status);
+                state.status = Some(status);
+                return Ok(status);
+            }
+            if result == -1 && io::Error::last_os_error().kind() == io::ErrorKind::Interrupted {
+                continue;
+            }
+            return Err(io::Error::last_os_error());
+        }
+    }
+}
+
+impl Drop for PosixChild {
+    fn drop(&mut self) {
+        let Ok(state) = self.state.get_mut() else {
+            return;
+        };
+        if state.status.is_some() {
+            return;
+        }
+        let pid = state.pid;
+        let kill_on_drop = state.kill_on_drop;
+        let _ = std::thread::Builder::new()
+            .name("util-child-reaper".into())
+            .spawn(move || {
+                if kill_on_drop {
+                    let _ = unsafe { libc::kill(pid, libc::SIGKILL) };
+                }
+                let mut status = 0;
+                while unsafe { libc::waitpid(pid, &mut status, 0) } == -1
+                    && io::Error::last_os_error().kind() == io::ErrorKind::Interrupted
+                {
+                }
+            });
+    }
 }
 
 impl Child {
@@ -250,9 +372,10 @@ impl Child {
 
     pub fn status(
         &mut self,
-    ) -> impl std::future::Future<Output = io::Result<ExitStatus>> + Send + 'static {
+    ) -> Pin<Box<dyn Future<Output = io::Result<ExitStatus>> + Send + 'static>> {
         self.stdin.take();
-        self.inner.status()
+        let inner = Arc::clone(&self.inner);
+        Box::pin(async move { smol::unblock(move || inner.wait()).await })
     }
 
     pub async fn output(mut self) -> io::Result<Output> {
@@ -494,7 +617,7 @@ fn spawn_posix_spawn(
 
         cvt_nz(spawn_result)?;
 
-        let inner = smol::process::Child::adopt_raw_pid(pid as u32, true, kill_on_drop)?;
+        let inner = Arc::new(PosixChild::new(pid, kill_on_drop));
 
         Ok(Child {
             inner,
@@ -571,8 +694,6 @@ fn invalid_input_error() -> io::Error {
 
 #[cfg(test)]
 mod tests {
-    use std::os::unix::process::ExitStatusExt as _;
-
     use super::*;
     use futures_lite::AsyncWriteExt;
 

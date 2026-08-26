@@ -209,7 +209,7 @@ impl SplitPane {
         // Divider
         let mut divider = match self.direction {
             SplitDirection::Horizontal => div()
-                .id("split-divider")
+                .id((self.id.clone(), "divider"))
                 .w(divider_width)
                 .h_full()
                 .flex()
@@ -230,7 +230,7 @@ impl SplitPane {
                 .hover(move |s| s.bg(divider_gutter_hover).border_color(divider_hover))
                 .active(move |s| s.bg(divider_gutter_hover).border_color(divider_active)),
             SplitDirection::Vertical => div()
-                .id("split-divider")
+                .id((self.id.clone(), "divider"))
                 .h(divider_width)
                 .w_full()
                 .flex()

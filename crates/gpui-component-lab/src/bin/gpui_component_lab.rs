@@ -34,7 +34,7 @@ struct Args {
     /// Root scanned by `--supervise-rust`.
     #[arg(long, default_value = "crates/gpui-toolkit")]
     rust_watch_root: PathBuf,
-    /// Child command relaunched by `--supervise-rust`.
+    /// Shell-style child command relaunched by `--supervise-rust`.
     #[arg(long)]
     child_command: Option<String>,
     /// Emit the built-in registry as JSON.
@@ -551,10 +551,49 @@ fn supervise_rust_source(root: &Path, child_command: Option<&str>) -> Result<()>
 }
 
 fn spawn_child(command: &str) -> Result<Child> {
-    let mut parts = command.split_whitespace();
-    let program = parts.next().context("child command must not be empty")?;
+    let (program, args) = parse_child_command(command)?;
     Command::new(program)
-        .args(parts)
+        .args(args)
         .spawn()
         .with_context(|| format!("spawn child command '{command}'"))
+}
+
+fn parse_child_command(command: &str) -> Result<(String, Vec<String>)> {
+    let parts =
+        shlex::split(command).context("child command must use valid shell-style quoting")?;
+    let (program, args) = parts
+        .split_first()
+        .context("child command must not be empty")?;
+    Ok((program.clone(), args.to_vec()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_child_command;
+
+    #[test]
+    fn child_command_preserves_quoted_arguments() {
+        let (program, args) = parse_child_command(
+            "cargo run -p gpui-component-lab -- --stories-dir 'stories with spaces'",
+        )
+        .expect("quoted child command");
+
+        assert_eq!(program, "cargo");
+        assert_eq!(
+            args,
+            [
+                "run",
+                "-p",
+                "gpui-component-lab",
+                "--",
+                "--stories-dir",
+                "stories with spaces",
+            ]
+        );
+    }
+
+    #[test]
+    fn child_command_rejects_unclosed_quote() {
+        assert!(parse_child_command("cargo run 'unterminated").is_err());
+    }
 }

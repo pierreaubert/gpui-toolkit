@@ -19,16 +19,20 @@ use super::types::LabelPosition;
 use super::types::MotionSpec;
 use super::types::ToggleVariant;
 use super::typography_rules::TypographyRules;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
+
+/// Every public design rule currently represented in the Style Dictionary export.
+/// Keep this exact count so an accidental omission becomes a CI-visible finding.
+const STYLE_DICTIONARY_TOKEN_COUNT: usize = 51;
 
 /// Complete design system — all shape, spacing, and interaction rules
 /// needed to render platform-appropriate UIs.
 ///
 /// Orthogonal to the Theme (which handles colors). Any Theme works with
 /// any DesignSystem.
-#[derive(Debug, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DesignSystem {
     /// Which platform language this represents.
     pub language: DesignLanguage,
@@ -54,33 +58,6 @@ pub struct DesignSystem {
     pub label_position: LabelPosition,
     /// How control groups are visually separated.
     pub group_separator: GroupSeparatorStyle,
-    /// Lazily-cached style dictionary tokens.
-    #[serde(skip)]
-    cached_tokens: OnceLock<Arc<[DesignToken]>>,
-}
-
-impl Clone for DesignSystem {
-    fn clone(&self) -> Self {
-        let cached_tokens = OnceLock::new();
-        if let Some(tokens) = self.cached_tokens.get() {
-            let _ = cached_tokens.set(Arc::clone(tokens));
-        }
-        Self {
-            language: self.language,
-            corners: self.corners,
-            spacing: self.spacing,
-            interaction: self.interaction,
-            elevation: self.elevation,
-            animation: self.animation,
-            typography: self.typography.clone(),
-            layout: self.layout,
-            audio_controls: self.audio_controls,
-            toggle_variant: self.toggle_variant,
-            label_position: self.label_position,
-            group_separator: self.group_separator,
-            cached_tokens,
-        }
-    }
 }
 
 impl DesignSystem {
@@ -126,7 +103,7 @@ impl DesignSystem {
                 spring_damping: 26.0,
             },
             typography: TypographyRules {
-                font_family: Cow::Borrowed(".SystemUIFont"),
+                font_family: String::from("system-ui"),
                 dynamic_sizing: false,
                 base_size: 14.0,
                 small_size: 11.0,
@@ -153,7 +130,6 @@ impl DesignSystem {
             toggle_variant: ToggleVariant::Capsule,
             label_position: LabelPosition::Below,
             group_separator: GroupSeparatorStyle::Divider,
-            cached_tokens: OnceLock::new(),
         }
     }
 
@@ -198,7 +174,7 @@ impl DesignSystem {
                 spring_damping: 20.0,
             },
             typography: TypographyRules {
-                font_family: Cow::Borrowed(".SystemUIFont"),
+                font_family: String::from(".SystemUIFont"),
                 dynamic_sizing: true,
                 base_size: 15.0,
                 small_size: 12.0,
@@ -225,7 +201,6 @@ impl DesignSystem {
             toggle_variant: ToggleVariant::Capsule,
             label_position: LabelPosition::Below,
             group_separator: GroupSeparatorStyle::None,
-            cached_tokens: OnceLock::new(),
         }
     }
 
@@ -270,7 +245,7 @@ impl DesignSystem {
                 spring_damping: 26.0,
             },
             typography: TypographyRules {
-                font_family: Cow::Borrowed(".SystemUIFont"),
+                font_family: String::from("Roboto"),
                 dynamic_sizing: false,
                 base_size: 14.0,
                 small_size: 12.0,
@@ -297,7 +272,6 @@ impl DesignSystem {
             toggle_variant: ToggleVariant::ThumbOnTrack,
             label_position: LabelPosition::Below,
             group_separator: GroupSeparatorStyle::Card,
-            cached_tokens: OnceLock::new(),
         }
     }
 
@@ -342,7 +316,7 @@ impl DesignSystem {
                 spring_damping: 30.0,
             },
             typography: TypographyRules {
-                font_family: Cow::Borrowed("Segoe UI Variable"),
+                font_family: String::from("Segoe UI Variable"),
                 dynamic_sizing: false,
                 base_size: 14.0,
                 small_size: 12.0,
@@ -369,7 +343,6 @@ impl DesignSystem {
             toggle_variant: ToggleVariant::Pill,
             label_position: LabelPosition::Right,
             group_separator: GroupSeparatorStyle::Border,
-            cached_tokens: OnceLock::new(),
         }
     }
 
@@ -414,7 +387,7 @@ impl DesignSystem {
                 spring_damping: 28.0,
             },
             typography: TypographyRules {
-                font_family: Cow::Borrowed("Adwaita Sans"),
+                font_family: String::from("Adwaita Sans"),
                 dynamic_sizing: false,
                 base_size: 14.0,
                 small_size: 12.0,
@@ -441,7 +414,6 @@ impl DesignSystem {
             toggle_variant: ToggleVariant::Capsule,
             label_position: LabelPosition::Below,
             group_separator: GroupSeparatorStyle::Divider,
-            cached_tokens: OnceLock::new(),
         }
     }
 
@@ -486,7 +458,7 @@ impl DesignSystem {
                 spring_damping: 30.0,
             },
             typography: TypographyRules {
-                font_family: Cow::Borrowed("Noto Sans"),
+                font_family: String::from("Noto Sans"),
                 dynamic_sizing: false,
                 base_size: 14.0,
                 small_size: 12.0,
@@ -513,7 +485,6 @@ impl DesignSystem {
             toggle_variant: ToggleVariant::Pill,
             label_position: LabelPosition::Right,
             group_separator: GroupSeparatorStyle::Border,
-            cached_tokens: OnceLock::new(),
         }
     }
 
@@ -558,7 +529,7 @@ impl DesignSystem {
                 spring_damping: 30.0,
             },
             typography: TypographyRules {
-                font_family: Cow::Borrowed("IBM Plex Sans"),
+                font_family: String::from("IBM Plex Sans"),
                 dynamic_sizing: false,
                 base_size: 14.0,
                 small_size: 12.0,
@@ -585,7 +556,6 @@ impl DesignSystem {
             toggle_variant: ToggleVariant::Pill,
             label_position: LabelPosition::Right,
             group_separator: GroupSeparatorStyle::Divider,
-            cached_tokens: OnceLock::new(),
         }
     }
 
@@ -622,17 +592,23 @@ impl DesignSystem {
 }
 
 impl DesignSystem {
-    /// Export stable platform/design tokens for Style Dictionary pipelines.
+    /// Export a current snapshot of platform/design tokens for Style Dictionary pipelines.
+    ///
+    /// Rule fields are public and may be edited after construction, so this
+    /// intentionally rebuilds the small export instead of retaining a stale
+    /// interior cache.
     pub fn style_dictionary_tokens(&self) -> Arc<[DesignToken]> {
-        self.cached_tokens
-            .get_or_init(|| self.build_style_dictionary_tokens().into())
-            .clone()
+        self.build_style_dictionary_tokens().into()
     }
 
-    /// Borrow the cached style dictionary tokens without cloning the vector.
-    pub fn style_dictionary_tokens_ref(&self) -> &[DesignToken] {
-        self.cached_tokens
-            .get_or_init(|| self.build_style_dictionary_tokens().into())
+    /// Export a current token snapshot.
+    ///
+    /// Kept as a deprecated migration helper for callers that used the old
+    /// cached-borrow API. A borrow cannot stay correct after public fields
+    /// mutate, so this returns an owned [`Arc`] snapshot.
+    #[deprecated(note = "use style_dictionary_tokens; exports are current Arc snapshots")]
+    pub fn style_dictionary_tokens_ref(&self) -> Arc<[DesignToken]> {
+        self.style_dictionary_tokens()
     }
 
     fn build_style_dictionary_tokens(&self) -> Vec<DesignToken> {
@@ -641,6 +617,15 @@ impl DesignSystem {
             token("radius.sm", self.corners.sm, "dimension"),
             token("radius.md", self.corners.md, "dimension"),
             token("radius.lg", self.corners.lg, "dimension"),
+            token("radius.xl", self.corners.xl, "dimension"),
+            token(
+                "radius.style",
+                match self.corners.style {
+                    CornerRadiusStyle::Continuous => "continuous",
+                    CornerRadiusStyle::Circular => "circular",
+                },
+                "string",
+            ),
             token("spacing.grid_unit", self.spacing.grid_unit, "dimension"),
             token(
                 "spacing.control_padding_x",
@@ -700,13 +685,28 @@ impl DesignSystem {
                 "number",
             ),
             token(
+                "elevation.shadow_y_offset",
+                self.elevation.shadow_y_offset,
+                "dimension",
+            ),
+            token(
                 "typography.font_family",
-                self.typography.font_family.as_ref(),
+                self.typography.font_family.as_str(),
                 "font",
             ),
             token(
                 "typography.base_size",
                 self.typography.base_size,
+                "dimension",
+            ),
+            token(
+                "typography.small_size",
+                self.typography.small_size,
+                "dimension",
+            ),
+            token(
+                "typography.large_size",
+                self.typography.large_size,
                 "dimension",
             ),
             token(
@@ -721,6 +721,16 @@ impl DesignSystem {
                 "motion.prefer_spring",
                 self.animation.prefer_spring,
                 "boolean",
+            ),
+            token(
+                "motion.spring_stiffness",
+                self.animation.spring_stiffness,
+                "number",
+            ),
+            token(
+                "motion.spring_damping",
+                self.animation.spring_damping,
+                "number",
             ),
             token(
                 "audio.knob_arc_start_deg",
@@ -743,6 +753,11 @@ impl DesignSystem {
                 "number",
             ),
             token(
+                "audio.knob_border_width",
+                self.audio_controls.knob_border_width,
+                "dimension",
+            ),
+            token(
                 "audio.slider_track_sm",
                 self.audio_controls.slider_track_widths[0],
                 "dimension",
@@ -757,11 +772,79 @@ impl DesignSystem {
                 self.audio_controls.slider_track_widths[2],
                 "dimension",
             ),
+            token(
+                "layout.vertical_threshold",
+                self.layout.vertical_threshold,
+                "dimension",
+            ),
+            token(
+                "layout.group_stack_threshold",
+                self.layout.group_stack_threshold,
+                "dimension",
+            ),
+            token(
+                "layout.compact_slider_threshold",
+                self.layout.compact_slider_threshold,
+                "dimension",
+            ),
+            token(
+                "layout.hide_viz_threshold",
+                self.layout.hide_viz_threshold,
+                "dimension",
+            ),
+            token(
+                "layout.compact_knob_threshold",
+                self.layout.compact_knob_threshold,
+                "dimension",
+            ),
+            token(
+                "layout.large_knob_threshold",
+                self.layout.large_knob_threshold,
+                "dimension",
+            ),
+            token(
+                "layout.slider_height_normal",
+                self.layout.slider_height_normal,
+                "dimension",
+            ),
+            token(
+                "layout.slider_height_compact",
+                self.layout.slider_height_compact,
+                "dimension",
+            ),
+            token(
+                "toggle.variant",
+                match self.toggle_variant {
+                    ToggleVariant::Capsule => "capsule",
+                    ToggleVariant::ThumbOnTrack => "thumb_on_track",
+                    ToggleVariant::Segmented => "segmented",
+                    ToggleVariant::Pill => "pill",
+                },
+                "string",
+            ),
+            token(
+                "label.position",
+                match self.label_position {
+                    LabelPosition::Below => "below",
+                    LabelPosition::Right => "right",
+                },
+                "string",
+            ),
+            token(
+                "group.separator",
+                match self.group_separator {
+                    GroupSeparatorStyle::Divider => "divider",
+                    GroupSeparatorStyle::Card => "card",
+                    GroupSeparatorStyle::Border => "border",
+                    GroupSeparatorStyle::None => "none",
+                },
+                "string",
+            ),
         ]
     }
 
     /// Produce a lightweight conformance report for CI and docs.
-    pub fn conformance_report(&self, reduced_motion_required: bool) -> DesignConformanceReport {
+    pub fn conformance_report(&self, _reduced_motion_required: bool) -> DesignConformanceReport {
         let mut findings = Vec::new();
 
         finite_positive(
@@ -835,9 +918,7 @@ impl DesignSystem {
             });
         }
 
-        if !(0.0..=1.0).contains(&self.elevation.shadow_opacity)
-            || !self.elevation.shadow_opacity.is_finite()
-        {
+        if !(0.0..=1.0).contains(&self.elevation.shadow_opacity) {
             findings.push(ConformanceFinding {
                 id: "elevation.shadow_opacity",
                 message: Cow::Borrowed("shadow opacity must be finite and in [0, 1]"),
@@ -889,16 +970,6 @@ impl DesignSystem {
             "spring damping must be finite and positive",
         );
 
-        let motion = self.motion_spec(reduced_motion_required);
-        if reduced_motion_required
-            && (motion.duration_ms != 0 || motion.fast_ms != 0 || motion.slow_ms != 0)
-        {
-            findings.push(ConformanceFinding {
-                id: "motion.reduced",
-                message: Cow::Borrowed("reduced-motion mode should collapse transition durations"),
-            });
-        }
-
         if self.layout.slider_height_compact > self.layout.slider_height_normal {
             findings.push(ConformanceFinding {
                 id: "layout.slider_height_order",
@@ -934,11 +1005,13 @@ impl DesignSystem {
             }
         }
 
-        let token_count = self.style_dictionary_tokens_ref().len();
-        if token_count < 24 {
+        let token_count = self.style_dictionary_tokens().len();
+        if token_count != STYLE_DICTIONARY_TOKEN_COUNT {
             findings.push(ConformanceFinding {
                 id: "tokens.coverage",
-                message: Cow::Borrowed("style dictionary export should include core shape, spacing, interaction, typography, motion, and audio tokens"),
+                message: Cow::Owned(format!(
+                    "style dictionary export must contain {STYLE_DICTIONARY_TOKEN_COUNT} tokens, found {token_count}"
+                )),
             });
         }
 

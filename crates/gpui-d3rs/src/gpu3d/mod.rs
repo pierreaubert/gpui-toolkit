@@ -36,6 +36,7 @@ mod lines;
 mod mesh;
 mod renderer;
 mod shaders;
+mod surface_wgpu_draw;
 
 pub use camera::{Camera3D, OrbitControls, Projection, StandardView};
 pub use config::{Colormap, Surface3DConfig, SurfacePlotType};

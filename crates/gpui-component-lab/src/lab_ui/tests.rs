@@ -28,6 +28,8 @@ use crate::{
     UI_KIT_EXPORTED_COMPONENT_STORY_IDS,
 };
 use gpui::SharedString;
+#[cfg(feature = "visual-capture")]
+use gpui::{AppContext as _, TestAppContext};
 use gpui_px::{Colormap, ScaleType};
 use gpui_showcase::showcase::ShowcaseSection;
 use gpui_ui_kit::ButtonVariant;
@@ -38,8 +40,9 @@ use std::collections::BTreeMap;
 fn story_file_names_are_stable() {
     assert_eq!(
         story_file_name("audio-kit.potentiometer"),
-        "audio_kit_potentiometer.story.json"
+        "audio~2dkit~2dpotentiometer.story.json"
     );
+    assert_ne!(story_file_name("a.b"), story_file_name("a-b"));
 }
 
 #[test]
@@ -173,6 +176,125 @@ fn initial_state_uses_saved_layout_when_valid() {
     assert_eq!(state.layout_constraints.overflow, PreviewOverflow::Visible);
 }
 
+#[cfg(feature = "visual-capture")]
+#[gpui::test]
+async fn manual_reload_restores_selected_document_layout(cx: &mut TestAppContext) {
+    let temporary = tempfile::tempdir().expect("temporary story directory");
+    let stories_dir = temporary.path().join("stories");
+    std::fs::create_dir_all(&stories_dir).expect("create story directory");
+
+    let story = crate::builtin_story_registry()
+        .expect("builtin story registry")
+        .story("ui-kit.button")
+        .expect("button story")
+        .clone();
+    let viewport_id = story
+        .viewports
+        .last()
+        .expect("button viewport preset")
+        .id
+        .to_string();
+    let theme_id = story
+        .themes
+        .last()
+        .expect("button theme preset")
+        .id
+        .to_string();
+    let motion_id = story
+        .motions
+        .last()
+        .expect("button motion preset")
+        .id
+        .to_string();
+    let mut persisted = StoryDocument::new(story);
+    persisted.layout = json!({
+        "viewport": viewport_id,
+        "theme": theme_id,
+        "motion": motion_id,
+        "matrix": true,
+        "constraints": {
+            "sizing": "fixed",
+            "min_width": 440.0,
+            "padding": 16.0,
+        },
+        "builder": {
+            "horizontal_align": "start",
+            "overflow": "visible",
+        },
+    });
+    let expected = InitialLabState::from_document(&persisted);
+    persisted
+        .save_story_json(&stories_dir.join("button.story.json"))
+        .expect("write persisted story");
+
+    let config = super::lab_app_config::LabAppConfig::new(stories_dir, Vec::new());
+    let lab = cx.new(|cx| ComponentLab::new(config, cx));
+    lab.update(cx, |lab, cx| {
+        lab.select_story("ui-kit.button".to_owned(), cx);
+        lab.set_viewport("stale-viewport", cx);
+        lab.set_theme("stale-theme", cx);
+        lab.set_motion("stale-motion", cx);
+        lab.set_layout_min_width(1600.0, cx);
+        if lab.matrix_mode {
+            lab.toggle_matrix(cx);
+        }
+
+        lab.reload_documents(cx);
+
+        assert_eq!(lab.selected_viewport_id, expected.viewport_id);
+        assert_eq!(lab.selected_theme_id, expected.theme_id);
+        assert_eq!(lab.selected_motion_id, expected.motion_id);
+        assert_eq!(lab.matrix_mode, expected.matrix_mode);
+        assert_eq!(lab.layout_constraints, expected.layout_constraints);
+        assert_eq!(lab.save_status.as_deref(), Some("Reloaded story JSON"));
+        lab.sync_layout_state();
+        assert_eq!(lab.save_status.as_deref(), Some("Reloaded story JSON"));
+    });
+}
+
+#[cfg(feature = "visual-capture")]
+#[gpui::test]
+async fn stateful_preview_survives_parent_layout_redraw(cx: &mut TestAppContext) {
+    let temporary = tempfile::tempdir().expect("temporary story directory");
+    let config =
+        super::lab_app_config::LabAppConfig::new(temporary.path().join("stories"), Vec::new());
+    let lab = cx.new(|cx| ComponentLab::new(config, cx));
+
+    lab.update(cx, |lab, cx| {
+        lab.select_story("ui-kit.color-picker".to_owned(), cx);
+        let original_entity_id = lab
+            .retained_stateful_preview_id()
+            .expect("color picker has a retained preview entity");
+
+        lab.set_layout_padding(24.0, cx);
+
+        assert_eq!(
+            lab.retained_stateful_preview_id(),
+            Some(original_entity_id),
+            "an unrelated parent redraw must not recreate the color picker"
+        );
+    });
+}
+
+#[cfg(feature = "visual-capture")]
+#[gpui::test]
+async fn switching_showcase_stories_releases_inactive_showcase(cx: &mut TestAppContext) {
+    let temporary = tempfile::tempdir().expect("temporary story directory");
+    let config =
+        super::lab_app_config::LabAppConfig::new(temporary.path().join("stories"), Vec::new());
+    let lab = cx.new(|cx| ComponentLab::new(config, cx));
+
+    lab.update(cx, |lab, cx| {
+        lab.select_story("ui-kit.command-palette".to_owned(), cx);
+        assert_eq!(lab.ui_showcases.len(), 1);
+        assert!(lab.ui_showcases.contains_key("ui-kit.command-palette"));
+
+        lab.select_story("ui-kit.accessibility".to_owned(), cx);
+        assert_eq!(lab.ui_showcases.len(), 1);
+        assert!(lab.ui_showcases.contains_key("ui-kit.accessibility"));
+    });
+}
+
 #[test]
 fn px_line_story_data_is_chart_safe() {
     let sweep = line_story_data("sweep");
@@ -257,10 +379,12 @@ fn surface_colormap_names_are_stable() {
 fn lab_ids_are_stable_and_cached() {
     let first = lab_id(&["story", "ui-kit.button"]);
     let second = lab_id(&["story", "ui-kit.button"]);
-    assert_eq!(first, "lab-story-ui-kit-button");
+    assert_eq!(first, "lab-story-ui~2dkit~2ebutton");
     assert_eq!(first, second);
 
-    assert_eq!(id_fragment("ui-kit.button"), "ui-kit-button");
+    assert_eq!(id_fragment("ui-kit.button"), "ui~2dkit~2ebutton");
+    assert_ne!(lab_id(&["story", "a.b"]), lab_id(&["story", "a-b"]));
+    assert_ne!(id_fragment("a.b"), id_fragment("a-b"));
     assert!(matches!(
         id_fragment("alphanumeric"),
         std::borrow::Cow::Borrowed(_)

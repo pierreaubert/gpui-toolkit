@@ -4,6 +4,7 @@ use super::super::config::SurfacePlotType;
 use super::super::data::SurfaceData;
 use super::super::mesh::SurfaceMesh;
 use super::super::renderer::Surface3DRenderer;
+use super::super::surface_wgpu_draw::{SurfaceWgpuDraw, SurfaceWgpuRegistration};
 use super::angle::angle_major_ticks;
 use super::cartesian::cartesian_grid_lines;
 use super::consts::{MAX_SURFACE_RENDER_DIMENSION, MAX_SURFACE_RENDER_PIXELS};
@@ -21,15 +22,19 @@ use crate::shape::contour_smoothing::StrokePoint;
 use crate::text::{GlyphTextConfig, HorizontalTextAnchor, VerticalTextAnchor, paint_chart_text_at};
 use glam::Vec3;
 use gpui::*;
+#[cfg(feature = "headless-qa")]
 use image::{Frame, RgbaImage};
 use std::cell::RefCell;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::panic;
 use std::rc::Rc;
+#[cfg(feature = "headless-qa")]
 use std::sync::Arc;
 
-/// Cached offscreen surface render result.
+/// CPU readback cache retained only for headless QA captures.
+#[cfg(feature = "headless-qa")]
+#[allow(dead_code)]
 #[derive(Clone)]
 pub(super) struct SurfaceTextureCache {
     pub key: u64,
@@ -55,11 +60,17 @@ pub(super) struct SurfaceGeometryCache {
 #[derive(Clone)]
 pub struct Surface3DElement {
     pub(super) data: SurfaceData,
+    data_revision: u64,
+    mesh_revision: u64,
+    config_revision: u64,
     pub(super) config: Surface3DConfig,
     pub(super) state: Rc<RefCell<Surface3DState>>,
     pub(super) renderer: Rc<RefCell<Option<Surface3DRenderer>>>,
     pub(super) mesh: Rc<RefCell<Option<SurfaceMesh>>>,
+    #[cfg(feature = "headless-qa")]
+    #[allow(dead_code)]
     pub(super) surface_cache: Rc<RefCell<Option<SurfaceTextureCache>>>,
+    gpu_draw: Rc<SurfaceWgpuRegistration>,
     pub(super) geometry_cache: Rc<RefCell<Option<SurfaceGeometryCache>>>,
 }
 
@@ -72,13 +83,21 @@ impl Surface3DElement {
             config.camera_elevation,
         );
 
+        let renderer = Rc::new(RefCell::new(None));
+        let mesh = Rc::new(RefCell::new(None));
+        let gpu_draw = SurfaceWgpuDraw::register(Rc::clone(&renderer), Rc::clone(&mesh));
         Self {
             data,
+            data_revision: 0,
+            mesh_revision: 0,
+            config_revision: 0,
             config,
             state: Rc::new(RefCell::new(state)),
-            renderer: Rc::new(RefCell::new(None)),
-            mesh: Rc::new(RefCell::new(None)),
+            renderer,
+            mesh,
+            #[cfg(feature = "headless-qa")]
             surface_cache: Rc::new(RefCell::new(None)),
+            gpu_draw,
             geometry_cache: Rc::new(RefCell::new(None)),
         }
     }
@@ -91,9 +110,14 @@ impl Surface3DElement {
     /// Update the surface data
     pub fn set_data(&mut self, data: SurfaceData) {
         self.data = data;
+        self.data_revision = self.data_revision.wrapping_add(1);
+        self.mesh_revision = self.mesh_revision.wrapping_add(1);
         // Clear cached mesh, surface render, and paint geometry to force regeneration
         *self.mesh.borrow_mut() = None;
-        *self.surface_cache.borrow_mut() = None;
+        #[cfg(feature = "headless-qa")]
+        {
+            *self.surface_cache.borrow_mut() = None;
+        }
         *self.geometry_cache.borrow_mut() = None;
     }
 
@@ -102,10 +126,15 @@ impl Surface3DElement {
         // If plot type changes, we need to regenerate the mesh
         if self.config.plot_type != config.plot_type {
             *self.mesh.borrow_mut() = None;
+            self.mesh_revision = self.mesh_revision.wrapping_add(1);
         }
         // If any render-relevant setting changes, invalidate the cached surface texture.
         if surface_render_config_changed(&self.config, &config) {
-            *self.surface_cache.borrow_mut() = None;
+            #[cfg(feature = "headless-qa")]
+            {
+                *self.surface_cache.borrow_mut() = None;
+            }
+            self.config_revision = self.config_revision.wrapping_add(1);
         }
         // Isoline / label settings may change independently; invalidate geometry cache.
         *self.geometry_cache.borrow_mut() = None;
@@ -126,21 +155,19 @@ impl Surface3DElement {
         self
     }
 
+    #[cfg(feature = "headless-qa")]
     pub(super) fn ensure_renderer(&self) -> bool {
         let mut renderer_ref = self.renderer.borrow_mut();
         if renderer_ref.is_none() {
-            *renderer_ref = Some(Surface3DRenderer::new(self.config.clone()));
+            *renderer_ref = Surface3DRenderer::new(self.config.clone());
         }
-        true
+        renderer_ref.is_some()
     }
 
     pub(super) fn ensure_mesh(&self) {
         let mut mesh_ref = self.mesh.borrow_mut();
         if mesh_ref.is_none() {
             let mesh = SurfaceMesh::from_data(&self.data, self.config.plot_type);
-            if let Some(renderer) = self.renderer.borrow_mut().as_mut() {
-                renderer.set_mesh(&mesh);
-            }
             *mesh_ref = Some(mesh);
         }
     }
@@ -179,27 +206,10 @@ impl Surface3DElement {
         camera.near.to_bits().hash(&mut hasher);
         camera.far.to_bits().hash(&mut hasher);
 
-        // Data
-        for x in &self.data.x_values {
-            x.to_bits().hash(&mut hasher);
-        }
-        for y in &self.data.y_values {
-            y.to_bits().hash(&mut hasher);
-        }
-        for row in &self.data.z_values {
-            for z in row {
-                z.to_bits().hash(&mut hasher);
-            }
-        }
-        self.data.x_min.to_bits().hash(&mut hasher);
-        self.data.x_max.to_bits().hash(&mut hasher);
-        self.data.y_min.to_bits().hash(&mut hasher);
-        self.data.y_max.to_bits().hash(&mut hasher);
-        self.data.z_min.to_bits().hash(&mut hasher);
-        self.data.z_max.to_bits().hash(&mut hasher);
-        self.data.x_log.hash(&mut hasher);
-        self.data.y_log.hash(&mut hasher);
-        self.data.z_log.hash(&mut hasher);
+        // Surface data is only replaceable through `set_data`, which advances
+        // this revision and clears both dependent caches. Hashing the revision
+        // keeps ordinary paint calls independent of grid resolution.
+        self.data_revision.hash(&mut hasher);
 
         // Render-relevant config
         (self.config.colormap as i32).hash(&mut hasher);
@@ -569,7 +579,36 @@ impl Surface3DElement {
         });
     }
 
+    /// Paint the retained GPU surface directly into GPUI's WGPU frame.
+    ///
+    /// The custom draw owns the same-device offscreen texture and composites
+    /// it without creating a `RenderImage` or mapping a staging buffer.
+    pub(super) fn paint_gpu_surface(
+        &self,
+        bounds: Bounds<Pixels>,
+        camera: &Camera3D,
+        texture_size: [u32; 2],
+        window: &mut Window,
+    ) {
+        self.ensure_mesh();
+        let log_settings = self
+            .data
+            .x_log
+            .then_some((self.data.x_min as f32, self.data.x_max as f32));
+        self.gpu_draw.draw.update(
+            camera.clone(),
+            self.config.clone(),
+            log_settings,
+            texture_size,
+            self.mesh_revision,
+            self.config_revision,
+        );
+        window.paint_custom(self.gpu_draw.id, bounds);
+    }
+
     /// Paint the cached surface texture, rendering and caching it on a cache miss.
+    #[cfg(feature = "headless-qa")]
+    #[allow(dead_code)]
     pub(super) fn paint_cached_surface(
         &self,
         bounds: Bounds<Pixels>,
@@ -601,7 +640,9 @@ impl Surface3DElement {
         }
 
         // Render to texture and cache the result.
-        self.ensure_renderer();
+        if !self.ensure_renderer() {
+            return;
+        }
         self.ensure_mesh();
 
         if let Some(renderer) = self.renderer.borrow_mut().as_mut() {
@@ -756,7 +797,7 @@ impl Element for Surface3DElement {
 
         if width_u32 > 0 && height_u32 > 0 {
             let camera = self.state.borrow().camera.clone();
-            self.paint_cached_surface(bounds, width_u32, height_u32, scale_factor, &camera, window);
+            self.paint_gpu_surface(bounds, &camera, [width_u32, height_u32], window);
         }
 
         {

@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use gpui::Keystroke;
+
 use crate::DocumentedKeybinding;
 
 /// A detected keybinding conflict: multiple bindings with the same display key.
@@ -13,6 +15,28 @@ pub struct KeyConflict {
     pub count: usize,
 }
 
+#[derive(Debug, Eq, Hash, PartialEq)]
+enum ConflictIdentity {
+    Parsed(Vec<Keystroke>),
+    Literal(String),
+}
+
+struct ConflictGroup<'a> {
+    key: &'a str,
+    descriptions: Vec<&'a str>,
+}
+
+fn conflict_identity(key_spec: &str) -> ConflictIdentity {
+    match key_spec
+        .split_whitespace()
+        .map(Keystroke::parse)
+        .collect::<Result<Vec<_>, _>>()
+    {
+        Ok(keystrokes) if !keystrokes.is_empty() => ConflictIdentity::Parsed(keystrokes),
+        _ => ConflictIdentity::Literal(key_spec.to_ascii_lowercase()),
+    }
+}
+
 /// Detect conflicting keybindings in a set of documented bindings.
 ///
 /// Returns conflicts where the same raw key spec (or display key when no raw
@@ -20,23 +44,27 @@ pub struct KeyConflict {
 /// Operates on `DocumentedKeybinding` (which has the display key) rather than
 /// GPUI `KeyBinding` (which doesn't expose its key spec).
 pub fn detect_conflicts(bindings: &[DocumentedKeybinding]) -> Vec<KeyConflict> {
-    let mut groups: HashMap<&str, Vec<&str>> = HashMap::new();
+    let mut groups: HashMap<ConflictIdentity, ConflictGroup<'_>> = HashMap::new();
 
     for binding in bindings {
         let conflict_key = binding.raw_key_spec.as_deref().unwrap_or(&binding.key);
         groups
-            .entry(conflict_key)
-            .or_default()
+            .entry(conflict_identity(conflict_key))
+            .or_insert_with(|| ConflictGroup {
+                key: conflict_key,
+                descriptions: Vec::new(),
+            })
+            .descriptions
             .push(&binding.description);
     }
 
     groups
-        .into_iter()
-        .filter(|(_, descs)| descs.len() > 1)
-        .map(|(key, descriptions)| KeyConflict {
-            count: descriptions.len(),
-            key: key.to_string(),
-            descriptions: descriptions.into_iter().map(str::to_string).collect(),
+        .into_values()
+        .filter(|group| group.descriptions.len() > 1)
+        .map(|group| KeyConflict {
+            count: group.descriptions.len(),
+            key: group.key.to_string(),
+            descriptions: group.descriptions.into_iter().map(str::to_string).collect(),
         })
         .collect()
 }
@@ -80,6 +108,30 @@ mod tests {
         assert_eq!(conflicts.len(), 1);
         assert_eq!(conflicts[0].key, "secondary-s");
         assert_eq!(conflicts[0].count, 2);
+    }
+
+    #[test]
+    fn test_detects_conflict_for_case_insensitive_raw_key_specs() {
+        let bindings = vec![
+            DocumentedKeybinding::new("⌘S", "Save", KeybindingCategory::FileOps)
+                .with_raw_key_spec("Secondary-s"),
+            DocumentedKeybinding::new("Ctrl+S", "Save copy", KeybindingCategory::FileOps)
+                .with_raw_key_spec("secondary-s"),
+        ];
+
+        assert_eq!(detect_conflicts(&bindings).len(), 1);
+    }
+
+    #[test]
+    fn test_uppercase_raw_key_is_distinct_from_unshifted_key() {
+        let bindings = vec![
+            DocumentedKeybinding::new("G", "Go to end", KeybindingCategory::Navigation)
+                .with_raw_key_spec("G"),
+            DocumentedKeybinding::new("g", "Go to start", KeybindingCategory::Navigation)
+                .with_raw_key_spec("g"),
+        ];
+
+        assert!(detect_conflicts(&bindings).is_empty());
     }
 
     #[test]

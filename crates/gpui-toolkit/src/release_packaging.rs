@@ -1,7 +1,7 @@
 //! Release packaging evidence for public, beta, internal, and patched crates.
 
 /// Schema version for [`ReleasePackagingReport`].
-pub const RELEASE_PACKAGING_SCHEMA_VERSION: u32 = 1;
+pub const RELEASE_PACKAGING_SCHEMA_VERSION: u32 = 2;
 
 /// Stable report type identifier for [`ReleasePackagingReport`].
 pub const RELEASE_PACKAGING_REPORT_TYPE: &str = "gpui-toolkit-release-packaging";
@@ -13,6 +13,8 @@ pub enum ReleasePackagingStatus {
     Passed,
     /// Packaging was attempted and is blocked by a known predecessor or registry state.
     Blocked,
+    /// Packaging is intentionally postponed until an ordered registry wave.
+    Deferred,
     /// Packaging still needs to be executed before release.
     Pending,
     /// The crate/lane is intentionally not published from this workspace.
@@ -27,6 +29,7 @@ impl ReleasePackagingStatus {
         match self {
             Self::Passed => "passed",
             Self::Blocked => "blocked",
+            Self::Deferred => "deferred",
             Self::Pending => "pending",
             Self::Excluded => "excluded",
             Self::ExternalGate => "external-gate",
@@ -140,18 +143,18 @@ const RELEASE_PACKAGING_ENTRIES: &[ReleasePackagingEntry] = &[
     ReleasePackagingEntry {
         id: "gpui-pretext-dry-run",
         crate_or_lane: "gpui-pretext",
-        lane: "public-core",
+        lane: "deferred-registry",
         command_or_action: "cargo publish --dry-run --locked -p gpui-pretext",
-        status: ReleasePackagingStatus::Excluded,
+        status: ReleasePackagingStatus::Deferred,
         evidence: "Locked dry-run on 2026-08-07 could not resolve the unpublished gpui-profiler dev-dependency from crates.io; gpui-pretext is deferred from registry wave 1.",
         release_requirement: "Publish gpui-profiler, then require a clean locked dry-run before a later registry wave.",
     },
     ReleasePackagingEntry {
         id: "gpui-builder-dry-run",
         crate_or_lane: "gpui-builder",
-        lane: "public-core",
+        lane: "deferred-registry",
         command_or_action: "cargo publish --dry-run --locked -p gpui-builder",
-        status: ReleasePackagingStatus::Excluded,
+        status: ReleasePackagingStatus::Deferred,
         evidence: "Deferred from registry wave 1 because compatible gpui-design and gpui-pretext predecessors are not both published.",
         release_requirement: "Publish predecessors, then require a clean locked dry-run before a later registry wave.",
     },
@@ -280,7 +283,7 @@ mod tests {
             entry.id == "gpui-profiler-dry-run" && entry.status == ReleasePackagingStatus::Passed
         }));
         assert!(entries.iter().any(|entry| {
-            entry.id == "gpui-pretext-dry-run" && entry.status == ReleasePackagingStatus::Excluded
+            entry.id == "gpui-pretext-dry-run" && entry.status == ReleasePackagingStatus::Deferred
         }));
         assert!(entries.iter().any(|entry| {
             entry.id == "internal-aggregate-and-apps"
@@ -302,8 +305,8 @@ mod tests {
         assert!(!blocking.contains(&"gpui-design-dry-run"));
         assert!(!blocking.contains(&"internal-aggregate-and-apps"));
         assert!(!blocking.contains(&"vendored-patches"));
-        assert!(!blocking.contains(&"gpui-pretext-dry-run"));
-        assert!(!blocking.contains(&"gpui-builder-dry-run"));
+        assert!(blocking.contains(&"gpui-pretext-dry-run"));
+        assert!(blocking.contains(&"gpui-builder-dry-run"));
         assert!(blocking.contains(&"platform-installers"));
     }
 

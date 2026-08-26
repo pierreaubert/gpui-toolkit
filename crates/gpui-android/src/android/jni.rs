@@ -44,7 +44,7 @@ use std::{
         Arc, OnceLock,
         atomic::{AtomicBool, Ordering},
     },
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 /// Whether the deferred init-window callback has already been invoked.
@@ -86,7 +86,7 @@ use android_activity::{AndroidApp, MainEvent, PollEvent};
 use super::platform::{AndroidPlatform, SharedPlatform};
 
 use jni::JavaVM;
-use jni::objects::{GlobalRef, JObject, JString, JValue};
+use jni::objects::{Global, JObject, JString, JValue};
 
 // ── JNI helpers (safe `jni` crate wrappers) ──────────────────────────────────
 
@@ -232,7 +232,7 @@ static ANDROID_APP: OnceLock<AndroidApp> = OnceLock::new();
 static PLATFORM: OnceLock<Arc<AndroidPlatform>> = OnceLock::new();
 
 /// Immutable virtual-keyboard character map shared by hardware key events.
-static KEY_CHARACTER_MAP: OnceLock<GlobalRef> = OnceLock::new();
+static KEY_CHARACTER_MAP: OnceLock<Global<JObject<'static>>> = OnceLock::new();
 
 /// Get the unicode character produced by an Android key event via JNI.
 ///
@@ -600,7 +600,7 @@ pub fn run_event_loop(app: &AndroidApp) {
             platform.tick();
         }
 
-        let (poll_timeout, force_frame_after_poll) = PLATFORM
+        let (poll_timeout, force_frame_after_poll, needs_frame_pump) = PLATFORM
             .get()
             .map(|platform| {
                 let needs_frame_pump = app_is_active
@@ -613,9 +613,10 @@ pub fn run_event_loop(app: &AndroidApp) {
                         platform.next_delayed_task_in(Instant::now()),
                     ),
                     !INIT_WINDOW_DONE.load(Ordering::Relaxed),
+                    needs_frame_pump,
                 )
             })
-            .unwrap_or((None, false));
+            .unwrap_or((None, false, false));
         let mut platform_event_woke_frame = false;
 
         // ── Poll for events (non-blocking) ──
@@ -850,7 +851,8 @@ pub fn run_event_loop(app: &AndroidApp) {
         if let Some(platform) = PLATFORM.get() {
             let should_pump_frame = force_frame_after_poll
                 || platform_event_woke_frame
-                || platform.take_main_thread_wake();
+                || platform.take_main_thread_wake()
+                || needs_frame_pump;
             if INIT_WINDOW_DONE.load(Ordering::Relaxed) && app_is_active && should_pump_frame {
                 platform.flush_main_thread_tasks();
                 if let Some(win) = platform.primary_window() {
@@ -1326,6 +1328,25 @@ pub fn notify_accessibility_changed() {
     });
     if let Err(error) = result {
         log::warn!("gpuiAccessibilityChanged failed: {error}");
+    }
+}
+
+/// Reset the Android IME's bounded local context after GPUI switches the
+/// focused input handler. The shadow never determines Rust-side edit ranges.
+pub fn reset_ime_shadow() {
+    let result = with_env(|env| {
+        let activity = activity(env)?;
+        env.call_method(
+            &activity,
+            jni::jni_str!("gpuiResetInputShadow"),
+            jni::jni_sig!("()V"),
+            &[],
+        )
+        .e()?;
+        Ok(())
+    });
+    if let Err(error) = result {
+        log::warn!("gpuiResetInputShadow failed: {error}");
     }
 }
 

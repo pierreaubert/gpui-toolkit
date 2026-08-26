@@ -80,6 +80,8 @@ fn count_prepared_lines_simple(
         let new_w = line_w + w;
         if new_w > max_width + eps {
             if is_simple_collapsible_space(kind) {
+                line_w = 0.0;
+                has_content = false;
                 continue;
             }
             line_w = 0.0;
@@ -91,9 +93,6 @@ fn count_prepared_lines_simple(
         line_w = new_w;
     }
 
-    if !has_content {
-        return line_count + 1;
-    }
     line_count
 }
 

@@ -608,12 +608,31 @@ pub type SelectionCallback = Rc<dyn Fn(Option<MeshPlotPick>)>;
 /// This is deliberately in the runtime library rather than a particular host
 /// binary so resource-backed and inline plots have identical native state,
 /// validation, camera, selection, and colorbar behavior everywhere.
-pub fn build(
+/// Decoded mesh data reused by native construction and the host's
+/// lightweight diagnostics for one validated MeshPlot spec.
+#[derive(Clone)]
+pub struct PreparedMeshPlot {
+    mesh: Arc<TriangleMesh>,
+    field: Option<Arc<ScalarField>>,
+}
+
+impl PreparedMeshPlot {
+    #[must_use]
+    pub fn mesh(&self) -> &TriangleMesh {
+        &self.mesh
+    }
+
+    #[must_use]
+    pub fn field(&self) -> Option<&ScalarField> {
+        self.field.as_deref()
+    }
+}
+
+/// Decode and validate resource-backed or inline mesh data once.
+pub fn prepare(
     spec: &MeshPlotSpec,
     mesh_frames: &MeshFrameStore,
-    retained_state: Option<Rc<RefCell<MeshPlotState>>>,
-    selection_callback: Option<SelectionCallback>,
-) -> Result<(AnyElement, Rc<RefCell<MeshPlotState>>), String> {
+) -> Result<PreparedMeshPlot, String> {
     let geometry = &spec.geometry;
     let mesh_id = geometry.get("id").and_then(Value::as_str).unwrap_or("mesh");
     let mesh = mesh_frames.cached_triangle_mesh(structural_fingerprint(geometry), || {
@@ -628,32 +647,67 @@ pub fn build(
             cell_ids,
         })
     })?;
-    let mut plot = mesh_plot((*mesh).clone()).plot_id(spec.id.clone());
-    if let Some(field) = spec.field.as_ref() {
-        let field = mesh_frames.cached_scalar_field(structural_fingerprint(field), || {
-            let (values, valid) = decode_field(field, mesh_frames)?;
-            let association = match field
-                .get("association")
-                .and_then(Value::as_str)
-                .unwrap_or("vertex")
-            {
-                "cell" => ScalarAssociation::Cell,
-                _ => ScalarAssociation::Vertex,
-            };
-            Ok(ScalarField {
-                id: Arc::from(field.get("id").and_then(Value::as_str).unwrap_or("field")),
-                label: Arc::from(
-                    field
-                        .get("label")
-                        .and_then(Value::as_str)
-                        .unwrap_or("Field"),
-                ),
-                unit: field.get("unit").and_then(Value::as_str).map(Arc::from),
-                values,
-                association,
-                valid,
+
+    let field = spec
+        .field
+        .as_ref()
+        .map(|field| {
+            mesh_frames.cached_scalar_field(structural_fingerprint(field), || {
+                let (values, valid) = decode_field(field, mesh_frames)?;
+                let association = match field
+                    .get("association")
+                    .and_then(Value::as_str)
+                    .unwrap_or("vertex")
+                {
+                    "cell" => ScalarAssociation::Cell,
+                    _ => ScalarAssociation::Vertex,
+                };
+
+                Ok(ScalarField {
+                    id: Arc::from(field.get("id").and_then(Value::as_str).unwrap_or("field")),
+                    label: Arc::from(
+                        field
+                            .get("label")
+                            .and_then(Value::as_str)
+                            .unwrap_or("Field"),
+                    ),
+                    unit: field.get("unit").and_then(Value::as_str).map(Arc::from),
+                    values,
+                    association,
+                    valid,
+                })
             })
-        })?;
+        })
+        .transpose()?;
+
+    Ok(PreparedMeshPlot { mesh, field })
+}
+
+pub fn build(
+    spec: &MeshPlotSpec,
+    mesh_frames: &MeshFrameStore,
+    retained_state: Option<Rc<RefCell<MeshPlotState>>>,
+    selection_callback: Option<SelectionCallback>,
+) -> Result<(AnyElement, Rc<RefCell<MeshPlotState>>), String> {
+    let prepared = prepare(spec, mesh_frames)?;
+    build_prepared(spec, &prepared, retained_state, selection_callback)
+}
+
+/// Build the live native MeshPlot from already decoded mesh data.
+pub fn build_prepared(
+    spec: &MeshPlotSpec,
+    prepared: &PreparedMeshPlot,
+    retained_state: Option<Rc<RefCell<MeshPlotState>>>,
+    selection_callback: Option<SelectionCallback>,
+) -> Result<(AnyElement, Rc<RefCell<MeshPlotState>>), String> {
+    let mesh = Arc::clone(&prepared.mesh);
+    let mesh_id = spec
+        .geometry
+        .get("id")
+        .and_then(Value::as_str)
+        .unwrap_or("mesh");
+    let mut plot = mesh_plot((*mesh).clone()).plot_id(spec.id.clone());
+    if let Some(field) = prepared.field() {
         plot = plot.field((*field).clone());
     }
     let view = match spec.view.as_str() {
@@ -685,31 +739,33 @@ pub fn build(
         "axisymmetric_section" | "axisymmetric_revolve" => (CoordinateAxis::X, CoordinateAxis::Z),
         _ => (CoordinateAxis::X, CoordinateAxis::Y),
     };
-    let mut x_min = f64::INFINITY;
-    let mut x_max = f64::NEG_INFINITY;
-    let mut y_min = f64::INFINITY;
-    let mut y_max = f64::NEG_INFINITY;
-    for position in mesh.positions.iter() {
-        let projected = project_2d(horizontal, vertical, *position);
-        x_min = x_min.min(projected[0]);
-        x_max = x_max.max(projected[0]);
-        y_min = y_min.min(projected[1]);
-        y_max = y_max.max(projected[1]);
-    }
-    let x_min = if x_min.is_finite() { x_min } else { 0.0 };
-    let y_min = if y_min.is_finite() { y_min } else { 0.0 };
-    let x_max = if x_max.is_finite() {
-        x_max.max(x_min + f64::EPSILON)
-    } else {
-        x_min + 1.0
-    };
-    let y_max = if y_max.is_finite() {
-        y_max.max(y_min + f64::EPSILON)
-    } else {
-        y_min + 1.0
-    };
-    let state = retained_state
-        .unwrap_or_else(|| Rc::new(RefCell::new(MeshPlotState::new(x_min, x_max, y_min, y_max))));
+    let state = retained_state.unwrap_or_else(|| {
+        let mut x_min = f64::INFINITY;
+        let mut x_max = f64::NEG_INFINITY;
+        let mut y_min = f64::INFINITY;
+        let mut y_max = f64::NEG_INFINITY;
+        for position in mesh.positions.iter() {
+            let projected = project_2d(horizontal, vertical, *position);
+            x_min = x_min.min(projected[0]);
+            x_max = x_max.max(projected[0]);
+            y_min = y_min.min(projected[1]);
+            y_max = y_max.max(projected[1]);
+        }
+        let x_min = if x_min.is_finite() { x_min } else { 0.0 };
+        let y_min = if y_min.is_finite() { y_min } else { 0.0 };
+        let x_max = if x_max.is_finite() {
+            x_max.max(x_min + f64::EPSILON)
+        } else {
+            x_min + 1.0
+        };
+        let y_max = if y_max.is_finite() {
+            y_max.max(y_min + f64::EPSILON)
+        } else {
+            y_min + 1.0
+        };
+
+        Rc::new(RefCell::new(MeshPlotState::new(x_min, x_max, y_min, y_max)))
+    });
     let configuration_snapshot = state.borrow().configuration_snapshot();
     if let Some([x_min, x_max, y_min, y_max]) = options.viewport {
         state

@@ -1,5 +1,5 @@
 use super::editor_theme::EditorTheme;
-use super::misc::relative_luminance;
+use super::misc::{contrast_ratio, readable_text_color, relative_luminance};
 use super::tui_theme_preset::TuiThemePreset;
 pub use gpui_ui_kit::Color;
 use serde::{Deserialize, Serialize};
@@ -38,11 +38,20 @@ impl TuiAnsiPalette {
         };
         theme.name = self.name.clone();
         theme.background = self.background;
-        theme.surface = self.ansi[0];
-        theme.text_primary = self.foreground;
+        // ANSI index 0 is not necessarily the terminal surface. Using the
+        // terminal background keeps the editor's text/surface WCAG contract
+        // coherent, while still mapping ANSI hues to semantic accents.
+        theme.surface = self.background;
+        theme.surface_hover = self.background;
+        theme.text_primary = if contrast_ratio(self.foreground, self.background) >= 4.5 {
+            self.foreground
+        } else {
+            readable_text_color(self.background)
+        };
         theme.accent = self.ansi[4];
         theme.accent_hover = self.ansi[12];
         theme.accent_muted = self.ansi[4].with_alpha(0.32);
+        theme.text_on_accent = readable_text_color(theme.accent);
         theme.error = self.ansi[1];
         theme.success = self.ansi[2];
         theme.warning = self.ansi[3];

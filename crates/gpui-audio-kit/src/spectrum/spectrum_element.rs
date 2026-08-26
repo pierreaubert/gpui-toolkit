@@ -3,9 +3,19 @@ use gpui::prelude::*;
 use gpui::*;
 use std::cell::RefCell;
 use std::panic;
+use std::rc::Rc;
 use std::sync::Arc;
 
 use d3rs::render2d::{Renderer2D, VelloBackend};
+
+fn bar_x_bounds(total_width: f32, bar_count: usize, gap: f32, index: usize) -> (f32, f32) {
+    let step_width = total_width / bar_count as f32;
+    let half_gap = gap.clamp(0.0, step_width) * 0.5;
+    (
+        step_width * index as f32 + half_gap,
+        step_width * (index + 1) as f32 - half_gap,
+    )
+}
 
 /// GPU-accelerated spectrum analyzer element.
 pub struct SpectrumElement {
@@ -19,7 +29,6 @@ pub struct SpectrumElement {
     pub(super) colors: SpectrumColors,
     pub(super) height: Pixels,
     pub(super) bar_gap: Pixels,
-    scratch_heights: RefCell<Vec<f32>>,
     renderer_2d: Renderer2D,
     vello_backend: VelloBackend,
     #[cfg(feature = "vello")]
@@ -41,7 +50,6 @@ impl SpectrumElement {
             colors: SpectrumColors::default(),
             height: px(120.0),
             bar_gap: px(1.0),
-            scratch_heights: RefCell::new(Vec::new()),
             renderer_2d: Renderer2D::default(),
             vello_backend: VelloBackend::default(),
             #[cfg(feature = "vello")]
@@ -104,6 +112,25 @@ impl SpectrumElement {
 
     pub(super) fn db_to_height(&self, db: f32) -> f32 {
         ((db + 100.0) / 103.0).clamp(0.0, 1.0)
+    }
+
+    fn update_scratch_heights(&self, scratch: &mut Vec<f32>) {
+        scratch.clear();
+        scratch.extend(
+            self.magnitudes
+                .iter()
+                .enumerate()
+                .map(|(index, &magnitude)| {
+                    let smoothed_magnitude = if let Some(ref previous) = self.previous_magnitudes {
+                        previous.get(index).map_or(magnitude, |previous| {
+                            previous * self.smoothing + magnitude * (1.0 - self.smoothing)
+                        })
+                    } else {
+                        magnitude
+                    };
+                    self.db_to_height(smoothed_magnitude)
+                }),
+        );
     }
 }
 
@@ -183,23 +210,21 @@ impl Element for SpectrumElement {
 
         let yellow_threshold = self.db_to_height(-6.0);
         let red_threshold = self.db_to_height(-1.0);
-        let step_width = bounds.size.width / bar_count as f32;
         let meter_height = bounds.size.height;
 
-        let mut scratch = self.scratch_heights.borrow_mut();
-        scratch.clear();
-        scratch.extend(self.magnitudes.iter().enumerate().map(|(i, &mag)| {
-            let smoothed_mag = if let Some(ref prev) = self.previous_magnitudes {
-                if i < prev.len() {
-                    prev[i] * self.smoothing + mag * (1.0 - self.smoothing)
-                } else {
-                    mag
-                }
-            } else {
-                mag
-            };
-            self.db_to_height(smoothed_mag)
-        }));
+        // Elements are recreated on every view render. Retain the scratch
+        // buffer under the element's GlobalElementId so the backing allocation
+        // survives those reconstructions and GPUI releases it with the element.
+        let scratch = if let Some(id) = id {
+            window.with_element_state::<Rc<RefCell<Vec<f32>>>, _>(id, |state, _window| {
+                let state = state.unwrap_or_else(|| Rc::new(RefCell::new(Vec::new())));
+                (Rc::clone(&state), state)
+            })
+        } else {
+            Rc::new(RefCell::new(Vec::new()))
+        };
+        let mut scratch = scratch.borrow_mut();
+        self.update_scratch_heights(&mut scratch);
 
         #[cfg(feature = "vello")]
         if self.renderer_2d.is_vello() {
@@ -221,8 +246,7 @@ impl Element for SpectrumElement {
 
             let mut bands = [BezPath::new(), BezPath::new(), BezPath::new()];
             for (index, &ratio) in scratch.iter().enumerate() {
-                let x0 = width * index as f32 / bar_count as f32;
-                let x1 = width * (index + 1) as f32 / bar_count as f32;
+                let (x0, x1) = bar_x_bounds(width, bar_count, self.bar_gap.into(), index);
                 let y = |value: f32| height - height * value;
                 let segments = [
                     (0usize, ratio.min(yellow_threshold), self.colors.low),
@@ -269,122 +293,82 @@ impl Element for SpectrumElement {
         }
 
         let mut green_path = PathBuilder::fill();
-        green_path.move_to(point(bounds.origin.x, bounds.origin.y + meter_height));
         let mut yellow_path = PathBuilder::fill();
-        let mut has_yellow = false;
         let mut red_path = PathBuilder::fill();
-        let mut has_red = false;
+        let width: f32 = bounds.size.width.into();
+        let gap: f32 = self.bar_gap.into();
 
-        for (i, &height_ratio) in scratch.iter().enumerate() {
-            let x = bounds.origin.x + step_width * i as f32;
+        for (index, &height_ratio) in scratch.iter().enumerate() {
+            let (x0, x1) = bar_x_bounds(width, bar_count, gap, index);
+            let x0 = bounds.origin.x + px(x0);
+            let x1 = bounds.origin.x + px(x1);
             let green_height = height_ratio.min(yellow_threshold);
             let green_y = bounds.origin.y + meter_height - (meter_height * green_height);
-            green_path.line_to(point(x, green_y));
-            green_path.line_to(point(x + step_width, green_y));
+            green_path.move_to(point(x0, bounds.origin.y + meter_height));
+            green_path.line_to(point(x1, bounds.origin.y + meter_height));
+            green_path.line_to(point(x1, green_y));
+            green_path.line_to(point(x0, green_y));
+            green_path.close();
 
             if height_ratio > yellow_threshold {
-                if !has_yellow {
-                    has_yellow = true;
-                    yellow_path.move_to(point(
-                        bounds.origin.x,
-                        bounds.origin.y + meter_height - (meter_height * yellow_threshold),
-                    ));
-                }
                 let yellow_height =
                     (height_ratio - yellow_threshold).min(red_threshold - yellow_threshold);
                 let yellow_top = yellow_threshold + yellow_height;
                 let yellow_y = bounds.origin.y + meter_height - (meter_height * yellow_top);
-                yellow_path.line_to(point(x, yellow_y));
-                yellow_path.line_to(point(x + step_width, yellow_y));
-            } else if has_yellow {
                 let yellow_bottom_y =
                     bounds.origin.y + meter_height - (meter_height * yellow_threshold);
-                yellow_path.line_to(point(x, yellow_bottom_y));
-                yellow_path.line_to(point(x + step_width, yellow_bottom_y));
+                yellow_path.move_to(point(x0, yellow_bottom_y));
+                yellow_path.line_to(point(x1, yellow_bottom_y));
+                yellow_path.line_to(point(x1, yellow_y));
+                yellow_path.line_to(point(x0, yellow_y));
+                yellow_path.close();
             }
 
             if height_ratio > red_threshold {
-                if !has_red {
-                    has_red = true;
-                    red_path.move_to(point(
-                        bounds.origin.x,
-                        bounds.origin.y + meter_height - (meter_height * red_threshold),
-                    ));
-                }
                 let red_height = height_ratio - red_threshold;
                 let red_top = red_threshold + red_height;
                 let red_y = bounds.origin.y + meter_height - (meter_height * red_top);
-                red_path.line_to(point(x, red_y));
-                red_path.line_to(point(x + step_width, red_y));
-            } else if has_red {
                 let red_bottom_y = bounds.origin.y + meter_height - (meter_height * red_threshold);
-                red_path.line_to(point(x, red_bottom_y));
-                red_path.line_to(point(x + step_width, red_bottom_y));
+                red_path.move_to(point(x0, red_bottom_y));
+                red_path.line_to(point(x1, red_bottom_y));
+                red_path.line_to(point(x1, red_y));
+                red_path.line_to(point(x0, red_y));
+                red_path.close();
             }
         }
 
-        green_path.line_to(point(
-            bounds.origin.x + bounds.size.width,
-            bounds.origin.y + meter_height,
-        ));
-        green_path.line_to(point(bounds.origin.x, bounds.origin.y + meter_height));
         if let Ok(path) = green_path.build() {
             window.paint_path(path, self.colors.low);
         }
 
-        if has_yellow {
-            let yellow_bottom_y =
-                bounds.origin.y + meter_height - (meter_height * yellow_threshold);
-            yellow_path.line_to(point(bounds.origin.x + bounds.size.width, yellow_bottom_y));
-            yellow_path.line_to(point(bounds.origin.x, yellow_bottom_y));
-            if let Ok(path) = yellow_path.build() {
-                window.paint_path(path, self.colors.mid);
-            }
+        if let Ok(path) = yellow_path.build() {
+            window.paint_path(path, self.colors.mid);
         }
 
-        if has_red {
-            let red_bottom_y = bounds.origin.y + meter_height - (meter_height * red_threshold);
-            red_path.line_to(point(bounds.origin.x + bounds.size.width, red_bottom_y));
-            red_path.line_to(point(bounds.origin.x, red_bottom_y));
-            if let Ok(path) = red_path.build() {
-                window.paint_path(path, self.colors.high);
-            }
+        if let Ok(path) = red_path.build() {
+            window.paint_path(path, self.colors.high);
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::SpectrumElement;
+    use super::{SpectrumElement, bar_x_bounds};
     use crate::spectrum::SpectrumColors;
     use d3rs::render2d::{Renderer2D, VelloBackend};
     use gpui::{Element, IntoElement, px};
 
     #[test]
-    fn scratch_buffer_is_reused_across_simulated_paints() {
+    fn scratch_height_update_reuses_the_caller_buffer() {
         let element = SpectrumElement::new(vec![-30.0_f32, -60.0, -10.0]);
-        assert!(element.scratch_heights.borrow().is_empty());
+        let mut scratch = Vec::new();
 
         for _ in 0..3 {
-            let mut scratch = element.scratch_heights.borrow_mut();
-            scratch.clear();
-            scratch.extend(element.magnitudes.iter().enumerate().map(|(i, &mag)| {
-                let smoothed = if let Some(ref prev) = element.previous_magnitudes {
-                    if i < prev.len() {
-                        prev[i] * element.smoothing + mag * (1.0 - element.smoothing)
-                    } else {
-                        mag
-                    }
-                } else {
-                    mag
-                };
-                element.db_to_height(smoothed)
-            }));
+            element.update_scratch_heights(&mut scratch);
             assert_eq!(scratch.len(), element.magnitudes.len());
         }
 
-        // Capacity should have been retained after clear/extend cycles.
-        assert!(element.scratch_heights.borrow().capacity() >= 3);
+        assert!(scratch.capacity() >= 3);
     }
 
     #[test]
@@ -404,6 +388,16 @@ mod tests {
         assert!(element.previous_magnitudes.is_some());
         assert_eq!(element.height, px(100.0));
         assert_eq!(element.bar_gap, px(2.0));
+    }
+
+    #[test]
+    fn bar_gap_bounds_are_centered_and_never_invert() {
+        assert_eq!(bar_x_bounds(60.0, 3, 2.0, 0), (1.0, 19.0));
+        assert_eq!(bar_x_bounds(60.0, 3, 2.0, 1), (21.0, 39.0));
+        assert_eq!(bar_x_bounds(60.0, 3, -2.0, 2), (40.0, 60.0));
+
+        let (start, end) = bar_x_bounds(60.0, 3, 100.0, 1);
+        assert_eq!(start, end);
     }
 
     #[test]

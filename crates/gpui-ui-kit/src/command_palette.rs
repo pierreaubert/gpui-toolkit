@@ -13,7 +13,6 @@
 //! .placeholder("Type a command...")
 //! .on_select(|id, window, cx| { /* handle selection */ })
 //! ```
-
 use crate::ComponentTheme;
 use crate::data_navigation::{DataNavigationAction, DataNavigationState};
 use crate::theme::ThemeExt;
@@ -156,42 +155,14 @@ struct FilteredIndicesKey {
     max_visible: usize,
 }
 
+const MAX_FILTERED_INDICES_CACHE_ENTRIES: usize = 64;
+
 thread_local! {
     static FILTERED_INDICES_CACHE: RefCell<HashMap<FilteredIndicesKey, Rc<[usize]>>> =
         RefCell::new(HashMap::new());
-    static PALETTE_HOVER_HANDLERS: RefCell<
-        HashMap<ElementId, &'static dyn Fn(gpui::StyleRefinement) -> gpui::StyleRefinement>,
-    > = RefCell::new(HashMap::new());
-    static PALETTE_HOVER_BG: RefCell<HashMap<ElementId, Rgba>> = RefCell::new(HashMap::new());
 }
 
-/// Return a stable hover handler for the given palette id.
-///
-/// The actual hover color is read from a thread-local map on each invocation so
-/// theme changes are reflected without leaking a new closure per color.
-fn palette_hover_handler(
-    palette_id: ElementId,
-    hover_bg: Rgba,
-) -> &'static dyn Fn(gpui::StyleRefinement) -> gpui::StyleRefinement {
-    PALETTE_HOVER_BG.with(|bg_map| {
-        bg_map.borrow_mut().insert(palette_id.clone(), hover_bg);
-    });
 
-    PALETTE_HOVER_HANDLERS.with(|cache| {
-        if let Some(handler) = cache.borrow().get(&palette_id) {
-            return *handler;
-        }
-
-        let cache_key = palette_id.clone();
-        let handler: &'static dyn Fn(gpui::StyleRefinement) -> gpui::StyleRefinement =
-            Box::leak(Box::new(move |s: gpui::StyleRefinement| {
-                let bg = PALETTE_HOVER_BG.with(|map| map.borrow().get(&palette_id).copied());
-                s.bg(bg.unwrap_or(hover_bg))
-            }));
-        cache.borrow_mut().insert(cache_key, handler);
-        handler
-    })
-}
 
 /// A command palette component
 pub struct CommandPalette {
@@ -307,7 +278,11 @@ impl CommandPalette {
             }
 
             let result: Rc<[usize]> = indices.into();
-            cache.borrow_mut().insert(key, Rc::clone(&result));
+            let mut cache = cache.borrow_mut();
+            if cache.len() >= MAX_FILTERED_INDICES_CACHE_ENTRIES {
+                cache.clear();
+            }
+            cache.insert(key, Rc::clone(&result));
             result
         })
     }
@@ -320,7 +295,8 @@ impl CommandPalette {
             .focus_handle
             .clone()
             .unwrap_or_else(|| cx.focus_handle());
-        let hover_handler = palette_hover_handler(palette_id.clone(), theme.hover_bg);
+        let hover_bg = theme.hover_bg;
+        let hover_handler = move |style: gpui::StyleRefinement| style.bg(hover_bg);
         let dismiss_id = (palette_id.clone(), "backdrop");
         let on_highlight_change = self.on_highlight_change.map(std::rc::Rc::new);
         let on_select = self.on_select.map(std::rc::Rc::new);
@@ -479,7 +455,7 @@ impl CommandPalette {
             let is_selected = i == self.selected_index;
 
             let mut row = div()
-                .id(ElementId::from(item.id.clone()))
+                    .id(ElementId::from((palette_id.clone(), item.id.clone())))
                 .w_full()
                 .flex()
                 .items_center()
@@ -494,6 +470,17 @@ impl CommandPalette {
                 row = row.text_color(theme.meta_text).opacity(0.5);
             } else {
                 row = row.text_color(theme.item_text).hover(hover_handler);
+            }
+
+            if !item.disabled {
+                let item_id = item.id.clone();
+                let on_select = on_select.clone();
+                row = row.on_mouse_up(MouseButton::Left, move |_event, window, cx| {
+                    cx.stop_propagation();
+                    if let Some(handler) = &on_select {
+                        handler(item_id.clone(), window, cx);
+                    }
+                });
             }
 
             // Icon

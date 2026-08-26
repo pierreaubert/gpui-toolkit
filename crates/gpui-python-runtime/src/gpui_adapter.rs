@@ -241,7 +241,7 @@ impl Gpui3DCache {
         let changed = {
             let current = state.borrow();
             current.upload.as_ref() != Some(&upload)
-                || current.vertex_colors != Some(vertex_colors.clone())
+                || current.vertex_colors.as_deref() != Some(vertex_colors.as_slice())
         };
         if changed {
             let mut current = state.borrow_mut();
@@ -359,6 +359,40 @@ fn mesh_gpu_upload(spec: &MeshSpec) -> (MeshUpload, Vec<[f32; 4]>) {
     let center = (min + max) * 0.5;
     let scale = 2.0 / (max - min).max_element().max(f32::EPSILON);
     let normalize = |point: Point3| (vec3(point) - center) * scale;
+
+    // Cell-associated values need a distinct flat color for every triangle,
+    // so their expanded representation is intentional. Uniform and
+    // vertex-associated meshes can keep their shared vertices and original
+    // topology: the custom draw indexes the matching per-vertex color buffer.
+    if !matches!(
+        spec.scalar_field.as_ref().map(|field| field.association),
+        Some(ScalarAssociation::Cell)
+    ) {
+        let positions = spec
+            .vertices
+            .iter()
+            .copied()
+            .map(|point| normalize(point).to_array())
+            .collect();
+        let colors = (0..spec.vertices.len())
+            .map(|index| {
+                let color = mesh_triangle_fill(spec, &[index as u32], 0);
+                [color.r, color.g, color.b, color.a]
+            })
+            .collect();
+        return (
+            MeshUpload {
+                positions_f32: positions,
+                origin: [0.0; 3],
+                indices: spec.indices.clone(),
+                edge_indices: Vec::new(),
+                values_f32: None,
+                cell_values_f32: None,
+            },
+            colors,
+        );
+    }
+
     let mut positions = Vec::with_capacity(spec.indices.len());
     let mut colors = Vec::with_capacity(spec.indices.len());
     let mut indices = Vec::with_capacity(spec.indices.len());
@@ -424,6 +458,30 @@ fn scene_gpu_upload(spec: &SceneSpec) -> (MeshUpload, Vec<[f32; 4]>, bool) {
                 }
             }
             SceneNode::Mesh(mesh) => {
+                // Lighting is evaluated per face, which requires isolated
+                // vertices. Without lights, uniform and vertex-associated
+                // meshes can share their source vertices and index buffer.
+                if lights.is_empty()
+                    && !matches!(
+                        mesh.scalar_field.as_ref().map(|field| field.association),
+                        Some(ScalarAssociation::Cell)
+                    )
+                {
+                    let base = positions.len() as u32;
+                    positions.extend(
+                        mesh.vertices
+                            .iter()
+                            .copied()
+                            .map(|point| normalize(point).to_array()),
+                    );
+                    colors.extend((0..mesh.vertices.len()).map(|index| {
+                        let color = mesh_triangle_fill(mesh, &[index as u32], 0);
+                        [color.r, color.g, color.b, color.a]
+                    }));
+                    indices.extend(mesh.indices.iter().map(|index| base + *index));
+                    continue;
+                }
+
                 for (triangle_index, triangle) in mesh.indices.chunks_exact(3).enumerate() {
                     let vertices = [
                         mesh.vertices[triangle[0] as usize],
@@ -461,6 +519,8 @@ fn scene_gpu_upload(spec: &SceneSpec) -> (MeshUpload, Vec<[f32; 4]>, bool) {
                     },
                     |range| (range.min, range.max),
                 );
+                let mut wire_edges = std::collections::HashSet::new();
+
                 for row in 0..height.saturating_sub(1) {
                     for column in 0..width.saturating_sub(1) {
                         let first = row * width + column;
@@ -486,33 +546,28 @@ fn scene_gpu_upload(spec: &SceneSpec) -> (MeshUpload, Vec<[f32; 4]>, bool) {
                                 &lights,
                             );
                             if surface.wireframe {
-                                push_colored_line(
-                                    &mut positions,
-                                    &mut colors,
-                                    &mut edges,
-                                    vertices[0],
-                                    vertices[1],
-                                    color,
-                                    normalize,
-                                );
-                                push_colored_line(
-                                    &mut positions,
-                                    &mut colors,
-                                    &mut edges,
-                                    vertices[1],
-                                    vertices[2],
-                                    color,
-                                    normalize,
-                                );
-                                push_colored_line(
-                                    &mut positions,
-                                    &mut colors,
-                                    &mut edges,
-                                    vertices[2],
-                                    vertices[0],
-                                    color,
-                                    normalize,
-                                );
+                                for (from_index, to_index, from, to) in [
+                                    (cell[0], cell[1], vertices[0], vertices[1]),
+                                    (cell[1], cell[2], vertices[1], vertices[2]),
+                                    (cell[2], cell[0], vertices[2], vertices[0]),
+                                ] {
+                                    let edge = if from_index < to_index {
+                                        (from_index, to_index)
+                                    } else {
+                                        (to_index, from_index)
+                                    };
+                                    if wire_edges.insert(edge) {
+                                        push_colored_line(
+                                            &mut positions,
+                                            &mut colors,
+                                            &mut edges,
+                                            from,
+                                            to,
+                                            color,
+                                            normalize,
+                                        );
+                                    }
+                                }
                             } else {
                                 push_colored_triangle(
                                     &mut positions,
@@ -1052,6 +1107,124 @@ mod tests {
             state.vertex_colors.as_ref().expect("direct colors")[0],
             [0.2, 0.4, 0.6, 0.25]
         );
+    }
+
+    #[test]
+    fn vertex_scalar_mesh_retains_shared_vertices_and_topology() {
+        let spec = MeshSpec {
+            id: "vertex-scalar".into(),
+            vertices: vec![
+                Point3::new(-1.0, -1.0, 0.0),
+                Point3::new(1.0, -1.0, 0.0),
+                Point3::new(1.0, 1.0, 0.0),
+                Point3::new(-1.0, 1.0, 0.0),
+            ],
+            indices: vec![0, 1, 2, 0, 2, 3],
+            material: crate::scene3d::MaterialSpec::default(),
+            scalar_field: Some(crate::scene3d::MeshScalarField {
+                association: ScalarAssociation::Vertex,
+                colormap: crate::scene3d::ColormapSpec::Viridis,
+                values: vec![0.0, 0.25, 0.75, 1.0],
+                range: None,
+                label: None,
+            }),
+        };
+
+        let (upload, colors) = mesh_gpu_upload(&spec);
+
+        assert_eq!(upload.positions_f32.len(), spec.vertices.len());
+        assert_eq!(upload.indices, spec.indices);
+        assert_eq!(colors.len(), spec.vertices.len());
+        assert_ne!(colors[0], colors[3]);
+    }
+
+    #[test]
+    fn cell_scalar_mesh_keeps_flat_per_triangle_expansion() {
+        let spec = MeshSpec {
+            id: "cell-scalar".into(),
+            vertices: vec![
+                Point3::new(-1.0, -1.0, 0.0),
+                Point3::new(1.0, -1.0, 0.0),
+                Point3::new(1.0, 1.0, 0.0),
+                Point3::new(-1.0, 1.0, 0.0),
+            ],
+            indices: vec![0, 1, 2, 0, 2, 3],
+            material: crate::scene3d::MaterialSpec::default(),
+            scalar_field: Some(crate::scene3d::MeshScalarField {
+                association: ScalarAssociation::Cell,
+                colormap: crate::scene3d::ColormapSpec::Viridis,
+                values: vec![0.0, 1.0],
+                range: None,
+                label: None,
+            }),
+        };
+
+        let (upload, colors) = mesh_gpu_upload(&spec);
+
+        assert_eq!(upload.positions_f32.len(), spec.indices.len());
+        assert_eq!(upload.indices, vec![0, 1, 2, 3, 4, 5]);
+        assert_eq!(colors.len(), spec.indices.len());
+    }
+
+    #[test]
+    fn unlit_scene_mesh_reuses_indexed_vertex_geometry() {
+        let mesh = MeshSpec {
+            id: "scene-vertex-scalar".into(),
+            vertices: vec![
+                Point3::new(-1.0, -1.0, 0.0),
+                Point3::new(1.0, -1.0, 0.0),
+                Point3::new(1.0, 1.0, 0.0),
+                Point3::new(-1.0, 1.0, 0.0),
+            ],
+            indices: vec![0, 1, 2, 0, 2, 3],
+            material: crate::scene3d::MaterialSpec::default(),
+            scalar_field: Some(crate::scene3d::MeshScalarField {
+                association: ScalarAssociation::Vertex,
+                colormap: crate::scene3d::ColormapSpec::Viridis,
+                values: vec![0.0, 0.25, 0.75, 1.0],
+                range: None,
+                label: None,
+            }),
+        };
+        let scene = crate::scene3d::SceneSpec {
+            id: "unlit-indexed-scene".into(),
+            camera: CameraSpec::Orbit(OrbitCameraSpec::new(3.5, 45.0, 25.0)),
+            children: vec![crate::scene3d::SceneNode::Mesh(mesh.clone())],
+            interactions: Vec::new(),
+            background: None,
+            size: None,
+        };
+
+        let (upload, colors, wireframe) = scene_gpu_upload(&scene);
+
+        assert_eq!(upload.positions_f32.len(), mesh.vertices.len());
+        assert_eq!(upload.indices, mesh.indices);
+        assert_eq!(colors.len(), mesh.vertices.len());
+        assert!(!wireframe);
+    }
+
+    #[test]
+    fn scene_wireframe_surface_deduplicates_shared_grid_edges() {
+        let mut surface =
+            SurfaceSpec::from_flat("wireframe-surface", vec![0.0, 1.0, 2.0, 3.0], 2, 2);
+        surface.wireframe = true;
+        let scene = crate::scene3d::SceneSpec {
+            id: "wireframe-scene".into(),
+            camera: CameraSpec::Orbit(OrbitCameraSpec::new(3.5, 45.0, 25.0)),
+            children: vec![crate::scene3d::SceneNode::Surface(surface)],
+            interactions: Vec::new(),
+            background: None,
+            size: None,
+        };
+
+        let (upload, colors, wireframe) = scene_gpu_upload(&scene);
+
+        // A two-triangle grid has four boundary edges and one diagonal.
+        assert_eq!(upload.positions_f32.len(), 10);
+        assert_eq!(upload.edge_indices.len(), 10);
+        assert!(upload.indices.is_empty());
+        assert_eq!(colors.len(), 10);
+        assert!(wireframe);
     }
 
     #[test]

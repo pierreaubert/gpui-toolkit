@@ -979,6 +979,40 @@ async fn test_potentiometer_click_increments_by_10_percent(cx: &mut TestAppConte
     }
 }
 
+/// Even sub-threshold pointer movement must not turn into a click-step on release.
+#[gpui::test]
+async fn test_potentiometer_pointer_movement_does_not_click_step(cx: &mut TestAppContext) {
+    let value = Rc::new(RefCell::new(0.0));
+    let change_count = Arc::new(AtomicUsize::new(0));
+    let window = cx.add_window({
+        let value = value.clone();
+        let change_count = change_count.clone();
+        move |_window, _cx| PotValueChangeTestView {
+            value,
+            change_count,
+        }
+    });
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    cx.run_until_parked();
+
+    if let Some(bounds) = cx.debug_bounds("change-test-pot") {
+        let start = bounds.center();
+        let moved_down = point(start.x, start.y + gpui::px(1.0));
+        cx.simulate_mouse_down(start, MouseButton::Left, Modifiers::default());
+        cx.run_until_parked();
+        cx.simulate_mouse_move(moved_down, Some(MouseButton::Left), Modifiers::default());
+        cx.run_until_parked();
+        cx.simulate_mouse_up(start, MouseButton::Left, Modifiers::default());
+        cx.run_until_parked();
+    }
+
+    assert!(
+        value.borrow().abs() < 0.01,
+        "pointer movement must not apply the 10% click step"
+    );
+    assert_eq!(change_count.load(Ordering::SeqCst), 0);
+}
+
 /// Test logarithmic scale scroll wheel uses scale-aware stepping
 #[gpui::test]
 async fn test_potentiometer_log_scale_scroll(cx: &mut TestAppContext) {

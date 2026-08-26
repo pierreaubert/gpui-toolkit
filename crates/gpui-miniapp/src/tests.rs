@@ -1,7 +1,8 @@
-use super::mini_app::MiniApp;
+use super::mini_app::{MiniApp, QUIT_KEYSTROKE, TOGGLE_THEME_KEYSTROKE};
 use super::mini_app_config::MiniAppConfig;
 use super::mini_app_shell::MiniAppShell;
 use super::misc::current_platform;
+use super::misc::decode_query_component;
 use gpui::{Menu, MenuItem, px, size};
 use gpui_design::DesignLanguage;
 use gpui_ui_kit::i18n::Language;
@@ -10,6 +11,26 @@ use gpui_ui_kit::theme::ThemeVariant;
 // ========================================================================
 // Basic Configuration Tests
 // ========================================================================
+
+#[test]
+fn keyboard_shortcuts_use_platform_secondary_modifier() {
+    assert_eq!(QUIT_KEYSTROKE, "secondary-q");
+    assert_eq!(TOGGLE_THEME_KEYSTROKE, "secondary-t");
+}
+
+#[test]
+fn query_components_percent_decode_utf8_and_reject_malformed_escapes() {
+    assert_eq!(
+        decode_query_component("stories%20with%20spaces%20%F0%9F%8C%8D"),
+        Some("stories with spaces 🌍".to_owned())
+    );
+    assert_eq!(
+        decode_query_component("plus+is+form+encoded"),
+        Some("plus is form encoded".to_owned())
+    );
+    assert_eq!(decode_query_component("bad%2"), None);
+    assert_eq!(decode_query_component("bad%zz"), None);
+}
 
 fn find_submenu<'a>(menu: &'a Menu, name: &str) -> &'a Menu {
     menu.items
@@ -24,6 +45,17 @@ fn find_submenu<'a>(menu: &'a Menu, name: &str) -> &'a Menu {
 fn action_names(items: &[MenuItem]) -> Vec<&str> {
     items
         .iter()
+        .filter_map(|item| match item {
+            MenuItem::Action { name, .. } => Some(name.as_ref()),
+            _ => None,
+        })
+        .collect()
+}
+
+fn checked_action_names(items: &[MenuItem]) -> Vec<&str> {
+    items
+        .iter()
+        .filter(|item| item.is_checked())
         .filter_map(|item| match item {
             MenuItem::Action { name, .. } => Some(name.as_ref()),
             _ => None,
@@ -419,11 +451,20 @@ fn test_build_menus_with_language_basic() {
     assert_eq!(menus[2].name.as_ref(), "Language");
 
     let theme_menu = find_submenu(&menus[1], "Theme");
-    let expected_theme_names = ThemeVariant::all()
+    #[allow(
+        unused_mut,
+        reason = "non-macOS replaces the platform-specific last label below"
+    )]
+    let mut expected_theme_names = ThemeVariant::all()
         .iter()
         .map(ThemeVariant::name)
         .chain(["Toggle Theme  Cmd+T"])
         .collect::<Vec<_>>();
+    #[cfg(not(target_os = "macos"))]
+    {
+        expected_theme_names.pop();
+        expected_theme_names.push("Toggle Theme");
+    }
     assert_eq!(action_names(&theme_menu.items), expected_theme_names);
 
     let design_menu = find_submenu(&menus[1], "Design System");
@@ -438,4 +479,29 @@ fn test_build_menus_with_language_basic() {
         Language::English,
     );
     assert_eq!(no_i18n.len(), 2);
+}
+
+#[test]
+fn menus_mark_the_active_theme_design_and_language() {
+    let config = MiniAppConfig::new("Menu Test")
+        .with_theme(true)
+        .with_i18n(true);
+    let current_theme = ThemeVariant::all()[0];
+    let current_design = DesignLanguage::all()[0];
+    let menus = MiniApp::build_menus(&config, current_theme, current_design, Language::French);
+
+    let theme_menu = find_submenu(&menus[1], "Theme");
+    assert_eq!(
+        checked_action_names(&theme_menu.items),
+        [current_theme.name()]
+    );
+
+    let design_menu = find_submenu(&menus[1], "Design System");
+    assert_eq!(
+        checked_action_names(&design_menu.items),
+        [current_design.label()]
+    );
+
+    assert_eq!(menus[2].name.as_ref(), "Langue");
+    assert_eq!(checked_action_names(&menus[2].items), ["Français"]);
 }

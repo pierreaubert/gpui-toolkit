@@ -447,7 +447,8 @@ dependencies = [
 [[package]]
 name = "async-process"
 version = "2.5.0"
-source = "git+https://github.com/zed-industries/async-process.git?rev=0b6d6713570af61806e1e5cb40e0f757cb93fd9d#0b6d6713570af61806e1e5cb40e0f757cb93fd9d"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fc50921ec0055cdd8a16de48773bfeec5c972598674347252c0399676be7da75"
 dependencies = [
  "async-channel 2.5.0",
  "async-io",
@@ -2838,6 +2839,7 @@ dependencies = [
  "image",
  "serde",
  "serde_json",
+ "shlex 1.3.0",
  "tempfile",
 ]
 
@@ -2902,6 +2904,7 @@ dependencies = [
  "gpui-design",
  "serde",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]
@@ -2933,6 +2936,7 @@ dependencies = [
  "parking_lot",
  "pathfinder_geometry",
  "raw-window-handle",
+ "serde_json",
  "smallvec",
  "tempfile",
  "uuid",

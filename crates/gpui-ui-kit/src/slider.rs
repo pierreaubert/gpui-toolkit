@@ -234,7 +234,7 @@ impl Slider {
     /// Note: Currently unused, kept for potential future use
     #[allow(dead_code)]
     fn snap_value(&self, value: f32) -> f32 {
-        if let Some(step) = self.step {
+        if let Some(step) = self.step.filter(|step| step.is_finite() && *step > 0.0) {
             let steps = ((value - self.min) / step).round();
             (self.min + steps * step).clamp(self.min, self.max)
         } else {
@@ -484,7 +484,9 @@ impl RenderOnce for Slider {
                     }
                 })
                 .on_mouse_move(move |event: &MouseMoveEvent, window: &mut Window, cx| {
-                    if !focus_hover.is_focused(window) && event.pressed_button.is_none() {
+                    if event.pressed_button == Some(MouseButton::Left)
+                        && !focus_hover.is_focused(window)
+                    {
                         focus_hover.focus(window, cx);
                     }
 

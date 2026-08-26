@@ -1,7 +1,7 @@
 use super::tile::tile_dice;
 use super::tile::tile_slice;
 use super::tile::tile_squarify;
-use super::tiling_method::treemap;
+use super::tiling_method::{compute_treemap, treemap};
 use super::treemap_node::TreemapNode;
 use super::types::TilingMethod;
 use crate::{StaticSvgOptions, error::ChartError};
@@ -195,11 +195,55 @@ fn test_tile_squarify_with_zero_value_children() {
 
     let rects = tile_squarify(&children, 0.0, 0.0, 100.0, 100.0, 10.0);
     // Should not panic and should return at least the non-zero child's rect
-    assert!(!rects.is_empty());
+    assert_eq!(rects.len(), children.len());
+    assert_eq!(rects[1], (0.0, 0.0, 0.0, 0.0));
     assert!(rects.iter().all(|(x0, y0, x1, y1)| x0.is_finite()
         && y0.is_finite()
         && x1.is_finite()
         && y1.is_finite()));
+}
+
+#[test]
+fn squarify_rectangles_stay_associated_with_declaration_order_children() {
+    let root = TreemapNode::new("Root", 0.0)
+        .add_child(TreemapNode::new("Small", 10.0))
+        .add_child(TreemapNode::new("Large", 90.0));
+    let mut rects = Vec::new();
+
+    compute_treemap(
+        &root,
+        0.0,
+        0.0,
+        100.0,
+        100.0,
+        TilingMethod::Squarify,
+        0.0,
+        0,
+        0,
+        &mut rects,
+    );
+
+    let area = |name: &str| {
+        let rect = rects.iter().find(|rect| rect.name == name).unwrap();
+        (rect.x1 - rect.x0) * (rect.y1 - rect.y0)
+    };
+    assert!(area("Small") < area("Large"));
+}
+
+#[test]
+fn squarify_fills_the_parent_rectangle_across_multiple_rows() {
+    let children = vec![
+        TreemapNode::new("Large", 60.0),
+        TreemapNode::new("Medium", 30.0),
+        TreemapNode::new("Small", 10.0),
+    ];
+    let rects = tile_squarify(&children, 0.0, 0.0, 100.0, 100.0, 100.0);
+
+    let total_area: f64 = rects
+        .iter()
+        .map(|(x0, y0, x1, y1)| (x1 - x0) * (y1 - y0))
+        .sum();
+    assert!((total_area - 10_000.0).abs() < 1e-9);
 }
 
 #[test]

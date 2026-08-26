@@ -12,7 +12,7 @@
 use crate::scale::Scale;
 use gpui::{ElementId, Modifiers, ScrollDelta};
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 /// Shared semantic action emitted by overlay keyboard handling.
@@ -46,10 +46,14 @@ pub struct DragState {
 
 thread_local! {
     static DRAG_STATES: RefCell<HashMap<ElementId, DragState>> = RefCell::new(HashMap::new());
+    static DRAG_MOVED_STATES: RefCell<HashSet<ElementId>> = RefCell::new(HashSet::new());
 }
 
 /// Store drag state for an element (call on mouse_down)
 pub fn store_drag_state(element_key: ElementId, start_pos: f32, start_value: f64) {
+    DRAG_MOVED_STATES.with(|states| {
+        states.borrow_mut().remove(&element_key);
+    });
     DRAG_STATES.with(|states| {
         states.borrow_mut().insert(
             element_key,
@@ -61,6 +65,21 @@ pub fn store_drag_state(element_key: ElementId, start_pos: f32, start_value: f64
     });
 }
 
+/// Mark an active drag as having received pointer movement.
+///
+/// This is stored separately from `DragState` to preserve its public shape for
+/// callers that construct it directly in interaction tests.
+pub fn mark_drag_moved(element_key: &ElementId) {
+    DRAG_MOVED_STATES.with(|states| {
+        states.borrow_mut().insert(element_key.clone());
+    });
+}
+
+/// Return whether the current drag received pointer movement.
+pub fn drag_has_moved(element_key: &ElementId) -> bool {
+    DRAG_MOVED_STATES.with(|states| states.borrow().contains(element_key))
+}
+
 /// Get drag state for an element (call on mouse_move)
 pub fn get_drag_state(element_key: &ElementId) -> Option<DragState> {
     DRAG_STATES.with(|states| states.borrow().get(element_key).copied())
@@ -68,6 +87,9 @@ pub fn get_drag_state(element_key: &ElementId) -> Option<DragState> {
 
 /// Clear drag state for an element (call on mouse_up)
 pub fn clear_drag_state(element_key: ElementId) {
+    DRAG_MOVED_STATES.with(|states| {
+        states.borrow_mut().remove(&element_key);
+    });
     DRAG_STATES.with(|states| {
         states.borrow_mut().remove(&element_key);
     });
@@ -184,11 +206,12 @@ pub fn handle_keyboard(
             // Media keys (only if enabled)
             if config.media_keys {
                 match key {
-                    "audiomute" => None, // Handled separately by mute toggle
-                    "audiolowervolume" => {
+                    "audiomute" | "audiovolumemute" | "f10" => None,
+                    // Handled separately by the mute toggle.
+                    "audiolowervolume" | "f11" => {
                         Some(scale.step_value(current_value, min, max, -1.0, 0.05))
                     }
-                    "audioraisevolume" => {
+                    "audioraisevolume" | "f12" => {
                         Some(scale.step_value(current_value, min, max, 1.0, 0.05))
                     }
                     _ => None,
@@ -281,6 +304,10 @@ pub fn handle_drag(
 
     // Minimum movement threshold to avoid spurious updates on click
     if delta.abs() < 2.0 {
+        return None;
+    }
+
+    if !config.track_size.is_finite() || config.track_size <= 0.0 {
         return None;
     }
 

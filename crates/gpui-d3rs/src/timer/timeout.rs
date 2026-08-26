@@ -1,5 +1,6 @@
 use super::Timer;
 use std::sync::Mutex;
+use std::time::Duration;
 
 /// A one-shot timer that fires once after a delay.
 ///
@@ -66,6 +67,11 @@ impl Timeout {
     /// Wait for the timeout to complete (blocking).
     pub fn join(self) {
         self.inner.join();
+    }
+
+    /// Wait for timeout completion for at most `timeout`.
+    pub fn try_join(&self, timeout: Duration) -> bool {
+        self.inner.try_join(timeout)
     }
 }
 

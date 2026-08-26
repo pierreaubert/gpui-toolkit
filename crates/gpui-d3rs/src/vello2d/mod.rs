@@ -12,7 +12,7 @@ mod scene;
 #[cfg(feature = "vello-gpui")]
 mod element;
 #[cfg(feature = "vello-gpui")]
-mod wgpu_draw;
+pub(crate) mod wgpu_draw;
 
 // Re-exported so integration tests and downstream crates (gpui-px) use the
 // exact kurbo/peniko versions vello is compiled against.

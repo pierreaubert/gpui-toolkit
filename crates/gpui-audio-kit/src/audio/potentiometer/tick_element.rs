@@ -42,7 +42,7 @@ struct GeometryCacheKey {
 #[cfg(feature = "vello")]
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 struct TickSceneCacheKey {
-    ticks_ptr: usize,
+    ticks_hash: u64,
     major_tick_width: u32,
     minor_tick_width: u32,
     major_color: [u32; 4],
@@ -61,13 +61,26 @@ impl TickSceneCacheKey {
             ]
         };
         Self {
-            ticks_ptr: element.ticks.as_ptr() as usize,
+            ticks_hash: tick_content_hash(&element.ticks),
             major_tick_width: element.major_tick_width.to_bits(),
             minor_tick_width: element.minor_tick_width.to_bits(),
             major_color: rgba_bits(element.major_tick_color),
             minor_color: rgba_bits(element.minor_tick_color),
         }
     }
+}
+
+#[cfg(feature = "vello")]
+fn tick_content_hash(ticks: &[PotentiometerTickLine]) -> u64 {
+    let mut hash = fxhash::hash64(&[]);
+    for tick in ticks {
+        hash = fxhash::hash64_with_seed(hash, &[u8::from(tick.is_major)]);
+        hash = fxhash::hash64_with_seed(hash, &tick.inner_x.to_bits().to_ne_bytes());
+        hash = fxhash::hash64_with_seed(hash, &tick.inner_y.to_bits().to_ne_bytes());
+        hash = fxhash::hash64_with_seed(hash, &tick.outer_x.to_bits().to_ne_bytes());
+        hash = fxhash::hash64_with_seed(hash, &tick.outer_y.to_bits().to_ne_bytes());
+    }
+    hash
 }
 
 impl GeometryCacheKey {
@@ -99,6 +112,10 @@ thread_local! {
     static TICK_SCENE_CACHE: RefCell<HashMap<TickSceneCacheKey, Arc<d3rs::vello2d::ChartScene>>> =
         RefCell::new(HashMap::new());
 }
+
+const GEOMETRY_CACHE_CAPACITY: usize = 64;
+#[cfg(feature = "vello")]
+const TICK_SCENE_CACHE_CAPACITY: usize = 64;
 
 #[allow(clippy::too_many_arguments)]
 /// Compute or retrieve cached tick geometry for the given parameters.
@@ -146,7 +163,13 @@ pub(super) fn get_tick_geometry(
             tick_inner_radius,
             label_radius,
         ));
-        cache.borrow_mut().insert(key, geometry.clone());
+        let mut cache = cache.borrow_mut();
+        if cache.len() >= GEOMETRY_CACHE_CAPACITY {
+            if let Some(evicted_key) = cache.keys().next().copied() {
+                cache.remove(&evicted_key);
+            }
+        }
+        cache.insert(key, geometry.clone());
         geometry
     })
 }
@@ -415,8 +438,10 @@ impl Element for PotentiometerTickLinesElement {
             let scene = Arc::new(scene);
             TICK_SCENE_CACHE.with(|cache| {
                 let mut cache = cache.borrow_mut();
-                if cache.len() >= 64 {
-                    cache.clear();
+                if cache.len() >= TICK_SCENE_CACHE_CAPACITY {
+                    if let Some(evicted_key) = cache.keys().next().copied() {
+                        cache.remove(&evicted_key);
+                    }
                 }
                 cache.insert(scene_key, Arc::clone(&scene));
             });
@@ -481,7 +506,11 @@ impl Element for PotentiometerTickLinesElement {
 // Small fallback hasher so we don't add a new dependency.
 mod fxhash {
     pub fn hash64(bytes: &[u8]) -> u64 {
-        let mut hash: u64 = 0xcbf29ce484222325;
+        let hash: u64 = 0xcbf29ce484222325;
+        hash64_with_seed(hash, bytes)
+    }
+
+    pub fn hash64_with_seed(mut hash: u64, bytes: &[u8]) -> u64 {
         for &b in bytes {
             hash ^= b as u64;
             hash = hash.wrapping_mul(0x100000001b3);
@@ -492,7 +521,10 @@ mod fxhash {
 
 #[cfg(test)]
 mod tests {
-    use super::{PotentiometerScale, PotentiometerSize, get_tick_geometry};
+    use super::{
+        GEOMETRY_CACHE, GEOMETRY_CACHE_CAPACITY, PotentiometerScale, PotentiometerSize,
+        get_tick_geometry,
+    };
     use gpui::SharedString;
 
     #[test]
@@ -538,5 +570,58 @@ mod tests {
         );
         assert!(std::sync::Arc::ptr_eq(&geom_a, &geom_b));
         assert!(!geom_a.labels.is_empty());
+    }
+
+    #[test]
+    fn geometry_cache_is_bounded() {
+        let unit: SharedString = "Hz".into();
+        for index in 0..=(GEOMETRY_CACHE_CAPACITY as u32 + 1) {
+            let min = 20.0 + index as f64;
+            get_tick_geometry(
+                min,
+                20_000.0,
+                PotentiometerScale::Logarithmic,
+                PotentiometerSize::Md,
+                &unit,
+                135.0,
+                270.0,
+                60.0,
+                30.0,
+                44.0,
+                22.0,
+                148.0,
+                104.0,
+                38.0,
+                35.0,
+                30.0,
+                46.0,
+            );
+        }
+        GEOMETRY_CACHE.with(|cache| assert!(cache.borrow().len() <= GEOMETRY_CACHE_CAPACITY));
+    }
+
+    #[cfg(feature = "vello")]
+    #[test]
+    fn equivalent_tick_geometry_has_the_same_scene_cache_hash() {
+        use super::{PotentiometerTickLine, tick_content_hash};
+        use std::sync::Arc;
+
+        let first: Arc<[PotentiometerTickLine]> = Arc::from([PotentiometerTickLine {
+            is_major: true,
+            inner_x: 1.0,
+            inner_y: 2.0,
+            outer_x: 3.0,
+            outer_y: 4.0,
+        }]);
+        let second: Arc<[PotentiometerTickLine]> = Arc::from([PotentiometerTickLine {
+            is_major: true,
+            inner_x: 1.0,
+            inner_y: 2.0,
+            outer_x: 3.0,
+            outer_y: 4.0,
+        }]);
+
+        assert_ne!(first.as_ptr(), second.as_ptr());
+        assert_eq!(tick_content_hash(&first), tick_content_hash(&second));
     }
 }

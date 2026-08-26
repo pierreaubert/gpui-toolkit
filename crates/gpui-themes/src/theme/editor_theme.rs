@@ -3,8 +3,7 @@ use super::accessibility_palette::AccessibilityPalette;
 use super::built_in_theme_preset::BuiltInThemePreset;
 use super::community_theme_bundle::CommunityThemeBundle;
 use super::default::default_design_language;
-use super::misc::contrast_ratio;
-use super::misc::relative_luminance;
+use super::misc::{contrast_ratio, relative_luminance, rust_identifier};
 use super::types::AccentSource;
 use super::types::EQCurveColors;
 use super::types::GraphColors;
@@ -977,11 +976,23 @@ impl EditorTheme {
             }
         }
 
+        fn f32_to_rust(value: f32) -> String {
+            if value.is_nan() {
+                "f32::NAN".into()
+            } else if value == f32::INFINITY {
+                "f32::INFINITY".into()
+            } else if value == f32::NEG_INFINITY {
+                "f32::NEG_INFINITY".into()
+            } else {
+                format!("{value:?}")
+            }
+        }
+
         let code = format!(
-            r#"/// {} theme
+            r#"/// Generated theme.
 pub fn {}() -> EditorTheme {{
     EditorTheme {{
-        name: "{}".to_string(),
+        name: {:?}.to_string(),
 
         // Base colors
         background: {},
@@ -1046,9 +1057,9 @@ pub fn {}() -> EditorTheme {{
         optimization_color: {},
         grid_color: {},
 
-        separator_size: {:.1},
-        font_family: "{}".to_string(),
-        design_language: "{}".to_string(),
+    separator_size: {},
+    font_family: {:?}.to_string(),
+    design_language: {:?}.to_string(),
 
         plugin_colors: PluginColors {{
             eq: {},
@@ -1105,8 +1116,7 @@ pub fn {}() -> EditorTheme {{
     }}
 }}
 "#,
-            self.name,
-            self.name.to_lowercase().replace(' ', "_"),
+            rust_identifier(&self.name),
             self.name,
             color_to_rust(&self.background),
             color_to_rust(&self.background_secondary),
@@ -1149,7 +1159,7 @@ pub fn {}() -> EditorTheme {{
             color_to_rust(&self.knob_color),
             color_to_rust(&self.optimization_color),
             color_to_rust(&self.grid_color),
-            self.separator_size,
+            f32_to_rust(self.separator_size),
             self.font_family,
             self.design_language,
             color_to_rust(&self.plugin_colors.eq),

@@ -5,6 +5,7 @@ use super::render::render_spectrum_frequency_axis;
 use super::spectrum_axis_theme::SpectrumAxisTheme;
 use super::spectrum_db_axis_labels;
 use super::spectrum_frequency_axis_labels;
+use super::{FREQUENCY_AXIS_LABEL_CACHE, FREQUENCY_AXIS_LABEL_CACHE_CAPACITY};
 
 #[::core::prelude::v1::test]
 fn frequency_labels_use_compact_audio_format() {
@@ -51,6 +52,18 @@ fn frequency_axis_labels_are_cached() {
 
     let labels_c = spectrum_frequency_axis_labels(30.0, 20_000.0);
     assert!(!std::ptr::eq(labels_a.as_ptr(), labels_c.as_ptr()));
+}
+
+#[::core::prelude::v1::test]
+fn frequency_axis_label_cache_is_bounded() {
+    for index in 0..=(FREQUENCY_AXIS_LABEL_CACHE_CAPACITY as u32 + 1) {
+        let min = 20.0 + index as f32;
+        let max = 20_000.0 + index as f32;
+        spectrum_frequency_axis_labels(min, max);
+    }
+    FREQUENCY_AXIS_LABEL_CACHE.with(|cache| {
+        assert!(cache.borrow().len() <= FREQUENCY_AXIS_LABEL_CACHE_CAPACITY);
+    });
 }
 
 #[::core::prelude::v1::test]

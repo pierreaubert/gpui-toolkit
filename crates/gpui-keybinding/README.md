@@ -10,7 +10,7 @@ Provides a structured way to define, register, and manage keyboard shortcuts in 
 
 - **Multiple presets**: Default, Vim, Emacs, VSCode key mappings out of the box
 - **Provider pattern**: Apps register keybinding providers; the registry collects them all
-- **Conflict detection**: Automatically finds duplicate key+context bindings
+- **Conflict detection**: Finds duplicate documented key specs after GPUI parsing. It does not receive executable `KeyBinding` contexts.
 - **Platform-aware formatting**: Shows Cmd on macOS, Ctrl on Windows/Linux
 - **Documented bindings**: Each binding carries a human-readable description for help UI
 - **Category system**: Organize bindings by category (Navigation, Editing, etc.)
@@ -111,14 +111,16 @@ fn assert_no_conflicts(registry: &KeybindingRegistry) {
 }
 ```
 
-When a conflict appears, prefer this order:
+The checker intentionally works only from `DocumentedKeybinding`: it cannot inspect the
+GPUI context supplied to an executable `KeyBinding`. Filter or review reports by the
+actual binding context before treating one as a release failure.
 
-1. Give application-specific commands a narrower GPUI context if both commands
-   can share the same key in different views.
-2. Move less common commands behind a chord such as `secondary-k secondary-s`.
-3. Keep preset conventions intact. For example, do not steal Vim movement keys
+When a same-context conflict appears, prefer this order:
+
+1. Move less common commands behind a chord such as `secondary-k secondary-s`.
+2. Keep preset conventions intact. For example, do not steal Vim movement keys
    in Vim mode for global app actions.
-4. Update the documented binding and command-palette entry in the same change
+3. Update the documented binding and command-palette entry in the same change
    as the executable `KeyBinding`.
 
 ## Platform Shortcut Policy

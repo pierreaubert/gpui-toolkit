@@ -4,7 +4,7 @@
 //! (ratio drags and collapse toggles) and turns that state into
 //! [`LayoutPreferences`] when calling the solver.
 
-use crate::types::{Axis, LayoutPreferences};
+use crate::types::{Axis, LayoutPreferences, sanitize_ratio};
 
 /// A stored fractional ratio override for a specific slot/axis pair.
 #[derive(Debug, Clone, PartialEq)]
@@ -117,6 +117,7 @@ impl LayoutState {
 
     /// Set (or replace) a ratio override.
     pub fn set_ratio(&mut self, slot_id: &str, axis: Axis, ratio: f32) {
+        let ratio = sanitize_ratio(ratio);
         if let Some(entry) = self
             .ratio_overrides
             .iter_mut()
@@ -314,6 +315,17 @@ mod tests {
         state.clear_ratio("panel", Axis::Horizontal);
         assert_eq!(state.ratio_for("panel", Axis::Horizontal), None);
         assert_eq!(state.ratio_for("panel", Axis::Vertical), Some(0.5));
+    }
+
+    #[test]
+    fn state_sanitizes_ratio_updates() {
+        let mut state = LayoutState::new();
+
+        state.set_ratio("panel", Axis::Horizontal, f32::NAN);
+        assert_eq!(state.ratio_for("panel", Axis::Horizontal), Some(0.0));
+
+        state.set_ratio("panel", Axis::Horizontal, 2.0);
+        assert_eq!(state.ratio_for("panel", Axis::Horizontal), Some(1.0));
     }
 
     #[test]

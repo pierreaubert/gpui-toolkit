@@ -25,6 +25,7 @@ impl ThemeGallery {
     }
 
     pub fn with_community_bundle(mut self, bundle: &CommunityThemeBundle) -> Self {
+        self.entries.retain(|entry| entry.id != bundle.manifest.id);
         self.entries.push(ThemeGalleryEntry {
             id: bundle.manifest.id.clone(),
             display_name: bundle.manifest.display_name.clone(),

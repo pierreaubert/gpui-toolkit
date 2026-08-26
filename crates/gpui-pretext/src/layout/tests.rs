@@ -2,6 +2,7 @@ use super::layout;
 use super::layout_next_line;
 use super::layout_optimal;
 use super::layout_with_lines;
+use super::layout_with_lines_optimal;
 use super::misc::{build_line_text, build_line_text_into};
 use super::prepare_options::PrepareOptions;
 use super::prepare_options::prepare;
@@ -69,6 +70,24 @@ fn test_layout_with_lines() {
     assert_eq!(result.lines.len(), 2);
     assert_eq!(result.lines[0].text, "hello ");
     assert_eq!(result.lines[1].text, "world");
+}
+
+#[test]
+fn layout_count_matches_emitted_lines_when_space_overflows() {
+    let measure = TestMeasure;
+    let profile = EngineProfile::default();
+    let options = PrepareOptions::default();
+    let prepared = prepare("aaa b", &measure, &profile, &options);
+    let prepared_with_segments = prepare_with_segments("aaa b", &measure, &profile, &options);
+
+    let count_only = layout(&prepared, 34.0, 20.0, &profile);
+    let with_lines = layout_with_lines(&prepared_with_segments, 34.0, 20.0, &profile);
+
+    assert_eq!(count_only.line_count, 2);
+    assert_eq!(count_only.line_count, with_lines.line_count);
+    assert_eq!(with_lines.line_count, with_lines.lines.len());
+    assert_eq!(with_lines.lines[0].text, "aaa ");
+    assert_eq!(with_lines.lines[1].text, "b");
 }
 
 #[test]
@@ -282,6 +301,27 @@ fn test_prepare_soft_hyphen() {
 }
 
 #[test]
+fn partial_soft_hyphen_break_places_hyphen_after_fitted_graphemes() {
+    struct FixedMeasure;
+
+    impl TextMeasure for FixedMeasure {
+        fn measure_width(&self, text: &str) -> f64 {
+            text.chars().count() as f64 * 10.0
+        }
+    }
+
+    let measure = FixedMeasure;
+    let profile = EngineProfile::default();
+    let options = PrepareOptions::default();
+    let prepared = prepare_with_segments("ab\u{00AD}cdefgh", &measure, &profile, &options);
+    let result = layout_with_lines(&prepared, 50.0, 20.0, &profile);
+
+    assert!(result.line_count >= 2);
+    assert_eq!(result.lines[0].text, "abcd-");
+    assert_eq!(result.lines[0].width, 50.0);
+}
+
+#[test]
 fn test_layout_with_strategy_optimal() {
     let measure = TestMeasure;
     let profile = EngineProfile::default();
@@ -297,6 +337,27 @@ fn test_layout_with_strategy_optimal() {
         &params,
     );
     assert!(result.line_count >= 1);
+}
+
+#[test]
+fn optimal_multi_chunk_fallback_does_not_duplicate_emitted_lines() {
+    let measure = TestMeasure;
+    let profile = EngineProfile::default();
+    let options = PrepareOptions {
+        white_space: WhiteSpaceMode::PreWrap,
+    };
+    let params = KnuthPlassParams {
+        looseness_recovery: false,
+        ..KnuthPlassParams::default()
+    };
+    let prepared = prepare_with_segments("ok\n=====", &measure, &profile, &options);
+    let result = layout_with_lines_optimal(&prepared, 20.0, 20.0, &profile, &params);
+
+    assert_eq!(result.line_count, result.lines.len());
+    assert_eq!(
+        result.lines.iter().filter(|line| line.text == "ok").count(),
+        1
+    );
 }
 
 #[test]

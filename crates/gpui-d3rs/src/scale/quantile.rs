@@ -168,7 +168,7 @@ impl<R: Clone> Scale<f64, R> for QuantileScale<R> {
         }
 
         if value.is_nan() {
-            panic!("QuantileScale cannot scale NaN values");
+            return self.range_values[0].clone();
         }
 
         // Find which bucket the value falls into
@@ -280,10 +280,9 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "QuantileScale cannot scale NaN values")]
-    fn test_quantile_scale_nan_panics() {
+    fn test_quantile_scale_nan_maps_to_first_range_value() {
         let scale = QuantileScale::with_range(vec!["a", "b"]).domain(vec![1.0, 2.0, 3.0, 4.0]);
-        scale.scale(f64::NAN);
+        assert_eq!(scale.scale(f64::NAN), "a");
     }
 
     #[test]

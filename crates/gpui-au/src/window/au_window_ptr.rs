@@ -5,7 +5,7 @@ use super::au_window::AuWindow;
 pub(super) struct AuWindowPtr(pub(super) *const AuWindow);
 
 impl AuWindowPtr {
-    #[cfg(all(debug_assertions, not(test)))]
+    #[cfg(not(test))]
     pub(super) fn assert_main_thread() {
         use objc::{
             class, msg_send,
@@ -21,12 +21,13 @@ impl AuWindowPtr {
         }
     }
 
-    #[cfg(any(not(debug_assertions), test))]
+    #[cfg(test)]
     pub(super) fn assert_main_thread() {}
 }
 
 unsafe impl Send for AuWindowPtr {
-    // Pointer is only valid on the main thread; debug builds assert this.
+    // Pointer is only valid on the main thread; every non-test build asserts
+    // that invariant before registration, unregistration, or dereference.
 }
 
 unsafe impl Sync for AuWindowPtr {
@@ -40,6 +41,7 @@ pub(super) static AU_WINDOW: std::sync::Mutex<Option<AuWindowPtr>> = std::sync::
 
 /// Unregister the current AU window (called during destroy).
 pub(crate) fn unregister_au_window() {
+    AuWindowPtr::assert_main_thread();
     if let Ok(mut guard) = AU_WINDOW.lock() {
         *guard = None;
     }

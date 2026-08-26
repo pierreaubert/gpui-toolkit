@@ -9,48 +9,48 @@ All use `label: "Swift"` (closest to Rust in the allowed list).
 
 | Node ID | Component Name | Source File |
 |---------|---------------|-------------|
-| 1:289 | Button | crates/gpui-toolkit/gpui-ui-kit/src/button.rs |
-| 1:455 | Input | crates/gpui-toolkit/gpui-ui-kit/src/input.rs |
-| 1:493 | NumberInput | crates/gpui-toolkit/gpui-ui-kit/src/number_input.rs |
-| 1:531 | Select | crates/gpui-toolkit/gpui-ui-kit/src/select.rs |
-| 1:569 | Checkbox | crates/gpui-toolkit/gpui-ui-kit/src/checkbox.rs |
-| 1:611 | Toggle | crates/gpui-toolkit/gpui-ui-kit/src/toggle.rs |
-| 1:655 | Slider | crates/gpui-toolkit/gpui-ui-kit/src/slider.rs |
-| 1:685 | Badge | crates/gpui-toolkit/gpui-ui-kit/src/badge.rs |
-| 1:734 | Alert | crates/gpui-toolkit/gpui-ui-kit/src/alert.rs |
-| 1:786 | InlineAlert | crates/gpui-toolkit/gpui-ui-kit/src/alert.rs |
-| 1:803 | Toast | crates/gpui-toolkit/gpui-ui-kit/src/toast.rs |
-| 1:841 | Progress | crates/gpui-toolkit/gpui-ui-kit/src/progress.rs |
-| 1:873 | CircularProgress | crates/gpui-toolkit/gpui-ui-kit/src/progress.rs |
-| 1:892 | Spinner | crates/gpui-toolkit/gpui-ui-kit/src/spinner.rs |
-| 1:923 | Tabs | crates/gpui-toolkit/gpui-ui-kit/src/tabs.rs |
-| 1:956 | ButtonSet | crates/gpui-toolkit/gpui-ui-kit/src/button_set.rs |
-| 1:984 | Breadcrumbs | crates/gpui-toolkit/gpui-ui-kit/src/breadcrumbs.rs |
-| 1:1021 | Menu | crates/gpui-toolkit/gpui-ui-kit/src/menu.rs |
-| 1:1072 | Accordion | crates/gpui-toolkit/gpui-ui-kit/src/accordion.rs |
-| 1:1103 | Tooltip | crates/gpui-toolkit/gpui-ui-kit/src/tooltip.rs |
-| 1:1126 | Card | crates/gpui-toolkit/gpui-ui-kit/src/card.rs |
-| 1:354 | IconButton | crates/gpui-toolkit/gpui-ui-kit/src/icon_button.rs |
-| px:scatter | ScatterChart | crates/gpui-toolkit/gpui-px/src/scatter.rs |
-| px:line | LineChart | crates/gpui-toolkit/gpui-px/src/line.rs |
-| px:bar | BarChart | crates/gpui-toolkit/gpui-px/src/bar.rs |
-| px:area | AreaChart | crates/gpui-toolkit/gpui-px/src/area.rs |
-| px:heatmap | HeatmapChart | crates/gpui-toolkit/gpui-px/src/heatmap.rs |
-| px:contour | ContourChart | crates/gpui-toolkit/gpui-px/src/contour.rs |
-| px:isoline | IsolineChart | crates/gpui-toolkit/gpui-px/src/isoline.rs |
-| px:pie | PieChart | crates/gpui-toolkit/gpui-px/src/pie.rs |
-| px:boxplot | BoxPlotChart | crates/gpui-toolkit/gpui-px/src/boxplot.rs |
-| px:treemap | Treemap | crates/gpui-toolkit/gpui-px/src/treemap.rs |
-| audio:potentiometer | Potentiometer | crates/gpui-toolkit/gpui-audio-kit/src/audio/potentiometer.rs |
-| audio:vertical-slider | VerticalSlider | crates/gpui-toolkit/gpui-audio-kit/src/audio/vertical_slider.rs |
-| audio:volume-knob | VolumeKnob | crates/gpui-toolkit/gpui-audio-kit/src/audio/volume_knob.rs |
-| audio:level-meter | LevelMeterElement | crates/gpui-toolkit/gpui-audio-kit/src/meter.rs |
-| audio:horizontal-meter | HorizontalMeterTheme + render_horizontal_meter_bar | crates/gpui-toolkit/gpui-audio-kit/src/meter.rs |
-| audio:spectrum | SpectrumElement | crates/gpui-toolkit/gpui-audio-kit/src/spectrum.rs |
-| audio:spectrum-axis | SpectrumAxisTheme + spectrum axis render helpers | crates/gpui-toolkit/gpui-audio-kit/src/spectrum.rs |
+| 1:289 | Button | crates/gpui-ui-kit/src/button.rs |
+| 1:455 | Input | crates/gpui-ui-kit/src/input.rs |
+| 1:493 | NumberInput | crates/gpui-ui-kit/src/number_input.rs |
+| 1:531 | Select | crates/gpui-ui-kit/src/select.rs |
+| 1:569 | Checkbox | crates/gpui-ui-kit/src/checkbox.rs |
+| 1:611 | Toggle | crates/gpui-ui-kit/src/toggle.rs |
+| 1:655 | Slider | crates/gpui-ui-kit/src/slider.rs |
+| 1:685 | Badge | crates/gpui-ui-kit/src/badge.rs |
+| 1:734 | Alert | crates/gpui-ui-kit/src/alert.rs |
+| 1:786 | InlineAlert | crates/gpui-ui-kit/src/alert.rs |
+| 1:803 | Toast | crates/gpui-ui-kit/src/toast.rs |
+| 1:841 | Progress | crates/gpui-ui-kit/src/progress.rs |
+| 1:873 | CircularProgress | crates/gpui-ui-kit/src/progress.rs |
+| 1:892 | Spinner | crates/gpui-ui-kit/src/spinner.rs |
+| 1:923 | Tabs | crates/gpui-ui-kit/src/tabs.rs |
+| 1:956 | ButtonSet | crates/gpui-ui-kit/src/button_set.rs |
+| 1:984 | Breadcrumbs | crates/gpui-ui-kit/src/breadcrumbs.rs |
+| 1:1021 | Menu | crates/gpui-ui-kit/src/menu.rs |
+| 1:1072 | Accordion | crates/gpui-ui-kit/src/accordion.rs |
+| 1:1103 | Tooltip | crates/gpui-ui-kit/src/tooltip.rs |
+| 1:1126 | Card | crates/gpui-ui-kit/src/card.rs |
+| 1:354 | IconButton | crates/gpui-ui-kit/src/icon_button.rs |
+| px:scatter | ScatterChart | crates/gpui-px/src/scatter.rs |
+| px:line | LineChart | crates/gpui-px/src/line.rs |
+| px:bar | BarChart | crates/gpui-px/src/bar.rs |
+| px:area | AreaChart | crates/gpui-px/src/area.rs |
+| px:heatmap | HeatmapChart | crates/gpui-px/src/heatmap.rs |
+| px:contour | ContourChart | crates/gpui-px/src/contour.rs |
+| px:isoline | IsolineChart | crates/gpui-px/src/isoline.rs |
+| px:pie | PieChart | crates/gpui-px/src/pie.rs |
+| px:boxplot | BoxPlotChart | crates/gpui-px/src/boxplot.rs |
+| px:treemap | Treemap | crates/gpui-px/src/treemap.rs |
+| audio:potentiometer | Potentiometer | crates/gpui-audio-kit/src/audio/potentiometer.rs |
+| audio:vertical-slider | VerticalSlider | crates/gpui-audio-kit/src/audio/vertical_slider.rs |
+| audio:volume-knob | VolumeKnob | crates/gpui-audio-kit/src/audio/volume_knob.rs |
+| audio:level-meter | LevelMeterElement | crates/gpui-audio-kit/src/meter.rs |
+| audio:horizontal-meter | HorizontalMeterTheme + render_horizontal_meter_bar | crates/gpui-audio-kit/src/meter.rs |
+| audio:spectrum | SpectrumElement | crates/gpui-audio-kit/src/spectrum.rs |
+| audio:spectrum-axis | SpectrumAxisTheme + spectrum axis render helpers | crates/gpui-audio-kit/src/spectrum.rs |
 
 The runtime story registry for design review and responsive matrices lives in
-`crates/gpui-toolkit/gpui-component-lab`. Current first-party story ids are
+`crates/gpui-component-lab`. Current first-party story ids are
 `ui-kit.button`, `ui-kit.form`, `ui-kit.status`, `ui-kit.navigation`,
 `ui-kit.feedback`, `ui-kit.card`, `px.line`, `px.bar`, `px.scatter`,
 `px.area`, `px.heatmap`, `px.contour`, `px.isoline`, `px.pie`,
@@ -58,7 +58,7 @@ The runtime story registry for design review and responsive matrices lives in
 `audio-kit.vertical-slider`, `audio-kit.volume-knob`, `audio-kit.meter`,
 `audio-kit.horizontal-meter`, `audio-kit.spectrum`, and
 `audio-kit.spectrum-axis`. Token exports and validation live in
-`crates/gpui-toolkit/gpui-design-tools`.
+`crates/gpui-design-tools`.
 
 ## Code Connect Examples
 
@@ -79,7 +79,8 @@ Input::new("id")
 
 When `get_design_context` returns a Toggle, generate:
 ```rust
-Toggle::new("id", checked)
+Toggle::new("id")
+    .checked(checked)
     .style(ToggleStyle::Sliding)
     .size(ToggleSize::Md)
     .label("Label")
@@ -112,7 +113,7 @@ Tabs::new("id")
 
 When `get_design_context` returns a Select, generate:
 ```rust
-Select::new("id", vec![
+Select::new("id").options(vec![
     SelectOption::new("opt1", "Option One"),
     SelectOption::new("opt2", "Option Two"),
 ])

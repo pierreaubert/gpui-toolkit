@@ -11,6 +11,9 @@ keywords = ["gpui", "keybinding", "ui"]
 categories = ["gui"]
 
 [features]
+# Workspace-wide QA enables a common feature union for every public crate.
+# These no-op aliases keep that command valid when this crate has no optional
+# implementation for a given capability.
 default = []
 autoeq = []
 gpu-2d = []

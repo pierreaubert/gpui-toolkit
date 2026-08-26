@@ -10,17 +10,6 @@ license.workspace = true
 repository.workspace = true
 publish = false
 
-[features]
-default = []
-autoeq = []
-gpu-2d = []
-gpu-3d = []
-reqwest = []
-showcase = []
-spinorama = []
-tokio = []
-urlencoding = []
-
 [dependencies]
 anyhow = { workspace = true }
 clap = { workspace = true }

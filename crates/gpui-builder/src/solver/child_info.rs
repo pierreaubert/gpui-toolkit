@@ -1,5 +1,18 @@
 use super::types::ChildInfo;
-use crate::types::{Axis, LayoutNode, LayoutPreferences, Sizing};
+use crate::types::{Axis, LayoutNode, LayoutPreferences, Sizing, sanitize_ratio};
+
+fn fractional_bounds(min: f32, max: f32) -> (f32, f32) {
+    let min = min.is_finite().then_some(min.max(0.0)).unwrap_or(0.0);
+    let max = if max.is_nan() || max.is_sign_negative() {
+        0.0
+    } else if max.is_infinite() {
+        f32::MAX
+    } else {
+        max
+    };
+
+    (min, max.max(min))
+}
 
 pub(super) fn allocate_main_axis(
     children: &mut [ChildInfo],
@@ -62,7 +75,9 @@ pub(super) fn allocate_main_axis(
     // Pass C: Priority-based collapse if minimums exceed remaining
     if total_minimums > space_after_fixed {
         let mut current_minimums = total_minimums;
-        while current_minimums > space_after_fixed {
+        let mut current_space = space_after_fixed;
+        let mut visible_count = initial_visible;
+        while current_minimums > current_space {
             // Select the next lowest-priority candidate in place. Typical UI
             // sibling counts are small, and this avoids allocating/sorting an
             // index vector in the resize hot path.
@@ -89,6 +104,10 @@ pub(super) fn allocate_main_axis(
             };
             children[idx].solver_collapsed = true;
             current_minimums -= nodes[children[idx].node_index].sizing().min_size();
+            if visible_count > 1 {
+                current_space += divider_size;
+            }
+            visible_count = visible_count.saturating_sub(1);
         }
     }
 
@@ -152,7 +171,7 @@ pub(super) fn distribute_remaining(
         let node = &nodes[child.node_index];
         match node.sizing() {
             Sizing::Fractional { initial, .. } => {
-                let ratio = prefs.ratio_for(node.id(), axis).unwrap_or(initial);
+                let ratio = sanitize_ratio(prefs.ratio_for(node.id(), axis).unwrap_or(initial));
                 fractional_demand += ratio;
             }
             Sizing::Flex { weight, .. } => {
@@ -177,8 +196,9 @@ pub(super) fn distribute_remaining(
         }
         let node = &nodes[child.node_index];
         if let Sizing::Fractional { initial, min, max } = node.sizing() {
-            let ratio = prefs.ratio_for(node.id(), axis).unwrap_or(initial);
-            let target = (ratio * ratio_scale * distributable).clamp(min, max);
+            let ratio = sanitize_ratio(prefs.ratio_for(node.id(), axis).unwrap_or(initial));
+            let (min, max) = fractional_bounds(min, max);
+            let target = (ratio * ratio_scale * distributable).max(min).min(max);
             child.allocated_size = target;
             used_by_fractional += target;
         }

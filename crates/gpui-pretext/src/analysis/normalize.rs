@@ -1,15 +1,38 @@
 use std::borrow::Cow;
 
+fn is_normalized_normal_whitespace(text: &str) -> bool {
+    let mut saw_non_whitespace = false;
+    let mut previous_was_space = false;
+
+    for ch in text.chars() {
+        let is_whitespace = matches!(ch, ' ' | '\t' | '\n' | '\r' | '\x0C');
+        if !is_whitespace {
+            saw_non_whitespace = true;
+            previous_was_space = false;
+            continue;
+        }
+
+        if ch != ' ' || !saw_non_whitespace || previous_was_space {
+            return false;
+        }
+        previous_was_space = true;
+    }
+
+    !previous_was_space
+}
+
 pub fn normalize_whitespace_normal(text: &str) -> Cow<'_, str> {
     // Collapse runs of [ \t\n\r\f]+ to a single space, strip leading/trailing spaces.
-    // If the input already satisfies this, return it borrowed.
+    // If the input already satisfies this, return it borrowed without allocating.
+    if is_normalized_normal_whitespace(text) {
+        return Cow::Borrowed(text);
+    }
+
     let mut result = String::with_capacity(text.len());
     let mut in_ws = false;
-    let mut changed = false;
     for ch in text.chars() {
         if ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' || ch == '\x0C' {
             in_ws = true;
-            changed = true;
         } else {
             if in_ws && !result.is_empty() {
                 result.push(' ');
@@ -18,11 +41,7 @@ pub fn normalize_whitespace_normal(text: &str) -> Cow<'_, str> {
             result.push(ch);
         }
     }
-    if !changed {
-        Cow::Borrowed(text)
-    } else {
-        Cow::Owned(result)
-    }
+    Cow::Owned(result)
 }
 
 pub fn normalize_whitespace_pre_wrap(text: &str) -> Cow<'_, str> {

@@ -7,7 +7,8 @@
 //! - Click to toggle state
 //! - Space key to toggle when selected
 //! - Optional label
-//! - Two visual styles: Sliding (iOS-style) and Segmented ([OFF|ON])
+//! - Four visual styles: Sliding (iOS capsule), Material ThumbOnTrack,
+//!   Segmented ([OFF|ON]), and Fluent Pill
 
 use crate::accessibility::{
     AccessibilityExt, AccessibilityNode, AriaProps, AriaRole, AriaState, apply_native_accessibility,
@@ -134,11 +135,15 @@ impl Toggle {
         let element = match this.theme.take() {
             Some(ref theme) => match style {
                 ToggleStyle::Sliding => this.build_sliding(theme),
+                ToggleStyle::ThumbOnTrack => this.build_thumb_on_track(theme),
                 ToggleStyle::Segmented => this.build_segmented(theme),
+                ToggleStyle::Pill => this.build_pill(theme),
             },
             None => match style {
                 ToggleStyle::Sliding => this.build_sliding(global_theme),
+                ToggleStyle::ThumbOnTrack => this.build_thumb_on_track(global_theme),
                 ToggleStyle::Segmented => this.build_segmented(global_theme),
+                ToggleStyle::Pill => this.build_pill(global_theme),
             },
         };
 
@@ -146,6 +151,18 @@ impl Toggle {
     }
 
     fn build_sliding(self, theme: &ToggleTheme) -> Stateful<Div> {
+        self.build_track(theme, ToggleStyle::Sliding)
+    }
+
+    fn build_thumb_on_track(self, theme: &ToggleTheme) -> Stateful<Div> {
+        self.build_track(theme, ToggleStyle::ThumbOnTrack)
+    }
+
+    fn build_pill(self, theme: &ToggleTheme) -> Stateful<Div> {
+        self.build_track(theme, ToggleStyle::Pill)
+    }
+
+    fn build_track(self, theme: &ToggleTheme, style: ToggleStyle) -> Stateful<Div> {
         let track_width = self.size.track_width();
         let track_height = self.size.track_height();
         let knob_size = self.size.knob_size();
@@ -188,16 +205,29 @@ impl Toggle {
         }
 
         // Track - with border for visibility on dark backgrounds
-        let mut track = div()
-            .relative()
-            .w(track_width)
-            .h(track_height)
-            .rounded_full()
-            .bg(track_bg)
-            .border_1()
-            .border_color(theme.track_border);
+        let mut track = if style == ToggleStyle::ThumbOnTrack {
+            div().relative().w(track_width).h(track_height).rounded_md()
+        } else {
+            div()
+                .relative()
+                .w(track_width)
+                .h(track_height)
+                .rounded_full()
+        }
+        .bg(track_bg)
+        .border_1()
+        .border_color(theme.track_border);
 
-        // Knob - always same color, just moves position
+        // Material and Fluent styles use a contrast thumb when checked;
+        // the capsule keeps the traditional iOS neutral thumb.
+        let knob_color =
+            if checked && matches!(style, ToggleStyle::ThumbOnTrack | ToggleStyle::Pill) {
+                theme.knob_on_checked
+            } else {
+                theme.knob
+            };
+
+        // Knob moves along the track.
         let knob = div()
             .absolute()
             .top(knob_offset)
@@ -205,7 +235,7 @@ impl Toggle {
             .w(knob_size)
             .h(knob_size)
             .rounded_full()
-            .bg(theme.knob)
+            .bg(knob_color)
             .shadow_md()
             .border_1()
             .border_color(theme.track_border);

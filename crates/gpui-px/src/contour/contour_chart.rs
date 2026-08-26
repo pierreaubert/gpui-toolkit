@@ -64,6 +64,17 @@ impl std::fmt::Debug for ContourChart {
     }
 }
 
+fn available_plot_dimensions(
+    layout_width: f32,
+    layout_height: f32,
+    title_height: f32,
+) -> (f64, f64) {
+    (
+        ((layout_width as f64) - 60.0).max(0.0),
+        ((layout_height as f64) - title_height as f64 - 40.0).max(0.0),
+    )
+}
+
 impl ContourChart {
     /// Select the high-level 2D renderer. Vello is the default when enabled.
     pub fn renderer_2d(mut self, renderer: Renderer2D) -> Self {
@@ -502,10 +513,8 @@ impl ContourChart {
         };
 
         // Reserve space for axes
-        let left_margin = 60.0_f64;
-        let bottom_margin = 40.0_f64;
-        let plot_width = (layout_width as f64) - left_margin;
-        let plot_height = (layout_height as f64) - title_height as f64 - bottom_margin;
+        let (plot_width, plot_height) =
+            available_plot_dimensions(layout_width, layout_height, title_height);
 
         let theme = DefaultAxisTheme;
         let x_axis_config = AxisConfig::bottom().with_design(&design);
@@ -1159,6 +1168,15 @@ mod tests {
             .x_range(-1.0, 10.0)
             .build();
         assert!(matches!(result, Err(ChartError::InvalidData { .. })));
+    }
+
+    #[test]
+    fn contour_tiny_layout_has_no_negative_plot_dimensions() {
+        assert_eq!(
+            available_plot_dimensions(50.0, 50.0, TITLE_AREA_HEIGHT),
+            (0.0, 0.0)
+        );
+        assert_eq!(available_plot_dimensions(160.0, 160.0, 0.0), (100.0, 120.0));
     }
 
     #[test]

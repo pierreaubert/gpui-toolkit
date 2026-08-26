@@ -542,6 +542,7 @@ impl PlatformDispatcher for AndroidDispatcher {
         q.tasks.push_back(Box::new(move || {
             runnable.run();
         }));
+        self.main_thread_wake_pending.store(true, Ordering::Release);
         wake_pipe(q.write_fd);
     }
 
@@ -558,6 +559,9 @@ impl PlatformDispatcher for AndroidDispatcher {
             }),
         });
         delayed.sort_by_key(|d| d.due);
+        drop(delayed);
+        let write_fd = self.main_queue.lock().write_fd;
+        wake_pipe(write_fd);
     }
 
     fn spawn_realtime(&self, f: Box<dyn FnOnce() + Send>) {

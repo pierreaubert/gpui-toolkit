@@ -68,6 +68,11 @@ impl Interval {
     pub fn join(self) {
         self.timer.join();
     }
+
+    /// Wait for interval completion for at most `timeout`.
+    pub fn try_join(&self, timeout: Duration) -> bool {
+        self.timer.try_join(timeout)
+    }
 }
 
 /// Creates a repeating timer that fires at fixed intervals.

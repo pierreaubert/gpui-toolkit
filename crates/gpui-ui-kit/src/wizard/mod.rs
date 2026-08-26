@@ -12,7 +12,8 @@ use crate::button::{Button, ButtonSize, ButtonVariant};
 use crate::progress::{Progress, ProgressSize, ProgressVariant};
 use crate::theme::ThemeExt;
 use gpui::prelude::{IntoElement, ParentElement, RenderOnce, Styled};
-use gpui::{App, Div, FontWeight, SharedString, Window, div, px};
+use gpui::{App, Div, ElementId, FontWeight, SharedString, Window, div, px};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 mod types;
 mod wizard_header;
@@ -26,8 +27,11 @@ pub use wizard_navigation::WizardNavigation;
 pub use wizard_step::WizardStep;
 use wizard_step_indicator_density::WizardStepIndicatorDensity;
 
+static NEXT_WIZARD_ID: AtomicU64 = AtomicU64::new(0);
+
 /// A wizard component for multi-step workflows
 pub struct Wizard {
+    id: ElementId,
     steps: Vec<WizardStep>,
     step_statuses: Vec<StepStatus>,
     current_step: usize,
@@ -52,7 +56,7 @@ pub struct Wizard {
     /// Callback when step changes
     on_step_change: Option<std::rc::Rc<dyn Fn(usize, &mut Window, &mut App) + 'static>>,
     /// Callback when validation is needed before advancing
-    on_validate: Option<Box<dyn Fn(usize) -> bool + 'static>>,
+    on_validate: Option<std::rc::Rc<dyn Fn(usize) -> bool + 'static>>,
     /// Callback when finish is clicked (last step)
     on_finish: Option<std::rc::Rc<dyn Fn(&mut Window, &mut App) + 'static>>,
     /// Callback when cancel is clicked
@@ -67,6 +71,10 @@ impl Wizard {
     /// Create a new wizard
     pub fn new() -> Self {
         Self {
+            id: ElementId::from(format!(
+                "wizard-{}",
+                NEXT_WIZARD_ID.fetch_add(1, Ordering::Relaxed)
+            )),
             steps: Vec::new(),
             step_statuses: Vec::new(),
             current_step: 0,
@@ -87,6 +95,12 @@ impl Wizard {
             on_back: None,
             on_next: None,
         }
+    }
+
+    /// Set the stable element-ID namespace used by this wizard's controls.
+    pub fn id(mut self, id: impl Into<ElementId>) -> Self {
+        self.id = id.into();
+        self
     }
 
     /// Set the wizard steps
@@ -184,7 +198,7 @@ impl Wizard {
 
     /// Set validation handler (return true if step is valid)
     pub fn on_validate(mut self, handler: impl Fn(usize) -> bool + 'static) -> Self {
-        self.on_validate = Some(Box::new(handler));
+        self.on_validate = Some(std::rc::Rc::new(handler));
         self
     }
 
@@ -365,7 +379,7 @@ impl Wizard {
 
         // Cancel button (if shown and we have a handler)
         if self.show_cancel {
-            let mut cancel_btn = Button::new("wizard-cancel", cancel_label)
+            let mut cancel_btn = Button::new((self.id.clone(), "cancel"), cancel_label)
                 .variant(ButtonVariant::Ghost)
                 .size(ButtonSize::Md)
                 .disabled(self.is_busy);
@@ -385,21 +399,30 @@ impl Wizard {
         // Back button
         let current_step = self.current_step;
 
-        let mut back_btn = Button::new("wizard-back", back_label)
+        let mut back_btn = Button::new((self.id.clone(), "back"), back_label)
             .variant(ButtonVariant::Secondary)
             .size(ButtonSize::Md)
             .disabled(self.is_busy);
 
-        if let Some(handler) = self.on_back.clone() {
+        let on_back = self.on_back.clone();
+        let on_step_change = self.on_step_change.clone();
+        if on_back.is_some() || current_step > 0 && on_step_change.is_some() {
             back_btn = back_btn.on_click(move |window, cx| {
-                handler(current_step, window, cx);
+                if let Some(on_back) = &on_back {
+                    on_back(current_step, window, cx);
+                }
+                if current_step > 0 {
+                    if let Some(on_step_change) = &on_step_change {
+                        on_step_change(current_step - 1, window, cx);
+                    }
+                }
             });
         }
 
         buttons = buttons.child(back_btn);
 
         // Next/Finish button
-        let mut next_btn = Button::new("wizard-next", next_label)
+        let mut next_btn = Button::new((self.id.clone(), "next"), next_label)
             .variant(ButtonVariant::Primary)
             .size(ButtonSize::Md)
             .disabled(self.is_busy);
@@ -410,9 +433,23 @@ impl Wizard {
                     handler(window, cx);
                 });
             }
-        } else if let Some(handler) = self.on_next.clone() {
+        } else {
+            let on_next = self.on_next.clone();
+            let on_step_change = self.on_step_change.clone();
+            let on_validate = self.on_validate.clone();
             next_btn = next_btn.on_click(move |window, cx| {
-                handler(current_step, window, cx);
+                if on_validate
+                    .as_ref()
+                    .is_some_and(|validate| !validate(current_step))
+                {
+                    return;
+                }
+                if let Some(on_step_change) = &on_step_change {
+                    on_step_change(current_step + 1, window, cx);
+                }
+                if let Some(on_next) = &on_next {
+                    on_next(current_step, window, cx);
+                }
             });
         }
 

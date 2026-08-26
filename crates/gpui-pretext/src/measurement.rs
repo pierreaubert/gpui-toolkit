@@ -40,6 +40,18 @@ pub trait TextMeasure {
     fn cache_key(&self) -> u64 {
         (self as *const Self as *const () as usize) as u64
     }
+
+    /// Whether [`Self::cache_key`] identifies this measure across independent
+    /// layout solves.
+    ///
+    /// The default key is the object's address, which is only safe during one
+    /// solve: a later measure can be allocated at the same address with
+    /// different metrics. Implementations that return a semantic identity from
+    /// [`Self::cache_key`] must override this to return `true`; the identity
+    /// must change whenever their font, scale, locale, or shaping state does.
+    fn cache_key_is_stable(&self) -> bool {
+        false
+    }
 }
 
 // ---------------------------------------------------------------------------

@@ -1,5 +1,7 @@
+#[cfg(feature = "headless-qa")]
 use super::super::config::Surface3DConfig;
 
+#[cfg(feature = "headless-qa")]
 pub(super) fn background_surface_clear_color(config: &Surface3DConfig) -> wgpu::Color {
     let bg = &config.background_color;
     wgpu::Color {

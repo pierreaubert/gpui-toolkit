@@ -6,7 +6,8 @@ use std::path::PathBuf;
 #[derive(Debug, Parser)]
 #[command(
     name = "gpui-scaffolder",
-    about = "Create a standalone GPUI mini-app project"
+    about = "Create a standalone GPUI mini-app project",
+    after_long_help = "Set GPUI_TOOLKIT_ROOT when the executable is not located inside a gpui-toolkit checkout."
 )]
 struct Args {
     /// Directory and app name to create.

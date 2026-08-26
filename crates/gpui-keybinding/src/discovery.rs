@@ -151,7 +151,50 @@ struct PaletteCacheEntry {
 }
 type PaletteSearchCache = HashMap<(usize, usize), PaletteCacheEntry>;
 type HintPrefixCache = HashMap<String, Rc<[KeybindingHint]>>;
-type KeybindingHintsCache = HashMap<DocumentedBindingsKey, HintPrefixCache>;
+
+/// Cached hint results plus a snapshot used to validate the identity lookup.
+///
+/// Callers of the public slice API may mutate a `Vec<DocumentedKeybinding>`
+/// between calls or later receive an allocation at a recycled address. The
+/// address-based key avoids a full content hash on every lookup; this snapshot
+/// prevents either situation from returning hints for different bindings.
+struct HintCacheEntry {
+    source: Vec<DocumentedKeybinding>,
+    prefixes: HintPrefixCache,
+}
+
+type KeybindingHintsCache = HashMap<DocumentedBindingsKey, HintCacheEntry>;
+
+const MAX_REGISTRY_CACHE_ENTRIES_PER_PRESET: usize = 64;
+
+type RegistryQueryCache<T> = HashMap<KeymapPreset, HashMap<String, Rc<[T]>>>;
+
+fn insert_registry_cache<T>(
+    cache: &RefCell<RegistryQueryCache<T>>,
+    preset: KeymapPreset,
+    key: String,
+    result: Rc<[T]>,
+) {
+    let mut cache = cache.borrow_mut();
+    let entries = cache.entry(preset).or_default();
+    if entries.len() >= MAX_REGISTRY_CACHE_ENTRIES_PER_PRESET && !entries.contains_key(&key) {
+        entries.clear();
+    }
+    entries.insert(key, result);
+}
+
+fn documented_bindings_match(
+    snapshot: &[DocumentedKeybinding],
+    bindings: &[DocumentedKeybinding],
+) -> bool {
+    snapshot.len() == bindings.len()
+        && snapshot.iter().zip(bindings).all(|(snapshot, binding)| {
+            snapshot.key == binding.key
+                && snapshot.raw_key_spec == binding.raw_key_spec
+                && snapshot.description == binding.description
+                && snapshot.category == binding.category
+        })
+}
 
 thread_local! {
     static SEARCH_CACHE: RefCell<PaletteSearchCache> = RefCell::new(HashMap::new());
@@ -189,7 +232,36 @@ pub fn search_command_palette(
     entries: &[CommandPaletteEntry],
     query: &str,
 ) -> Vec<CommandPaletteEntry> {
-    search_command_palette_cached(Rc::from(entries.to_vec()), query).to_vec()
+    let normalized = normalized_ascii_lowercase(query);
+    build_command_palette_search(entries, normalized.as_ref())
+}
+
+fn build_command_palette_search(
+    entries: &[CommandPaletteEntry],
+    normalized: &str,
+) -> Vec<CommandPaletteEntry> {
+    if normalized.is_empty() {
+        return entries.to_vec();
+    }
+
+    let mut matches: Vec<_> = entries
+        .iter()
+        .filter_map(|entry| {
+            score_entry(entry, normalized, normalized.split_whitespace())
+                .map(|score| (score, entry))
+        })
+        .collect();
+    matches.sort_by(|(score_a, a), (score_b, b)| {
+        score_a
+            .cmp(score_b)
+            .then_with(|| a.category.name().cmp(b.category.name()))
+            .then_with(|| a.description.cmp(&b.description))
+            .then_with(|| a.key.cmp(&b.key))
+    });
+    matches
+        .into_iter()
+        .map(|(_, entry)| entry.clone())
+        .collect()
 }
 
 /// Cached version of [`search_command_palette`].
@@ -274,7 +346,8 @@ pub fn search_command_palette_cached(
 /// This is the convenience wrapper that returns a [`Vec`]; prefer
 /// `keybinding_hints_cached()` to reuse the same allocation across calls.
 pub fn keybinding_hints(bindings: &[DocumentedKeybinding], prefix: &str) -> Vec<KeybindingHint> {
-    keybinding_hints_cached(bindings, prefix).to_vec()
+    let prefix_normalized = normalized_ascii_lowercase(prefix);
+    build_keybinding_hints(bindings, prefix_normalized.as_ref())
 }
 
 /// Cached version of [`keybinding_hints`].
@@ -292,21 +365,36 @@ pub fn keybinding_hints_cached(
     let bindings_hash = documented_bindings_key(bindings);
 
     HINTS_CACHE.with(|cache| {
-        if let Some(cached) = cache
-            .borrow()
-            .get(&bindings_hash)
-            .and_then(|prefixes| prefixes.get(prefix_normalized.as_ref()))
         {
-            return Rc::clone(cached);
+            let cache = cache.borrow();
+            if let Some(cached) = cache
+                .get(&bindings_hash)
+                .filter(|entry| documented_bindings_match(&entry.source, bindings))
+                .and_then(|entry| entry.prefixes.get(prefix_normalized.as_ref()))
+            {
+                return Rc::clone(cached);
+            }
         }
 
-        let result = build_keybinding_hints(bindings, prefix);
+        let result = build_keybinding_hints(bindings, prefix_normalized.as_ref());
         let result: Rc<[KeybindingHint]> = result.into();
         let mut cache = cache.borrow_mut();
         if cache.len() >= MAX_HINT_BINDING_SETS && !cache.contains_key(&bindings_hash) {
             cache.clear();
         }
-        let prefixes = cache.entry(bindings_hash).or_default();
+        let entry = cache
+            .entry(bindings_hash)
+            .or_insert_with(|| HintCacheEntry {
+                source: bindings.to_vec(),
+                prefixes: HintPrefixCache::new(),
+            });
+        if !documented_bindings_match(&entry.source, bindings) {
+            *entry = HintCacheEntry {
+                source: bindings.to_vec(),
+                prefixes: HintPrefixCache::new(),
+            };
+        }
+        let prefixes = &mut entry.prefixes;
         if prefixes.len() >= MAX_HINT_PREFIXES_PER_SET
             && !prefixes.contains_key(prefix_normalized.as_ref())
         {
@@ -317,6 +405,8 @@ pub fn keybinding_hints_cached(
     })
 }
 
+/// Build hints using GPUI's binding precedence: when the same completed chord
+/// appears more than once, the later documented binding supplies its metadata.
 fn build_keybinding_hints(bindings: &[DocumentedKeybinding], prefix: &str) -> Vec<KeybindingHint> {
     let mut hints: BTreeMap<&str, KeybindingHint> = BTreeMap::new();
 
@@ -404,11 +494,12 @@ impl KeybindingRegistry {
 
         let entries = self.get_palette_entries(preset);
         let result = search_command_palette_cached(entries, query);
-        self.search_cache
-            .borrow_mut()
-            .entry(preset)
-            .or_default()
-            .insert(normalized.into_owned(), Rc::clone(&result));
+        insert_registry_cache(
+            &self.search_cache,
+            preset,
+            normalized.into_owned(),
+            Rc::clone(&result),
+        );
         result
     }
 
@@ -440,12 +531,13 @@ impl KeybindingRegistry {
         }
 
         let docs = self.get_documented(preset);
-        let result = keybinding_hints_cached(&docs, prefix);
-        self.hints_cache
-            .borrow_mut()
-            .entry(preset)
-            .or_default()
-            .insert(prefix_normalized.into_owned(), Rc::clone(&result));
+        let result = keybinding_hints_cached(&docs, prefix_normalized.as_ref());
+        insert_registry_cache(
+            &self.hints_cache,
+            preset,
+            prefix_normalized.into_owned(),
+            Rc::clone(&result),
+        );
         result
     }
 }
@@ -632,11 +724,70 @@ mod tests {
     }
 
     #[test]
+    fn vec_discovery_wrappers_do_not_populate_thread_local_caches() {
+        SEARCH_CACHE.with(|cache| cache.borrow_mut().clear());
+        HINTS_CACHE.with(|cache| cache.borrow_mut().clear());
+
+        let docs = docs();
+        let entries = command_palette_entries(&docs);
+        let results = search_command_palette(&entries, "save");
+        assert_eq!(results.len(), 1);
+        assert!(SEARCH_CACHE.with(|cache| cache.borrow().is_empty()));
+
+        let hints = keybinding_hints(&docs, "ctrl-k");
+        assert_eq!(hints.len(), 3);
+        assert!(HINTS_CACHE.with(|cache| cache.borrow().is_empty()));
+    }
+
+    #[test]
     fn keybinding_hints_cache_hit_returns_same_rc() {
         let docs = docs();
         let a = keybinding_hints_cached(&docs, "ctrl-k");
         let b = keybinding_hints_cached(&docs, "ctrl-k");
         assert!(Rc::ptr_eq(&a, &b));
+    }
+
+    #[test]
+    fn keybinding_hints_cache_normalizes_prefix_before_matching() {
+        let docs = docs();
+        let uppercase = keybinding_hints_cached(&docs, "Ctrl-K");
+        let lowercase = keybinding_hints_cached(&docs, "ctrl-k");
+
+        assert!(!uppercase.is_empty());
+        assert_eq!(uppercase.as_ref(), lowercase.as_ref());
+        assert!(Rc::ptr_eq(&uppercase, &lowercase));
+    }
+
+    #[test]
+    fn keybinding_hints_cache_rebuilds_after_binding_mutation() {
+        let mut docs = docs();
+        let before = keybinding_hints_cached(&docs, "ctrl-k");
+        assert!(before.iter().any(|hint| hint.raw_key_spec == "ctrl-s"));
+
+        let raw_key_spec = docs[1]
+            .raw_key_spec
+            .as_mut()
+            .expect("fixture has a raw key spec");
+        raw_key_spec.replace_range(.., "ctrl-k ctrl-x");
+
+        let after = keybinding_hints_cached(&docs, "ctrl-k");
+        assert!(after.iter().any(|hint| hint.raw_key_spec == "ctrl-x"));
+        assert!(!Rc::ptr_eq(&before, &after));
+    }
+
+    #[test]
+    fn registry_keybinding_hints_cache_normalizes_prefix_before_matching() {
+        let mut registry = KeybindingRegistry::new();
+        registry.register(CountingProvider {
+            documented_calls: Rc::new(Cell::new(0)),
+        });
+
+        let uppercase = registry.keybinding_hints_cached(KeymapPreset::Default, "Ctrl-K");
+        let lowercase = registry.keybinding_hints_cached(KeymapPreset::Default, "ctrl-k");
+
+        assert!(!uppercase.is_empty());
+        assert_eq!(uppercase.as_ref(), lowercase.as_ref());
+        assert!(Rc::ptr_eq(&uppercase, &lowercase));
     }
 
     #[test]
@@ -661,6 +812,21 @@ mod tests {
         assert_eq!(hints.len(), 1);
         assert!(!hints[0].is_terminal);
         assert!(hints[0].has_children);
+    }
+
+    #[test]
+    fn keybinding_hints_use_later_binding_for_duplicate_terminal_chords() {
+        let bindings = vec![
+            DocumentedKeybinding::new("Ctrl+K Ctrl+S", "First", KeybindingCategory::FileOps)
+                .with_raw_key_spec("ctrl-k ctrl-s"),
+            DocumentedKeybinding::new("Ctrl+K Ctrl+S", "Later", KeybindingCategory::System)
+                .with_raw_key_spec("ctrl-k ctrl-s"),
+        ];
+
+        let hints = keybinding_hints(&bindings, "ctrl-k");
+        assert_eq!(hints.len(), 1);
+        assert_eq!(hints[0].description.as_deref(), Some("Later"));
+        assert_eq!(hints[0].category, KeybindingCategory::System);
     }
 
     #[test]
@@ -697,5 +863,31 @@ mod tests {
         let c = registry.keybinding_hints_cached(KeymapPreset::Default, "ctrl-k");
         let d = registry.keybinding_hints_cached(KeymapPreset::Default, "ctrl-k");
         assert!(Rc::ptr_eq(&c, &d));
+    }
+
+    #[test]
+    fn registry_discovery_caches_clear_when_the_per_preset_cap_is_exceeded() {
+        let mut registry = KeybindingRegistry::new();
+        registry.register(CountingProvider {
+            documented_calls: Rc::new(Cell::new(0)),
+        });
+
+        for index in 0..=MAX_REGISTRY_CACHE_ENTRIES_PER_PRESET {
+            let query = format!("query-{index}");
+            registry.search_command_palette_cached(KeymapPreset::Default, &query);
+        }
+        assert_eq!(
+            registry.search_cache.borrow()[&KeymapPreset::Default].len(),
+            1
+        );
+
+        for index in 0..=MAX_REGISTRY_CACHE_ENTRIES_PER_PRESET {
+            let prefix = format!("ctrl-{index}");
+            registry.keybinding_hints_cached(KeymapPreset::Default, &prefix);
+        }
+        assert_eq!(
+            registry.hints_cache.borrow()[&KeymapPreset::Default].len(),
+            1
+        );
     }
 }

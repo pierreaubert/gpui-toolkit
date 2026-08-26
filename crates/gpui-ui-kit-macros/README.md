@@ -17,7 +17,7 @@ pub struct MyComponentTheme {
     #[theme(default = 0xffffff, from = text_primary)]
     pub text_color: Rgba,
 
-    #[theme(default = 1.0, from = none)]
+    #[theme(default_f32 = 1.0, from_expr = "1.0")]
     pub opacity: f32,
 }
 ```
@@ -29,6 +29,6 @@ This generates:
 ## Attribute Reference
 
 - **Color fields (`Rgba`)**: `#[theme(default = 0xRRGGBB, from = <theme_field>)]`
-- **Float fields (`f32`)**: `#[theme(default = <value>, from = none)]`
+- **Float fields (`f32`)**: `#[theme(default_f32 = <value>, from_expr = "<expr>")]`
 
 This is a proc-macro crate. Use it via `gpui-ui-kit` which re-exports `ComponentTheme`.

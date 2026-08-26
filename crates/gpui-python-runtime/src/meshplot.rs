@@ -254,14 +254,7 @@ impl MeshPlotSpec {
         }
         if !matches!(
             self.color_scale.as_str(),
-            "viridis"
-                | "plasma"
-                | "inferno"
-                | "magma"
-                | "cividis"
-                | "turbo"
-                | "coolwarm"
-                | "cool_warm"
+            "viridis" | "plasma" | "inferno" | "magma" | "coolwarm" | "cool_warm"
         ) {
             return Err(format!(
                 "unsupported mesh_plot color scale {:?}",
@@ -943,6 +936,11 @@ mod tests {
             (
                 "color_scale",
                 serde_json::json!("rainbow"),
+                "unsupported mesh_plot color scale",
+            ),
+            (
+                "color_scale",
+                serde_json::json!("cividis"),
                 "unsupported mesh_plot color scale",
             ),
         ] {

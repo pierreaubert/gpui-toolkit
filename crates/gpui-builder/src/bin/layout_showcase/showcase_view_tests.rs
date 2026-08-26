@@ -78,3 +78,14 @@ async fn divider_drag_resizes_without_collapsing_sidebar(cx: &mut TestAppContext
         })
         .unwrap();
 }
+
+#[test]
+fn keyboard_nudges_follow_divider_direction() {
+    let mut view = ShowcaseView::new(None);
+
+    assert!(view.nudge_ratio(DragTarget::Sidebar, Axis::Horizontal, 0.02));
+    assert_eq!(view.sidebar_ratio_h, 0.24);
+
+    assert!(view.nudge_ratio(DragTarget::Inspector, Axis::Vertical, 0.02));
+    assert_eq!(view.inspector_ratio_v, 0.18);
+}

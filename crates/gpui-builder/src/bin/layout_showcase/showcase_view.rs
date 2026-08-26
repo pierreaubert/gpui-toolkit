@@ -10,9 +10,10 @@ use super::types::VisualTreeRow;
 use super::types::collect_visual_tree_rows;
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    AnyElement, ClickEvent, Context, Div, FontWeight, InteractiveElement, IntoElement, MouseButton,
-    MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement, Pixels, Point, Render, Rgba,
-    SharedString, Stateful, StatefulInteractiveElement, Styled, Window, div, px, rgba,
+    AnyElement, ClickEvent, Context, Div, FontWeight, InteractiveElement, IntoElement,
+    KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement, Pixels,
+    Point, Render, Rgba, Role, SharedString, Stateful, StatefulInteractiveElement, Styled, Window,
+    div, px, rgba,
 };
 use gpui_builder::types::LayoutPreferences;
 use gpui_builder::{
@@ -192,6 +193,30 @@ impl ShowcaseView {
         true
     }
 
+    /// Applies physical divider movement. A right/bottom inspector divider
+    /// moves toward the inspector, so its ratio changes in the opposite
+    /// direction from the leading sidebar divider.
+    fn nudge_ratio(&mut self, target: DragTarget, axis: Axis, movement: f32) -> bool {
+        let ratio = match (target, axis) {
+            (DragTarget::Sidebar, Axis::Horizontal) => &mut self.sidebar_ratio_h,
+            (DragTarget::Sidebar, Axis::Vertical) => &mut self.sidebar_ratio_v,
+            (DragTarget::Inspector, Axis::Horizontal) => &mut self.inspector_ratio_h,
+            (DragTarget::Inspector, Axis::Vertical) => &mut self.inspector_ratio_v,
+        };
+        let delta = match target {
+            DragTarget::Sidebar => movement,
+            DragTarget::Inspector => -movement,
+        };
+        let next = (*ratio + delta).clamp(0.08, 0.45);
+        if (*ratio - next).abs() <= 0.001 {
+            return false;
+        }
+
+        *ratio = next;
+        self.sync_layout_preferences();
+        true
+    }
+
     fn sync_layout_preferences(&mut self) {
         self.layout_preferences
             .set_ratio("sidebar", Axis::Horizontal, self.sidebar_ratio_h);
@@ -241,7 +266,7 @@ impl Render for ShowcaseView {
                 window.request_animation_frame();
             }
         }
-        let theme = ShowcaseTheme::dark();
+        let theme = ShowcaseTheme::from_window_appearance(window.appearance());
         let ds = cx.design();
         let bounds = window.bounds();
         let w: f32 = bounds.size.width.into();
@@ -374,6 +399,16 @@ impl Render for ShowcaseView {
                 &solved,
                 selected_id,
                 is_h,
+                if is_h {
+                    self.sidebar_ratio_h
+                } else {
+                    self.sidebar_ratio_v
+                },
+                if is_h {
+                    self.inspector_ratio_h
+                } else {
+                    self.inspector_ratio_v
+                },
                 content_w,
                 content_h,
                 sidebar,
@@ -434,6 +469,8 @@ impl ShowcaseView {
         solved: &SolvedTree,
         selected_id: &str,
         is_h: bool,
+        sidebar_ratio: f32,
+        inspector_ratio: f32,
         content_w: f32,
         content_h: f32,
         sidebar: gpui_builder::SolvedNodeRef<'_, '_>,
@@ -453,6 +490,9 @@ impl ShowcaseView {
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let ds = cx.design();
+        let visible_divider_count = (sidebar.visible() as u8 + inspector.visible() as u8) as f32;
+        let drag_extent =
+            (if is_h { content_w } else { content_h } - 6.0 * visible_divider_count).max(1.0);
         let base = div()
             .id("content-area")
             .debug_selector(|| "content-area".to_string())
@@ -492,14 +532,17 @@ impl ShowcaseView {
                             )),
                     )
                 })
-                // Sidebar divider
-                .child(Self::divider_v(
-                    "sidebar",
-                    divider_color,
-                    accent,
-                    content_w,
-                    cx,
-                ))
+                // A divider only exists while both adjoining panels exist.
+                .when(sidebar.visible(), |d: Stateful<Div>| {
+                    d.child(Self::divider_v(
+                        "sidebar",
+                        divider_color,
+                        accent,
+                        drag_extent,
+                        sidebar_ratio,
+                        cx,
+                    ))
+                })
                 // Main
                 .child(
                     div()
@@ -525,7 +568,8 @@ impl ShowcaseView {
                         "inspector",
                         divider_color,
                         accent,
-                        content_w,
+                        drag_extent,
+                        inspector_ratio,
                         cx,
                     ))
                     .child(
@@ -580,13 +624,16 @@ impl ShowcaseView {
                             )),
                     )
                 })
-                .child(Self::divider_h(
-                    "sidebar",
-                    divider_color,
-                    accent,
-                    content_h,
-                    cx,
-                ))
+                .when(sidebar.visible(), |d: Stateful<Div>| {
+                    d.child(Self::divider_h(
+                        "sidebar",
+                        divider_color,
+                        accent,
+                        drag_extent,
+                        sidebar_ratio,
+                        cx,
+                    ))
+                })
                 .child(
                     div()
                         .flex_1()
@@ -610,7 +657,8 @@ impl ShowcaseView {
                         "inspector",
                         divider_color,
                         accent,
-                        content_h,
+                        drag_extent,
+                        inspector_ratio,
                         cx,
                     ))
                     .child(
@@ -825,6 +873,7 @@ impl ShowcaseView {
     ) -> impl IntoElement {
         let is_selected = row.id == selected_id;
         let row_id = row.id.clone();
+        let row_id_for_key = row.id.clone();
         let label = if row.visible {
             row.id.clone()
         } else {
@@ -845,6 +894,10 @@ impl ShowcaseView {
         div()
             .id(SharedString::from(format!("tree-row-{}", row.id)))
             .debug_selector(|| format!("tree-row-{}", row.id))
+            .role(Role::Button)
+            .aria_label(label.clone())
+            .aria_selected(is_selected)
+            .tab_index(0)
             .rounded(px(ds.corners.sm))
             .px(px(ds.spacing.control_padding_x * 0.75))
             .py(px(ds.spacing.control_padding_y * 0.65))
@@ -864,9 +917,17 @@ impl ShowcaseView {
                     .border_color(muted(theme.accent, 0.25))
                     .cursor_pointer()
             })
+            .focus_visible(|s| s.border_2().border_color(theme.accent))
             .on_click(cx.listener(move |view, _: &ClickEvent, _, cx| {
                 view.selected_node = Some(row_id.clone());
                 cx.notify();
+            }))
+            .on_key_down(cx.listener(move |view, event: &KeyDownEvent, _, cx| {
+                if matches!(event.keystroke.key.as_str(), "enter" | "space") {
+                    view.selected_node = Some(row_id_for_key.clone());
+                    cx.stop_propagation();
+                    cx.notify();
+                }
             }))
             .child(
                 div()
@@ -898,6 +959,7 @@ impl ShowcaseView {
         bg: Rgba,
         hover_bg: Rgba,
         drag_extent: f32,
+        ratio: f32,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let id = SharedString::from(format!("div-v-{panel}"));
@@ -910,11 +972,23 @@ impl ShowcaseView {
         div()
             .id(id)
             .debug_selector(|| format!("div-v-{panel}"))
+            .role(Role::Slider)
+            .aria_label(if is_sidebar {
+                "Sidebar panel width"
+            } else {
+                "Inspector panel width"
+            })
+            .aria_numeric_value(f64::from(ratio))
+            .aria_min_numeric_value(0.08)
+            .aria_max_numeric_value(0.45)
+            .aria_numeric_value_step(0.02)
+            .tab_index(0)
             .w(px(6.0))
             .h_full()
             .flex_shrink_0()
             .bg(bg)
             .hover(move |s| s.bg(hover_bg))
+            .focus_visible(move |s| s.bg(hover_bg).border_2().border_color(hover_bg))
             .cursor_col_resize()
             .on_mouse_down(
                 MouseButton::Left,
@@ -924,6 +998,17 @@ impl ShowcaseView {
                     cx.notify();
                 }),
             )
+            .on_key_down(cx.listener(move |view, event: &KeyDownEvent, _, cx| {
+                let movement = match event.keystroke.key.as_str() {
+                    "left" => -0.02,
+                    "right" => 0.02,
+                    _ => return,
+                };
+                if view.nudge_ratio(target, Axis::Horizontal, movement) {
+                    cx.stop_propagation();
+                    cx.notify();
+                }
+            }))
     }
 
     pub(super) fn divider_h(
@@ -931,6 +1016,7 @@ impl ShowcaseView {
         bg: Rgba,
         hover_bg: Rgba,
         drag_extent: f32,
+        ratio: f32,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let id = SharedString::from(format!("div-h-{panel}"));
@@ -943,11 +1029,23 @@ impl ShowcaseView {
         div()
             .id(id)
             .debug_selector(|| format!("div-h-{panel}"))
+            .role(Role::Slider)
+            .aria_label(if is_sidebar {
+                "Sidebar panel height"
+            } else {
+                "Inspector panel height"
+            })
+            .aria_numeric_value(f64::from(ratio))
+            .aria_min_numeric_value(0.08)
+            .aria_max_numeric_value(0.45)
+            .aria_numeric_value_step(0.02)
+            .tab_index(0)
             .h(px(6.0))
             .w_full()
             .flex_shrink_0()
             .bg(bg)
             .hover(move |s| s.bg(hover_bg))
+            .focus_visible(move |s| s.bg(hover_bg).border_2().border_color(hover_bg))
             .cursor_row_resize()
             .on_mouse_down(
                 MouseButton::Left,
@@ -957,6 +1055,17 @@ impl ShowcaseView {
                     cx.notify();
                 }),
             )
+            .on_key_down(cx.listener(move |view, event: &KeyDownEvent, _, cx| {
+                let movement = match event.keystroke.key.as_str() {
+                    "up" => -0.02,
+                    "down" => 0.02,
+                    _ => return,
+                };
+                if view.nudge_ratio(target, Axis::Vertical, movement) {
+                    cx.stop_propagation();
+                    cx.notify();
+                }
+            }))
     }
 }
 

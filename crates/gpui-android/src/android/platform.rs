@@ -1345,6 +1345,14 @@ impl Drop for AndroidPlatform {
             PLATFORM_CALLBACKS.with(|callbacks| {
                 callbacks.borrow_mut().remove(&self.callback_id);
             });
+        } else {
+            let callback_id = self.callback_id;
+            let dispatcher = self.state.get_mut().dispatcher.clone();
+            dispatcher.dispatch_on_main_thread(move || {
+                PLATFORM_CALLBACKS.with(|callbacks| {
+                    callbacks.borrow_mut().remove(&callback_id);
+                });
+            });
         }
     }
 }
@@ -1455,7 +1463,13 @@ impl Platform for AndroidPlatform {
     }
 
     fn window_appearance(&self) -> WindowAppearance {
-        WindowAppearance::Dark
+        match self.primary_window().map(|window| window.appearance()) {
+            Some(super::window::WindowAppearance::Dark)
+            | Some(super::window::WindowAppearance::HighContrastDark) => WindowAppearance::Dark,
+            Some(super::window::WindowAppearance::Light)
+            | Some(super::window::WindowAppearance::HighContrastLight)
+            | None => WindowAppearance::Light,
+        }
     }
 
     fn open_url(&self, url: &str) {
@@ -1660,7 +1674,7 @@ impl Platform for AndroidPlatform {
 
     fn keyboard_layout(&self) -> Box<dyn PlatformKeyboardLayout> {
         Box::new(crate::android::keyboard::AndroidKeyboardLayout::new(
-            "en-US",
+            self.keyboard_layout_id(),
         ))
     }
 
@@ -1911,6 +1925,22 @@ mod tests {
         assert!(p.is_headless());
         assert!(!p.is_active());
         assert!(!p.should_quit());
+    }
+
+    #[test]
+    fn off_thread_drop_defers_callback_registry_cleanup_to_owner() {
+        let platform = Arc::new(headless());
+        let callback_id = platform.callback_id;
+        let dispatcher = platform.foreground_dispatcher();
+        assert!(PLATFORM_CALLBACKS.with(|callbacks| callbacks.borrow().contains_key(&callback_id)));
+
+        std::thread::spawn(move || drop(platform)).join().unwrap();
+        assert!(PLATFORM_CALLBACKS.with(|callbacks| callbacks.borrow().contains_key(&callback_id)));
+
+        dispatcher.flush_main_thread_tasks();
+        assert!(
+            !PLATFORM_CALLBACKS.with(|callbacks| callbacks.borrow().contains_key(&callback_id))
+        );
     }
 
     // ── lifecycle ─────────────────────────────────────────────────────────────

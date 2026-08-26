@@ -146,6 +146,7 @@ mod tests {
             active_tier: None,
             collapse_label: None,
             resolved_axis: Some(Axis::Horizontal),
+            divider_size: 0.0,
             children: vec![
                 SolvedNode {
                     id: "library",
@@ -155,6 +156,7 @@ mod tests {
                     active_tier: None,
                     collapse_label: Some("Library"),
                     resolved_axis: None,
+                    divider_size: 0.0,
                     children: Vec::new(),
                 },
                 SolvedNode {
@@ -165,6 +167,7 @@ mod tests {
                     active_tier: None,
                     collapse_label: Some("Rack"),
                     resolved_axis: None,
+                    divider_size: 0.0,
                     children: Vec::new(),
                 },
             ],

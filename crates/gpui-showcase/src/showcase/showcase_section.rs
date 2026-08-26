@@ -1,6 +1,7 @@
 use super::showcase_group::ShowcaseGroup;
 
 /// Section identifiers for navigation
+#[repr(usize)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ShowcaseSection {
     #[default]
@@ -51,6 +52,11 @@ pub enum ShowcaseSection {
 }
 
 impl ShowcaseSection {
+    /// Stable position in [`Self::all`], used by allocation-free navigation caches.
+    pub const fn index(self) -> usize {
+        self as usize
+    }
+
     pub fn all() -> &'static [ShowcaseSection] {
         &[
             ShowcaseSection::Buttons,
@@ -156,5 +162,17 @@ impl ShowcaseSection {
             }
         }
         ShowcaseGroup::Actions
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ShowcaseSection;
+
+    #[test]
+    fn section_indices_match_navigation_order() {
+        for (index, section) in ShowcaseSection::all().iter().enumerate() {
+            assert_eq!(section.index(), index);
+        }
     }
 }

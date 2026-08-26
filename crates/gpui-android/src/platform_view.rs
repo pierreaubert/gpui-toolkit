@@ -51,8 +51,9 @@
 //!     .unwrap();
 //! ```
 
+use parking_lot::Mutex;
 use std::collections::HashMap;
-use std::sync::{Mutex, OnceLock};
+use std::sync::OnceLock;
 
 /// Unique identifier for a platform view instance.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -188,6 +189,7 @@ impl PlatformViewHandle {
     /// Show or hide the view.
     pub fn set_visible(&self, visible: bool) {
         self.view.set_visible(visible);
+        PlatformViewRegistry::global().update_view_visibility(self.view.id(), visible);
     }
 
     /// Set the z-order.
@@ -225,7 +227,13 @@ impl Drop for PlatformViewHandle {
 /// by type string and creates an instance.
 pub struct PlatformViewRegistry {
     factories: Mutex<HashMap<String, Box<dyn PlatformViewFactory>>>,
-    views: Mutex<HashMap<PlatformViewId, PlatformViewBounds>>,
+    views: Mutex<HashMap<PlatformViewId, RegisteredPlatformView>>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct RegisteredPlatformView {
+    bounds: PlatformViewBounds,
+    visible: bool,
 }
 
 impl PlatformViewRegistry {
@@ -246,25 +254,22 @@ impl PlatformViewRegistry {
             "PlatformViewRegistry: registered factory for '{}'",
             view_type
         );
-        self.factories
-            .lock()
-            .unwrap()
-            .insert(view_type.to_string(), factory);
+        self.factories.lock().insert(view_type.to_string(), factory);
     }
 
     /// Unregister a factory for a view type.
     pub fn unregister(&self, view_type: &str) {
-        self.factories.lock().unwrap().remove(view_type);
+        self.factories.lock().remove(view_type);
     }
 
     /// Check if a factory is registered for the given view type.
     pub fn has_factory(&self, view_type: &str) -> bool {
-        self.factories.lock().unwrap().contains_key(view_type)
+        self.factories.lock().contains_key(view_type)
     }
 
     /// List all registered view types.
     pub fn registered_types(&self) -> Vec<String> {
-        self.factories.lock().unwrap().keys().cloned().collect()
+        self.factories.lock().keys().cloned().collect()
     }
 
     /// Create a platform view of the specified type.
@@ -275,7 +280,7 @@ impl PlatformViewRegistry {
         view_type: &str,
         params: PlatformViewParams,
     ) -> Result<PlatformViewHandle, String> {
-        let factories = self.factories.lock().unwrap();
+        let factories = self.factories.lock();
         let factory = factories
             .get(view_type)
             .ok_or_else(|| format!("No factory registered for view type '{}'", view_type))?;
@@ -283,7 +288,13 @@ impl PlatformViewRegistry {
         let view = factory.create(&params)?;
         let id = view.id();
         let initial_bounds = params.bounds;
-        self.views.lock().unwrap().insert(id, initial_bounds);
+        self.views.lock().insert(
+            id,
+            RegisteredPlatformView {
+                bounds: initial_bounds,
+                visible: true,
+            },
+        );
         log::debug!(
             "PlatformViewRegistry: created view {} of type '{}'",
             id,
@@ -297,8 +308,15 @@ impl PlatformViewRegistry {
     /// Called whenever a platform view's position or size changes. This keeps
     /// the registry's bounds map in sync for hit-testing purposes.
     pub fn update_view_bounds(&self, id: PlatformViewId, bounds: PlatformViewBounds) {
-        if let Some(entry) = self.views.lock().unwrap().get_mut(&id) {
-            *entry = bounds;
+        if let Some(entry) = self.views.lock().get_mut(&id) {
+            entry.bounds = bounds;
+        }
+    }
+
+    /// Update whether a registered view should participate in hit-testing.
+    pub fn update_view_visibility(&self, id: PlatformViewId, visible: bool) {
+        if let Some(entry) = self.views.lock().get_mut(&id) {
+            entry.visible = visible;
         }
     }
 
@@ -307,7 +325,7 @@ impl PlatformViewRegistry {
     /// Called when a platform view is disposed. After removal the view's
     /// bounds will no longer participate in hit-testing.
     pub fn remove_view(&self, id: PlatformViewId) {
-        self.views.lock().unwrap().remove(&id);
+        self.views.lock().remove(&id);
     }
 
     /// Check if a point hits any active platform view.
@@ -323,8 +341,12 @@ impl PlatformViewRegistry {
     /// On iOS the OS's `UIView` hit-testing handles this natively, but
     /// this method is available as a consistent cross-platform check.
     pub fn hit_test(&self, x: f32, y: f32) -> bool {
-        let views = self.views.lock().unwrap();
-        for bounds in views.values() {
+        let views = self.views.lock();
+        for entry in views.values() {
+            if !entry.visible {
+                continue;
+            }
+            let bounds = entry.bounds;
             if x >= bounds.x
                 && x <= bounds.x + bounds.width
                 && y >= bounds.y
@@ -340,6 +362,43 @@ impl PlatformViewRegistry {
     ///
     /// Useful for quick checks — if zero, hit-testing can be skipped entirely.
     pub fn active_view_count(&self) -> usize {
-        self.views.lock().unwrap().len()
+        self.views
+            .lock()
+            .values()
+            .filter(|entry| entry.visible)
+            .count()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hidden_views_do_not_intercept_touches() {
+        let registry = PlatformViewRegistry {
+            factories: Mutex::new(HashMap::new()),
+            views: Mutex::new(HashMap::new()),
+        };
+        let id = PlatformViewId::next();
+        registry.views.lock().insert(
+            id,
+            RegisteredPlatformView {
+                bounds: PlatformViewBounds {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 100.0,
+                    height: 50.0,
+                },
+                visible: true,
+            },
+        );
+
+        assert!(registry.hit_test(25.0, 40.0));
+        assert_eq!(registry.active_view_count(), 1);
+
+        registry.update_view_visibility(id, false);
+        assert!(!registry.hit_test(25.0, 40.0));
+        assert_eq!(registry.active_view_count(), 0);
     }
 }

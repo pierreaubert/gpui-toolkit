@@ -1,5 +1,7 @@
 use super::child_info::allocate_main_axis;
-use super::misc::{TextMeasureCache, TextSizeInput, compute_text_size, default_text_cache};
+use super::misc::{
+    TextMeasureCache, TextSizeInput, compute_text_size, default_text_cache, fresh_text_cache,
+};
 use super::resolve::resolve_axis;
 use super::resolve::resolve_display_tier;
 use super::types::ChildInfo;
@@ -16,9 +18,10 @@ use std::rc::Rc;
 /// space (typically the window size). `prefs` provides user overrides for
 /// ratios and collapsed states.
 ///
-/// This entry point uses a thread-local default text-measurement cache. To
-/// share a cache explicitly across calls (or across threads with an
-/// `Arc<Mutex<_>>`), use [`solve_with_cache`].
+/// This entry point uses an ephemeral text-measurement cache. To retain a
+/// cache explicitly across calls (or across threads with an `Arc<Mutex<_>>`),
+/// use [`solve_with_cache`] with a semantic
+/// [`TextMeasure::cache_key`](gpui_pretext::TextMeasure::cache_key).
 ///
 /// # Performance note
 ///
@@ -56,6 +59,7 @@ pub fn solve_with_cache<'a>(
     prefs: &LayoutPreferences<'a>,
     cache: Rc<RefCell<TextMeasureCache>>,
 ) -> SolvedNode<'a> {
+    cache.borrow_mut().begin_solve();
     solve_node(root, width, height, prefs, &cache)
 }
 
@@ -66,8 +70,8 @@ pub fn solve_with_cache<'a>(
 /// as indices. The resulting tree supports O(1) id lookup and cache-friendly
 /// traversal.
 ///
-/// This entry point uses a thread-local default text-measurement cache. To
-/// share a cache explicitly, use [`solve_tree_with_cache`].
+/// This entry point uses an ephemeral text-measurement cache. To retain one
+/// explicitly, use [`solve_tree_with_cache`] with a semantic measure key.
 pub fn solve_tree<'a>(
     root: &LayoutNode<'a>,
     width: f32,
@@ -115,6 +119,7 @@ pub fn solve_tree_into_with_cache<'a>(
     cache: Rc<RefCell<TextMeasureCache>>,
     target: &mut SolvedTree<'a>,
 ) {
+    cache.borrow_mut().begin_solve();
     let estimated = root.node_count();
     target.prepare_for_reuse(estimated);
     let (nodes, index, child_index_pool) = target.reusable_parts();
@@ -143,15 +148,15 @@ pub struct RetainedLayoutSolver<'a> {
 }
 
 impl<'a> RetainedLayoutSolver<'a> {
-    /// Create an empty retained solver using the thread-local text cache.
+    /// Create an empty retained solver with its own text cache.
     pub fn new() -> Self {
-        Self::with_cache(default_text_cache())
+        Self::with_cache(fresh_text_cache())
     }
 
     /// Create a retained solver with preallocated solved-tree capacity.
     pub fn with_capacity(node_capacity: usize) -> Self {
         Self {
-            cache: default_text_cache(),
+            cache: fresh_text_cache(),
             tree: SolvedTree::with_capacity(node_capacity),
         }
     }
@@ -280,6 +285,7 @@ fn solve_tree_slot<'a>(
                 active_tier: None,
                 collapse_label: slot.collapse_label,
                 resolved_axis: None,
+                divider_size: 0.0,
                 children: Vec::new(),
             },
             nodes,
@@ -298,6 +304,7 @@ fn solve_tree_slot<'a>(
             active_tier,
             collapse_label: slot.collapse_label,
             resolved_axis: None,
+            divider_size: 0.0,
             children: Vec::new(),
         },
         nodes,
@@ -392,6 +399,7 @@ fn solve_tree_container<'a>(
         active_tier: None,
         collapse_label: None,
         resolved_axis: Some(axis),
+        divider_size: container.divider_size,
         // Filled from a recycled child-index buffer after descendants solve.
         children: Vec::new(),
     });
@@ -416,6 +424,7 @@ fn solve_tree_container<'a>(
                     active_tier: None,
                     collapse_label,
                     resolved_axis: None,
+                    divider_size: 0.0,
                     children: Vec::new(),
                 },
                 storage.nodes,
@@ -442,6 +451,7 @@ fn solve_tree_container<'a>(
                         active_tier,
                         collapse_label: slot.collapse_label,
                         resolved_axis: None,
+                        divider_size: 0.0,
                         children: Vec::new(),
                     },
                     storage.nodes,
@@ -468,7 +478,10 @@ fn push_solved_node<'a>(
     index: &mut HashMap<&'a str, NodeIndex>,
 ) -> NodeIndex {
     let idx = NodeIndex(nodes.len());
-    index.insert(data.id, idx);
+    // Match recursive `SolvedNode::find`: accidental duplicate ids resolve to
+    // the first node in declaration/pre-order traversal, never a later node
+    // silently replacing it in the flat-tree index.
+    index.entry(data.id).or_insert(idx);
     nodes.push(data);
     idx
 }
@@ -503,6 +516,7 @@ fn solve_slot<'a>(
             active_tier: None,
             collapse_label: slot.collapse_label,
             resolved_axis: None,
+            divider_size: 0.0,
             children: Vec::new(),
         };
     }
@@ -520,6 +534,7 @@ fn solve_slot<'a>(
         active_tier,
         collapse_label: slot.collapse_label,
         resolved_axis: None,
+        divider_size: 0.0,
         children: Vec::new(),
     }
 }
@@ -622,6 +637,7 @@ fn solve_container<'a>(
                     active_tier: None,
                     collapse_label,
                     resolved_axis: None,
+                    divider_size: 0.0,
                     children: Vec::new(),
                 };
             }
@@ -642,6 +658,7 @@ fn solve_container<'a>(
                         active_tier,
                         collapse_label: slot.collapse_label,
                         resolved_axis: None,
+                        divider_size: 0.0,
                         children: Vec::new(),
                     }
                 }
@@ -660,6 +677,7 @@ fn solve_container<'a>(
         active_tier: None,
         collapse_label: None,
         resolved_axis: Some(axis),
+        divider_size: container.divider_size,
         children,
     }
 }
@@ -803,7 +821,63 @@ mod tests {
         );
     }
 
+    #[test]
+    fn flat_tree_duplicate_ids_match_recursive_first_lookup() {
+        let children = [
+            simple_slot("duplicate", Sizing::Fixed(10.0)),
+            simple_slot("duplicate", Sizing::Fixed(20.0)),
+        ];
+        let root = LayoutNode::Container(ContainerNode {
+            id: "root",
+            axis: Axis::Horizontal,
+            auto_axis: None,
+            sizing: Sizing::flex(0.0),
+            children: &children,
+            divider_size: 0.0,
+        });
+        let prefs = LayoutPreferences::default();
+
+        assert_eq!(
+            solve(&root, 100.0, 50.0, &prefs)
+                .find("duplicate")
+                .unwrap()
+                .width,
+            10.0
+        );
+        assert_eq!(
+            solve_tree(&root, 100.0, 50.0, &prefs)
+                .find("duplicate")
+                .unwrap()
+                .width(),
+            10.0
+        );
+    }
+
     // ===== Collapse tests =====
+
+    #[test]
+    fn collapse_reclaims_divider_space_before_hiding_another_slot() {
+        let children = [
+            collapsible_slot("left", Sizing::fractional(0.3, 100.0), 0.8, "Left"),
+            simple_slot("main", Sizing::flex(0.0)),
+            collapsible_slot("right", Sizing::fractional(0.3, 100.0), 0.7, "Right"),
+        ];
+        let root = LayoutNode::Container(ContainerNode {
+            id: "root",
+            axis: Axis::Horizontal,
+            auto_axis: None,
+            sizing: Sizing::flex(0.0),
+            children: &children,
+            divider_size: 20.0,
+        });
+
+        // Before any collapse, the two dividers leave 90px for 200px of
+        // collapsible minima. Hiding `right` frees one divider, leaving 110px,
+        // so `left` must remain visible.
+        let solved = solve(&root, 130.0, 100.0, &LayoutPreferences::default());
+        assert!(solved.find("left").unwrap().visible);
+        assert!(!solved.find("right").unwrap().visible);
+    }
 
     #[test]
     fn user_collapsed_slot_gets_zero_size() {
@@ -1422,8 +1496,6 @@ mod tests {
     fn text_size_cache_shares_measurements_for_duplicate_text() {
         use std::cell::Cell;
 
-        super::super::misc::clear_text_cache();
-
         struct CountingMeasure {
             char_width: f64,
             calls: Cell<usize>,
@@ -1487,9 +1559,6 @@ mod tests {
             "text should be measured at least once"
         );
 
-        // Clear the persistent cache so the single-child solve starts from the
-        // same empty-cache state as the duplicate scenario.
-        super::super::misc::clear_text_cache();
         measure.calls.set(0);
         let single_child = [LayoutNode::Slot(SlotNode {
             id: "only",

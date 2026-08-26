@@ -1,19 +1,30 @@
 use std::cell::Cell;
 
-use super::misc::clear_text_cache;
-use super::{RetainedLayoutSolver, solve, solve_tree, solve_tree_into};
+use super::{
+    RetainedLayoutSolver, solve, solve_tree_into, solve_tree_with_cache, solve_with_cache,
+};
 use crate::solved::SolvedTree;
 use crate::types::{Axis, ContainerNode, LayoutNode, LayoutPreferences, Sizing, SlotNode};
 
 struct CountingMeasure {
     char_width: f64,
     calls: Cell<usize>,
+    semantic_cache_key: Option<u64>,
 }
 
 impl gpui_pretext::TextMeasure for CountingMeasure {
     fn measure_width(&self, text: &str) -> f64 {
         self.calls.set(self.calls.get() + 1);
         text.chars().count() as f64 * self.char_width
+    }
+
+    fn cache_key(&self) -> u64 {
+        self.semantic_cache_key
+            .unwrap_or_else(|| (self as *const Self as *const () as usize) as u64)
+    }
+
+    fn cache_key_is_stable(&self) -> bool {
+        self.semantic_cache_key.is_some()
     }
 }
 
@@ -99,11 +110,10 @@ fn retained_layout_solver_reuses_flat_tree_storage() {
 
 #[test]
 fn solve_reuses_text_size_cache_across_calls() {
-    clear_text_cache();
-
     let measure = CountingMeasure {
         char_width: 10.0,
         calls: Cell::new(0),
+        semantic_cache_key: Some(1),
     };
 
     // Use text that no other test uses to avoid cache collisions from
@@ -121,15 +131,16 @@ fn solve_reuses_text_size_cache_across_calls() {
         divider_size: 0.0,
     });
     let prefs = LayoutPreferences::default();
+    let cache = std::rc::Rc::new(std::cell::RefCell::new(super::TextMeasureCache::new()));
 
-    let first = solve(&root, 500.0, 100.0, &prefs);
+    let first = solve_with_cache(&root, 500.0, 100.0, &prefs, cache.clone());
     let first_calls = measure.calls.get();
     assert!(first_calls > 0, "first solve should measure text");
     assert_eq!(first.find("a").unwrap().width, 220.0);
     assert_eq!(first.find("b").unwrap().width, 220.0);
 
     measure.calls.set(0);
-    let second = solve(&root, 500.0, 100.0, &prefs);
+    let second = solve_with_cache(&root, 500.0, 100.0, &prefs, cache);
     let second_calls = measure.calls.get();
     assert_eq!(
         second_calls, 0,
@@ -140,12 +151,35 @@ fn solve_reuses_text_size_cache_across_calls() {
 }
 
 #[test]
-fn solve_tree_flat_path_caches_results() {
-    clear_text_cache();
-
+fn default_solve_does_not_retain_address_keyed_text_between_calls() {
     let measure = CountingMeasure {
         char_width: 10.0,
         calls: Cell::new(0),
+        semantic_cache_key: None,
+    };
+    let children = [simple_text_slot("text", "ephemeral-cache", &measure)];
+    let root =
+        ContainerNode::new("root", Axis::Horizontal, Sizing::flex(0.0), &children).into_node();
+    let prefs = LayoutPreferences::default();
+
+    solve(&root, 500.0, 100.0, &prefs);
+    let first_calls = measure.calls.get();
+    assert!(first_calls > 0);
+
+    measure.calls.set(0);
+    solve(&root, 500.0, 100.0, &prefs);
+    assert!(
+        measure.calls.get() > 0,
+        "the default cache must not survive independently-scoped solves"
+    );
+}
+
+#[test]
+fn solve_tree_flat_path_caches_results() {
+    let measure = CountingMeasure {
+        char_width: 10.0,
+        calls: Cell::new(0),
+        semantic_cache_key: Some(2),
     };
 
     let children = [
@@ -161,15 +195,16 @@ fn solve_tree_flat_path_caches_results() {
         divider_size: 0.0,
     });
     let prefs = LayoutPreferences::default();
+    let cache = std::rc::Rc::new(std::cell::RefCell::new(super::TextMeasureCache::new()));
 
-    let first = solve_tree(&root, 500.0, 100.0, &prefs);
+    let first = solve_tree_with_cache(&root, 500.0, 100.0, &prefs, cache.clone());
     let first_calls = measure.calls.get();
     assert!(first_calls > 0, "first solve_tree should measure text");
     assert_eq!(first.find("a").unwrap().width(), 210.0);
     assert_eq!(first.find("b").unwrap().width(), 220.0);
 
     measure.calls.set(0);
-    let second = solve_tree(&root, 500.0, 100.0, &prefs);
+    let second = solve_tree_with_cache(&root, 500.0, 100.0, &prefs, cache);
     let second_calls = measure.calls.get();
     assert_eq!(
         second_calls, 0,

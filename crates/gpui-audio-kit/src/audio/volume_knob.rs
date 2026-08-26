@@ -16,10 +16,10 @@
 //! - Customizable colors and theme support
 
 use super::interactions::{
-    InteractionConfig, clear_drag_state, get_drag_state, handle_drag, handle_keyboard,
-    handle_scroll, store_drag_state, value_tracker,
+    InteractionConfig, clear_drag_state, drag_has_moved, get_drag_state, handle_drag,
+    handle_keyboard, handle_scroll, mark_drag_moved, store_drag_state, value_tracker,
 };
-use crate::accessibility::{AccessibilityExt, AccessibilityNode, AriaProps, AriaRole};
+use crate::accessibility::{AccessibilityExt, AccessibilityNode, AriaProps, AriaRole, AriaState};
 use crate::audio_accessibility::{
     AudioAccessibilitySummary, normalized, range_description, value_text,
 };
@@ -28,7 +28,6 @@ use crate::theme::ThemeExt;
 use d3rs::render2d::{Renderer2D, VelloBackend};
 use gpui::*;
 
-mod misc;
 #[cfg(test)]
 mod tests;
 mod types;
@@ -36,7 +35,6 @@ mod volume_knob_fill_element;
 
 pub use types::*;
 
-use misc::VOLUME_KNOB_COUNTER;
 use volume_knob_fill_element::VolumeKnobFillElement;
 
 /// A circular volume knob with fill indicator.
@@ -47,6 +45,7 @@ pub struct VolumeKnob {
     label: SharedString,
     size: DefiniteLength,
     muted: bool,
+    disabled: bool,
     /// Optional theme (uses global theme if not set)
     theme: Option<VolumeKnobTheme>,
     /// Override: accent color
@@ -68,14 +67,19 @@ pub struct VolumeKnob {
 }
 
 impl VolumeKnob {
+    /// Construct a knob with an ID stable at this call site.
+    ///
+    /// Repeated knobs emitted from one call site, such as a loop, must provide
+    /// their own distinct stable ID with [`Self::id`].
+    #[track_caller]
     pub fn new() -> Self {
-        let counter = VOLUME_KNOB_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         Self {
-            id: ElementId::Name(SharedString::from(format!("volume-knob-{}", counter))),
+            id: ElementId::CodeLocation(*std::panic::Location::caller()),
             value: 0.0,
             label: "".into(),
             size: px(40.0).into(),
             muted: false,
+            disabled: false,
             theme: None,
             accent_color: None,
             muted_color: None,
@@ -132,6 +136,12 @@ impl VolumeKnob {
 
     pub fn muted(mut self, muted: bool) -> Self {
         self.muted = muted;
+        self
+    }
+
+    /// Disable all pointer and keyboard interaction.
+    pub fn disabled(mut self, disabled: bool) -> Self {
+        self.disabled = disabled;
         self
     }
 
@@ -198,6 +208,20 @@ impl VolumeKnob {
         self
     }
 
+    /// The value presented by the control, after applying mute and range
+    /// semantics. Keep visual rendering and accessibility in lockstep.
+    fn effective_value(&self) -> f64 {
+        if self.muted {
+            0.0
+        } else {
+            self.value.clamp(0.0, 1.0) as f64
+        }
+    }
+
+    fn should_commit_drag(start_value: f64, final_value: f64, moved: bool) -> bool {
+        moved && (final_value - start_value).abs() > f64::EPSILON
+    }
+
     /// Return non-rendering accessibility metadata for this volume control.
     pub fn accessibility_summary(&self) -> AudioAccessibilitySummary {
         let label = self
@@ -211,15 +235,17 @@ impl VolumeKnob {
                     self.label.clone()
                 }
             });
-        let value = if self.muted {
-            0.0
-        } else {
-            self.value.clamp(0.0, 1.0) as f64
-        };
+        let value = self.effective_value();
         let unit: SharedString = "%".into();
         let value_text = value_text(value * 100.0, &unit);
-        let mut description =
-            range_description("volume knob", &label, &value_text, 0.0, 100.0, false);
+        let mut description = range_description(
+            "volume knob",
+            &label,
+            &value_text,
+            0.0,
+            100.0,
+            self.disabled,
+        );
         if self.muted {
             description = SharedString::new(format!("{description} Muted."));
         }
@@ -236,7 +262,7 @@ impl VolumeKnob {
             normalized: Some(normalized(value, 0.0, 1.0, Scale::Linear)),
             scale: Some(Scale::Linear),
             selected: false,
-            disabled: false,
+            disabled: self.disabled,
             muted: self.muted,
             peak_value: None,
             description,
@@ -245,6 +271,7 @@ impl VolumeKnob {
 }
 
 impl Default for VolumeKnob {
+    #[track_caller]
     fn default() -> Self {
         Self::new()
     }
@@ -252,6 +279,8 @@ impl Default for VolumeKnob {
 
 impl RenderOnce for VolumeKnob {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let effective_value = self.effective_value();
+
         // Register in accessibility tree
         let effective_label = self
             .aria_label
@@ -260,11 +289,9 @@ impl RenderOnce for VolumeKnob {
         cx.register_accessible(AccessibilityNode {
             element_id: self.id.clone(),
             label: effective_label,
-            props: AriaProps::with_role(self.aria_role.unwrap_or(AriaRole::Slider)).value_range(
-                self.value as f64,
-                0.0,
-                1.0,
-            ),
+            props: AriaProps::with_role(self.aria_role.unwrap_or(AriaRole::Slider))
+                .value_range(effective_value, 0.0, 1.0)
+                .maybe_state(self.disabled, AriaState::Disabled),
         });
 
         // Resolve DefiniteLength to Pixels using window's rem_size
@@ -292,11 +319,7 @@ impl RenderOnce for VolumeKnob {
         let bg_color = self.bg_color.unwrap_or(theme.background);
         let text_color = self.text_color.unwrap_or(theme.text);
 
-        let display_value = if self.muted {
-            0.0
-        } else {
-            self.value.clamp(0.0, 1.0)
-        };
+        let display_value = effective_value as f32;
         let ring_color = if self.muted {
             muted_color
         } else {
@@ -324,6 +347,7 @@ impl RenderOnce for VolumeKnob {
         let interaction_config =
             InteractionConfig::rotational(0.0, 1.0, Scale::Linear, knob_size_f32).with_media_keys();
         let drag_key = self.id.clone();
+        let disabled = self.disabled;
 
         let mut container = div()
             .id(self.id)
@@ -332,20 +356,36 @@ impl RenderOnce for VolumeKnob {
             .h(resolved_size)
             .cursor_pointer();
 
+        if disabled {
+            container = container.cursor_not_allowed().opacity(0.5);
+        }
+
         if let Some(ref focus_handle) = self.focus_handle {
             container = container.track_focus(focus_handle).focusable();
         }
 
         // Convert handlers to Rc for sharing between closures
-        let on_change_rc = self.on_change.map(std::rc::Rc::new);
-        let on_commit_rc = self.on_commit.map(std::rc::Rc::new);
-        let on_mute_rc = self.on_mute_toggle.map(std::rc::Rc::new);
+        let on_change_rc = if disabled {
+            None
+        } else {
+            self.on_change.map(std::rc::Rc::new)
+        };
+        let on_commit_rc = if disabled {
+            None
+        } else {
+            self.on_commit.map(std::rc::Rc::new)
+        };
+        let on_mute_rc = if disabled {
+            None
+        } else {
+            self.on_mute_toggle.map(std::rc::Rc::new)
+        };
 
         // Mouse down: focus for keyboard navigation AND capture the drag
         // origin so on_mouse_move can compute a delta. Storing the click
         // Y position is what makes the drag delta-based instead of
         // interpreting raw window-space Y as knob-local progress.
-        if self.focus_handle.is_some() || on_change_rc.is_some() {
+        if !disabled && (self.focus_handle.is_some() || on_change_rc.is_some()) {
             let focus_handle_click = self.focus_handle.clone();
             let drag_key_down = drag_key.clone();
             let current_value_at_press = current_value.clone();
@@ -383,10 +423,9 @@ impl RenderOnce for VolumeKnob {
             });
         }
 
-        // Drag support and hover focus
-        {
+        // Drag support
+        if !disabled {
             let drag_handler = on_change_rc.clone();
-            let focus_handle_hover = self.focus_handle.clone();
             let drag_key_move = drag_key.clone();
             let current_value_drag = current_value.clone();
             let config_drag = interaction_config.clone();
@@ -399,37 +438,77 @@ impl RenderOnce for VolumeKnob {
                         && let Some(state) = get_drag_state(&drag_key_move)
                     {
                         let current_y: f32 = event.position.y.into();
+                        if (current_y - state.start_pos).abs() > f32::EPSILON {
+                            mark_drag_moved(&drag_key_move);
+                        }
                         if let Some(new_value) = handle_drag(current_y, &state, &config_drag) {
                             current_value_drag.set(new_value);
                             handler(new_value as f32, window, cx);
                         }
-                    }
-                } else if let Some(ref fh) = focus_handle_hover {
-                    // Hover: Focus for keyboard navigation
-                    if !fh.is_focused(window) {
-                        fh.focus(window, cx);
                     }
                 }
             });
         }
 
         // Mouse up — clear drag state for the next drag.
-        if on_change_rc.is_some() {
+        if !disabled && on_change_rc.is_some() {
             let drag_key_up = drag_key.clone();
             let commit_drag = on_commit_rc.clone();
             let current_value_up = current_value.clone();
             container = container.on_mouse_up(MouseButton::Left, move |_event, window, cx| {
-                if get_drag_state(&drag_key_up).is_some()
-                    && let Some(ref commit) = commit_drag
-                {
-                    commit(current_value_up.get() as f32, window, cx);
+                if let Some(state) = get_drag_state(&drag_key_up) {
+                    let final_value = current_value_up.get();
+                    if Self::should_commit_drag(
+                        state.start_value,
+                        final_value,
+                        drag_has_moved(&drag_key_up),
+                    ) && let Some(ref commit) = commit_drag
+                    {
+                        commit(final_value as f32, window, cx);
+                    }
                 }
                 clear_drag_state(drag_key_up.clone());
+            });
+
+            // This capture-phase callback covers release after the pointer
+            // leaves the knob. It updates the final delta, emits one commit
+            // when the value changed, and always clears retained drag state.
+            let drag_handler_out = on_change_rc.clone();
+            let drag_key_up_out = drag_key.clone();
+            let commit_drag_out = on_commit_rc.clone();
+            let current_value_up_out = current_value.clone();
+            let config_up_out = interaction_config.clone();
+            container = container.on_mouse_up_out(MouseButton::Left, move |event, window, cx| {
+                if let Some(state) = get_drag_state(&drag_key_up_out) {
+                    let position: f32 = event.position.y.into();
+                    if (position - state.start_pos).abs() > f32::EPSILON {
+                        mark_drag_moved(&drag_key_up_out);
+                    }
+                    let previous_value = current_value_up_out.get();
+                    let final_value =
+                        handle_drag(position, &state, &config_up_out).unwrap_or(previous_value);
+                    current_value_up_out.set(final_value);
+                    if Self::should_commit_drag(
+                        state.start_value,
+                        final_value,
+                        drag_has_moved(&drag_key_up_out),
+                    ) {
+                        if final_value != previous_value
+                            && let Some(ref handler) = drag_handler_out
+                        {
+                            handler(final_value as f32, window, cx);
+                        }
+                        if let Some(ref commit) = commit_drag_out {
+                            commit(final_value as f32, window, cx);
+                        }
+                    }
+                }
+                clear_drag_state(drag_key_up_out.clone());
             });
         }
 
         // Double-click - toggle mute
-        if let Some(ref mute_handler) = on_mute_rc {
+        if !disabled && let Some(ref mute_handler) = on_mute_rc {
             let click_mute = mute_handler.clone();
             container = container.on_click(move |event, window, cx| {
                 if event.click_count() == 2 {
@@ -439,7 +518,7 @@ impl RenderOnce for VolumeKnob {
         }
 
         // Keyboard support (including media keys for volume control)
-        if on_change_rc.is_some() || on_mute_rc.is_some() {
+        if !disabled && (on_change_rc.is_some() || on_mute_rc.is_some()) {
             let key_change = on_change_rc.clone();
             let key_mute = on_mute_rc.clone();
             let current_value_key = current_value.clone();
@@ -451,7 +530,7 @@ impl RenderOnce for VolumeKnob {
                 let key = event.keystroke.key.as_str();
 
                 // Handle mute keys specially
-                if key == "m" || key == "audiovolumemute" || key == "f10" {
+                if matches!(key, "m" | "audiomute" | "audiovolumemute" | "f10") {
                     if let Some(ref handler) = key_mute {
                         handler(!current_muted, window, cx);
                     }

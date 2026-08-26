@@ -8,9 +8,6 @@ use pathfinder_geometry::{
     vector::Vector2F,
 };
 
-#[allow(non_upper_case_globals)]
-pub(super) const kCGImageAlphaOnly: u32 = 7;
-
 pub(super) fn metrics_to_font_metrics(metrics: Metrics) -> FontMetrics {
     FontMetrics {
         units_per_em: metrics.units_per_em,

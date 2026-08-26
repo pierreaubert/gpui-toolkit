@@ -61,9 +61,14 @@ fn format_single_key(key_spec: &str) -> Cow<'static, str> {
     // the last '-' is the key name; a trailing '-' means the whole spec is the
     // key.
     if let Some((head, tail)) = key_spec.rsplit_once('-') {
-        if tail.is_empty() {
-            return Cow::Owned(key_spec.to_string());
-        }
+        let (head, tail) = if tail.is_empty() {
+            if head.is_empty() || head.ends_with('-') {
+                return Cow::Owned(key_spec.to_string());
+            }
+            (head, "-")
+        } else {
+            (head, tail)
+        };
 
         let mut out = String::new();
         for part in head.split('-') {
@@ -162,10 +167,15 @@ mod tests {
     }
 
     #[test]
-    fn test_trailing_dash_returns_original() {
-        // A trailing dash should not produce an empty key label.
-        assert_eq!(format_key_label("ctrl-"), "ctrl-");
-        assert_eq!(format_key_label("shift-"), "shift-");
+    fn test_bare_minus_returns_original() {
+        assert_eq!(format_key_label("-"), "-");
+    }
+
+    #[test]
+    fn test_minus_key_with_modifiers() {
+        assert!(gpui::Keystroke::parse("ctrl-").is_ok());
+        assert_eq!(format_key_label("ctrl-"), "Ctrl+-");
+        assert_eq!(format_key_label("shift-"), "Shift+-");
     }
 
     #[test]

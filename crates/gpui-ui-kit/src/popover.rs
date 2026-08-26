@@ -163,8 +163,10 @@ impl Popover {
             .rounded_lg()
             .shadow_lg()
             .overflow_hidden()
-            // Prevent click-through to backdrop
-            .on_mouse_down(MouseButton::Left, |_event, _window, _cx| {});
+            // Prevent click-through to the dismissing backdrop.
+            .on_mouse_down(MouseButton::Left, |_event, _window, cx| {
+                cx.stop_propagation();
+            });
 
         if let Some(w) = self.width {
             panel = panel.w(w);

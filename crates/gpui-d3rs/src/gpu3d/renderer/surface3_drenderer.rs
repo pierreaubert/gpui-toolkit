@@ -1,11 +1,15 @@
 use super::super::camera::Camera3D;
 use super::super::config::Surface3DConfig;
+#[cfg(feature = "headless-qa")]
 use super::super::config::SurfacePlotType;
 use super::super::mesh::{GpuVertex, SurfaceMesh};
 use super::super::shaders;
 use super::Uniforms;
+#[cfg(feature = "headless-qa")]
 use super::misc::background_surface_clear_color;
+#[cfg(feature = "headless-qa")]
 use super::transparent::transparent_surface_clear_color;
+#[cfg(feature = "headless-qa")]
 use super::unpremultiply::unpremultiply_rgba;
 #[cfg(feature = "gpu-2d")]
 use crate::gpu2d::Gpu2DContext;
@@ -18,21 +22,27 @@ pub struct Surface3DRenderer {
     pub(super) queue: Arc<wgpu::Queue>,
     pub(super) surface_pipeline: wgpu::RenderPipeline,
     pub(super) wireframe_pipeline: Option<wgpu::RenderPipeline>,
+    #[allow(dead_code)] // The legacy shader grid is headless-capture-only.
     pub(super) grid_pipeline: wgpu::RenderPipeline,
     pub(super) uniform_buffer: wgpu::Buffer,
     pub(super) uniform_bind_group: wgpu::BindGroup,
     pub(super) vertex_buffer: Option<wgpu::Buffer>,
     pub(super) index_buffer: Option<wgpu::Buffer>,
     pub(super) wireframe_index_buffer: Option<wgpu::Buffer>,
+    #[allow(dead_code)] // The legacy shader grid is headless-capture-only.
     pub(super) grid_vertex_buffer: wgpu::Buffer,
+    #[allow(dead_code)] // The legacy shader grid is headless-capture-only.
     pub(super) grid_index_buffer: wgpu::Buffer,
     pub(super) index_count: u32,
     pub(super) wireframe_index_count: u32,
+    #[allow(dead_code)] // The legacy shader grid is headless-capture-only.
     pub(super) grid_index_count: u32,
     pub(super) depth_texture: Option<wgpu::TextureView>,
     pub(super) render_texture: Option<wgpu::Texture>,
     pub(super) render_texture_view: Option<wgpu::TextureView>,
     pub(super) resolve_texture: Option<wgpu::Texture>,
+    pub(super) resolve_texture_view: Option<wgpu::TextureView>,
+    #[cfg(feature = "headless-qa")]
     pub(super) readback_buffer: Option<wgpu::Buffer>,
     pub(super) width: u32,
     pub(super) height: u32,
@@ -40,20 +50,32 @@ pub struct Surface3DRenderer {
 }
 
 impl Surface3DRenderer {
-    fn shared_or_new_device() -> (Arc<wgpu::Device>, Arc<wgpu::Queue>) {
+    fn shared_or_new_device() -> Option<(Arc<wgpu::Device>, Arc<wgpu::Queue>)> {
         #[cfg(feature = "gpu-2d")]
         if let Ok(context) = Gpu2DContext::try_global() {
-            return (context.device(), context.queue());
+            return Some((context.device(), context.queue()));
         }
 
-        let (device, queue) = pollster::block_on(Self::create_device());
-        (Arc::new(device), Arc::new(queue))
+        let (device, queue) = pollster::block_on(Self::create_device())?;
+        Some((Arc::new(device), Arc::new(queue)))
     }
 
     /// Create a new renderer with the given configuration
-    pub fn new(config: Surface3DConfig) -> Self {
-        let (device, queue) = Self::shared_or_new_device();
+    pub fn new(config: Surface3DConfig) -> Option<Self> {
+        let (device, queue) = Self::shared_or_new_device()?;
+        Self::with_device(device, queue, config)
+    }
 
+    /// Construct resources on a caller-owned device and queue.
+    ///
+    /// GPUI custom draws must use this constructor: their command encoder and
+    /// target texture belong to GPUI's device, which cannot share resources
+    /// with an independently-created WGPU device.
+    pub(crate) fn with_device(
+        device: Arc<wgpu::Device>,
+        queue: Arc<wgpu::Queue>,
+        config: Surface3DConfig,
+    ) -> Option<Self> {
         let (
             surface_pipeline,
             wireframe_pipeline,
@@ -76,7 +98,7 @@ impl Surface3DRenderer {
         });
         let grid_index_count = grid_mesh.index_count as u32;
 
-        Self {
+        Some(Self {
             device,
             queue,
             surface_pipeline,
@@ -96,14 +118,16 @@ impl Surface3DRenderer {
             render_texture: None,
             render_texture_view: None,
             resolve_texture: None,
+            resolve_texture_view: None,
+            #[cfg(feature = "headless-qa")]
             readback_buffer: None,
             width: 0,
             height: 0,
             config,
-        }
+        })
     }
 
-    pub(super) async fn create_device() -> (wgpu::Device, wgpu::Queue) {
+    pub(super) async fn create_device() -> Option<(wgpu::Device, wgpu::Queue)> {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends: wgpu::Backends::all(),
             ..wgpu::InstanceDescriptor::new_without_display_handle()
@@ -116,7 +140,7 @@ impl Surface3DRenderer {
                 force_fallback_adapter: false,
             })
             .await
-            .expect("Failed to find suitable GPU adapter");
+            .ok()?;
 
         adapter
             .request_device(&wgpu::DeviceDescriptor {
@@ -128,7 +152,7 @@ impl Surface3DRenderer {
                 experimental_features: wgpu::ExperimentalFeatures::default(),
             })
             .await
-            .expect("Failed to create device")
+            .ok()
     }
 
     pub(super) fn create_pipelines(
@@ -446,7 +470,9 @@ impl Surface3DRenderer {
             sample_count: self.config.msaa_samples,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::COPY_SRC
+                | wgpu::TextureUsages::TEXTURE_BINDING,
             view_formats: &[],
         });
         self.render_texture_view = Some(render_texture.create_view(&Default::default()));
@@ -468,21 +494,118 @@ impl Surface3DRenderer {
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
                 format: wgpu::TextureFormat::Rgba8Unorm,
-                usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                    | wgpu::TextureUsages::COPY_SRC
+                    | wgpu::TextureUsages::TEXTURE_BINDING,
                 view_formats: &[],
             })
         });
+        self.resolve_texture_view = self
+            .resolve_texture
+            .as_ref()
+            .map(|texture| texture.create_view(&Default::default()));
 
-        let bytes_per_row = (width * 4 + 255) & !255;
-        self.readback_buffer = Some(self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Surface Readback Buffer"),
-            size: (bytes_per_row * height) as u64,
-            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-            mapped_at_creation: false,
-        }));
+        #[cfg(feature = "headless-qa")]
+        {
+            let bytes_per_row = (width * 4 + 255) & !255;
+            self.readback_buffer = Some(self.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("Surface Readback Buffer"),
+                size: (bytes_per_row * height) as u64,
+                usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+                mapped_at_creation: false,
+            }));
+        }
+    }
+
+    /// Encode a transparent or opaque surface pass into this renderer's
+    /// retained, same-device texture. The caller owns the frame encoder and
+    /// may composite the returned view without a GPU-to-CPU readback.
+    pub(in crate::gpu3d) fn encode_render_to_texture(
+        &mut self,
+        encoder: &mut wgpu::CommandEncoder,
+        camera: &Camera3D,
+        log_settings: Option<(f32, f32)>,
+        clear_color: wgpu::Color,
+    ) -> Option<&wgpu::TextureView> {
+        if self.vertex_buffer.is_none() || self.width == 0 || self.height == 0 {
+            return None;
+        }
+
+        let mut surface_config = self.config.clone();
+        surface_config.isolines = false;
+        let uniforms = Uniforms::new(camera, &surface_config, log_settings);
+        self.queue
+            .write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(&uniforms));
+
+        {
+            let color_attachment = if self.config.msaa_samples > 1 {
+                wgpu::RenderPassColorAttachment {
+                    view: self.render_texture_view.as_ref()?,
+                    resolve_target: Some(self.resolve_texture_view.as_ref()?),
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(clear_color),
+                        store: wgpu::StoreOp::Store,
+                    },
+                    depth_slice: None,
+                }
+            } else {
+                wgpu::RenderPassColorAttachment {
+                    view: self.render_texture_view.as_ref()?,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(clear_color),
+                        store: wgpu::StoreOp::Store,
+                    },
+                    depth_slice: None,
+                }
+            };
+
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Surface custom-draw render pass"),
+                color_attachments: &[Some(color_attachment)],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: self.depth_texture.as_ref()?,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0),
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
+                ..Default::default()
+            });
+
+            // Cartesian grids are painted as GPUI strokes by the element.
+            render_pass.set_pipeline(&self.surface_pipeline);
+            render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
+            render_pass.set_vertex_buffer(0, self.vertex_buffer.as_ref()?.slice(..));
+            render_pass.set_index_buffer(
+                self.index_buffer.as_ref()?.slice(..),
+                wgpu::IndexFormat::Uint32,
+            );
+            render_pass.draw_indexed(0..self.index_count, 0, 0..1);
+
+            if let (Some(pipeline), Some(index_buffer)) =
+                (&self.wireframe_pipeline, &self.wireframe_index_buffer)
+            {
+                render_pass.set_pipeline(pipeline);
+                render_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                render_pass.draw_indexed(0..self.wireframe_index_count, 0, 0..1);
+            }
+        }
+
+        if self.config.msaa_samples > 1 {
+            self.resolve_texture_view.as_ref()
+        } else {
+            self.render_texture_view.as_ref()
+        }
+    }
+
+    pub(in crate::gpu3d) fn uses_device(&self, device: &Arc<wgpu::Device>) -> bool {
+        Arc::ptr_eq(&self.device, device)
     }
 
     /// Render the surface and return RGBA pixel data
+    #[cfg(feature = "headless-qa")]
     pub fn render(
         &mut self,
         camera: &Camera3D,
@@ -492,6 +615,8 @@ impl Surface3DRenderer {
         self.render_with_clear(camera, log_settings, clear_color, false)
     }
 
+    #[cfg(feature = "headless-qa")]
+    #[allow(dead_code)]
     pub(in super::super) fn render_transparent(
         &mut self,
         camera: &Camera3D,
@@ -505,6 +630,7 @@ impl Surface3DRenderer {
         )
     }
 
+    #[cfg(feature = "headless-qa")]
     pub(super) fn render_with_clear(
         &mut self,
         camera: &Camera3D,
@@ -693,7 +819,11 @@ impl Surface3DRenderer {
             self.render_texture = None;
             self.render_texture_view = None;
             self.resolve_texture = None;
-            self.readback_buffer = None;
+            self.resolve_texture_view = None;
+            #[cfg(feature = "headless-qa")]
+            {
+                self.readback_buffer = None;
+            }
         }
         self.config = config;
         // Note: Full pipeline recreation would be needed for some settings

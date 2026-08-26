@@ -98,6 +98,9 @@ pub struct SolvedNodeData<'a> {
     pub collapse_label: Option<&'a str>,
     /// The resolved axis for this container (`None` for slots).
     pub resolved_axis: Option<Axis>,
+    /// Space inserted between each pair of visible children for this
+    /// container. Slots always use `0.0`.
+    pub divider_size: f32,
     /// Indices of resolved children (empty for slots, populated for containers).
     pub children: Vec<NodeIndex>,
 }
@@ -155,6 +158,11 @@ impl<'tree, 'a> SolvedNodeRef<'tree, 'a> {
         self.data().resolved_axis
     }
 
+    /// Divider size for this container, or zero for slots.
+    pub fn divider_size(&self) -> f32 {
+        self.data().divider_size
+    }
+
     /// Returns the size along the given axis.
     pub fn size_along(&self, axis: Axis) -> f32 {
         self.data().size_along(axis)
@@ -177,7 +185,9 @@ impl<'tree, 'a> SolvedNodeRef<'tree, 'a> {
 ///
 /// `SolvedTree` stores all nodes in a single `Vec` and indexes them by id for
 /// O(1) lookup. Iteration yields nodes in pre-order DFS order, matching the
-/// structure of the original recursive [`SolvedNode`] tree.
+/// structure of the original recursive [`SolvedNode`] tree. Node ids should be
+/// unique; when invalid input repeats an id, [`Self::find`] consistently
+/// returns the first pre-order node.
 #[derive(Debug, Clone)]
 pub struct SolvedTree<'a> {
     nodes: Vec<SolvedNodeData<'a>>,
@@ -250,6 +260,10 @@ impl<'a> SolvedTree<'a> {
     }
 
     /// Find a node by id in O(1).
+    ///
+    /// Node ids should be unique. For an invalid tree with duplicate ids this
+    /// returns the first node in pre-order traversal, matching
+    /// [`SolvedNode::find`](super::SolvedNode::find).
     pub fn find(&self, id: &str) -> Option<SolvedNodeRef<'_, 'a>> {
         self.index
             .get(id)
@@ -468,12 +482,18 @@ fn collect_node_warnings<'a>(
     }
 
     let available = node.size_along(axis);
+    let visible_children = node
+        .children
+        .iter()
+        .filter(|&&child_idx| tree.nodes[child_idx.0].visible)
+        .count();
     let used: f32 = node
         .children
         .iter()
         .filter(|&&child_idx| tree.nodes[child_idx.0].visible)
         .map(|&child_idx| tree.nodes[child_idx.0].size_along(axis))
-        .sum();
+        .sum::<f32>()
+        + node.divider_size * visible_children.saturating_sub(1) as f32;
 
     if available.is_finite() && used.is_finite() && used > available + WARNING_EPSILON {
         warnings.push(LayoutDebugWarning {

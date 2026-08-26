@@ -93,7 +93,7 @@ fn walk_prepared_lines_simple(
         }};
     }
 
-    let mut append_breakable_from =
+    let append_breakable_from =
         |seg_idx: usize,
          start_g: usize,
          line_count: &mut usize,
@@ -631,13 +631,17 @@ pub fn walk_prepared_lines_optimal(
     // For multi-chunk data (hard breaks), process each chunk separately.
     if prepared.chunks.len() > 1 {
         let mut total_lines = 0;
+        // Do not invoke the caller until every chunk has an optimal solution.
+        // A later fallback must restart greedily from the beginning.
+        let mut pending_lines = Vec::new();
 
         for chunk in prepared.chunks.as_ref() {
             if chunk.start_segment_index == chunk.end_segment_index {
                 // Empty chunk (hard break only).
                 total_lines += 1;
-                if let Some(cb) = on_line.as_mut() {
-                    cb(&InternalLayoutLine {
+                {
+                    let mut collect = |line: &InternalLayoutLine| pending_lines.push(line.clone());
+                    collect(&InternalLayoutLine {
                         start_segment_index: chunk.start_segment_index,
                         start_grapheme_index: 0,
                         end_segment_index: chunk.consumed_end_segment_index,
@@ -677,6 +681,9 @@ pub fn walk_prepared_lines_optimal(
 
             match result {
                 Some(breaks) => {
+                    let mut collect = |line: &InternalLayoutLine| pending_lines.push(line.clone());
+                    let mut on_pending_line: Option<&mut dyn FnMut(&InternalLayoutLine)> =
+                        Some(&mut collect);
                     // Remap segment indices back to global coordinates.
                     let global_breaks: Vec<(usize, usize)> = breaks
                         .iter()
@@ -689,8 +696,12 @@ pub fn walk_prepared_lines_optimal(
                         *last = (chunk.consumed_end_segment_index, 0);
                     }
 
-                    total_lines +=
-                        breakpoints_to_lines(prepared, profile, &final_breaks, &mut on_line);
+                    total_lines += breakpoints_to_lines(
+                        prepared,
+                        profile,
+                        &final_breaks,
+                        &mut on_pending_line,
+                    );
                 }
                 None => {
                     // Fall back to greedy for the entire paragraph.
@@ -699,6 +710,11 @@ pub fn walk_prepared_lines_optimal(
             }
         }
 
+        if let Some(cb) = on_line.as_mut() {
+            for line in &pending_lines {
+                cb(line);
+            }
+        }
         return total_lines;
     }
 

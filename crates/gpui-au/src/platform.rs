@@ -147,9 +147,7 @@ impl Platform for AuPlatform {
             if appearance_name.is_null() {
                 return WindowAppearance::Light;
             }
-            let dark_name: *mut objc::runtime::Object = msg_send![class!(NSString), stringWithUTF8String: c"NSAppearanceNameDarkAqua".as_ptr()];
-            let is_dark: bool = msg_send![appearance_name, isEqualToString: dark_name];
-            if is_dark {
+            if crate::helpers::is_dark_aqua_appearance_name(appearance_name) {
                 WindowAppearance::Dark
             } else {
                 WindowAppearance::Light

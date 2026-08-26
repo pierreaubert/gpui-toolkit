@@ -41,6 +41,10 @@ fn test_normalize_cow_borrowed_when_unchanged() {
         std::borrow::Cow::Borrowed(_)
     ));
     assert!(matches!(
+        normalize_whitespace_normal("hello world"),
+        std::borrow::Cow::Borrowed(_)
+    ));
+    assert!(matches!(
         normalize_whitespace_pre_wrap("hello"),
         std::borrow::Cow::Borrowed(_)
     ));

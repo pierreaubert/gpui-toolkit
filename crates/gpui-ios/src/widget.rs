@@ -15,6 +15,15 @@ pub enum WidgetSnapshotKind {
     LiveActivity,
 }
 
+impl WidgetSnapshotKind {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Widget => "widget",
+            Self::LiveActivity => "live_activity",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WidgetTimelineEntry {
     pub date_unix_seconds: i64,
@@ -156,31 +165,26 @@ fn write_timeline_json(
         .timeline
         .iter()
         .map(|entry| {
-            format!(
-                "{{\"date_unix_seconds\":{},\"title\":{:?},\"subtitle\":{},\"snapshot_file_name\":{:?}}}",
-                entry.date_unix_seconds,
-                entry.title,
-                entry
-                    .subtitle
-                    .as_ref()
-                    .map(|value| format!("{value:?}"))
-                    .unwrap_or_else(|| "null".to_string()),
-                entry.snapshot_file_name,
-            )
+            serde_json::json!({
+                "date_unix_seconds": entry.date_unix_seconds,
+                "title": entry.title,
+                "subtitle": entry.subtitle,
+                "snapshot_file_name": entry.snapshot_file_name,
+            })
         })
-        .collect::<Vec<_>>()
-        .join(",");
-    let json = format!(
-        "{{\"id\":{:?},\"kind\":{:?},\"width_px\":{},\"height_px\":{},\"scale\":{},\"used_stale_snapshot\":{},\"generated_unix_seconds\":{},\"entries\":[{}]}}",
-        request.id,
-        request.kind,
-        request.width_px,
-        request.height_px,
-        request.scale,
-        used_stale_snapshot,
-        now_unix_seconds(),
-        entries,
-    );
+        .collect::<Vec<_>>();
+    let timeline = serde_json::json!({
+        "id": request.id,
+        "kind": request.kind.as_str(),
+        "width_px": request.width_px,
+        "height_px": request.height_px,
+        "scale": request.scale,
+        "used_stale_snapshot": used_stale_snapshot,
+        "generated_unix_seconds": now_unix_seconds(),
+        "entries": entries,
+    });
+    let json = serde_json::to_vec(&timeline)
+        .map_err(|err| format!("serialize widget timeline JSON: {err}"))?;
     fs::write(path, json).map_err(|err| format!("write widget timeline: {err}"))
 }
 
@@ -248,5 +252,41 @@ mod tests {
         assert!(result.snapshot_path.exists());
         assert!(result.timeline_path.exists());
         assert!(!result.used_stale_snapshot);
+
+        let timeline: serde_json::Value =
+            serde_json::from_slice(&fs::read(result.timeline_path).unwrap()).unwrap();
+        assert_eq!(timeline["kind"], "widget");
+        assert_eq!(timeline["entries"][0]["title"], "Track");
+        assert_eq!(timeline["entries"][0]["subtitle"], "Artist");
+    }
+
+    #[test]
+    fn widget_timeline_escapes_json_strings() {
+        let tmp = tempfile::tempdir().unwrap();
+        let request = WidgetSnapshotRequest {
+            id: "now\nplaying".to_string(),
+            kind: WidgetSnapshotKind::LiveActivity,
+            width_px: 320,
+            height_px: 160,
+            scale: 2,
+            app_group_dir: tmp.path().to_path_buf(),
+            timeline: vec![WidgetTimelineEntry {
+                date_unix_seconds: 1,
+                title: "A \"quoted\" track\u{007f}".to_string(),
+                subtitle: None,
+                snapshot_file_name: "now_playing.png".to_string(),
+            }],
+        };
+
+        let result = render_widget_snapshot(&request, b"png").unwrap();
+        let timeline: serde_json::Value =
+            serde_json::from_slice(&fs::read(result.timeline_path).unwrap()).unwrap();
+        assert_eq!(timeline["kind"], "live_activity");
+        assert_eq!(timeline["id"], "now\nplaying");
+        assert_eq!(
+            timeline["entries"][0]["title"],
+            "A \"quoted\" track\u{007f}"
+        );
+        assert!(timeline["entries"][0]["subtitle"].is_null());
     }
 }

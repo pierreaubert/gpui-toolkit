@@ -73,6 +73,14 @@ impl From<crate::ComponentSize> for ProgressSize {
     }
 }
 
+fn progress_percentage(value: f32, max: f32) -> f32 {
+    if value.is_finite() && max.is_finite() && max > 0.0 {
+        (value / max * 100.0).clamp(0.0, 100.0)
+    } else {
+        0.0
+    }
+}
+
 /// A progress bar component
 pub struct Progress {
     value: f32,
@@ -155,7 +163,7 @@ impl Progress {
     pub fn build_with_theme(self, theme: &Theme) -> Div {
         let height = self.size.height();
         let color = self.variant.color(theme);
-        let percentage = (self.value / self.max * 100.0).clamp(0.0, 100.0);
+        let percentage = progress_percentage(self.value, self.max);
 
         let mut container = div().flex().flex_col().gap_1().w_full();
 
@@ -275,7 +283,7 @@ impl CircularProgress {
     /// the progress geometry instead of encoding the value only as a blended
     /// border color.
     pub fn build_with_theme(self, theme: &Theme) -> Div {
-        let percentage = (self.value / self.max * 100.0).clamp(0.0, 100.0);
+        let percentage = progress_percentage(self.value, self.max);
         let base_color = self.variant.color(theme);
         let progress_ratio = percentage / 100.0;
         let size = self.size;

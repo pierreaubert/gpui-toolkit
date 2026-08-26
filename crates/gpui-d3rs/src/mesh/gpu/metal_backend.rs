@@ -511,6 +511,14 @@ impl MetalResources {
             return std::mem::size_of_val(values.as_slice()) as u64;
         }
 
+        // Geometry resources are retained across scalar-field writes, but a
+        // caller can replace the retained upload independently. Never let an
+        // interleaved update address beyond the vertex buffer that was
+        // allocated for this resource generation.
+        if upload.indices.len() != self.vertex_count {
+            return 0;
+        }
+
         let mut offset = 0usize;
         let contents = self.vertices.contents() as *mut MetalVertex;
         for (cell, triangle) in upload.indices.chunks_exact(3).enumerate() {

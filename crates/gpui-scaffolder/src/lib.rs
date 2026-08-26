@@ -8,6 +8,9 @@ use std::path::{Component, Path, PathBuf};
 const GPUI_VERSION: &str = "0.2.2";
 const GPUI_ZED_TAG: &str = "v1.9.0";
 const SCAFFOLD_TEMPLATE_VERSION: &str = "1";
+const TOOLKIT_ROOT_ENV: &str = "GPUI_TOOLKIT_ROOT";
+const SCAFFOLD_GITIGNORE: &str =
+    "/target/\n/ios/build/\n/ios/lib/\n.gradle/\n**/local.properties\n";
 const GPUI_ANDROID_ACTIVITY_JAVA: &str =
     include_str!("../../gpui-android/android/src/main/java/dev/gpui/mobile/GpuiActivity.java");
 const GPUI_ANDROID_FILE_PROVIDER_JAVA: &str =
@@ -61,8 +64,7 @@ pub fn scaffold_app(options: &ScaffoldOptions) -> Result<ScaffoldedApp> {
         if options.force {
             ensure_directory_is_replaceable(&app_dir)?;
             if !options.dry_run {
-                fs::remove_dir_all(&app_dir)
-                    .with_context(|| format!("failed to remove {}", app_dir.display()))?;
+                replace_directory(&app_dir)?;
             }
         } else {
             bail!(
@@ -120,6 +122,7 @@ pub fn scaffold_app(options: &ScaffoldOptions) -> Result<ScaffoldedApp> {
         &app_dir.join("gpui-scaffold.toml"),
         &scaffold_metadata(&names),
     )?;
+    write_file(&app_dir.join(".gitignore"), SCAFFOLD_GITIGNORE)?;
     write_file(&app_dir.join("Justfile"), &justfile(&names))?;
     write_file(&app_dir.join("README.md"), &readme(&names))?;
     write_file(&app_dir.join("src/app.rs"), &app_rs(&names))?;
@@ -215,6 +218,7 @@ fn planned_scaffold_files(app_dir: &Path, names: &AppNames) -> Vec<PathBuf> {
     [
         "Cargo.toml",
         "gpui-scaffold.toml",
+        ".gitignore",
         "Justfile",
         "README.md",
         "src/app.rs",
@@ -247,17 +251,45 @@ fn planned_scaffold_files(app_dir: &Path, names: &AppNames) -> Vec<PathBuf> {
 }
 
 fn ensure_directory_is_replaceable(path: &Path) -> Result<()> {
+    replaceable_directory_entries(path).map(|_| ())
+}
+
+fn replace_directory(path: &Path) -> Result<()> {
+    for entry in replaceable_directory_entries(path)? {
+        fs::remove_file(&entry).with_context(|| format!("failed to remove {}", entry.display()))?;
+    }
+    fs::remove_dir(path).with_context(|| {
+        format!(
+            "failed to remove {}; it may have changed while scaffolding",
+            path.display()
+        )
+    })
+}
+
+fn replaceable_directory_entries(path: &Path) -> Result<Vec<PathBuf>> {
     if !path.is_dir() {
         bail!("{} exists and is not a directory", path.display());
     }
 
-    let mut entries =
-        fs::read_dir(path).with_context(|| format!("failed to read {}", path.display()))?;
-    if entries.next().is_some() {
-        bail!("{} is not empty; refusing to replace it", path.display());
+    let mut ignored_entries = Vec::new();
+    for entry in fs::read_dir(path).with_context(|| format!("failed to read {}", path.display()))? {
+        let entry = entry?;
+        let entry_path = entry.path();
+        if is_ignored_system_entry(&entry_path) {
+            ignored_entries.push(entry_path);
+        } else {
+            bail!("{} is not empty; refusing to replace it", path.display());
+        }
     }
 
-    Ok(())
+    Ok(ignored_entries)
+}
+
+fn is_ignored_system_entry(path: &Path) -> bool {
+    matches!(
+        path.file_name().and_then(|name| name.to_str()),
+        Some(".DS_Store" | "Thumbs.db" | "desktop.ini")
+    )
 }
 
 fn write_file(path: &Path, contents: &str) -> Result<()> {
@@ -265,15 +297,45 @@ fn write_file(path: &Path, contents: &str) -> Result<()> {
 }
 
 fn toolkit_root() -> Result<PathBuf> {
-    let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
-    manifest_dir
-        .parent()
-        .and_then(Path::parent)
-        .context("failed to resolve gpui-toolkit root")
-        .and_then(|root| {
-            root.canonicalize()
-                .with_context(|| format!("failed to resolve {}", root.display()))
-        })
+    let configured_root = std::env::var_os(TOOLKIT_ROOT_ENV).map(PathBuf::from);
+    let executable = std::env::current_exe().ok();
+    toolkit_root_from(configured_root.as_deref(), executable.as_deref())
+}
+
+fn toolkit_root_from(configured_root: Option<&Path>, executable: Option<&Path>) -> Result<PathBuf> {
+    if let Some(root) = configured_root {
+        return canonical_toolkit_root(root).with_context(|| {
+            format!(
+                "{TOOLKIT_ROOT_ENV} must point to a gpui-toolkit workspace root (got {})",
+                root.display()
+            )
+        });
+    }
+
+    if let Some(root) = executable.and_then(discover_toolkit_root) {
+        return Ok(root);
+    }
+
+    bail!(
+        "could not locate the gpui-toolkit workspace from the running executable; set {TOOLKIT_ROOT_ENV} to its root"
+    )
+}
+
+fn discover_toolkit_root(executable: &Path) -> Option<PathBuf> {
+    executable
+        .ancestors()
+        .find_map(|ancestor| canonical_toolkit_root(ancestor).ok())
+}
+
+fn canonical_toolkit_root(path: &Path) -> Result<PathBuf> {
+    let root = path
+        .canonicalize()
+        .with_context(|| format!("failed to canonicalize {}", path.display()))?;
+    if root.join("crates/gpui-scaffolder").is_dir() && root.join("crates/gpui-miniapp").is_dir() {
+        Ok(root)
+    } else {
+        bail!("{} is not a gpui-toolkit workspace root", root.display())
+    }
 }
 
 impl AppNames {
@@ -281,6 +343,9 @@ impl AppNames {
         let trimmed = name.trim();
         if trimmed.is_empty() {
             bail!("app name cannot be empty");
+        }
+        if !trimmed.is_ascii() {
+            bail!("app name must contain only ASCII characters");
         }
         validate_directory_name(trimmed)?;
 
@@ -440,7 +505,23 @@ fn cargo_path(path: &Path) -> String {
 }
 
 fn toml_string(value: &str) -> String {
-    value.replace('\\', "\\\\").replace('"', "\\\"")
+    let mut escaped = String::with_capacity(value.len());
+    for character in value.chars() {
+        match character {
+            '\\' => escaped.push_str("\\\\"),
+            '"' => escaped.push_str("\\\""),
+            '\u{0008}' => escaped.push_str("\\b"),
+            '\t' => escaped.push_str("\\t"),
+            '\n' => escaped.push_str("\\n"),
+            '\u{000C}' => escaped.push_str("\\f"),
+            '\r' => escaped.push_str("\\r"),
+            character if character <= '\u{001F}' || character == '\u{007F}' => {
+                escaped.push_str(&format!("\\u{:04X}", character as u32));
+            }
+            character => escaped.push(character),
+        }
+    }
+    escaped
 }
 
 fn rust_string(value: &str) -> String {
@@ -715,7 +796,10 @@ mod mobile {{
     {{
         match std::panic::catch_unwind(f) {{
             Ok(result) => result,
-            Err(_) => R::default(),
+            Err(_) => {{
+                eprintln!("gpui scaffold mobile startup panicked");
+                R::default()
+            }}
         }}
     }}
 
@@ -1651,10 +1735,51 @@ mod tests {
     }
 
     #[test]
+    fn toolkit_root_discovery_uses_runtime_executable_location() -> Result<()> {
+        let dir = tempdir()?;
+        let root = dir.path().join("moved-gpui-toolkit");
+        fs::create_dir_all(root.join("crates/gpui-scaffolder"))?;
+        fs::create_dir_all(root.join("crates/gpui-miniapp"))?;
+        let executable = root.join("target/debug/gpui-scaffolder");
+        fs::create_dir_all(executable.parent().context("executable has no parent")?)?;
+        fs::write(&executable, "")?;
+
+        assert_eq!(
+            toolkit_root_from(None, Some(&executable))?,
+            root.canonicalize()?
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn toolkit_root_configuration_overrides_executable_location() -> Result<()> {
+        let dir = tempdir()?;
+        let root = dir.path().join("configured-gpui-toolkit");
+        fs::create_dir_all(root.join("crates/gpui-scaffolder"))?;
+        fs::create_dir_all(root.join("crates/gpui-miniapp"))?;
+
+        assert_eq!(
+            toolkit_root_from(Some(&root), Some(Path::new("/not/a/toolkit/binary")))?,
+            root.canonicalize()?
+        );
+        Ok(())
+    }
+
+    #[test]
     fn string_escaping_helpers() {
         assert_eq!(toml_string(r#"a\"b"#), r#"a\\\"b"#);
         assert_eq!(rust_string(r#"a\"b"#), r#"a\\\"b"#);
         assert_eq!(cargo_path(Path::new(r"C:\path")), "C:/path");
+    }
+
+    #[test]
+    fn toml_string_escapes_control_characters() -> Result<()> {
+        let value = "line one\nline two\t\u{0008}\u{000C}\r\u{0001}\u{007F}";
+        let manifest = format!("value = \"{}\"", toml_string(value));
+        let parsed: toml::Value = toml::from_str(&manifest)?;
+
+        assert_eq!(parsed["value"].as_str(), Some(value));
+        Ok(())
     }
 
     #[test]
@@ -1677,6 +1802,21 @@ mod tests {
         assert!(toml.contains("/tmp/android"));
         assert!(toml.contains("/tmp/block"));
         assert!(toml.contains("/tmp/zed-font-kit"));
+    }
+
+    #[test]
+    fn app_names_reject_non_ascii_input() {
+        let error = AppNames::new("café").expect_err("non-ASCII app name must fail");
+        assert!(error.to_string().contains("only ASCII"));
+    }
+
+    #[test]
+    fn generated_mobile_ffi_guard_reports_panics() -> Result<()> {
+        let names = AppNames::new("mobile-guard")?;
+        let source = lib_rs(&names);
+
+        assert!(source.contains("gpui scaffold mobile startup panicked"));
+        Ok(())
     }
 
     #[test]
@@ -1720,6 +1860,39 @@ mod tests {
         })?;
 
         assert!(scaffolded.app_dir.join("Cargo.toml").is_file());
+        Ok(())
+    }
+
+    #[test]
+    fn scaffold_force_replaces_system_metadata_only_directory() -> Result<()> {
+        let dir = tempdir()?;
+        let output = dir.path().join("finder-touched");
+        fs::create_dir(&output)?;
+        fs::write(output.join(".DS_Store"), "metadata")?;
+
+        let scaffolded = scaffold_app(&ScaffoldOptions {
+            name: "finder-touched".to_owned(),
+            output_dir: dir.path().to_path_buf(),
+            force: true,
+            dry_run: false,
+        })?;
+
+        assert!(scaffolded.app_dir.join("Cargo.toml").is_file());
+        assert!(!scaffolded.app_dir.join(".DS_Store").exists());
+        Ok(())
+    }
+
+    #[test]
+    fn replacement_never_removes_files_added_after_validation() -> Result<()> {
+        let dir = tempdir()?;
+        let output = dir.path().join("changed");
+        fs::create_dir(&output)?;
+        ensure_directory_is_replaceable(&output)?;
+        let added_file = output.join("added-after-validation.txt");
+        fs::write(&added_file, "keep")?;
+
+        assert!(replace_directory(&output).is_err());
+        assert!(added_file.is_file());
         Ok(())
     }
 
@@ -1795,6 +1968,51 @@ mod tests {
         assert!(preview.files.iter().all(|path| !path.exists()));
 
         Ok(())
+    }
+
+    #[test]
+    fn preview_matches_the_complete_generated_file_set() -> Result<()> {
+        let dir = tempdir()?;
+        let options = ScaffoldOptions {
+            name: "preview-complete".to_owned(),
+            output_dir: dir.path().to_path_buf(),
+            force: false,
+            dry_run: false,
+        };
+        let preview = preview_scaffold(&options)?;
+        let scaffolded = scaffold_app(&options)?;
+        let expected = preview
+            .files
+            .iter()
+            .map(|path| {
+                path.strip_prefix(&scaffolded.app_dir)
+                    .map(Path::to_path_buf)
+            })
+            .collect::<Result<std::collections::BTreeSet<_>, _>>()?;
+        let actual = generated_file_paths(&scaffolded.app_dir, &scaffolded.app_dir)?;
+
+        assert_eq!(actual, expected);
+        Ok(())
+    }
+
+    fn generated_file_paths(
+        root: &Path,
+        directory: &Path,
+    ) -> Result<std::collections::BTreeSet<PathBuf>> {
+        let mut paths = std::collections::BTreeSet::new();
+        let mut directories = vec![directory.to_path_buf()];
+        while let Some(directory) = directories.pop() {
+            for entry in fs::read_dir(&directory)? {
+                let entry = entry?;
+                let path = entry.path();
+                if entry.file_type()?.is_dir() {
+                    directories.push(path);
+                } else if entry.file_type()?.is_file() {
+                    paths.insert(path.strip_prefix(root)?.to_path_buf());
+                }
+            }
+        }
+        Ok(paths)
     }
 
     #[test]

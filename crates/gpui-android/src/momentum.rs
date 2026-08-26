@@ -20,7 +20,6 @@ struct Sample {
 pub struct VelocityTracker {
     samples: [Option<Sample>; MAX_SAMPLES],
     index: usize,
-    count: usize,
 }
 
 impl Default for VelocityTracker {
@@ -28,7 +27,6 @@ impl Default for VelocityTracker {
         Self {
             samples: [None; MAX_SAMPLES],
             index: 0,
-            count: 0,
         }
     }
 }
@@ -45,7 +43,6 @@ impl VelocityTracker {
             time: Instant::now(),
         });
         self.index = (self.index + 1) % MAX_SAMPLES;
-        self.count += 1;
     }
 
     pub fn velocity(&self) -> (f32, f32) {
@@ -79,7 +76,6 @@ impl VelocityTracker {
     pub fn reset(&mut self) {
         self.samples = [None; MAX_SAMPLES];
         self.index = 0;
-        self.count = 0;
     }
 }
 
@@ -191,6 +187,8 @@ impl MomentumScroller {
         };
         let dx = self.vx * displacement_factor;
         let dy = self.vy * displacement_factor;
+        self.last_x += dx;
+        self.last_y += dy;
         self.vx *= decay;
         self.vy *= decay;
         let speed = (self.vx * self.vx + self.vy * self.vy).sqrt();
@@ -286,6 +284,22 @@ mod tests {
             !scroller.is_finished(),
             "scroller should not be finished after sub-microsecond dt"
         );
+    }
+
+    #[test]
+    fn momentum_position_advances_with_each_step() {
+        let mut scroller = MomentumScroller::new();
+        scroller.fling(1_000.0, 500.0, 10.0, 20.0);
+
+        scroller.last_time = Instant::now() - Duration::from_millis(16);
+        let first = scroller.step().expect("first momentum step");
+        assert!(first.position_x > 10.0);
+        assert!(first.position_y > 20.0);
+
+        scroller.last_time = Instant::now() - Duration::from_millis(16);
+        let second = scroller.step().expect("second momentum step");
+        assert!(second.position_x > first.position_x);
+        assert!(second.position_y > first.position_y);
     }
 
     #[test]

@@ -64,13 +64,54 @@ pub fn web_init() {
 /// the showcase catalog are ASCII slugs, so a small parser is preferable to
 /// pulling a URL parser into every wasm demo.
 #[cfg(target_family = "wasm")]
-pub fn web_query_param(name: &str) -> Option<String> {
+fn web_query_param_raw(name: &str) -> Option<String> {
     let search = web_sys::window()?.location().search().ok()?;
     search
         .trim_start_matches('?')
         .split('&')
         .filter_map(|pair| pair.split_once('='))
         .find_map(|(key, value)| (key == name).then(|| value.replace('+', " ")))
+}
+
+/// Read and percent-decode a query-string parameter from the hosting page.
+#[cfg(target_family = "wasm")]
+pub fn web_query_param(name: &str) -> Option<String> {
+    web_query_param_raw(name).and_then(|value| decode_query_component(&value))
+}
+
+#[cfg(any(test, target_family = "wasm"))]
+pub(super) fn decode_query_component(value: &str) -> Option<String> {
+    fn hex(byte: u8) -> Option<u8> {
+        match byte {
+            b'0'..=b'9' => Some(byte - b'0'),
+            b'a'..=b'f' => Some(byte - b'a' + 10),
+            b'A'..=b'F' => Some(byte - b'A' + 10),
+            _ => None,
+        }
+    }
+
+    let bytes = value.as_bytes();
+    let mut decoded = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'+' => {
+                decoded.push(b' ');
+                index += 1;
+            }
+            b'%' => {
+                let high = *bytes.get(index + 1)?;
+                let low = *bytes.get(index + 2)?;
+                decoded.push(hex(high)? << 4 | hex(low)?);
+                index += 3;
+            }
+            byte => {
+                decoded.push(byte);
+                index += 1;
+            }
+        }
+    }
+    String::from_utf8(decoded).ok()
 }
 
 /// Resolve the optional `theme=` query parameter used by generated demo URLs.

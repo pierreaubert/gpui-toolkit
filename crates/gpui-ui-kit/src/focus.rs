@@ -314,11 +314,13 @@ impl FocusGroup {
             "tab" if shift => Some(FocusMove::Previous),
             "tab" => Some(FocusMove::Next),
             "up" => match direction {
-                FocusDirection::Vertical | FocusDirection::Grid { .. } => Some(FocusMove::Previous),
+                FocusDirection::Vertical => Some(FocusMove::Previous),
+                FocusDirection::Grid { columns } => Some(FocusMove::GridUp(columns.max(1))),
                 FocusDirection::Horizontal => None,
             },
             "down" => match direction {
-                FocusDirection::Vertical | FocusDirection::Grid { .. } => Some(FocusMove::Next),
+                FocusDirection::Vertical => Some(FocusMove::Next),
+                FocusDirection::Grid { columns } => Some(FocusMove::GridDown(columns.max(1))),
                 FocusDirection::Horizontal => None,
             },
             "left" => match direction {
@@ -360,6 +362,21 @@ impl FocusGroup {
                 None => Some(target_count - 1),
                 _ => None,
             },
+            FocusMove::GridUp(columns) => match current_index {
+                Some(index) if index >= columns => Some(index - columns),
+                Some(index) if wraparound => {
+                    let last_row_start = (target_count - 1) / columns * columns;
+                    Some(last_row_start + index.min(target_count - last_row_start - 1))
+                }
+                None => Some(target_count - 1),
+                _ => None,
+            },
+            FocusMove::GridDown(columns) => match current_index {
+                Some(index) if index + columns < target_count => Some(index + columns),
+                Some(index) if wraparound => Some(index % columns),
+                None => Some(0),
+                _ => None,
+            },
         }
     }
 }
@@ -370,6 +387,8 @@ enum FocusMove {
     Last,
     Next,
     Previous,
+    GridUp(usize),
+    GridDown(usize),
 }
 
 impl RenderOnce for FocusGroup {
@@ -492,7 +511,11 @@ mod tests {
         );
         assert_eq!(
             FocusGroup::navigation_delta(FocusDirection::Grid { columns: 3 }, "up", false),
-            Some(FocusMove::Previous)
+            Some(FocusMove::GridUp(3))
+        );
+        assert_eq!(
+            FocusGroup::navigation_delta(FocusDirection::Grid { columns: 3 }, "down", false),
+            Some(FocusMove::GridDown(3))
         );
         assert_eq!(
             FocusGroup::navigation_delta(FocusDirection::Vertical, "tab", true),
@@ -529,6 +552,14 @@ mod tests {
         assert_eq!(
             FocusGroup::target_index(3, None, FocusMove::Previous, false),
             Some(2)
+        );
+        assert_eq!(
+            FocusGroup::target_index(8, Some(1), FocusMove::GridDown(3), false),
+            Some(4)
+        );
+        assert_eq!(
+            FocusGroup::target_index(8, Some(7), FocusMove::GridUp(3), false),
+            Some(4)
         );
         assert_eq!(
             FocusGroup::target_index(0, None, FocusMove::First, true),

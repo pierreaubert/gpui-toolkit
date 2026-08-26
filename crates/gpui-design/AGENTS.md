@@ -1,12 +1,16 @@
 # gpui-design
 
-Platform-adaptive design system (Apple HIG, Material 3, Fluent, Neutral).
+Platform-adaptive design system (Apple HIG, Material 3, Fluent, Adwaita,
+Breeze, Carbon, and Neutral).
 
 ## Architecture
 
 Pure data types only — no rendering code, no framework dependencies. Platform renderers consume these values alongside Theme colors.
 
-- `lib.rs` — All types in a single file: `DesignLanguage`, `DesignSystem`, and sub-structs
+- `lib.rs` — public re-exports and module wiring
+- `design_system.rs` — presets, token export, motion policy, and conformance checks
+- `design_*_report.rs`, `design_conformance_matrix.rs`, and `design_token_export.rs` — CI-facing documentation and token artifacts
+- `types.rs` and the `*_rules.rs` modules — public data types and constructor validation
 - `CornerRadii` — sm/md/lg/xl radius + continuous (squircle) vs circular style
 - `SpacingRules` — grid unit, control padding, gaps, card padding
 - `InteractionRules` — min touch target, border/focus ring widths
@@ -18,9 +22,9 @@ Pure data types only — no rendering code, no framework dependencies. Platform 
 
 ## Key Public API
 
-- `DesignSystem::neutral()` / `::apple_hig()` / `::material3()` / `::fluent()` — preset constructors
+- `DesignSystem::{neutral, apple_hig, material3, fluent, adwaita, breeze, carbon}()` — preset constructors
 - `DesignSystem::platform_default()` — auto-selects based on `target_os`
-- `DesignLanguage` enum — `AppleHig`, `Material3`, `Fluent`, `Neutral`
+- `DesignLanguage` enum — all seven preset languages
 - With `gpui` feature: `DesignSystemState` global + `DesignExt` trait (`cx.design()`)
 
 ## Features

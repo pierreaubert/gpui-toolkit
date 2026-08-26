@@ -1,5 +1,6 @@
 use super::chart_size::ChartSize;
 pub use super::error::ChartError;
+use super::misc::extent_log_padded_iter;
 use super::misc::extent_padded;
 use super::misc::extent_padded_iter;
 use super::validate::validate_data_array;
@@ -304,6 +305,15 @@ fn test_extent_padded_iter_matches_slice_version() {
     let (min_iter, max_iter) = extent_padded_iter(values.into_iter(), 0.05);
     assert_eq!(min_slice, min_iter);
     assert_eq!(max_slice, max_iter);
+}
+
+#[test]
+fn test_extent_log_padded_iter_uses_positive_multiplicative_padding() {
+    let (min, max) = extent_log_padded_iter([0.001, 1.0].into_iter(), 0.05);
+
+    assert!(min > 0.0);
+    assert!((min - (0.001 / 1.05)).abs() < f64::EPSILON);
+    assert!((max - 1.05).abs() < f64::EPSILON);
 }
 
 #[test]

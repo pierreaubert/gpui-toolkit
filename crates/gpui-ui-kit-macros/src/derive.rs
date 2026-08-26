@@ -1,9 +1,10 @@
 use super::builder_field::BuilderField;
 use proc_macro2::TokenStream;
 use quote::quote;
+use std::collections::HashSet;
 use syn::punctuated::Punctuated;
 use syn::spanned::Spanned;
-use syn::{Data, DeriveInput, Expr, Fields, Lit, Meta, Token};
+use syn::{Data, DeriveInput, Expr, Fields, Lit, LitInt, Meta, Token};
 
 fn combined_compile_error(errors: Vec<syn::Error>) -> TokenStream {
     let mut iter = errors.into_iter();
@@ -214,6 +215,7 @@ pub(crate) fn derive_component_theme_impl(input: TokenStream) -> TokenStream {
         Err(e) => return e.to_compile_error(),
     };
     let name = &input.ident;
+    let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
 
     let fields = match &input.data {
         Data::Struct(data) => match &data.fields {
@@ -295,25 +297,33 @@ pub(crate) fn derive_component_theme_impl(input: TokenStream) -> TokenStream {
         let field_span = field.ident.span();
 
         // Find the #[theme(...)] attribute
-        let theme_attr = field
+        let mut theme_attrs = field
             .attrs
             .iter()
-            .find(|attr| attr.path().is_ident("theme"));
+            .filter(|attr| attr.path().is_ident("theme"));
 
-        let Some(attr) = theme_attr else {
+        let Some(attr) = theme_attrs.next() else {
             errors.push(syn::Error::new(
                 field_span,
                 format!("Field `{field_name}` is missing #[theme(...)] attribute"),
             ));
             continue;
         };
+        if let Some(duplicate) = theme_attrs.next() {
+            errors.push(syn::Error::new(
+                duplicate.span(),
+                format!("Field `{field_name}` has multiple #[theme(...)] attributes"),
+            ));
+            continue;
+        }
 
         let mut default_value: Option<u32> = None;
-        let mut default_hex_lit: Option<String> = None;
+        let mut default_int_lit: Option<LitInt> = None;
         let mut default_f32: Option<f64> = None;
         let mut default_expr_str: Option<String> = None;
         let mut from_field: Option<syn::Ident> = None;
         let mut from_expr: Option<String> = None;
+        let mut seen_attribute_keys = HashSet::new();
 
         // Parse the attribute arguments
         let nested = match attr.parse_args_with(Punctuated::<Meta, Token![,]>::parse_terminated) {
@@ -334,6 +344,13 @@ pub(crate) fn derive_component_theme_impl(input: TokenStream) -> TokenStream {
                             continue;
                         }
                     };
+                    if !seen_attribute_keys.insert(ident.to_string()) {
+                        errors.push(syn::Error::new(
+                            ident.span(),
+                            format!("Duplicate theme attribute: {ident}"),
+                        ));
+                        continue;
+                    }
                     if ident == "default" {
                         if let Expr::Lit(lit) = &nv.value
                             && let Lit::Int(int_lit) = &lit.lit
@@ -341,7 +358,7 @@ pub(crate) fn derive_component_theme_impl(input: TokenStream) -> TokenStream {
                             match int_lit.base10_parse::<u32>() {
                                 Ok(v) => {
                                     default_value = Some(v);
-                                    default_hex_lit = Some(int_lit.to_string());
+                                    default_int_lit = Some(int_lit.clone());
                                 }
                                 Err(e) => {
                                     errors.push(syn::Error::new(
@@ -490,13 +507,17 @@ pub(crate) fn derive_component_theme_impl(input: TokenStream) -> TokenStream {
             // inspecting the original literal string rather than the numeric
             // value. This avoids misclassifying transparent colors such as
             // 0x00000000 as RGB.
-            let is_rgba = default_hex_lit.as_ref().map_or_else(
-                || default_val > 0xFFFFFF,
-                |lit| {
-                    let digits = lit.trim_start_matches("0x").trim_start_matches("0X");
-                    digits.len() == 8
-                },
-            );
+            let is_rgba = default_int_lit.as_ref().is_some_and(|literal| {
+                let raw = literal.to_string();
+                let literal_without_suffix =
+                    raw.strip_suffix(literal.suffix()).unwrap_or(raw.as_str());
+                literal_without_suffix
+                    .strip_prefix("0x")
+                    .or_else(|| literal_without_suffix.strip_prefix("0X"))
+                    .is_some_and(|digits| {
+                        digits.chars().filter(|character| *character != '_').count() == 8
+                    })
+            }) || default_val > 0xFFFFFF;
 
             let default_expr = if is_rgba {
                 quote! { #gpui_path::rgba(#default_val) }
@@ -550,7 +571,8 @@ pub(crate) fn derive_component_theme_impl(input: TokenStream) -> TokenStream {
     }
 
     let expanded = quote! {
-        impl Default for #name {
+        #[automatically_derived]
+        impl #impl_generics Default for #name #ty_generics #where_clause {
             fn default() -> Self {
                 Self {
                     #(#default_fields),*
@@ -558,7 +580,8 @@ pub(crate) fn derive_component_theme_impl(input: TokenStream) -> TokenStream {
             }
         }
 
-        impl From<&#theme_path> for #name {
+        #[automatically_derived]
+        impl #impl_generics From<&#theme_path> for #name #ty_generics #where_clause {
             fn from(theme: &#theme_path) -> Self {
                 Self {
                     #(#from_fields),*
@@ -566,13 +589,15 @@ pub(crate) fn derive_component_theme_impl(input: TokenStream) -> TokenStream {
             }
         }
 
-        impl From<std::sync::Arc<#theme_path>> for #name {
+        #[automatically_derived]
+        impl #impl_generics From<std::sync::Arc<#theme_path>> for #name #ty_generics #where_clause {
             fn from(theme: std::sync::Arc<#theme_path>) -> Self {
                 Self::from(theme.as_ref())
             }
         }
 
-        impl From<&std::sync::Arc<#theme_path>> for #name {
+        #[automatically_derived]
+        impl #impl_generics From<&std::sync::Arc<#theme_path>> for #name #ty_generics #where_clause {
             fn from(theme: &std::sync::Arc<#theme_path>) -> Self {
                 Self::from(theme.as_ref())
             }
@@ -586,9 +611,10 @@ pub(crate) fn derive_component_theme_impl(input: TokenStream) -> TokenStream {
 ///
 /// Field attributes use the documented `#[field(...)]` syntax:
 ///
-/// - `required` includes the field in `new(...)`
+/// - `required` includes the field in `new(...)` as `impl Into<T>`
 /// - `optional` initializes the field as `None` and makes the setter wrap `Some(...)`
-/// - `into` accepts `impl Into<T>` for constructor/setter arguments
+/// - `into` makes a non-required setter accept `impl Into<T>`; required constructor
+///   arguments already do
 /// - `builder = false` or `skip` omits the setter
 /// - `default = "expr"` uses an explicit default expression
 /// - `rename = "method_name"` changes the generated setter name
@@ -647,6 +673,7 @@ pub(crate) fn derive_component_builder_impl(input: TokenStream) -> TokenStream {
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
 
     let expanded = quote! {
+        #[automatically_derived]
         impl #impl_generics #name #ty_generics #where_clause {
             pub fn new(#(#new_args),*) -> Self {
                 Self {
@@ -706,6 +733,31 @@ mod tests {
     }
 
     #[test]
+    fn generated_impls_are_marked_automatically_derived() {
+        let theme = theme_derive(
+            r#"
+            #[derive(ComponentTheme)]
+            pub struct MyTheme {
+                #[theme(default = 0x007acc, from = accent)]
+                pub primary: u32,
+            }
+            "#,
+        );
+        assert_eq!(theme.matches("automatically_derived").count(), 4);
+
+        let builder = builder_derive(
+            r#"
+            #[derive(ComponentBuilder)]
+            pub struct MyBuilder {
+                #[field(required)]
+                pub id: String,
+            }
+            "#,
+        );
+        assert_eq!(builder.matches("automatically_derived").count(), 1);
+    }
+
+    #[test]
     fn theme_missing_attribute_emits_error() {
         let out = theme_derive(
             r#"
@@ -732,6 +784,25 @@ mod tests {
         );
         assert!(out.contains("compile_error !"));
         assert!(out.contains("Unknown theme attribute"));
+    }
+
+    #[test]
+    fn theme_duplicate_attributes_and_keys_emit_errors() {
+        let out = theme_derive(
+            r#"
+            #[derive(ComponentTheme)]
+            pub struct MyTheme {
+                #[theme(default = 0x007acc, from = accent)]
+                #[theme(default = 0x00ff00, from = surface)]
+                pub primary: u32,
+                #[theme(default = 0x007acc, default = 0x00ff00, from = accent)]
+                pub secondary: u32,
+            }
+            "#,
+        );
+        assert!(out.contains("compile_error !"));
+        assert!(out.contains("has multiple #[theme(...)] attributes"));
+        assert!(out.contains("Duplicate theme attribute"));
     }
 
     #[test]

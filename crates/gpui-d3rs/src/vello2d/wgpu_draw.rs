@@ -236,6 +236,9 @@ impl WgpuCustomDraw for WgpuVelloDraw {
             });
             gpu.offscreen_view = Some(texture.create_view(&Default::default()));
             gpu.size = size;
+            if let Some(composite) = gpu.composite.as_mut() {
+                composite.invalidate_source();
+            }
         }
         if gpu
             .composite
@@ -249,9 +252,10 @@ impl WgpuCustomDraw for WgpuVelloDraw {
             ));
         }
         let logical_size = [logical_size.0.to_bits(), logical_size.1.to_bits()];
-        if gpu.encoded_scene.as_ref().is_none_or(|scene| {
+        let rerasterize = gpu.encoded_scene.as_ref().is_none_or(|scene| {
             scene.revision != revision || scene.size != size || scene.logical_size != logical_size
-        }) {
+        });
+        if rerasterize {
             let [sx, sy] = scene_scale(
                 f32::from_bits(logical_size[0]),
                 f32::from_bits(logical_size[1]),
@@ -276,30 +280,32 @@ impl WgpuCustomDraw for WgpuVelloDraw {
 
         // The renderer is shared by the device; each element still owns its
         // offscreen texture and composite uniform buffer.
-        if let Err(err) = gpu.shared.renderer.borrow_mut().render_to_texture(
-            &ctx.device,
-            &ctx.queue,
-            &gpu.encoded_scene
-                .as_ref()
-                .expect("encoded vello scene")
-                .scene,
-            gpu.offscreen_view.as_ref().unwrap(),
-            &RenderParams {
-                base_color: Color::TRANSPARENT,
-                width: size[0],
-                height: size[1],
-                antialiasing_method: AaConfig::Area,
-            },
-        ) {
-            // Transient: log and leave the previous frame's content.
-            log::error!("vello2d: render_to_texture failed: {err}");
-            return;
+        if rerasterize {
+            if let Err(err) = gpu.shared.renderer.borrow_mut().render_to_texture(
+                &ctx.device,
+                &ctx.queue,
+                &gpu.encoded_scene
+                    .as_ref()
+                    .expect("encoded vello scene")
+                    .scene,
+                gpu.offscreen_view.as_ref().unwrap(),
+                &RenderParams {
+                    base_color: Color::TRANSPARENT,
+                    width: size[0],
+                    height: size[1],
+                    antialiasing_method: AaConfig::Area,
+                },
+            ) {
+                // Transient: log and leave the previous frame's content.
+                log::error!("vello2d: render_to_texture failed: {err}");
+                return;
+            }
         }
 
         let origin_x: f32 = bounds.origin.x.into();
         let origin_y: f32 = bounds.origin.y.into();
         let (src_origin, src_size) = clip_src_rect(full_bounds, bounds, scale_factor);
-        gpu.composite.as_ref().unwrap().composite(
+        gpu.composite.as_mut().unwrap().composite(
             ctx,
             encoder,
             target,
@@ -307,6 +313,7 @@ impl WgpuCustomDraw for WgpuVelloDraw {
             [origin_x * scale_factor, origin_y * scale_factor],
             src_size,
             src_origin,
+            src_size,
             [size[0] as f32, size[1] as f32],
             [target_size[0] as f32, target_size[1] as f32],
         );
@@ -316,15 +323,16 @@ impl WgpuCustomDraw for WgpuVelloDraw {
 // ---------------------------------------------------------------------------
 // Composite: draw the premultiplied-RGBA offscreen texture over the frame.
 
-struct CompositePipeline {
-    target_format: wgpu::TextureFormat,
+pub(crate) struct CompositePipeline {
+    pub(crate) target_format: wgpu::TextureFormat,
     resources: Rc<CompositeResources>,
     uniform: wgpu::Buffer,
+    bind_group: Option<wgpu::BindGroup>,
 }
 
 /// Shader, pipeline, bind-group layout, and sampler shared by all custom
 /// draws targeting the same device and frame format.
-struct CompositeResources {
+pub(crate) struct CompositeResources {
     pipeline: wgpu::RenderPipeline,
     bind_group_layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
@@ -372,7 +380,7 @@ fn fs(in: VsOut) -> @location(0) vec4<f32> {
 "#;
 
 impl CompositeResources {
-    fn new(ctx: &WgpuContext, target_format: wgpu::TextureFormat) -> Self {
+    pub(crate) fn new(ctx: &WgpuContext, target_format: wgpu::TextureFormat) -> Self {
         let device = &ctx.device;
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("vello2d_composite"),
@@ -455,7 +463,7 @@ impl CompositeResources {
 }
 
 impl CompositePipeline {
-    fn new(
+    pub(crate) fn new(
         ctx: &WgpuContext,
         target_format: wgpu::TextureFormat,
         resources: Rc<CompositeResources>,
@@ -470,12 +478,17 @@ impl CompositePipeline {
             target_format,
             resources,
             uniform,
+            bind_group: None,
         }
     }
 
+    pub(crate) fn invalidate_source(&mut self) {
+        self.bind_group = None;
+    }
+
     #[allow(clippy::too_many_arguments)]
-    fn composite(
-        &self,
+    pub(crate) fn composite(
+        &mut self,
         ctx: &WgpuContext,
         encoder: &mut wgpu::CommandEncoder,
         target: &wgpu::TextureView,
@@ -483,6 +496,7 @@ impl CompositePipeline {
         dst_origin: [f32; 2],
         dst_size: [f32; 2],
         src_origin: [f32; 2],
+        src_size: [f32; 2],
         tex_size: [f32; 2],
         target_size: [f32; 2],
     ) {
@@ -493,8 +507,8 @@ impl CompositePipeline {
             dst_size[1],
             src_origin[0],
             src_origin[1],
-            dst_size[0],
-            dst_size[1],
+            src_size[0],
+            src_size[1],
             tex_size[0],
             tex_size[1],
             target_size[0],
@@ -502,24 +516,27 @@ impl CompositePipeline {
         ];
         ctx.queue
             .write_buffer(&self.uniform, 0, bytemuck::cast_slice(&uniforms));
-        let bind_group = ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("vello2d_composite_bind_group"),
-            layout: &self.resources.bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: self.uniform.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::TextureView(src),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::Sampler(&self.resources.sampler),
-                },
-            ],
-        });
+        if self.bind_group.is_none() {
+            self.bind_group = Some(ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("vello2d_composite_bind_group"),
+                layout: &self.resources.bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: self.uniform.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::TextureView(src),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: wgpu::BindingResource::Sampler(&self.resources.sampler),
+                    },
+                ],
+            }));
+        }
+        let bind_group = self.bind_group.as_ref().unwrap();
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("vello2d_composite"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -535,7 +552,7 @@ impl CompositePipeline {
             ..Default::default()
         });
         pass.set_pipeline(&self.resources.pipeline);
-        pass.set_bind_group(0, &bind_group, &[]);
+        pass.set_bind_group(0, bind_group, &[]);
         pass.draw(0..6, 0..1);
     }
 }

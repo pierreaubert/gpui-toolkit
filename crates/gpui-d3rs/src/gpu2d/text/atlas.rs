@@ -3,6 +3,8 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+const GLYPH_PADDING: u32 = 1;
+
 /// Cache key for glyph lookup
 #[derive(Debug, Clone, Copy, Hash, Eq, PartialEq)]
 pub struct GlyphKey {
@@ -43,6 +45,8 @@ pub struct TextAtlas {
     font: fontdue::Font,
     /// Cached glyph info
     glyph_cache: HashMap<GlyphKey, GlyphInfo>,
+    /// Insertion order retained so a grown atlas can be repacked identically.
+    glyph_order: Vec<GlyphKey>,
     /// Current packing state
     current_x: u32,
     current_y: u32,
@@ -73,6 +77,7 @@ impl TextAtlas {
             texture_view: None,
             font,
             glyph_cache: HashMap::new(),
+            glyph_order: Vec::new(),
             current_x: 0,
             current_y: 0,
             row_height: 0,
@@ -159,49 +164,69 @@ impl TextAtlas {
         self.bind_group = Some(bind_group);
     }
 
-    /// Get or rasterize a glyph
+    /// Get or rasterize a glyph.
+    ///
+    /// The atlas grows and repacks its retained glyph order when the current
+    /// texture fills. A glyph is only absent when it cannot fit within the
+    /// device's maximum 2D texture dimension.
     pub fn get_glyph(&mut self, c: char, size: f32) -> Option<GlyphInfo> {
         let key = GlyphKey::new(c, size);
-
         if let Some(info) = self.glyph_cache.get(&key) {
             return Some(*info);
         }
 
-        // Rasterize the glyph
-        let (metrics, bitmap) = self.font.rasterize(c, size);
+        if let Some(info) = self.insert_glyph(key) {
+            return Some(info);
+        }
 
+        self.grow_and_repack(key)
+            .then(|| self.glyph_cache.get(&key).copied())
+            .flatten()
+    }
+
+    fn insert_glyph(&mut self, key: GlyphKey) -> Option<GlyphInfo> {
+        let info = self.rasterize_and_pack(key)?;
+        self.glyph_cache.insert(key, info);
+        self.glyph_order.push(key);
+        Some(info)
+    }
+
+    fn rasterize_and_pack(&mut self, key: GlyphKey) -> Option<GlyphInfo> {
+        let (metrics, bitmap) = self.font.rasterize(key.codepoint, key.size_px as f32);
         if metrics.width == 0 || metrics.height == 0 {
-            // Whitespace or empty glyph
-            let info = GlyphInfo {
+            return Some(GlyphInfo {
                 uv: [0.0, 0.0, 0.0, 0.0],
                 bearing: [metrics.xmin as f32, metrics.ymin as f32],
                 advance: metrics.advance_width,
                 width: 0,
                 height: 0,
-            };
-            self.glyph_cache.insert(key, info);
-            return Some(info);
+            });
         }
 
-        // Pack into atlas using shelf algorithm
         let glyph_width = metrics.width as u32;
         let glyph_height = metrics.height as u32;
+        let padded_width = glyph_width.checked_add(GLYPH_PADDING)?;
+        let padded_height = glyph_height.checked_add(GLYPH_PADDING)?;
 
-        // Check if we need to move to next row
-        if self.current_x + glyph_width > self.size {
+        if self
+            .current_x
+            .checked_add(padded_width)
+            .map_or(true, |x| x > self.size)
+        {
             self.current_x = 0;
-            self.current_y += self.row_height;
+            self.current_y = self.current_y.checked_add(self.row_height)?;
             self.row_height = 0;
         }
-
-        // Check if atlas is full
-        if self.current_y + glyph_height > self.size {
-            // Atlas is full - in production, we'd resize or use multiple atlases
+        if self
+            .current_y
+            .checked_add(padded_height)
+            .map_or(true, |y| y > self.size)
+        {
             return None;
         }
 
-        // Upload glyph to texture
-        if let Some(texture) = &self.texture {
+        {
+            let texture = self.texture.as_ref()?;
             self.queue.write_texture(
                 wgpu::TexelCopyTextureInfo {
                     texture,
@@ -227,27 +252,77 @@ impl TextAtlas {
             );
         }
 
-        // Calculate UV coordinates
-        let size_f = self.size as f32;
+        let size = self.size as f32;
         let info = GlyphInfo {
             uv: [
-                self.current_x as f32 / size_f,
-                self.current_y as f32 / size_f,
-                (self.current_x + glyph_width) as f32 / size_f,
-                (self.current_y + glyph_height) as f32 / size_f,
+                self.current_x as f32 / size,
+                self.current_y as f32 / size,
+                (self.current_x + glyph_width) as f32 / size,
+                (self.current_y + glyph_height) as f32 / size,
             ],
             bearing: [metrics.xmin as f32, metrics.ymin as f32],
             advance: metrics.advance_width,
             width: glyph_width,
             height: glyph_height,
         };
-
-        // Update packing state
-        self.current_x += glyph_width + 1; // 1px padding
-        self.row_height = self.row_height.max(glyph_height + 1);
-
-        self.glyph_cache.insert(key, info);
+        self.current_x += padded_width;
+        self.row_height = self.row_height.max(padded_height);
         Some(info)
+    }
+
+    fn grow_and_repack(&mut self, new_key: GlyphKey) -> bool {
+        let maximum_size = self.device.limits().max_texture_dimension_2d;
+        if self.size >= maximum_size {
+            return false;
+        }
+
+        let mut keys = self.glyph_order.clone();
+        keys.push(new_key);
+        let old_size = self.size;
+        let old_current_x = self.current_x;
+        let old_current_y = self.current_y;
+        let old_row_height = self.row_height;
+        let old_texture = self.texture.take();
+        let old_texture_view = self.texture_view.take();
+        let old_bind_group = self.bind_group.take();
+        let old_bind_group_layout = self.bind_group_layout.take();
+        let old_glyph_cache = std::mem::take(&mut self.glyph_cache);
+        let old_glyph_order = std::mem::take(&mut self.glyph_order);
+
+        let mut candidate_size = self.size;
+        while candidate_size < maximum_size {
+            candidate_size = candidate_size.saturating_mul(2).min(maximum_size);
+            self.size = candidate_size;
+            self.current_x = 0;
+            self.current_y = 0;
+            self.row_height = 0;
+            self.glyph_cache.clear();
+            self.glyph_order.clear();
+            self.create_texture();
+
+            let mut repacked = true;
+            for key in &keys {
+                if self.insert_glyph(*key).is_none() {
+                    repacked = false;
+                    break;
+                }
+            }
+            if repacked {
+                return true;
+            }
+        }
+
+        self.size = old_size;
+        self.current_x = old_current_x;
+        self.current_y = old_current_y;
+        self.row_height = old_row_height;
+        self.texture = old_texture;
+        self.texture_view = old_texture_view;
+        self.bind_group = old_bind_group;
+        self.bind_group_layout = old_bind_group_layout;
+        self.glyph_cache = old_glyph_cache;
+        self.glyph_order = old_glyph_order;
+        false
     }
 
     /// Get the bind group for rendering

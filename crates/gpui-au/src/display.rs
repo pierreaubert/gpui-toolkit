@@ -15,19 +15,19 @@ unsafe impl Send for AuDisplay {}
 unsafe impl Sync for AuDisplay {}
 
 impl AuDisplay {
+    const ID: u64 = 1;
+
+    fn stable_uuid() -> Uuid {
+        Uuid::new_v5(&Uuid::NAMESPACE_OID, b"gpui-au-primary-display")
+    }
+
     pub fn main() -> Self {
         unsafe {
             let screen: *mut objc::runtime::Object = msg_send![class!(NSScreen), mainScreen];
-            let bounds: CGRect = msg_send![screen, frame];
-            let scale: f64 = msg_send![screen, backingScaleFactor];
-            let bytes = format!(
-                "au-screen-{}-{}-{}",
-                bounds.size.width as u32,
-                bounds.size.height as u32,
-                (scale * 100.0) as u32
-            );
-            let uuid = Uuid::new_v5(&Uuid::NAMESPACE_OID, bytes.as_bytes());
-            Self { screen, uuid }
+            Self {
+                screen,
+                uuid: Self::stable_uuid(),
+            }
         }
     }
 
@@ -38,7 +38,7 @@ impl AuDisplay {
 
 impl PlatformDisplay for AuDisplay {
     fn id(&self) -> DisplayId {
-        DisplayId::new(self.screen as u64)
+        DisplayId::new(AuDisplay::ID)
     }
 
     fn uuid(&self) -> anyhow::Result<Uuid> {
@@ -46,6 +46,9 @@ impl PlatformDisplay for AuDisplay {
     }
 
     fn bounds(&self) -> Bounds<Pixels> {
+        if self.screen.is_null() {
+            return Bounds::default();
+        }
         let bounds = self.bounds_in_points();
         Bounds {
             origin: Default::default(),
@@ -59,12 +62,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_uuid_is_stable() {
-        let uuid = Uuid::new_v4();
+    fn null_screen_has_stable_identity_and_empty_bounds() {
         let display = AuDisplay {
             screen: std::ptr::null_mut(),
-            uuid,
+            uuid: AuDisplay::stable_uuid(),
         };
-        assert_eq!(display.uuid().unwrap(), uuid);
+        assert_eq!(display.id(), DisplayId::new(AuDisplay::ID));
+        assert_eq!(display.uuid().unwrap(), AuDisplay::stable_uuid());
+        assert_eq!(display.bounds(), Bounds::default());
     }
 }

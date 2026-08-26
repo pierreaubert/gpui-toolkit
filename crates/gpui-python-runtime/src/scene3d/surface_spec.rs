@@ -16,16 +16,33 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{OnceLock, RwLock};
 
-static DEFAULT_AXIS_CACHE: OnceLock<Mutex<HashMap<usize, Vec<f64>>>> = OnceLock::new();
+static DEFAULT_AXIS_CACHE: OnceLock<RwLock<HashMap<usize, &'static [f64]>>> = OnceLock::new();
 
-fn default_axis_values(size: usize) -> Vec<f64> {
-    let cache = DEFAULT_AXIS_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-    let mut map = cache.lock().unwrap();
-    map.entry(size)
-        .or_insert_with(|| (0..size).map(|value| value as f64).collect())
-        .clone()
+fn default_axis_values(size: usize) -> &'static [f64] {
+    let cache = DEFAULT_AXIS_CACHE.get_or_init(|| RwLock::new(HashMap::new()));
+    if let Some(values) = cache
+        .read()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .get(&size)
+        .copied()
+    {
+        return values;
+    }
+
+    let mut map = cache
+        .write()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    *map.entry(size).or_insert_with(|| {
+        let values: &'static [f64] = Box::leak(
+            (0..size)
+                .map(|value| value as f64)
+                .collect::<Vec<_>>()
+                .into_boxed_slice(),
+        );
+        values
+    })
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -127,7 +144,7 @@ impl SurfaceSpec {
     pub fn x_values(&self) -> Cow<'_, [f64]> {
         match &self.x {
             Some(values) => Cow::Borrowed(values),
-            None => Cow::Owned(default_axis_values(self.z.width)),
+            None => Cow::Borrowed(default_axis_values(self.z.width)),
         }
     }
 
@@ -139,7 +156,7 @@ impl SurfaceSpec {
     pub fn y_values(&self) -> Cow<'_, [f64]> {
         match &self.y {
             Some(values) => Cow::Borrowed(values),
-            None => Cow::Owned(default_axis_values(self.z.height)),
+            None => Cow::Borrowed(default_axis_values(self.z.height)),
         }
     }
 

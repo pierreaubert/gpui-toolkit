@@ -73,10 +73,51 @@ pub trait AudioToggleExt {
 
 impl AudioToggleExt for gpui_ui_kit::Toggle {
     fn design_tokens(self, tokens: &AudioDesignTokens) -> Self {
-        let style = match tokens.toggle_variant {
-            AudioDesignTokens::TOGGLE_SEGMENTED => gpui_ui_kit::ToggleStyle::Segmented,
-            _ => gpui_ui_kit::ToggleStyle::Sliding,
-        };
-        self.style(style)
+        self.style(audio_toggle_style(tokens))
+    }
+}
+
+fn audio_toggle_style(tokens: &AudioDesignTokens) -> gpui_ui_kit::ToggleStyle {
+    match tokens.toggle_variant {
+        AudioDesignTokens::TOGGLE_SLIDING => gpui_ui_kit::ToggleStyle::Sliding,
+        AudioDesignTokens::TOGGLE_SEGMENTED => gpui_ui_kit::ToggleStyle::Segmented,
+        AudioDesignTokens::TOGGLE_THUMB_ON_TRACK => gpui_ui_kit::ToggleStyle::ThumbOnTrack,
+        AudioDesignTokens::TOGGLE_PILL => gpui_ui_kit::ToggleStyle::Pill,
+        _ => gpui_ui_kit::ToggleStyle::Sliding,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn audio_toggle_tokens_map_every_supported_platform_style() {
+        for (variant, expected) in [
+            (
+                AudioDesignTokens::TOGGLE_SLIDING,
+                gpui_ui_kit::ToggleStyle::Sliding,
+            ),
+            (
+                AudioDesignTokens::TOGGLE_SEGMENTED,
+                gpui_ui_kit::ToggleStyle::Segmented,
+            ),
+            (
+                AudioDesignTokens::TOGGLE_THUMB_ON_TRACK,
+                gpui_ui_kit::ToggleStyle::ThumbOnTrack,
+            ),
+            (
+                AudioDesignTokens::TOGGLE_PILL,
+                gpui_ui_kit::ToggleStyle::Pill,
+            ),
+        ] {
+            assert_eq!(
+                audio_toggle_style(&AudioDesignTokens {
+                    toggle_variant: variant,
+                    ..Default::default()
+                }),
+                expected
+            );
+        }
     }
 }

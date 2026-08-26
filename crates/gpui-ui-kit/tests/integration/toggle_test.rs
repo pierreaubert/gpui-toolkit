@@ -66,7 +66,7 @@ async fn test_toggle_segmented_style(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-async fn test_toggle_both_styles(cx: &mut TestAppContext) {
+async fn test_toggle_all_styles(cx: &mut TestAppContext) {
     struct BothStylesView;
 
     impl Render for BothStylesView {
@@ -85,6 +85,12 @@ async fn test_toggle_both_styles(cx: &mut TestAppContext) {
                         .style(ToggleStyle::Segmented)
                         .label("Segmented"),
                 )
+                .child(
+                    Toggle::new("thumb-on-track")
+                        .style(ToggleStyle::ThumbOnTrack)
+                        .label("Thumb on track"),
+                )
+                .child(Toggle::new("pill").style(ToggleStyle::Pill).label("Pill"))
         }
     }
 

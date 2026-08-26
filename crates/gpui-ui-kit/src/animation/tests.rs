@@ -90,6 +90,36 @@ fn test_animation_is_complete() {
 }
 
 #[test]
+fn test_animation_repeat_replays_each_cycle() {
+    let anim = Animation::new()
+        .duration_ms(100)
+        .easing(Easing::Linear)
+        .repeat(1);
+
+    assert_eq!(anim.total_duration(), Duration::from_millis(200));
+    assert_eq!(anim.progress(Duration::from_millis(50)), 0.5);
+    assert_eq!(anim.progress(Duration::from_millis(100)), 0.0);
+    assert_eq!(anim.progress(Duration::from_millis(150)), 0.5);
+    assert_eq!(anim.progress(Duration::from_millis(200)), 1.0);
+    assert!(!anim.is_complete(Duration::from_millis(199)));
+    assert!(anim.is_complete(Duration::from_millis(200)));
+}
+
+#[test]
+fn test_animation_alternate_reverses_and_ends_at_start_after_odd_repeat() {
+    let anim = Animation::new()
+        .duration_ms(100)
+        .easing(Easing::Linear)
+        .repeat(1)
+        .alternate(true);
+
+    assert_eq!(anim.progress(Duration::from_millis(100)), 1.0);
+    assert_eq!(anim.progress(Duration::from_millis(150)), 0.5);
+    assert_eq!(anim.progress(Duration::from_millis(200)), 0.0);
+    assert!(anim.is_complete(Duration::from_millis(200)));
+}
+
+#[test]
 fn test_spring_settling() {
     let spring = Spring::default();
     let mut pos = 0.0;

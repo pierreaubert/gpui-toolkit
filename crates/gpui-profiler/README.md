@@ -76,7 +76,7 @@ growth section.
 - Without `global-allocator`, `AllocSnapshot::now`, `AllocProbe::reset`, and
   `AllocProbe::sample` return zero/default snapshots and do not install a
   global allocator.
-- With `global-allocator`, every allocation and reallocation performs relaxed
+- With `global-allocator`, every allocation and reallocation performs atomic
   atomic counter updates. This is useful for QA and interactive profiling, but
   it should not be enabled in release hot paths unless you intentionally want
   diagnostic overhead.

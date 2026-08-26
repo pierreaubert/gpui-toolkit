@@ -25,19 +25,29 @@ async fn warmed_component_lab_render_and_prop_change_stay_within_budget(cx: &mut
     let state_window = window;
     let mut visual = VisualTestContext::from_window(window.into(), cx);
     visual.run_until_parked();
+    state_window
+        .update(&mut visual, |lab, _window, _cx| {
+            allocation_contracts::reset_after_render(lab);
+        })
+        .expect("reset initial component-lab allocation interval");
 
     // Warm the retained child entities and initial render before measuring the
     // prop mutation and its following redraw.
     state_window
-        .update(&mut visual, |lab, _window, _cx| {
-            allocation_contracts::selected_story_prop_change_sample(lab);
+        .update(&mut visual, |lab, _window, cx| {
+            allocation_contracts::selected_story_prop_change_sample(lab, cx);
         })
         .expect("update component lab");
     visual.run_until_parked();
+    state_window
+        .update(&mut visual, |lab, _window, _cx| {
+            allocation_contracts::reset_after_render(lab);
+        })
+        .expect("reset warmed component-lab allocation interval");
 
     let prop_change = state_window
-        .update(&mut visual, |lab, _window, _cx| {
-            allocation_contracts::selected_story_prop_change_sample(lab)
+        .update(&mut visual, |lab, _window, cx| {
+            allocation_contracts::selected_story_prop_change_sample(lab, cx)
         })
         .expect("sample component-lab prop change");
     visual.run_until_parked();

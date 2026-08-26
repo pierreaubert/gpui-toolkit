@@ -40,7 +40,7 @@ use gpui::{
     RequestFrameOptions, WindowBackgroundAppearance, WindowBounds, WindowControlArea,
 };
 use gpui_wgpu::{GpuContext, WgpuRenderer, WgpuSurfaceConfig, wgpu};
-use jni::objects::GlobalRef;
+use jni::objects::{Global, JObject};
 use parking_lot::Mutex;
 use raw_window_handle::{
     AndroidDisplayHandle, AndroidNdkWindowHandle, HasDisplayHandle, HasWindowHandle,
@@ -51,7 +51,10 @@ use std::collections::HashMap;
 use std::ffi::c_void;
 use std::ptr::NonNull;
 use std::rc::Rc;
-use std::sync::{Arc, OnceLock};
+use std::sync::{
+    Arc, OnceLock,
+    atomic::{AtomicU64, Ordering},
+};
 
 use super::{AndroidKeyEvent, Bounds, DevicePixels, Pixels, Point, Size, TouchPoint};
 use crate::momentum::{MomentumScroller, VelocityTracker};
@@ -122,6 +125,19 @@ struct MomentumState {
     /// The touch phase for the pending scroll event (Started for the first
     /// coalesced batch, Moved for subsequent ones).
     pending_scroll_phase: gpui::TouchPhase,
+}
+
+fn new_momentum_state() -> Arc<Mutex<MomentumState>> {
+    Arc::new(Mutex::new(MomentumState {
+        velocity_tracker: VelocityTracker::new(),
+        scroller: MomentumScroller::new(),
+        pending_scroll_dx: 0.0,
+        pending_scroll_dy: 0.0,
+        pending_scroll_pos_x: 0.0,
+        pending_scroll_pos_y: 0.0,
+        has_pending_scroll: false,
+        pending_scroll_phase: gpui::TouchPhase::Moved,
+    }))
 }
 
 // Re-export for use with raw-window-handle and the frame-rate helper.
@@ -219,6 +235,11 @@ pub type TouchCallback = Box<dyn FnMut(TouchPoint) + Send + 'static>;
 const ANDROID_MAX_TOUCHES: usize = 8;
 const ANDROID_PINCH_MIN_DISTANCE: f32 = 1.0;
 const ANDROID_SCROLL_SLOP: f32 = 8.0;
+static NEXT_ANDROID_WINDOW_ID: AtomicU64 = AtomicU64::new(1);
+
+fn next_android_window_id() -> u64 {
+    NEXT_ANDROID_WINDOW_ID.fetch_add(1, Ordering::Relaxed)
+}
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct AndroidActiveTouch {
@@ -264,7 +285,7 @@ impl AndroidTouchState {
             }
         }
 
-        self.active[0] = Some(AndroidActiveTouch { id, x, y });
+        log::warn!("dropping Android touch id={id}: reached {ANDROID_MAX_TOUCHES}-contact limit");
     }
 
     fn remove(&mut self, id: i32) {
@@ -437,6 +458,25 @@ struct WindowState {
     active_status_callback: Option<ActiveStatusCallback>,
 }
 
+/// Returns a renderer removed for an unlocked draw to its window state even
+/// when `WgpuRenderer::draw` unwinds.
+struct RendererRestore<'a> {
+    state: &'a Arc<Mutex<WindowState>>,
+    renderer: Option<WgpuRenderer>,
+}
+
+impl Drop for RendererRestore<'_> {
+    fn drop(&mut self) {
+        let Some(renderer) = self.renderer.take() else {
+            return;
+        };
+        let mut state = self.state.lock();
+        if state.renderer.is_none() {
+            state.renderer = Some(renderer);
+        }
+    }
+}
+
 // SAFETY: `WindowState` is only ever accessed while holding the
 // `Mutex<WindowState>` lock, and all GPU work (including any use of
 // `GpuContext = Rc<RefCell<Option<WgpuContext>>>`) happens exclusively on the
@@ -452,7 +492,7 @@ unsafe impl Send for WindowState {}
 /// but foldable / multi-display devices may have two.
 pub struct AndroidWindow {
     state: Arc<Mutex<WindowState>>,
-    /// A stable numeric ID derived from the initial native-window pointer.
+    /// Stable monotonic ID for the lifetime of this logical window.
     id: u64,
     /// Whether the window is currently active (foregrounded).
     ///
@@ -460,6 +500,9 @@ pub struct AndroidWindow {
     /// lifecycle handlers can set it without acquiring the state lock
     /// (which may be held by a background render thread).
     active: Arc<std::sync::atomic::AtomicBool>,
+    /// Shared scroll state read by the native event loop to decide whether it
+    /// must pump another animation frame.
+    momentum: Arc<Mutex<MomentumState>>,
 }
 
 // SAFETY: `WindowState` is protected by a `Mutex`.
@@ -509,7 +552,7 @@ impl AndroidWindow {
         )
         .context("failed to create gpui_wgpu renderer")?;
 
-        let id = native_window.ptr().as_ptr() as u64;
+        let id = next_android_window_id();
 
         let state = Arc::new(Mutex::new(WindowState {
             native_window: Some(native_window),
@@ -536,6 +579,7 @@ impl AndroidWindow {
             state,
             id,
             active: Arc::new(std::sync::atomic::AtomicBool::new(true)),
+            momentum: new_momentum_state(),
         }))
     }
 
@@ -566,8 +610,9 @@ impl AndroidWindow {
 
         Arc::new(Self {
             state,
-            id: ((width as u64) << 32) | (height as u64),
+            id: next_android_window_id(),
             active: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            momentum: new_momentum_state(),
         })
     }
 
@@ -647,7 +692,7 @@ impl AndroidWindow {
 
     /// Called when `APP_CMD_WINDOW_RESIZED` fires.
     pub fn handle_resize(&self) {
-        let (new_w, new_h, scale) = {
+        let (new_w, new_h, scale, renderer) = {
             let mut state = self.state.lock();
 
             let nw = match state.native_window.as_ref() {
@@ -676,18 +721,23 @@ impl AndroidWindow {
             state.last_ime_bounds = None;
             let scale = state.scale_factor;
 
-            // update_drawable_size calls device.poll(Wait) which can take
-            // time — take the renderer out to avoid holding the state lock.
-            if let Some(mut renderer) = state.renderer.take() {
-                renderer.update_drawable_size(gpui::size(
-                    gpui::DevicePixels(new_w),
-                    gpui::DevicePixels(new_h),
-                ));
+            // update_drawable_size calls device.poll(Wait), so remove the
+            // renderer and release WindowState before invoking it.
+            let renderer = state.renderer.take();
+
+            (new_w, new_h, scale, renderer)
+        }; // state lock dropped
+
+        if let Some(mut renderer) = renderer {
+            renderer.update_drawable_size(gpui::size(
+                gpui::DevicePixels(new_w),
+                gpui::DevicePixels(new_h),
+            ));
+            let mut state = self.state.lock();
+            if state.renderer.is_none() {
                 state.renderer = Some(renderer);
             }
-
-            (new_w, new_h, scale)
-        }; // state lock dropped
+        }
 
         // Fire the resize callback outside the lock — GPUI's callback may
         // call bounds() / scale_factor() which need the state lock.
@@ -764,7 +814,7 @@ impl AndroidWindow {
         // during that time prevents all other state accessors (bounds,
         // scale_factor, etc.) from running, leading to deadlock when
         // GPUI's layout or the event loop needs state during a render.
-        let mut renderer = {
+        let renderer = {
             let mut state = self.state.lock();
             match state.renderer.take() {
                 Some(r) => r,
@@ -772,11 +822,13 @@ impl AndroidWindow {
             }
         };
 
-        renderer.draw(scene);
-
-        // Put the renderer back.
-        let mut state = self.state.lock();
-        state.renderer = Some(renderer);
+        let mut restore = RendererRestore {
+            state: &self.state,
+            renderer: Some(renderer),
+        };
+        if let Some(renderer) = restore.renderer.as_mut() {
+            renderer.draw(scene);
+        }
     }
 
     /// Invoke the `request_frame_callback` if one is registered.
@@ -920,21 +972,17 @@ impl AndroidWindow {
             // holding the window state lock.  The callback wraps a GPUI
             // closure that acquires its own Mutex (and may call back into
             // GPUI), so calling it under the state lock deadlocks.
-            let mut taken_cb: Option<Box<dyn FnMut(bool) + Send>> = None;
-            if let Some(mut state) = self.state.try_lock() {
+            let taken_cb = {
+                let mut state = self.state.lock();
                 state.is_active = active;
-                taken_cb = state.active_status_callback.take();
-            } else {
-                log::info!(
-                    "AndroidWindow::set_active({}) — lock busy, skipping",
-                    active
-                );
-            }
+                state.active_status_callback.take()
+            };
             // Fire callback outside the lock.
             if let Some(mut cb) = taken_cb {
                 cb(active);
                 // Put it back so future calls still fire.
-                if let Some(mut state) = self.state.try_lock() {
+                {
+                    let mut state = self.state.lock();
                     state.active_status_callback = Some(cb);
                 }
             }
@@ -1213,8 +1261,8 @@ pub struct AndroidPlatformWindow {
 }
 
 struct ImeJniCache {
-    input_method_manager: GlobalRef,
-    decor_view: GlobalRef,
+    input_method_manager: Global<JObject<'static>>,
+    decor_view: Global<JObject<'static>>,
 }
 
 struct MainThreadInputHandler(Option<PlatformInputHandler>);
@@ -1231,21 +1279,13 @@ impl AndroidPlatformWindow {
         // No-op input callback used until on_input is called.
         let noop_input_cb: Box<dyn FnMut(gpui::PlatformInput) -> DispatchEventResult + Send> =
             Box::new(|_| DispatchEventResult::default());
+        let momentum = Arc::clone(&window.momentum);
         Self {
             window,
             display,
             input_handler: Arc::new(Mutex::new(MainThreadInputHandler(None))),
             title: String::new(),
-            momentum: Arc::new(Mutex::new(MomentumState {
-                velocity_tracker: VelocityTracker::new(),
-                scroller: MomentumScroller::new(),
-                pending_scroll_dx: 0.0,
-                pending_scroll_dy: 0.0,
-                pending_scroll_pos_x: 0.0,
-                pending_scroll_pos_y: 0.0,
-                has_pending_scroll: false,
-                pending_scroll_phase: gpui::TouchPhase::Moved,
-            })),
+            momentum,
             momentum_input_cb: Arc::new(Mutex::new(noop_input_cb)),
             ime_jni_cache: Mutex::new(None),
         }
@@ -1352,6 +1392,7 @@ impl PlatformWindow for AndroidPlatformWindow {
 
     fn set_input_handler(&mut self, input_handler: PlatformInputHandler) {
         self.input_handler.lock().0 = Some(input_handler);
+        crate::android::jni::reset_ime_shadow();
     }
 
     fn take_input_handler(&mut self) -> Option<PlatformInputHandler> {
@@ -2026,28 +2067,27 @@ impl PlatformWindow for AndroidPlatformWindow {
         let y: f32 = bounds.origin.y.into();
         let h: f32 = bounds.size.height.into();
         let ime_bounds = (x, y, h);
-        if self.state.lock().last_ime_bounds == Some(ime_bounds) {
+        if self.window.state.lock().last_ime_bounds == Some(ime_bounds) {
             return;
         }
 
-        let cached_refs = self
-            .ime_jni_cache
-            .lock()
-            .as_ref()
-            .map(|cache| (cache.input_method_manager.clone(), cache.decor_view.clone()));
-        if let Some((input_method_manager, decor_view)) = cached_refs {
+        if self.ime_jni_cache.lock().is_some() {
             let updated = jni_helpers::with_env(|env| {
+                let cache = self.ime_jni_cache.lock();
+                let cache = cache
+                    .as_ref()
+                    .ok_or_else(|| "IME JNI cache was cleared".to_string())?;
                 update_cursor_anchor_info(
                     env,
-                    input_method_manager.as_obj(),
-                    decor_view.as_obj(),
+                    cache.input_method_manager.as_obj(),
+                    cache.decor_view.as_obj(),
                     x,
                     y,
                     h,
                 )
             });
             if updated.is_ok() {
-                self.state.lock().last_ime_bounds = Some(ime_bounds);
+                self.window.state.lock().last_ime_bounds = Some(ime_bounds);
             } else {
                 // The Activity/view may have been recreated; resolve fresh
                 // objects on the next update rather than retaining stale refs.
@@ -2178,13 +2218,13 @@ impl PlatformWindow for AndroidPlatformWindow {
             Ok(())
         });
         if updated.is_ok() {
-            self.state.lock().last_ime_bounds = Some(ime_bounds);
+            self.window.state.lock().last_ime_bounds = Some(ime_bounds);
         }
     }
 }
 
 fn update_cursor_anchor_info(
-    env: &mut jni::JNIEnv<'_>,
+    env: &mut jni::Env<'_>,
     input_method_manager: &jni::objects::JObject<'_>,
     decor_view: &jni::objects::JObject<'_>,
     x: f32,
@@ -2287,7 +2327,7 @@ impl PlatformAtlas for FallbackAtlas {
         // A fallback atlas has no drawable backing store. Defer rasterization
         // until the real atlas is restored with the surface.
         let _ = build;
-        let data = None;
+        let data: Option<(gpui::Size<gpui::DevicePixels>, Vec<u8>)> = None;
         if let Some((size, _pixels)) = data {
             let id = state.next_id;
             state.next_id += 1;
@@ -2403,6 +2443,13 @@ mod tests {
     fn window_id_is_stable() {
         let w = AndroidWindow::headless(1080, 1920, 2.0);
         assert_eq!(w.id(), w.id());
+    }
+
+    #[test]
+    fn headless_windows_have_unique_ids() {
+        let first = AndroidWindow::headless(1080, 1920, 2.0);
+        let second = AndroidWindow::headless(1080, 1920, 2.0);
+        assert_ne!(first.id(), second.id());
     }
 
     #[test]
@@ -2588,5 +2635,17 @@ mod tests {
         assert!(state.end_pinch());
         assert_eq!(state.gesture, AndroidTouchGesture::Idle);
         assert!(!state.end_pinch());
+    }
+
+    #[test]
+    fn android_touch_state_drops_contacts_beyond_capacity() {
+        let mut state = AndroidTouchState::default();
+        for id in 0..=ANDROID_MAX_TOUCHES as i32 {
+            state.upsert(id, id as f32, 0.0);
+        }
+
+        assert_eq!(state.active_count(), ANDROID_MAX_TOUCHES);
+        assert_eq!(state.active[0].unwrap().id, 0);
+        assert!(state.active.iter().flatten().all(|touch| touch.id != 8));
     }
 }

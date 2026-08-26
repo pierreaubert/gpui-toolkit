@@ -1,6 +1,30 @@
 //! Shared helpers for the gpui-au crate.
 
 use objc::runtime::Object;
+use std::ffi::CStr;
+
+const DARK_AQUA_APPEARANCE_NAME: &[u8] = b"NSAppearanceNameDarkAqua";
+
+/// Return whether an NSAppearance name is macOS Dark Aqua without creating a
+/// comparison NSString on each lookup.
+pub(crate) unsafe fn is_dark_aqua_appearance_name(name: *mut Object) -> bool {
+    if name.is_null() {
+        return false;
+    }
+
+    use objc::{msg_send, sel, sel_impl};
+    let utf8: *const std::ffi::c_char = msg_send![name, UTF8String];
+    if utf8.is_null() {
+        return false;
+    }
+
+    // `UTF8String` returns a NUL-terminated pointer valid while `name` lives.
+    is_dark_aqua_appearance_name_bytes(unsafe { CStr::from_ptr(utf8) }.to_bytes())
+}
+
+fn is_dark_aqua_appearance_name_bytes(name: &[u8]) -> bool {
+    name == DARK_AQUA_APPEARANCE_NAME
+}
 
 /// Create an NSString from a Rust string using an explicit byte length.
 ///
@@ -39,6 +63,14 @@ pub(crate) fn nslog(msg: &[u8]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dark_aqua_name_matches_exactly() {
+        assert!(is_dark_aqua_appearance_name_bytes(
+            b"NSAppearanceNameDarkAqua"
+        ));
+        assert!(!is_dark_aqua_appearance_name_bytes(b"NSAppearanceNameAqua"));
+    }
 
     /// Compile-check that `nslog` accepts `&[u8]` (including byte-string literals).
     #[test]

@@ -38,11 +38,8 @@ fn cached_navigation_id(section: ShowcaseSection, mobile: bool) -> SharedString 
                 .collect()
         })
     };
-    let index = ShowcaseSection::all()
-        .iter()
-        .position(|candidate| *candidate == section)
-        .expect("all showcase sections have cached navigation ids");
-    ids[index].clone()
+    debug_assert_eq!(ShowcaseSection::all()[section.index()], section);
+    ids[section.index()].clone()
 }
 
 /// Measures the allocation behavior of the warmed navigation render inputs.
@@ -295,7 +292,13 @@ impl ShowcaseHandle {
     ) where
         C: AppContext,
     {
-        let _ = self.0.update(cx, update);
+        let _ = self.0.update(cx, |showcase, cx| {
+            let result = update(showcase, cx);
+            // Entity updates alone do not invalidate a GPUI view. All section
+            // callbacks route through this handle, so notify after mutation.
+            cx.notify();
+            result
+        });
     }
 }
 
@@ -457,6 +460,12 @@ impl Showcase {
         }
         self.ensure_animated_qr(section, cx);
         self.current_section = section;
+        self.content_entity.update(cx, |content, cx| {
+            content
+                .scroll_handle
+                .set_offset(gpui::Point::new(px(0.0), px(0.0)));
+            cx.notify();
+        });
         cx.notify();
     }
 

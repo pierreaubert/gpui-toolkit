@@ -129,9 +129,9 @@ fn test_design_language_ids_select_presets() {
 fn test_presets_use_origin_typography() {
     for (preset_id, system) in all_design_presets() {
         let expected = match system.language {
-            DesignLanguage::AppleHig | DesignLanguage::Material3 | DesignLanguage::Neutral => {
-                ".SystemUIFont"
-            }
+            DesignLanguage::AppleHig => ".SystemUIFont",
+            DesignLanguage::Material3 => "Roboto",
+            DesignLanguage::Neutral => "system-ui",
             DesignLanguage::Fluent => "Segoe UI Variable",
             DesignLanguage::Adwaita => "Adwaita Sans",
             DesignLanguage::Breeze => "Noto Sans",
@@ -255,31 +255,56 @@ fn style_dictionary_tokens_include_platform_and_motion() {
 }
 
 #[test]
-fn style_dictionary_tokens_are_cached_and_borrowable() {
-    let ds = DesignSystem::neutral();
+fn style_dictionary_tokens_are_current_snapshots() {
+    let mut ds = DesignSystem::neutral();
+    let initial = ds.style_dictionary_tokens();
 
-    let owned = ds.style_dictionary_tokens();
-    let borrowed = ds.style_dictionary_tokens_ref();
+    ds.spacing.grid_unit = 8.0;
+    let current = ds.style_dictionary_tokens();
 
-    assert_eq!(owned.len(), borrowed.len());
-    assert!(
-        owned
+    assert_eq!(initial.len(), current.len());
+    assert_eq!(
+        initial
             .iter()
-            .zip(borrowed)
-            .all(|(a, b)| a.name() == b.name())
+            .find(|token| token.name() == "spacing.grid_unit")
+            .map(|token| token.value.as_str()),
+        Some("4")
     );
-
-    // A second call should return the same cached slice.
-    assert_eq!(ds.style_dictionary_tokens_ref().as_ptr(), borrowed.as_ptr());
+    assert_eq!(
+        current
+            .iter()
+            .find(|token| token.name() == "spacing.grid_unit")
+            .map(|token| token.value.as_str()),
+        Some("8")
+    );
 }
 
 #[test]
-fn clone_preserves_cached_style_dictionary_tokens() {
+fn cloned_design_system_exports_equal_tokens() {
     let design = DesignSystem::neutral();
-    let original = design.style_dictionary_tokens();
-    let cloned = design.clone();
+    assert_eq!(
+        design.style_dictionary_tokens(),
+        design.clone().style_dictionary_tokens()
+    );
+}
 
-    assert_eq!(original.as_ptr(), cloned.style_dictionary_tokens().as_ptr());
+#[test]
+fn token_export_does_not_affect_design_system_equality() {
+    let before_export = DesignSystem::neutral();
+    let after_export = DesignSystem::neutral();
+    after_export.style_dictionary_tokens();
+
+    assert_eq!(before_export, after_export);
+}
+
+#[test]
+fn design_system_round_trips_through_serde() {
+    let original = DesignSystem::material3();
+    let json = serde_json::to_string(&original).unwrap();
+    let restored: DesignSystem = serde_json::from_str(&json).unwrap();
+
+    assert_eq!(restored, original);
+    assert_eq!(restored.typography.font_family, "Roboto");
 }
 
 #[test]
@@ -423,6 +448,15 @@ fn style_dictionary_export_is_serializable_and_complete() {
     assert!(json.contains("\"apple_hig\""));
     assert!(json.contains("\"interaction.min_touch_target\""));
     assert!(json.contains("\"audio.knob_arc_sweep_deg\""));
+    assert!(json.contains("\"layout.compact_slider_threshold\""));
+    assert!(json.contains("\"radius.style\""));
+    assert!(json.contains("\"motion.spring_damping\""));
+    assert!(
+        export
+            .presets
+            .iter()
+            .all(|preset| preset.tokens.len() == 51)
+    );
 }
 
 #[test]
@@ -444,9 +478,15 @@ fn test_spacing_rules_new_validates() {
 }
 
 #[test]
-#[should_panic(expected = "grid_unit must be >= 0")]
+#[should_panic(expected = "grid_unit must be finite and > 0")]
 fn test_spacing_rules_new_rejects_negative() {
     SpacingRules::new(-1.0, 12.0, 8.0, 8.0, 16.0, 12.0);
+}
+
+#[test]
+#[should_panic(expected = "grid_unit must be finite and > 0")]
+fn test_spacing_rules_new_rejects_zero() {
+    SpacingRules::new(0.0, 12.0, 8.0, 8.0, 16.0, 12.0);
 }
 
 #[test]
@@ -471,6 +511,12 @@ fn test_animation_rules_new_validates() {
 #[should_panic(expected = "duration_ms must be > 0")]
 fn test_animation_rules_new_rejects_zero_duration() {
     AnimationRules::new(0, 100, 400, false, 170.0, 26.0);
+}
+
+#[test]
+#[should_panic(expected = "durations must satisfy fast_ms <= duration_ms <= slow_ms")]
+fn test_animation_rules_new_rejects_invalid_duration_order() {
+    AnimationRules::new(100, 200, 400, false, 170.0, 26.0);
 }
 
 #[test]
@@ -504,7 +550,13 @@ fn test_audio_control_rules_new_validates() {
 }
 
 #[test]
-#[should_panic(expected = "knob_arc_segments must be > 0")]
+#[should_panic(expected = "knob_arc_segments must be at least 12")]
 fn test_audio_control_rules_new_rejects_zero_segments() {
     AudioControlRules::new(135.0, 270.0, 2.5, 0, 2.0, [14.0, 18.0, 24.0]);
+}
+
+#[test]
+#[should_panic(expected = "knob_arc_sweep_deg must be finite and in (0, 360]")]
+fn test_audio_control_rules_new_rejects_invalid_sweep() {
+    AudioControlRules::new(135.0, 0.0, 2.5, 48, 2.0, [14.0, 18.0, 24.0]);
 }

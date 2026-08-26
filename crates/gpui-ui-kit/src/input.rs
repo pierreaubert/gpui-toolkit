@@ -605,8 +605,9 @@ impl InputEntity {
         if !self.focus_handle.is_focused(window) && !self.edit_state.borrow().editing {
             return;
         }
-        cx.stop_propagation();
-
+        if event.keystroke.key.as_str() == "tab" {
+            return;
+        }
         let key = event.keystroke.key.as_str();
         let ctrl = event.keystroke.modifiers.control;
         let cmd = event.keystroke.modifiers.platform;
@@ -623,7 +624,10 @@ impl InputEntity {
 
         // Platform modifier handles clipboard shortcuts and select-all. Keep
         // ctrl+a available for the Emacs start-of-line binding below.
-        if cmd || (ctrl && matches!(key, "c" | "x" | "v" | "z" | "y")) {
+        if (cmd && matches!(key, "c" | "x" | "v" | "a" | "z" | "y"))
+            || (ctrl && matches!(key, "c" | "x" | "v" | "z" | "y"))
+        {
+            cx.stop_propagation();
             match key {
                 "c" => {
                     if self.props.password {
@@ -698,6 +702,7 @@ impl InputEntity {
 
         // cmd+left/right — line start/end (macOS); cmd+shift extends selection
         if cmd && matches!(key, "left" | "right") {
+            cx.stop_propagation();
             if shift {
                 match key {
                     "left" => state.extend_to_start(),
@@ -720,6 +725,7 @@ impl InputEntity {
 
         // alt+left/right — word jump; alt+shift extends selection
         if alt && matches!(key, "left" | "right") {
+            cx.stop_propagation();
             if shift {
                 match key {
                     "left" => state.extend_word_backward(),
@@ -741,7 +747,9 @@ impl InputEntity {
         }
 
         // alt+backspace / alt+d — kill word
-        if alt {
+        if alt && matches!(key, "backspace" | "d") {
+            cx.stop_propagation();
+
             match key {
                 "backspace" => {
                     state.kill_word_backward();
@@ -766,7 +774,14 @@ impl InputEntity {
         }
 
         // Emacs ctrl bindings
-        if ctrl {
+        if ctrl
+            && matches!(
+                key,
+                "a" | "e" | "k" | "u" | "w" | "h" | "d" | "f" | "b" | "left" | "right" | "y"
+            )
+        {
+            cx.stop_propagation();
+
             match key {
                 "a" => state.move_to_start(),
                 "e" => state.move_to_end(),
@@ -807,6 +822,17 @@ impl InputEntity {
             window.refresh();
             return;
         }
+
+        if ctrl || cmd || alt {
+            return;
+        }
+
+        if !matches!(key, "enter" | "escape" | "backspace" | "delete" | "left" | "right" | "home" | "end")
+            && keystroke_to_char(&event.keystroke).is_none()
+        {
+            return;
+        }
+        cx.stop_propagation();
 
         match key {
             "enter" => {

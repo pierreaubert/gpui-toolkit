@@ -126,6 +126,26 @@ fn primary_section_never_dropped_even_if_too_narrow() {
 }
 
 #[test]
+fn protected_sections_are_clipped_without_being_dropped() {
+    let chassis = ChassisLayout::new(
+        HeaderSpec {
+            brand_mark: String::new(),
+            title: String::new(),
+            subtitle: String::new(),
+        },
+        vec![
+            section("primary-a", "Primary A", 200.0, 200.0, 1.0),
+            section("primary-b", "Primary B", 280.0, 280.0, 1.0),
+        ],
+    );
+
+    let solved = chassis.solve(100.0);
+    assert!(solved.section("primary-a").unwrap().visible);
+    assert!(solved.section("primary-b").unwrap().visible);
+    assert!((solved.total_width - 100.0).abs() < 0.01);
+}
+
+#[test]
 fn empty_chassis_solves_to_empty() {
     let chassis = ChassisLayout::new(
         HeaderSpec {

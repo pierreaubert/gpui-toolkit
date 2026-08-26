@@ -228,7 +228,7 @@ impl Menu {
         let on_focus_change_rc = self.on_focus_change.map(|f| std::rc::Rc::new(f));
 
         let mut menu = div()
-            .id(self.id)
+            .id(self.id.clone())
             .min_w(min_width)
             .max_h(px(600.0))
             .bg(theme.background)
@@ -291,7 +291,7 @@ impl Menu {
                 let (accessible_label, accessible_props) = menu_item_accessibility(&item);
 
                 let mut row = div()
-                    .id(item.element_id.clone())
+                        .id(ElementId::from((self.id.clone(), item.element_id.clone())))
                     .px_3()
                     .py(px(6.0))
                     .mx_1()
@@ -441,7 +441,7 @@ impl RenderOnce for Menu {
             }
             let (label, props) = menu_item_accessibility(item);
             cx.register_accessible(AccessibilityNode {
-                element_id: item.element_id.clone(),
+                element_id: ElementId::from((self.id.clone(), item.element_id.clone())),
                 label,
                 props,
             });

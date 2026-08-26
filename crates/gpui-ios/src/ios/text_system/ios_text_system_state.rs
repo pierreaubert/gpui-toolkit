@@ -1,5 +1,4 @@
 use super::misc::apply_features_and_fallbacks;
-use super::misc::kCGImageAlphaOnly;
 use super::misc::recti_to_bounds_device_pixels;
 use super::string_index_converter::StringIndexConverter;
 use super::types::FontKey;

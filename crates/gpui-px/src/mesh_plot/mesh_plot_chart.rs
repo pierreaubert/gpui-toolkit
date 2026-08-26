@@ -3588,14 +3588,25 @@ fn contour_geometry_with_compute(
     let marching = MarchingTriangles::new(mesh, field, topology, horizontal, vertical)?;
     let cpu_bands = || marching.filled_bands(&levels);
     let cpu_lines = || marching.isolines(&levels);
-    // Adapter creation and pipeline compilation are expensive. Contours are
-    // prepared on background workers, so keep one service for the process and
-    // serialize its blocking readbacks rather than creating a device per plot
-    // revision. `try_new` always supplies a CPU-reference service when an
-    // adapter is unavailable.
-    let compute = shared_mesh_compute()
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    // Adapter creation and pipeline compilation are expensive, so charts
+    // share one service. Never wait for its synchronous readback from this
+    // render-adjacent path: contention falls back to the deterministic CPU
+    // contour implementation used for adapter failures.
+    let compute = match shared_mesh_compute().try_lock() {
+        Ok(compute) => compute,
+        Err(std::sync::TryLockError::Poisoned(poisoned)) => poisoned.into_inner(),
+        Err(std::sync::TryLockError::WouldBlock) => {
+            return contour_geometry(
+                mesh,
+                Some(field),
+                topology,
+                horizontal,
+                vertical,
+                mode,
+                range,
+            );
+        }
+    };
     let bands = if matches!(
         mode,
         MeshRenderMode::FilledContours { .. } | MeshRenderMode::FillAndIsolines { .. }

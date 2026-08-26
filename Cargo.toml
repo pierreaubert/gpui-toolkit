@@ -317,9 +317,6 @@ zed-font-kit = { path = "crates/3rdparties/zed-font-kit" }
 [patch.crates-io]
 block = { path = "crates/3rdparties/block" }
 objc = { path = "crates/3rdparties/objc" }
-# Mirrored from zed v1.9.0 [patch.crates-io]: vendored `util` (src/command/darwin.rs)
-# calls `smol::process::Child::adopt_raw_pid`, which only exists in zed's async-process fork.
-async-process = { git = "https://github.com/zed-industries/async-process.git", rev = "0b6d6713570af61806e1e5cb40e0f757cb93fd9d" }
 async-task = { git = "https://github.com/smol-rs/async-task.git", rev = "b4486cd71e4e94fbda54ce6302444de14f4d190e" }
 # vello 0.10 requires crates-io wgpu/naga 29.0.3; unify with Zed's fork
 # (fork = upstream v29.0.3 + one internal wgpu-hal EGL patch, version-identical).

@@ -1,7 +1,7 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// Shadow/elevation model.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct ElevationRules {
     /// Level 0 (flat): shadow blur radius in px. 0 = no shadow.
     pub level_0_blur: f32,

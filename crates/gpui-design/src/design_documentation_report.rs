@@ -25,7 +25,7 @@ impl DesignDocumentationReport {
                 preset_id,
                 label: system.language.label(),
                 language: system.language,
-                token_count: system.style_dictionary_tokens_ref().len(),
+                token_count: system.style_dictionary_tokens().len(),
                 grid_unit: system.spacing.grid_unit,
                 min_touch_target: system.interaction.min_touch_target,
                 base_size: system.typography.base_size,

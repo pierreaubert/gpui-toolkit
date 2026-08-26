@@ -59,15 +59,8 @@ pub(super) fn map_analysis_chunks_to_prepared_chunks(
         .collect()
 }
 
-pub(super) fn line_has_discretionary_hyphen(
-    kinds: &[SegmentBreakKind],
-    start_seg: usize,
-    start_graph: usize,
-    end_seg: usize,
-) -> bool {
-    end_seg > 0
-        && kinds[end_seg - 1] == SegmentBreakKind::SoftHyphen
-        && !(start_seg == end_seg && start_graph > 0)
+pub(super) fn line_has_discretionary_hyphen(kinds: &[SegmentBreakKind], end_seg: usize) -> bool {
+    end_seg > 0 && kinds[end_seg - 1] == SegmentBreakKind::SoftHyphen
 }
 
 #[cfg(test)]
@@ -101,7 +94,7 @@ pub(super) fn build_line_text_into(
     end_graph: usize,
     buf: &mut String,
 ) {
-    let has_hyphen = line_has_discretionary_hyphen(kinds, start_seg, start_graph, end_seg);
+    let has_hyphen = line_has_discretionary_hyphen(kinds, end_seg);
 
     for i in start_seg..end_seg {
         if kinds[i] == SegmentBreakKind::SoftHyphen || kinds[i] == SegmentBreakKind::HardBreak {
@@ -117,17 +110,20 @@ pub(super) fn build_line_text_into(
     }
 
     if end_graph > 0 && end_seg < segments.len() {
-        if has_hyphen {
-            buf.push('-');
-        }
         let skip = if start_seg == end_seg { start_graph } else { 0 };
         let take_count = end_graph.saturating_sub(skip);
+        if has_hyphen && take_count == 0 {
+            buf.push('-');
+        }
         for (_, g) in segments[end_seg]
             .grapheme_indices(true)
             .skip(skip)
             .take(take_count)
         {
             buf.push_str(g);
+        }
+        if has_hyphen && take_count > 0 {
+            buf.push('-');
         }
     } else if has_hyphen {
         buf.push('-');

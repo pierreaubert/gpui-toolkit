@@ -1,7 +1,7 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// Spacing and density rules.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct SpacingRules {
     /// Base grid unit in px. All spacing should be multiples of this.
     pub grid_unit: f32,
@@ -26,7 +26,10 @@ impl SpacingRules {
         section_gap: f32,
         card_padding: f32,
     ) -> Self {
-        assert!(grid_unit >= 0.0, "grid_unit must be >= 0");
+        assert!(
+            grid_unit.is_finite() && grid_unit > 0.0,
+            "grid_unit must be finite and > 0"
+        );
         assert!(control_padding_x >= 0.0, "control_padding_x must be >= 0");
         assert!(control_padding_y >= 0.0, "control_padding_y must be >= 0");
         assert!(control_gap >= 0.0, "control_gap must be >= 0");

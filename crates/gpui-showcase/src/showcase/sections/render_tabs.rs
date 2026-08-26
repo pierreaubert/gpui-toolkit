@@ -114,7 +114,7 @@ impl Showcase {
                     .spacing(StackSpacing::Sm)
                     .child(Text::new("Pills Variant (Static)").weight(TextWeight::Medium))
                     .child(
-                        Tabs::new("tabs")
+                Tabs::new("tabs-pills")
                             .variant(TabVariant::Pills)
                             .selected_index(1)
                             .tabs(vec![
@@ -141,7 +141,7 @@ impl Showcase {
                     .spacing(StackSpacing::Sm)
                     .child(Text::new("Enclosed Variant (Static)").weight(TextWeight::Medium))
                     .child(
-                        Tabs::new("tabs")
+                Tabs::new("tabs-enclosed")
                             .variant(TabVariant::Enclosed)
                             .selected_index(0)
                             .tabs(vec![

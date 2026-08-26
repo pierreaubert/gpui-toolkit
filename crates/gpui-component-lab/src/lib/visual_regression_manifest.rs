@@ -2,8 +2,9 @@ use super::responsive_preview_matrix::ResponsivePreviewMatrix;
 use super::story_registry::StoryRegistry;
 use super::story_renderer_kind::StoryRendererKind;
 use super::story_renderer_registry::StoryRendererRegistry;
-use image::{Rgba, RgbaImage};
+use image::RgbaImage;
 use serde::{Deserialize, Serialize};
+use std::fmt::Write as _;
 use std::path::Path;
 
 pub const COMPONENT_LAB_VISUAL_MANIFEST_SCHEMA_VERSION: u32 = 2;
@@ -234,7 +235,7 @@ impl ComponentLabVisualManifest {
                 break;
             }
             let index = story_ordinal % cases.len();
-            selected.push(cases[index].clone().clone());
+            selected.push((*cases[index]).clone());
             next_index.insert(*story_id, index + 1);
         }
 
@@ -253,7 +254,7 @@ impl ComponentLabVisualManifest {
                     *cursor += 1;
                 }
                 if *cursor < cases.len() {
-                    selected.push(cases[*cursor].clone().clone());
+                    selected.push((*cases[*cursor]).clone());
                     *cursor += 1;
                     added = true;
                 }
@@ -431,23 +432,25 @@ fn diff_visual_case(
     let mut max_channel_delta = 0_u8;
     let mut diff = RgbaImage::new(width, height);
 
-    for y in 0..height {
-        for x in 0..width {
-            let baseline_pixel = baseline.get_pixel(x, y).0;
-            let actual_pixel = actual.get_pixel(x, y).0;
-            let mut pixel_max_delta = 0_u8;
-            for channel in 0..4 {
-                pixel_max_delta =
-                    pixel_max_delta.max(baseline_pixel[channel].abs_diff(actual_pixel[channel]));
-            }
+    for ((baseline_pixel, actual_pixel), diff_pixel) in baseline
+        .as_raw()
+        .chunks_exact(4)
+        .zip(actual.as_raw().chunks_exact(4))
+        .zip(diff.as_mut().chunks_exact_mut(4))
+    {
+        let pixel_max_delta = baseline_pixel
+            .iter()
+            .zip(actual_pixel)
+            .map(|(&baseline, &actual)| baseline.abs_diff(actual))
+            .max()
+            .unwrap_or_default();
 
-            if pixel_max_delta > 0 {
-                changed_pixels += 1;
-                max_channel_delta = max_channel_delta.max(pixel_max_delta);
-                diff.put_pixel(x, y, Rgba([255, 0, 0, pixel_max_delta.max(96)]));
-            } else {
-                diff.put_pixel(x, y, Rgba([0, 0, 0, 0]));
-            }
+        if pixel_max_delta > 0 {
+            changed_pixels += 1;
+            max_channel_delta = max_channel_delta.max(pixel_max_delta);
+            diff_pixel.copy_from_slice(&[255, 0, 0, pixel_max_delta.max(96)]);
+        } else {
+            diff_pixel.fill(0);
         }
     }
 
@@ -524,18 +527,30 @@ fn capture_id(story_id: &str, viewport_id: &str, theme_id: &str) -> String {
 }
 
 fn sanitize_path_part(value: &str) -> String {
-    value
-        .chars()
-        .map(|ch| {
-            if ch.is_ascii_alphanumeric() {
-                ch.to_ascii_lowercase()
-            } else {
-                '-'
-            }
-        })
-        .collect::<String>()
-        .trim_matches('-')
-        .to_string()
+    let mut encoded = String::with_capacity(value.len().saturating_mul(3));
+    for byte in value.bytes() {
+        if byte.is_ascii_lowercase() || byte.is_ascii_digit() {
+            encoded.push(byte as char);
+        } else {
+            write!(&mut encoded, "~{byte:02x}").expect("write into String cannot fail");
+        }
+    }
+    encoded
+}
+
+#[cfg(test)]
+mod path_name_tests {
+    use super::{capture_id, sanitize_path_part};
+
+    #[test]
+    fn path_parts_and_capture_ids_preserve_raw_identity() {
+        assert_ne!(sanitize_path_part("a.b"), sanitize_path_part("a-b"));
+        assert_ne!(sanitize_path_part("A"), sanitize_path_part("a"));
+        assert_ne!(
+            capture_id("a.b", "small", "light"),
+            capture_id("a-b", "small", "light")
+        );
+    }
 }
 
 fn image_is_blank(image: &RgbaImage) -> bool {

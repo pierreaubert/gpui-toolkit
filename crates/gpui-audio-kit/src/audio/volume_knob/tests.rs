@@ -37,6 +37,7 @@ fn volume_knob_builder_setters_chain() {
         .label("Volume")
         .size(gpui::px(60.0))
         .muted(true)
+        .disabled(false)
         .accent_color(gpui::rgba(0x00ff00ff))
         .muted_color(gpui::rgba(0xff0000ff))
         .bg_color(gpui::rgba(0x111111ff))
@@ -68,7 +69,51 @@ fn volume_knob_accessibility_summary_uses_effective_mute_value() {
 }
 
 #[test]
-fn volume_knob_counter_increments() {
+fn volume_knob_accessibility_summary_clamps_the_displayed_value() {
+    let summary = VolumeKnob::new().value(1.5).accessibility_summary();
+
+    assert_eq!(summary.value_now, Some(1.0));
+    assert_eq!(summary.value_text, Some("100%".into()));
+}
+
+#[test]
+fn volume_knob_accessibility_summary_includes_disabled_state() {
+    let summary = VolumeKnob::new()
+        .label("Monitor")
+        .value(0.75)
+        .disabled(true)
+        .accessibility_summary();
+
+    assert!(summary.disabled);
+    assert!(summary.description.contains("Disabled"));
+}
+
+#[test]
+fn volume_knob_commits_only_changed_drags() {
+    assert!(!VolumeKnob::should_commit_drag(0.5, 0.5, false));
+    assert!(!VolumeKnob::should_commit_drag(0.5, 0.5, true));
+    assert!(VolumeKnob::should_commit_drag(0.5, 0.6, true));
+}
+
+fn knob_from_one_call_site() -> VolumeKnob {
+    VolumeKnob::new()
+}
+
+fn default_knob_from_one_call_site() -> VolumeKnob {
+    VolumeKnob::default()
+}
+
+#[test]
+fn default_ids_are_stable_at_the_same_call_site() {
+    assert_eq!(knob_from_one_call_site().id, knob_from_one_call_site().id);
+    assert_eq!(
+        default_knob_from_one_call_site().id,
+        default_knob_from_one_call_site().id
+    );
+}
+
+#[test]
+fn default_ids_remain_distinct_at_different_call_sites() {
     let a = VolumeKnob::new();
     let b = VolumeKnob::new();
     assert_ne!(a.id, b.id);

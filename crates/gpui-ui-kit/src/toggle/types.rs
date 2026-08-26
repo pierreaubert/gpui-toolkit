@@ -7,8 +7,12 @@ pub enum ToggleStyle {
     /// iOS-style sliding toggle (default)
     #[default]
     Sliding,
+    /// Material-style thumb riding on a visible rounded-rectangle track.
+    ThumbOnTrack,
     /// Segmented [OFF | ON] style for audio plugins
     Segmented,
+    /// Fluent-style pill switch.
+    Pill,
 }
 
 /// Theme colors for toggle styling

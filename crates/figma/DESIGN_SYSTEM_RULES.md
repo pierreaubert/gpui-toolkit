@@ -4,12 +4,12 @@
 
 ### Colors
 Defined by `gpui_design::DesignSystem` in
-`crates/gpui-toolkit/gpui-design/src/lib.rs`. UI components resolve design
+`crates/gpui-design/src/lib.rs`. UI components resolve design
 defaults through `DesignExt` and may accept an explicit `.design(...)`
 override.
 
 Export/import/validation lives in
-`crates/gpui-toolkit/gpui-design-tools`:
+`crates/gpui-design-tools`:
 
 ```bash
 cargo run -p gpui-design-tools --bin gpui-export-design-tokens
@@ -41,7 +41,7 @@ Use `DesignSystem` radius tokens (`radius.sm`, `radius.md`, `radius.lg`,
 
 ## 2. Component Library
 
-Located at `crates/gpui-toolkit/gpui-ui-kit/src/`. Each component is a single `.rs` file.
+Located at `crates/gpui-ui-kit/src/`. Each component is a single `.rs` file.
 
 ### Core Components
 | File | Component | Key Variants |
@@ -137,16 +137,17 @@ VStack::new()
     .child(Input::new("input1").placeholder("Type..."))
 
 // Creating a toggle
-Toggle::new("enable-toggle", is_checked)
+Toggle::new("enable-toggle")
+    .checked(is_checked)
     .style(ToggleStyle::Sliding)
     .size(ToggleSize::Md)
     .label("Enable")
-    .on_toggle(|checked, cx| { /* handler */ })
+    .on_change(|_checked, _window, _cx| { /* handler */ })
 ```
 
 All components implement GPUI's `RenderOnce` or `Render` trait and are
 composed via `.child()` calls. Component story metadata is registered in
-`crates/gpui-toolkit/gpui-component-lab` for prop panels, responsive matrices,
+`crates/gpui-component-lab` for prop panels, responsive matrices,
 and conformance checks. First-party `gpui-ui-kit`, `gpui-px`, and
 `gpui-audio-kit` stories must have matching interactive lab renderers.
 
@@ -165,7 +166,7 @@ When translating from Figma designs:
 
 ## 6. Icon System
 
-Icons are from the `gpui-icons` crate at `crates/gpui-toolkit/gpui-icons/`. SVG-based, referenced by enum variants. Used via `IconButton` or inline in components.
+There is no standalone `gpui-icons` crate. Use `gpui_ui_kit::IconButton` for icon actions and keep project-specific SVG or raster assets with their owning component.
 
 ## 7. Asset Management
 
@@ -174,16 +175,13 @@ No CDN. Assets are embedded at compile time or loaded from local filesystem. Ima
 ## 8. Project Structure
 
 ```
-crates/gpui-toolkit/
+crates/
   gpui-design/         # DesignSystem tokens, presets, conformance checks
   gpui-design-tools/   # Token export/import/validation CLIs
   gpui-component-lab/  # Story registry, responsive previews, designer JSON
-  gpui-ui-kit/src/     # General-purpose UI components
-  gpui-audio-kit/src/  # Audio controls, meters, spectrum, tick helpers
-  gpui-icons/          # Icon library
-  gpui-d3rs/           # D3-style charting for GPUI
-crates/app-gpui/       # The SOTF desktop app using gpui-ui-kit
-  components/          # App-specific component compositions
-  app/state/           # Application state management
-  ui/                  # UI layout and screens
+  gpui-ui-kit/         # General-purpose UI components
+  gpui-audio-kit/      # Audio controls, meters, spectrum, tick helpers
+  gpui-d3rs/           # D3-style visualizations for GPUI
+  gpui-px/             # High-level charting API
+  gpui-toolkit/        # Optional facade crate
 ```

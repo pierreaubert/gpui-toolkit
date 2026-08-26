@@ -17,7 +17,7 @@ pub(super) fn normalize_theme_id(id: &str) -> String {
         .collect()
 }
 
-pub(super) fn slugify_theme_name(name: &str) -> String {
+pub fn slugify_theme_name(name: &str) -> String {
     let mut slug = String::new();
     let mut last_was_dash = false;
 
@@ -40,6 +40,19 @@ pub(super) fn slugify_theme_name(name: &str) -> String {
     } else {
         slug
     }
+}
+
+/// Convert a display name into a conservative Rust function identifier.
+pub(super) fn rust_identifier(name: &str) -> String {
+    let mut identifier = slugify_theme_name(name).replace('-', "_");
+    if identifier
+        .chars()
+        .next()
+        .is_none_or(|character| !character.is_ascii_alphabetic() && character != '_')
+    {
+        identifier.insert_str(0, "theme_");
+    }
+    identifier
 }
 
 pub(super) fn shift_lightness(color: Color, delta: f32) -> Color {

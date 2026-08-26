@@ -17,8 +17,8 @@
 //! - Tick marks with major (labeled) and minor (unlabeled) ticks
 
 use super::interactions::{
-    InteractionConfig, clear_drag_state, get_drag_state, handle_drag, handle_keyboard,
-    handle_scroll, store_drag_state, value_tracker,
+    InteractionConfig, clear_drag_state, drag_has_moved, get_drag_state, handle_drag,
+    handle_keyboard, handle_scroll, mark_drag_moved, store_drag_state, value_tracker,
 };
 use crate::accessibility::{AccessibilityExt, AccessibilityNode, AriaProps, AriaRole, AriaState};
 use crate::audio_accessibility::{
@@ -612,6 +612,9 @@ impl RenderOnce for Potentiometer {
                         && let Some(state) = get_drag_state(&drag_key_move)
                     {
                         let position: f32 = event.position.y.into();
+                        if (position - state.start_pos).abs() > f32::EPSILON {
+                            mark_drag_moved(&drag_key_move);
+                        }
                         if let Some(new_value) = handle_drag(position, &state, &config_drag) {
                             current_value_drag.set(new_value);
                             drag_handler(new_value, window, cx);
@@ -623,9 +626,9 @@ impl RenderOnce for Potentiometer {
                 let drag_key_up = drag_key.clone();
                 let current_value_up = current_value.clone();
                 container = container.on_mouse_up(MouseButton::Left, move |_event, window, cx| {
-                    if let Some(state) = get_drag_state(&drag_key_up) {
+                    if get_drag_state(&drag_key_up).is_some() {
                         let mut final_value = current_value_up.get();
-                        if final_value == state.start_value {
+                        if !drag_has_moved(&drag_key_up) {
                             final_value = scale.step_value(final_value, min, max, 1.0, 0.1);
                             current_value_up.set(final_value);
                             release_change(final_value, window, cx);
@@ -636,6 +639,38 @@ impl RenderOnce for Potentiometer {
                     }
                     clear_drag_state(drag_key_up.clone());
                 });
+
+                // GPUI dispatches this capture-phase handler when release
+                // occurs beyond the knob's hitbox. Finish the gesture there
+                // as well so automation receives its commit and the retained
+                // drag state cannot leak into a later gesture.
+                let release_change_out = handler.clone();
+                let release_commit_out = on_commit_rc.clone();
+                let drag_key_up_out = drag_key.clone();
+                let current_value_up_out = current_value.clone();
+                let config_up_out = interaction_config.clone();
+                container =
+                    container.on_mouse_up_out(MouseButton::Left, move |event, window, cx| {
+                        if let Some(state) = get_drag_state(&drag_key_up_out) {
+                            let position: f32 = event.position.y.into();
+                            if (position - state.start_pos).abs() > f32::EPSILON {
+                                mark_drag_moved(&drag_key_up_out);
+                            }
+                            let previous_value = current_value_up_out.get();
+                            let final_value = handle_drag(position, &state, &config_up_out)
+                                .unwrap_or(previous_value);
+                            current_value_up_out.set(final_value);
+                            if drag_has_moved(&drag_key_up_out) {
+                                if final_value != previous_value {
+                                    release_change_out(final_value, window, cx);
+                                }
+                                if let Some(ref commit) = release_commit_out {
+                                    commit(final_value, window, cx);
+                                }
+                            }
+                        }
+                        clear_drag_state(drag_key_up_out.clone());
+                    });
             }
 
             // Double-click - reset
@@ -699,17 +734,6 @@ impl RenderOnce for Potentiometer {
                     }
                 });
             }
-
-            // Focus on mouse enter - keyboard follows hover like scroll wheel
-            let focus_handle_hover = self.focus_handle.clone();
-            container = container.on_mouse_move(move |event, window, cx| {
-                if let Some(ref fh) = focus_handle_hover
-                    && !fh.is_focused(window)
-                    && event.pressed_button.is_none()
-                {
-                    fh.focus(window, cx);
-                }
-            });
         }
 
         // Label with keyboard shortcut.

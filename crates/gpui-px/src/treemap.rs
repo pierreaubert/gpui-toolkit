@@ -469,20 +469,23 @@ impl Treemap {
             }
         }
 
+        let draw_data = Rc::new(draw_data);
+        let groups = Rc::new(groups);
+
         // Shared bounds updated by the canvas paint callback; used by the click
         // handler to map mouse coordinates back to treemap rects.
         let bounds: Rc<RefCell<Option<Bounds<Pixels>>>> = Rc::new(RefCell::new(None));
         let bounds_for_paint = bounds.clone();
         let bounds_for_click = bounds.clone();
-        let draw_data_for_click = draw_data.clone();
+        let draw_data_for_click = Rc::clone(&draw_data);
         let on_click = self.on_click;
         let renderer_2d = self.renderer_2d;
         let vello_backend = self.vello_backend;
         #[cfg(feature = "vello")]
-        let vello_draw_data = draw_data.clone();
+        let vello_draw_data = (renderer_2d == Renderer2D::Vello).then(|| Rc::clone(&draw_data));
 
         let legacy_canvas_element = canvas(
-            move |_bounds, _window, _cx| (draw_data.clone(), groups.clone()),
+            move |_bounds, _window, _cx| (Rc::clone(&draw_data), Rc::clone(&groups)),
             move |bounds, (draw_data, groups), window, _cx| {
                 let origin_x: f32 = bounds.origin.x.into();
                 let origin_y: f32 = bounds.origin.y.into();
@@ -491,7 +494,7 @@ impl Treemap {
                 // We only need to do this once per paint.
                 let _ = bounds_for_paint.borrow_mut().replace(bounds);
 
-                for (_, indices) in groups {
+                for (_, indices) in groups.iter() {
                     if indices.is_empty() {
                         continue;
                     }
@@ -499,7 +502,7 @@ impl Treemap {
                     let mut fill_builder = PathBuilder::fill();
                     let mut stroke_builder = PathBuilder::stroke(px(1.0));
 
-                    for &idx in &indices {
+                    for &idx in indices {
                         let rect = &draw_data[idx];
                         let x = origin_x + rect.x0 as f32;
                         let y = origin_y + rect.y0 as f32;
@@ -527,6 +530,8 @@ impl Treemap {
         let canvas_element: gpui::AnyElement = {
             #[cfg(feature = "vello")]
             if renderer_2d == Renderer2D::Vello {
+                let vello_draw_data = vello_draw_data
+                    .expect("Vello draw data is retained when the Vello renderer is selected");
                 let mut cache_key = d3rs::vello2d::SceneCacheKey::new();
                 cache_key.add_f64(plot_width).add_f64(plot_height);
                 for rect in vello_draw_data.iter() {
@@ -593,7 +598,7 @@ impl Treemap {
                         let local_x = f32::from(event.position.x) - origin_x;
                         let local_y = f32::from(event.position.y) - origin_y;
 
-                        for rect in &draw_data_for_click {
+                        for rect in draw_data_for_click.iter() {
                             if local_x >= rect.x0 as f32
                                 && local_x <= rect.x1 as f32
                                 && local_y >= rect.y0 as f32

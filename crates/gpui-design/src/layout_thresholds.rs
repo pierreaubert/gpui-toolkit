@@ -1,7 +1,7 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// Layout solver thresholds — parameterizes the constants in `layout_solver.rs`.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct LayoutThresholds {
     /// Below this width, switch to vertical orientation.
     pub vertical_threshold: f32,

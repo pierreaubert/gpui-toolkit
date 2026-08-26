@@ -30,7 +30,7 @@ type VisitedCache = Option<(usize, usize, Vec<bool>)>;
 /// let contour = generator.contour(&values, 0.5);
 /// assert_eq!(contour.value, 0.5);
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct ContourGenerator {
     /// Width of the grid
     pub(super) width: usize,
@@ -62,6 +62,58 @@ pub struct ContourGenerator {
     band_points: Rc<RefCell<Vec<Point>>>,
     /// Reusable crossing buffer for band polygon fragments.
     band_crossings: Rc<RefCell<Vec<(f64, Point)>>>,
+}
+
+#[cfg(test)]
+mod clone_tests {
+    use super::ContourGenerator;
+
+    #[test]
+    fn clone_owns_independent_scratch_buffers() {
+        let original = ContourGenerator::new(2, 2);
+        let clone = original.clone();
+
+        assert!(!std::rc::Rc::ptr_eq(
+            &original.visited_cache,
+            &clone.visited_cache
+        ));
+        assert!(!std::rc::Rc::ptr_eq(
+            &original.upsampled_buf,
+            &clone.upsampled_buf
+        ));
+        assert!(!std::rc::Rc::ptr_eq(
+            &original.band_points,
+            &clone.band_points
+        ));
+        assert!(!std::rc::Rc::ptr_eq(
+            &original.band_crossings,
+            &clone.band_crossings
+        ));
+    }
+}
+
+impl Clone for ContourGenerator {
+    fn clone(&self) -> Self {
+        Self {
+            width: self.width,
+            height: self.height,
+            x0: self.x0,
+            y0: self.y0,
+            x1: self.x1,
+            y1: self.y1,
+            x_values: self.x_values.clone(),
+            y_values: self.y_values.clone(),
+            upsample_factor: self.upsample_factor,
+            x_log_interpolation: self.x_log_interpolation,
+            y_log_interpolation: self.y_log_interpolation,
+            // Scratch buffers must be exclusive to a generator. Sharing a
+            // RefCell makes a clone panic if contour extraction is re-entered.
+            visited_cache: Rc::new(RefCell::new(None)),
+            upsampled_buf: Rc::new(RefCell::new(Vec::new())),
+            band_points: Rc::new(RefCell::new(Vec::new())),
+            band_crossings: Rc::new(RefCell::new(Vec::new())),
+        }
+    }
 }
 
 impl ContourGenerator {

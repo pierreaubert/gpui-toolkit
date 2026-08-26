@@ -2,6 +2,16 @@ import unittest
 from gpui_toolkit.miniapp import MiniAppCommand, MiniAppConfig
 from gpui_toolkit import App, section
 class MiniAppTests(unittest.TestCase):
+ def test_unsized_app_omits_window_dimensions_for_native_persistence(self):
+  app = App(sections=[section("root", "Root", {"kind": "text", "id": "ready", "text": "Ready"})])
+  spec = app.to_spec()
+  self.assertNotIn("width", spec)
+  self.assertNotIn("height", spec)
+  sized = App(width=640, height=480, sections=app.sections).to_spec()
+  self.assertEqual((sized["width"], sized["height"]), (640.0, 480.0))
+  with self.assertRaises(ValueError):
+   App(width=-1, sections=app.sections).to_spec()
+
  def test_configuration_matches_native_defaults(self):
   spec = MiniAppCommand(MiniAppConfig("Demo"), "root").to_spec()
   self.assertEqual((spec["config"]["width"], spec["config"]["height"]), (900.0, 700.0))

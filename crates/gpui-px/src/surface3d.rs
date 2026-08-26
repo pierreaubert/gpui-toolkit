@@ -43,6 +43,10 @@ pub struct Surface3DChart {
     design: Option<Arc<DesignSystem>>,
 }
 
+fn reshape_z_grid(z: &[f64], grid_width: usize) -> Vec<Vec<f64>> {
+    z.chunks_exact(grid_width).map(|row| row.to_vec()).collect()
+}
+
 impl std::fmt::Debug for Surface3DChart {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Surface3DChart")
@@ -507,12 +511,7 @@ impl Surface3DChart {
 
         // Reshape z into Vec<Vec<f64>>
         // z is row-major (y varies slowly, x varies quickly)
-        let mut z_grid = Vec::with_capacity(self.grid_height);
-        let mut z = self.z;
-        for _ in 0..self.grid_height {
-            let row: Vec<f64> = z.drain(..self.grid_width).collect();
-            z_grid.push(row);
-        }
+        let z_grid = reshape_z_grid(&self.z, self.grid_width);
 
         // Calculate plot area (reserve space for title if present)
         let title_height = if self.title.is_some() {
@@ -879,6 +878,13 @@ mod tests {
         let y = vec![0.0, 1.0];
         let result = surface3d(&z, 2, 2).x(&x).y(&y).build();
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn surface3d_grid_reshape_preserves_row_major_order() {
+        let grid = reshape_z_grid(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0], 3);
+
+        assert_eq!(grid, vec![vec![1.0, 2.0, 3.0], vec![4.0, 5.0, 6.0]]);
     }
 
     #[test]

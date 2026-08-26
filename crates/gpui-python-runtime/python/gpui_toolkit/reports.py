@@ -150,7 +150,7 @@ class ReleaseNotesArtifactReport:
  def blocking_artifacts(self) -> tuple[ReleaseNotesArtifact, ...]: return tuple(item for item in self.artifacts if item.status.blocking)
 
 class ReleasePackagingStatus(str, Enum):
- PASSED="passed"; BLOCKED="blocked"; PENDING="pending"; EXCLUDED="excluded"; EXTERNAL_GATE="external-gate"
+ PASSED="passed"; BLOCKED="blocked"; DEFERRED="deferred"; PENDING="pending"; EXCLUDED="excluded"; EXTERNAL_GATE="external-gate"
  @property
  def release_ready(self) -> bool: return self in {self.PASSED, self.EXCLUDED}
 @dataclass(frozen=True)

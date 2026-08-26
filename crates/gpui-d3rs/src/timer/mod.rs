@@ -384,6 +384,10 @@ impl Timer {
 
     /// Waits for the timer to complete. This is useful in tests or when an
     /// application must ensure all callbacks have finished.
+    ///
+    /// Do not call this from the UI queue when a UI dispatcher is installed:
+    /// the queued callback needs that same queue to complete. Use
+    /// [`Self::try_join`] there instead.
     pub fn join(self) {
         let (lock, condvar) = &*self.completion;
         let mut done = lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -392,6 +396,23 @@ impl Timer {
                 .wait(done)
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
         }
+    }
+
+    /// Wait for completion for at most `timeout`.
+    ///
+    /// Returns `true` if the timer completed and `false` if the timeout
+    /// elapsed. From a UI queue whose callbacks are dispatched through
+    /// [`set_ui_dispatcher`], this prevents an unbounded self-deadlock.
+    pub fn try_join(&self, timeout: Duration) -> bool {
+        let (lock, condvar) = &*self.completion;
+        let done = lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        if *done {
+            return true;
+        }
+        let (done, _) = condvar
+            .wait_timeout_while(done, timeout, |done| !*done)
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        *done
     }
 }
 

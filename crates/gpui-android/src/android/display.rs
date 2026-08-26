@@ -21,12 +21,18 @@ use anyhow::Result;
 use gpui::{self, DisplayId, PlatformDisplay};
 use ndk::native_window::NativeWindow;
 use std::fmt;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use ndk::asset::AssetManager;
 use ndk::configuration::Configuration;
 
 // Well-known Android density buckets (dp/inch).
 const DENSITY_DEFAULT: i32 = 160;
+static NEXT_ANDROID_DISPLAY_ID: AtomicU64 = AtomicU64::new(1);
+
+fn next_android_display_id() -> u64 {
+    NEXT_ANDROID_DISPLAY_ID.fetch_add(1, Ordering::Relaxed)
+}
 
 // ── AndroidDisplay ────────────────────────────────────────────────────────────
 
@@ -50,8 +56,8 @@ pub struct AndroidDisplay {
 
     /// A stable numeric identifier for this display.
     ///
-    /// Derived from the window pointer because the NDK does not assign stable
-    /// integer display IDs at the C level.
+    /// Generated monotonically because the NDK does not assign stable integer
+    /// display IDs at the C level.
     id: u64,
 }
 
@@ -73,7 +79,7 @@ impl AndroidDisplay {
             DENSITY_DEFAULT
         };
         let scale_factor = density as f32 / DENSITY_DEFAULT as f32;
-        let id = window.ptr().as_ptr() as u64;
+        let id = next_android_display_id();
 
         Self {
             window: Some(window.clone()),
@@ -93,11 +99,11 @@ impl AndroidDisplay {
     ///
     /// Returns a display with the given size and a 1× scale factor.
     /// No native window is held.
-    pub fn headless(width: i32, height: i32) -> Self {
+    pub fn headless(_width: i32, _height: i32) -> Self {
         Self {
             window: None,
             scale_factor: 1.0,
-            id: ((width as u64) << 32) | (height as u64),
+            id: next_android_display_id(),
         }
     }
 
@@ -334,6 +340,13 @@ mod tests {
         let d1 = AndroidDisplay::headless(1080, 1920);
         let d2 = AndroidDisplay::headless(1440, 2560);
         assert_ne!(d1.id(), d2.id());
+    }
+
+    #[test]
+    fn headless_displays_have_unique_ids_even_at_the_same_size() {
+        let first = AndroidDisplay::headless(1080, 1920);
+        let second = AndroidDisplay::headless(1080, 1920);
+        assert_ne!(first.id(), second.id());
     }
 
     #[test]

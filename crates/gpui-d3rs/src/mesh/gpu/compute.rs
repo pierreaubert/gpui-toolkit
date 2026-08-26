@@ -11,6 +11,8 @@ use crate::mesh::{
     MeshValidationError, ScalarField, TriangleMesh, project_2d,
 };
 use std::cell::Cell;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use std::sync::{Arc, Mutex, OnceLock};
 
 const COMPUTE_TIMESTAMP_QUERY_COUNT: u32 = 2;
@@ -173,6 +175,43 @@ struct AdapterCompute {
     triangle_pipeline: wgpu::ComputePipeline,
     band_pipeline: wgpu::ComputePipeline,
     contour_bind_group_layout: wgpu::BindGroupLayout,
+    contour_inputs: Mutex<Option<CachedComputeInputs>>,
+    band_inputs: Mutex<Option<CachedComputeInputs>>,
+}
+
+/// GPU-resident immutable inputs for one contour topology and scalar field.
+/// The cache deliberately excludes contour levels, which are copied through a
+/// small uniform buffer for every dispatch batch.
+struct CachedComputeInputs {
+    fingerprint: u64,
+    values: Arc<wgpu::Buffer>,
+    positions: Arc<wgpu::Buffer>,
+    edges: Arc<wgpu::Buffer>,
+    topology: Arc<wgpu::Buffer>,
+}
+
+fn compute_input_fingerprint(
+    values: &[f32],
+    positions: &[[f32; 4]],
+    edges: &[[u32; 2]],
+    topology: &[[u32; 3]],
+) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    values.len().hash(&mut hasher);
+    positions.len().hash(&mut hasher);
+    edges.len().hash(&mut hasher);
+    topology.len().hash(&mut hasher);
+    for &value in values {
+        value.to_bits().hash(&mut hasher);
+    }
+    for position in positions {
+        for &value in position {
+            value.to_bits().hash(&mut hasher);
+        }
+    }
+    edges.hash(&mut hasher);
+    topology.hash(&mut hasher);
+    hasher.finish()
 }
 
 fn storage_binding(binding: u32, read_only: bool) -> wgpu::BindGroupLayoutEntry {
@@ -312,6 +351,8 @@ impl AdapterCompute {
             triangle_pipeline,
             band_pipeline,
             contour_bind_group_layout,
+            contour_inputs: Mutex::new(None),
+            band_inputs: Mutex::new(None),
         })
     }
 
@@ -411,13 +452,13 @@ impl AdapterCompute {
     /// triangle. Slots are deliberately indexed by triangle rather than
     /// appended atomically, so workgroup scheduling cannot change the CPU
     /// golden-reference order.
-    fn marching_segments(
+    fn marching_segments_indexed(
         &self,
         mesh: &TriangleMesh,
         field: &ScalarField,
         topology: &MeshTopology,
         levels: &[f32],
-    ) -> Result<Vec<IsolineSegment>, ()> {
+    ) -> Result<Vec<(usize, IsolineSegment)>, ()> {
         if levels.is_empty() {
             return Ok(Vec::new());
         }
@@ -510,36 +551,61 @@ impl AdapterCompute {
             return Err(());
         }
 
-        let create_buffer = |label: &str, bytes: &[u8], usage: wgpu::BufferUsages| {
-            let buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some(label),
-                size: bytes.len() as u64,
-                usage: usage | wgpu::BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            });
-            self.queue.write_buffer(&buffer, 0, bytes);
-            buffer
+        let input_fingerprint = compute_input_fingerprint(
+            &values,
+            &positions,
+            &topology.unique_edges,
+            &topology.triangle_edges,
+        );
+        let (values_buffer, positions_buffer, edges_buffer, triangle_edges_buffer) = {
+            let mut cached = self.contour_inputs.lock().map_err(|_| ())?;
+            let cache_miss = match cached.as_ref() {
+                Some(inputs) => inputs.fingerprint != input_fingerprint,
+                None => true,
+            };
+            if cache_miss {
+                let create_buffer = |label: &str, bytes: &[u8], usage: wgpu::BufferUsages| {
+                    let buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+                        label: Some(label),
+                        size: bytes.len() as u64,
+                        usage: usage | wgpu::BufferUsages::COPY_DST,
+                        mapped_at_creation: false,
+                    });
+                    self.queue.write_buffer(&buffer, 0, bytes);
+                    Arc::new(buffer)
+                };
+                *cached = Some(CachedComputeInputs {
+                    fingerprint: input_fingerprint,
+                    values: create_buffer(
+                        "mesh_compute_contour_values",
+                        bytemuck::cast_slice(&values),
+                        wgpu::BufferUsages::STORAGE,
+                    ),
+                    positions: create_buffer(
+                        "mesh_compute_contour_positions",
+                        bytemuck::cast_slice(&positions),
+                        wgpu::BufferUsages::STORAGE,
+                    ),
+                    edges: create_buffer(
+                        "mesh_compute_contour_edges",
+                        bytemuck::cast_slice(&topology.unique_edges),
+                        wgpu::BufferUsages::STORAGE,
+                    ),
+                    topology: create_buffer(
+                        "mesh_compute_contour_triangle_edges",
+                        bytemuck::cast_slice(&topology.triangle_edges),
+                        wgpu::BufferUsages::STORAGE,
+                    ),
+                });
+            }
+            let inputs = cached.as_ref().ok_or(())?;
+            (
+                Arc::clone(&inputs.values),
+                Arc::clone(&inputs.positions),
+                Arc::clone(&inputs.edges),
+                Arc::clone(&inputs.topology),
+            )
         };
-        let values_buffer = create_buffer(
-            "mesh_compute_contour_values",
-            bytemuck::cast_slice(&values),
-            wgpu::BufferUsages::STORAGE,
-        );
-        let positions_buffer = create_buffer(
-            "mesh_compute_contour_positions",
-            bytemuck::cast_slice(&positions),
-            wgpu::BufferUsages::STORAGE,
-        );
-        let edges_buffer = create_buffer(
-            "mesh_compute_contour_edges",
-            bytemuck::cast_slice(&topology.unique_edges),
-            wgpu::BufferUsages::STORAGE,
-        );
-        let triangle_edges_buffer = create_buffer(
-            "mesh_compute_contour_triangle_edges",
-            bytemuck::cast_slice(&topology.triangle_edges),
-            wgpu::BufferUsages::STORAGE,
-        );
         let edge_hits_size = edge_count.checked_mul(32).ok_or(())? as u64;
         let segments_size = triangle_count.checked_mul(112).ok_or(())? as u64;
         let edge_hits = self.device.create_buffer(&wgpu::BufferDescriptor {
@@ -554,9 +620,12 @@ impl AdapterCompute {
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
             mapped_at_creation: false,
         });
+        let staging_size = segments_size
+            .checked_mul(u64::try_from(levels.len()).map_err(|_| ())?)
+            .ok_or(())?;
         let staging = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("mesh_compute_contour_segments_readback"),
-            size: segments_size,
+            size: staging_size,
             usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -566,6 +635,27 @@ impl AdapterCompute {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
+
+        let mut level_sources = Vec::with_capacity(levels.len());
+        for &level in levels {
+            if !level.is_finite() {
+                return Err(());
+            }
+            let source = self.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("mesh_compute_contour_level_source"),
+                size: 16,
+                usage: wgpu::BufferUsages::UNIFORM
+                    | wgpu::BufferUsages::COPY_SRC
+                    | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+            self.queue.write_buffer(
+                &source,
+                0,
+                bytemuck::cast_slice(&[level, 0.0_f32, 0.0, 0.0]),
+            );
+            level_sources.push(source);
+        }
         let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("mesh_compute_contour_bind_group"),
             layout: &self.contour_bind_group_layout,
@@ -601,26 +691,18 @@ impl AdapterCompute {
             ],
         });
 
-        let mut output = Vec::new();
-        for &level in levels {
-            if !level.is_finite() {
-                return Err(());
-            }
-            self.queue.write_buffer(
-                &level_buffer,
-                0,
-                bytemuck::cast_slice(&[level, 0.0_f32, 0.0, 0.0]),
-            );
-            let mut encoder = self
-                .device
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some("mesh_compute_contour_encoder"),
-                });
-            let timing_active = self.timing.enabled();
+        let timing_active = self.timing.enabled();
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("mesh_compute_contour_encoder"),
+            });
+        for (level_index, source) in level_sources.iter().enumerate() {
+            encoder.copy_buffer_to_buffer(source, 0, &level_buffer, 0, 16);
             {
                 let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
                     label: Some("mesh_compute_edge_pass"),
-                    timestamp_writes: self.timing.writes(Some(0), None),
+                    timestamp_writes: self.timing.writes((level_index == 0).then_some(0), None),
                 });
                 pass.set_pipeline(&self.edge_pipeline);
                 pass.set_bind_group(0, &bind_group, &[]);
@@ -629,67 +711,98 @@ impl AdapterCompute {
             {
                 let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
                     label: Some("mesh_compute_triangle_pass"),
-                    timestamp_writes: self.timing.writes(None, Some(1)),
+                    timestamp_writes: self
+                        .timing
+                        .writes(None, (level_index + 1 == level_sources.len()).then_some(1)),
                 });
                 pass.set_pipeline(&self.triangle_pipeline);
                 pass.set_bind_group(0, &bind_group, &[]);
                 pass.dispatch_workgroups(triangle_count.div_ceil(256) as u32, 1, 1);
             }
-            encoder.copy_buffer_to_buffer(&segments, 0, &staging, 0, segments_size);
-            self.timing.finish(&mut encoder, timing_active);
-            self.queue.submit(std::iter::once(encoder.finish()));
-
-            let slice = staging.slice(..);
-            let (sender, receiver) = std::sync::mpsc::channel();
-            slice.map_async(wgpu::MapMode::Read, move |result| {
-                let _ = sender.send(result);
-            });
-            let _ = self.device.poll(wgpu::PollType::Wait {
-                submission_index: Default::default(),
-                timeout: Some(std::time::Duration::from_secs(5)),
-            });
-            if !matches!(
-                receiver.recv_timeout(std::time::Duration::from_secs(5)),
-                Ok(Ok(()))
-            ) {
-                return Err(());
-            }
-            let data = slice.get_mapped_range();
-            for chunk in data.chunks_exact(112) {
-                let valid = u32::from_le_bytes([chunk[96], chunk[97], chunk[98], chunk[99]]);
-                if valid == 0 {
-                    continue;
-                }
-                let start = [
-                    f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]) as f64 + origin[0],
-                    f32::from_le_bytes([chunk[4], chunk[5], chunk[6], chunk[7]]) as f64 + origin[1],
-                ];
-                let end = [
-                    f32::from_le_bytes([chunk[16], chunk[17], chunk[18], chunk[19]]) as f64
-                        + origin[0],
-                    f32::from_le_bytes([chunk[20], chunk[21], chunk[22], chunk[23]]) as f64
-                        + origin[1],
-                ];
-                if !start
-                    .iter()
-                    .chain(end.iter())
-                    .all(|value| value.is_finite())
-                {
-                    drop(data);
-                    staging.unmap();
-                    return Err(());
-                }
-                output.push(IsolineSegment {
-                    level: level as f64,
-                    start,
-                    end,
-                });
-            }
-            drop(data);
-            staging.unmap();
-            self.timing.readback(&self.device);
+            let output_offset = u64::try_from(level_index)
+                .map_err(|_| ())?
+                .checked_mul(segments_size)
+                .ok_or(())?;
+            encoder.copy_buffer_to_buffer(&segments, 0, &staging, output_offset, segments_size);
         }
-        Ok(output)
+        self.timing.finish(&mut encoder, timing_active);
+        self.queue.submit(std::iter::once(encoder.finish()));
+
+        let slice = staging.slice(..);
+        let (sender, receiver) = std::sync::mpsc::channel();
+        slice.map_async(wgpu::MapMode::Read, move |result| {
+            let _ = sender.send(result);
+        });
+        let _ = self.device.poll(wgpu::PollType::Wait {
+            submission_index: Default::default(),
+            timeout: Some(std::time::Duration::from_secs(5)),
+        });
+        if !matches!(
+            receiver.recv_timeout(std::time::Duration::from_secs(5)),
+            Ok(Ok(()))
+        ) {
+            return Err(());
+        }
+
+        let data = slice.get_mapped_range();
+        let decoded = (|| -> Result<Vec<(usize, IsolineSegment)>, ()> {
+            let bytes_per_level = usize::try_from(segments_size).map_err(|_| ())?;
+            let mut output = Vec::new();
+            for (level_index, &level) in levels.iter().enumerate() {
+                let byte_start = level_index.checked_mul(bytes_per_level).ok_or(())?;
+                let byte_end = byte_start.checked_add(bytes_per_level).ok_or(())?;
+                let level_data = data.get(byte_start..byte_end).ok_or(())?;
+                for chunk in level_data.chunks_exact(112) {
+                    let valid = u32::from_le_bytes([chunk[96], chunk[97], chunk[98], chunk[99]]);
+                    if valid == 0 {
+                        continue;
+                    }
+                    let start = [
+                        f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]) as f64
+                            + origin[0],
+                        f32::from_le_bytes([chunk[4], chunk[5], chunk[6], chunk[7]]) as f64
+                            + origin[1],
+                    ];
+                    let end = [
+                        f32::from_le_bytes([chunk[16], chunk[17], chunk[18], chunk[19]]) as f64
+                            + origin[0],
+                        f32::from_le_bytes([chunk[20], chunk[21], chunk[22], chunk[23]]) as f64
+                            + origin[1],
+                    ];
+                    if !start
+                        .iter()
+                        .chain(end.iter())
+                        .all(|value| value.is_finite())
+                    {
+                        return Err(());
+                    }
+                    output.push((
+                        level_index,
+                        IsolineSegment {
+                            level: level as f64,
+                            start,
+                            end,
+                        },
+                    ));
+                }
+            }
+            Ok(output)
+        })();
+        drop(data);
+        staging.unmap();
+        self.timing.readback(&self.device);
+        decoded
+    }
+
+    fn marching_segments(
+        &self,
+        mesh: &TriangleMesh,
+        field: &ScalarField,
+        topology: &MeshTopology,
+        levels: &[f32],
+    ) -> Result<Vec<IsolineSegment>, ()> {
+        self.marching_segments_indexed(mesh, field, topology, levels)
+            .map(|segments| segments.into_iter().map(|(_, segment)| segment).collect())
     }
 
     /// Dispatch one deterministic, fixed-size clipped-polygon slot per input
@@ -781,55 +894,82 @@ impl AdapterCompute {
         {
             return Err(());
         }
-        let create_buffer = |label: &str, bytes: &[u8], usage: wgpu::BufferUsages| {
-            let buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some(label),
-                size: bytes.len() as u64,
-                usage: usage | wgpu::BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            });
-            self.queue.write_buffer(&buffer, 0, bytes);
-            buffer
+        let input_fingerprint = compute_input_fingerprint(
+            &values,
+            &positions,
+            &topology.unique_edges,
+            mesh.triangles.as_ref(),
+        );
+        let (values_buffer, positions_buffer, edges_buffer, triangles_buffer) = {
+            let mut cached = self.band_inputs.lock().map_err(|_| ())?;
+            let cache_miss = match cached.as_ref() {
+                Some(inputs) => inputs.fingerprint != input_fingerprint,
+                None => true,
+            };
+            if cache_miss {
+                let create_buffer = |label: &str, bytes: &[u8], usage: wgpu::BufferUsages| {
+                    let buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+                        label: Some(label),
+                        size: bytes.len() as u64,
+                        usage: usage | wgpu::BufferUsages::COPY_DST,
+                        mapped_at_creation: false,
+                    });
+                    self.queue.write_buffer(&buffer, 0, bytes);
+                    Arc::new(buffer)
+                };
+                *cached = Some(CachedComputeInputs {
+                    fingerprint: input_fingerprint,
+                    values: create_buffer(
+                        "mesh_compute_band_values",
+                        bytemuck::cast_slice(&values),
+                        wgpu::BufferUsages::STORAGE,
+                    ),
+                    positions: create_buffer(
+                        "mesh_compute_band_positions",
+                        bytemuck::cast_slice(&positions),
+                        wgpu::BufferUsages::STORAGE,
+                    ),
+                    edges: create_buffer(
+                        "mesh_compute_band_edges",
+                        bytemuck::cast_slice(&topology.unique_edges),
+                        wgpu::BufferUsages::STORAGE,
+                    ),
+                    topology: create_buffer(
+                        "mesh_compute_band_triangles",
+                        bytemuck::cast_slice(mesh.triangles.as_ref()),
+                        wgpu::BufferUsages::STORAGE,
+                    ),
+                });
+            }
+            let inputs = cached.as_ref().ok_or(())?;
+            (
+                Arc::clone(&inputs.values),
+                Arc::clone(&inputs.positions),
+                Arc::clone(&inputs.edges),
+                Arc::clone(&inputs.topology),
+            )
         };
-        let values_buffer = create_buffer(
-            "mesh_compute_band_values",
-            bytemuck::cast_slice(&values),
-            wgpu::BufferUsages::STORAGE,
-        );
-        let positions_buffer = create_buffer(
-            "mesh_compute_band_positions",
-            bytemuck::cast_slice(&positions),
-            wgpu::BufferUsages::STORAGE,
-        );
-        // The shared contour layout includes edge-hit bindings. The band
-        // kernel does not read them, but binding the same buffers keeps the
-        // pipeline layout compact and compatible with the isoline path.
-        let edges_buffer = create_buffer(
-            "mesh_compute_band_edges",
-            bytemuck::cast_slice(&topology.unique_edges),
-            wgpu::BufferUsages::STORAGE,
-        );
-        let triangles_buffer = create_buffer(
-            "mesh_compute_band_triangles",
-            bytemuck::cast_slice(mesh.triangles.as_ref()),
-            wgpu::BufferUsages::STORAGE,
-        );
+        let edge_hits_size = edge_count.checked_mul(32).ok_or(())? as u64;
+        let output_size = triangle_count.checked_mul(112).ok_or(())? as u64;
         let edge_hits = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("mesh_compute_band_unused_edge_hits"),
-            size: edge_count.checked_mul(32).ok_or(())? as u64,
+            size: edge_hits_size,
             usage: wgpu::BufferUsages::STORAGE,
             mapped_at_creation: false,
         });
-        let output_size = triangle_count.checked_mul(112).ok_or(())? as u64;
         let output = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("mesh_compute_band_output"),
             size: output_size,
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
             mapped_at_creation: false,
         });
+        let band_count = levels.len() - 1;
+        let staging_size = output_size
+            .checked_mul(u64::try_from(band_count).map_err(|_| ())?)
+            .ok_or(())?;
         let staging = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("mesh_compute_band_readback"),
-            size: output_size,
+            size: staging_size,
             usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -839,6 +979,28 @@ impl AdapterCompute {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
+
+        let mut band_sources = Vec::with_capacity(band_count);
+        for pair in levels.windows(2) {
+            let [lower, upper] = [pair[0], pair[1]];
+            if !lower.is_finite() || !upper.is_finite() || lower > upper {
+                return Err(());
+            }
+            let source = self.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("mesh_compute_band_levels_source"),
+                size: 16,
+                usage: wgpu::BufferUsages::UNIFORM
+                    | wgpu::BufferUsages::COPY_SRC
+                    | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+            self.queue.write_buffer(
+                &source,
+                0,
+                bytemuck::cast_slice(&[lower, upper, 0.0_f32, 0.0]),
+            );
+            band_sources.push(source);
+        }
         let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("mesh_compute_band_bind_group"),
             layout: &self.contour_bind_group_layout,
@@ -874,93 +1036,103 @@ impl AdapterCompute {
             ],
         });
 
-        let mut bands = Vec::with_capacity(levels.len() - 1);
-        for pair in levels.windows(2) {
-            let [lower, upper] = [pair[0], pair[1]];
-            if !lower.is_finite() || !upper.is_finite() || lower > upper {
-                return Err(());
-            }
-            self.queue.write_buffer(
-                &levels_buffer,
-                0,
-                bytemuck::cast_slice(&[lower, upper, 0.0_f32, 0.0]),
-            );
-            let mut encoder = self
-                .device
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some("mesh_compute_band_encoder"),
-                });
-            let timing_active = self.timing.enabled();
+        let timing_active = self.timing.enabled();
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("mesh_compute_band_encoder"),
+            });
+        for (band_index, source) in band_sources.iter().enumerate() {
+            encoder.copy_buffer_to_buffer(source, 0, &levels_buffer, 0, 16);
             {
                 let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
                     label: Some("mesh_compute_band_pass"),
-                    timestamp_writes: self.timing.writes(Some(0), Some(1)),
+                    timestamp_writes: self.timing.writes(
+                        (band_index == 0).then_some(0),
+                        (band_index + 1 == band_sources.len()).then_some(1),
+                    ),
                 });
                 pass.set_pipeline(&self.band_pipeline);
                 pass.set_bind_group(0, &bind_group, &[]);
                 pass.dispatch_workgroups(triangle_count.div_ceil(256) as u32, 1, 1);
             }
-            encoder.copy_buffer_to_buffer(&output, 0, &staging, 0, output_size);
-            self.timing.finish(&mut encoder, timing_active);
-            self.queue.submit(std::iter::once(encoder.finish()));
-            let slice = staging.slice(..);
-            let (sender, receiver) = std::sync::mpsc::channel();
-            slice.map_async(wgpu::MapMode::Read, move |result| {
-                let _ = sender.send(result);
-            });
-            let _ = self.device.poll(wgpu::PollType::Wait {
-                submission_index: Default::default(),
-                timeout: Some(std::time::Duration::from_secs(5)),
-            });
-            if !matches!(
-                receiver.recv_timeout(std::time::Duration::from_secs(5)),
-                Ok(Ok(()))
-            ) {
-                return Err(());
-            }
-            let data = slice.get_mapped_range();
-            let mut band = ContourBand {
-                lower: Some(lower as f64),
-                upper: Some(upper as f64),
-                positions: Vec::new(),
-                triangles: Vec::new(),
-            };
-            for chunk in data.chunks_exact(112) {
-                let valid = u32::from_le_bytes(chunk[96..100].try_into().map_err(|_| ())?);
-                let count = u32::from_le_bytes(chunk[100..104].try_into().map_err(|_| ())?);
-                if valid == 0 || !(3..=6).contains(&count) {
-                    continue;
-                }
-                let base = u32::try_from(band.positions.len()).map_err(|_| ())?;
-                for point in 0..count as usize {
-                    let offset = point * 16;
-                    let position = [
-                        f32::from_le_bytes(chunk[offset..offset + 4].try_into().map_err(|_| ())?)
-                            as f64
-                            + origin[0],
-                        f32::from_le_bytes(
-                            chunk[offset + 4..offset + 8].try_into().map_err(|_| ())?,
-                        ) as f64
-                            + origin[1],
-                    ];
-                    if !position.iter().all(|value| value.is_finite()) {
-                        drop(data);
-                        staging.unmap();
-                        return Err(());
-                    }
-                    band.positions.push(position);
-                }
-                for offset in 1..count - 1 {
-                    band.triangles
-                        .push([base, base + offset, base + offset + 1]);
-                }
-            }
-            drop(data);
-            staging.unmap();
-            self.timing.readback(&self.device);
-            bands.push(band);
+            let output_offset = u64::try_from(band_index)
+                .map_err(|_| ())?
+                .checked_mul(output_size)
+                .ok_or(())?;
+            encoder.copy_buffer_to_buffer(&output, 0, &staging, output_offset, output_size);
         }
-        Ok(bands)
+        self.timing.finish(&mut encoder, timing_active);
+        self.queue.submit(std::iter::once(encoder.finish()));
+
+        let slice = staging.slice(..);
+        let (sender, receiver) = std::sync::mpsc::channel();
+        slice.map_async(wgpu::MapMode::Read, move |result| {
+            let _ = sender.send(result);
+        });
+        let _ = self.device.poll(wgpu::PollType::Wait {
+            submission_index: Default::default(),
+            timeout: Some(std::time::Duration::from_secs(5)),
+        });
+        if !matches!(
+            receiver.recv_timeout(std::time::Duration::from_secs(5)),
+            Ok(Ok(()))
+        ) {
+            return Err(());
+        }
+
+        let data = slice.get_mapped_range();
+        let decoded = (|| -> Result<Vec<ContourBand>, ()> {
+            let bytes_per_band = usize::try_from(output_size).map_err(|_| ())?;
+            let mut bands = Vec::with_capacity(band_count);
+            for (band_index, pair) in levels.windows(2).enumerate() {
+                let [lower, upper] = [pair[0], pair[1]];
+                let byte_start = band_index.checked_mul(bytes_per_band).ok_or(())?;
+                let byte_end = byte_start.checked_add(bytes_per_band).ok_or(())?;
+                let band_data = data.get(byte_start..byte_end).ok_or(())?;
+                let mut band = ContourBand {
+                    lower: Some(lower as f64),
+                    upper: Some(upper as f64),
+                    positions: Vec::new(),
+                    triangles: Vec::new(),
+                };
+                for chunk in band_data.chunks_exact(112) {
+                    let valid = u32::from_le_bytes(chunk[96..100].try_into().map_err(|_| ())?);
+                    let count = u32::from_le_bytes(chunk[100..104].try_into().map_err(|_| ())?);
+                    if valid == 0 || !(3..=6).contains(&count) {
+                        continue;
+                    }
+                    let base = u32::try_from(band.positions.len()).map_err(|_| ())?;
+                    for point in 0..count as usize {
+                        let offset = point * 16;
+                        let position = [
+                            f32::from_le_bytes(
+                                chunk[offset..offset + 4].try_into().map_err(|_| ())?,
+                            ) as f64
+                                + origin[0],
+                            f32::from_le_bytes(
+                                chunk[offset + 4..offset + 8].try_into().map_err(|_| ())?,
+                            ) as f64
+                                + origin[1],
+                        ];
+                        if !position.iter().all(|value| value.is_finite()) {
+                            return Err(());
+                        }
+                        band.positions.push(position);
+                    }
+                    for offset in 1..count - 1 {
+                        band.triangles
+                            .push([base, base + offset, base + offset + 1]);
+                    }
+                }
+                bands.push(band);
+            }
+            Ok(bands)
+        })();
+        drop(data);
+        staging.unmap();
+        self.timing.readback(&self.device);
+        decoded
     }
 }
 
@@ -1005,7 +1177,7 @@ pub struct MeshCompute {
 pub fn shared_mesh_compute() -> &'static Mutex<MeshCompute> {
     static COMPUTE: OnceLock<Mutex<MeshCompute>> = OnceLock::new();
     COMPUTE.get_or_init(|| {
-        Mutex::new(MeshCompute::try_new().expect("mesh compute service is available"))
+        Mutex::new(MeshCompute::try_new().unwrap_or_else(MeshCompute::cpu_reference))
     })
 }
 
@@ -1191,18 +1363,16 @@ impl MeshCompute {
             };
             // The adapter returns XY; uploading projected coordinates makes
             // those values exactly the requested chart plane.
-            if let Ok(mut segments) =
-                adapter.marching_segments(&projected, field, topology, &levels_f32)
+            if let Ok(segments) =
+                adapter.marching_segments_indexed(&projected, field, topology, &levels_f32)
             {
-                for segment in &mut segments {
-                    if let Some((_, &level)) = levels_f32
-                        .iter()
-                        .zip(levels)
-                        .find(|(candidate, _)| **candidate as f64 == segment.level)
-                    {
-                        segment.level = level;
-                    }
-                }
+                let segments = segments
+                    .into_iter()
+                    .map(|(level_index, mut segment)| {
+                        segment.level = levels[level_index];
+                        segment
+                    })
+                    .collect();
                 self.last_backend.set(MeshComputeBackend::Adapter);
                 return Ok(segments);
             }

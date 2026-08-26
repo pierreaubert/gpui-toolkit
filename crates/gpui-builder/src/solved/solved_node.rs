@@ -25,11 +25,72 @@ pub struct SolvedNode<'a> {
     pub collapse_label: Option<&'a str>,
     /// The resolved axis for this container (`None` for slots).
     pub resolved_axis: Option<Axis>,
+    /// Space inserted between each pair of visible children for this
+    /// container. Slots always use `0.0`.
+    pub divider_size: f32,
     /// Resolved children (empty for slots, populated for containers).
     pub children: Vec<SolvedNode<'a>>,
 }
 
+/// Owned counterpart to [`SolvedNode`].
+///
+/// This is useful when a layout declaration is intentionally short-lived, as
+/// with [`crate::solve_layout!`]. Converting copies the small amount of text
+/// metadata needed by the solved result and releases the declaration tree.
+#[derive(Debug, Clone, PartialEq)]
+pub struct OwnedSolvedNode {
+    /// Matches `id` from the source layout node.
+    pub id: String,
+    /// Resolved width in pixels.
+    pub width: f32,
+    /// Resolved height in pixels.
+    pub height: f32,
+    /// Whether this node is visible.
+    pub visible: bool,
+    /// Active display tier, if any.
+    pub active_tier: Option<String>,
+    /// Tab label if this slot was collapsed.
+    pub collapse_label: Option<String>,
+    /// Resolved container axis, if this node is a container.
+    pub resolved_axis: Option<Axis>,
+    /// Space inserted between visible children of this container.
+    pub divider_size: f32,
+    /// Resolved children.
+    pub children: Vec<OwnedSolvedNode>,
+}
+
+impl OwnedSolvedNode {
+    /// Find a solved node by id with depth-first traversal.
+    pub fn find(&self, id: &str) -> Option<&Self> {
+        if self.id == id {
+            return Some(self);
+        }
+        self.children.iter().find_map(|child| child.find(id))
+    }
+}
+
+impl From<SolvedNode<'_>> for OwnedSolvedNode {
+    fn from(node: SolvedNode<'_>) -> Self {
+        Self {
+            id: node.id.to_owned(),
+            width: node.width,
+            height: node.height,
+            visible: node.visible,
+            active_tier: node.active_tier.map(str::to_owned),
+            collapse_label: node.collapse_label.map(str::to_owned),
+            resolved_axis: node.resolved_axis,
+            divider_size: node.divider_size,
+            children: node.children.into_iter().map(Self::from).collect(),
+        }
+    }
+}
+
 impl<'a> SolvedNode<'a> {
+    /// Convert this borrowed solved tree into an owned one.
+    pub fn into_owned(self) -> OwnedSolvedNode {
+        OwnedSolvedNode::from(self)
+    }
+
     /// Convert this recursive tree into an arena/flat [`SolvedTree`].
     pub fn into_tree(self) -> SolvedTree<'a> {
         let mut nodes = Vec::new();
@@ -133,6 +194,7 @@ fn collect_into_tree<'a>(
         active_tier: node.active_tier,
         collapse_label: node.collapse_label,
         resolved_axis: node.resolved_axis,
+        divider_size: node.divider_size,
         children: Vec::new(),
     });
 

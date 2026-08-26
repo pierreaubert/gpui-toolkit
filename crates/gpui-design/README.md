@@ -8,7 +8,7 @@ Defines shape, spacing, interaction, and animation rules that vary per platform 
 
 | Preset | Platform | Key traits |
 |--------|----------|------------|
-| `DesignSystem::neutral()` | Cross-platform default | Matches existing hardcoded values |
+| `DesignSystem::neutral()` | Cross-platform default | Generic `system-ui` font with platform-neutral spacing and controls |
 | `DesignSystem::apple_hig()` | macOS 26 / iOS | Liquid Glass-inspired floating controls, continuous rounded corners, 44px touch targets, fluid spring motion |
 | `DesignSystem::material3()` | Android / ChromeOS | 48px touch targets, card separators, Roboto |
 | `DesignSystem::fluent()` | Windows 11 | 4px control corners, 8px overlay corners, compact Mica/Acrylic-inspired elevation, Segoe UI Variable |
@@ -125,6 +125,10 @@ assert_eq!(presentation.generated_assets().len(), 3);
 
 `DesignTokenExport::for_all_presets()` returns a serializable Style
 Dictionary-friendly export for tooling and future Figma integration.
+`DesignSystem::style_dictionary_tokens()` returns a fresh `Arc` snapshot so
+exports remain correct after an application edits its public design-rule
+fields. The former borrowed-cache accessor is deprecated because a borrowed
+value cannot safely remain current across such edits.
 
 ## Sub-structs
 

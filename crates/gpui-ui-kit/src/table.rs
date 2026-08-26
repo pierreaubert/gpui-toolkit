@@ -400,7 +400,7 @@ impl<T: 'static> Table<T> {
 
         // Body
         let mut body = div()
-            .id("table-body")
+            .id((self.id.clone(), "body"))
             .flex_1()
             .overflow_y_scroll()
             .flex()
@@ -487,7 +487,7 @@ impl<T: 'static> Table<T> {
         {
             let is_selected = selected_indices.contains(&row_idx);
             let mut row_el = div()
-                .id(ElementId::from(row_idx))
+                .id(ElementId::named_usize(self.id.to_string(), row_idx))
                 .flex()
                 .w_full()
                 .border_b_1()

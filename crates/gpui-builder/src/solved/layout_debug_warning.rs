@@ -181,12 +181,14 @@ pub(super) fn collect_node_warnings<'a>(
     }
 
     let available = node.size_along(axis);
+    let visible_children = node.children.iter().filter(|child| child.visible).count();
     let used: f32 = node
         .children
         .iter()
         .filter(|child| child.visible)
         .map(|child| child.size_along(axis))
-        .sum();
+        .sum::<f32>()
+        + node.divider_size * visible_children.saturating_sub(1) as f32;
 
     if available.is_finite() && used.is_finite() && used > available + WARNING_EPSILON {
         warnings.push(LayoutDebugWarning {

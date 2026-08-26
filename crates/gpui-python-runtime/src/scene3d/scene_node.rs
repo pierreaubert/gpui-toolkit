@@ -27,7 +27,22 @@ impl SceneNode {
 
     pub fn validate(&self) -> Result<(), Scene3DError> {
         match self {
-            Self::Surface(spec) => spec.validate(),
+            Self::Surface(spec) => {
+                spec.validate()?;
+                if spec.x_log
+                    || spec.y_log
+                    || spec.z_log
+                    || spec.labels.x.is_some()
+                    || spec.labels.y.is_some()
+                    || spec.labels.z.is_some()
+                    || spec.labels.title.is_some()
+                {
+                    return Err(Scene3DError::UnsupportedNode {
+                        kind: "surface axis metadata in composed scenes",
+                    });
+                }
+                Ok(())
+            }
             Self::Lines(spec) => spec.validate(),
             Self::Mesh(spec) => spec.validate(),
             Self::Light(spec) => spec.validate(),

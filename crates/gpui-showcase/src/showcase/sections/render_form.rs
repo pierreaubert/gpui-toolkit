@@ -125,12 +125,12 @@ impl Showcase {
                                 Checkbox::new("cb-lg")
                                     .label(large)
                                     .size(CheckboxSize::Lg)
-                                    .checked(!checkbox_checked)
+                                    .checked(checkbox_checked)
                                     .on_change({
                                         let entity = entity.clone();
                                         move |checked, _window, cx| {
                                             entity.update(cx, |showcase, _| {
-                                                showcase.checkbox_checked = !checked;
+                                                showcase.checkbox_checked = checked;
                                             });
                                         }
                                     }),

@@ -76,6 +76,8 @@ thread_local! {
     static LOG_TICK_CACHE: RefCell<HashMap<(u64, u64), Vec<f64>>> = RefCell::new(HashMap::new());
 }
 
+const MAX_LOG_TICK_CACHE_ENTRIES: usize = 256;
+
 /// Generate smart tick values for log scales to prevent label collision
 /// Shows 1,2,3,4,5,10,20,30,40,50,100,... pattern
 pub(super) fn generate_log_ticks(min: f64, max: f64) -> Vec<f64> {
@@ -86,7 +88,11 @@ pub(super) fn generate_log_ticks(min: f64, max: f64) -> Vec<f64> {
         }
 
         let ticks = generate_log_ticks_uncached(min, max);
-        cache.borrow_mut().insert(key, ticks.clone());
+        let mut cache = cache.borrow_mut();
+        if cache.len() >= MAX_LOG_TICK_CACHE_ENTRIES {
+            cache.clear();
+        }
+        cache.insert(key, ticks.clone());
         ticks
     })
 }
@@ -189,5 +195,19 @@ mod tests {
         // Second call should return a clone of the cached vector.
         let second = generate_log_ticks(10.0, 1_000.0);
         assert_eq!(first, second);
+    }
+
+    #[test]
+    fn log_tick_cache_has_a_bounded_number_of_domains() {
+        LOG_TICK_CACHE.with(|cache| cache.borrow_mut().clear());
+
+        for index in 0..=MAX_LOG_TICK_CACHE_ENTRIES {
+            let min = 1.0 + index as f64;
+            let _ = generate_log_ticks(min, min * 10.0);
+        }
+
+        LOG_TICK_CACHE.with(|cache| {
+            assert!(cache.borrow().len() <= MAX_LOG_TICK_CACHE_ENTRIES);
+        });
     }
 }

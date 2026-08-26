@@ -248,10 +248,16 @@ impl TreeView {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments)]
     fn render_visible_nodes<F>(
         nodes: &[VisibleTreeNode],
         selected: &Option<SharedString>,
         focused: &Option<SharedString>,
+        focus_handle: &FocusHandle,
+        parent_id: &ElementId,
+        on_focus_change: Option<&std::rc::Rc<Box<dyn Fn(Option<SharedString>, &mut Window, &mut App) + 'static>>>,
+        on_select: Option<&std::rc::Rc<Box<dyn Fn(SharedString, &mut Window, &mut App) + 'static>>>,
+        on_toggle: Option<&std::rc::Rc<Box<dyn Fn(SharedString, bool, &mut Window, &mut App) + 'static>>>,
         indent_size: Pixels,
         _show_guides: bool,
         theme: &TreeViewTheme,
@@ -263,9 +269,14 @@ impl TreeView {
         for node in nodes {
             let is_selected = selected.as_ref() == Some(&node.id);
             let is_focused = focused.as_ref() == Some(&node.id);
+            let node_id = node.id.clone();
+            let focus_handle_for_row = focus_handle.clone();
+            let on_focus_change_for_row = on_focus_change.cloned();
+            let on_select_for_row = on_select.cloned();
+            let row_id = ElementId::from((parent_id.clone(), node.id.clone()));
 
-            // Build node row
             let mut row = div()
+                .id(row_id)
                 .w_full()
                 .flex()
                 .items_center()
@@ -275,7 +286,17 @@ impl TreeView {
                 .py(px(3.0))
                 .text_sm()
                 .rounded(px(4.0))
-                .hover(apply_hover);
+                .cursor_pointer()
+                .hover(apply_hover)
+                .on_click(move |_event, window, cx| {
+                    focus_handle_for_row.focus(window, cx);
+                    if let Some(callback) = &on_focus_change_for_row {
+                        callback.as_ref()(Some(node_id.clone()), window, cx);
+                    }
+                    if let Some(callback) = &on_select_for_row {
+                        callback.as_ref()(node_id.clone(), window, cx);
+                    }
+                });
 
             if is_selected {
                 row = row.bg(theme.selected_bg).text_color(theme.selected_text);
@@ -285,32 +306,47 @@ impl TreeView {
                 row = row.text_color(theme.text);
             }
 
-            // Toggle arrow
             if node.has_children {
                 let arrow = if node.expanded {
                     "\u{25BE}" // ▾
                 } else {
                     "\u{25B8}" // ▸
                 };
+                let toggle_id =
+                    ElementId::from((parent_id.clone(), format!("tree-toggle-{}", node.id)));
+                let node_id = node.id.clone();
+                let focus_handle_for_toggle = focus_handle.clone();
+                let on_focus_change_for_toggle = on_focus_change.cloned();
+                let on_toggle_for_row = on_toggle.cloned();
+                let expanded = node.expanded;
                 row = row.child(
                     div()
+                        .id(toggle_id)
                         .w(px(14.0))
                         .text_xs()
                         .text_color(theme.toggle_color)
+                        .cursor_pointer()
+                        .on_click(move |_event, window, cx| {
+                            cx.stop_propagation();
+                            focus_handle_for_toggle.focus(window, cx);
+                            if let Some(callback) = &on_focus_change_for_toggle {
+                                callback.as_ref()(Some(node_id.clone()), window, cx);
+                            }
+                            if let Some(callback) = &on_toggle_for_row {
+                                callback.as_ref()(node_id.clone(), !expanded, window, cx);
+                            }
+                        })
                         .child(arrow),
                 );
             } else {
                 row = row.child(div().w(px(14.0)));
             }
 
-            // Icon
             if let Some(icon) = &node.icon {
                 row = row.child(div().mr_1().child(icon.clone()));
             }
 
-            // Label
             row = row.child(node.label.clone());
-
             elements.push(row.into_any_element());
         }
     }
@@ -321,6 +357,9 @@ impl TreeView {
             .focus_handle
             .clone()
             .unwrap_or_else(|| cx.focus_handle());
+        let on_focus_change = self.on_focus_change.map(std::rc::Rc::new);
+        let on_select = self.on_select.map(std::rc::Rc::new);
+        let on_toggle = self.on_toggle.map(std::rc::Rc::new);
         // Count the expanded rows without materializing the whole flattened
         // tree. Rendering only needs the requested window; keyboard handling
         // below retains the full list only when navigation callbacks are in
@@ -349,6 +388,11 @@ impl TreeView {
             &visible_nodes,
             &self.selected,
             &focused,
+            &focus_handle,
+            &self.id,
+            on_focus_change.as_ref(),
+            on_select.as_ref(),
+            on_toggle.as_ref(),
             self.indent_size,
             self.show_guides,
             theme,
@@ -364,7 +408,7 @@ impl TreeView {
             .track_focus(&focus_handle)
             .focusable();
 
-        if self.on_focus_change.is_some() || self.on_select.is_some() || self.on_toggle.is_some() {
+        if on_focus_change.is_some() || on_select.is_some() || on_toggle.is_some() {
             let focus_handle_for_key = focus_handle.clone();
             let visible_nodes_for_key = visible_tree_nodes(&self.nodes, &self.expanded);
             let visible_ids_for_key: Vec<SharedString> = visible_nodes_for_key
@@ -372,9 +416,9 @@ impl TreeView {
                 .map(|node| node.id.clone())
                 .collect();
             let focused_for_key = focused.clone();
-            let on_focus_change = self.on_focus_change.map(std::rc::Rc::new);
-            let on_select = self.on_select.map(std::rc::Rc::new);
-            let on_toggle = self.on_toggle.map(std::rc::Rc::new);
+            let on_focus_change = on_focus_change.clone();
+            let on_select = on_select.clone();
+            let on_toggle = on_toggle.clone();
             container = container.on_key_down(
                 move |event: &KeyDownEvent, window: &mut Window, cx: &mut App| {
                     if !focus_handle_for_key.is_focused(window) {

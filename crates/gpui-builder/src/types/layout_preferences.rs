@@ -1,6 +1,16 @@
 use super::axis::Axis;
 use std::collections::HashMap;
 
+/// Keep externally supplied ratio state in the domain understood by the
+/// solver. Invalid user or persisted values should not poison layout output.
+pub(crate) fn sanitize_ratio(ratio: f32) -> f32 {
+    if ratio.is_finite() {
+        ratio.clamp(0.0, 1.0)
+    } else {
+        0.0
+    }
+}
+
 /// External state provided to the solver. The solver reads but never writes.
 ///
 /// Internally stores overrides in hash maps so repeated `ratio_for` / `is_collapsed`
@@ -17,7 +27,7 @@ impl<'a> LayoutPreferences<'a> {
         Self {
             ratios: ratios
                 .iter()
-                .map(|(slot_id, axis, ratio)| ((*slot_id, *axis), *ratio))
+                .map(|(slot_id, axis, ratio)| ((*slot_id, *axis), sanitize_ratio(*ratio)))
                 .collect(),
             collapsed: collapsed
                 .iter()
@@ -42,7 +52,7 @@ impl<'a> LayoutPreferences<'a> {
 
     /// Update a ratio override while retaining the existing lookup map.
     pub fn set_ratio(&mut self, id: &'a str, axis: Axis, ratio: f32) {
-        self.ratios.insert((id, axis), ratio);
+        self.ratios.insert((id, axis), sanitize_ratio(ratio));
     }
 
     /// Update an explicit collapse override while retaining the existing lookup map.

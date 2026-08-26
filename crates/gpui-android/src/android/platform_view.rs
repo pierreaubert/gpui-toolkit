@@ -7,7 +7,39 @@
 use crate::platform_view::{
     PlatformView, PlatformViewBounds, PlatformViewFactory, PlatformViewId, PlatformViewParams,
 };
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::{
+    collections::HashMap,
+    sync::atomic::{AtomicBool, Ordering},
+};
+
+/// Encode creation parameters for the Java `GpuiPlatformView` factory.
+///
+/// Entries are sorted and delimited with `|`; a backslash escapes itself, the
+/// key/value separator (`=`), and the entry separator (`|`). This retains the
+/// legacy representation for ordinary values while making arbitrary strings
+/// lossless for factories that parse the documented escape sequences.
+fn encode_creation_params(params: &HashMap<String, String>) -> String {
+    let mut entries: Vec<_> = params.iter().collect();
+    entries.sort_unstable_by(|(left, _), (right, _)| left.cmp(right));
+    entries
+        .into_iter()
+        .map(|(key, value)| {
+            format!(
+                "{}={}",
+                escape_creation_param(key),
+                escape_creation_param(value)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("|")
+}
+
+fn escape_creation_param(value: &str) -> String {
+    value
+        .replace('\\', "\\\\")
+        .replace('|', "\\|")
+        .replace('=', "\\=")
+}
 
 /// Android implementation of a platform view.
 ///
@@ -64,13 +96,7 @@ impl AndroidPlatformView {
             let height = bounds.height;
             drop(bounds);
 
-            // Serialize creation_params as "key1=value1|key2=value2"
-            let creation_params_str: String = params
-                .creation_params
-                .iter()
-                .map(|(k, v)| format!("{}={}", k, v))
-                .collect::<Vec<_>>()
-                .join("|");
+            let creation_params_str = encode_creation_params(&params.creation_params);
             let creation_params_jstr = env.new_string(&creation_params_str).e()?;
 
             let act = activity(env)?;
@@ -252,6 +278,11 @@ impl PlatformView for AndroidPlatformView {
 
 /// Generic Android platform view factory.
 ///
+/// The Java-side `GpuiPlatformView.createView` implementation receives
+/// creation parameters as sorted `key=value` pairs joined by `|`. A backslash
+/// escapes itself, `=`, and `|`; factories must unescape those sequences
+/// before using the keys or values.
+///
 /// Delegates view creation to the Java-side `GpuiPlatformView` helper,
 /// which handles the actual `View` instantiation based on the type string.
 pub struct AndroidPlatformViewFactory {
@@ -274,5 +305,23 @@ impl PlatformViewFactory for AndroidPlatformViewFactory {
 
     fn view_type(&self) -> &str {
         &self.view_type
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn creation_params_escape_separators_and_are_sorted() {
+        let params = HashMap::from([
+            ("path".to_string(), r"C:\temp".to_string()),
+            ("a=key".to_string(), "value|one".to_string()),
+        ]);
+
+        assert_eq!(
+            encode_creation_params(&params),
+            r"a\=key=value\|one|path=C:\\temp"
+        );
     }
 }

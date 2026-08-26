@@ -62,6 +62,9 @@ impl Showcase {
                                                 cmp.reverse()
                                             }
                                         });
+                                        // The table selection API is row-index based. A reordered
+                                        // data source must not carry those indices onto other users.
+                                        this.selected_users.clear();
                                         this.notify_content(cx);
                                     }))
                                     .selection_mode(SelectionMode::Multiple)
