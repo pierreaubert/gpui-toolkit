@@ -10,6 +10,6 @@ from .capabilities import Capability, capabilities
 from .state import Binding, Computed, State, StateError, StateStore, StoredState, ValidationResult, ValidationSeverity, application_data_dir
 from .platform import UnsupportedCapability
 
-__version__ = "0.5.16"
+__version__ = "0.9.18"
 
 __all__ = ["App", "Binding", "CancellationToken", "Capability", "Computed", "Event", "Section", "SessionContext", "State", "StateError", "StateStore", "StoredState", "UnsupportedCapability", "ValidationResult", "ValidationSeverity", "__version__", "accessibility", "application_data_dir", "audio", "capabilities", "charts", "d3", "design", "effects", "events", "i18n", "keybindings", "lab", "layout", "meshplot", "miniapp", "platform", "profiler", "reports", "resources", "scaffolder", "scene3d", "section", "text", "themes", "tooling", "ui"]
