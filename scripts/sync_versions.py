@@ -27,6 +27,7 @@ PROJECT_VERSION = re.compile(
     r"(?ms)(^\[project\].*?^version\s*=\s*\")([^\"]+)(\")"
 )
 PYTHON_VERSION = re.compile(r'(?m)^(__version__\s*=\s*")([^"]+)(")')
+METADATA_VERSION = re.compile(r"(?m)^(Version:\s*)([^\r\n]+)(\r?$)")
 
 FILES = (
     ROOT / "Cargo.toml",
@@ -34,6 +35,22 @@ FILES = (
     ROOT / "crates/gpui-python-runtime/pyproject.toml",
     ROOT / "crates/gpui-python-runtime/python/gpui_toolkit/__init__.py",
 )
+GENERATED_METADATA = (
+    ROOT / "crates/gpui-python-runtime/python/gpui_toolkit.egg-info/PKG-INFO"
+)
+
+
+def version_files() -> tuple[tuple[Path, re.Pattern[str]], ...]:
+    """Return all version declarations, including generated metadata if present."""
+    entries = (
+        (FILES[0], WORKSPACE_VERSION),
+        (FILES[1], PROJECT_VERSION),
+        (FILES[2], PROJECT_VERSION),
+        (FILES[3], PYTHON_VERSION),
+    )
+    if GENERATED_METADATA.is_file():
+        entries += ((GENERATED_METADATA, METADATA_VERSION),)
+    return entries
 
 
 def _replace_version(path: Path, pattern: re.Pattern[str], version: str) -> str:
@@ -52,8 +69,7 @@ def _read_version(path: Path, pattern: re.Pattern[str]) -> str:
 
 
 def versions() -> dict[Path, str]:
-    patterns = (WORKSPACE_VERSION, PROJECT_VERSION, PROJECT_VERSION, PYTHON_VERSION)
-    return {path: _read_version(path, pattern) for path, pattern in zip(FILES, patterns)}
+    return {path: _read_version(path, pattern) for path, pattern in version_files()}
 
 
 def validate_version(version: str) -> None:
@@ -79,8 +95,7 @@ def check(expected: str | None = None, tag: str | None = None) -> str:
 
 def synchronize(version: str) -> None:
     validate_version(version)
-    patterns = (WORKSPACE_VERSION, PROJECT_VERSION, PROJECT_VERSION, PYTHON_VERSION)
-    for path, pattern in zip(FILES, patterns):
+    for path, pattern in version_files():
         path.write_text(_replace_version(path, pattern, version), encoding="utf-8")
     check(expected=version)
 

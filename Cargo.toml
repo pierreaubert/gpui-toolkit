@@ -48,7 +48,7 @@ members = [
 resolver = "3"
 
 [workspace.package]
-version = "0.9.16"
+version = "0.5.16"
 authors = ["Pierre F. Aubert pierre@spinorama.org"]
 description = "A toolkit to build portable and fast UI"
 edition = "2024"

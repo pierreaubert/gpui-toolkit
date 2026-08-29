@@ -36,11 +36,17 @@ class SyncVersionsTests(unittest.TestCase):
             paths[1].write_text("[project]\nversion = \"1.0.0\"\n", encoding="utf-8")
             paths[2].write_text("[project]\nversion = \"1.0.0\"\n", encoding="utf-8")
             paths[3].write_text('__version__ = "1.0.0"\n', encoding="utf-8")
-            with patch.object(sync_versions, "FILES", paths), patch.object(
-                sync_versions, "ROOT", root
+            metadata = root / "gpui_toolkit.egg-info/PKG-INFO"
+            metadata.parent.mkdir()
+            metadata.write_text("Name: gpui-toolkit\nVersion: 1.0.0\n", encoding="utf-8")
+            with (
+                patch.object(sync_versions, "FILES", paths),
+                patch.object(sync_versions, "ROOT", root),
+                patch.object(sync_versions, "GENERATED_METADATA", metadata),
             ):
                 sync_versions.synchronize("9.8.7")
                 self.assertEqual(sync_versions.check(), "9.8.7")
+                self.assertIn("Version: 9.8.7", metadata.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":
