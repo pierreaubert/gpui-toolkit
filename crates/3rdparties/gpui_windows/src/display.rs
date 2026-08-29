@@ -37,7 +37,7 @@ impl WindowsDisplay {
     pub(crate) fn new(display_id: DisplayId) -> Option<Self> {
         let screen = available_monitors()
             .into_iter()
-            .nth(u32::from(display_id) as _)?;
+            .nth(u64::from(display_id) as _)?;
         let info = get_monitor_info(screen).log_err()?;
         let monitor_size = info.monitorInfo.rcMonitor;
         let work_area = info.monitorInfo.rcWork;

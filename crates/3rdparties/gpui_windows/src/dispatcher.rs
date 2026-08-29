@@ -1,5 +1,8 @@
 use std::{
-    sync::atomic::{AtomicBool, Ordering},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
     thread::{ThreadId, current},
     time::{Duration, Instant},
 };
@@ -23,8 +26,7 @@ use windows::{
 
 use crate::{HWND, SafeHwnd, WM_GPUI_TASK_DISPATCHED_ON_MAIN_THREAD};
 use gpui::{
-    GLOBAL_THREAD_TIMINGS, PlatformDispatcher, Priority, PriorityQueueSender, RunnableVariant,
-    TaskTiming, ThreadTaskTimings, TimerResolutionGuard,
+    PlatformDispatcher, Priority, PriorityQueueSender, RunnableVariant, TimerResolutionGuard,
 };
 
 pub(crate) struct WindowsDispatcher {
@@ -55,10 +57,12 @@ impl WindowsDispatcher {
 
     fn dispatch_on_threadpool(&self, priority: WorkItemPriority, runnable: RunnableVariant) {
         let handler = {
-            let mut task_wrapper = Some(runnable);
+            let task_wrapper = Arc::new(Mutex::new(Some(runnable)));
+            let task = Arc::clone(&task_wrapper);
             WorkItemHandler::new(move |_| {
-                let runnable = task_wrapper.take().unwrap();
-                Self::execute_runnable(runnable);
+                if let Some(runnable) = task.lock().unwrap().take() {
+                    Self::execute_runnable(runnable);
+                }
                 Ok(())
             })
         };
@@ -68,10 +72,12 @@ impl WindowsDispatcher {
 
     fn dispatch_on_threadpool_after(&self, runnable: RunnableVariant, duration: Duration) {
         let handler = {
-            let mut task_wrapper = Some(runnable);
+            let task_wrapper = Arc::new(Mutex::new(Some(runnable)));
+            let task = Arc::clone(&task_wrapper);
             TimerElapsedHandler::new(move |_| {
-                let runnable = task_wrapper.take().unwrap();
-                Self::execute_runnable(runnable);
+                if let Some(runnable) = task.lock().unwrap().take() {
+                    Self::execute_runnable(runnable);
+                }
                 Ok(())
             })
         };
@@ -80,35 +86,11 @@ impl WindowsDispatcher {
 
     #[inline(always)]
     pub(crate) fn execute_runnable(runnable: RunnableVariant) {
-        let start = Instant::now();
-
-        let location = runnable.metadata().location;
-        let mut timing = TaskTiming {
-            location,
-            start,
-            end: None,
-        };
-        gpui::profiler::add_task_timing(timing);
-
         runnable.run();
-
-        let end = Instant::now();
-        timing.end = Some(end);
-
-        gpui::profiler::add_task_timing(timing);
     }
 }
 
 impl PlatformDispatcher for WindowsDispatcher {
-    fn get_all_timings(&self) -> Vec<ThreadTaskTimings> {
-        let global_thread_timings = GLOBAL_THREAD_TIMINGS.lock();
-        ThreadTaskTimings::convert(&global_thread_timings)
-    }
-
-    fn get_current_thread_timings(&self) -> gpui::ThreadTaskTimings {
-        gpui::profiler::get_current_thread_task_timings()
-    }
-
     fn is_main_thread(&self) -> bool {
         current().id() == self.main_thread_id
     }

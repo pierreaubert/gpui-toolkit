@@ -680,6 +680,14 @@ impl Platform for WindowsPlatform {
         }
     }
 
+    fn hide_cursor_until_mouse_moves(&self) {
+        unsafe { ShowCursor(false) };
+    }
+
+    fn is_cursor_visible(&self) -> bool {
+        self.inner.state.current_cursor.get().is_some()
+    }
+
     fn should_auto_hide_scrollbars(&self) -> bool {
         should_auto_hide_scrollbars().log_err().unwrap_or(false)
     }
