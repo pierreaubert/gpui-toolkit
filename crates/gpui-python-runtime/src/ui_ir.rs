@@ -2714,7 +2714,7 @@ impl ChartNode {
                         id: self.id.clone(),
                         field: "height_count",
                     })?;
-                let expected = width.checked_mul(height).unwrap_or(usize::MAX);
+                let expected = width.saturating_mul(height);
                 if z.len() != expected {
                     return Err(UiIrError::HeatmapDimensionMismatch {
                         id: self.id.clone(),

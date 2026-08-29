@@ -345,8 +345,8 @@ impl WgpuCustomDraw for WgpuVelloDraw {
 
         // The renderer is shared by the device; each element still owns its
         // offscreen texture and composite uniform buffer.
-        if rerasterize {
-            if let Err(err) = gpu.shared.renderer.borrow_mut().render_to_texture(
+        if rerasterize
+            && let Err(err) = gpu.shared.renderer.borrow_mut().render_to_texture(
                 &ctx.device,
                 &ctx.queue,
                 &gpu.encoded_scene
@@ -360,11 +360,11 @@ impl WgpuCustomDraw for WgpuVelloDraw {
                     height: size[1],
                     antialiasing_method: AaConfig::Area,
                 },
-            ) {
-                // Transient: log and leave the previous frame's content.
-                log::error!("vello2d: render_to_texture failed: {err}");
-                return;
-            }
+            )
+        {
+            // Transient: log and leave the previous frame's content.
+            log::error!("vello2d: render_to_texture failed: {err}");
+            return;
         }
 
         let origin_x: f32 = bounds.origin.x.into();

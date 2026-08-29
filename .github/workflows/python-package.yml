@@ -47,7 +47,9 @@ jobs:
       - name: Install Python build tools
         run: python -m pip install --upgrade pip setuptools wheel
       - name: Install package metadata for tests
-        run: python -m pip install --no-deps --no-build-isolation --editable .
+        run: |
+          python -m pip uninstall --yes gpui-toolkit
+          python -m pip install --no-deps --no-build-isolation --editable .
       - name: Install Linux native build dependencies
         if: runner.os == 'Linux'
         run: |
@@ -91,6 +93,9 @@ jobs:
     permissions:
       id-token: write
     steps:
+      - uses: actions/checkout@v4
+      - name: Verify release tag matches package version
+        run: python scripts/sync_versions.py --check --tag "${GITHUB_REF_NAME}"
       - uses: actions/download-artifact@v4
         with:
           pattern: gpui-toolkit-*

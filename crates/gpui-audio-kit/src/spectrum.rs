@@ -80,10 +80,10 @@ pub fn spectrum_frequency_axis_labels(min_freq: f32, max_freq: f32) -> Arc<[Spec
 
         let arc: Arc<[SpectrumAxisLabel]> = filtered.into();
         let mut cache = cache.borrow_mut();
-        if cache.len() >= FREQUENCY_AXIS_LABEL_CACHE_CAPACITY {
-            if let Some(evicted_key) = cache.keys().next().copied() {
-                cache.remove(&evicted_key);
-            }
+        if cache.len() >= FREQUENCY_AXIS_LABEL_CACHE_CAPACITY
+            && let Some(evicted_key) = cache.keys().next().copied()
+        {
+            cache.remove(&evicted_key);
         }
         cache.insert(key, arc.clone());
         arc

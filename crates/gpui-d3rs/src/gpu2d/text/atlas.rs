@@ -211,7 +211,7 @@ impl TextAtlas {
         if self
             .current_x
             .checked_add(padded_width)
-            .map_or(true, |x| x > self.size)
+            .is_none_or(|x| x > self.size)
         {
             self.current_x = 0;
             self.current_y = self.current_y.checked_add(self.row_height)?;
@@ -220,7 +220,7 @@ impl TextAtlas {
         if self
             .current_y
             .checked_add(padded_height)
-            .map_or(true, |y| y > self.size)
+            .is_none_or(|y| y > self.size)
         {
             return None;
         }

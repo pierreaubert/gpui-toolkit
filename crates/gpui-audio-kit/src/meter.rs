@@ -48,10 +48,10 @@ pub fn format_meter_value(value: f64) -> SharedString {
         }
         let s: SharedString = format!("{value:.1}").into();
         let mut cache = cache.borrow_mut();
-        if cache.len() >= METER_VALUE_LABEL_CACHE_CAPACITY {
-            if let Some(evicted_key) = cache.keys().next().copied() {
-                cache.remove(&evicted_key);
-            }
+        if cache.len() >= METER_VALUE_LABEL_CACHE_CAPACITY
+            && let Some(evicted_key) = cache.keys().next().copied()
+        {
+            cache.remove(&evicted_key);
         }
         cache.insert(key, s.clone());
         s

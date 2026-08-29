@@ -84,13 +84,15 @@ struct RectDrawData {
     border: Rgba,
 }
 
+type RectGroupKey = (u32, u32, u32, u32);
+type RectGroups = BTreeMap<RectGroupKey, Vec<usize>>;
+type SharedRectDrawData = Rc<Vec<RectDrawData>>;
+type SharedRectGroups = Rc<RectGroups>;
+
 fn treemap_canvas_handles(
-    draw_data: &Rc<Vec<RectDrawData>>,
-    groups: &Rc<BTreeMap<(u32, u32, u32, u32), Vec<usize>>>,
-) -> (
-    Rc<Vec<RectDrawData>>,
-    Rc<BTreeMap<(u32, u32, u32, u32), Vec<usize>>>,
-) {
+    draw_data: &SharedRectDrawData,
+    groups: &SharedRectGroups,
+) -> (SharedRectDrawData, SharedRectGroups) {
     (Rc::clone(draw_data), Rc::clone(groups))
 }
 
@@ -504,7 +506,7 @@ impl Treemap {
                 // We only need to do this once per paint.
                 let _ = bounds_for_paint.borrow_mut().replace(bounds);
 
-                for (_, indices) in groups.iter() {
+                for indices in groups.values() {
                     if indices.is_empty() {
                         continue;
                     }

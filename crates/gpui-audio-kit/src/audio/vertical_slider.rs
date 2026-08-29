@@ -512,10 +512,10 @@ impl RenderOnce for VerticalSlider {
                     return handle.clone();
                 }
                 let handle = cx.focus_handle();
-                if handles.len() >= VERTICAL_SLIDER_FOCUS_HANDLE_CAPACITY {
-                    if let Some(evicted_id) = handles.keys().next().cloned() {
-                        handles.remove(&evicted_id);
-                    }
+                if handles.len() >= VERTICAL_SLIDER_FOCUS_HANDLE_CAPACITY
+                    && let Some(evicted_id) = handles.keys().next().cloned()
+                {
+                    handles.remove(&evicted_id);
                 }
                 handles.insert(element_id.clone(), handle.clone());
                 handle

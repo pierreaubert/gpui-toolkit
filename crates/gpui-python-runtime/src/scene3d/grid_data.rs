@@ -37,7 +37,7 @@ impl GridData {
                     z_len: values.len() + row.len(),
                     width,
                     height,
-                    expected: width.checked_mul(height).unwrap_or(usize::MAX),
+                    expected: width.saturating_mul(height),
                 });
             }
             values.extend(row);
@@ -53,7 +53,7 @@ impl GridData {
         if self.width == 0 || self.height == 0 || self.values.is_empty() {
             return Err(Scene3DError::EmptyData { field: "z" });
         }
-        let expected = self.width.checked_mul(self.height).unwrap_or(usize::MAX);
+        let expected = self.width.saturating_mul(self.height);
         if self.values.len() != expected {
             return Err(Scene3DError::GridDimensionMismatch {
                 z_len: self.values.len(),

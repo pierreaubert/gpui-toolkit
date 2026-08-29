@@ -20,7 +20,7 @@ impl gpui_pretext::TextMeasure for CountingMeasure {
 
     fn cache_key(&self) -> u64 {
         self.semantic_cache_key
-            .unwrap_or_else(|| (self as *const Self as *const () as usize) as u64)
+            .unwrap_or((self as *const Self as *const () as usize) as u64)
     }
 
     fn cache_key_is_stable(&self) -> bool {

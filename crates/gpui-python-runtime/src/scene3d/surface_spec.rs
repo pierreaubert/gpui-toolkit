@@ -34,7 +34,7 @@ fn default_axis_values(size: usize) -> &'static [f64] {
     let mut map = cache
         .write()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    *map.entry(size).or_insert_with(|| {
+    map.entry(size).or_insert_with(|| {
         let values: &'static [f64] = Box::leak(
             (0..size)
                 .map(|value| value as f64)

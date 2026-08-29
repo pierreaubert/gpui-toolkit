@@ -54,7 +54,7 @@ lint: lint-host
 
 [group('lint')]
 lint-host:
-    RUST_MIN_STACK=33554432 cargo clippy --workspace --all-targets {{features}} -- -D warnings -A clippy::chunks_exact_to_as_chunks -A clippy::needless_late_init -A clippy::obfuscated_if_else -A clippy::let_and_return -A clippy::unnecessary_cast
+    RUST_MIN_STACK=33554432 cargo clippy --workspace --all-targets {{features}} -- -D warnings -A clippy::chunks_exact_to_as_chunks -A clippy::needless_late_init -A clippy::obfuscated_if_else -A clippy::let_and_return -A clippy::unnecessary_cast -A clippy::items_after_test_module -A clippy::type_complexity
 
 [group('lint')]
 lint-all: lint-host lint-ios-rust
@@ -212,6 +212,14 @@ qa-release-contract: qa-api
 [group('release')]
 release-rc version:
 	python3 scripts/release_rc.py {{version}}
+
+[group('release')]
+sync-version version:
+	python3 scripts/sync_versions.py {{version}}
+
+[group('release')]
+check-version:
+	python3 scripts/sync_versions.py --check
 
 # Dependency, advisory, license, and source-origin policy. cargo-deny is the
 # canonical release check; keeping it in `qa` prevents the policy from becoming

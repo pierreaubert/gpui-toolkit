@@ -164,10 +164,10 @@ pub(super) fn get_tick_geometry(
             label_radius,
         ));
         let mut cache = cache.borrow_mut();
-        if cache.len() >= GEOMETRY_CACHE_CAPACITY {
-            if let Some(evicted_key) = cache.keys().next().copied() {
-                cache.remove(&evicted_key);
-            }
+        if cache.len() >= GEOMETRY_CACHE_CAPACITY
+            && let Some(evicted_key) = cache.keys().next().copied()
+        {
+            cache.remove(&evicted_key);
         }
         cache.insert(key, geometry.clone());
         geometry
@@ -438,10 +438,10 @@ impl Element for PotentiometerTickLinesElement {
             let scene = Arc::new(scene);
             TICK_SCENE_CACHE.with(|cache| {
                 let mut cache = cache.borrow_mut();
-                if cache.len() >= TICK_SCENE_CACHE_CAPACITY {
-                    if let Some(evicted_key) = cache.keys().next().copied() {
-                        cache.remove(&evicted_key);
-                    }
+                if cache.len() >= TICK_SCENE_CACHE_CAPACITY
+                    && let Some(evicted_key) = cache.keys().next().copied()
+                {
+                    cache.remove(&evicted_key);
                 }
                 cache.insert(scene_key, Arc::clone(&scene));
             });

@@ -411,10 +411,8 @@ impl Wizard {
                 if let Some(on_back) = &on_back {
                     on_back(current_step, window, cx);
                 }
-                if current_step > 0 {
-                    if let Some(on_step_change) = &on_step_change {
-                        on_step_change(current_step - 1, window, cx);
-                    }
+                if current_step > 0 && let Some(on_step_change) = &on_step_change {
+                    on_step_change(current_step - 1, window, cx);
                 }
             });
         }

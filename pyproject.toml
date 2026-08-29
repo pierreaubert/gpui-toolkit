@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "gpui-toolkit"
-version = "0.9.15"
+version = "0.9.16"
 description = "Python declarations for GPUI Toolkit apps and retained 3D scene specs"
 readme = "crates/gpui-python-runtime/README.md"
 requires-python = ">=3.10"
