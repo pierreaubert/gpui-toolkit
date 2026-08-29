@@ -56,7 +56,18 @@ class RuntimeShowcaseSessionTests(unittest.TestCase):
 
         with contextlib.redirect_stdout(output):
             RuntimeShowcase().on_action(event, context)
-            time.sleep(0.55)
+            deadline = time.monotonic() + 60.0
+            while time.monotonic() < deadline:
+                history = context.job_history()
+                if any(
+                    job["id"] == "showcase-simulation"
+                    and job["state"] in {"succeeded", "failed", "cancelled"}
+                    for job in history
+                ):
+                    break
+                time.sleep(min(5.0, deadline - time.monotonic()))
+            else:
+                self.fail("showcase simulation did not reach a terminal state within one minute")
 
         messages = [json.loads(line) for line in output.getvalue().splitlines()]
         self.assertIn({"type": "acknowledged", "request_id": "event-run"}, messages)
