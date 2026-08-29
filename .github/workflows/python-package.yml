@@ -12,6 +12,7 @@ permissions:
 jobs:
   build:
     name: Build wheel (${{ matrix.platform }})
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
@@ -20,40 +21,31 @@ jobs:
             platform: linux-x86_64
             platform_tag: linux_x86_64
             host: target/release/gpui-python-host
+            build_fallback: true
           - os: macos-14
             platform: macos-arm64
             platform_tag: macosx_14_0_arm64
             host: target/release/gpui-python-host
+            build_fallback: false
           - os: macos-13
             platform: macos-x86_64
             platform_tag: macosx_10_13_x86_64
             host: target/release/gpui-python-host
+            build_fallback: false
           - os: windows-latest
             platform: windows-x86_64
             platform_tag: win_amd64
             host: target/release/gpui-python-host.exe
-    runs-on: ${{ matrix.os }}
+            build_fallback: false
+
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Verify Python declaration surface
-        run: python scripts/check_python_surface.py --strict
-      - name: Run Python declaration tests
-        env:
-          PYTHONPATH: crates/gpui-python-runtime/python
-        run: >-
-          python -m unittest discover
-          -s crates/gpui-python-runtime/python/tests
-          -p 'test_*.py'
-      - name: Verify Rust and Python package version parity
-        run: >-
-          python -c 'import pathlib, re, tomllib; root = pathlib.Path("Cargo.toml").read_text(); rust = re.search(r"(?ms)^\[workspace\.package\].*?^version\s*=\s*\"([^\"]+)\"", root).group(1); pyproject = tomllib.loads(pathlib.Path("crates/gpui-python-runtime/pyproject.toml").read_text())["project"]["version"]; module = re.search(r"(?m)^__version__\s*=\s*\"([^\"]+)\"", pathlib.Path("crates/gpui-python-runtime/python/gpui_toolkit/__init__.py").read_text()).group(1); assert (rust, pyproject, module) == (rust, rust, rust), (rust, pyproject, module)'
       - name: Install Python build tools
         run: python -m pip install --upgrade pip setuptools wheel
-
       - name: Install Linux native build dependencies
         if: runner.os == 'Linux'
         run: |
@@ -63,21 +55,25 @@ jobs:
             libx11-xcb-dev libxkbcommon-dev libxkbcommon-x11-dev \
             libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
             libxrandr-dev libxi-dev libxcursor-dev
-
+      - name: Verify Python declaration surface
+        run: python scripts/check_python_surface.py --strict
+      - name: Run Python declaration tests
+        env:
+          PYTHONPATH: crates/gpui-python-runtime/python
+        run: python -m unittest discover -s crates/gpui-python-runtime/python/tests -p 'test_*.py'
+      - name: Verify package version parity
+        run: >-
+          python -c "import pathlib, re, tomllib; cargo = pathlib.Path('Cargo.toml').read_text(); rust = re.search(r'(?ms)^\\[workspace\\.package\\].*?^version\\s*=\\s*\"([^\"]+)\"', cargo).group(1); versions = [tomllib.loads(pathlib.Path(p).read_text())['project']['version'] for p in ('pyproject.toml', 'crates/gpui-python-runtime/pyproject.toml')]; module = re.search(r'^__version__\\s*=\\s*\"([^\"]+)\"', pathlib.Path('crates/gpui-python-runtime/python/gpui_toolkit/__init__.py').read_text(), re.M).group(1); assert [rust, *versions, module] == [rust] * 4, (rust, versions, module)"
       - name: Build native host
         run: cargo build -p gpui-python-runtime --features showcase --bin gpui-python-host --release
-
       - name: Build wheel with bundled host
         run: python scripts/build_python_package.py --host "${{ matrix.host }}" --platform-tag "${{ matrix.platform_tag }}"
-
-      - name: Build universal declarations-only fallback wheel
+      - name: Build declarations-only fallback wheel
+        if: matrix.build_fallback
         run: python -m pip wheel --no-deps --no-build-isolation --wheel-dir dist .
-
-      - name: Verify wheel contains a usable host
-        run: |
-          python -c "import glob, subprocess, sys; wheel = glob.glob('dist/*-${{ matrix.platform_tag }}.whl')[0]; subprocess.check_call([sys.executable, '-m', 'pip', 'install', '--no-deps', '--target', 'wheel-check', wheel])"
-          python -c "import sys; sys.path.insert(0, 'wheel-check'); from gpui_toolkit.app import _host_binary; host = _host_binary(); assert host and host.endswith(('gpui-python-host', 'gpui-python-host.exe')); print(host)"
-
+      - name: Verify bundled wheel
+        run: >-
+          python -c "import glob, subprocess, sys; wheel = glob.glob('dist/*-${{ matrix.platform_tag }}.whl')[0]; subprocess.check_call([sys.executable, '-m', 'pip', 'install', '--no-deps', '--target', 'wheel-check', wheel]); sys.path.insert(0, 'wheel-check'); from gpui_toolkit.app import _host_binary; host = _host_binary(); assert host and host.endswith(('gpui-python-host', 'gpui-python-host.exe')); print(host)"
       - uses: actions/upload-artifact@v4
         with:
           name: gpui-toolkit-${{ matrix.platform }}
@@ -85,13 +81,15 @@ jobs:
           if-no-files-found: error
 
   publish:
+    name: Publish wheels to PyPI
     if: startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push'
     needs: build
     runs-on: ubuntu-latest
+    environment: pypi
     permissions:
       id-token: write
     steps:
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@v4
         with:
           pattern: gpui-toolkit-*
           merge-multiple: true

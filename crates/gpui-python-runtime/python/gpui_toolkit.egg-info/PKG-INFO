@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: gpui-toolkit
-Version: 0.9.7
+Version: 0.9.11
 Summary: Python declarations for GPUI Toolkit apps and retained 3D scene specs
 Author-email: "Pierre F. Aubert" <pierre@spinorama.org>
 License: ISC
