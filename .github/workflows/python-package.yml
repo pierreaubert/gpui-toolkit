@@ -27,7 +27,7 @@ jobs:
             platform_tag: macosx_14_0_arm64
             host: target/release/gpui-python-host
             build_fallback: false
-          - os: macos-13
+          - os: macos-15-intel
             platform: macos-x86_64
             platform_tag: macosx_10_13_x86_64
             host: target/release/gpui-python-host
@@ -39,9 +39,9 @@ jobs:
             build_fallback: false
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
       - name: Install Python build tools
@@ -79,7 +79,7 @@ jobs:
       - name: Verify bundled wheel
         run: >-
           python -c "import glob, subprocess, sys; wheel = glob.glob('dist/*-${{ matrix.platform_tag }}.whl')[0]; subprocess.check_call([sys.executable, '-m', 'pip', 'install', '--no-deps', '--target', 'wheel-check', wheel]); sys.path.insert(0, 'wheel-check'); from gpui_toolkit.app import _host_binary; host = _host_binary(); assert host and host.endswith(('gpui-python-host', 'gpui-python-host.exe')); print(host)"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: gpui-toolkit-${{ matrix.platform }}
           path: dist/*.whl
@@ -94,10 +94,10 @@ jobs:
     permissions:
       id-token: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Verify release tag matches package version
         run: python scripts/sync_versions.py --check --tag "${GITHUB_REF_NAME}"
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v5
         with:
           pattern: gpui-toolkit-*
           merge-multiple: true
