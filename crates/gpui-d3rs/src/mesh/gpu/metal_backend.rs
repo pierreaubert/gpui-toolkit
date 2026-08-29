@@ -1,3 +1,4 @@
+use super::metal_upload_guard::interleaved_upload_fits_retained_vertices;
 use super::{
     FieldRevision, GeometryRevision, MeshGpuRenderer, MeshSceneState, replace_retained_field,
 };
@@ -515,7 +516,7 @@ impl MetalResources {
         // caller can replace the retained upload independently. Never let an
         // interleaved update address beyond the vertex buffer that was
         // allocated for this resource generation.
-        if upload.indices.len() != self.vertex_count {
+        if !interleaved_upload_fits_retained_vertices(upload.indices.len(), self.vertex_count) {
             return 0;
         }
 

@@ -283,7 +283,6 @@ public class GpuiActivity extends NativeActivity {
     }
 
     private static final class GpuiInputView extends View {
-        private static final int MAX_SHADOW_CODE_UNITS = 4096;
         private final Editable editable = new SpannableStringBuilder();
         private final GpuiAccessibilityProvider accessibilityProvider;
         private int inputType = EditorInfo.TYPE_CLASS_TEXT;
@@ -315,7 +314,7 @@ public class GpuiActivity extends NativeActivity {
         }
 
         private void trimEditable() {
-            int excess = editable.length() - MAX_SHADOW_CODE_UNITS;
+            int excess = InputShadowBufferPolicy.trimPrefixLength(editable.length());
             if (excess > 0) {
                 editable.delete(0, excess);
             }

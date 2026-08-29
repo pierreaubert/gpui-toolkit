@@ -350,21 +350,20 @@ impl MiniApp {
                     .map(|variant| Self::theme_menu_item(variant, current_theme))
                     .collect::<Vec<_>>();
                 theme_items.push(MenuItem::separator());
-                theme_items.push(MenuItem::action("Toggle Theme  Cmd+T", ToggleTheme));
+                theme_items.push(MenuItem::action(
+                    if cfg!(target_os = "macos") {
+                        "Toggle Theme  Cmd+T"
+                    } else {
+                        "Toggle Theme"
+                    },
+                    ToggleTheme,
+                ));
 
                 view_items.push(MenuItem::submenu(Menu {
                     name: "Theme".into(),
                     disabled: false,
                     items: theme_items,
                 }));
-            }
-
-            #[cfg(not(target_os = "macos"))]
-            {
-                // `secondary-t` is Ctrl+T here, so do not show a macOS-only
-                // accelerator in the native menu label.
-                theme_items.pop();
-                theme_items.push(MenuItem::action("Toggle Theme", ToggleTheme));
             }
 
             view_items.push(MenuItem::submenu(Menu {

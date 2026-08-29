@@ -375,3 +375,7 @@ any readback — the data already flows one way.
   and are `RefCell`-scoped without re-entrant borrows.
 - The automation-pattern and visual-regression manifest modules are pure data
   with consistent, test-pinned contracts.
+
+## Follow-up regression evidence
+
+- Finding 6 now has real GPUI integration coverage for `Potentiometer`, `VerticalSlider`, and `VolumeKnob`: each test presses, drags, and releases outside the control, then asserts the final drag value is applied and `on_commit` fires exactly once. `cargo test -p gpui-audio-kit` passed (104 library, 1 allocation, 28 component, 2 token, and 126 integration tests).

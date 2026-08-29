@@ -13,6 +13,8 @@ pub mod platform_view;
 mod accessibility;
 #[cfg(target_os = "android")]
 pub mod android;
+#[cfg(any(target_os = "android", test))]
+mod lifecycle;
 
 #[cfg(target_os = "android")]
 pub fn current_platform(headless: bool) -> std::rc::Rc<dyn gpui::Platform> {

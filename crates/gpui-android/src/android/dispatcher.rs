@@ -37,6 +37,8 @@ use std::{
 use gpui::{PlatformDispatcher, Priority, RunnableVariant};
 use parking_lot::Mutex;
 
+use crate::lifecycle::mark_main_thread_wake_pending;
+
 // ── NDK / libc symbols we need ────────────────────────────────────────────────
 
 /// `ALOOPER_POLL_CALLBACK` — the fd was signalled and the callback fired.
@@ -261,7 +263,7 @@ impl AndroidDispatcher {
         }
         let mut q = self.main_queue.lock();
         q.tasks.push_back(Box::new(f));
-        self.main_thread_wake_pending.store(true, Ordering::Release);
+        mark_main_thread_wake_pending(&self.main_thread_wake_pending);
         wake_pipe(q.write_fd);
     }
 
@@ -542,7 +544,7 @@ impl PlatformDispatcher for AndroidDispatcher {
         q.tasks.push_back(Box::new(move || {
             runnable.run();
         }));
-        self.main_thread_wake_pending.store(true, Ordering::Release);
+        mark_main_thread_wake_pending(&self.main_thread_wake_pending);
         wake_pipe(q.write_fd);
     }
 

@@ -686,6 +686,19 @@ mod tests {
     }
 
     #[test]
+    fn reviewed_figma_examples_keep_current_component_apis_and_paths() {
+        let rules = include_str!("../../figma/DESIGN_SYSTEM_RULES.md");
+        let mappings = include_str!("../../figma/CODE_CONNECT_MAPPINGS.md");
+
+        assert!(rules.contains("Toggle::new(\"enable-toggle\")\n    .checked(is_checked)"));
+        assert!(mappings.contains("Toggle::new(\"id\")\n    .checked(checked)"));
+        assert!(mappings.contains("Select::new(\"id\").options(vec!["));
+        assert!(rules.contains("crates/gpui-ui-kit/"));
+        assert!(!rules.contains("crates/gpui-toolkit/"));
+        assert!(!rules.contains("crates/gpui-icons/"));
+    }
+
+    #[test]
     fn design_tooling_handoff_json_contract_is_stable() {
         let report = design_tooling_handoff_report();
         let json = serde_json::to_value(&report).unwrap();

@@ -43,6 +43,13 @@ struct GpuState {
     composite: Option<CompositePipeline>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct SceneStamp {
+    revision: u64,
+    size: [u32; 2],
+    logical_size: [u32; 2],
+}
+
 /// Encoded vello scene retained until the chart revision or physical scale
 /// changes. Encoding path commands is measurable for dense plots, whereas a
 /// steady-state custom draw only needs to submit the retained scene.
@@ -51,6 +58,58 @@ struct EncodedScene {
     size: [u32; 2],
     logical_size: [u32; 2],
     scene: vello::Scene,
+}
+
+impl EncodedScene {
+    fn stamp(&self) -> SceneStamp {
+        SceneStamp {
+            revision: self.revision,
+            size: self.size,
+            logical_size: self.logical_size,
+        }
+    }
+}
+
+fn scene_needs_rasterization(previous: Option<SceneStamp>, current: SceneStamp) -> bool {
+    previous != Some(current)
+}
+
+#[cfg(test)]
+mod scene_stamp_tests {
+    use super::{SceneStamp, scene_needs_rasterization};
+
+    #[test]
+    fn rerasterizes_only_for_scene_or_extent_changes() {
+        let current = SceneStamp {
+            revision: 7,
+            size: [800, 600],
+            logical_size: [400.0_f32.to_bits(), 300.0_f32.to_bits()],
+        };
+
+        assert!(scene_needs_rasterization(None, current));
+        assert!(!scene_needs_rasterization(Some(current), current));
+        assert!(scene_needs_rasterization(
+            Some(SceneStamp {
+                revision: 6,
+                ..current
+            }),
+            current,
+        ));
+        assert!(scene_needs_rasterization(
+            Some(SceneStamp {
+                size: [1600, 1200],
+                ..current
+            }),
+            current,
+        ));
+        assert!(scene_needs_rasterization(
+            Some(SceneStamp {
+                logical_size: [500.0_f32.to_bits(), 300.0_f32.to_bits()],
+                ..current
+            }),
+            current,
+        ));
+    }
 }
 
 /// Device-scoped state that can safely be shared by every chart custom draw.
@@ -252,9 +311,15 @@ impl WgpuCustomDraw for WgpuVelloDraw {
             ));
         }
         let logical_size = [logical_size.0.to_bits(), logical_size.1.to_bits()];
-        let rerasterize = gpu.encoded_scene.as_ref().is_none_or(|scene| {
-            scene.revision != revision || scene.size != size || scene.logical_size != logical_size
-        });
+        let scene_stamp = SceneStamp {
+            revision,
+            size,
+            logical_size,
+        };
+        let rerasterize = scene_needs_rasterization(
+            gpu.encoded_scene.as_ref().map(EncodedScene::stamp),
+            scene_stamp,
+        );
         if rerasterize {
             let [sx, sy] = scene_scale(
                 f32::from_bits(logical_size[0]),

@@ -192,13 +192,19 @@ async fn test_menu_registers_named_items_and_states(cx: &mut TestAppContext) {
         assert_eq!(menu.label.as_ref(), "Actions");
 
         let open = tree
-            .get(&ElementId::Name("menu-item-open".into()))
+            .get(&ElementId::from((
+                ElementId::from("actions-menu"),
+                "menu-item-open",
+            )))
             .expect("menu item should be registered");
         assert_eq!(open.props.role, AriaRole::Menuitem);
         assert_eq!(open.label.as_ref(), "Open");
 
         let pin = tree
-            .get(&ElementId::Name("menu-item-pin".into()))
+            .get(&ElementId::from((
+                ElementId::from("actions-menu"),
+                "menu-item-pin",
+            )))
             .expect("checkbox menu item should be registered");
         assert_eq!(pin.props.role, AriaRole::Checkbox);
         assert!(pin.props.states.contains(&AriaState::Checked(true)));

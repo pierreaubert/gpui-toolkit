@@ -18,8 +18,6 @@ import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.util.Locale;
-import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Read-only provider for files explicitly handed to an external system app.
@@ -32,20 +30,9 @@ import java.util.concurrent.ConcurrentHashMap;
 public final class GpuiFileProvider extends ContentProvider {
     public static final String AUTHORITY_SUFFIX = ".gpui.fileprovider";
 
-    private static final long LEASE_MILLIS = 10 * 60 * 1_000L;
     private static final Handler CLEANUP_HANDLER = new Handler(Looper.getMainLooper());
-    private static final ConcurrentHashMap<String, FileLease> FILES =
-            new ConcurrentHashMap<>();
-
-    private static final class FileLease {
-        final File file;
-        final long expiresAtUptimeMillis;
-
-        FileLease(File file, long expiresAtUptimeMillis) {
-            this.file = file;
-            this.expiresAtUptimeMillis = expiresAtUptimeMillis;
-        }
-    }
+    private static final FileLeaseRegistry FILES =
+            new FileLeaseRegistry(SystemClock::uptimeMillis);
 
     static Uri registerFile(Context context, File file) throws IOException {
         File canonical = file.getCanonicalFile();
@@ -53,15 +40,13 @@ public final class GpuiFileProvider extends ContentProvider {
             throw new FileNotFoundException("File is not readable");
         }
 
-        String token = UUID.randomUUID().toString();
-        long expiresAtUptimeMillis = SystemClock.uptimeMillis() + LEASE_MILLIS;
-        FileLease lease = new FileLease(canonical, expiresAtUptimeMillis);
-        FILES.put(token, lease);
-        CLEANUP_HANDLER.postAtTime(() -> FILES.remove(token, lease), expiresAtUptimeMillis);
+        FileLeaseRegistry.Registration registration = FILES.register(canonical);
+        CLEANUP_HANDLER.postAtTime(
+                () -> FILES.remove(registration), registration, registration.expiresAtUptimeMillis);
         return new Uri.Builder()
                 .scheme(ContentResolver.SCHEME_CONTENT)
                 .authority(context.getPackageName() + AUTHORITY_SUFFIX)
-                .appendPath(token)
+                .appendPath(registration.token)
                 .build();
     }
 
@@ -132,7 +117,7 @@ public final class GpuiFileProvider extends ContentProvider {
     @Override
     public int delete(Uri uri, String selection, String[] selectionArgs) {
         String token = token(uri);
-        return token == null || FILES.remove(token) == null ? 0 : 1;
+        return FILES.remove(token) ? 1 : 0;
     }
 
     @Override
@@ -157,14 +142,6 @@ public final class GpuiFileProvider extends ContentProvider {
         if (token == null) {
             return null;
         }
-        FileLease lease = FILES.get(token);
-        if (lease == null) {
-            return null;
-        }
-        if (lease.expiresAtUptimeMillis <= SystemClock.uptimeMillis()) {
-            FILES.remove(token, lease);
-            return null;
-        }
-        return lease.file;
+        return FILES.resolve(token);
     }
 }

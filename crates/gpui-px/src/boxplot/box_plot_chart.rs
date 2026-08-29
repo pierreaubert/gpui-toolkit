@@ -57,6 +57,10 @@ struct BoxDrawData {
     outliers_high: Vec<f32>,
 }
 
+fn boxplot_canvas_draw_data_handle(draw_data: &Rc<Vec<BoxDrawData>>) -> Rc<Vec<BoxDrawData>> {
+    Rc::clone(draw_data)
+}
+
 impl BoxPlotChart {
     /// Select the high-level 2D renderer. Vello is the default when enabled.
     pub fn renderer_2d(mut self, renderer: Renderer2D) -> Self {
@@ -529,7 +533,7 @@ impl BoxPlotChart {
         let vello_draw_data = (renderer_2d == Renderer2D::Vello).then(|| Rc::clone(&draw_data));
 
         let legacy_plot = canvas(
-            move |_bounds, _window, _cx| Rc::clone(&draw_data),
+            move |_bounds, _window, _cx| boxplot_canvas_draw_data_handle(&draw_data),
             move |bounds, draw_data, window, _cx| {
                 let origin_x: f32 = bounds.origin.x.into();
                 let origin_y: f32 = bounds.origin.y.into();
@@ -900,6 +904,15 @@ mod tests {
 
         assert!(Arc::ptr_eq(&chart.x, &cloned.x));
         assert!(Arc::ptr_eq(&chart.y, &cloned.y));
+    }
+
+    #[test]
+    fn boxplot_canvas_prepaint_reuses_retained_draw_data() {
+        let draw_data = Rc::<Vec<BoxDrawData>>::default();
+
+        let canvas_draw_data = boxplot_canvas_draw_data_handle(&draw_data);
+
+        assert!(Rc::ptr_eq(&draw_data, &canvas_draw_data));
     }
 
     #[test]

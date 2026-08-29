@@ -4,7 +4,21 @@ use super::tile::tile_squarify;
 use super::tiling_method::{compute_treemap, treemap};
 use super::treemap_node::TreemapNode;
 use super::types::TilingMethod;
+use super::{RectDrawData, treemap_canvas_handles};
 use crate::{StaticSvgOptions, error::ChartError};
+use std::collections::BTreeMap;
+use std::rc::Rc;
+
+#[test]
+fn treemap_canvas_prepaint_reuses_retained_draw_data_and_groups() {
+    let draw_data = Rc::<Vec<RectDrawData>>::default();
+    let groups = Rc::<BTreeMap<(u32, u32, u32, u32), Vec<usize>>>::default();
+
+    let (canvas_draw_data, canvas_groups) = treemap_canvas_handles(&draw_data, &groups);
+
+    assert!(Rc::ptr_eq(&draw_data, &canvas_draw_data));
+    assert!(Rc::ptr_eq(&groups, &canvas_groups));
+}
 
 #[test]
 fn test_treemap_node_creation() {

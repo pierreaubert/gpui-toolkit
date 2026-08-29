@@ -57,6 +57,7 @@ use std::sync::{
 };
 
 use super::{AndroidKeyEvent, Bounds, DevicePixels, Pixels, Point, Size, TouchPoint};
+use crate::lifecycle::{active_state_changed, restore_taken_value};
 use crate::momentum::{MomentumScroller, VelocityTracker};
 
 /// Lightweight, owned window handle for wgpu surface creation.
@@ -472,7 +473,7 @@ impl Drop for RendererRestore<'_> {
         };
         let mut state = self.state.lock();
         if state.renderer.is_none() {
-            state.renderer = Some(renderer);
+            restore_taken_value(&mut state.renderer, renderer);
         }
     }
 }
@@ -960,14 +961,8 @@ impl AndroidWindow {
     ///
     /// Called by `on_window_focus_changed` in `jni.rs`.
     pub fn set_active(&self, active: bool) {
-        use std::sync::atomic::Ordering;
-        let prev = self.active.swap(active, Ordering::Relaxed);
-        if prev != active {
-            log::info!(
-                "AndroidWindow::set_active({}) — changed from {}",
-                active,
-                prev
-            );
+        if active_state_changed(&self.active, active) {
+            log::info!("AndroidWindow::set_active({}) — changed", active);
             // Take the callback out of the state so we can invoke it WITHOUT
             // holding the window state lock.  The callback wraps a GPUI
             // closure that acquires its own Mutex (and may call back into

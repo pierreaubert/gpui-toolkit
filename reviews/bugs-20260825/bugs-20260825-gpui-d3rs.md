@@ -130,3 +130,7 @@ The retained-mesh wgpu backend (`src/mesh/gpu/wgpu_backend.rs`) and the vello2d 
 ## Resolution status
 
 - [x] 10. **Text atlas exhaustion** (2026-08-26): the single atlas now doubles and deterministically repacks cached glyphs up to the adapter's maximum 2D texture size. A failed maximum-size repack restores the previous texture, bind group, and glyph cache rather than dropping existing text. Verified by `cargo test -p gpui-d3rs --test text_atlas_growth` (1 passed).
+
+## Follow-up regression evidence
+
+- Vello retained-scene invalidation is now checked to rerasterize only when the scene or extent changes. The Metal interleaved-field upload path also rejects a changed vertex topology before reusing buffer capacity. Verified with the focused Vello test and `cargo test -p gpui-d3rs --features gpu-metal --lib interleaved_field_upload_rejects_a_changed_vertex_topology`; `cargo check -p gpui-d3rs --features gpu-metal` passed.

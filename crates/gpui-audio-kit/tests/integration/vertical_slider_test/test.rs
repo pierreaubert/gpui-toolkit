@@ -17,7 +17,7 @@ use super::slider_select_interaction_view::SliderSelectInteractionView;
 use super::slider_track_click_view::SliderTrackClickView;
 use super::vertical_slider_test_view::VerticalSliderTestView;
 use gpui::{
-    Context, Modifiers, ScrollDelta, ScrollWheelEvent, TestAppContext, TouchPhase,
+    Context, Modifiers, MouseButton, ScrollDelta, ScrollWheelEvent, TestAppContext, TouchPhase,
     VisualTestContext, Window, div, point, prelude::*, px,
 };
 use gpui_audio_kit::AudioScale as Scale;
@@ -29,9 +29,74 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
+struct OutsideReleaseSliderView {
+    value: Rc<RefCell<f64>>,
+    change_count: Arc<AtomicUsize>,
+    commit_count: Arc<AtomicUsize>,
+}
+
+impl Render for OutsideReleaseSliderView {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        let value = self.value.clone();
+        let change_count = self.change_count.clone();
+        let commit_count = self.commit_count.clone();
+
+        div().size_full().relative().child(
+            div().absolute().left(px(100.0)).top(px(100.0)).child(
+                VerticalSlider::new("outside-release-slider")
+                    .value(*self.value.borrow())
+                    .min(0.0)
+                    .max(100.0)
+                    .label("")
+                    .on_change(move |next_value, _window, _cx| {
+                        *value.borrow_mut() = next_value;
+                        change_count.fetch_add(1, Ordering::SeqCst);
+                    })
+                    .on_commit(move |_value, _window, _cx| {
+                        commit_count.fetch_add(1, Ordering::SeqCst);
+                    }),
+            ),
+        )
+    }
+}
+
 #[gpui::test]
 async fn test_vertical_slider_renders(cx: &mut TestAppContext) {
     let _window = cx.add_window(|_window, _cx| VerticalSliderTestView);
+}
+
+#[gpui::test]
+async fn test_vertical_slider_commits_drag_released_outside(cx: &mut TestAppContext) {
+    let value = Rc::new(RefCell::new(50.0));
+    let change_count = Arc::new(AtomicUsize::new(0));
+    let commit_count = Arc::new(AtomicUsize::new(0));
+    let window = cx.add_window({
+        let value = value.clone();
+        let change_count = change_count.clone();
+        let commit_count = commit_count.clone();
+        move |_window, _cx| OutsideReleaseSliderView {
+            value,
+            change_count,
+            commit_count,
+        }
+    });
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    cx.run_until_parked();
+
+    let start = point(px(135.0), px(170.0));
+    let release_outside = point(px(300.0), px(400.0));
+    cx.simulate_mouse_down(start, MouseButton::Left, Modifiers::default());
+    cx.run_until_parked();
+    cx.simulate_mouse_up(release_outside, MouseButton::Left, Modifiers::default());
+    cx.run_until_parked();
+
+    assert_ne!(
+        *value.borrow(),
+        50.0,
+        "outside release must apply the final drag delta"
+    );
+    assert_eq!(change_count.load(Ordering::SeqCst), 1);
+    assert_eq!(commit_count.load(Ordering::SeqCst), 1);
 }
 
 #[gpui::test]

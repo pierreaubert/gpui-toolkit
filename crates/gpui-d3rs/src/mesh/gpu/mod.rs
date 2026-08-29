@@ -36,6 +36,8 @@ pub use wgpu_backend::WgpuMeshRenderer;
 
 #[cfg(all(target_os = "macos", feature = "gpu-metal", not(test)))]
 mod metal_backend;
+#[cfg(all(target_os = "macos", feature = "gpu-metal"))]
+mod metal_upload_guard;
 #[cfg(all(target_os = "macos", feature = "gpu-metal", not(test)))]
 mod shaders_metal;
 #[cfg(all(target_os = "macos", feature = "gpu-metal", not(test)))]

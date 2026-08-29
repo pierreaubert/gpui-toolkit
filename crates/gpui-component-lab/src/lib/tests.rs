@@ -299,7 +299,7 @@ fn visual_manifest_expands_renderer_backed_stories_for_ci_screenshots() {
     assert!(
         button_cases
             .iter()
-            .all(|case| case.capture_id.starts_with("ui-kit-button__"))
+            .all(|case| case.capture_id.starts_with("ui~2dkit~2ebutton__"))
     );
     assert!(button_cases.iter().all(|case| {
         case.baseline_path
@@ -330,7 +330,7 @@ fn visual_manifest_markdown_table_is_ci_attachable() {
     let markdown = manifest.to_markdown_table();
 
     assert!(markdown.contains("| capture | story | viewport | theme | baseline | actual | diff |"));
-    assert!(markdown.contains("`ui-kit-button__"));
+    assert!(markdown.contains("`ui~2dkit~2ebutton__"));
     assert!(markdown.contains("target/lab-visual/unspecified/baseline"));
     assert!(markdown.contains("target/lab-visual/unspecified/diff"));
 }

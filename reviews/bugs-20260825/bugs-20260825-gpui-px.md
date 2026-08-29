@@ -96,3 +96,7 @@ Areas checked that look correct:
 - **Slice/dice/binary tiling**: unlike squarify, these emit one rect per child in declaration order, so the `compute_treemap` zip is aligned; zero totals are rejected before layout (`treemap.rs:113-119`, `treemap/tiling_method.rs:59-62`).
 - **Box statistics**: whisker fallback to data min/max when no points fall inside the 1.5×IQR fence is handled in both live and static paths (`boxplot/box_stats.rs`, `static_export.rs:834-839`); `.bins(0)` is rejected up front in both.
 - **RefCell usage** in mesh interaction handlers is short-lived, and paint callbacks use `try_borrow` (`mesh_plot_chart.rs:3757`), so no re-entrant borrow panics from the paint path.
+
+## Follow-up regression evidence
+
+- Finding 5 now asserts pointer identity for the `Rc` draw-data handles passed into treemap and boxplot canvas prepaint closures, proving render-time data is shared rather than deep-cloned. Focused tests pass; the treemap and boxplot library groups pass with 32 and 49 tests respectively.

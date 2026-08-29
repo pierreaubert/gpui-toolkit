@@ -84,6 +84,16 @@ struct RectDrawData {
     border: Rgba,
 }
 
+fn treemap_canvas_handles(
+    draw_data: &Rc<Vec<RectDrawData>>,
+    groups: &Rc<BTreeMap<(u32, u32, u32, u32), Vec<usize>>>,
+) -> (
+    Rc<Vec<RectDrawData>>,
+    Rc<BTreeMap<(u32, u32, u32, u32), Vec<usize>>>,
+) {
+    (Rc::clone(draw_data), Rc::clone(groups))
+}
+
 impl Treemap {
     /// Select the high-level 2D renderer. Vello is the default when enabled.
     pub fn renderer_2d(mut self, renderer: Renderer2D) -> Self {
@@ -485,7 +495,7 @@ impl Treemap {
         let vello_draw_data = (renderer_2d == Renderer2D::Vello).then(|| Rc::clone(&draw_data));
 
         let legacy_canvas_element = canvas(
-            move |_bounds, _window, _cx| (Rc::clone(&draw_data), Rc::clone(&groups)),
+            move |_bounds, _window, _cx| treemap_canvas_handles(&draw_data, &groups),
             move |bounds, (draw_data, groups), window, _cx| {
                 let origin_x: f32 = bounds.origin.x.into();
                 let origin_y: f32 = bounds.origin.y.into();

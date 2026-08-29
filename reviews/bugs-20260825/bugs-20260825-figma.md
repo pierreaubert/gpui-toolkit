@@ -129,3 +129,7 @@ GPU bugs.
 - [x] M1. **Code Connect paths** (2026-08-26): removed the nonexistent `crates/gpui-toolkit/` prefix from all mapping and rule-document paths.
 - [x] M2/L1. **Project and icon guidance** (2026-08-26): corrected the workspace tree, removed the nonexistent `app-gpui` and `gpui-icons` entries, and documented the supported `IconButton` ownership model.
 - Verified by a zero-result scan for obsolete constructor calls, `on_toggle`, and the old path prefix in `crates/figma/`.
+
+## Follow-up regression evidence
+
+- `reviewed_figma_examples_keep_current_component_apis_and_paths` now pins the reviewed Toggle and Select builder forms plus the corrected crate-path/icon guidance. It runs in `cargo test -p gpui-design-tools`.

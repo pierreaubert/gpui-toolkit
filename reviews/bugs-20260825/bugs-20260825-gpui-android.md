@@ -283,3 +283,8 @@ Escape key.
   and unit-tested.
 - Key-code tables and meta-state bitmasks in `keyboard.rs` match
   `<android/keycodes.h>` / `<android/input.h>` on the values I spot-checked.
+
+## Follow-up regression evidence
+
+- Host-runnable lifecycle regressions now cover renderer restoration after unwinding, callback-visible active-state synchronization, and both dispatcher wake paths. `cargo test -p gpui-android` passed 11 library tests plus one doctest; `just showcase-android-check` also passed for `aarch64-linux-android`.
+- Java JVM regressions now exercise FileProvider lease expiry/cleanup through the registry used by `GpuiFileProvider`, plus the IME shadow-buffer trim policy used by `GpuiInputView`. `:app:testDebugUnitTest` passes with the installed Android SDK.

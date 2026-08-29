@@ -7,7 +7,6 @@ use gpui_profiler::{AllocProbe, AllocationBudget};
 use gpui_px::mesh_plot::{MeshPlotPick, MeshPlotState, pick_2d};
 use std::hint::black_box;
 use std::sync::Arc;
-use std::sync::Mutex;
 
 #[cfg(feature = "gpu-3d")]
 use d3rs::gpu3d::Camera3D;
@@ -16,15 +15,14 @@ use d3rs::mesh::{MeshBvh, RevolveSpec, revolve, revolve_field};
 #[cfg(feature = "gpu-3d")]
 use gpui_px::mesh_plot::picking3d::{pick_3d_with_bvh, pick_revolved_3d_with_bvh};
 
-static TEST_LOCK: Mutex<()> = Mutex::new(());
-
 fn skip_instrumented_runs() -> bool {
     std::env::var_os("CARGO_LLVM_COV").is_some()
 }
 
-#[test]
+// All allocation probes must run through the single test below. The profiler
+// observes the process-wide allocator, so separate libtest workers can add
+// their own thread-start allocations after a helper resets its baseline.
 fn hover_replacement_after_warmup_is_allocation_free() {
-    let _guard = TEST_LOCK.lock().unwrap();
     if skip_instrumented_runs() {
         return;
     }
@@ -54,9 +52,7 @@ fn hover_replacement_after_warmup_is_allocation_free() {
         .assert_contains(probe.sample("mesh-plot-hover-replace-1000x"));
 }
 
-#[test]
 fn navigation_after_warmup_does_not_grow_zoom_history_or_allocate() {
-    let _guard = TEST_LOCK.lock().unwrap();
     if skip_instrumented_runs() {
         return;
     }
@@ -78,9 +74,7 @@ fn navigation_after_warmup_does_not_grow_zoom_history_or_allocate() {
     assert_eq!(state.interaction.zoom_level(), 0);
 }
 
-#[test]
 fn alternating_field_updates_reuse_retained_capacity_and_preserve_state() {
-    let _guard = TEST_LOCK.lock().unwrap();
     if skip_instrumented_runs() {
         return;
     }
@@ -116,9 +110,7 @@ fn alternating_field_updates_reuse_retained_capacity_and_preserve_state() {
     assert!(state.selection.is_none());
 }
 
-#[test]
 fn field_replacement_preserves_zoom_and_a_real_selection() {
-    let _guard = TEST_LOCK.lock().unwrap();
     let mesh = TriangleMesh {
         id: "square".into(),
         positions: Arc::from([
@@ -172,9 +164,7 @@ fn field_replacement_preserves_zoom_and_a_real_selection() {
 }
 
 #[cfg(feature = "gpu-3d")]
-#[test]
 fn retained_3d_picking_reuses_the_bvh_and_stable_plot_id_without_allocating() {
-    let _guard = TEST_LOCK.lock().unwrap();
     if skip_instrumented_runs() {
         return;
     }
@@ -244,9 +234,7 @@ fn retained_3d_picking_reuses_the_bvh_and_stable_plot_id_without_allocating() {
 }
 
 #[cfg(feature = "gpu-3d")]
-#[test]
 fn retained_revolved_picking_reuses_derived_geometry_and_source_ids_without_allocating() {
-    let _guard = TEST_LOCK.lock().unwrap();
     if skip_instrumented_runs() {
         return;
     }
@@ -318,4 +306,17 @@ fn retained_revolved_picking_reuses_derived_geometry_and_source_ids_without_allo
     }
     AllocationBudget::zero("mesh-plot-retained-revolved-pick-1000x")
         .assert_contains(probe.sample("mesh-plot-retained-revolved-pick-1000x"));
+}
+
+#[test]
+fn mesh_plot_hot_paths_keep_their_retained_allocation_contracts() {
+    hover_replacement_after_warmup_is_allocation_free();
+    navigation_after_warmup_does_not_grow_zoom_history_or_allocate();
+    alternating_field_updates_reuse_retained_capacity_and_preserve_state();
+    field_replacement_preserves_zoom_and_a_real_selection();
+
+    #[cfg(feature = "gpu-3d")]
+    retained_3d_picking_reuses_the_bvh_and_stable_plot_id_without_allocating();
+    #[cfg(feature = "gpu-3d")]
+    retained_revolved_picking_reuses_derived_geometry_and_source_ids_without_allocating();
 }

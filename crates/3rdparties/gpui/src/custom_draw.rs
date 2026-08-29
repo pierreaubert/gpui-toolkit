@@ -53,7 +53,12 @@ pub fn register_custom_draw(draw: Rc<dyn CustomDraw>) -> CustomDrawId {
 
 /// Remove a previously registered custom draw callback.
 pub fn unregister_custom_draw(id: CustomDrawId) {
-    REGISTRY.with(|r| {
+    // A custom-draw owner can be retained by another thread-local cache. If
+    // that cache is dropped after `REGISTRY` during thread teardown, `with`
+    // would panic because the registry has already been destroyed. There is
+    // nothing left to unregister in that case, so cleanup is deliberately a
+    // no-op.
+    let _ = REGISTRY.try_with(|r| {
         r.borrow_mut().1.remove(&id);
     });
 }
@@ -101,5 +106,32 @@ mod tests {
         assert_ne!(a, b);
         unregister_custom_draw(a);
         unregister_custom_draw(b);
+    }
+
+    #[test]
+    fn unregister_ignores_a_registry_already_destroyed_during_tls_teardown() {
+        struct LateRegistration(CustomDrawId);
+
+        impl Drop for LateRegistration {
+            fn drop(&mut self) {
+                unregister_custom_draw(self.0);
+            }
+        }
+
+        thread_local! {
+            // Initialize this cache before `REGISTRY`; thread-local destructors
+            // run in reverse initialization order, reproducing a retained custom
+            // draw registration that outlives the registry on its thread.
+            static LATE_REGISTRATION: RefCell<Option<LateRegistration>> = const { RefCell::new(None) };
+        }
+
+        let worker = std::thread::spawn(|| {
+            LATE_REGISTRATION.with(|late_registration| {
+                let id = register_custom_draw(Rc::new(Stub));
+                *late_registration.borrow_mut() = Some(LateRegistration(id));
+            });
+        });
+
+        assert!(worker.join().is_ok());
     }
 }

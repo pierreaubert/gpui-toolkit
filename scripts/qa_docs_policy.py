@@ -38,6 +38,22 @@ def check() -> list[str]:
     if "## Unreleased" not in changelog:
         errors.append("CHANGELOG.md lacks an Unreleased section")
 
+    asset_readme = ROOT / "crates/assets/README.md"
+    asset_markers = (
+        "shared asset bundle, not a Cargo crate",
+        "include_bytes!",
+        "crates/3rdparties/gpui_web/src/platform.rs",
+        "crates/3rdparties/gpui/src/svg_renderer.rs",
+        "Font License 1.1",
+    )
+    if not asset_readme.is_file():
+        errors.append("crates/assets/README.md is missing")
+    else:
+        asset_text = asset_readme.read_text()
+        for marker in asset_markers:
+            if marker not in asset_text:
+                errors.append(f"crates/assets/README.md lacks required marker: {marker}")
+
     public_msrv_crates = (
         "gpui-design",
         "gpui-pretext",
