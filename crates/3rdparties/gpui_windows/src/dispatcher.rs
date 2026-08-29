@@ -4,7 +4,7 @@ use std::{
         atomic::{AtomicBool, Ordering},
     },
     thread::{ThreadId, current},
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 use anyhow::Context;

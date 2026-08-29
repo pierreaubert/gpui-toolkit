@@ -48,6 +48,12 @@ pub struct WindowsPlatform {
     disable_direct_composition: bool,
 }
 
+impl std::fmt::Debug for WindowsPlatform {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.debug_struct("WindowsPlatform").finish()
+    }
+}
+
 struct WindowsPlatformInner {
     state: WindowsPlatformState,
     raw_window_handles: std::sync::Weak<RwLock<SmallVec<[SafeHwnd; 4]>>>,

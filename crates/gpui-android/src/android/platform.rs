@@ -464,6 +464,7 @@ pub struct AndroidPlatform {
 ///
 /// Returns `false` for COLR-only fonts (v0 or v1), SVG-only fonts, or if the
 /// file is too small / malformed to parse the table directory.
+#[allow(dead_code)]
 fn font_has_cbdt_tables(data: &[u8]) -> bool {
     // Minimum size: 12-byte offset table header.
     if data.len() < 12 {

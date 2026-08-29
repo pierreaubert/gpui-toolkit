@@ -17,7 +17,7 @@ path = "src/gpui_linux.rs"
 default = ["wayland", "x11"]
 test-support = ["gpui/test-support"]
 wayland = ["bitflags", "gpui_wgpu", "ashpd/wayland", "calloop-wayland-source", "wayland-backend", "wayland-client", "wayland-cursor", "wayland-protocols", "wayland-protocols-plasma", "wayland-protocols-wlr", "filedescriptor", "xkbcommon", "open", "gpui/wayland"]
-x11 = ["gpui_wgpu", "ashpd", "as-raw-xcb-connection", "x11rb", "xkbcommon", "xim", "x11-clipboard", "filedescriptor", "open", "scap?/x11"]
+x11 = ["gpui/x11", "gpui_wgpu", "ashpd", "as-raw-xcb-connection", "x11rb", "xkbcommon", "xim", "x11-clipboard", "filedescriptor", "open", "scap?/x11"]
 screen-capture = ["gpui/screen-capture", "scap"]
 
 [target.'cfg(any(target_os = "linux", target_os = "freebsd"))'.dependencies]

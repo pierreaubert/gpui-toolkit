@@ -4,17 +4,14 @@ use std::{
 };
 
 use ::util::ResultExt;
-use anyhow::{Context, Result};
+use anyhow::Context;
 use windows::{
-    Win32::{
-        Foundation::HWND,
-        Graphics::{
-            Direct3D::*,
-            Direct3D11::*,
-            DirectComposition::*,
-            DirectWrite::*,
-            Dxgi::{Common::*, *},
-        },
+    Win32::Graphics::{
+        Direct3D::*,
+        Direct3D11::*,
+        DirectComposition::*,
+        DirectWrite::*,
+        Dxgi::{Common::*, *},
     },
     core::Interface,
 };
@@ -1204,8 +1201,6 @@ fn create_swap_chain(
     width: u32,
     height: u32,
 ) -> Result<IDXGISwapChain1> {
-    use windows::Win32::Graphics::Dxgi::DXGI_MWA_NO_ALT_ENTER;
-
     let desc = DXGI_SWAP_CHAIN_DESC1 {
         Width: width,
         Height: height,
