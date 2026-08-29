@@ -93,7 +93,8 @@ class PackagingTests(unittest.TestCase):
     def test_package_bundled_host_is_preferred_over_path_lookup(self):
         with tempfile.TemporaryDirectory() as temporary:
             package = Path(temporary) / "gpui_toolkit"
-            bundled = package / "bin" / "gpui-python-host"
+            executable_name = "gpui-python-host.exe" if sys.platform == "win32" else "gpui-python-host"
+            bundled = package / "bin" / executable_name
             bundled.parent.mkdir(parents=True)
             bundled.write_text("#!/bin/sh\n")
             bundled.chmod(0o755)

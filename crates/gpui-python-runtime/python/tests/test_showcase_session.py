@@ -3,15 +3,28 @@ import io
 import json
 import os
 from pathlib import Path
-import select
+from queue import Empty, Queue
 import subprocess
 import sys
 import textwrap
+from threading import Thread
 import time
 import unittest
 
 from gpui_toolkit import Event, SessionContext
 from showcase import RuntimeShowcase
+
+
+def read_process_stdout(process: subprocess.Popen[bytes], length: int, timeout: float = 5.0) -> bytes:
+    """Read a subprocess pipe with a timeout on every supported platform."""
+    result: Queue[bytes] = Queue(maxsize=1)
+    Thread(target=lambda: result.put(process.stdout.read(length)), daemon=True).start()
+    try:
+        return result.get(timeout=timeout)
+    except Empty:
+        process.kill()
+        _, stderr = process.communicate()
+        raise AssertionError(f"timed out waiting for session output: {stderr!r}") from None
 
 
 class RuntimeShowcaseSessionTests(unittest.TestCase):
@@ -158,12 +171,7 @@ class RuntimeShowcaseSessionTests(unittest.TestCase):
         def read_message():
             line = bytearray()
             while True:
-                ready, _, _ = select.select([process.stdout], [], [], 5)
-                if not ready:
-                    process.kill()
-                    _, stderr = process.communicate()
-                    self.fail(f"timed out waiting for session output: {stderr!r}")
-                chunk = os.read(process.stdout.fileno(), 1)
+                chunk = read_process_stdout(process, 1)
                 if not chunk:
                     stderr = process.stderr.read()
                     self.fail(f"session exited without output: {stderr!r}")
@@ -368,12 +376,7 @@ class RuntimeShowcaseSessionTests(unittest.TestCase):
         def read_bytes(length):
             payload = bytearray()
             while len(payload) < length:
-                ready, _, _ = select.select([process.stdout], [], [], 5)
-                if not ready:
-                    process.kill()
-                    _, stderr = process.communicate()
-                    self.fail(f"timed out waiting for session bytes: {stderr!r}")
-                chunk = os.read(process.stdout.fileno(), length - len(payload))
+                chunk = read_process_stdout(process, length - len(payload))
                 if not chunk:
                     stderr = process.stderr.read()
                     self.fail(f"session exited without bytes: {stderr!r}")
@@ -383,12 +386,7 @@ class RuntimeShowcaseSessionTests(unittest.TestCase):
         def read_line():
             line = bytearray()
             while True:
-                ready, _, _ = select.select([process.stdout], [], [], 5)
-                if not ready:
-                    process.kill()
-                    _, stderr = process.communicate()
-                    self.fail(f"timed out waiting for session line: {stderr!r}")
-                chunk = os.read(process.stdout.fileno(), 1)
+                chunk = read_process_stdout(process, 1)
                 if not chunk:
                     stderr = process.stderr.read()
                     self.fail(f"session exited without line: {stderr!r}")
@@ -667,12 +665,7 @@ class RuntimeShowcaseSessionTests(unittest.TestCase):
         def read_line():
             line = bytearray()
             while True:
-                ready, _, _ = select.select([process.stdout], [], [], 5)
-                if not ready:
-                    process.kill()
-                    _, stderr = process.communicate()
-                    self.fail(f"timed out waiting for cross-product session: {stderr!r}")
-                chunk = os.read(process.stdout.fileno(), 1)
+                chunk = read_process_stdout(process, 1)
                 if not chunk:
                     stderr = process.stderr.read()
                     self.fail(f"cross-product session exited without output: {stderr!r}")
@@ -683,12 +676,7 @@ class RuntimeShowcaseSessionTests(unittest.TestCase):
         def read_bytes(length):
             payload = bytearray()
             while len(payload) < length:
-                ready, _, _ = select.select([process.stdout], [], [], 5)
-                if not ready:
-                    process.kill()
-                    _, stderr = process.communicate()
-                    self.fail(f"timed out waiting for cross-product bytes: {stderr!r}")
-                chunk = os.read(process.stdout.fileno(), length - len(payload))
+                chunk = read_process_stdout(process, length - len(payload))
                 if not chunk:
                     stderr = process.stderr.read()
                     self.fail(f"cross-product session exited during frame: {stderr!r}")
@@ -796,12 +784,7 @@ class RuntimeShowcaseSessionTests(unittest.TestCase):
         def read_message():
             line = bytearray()
             while True:
-                ready, _, _ = select.select([process.stdout], [], [], 5)
-                if not ready:
-                    process.kill()
-                    _, stderr = process.communicate()
-                    self.fail(f"timed out waiting for recovery session output: {stderr!r}")
-                chunk = os.read(process.stdout.fileno(), 1)
+                chunk = read_process_stdout(process, 1)
                 if not chunk:
                     stderr = process.stderr.read()
                     self.fail(f"recovery session exited without output: {stderr!r}")
