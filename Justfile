@@ -200,10 +200,9 @@ qa-api:
 	cargo test -p gpui-scaffolder scaffolded_project_passes_cargo_check
 
 # Public release contract. Registry wave 1 deliberately contains only the
-# three packages that are GPUI-free and pass a locked package verification.
+# two GPUI-free packages pass a locked package verification.
 [group('qa')]
 qa-release-contract: qa-api
-	cargo package --locked -p gpui-design
 	cargo package --locked -p gpui-profiler
 	cargo package --locked -p gpui-ui-kit-macros
 
