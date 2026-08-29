@@ -48,7 +48,7 @@ members = [
 resolver = "3"
 
 [workspace.package]
-version = "0.9.20"
+version = "0.9.21"
 authors = ["Pierre F. Aubert pierre@spinorama.org"]
 description = "A toolkit to build portable and fast UI"
 edition = "2024"
@@ -201,7 +201,7 @@ windows = { version = "0.62", features = [
     "Win32_UI_WindowsAndMessaging",
     "Win32_Media",
 ] }
-windows-core = "0.61"
+windows-core = "0.62"
 
 # Utilities
 approx = "0.5"

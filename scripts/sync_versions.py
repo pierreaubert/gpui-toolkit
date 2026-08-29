@@ -28,6 +28,9 @@ PROJECT_VERSION = re.compile(
 )
 PYTHON_VERSION = re.compile(r'(?m)^(__version__\s*=\s*")([^"]+)(")')
 METADATA_VERSION = re.compile(r"(?m)^(Version:\s*)([^\r\n]+)(\r?$)")
+LOCKFILE_VERSION = re.compile(
+    r'(?ms)(^\[\[package\]\]\nname = "(?:gpui-python-runtime|gpui-toolkit)"\nversion = ")([^"]+)(")'
+)
 
 FILES = (
     ROOT / "Cargo.toml",
@@ -48,6 +51,9 @@ def version_files() -> tuple[tuple[Path, re.Pattern[str]], ...]:
         (FILES[2], PROJECT_VERSION),
         (FILES[3], PYTHON_VERSION),
     )
+    lockfile = FILES[0].parent / "Cargo.lock"
+    if lockfile.is_file():
+        entries += ((lockfile, LOCKFILE_VERSION),)
     if GENERATED_METADATA.is_file():
         entries += ((GENERATED_METADATA, METADATA_VERSION),)
     return entries
@@ -55,17 +61,20 @@ def version_files() -> tuple[tuple[Path, re.Pattern[str]], ...]:
 
 def _replace_version(path: Path, pattern: re.Pattern[str], version: str) -> str:
     text = path.read_text(encoding="utf-8")
-    updated, count = pattern.subn(rf"\g<1>{version}\g<3>", text, count=1)
-    if count != 1:
-        raise ValueError(f"could not find exactly one version declaration in {path}")
+    updated, count = pattern.subn(rf"\g<1>{version}\g<3>", text)
+    if count == 0:
+        raise ValueError(f"could not find a version declaration in {path}")
     return updated
 
 
 def _read_version(path: Path, pattern: re.Pattern[str]) -> str:
-    match = pattern.search(path.read_text(encoding="utf-8"))
-    if match is None:
+    matches = pattern.findall(path.read_text(encoding="utf-8"))
+    if not matches:
         raise ValueError(f"could not find version declaration in {path}")
-    return match.group(2)
+    versions = {match[1] for match in matches}
+    if len(versions) != 1:
+        raise ValueError(f"multiple version declarations disagree in {path}: {sorted(versions)}")
+    return versions.pop()
 
 
 def versions() -> dict[Path, str]:

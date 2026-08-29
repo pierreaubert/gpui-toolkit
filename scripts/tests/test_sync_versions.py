@@ -39,6 +39,12 @@ class SyncVersionsTests(unittest.TestCase):
             metadata = root / "gpui_toolkit.egg-info/PKG-INFO"
             metadata.parent.mkdir()
             metadata.write_text("Name: gpui-toolkit\nVersion: 1.0.0\n", encoding="utf-8")
+            lockfile = root / "Cargo.lock"
+            lockfile.write_text(
+                '[[package]]\nname = "gpui-python-runtime"\nversion = "1.0.0"\n\n'
+                '[[package]]\nname = "gpui-toolkit"\nversion = "1.0.0"\n',
+                encoding="utf-8",
+            )
             with (
                 patch.object(sync_versions, "FILES", paths),
                 patch.object(sync_versions, "ROOT", root),
@@ -47,6 +53,7 @@ class SyncVersionsTests(unittest.TestCase):
                 sync_versions.synchronize("9.8.7")
                 self.assertEqual(sync_versions.check(), "9.8.7")
                 self.assertIn("Version: 9.8.7", metadata.read_text(encoding="utf-8"))
+                self.assertNotIn('version = "1.0.0"', lockfile.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":
