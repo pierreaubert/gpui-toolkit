@@ -431,12 +431,13 @@ fn diff_visual_case(
     let mut changed_pixels = 0_u64;
     let mut max_channel_delta = 0_u8;
     let mut diff = RgbaImage::new(width, height);
+    let diff_pixels: &mut [u8] = diff.as_mut();
 
     for ((baseline_pixel, actual_pixel), diff_pixel) in baseline
         .as_raw()
         .chunks_exact(4)
         .zip(actual.as_raw().chunks_exact(4))
-        .zip(diff.as_mut().chunks_exact_mut(4))
+        .zip(diff_pixels.chunks_exact_mut(4))
     {
         let pixel_max_delta = baseline_pixel
             .iter()
