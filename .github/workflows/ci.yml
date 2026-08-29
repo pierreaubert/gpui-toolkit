@@ -260,6 +260,7 @@ jobs:
             libfontconfig1-dev libfreetype6-dev libwayland-dev \
             libx11-xcb-dev libxkbcommon-dev libxkbcommon-x11-dev \
             libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
+            libxrandr-dev libxi-dev libxcursor-dev \
             libegl1-mesa-dev libgl1-mesa-dev
           just check
 
@@ -291,7 +292,12 @@ jobs:
       - name: Install Linux native build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libfontconfig1-dev libfreetype6-dev
+          sudo apt-get install -y \
+            libfontconfig1-dev libfreetype6-dev libwayland-dev \
+            libx11-xcb-dev libxkbcommon-dev libxkbcommon-x11-dev \
+            libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
+            libxrandr-dev libxi-dev libxcursor-dev \
+            libegl1-mesa-dev libgl1-mesa-dev
 
       - name: Run nextest
         run: cargo nextest run --profile ci --no-fail-fast --workspace --exclude gpui-scaffolder --features autoeq,gpu-2d,gpu-3d,reqwest,spinorama,tokio,urlencoding
@@ -370,7 +376,12 @@ jobs:
       - name: Run public API contracts
         run: |
           sudo apt-get update
-          sudo apt-get install -y libfontconfig1-dev libfreetype6-dev
+          sudo apt-get install -y \
+            libfontconfig1-dev libfreetype6-dev libwayland-dev \
+            libx11-xcb-dev libxkbcommon-dev libxkbcommon-x11-dev \
+            libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
+            libxrandr-dev libxi-dev libxcursor-dev \
+            libegl1-mesa-dev libgl1-mesa-dev
           just qa-api
 
   release-contract:
@@ -388,7 +399,12 @@ jobs:
       - name: Verify public release contract
         run: |
           sudo apt-get update
-          sudo apt-get install -y libfontconfig1-dev libfreetype6-dev
+          sudo apt-get install -y \
+            libfontconfig1-dev libfreetype6-dev libwayland-dev \
+            libx11-xcb-dev libxkbcommon-dev libxkbcommon-x11-dev \
+            libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
+            libxrandr-dev libxi-dev libxcursor-dev \
+            libegl1-mesa-dev libgl1-mesa-dev
           just qa-release-contract
 
   qa-gpui-obvious:
