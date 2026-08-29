@@ -9,8 +9,10 @@ mutants.out
 dist
 appimage-builder-*
 **/.gradle/
-**/build/
+build/
 crates/gpui-showcase/android/gradle/app/src/main/jniLibs/
+*.egg-info
+dist/
 
 # generated data
 /data
