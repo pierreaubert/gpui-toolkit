@@ -66,6 +66,7 @@ jobs:
           PYTHONPATH: crates/gpui-python-runtime/python
         run: python -m unittest discover -s crates/gpui-python-runtime/python/tests -p 'test_*.py'
       - name: Verify package version parity
+        shell: bash
         run: >-
           python -c "import pathlib, re, tomllib; cargo = pathlib.Path('Cargo.toml').read_text(); rust = re.search(r'(?ms)^\\[workspace\\.package\\].*?^version\\s*=\\s*\"([^\"]+)\"', cargo).group(1); versions = [tomllib.loads(pathlib.Path(p).read_text())['project']['version'] for p in ('pyproject.toml', 'crates/gpui-python-runtime/pyproject.toml')]; module = re.search(r'^__version__\\s*=\\s*\"([^\"]+)\"', pathlib.Path('crates/gpui-python-runtime/python/gpui_toolkit/__init__.py').read_text(), re.M).group(1); assert [rust, *versions, module] == [rust] * 4, (rust, versions, module)"
       - name: Build native host
