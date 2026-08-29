@@ -113,6 +113,9 @@ jobs:
           targets: wasm32-unknown-unknown
           components: rust-src
 
+      - name: Install Just
+        uses: extractions/setup-just@v4
+
       - name: Cache cargo
         uses: actions/cache@v5
         with:
@@ -125,7 +128,7 @@ jobs:
       - name: Check web backend crates
         env:
           CARGO_UNSTABLE_BUILD_STD: std,panic_abort
-        run: cargo check --target wasm32-unknown-unknown -p gpui-toolkit-gpui-web -p gpui-miniapp -p gpui-hello-web -p gpui-showcase -p gpui-px -p gpui-d3rs
+        run: just wasm-check
 
   apple-extension-check:
     name: Apple extension backend (AUv3)
