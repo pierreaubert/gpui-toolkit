@@ -629,12 +629,12 @@ impl RenderOnce for SwipePanel {
         let id = self.id.clone();
         let state = self.state;
         let entity: Entity<SwipePanelEntity> = SWIPE_PANEL_ENTITIES.with(|map| {
-        let mut map = map.borrow_mut();
-        map.retain(|_, weak| weak.upgrade().is_some());
-        if !map.contains_key(&id) && map.len() >= MAX_SWIPE_PANEL_ENTITIES {
-            map.clear();
-        }
-        if let Some(weak) = map.get(&id)
+            let mut map = map.borrow_mut();
+            map.retain(|_, weak| weak.upgrade().is_some());
+            if !map.contains_key(&id) && map.len() >= MAX_SWIPE_PANEL_ENTITIES {
+                map.clear();
+            }
+            if let Some(weak) = map.get(&id)
                 && let Some(entity) = weak.upgrade()
             {
                 return entity;

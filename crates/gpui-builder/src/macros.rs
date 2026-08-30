@@ -339,11 +339,13 @@ mod tests {
                 "visibility mismatch for {id}"
             );
             assert_eq!(
-                from_macro.active_tier.as_deref(), explicit.active_tier,
+                from_macro.active_tier.as_deref(),
+                explicit.active_tier,
                 "tier mismatch for {id}"
             );
             assert_eq!(
-                from_macro.collapse_label.as_deref(), explicit.collapse_label,
+                from_macro.collapse_label.as_deref(),
+                explicit.collapse_label,
                 "collapse label mismatch for {id}"
             );
         }

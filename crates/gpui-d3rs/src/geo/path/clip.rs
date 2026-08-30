@@ -1709,6 +1709,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "diagnostic test writes local artifacts; run explicitly when investigating clipping"]
     fn debug_antarctica_conic180_60() {
         use crate::geo::ConicEqualArea;
         use crate::geo::GeoJsonGeometry;
@@ -1813,6 +1814,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "diagnostic test writes local artifacts; run explicitly when investigating clipping"]
     fn debug_antarctica_conic() {
         use crate::geo::ConicEqualArea;
         use crate::geo::GeoJsonGeometry;
@@ -2051,6 +2053,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "diagnostic test writes local artifacts; run explicitly when investigating clipping"]
     fn debug_conic_polygon_1200() {
         use crate::geo::ConicEqualArea;
         use crate::geo::GeoJsonGeometry;

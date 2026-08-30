@@ -704,7 +704,7 @@ impl X11WindowState {
 
             xcb_flush(xcb);
 
-        let renderer = {
+            let renderer = {
                 let raw_window = RawWindow {
                     connection: as_raw_xcb_connection::AsRawXcbConnection::as_raw_xcb_connection(
                         xcb,
@@ -904,7 +904,7 @@ impl X11Window {
                 appearance,
                 parent_window,
                 supports_xinput_gestures,
-            _is_bgr,
+                _is_bgr,
             )?)),
             callbacks: Rc::new(RefCell::new(Callbacks::default())),
             xcb: xcb.clone(),

@@ -56,9 +56,9 @@ fn debug_report_includes_source_metadata_and_collapsed_labels() {
         visible: true,
         active_tier: None,
         collapse_label: None,
-       resolved_axis: Some(Axis::Vertical),
+        resolved_axis: Some(Axis::Vertical),
         divider_size: 0.0,
-       children: vec![
+        children: vec![
             solved_slot("header", 320.0, 40.0),
             SolvedNode {
                 id: "inspector",
@@ -67,9 +67,9 @@ fn debug_report_includes_source_metadata_and_collapsed_labels() {
                 visible: false,
                 active_tier: None,
                 collapse_label: Some("Inspector"),
-        resolved_axis: None,
-        divider_size: 0.0,
-        children: Vec::new(),
+                resolved_axis: None,
+                divider_size: 0.0,
+                children: Vec::new(),
             },
         ],
     };
@@ -131,9 +131,9 @@ fn debug_report_warns_for_invalid_hidden_and_overflowing_nodes() {
         visible: true,
         active_tier: None,
         collapse_label: None,
-       resolved_axis: Some(Axis::Horizontal),
+        resolved_axis: Some(Axis::Horizontal),
         divider_size: 0.0,
-       children: vec![
+        children: vec![
             solved_slot("wide", 75.0, 45.0),
             solved_slot("wider", 50.0, 20.0),
             SolvedNode {
@@ -143,9 +143,9 @@ fn debug_report_warns_for_invalid_hidden_and_overflowing_nodes() {
                 visible: false,
                 active_tier: None,
                 collapse_label: None,
-        resolved_axis: None,
-        divider_size: 0.0,
-        children: Vec::new(),
+                resolved_axis: None,
+                divider_size: 0.0,
+                children: Vec::new(),
             },
         ],
     };
@@ -208,9 +208,9 @@ fn debug_report_summarizes_warning_counts_and_remediation() {
         visible: true,
         active_tier: None,
         collapse_label: None,
-           resolved_axis: Some(Axis::Horizontal),
-            divider_size: 0.0,
-           children: vec![
+        resolved_axis: Some(Axis::Horizontal),
+        divider_size: 0.0,
+        children: vec![
             solved_slot("wide", 75.0, 45.0),
             solved_slot("wider", 50.0, 20.0),
             SolvedNode {
@@ -220,9 +220,9 @@ fn debug_report_summarizes_warning_counts_and_remediation() {
                 visible: false,
                 active_tier: None,
                 collapse_label: None,
-        resolved_axis: None,
-        divider_size: 0.0,
-        children: Vec::new(),
+                resolved_axis: None,
+                divider_size: 0.0,
+                children: Vec::new(),
             },
         ],
     };
@@ -271,9 +271,9 @@ fn as_map_builds_flat_id_index() {
         visible: true,
         active_tier: None,
         collapse_label: None,
-            resolved_axis: Some(Axis::Horizontal),
-            divider_size: 0.0,
-            children: vec![
+        resolved_axis: Some(Axis::Horizontal),
+        divider_size: 0.0,
+        children: vec![
             solved_slot("a", 50.0, 100.0),
             SolvedNode {
                 id: "b",
@@ -282,9 +282,9 @@ fn as_map_builds_flat_id_index() {
                 visible: true,
                 active_tier: None,
                 collapse_label: None,
-           resolved_axis: None,
-            divider_size: 0.0,
-           children: vec![solved_slot("b1", 50.0, 50.0)],
+                resolved_axis: None,
+                divider_size: 0.0,
+                children: vec![solved_slot("b1", 50.0, 50.0)],
             },
         ],
     };
@@ -307,18 +307,18 @@ fn debug_report_warning_ids_borrow_from_solved_tree() {
         visible: true,
         active_tier: None,
         collapse_label: None,
-            resolved_axis: Some(Axis::Horizontal),
-            divider_size: 0.0,
-            children: vec![SolvedNode {
+        resolved_axis: Some(Axis::Horizontal),
+        divider_size: 0.0,
+        children: vec![SolvedNode {
             id: "wide",
             width: 75.0,
             height: 45.0,
             visible: true,
             active_tier: None,
             collapse_label: None,
-        resolved_axis: None,
-        divider_size: 0.0,
-        children: Vec::new(),
+            resolved_axis: None,
+            divider_size: 0.0,
+            children: Vec::new(),
         }],
     };
 
@@ -752,9 +752,9 @@ fn debug_report_handles_infinite_cross_axis() {
                 visible: true,
                 active_tier: None,
                 collapse_label: None,
-               resolved_axis: Some(Axis::Horizontal),
+                resolved_axis: Some(Axis::Horizontal),
                 divider_size: 0.0,
-               children: vec![NodeIndex(1)],
+                children: vec![NodeIndex(1)],
             },
             SolvedNodeData {
                 id: "child",
@@ -763,9 +763,9 @@ fn debug_report_handles_infinite_cross_axis() {
                 visible: true,
                 active_tier: None,
                 collapse_label: None,
-               resolved_axis: None,
+                resolved_axis: None,
                 divider_size: 0.0,
-               children: vec![],
+                children: vec![],
             },
         ],
         HashMap::from([("root", NodeIndex(0)), ("child", NodeIndex(1))]),

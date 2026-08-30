@@ -100,13 +100,15 @@ fn edge_intersections(@builtin(global_invocation_id) id: vec3<u32>) {
     let a = values[edge.a];
     let b = values[edge.b];
     if (!finite(a) || !finite(b)) {
-        edge_hits[id.x].valid = 0u;
+        // Assign the whole storage element. This avoids taking a reference to
+        // a storage-buffer member, which FXC cannot lower to an HLSL l-value.
+        edge_hits[id.x] = EdgeHit(vec4<f32>(0.0), 0u, 0u);
         return;
     }
     // This must stay identical to MarchingTriangles::edge_hit: an on-level
     // vertex is classified as high, including the zero-length-segment case.
     if ((a >= levels.lower) == (b >= levels.lower)) {
-        edge_hits[id.x].valid = 0u;
+        edge_hits[id.x] = EdgeHit(vec4<f32>(0.0), 0u, 0u);
         return;
     }
     let interpolation = clamp((levels.lower - a) / (b - a), 0.0, 1.0);

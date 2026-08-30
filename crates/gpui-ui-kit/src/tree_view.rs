@@ -255,9 +255,13 @@ impl TreeView {
         focused: &Option<SharedString>,
         focus_handle: &FocusHandle,
         parent_id: &ElementId,
-        on_focus_change: Option<&std::rc::Rc<Box<dyn Fn(Option<SharedString>, &mut Window, &mut App) + 'static>>>,
+        on_focus_change: Option<
+            &std::rc::Rc<Box<dyn Fn(Option<SharedString>, &mut Window, &mut App) + 'static>>,
+        >,
         on_select: Option<&std::rc::Rc<Box<dyn Fn(SharedString, &mut Window, &mut App) + 'static>>>,
-        on_toggle: Option<&std::rc::Rc<Box<dyn Fn(SharedString, bool, &mut Window, &mut App) + 'static>>>,
+        on_toggle: Option<
+            &std::rc::Rc<Box<dyn Fn(SharedString, bool, &mut Window, &mut App) + 'static>>,
+        >,
         indent_size: Pixels,
         _show_guides: bool,
         theme: &TreeViewTheme,

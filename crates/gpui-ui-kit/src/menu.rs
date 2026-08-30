@@ -291,7 +291,7 @@ impl Menu {
                 let (accessible_label, accessible_props) = menu_item_accessibility(&item);
 
                 let mut row = div()
-                        .id(ElementId::from((self.id.clone(), item.element_id.clone())))
+                    .id(ElementId::from((self.id.clone(), item.element_id.clone())))
                     .px_3()
                     .py(px(6.0))
                     .mx_1()

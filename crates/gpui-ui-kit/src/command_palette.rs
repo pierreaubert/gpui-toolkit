@@ -162,8 +162,6 @@ thread_local! {
         RefCell::new(HashMap::new());
 }
 
-
-
 /// A command palette component
 pub struct CommandPalette {
     id: ElementId,
@@ -455,7 +453,7 @@ impl CommandPalette {
             let is_selected = i == self.selected_index;
 
             let mut row = div()
-                    .id(ElementId::from((palette_id.clone(), item.id.clone())))
+                .id(ElementId::from((palette_id.clone(), item.id.clone())))
                 .w_full()
                 .flex()
                 .items_center()

@@ -638,9 +638,13 @@ mod tests {
                 .iter()
                 .find(|manifest| manifest.crate_name == entry.crate_name)
             {
-                assert_eq!(entry.stability, manifest.stability.as_str(), "{}", entry.crate_name);
+                assert_eq!(
+                    entry.stability,
+                    manifest.stability.as_str(),
+                    "{}",
+                    entry.crate_name
+                );
             }
         }
     }
-
 }

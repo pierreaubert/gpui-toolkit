@@ -313,9 +313,10 @@ mod tests {
             let q = Versor::from_angles(l, p, g);
             assert!(approx(q.norm(), 1.0), "not unit: norm={}", q.norm());
             let (rl, rp, rg) = q.to_angles();
+            let roundtrip = Versor::from_angles(rl, rp, rg);
             assert!(
-                approx(rl, l) && approx(rp, p) && approx(rg, g),
-                "roundtrip ({l},{p},{g}) -> ({rl},{rp},{rg})"
+                approx(q.dot(roundtrip).abs(), 1.0),
+                "roundtrip ({l},{p},{g}) -> ({rl},{rp},{rg}) changed rotation"
             );
         }
     }

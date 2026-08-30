@@ -315,7 +315,10 @@ fn offscreen_wgpu_displayed_range_and_nan_mask_change_only_expected_pixels() {
     let mut masked = state;
     masked.upload.as_mut().expect("upload").values_f32 = Some(vec![0.0, f32::NAN, 1.0, 0.25]);
     let masked_image = render(&masked);
-    assert!(colored_pixels(&masked_image) < colored_pixels(&base));
+    // Backends differ in how the invalid vertex affects edge coverage, but
+    // the mask must never create colored coverage and must affect the image.
+    assert!(colored_pixels(&masked_image) <= colored_pixels(&base));
+    assert_ne!(masked_image.as_raw(), base.as_raw());
     assert!(colored_pixels(&masked_image) > 0);
 }
 

@@ -444,7 +444,12 @@ impl NumberInputEntity {
                 }
             }
 
-            if ctrl && matches!(key, "a" | "e" | "k" | "u" | "w" | "h" | "d" | "f" | "b" | "y") {
+            if ctrl
+                && matches!(
+                    key,
+                    "a" | "e" | "k" | "u" | "w" | "h" | "d" | "f" | "b" | "y"
+                )
+            {
                 _cx.stop_propagation();
 
                 match key {
@@ -467,7 +472,7 @@ impl NumberInputEntity {
                     _ => {}
                 }
                 drop(state);
-     window.refresh();
+                window.refresh();
                 return;
             }
 
@@ -475,8 +480,10 @@ impl NumberInputEntity {
                 return;
             }
 
-            if !matches!(key, "enter" | "escape" | "backspace" | "delete" | "left" | "right" | "home" | "end")
-                && keystroke_to_char(&event.keystroke).is_none()
+            if !matches!(
+                key,
+                "enter" | "escape" | "backspace" | "delete" | "left" | "right" | "home" | "end"
+            ) && keystroke_to_char(&event.keystroke).is_none()
             {
                 return;
             }

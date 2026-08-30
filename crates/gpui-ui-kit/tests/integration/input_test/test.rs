@@ -718,6 +718,9 @@ async fn test_input_copy_paste(cx: &mut TestAppContext) {
 
         // Move to end (clearing selection) and add space
         cx.simulate_keystrokes("right");
+        // The simulated key event is queued. Drain it before typing so the
+        // selection has been collapsed at the end on every test backend.
+        cx.run_until_parked();
         cx.simulate_input(" ");
         cx.run_until_parked();
 

@@ -827,8 +827,10 @@ impl InputEntity {
             return;
         }
 
-        if !matches!(key, "enter" | "escape" | "backspace" | "delete" | "left" | "right" | "home" | "end")
-            && keystroke_to_char(&event.keystroke).is_none()
+        if !matches!(
+            key,
+            "enter" | "escape" | "backspace" | "delete" | "left" | "right" | "home" | "end"
+        ) && keystroke_to_char(&event.keystroke).is_none()
         {
             return;
         }
