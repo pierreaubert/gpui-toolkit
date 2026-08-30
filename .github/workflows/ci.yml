@@ -189,6 +189,8 @@ jobs:
             xauth \
             xdotool \
             imagemagick \
+            libfontconfig1-dev \
+            libfreetype6-dev \
             libgl1-mesa-dri \
             mesa-vulkan-drivers
 

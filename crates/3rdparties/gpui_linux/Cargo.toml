@@ -15,6 +15,7 @@ path = "src/gpui_linux.rs"
 
 [features]
 default = ["wayland", "x11"]
+nightly_coverage = []
 test-support = ["gpui/test-support"]
 wayland = ["bitflags", "gpui_wgpu", "ashpd/wayland", "calloop-wayland-source", "wayland-backend", "wayland-client", "wayland-cursor", "wayland-protocols", "wayland-protocols-plasma", "wayland-protocols-wlr", "filedescriptor", "xkbcommon", "open", "gpui/wayland"]
 x11 = ["gpui/x11", "gpui_wgpu", "ashpd", "as-raw-xcb-connection", "x11rb", "xkbcommon", "xim", "x11-clipboard", "filedescriptor", "open", "scap?/x11"]

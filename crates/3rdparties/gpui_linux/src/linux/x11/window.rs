@@ -426,7 +426,7 @@ impl X11WindowState {
         appearance: WindowAppearance,
         parent_window: Option<X11WindowStatePtr>,
         supports_xinput_gestures: bool,
-        is_bgr: bool,
+        _is_bgr: bool,
     ) -> anyhow::Result<Self> {
         let x_screen_index = params
             .display_id
@@ -704,7 +704,7 @@ impl X11WindowState {
 
             xcb_flush(xcb);
 
-            let mut renderer = {
+        let renderer = {
                 let raw_window = RawWindow {
                     connection: as_raw_xcb_connection::AsRawXcbConnection::as_raw_xcb_connection(
                         xcb,
@@ -885,7 +885,7 @@ impl X11Window {
         appearance: WindowAppearance,
         parent_window: Option<X11WindowStatePtr>,
         supports_xinput_gestures: bool,
-        is_bgr: bool,
+        _is_bgr: bool,
     ) -> anyhow::Result<Self> {
         let ptr = X11WindowStatePtr {
             state: Rc::new(RefCell::new(X11WindowState::new(
@@ -904,7 +904,7 @@ impl X11Window {
                 appearance,
                 parent_window,
                 supports_xinput_gestures,
-                is_bgr,
+            _is_bgr,
             )?)),
             callbacks: Rc::new(RefCell::new(Callbacks::default())),
             xcb: xcb.clone(),
