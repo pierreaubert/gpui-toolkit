@@ -223,7 +223,9 @@ jobs:
             target/qa/native-ui/macos/gpui-builder.png
 
       - name: Run Windows native UI smoke
-        if: runner.os == 'Windows'
+        # GitHub-hosted Windows runners have no interactive desktop session.
+        # Enable this on an interactive runner with the repository variable.
+        if: runner.os == 'Windows' && vars.GPUI_WINDOWS_DESKTOP_SMOKE == 'true'
         shell: pwsh
         run: |
           target/debug/layout-showcase.exe `
@@ -231,6 +233,7 @@ jobs:
             --smoke-artifact target/qa/native-ui/windows/gpui-builder-smoke.json
 
       - name: Upload native UI smoke evidence
+        if: always() && (runner.os != 'Windows' || vars.GPUI_WINDOWS_DESKTOP_SMOKE == 'true')
         uses: actions/upload-artifact@v7
         with:
           name: native-ui-smoke-${{ runner.os }}
