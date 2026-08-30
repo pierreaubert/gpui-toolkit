@@ -702,11 +702,13 @@ async fn test_input_copy_paste(cx: &mut TestAppContext) {
             cx.run_until_parked();
         }
 
-        // Select All (Cmd+A)
-        #[cfg(target_os = "macos")]
-        cx.simulate_keystrokes("cmd-a");
-        #[cfg(not(target_os = "macos"))]
-        cx.simulate_keystrokes("ctrl-a");
+        // Select "Hello" explicitly. The test input handler has deterministic
+        // cursor movement semantics, whereas the platform Select All binding
+        // varies across the headless test backends.
+        cx.simulate_keystrokes("home");
+        for _ in 0..5 {
+            cx.simulate_keystrokes("shift-right");
+        }
         cx.run_until_parked();
 
         // Copy (Cmd+C)
@@ -716,10 +718,8 @@ async fn test_input_copy_paste(cx: &mut TestAppContext) {
         cx.simulate_keystrokes("ctrl-c");
         cx.run_until_parked();
 
-        // Move to end (clearing selection) and add space
-        cx.simulate_keystrokes("right");
-        // The simulated key event is queued. Drain it before typing so the
-        // selection has been collapsed at the end on every test backend.
+        // Move to end (clearing selection) and add space.
+        cx.simulate_keystrokes("end");
         cx.run_until_parked();
         cx.simulate_input(" ");
         cx.run_until_parked();
