@@ -1,4 +1,12 @@
 use super::*;
+use std::sync::{Mutex, MutexGuard, OnceLock};
+
+/// Accessibility action registration is process-global, so tests that replace it
+/// must not execute concurrently.
+fn action_callback_test_guard() -> MutexGuard<'static, ()> {
+    static GUARD: OnceLock<Mutex<()>> = OnceLock::new();
+    GUARD.get_or_init(|| Mutex::new(())).lock().unwrap()
+}
 
 #[test]
 fn snapshot_flattens_accessible_nodes() {
@@ -33,6 +41,7 @@ fn invalid_frames_are_rejected() {
 
 #[test]
 fn action_callback_dispatches_node_actions() {
+    let _guard = action_callback_test_guard();
     set_accessibility_action_callback(Some(Box::new(|id, action| {
         id == "volume" && action == IosAccessibilityAction::Increment
     })));
@@ -51,6 +60,7 @@ fn action_callback_dispatches_node_actions() {
 
 #[test]
 fn action_callback_can_unregister_itself() {
+    let _guard = action_callback_test_guard();
     set_accessibility_action_callback(Some(Box::new(|_, _| {
         set_accessibility_action_callback(None);
         true
