@@ -123,10 +123,10 @@ impl Proj {
 /// Build the shared spin + tilt + orthographic projector.
 pub fn make_proj(yaw: f64, tilt: f64, cx: f64, cy: f64, scale: f64) -> Proj {
     Proj {
-        st: tilt.sin(),
-        ct: tilt.cos(),
-        sy: yaw.sin(),
-        cyw: yaw.cos(),
+        st: libm::sin(tilt),
+        ct: libm::cos(tilt),
+        sy: libm::sin(yaw),
+        cyw: libm::cos(yaw),
         cx,
         cy,
         scale,

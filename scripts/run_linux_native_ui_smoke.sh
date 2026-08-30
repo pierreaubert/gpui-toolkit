@@ -38,10 +38,11 @@ fi
 # Let the smoke transition collapse the sidebar and paint the second frame.
 unique_colors=0
 for _ in $(seq 1 13); do
-    import -window "$window_id" "$screenshot"
-    unique_colors="$(identify -format '%k' "$screenshot")"
-    if (( unique_colors >= 16 )); then
-        break
+    if import -window "$window_id" "$screenshot" 2>/dev/null; then
+        unique_colors="$(identify -format '%k' "$screenshot")"
+        if (( unique_colors >= 16 )); then
+            break
+        fi
     fi
     sleep 5
 done
