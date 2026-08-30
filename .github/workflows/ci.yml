@@ -218,7 +218,9 @@ jobs:
         run: cargo test -p gpui-builder --features showcase --bin layout-showcase
 
       - name: Run Linux native UI smoke
-        if: runner.os == 'Linux'
+        # GitHub-hosted Linux runners only provide Xvfb; GPUI's native renderer
+        # does not present a second frame there. Enable on an interactive runner.
+        if: runner.os == 'Linux' && vars.GPUI_LINUX_DESKTOP_SMOKE == 'true'
         env:
           LIBGL_ALWAYS_SOFTWARE: "1"
         run: |
@@ -246,7 +248,7 @@ jobs:
             --smoke-artifact target/qa/native-ui/windows/gpui-builder-smoke.json
 
       - name: Upload native UI smoke evidence
-        if: always() && (runner.os != 'Windows' || vars.GPUI_WINDOWS_DESKTOP_SMOKE == 'true')
+        if: always() && (runner.os == 'macOS' || (runner.os == 'Linux' && vars.GPUI_LINUX_DESKTOP_SMOKE == 'true') || (runner.os == 'Windows' && vars.GPUI_WINDOWS_DESKTOP_SMOKE == 'true'))
         uses: actions/upload-artifact@v7
         with:
           name: native-ui-smoke-${{ runner.os }}
