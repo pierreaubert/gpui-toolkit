@@ -6,6 +6,18 @@ use gpui_ui_kit::workflow::{NodeDragState, Position};
 use std::collections::HashMap;
 use std::hint::black_box;
 
+fn edit_cycle(state: &mut EditState) {
+    state.insert_char('x');
+    state.do_backspace();
+    state.kill_word_backward();
+    state.insert_text("word ");
+    state.move_to_start();
+    state.extend_forward();
+    assert!(state.delete_selection());
+    state.insert_char('w');
+    state.move_to_end();
+}
+
 #[test]
 fn warmed_edit_cycles_are_allocation_free() {
     if std::env::var_os("CARGO_LLVM_COV").is_some() {
@@ -22,20 +34,16 @@ fn warmed_edit_cycles_are_allocation_free() {
     state.insert_char('x');
     state.do_backspace();
 
+    // Fill the bounded undo history before measuring. The steady state must
+    // recycle those snapshots rather than allocate new text clones.
+    for _ in 0..250 {
+        edit_cycle(&mut state);
+    }
+
     let mut probe = AllocProbe::new();
     probe.reset();
     for _ in 0..ITERATIONS {
-        state.insert_char('x');
-        state.do_backspace();
-
-        state.kill_word_backward();
-        state.insert_text("word ");
-
-        state.move_to_start();
-        state.extend_forward();
-        assert!(state.delete_selection());
-        state.insert_char('w');
-        state.move_to_end();
+        edit_cycle(&mut state);
         black_box(&state);
     }
 

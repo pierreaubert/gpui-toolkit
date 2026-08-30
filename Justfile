@@ -17,6 +17,7 @@ import 'builds/wasm.just'
 # ----------------------------------------------------------------------
 
 features := "--features autoeq,gpu-2d,gpu-3d,reqwest,spinorama,tokio,urlencoding"
+ui_kit_features := "--features autoeq,reqwest,spinorama,tokio,urlencoding"
 cross_packages := "-p gpui-audio-kit -p gpui-builder -p gpui-component-lab -p gpui-d3rs -p gpui-design -p gpui-design-tools -p gpui-keybinding -p gpui-miniapp -p gpui-pretext -p gpui-px -p gpui-python-runtime -p gpui-scaffolder -p gpui-themes -p gpui-ui-kit -p gpui-ui-kit-macros"
 public_core_packages := "-p gpui-audio-kit -p gpui-builder -p gpui-d3rs -p gpui-design -p gpui-keybinding -p gpui-pretext -p gpui-px -p gpui-themes -p gpui-ui-kit -p gpui-ui-kit-macros"
 
@@ -107,9 +108,10 @@ qa-gpui-obvious: qa-gpui-conformance
 	cargo test -p gpui-builder
 	cargo check -p gpui-builder
 	cargo test -p gpui-audio-kit {{features}} -- --test-threads=1
-	cargo test -p gpui-ui-kit {{features}}
-	cargo test -p gpui-ui-kit {{features}} --features bench --test allocation_contracts -- --test-threads=1
-	cargo test -p gpui-ui-kit {{features}} --features bench --test text_input_corpus
+	# gpui-ui-kit has no gpu-2d/gpu-3d feature; exercise those via gpui-d3rs.
+	cargo test -p gpui-ui-kit {{ui_kit_features}}
+	cargo test -p gpui-ui-kit {{ui_kit_features}} --features bench --test allocation_contracts -- --test-threads=1
+	cargo test -p gpui-ui-kit {{ui_kit_features}} --features bench --test text_input_corpus
 	cargo test -p gpui-d3rs {{features}}
 	# MeshPlot allocation contracts use a process-global allocator; keep this
 	# package serial so unrelated test-thread startup allocations cannot pollute

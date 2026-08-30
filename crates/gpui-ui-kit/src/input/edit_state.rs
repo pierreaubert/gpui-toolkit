@@ -64,9 +64,18 @@ impl EditState {
     /// navigation position.
     pub(super) fn begin_text_edit(&mut self) {
         if self.undo_stack.len() == Self::MAX_UNDO_HISTORY {
-            self.undo_stack.remove(0);
+            // Recycle the evicted snapshot's text allocation. Once the
+            // bounded history is warm, routine edits must not allocate just
+            // to preserve undo state.
+            let mut snapshot = self.undo_stack.remove(0);
+            snapshot.text.clear();
+            snapshot.text.push_str(&self.text);
+            snapshot.cursor = self.cursor;
+            snapshot.selection_anchor = self.selection_anchor;
+            self.undo_stack.push(snapshot);
+        } else {
+            self.undo_stack.push(self.snapshot());
         }
-        self.undo_stack.push(self.snapshot());
         self.redo_stack.clear();
     }
 
