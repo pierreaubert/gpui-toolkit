@@ -254,10 +254,12 @@ impl AdapterCompute {
         .ok()?;
         let backend = adapter.get_info().backend;
         // The wgpu/Naga version used by this workspace lowers this shader via
-        // FXC on DX11. FXC cannot compile its storage-buffer kernel, whereas
-        // the CPU implementation is the documented golden-reference fallback.
-        // Do not create a pipeline that would panic during initialization.
-        if backend == wgpu::Backend::Dx11 {
+        // FXC on Windows. FXC cannot compile its storage-buffer kernel,
+        // whereas the CPU implementation is the documented golden-reference
+        // fallback. Do not create a pipeline that would panic during
+        // initialization until the Windows shader path is supported.
+        #[cfg(target_os = "windows")]
+        if backend == wgpu::Backend::Dx12 {
             return None;
         }
         let timestamp_features = adapter.features();
