@@ -243,9 +243,6 @@ mod component {
             self.last_tick = Instant::now();
             cx.spawn(async move |this: WeakEntity<Self>, cx| {
                 loop {
-                    #[cfg(not(target_family = "wasm"))]
-                    smol::Timer::after(TICK_INTERVAL).await;
-                    #[cfg(target_family = "wasm")]
                     cx.background_executor().timer(TICK_INTERVAL).await;
                     let keep_running = this.update(cx, |this, cx| {
                         if this.paused || this.generation != generation {
