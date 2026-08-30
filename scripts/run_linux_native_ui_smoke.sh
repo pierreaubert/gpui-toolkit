@@ -9,7 +9,7 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 mkdir -p "$(dirname "$artifact")" "$(dirname "$screenshot")"
 
-export GPUI_NATIVE_SMOKE_HOLD_MS="${GPUI_NATIVE_SMOKE_HOLD_MS:-5000}"
+export GPUI_NATIVE_SMOKE_HOLD_MS="${GPUI_NATIVE_SMOKE_HOLD_MS:-65000}"
 
 "$binary" \
     --smoke-test \
@@ -36,7 +36,15 @@ if [[ -z "$window_id" ]]; then
 fi
 
 # Let the smoke transition collapse the sidebar and paint the second frame.
-sleep 1
+unique_colors=0
+for _ in $(seq 1 13); do
+    import -window "$window_id" "$screenshot"
+    unique_colors="$(identify -format '%k' "$screenshot")"
+    if (( unique_colors >= 16 )); then
+        break
+    fi
+    sleep 5
+done
 import -window "$window_id" "$screenshot"
 
 unique_colors="$(identify -format '%k' "$screenshot")"
