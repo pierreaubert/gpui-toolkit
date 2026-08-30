@@ -3,7 +3,7 @@
 //! motion, then hand off to the shared z-sorted painter. Ported from
 //! `thinking-orbs` 0.3.1 `engine/lattice.ts`, MIT © Jakub Antalik.
 
-use super::core::{Dot, OrbFrame, angle_delta, finalize_frame, hash_d, make_proj, radius_scale};
+use super::core::{Dot, OrbFrame, angle_delta, finalize_frame, make_proj, radius_scale};
 use super::profiles::ModeOpts;
 
 // --- the shared solver heartbeat (rubik) ------------------------------
