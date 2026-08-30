@@ -102,8 +102,10 @@ qa-apple-host-contracts:
 [group('qa')]
 qa-gpui-obvious: qa-gpui-conformance
 	cargo test -p gpui-ui-kit-macros {{features}}
-	cargo test -p gpui-builder {{features}}
-	cargo check -p gpui-builder {{features}}
+	# gpui-builder intentionally has no optional workspace feature surface.
+	# Do not forward the aggregate feature list used by its consumers.
+	cargo test -p gpui-builder
+	cargo check -p gpui-builder
 	cargo test -p gpui-audio-kit {{features}} -- --test-threads=1
 	cargo test -p gpui-ui-kit {{features}}
 	cargo test -p gpui-ui-kit {{features}} --features bench --test allocation_contracts -- --test-threads=1

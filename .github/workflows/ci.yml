@@ -508,7 +508,7 @@ jobs:
       - name: Run visual manifests, goldens and conformance
         env:
           QA_NATIVE_UI_CAPTURE: "1"
-        run: just qa-visual
+        run: xvfb-run -a just qa-visual
 
       - name: Upload visual evidence and pending-renderer report
         uses: actions/upload-artifact@v7
@@ -530,6 +530,12 @@ jobs:
 
       - name: Install Just and baseline decompressor
         run: brew install just zstd
+
+      - name: Expand committed Metal visual baselines
+        run: |
+          mkdir -p target/qa/visual/component-lab
+          zstd -d -c qa/visual/baselines/component-lab-metal-pr-v1.tar.zst |
+            tar -xf - -C target/qa/visual/component-lab
 
       - name: Cache cargo
         uses: actions/cache@v5

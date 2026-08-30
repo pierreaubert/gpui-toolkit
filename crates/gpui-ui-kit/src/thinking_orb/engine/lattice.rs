@@ -90,23 +90,39 @@ fn apply_moves(pt3: (f64, f64, f64), moves: &[Move], sc: &SolveCycle) -> (f64, f
 }
 
 fn make_moves(count: usize) -> Vec<Move> {
-    let mut moves = Vec::with_capacity(count);
-    for i in 0..count {
-        let axis = (hash_d(i as f64, 2.3) * 3.0).floor().min(2.0) as usize;
-        let lo = -1.0 + 0.5 * (hash_d(i as f64, 5.9) * 4.0).floor().min(3.0);
-        let dir = if hash_d(i as f64, 7.7) < 0.5 {
-            1.0
-        } else {
-            -1.0
-        };
-        moves.push(Move {
+    // These are the first 14 moves emitted by thinking-orbs 0.3.1's
+    // `hashD`-based generator. Calling sin() and then floor() to select a
+    // discrete move is not portable: a last-bit libm difference can select a
+    // different cube layer, yielding a visibly different solver on Windows.
+    // Keep the upstream default sequence as explicit data instead.
+    const CANONICAL_MOVES: &[(usize, f64, f64)] = &[
+        (0, 0.5, -1.0),
+        (2, -0.5, 1.0),
+        (2, -1.0, -1.0),
+        (2, -0.5, 1.0),
+        (1, -1.0, 1.0),
+        (1, -0.5, 1.0),
+        (2, 0.5, 1.0),
+        (1, 0.0, -1.0),
+        (0, -1.0, -1.0),
+        (1, 0.5, 1.0),
+        (0, 0.0, 1.0),
+        (0, 0.5, 1.0),
+        (1, -1.0, -1.0),
+        (2, 0.0, 1.0),
+    ];
+
+    CANONICAL_MOVES
+        .iter()
+        .cycle()
+        .take(count)
+        .map(|&(axis, lo, direction)| Move {
             axis,
             lo,
             hi: lo + 0.5,
-            ang: dir * std::f64::consts::PI / 2.0,
-        });
-    }
-    moves
+            ang: direction * std::f64::consts::PI / 2.0,
+        })
+        .collect()
 }
 
 // --- Globe: lat/long field, a scan meridian sweeps — searching --------
