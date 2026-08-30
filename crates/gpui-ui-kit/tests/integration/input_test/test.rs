@@ -697,8 +697,10 @@ async fn test_input_copy_paste(cx: &mut TestAppContext) {
         cx.run_until_parked();
 
         // Type "Hello"
-        cx.simulate_input("Hello");
-        cx.run_until_parked();
+        for character in ["H", "e", "l", "l", "o"] {
+            cx.simulate_input(character);
+            cx.run_until_parked();
+        }
 
         // Select All (Cmd+A)
         #[cfg(target_os = "macos")]
