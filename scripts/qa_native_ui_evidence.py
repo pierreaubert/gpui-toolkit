@@ -96,7 +96,7 @@ def verify_pixel_evidence(
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--artifact", required=True, type=Path)
-    parser.add_argument("--screenshot", required=True, type=Path)
+    parser.add_argument("--screenshot", type=Path)
     parser.add_argument("--platform")
     parser.add_argument("--unique-colors", type=int)
     parser.add_argument("--capture-transport")
@@ -105,12 +105,20 @@ def main() -> int:
     args = parser.parse_args()
 
     if args.smoke_only:
-        if args.verify or args.unique_colors is not None or args.capture_transport is not None:
+        if (
+            args.screenshot is not None
+            or args.verify
+            or args.unique_colors is not None
+            or args.capture_transport is not None
+        ):
             parser.error("--smoke-only cannot be combined with pixel evidence options")
         validate_smoke_report(
             json.loads(args.artifact.read_text(encoding="utf-8")), args.platform
         )
         return 0
+
+    if args.screenshot is None:
+        parser.error("--screenshot is required unless --smoke-only is used")
 
     if args.verify:
         if args.unique_colors is not None or args.capture_transport is not None:

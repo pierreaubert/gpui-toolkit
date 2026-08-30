@@ -1,13 +1,16 @@
 import json
+import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from qa_native_ui_evidence import (
     EvidenceError,
     annotate_pixel_evidence,
     validate_smoke_report,
     verify_pixel_evidence,
+    main,
 )
 
 
@@ -30,6 +33,24 @@ def smoke_report() -> dict[str, object]:
 class NativeUiEvidenceTests(unittest.TestCase):
     def test_smoke_only_validation_accepts_a_complete_native_report(self) -> None:
         self.assertIsNone(validate_smoke_report(smoke_report(), "macos"))
+
+    def test_smoke_only_cli_does_not_require_a_screenshot(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            artifact = Path(directory) / "smoke.json"
+            artifact.write_text(json.dumps(smoke_report()), encoding="utf-8")
+            with patch.object(
+                sys,
+                "argv",
+                [
+                    "qa_native_ui_evidence.py",
+                    "--artifact",
+                    str(artifact),
+                    "--platform",
+                    "macos",
+                    "--smoke-only",
+                ],
+            ):
+                self.assertEqual(main(), 0)
 
     def test_annotation_records_validated_pixel_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
