@@ -188,11 +188,24 @@ jobs:
             xvfb \
             xauth \
             xdotool \
-            imagemagick \
-            libfontconfig1-dev \
-            libfreetype6-dev \
-            libgl1-mesa-dri \
-            mesa-vulkan-drivers
+          imagemagick \
+          libfontconfig1-dev \
+          libfreetype6-dev \
+          libwayland-dev \
+          libx11-xcb-dev \
+          libxkbcommon-dev \
+          libxkbcommon-x11-dev \
+          libxcb1-dev \
+          libxcb-render0-dev \
+          libxcb-shape0-dev \
+          libxcb-xfixes0-dev \
+          libxrandr-dev \
+          libxi-dev \
+          libxcursor-dev \
+          libegl1-mesa-dev \
+          libgl1-mesa-dev \
+          libgl1-mesa-dri \
+          mesa-vulkan-drivers
 
       - name: Install macOS screenshot tooling
         if: runner.os == 'macOS'

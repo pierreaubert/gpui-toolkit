@@ -130,24 +130,24 @@ mod tests {
     fn test_get_valuator_axis_index() {
         assert!(get_valuator_axis_index(&vec![0b11], 0) == Some(0));
         assert!(get_valuator_axis_index(&vec![0b11], 1) == Some(1));
-        assert!(get_valuator_axis_index(&vec![0b11], 2) == None);
+        assert!(get_valuator_axis_index(&vec![0b11], 2).is_none());
 
-        assert!(get_valuator_axis_index(&vec![0b100], 0) == None);
-        assert!(get_valuator_axis_index(&vec![0b100], 1) == None);
+        assert!(get_valuator_axis_index(&vec![0b100], 0).is_none());
+        assert!(get_valuator_axis_index(&vec![0b100], 1).is_none());
         assert!(get_valuator_axis_index(&vec![0b100], 2) == Some(0));
-        assert!(get_valuator_axis_index(&vec![0b100], 3) == None);
+        assert!(get_valuator_axis_index(&vec![0b100], 3).is_none());
 
-        assert!(get_valuator_axis_index(&vec![0b1010, 0], 0) == None);
+        assert!(get_valuator_axis_index(&vec![0b1010, 0], 0).is_none());
         assert!(get_valuator_axis_index(&vec![0b1010, 0], 1) == Some(0));
-        assert!(get_valuator_axis_index(&vec![0b1010, 0], 2) == None);
+        assert!(get_valuator_axis_index(&vec![0b1010, 0], 2).is_none());
         assert!(get_valuator_axis_index(&vec![0b1010, 0], 3) == Some(1));
 
-        assert!(get_valuator_axis_index(&vec![0b1010, 0b1], 0) == None);
+        assert!(get_valuator_axis_index(&vec![0b1010, 0b1], 0).is_none());
         assert!(get_valuator_axis_index(&vec![0b1010, 0b1], 1) == Some(0));
-        assert!(get_valuator_axis_index(&vec![0b1010, 0b1], 2) == None);
+        assert!(get_valuator_axis_index(&vec![0b1010, 0b1], 2).is_none());
         assert!(get_valuator_axis_index(&vec![0b1010, 0b1], 3) == Some(1));
         assert!(get_valuator_axis_index(&vec![0b1010, 0b1], 32) == Some(2));
-        assert!(get_valuator_axis_index(&vec![0b1010, 0b1], 33) == None);
+        assert!(get_valuator_axis_index(&vec![0b1010, 0b1], 33).is_none());
 
         assert!(get_valuator_axis_index(&vec![0b1010, 0b101], 34) == Some(3));
     }
