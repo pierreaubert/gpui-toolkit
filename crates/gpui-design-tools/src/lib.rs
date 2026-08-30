@@ -687,8 +687,12 @@ mod tests {
 
     #[test]
     fn reviewed_figma_examples_keep_current_component_apis_and_paths() {
-        let rules = include_str!("../../figma/DESIGN_SYSTEM_RULES.md");
-        let mappings = include_str!("../../figma/CODE_CONNECT_MAPPINGS.md");
+        // GitHub's Windows checkout may present these tracked Markdown files
+        // with CRLF line endings.  The snippets below intentionally include
+        // newlines, so compare their normalized text rather than making the
+        // documentation contract host-line-ending dependent.
+        let rules = include_str!("../../figma/DESIGN_SYSTEM_RULES.md").replace("\r\n", "\n");
+        let mappings = include_str!("../../figma/CODE_CONNECT_MAPPINGS.md").replace("\r\n", "\n");
 
         assert!(rules.contains("Toggle::new(\"enable-toggle\")\n    .checked(is_checked)"));
         assert!(mappings.contains("Toggle::new(\"id\")\n    .checked(checked)"));

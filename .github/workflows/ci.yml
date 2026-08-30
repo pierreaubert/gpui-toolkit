@@ -338,10 +338,10 @@ jobs:
           components: miri
 
       - name: Initialize Miri
-        run: cargo miri setup
+        run: cargo +nightly miri setup
 
       - name: Exercise portable text layout under Miri
-        run: cargo miri test -p gpui-pretext --lib --tests
+        run: cargo +nightly miri test -p gpui-pretext --lib --tests
 
   dependency-policy:
     name: Dependency, license and source policy
@@ -443,6 +443,16 @@ jobs:
       - name: Install Just
         uses: extractions/setup-just@v4
 
+      - name: Install Linux native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libfontconfig1-dev libfreetype6-dev libwayland-dev \
+            libx11-xcb-dev libxkbcommon-dev libxkbcommon-x11-dev \
+            libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
+            libxrandr-dev libxi-dev libxcursor-dev \
+            libegl1-mesa-dev libgl1-mesa-dev
+
       - name: Cache cargo
         uses: actions/cache@v5
         with:
@@ -478,7 +488,13 @@ jobs:
       - name: Install Linux native visual capture tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y xvfb xauth xdotool imagemagick libgl1-mesa-dri mesa-vulkan-drivers
+          sudo apt-get install -y \
+            xvfb xauth xdotool imagemagick libgl1-mesa-dri mesa-vulkan-drivers \
+            libfontconfig1-dev libfreetype6-dev libwayland-dev \
+            libx11-xcb-dev libxkbcommon-dev libxkbcommon-x11-dev \
+            libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
+            libxrandr-dev libxi-dev libxcursor-dev \
+            libegl1-mesa-dev libgl1-mesa-dev
 
       - name: Cache cargo
         uses: actions/cache@v5
@@ -554,6 +570,16 @@ jobs:
 
       - name: Install Just
         uses: extractions/setup-just@v4
+
+      - name: Install Linux native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libfontconfig1-dev libfreetype6-dev libwayland-dev \
+            libx11-xcb-dev libxkbcommon-dev libxkbcommon-x11-dev \
+            libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
+            libxrandr-dev libxi-dev libxcursor-dev \
+            libegl1-mesa-dev libgl1-mesa-dev
 
       - name: Cache cargo
         uses: actions/cache@v5
