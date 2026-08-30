@@ -70,8 +70,8 @@ fn apply_moves(pt3: (f64, f64, f64), moves: &[Move], sc: &SolveCycle) -> (f64, f
             in_active = true;
         }
         let a = mv.ang * sc.amount[i];
-        let ca = a.cos();
-        let sa = a.sin();
+        let ca = libm::cos(a);
+        let sa = libm::sin(a);
         if mv.axis == 0 {
             let y2 = y * ca - z * sa;
             z = y * sa + z * ca;

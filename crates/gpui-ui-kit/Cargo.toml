@@ -20,6 +20,7 @@ gpui-d3rs = { workspace = true, default-features = false, features = ["gpui"] }
 # Serialization for Color type
 serde = { workspace = true }
 serde_json = { workspace = true }
+libm = "0.2"
 
 # UUID for node/connection IDs
 uuid = { workspace = true }
