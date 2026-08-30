@@ -101,7 +101,16 @@ def main() -> int:
     parser.add_argument("--unique-colors", type=int)
     parser.add_argument("--capture-transport")
     parser.add_argument("--verify", action="store_true")
+    parser.add_argument("--smoke-only", action="store_true")
     args = parser.parse_args()
+
+    if args.smoke_only:
+        if args.verify or args.unique_colors is not None or args.capture_transport is not None:
+            parser.error("--smoke-only cannot be combined with pixel evidence options")
+        validate_smoke_report(
+            json.loads(args.artifact.read_text(encoding="utf-8")), args.platform
+        )
+        return 0
 
     if args.verify:
         if args.unique_colors is not None or args.capture_transport is not None:

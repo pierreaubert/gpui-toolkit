@@ -6,6 +6,7 @@ from pathlib import Path
 from qa_native_ui_evidence import (
     EvidenceError,
     annotate_pixel_evidence,
+    validate_smoke_report,
     verify_pixel_evidence,
 )
 
@@ -27,6 +28,9 @@ def smoke_report() -> dict[str, object]:
 
 
 class NativeUiEvidenceTests(unittest.TestCase):
+    def test_smoke_only_validation_accepts_a_complete_native_report(self) -> None:
+        self.assertIsNone(validate_smoke_report(smoke_report(), "macos"))
+
     def test_annotation_records_validated_pixel_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

@@ -26,6 +26,7 @@ fi
 
 mkdir -p "$(dirname "$artifact")" "$(dirname "$screenshot")"
 export GPUI_NATIVE_SMOKE_HOLD_MS="${GPUI_NATIVE_SMOKE_HOLD_MS:-8000}"
+capture_pixels="${GPUI_NATIVE_SMOKE_CAPTURE_PIXELS:-1}"
 
 "$binary" --smoke-test --smoke-artifact "$artifact" &
 app_pid=$!
@@ -35,6 +36,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
+if [[ "$capture_pixels" != "0" ]]; then
 window_id="$(swift -e '
 import CoreGraphics
 import Darwin
@@ -71,10 +73,20 @@ unique_colors="$(magick identify -format '%k' "$screenshot")"
 wait "$app_pid"
 
 python3 "$script_dir/qa_native_ui_evidence.py" \
-    --artifact "$artifact" \
+  --artifact "$artifact" \
     --screenshot "$screenshot" \
     --platform macos \
-    --unique-colors "$unique_colors" \
-    --capture-transport macos-window
+  --unique-colors "$unique_colors" \
+  --capture-transport macos-window
+else
+  # GitHub-hosted macOS runners have no Screen Recording permission. The
+  # showcase still opens, renders and verifies its interaction contract; the
+  # pixel capture remains required on an interactive desktop runner.
+  wait "$app_pid"
+  python3 "$script_dir/qa_native_ui_evidence.py" \
+    --artifact "$artifact" \
+    --platform macos \
+    --smoke-only
+fi
 
 trap - EXIT

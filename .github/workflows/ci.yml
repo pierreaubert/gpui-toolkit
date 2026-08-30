@@ -231,6 +231,11 @@ jobs:
 
       - name: Run macOS native UI smoke
         if: runner.os == 'macOS'
+        # Hosted macOS runners cannot grant Screen Recording permission to
+        # screencapture. Keep the real native smoke test, but reserve its
+        # pixel-evidence capture for an interactive desktop runner.
+        env:
+          GPUI_NATIVE_SMOKE_CAPTURE_PIXELS: "0"
         run: |
           bash scripts/run_macos_native_ui_smoke.sh \
             target/debug/layout-showcase \
