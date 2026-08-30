@@ -35,9 +35,20 @@ fn warmed_reusable_layout_solves_are_allocation_free() {
     let preferences = LayoutPreferences::default();
     let mut target = SolvedTree::with_capacity(root.node_count());
 
-    // Two solves warm both the solver scratch pool and recycled child buffers.
+    // Exercise every structural layout state first. Narrow widths can collapse
+    // a nested container, while wider widths restore it and its recycled
+    // buffers. Only measure the steady-state resize pass after both shapes
+    // have populated the retained pools.
     solve_tree_into(&root, 1_200.0, 800.0, &preferences, &mut target);
-    solve_tree_into(&root, 1_199.0, 800.0, &preferences, &mut target);
+    for width in 0..1_100 {
+        solve_tree_into(
+            &root,
+            100.0 + width as f32,
+            800.0,
+            &preferences,
+            &mut target,
+        );
+    }
 
     let mut probe = AllocProbe::new();
     probe.reset();
