@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -55,7 +56,7 @@ class MeshPlotLaneScriptTests(unittest.TestCase):
         report.write_text("stale report", encoding="utf-8")
         environment = {
             **os.environ,
-            "MESH_PLOT_PYTHON_BIN": "/opt/homebrew/bin/python3",
+            "MESH_PLOT_PYTHON_BIN": sys.executable,
             "QA_MESH_METAL_MANIFEST": str(metal),
             "QA_MESH_WGPU_MANIFEST": str(wgpu),
             "QA_MESH_CROSS_ADAPTER_REPORT": str(report),

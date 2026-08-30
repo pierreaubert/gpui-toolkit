@@ -285,6 +285,7 @@ jobs:
             libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
             libxrandr-dev libxi-dev libxcursor-dev \
             libegl1-mesa-dev libgl1-mesa-dev
+            python3-pil
           just check
 
       - name: cargo clippy

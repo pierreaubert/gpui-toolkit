@@ -42,7 +42,7 @@ def arguments(directory: Path) -> Namespace:
 
 class AndroidEmulatorEvidenceTests(unittest.TestCase):
     def test_just_recipe_passes_optional_serial_without_empty_array(self) -> None:
-        justfile = Path(__file__).parents[2] / "justfile"
+        justfile = Path(__file__).parents[2] / "Justfile"
         recipe = justfile.read_text().split("qa-android-emulator serial='':", 1)[1]
         recipe = recipe.split("\n\n", 1)[0]
         self.assertIn('"{{serial}}"', recipe)
