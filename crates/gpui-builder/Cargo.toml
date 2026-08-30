@@ -20,7 +20,7 @@ gpui = { workspace = true, optional = true }
 gpui_macos = { workspace = true, optional = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-gpui_linux = { workspace = true, optional = true }
+gpui_linux = { workspace = true, optional = true, features = ["wayland", "x11"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 gpui_windows = { workspace = true, optional = true }

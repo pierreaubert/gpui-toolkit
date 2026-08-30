@@ -199,18 +199,19 @@ fn fluent_constructors_match_explicit_struct_layout() {
     }
 }
 
-struct DummyMeasure;
+struct DummyMeasure(u8);
 
 impl gpui_pretext::TextMeasure for DummyMeasure {
     fn measure_width(&self, _text: &str) -> f64 {
+        let _ = self.0;
         0.0
     }
 }
 
 #[test]
 fn sizing_text_debug_equality_and_min_size() {
-    static M1: DummyMeasure = DummyMeasure;
-    static M2: DummyMeasure = DummyMeasure;
+    static M1: DummyMeasure = DummyMeasure(1);
+    static M2: DummyMeasure = DummyMeasure(2);
 
     let t1 = Sizing::Text {
         text: "a",

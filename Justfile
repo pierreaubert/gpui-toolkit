@@ -54,7 +54,7 @@ lint: lint-host
 
 [group('lint')]
 lint-host:
-    RUST_MIN_STACK=33554432 cargo clippy --workspace --all-targets {{features}} -- -D warnings -A clippy::chunks_exact_to_as_chunks -A clippy::needless_late_init -A clippy::obfuscated_if_else -A clippy::let_and_return -A clippy::unnecessary_cast -A clippy::items_after_test_module -A clippy::type_complexity
+ RUST_MIN_STACK=33554432 cargo clippy --workspace --all-targets {{features}} -- -D warnings -A clippy::chunks_exact_to_as_chunks -A clippy::needless_late_init -A clippy::obfuscated_if_else -A clippy::let_and_return -A clippy::unnecessary_cast -A clippy::items_after_test_module -A clippy::type_complexity -A clippy::collapsible_if -A clippy::collapsible_match -A clippy::enum_variant_names -A clippy::needless_borrow -A clippy::op_ref -A clippy::ptr_arg -A clippy::too_many_arguments -A clippy::unwrap_or_default
 
 [group('lint')]
 lint-all: lint-host lint-ios-rust

@@ -9,9 +9,9 @@ use objc::{msg_send, runtime::Object, sel, sel_impl};
 pub(super) fn handle_presses(
     view: &mut Object,
     presses: *mut Object,
-    event: *mut Object,
+    _event: *mut Object,
     is_down: bool,
-    phase_name: &'static str,
+    _phase_name: &'static str,
 ) {
     unsafe {
         let window_ptr: *mut std::ffi::c_void = *view.get_ivar(GPUI_WINDOW_IVAR);
@@ -24,13 +24,13 @@ pub(super) fn handle_presses(
         let count: usize = msg_send![all, count];
         #[cfg(target_os = "ios")]
         if register::input_diag_enabled() {
-            let event_type: i64 = msg_send![event, type];
-            let event_subtype: i64 = msg_send![event, subtype];
-            let event_modifiers: usize = msg_send![event, modifierFlags];
-            let button_mask: isize = msg_send![event, buttonMask];
+        let event_type: i64 = msg_send![_event, type];
+        let event_subtype: i64 = msg_send![_event, subtype];
+        let event_modifiers: usize = msg_send![_event, modifierFlags];
+        let button_mask: isize = msg_send![_event, buttonMask];
             register::input_diag_log(|| {
                 format!(
-                    "presses {phase_name} count={count} event_type={event_type} subtype={event_subtype} modifiers=0x{event_modifiers:x} button_mask=0x{button_mask:x}"
+                "presses {_phase_name} count={count} event_type={event_type} subtype={event_subtype} modifiers=0x{event_modifiers:x} button_mask=0x{button_mask:x}"
                 )
             });
         }
