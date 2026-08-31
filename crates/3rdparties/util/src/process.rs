@@ -220,7 +220,11 @@ mod windows_tests {
         let child = Child::spawn(command, Stdio::null(), Stdio::null(), Stdio::null())
             .expect("failed to spawn powershell");
 
-        let deadline = Instant::now() + Duration::from_secs(5);
+        // Hosted Windows runners can take several seconds to schedule
+        // PowerShell and create the child process. Keep the process-tree
+        // assertion strict, but give setup a bounded minute to publish its
+        // PID before declaring the test failed.
+        let deadline = Instant::now() + Duration::from_secs(60);
         let grandchild_pid = loop {
             if let Ok(contents) = std::fs::read_to_string(&pid_file)
                 && let Ok(pid) = contents.trim().parse::<u32>()
@@ -231,7 +235,7 @@ mod windows_tests {
                 Instant::now() < deadline,
                 "timed out waiting for grandchild pid file"
             );
-            std::thread::sleep(Duration::from_millis(50));
+            std::thread::sleep(Duration::from_millis(250));
         };
         assert!(
             process_is_alive(grandchild_pid),
