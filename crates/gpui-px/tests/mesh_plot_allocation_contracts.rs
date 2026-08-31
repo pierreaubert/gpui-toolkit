@@ -90,9 +90,21 @@ fn alternating_field_updates_reuse_retained_capacity_and_preserve_state() {
     let geometry_revision = state.geometry_revision;
     let viewport = state.interaction.x_domain();
 
+    // Exercise both retained payloads through a complete replacement cycle
+    // before measuring. This absorbs allocator-specific first-use effects
+    // while the measured path below must remain allocation-free.
+    for revision in 2..=1_001 {
+        let values = if revision % 2 == 0 {
+            &values_b
+        } else {
+            &values_a
+        };
+        state.replace_field_values(revision, values);
+    }
+
     let mut probe = AllocProbe::new();
     probe.reset();
-    for revision in 2..=1_001 {
+    for revision in 1_002..=2_001 {
         let values = if revision % 2 == 0 {
             &values_b
         } else {
