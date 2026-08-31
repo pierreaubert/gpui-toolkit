@@ -256,12 +256,10 @@ impl Render for ShowcaseView {
             if render_index == 0 {
                 // Defer the mutation until the initial paint returns. A
                 // render-time invalidation is dropped by Xvfb's event loop.
-                cx.defer_in(window, |view, window, cx| {
+                cx.defer_in(window, |view, _window, cx| {
                     view.sidebar_collapsed = true;
                     view.sync_layout_preferences();
                     cx.notify();
-                    window.refresh();
-                    window.request_animation_frame();
                 });
             }
         }
