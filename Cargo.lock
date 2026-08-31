@@ -3019,7 +3019,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-python-runtime"
-version = "0.9.23"
+version = "0.9.24"
 dependencies = [
  "glam 0.33.5",
  "gpui-audio-kit",
@@ -3119,7 +3119,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-toolkit"
-version = "0.9.23"
+version = "0.9.24"
 dependencies = [
  "gpui-au",
  "gpui-audio-kit",
