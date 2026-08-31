@@ -520,6 +520,8 @@ jobs:
             ~/.cargo/git
             target
           key: ${{ runner.os }}-cargo-visual-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
 
       - name: Run visual manifests, goldens and conformance
         env:
