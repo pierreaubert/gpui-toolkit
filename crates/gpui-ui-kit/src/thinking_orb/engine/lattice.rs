@@ -180,7 +180,7 @@ pub fn frame_rubik(size: f64, t: f64, o: &ModeOpts) -> OrbFrame {
     let cx = size / 2.0;
     let cy = size / 2.0;
     let r_max = (size / 2.0) * 0.82;
-    let pt = make_proj(t * 0.55, 0.35 + 0.1 * (t * 0.9).sin(), cx, cy, r_max);
+    let pt = make_proj(t * 0.55, 0.35 + 0.1 * libm::sin(t * 0.9), cx, cy, r_max);
     let rs = radius_scale(size, o.get("rsPow", 0.6));
     let move_count = o.get("moveCount", 14.0) as usize;
     let moves = make_moves(move_count);
@@ -192,13 +192,17 @@ pub fn frame_rubik(size: f64, t: f64, o: &ModeOpts) -> OrbFrame {
     for li in 0..=lat_rings {
         let lat =
             -std::f64::consts::FRAC_PI_2 + (li as f64 / lat_rings as f64) * std::f64::consts::PI;
-        let cos_lat = lat.cos();
-        let sin_lat = lat.sin();
+        // Cube moves select a layer by comparing these coordinates against
+        // exact boundaries such as 0.5. Use the same portable trig backend as
+        // the rotation and projector so a last-bit system-libm difference
+        // cannot select a different layer on Windows.
+        let cos_lat = libm::cos(lat);
+        let sin_lat = libm::sin(lat);
         let lon_count = (cos_lat.abs() * lon_density).round().max(1.0) as usize;
         for lj in 0..lon_count {
             let lon = (lj as f64 / lon_count as f64) * 2.0 * std::f64::consts::PI;
             let (x, y, z, in_active) = apply_moves(
-                (cos_lat * lon.cos(), sin_lat, cos_lat * lon.sin()),
+                (cos_lat * libm::cos(lon), sin_lat, cos_lat * libm::sin(lon)),
                 &moves,
                 &sc,
             );

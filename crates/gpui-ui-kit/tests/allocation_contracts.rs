@@ -34,9 +34,10 @@ fn warmed_edit_cycles_are_allocation_free() {
     state.insert_char('x');
     state.do_backspace();
 
-    // Fill the bounded undo history before measuring. The steady state must
-    // recycle those snapshots rather than allocate new text clones.
-    for _ in 0..250 {
+    // Fill and rotate bounded undo history through every edit phase before
+    // measuring. Each mutation has a different text length, so a single fill
+    // can leave a recycled slot too small on a different allocator.
+    for _ in 0..1_000 {
         edit_cycle(&mut state);
     }
 
