@@ -488,6 +488,9 @@ jobs:
   visual-evidence:
     name: Linux visual and native evidence
     runs-on: ubuntu-latest
+    # Renderer-backed capture must fail with a useful CI log rather than occupy
+    # a runner indefinitely if the native window never exits.
+    timeout-minutes: 60
     needs: check-and-test
     steps:
       - uses: actions/checkout@v7
