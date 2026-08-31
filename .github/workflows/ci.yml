@@ -442,6 +442,14 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # The broad Cargo target cache plus the all-feature QA matrix exceeds the
+      # free space left on a stock GitHub-hosted runner. These preinstalled SDKs
+      # are not used by this Linux-only job.
+      - name: Reclaim runner disk space
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc
+          df -h /
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
