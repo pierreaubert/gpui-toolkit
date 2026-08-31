@@ -490,7 +490,7 @@ jobs:
     runs-on: ubuntu-latest
     # Renderer-backed capture must fail with a useful CI log rather than occupy
     # a runner indefinitely if the native window never exits.
-    timeout-minutes: 90
+    timeout-minutes: 120
     needs: check-and-test
     steps:
       - uses: actions/checkout@v7

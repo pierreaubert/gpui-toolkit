@@ -36,9 +36,14 @@ if [[ -z "$window_id" ]]; then
 fi
 
 # Let the smoke transition collapse the sidebar and paint the second frame.
+capture_window() {
+    # ImageMagick can block indefinitely when Xvfb stops responding.
+    timeout 10s import -window "$window_id" "$screenshot"
+}
+
 unique_colors=0
 for _ in $(seq 1 13); do
-    if import -window "$window_id" "$screenshot" 2>/dev/null; then
+    if capture_window 2>/dev/null; then
         unique_colors="$(identify -format '%k' "$screenshot")"
         if (( unique_colors >= 16 )); then
             break
@@ -46,7 +51,10 @@ for _ in $(seq 1 13); do
     fi
     sleep 5
 done
-import -window "$window_id" "$screenshot"
+if ! capture_window; then
+    echo "Timed out capturing the Layout Builder Showcase window in Xvfb" >&2
+    exit 1
+fi
 
 unique_colors="$(identify -format '%k' "$screenshot")"
 if (( unique_colors < 16 )); then
