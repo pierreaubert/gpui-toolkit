@@ -254,14 +254,15 @@ impl Render for ShowcaseView {
         if let Some(render_probe) = &self.render_probe {
             let render_index = render_probe.fetch_add(1, Ordering::Release);
             if render_index == 0 {
-                // Native Xvfb smoke does not consistently deliver
-                // `on_next_frame`; update the rendered state immediately and
-                // explicitly request the follow-up paint instead.
-                self.sidebar_collapsed = true;
-                self.sync_layout_preferences();
-                cx.notify();
-                window.refresh();
-                window.request_animation_frame();
+                // Defer the mutation until the initial paint returns. A
+                // render-time invalidation is dropped by Xvfb's event loop.
+                cx.defer_in(window, |view, window, cx| {
+                    view.sidebar_collapsed = true;
+                    view.sync_layout_preferences();
+                    cx.notify();
+                    window.refresh();
+                    window.request_animation_frame();
+                });
             }
         }
         let theme = ShowcaseTheme::from_window_appearance(window.appearance());
