@@ -526,7 +526,10 @@ jobs:
       - name: Run visual manifests, goldens and conformance
         env:
           QA_NATIVE_UI_CAPTURE: "1"
-        run: xvfb-run -a just qa-visual
+        # The Linux native smoke helper owns its Xvfb server. Wrapping the
+        # entire recipe creates a nested display and can leave ImageMagick with
+        # a stale window ID.
+        run: just qa-visual
 
       - name: Upload visual evidence and pending-renderer report
         uses: actions/upload-artifact@v7
