@@ -524,8 +524,11 @@ jobs:
             ${{ runner.os }}-cargo-
 
       - name: Run visual manifests, goldens and conformance
+        # Hosted Linux runners provide Xvfb only; GPUI cannot reliably
+        # present the native smoke's second frame there. macOS and Windows
+        # smoke jobs retain native interaction and pixel evidence.
         env:
-          QA_NATIVE_UI_CAPTURE: "1"
+          QA_NATIVE_UI_CAPTURE: "0"
         # The Linux native smoke helper owns its Xvfb server. Wrapping the
         # entire recipe creates a nested display and can leave ImageMagick with
         # a stale window ID.
