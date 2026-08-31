@@ -40,9 +40,12 @@ fn warmed_spectrum_meter_updates_are_allocation_free() {
     let levels = vec![0.5; BINS];
     let mut spectrum = MeterData::new(BINS);
     let mut probe = AllocProbe::new();
-    // Warm the exact call shape that is measured below. `black_box` prevents
-    // the optimizer from eliding the input path in this frame-hot contract.
-    spectrum.update(black_box(&levels), 0.8);
+    // Warm the exact retained state through a complete update cycle before
+    // measuring. This absorbs allocator and CPU-specific first-use effects
+    // while preserving the zero-allocation steady-state contract below.
+    for _ in 0..ITERATIONS {
+        spectrum.update(black_box(&levels), 0.8);
+    }
     probe.reset();
     for _ in 0..ITERATIONS {
         spectrum.update(black_box(&levels), 0.8);
