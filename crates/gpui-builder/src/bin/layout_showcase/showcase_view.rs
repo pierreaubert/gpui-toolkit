@@ -261,6 +261,7 @@ impl Render for ShowcaseView {
                 self.sync_layout_preferences();
                 cx.notify();
                 window.refresh();
+                window.request_animation_frame();
             }
         }
         let theme = ShowcaseTheme::from_window_appearance(window.appearance());
