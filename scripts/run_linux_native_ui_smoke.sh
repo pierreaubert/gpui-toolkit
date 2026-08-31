@@ -37,8 +37,10 @@ fi
 
 # Let the smoke transition collapse the sidebar and paint the second frame.
 capture_window() {
-    # ImageMagick can block indefinitely when Xvfb stops responding.
-    timeout 10s import -window "$window_id" "$screenshot"
+    # ImageMagick cannot reliably import a GPUI window ID under Xvfb, even
+    # after xdotool confirms the window exists. Capture the virtual display's
+    # root surface instead; it still contains the verified application window.
+    timeout 10s import -window root "$screenshot"
 }
 
 unique_colors=0
