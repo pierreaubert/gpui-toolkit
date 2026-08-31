@@ -7,7 +7,7 @@ use super::timer;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex, atomic::AtomicUsize};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 #[test]
 fn test_now_monotonic() {
@@ -204,8 +204,13 @@ fn test_timer_restart() {
         None,
     );
 
-    // Wait for first timer to complete
-    thread::sleep(Duration::from_millis(100));
+    // Wait for the first timer to complete. Hosted runners can delay the
+    // dispatcher beyond a single scheduler slice, but the callback contract
+    // still requires both ticks within this bounded deadline.
+    let deadline = Instant::now() + Duration::from_secs(1);
+    while counter.load(Ordering::SeqCst) < 2 && Instant::now() < deadline {
+        thread::sleep(Duration::from_millis(5));
+    }
 
     let first_count = counter.load(Ordering::SeqCst);
     assert!(first_count >= 2, "First timer should have completed");
