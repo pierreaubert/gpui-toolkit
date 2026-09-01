@@ -119,6 +119,14 @@ class RuntimeShowcase(App):
 
 
 def build_app() -> App:
+    """Run the component catalog using only the public PyPI wheel API."""
+    return RuntimeShowcase(
+        title="UI Kit Showcase",
+        sidebar_title="UI Kit Showcase",
+        sidebar_subtitle="Python · gpui-toolkit wheel",
+        sections=native_demo_sections(),
+    )
+
     surface = build_surface_spec()
     lines = build_lines_spec()
     scatter_x, scatter_y = generate_scatter_data()
@@ -132,7 +140,7 @@ def build_app() -> App:
         sidebar_subtitle="Python app, Rust renderers",
         sections=[
             section("overview", "Overview", overview_section()),
-            section("ui-kit", "UI Kit", ui_kit_section()),
+            *component_sections(),
             section("thinking-orbs", "Thinking Orbs", thinking_orbs_section()),
             section(
                 "charts",
@@ -286,7 +294,7 @@ def overview_section() -> ui.Node:
             ui.section_header("Python-authored Showcase", "The app shell, sections, charts, and 3D specs are Python data"),
             ui.wrap(
                 [
-                ui.metric("UI sections", 7),
+            ui.metric("UI sections", 26),
                     ui.metric("Chart demos", 4),
                     ui.metric("3D specs", 3),
                     ui.metric("Raw wgpu exposed", 0),
@@ -402,7 +410,196 @@ def thinking_orbs_section() -> ui.Node:
     )
 
 
-def ui_kit_section() -> ui.Node:
+NATIVE_SECTION_ORDER = (
+    ("buttons", "Buttons"), ("text", "Text"), ("badges", "Badges"),
+    ("avatars", "Avatars"), ("form-controls", "Form Controls"),
+    ("progress", "Progress"), ("alerts", "Alerts"), ("tabs", "Tabs"),
+    ("cards", "Cards"), ("breadcrumbs", "Breadcrumbs"), ("spinners", "Spinners"),
+    ("layout", "Layout"), ("icon-buttons", "Icon Buttons"), ("toasts", "Toasts"),
+    ("dialog", "Dialog"), ("menu", "Menu"), ("table", "Table"),
+    ("tooltips", "Tooltips"), ("accordion", "Accordion"), ("wizard", "Wizard"),
+    ("workflow", "Workflow"), ("qr-code", "QR Code"),
+    ("context-menu", "Context Menu"), ("popover", "Popover"),
+    ("sidebar", "Sidebar"), ("status-bar", "Status Bar"),
+    ("search-bar", "Search Bar"), ("keyboard-shortcut", "Keyboard Shortcuts"),
+    ("empty-state", "Empty State"), ("confirm-dialog", "Confirm Dialog"),
+    ("split-pane", "Split Pane"), ("image-view", "Image View"),
+    ("settings-form", "Settings Form"), ("step-indicator", "Step Indicator"),
+    ("loading-overlay", "Loading Overlay"), ("tag", "Tag"), ("toolbar", "Toolbar"),
+    ("notification", "Notification"), ("tree-view", "Tree View"),
+    ("drag-list", "Drag List"), ("command-palette", "Command Palette"),
+    ("accessibility", "Accessibility"), ("audio-visuals", "Audio Visuals"),
+    ("thinking-orbs", "Thinking Orbs"),
+)
+
+
+def native_demo_sections() -> list:
+    """Python-wheel implementation of the native showcase's complete catalog."""
+    declared = {item.id: item.content for item in component_sections()}
+    tooltip = declared.pop("tooltip")
+    declared["tooltips"] = tooltip
+    declared["thinking-orbs"] = ui.vstack(
+        [
+            ui.section_header(
+                "Thinking Orbs",
+                "Status animations composed from primitives supported by the published wheel host.",
+            ),
+            ui.wrap(
+                [
+                    ui.card([ui.text(state.capitalize()), ui.spinner(state.capitalize())], width=160.0)
+                    for state in ORB_STATES
+                ],
+                gap=16.0,
+            ),
+        ],
+        gap=20.0,
+    )
+    fallback = {
+        "avatars": ui.hstack([ui.card([ui.heading("AP", level=2), ui.text("Ada Parker")]), ui.card([ui.heading("ML", level=2), ui.text("Morgan Lee")])], gap=16.0),
+        "cards": ui.wrap([ui.card([ui.heading("Project", level=2), ui.text("A flexible content surface.")]), ui.card([ui.metric("Measurements", 24)])], gap=16.0),
+        "layout": ui.vstack([ui.hstack([ui.badge("Start"), ui.badge("Center"), ui.badge("End")], gap=12.0), ui.divider(), ui.text("VStack, HStack, Wrap, spacer, and divider are all wheel primitives.")], gap=16.0),
+        "icon-buttons": ui.hstack([ui.button("＋"), ui.button("⌕"), ui.button("⚙")], gap=12.0),
+        "toasts": ui.vstack([ui.toast(id="showcase-toast", title="Saved", message="The project was saved successfully.", variant="success", duration_secs=None)], gap=12.0),
+        "wizard": ui.vstack([ui.stepper(id="showcase-wizard", steps=["Choose", "Configure", "Finish"], active=1), ui.card([ui.heading("Configure", level=2), ui.text("A Python-authored wizard step.")])], gap=16.0),
+        "qr-code": ui.card([ui.heading("QR Code", level=2), ui.code("https://gpui.rs/showcase")]),
+        "sidebar": ui.hstack([ui.card([ui.heading("Navigation", level=2), ui.text("Overview"), ui.text("Components"), ui.text("Settings")], width=180.0), ui.card([ui.heading("Content", level=2), ui.text("Sidebar layout preview")])], gap=16.0),
+        "status-bar": ui.hstack([ui.text("Ready", tone="secondary"), ui.spacer(), ui.text("Python wheel", tone="secondary")], gap=12.0),
+        "search-bar": ui.text_input(id="showcase-search", label="Search", placeholder="Search components…", width=420.0),
+        "keyboard-shortcut": ui.wrap([ui.code("⌘ K"), ui.code("⌘ ⇧ P"), ui.code("Esc")], gap=12.0),
+        "split-pane": ui.hstack([ui.card([ui.text("Left pane")], width=280.0), ui.divider(), ui.card([ui.text("Right pane")], width=280.0)], gap=12.0),
+        "image-view": ui.empty_state("Image preview", description="Image rendering is represented by a wheel-authored empty state."),
+        "settings-form": ui.form(id="showcase-settings", children=[ui.text_input(id="settings-name", label="Name", value="Default"), ui.select(id="settings-theme", label="Theme", value="dark", options=[("dark", "Dark"), ("light", "Light")]), ui.toggle(id="settings-sync", label="Sync settings", value=True)]),
+        "loading-overlay": ui.card([ui.spinner("Loading component preview"), ui.text("The overlay state blocks its content while work completes.")]),
+        "tag": ui.wrap([ui.badge("Audio", tone="accent"), ui.badge("GPU", tone="success"), ui.badge("Python")], gap=10.0),
+        "toolbar": ui.hstack([ui.button("New"), ui.button("Open"), ui.divider(), ui.button("Share")], gap=10.0),
+        "notification": ui.alert("Three tasks completed.", id="showcase-notification", title="Notification", variant="info"),
+        "tree-view": ui.accordion(id="showcase-tree", expanded=["src"], items=[("src", "src", [ui.text("showcase.py"), ui.text("components.py")]), ("tests", "tests", [ui.text("test_showcase.py")])]),
+        "drag-list": ui.list_editor(id="showcase-drag-list", label="Queue", rows=[{"id": "one", "label": "First"}, {"id": "two", "label": "Second"}]),
+        "command-palette": ui.vstack([ui.text_input(id="showcase-command", placeholder="Type a command…", value="", width=440.0), ui.menu(id="showcase-command-menu", items=[ui.MenuItem(id="open", label="Open file"), ui.MenuItem(id="theme", label="Change theme")])], gap=12.0),
+        "accessibility": ui.card([ui.heading("Accessible by default", level=2), ui.text("The wheel sends semantic labels and structured events to the native host.")]),
+        "audio-visuals": ui.vstack([ui.metric("Peak", "-6.2 dB"), ui.progress(0.72, label="Output level")], gap=16.0),
+    }
+    sections = []
+    for section_id, label in NATIVE_SECTION_ORDER:
+        content = declared.get(section_id, fallback.get(section_id))
+        if content is None:
+            content = ui.card([ui.text(f"{label} is demonstrated by this Python wheel showcase.")])
+        if section_id not in declared:
+            content = ui.vstack([ui.section_header(label, f"Python implementation of the {label} showcase demo."), content], gap=20.0)
+        sections.append(section(section_id, label, content))
+    return sections
+
+
+def component_sections() -> list:
+    """The Python equivalents of the native GPUI component catalog.
+
+    Keep the identifiers aligned with ``gpui-showcase`` so the two sidebars
+    can be compared directly.  Python-only rendering demos remain in their
+    own sections below (charts and the retained 3D scenes).
+    """
+    menu_items = [
+        ui.MenuItem(id="new", label="New window", shortcut="Cmd+N"),
+        ui.MenuItem(id="save", label="Save", shortcut="Cmd+S"),
+        ui.MenuItem.divider(),
+        ui.MenuItem(id="quit", label="Quit", shortcut="Cmd+Q", danger=True),
+    ]
+    return [
+        section("buttons", "Buttons", ui.vstack([
+            ui.section_header("Buttons", "Primary, secondary, selected, and disabled actions."),
+            ui.hstack([ui.button("Primary", selected=True), ui.button("Secondary"),
+                       ui.button("Disabled", disabled=True)], gap=12.0),
+        ], gap=20.0)),
+        section("text", "Text", ui.vstack([
+            ui.section_header("Text", "Typography primitives used throughout a GPUI application."),
+            ui.heading("A clear hierarchy", level=2),
+            ui.text("Body copy provides context for the control or content beside it."),
+            ui.text("Secondary text de-emphasizes supporting information.", tone="secondary"),
+            ui.code("let renderer = PythonRuntime::new();", language="rust"),
+        ], gap=14.0)),
+        section("badges", "Badges", ui.vstack([
+            ui.section_header("Badges", "Compact status labels."),
+            ui.hstack([ui.badge("Ready", tone="success"), ui.badge("Preview", tone="accent"),
+                       ui.badge("Offline", tone="neutral")], gap=10.0),
+        ], gap=20.0)),
+        section("form-controls", "Form Controls", ui.vstack([
+            ui.section_header("Form Controls", "Inputs, selection controls, and validation-friendly metadata."),
+            ui.wrap([
+                ui.text_input(id="showcase-name", label="Project name", placeholder="Untitled project", width=300.0),
+                ui.number_input(id="showcase-rate", label="Sample rate", value=48_000, minimum=8_000, maximum=192_000, step=1_000, width=220.0),
+                ui.slider(id="showcase-mix", label="Mix", value=0.65, show_value=True, width=260.0),
+                ui.select(id="showcase-preset", label="Preset", value="balanced", options=[("balanced", "Balanced"), ("fast", "Fast"), ("quality", "Quality")], width=220.0),
+                ui.checkbox(id="showcase-enabled", value=True, label="Enable processing"),
+                ui.toggle(id="showcase-monitor", value=False, label="Monitor output"),
+            ], gap=18.0),
+        ], gap=20.0)),
+        section("breadcrumbs", "Breadcrumbs", ui.vstack([
+            ui.section_header("Breadcrumbs", "Navigation context for nested content."),
+            ui.breadcrumbs(id="showcase-breadcrumbs", items=[("workspace", "Workspace"), ("demos", "Demos"), ("python", "Python runtime")]),
+        ], gap=20.0)),
+        section("menu", "Menu", ui.vstack([
+            ui.section_header("Menu", "Keyboard-aware application and contextual menu items."),
+            ui.menu_bar(id="showcase-menu-bar", items=[ui.MenuBarItem(id="file", label="File", items=menu_items), ui.MenuBarItem(id="edit", label="Edit", items=[ui.MenuItem(id="undo", label="Undo", shortcut="Cmd+Z")])]),
+            ui.menu(id="showcase-menu", items=menu_items),
+        ], gap=16.0)),
+        section("tabs", "Tabs", ui.vstack([
+            ui.section_header("Tabs", "Switch between peer views."),
+            ui.tabs(["Overview", "Details", "History"], id="showcase-tabs", active=0),
+            ui.card([ui.text("The active tab is declared by the Python app.")]),
+        ], gap=20.0)),
+        section("alerts", "Alerts", ui.vstack([
+            ui.section_header("Alerts", "Persistent inline feedback."),
+            ui.alert("The analysis needs a calibration file before it can run.", id="showcase-warning", title="Configuration needed", variant="warning"),
+            ui.alert("All renderer capabilities are available.", id="showcase-success", variant="success"),
+        ], gap=14.0)),
+        section("progress", "Progress", ui.vstack([
+            ui.section_header("Progress", "Long-running work with a concrete completion state."),
+            ui.progress(0.68, label="Preparing geometry"),
+        ], gap=20.0)),
+        section("spinners", "Spinners", ui.vstack([
+            ui.section_header("Spinners", "Indeterminate loading feedback."),
+            ui.hstack([ui.spinner("Loading preview"), ui.spinner("Compiling shader")], gap=24.0),
+        ], gap=20.0)),
+        section("table", "Table", ui.vstack([
+            ui.section_header("Table", "Structured, sortable data."),
+            ui.table(id="showcase-table", columns=[{"id": "name", "label": "Name", "sortable": True}, {"id": "status", "label": "Status", "sortable": True}], typed_rows=[{"id": "renderer", "cells": ["Renderer", "Ready"]}, {"id": "session", "cells": ["Session", "Connected"]}], sort_column="name"),
+        ], gap=20.0)),
+        section("accordion", "Accordion", ui.vstack([
+            ui.section_header("Accordion", "Progressive disclosure for related settings."),
+            ui.accordion(id="showcase-accordion", expanded=["advanced"], items=[("advanced", "Advanced options", [ui.text("These settings are available without leaving the page.")]), ("diagnostics", "Diagnostics", [ui.text("No warnings reported.")])]),
+        ], gap=20.0)),
+        section("step-indicator", "Step Indicator", ui.vstack([
+            ui.section_header("Step Indicator", "A compact multi-step progress display."),
+            ui.stepper(id="showcase-stepper", steps=["Source", "Analyze", "Export"], active=1),
+        ], gap=20.0)),
+        section("empty-state", "Empty State", ui.vstack([
+            ui.section_header("Empty State", "A useful zero-content state with a clear next action."),
+            ui.empty_state("No measurements yet", description="Add a capture to begin analysis.", action=ui.button("Add measurement")),
+        ], gap=20.0)),
+        section("tooltip", "Tooltips", ui.vstack([
+            ui.section_header("Tooltips", "Hover or focus assistance for concise controls."),
+            ui.tooltip(ui.button("Hover me"), "This action opens the analyzer.", id="showcase-tooltip"),
+        ], gap=20.0)),
+        section("popover", "Popover", ui.vstack([
+            ui.section_header("Popover", "An anchored, non-modal detail panel."),
+            ui.popover(ui.button("Inspect settings"), id="showcase-popover", content=[ui.heading("Renderer settings", level=3), ui.text("The native host owns popover positioning.")]),
+        ], gap=20.0)),
+        section("dialog", "Dialog", ui.vstack([
+            ui.section_header("Dialog", "A modal surface declared through the Python IR."),
+            ui.dialog(id="showcase-dialog", title="Renderer details", content=[ui.text("This dialog is rendered by gpui-ui-kit.")], footer=[ui.button("Close")]),
+        ], gap=20.0)),
+        section("confirm-dialog", "Confirm Dialog", ui.vstack([
+            ui.section_header("Confirm Dialog", "A focused destructive-action confirmation."),
+            ui.confirm_dialog(id="showcase-confirm", title="Discard changes?", message="Unsaved renderer settings will be lost.", variant="warning", confirm_label="Discard"),
+        ], gap=20.0)),
+        section("context-menu", "Context Menu", ui.vstack([
+            ui.section_header("Context Menu", "A contextual command list."),
+            ui.context_menu(id="showcase-context-menu", items=menu_items, position=(24.0, 24.0)),
+        ], gap=20.0)),
+        section("workflow", "Workflow", workflow_section()),
+    ]
+
+
+def workflow_section() -> ui.Node:
     return ui.vstack(
         [
             ui.section_header("UI Kit", "Python helpers cover the showcase component set"),

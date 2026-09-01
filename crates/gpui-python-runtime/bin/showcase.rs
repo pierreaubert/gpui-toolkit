@@ -108,7 +108,6 @@ pub fn main() {
         return;
     }
 
-    let presentation = PresentationStore::open();
     let (app, session) = match python::load_python_session_blocking() {
         Ok(value) => value,
         Err(error) => {
@@ -116,6 +115,7 @@ pub fn main() {
             std::process::exit(1);
         }
     };
+    let presentation = PresentationStore::open();
     let config = miniapp_config(&app, &presentation);
     MiniApp::run(config, move |cx| {
         cx.new(|cx| PythonIrShowcase::new_ready(cx, presentation, app, session))

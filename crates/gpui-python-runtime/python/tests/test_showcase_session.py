@@ -12,7 +12,21 @@ import time
 import unittest
 
 from gpui_toolkit import Event, SessionContext
-from showcase import RuntimeShowcase
+from showcase import NATIVE_SECTION_ORDER, RuntimeShowcase, build_app, native_demo_sections
+
+
+class RuntimeShowcaseCatalogTests(unittest.TestCase):
+    def test_component_catalog_tracks_native_showcase_sections(self):
+        app = build_app()
+        self.assertEqual(
+            [section.id for section in app.sections],
+            [section_id for section_id, _ in NATIVE_SECTION_ORDER],
+        )
+        self.assertEqual(
+            [section.id for section in native_demo_sections()],
+            [section_id for section_id, _ in NATIVE_SECTION_ORDER],
+        )
+        self.assertTrue(all("kind" in section["content"] for section in app.to_spec()["sections"]))
 
 
 def read_process_stdout(process: subprocess.Popen[bytes], length: int, timeout: float = 5.0) -> bytes:
