@@ -19,7 +19,10 @@ jobs:
         include:
           - os: ubuntu-latest
             platform: linux-x86_64
-            platform_tag: linux_x86_64
+            # PyPI rejects the generic `linux_x86_64` tag.  This host is built
+            # on Ubuntu 24.04 and requires glibc 2.39, so declare its actual
+            # PEP 600 compatibility floor.
+            platform_tag: manylinux_2_39_x86_64
             host: target/release/gpui-python-host
             build_fallback: true
           - os: macos-14
