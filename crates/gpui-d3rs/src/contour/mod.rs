@@ -29,7 +29,10 @@ mod density;
 mod marching_squares;
 mod thresholds;
 
-pub use density::{DensityError, DensityEstimator, density_2d, gaussian_kernel, try_density_2d};
+pub use density::{
+    DensityError, DensityEstimator, KernelType, density_2d, epanechnikov_kernel, gaussian_kernel,
+    try_density_2d,
+};
 pub use marching_squares::{
     Contour, ContourBand, ContourGenerator, ContourRing, ContourRingError, contour, contours,
 };

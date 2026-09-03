@@ -36,6 +36,11 @@ pub struct MeshPlotSpec {
     pub width: Option<f32>,
     pub height: Option<f32>,
     #[serde(default)]
+    pub fill: bool,
+    pub min_width: Option<f32>,
+    pub min_height: Option<f32>,
+    pub aspect_ratio: Option<f32>,
+    #[serde(default)]
     pub selection: Option<Value>,
     #[serde(default)]
     pub camera: Option<Value>,
@@ -49,6 +54,14 @@ pub struct MeshPlotSpec {
     pub axes: Option<Value>,
     #[serde(default)]
     pub interactions: Option<Vec<String>>,
+    #[serde(default = "default_toolbar")]
+    pub toolbar: bool,
+    #[serde(default)]
+    pub hidden_toolbar_actions: Vec<String>,
+    #[serde(default)]
+    pub colorbar: Option<Value>,
+    #[serde(default = "default_renderer_backend")]
+    pub renderer_backend: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -107,6 +120,13 @@ fn default_wireframe() -> bool {
 }
 fn default_equal_aspect() -> bool {
     true
+}
+
+fn default_toolbar() -> bool {
+    true
+}
+fn default_renderer_backend() -> String {
+    "auto".into()
 }
 
 impl MeshPlotSpec {
@@ -354,10 +374,22 @@ impl MeshPlotSpec {
                 self.missing_value_policy
             ));
         }
-        for (name, value) in [("width", self.width), ("height", self.height)] {
+        for (name, value) in [
+            ("width", self.width),
+            ("height", self.height),
+            ("min_width", self.min_width),
+            ("min_height", self.min_height),
+            ("aspect_ratio", self.aspect_ratio),
+        ] {
             if value.is_some_and(|v| !v.is_finite() || v <= 0.0) {
                 return Err(format!("mesh_plot {name} must be positive and finite"));
             }
+        }
+        if (self.width.is_some() != self.height.is_some())
+            || (self.min_width.is_some() != self.min_height.is_some())
+            || (self.fill && self.width.is_some())
+        {
+            return Err("mesh_plot has inconsistent responsive sizing configuration".into());
         }
         for (name, value) in [
             ("selection", self.selection.as_ref()),
@@ -389,6 +421,33 @@ impl MeshPlotSpec {
                     return Err(format!("duplicate mesh_plot interaction {interaction:?}"));
                 }
             }
+        }
+        let mut seen_toolbar_actions = std::collections::HashSet::new();
+        for action in &self.hidden_toolbar_actions {
+            if !matches!(
+                action.as_str(),
+                "fit"
+                    | "reset"
+                    | "open_mode_menu"
+                    | "toggle_wireframe"
+                    | "reset_color_range"
+                    | "open_view_menu"
+                    | "export"
+            ) {
+                return Err(format!("unsupported mesh_plot toolbar action {action:?}"));
+            }
+            if !seen_toolbar_actions.insert(action) {
+                return Err(format!("duplicate mesh_plot toolbar action {action:?}"));
+            }
+        }
+        if let Some(colorbar) = self.colorbar.as_ref().filter(|value| !value.is_null()) {
+            validate_colorbar(colorbar)?;
+        }
+        if !matches!(self.renderer_backend.as_str(), "auto" | "wgpu") {
+            return Err(format!(
+                "unsupported mesh_plot renderer backend {:?}",
+                self.renderer_backend
+            ));
         }
         Ok(())
     }
@@ -460,6 +519,63 @@ impl MeshPlotSpec {
         }
         Ok(refs)
     }
+}
+
+fn validate_colorbar(value: &Value) -> Result<(), String> {
+    let object = value
+        .as_object()
+        .ok_or("mesh_plot colorbar must be an object")?;
+    let allowed = ["label", "unit", "scale", "range", "ticks", "orientation"];
+    if object.keys().any(|key| !allowed.contains(&key.as_str())) {
+        return Err("mesh_plot colorbar contains unsupported properties".into());
+    }
+    object
+        .get("label")
+        .and_then(Value::as_str)
+        .filter(|label| !label.trim().is_empty())
+        .ok_or("mesh_plot colorbar label must be non-empty")?;
+    if object
+        .get("unit")
+        .is_some_and(|unit| !unit.is_null() && !unit.is_string())
+    {
+        return Err("mesh_plot colorbar unit must be a string or null".into());
+    }
+    if !matches!(
+        object
+            .get("scale")
+            .and_then(Value::as_str)
+            .unwrap_or("viridis"),
+        "viridis" | "plasma" | "inferno" | "magma" | "heat" | "coolwarm" | "greys"
+    ) {
+        return Err("mesh_plot colorbar scale is unsupported".into());
+    }
+    if let Some(range) = object.get("range") {
+        validate_range(range)?;
+    }
+    if let Some(ticks) = object.get("ticks").filter(|value| !value.is_null()) {
+        let ticks = ticks
+            .as_array()
+            .filter(|ticks| !ticks.is_empty())
+            .ok_or("mesh_plot colorbar ticks must be a non-empty array")?;
+        let values = ticks
+            .iter()
+            .map(|value| value.as_f64().filter(|value| value.is_finite()))
+            .collect::<Option<Vec<_>>>()
+            .ok_or("mesh_plot colorbar ticks must be finite")?;
+        if values.windows(2).any(|pair| pair[0] >= pair[1]) {
+            return Err("mesh_plot colorbar ticks must be increasing".into());
+        }
+    }
+    if !matches!(
+        object
+            .get("orientation")
+            .and_then(Value::as_str)
+            .unwrap_or("vertical"),
+        "vertical" | "horizontal"
+    ) {
+        return Err("mesh_plot colorbar orientation is unsupported".into());
+    }
+    Ok(())
 }
 
 fn validate_resource_handle(value: &Value, name: &str) -> Result<(), String> {
@@ -864,6 +980,71 @@ mod tests {
                 .unwrap_err()
                 .contains("unsupported mesh_plot schema version")
         );
+    }
+
+    #[test]
+    fn validates_toolbar_visibility_configuration() {
+        let mut value = valid_spec();
+        value["toolbar"] = serde_json::json!(false);
+        value["hidden_toolbar_actions"] =
+            serde_json::json!(["export", "open_view_menu", "toggle_wireframe"]);
+        let spec = MeshPlotSpec::from_value(value).unwrap();
+        assert!(!spec.toolbar);
+        assert_eq!(spec.hidden_toolbar_actions.len(), 3);
+
+        let mut invalid = valid_spec();
+        invalid["hidden_toolbar_actions"] = serde_json::json!(["unknown"]);
+        assert!(MeshPlotSpec::from_value(invalid).is_err());
+    }
+
+    #[test]
+    fn validates_renderer_backend() {
+        let mut value = valid_spec();
+        value["renderer_backend"] = serde_json::json!("wgpu");
+        let spec = MeshPlotSpec::from_value(value).unwrap();
+        assert_eq!(spec.renderer_backend, "wgpu");
+
+        let mut invalid = valid_spec();
+        invalid["renderer_backend"] = serde_json::json!("metal");
+        assert!(MeshPlotSpec::from_value(invalid).is_err());
+    }
+
+    #[test]
+    fn validates_colorbar_configuration() {
+        let mut value = valid_spec();
+        value["colorbar"] = serde_json::json!({
+            "label": "Amplitude",
+            "unit": "dB",
+            "scale": "coolwarm",
+            "range": [-1.0, 1.0],
+            "ticks": [-1.0, 0.0, 1.0],
+            "orientation": "horizontal"
+        });
+        let spec = MeshPlotSpec::from_value(value).unwrap();
+        assert_eq!(spec.colorbar.unwrap()["label"], "Amplitude");
+
+        let mut invalid = valid_spec();
+        invalid["colorbar"] = serde_json::json!({
+            "label": "Amplitude",
+            "ticks": [1.0, 0.0]
+        });
+        assert!(MeshPlotSpec::from_value(invalid).is_err());
+    }
+
+    #[test]
+    fn validates_responsive_mesh_sizing() {
+        let mut value = valid_spec();
+        value["fill"] = serde_json::json!(true);
+        value["min_width"] = serde_json::json!(320.0);
+        value["min_height"] = serde_json::json!(240.0);
+        value["aspect_ratio"] = serde_json::json!(1.5);
+        assert!(MeshPlotSpec::from_value(value).is_ok());
+
+        let mut invalid = valid_spec();
+        invalid["width"] = serde_json::json!(320.0);
+        invalid["height"] = serde_json::json!(240.0);
+        invalid["fill"] = serde_json::json!(true);
+        assert!(MeshPlotSpec::from_value(invalid).is_err());
     }
 
     #[test]

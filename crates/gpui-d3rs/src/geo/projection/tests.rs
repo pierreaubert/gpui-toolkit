@@ -237,3 +237,47 @@ fn test_sphere_rotation_from_radians_roundtrip() {
     assert!((inverted.0 - original.0).abs() < 1e-9);
     assert!((inverted.1 - original.1).abs() < 1e-9);
 }
+
+#[test]
+fn test_stereographic_roundtrip_away_from_origin() {
+    let proj = Stereographic::new()
+        .scale(173.0)
+        .translate(321.0, 207.0)
+        .center(8.0, 4.0)
+        .rotate(-12.0, 7.0, 3.0);
+    let (x, y) = proj.project(-73.9857, 40.7484);
+    let (lon, lat) = proj.invert(x, y).unwrap();
+    assert!((lon + 73.9857).abs() < 1e-9, "longitude: {lon}");
+    assert!((lat - 40.7484).abs() < 1e-9, "latitude: {lat}");
+}
+
+#[test]
+fn test_mercator_reports_finite_world_clip_extent() {
+    let ((min_lon, min_lat), (max_lon, max_lat)) = Mercator::new().clip_extent().unwrap();
+    assert_eq!(min_lon, -180.0);
+    assert_eq!(max_lon, 180.0);
+    assert!(min_lat > -90.0);
+    assert!(max_lat < 90.0);
+}
+
+#[test]
+fn test_conic_equal_area_roundtrip_with_center_and_rotation() {
+    let proj = ConicEqualArea::new()
+        .scale(173.0)
+        .translate(321.0, 207.0)
+        .center(-4.0, 12.0)
+        .rotate(9.0, -3.0, 2.0);
+    let (x, y) = proj.project(-73.9857, 40.7484);
+    let (lon, lat) = proj.invert(x, y).unwrap();
+    assert!((lon + 73.9857).abs() < 1e-9, "longitude: {lon}");
+    assert!((lat - 40.7484).abs() < 1e-9, "latitude: {lat}");
+}
+
+#[test]
+fn test_albers_roundtrip_at_representative_us_point() {
+    let proj = Albers::new();
+    let (x, y) = proj.project(-98.0, 39.0);
+    let (lon, lat) = proj.invert(x, y).unwrap();
+    assert!((lon + 98.0).abs() < 1e-9, "longitude: {lon}");
+    assert!((lat - 39.0).abs() < 1e-9, "latitude: {lat}");
+}

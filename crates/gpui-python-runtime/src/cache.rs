@@ -243,6 +243,7 @@ fn mesh_plot_fingerprints(spec: &MeshPlotSpec) -> MeshPlotFingerprints {
             &spec.equal_aspect,
             &spec.axes,
             &spec.interactions,
+            &spec.renderer_backend,
         )),
         camera: structural_fingerprint(&(&spec.view, &spec.camera, &spec.viewport)),
     }
@@ -401,6 +402,10 @@ mod tests {
             title: None,
             width: None,
             height: None,
+            fill: false,
+            min_width: None,
+            min_height: None,
+            aspect_ratio: None,
             selection: None,
             camera: None,
             viewport: None,
@@ -408,6 +413,10 @@ mod tests {
             equal_aspect: false,
             axes: None,
             interactions: None,
+            toolbar: true,
+            hidden_toolbar_actions: Vec::new(),
+            colorbar: None,
+            renderer_backend: "auto".into(),
         };
         let mut second = first.clone();
         second.field = Some(serde_json::json!({"values":[2.0, 2.0, 2.0]}));
@@ -469,6 +478,10 @@ mod tests {
             title: None,
             width: None,
             height: None,
+            fill: false,
+            min_width: None,
+            min_height: None,
+            aspect_ratio: None,
             selection: None,
             camera: None,
             viewport: None,
@@ -476,6 +489,10 @@ mod tests {
             equal_aspect: true,
             axes: None,
             interactions: None,
+            toolbar: true,
+            hidden_toolbar_actions: Vec::new(),
+            colorbar: None,
+            renderer_backend: "auto".into(),
         };
 
         let assert_update = |next: MeshPlotSpec, field: bool, style: bool| {

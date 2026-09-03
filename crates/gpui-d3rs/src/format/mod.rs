@@ -36,9 +36,7 @@ mod specifier;
 
 pub use locale::{DEFAULT_LOCALE, Locale};
 pub use prefix::{format_prefix, prefix_exponent};
-pub use specifier::{Align, FormatSpecifier, FormatType, Sign};
-
-use specifier::parse_specifier;
+pub use specifier::{Align, FormatSpecifier, FormatType, Sign, parse_specifier};
 
 /// Create a formatter function for the given specifier string
 ///

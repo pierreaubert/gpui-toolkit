@@ -9,27 +9,27 @@ const SI_PREFIXES: &[&str] = &[
 
 /// Locale configuration for number formatting
 #[derive(Debug, Clone)]
-pub struct Locale {
+pub struct Locale<'a> {
     /// Decimal separator (e.g., "." or ",")
-    pub decimal: &'static str,
+    pub decimal: &'a str,
     /// Thousands grouping separator (e.g., "," or " ")
-    pub thousands: &'static str,
+    pub thousands: &'a str,
     /// Currency symbol prefix
-    pub currency_prefix: Option<&'static str>,
+    pub currency_prefix: Option<&'a str>,
     /// Currency symbol suffix
-    pub currency_suffix: Option<&'static str>,
+    pub currency_suffix: Option<&'a str>,
     /// Grouping pattern (e.g., `[3]` for 1,234,567)
-    pub grouping: &'static [usize],
+    pub grouping: &'a [usize],
     /// Numerals (for non-ASCII number systems)
-    pub numerals: Option<&'static [&'static str]>,
+    pub numerals: Option<&'a [&'a str]>,
     /// Minus sign
-    pub minus: &'static str,
+    pub minus: &'a str,
     /// Percent sign
-    pub percent: &'static str,
+    pub percent: &'a str,
 }
 
 /// Default US English locale
-pub const DEFAULT_LOCALE: Locale = Locale {
+pub const DEFAULT_LOCALE: Locale<'static> = Locale {
     decimal: ".",
     thousands: ",",
     currency_prefix: Some("$"),
@@ -40,7 +40,7 @@ pub const DEFAULT_LOCALE: Locale = Locale {
     percent: "%",
 };
 
-impl Locale {
+impl Locale<'_> {
     /// Create a new locale
     pub const fn new(
         decimal: &'static str,

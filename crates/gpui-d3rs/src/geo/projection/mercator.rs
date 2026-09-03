@@ -149,4 +149,9 @@ impl Projection for Mercator {
         // unwrap center is therefore the rotation yaw, not the projection center.
         Some(self.config.rotate.0)
     }
+
+    fn clip_extent(&self) -> Option<((f64, f64), (f64, f64))> {
+        const MAX_LATITUDE: f64 = 85.051_128_779_806_6;
+        Some(((-180.0, -MAX_LATITUDE), (180.0, MAX_LATITUDE)))
+    }
 }

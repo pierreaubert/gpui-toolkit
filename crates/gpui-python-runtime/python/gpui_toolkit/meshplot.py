@@ -71,6 +71,43 @@ def _normalize_axes(value: dict[str, Any] | None) -> dict[str, Any] | None:
     return normalized
 
 
+def _normalize_colorbar(value: dict[str, Any] | None) -> dict[str, Any] | None:
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise ValueError("mesh plot colorbar must be a mapping")
+    allowed = {"label", "unit", "scale", "range", "ticks", "orientation"}
+    if set(value) - allowed:
+        raise ValueError("mesh plot colorbar contains unsupported properties")
+    label = value.get("label")
+    if not isinstance(label, str) or not label.strip():
+        raise ValueError("mesh plot colorbar label must be a non-empty string")
+    unit = value.get("unit")
+    if unit is not None and not isinstance(unit, str):
+        raise ValueError("mesh plot colorbar unit must be a string or null")
+    scale = value.get("scale", "viridis")
+    if scale not in {"viridis", "plasma", "inferno", "magma", "heat", "coolwarm", "greys"}:
+        raise ValueError("mesh plot colorbar scale is unsupported")
+    orientation = value.get("orientation", "vertical")
+    if orientation not in {"vertical", "horizontal"}:
+        raise ValueError("mesh plot colorbar orientation is unsupported")
+    ticks = value.get("ticks")
+    if ticks is not None:
+        if not isinstance(ticks, (list, tuple)) or not ticks:
+            raise ValueError("mesh plot colorbar ticks must be a non-empty sequence")
+        ticks = [float(item) for item in ticks]
+        if not all(isfinite(item) for item in ticks) or any(a >= b for a, b in zip(ticks, ticks[1:])):
+            raise ValueError("mesh plot colorbar ticks must be finite and increasing")
+    return {
+        "label": label,
+        "unit": unit,
+        "scale": scale,
+        "range": value.get("range", "auto"),
+        "ticks": ticks,
+        "orientation": orientation,
+    }
+
+
 def _validate_inline_geometry(
     positions: Sequence[Sequence[float]],
     triangles: Sequence[Sequence[int]],
@@ -103,12 +140,20 @@ class MeshGeometry:
     generation: int | None = None
     positions_resource_id: str | None = None
     positions_generation: int | None = None
+    positions_shape: tuple[int, ...] | None = None
+    positions_dtype: str | None = None
     triangles_resource_id: str | None = None
     triangles_generation: int | None = None
+    triangles_shape: tuple[int, ...] | None = None
+    triangles_dtype: str | None = None
     vertex_ids_resource_id: str | None = None
     vertex_ids_generation: int | None = None
+    vertex_ids_shape: tuple[int, ...] | None = None
+    vertex_ids_dtype: str | None = None
     cell_ids_resource_id: str | None = None
     cell_ids_generation: int | None = None
+    cell_ids_shape: tuple[int, ...] | None = None
+    cell_ids_dtype: str | None = None
 
     def to_spec(self) -> dict[str, Any]:
         if not self.id.strip():
@@ -133,14 +178,22 @@ class MeshGeometry:
                 "positions": {
                     "resource_id": self.positions_resource_id,
                     "generation": self.positions_generation,
-                    "dtype": "f64le",
+                    "dtype": self.positions_dtype or "f64le",
                 },
                 "triangles": {
                     "resource_id": self.triangles_resource_id,
                     "generation": self.triangles_generation,
-                    "dtype": "u32le",
+                    "dtype": self.triangles_dtype or "u32le",
                 },
             }
+            if self.positions_shape is not None:
+                spec["positions"].update(
+                    {"kind": "array_data", "shape": list(self.positions_shape)}
+                )
+            if self.triangles_shape is not None:
+                spec["triangles"].update(
+                    {"kind": "array_data", "shape": list(self.triangles_shape)}
+                )
         else:
             _validate_inline_geometry(self.positions, self.triangles, self.vertex_ids, self.cell_ids)
             spec = {
@@ -155,8 +208,12 @@ class MeshGeometry:
             spec["vertex_ids"] = {
                 "resource_id": self.vertex_ids_resource_id,
                 "generation": self.vertex_ids_generation,
-                "dtype": "u64le",
+                "dtype": self.vertex_ids_dtype or "u64le",
             }
+            if self.vertex_ids_shape is not None:
+                spec["vertex_ids"].update(
+                    {"kind": "array_data", "shape": list(self.vertex_ids_shape)}
+                )
             _resource_handle(spec["vertex_ids"], "mesh geometry vertex_ids")
         if self.cell_ids is not None:
             spec["cell_ids"] = list(self.cell_ids)
@@ -166,8 +223,12 @@ class MeshGeometry:
             spec["cell_ids"] = {
                 "resource_id": self.cell_ids_resource_id,
                 "generation": self.cell_ids_generation,
-                "dtype": "u64le",
+                "dtype": self.cell_ids_dtype or "u64le",
             }
+            if self.cell_ids_shape is not None:
+                spec["cell_ids"].update(
+                    {"kind": "array_data", "shape": list(self.cell_ids_shape)}
+                )
             _resource_handle(spec["cell_ids"], "mesh geometry cell_ids")
         return spec
 
@@ -182,8 +243,12 @@ class MeshScalarField:
     valid: Sequence[bool] | None = None
     resource_id: str | None = None
     generation: int | None = None
+    shape: tuple[int, ...] | None = None
+    dtype: str | None = None
     valid_resource_id: str | None = None
     valid_generation: int | None = None
+    valid_shape: tuple[int, ...] | None = None
+    valid_dtype: str | None = None
 
     def to_spec(self, missing_value_policy: str = "reject") -> dict[str, Any]:
         if not self.id.strip():
@@ -195,7 +260,10 @@ class MeshScalarField:
             spec: dict[str, Any] = {
                 "id": self.id, "resource_id": self.resource_id,
                 "generation": self.generation, "association": self.association,
+                "dtype": self.dtype or "f64le",
             }
+            if self.shape is not None:
+                spec.update({"kind": "array_data", "shape": list(self.shape)})
             _resource_handle(spec, "mesh field")
         else:
             values = list(self.values)
@@ -239,8 +307,12 @@ class MeshScalarField:
             spec["valid"] = {
                 "resource_id": self.valid_resource_id,
                 "generation": self.valid_generation,
-                "dtype": "bool_bytes",
+                "dtype": self.valid_dtype or "bool_bytes",
             }
+            if self.valid_shape is not None:
+                spec["valid"].update(
+                    {"kind": "array_data", "shape": list(self.valid_shape)}
+                )
             _resource_handle(spec["valid"], "mesh field valid mask")
         return spec
 
@@ -296,6 +368,10 @@ class MeshPlotSpec:
     title: str | None = None
     width: float | None = None
     height: float | None = None
+    fill: bool = False
+    min_width: float | None = None
+    min_height: float | None = None
+    aspect_ratio: float | None = None
     selection: dict[str, Any] | None = None
     camera: dict[str, Any] | None = None
     viewport: dict[str, Any] | None = None
@@ -303,6 +379,10 @@ class MeshPlotSpec:
     equal_aspect: bool = True
     axes: dict[str, Any] | None = None
     interactions: Sequence[str] = _DEFAULT_INTERACTIONS
+    toolbar: bool = True
+    hidden_toolbar_actions: Sequence[str] = ()
+    colorbar: dict[str, Any] | None = None
+    renderer_backend: str = "auto"
     revolve: MeshRevolve | None = None
 
     def to_spec(self) -> dict[str, Any]:
@@ -343,6 +423,21 @@ class MeshPlotSpec:
                 raise ValueError("color_range must be 'auto', a (min, max) tuple, or a symmetric range mapping")
         if not isinstance(self.revision, int) or self.revision < 0:
             raise ValueError("revision must be a non-negative integer")
+        if (self.width is None) != (self.height is None):
+            raise ValueError("mesh plot fixed size requires both width and height")
+        for name, value in (
+            ("width", self.width), ("height", self.height),
+            ("min_width", self.min_width), ("min_height", self.min_height),
+            ("aspect_ratio", self.aspect_ratio),
+        ):
+            if value is not None and (not isfinite(float(value)) or float(value) <= 0.0):
+                raise ValueError(f"mesh plot {name} must be finite and positive")
+        if (self.min_width is None) != (self.min_height is None):
+            raise ValueError("mesh plot minimum size requires both dimensions")
+        if not isinstance(self.fill, bool):
+            raise TypeError("mesh plot fill must be bool")
+        if self.fill and self.width is not None:
+            raise ValueError("mesh plot fill and fixed size are mutually exclusive")
         if self.revolve is not None and self.view != "axisymmetric_revolve":
             raise ValueError("revolve settings require view='axisymmetric_revolve'")
         if self.contour_levels is not None:
@@ -359,9 +454,33 @@ class MeshPlotSpec:
         allowed_interactions = {"pan", "zoom", "inspect", "select", "reset", "fit"}
         if any(interaction not in allowed_interactions for interaction in self.interactions) or len(set(self.interactions)) != len(self.interactions):
             raise ValueError("mesh plot interactions contain an unsupported or duplicate value")
+        if not isinstance(self.toolbar, bool):
+            raise TypeError("mesh plot toolbar must be bool")
+        if self.renderer_backend not in {"auto", "wgpu"}:
+            raise ValueError(
+                f"unsupported mesh plot renderer backend {self.renderer_backend!r}"
+            )
+        allowed_toolbar_actions = {
+            "fit", "reset", "open_mode_menu", "toggle_wireframe",
+            "reset_color_range", "open_view_menu", "export",
+        }
+        hidden_toolbar_actions = list(self.hidden_toolbar_actions)
+        if any(action not in allowed_toolbar_actions for action in hidden_toolbar_actions) or len(
+            set(hidden_toolbar_actions)
+        ) != len(hidden_toolbar_actions):
+            raise ValueError("mesh plot hidden toolbar actions are unsupported or duplicated")
         interactions = list(self.interactions)
         axes = _normalize_axes(self.axes)
+        colorbar = _normalize_colorbar(self.colorbar)
         spec = {"kind": "mesh_plot", "schema_version": MESHPLOT_SCHEMA_VERSION, "id": self.id, "revision": self.revision, "geometry": geometry, "field": field, "view": self.view, "mode": self.mode, "color_scale": self.color_scale, "color_range": list(self.color_range) if isinstance(self.color_range, tuple) else self.color_range, "missing_value_policy": self.missing_value_policy, "wireframe": self.wireframe, "title": self.title, "width": self.width, "height": self.height, "selection": self.selection, "camera": self.camera, "viewport": self.viewport, "contour_levels": self.contour_levels, "equal_aspect": self.equal_aspect, "axes": axes, "interactions": interactions}
+        spec["toolbar"] = self.toolbar
+        spec["hidden_toolbar_actions"] = hidden_toolbar_actions
+        spec["renderer_backend"] = self.renderer_backend
+        spec["colorbar"] = colorbar
+        spec["fill"] = self.fill
+        spec["min_width"] = self.min_width
+        spec["min_height"] = self.min_height
+        spec["aspect_ratio"] = self.aspect_ratio
         if self.view == "axisymmetric_revolve":
             spec["revolve"] = (self.revolve or MeshRevolve()).to_spec()
         if "positions" in geometry and len(json.dumps(spec, separators=(",", ":")).encode("utf-8")) > MAX_INLINE_MESH_BYTES:
@@ -389,10 +508,14 @@ def resource_geometry(resource_id: str, generation: int, *, id: str = "mesh", ve
             "triangles_generation; use resource_geometry_from_resources"
         )
     return MeshGeometry(
-        (), (), id, vertex_ids, cell_ids, None, None,
-        resource_id, generation, triangles_resource_id, triangles_generation,
-        vertex_ids_resource_id, vertex_ids_generation,
-        cell_ids_resource_id, cell_ids_generation,
+        positions=(), triangles=(), id=id, vertex_ids=vertex_ids, cell_ids=cell_ids,
+        positions_resource_id=resource_id, positions_generation=generation,
+        triangles_resource_id=triangles_resource_id,
+        triangles_generation=triangles_generation,
+        vertex_ids_resource_id=vertex_ids_resource_id,
+        vertex_ids_generation=vertex_ids_generation,
+        cell_ids_resource_id=cell_ids_resource_id,
+        cell_ids_generation=cell_ids_generation,
     )
 
 
@@ -445,12 +568,37 @@ def resource_field(resource_id: str, generation: int, *, association: str = "ver
     if association not in {"vertex", "cell"}:
         raise ValueError("association must be 'vertex' or 'cell'")
     return MeshScalarField(
-        (), association, id, label, unit, None, resource_id, generation,
-        valid_resource_id, valid_generation,
+        values=(), association=association, id=id, label=label, unit=unit,
+        resource_id=resource_id, generation=generation,
+        valid_resource_id=valid_resource_id, valid_generation=valid_generation,
     )
 
 
-def plot(mesh: MeshGeometry | None = None, field: MeshScalarField | None = None, *, id: str = "mesh_plot", geometry: MeshGeometry | None = None, **kwargs: Any) -> MeshPlotSpec:
+def plot(
+    mesh: MeshGeometry | None = None,
+    field: MeshScalarField | None = None,
+    *,
+    id: str = "mesh_plot",
+    geometry: MeshGeometry | None = None,
+    revision: int = 0,
+    view: str = "planar",
+    mode: str = "mesh",
+    color_scale: str = "viridis",
+    color_range: str | tuple[float, float] | dict[str, Any] = "auto",
+    missing_value_policy: str = "reject",
+    wireframe: bool = True,
+    title: str | None = None,
+    width: float | None = None,
+    height: float | None = None,
+    selection: dict[str, Any] | None = None,
+    camera: dict[str, Any] | None = None,
+    viewport: dict[str, Any] | None = None,
+    contour_levels: dict[str, Any] | None = None,
+    equal_aspect: bool = True,
+    axes: dict[str, Any] | None = None,
+    interactions: Sequence[str] = _DEFAULT_INTERACTIONS,
+    revolve: MeshRevolve | None = None,
+) -> MeshPlotSpec:
     """Build a plot; ``geometry=`` is accepted alongside the short positional form."""
     geometry = geometry or mesh
     if geometry is None:
@@ -459,5 +607,22 @@ def plot(mesh: MeshGeometry | None = None, field: MeshScalarField | None = None,
         geometry=geometry,
         id=geometry.id if id == "mesh_plot" else id,
         field=field,
-        **kwargs,
+        revision=revision,
+        view=view,
+        mode=mode,
+        color_scale=color_scale,
+        color_range=color_range,
+        missing_value_policy=missing_value_policy,
+        wireframe=wireframe,
+        title=title,
+        width=width,
+        height=height,
+        selection=selection,
+        camera=camera,
+        viewport=viewport,
+        contour_levels=contour_levels,
+        equal_aspect=equal_aspect,
+        axes=axes,
+        interactions=interactions,
+        revolve=revolve,
     )

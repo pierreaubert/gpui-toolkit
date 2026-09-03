@@ -19,18 +19,20 @@ WORKSPACE_MANIFEST = ROOT.parents[1] / "Cargo.toml"
 class PackagingTests(unittest.TestCase):
     def test_pyproject_has_pep621_package_metadata(self):
         metadata = tomllib.loads(PYPROJECT.read_text())["project"]
-        setuptools = tomllib.loads(PYPROJECT.read_text())["tool"]["setuptools"]
-        package_find = tomllib.loads(PYPROJECT.read_text())["tool"]["setuptools"]["packages"]["find"]
+        maturin = tomllib.loads(PYPROJECT.read_text())["tool"]["maturin"]
 
         self.assertEqual(metadata["name"], "gpui-toolkit")
         self.assertEqual(metadata["version"], gpui_toolkit.__version__)
         self.assertEqual(metadata["requires-python"], ">=3.10")
         self.assertEqual(metadata["license"]["text"], "ISC")
         self.assertEqual(metadata["dependencies"], [])
-        self.assertEqual(setuptools["package-dir"], {"": "python"})
-        self.assertEqual(package_find["where"], ["python"])
-        self.assertIn("gpui_toolkit*", package_find["include"])
-        self.assertIn("bin/gpui-python-host", tomllib.loads(PYPROJECT.read_text())["tool"]["setuptools"]["package-data"]["gpui_toolkit"])
+        self.assertEqual(metadata["optional-dependencies"]["arrow"], ["pyarrow>=14"])
+        self.assertEqual(maturin["bindings"], "pyo3")
+        self.assertEqual(maturin["module-name"], "gpui_toolkit._native")
+        self.assertEqual(maturin["python-source"], "python")
+        self.assertIn("python-extension", maturin["features"])
+        self.assertTrue((ROOT / "python/gpui_toolkit/d3_showcase.py").is_file())
+        self.assertIn("**/__pycache__/**", maturin["exclude"])
 
     def test_python_package_version_matches_rust_crate_version(self):
         pyproject = tomllib.loads(PYPROJECT.read_text())
@@ -52,6 +54,8 @@ class PackagingTests(unittest.TestCase):
         self.assertIn("ui", exports)
         self.assertIs(gpui_toolkit.App, gpui_toolkit.app.App)
         self.assertTrue(hasattr(gpui_toolkit.scene3d, "SCENE3D_SPEC_SCHEMA_VERSION"))
+        self.assertIn("native", exports)
+        self.assertEqual(gpui_toolkit.native.abi3_minimum_python(), "3.10")
 
     def test_native_host_binary_is_a_declared_rust_target(self):
         cargo = tomllib.loads(CARGO_MANIFEST.read_text())

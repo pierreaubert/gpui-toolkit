@@ -7,15 +7,31 @@ stable ids, classifies dirty resources, and adapts supported nodes to
 `gpui-d3rs` 3D elements. Raw `wgpu` devices, queues, buffers, pipelines, and
 shaders remain private to the renderer.
 
-## V1 Scene3D Scope
+## Scene3D Scope
 
 - Surfaces: row-major `z` grids with optional `x`/`y` axes, log axes, z range,
   labels, colormaps, wireframe mode, orbit cameras, and interactions.
 - Lines: retained orbit camera state and CPU-projected `Lines3DElement`
   segments/line strips.
-- Meshes, materials, perspective cameras, and lights: validated spec objects
-  for the lower-level scene API. Mesh rendering is intentionally not bound to a
-  GPUI element yet.
+- Meshes and surfaces consume retained `ArrayData` geometry and scalar-field
+  resources; materials, perspective cameras, and lights remain declarative
+  scene objects while GPU state stays host-owned.
+
+## Audited Python Surface
+
+`python-surface.toml` is the reviewed Python mapping registry. The generated
+`python-rustdoc-inventory.json` freezes the all-feature macOS public API of the
+current priority crates, `gpui-d3rs` and `gpui-px`, including inherent methods,
+fields, callable parameters, and return types. Run the freshness gate with:
+
+```bash
+just qa-python-rustdoc-inventory
+```
+
+The gate uses pinned `nightly-2026-09-02` rustdoc JSON and rejects public Rust
+surface changes until the snapshot is reviewed and regenerated. Inventory
+coverage does not itself claim Python parity; stable v2 remains blocked until
+every inventory entry has a reviewed binding or exclusion classification.
 
 ## JSON Schema Contract
 
@@ -96,13 +112,29 @@ when adapting a demo; the chart and Scene3D declarations remain unchanged.
 ## Python Package
 
 The Python declarations are packaged as `gpui-toolkit` with the import package
-`gpui_toolkit`. The package is pure Python and intentionally has no runtime
-dependencies; Rust/GPUI remains the rendering host.
+`gpui_toolkit`. Wheels contain a private PyO3 `abi3-py310` extension for pure
+native computations, while Rust/GPUI remains the rendering host. The base
+wheel has no Python runtime dependencies.
 
 ```bash
 python -m pip install gpui-toolkit
-python -c "import gpui_toolkit; print(gpui_toolkit.__version__)"
+python -c "from gpui_toolkit import native; print(native.AVAILABLE)"
 ```
+
+Build a platform wheel with maturin (rather than invoking Cargo's `cdylib`
+directly):
+
+```bash
+maturin build --manifest-path Cargo.toml --release
+```
+
+The installed extension is `gpui_toolkit._native`; public code should import
+`gpui_toolkit.native` or the corresponding `gpui_toolkit.d3rs` functions.
+Native d3rs array statistics, search, tick generation, numeric/array and
+RGB/HSL/Lab/HCL/Cubehelix interpolation, color operations, and `linear_scale`
+execute the corresponding `gpui-d3rs` implementation. Substantial array work
+releases the GIL.
+Command request objects remain available for deliberately host-owned execution.
 
 The package version matches the Rust crate version. Update both
 `pyproject.toml` and `Cargo.toml` together when releasing a new Python-facing
@@ -117,6 +149,77 @@ embedded `gpui-px` charts:
 cargo run -p gpui-python-runtime --features showcase --bin gpui-python-showcase -- crates/gpui-toolkit/gpui-python-runtime/python/showcase.py
 PYTHONPATH=crates/gpui-toolkit/gpui-python-runtime/python ./venv/bin/python crates/gpui-toolkit/gpui-python-runtime/python/showcase.py
 ```
+
+The complete `gpui-d3rs` gallery can use the same generic host with no
+d3rs-showcase-specific Rust route:
+
+```bash
+cargo run -p gpui-python-runtime --features showcase --bin gpui-python-showcase -- crates/gpui-python-runtime/python/d3_showcase.py
+```
+
+The abi3 wheel publishes nullable Boolean, integer, floating-point, and UTF-8
+`Dataset` columns as Arrow IPC without Python dependencies. Install the
+optional Arrow adapter when nested or temporal columns need PyArrow's richer
+conversion support:
+
+```bash
+python -m pip install 'gpui-toolkit[arrow]'
+```
+
+Declare every live `Dataset` and `ArrayData` object on the application:
+
+```python
+app = App(sections=(...), resources=(events, spectrum_grid))
+```
+
+The base `App.on_session_ready` publishes initial binary generations and
+subscribes to later commits. Overrides must call
+`super().on_session_ready(context)` before issuing application-specific
+commands. Resource values never enter the JSON application snapshot.
+
+The base wheel remains dependency-free. Source-only use without either the
+native extension or PyArrow can still dump declarations, while starting a live
+dataset app raises a typed transport error instead of displaying an
+unpopulated chart.
+
+The installed host negotiates `resource_mmap_frames` and creates a private
+`0700` directory with a high-entropy session token. Python publishes each
+complete dataset or `ArrayData` generation as a `0600` file; the host validates
+the token, local filename, size, permissions, and checksum, maps it read-only,
+and unlinks it immediately on Unix. The retained mapping is consumed directly
+by Arrow/table/chart and dense-array readers. Bounded binary stdout frames are
+used only when mmap transport is unavailable. Dataset and mesh frames carry
+payload checksums. Per-frame acknowledgements drive shared Python in-flight
+byte accounting, typed rejection reporting, backpressure, and deterministic
+fallback cleanup.
+Native consumers acquire generation-scoped leases. Publishing a new generation
+keeps an older mapped generation alive only while a retained consumer still
+owns it; explicit drops cannot invalidate active owners, and the final release
+reclaims both the mapping and its byte-budget charge.
+
+Resource-backed `scatter`, `line`, `area`, `boxplot`, `bar`, `pie`, and
+`donut` declarations execute bounded LOD sampling from Dataset/DatasetView or
+numeric ArrayData frames. `heatmap`, `contour`, and `isoline` consume only a
+two-dimensional ArrayData grid (`[height, width]`) and never flatten it into
+JSON. One projection, one stable sort, and one `range(...)` execute in the
+host. Tables, aggregate pipelines, resource-backed charts, and static export
+execute the typed `DatasetView.filter` AST, including comparisons, boolean
+composition, membership, and null checks. Projection is enforced by Python,
+Rust IR validation, and each consumer. Tables sort before extracting
+their visible window. Tables, resource-backed charts, and static chart export
+execute one `group_by(...).aggregate(...)` stage over Arrow batches, then sort
+and consume only the bounded aggregate window. Supported reducers are count,
+sum, mean, min, max, first, and last. Scatter and line charts sort on their
+bound x or y role.
+Chart sort-plus-range remains explicitly rejected until it can preserve full
+pipeline ordering. Tables retain primary-key selection, scatter/line charts
+emit keyed point selections and viewport changes, treemaps emit keyed
+selection, and surfaces emit retained camera viewport changes.
+
+Scene3D surfaces, line-strip points, mesh vertices, triangle indices, and
+scalar fields accept `ArrayData`. Their declarations contain only resource
+descriptors; the host resolves the exact generation and validates shape and
+dtype before creating native geometry or GPU state.
 
 The showcase app, sections, UI kit demos, chart data, and `scene3d` specs live
 in Python. Rust loads the JSON UI IR, then owns GPUI, retained 3D renderer

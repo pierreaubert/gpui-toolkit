@@ -194,9 +194,9 @@ pub use pie::{PieChart, donut, pie};
 #[cfg(feature = "gpui")]
 pub use scatter::{ScatterChart, ScatterTheme, scatter};
 #[cfg(all(feature = "gpui", feature = "gpu-3d"))]
-pub use surface3d::{Surface3DChart, surface3d};
+pub use surface3d::{Surface3DCamera, Surface3DChart, surface3d};
 #[cfg(feature = "gpui")]
-pub use treemap::{TilingMethod, Treemap, TreemapNode, treemap};
+pub use treemap::{TilingMethod, Treemap, TreemapNode, TreemapRect, treemap};
 
 #[cfg(feature = "gpui")]
 mod area;

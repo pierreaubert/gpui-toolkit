@@ -1,12 +1,75 @@
 import unittest
 import importlib.util
+import inspect
 import json
+from array import array
 from pathlib import Path
 
-from gpui_toolkit import App, charts, scene3d as s3, section, ui
+from gpui_toolkit import App, data, px, scene3d as s3, section, ui
 
 
 class Scene3DTests(unittest.TestCase):
+    def test_lines_and_meshes_bind_arraydata_without_inline_geometry(self):
+        line_points = data.ArrayData.from_buffer(
+            array("f", [0.0, 0.0, 0.0, 1.0, 0.5, 0.0]),
+            shape=(2, 3),
+            dtype="f32",
+            id="scene-line-points",
+        )
+        vertices = data.ArrayData.from_buffer(
+            array("d", [0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0]),
+            shape=(3, 3),
+            dtype="f64",
+            id="scene-mesh-vertices",
+        )
+        indices = data.ArrayData.from_buffer(
+            array("I", [0, 1, 2]),
+            shape=(1, 3),
+            dtype="u32",
+            id="scene-mesh-indices",
+        )
+        scalar = data.ArrayData.from_buffer(
+            array("f", [0.0, 0.5, 1.0]),
+            shape=(3,),
+            dtype="f32",
+            id="scene-mesh-scalar",
+        )
+
+        lines = s3.lines("path", [s3.line_strip("trace", line_points)]).to_spec()
+        mesh = s3.mesh(
+            "triangle",
+            vertices,
+            indices,
+            scalar_values=scalar,
+        ).to_spec()
+        scene = s3.scene("resources", [
+            s3.lines("path", [s3.line_strip("trace", line_points)]),
+            s3.mesh("triangle", vertices, indices, scalar_values=scalar),
+        ]).to_spec()
+
+        self.assertEqual(lines["strips"][0]["points"]["kind"], "array_data")
+        self.assertEqual(mesh["vertices"]["kind"], "array_data")
+        self.assertEqual(mesh["indices"]["kind"], "array_data")
+        self.assertEqual(mesh["scalar_field"]["values"]["kind"], "array_data")
+        self.assertNotIn("values", mesh["vertices"])
+        self.assertNotIn("values", mesh["indices"])
+        self.assertEqual(scene["children"][0]["strips"][0]["points"]["id"], line_points.id)
+        self.assertEqual(scene["children"][1]["vertices"]["id"], vertices.id)
+
+        with self.assertRaisesRegex(ValueError, r"shape \[points, 3\]"):
+            s3.line_strip("bad", scalar).to_spec()
+
+    def test_scene_convenience_constructors_are_strict(self):
+        for constructor in (s3.surface, s3.line_strip, s3.lines, s3.mesh, s3.light, s3.scene):
+            self.assertFalse(
+                any(
+                    parameter.kind is inspect.Parameter.VAR_KEYWORD
+                    for parameter in inspect.signature(constructor).parameters.values()
+                )
+            )
+        with self.assertRaises(TypeError):
+            s3.surface("field", [[1.0]], unsupported=True)
+
     def test_surface_spec_matches_rust_shape(self):
         spec = s3.surface(
             "dispersion",
@@ -83,6 +146,10 @@ class Scene3DTests(unittest.TestCase):
                     self.assertEqual(spec["kind"], kind)
 
     def test_ui_and_chart_helpers_build_app_ir(self):
+        points = data.Dataset.from_mapping(
+            {"x": [1.0, 2.0], "y": [3.0, 4.0]},
+            id="scene-test-points",
+        )
         app = App(
             title="Demo",
             sections=[
@@ -92,7 +159,7 @@ class Scene3DTests(unittest.TestCase):
                     ui.vstack(
                         [
                             ui.heading("Demo"),
-                            ui.card([charts.scatter("points", [1.0, 2.0], [3.0, 4.0])]),
+                            ui.card([px.scatter("points").data(points).x("x").y("y")]),
                         ]
                     ),
                 )
@@ -104,42 +171,41 @@ class Scene3DTests(unittest.TestCase):
         self.assertEqual(spec["schema_version"], 1)
         self.assertEqual(spec["sections"][0]["content"]["kind"], "vstack")
         chart = spec["sections"][0]["content"]["children"][1]["children"][0]
-        self.assertEqual(chart["kind"], "chart")
+        self.assertEqual(chart["kind"], "px_chart_v2")
         self.assertEqual(chart["chart"], "scatter")
+        self.assertNotIn("values", chart["data"]["source"])
 
-    def test_chart_series_preserve_stable_ids_and_axis_metadata(self):
-        chart = charts.line(
-            "response",
-            [20.0],
-            [0.0],
-            series=[
-                charts.Series("measured", [20.0, 100.0], [-3.0, 1.0], label="Measured"),
-                charts.Series("target", [20.0, 100.0], [0.0, 0.0], visible=False),
-            ],
-            x_label="Frequency (Hz)",
-            y_label="Level (dB)",
-            x_range=(20.0, 20000.0),
-        ).to_spec()
-        self.assertEqual(chart["series"][0]["id"], "measured")
-        self.assertFalse(chart["series"][1]["visible"])
+    def test_chart_series_preserve_resource_identity_and_axis_metadata(self):
+        response = data.Dataset.from_mapping(
+            {
+                "frequency": [20.0, 100.0, 20.0, 100.0],
+                "level": [-3.0, 1.0, 0.0, 0.0],
+                "series": ["Measured", "Measured", "Target", "Target"],
+            },
+            id="response-series",
+        )
+        chart = (
+            px.line("response").data(response)
+            .x("frequency").y("level").series("series")
+            .x_label("Frequency (Hz)").y_label("Level (dB)")
+            .x_range(20.0, 20_000.0)
+            .to_spec()
+        )
+        self.assertEqual(chart["data"]["source"]["id"], "response-series")
+        self.assertEqual(chart["data"]["roles"]["series"], "series")
         self.assertEqual(chart["x_label"], "Frequency (Hz)")
 
-    def test_heatmap_coordinates_and_colorbar_metadata_are_preserved(self):
-        chart = charts.heatmap(
-            "field",
-            [0.0, 0.5, 1.0, 0.25],
-            2,
-            2,
-            x=[20.0, 100.0],
-            y=[0.0, 30.0],
-            color_label="SPL",
-            color_unit="dB",
-            color_range=(-20.0, 10.0),
-            aspect_ratio=1.0,
-        ).to_spec()
-        self.assertEqual(chart["x"], [20.0, 100.0])
-        self.assertEqual(chart["color_label"], "SPL")
-        self.assertEqual(chart["color_range"], [-20.0, 10.0])
+    def test_heatmap_dense_values_remain_outside_ui_ir(self):
+        field = data.ArrayData.from_buffer(
+            array("d", [0.0, 0.5, 1.0, 0.25]),
+            shape=(2, 2),
+            dtype="f64",
+            id="scene-test-field",
+        )
+        chart = px.heatmap("field").data(field).aspect_ratio(1.0).to_spec()
+        self.assertEqual(chart["data"]["source"]["shape"], [2, 2])
+        self.assertEqual(chart["aspect_ratio"], 1.0)
+        self.assertNotIn("values", chart["data"]["source"])
 
     def test_typed_table_preserves_cell_types_and_row_identity(self):
         table = ui.table(

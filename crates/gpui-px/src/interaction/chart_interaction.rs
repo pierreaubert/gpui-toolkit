@@ -474,6 +474,50 @@ pub fn apply_wheel_zoom(
     interaction.zoom_around_pixel(mouse_x, mouse_y, factor);
 }
 
+/// Return the closest point within a pixel-space hit radius.
+///
+/// Domain coordinates are normalized through the current viewport so the hit
+/// radius remains stable under pan, zoom, and unequal axis ranges.
+pub fn nearest_point_index(
+    points: &[(f64, f64)],
+    click: (f64, f64),
+    x_domain: (f64, f64),
+    y_domain: (f64, f64),
+    plot_size: (f64, f64),
+    max_distance: f64,
+) -> Option<usize> {
+    let x_span = (x_domain.1 - x_domain.0).abs();
+    let y_span = (y_domain.1 - y_domain.0).abs();
+    if !click.0.is_finite()
+        || !click.1.is_finite()
+        || !x_span.is_finite()
+        || !y_span.is_finite()
+        || x_span <= f64::EPSILON
+        || y_span <= f64::EPSILON
+        || !plot_size.0.is_finite()
+        || !plot_size.1.is_finite()
+        || plot_size.0 <= 0.0
+        || plot_size.1 <= 0.0
+        || !max_distance.is_finite()
+        || max_distance < 0.0
+    {
+        return None;
+    }
+    let max_distance_squared = max_distance * max_distance;
+    points
+        .iter()
+        .enumerate()
+        .filter(|(_, point)| point.0.is_finite() && point.1.is_finite())
+        .map(|(index, point)| {
+            let dx = (point.0 - click.0) * plot_size.0 / x_span;
+            let dy = (point.1 - click.1) * plot_size.1 / y_span;
+            (dx.mul_add(dx, dy * dy), index)
+        })
+        .filter(|(distance_squared, _)| *distance_squared <= max_distance_squared)
+        .min_by(|left, right| left.0.total_cmp(&right.0))
+        .map(|(_, index)| index)
+}
+
 #[cfg(feature = "gpui")]
 pub(super) mod interactive_chart {
     use super::super::*;
@@ -483,11 +527,15 @@ pub(super) mod interactive_chart {
         AnyElement, ClickEvent, ElementId, IntoElement, KeyDownEvent, MouseButton, Pixels, Point,
         ScrollDelta, ScrollWheelEvent, div, hsla, px,
     };
-    use std::cell::RefCell;
+    use std::cell::{Cell, RefCell};
     use std::rc::Rc;
 
     /// Callback type for when zoom state changes
     pub type OnZoomChange = Rc<dyn Fn((f64, f64), (f64, f64))>;
+
+    /// Callback emitted for a single click inside the plot area, expressed in
+    /// current data-domain coordinates.
+    pub type OnPlotClick = Rc<dyn Fn((f64, f64))>;
     /// Callback used by host views to request a rebuild after local interaction state changes.
     pub type OnInteractionChange = Rc<dyn Fn(&mut gpui::App)>;
 
@@ -570,6 +618,8 @@ pub(super) mod interactive_chart {
         pub config: InteractiveChartConfig,
         /// Callback when zoom changes
         pub on_zoom_change: Option<OnZoomChange>,
+        /// Callback for single clicks inside the plot area.
+        pub on_plot_click: Option<OnPlotClick>,
         /// Callback when hover, brush, pan, zoom, or reset changes retained state.
         pub on_interaction_change: Option<OnInteractionChange>,
     }
@@ -583,6 +633,7 @@ pub(super) mod interactive_chart {
                 ))),
                 config: InteractiveChartConfig::default(),
                 on_zoom_change: None,
+                on_plot_click: None,
                 on_interaction_change: None,
             }
         }
@@ -628,6 +679,15 @@ pub(super) mod interactive_chart {
             self
         }
 
+        /// Set a callback for single clicks inside the plot area.
+        pub fn on_plot_click<F>(mut self, callback: F) -> Self
+        where
+            F: Fn((f64, f64)) + 'static,
+        {
+            self.on_plot_click = Some(Rc::new(callback));
+            self
+        }
+
         /// Request a host-view rebuild whenever retained interaction state changes.
         pub fn on_interaction_change<F>(mut self, callback: F) -> Self
         where
@@ -656,6 +716,11 @@ pub(super) mod interactive_chart {
         /// Check if currently zoomed
         pub fn is_zoomed(&self) -> bool {
             self.interaction.borrow().is_zoomed()
+        }
+
+        /// Get the current zoom-history depth for viewport queries.
+        pub fn zoom_level(&self) -> usize {
+            self.interaction.borrow().zoom_level()
         }
 
         /// Get current brush selection
@@ -776,6 +841,7 @@ pub(super) mod interactive_chart {
             let bounds_for_prepaint = chart_bounds.clone();
             let bounds_for_down = chart_bounds.clone();
             let bounds_for_move = chart_bounds.clone();
+            let bounds_for_click = chart_bounds.clone();
             let bounds_for_wheel = chart_bounds.clone();
 
             let is_zoomed = state.is_zoomed();
@@ -786,6 +852,10 @@ pub(super) mod interactive_chart {
             let drag_start_down = drag_start.clone();
             let drag_start_move = drag_start.clone();
             let drag_start_up = drag_start.clone();
+            let did_drag = Rc::new(Cell::new(false));
+            let did_drag_down = did_drag.clone();
+            let did_drag_move = did_drag.clone();
+            let did_drag_click = did_drag.clone();
 
             div()
                 .on_children_prepainted(move |children_bounds, _window, _cx| {
@@ -816,6 +886,7 @@ pub(super) mod interactive_chart {
                 })
                 // Mouse down - start pan
                 .on_mouse_down(MouseButton::Left, move |event, _window, cx| {
+                    did_drag_down.set(false);
                     let (x, y) =
                         state_for_down.to_chart_coords(event.position, *bounds_for_down.borrow());
                     let mode = state_for_down.interaction.borrow().mode;
@@ -833,6 +904,7 @@ pub(super) mod interactive_chart {
                     state_for_hover.update_hover(event.position, *bounds_for_move.borrow());
                     state_for_hover.notify_interaction_change(cx);
                     if state_for_move.interaction.borrow().is_brushing() {
+                        did_drag_move.set(true);
                         let (x, y) = state_for_move
                             .to_chart_coords(event.position, *bounds_for_move.borrow());
                         state_for_move.interaction.borrow_mut().update_brush(x, y);
@@ -845,6 +917,7 @@ pub(super) mod interactive_chart {
                         let dx = x - start_x;
                         let dy = y - start_y;
                         if dx.abs() > 1.0 || dy.abs() > 1.0 {
+                            did_drag_move.set(true);
                             state_for_move.apply_pan(dx, dy);
                             // Update drag start to current position for continuous panning
                             *drag_start_move.borrow_mut() = Some((x, y));
@@ -885,6 +958,15 @@ pub(super) mod interactive_chart {
                         state_for_click.reset_zoom();
                         state_for_click.notify_interaction_change(cx);
                         window.refresh();
+                    } else if event.click_count() == 1
+                        && !did_drag_click.get()
+                        && state_for_click
+                            .is_over_plot(event.position(), *bounds_for_click.borrow())
+                        && let Some(callback) = &state_for_click.on_plot_click
+                    {
+                        let (x, y) = state_for_click
+                            .to_chart_coords(event.position(), *bounds_for_click.borrow());
+                        callback(state_for_click.interaction.borrow().point_to_domain(x, y));
                     }
                 })
                 // Scroll wheel - zoom (only when cursor is over the plot area)

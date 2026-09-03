@@ -1,6 +1,6 @@
 [build-system]
-requires = ["setuptools>=68", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = ["maturin>=1.9,<2"]
+build-backend = "maturin"
 
 [project]
 name = "gpui-toolkit"
@@ -27,17 +27,20 @@ classifiers = [
 ]
 dependencies = []
 
+[project.optional-dependencies]
+
+# Arrow remains optional: declarations and the generic host install without
+# Python binary dependencies, while this extra enables live Dataset IPC frames.
+arrow = ["pyarrow>=14"]
+
 [project.urls]
 Repository = "https://github.com/pierreaubert/gpui-toolkit"
 Documentation = "https://docs.rs/gpui-toolkit"
 
-[tool.setuptools]
-package-dir = { "" = "python" }
-include-package-data = true
-
-[tool.setuptools.package-data]
-gpui_toolkit = ["py.typed", "bin/gpui-python-host", "bin/gpui-python-host.exe"]
-
-[tool.setuptools.packages.find]
-where = ["python"]
-include = ["gpui_toolkit*"]
+[tool.maturin]
+bindings = "pyo3"
+features = ["python-extension"]
+manifest-path = "Cargo.toml"
+module-name = "gpui_toolkit._native"
+python-source = "python"
+exclude = ["**/__pycache__/**", "**/*.pyc", "**/*~"]

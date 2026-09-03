@@ -19,14 +19,46 @@ class RuntimeShowcaseCatalogTests(unittest.TestCase):
     def test_component_catalog_tracks_native_showcase_sections(self):
         app = build_app()
         self.assertEqual(
-            [section.id for section in app.sections],
+            [section.id for section in app.sections[:len(NATIVE_SECTION_ORDER)]],
             [section_id for section_id, _ in NATIVE_SECTION_ORDER],
+        )
+        self.assertEqual(
+            [section.id for section in app.sections[len(NATIVE_SECTION_ORDER):]],
+            ["charts", "surface", "lines", "scene-specs"],
         )
         self.assertEqual(
             [section.id for section in native_demo_sections()],
             [section_id for section_id, _ in NATIVE_SECTION_ORDER],
         )
         self.assertTrue(all("kind" in section["content"] for section in app.to_spec()["sections"]))
+
+    def test_python_chart_gallery_uses_only_v2_resource_bindings(self):
+        app = build_app()
+        chart_section = next(section for section in app.to_spec()["sections"] if section["id"] == "charts")
+
+        def nodes(value):
+            if isinstance(value, dict):
+                yield value
+                for child in value.values():
+                    yield from nodes(child)
+            elif isinstance(value, list):
+                for child in value:
+                    yield from nodes(child)
+
+        charts = [
+            node
+            for node in nodes(chart_section["content"])
+            if node.get("kind") == "px_chart_v2"
+        ]
+        self.assertEqual(len(charts), 4)
+        self.assertNotIn('"values"', json.dumps(charts))
+        self.assertEqual(len(app.resources), 4)
+        line = next(chart for chart in charts if chart["id"] == "response")
+        self.assertEqual(line["data"]["roles"]["series"], "series")
+        self.assertEqual(line["data"]["roles"]["color"], "color")
+        self.assertTrue(line["x_log"])
+        scatter = next(chart for chart in charts if chart["id"] == "latency")
+        self.assertEqual(scatter["point_radius"], 4.0)
 
 
 def read_process_stdout(process: subprocess.Popen[bytes], length: int, timeout: float = 5.0) -> bytes:

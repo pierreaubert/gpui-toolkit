@@ -1,6 +1,7 @@
 use super::chart_interaction::ChartInteraction;
 use super::chart_interaction::ChartKeyboardAction;
 use super::chart_interaction::apply_wheel_zoom;
+use super::chart_interaction::nearest_point_index;
 use super::mouse_state::MouseState;
 use super::types::InteractionMode;
 use super::wheel_config::WheelConfig;
@@ -12,6 +13,44 @@ fn test_chart_interaction_creation() {
     assert_eq!(interaction.x_domain(), (0.0, 100.0));
     assert_eq!(interaction.y_domain(), (-10.0, 10.0));
     assert!(!interaction.is_zoomed());
+}
+
+#[test]
+fn nearest_point_hit_test_uses_current_viewport_and_pixel_radius() {
+    let points = [(10.0, 10.0), (50.0, 50.0), (90.0, 90.0)];
+    assert_eq!(
+        nearest_point_index(
+            &points,
+            (51.0, 49.0),
+            (0.0, 100.0),
+            (0.0, 100.0),
+            (500.0, 250.0),
+            8.0,
+        ),
+        Some(1)
+    );
+    assert_eq!(
+        nearest_point_index(
+            &points,
+            (70.0, 50.0),
+            (0.0, 100.0),
+            (0.0, 100.0),
+            (500.0, 250.0),
+            8.0,
+        ),
+        None
+    );
+    assert_eq!(
+        nearest_point_index(
+            &points,
+            (50.5, 50.0),
+            (40.0, 60.0),
+            (40.0, 60.0),
+            (500.0, 250.0),
+            13.0,
+        ),
+        Some(1)
+    );
 }
 
 #[test]
@@ -311,6 +350,7 @@ mod interactive_chart_state_tests {
     #[test]
     fn test_interactive_chart_state_creation() {
         let state = InteractiveChartState::new(20.0, 20000.0, -40.0, 10.0);
+        assert_eq!(state.zoom_level(), 0);
         assert_eq!(state.x_domain(), (20.0, 20000.0));
         assert_eq!(state.y_domain(), (-40.0, 10.0));
         assert!(!state.is_zoomed());

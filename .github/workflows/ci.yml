@@ -412,6 +412,25 @@ jobs:
             libegl1-mesa-dev libgl1-mesa-dev
           just qa-api
 
+  python-rustdoc-inventory:
+    name: Python v2 rustdoc inventory freshness
+    # The first frozen inventory is the macOS host surface shipped in the
+    # current wheel. Linux/Windows inventories will be separate target records.
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install nightly Rust toolchain for rustdoc JSON
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-09-02
+
+      - name: Reject unrecorded gpui-d3rs or gpui-px public API changes
+        run: |
+          python3 scripts/generate_python_rustdoc_inventory.py --build --check
+          python3 scripts/check_python_v2_surface.py
+          python3 scripts/generate_python_capabilities.py --check
+
   release-contract:
     name: Governance and locked registry packages
     runs-on: ubuntu-latest

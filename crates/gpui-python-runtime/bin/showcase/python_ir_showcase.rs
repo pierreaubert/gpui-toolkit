@@ -2,11 +2,9 @@ use super::host_state::PresentationStore;
 use super::misc::apply_size;
 use super::misc::badge_colors;
 use super::misc::color_scale;
-use super::misc::hex_color;
-use super::misc::scale_type;
 use super::misc::tone_color;
 use super::types::StackDirection;
-use d3rs::gpu3d::{Lines3DElement, Lines3DState, Surface3DElement, Surface3DState};
+use d3rs::gpu3d::{Colormap, Lines3DElement, Lines3DState, Surface3DElement, Surface3DState};
 use d3rs::mesh::{
     ContourLevels, CoordinateAxis, MissingValuePolicy, ScalarAssociation, ScalarField,
     TriangleMesh, project_2d,
@@ -21,9 +19,13 @@ use gpui_px::interaction::{InteractiveChartState, interactive};
 use gpui_px::{
     AutoOrFixed, Axes2d, ColorRange, ColorScale, Colorbar, FieldInterpolation, MeshPlotPick,
     MeshPlotState, MeshPlotView, MeshRenderMode, PlotInteractions, Wireframe, area, bar, boxplot,
-    contour, donut, heatmap, isoline, line, mesh_plot, pie, scatter, treemap,
+    contour, donut, heatmap, isoline, line, mesh_plot, pie, scatter, surface3d, treemap,
 };
 use gpui_python_runtime::audio_stream::{AudioFrameKind, AudioFrameStore};
+use gpui_python_runtime::dataset_frames::{
+    AggregatedRows, DatasetAggregation, DatasetAggregationOp, DatasetFilter, DatasetFilterValue,
+    DatasetFrameStore, dense_array_unsigned, dense_array_values, dense_grid, sample_dense_xy,
+};
 use gpui_python_runtime::gpui_adapter::{Gpui3DCache, GpuiMeshPlotCache};
 use gpui_python_runtime::mesh_frames::{
     MeshFrame, MeshFrameKind, MeshFrameOutcome, MeshFrameStore,
@@ -40,13 +42,13 @@ use gpui_python_runtime::session::{
 use gpui_python_runtime::spec_cache::TypedSpecCache;
 use gpui_python_runtime::ui_ir::{
     AccordionNode, AlertNode, AudioControlNode, AudioMeterNode, AudioSpectrumNode, BadgeNode,
-    BooleanInputNode, BreadcrumbsNode, ButtonNode, CardNode, ChartKind, ChartNode,
-    ChartTreemapNode, ColorPickerNode, ConfirmDialogNode, ContextMenuNode, DialogNode,
-    EmptyStateNode, FormNode, ListEditorNode, MenuBarNode, MenuItemNode, MenuNode, MeshPlotNode,
-    MiniAppShellConfig, NumberInputNode, PathInputNode, PopoverNode, ProgressNode, PythonAppIr,
-    Scene3dNode, SectionHeaderNode, SelectNode, SimpleNode, SliderNode, SpinnerNode, StackNode,
-    StepperNode, TableNode, TabsNode, TextInputNode, TextNode, ThinkingOrbNode, ToastNode,
-    TooltipNode, UiNode,
+    BooleanInputNode, BreadcrumbsNode, ButtonNode, CardNode, ColorPickerNode, ConfirmDialogNode,
+    ContextMenuNode, DialogNode, EmptyStateNode, FormNode, ListEditorNode, MenuBarNode,
+    MenuItemNode, MenuNode, MeshPlotNode, MiniAppShellConfig, NumberInputNode, PathInputNode,
+    PopoverNode, ProgressNode, PxChartV2Node, PythonAppIr, Scene3dNode, SectionHeaderNode,
+    SelectNode, SimpleNode, SliderNode, SpinnerNode, StackNode, StepperNode, TableNode,
+    TableV2Node, TabsNode, TextInputNode, TextNode, ThinkingOrbNode, ToastNode, TooltipNode,
+    UiNode,
 };
 use gpui_ui_kit::color::Color;
 use gpui_ui_kit::data_navigation::{DataNavigationAction, DataNavigationState};
@@ -517,6 +519,7 @@ mod native_mesh_plot_tests {
         shape: &[u32],
         payload: Vec<u8>,
     ) -> MeshFrame {
+        let checksum = MeshFrame::checksum(&payload);
         MeshFrame {
             resource_id: resource_id.into(),
             generation: 1,
@@ -526,6 +529,7 @@ mod native_mesh_plot_tests {
             dtype,
             shape: shape.to_vec(),
             payload,
+            checksum,
         }
     }
 
@@ -1570,7 +1574,7 @@ fn validate_mesh_plot_spec_resources(
         patch_id: patch_id.map(str::to_owned),
     };
     let (positions, triangles) =
-        decode_mesh_geometry(&spec.geometry, store).map_err(|message| invalid(message))?;
+        decode_mesh_geometry(&spec.geometry, store, None).map_err(|message| invalid(message))?;
     if matches!(
         spec.view.as_str(),
         "axisymmetric_section" | "axisymmetric_revolve"
@@ -1585,10 +1589,10 @@ fn validate_mesh_plot_spec_resources(
         .get("id")
         .and_then(Value::as_str)
         .unwrap_or("mesh");
-    let vertex_ids = decode_inline_ids(&spec.geometry, "vertex_ids", positions.len(), store)
+    let vertex_ids = decode_inline_ids(&spec.geometry, "vertex_ids", positions.len(), store, None)
         .map_err(|message| invalid(message))?
         .map(Arc::from);
-    let cell_ids = decode_inline_ids(&spec.geometry, "cell_ids", triangles.len(), store)
+    let cell_ids = decode_inline_ids(&spec.geometry, "cell_ids", triangles.len(), store, None)
         .map_err(|message| invalid(message))?
         .map(Arc::from);
     let mesh = TriangleMesh {
@@ -1602,7 +1606,7 @@ fn validate_mesh_plot_spec_resources(
         .map_err(|error| invalid(error.to_string()))?;
     if let Some(field) = spec.field.as_ref() {
         let (values, valid) =
-            decode_mesh_field(field, store).map_err(|message| invalid(message))?;
+            decode_mesh_field(field, store, None).map_err(|message| invalid(message))?;
         let association = match field.get("association").and_then(Value::as_str) {
             Some("cell") => ScalarAssociation::Cell,
             _ => ScalarAssociation::Vertex,
@@ -1804,6 +1808,8 @@ mod runtime_resource_release_tests {
     }
 
     fn mesh_frame(resource_id: &str) -> MeshFrame {
+        let payload = 0.0_f64.to_le_bytes().to_vec();
+        let checksum = MeshFrame::checksum(&payload);
         MeshFrame {
             resource_id: resource_id.into(),
             generation: 1,
@@ -1812,7 +1818,8 @@ mod runtime_resource_release_tests {
             kind: MeshFrameKind::Field,
             dtype: MeshDtype::F64LE,
             shape: vec![1],
-            payload: 0.0_f64.to_le_bytes().to_vec(),
+            payload,
+            checksum,
         }
     }
 
@@ -1863,6 +1870,7 @@ mod runtime_resource_release_tests {
                    dtype: MeshDtype,
                    shape: Vec<u32>,
                    payload: Vec<u8>| {
+            let checksum = MeshFrame::checksum(&payload);
             store
                 .ingest(MeshFrame {
                     resource_id: resource_id.into(),
@@ -1873,6 +1881,7 @@ mod runtime_resource_release_tests {
                     dtype,
                     shape,
                     payload,
+                    checksum,
                 })
                 .expect("valid resource frame");
         };
@@ -2000,6 +2009,37 @@ mod runtime_resource_release_tests {
     }
 
     #[test]
+    fn array_backed_mesh_plot_retains_dataset_generation() {
+        let mut showcase = PythonIrShowcase::new_empty(PresentationStore::open());
+        let payload = vec![1_u8, 2, 3, 4];
+        showcase
+            .dataset_frames
+            .ingest(gpui_python_runtime::dataset_frames::DatasetFrame {
+                resource_id: "array-resource".into(),
+                generation: 1,
+                sequence: 0,
+                chunk_count: 1,
+                byte_length: payload.len(),
+                schema_fingerprint: "array-schema".into(),
+                checksum: gpui_python_runtime::dataset_frames::DatasetFrame::checksum(&payload),
+                payload,
+            })
+            .unwrap();
+        let mut refs = HashMap::new();
+        refs.insert("array-plot".into(), vec![("array-resource".into(), 1)]);
+        showcase
+            .sync_mesh_plot_resource_refs(refs)
+            .expect("retain ArrayData-backed mesh resource");
+        assert_eq!(showcase.dataset_frames.stats().references, 1);
+        assert!(!showcase.dataset_frames.release("array-resource", 1));
+        showcase
+            .sync_mesh_plot_resource_refs(HashMap::new())
+            .expect("release ArrayData-backed mesh resource");
+        assert_eq!(showcase.dataset_frames.stats().references, 0);
+        assert!(showcase.dataset_frames.release("array-resource", 1));
+    }
+
+    #[test]
     fn unknown_mesh_generation_does_not_contaminate_other_generation_owner() {
         let mut showcase = PythonIrShowcase::new_empty(PresentationStore::open());
         showcase
@@ -2056,6 +2096,7 @@ mod runtime_resource_release_tests {
             .into_iter()
             .flat_map(f64::to_le_bytes)
             .collect();
+        replacement.checksum = MeshFrame::checksum(&replacement.payload);
         showcase
             .mesh_frames
             .ingest(replacement)
@@ -2299,6 +2340,7 @@ mod runtime_resource_release_tests {
             .into_iter()
             .flat_map(f64::to_le_bytes)
             .collect();
+        replacement.checksum = MeshFrame::checksum(&replacement.payload);
         showcase
             .mesh_frames
             .ingest(replacement)
@@ -2375,6 +2417,7 @@ mod runtime_resource_release_tests {
             .into_iter()
             .flat_map(f64::to_le_bytes)
             .collect();
+        generation_two.checksum = MeshFrame::checksum(&generation_two.payload);
         showcase
             .mesh_frames
             .ingest(generation_two)
@@ -2413,7 +2456,7 @@ mod runtime_resource_release_tests {
         let mut malformed = mesh_frame("pressure");
         malformed.generation = 3;
         malformed.payload.pop();
-        showcase.apply_mesh_frame_message(malformed);
+        assert!(showcase.apply_mesh_frame_message(malformed).is_err());
         assert!(showcase.mesh_frames.get("pressure", 3).is_none());
         assert!(
             showcase
@@ -2431,7 +2474,8 @@ mod runtime_resource_release_tests {
             .into_iter()
             .flat_map(f64::to_le_bytes)
             .collect();
-        showcase.apply_mesh_frame_message(corrected);
+        corrected.checksum = MeshFrame::checksum(&corrected.payload);
+        assert_eq!(showcase.apply_mesh_frame_message(corrected), Ok(true));
         assert!(showcase.mesh_plot_errors.is_empty());
         assert!(showcase.mesh_frames.get("pressure", 3).is_some());
 
@@ -2452,7 +2496,8 @@ mod runtime_resource_release_tests {
             .into_iter()
             .flat_map(f64::to_le_bytes)
             .collect();
-        showcase.apply_mesh_frame_message(stale);
+        stale.checksum = MeshFrame::checksum(&stale.payload);
+        assert_eq!(showcase.apply_mesh_frame_message(stale), Ok(false));
         assert_eq!(
             showcase
                 .mesh_frames
@@ -2536,7 +2581,7 @@ mod runtime_resource_release_tests {
         let mut invalid = mesh_frame("pressure");
         invalid.generation = 2;
         invalid.payload.pop();
-        showcase.apply_mesh_frame_message(invalid);
+        assert!(showcase.apply_mesh_frame_message(invalid).is_err());
 
         assert_eq!(showcase.load_error, None);
         assert!(
@@ -2555,7 +2600,8 @@ mod runtime_resource_release_tests {
             .into_iter()
             .flat_map(f64::to_le_bytes)
             .collect();
-        showcase.apply_mesh_frame_message(corrected);
+        corrected.checksum = MeshFrame::checksum(&corrected.payload);
+        assert_eq!(showcase.apply_mesh_frame_message(corrected), Ok(true));
 
         assert!(showcase.mesh_plot_errors.is_empty());
         assert_eq!(showcase.load_error, None);
@@ -2576,7 +2622,7 @@ mod runtime_resource_release_tests {
         let mut invalid = mesh_frame("pressure");
         invalid.generation = 2;
         invalid.payload.pop();
-        showcase.apply_mesh_frame_message(invalid);
+        assert!(showcase.apply_mesh_frame_message(invalid).is_err());
 
         assert!(showcase.mesh_frames.get("pressure", 2).is_none());
         assert!(
@@ -2596,7 +2642,8 @@ mod runtime_resource_release_tests {
             .into_iter()
             .flat_map(f64::to_le_bytes)
             .collect();
-        showcase.apply_mesh_frame_message(corrected);
+        corrected.checksum = MeshFrame::checksum(&corrected.payload);
+        assert_eq!(showcase.apply_mesh_frame_message(corrected), Ok(true));
         assert!(showcase.mesh_frames.get("pressure", 2).is_some());
         assert!(!showcase.mesh_plot_errors.contains_key("resource-plot"));
         assert_eq!(showcase.load_error, None);
@@ -2672,6 +2719,7 @@ mod mesh_resource_decode_tests {
         shape: Vec<u32>,
         payload: Vec<u8>,
     ) {
+        let checksum = MeshFrame::checksum(&payload);
         let outcome = store
             .ingest(MeshFrame {
                 resource_id: resource_id.into(),
@@ -2682,9 +2730,382 @@ mod mesh_resource_decode_tests {
                 dtype,
                 shape,
                 payload,
+                checksum,
             })
             .expect("valid mesh resource frame");
         assert!(matches!(outcome, MeshFrameOutcome::Assembled(_)));
+    }
+
+    fn retain_array(store: &mut DatasetFrameStore, resource_id: &str, payload: Vec<u8>) {
+        use gpui_python_runtime::dataset_frames::DatasetFrame;
+
+        let frame = DatasetFrame {
+            resource_id: resource_id.into(),
+            generation: 1,
+            sequence: 0,
+            chunk_count: 1,
+            byte_length: payload.len(),
+            schema_fingerprint: format!("{resource_id}-schema"),
+            checksum: DatasetFrame::checksum(&payload),
+            payload,
+        };
+        assert!(store.ingest(frame).expect("valid ArrayData frame"));
+    }
+
+    #[::core::prelude::v1::test]
+    fn scene3d_resolves_arraydata_lines_meshes_and_nested_scenes() {
+        let mut showcase = PythonIrShowcase::new_empty(PresentationStore::open());
+        retain_array(
+            &mut showcase.dataset_frames,
+            "line-points",
+            [0.0_f32, 0.0, 0.0, 1.0, 0.5, 0.0]
+                .into_iter()
+                .flat_map(f32::to_le_bytes)
+                .collect(),
+        );
+        retain_array(
+            &mut showcase.dataset_frames,
+            "vertices",
+            [0.0_f64, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0]
+                .into_iter()
+                .flat_map(f64::to_le_bytes)
+                .collect(),
+        );
+        retain_array(
+            &mut showcase.dataset_frames,
+            "indices",
+            [0_u32, 1, 2]
+                .into_iter()
+                .flat_map(u32::to_le_bytes)
+                .collect(),
+        );
+        retain_array(
+            &mut showcase.dataset_frames,
+            "scalar",
+            [0.0_f32, 0.5, 1.0]
+                .into_iter()
+                .flat_map(f32::to_le_bytes)
+                .collect(),
+        );
+
+        let lines = serde_json::json!({
+            "schema_version": 1,
+            "kind": "lines",
+            "id": "path",
+            "strips": [{
+                "id": "trace",
+                "points": {"kind": "array_data", "id": "line-points", "generation": 1, "shape": [2, 3], "dtype": "f32"},
+                "color": [1.0, 1.0, 1.0, 1.0],
+                "width": 1.5
+            }],
+            "segments": [],
+            "background": null,
+            "camera": null,
+            "interactions": [],
+            "size": null
+        });
+        let mesh = serde_json::json!({
+            "schema_version": 1,
+            "kind": "mesh",
+            "id": "triangle",
+            "vertices": {"kind": "array_data", "id": "vertices", "generation": 1, "shape": [3, 3], "dtype": "f64"},
+            "indices": {"kind": "array_data", "id": "indices", "generation": 1, "shape": [1, 3], "dtype": "u32"},
+            "material": {"color": [1.0, 1.0, 1.0, 1.0], "opacity": 1.0},
+            "scalar_field": {
+                "values": {"kind": "array_data", "id": "scalar", "generation": 1, "shape": [3], "dtype": "f32"},
+                "association": "vertex",
+                "colormap": "viridis",
+                "range": null,
+                "label": "value"
+            }
+        });
+
+        let resolved_lines = showcase
+            .resolve_lines_resource_spec(&lines)
+            .expect("resolve line points");
+        let line_spec: gpui_python_runtime::LinesSpec =
+            serde_json::from_value(resolved_lines).expect("parse resolved lines");
+        line_spec.validate().expect("validate resolved lines");
+
+        let resolved_mesh = showcase
+            .resolve_mesh_resource_spec(&mesh)
+            .expect("resolve mesh buffers");
+        let mesh_spec: gpui_python_runtime::MeshSpec =
+            serde_json::from_value(resolved_mesh).expect("parse resolved mesh");
+        mesh_spec.validate().expect("validate resolved mesh");
+
+        let scene = serde_json::json!({
+            "schema_version": 1,
+            "id": "combined",
+            "camera": {
+                "kind": "orbit",
+                "distance": 3.0,
+                "azimuth_deg": 0.0,
+                "elevation_deg": 0.0,
+                "target": [0.0, 0.0, 0.0],
+                "fov_y_deg": 45.0,
+                "near": 0.1,
+                "far": 100.0
+            },
+            "children": [lines, mesh],
+            "interactions": [],
+            "background": null,
+            "size": null
+        });
+        let resolved_scene = showcase
+            .resolve_scene_resources(&scene)
+            .expect("resolve nested scene resources");
+        let scene_spec: gpui_python_runtime::SceneSpec =
+            serde_json::from_value(resolved_scene).expect("parse resolved scene");
+        scene_spec.validate().expect("validate resolved scene");
+
+        let mut stale = mesh.clone();
+        stale["vertices"]["generation"] = Value::from(2);
+        let error = showcase
+            .resolve_mesh_resource_spec(&stale)
+            .expect_err("stale resource generation must fail");
+        assert!(error.contains("awaiting completed mesh.vertices ArrayData generation"));
+    }
+
+    #[::core::prelude::v1::test]
+    fn static_export_consumes_contour_and_isoline_sampling_controls() {
+        let mut showcase = PythonIrShowcase::new_empty(PresentationStore::open());
+        retain_array(
+            &mut showcase.dataset_frames,
+            "sampling-grid",
+            [0.0_f32, 0.2, 0.8, 0.1, 0.5, 1.0, 0.0, 0.4, 0.9]
+                .into_iter()
+                .flat_map(f32::to_le_bytes)
+                .collect(),
+        );
+        let source = serde_json::json!({
+            "kind": "array_data",
+            "id": "sampling-grid",
+            "generation": 1,
+            "shape": [3, 3],
+            "dtype": "f32"
+        });
+        let base: PxChartV2Node = serde_json::from_value(serde_json::json!({
+            "chart": "isoline",
+            "id": "base-isoline",
+            "data": {"source": source.clone(), "roles": {}},
+            "lod": "auto",
+            "levels": [0.25, 0.75]
+        }))
+        .unwrap();
+        let configured: PxChartV2Node = serde_json::from_value(serde_json::json!({
+            "chart": "isoline",
+            "id": "configured-isoline",
+            "data": {"source": source, "roles": {}},
+            "lod": "auto",
+            "levels": [0.25, 0.75],
+            "contour_upsample_factor": 3,
+            "smooth_strokes": true,
+            "smoothing_iterations": 2,
+            "smoothing_max_deviation_px": 1.0
+        }))
+        .unwrap();
+        base.validate().unwrap();
+        configured.validate().unwrap();
+        let options = gpui_px::StaticSvgOptions::new(400.0, 300.0);
+        let base_svg = showcase
+            .resource_chart_svg(&base, options.clone())
+            .expect("base isoline SVG");
+        let (configured_svg, summary) = showcase
+            .resource_chart_export_result(&configured, options)
+            .expect("configured isoline SVG and native summary");
+        assert!(configured_svg.starts_with("<svg"));
+        assert_ne!(base_svg, configured_svg);
+        assert_eq!(summary["chart_type"], "isoline");
+        assert_eq!(summary["datum_count"], 9);
+        assert_eq!(summary["value_range"], serde_json::json!([0.0, 1.0]));
+        assert!(summary["accessible_value_text"].is_string());
+        assert_eq!(
+            showcase
+                .resource_chart_accessibility_summary(&configured)
+                .expect("metadata-only native summary"),
+            summary
+        );
+    }
+
+    #[::core::prelude::v1::test]
+    fn native_line_metadata_preserves_legend_annotation_and_secondary_axis_state() {
+        let chart = line(&[0.0, 1.0], &[1.0, 2.0])
+            .label("primary")
+            .add_series_y2_with_x(
+                &[0.0, 1.0],
+                &[10.0, 20.0],
+                Some("phase"),
+                0xff_00_00,
+                2.0,
+                1.0,
+            )
+            .hidden_series(&[1])
+            .annotation(
+                gpui_px::ChartAnnotation::point("peak", "Peak", 1.0, 2.0)
+                    .color(0x00_ff_00)
+                    .series_index(0),
+            );
+        let (svg, results) = chart
+            .resource_static_result(None)
+            .expect("metadata-only line result");
+        assert!(svg.is_none());
+        let legend = results.legend.expect("line legend summary");
+        assert_eq!(legend["item_count"], 2);
+        assert_eq!(legend["items"][1]["label"], "phase");
+        assert_eq!(legend["items"][1]["hidden"], true);
+        assert_eq!(legend["items"][1]["uses_secondary_axis"], true);
+        let annotations = results.annotations.expect("line annotation summary");
+        assert_eq!(annotations["annotation_count"], 1);
+        assert_eq!(annotations["annotations"][0]["target"]["kind"], "point");
+        assert_eq!(annotations["annotations"][0]["color"], 0x00_ff_00);
+    }
+
+    #[::core::prelude::v1::test]
+    fn surface_camera_result_preserves_and_resets_retained_orbit_state() {
+        let mut state = Surface3DState::new(3.5, 60.0, 25.0);
+        state.controls.distance = 8.0;
+        state.controls.azimuth = 0.25;
+        state.controls.elevation = -0.1;
+        state.update_camera();
+        let current = px_surface_camera_json("terrain", &state);
+        assert_eq!(current["chart_id"], "terrain");
+        assert_eq!(current["camera"]["distance"], 8.0);
+        assert_eq!(
+            current["camera"]["target"],
+            serde_json::json!([0.0, 0.0, 0.0])
+        );
+
+        state.controls.reset();
+        state.update_camera();
+        let reset = px_surface_camera_json("terrain", &state);
+        assert_ne!(reset["camera"], current["camera"]);
+        assert_eq!(reset["camera"]["distance"], 3.5);
+        assert_eq!(
+            reset["camera"]["target"],
+            serde_json::json!([0.0, 0.0, 0.0])
+        );
+    }
+
+    #[::core::prelude::v1::test]
+    fn generic_host_consumes_and_exports_arraydata_mesh_resources() {
+        let mut showcase = PythonIrShowcase::new_empty(PresentationStore::open());
+        retain_array(
+            &mut showcase.dataset_frames,
+            "positions",
+            [0.0_f64, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0]
+                .into_iter()
+                .flat_map(f64::to_le_bytes)
+                .collect(),
+        );
+        retain_array(
+            &mut showcase.dataset_frames,
+            "triangles",
+            [0_u32, 1, 2]
+                .into_iter()
+                .flat_map(u32::to_le_bytes)
+                .collect(),
+        );
+        retain_array(
+            &mut showcase.dataset_frames,
+            "vertex-ids",
+            [101_u64, 102, 103]
+                .into_iter()
+                .flat_map(u64::to_le_bytes)
+                .collect(),
+        );
+        retain_array(
+            &mut showcase.dataset_frames,
+            "field",
+            [1.0_f32, 2.0, 3.0]
+                .into_iter()
+                .flat_map(f32::to_le_bytes)
+                .collect(),
+        );
+        retain_array(&mut showcase.dataset_frames, "valid", vec![1, 0, 1]);
+
+        let spec = MeshPlotSpec::from_value(serde_json::json!({
+            "schema_version": 1,
+            "id": "arraydata-host-mesh",
+            "revision": 1,
+            "geometry": {
+                "id": "triangle",
+                "positions": {
+                    "kind": "array_data",
+                    "resource_id": "positions",
+                    "generation": 1,
+                    "shape": [3, 3],
+                    "dtype": "f64"
+                },
+                "triangles": {
+                    "kind": "array_data",
+                    "resource_id": "triangles",
+                    "generation": 1,
+                    "shape": [1, 3],
+                    "dtype": "u32"
+                },
+                "vertex_ids": {
+                    "kind": "array_data",
+                    "resource_id": "vertex-ids",
+                    "generation": 1,
+                    "shape": [3],
+                    "dtype": "u64"
+                }
+            },
+            "field": {
+                "id": "pressure",
+                "label": "Pressure",
+                "kind": "array_data",
+                "resource_id": "field",
+                "generation": 1,
+                "shape": [3],
+                "dtype": "f32",
+                "association": "vertex",
+                "valid": {
+                    "kind": "array_data",
+                    "resource_id": "valid",
+                    "generation": 1,
+                    "shape": [3],
+                    "dtype": "bool"
+                }
+            },
+            "mode": "scalar_fill"
+        }))
+        .expect("valid ArrayData mesh specification");
+
+        showcase
+            .sync_mesh_plot_resource_refs_for_spec(&spec)
+            .expect("generic host accepts ArrayData-backed mesh resources");
+        assert_eq!(showcase.mesh_frames.stats().references, 0);
+        assert_eq!(showcase.mesh_plot_resource_refs.len(), 1);
+
+        let prepared = gpui_python_runtime::native_mesh_plot::prepare_with_array_data(
+            &spec,
+            &showcase.mesh_frames,
+            &showcase.dataset_frames,
+        )
+        .expect("generic host prepares ArrayData-backed mesh");
+        let (_element, _state) = gpui_python_runtime::native_mesh_plot::build_prepared(
+            &spec, &prepared, None, None, None,
+        )
+        .expect("generic host builds native mesh element");
+        let svg = gpui_python_runtime::native_mesh_plot::export_prepared_svg(
+            &spec, &prepared, 320.0, 240.0,
+        )
+        .expect("generic host exports ArrayData-backed mesh");
+        assert!(svg.starts_with("<svg"));
+        assert!(svg.contains("gpui-px-mesh-plot"));
+
+        let mut stale = spec.clone();
+        stale.geometry["positions"]["generation"] = Value::from(2);
+        let error = gpui_python_runtime::native_mesh_plot::prepare_with_array_data(
+            &stale,
+            &showcase.mesh_frames,
+            &showcase.dataset_frames,
+        )
+        .err()
+        .expect("stale ArrayData generations must fail explicitly");
+        assert!(error.contains("geometry.positions ArrayData generation is not available"));
     }
 
     #[::core::prelude::v1::test]
@@ -2731,13 +3152,13 @@ mod mesh_resource_decode_tests {
             "cell_ids": {"resource_id": "cell_ids", "generation": 1}
         });
         assert_eq!(
-            decode_inline_ids(&geometry, "vertex_ids", 3, &store)
+            decode_inline_ids(&geometry, "vertex_ids", 3, &store, None)
                 .unwrap()
                 .unwrap(),
             Arc::from([10, 20, 30])
         );
         assert_eq!(
-            decode_inline_ids(&geometry, "cell_ids", 1, &store)
+            decode_inline_ids(&geometry, "cell_ids", 1, &store, None)
                 .unwrap()
                 .unwrap(),
             Arc::from([99])
@@ -2749,7 +3170,7 @@ mod mesh_resource_decode_tests {
                 "valid": {"resource_id": resource_id, "generation": 1}
             });
             assert_eq!(
-                decode_mesh_field(&field, &store).unwrap().1,
+                decode_mesh_field(&field, &store, None).unwrap().1,
                 Some(Arc::from([true, false, true]))
             );
         }
@@ -2761,7 +3182,7 @@ mod mesh_resource_decode_tests {
         let missing = serde_json::json!({
             "vertex_ids": {"resource_id": "stale", "generation": 2}
         });
-        let error = decode_inline_ids(&missing, "vertex_ids", 1, &store).unwrap_err();
+        let error = decode_inline_ids(&missing, "vertex_ids", 1, &store, None).unwrap_err();
         assert!(error.contains("missing geometry.vertex_ids resource"));
 
         let mut store = MeshFrameStore::new();
@@ -2776,7 +3197,7 @@ mod mesh_resource_decode_tests {
         let wrong_kind = serde_json::json!({
             "vertex_ids": {"resource_id": "bad_ids", "generation": 1}
         });
-        let error = decode_inline_ids(&wrong_kind, "vertex_ids", 1, &store).unwrap_err();
+        let error = decode_inline_ids(&wrong_kind, "vertex_ids", 1, &store, None).unwrap_err();
         assert!(error.contains("expected Ids"));
 
         retain(
@@ -2791,7 +3212,7 @@ mod mesh_resource_decode_tests {
             "values": [1.0, 2.0, 3.0],
             "valid": {"resource_id": "bad_mask", "generation": 1}
         });
-        let error = decode_mesh_field(&field, &store).unwrap_err();
+        let error = decode_mesh_field(&field, &store, None).unwrap_err();
         assert!(error.contains("field.valid resource shape must be [value_count]"));
     }
 
@@ -2813,7 +3234,7 @@ mod mesh_resource_decode_tests {
             "resource_id": "field-values",
             "generation": 1
         });
-        let (values, valid) = decode_mesh_field(&field, &store).unwrap();
+        let (values, valid) = decode_mesh_field(&field, &store, None).unwrap();
         assert!(values[1].is_nan());
         assert!(valid.is_none());
 
@@ -2848,7 +3269,7 @@ mod mesh_resource_decode_tests {
             "resource_id": "field-values",
             "generation": 1
         });
-        let error = decode_mesh_field(&field, &store).unwrap_err();
+        let error = decode_mesh_field(&field, &store, None).unwrap_err();
         assert!(error.contains("field resource contains non-finite value"));
     }
 
@@ -2920,208 +3341,6 @@ fn command_numbers(arguments: &Value, name: &str) -> Result<Vec<f64>, String> {
             }
         })
         .collect()
-}
-
-fn validate_chart_export_node(node: &ChartNode) -> Result<(), String> {
-    if node.id.trim().is_empty() {
-        return Err("chart export requires a stable chart id".into());
-    }
-    if !node.width.is_finite() || !node.height.is_finite() {
-        return Err("chart export width and height must be finite".into());
-    }
-    if !(16.0..=4096.0).contains(&node.width) || !(16.0..=4096.0).contains(&node.height) {
-        return Err("chart export width and height must be between 16 and 4096".into());
-    }
-    let finite = |field: &str, values: &[f64]| {
-        if values.len() > 200_000 {
-            return Err(format!(
-                "chart export {field} exceeds the 200000-point limit"
-            ));
-        }
-        if values.iter().any(|value| !value.is_finite()) {
-            return Err(format!("chart export {field} contains NaN or Infinity"));
-        }
-        Ok(())
-    };
-    match node.chart {
-        ChartKind::Line | ChartKind::Scatter => {
-            if node.series.is_empty() {
-                let x = node.x.as_deref().ok_or("chart export is missing x data")?;
-                let y = node.y.as_deref().ok_or("chart export is missing y data")?;
-                if x.len() != y.len() {
-                    return Err("chart export x and y lengths differ".into());
-                }
-                finite("x", x)?;
-                finite("y", y)?;
-            } else {
-                for series in &node.series {
-                    if series.id.trim().is_empty() {
-                        return Err("chart export series id is empty".into());
-                    }
-                    if series.x.len() != series.y.len() {
-                        return Err(format!(
-                            "chart export series {} x and y lengths differ",
-                            series.id
-                        ));
-                    }
-                    finite("series.x", &series.x)?;
-                    finite("series.y", &series.y)?;
-                }
-            }
-        }
-        _ => return Err(format!("chart export does not support {:?}", node.chart)),
-    }
-    Ok(())
-}
-
-fn native_chart_svg(
-    node: &ChartNode,
-    domains: Option<((f64, f64), (f64, f64))>,
-    locally_hidden: Option<&HashSet<String>>,
-) -> Result<String, String> {
-    validate_chart_export_node(node)?;
-    let visible_series = node
-        .series
-        .iter()
-        .filter(|series| {
-            series.visible && !locally_hidden.is_some_and(|hidden| hidden.contains(&series.id))
-        })
-        .collect::<Vec<_>>();
-    if visible_series.is_empty() && (node.x.is_none() || node.y.is_none()) {
-        return Err("chart export has no visible data series".into());
-    }
-    match node.chart {
-        ChartKind::Line => {
-            let primary = visible_series.first().copied();
-            let x = primary
-                .map(|series| series.x.as_slice())
-                .or(node.x.as_deref())
-                .unwrap_or_default();
-            let y = primary
-                .map(|series| series.y.as_slice())
-                .or(node.y.as_deref())
-                .unwrap_or_default();
-            let mut chart = line(x, y)
-                .title(node.title.clone())
-                .color(hex_color(
-                    primary
-                        .and_then(|series| series.color.as_deref())
-                        .or(node.color.as_deref()),
-                    0xff7f0e,
-                ))
-                .stroke_width(
-                    primary
-                        .and_then(|series| series.stroke_width)
-                        .unwrap_or(node.stroke_width),
-                )
-                .x_scale(scale_type(node.x_log))
-                .y_scale(scale_type(node.y_log))
-                .size(node.width, node.height)
-                .curve(px_curve(&node.curve))
-                .legend_position(px_legend_position(&node.legend_position))
-                .annotations(px_annotations(node))
-                .dash_style(&node.dash);
-            if let Some(label) = &node.x_label {
-                chart = chart.x_label(label.clone());
-            }
-            if let Some(label) = &node.y_label {
-                chart = chart.y_label(label.clone());
-            }
-            if let Some(label) = &node.y2_label {
-                chart = chart.y2_label(label.clone());
-            }
-            if let Some([min, max]) = node.y2_range {
-                chart = chart.y2_range(min, max);
-            }
-            if let Some(series) = primary.filter(|series| !series.label.is_empty()) {
-                chart = chart.label(series.label.clone());
-            }
-            for series in visible_series.iter().copied().skip(1) {
-                chart = if series.secondary_y {
-                    chart.add_series_y2_with_x(
-                        &series.x,
-                        &series.y,
-                        (!series.label.is_empty()).then_some(series.label.clone()),
-                        hex_color(series.color.as_deref(), 0xff7f0e),
-                        series.stroke_width.unwrap_or(node.stroke_width),
-                        series.opacity,
-                    )
-                } else {
-                    chart.add_series_with_x(
-                        &series.x,
-                        &series.y,
-                        (!series.label.is_empty()).then_some(series.label.clone()),
-                        hex_color(series.color.as_deref(), 0xff7f0e),
-                        series.stroke_width.unwrap_or(node.stroke_width),
-                        series.opacity,
-                    )
-                };
-                chart = chart.series_dash_style(&series.dash);
-            }
-            if let Some(((min, max), _)) = domains {
-                chart = chart.x_range(min, max);
-            } else if let Some([min, max]) = node.x_range {
-                chart = chart.x_range(min, max);
-            }
-            if let Some((_, (min, max))) = domains {
-                chart = chart.y_range(min, max);
-            } else if let Some([min, max]) = node.y_range {
-                chart = chart.y_range(min, max);
-            }
-            chart.to_svg().map_err(|error| error.to_string())
-        }
-        ChartKind::Scatter => {
-            let primary = visible_series.first().copied();
-            let x = primary
-                .map(|series| series.x.as_slice())
-                .or(node.x.as_deref())
-                .unwrap_or_default();
-            let y = primary
-                .map(|series| series.y.as_slice())
-                .or(node.y.as_deref())
-                .unwrap_or_default();
-            let mut chart = scatter(x, y)
-                .title(node.title.clone())
-                .color(hex_color(
-                    primary
-                        .and_then(|series| series.color.as_deref())
-                        .or(node.color.as_deref()),
-                    0x1f77b4,
-                ))
-                .point_radius(
-                    primary
-                        .and_then(|series| series.point_radius)
-                        .unwrap_or(node.point_radius),
-                )
-                .x_scale(scale_type(node.x_log))
-                .y_scale(scale_type(node.y_log))
-                .legend_position(px_legend_position(&node.legend_position))
-                .annotations(px_annotations(node))
-                .size(node.width, node.height);
-            for series in visible_series.iter().copied().skip(1) {
-                chart = chart.add_series(
-                    &series.x,
-                    &series.y,
-                    (!series.label.is_empty()).then_some(series.label.clone()),
-                    hex_color(series.color.as_deref(), 0x1f77b4),
-                    series.point_radius.unwrap_or(node.point_radius),
-                    series.opacity,
-                );
-            }
-            if let Some(((min, max), _)) = domains {
-                chart = chart.x_range(min, max);
-            } else if let Some([min, max]) = node.x_range {
-                chart = chart.x_range(min, max);
-            }
-            if let Some((_, (min, max))) = domains {
-                chart = chart.y_range(min, max);
-            } else if let Some([min, max]) = node.y_range {
-                chart = chart.y_range(min, max);
-            }
-            chart.to_svg().map_err(|error| error.to_string())
-        }
-        _ => unreachable!("validated chart kind"),
-    }
 }
 
 #[derive(Clone, Deserialize)]
@@ -4856,15 +5075,74 @@ fn builder_chassis_row(value: &Value) -> Result<gpui_builder::RowSpec, String> {
     }
 }
 
-fn native_treemap_node(node: &ChartTreemapNode) -> gpui_px::TreemapNode {
-    if node.children.is_empty() {
-        gpui_px::TreemapNode::new(node.name.clone(), node.value)
-    } else {
-        let mut root = gpui_px::TreemapNode::new(node.name.clone(), node.value);
-        for child in &node.children {
-            root = root.add_child(native_treemap_node(child));
+fn resource_treemap_node(
+    rows: &[gpui_python_runtime::dataset_frames::TreemapResourceRow],
+) -> Result<gpui_px::TreemapNode, String> {
+    use gpui_python_runtime::dataset_frames::TreemapResourceRow;
+
+    fn build(
+        id: &str,
+        rows: &HashMap<&str, &TreemapResourceRow>,
+        visiting: &mut HashSet<String>,
+        visited: &mut HashSet<String>,
+    ) -> Result<gpui_px::TreemapNode, String> {
+        if !visiting.insert(id.to_owned()) {
+            return Err(format!("treemap hierarchy contains a cycle at {id:?}"));
         }
-        root
+        let row = rows
+            .get(id)
+            .ok_or_else(|| format!("treemap node {id:?} does not exist"))?;
+        let mut node = gpui_px::TreemapNode::new(row.id.clone(), row.value);
+        for child in rows
+            .values()
+            .filter(|child| child.parent.as_deref() == Some(id))
+        {
+            node = node.add_child(build(&child.id, rows, visiting, visited)?);
+        }
+        visiting.remove(id);
+        visited.insert(id.to_owned());
+        Ok(node)
+    }
+
+    if rows.is_empty() {
+        return Err("treemap resource has no rows".into());
+    }
+    let mut by_id = HashMap::with_capacity(rows.len());
+    for row in rows {
+        if by_id.insert(row.id.as_str(), row).is_some() {
+            return Err(format!("treemap resource has duplicate id {:?}", row.id));
+        }
+    }
+    for row in rows {
+        if let Some(parent) = row.parent.as_deref()
+            && !by_id.contains_key(parent)
+        {
+            return Err(format!(
+                "treemap node {:?} references missing parent {parent:?}",
+                row.id
+            ));
+        }
+    }
+    let roots = rows
+        .iter()
+        .filter(|row| row.parent.is_none())
+        .collect::<Vec<_>>();
+    if roots.is_empty() {
+        return Err("treemap hierarchy has no root".into());
+    }
+    let mut visiting = HashSet::new();
+    let mut visited = HashSet::new();
+    let mut built_roots = Vec::with_capacity(roots.len());
+    for root in roots {
+        built_roots.push(build(&root.id, &by_id, &mut visiting, &mut visited)?);
+    }
+    if visited.len() != rows.len() {
+        return Err("treemap hierarchy contains unreachable nodes".into());
+    }
+    if built_roots.len() == 1 {
+        Ok(built_roots.pop().expect("one root"))
+    } else {
+        Ok(gpui_px::TreemapNode::with_children("root", built_roots))
     }
 }
 
@@ -5072,631 +5350,90 @@ fn scalar_colorbar(
         .into_any_element()
 }
 
-fn chart_domain(values: impl Iterator<Item = f64>, fallback: (f64, f64), log: bool) -> (f64, f64) {
-    let values = values.filter(|value| value.is_finite() && (!log || *value > 0.0));
-    let (mut minimum, mut maximum) = values
-        .fold((f64::INFINITY, f64::NEG_INFINITY), |range, value| {
-            (range.0.min(value), range.1.max(value))
-        });
-    if !minimum.is_finite() || !maximum.is_finite() {
-        return fallback;
-    }
-    if minimum == maximum {
-        let padding = if log {
-            minimum.abs().max(1.0) * 0.1
-        } else {
-            minimum.abs().max(1.0) * 0.05
-        };
-        minimum = (minimum - padding).max(if log {
-            f64::MIN_POSITIVE
-        } else {
-            f64::NEG_INFINITY
-        });
-        maximum += padding;
-    }
-    (minimum, maximum)
-}
-
-fn cartesian_chart_domains(node: &ChartNode) -> ((f64, f64), (f64, f64)) {
-    let series = if node.series.is_empty() {
-        vec![(
-            node.x.as_deref().unwrap_or_default(),
-            node.y.as_deref().unwrap_or_default(),
-        )]
-    } else {
-        node.series
-            .iter()
-            .filter(|series| series.visible)
-            .map(|series| (series.x.as_slice(), series.y.as_slice()))
-            .collect()
-    };
-    let x_fallback = node
-        .x_range
-        .map(|range| (range[0], range[1]))
-        .unwrap_or((0.0, 1.0));
-    let y_fallback = node
-        .y_range
-        .map(|range| (range[0], range[1]))
-        .unwrap_or((0.0, 1.0));
-    let x = node
-        .x_range
-        .map(|range| (range[0], range[1]))
-        .unwrap_or_else(|| {
-            chart_domain(
-                series.iter().flat_map(|(x, _)| x.iter().copied()),
-                x_fallback,
-                node.x_log,
-            )
-        });
-    let y = node
-        .y_range
-        .map(|range| (range[0], range[1]))
-        .unwrap_or_else(|| {
-            chart_domain(
-                series.iter().flat_map(|(_, y)| y.iter().copied()),
-                y_fallback,
-                node.y_log,
-            )
-        });
-    (x, y)
-}
-
-struct ChartInspection {
-    series: String,
-    x: f64,
-    y: f64,
-    x_ratio: f32,
-    y_ratio: f32,
-}
-
-fn chart_inspection(
-    node: &ChartNode,
-    state: &InteractiveChartState,
-    locally_hidden: Option<&HashSet<String>>,
-) -> Option<ChartInspection> {
-    let (hover_x, hover_y) = state.interaction.borrow().hover_domain()?;
-    let (x_min, x_max) = state.x_domain();
-    let (y_min, y_max) = state.y_domain();
-    let ratio = |value: f64, min: f64, max: f64, logarithmic: bool| {
-        if logarithmic && value > 0.0 && min > 0.0 && max > min {
-            ((value.ln() - min.ln()) / (max.ln() - min.ln())).clamp(0.0, 1.0)
-        } else if max > min {
-            ((value - min) / (max - min)).clamp(0.0, 1.0)
-        } else {
-            0.5
-        }
-    };
-    let hover_x_ratio = ratio(hover_x, x_min, x_max, node.x_log);
-    let hover_y_ratio = ratio(hover_y, y_min, y_max, node.y_log);
-    let mut nearest: Option<(String, f64, f64, f64)> = None;
-    let mut inspect = |label: String, x: &[f64], y: &[f64]| {
-        for (&point_x, &point_y) in x.iter().zip(y) {
-            let dx = ratio(point_x, x_min, x_max, node.x_log) - hover_x_ratio;
-            let dy = ratio(point_y, y_min, y_max, node.y_log) - hover_y_ratio;
-            let distance = dx * dx + dy * dy;
-            if nearest
-                .as_ref()
-                .is_none_or(|(_, _, _, best)| distance < *best)
-            {
-                nearest = Some((label.clone(), point_x, point_y, distance));
-            }
-        }
-    };
-    if node.series.is_empty() {
-        inspect(
-            "Series".into(),
-            node.x.as_deref().unwrap_or_default(),
-            node.y.as_deref().unwrap_or_default(),
-        );
-    } else {
-        for (index, series) in node.series.iter().enumerate().filter(|(_, series)| {
-            series.visible && !locally_hidden.is_some_and(|hidden| hidden.contains(&series.id))
-        }) {
-            inspect(
-                if series.label.is_empty() {
-                    format!("Series {}", index + 1)
-                } else {
-                    series.label.clone()
-                },
-                &series.x,
-                &series.y,
-            );
-        }
-    }
-    nearest.map(|(series, x, y, _)| ChartInspection {
-        series,
-        x,
-        y,
-        x_ratio: ratio(x, x_min, x_max, node.x_log) as f32,
-        y_ratio: ratio(y, y_min, y_max, node.y_log) as f32,
-    })
-}
-
-fn chart_csv(node: &ChartNode, locally_hidden: Option<&HashSet<String>>) -> String {
-    let mut csv = String::new();
-    match node.chart {
-        ChartKind::Scatter | ChartKind::Line | ChartKind::Area | ChartKind::BoxPlot => {
-            csv.push_str("series_id,series_label,x,y\n");
-            if node.series.is_empty() {
-                for (x, y) in node
-                    .x
-                    .as_deref()
-                    .unwrap_or_default()
-                    .iter()
-                    .zip(node.y.as_deref().unwrap_or_default())
-                {
-                    csv.push_str(&format!("default,,{x},{y}\n"));
-                }
-            } else {
-                for series in node.series.iter().filter(|series| {
-                    series.visible
-                        && !locally_hidden.is_some_and(|hidden| hidden.contains(&series.id))
-                }) {
-                    for (x, y) in series.x.iter().zip(&series.y) {
-                        csv.push_str(&format!(
-                            "{},{},{x},{y}\n",
-                            csv_field(&series.id),
-                            csv_field(&series.label)
-                        ));
-                    }
-                }
-            }
-        }
-        ChartKind::Bar | ChartKind::Pie | ChartKind::Donut => {
-            csv.push_str("category,value\n");
-            for (category, value) in node
-                .categories
-                .as_deref()
-                .unwrap_or_default()
-                .iter()
-                .zip(node.values.as_deref().unwrap_or_default())
-            {
-                csv.push_str(&format!("{},{}\n", csv_field(category), value));
-            }
-        }
-        ChartKind::Heatmap | ChartKind::Contour | ChartKind::Isoline => {
-            csv.push_str("x,y,value\n");
-            let width = node.width_count.unwrap_or_default();
-            let x = node.x.as_deref();
-            let y = node.y.as_deref();
-            for (index, value) in node.z.as_deref().unwrap_or_default().iter().enumerate() {
-                let column = index % width;
-                let row = index / width;
-                let value = value.map_or_else(String::new, |value| value.to_string());
-                csv.push_str(&format!(
-                    "{},{},{}\n",
-                    x.and_then(|values| values.get(column))
-                        .copied()
-                        .unwrap_or(column as f64),
-                    y.and_then(|values| values.get(row))
-                        .copied()
-                        .unwrap_or(row as f64),
-                    value
-                ));
-            }
-        }
-        ChartKind::Treemap => {
-            csv.push_str("name,value\n");
-            fn append(node: &ChartTreemapNode, csv: &mut String) {
-                csv.push_str(&format!("{},{}\n", csv_field(&node.name), node.value));
-                for child in &node.children {
-                    append(child, csv);
-                }
-            }
-            if let Some(root) = &node.treemap {
-                append(root, &mut csv);
-            }
-        }
-    }
-    csv
-}
-
-fn svg_escape(value: &str) -> String {
-    value
-        .replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-}
-
-/// Dependency-free portable visual export. It deliberately mirrors the
-/// displayed data and active Cartesian domain rather than serializing GPUI
-/// draw commands, so applications can save it on every supported platform.
-fn chart_svg(
-    node: &ChartNode,
-    domains: Option<((f64, f64), (f64, f64))>,
-    locally_hidden: Option<&HashSet<String>>,
-) -> String {
-    let width = node.width.max(1.0);
-    let height = node.height.max(1.0);
-    let left = 48.0;
-    let top = 28.0;
-    let plot_width = (width - left - 12.0).max(1.0);
-    let plot_height = (height - top - 26.0).max(1.0);
-    let ((x_min, x_max), (y_min, y_max)) = domains.unwrap_or_else(|| cartesian_chart_domains(node));
-    let x_pixel = |value: f64| {
-        left + ((value - x_min) / (x_max - x_min).max(f64::EPSILON)) as f32 * plot_width
-    };
-    let y_pixel = |value: f64| {
-        top + (1.0 - ((value - y_min) / (y_max - y_min).max(f64::EPSILON)) as f32) * plot_height
-    };
-    let mut svg = format!(
-        "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{width}\" height=\"{height}\" viewBox=\"0 0 {width} {height}\"><rect width=\"100%\" height=\"100%\" fill=\"#ffffff\"/><text x=\"{left}\" y=\"18\" font-family=\"sans-serif\" font-size=\"14\">{}</text><path d=\"M {left} {top} V {} H {}\" fill=\"none\" stroke=\"#666\"/>",
-        svg_escape(&node.title),
-        top + plot_height,
-        left + plot_width
-    );
-    match node.chart {
-        ChartKind::Line | ChartKind::Scatter | ChartKind::Area | ChartKind::BoxPlot => {
-            let fallback_x = node.x.as_deref().unwrap_or_default();
-            let fallback_y = node.y.as_deref().unwrap_or_default();
-            let mut series = node
-                .series
-                .iter()
-                .filter(|series| {
-                    series.visible
-                        && !locally_hidden.is_some_and(|hidden| hidden.contains(&series.id))
-                })
-                .map(|series| {
-                    (
-                        series.label.as_str(),
-                        series.x.as_slice(),
-                        series.y.as_slice(),
-                        series.color.as_deref(),
-                    )
-                })
-                .collect::<Vec<_>>();
-            if series.is_empty() {
-                series.push(("Series", fallback_x, fallback_y, node.color.as_deref()));
-            }
-            for (index, (label, x, y, color)) in series.into_iter().enumerate() {
-                let color = color.unwrap_or(if index == 0 { "#1f77b4" } else { "#ff7f0e" });
-                if matches!(node.chart, ChartKind::Line) {
-                    let points = x
-                        .iter()
-                        .zip(y)
-                        .map(|(&x, &y)| format!("{:.2},{:.2}", x_pixel(x), y_pixel(y)))
-                        .collect::<Vec<_>>()
-                        .join(" ");
-                    svg.push_str(&format!("<polyline points=\"{points}\" fill=\"none\" stroke=\"{color}\" stroke-width=\"2\"/>"));
-                } else {
-                    for (&x, &y) in x.iter().zip(y) {
-                        svg.push_str(&format!(
-                            "<circle cx=\"{:.2}\" cy=\"{:.2}\" r=\"3\" fill=\"{color}\"/>",
-                            x_pixel(x),
-                            y_pixel(y)
-                        ));
-                    }
-                }
-                if !label.is_empty() {
-                    svg.push_str(&format!(
-                        "<text x=\"{}\" y=\"{}\" font-size=\"10\" fill=\"{color}\">{}</text>",
-                        left + plot_width - 100.0,
-                        top + 14.0 + index as f32 * 12.0,
-                        svg_escape(label)
-                    ));
-                }
-            }
-        }
-        ChartKind::Bar | ChartKind::Pie | ChartKind::Donut => {
-            let values = node.values.as_deref().unwrap_or_default();
-            let max = values
-                .iter()
-                .copied()
-                .fold(0.0_f64, f64::max)
-                .max(f64::EPSILON);
-            let cell = plot_width / values.len().max(1) as f32;
-            for (index, value) in values.iter().enumerate() {
-                let bar_height = (*value / max) as f32 * plot_height;
-                svg.push_str(&format!("<rect x=\"{:.2}\" y=\"{:.2}\" width=\"{:.2}\" height=\"{:.2}\" fill=\"#2ca02c\"/>", left + index as f32 * cell + 1.0, top + plot_height - bar_height, (cell - 2.0).max(1.0), bar_height));
-            }
-        }
-        ChartKind::Heatmap | ChartKind::Contour | ChartKind::Isoline => {
-            let width_count = node.width_count.unwrap_or(0);
-            let height_count = node.height_count.unwrap_or(0);
-            let z = node.z.as_deref().unwrap_or_default();
-            let cell_width = plot_width / width_count.max(1) as f32;
-            let cell_height = plot_height / height_count.max(1) as f32;
-            for (index, value) in z.iter().enumerate() {
-                let column = index % width_count.max(1);
-                let row = index / width_count.max(1);
-                let color = if value.is_none() {
-                    "#9ca3af"
-                } else {
-                    "#1f77b4"
-                };
-                svg.push_str(&format!("<rect x=\"{:.2}\" y=\"{:.2}\" width=\"{:.2}\" height=\"{:.2}\" fill=\"{color}\"/>", left + column as f32 * cell_width, top + (height_count.saturating_sub(row + 1)) as f32 * cell_height, cell_width, cell_height));
-            }
-        }
-        ChartKind::Treemap => {
-            svg.push_str(&format!(
-                "<text x=\"{left}\" y=\"{}\" font-size=\"12\">Treemap</text>",
-                top + 16.0
-            ));
-        }
-    }
-    svg.push_str("</svg>");
-    svg
-}
-
-/// Encode a compact, dependency-free RGB PNG. The raster deliberately follows
-/// the same lightweight data contract as `chart_svg`, so exports work in a
-/// bundled application without a platform image encoder or extra crate.
-fn chart_png(
-    node: &ChartNode,
-    domains: Option<((f64, f64), (f64, f64))>,
-    locally_hidden: Option<&HashSet<String>>,
-) -> Vec<u8> {
-    let width = node.width.clamp(160.0, 4096.0).round() as usize;
-    let height = node.height.clamp(120.0, 4096.0).round() as usize;
-    let mut pixels = vec![255_u8; width * height * 3];
-    let set = |pixels: &mut Vec<u8>, x: i32, y: i32, color: [u8; 3]| {
-        if x >= 0 && y >= 0 && (x as usize) < width && (y as usize) < height {
-            let index = (y as usize * width + x as usize) * 3;
-            pixels[index..index + 3].copy_from_slice(&color);
-        }
-    };
-    let line = |pixels: &mut Vec<u8>, from: (i32, i32), to: (i32, i32), color: [u8; 3]| {
-        let steps = (from.0.abs_diff(to.0).max(from.1.abs_diff(to.1)))
-            .max(1)
-            .min(8192);
-        for step in 0..=steps {
-            let ratio = step as f32 / steps as f32;
-            set(
-                pixels,
-                (from.0 as f32 + (to.0 - from.0) as f32 * ratio).round() as i32,
-                (from.1 as f32 + (to.1 - from.1) as f32 * ratio).round() as i32,
-                color,
-            );
-        }
-    };
-    let left = 48_i32;
-    let top = 28_i32;
-    let right = (width as i32 - 12).max(left + 1);
-    let bottom = (height as i32 - 26).max(top + 1);
-    line(&mut pixels, (left, top), (left, bottom), [90, 90, 90]);
-    line(&mut pixels, (left, bottom), (right, bottom), [90, 90, 90]);
-    let ((x_min, x_max), (y_min, y_max)) = domains.unwrap_or_else(|| cartesian_chart_domains(node));
-    let ratio = |value: f64, min: f64, max: f64, log: bool| {
-        if log && value > 0.0 && min > 0.0 && max > min {
-            ((value.ln() - min.ln()) / (max.ln() - min.ln())).clamp(0.0, 1.0)
-        } else {
-            ((value - min) / (max - min).max(f64::EPSILON)).clamp(0.0, 1.0)
-        }
-    };
-    let point = |x: f64, y: f64| {
-        (
-            left + (ratio(x, x_min, x_max, node.x_log) * (right - left) as f64).round() as i32,
-            bottom - (ratio(y, y_min, y_max, node.y_log) * (bottom - top) as f64).round() as i32,
-        )
-    };
-    let color = |value: Option<&str>, fallback| {
-        let packed = hex_color(value, fallback);
-        [(packed >> 16) as u8, (packed >> 8) as u8, packed as u8]
-    };
-    match node.chart {
-        ChartKind::Line | ChartKind::Scatter | ChartKind::Area | ChartKind::BoxPlot => {
-            let fallback = [(
-                node.x.as_deref().unwrap_or_default(),
-                node.y.as_deref().unwrap_or_default(),
-                node.color.as_deref(),
-            )];
-            let series = if node.series.is_empty() {
-                fallback.into_iter().collect::<Vec<_>>()
-            } else {
-                node.series
-                    .iter()
-                    .filter(|series| {
-                        series.visible
-                            && !locally_hidden.is_some_and(|hidden| hidden.contains(&series.id))
-                    })
-                    .map(|series| {
-                        (
-                            series.x.as_slice(),
-                            series.y.as_slice(),
-                            series.color.as_deref(),
-                        )
-                    })
-                    .collect()
-            };
-            for (index, (x, y, series_color)) in series.into_iter().enumerate() {
-                let series_color =
-                    color(series_color, if index == 0 { 0x1f77b4 } else { 0xff7f0e });
-                let points = x
-                    .iter()
-                    .zip(y)
-                    .map(|(&x, &y)| point(x, y))
-                    .collect::<Vec<_>>();
-                if matches!(node.chart, ChartKind::Line) {
-                    for pair in points.windows(2) {
-                        line(&mut pixels, pair[0], pair[1], series_color);
-                    }
-                } else {
-                    for (x, y) in points {
-                        for dy in -2..=2 {
-                            for dx in -2..=2 {
-                                if dx * dx + dy * dy <= 4 {
-                                    set(&mut pixels, x + dx, y + dy, series_color);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        ChartKind::Bar | ChartKind::Pie | ChartKind::Donut => {
-            let values = node.values.as_deref().unwrap_or_default();
-            let maximum = values
-                .iter()
-                .copied()
-                .fold(0.0_f64, f64::max)
-                .max(f64::EPSILON);
-            let cell = (right - left).max(1) as f64 / values.len().max(1) as f64;
-            let bar_color = color(node.color.as_deref(), 0x2ca02c);
-            for (index, value) in values.iter().enumerate() {
-                let bar_top = bottom
-                    - ((*value / maximum).clamp(0.0, 1.0) * (bottom - top) as f64).round() as i32;
-                for x in (left + (index as f64 * cell).round() as i32 + 1)
-                    ..(left + ((index + 1) as f64 * cell).round() as i32 - 1)
-                {
-                    for y in bar_top..bottom {
-                        set(&mut pixels, x, y, bar_color);
-                    }
-                }
-            }
-        }
-        ChartKind::Heatmap | ChartKind::Contour | ChartKind::Isoline => {
-            let columns = node.width_count.unwrap_or(0).max(1);
-            let rows = node.height_count.unwrap_or(0).max(1);
-            let values = node.z.as_deref().unwrap_or_default();
-            let min = values
-                .iter()
-                .flatten()
-                .copied()
-                .fold(f64::INFINITY, f64::min);
-            let max = values
-                .iter()
-                .flatten()
-                .copied()
-                .fold(f64::NEG_INFINITY, f64::max);
-            for (index, value) in values.iter().enumerate() {
-                let column = index % columns;
-                let row = index / columns;
-                let t = value
-                    .map(|value| ((value - min) / (max - min).max(f64::EPSILON)).clamp(0.0, 1.0));
-                let cell_color = t
-                    .map(|t| {
-                        [
-                            (32.0 + 220.0 * t) as u8,
-                            (60.0 + 120.0 * (1.0 - t)) as u8,
-                            (210.0 - 160.0 * t) as u8,
-                        ]
-                    })
-                    .unwrap_or([156, 163, 175]);
-                let x0 = left + (column as i32 * (right - left) / columns as i32);
-                let x1 = left + ((column + 1) as i32 * (right - left) / columns as i32);
-                let y0 =
-                    top + ((rows.saturating_sub(row + 1)) as i32 * (bottom - top) / rows as i32);
-                let y1 = top + ((rows - row) as i32 * (bottom - top) / rows as i32);
-                for y in y0..y1 {
-                    for x in x0..x1 {
-                        set(&mut pixels, x, y, cell_color);
-                    }
-                }
-            }
-        }
-        ChartKind::Treemap => {}
-    }
-    png_encode(width as u32, height as u32, &pixels)
-}
-
-fn png_encode(width: u32, height: u32, pixels: &[u8]) -> Vec<u8> {
-    fn adler32(bytes: &[u8]) -> u32 {
-        let (mut a, mut b) = (1_u32, 0_u32);
-        for byte in bytes {
-            a = (a + *byte as u32) % 65521;
-            b = (b + a) % 65521;
-        }
-        (b << 16) | a
-    }
-    fn crc32(bytes: &[u8]) -> u32 {
-        let mut crc = !0_u32;
-        for byte in bytes {
-            crc ^= *byte as u32;
-            for _ in 0..8 {
-                crc = (crc >> 1) ^ (0xedb8_8320 & (0_u32.wrapping_sub(crc & 1)));
-            }
-        }
-        !crc
-    }
-    fn chunk(output: &mut Vec<u8>, kind: &[u8; 4], data: &[u8]) {
-        output.extend_from_slice(&(data.len() as u32).to_be_bytes());
-        output.extend_from_slice(kind);
-        output.extend_from_slice(data);
-        let mut crc_input = Vec::with_capacity(kind.len() + data.len());
-        crc_input.extend_from_slice(kind);
-        crc_input.extend_from_slice(data);
-        output.extend_from_slice(&crc32(&crc_input).to_be_bytes());
-    }
-    let mut raw = Vec::with_capacity((width as usize * 3 + 1) * height as usize);
-    for row in pixels.chunks_exact(width as usize * 3) {
-        raw.push(0);
-        raw.extend_from_slice(row);
-    }
-    let mut compressed = vec![0x78, 0x01];
-    for (index, block) in raw.chunks(65_535).enumerate() {
-        compressed.push(if (index + 1) * 65_535 >= raw.len() {
-            1
-        } else {
-            0
-        });
-        let length = block.len() as u16;
-        compressed.extend_from_slice(&length.to_le_bytes());
-        compressed.extend_from_slice(&(!length).to_le_bytes());
-        compressed.extend_from_slice(block);
-    }
-    compressed.extend_from_slice(&adler32(&raw).to_be_bytes());
-    let mut output = Vec::new();
-    output.extend_from_slice(b"\x89PNG\r\n\x1a\n");
-    let mut header = Vec::new();
-    header.extend_from_slice(&width.to_be_bytes());
-    header.extend_from_slice(&height.to_be_bytes());
-    header.extend_from_slice(&[8, 2, 0, 0, 0]);
-    chunk(&mut output, b"IHDR", &header);
-    chunk(&mut output, b"IDAT", &compressed);
-    chunk(&mut output, b"IEND", &[]);
-    output
-}
-
 #[cfg(test)]
-mod chart_export_tests {
-    use super::{ChartNode, native_chart_svg, png_encode};
+mod dataset_view_tests {
+    use super::supported_dataset_view;
 
     #[::core::prelude::v1::test]
-    fn png_encoder_writes_a_signature_and_terminal_chunk() {
-        let png = png_encode(1, 1, &[12, 34, 56]);
-        assert_eq!(&png[..8], b"\x89PNG\r\n\x1a\n");
-        assert!(png.windows(4).any(|window| window == b"IHDR"));
-        assert!(png.windows(4).any(|window| window == b"IDAT"));
-        assert!(png.windows(4).any(|window| window == b"IEND"));
-    }
-
-    #[::core::prelude::v1::test]
-    fn native_line_export_preserves_title_and_visible_series() {
-        let node: ChartNode = serde_json::from_value(serde_json::json!({
-            "id": "response",
-            "chart": "line",
-            "title": "Frequency response",
-            "x": [100.0, 200.0, 400.0],
-            "y": [80.0, 81.0, 79.5],
-            "width": 640.0,
-            "height": 320.0,
-            "series": [
-                {"id": "spl", "label": "SPL", "x": [100.0, 200.0, 400.0], "y": [80.0, 81.0, 79.5], "visible": true},
-                {"id": "hidden", "label": "Hidden", "x": [100.0, 200.0, 400.0], "y": [1.0, 2.0, 3.0], "visible": false}
+    fn dataset_view_parser_consumes_projection_and_table_sort() {
+        let source = serde_json::json!({
+            "kind": "dataset_view",
+            "dataset": {"kind": "dataset", "id": "events", "generation": 1},
+            "operations": [
+                {"op": "select", "fields": ["frequency", "spl"]},
+                {"op": "sort", "field": "frequency", "descending": true},
+                {"op": "range", "start": 0, "stop": 50}
             ]
-        }))
-        .expect("valid chart fixture");
-        let svg = native_chart_svg(&node, Some(((100.0, 400.0), (79.0, 82.0))), None)
-            .expect("native SVG export");
-        assert!(svg.starts_with("<svg"));
-        assert!(svg.contains("Frequency response"));
-        assert!(svg.contains("SPL"));
-        assert!(!svg.contains("Hidden"));
-    }
+        });
+        let view = supported_dataset_view(&source, true).expect("supported table view");
+        assert_eq!(view.projected_fields, Some(vec!["frequency", "spl"]));
+        assert_eq!(view.sort_field, Some("frequency"));
+        assert!(view.sort_descending);
+        assert_eq!(view.row_range, Some((0, 50)));
+        assert!(view.require_projected_fields(["spl"]).is_ok());
+        assert!(view.require_projected_fields(["channel"]).is_err());
 
-    #[::core::prelude::v1::test]
-    fn native_export_rejects_unsupported_chart_kinds() {
-        let node: ChartNode = serde_json::from_value(serde_json::json!({
-            "id": "heatmap",
-            "chart": "heatmap",
-            "z": [1.0],
-            "width_count": 1,
-            "height_count": 1
-        }))
-        .expect("valid chart fixture");
-        let error = native_chart_svg(&node, None, None).expect_err("heatmap is not supported yet");
-        assert!(error.contains("does not support"));
+        assert!(supported_dataset_view(&source, false).is_err());
+        let invalid_order = serde_json::json!({
+            "kind": "dataset_view",
+            "dataset": {"kind": "dataset", "id": "events", "generation": 1},
+            "operations": [
+                {"op": "range", "start": 0, "stop": 50},
+                {"op": "sort", "field": "frequency"}
+            ]
+        });
+        assert!(supported_dataset_view(&invalid_order, true).is_err());
+
+        let aggregate = serde_json::json!({
+            "kind": "dataset_view",
+            "dataset": {"kind": "dataset", "id": "events", "generation": 1},
+            "operations": [
+                {"op": "filter", "expression": {"op": "field", "args": ["enabled"]}},
+                {"op": "group_by", "fields": ["channel"]},
+                {"op": "aggregate", "aggregations": {
+                    "mean_spl": "mean:spl", "rows": "count:*"
+                }},
+                {"op": "sort", "field": "mean_spl", "descending": true}
+            ]
+        });
+        let view = supported_dataset_view(&aggregate, true).expect("supported aggregate view");
+        assert_eq!(view.group_fields, vec!["channel"]);
+        assert_eq!(view.aggregations.len(), 2);
+        assert_eq!(
+            view.derived_fields,
+            Some(vec!["channel".into(), "mean_spl".into(), "rows".into()])
+        );
+        assert!(
+            view.require_projected_fields(["channel", "mean_spl"])
+                .is_ok()
+        );
+        assert!(view.require_projected_fields(["spl"]).is_err());
+
+        let filtered = serde_json::json!({
+            "kind": "dataset_view",
+            "dataset": {"kind": "dataset", "id": "events", "generation": 1},
+            "operations": [{"op": "filter", "expression": {
+                "op": "and",
+                "args": [
+                    {"op": "in", "args": [
+                        {"op": "field", "args": ["channel"]}, ["L", "R"]
+                    ]},
+                    {"op": "gt", "args": [
+                        {"op": "field", "args": ["spl"]}, 1.0
+                    ]}
+                ]
+            }}]
+        });
+        let view = supported_dataset_view(&filtered, true).expect("typed filter AST");
+        assert!(view.filter.is_some());
+        assert!(view.truthy_filter_field.is_none());
+
+        let group_only = serde_json::json!({
+            "kind": "dataset_view",
+            "dataset": {"kind": "dataset", "id": "events", "generation": 1},
+            "operations": [{"op": "group_by", "fields": ["channel"]}]
+        });
+        assert!(supported_dataset_view(&group_only, true).is_err());
     }
 }
 
@@ -5909,12 +5646,86 @@ mod builder_adapter_tests {
     }
 }
 
-fn csv_field(value: &str) -> String {
-    if value.contains([',', '"', '\n']) {
-        format!("\"{}\"", value.replace('"', "\"\""))
-    } else {
-        value.into()
+fn px_accessibility_json(summary: &gpui_px::ChartAccessibilitySummary) -> Value {
+    serde_json::json!({
+        "chart_type": summary.chart_type,
+        "title": summary.title,
+        "series_count": summary.series_count,
+        "datum_count": summary.datum_count,
+        "x_range": summary.x_range,
+        "y_range": summary.y_range,
+        "value_range": summary.value_range,
+        "x_scale": summary.x_scale.map(|scale| format!("{scale:?}").to_lowercase()),
+        "y_scale": summary.y_scale.map(|scale| format!("{scale:?}").to_lowercase()),
+        "series_labels": summary.series_labels,
+        "description": summary.description,
+        "accessible_label": summary.accessible_label(),
+        "accessible_value_text": summary.accessible_value_text(),
+    })
+}
+
+fn px_legend_json(summary: &gpui_px::ChartLegendSummary) -> Value {
+    serde_json::json!({
+        "chart_type": summary.chart_type,
+        "visible": summary.visible,
+        "position": format!("{:?}", summary.position).to_lowercase(),
+        "position_explicit": summary.position_explicit,
+        "item_count": summary.item_count(),
+        "items": summary.items.iter().map(|item| serde_json::json!({
+            "series_index": item.series_index,
+            "label": item.label,
+            "color": item.color,
+            "marker": item.marker.as_str(),
+            "hidden": item.hidden,
+            "uses_secondary_axis": item.uses_secondary_axis,
+        })).collect::<Vec<_>>(),
+        "description": summary.description,
+    })
+}
+
+fn px_annotation_target_json(target: &gpui_px::ChartAnnotationTarget) -> Value {
+    match target {
+        gpui_px::ChartAnnotationTarget::Point { x, y } => {
+            serde_json::json!({"kind": "point", "x": x, "y": y})
+        }
+        gpui_px::ChartAnnotationTarget::XValue { x } => {
+            serde_json::json!({"kind": "x_value", "x": x})
+        }
+        gpui_px::ChartAnnotationTarget::YValue { y } => {
+            serde_json::json!({"kind": "y_value", "y": y})
+        }
+        gpui_px::ChartAnnotationTarget::Category { category } => {
+            serde_json::json!({"kind": "category", "category": category})
+        }
     }
+}
+
+fn px_annotation_json(summary: &gpui_px::ChartAnnotationSummary) -> Value {
+    serde_json::json!({
+        "chart_type": summary.chart_type,
+        "annotation_count": summary.annotation_count(),
+        "annotations": summary.annotations.iter().map(|annotation| serde_json::json!({
+            "id": annotation.id,
+            "label": annotation.label,
+            "target": px_annotation_target_json(&annotation.target),
+            "color": annotation.color,
+            "series_index": annotation.series_index,
+        })).collect::<Vec<_>>(),
+        "description": summary.description,
+    })
+}
+
+fn px_surface_camera_json(chart_id: &str, state: &Surface3DState) -> Value {
+    serde_json::json!({
+        "ok": true,
+        "chart_id": chart_id,
+        "camera": {
+            "distance": state.controls.distance,
+            "azimuth": state.controls.azimuth,
+            "elevation": state.controls.elevation,
+            "target": state.controls.target.to_array(),
+        },
+    })
 }
 
 fn audio_accessibility_json(summary: &gpui_audio_kit::AudioAccessibilitySummary) -> Value {
@@ -5951,6 +5762,20 @@ fn px_curve(value: &str) -> gpui_px::CurveType {
     }
 }
 
+fn px_area_curve(value: &str) -> d3rs::shape::Curve {
+    match value {
+        "step" => d3rs::shape::Curve::Step,
+        "step_before" => d3rs::shape::Curve::StepBefore,
+        "step_after" => d3rs::shape::Curve::StepAfter,
+        "basis" => d3rs::shape::Curve::Basis,
+        "cardinal" => d3rs::shape::Curve::Cardinal { tension: 0.0 },
+        "catmull_rom" => d3rs::shape::Curve::CatmullRom { alpha: 0.5 },
+        "monotone_x" => d3rs::shape::Curve::MonotoneX,
+        "natural" => d3rs::shape::Curve::Natural,
+        _ => d3rs::shape::Curve::Linear,
+    }
+}
+
 fn px_hex_color(value: &str, fallback: u32) -> u32 {
     value
         .trim()
@@ -5959,18 +5784,825 @@ fn px_hex_color(value: &str, fallback: u32) -> u32 {
         .unwrap_or(fallback)
 }
 
+fn px_resource_series_color(value: Option<&str>, index: usize) -> u32 {
+    const PALETTE: [u32; 10] = [
+        0x1f77b4, 0xff7f0e, 0x2ca02c, 0xd62728, 0x9467bd, 0x8c564b, 0xe377c2, 0x7f7f7f, 0xbcbd22,
+        0x17becf,
+    ];
+    px_hex_color(value.unwrap_or(""), PALETTE[index % PALETTE.len()])
+}
+
+fn px_apply_pie_presentation(
+    mut chart: gpui_px::PieChart,
+    node: &PxChartV2Node,
+) -> gpui_px::PieChart {
+    if let Some(values) = &node.colors {
+        let colors = values
+            .iter()
+            .map(|color| px_hex_color(color, 0))
+            .collect::<Vec<_>>();
+        chart = chart.colors(&colors);
+    }
+    if let Some(angle) = node.pad_angle {
+        chart = chart.pad_angle(angle);
+    }
+    if let Some(radius) = node.corner_radius {
+        chart = chart.corner_radius(radius);
+    }
+    if let Some(sort) = node.sort {
+        chart = chart.sort(sort);
+    }
+    chart
+}
+
+trait PxResourceChartSizing: Sized {
+    fn apply_resource_sizing(self, node: &PxChartV2Node) -> Self;
+}
+
+macro_rules! impl_px_resource_chart_sizing {
+    ($($chart:ty),+ $(,)?) => {
+        $(
+            impl PxResourceChartSizing for $chart {
+                fn apply_resource_sizing(mut self, node: &PxChartV2Node) -> Self {
+                    if node.fill.unwrap_or(false) {
+                        self = self.fill();
+                    } else if let (Some(width), Some(height)) = (node.width, node.height) {
+                        self = self.size(width, height);
+                    }
+                    if let (Some(width), Some(height)) = (node.min_width, node.min_height) {
+                        self = self.min_size(width, height);
+                    }
+                    if let Some(ratio) = node.aspect_ratio {
+                        self = self.aspect_ratio(ratio);
+                    }
+                    self
+                }
+            }
+        )+
+    };
+}
+
+impl_px_resource_chart_sizing!(
+    gpui_px::ScatterChart,
+    gpui_px::LineChart,
+    gpui_px::AreaChart,
+    gpui_px::BarChart,
+    gpui_px::BoxPlotChart,
+    gpui_px::PieChart,
+    gpui_px::HeatmapChart,
+    gpui_px::ContourChart,
+    gpui_px::IsolineChart,
+    gpui_px::Surface3DChart,
+    gpui_px::Treemap,
+);
+
+trait PxResourceChartRenderer: Sized {
+    fn apply_resource_renderer(self, node: &PxChartV2Node) -> Self;
+}
+
+fn px_renderer_2d(value: &str) -> d3rs::render2d::Renderer2D {
+    match value {
+        "vello" => d3rs::render2d::Renderer2D::Vello,
+        _ => d3rs::render2d::Renderer2D::Legacy,
+    }
+}
+
+fn px_vello_backend(value: &str) -> d3rs::render2d::VelloBackend {
+    match value {
+        "wgpu" => d3rs::render2d::VelloBackend::Wgpu,
+        "cpu" => d3rs::render2d::VelloBackend::Cpu,
+        _ => d3rs::render2d::VelloBackend::Auto,
+    }
+}
+
+macro_rules! impl_px_resource_chart_renderer {
+    ($($chart:ty),+ $(,)?) => {
+        $(
+            impl PxResourceChartRenderer for $chart {
+                fn apply_resource_renderer(mut self, node: &PxChartV2Node) -> Self {
+                    if let Some(renderer) = node.renderer_2d.as_deref() {
+                        self = self.renderer_2d(px_renderer_2d(renderer));
+                    }
+                    if let Some(backend) = node.vello_backend.as_deref() {
+                        self = self.vello_backend(px_vello_backend(backend));
+                    }
+                    self
+                }
+            }
+        )+
+    };
+}
+
+impl_px_resource_chart_renderer!(
+    gpui_px::LineChart,
+    gpui_px::AreaChart,
+    gpui_px::BarChart,
+    gpui_px::BoxPlotChart,
+    gpui_px::PieChart,
+    gpui_px::HeatmapChart,
+    gpui_px::ContourChart,
+    gpui_px::IsolineChart,
+    gpui_px::Treemap,
+);
+
+impl PxResourceChartRenderer for gpui_px::ScatterChart {
+    fn apply_resource_renderer(mut self, node: &PxChartV2Node) -> Self {
+        if let Some(renderer) = node.renderer_2d.as_deref() {
+            self = self.renderer_2d(px_renderer_2d(renderer));
+        }
+        if let Some(backend) = node.vello_backend.as_deref() {
+            self = self.raster_backend(px_vello_backend(backend));
+        }
+        self
+    }
+}
+
+impl PxResourceChartRenderer for gpui_px::Surface3DChart {
+    fn apply_resource_renderer(self, _node: &PxChartV2Node) -> Self {
+        self
+    }
+}
+
+struct PxResourceChartResults {
+    accessibility: Value,
+    legend: Option<Value>,
+    annotations: Option<Value>,
+}
+
+trait PxResourceChartStaticResult {
+    fn resource_static_result(
+        &self,
+        options: Option<gpui_px::StaticSvgOptions>,
+    ) -> Result<(Option<String>, PxResourceChartResults), String>;
+}
+
+macro_rules! impl_px_resource_chart_static_result {
+    ($($chart:ty),+ $(,)?) => {
+        $(
+            impl PxResourceChartStaticResult for $chart {
+                fn resource_static_result(
+                    &self,
+                    options: Option<gpui_px::StaticSvgOptions>,
+                ) -> Result<(Option<String>, PxResourceChartResults), String> {
+                    let results = PxResourceChartResults {
+                        accessibility: px_accessibility_json(&self.accessibility_summary()),
+                        legend: None,
+                        annotations: None,
+                    };
+                    let svg = options
+                        .map(|options| self.to_svg_with_options(options))
+                        .transpose()
+                        .map_err(|error| error.to_string())?;
+                    Ok((svg, results))
+                }
+            }
+        )+
+    };
+}
+
+impl_px_resource_chart_static_result!(
+    gpui_px::AreaChart,
+    gpui_px::BoxPlotChart,
+    gpui_px::PieChart,
+    gpui_px::HeatmapChart,
+    gpui_px::ContourChart,
+    gpui_px::IsolineChart,
+    gpui_px::Surface3DChart,
+    gpui_px::Treemap,
+);
+
+macro_rules! impl_px_resource_chart_static_result_with_metadata {
+    ($($chart:ty),+ $(,)?) => {
+        $(
+            impl PxResourceChartStaticResult for $chart {
+                fn resource_static_result(
+                    &self,
+                    options: Option<gpui_px::StaticSvgOptions>,
+                ) -> Result<(Option<String>, PxResourceChartResults), String> {
+                    let results = PxResourceChartResults {
+                        accessibility: px_accessibility_json(&self.accessibility_summary()),
+                        legend: Some(px_legend_json(&self.legend_summary())),
+                        annotations: Some(px_annotation_json(&self.annotation_summary())),
+                    };
+                    let svg = options
+                        .map(|options| self.to_svg_with_options(options))
+                        .transpose()
+                        .map_err(|error| error.to_string())?;
+                    Ok((svg, results))
+                }
+            }
+        )+
+    };
+}
+
+impl_px_resource_chart_static_result_with_metadata!(
+    gpui_px::ScatterChart,
+    gpui_px::LineChart,
+    gpui_px::BarChart,
+);
+
+fn px_apply_treemap_presentation(
+    mut chart: gpui_px::Treemap,
+    node: &PxChartV2Node,
+) -> gpui_px::Treemap {
+    if let Some(values) = &node.colors {
+        let colors = values
+            .iter()
+            .map(|color| d3rs::color::D3Color::from_hex(px_hex_color(color, 0)))
+            .collect::<Vec<_>>();
+        chart = chart.color_scheme(d3rs::color::ColorScheme::new(colors));
+    }
+    if let Some(enabled) = node.hover {
+        chart = chart.hover(enabled);
+    }
+    chart
+}
+
+fn px_apply_area_presentation(
+    mut chart: gpui_px::AreaChart,
+    node: &PxChartV2Node,
+) -> gpui_px::AreaChart {
+    if let Some(color) = node.fill_color.as_deref() {
+        chart = chart.color(px_hex_color(color, 0));
+    }
+    if let Some(curve) = node.curve.as_deref() {
+        chart = chart.curve(px_area_curve(curve));
+    }
+    if node.x_log.unwrap_or(false) {
+        chart = chart.x_scale(gpui_px::ScaleType::Log);
+    }
+    if node.y_log.unwrap_or(false) {
+        chart = chart.y_scale(gpui_px::ScaleType::Log);
+    }
+    chart
+}
+
+fn px_apply_scatter_primary(
+    mut chart: gpui_px::ScatterChart,
+    node: &PxChartV2Node,
+) -> gpui_px::ScatterChart {
+    if let Some(color) = node.primary_color.as_deref() {
+        chart = chart.color(px_hex_color(color, 0));
+    }
+    if let Some(ratio) = node.graph_ratio {
+        chart = chart.graph_ratio(ratio);
+    }
+    chart
+}
+
+fn px_apply_line_primary(
+    mut chart: gpui_px::LineChart,
+    node: &PxChartV2Node,
+) -> gpui_px::LineChart {
+    if let Some(color) = node.primary_color.as_deref() {
+        chart = chart.color(px_hex_color(color, 0));
+    }
+    if let Some(ratio) = node.graph_ratio {
+        chart = chart.graph_ratio(ratio);
+    }
+    if let Some(indices) = &node.hidden_series {
+        chart = chart.hidden_series(indices);
+    }
+    chart
+}
+
+fn px_apply_bar_primary(mut chart: gpui_px::BarChart, node: &PxChartV2Node) -> gpui_px::BarChart {
+    if let Some(color) = node.primary_color.as_deref() {
+        chart = chart.color(px_hex_color(color, 0));
+    }
+    if let Some(ratio) = node.graph_ratio {
+        chart = chart.graph_ratio(ratio);
+    }
+    chart
+}
+
+macro_rules! px_dense_axes {
+    ($chart:expr, $node:expr) => {{
+        let mut chart = $chart;
+        if $node.x_log.unwrap_or(false) {
+            chart = chart.x_scale(gpui_px::ScaleType::Log);
+        }
+        if $node.y_log.unwrap_or(false) {
+            chart = chart.y_scale(gpui_px::ScaleType::Log);
+        }
+        if let Some([min, max]) = $node.x_range {
+            chart = chart.x_range(min, max);
+        }
+        if let Some([min, max]) = $node.y_range {
+            chart = chart.y_range(min, max);
+        }
+        chart
+    }};
+}
+
+fn px_apply_isoline_presentation(
+    chart: gpui_px::IsolineChart,
+    node: &PxChartV2Node,
+) -> gpui_px::IsolineChart {
+    let mut chart = px_dense_axes!(chart, node);
+    if let Some(color) = node.stroke_color.as_deref() {
+        chart = chart.color(px_hex_color(color, 0));
+    }
+    chart
+}
+
+fn px_resource_surface_colormap(value: Option<&str>) -> Colormap {
+    match value.unwrap_or("viridis") {
+        "plasma" => Colormap::Plasma,
+        "inferno" => Colormap::Inferno,
+        "coolwarm" => Colormap::CoolWarm,
+        _ => Colormap::Viridis,
+    }
+}
+
+fn px_static_svg_options(arguments: &Value) -> Result<gpui_px::StaticSvgOptions, String> {
+    let value = arguments.get("options").unwrap_or(arguments);
+    let number = |name: &str, default: f32| -> Result<f32, String> {
+        match value.get(name) {
+            None => Ok(default),
+            Some(raw) => raw
+                .as_f64()
+                .filter(|number| number.is_finite())
+                .map(|number| number as f32)
+                .ok_or_else(|| format!("px static SVG option {name} must be finite")),
+        }
+    };
+    let width = number("width", 800.0)?;
+    let height = number("height", 600.0)?;
+    if width <= 0.0 || height <= 0.0 {
+        return Err("px static SVG dimensions must be positive".into());
+    }
+    let mut options = gpui_px::StaticSvgOptions::new(width, height);
+    options.margin_left = number("margin_left", options.margin_left)?;
+    options.margin_right = number("margin_right", options.margin_right)?;
+    options.margin_top = number("margin_top", options.margin_top)?;
+    options.margin_bottom = number("margin_bottom", options.margin_bottom)?;
+    if [
+        options.margin_left,
+        options.margin_right,
+        options.margin_top,
+        options.margin_bottom,
+    ]
+    .into_iter()
+    .any(|margin| margin < 0.0)
+        || options.margin_left + options.margin_right >= width
+        || options.margin_top + options.margin_bottom >= height
+    {
+        return Err("px static SVG margins must be non-negative and fit the viewport".into());
+    }
+    if let Some(background) = value.get("background") {
+        options.background = if background.is_null() {
+            None
+        } else {
+            let color = background
+                .as_u64()
+                .filter(|color| *color <= 0x00ff_ffff)
+                .ok_or("px static SVG background must be null or 24-bit RGB")?;
+            Some(color as u32)
+        };
+    }
+    if let Some(show_axes) = value.get("show_axes") {
+        options.show_axes = show_axes
+            .as_bool()
+            .ok_or("px static SVG show_axes must be boolean")?;
+    }
+    Ok(options)
+}
+
+#[derive(Debug, Default, Clone, PartialEq)]
+struct SupportedDatasetView<'a> {
+    truthy_filter_field: Option<&'a str>,
+    filter: Option<DatasetFilter>,
+    row_range: Option<(usize, usize)>,
+    projected_fields: Option<Vec<&'a str>>,
+    sort_field: Option<&'a str>,
+    sort_descending: bool,
+    group_fields: Vec<String>,
+    aggregations: Vec<DatasetAggregation>,
+    derived_fields: Option<Vec<String>>,
+}
+
+impl SupportedDatasetView<'_> {
+    fn require_projected_fields<'a>(
+        &self,
+        fields: impl IntoIterator<Item = &'a str>,
+    ) -> Result<(), String> {
+        for field in fields {
+            if self
+                .projected_fields
+                .as_ref()
+                .is_some_and(|projected| !projected.contains(&field))
+            {
+                return Err(format!(
+                    "DatasetView projection does not contain required field {field:?}"
+                ));
+            }
+            if self
+                .derived_fields
+                .as_ref()
+                .is_some_and(|derived| !derived.iter().any(|candidate| candidate == field))
+            {
+                return Err(format!(
+                    "DatasetView aggregate does not produce required field {field:?}"
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
+fn aggregate_chart_rows(
+    store: &DatasetFrameStore,
+    resource_id: &str,
+    view: &SupportedDatasetView<'_>,
+    point_limit: usize,
+) -> Result<Option<AggregatedRows>, String> {
+    if view.aggregations.is_empty() {
+        return Ok(None);
+    }
+    let (start, count) = view
+        .row_range
+        .map(|(start, stop)| (start, stop.saturating_sub(start).min(point_limit)))
+        .unwrap_or((0, point_limit));
+    store
+        .aggregate_rows_filtered(
+            resource_id,
+            &view.group_fields,
+            &view.aggregations,
+            view.filter.as_ref(),
+            view.sort_field,
+            view.sort_descending,
+            start,
+            count,
+        )
+        .map_err(|error| error.to_string())
+}
+
+fn filtered_chart_rows(
+    store: &DatasetFrameStore,
+    resource_id: &str,
+    view: &SupportedDatasetView<'_>,
+    roles: Option<&serde_json::Map<String, Value>>,
+    point_limit: usize,
+) -> Result<Option<AggregatedRows>, String> {
+    let Some(filter) = view
+        .filter
+        .as_ref()
+        .filter(|_| view.truthy_filter_field.is_none())
+    else {
+        return Ok(None);
+    };
+    let mut fields = roles
+        .ok_or("typed DatasetView chart filter requires data-binding roles")?
+        .values()
+        .filter_map(Value::as_str)
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    fields.sort();
+    fields.dedup();
+    store
+        .sample_filtered_rows(resource_id, &fields, filter, view.row_range, point_limit)
+        .map_err(|error| error.to_string())?
+        .map(Some)
+        .ok_or_else(|| "awaiting completed filtered dataset generation".into())
+}
+
+fn dataset_filter_value(value: &Value) -> Result<DatasetFilterValue, String> {
+    match value {
+        Value::Null => Ok(DatasetFilterValue::Null),
+        Value::Bool(value) => Ok(DatasetFilterValue::Bool(*value)),
+        Value::Number(value) => value
+            .as_f64()
+            .filter(|value| value.is_finite())
+            .map(DatasetFilterValue::Number)
+            .ok_or_else(|| "DatasetView filter number must be finite".into()),
+        Value::String(value) => Ok(DatasetFilterValue::String(value.clone())),
+        _ => Err("DatasetView filter literals must be scalar values".into()),
+    }
+}
+
+fn dataset_filter_expression(value: &Value) -> Result<DatasetFilter, String> {
+    let Some(object) = value.as_object() else {
+        return dataset_filter_value(value).map(DatasetFilter::Literal);
+    };
+    let operation = object
+        .get("op")
+        .and_then(Value::as_str)
+        .ok_or("DatasetView filter expression requires op")?;
+    let arguments = object
+        .get("args")
+        .and_then(Value::as_array)
+        .ok_or("DatasetView filter expression requires args")?;
+    let unary = || {
+        if arguments.len() != 1 {
+            return Err(format!(
+                "DatasetView filter {operation} requires one argument"
+            ));
+        }
+        dataset_filter_expression(&arguments[0]).map(Box::new)
+    };
+    let binary = || {
+        if arguments.len() != 2 {
+            return Err(format!(
+                "DatasetView filter {operation} requires two arguments"
+            ));
+        }
+        Ok::<_, String>((
+            Box::new(dataset_filter_expression(&arguments[0])?),
+            Box::new(dataset_filter_expression(&arguments[1])?),
+        ))
+    };
+    match operation {
+        "field" => {
+            if arguments.len() != 1 {
+                return Err("DatasetView field filter requires one argument".into());
+            }
+            arguments[0]
+                .as_str()
+                .filter(|field| !field.is_empty())
+                .map(|field| DatasetFilter::Field(field.to_owned()))
+                .ok_or_else(|| "DatasetView field filter requires a non-empty field".into())
+        }
+        "eq" => binary().map(|(left, right)| DatasetFilter::Eq(left, right)),
+        "ne" => binary().map(|(left, right)| DatasetFilter::Ne(left, right)),
+        "lt" => binary().map(|(left, right)| DatasetFilter::Lt(left, right)),
+        "le" => binary().map(|(left, right)| DatasetFilter::Le(left, right)),
+        "gt" => binary().map(|(left, right)| DatasetFilter::Gt(left, right)),
+        "ge" => binary().map(|(left, right)| DatasetFilter::Ge(left, right)),
+        "and" => binary().map(|(left, right)| DatasetFilter::And(left, right)),
+        "or" => binary().map(|(left, right)| DatasetFilter::Or(left, right)),
+        "not" => unary().map(DatasetFilter::Not),
+        "is_null" => unary().map(DatasetFilter::IsNull),
+        "in" => {
+            if arguments.len() != 2 {
+                return Err("DatasetView filter in requires two arguments".into());
+            }
+            let values = arguments[1]
+                .as_array()
+                .ok_or("DatasetView filter in requires a literal array")?
+                .iter()
+                .map(dataset_filter_value)
+                .collect::<Result<Vec<_>, _>>()?;
+            if values.is_empty() {
+                return Err("DatasetView filter in requires at least one literal".into());
+            }
+            Ok(DatasetFilter::In(
+                Box::new(dataset_filter_expression(&arguments[0])?),
+                values,
+            ))
+        }
+        unsupported => Err(format!(
+            "DatasetView filter operation {unsupported:?} is unsupported"
+        )),
+    }
+}
+
+fn supported_dataset_view(
+    source: &Value,
+    supports_sort: bool,
+) -> Result<SupportedDatasetView<'_>, String> {
+    if source.get("kind").and_then(Value::as_str) != Some("dataset_view") {
+        return Ok(SupportedDatasetView::default());
+    }
+    let operations = source
+        .get("operations")
+        .and_then(Value::as_array)
+        .ok_or("DatasetView requires an operations array")?;
+    let mut result = SupportedDatasetView::default();
+    for (index, operation) in operations.iter().enumerate() {
+        let kind = operation
+            .get("op")
+            .and_then(Value::as_str)
+            .ok_or_else(|| format!("DatasetView operation {index} requires op"))?;
+        match kind {
+            "filter" => {
+                if !result.aggregations.is_empty() {
+                    return Err("DatasetView filter after aggregate is not supported".into());
+                }
+                if result.filter.is_some() {
+                    return Err("multiple DatasetView filters are not yet supported".into());
+                }
+                if result.row_range.is_some() {
+                    return Err(
+                        "DatasetView filter after range is not yet supported; filter before range"
+                            .into(),
+                    );
+                }
+                let expression = operation
+                    .get("expression")
+                    .ok_or("DatasetView filter requires expression")?;
+                let filter = dataset_filter_expression(expression)?;
+                if result.projected_fields.as_ref().is_some_and(|fields| {
+                    filter
+                        .referenced_fields()
+                        .iter()
+                        .any(|field| !fields.iter().any(|candidate| candidate == field))
+                }) {
+                    return Err("DatasetView filter field is unavailable after projection".into());
+                }
+                result.truthy_filter_field = (expression.get("op").and_then(Value::as_str)
+                    == Some("field"))
+                .then(|| expression.get("args").and_then(Value::as_array))
+                .flatten()
+                .and_then(|arguments| arguments.first())
+                .and_then(Value::as_str);
+                result.filter = Some(filter);
+            }
+            "select" => {
+                if result.projected_fields.is_some() {
+                    return Err("multiple DatasetView projections not yet supported".into());
+                }
+                let fields = operation
+                    .get("fields")
+                    .and_then(Value::as_array)
+                    .ok_or("DatasetView select requires fields array")?
+                    .iter()
+                    .map(|field| {
+                        field
+                            .as_str()
+                            .filter(|field| !field.is_empty())
+                            .ok_or_else(|| {
+                                "DatasetView select fields must be non-empty strings".to_string()
+                            })
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                if fields.is_empty() {
+                    return Err("DatasetView select requires at least one field".into());
+                }
+                let mut unique = std::collections::HashSet::new();
+                if fields.iter().any(|field| !unique.insert(*field)) {
+                    return Err("DatasetView select fields must be unique".into());
+                }
+                result.projected_fields = Some(fields);
+            }
+            "group_by" => {
+                if !result.group_fields.is_empty() || !result.aggregations.is_empty() {
+                    return Err("DatasetView supports one grouping stage".into());
+                }
+                let fields = operation
+                    .get("fields")
+                    .and_then(Value::as_array)
+                    .ok_or("DatasetView group_by requires fields array")?
+                    .iter()
+                    .map(|field| {
+                        field
+                            .as_str()
+                            .filter(|field| !field.is_empty())
+                            .map(str::to_owned)
+                            .ok_or_else(|| {
+                                "DatasetView group_by fields must be non-empty strings".to_string()
+                            })
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                if fields.is_empty() {
+                    return Err("DatasetView group_by requires at least one field".into());
+                }
+                let mut unique = HashSet::new();
+                if fields.iter().any(|field| !unique.insert(field.clone())) {
+                    return Err("DatasetView group_by fields must be unique".into());
+                }
+                result.group_fields = fields;
+            }
+            "aggregate" => {
+                if !result.aggregations.is_empty() {
+                    return Err("DatasetView supports one aggregation stage".into());
+                }
+                let values = operation
+                    .get("aggregations")
+                    .and_then(Value::as_object)
+                    .ok_or("DatasetView aggregate requires an aggregations object")?;
+                if values.is_empty() {
+                    return Err("DatasetView aggregate requires at least one output".into());
+                }
+                let mut derived = result.group_fields.clone();
+                for (output, expression) in values {
+                    if output.is_empty() || derived.iter().any(|field| field == output) {
+                        return Err(format!(
+                            "DatasetView aggregate output {output:?} is empty or duplicated"
+                        ));
+                    }
+                    let expression = expression.as_str().ok_or_else(|| {
+                        format!("DatasetView aggregate {output:?} must be a string")
+                    })?;
+                    let (operation, field) = expression.split_once(':').ok_or_else(|| {
+                        format!("DatasetView aggregate {output:?} must be operation:field")
+                    })?;
+                    let operation = match operation {
+                        "count" => DatasetAggregationOp::Count,
+                        "sum" => DatasetAggregationOp::Sum,
+                        "mean" => DatasetAggregationOp::Mean,
+                        "min" => DatasetAggregationOp::Min,
+                        "max" => DatasetAggregationOp::Max,
+                        "first" => DatasetAggregationOp::First,
+                        "last" => DatasetAggregationOp::Last,
+                        other => {
+                            return Err(format!(
+                                "DatasetView aggregate operation {other:?} is unsupported"
+                            ));
+                        }
+                    };
+                    let field = match (operation, field) {
+                        (DatasetAggregationOp::Count, "*") => None,
+                        (_, "") => {
+                            return Err(format!(
+                                "DatasetView aggregate {output:?} requires a field"
+                            ));
+                        }
+                        (_, field) => Some(field.to_owned()),
+                    };
+                    result.aggregations.push(DatasetAggregation {
+                        output: output.clone(),
+                        operation,
+                        field,
+                    });
+                    derived.push(output.clone());
+                }
+                result.derived_fields = Some(derived);
+            }
+            "sort" if supports_sort => {
+                if result.sort_field.is_some() {
+                    return Err("multiple DatasetView sorts not yet supported".into());
+                }
+                if result.row_range.is_some() {
+                    return Err(
+                        "DatasetView sort after range is not supported; sort before range".into(),
+                    );
+                }
+                let field = operation
+                    .get("field")
+                    .and_then(Value::as_str)
+                    .filter(|field| !field.is_empty())
+                    .ok_or("DatasetView sort requires non-empty field")?;
+                if result
+                    .projected_fields
+                    .as_ref()
+                    .is_some_and(|fields| !fields.contains(&field))
+                {
+                    return Err("DatasetView sort field is unavailable after projection".into());
+                }
+                if result
+                    .derived_fields
+                    .as_ref()
+                    .is_some_and(|fields| !fields.iter().any(|candidate| candidate == field))
+                {
+                    return Err("DatasetView sort field is unavailable after aggregate".into());
+                }
+                result.sort_field = Some(field);
+                result.sort_descending = operation
+                    .get("descending")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
+            }
+            "sort" => {
+                return Err("DatasetView sort is unavailable for this consumer".into());
+            }
+            "range" => {
+                if result.row_range.is_some() {
+                    return Err("multiple DatasetView ranges are not yet supported".into());
+                }
+                let start = operation
+                    .get("start")
+                    .and_then(Value::as_u64)
+                    .and_then(|value| usize::try_from(value).ok())
+                    .ok_or("DatasetView range requires a valid start")?;
+                let stop = operation
+                    .get("stop")
+                    .and_then(Value::as_u64)
+                    .and_then(|value| usize::try_from(value).ok())
+                    .ok_or("DatasetView range requires a valid stop")?;
+                if start > stop {
+                    return Err("DatasetView range start must not exceed stop".into());
+                }
+                result.row_range = Some((start, stop));
+            }
+            unsupported => {
+                return Err(format!(
+                    "DatasetView operation {unsupported:?} is not yet supported by resource charts"
+                ));
+            }
+        }
+    }
+    if !result.group_fields.is_empty() && result.aggregations.is_empty() {
+        return Err("DatasetView group_by requires a following aggregate operation".into());
+    }
+    Ok(result)
+}
+
 fn px_legend_position(value: &str) -> gpui_px::LegendPosition {
     match value {
         "right" => gpui_px::LegendPosition::Right,
         "bottom" => gpui_px::LegendPosition::Bottom,
         "top" => gpui_px::LegendPosition::Top,
         "left" => gpui_px::LegendPosition::Left,
+        "hidden" => gpui_px::LegendPosition::Hidden,
         _ => gpui_px::LegendPosition::Right,
     }
 }
 
-fn px_annotations(node: &ChartNode) -> Vec<gpui_px::ChartAnnotation> {
-    node.annotations
+fn px_annotation_nodes(
+    annotations: &[gpui_python_runtime::ui_ir::ChartAnnotationNode],
+) -> Vec<gpui_px::ChartAnnotation> {
+    annotations
         .iter()
         .map(|annotation| {
             let mut result = match annotation.target.as_str() {
@@ -6005,6 +6637,23 @@ fn px_annotations(node: &ChartNode) -> Vec<gpui_px::ChartAnnotation> {
             result
         })
         .collect()
+}
+
+fn wrap_resource_chart_interaction(
+    id: &str,
+    chart: AnyElement,
+    interaction: Option<InteractiveChartState>,
+) -> AnyElement {
+    match interaction {
+        Some(state) => interactive(
+            stable_element_id(format_args!("python-resource-chart-interactive-{id}")),
+            chart,
+            state,
+        )
+        .build()
+        .into_any_element(),
+        None => chart,
+    }
 }
 
 #[cfg(test)]
@@ -6049,13 +6698,15 @@ pub(super) struct PythonIrShowcase {
     /// Retained per-chart interaction state. Re-renders rebuild the draw list
     /// from this state, so data patches do not discard a user's zoom or pan.
     chart_interactions: HashMap<String, InteractiveChartState>,
+    /// Resource surface camera state is host-owned and retained by chart ID.
+    surface_chart_states: HashMap<String, Rc<RefCell<Surface3DState>>>,
     /// Host-local legend choices. They are keyed by Python's stable series ID
     /// and intentionally survive data patches without changing Python state.
-    chart_hidden_series: HashMap<String, HashSet<String>>,
     /// Latest-only decoded binary frames. Audio rendering reads these directly
     /// without routing high-rate decimal arrays through app patches.
     audio_frames: AudioFrameStore,
     mesh_frames: MeshFrameStore,
+    dataset_frames: DatasetFrameStore,
     prepared_mesh_plots: HashMap<String, CachedNativeMeshPlot>,
     /// Native MeshPlot owners keep their decoded resource generations alive
     /// until the corresponding plot is replaced or removed.
@@ -6068,6 +6719,12 @@ pub(super) struct PythonIrShowcase {
     mesh_plot_errors: HashMap<String, String>,
     last_mesh_patch_id: Option<String>,
     table_scrolls: HashMap<String, UniformListScrollHandle>,
+    /// Dataset-backed tables retain a host-owned row window offset. Resource
+    /// data stays in Arrow frames; moving this offset never patches Python IR.
+    dataset_table_offsets: HashMap<String, usize>,
+    /// Stable primary-key selections for resource-backed tables. These remain
+    /// host-owned across ordinary rerenders and dataset window changes.
+    dataset_table_selections: HashMap<String, Vec<String>>,
     table_focus: HashMap<String, FocusHandle>,
     /// Anonymous legacy tables do not retain interaction state, but their
     /// element IDs must still be unique within a rendered GPUI tree.
@@ -6146,15 +6803,18 @@ impl PythonIrShowcase {
             thinking_orbs: HashMap::new(),
             tab_focus: HashMap::new(),
             chart_interactions: HashMap::new(),
-            chart_hidden_series: HashMap::new(),
+            surface_chart_states: HashMap::new(),
             audio_frames: AudioFrameStore::new(),
             mesh_frames: MeshFrameStore::new(),
+            dataset_frames: DatasetFrameStore::default(),
             prepared_mesh_plots: HashMap::new(),
             mesh_plot_resource_refs: HashMap::new(),
             mesh_plot_states: HashMap::new(),
             mesh_plot_errors: HashMap::new(),
             last_mesh_patch_id: None,
             table_scrolls: HashMap::new(),
+            dataset_table_offsets: HashMap::new(),
+            dataset_table_selections: HashMap::new(),
             table_focus: HashMap::new(),
             legacy_table_id_counter: 0,
             table_column_widths: Rc::new(RefCell::new(HashMap::new())),
@@ -6236,9 +6896,13 @@ impl PythonIrShowcase {
                 }) {
                     continue;
                 }
-                if !self.mesh_frames.retain(resource_id, *generation) {
+                if !self.mesh_frames.retain(resource_id, *generation)
+                    && !self.dataset_frames.retain(resource_id, *generation)
+                {
                     for (retained_id, retained_generation) in retained {
                         self.mesh_frames
+                            .release_reference(&retained_id, retained_generation);
+                        self.dataset_frames
                             .release_reference(&retained_id, retained_generation);
                     }
                     return Err(format!(
@@ -6260,6 +6924,8 @@ impl PythonIrShowcase {
                     continue;
                 }
                 self.mesh_frames.release_reference(resource_id, *generation);
+                self.dataset_frames
+                    .release_reference(resource_id, *generation);
             }
         }
         self.mesh_plot_resource_refs = next;
@@ -6277,6 +6943,8 @@ impl PythonIrShowcase {
         for handles in refs.into_values() {
             for (resource_id, generation) in handles {
                 self.mesh_frames.release_reference(&resource_id, generation);
+                self.dataset_frames
+                    .release_reference(&resource_id, generation);
             }
         }
     }
@@ -6454,6 +7122,7 @@ impl PythonIrShowcase {
     fn release_runtime_resource(&mut self, resource_id: &str, generation: u64) {
         let released_audio = self.audio_frames.release(resource_id, generation);
         let released_mesh = self.mesh_frames.release(resource_id, generation);
+        let released_dataset = self.dataset_frames.release(resource_id, generation);
         let active_plot_owns_generation =
             self.mesh_plot_resource_refs
                 .values()
@@ -6461,8 +7130,10 @@ impl PythonIrShowcase {
                 .any(|(id, retained_generation)| {
                     id == resource_id && *retained_generation == generation
                 });
-        if (!released_mesh && active_plot_owns_generation) || (!released_audio && !released_mesh) {
-            let message = if active_plot_owns_generation && !released_mesh {
+        if ((!released_mesh && !released_dataset) && active_plot_owns_generation)
+            || (!released_audio && !released_mesh && !released_dataset)
+        {
+            let message = if active_plot_owns_generation && !released_mesh && !released_dataset {
                 format!(
                     "mesh resource {:?} generation {} is still owned by an active plot",
                     resource_id, generation
@@ -6513,28 +7184,6 @@ impl PythonIrShowcase {
     fn select_section(&mut self, section: String) {
         self.current_section = section.clone();
         self.presentation.set_section(Some(section));
-    }
-
-    fn chart_series_is_visible(
-        &self,
-        chart_id: &str,
-        series: &gpui_python_runtime::ui_ir::ChartSeries,
-    ) -> bool {
-        series.visible
-            && !self
-                .chart_hidden_series
-                .get(chart_id)
-                .is_some_and(|hidden| hidden.contains(&series.id))
-    }
-
-    fn toggle_chart_series(&mut self, chart_id: &str, series_id: &str) {
-        let hidden = self
-            .chart_hidden_series
-            .entry(chart_id.to_string())
-            .or_default();
-        if !hidden.insert(series_id.to_string()) {
-            hidden.remove(series_id);
-        }
     }
 
     fn observe_presentation(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -6890,9 +7539,10 @@ impl PythonIrShowcase {
             UiNode::Accordion(node) => self.render_accordion(node, theme, ds, cx),
             UiNode::ListEditor(node) => self.render_list_editor(node, theme, ds),
             UiNode::Table(node) => self.render_table(node, theme, ds, cx),
+            UiNode::TableV2(node) => self.render_resource_table(node, theme, ds, cx),
             UiNode::Divider(node) => self.render_divider(node, theme),
             UiNode::Spacer(node) => self.render_spacer(node),
-            UiNode::Chart(node) => self.render_chart(node, theme, ds, cx),
+            UiNode::PxChartV2(node) => self.render_resource_chart(node, theme, ds, cx),
             UiNode::Scene3d(node) => self.render_scene3d(node, theme, ds, cx),
             UiNode::MeshPlot(node) => self.render_meshplot(node, theme, ds, cx),
             UiNode::TextInput(node) if !node.presentation.visible => div().into_any_element(),
@@ -9585,6 +10235,2887 @@ impl PythonIrShowcase {
         editor.into_any_element()
     }
 
+    /// Render a bounded resource window without materializing rows in UI IR.
+    fn render_resource_table(
+        &mut self,
+        node: &TableV2Node,
+        theme: &Theme,
+        ds: &DesignSystem,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let truthy_filter_field = node
+            .data
+            .get("operations")
+            .and_then(Value::as_array)
+            .and_then(|operations| {
+                operations.iter().rev().find_map(|operation| {
+                    (operation.get("op").and_then(Value::as_str) == Some("filter"))
+                        .then_some(operation)
+                        .and_then(|operation| operation.get("expression"))
+                        .filter(|expression| {
+                            expression.get("op").and_then(Value::as_str) == Some("field")
+                        })
+                        .and_then(|expression| expression.get("args"))
+                        .and_then(Value::as_array)
+                        .and_then(|args| args.first())
+                        .and_then(Value::as_str)
+                })
+            });
+        let source = if node.data.get("kind").and_then(Value::as_str) == Some("dataset_view") {
+            node.data.get("dataset").unwrap_or(&node.data)
+        } else {
+            &node.data
+        };
+        let resource_id = source
+            .get("id")
+            .and_then(Value::as_str)
+            .unwrap_or("dataset")
+            .to_owned();
+        let fields = node
+            .columns
+            .iter()
+            .map(|column| column.field.clone())
+            .collect::<Vec<_>>();
+        let primary_key = (node.selection_mode != "none")
+            .then(|| source.get("key").and_then(Value::as_str))
+            .flatten()
+            .filter(|key| !key.is_empty())
+            .map(str::to_owned);
+        let mut preview_fields = fields.clone();
+        if let Some(key) = &primary_key {
+            if !preview_fields.iter().any(|field| field == key) {
+                preview_fields.push(key.clone());
+            }
+        }
+        let view_validation_error = supported_dataset_view(&node.data, true)
+            .and_then(|view| {
+                view.require_projected_fields(preview_fields.iter().map(String::as_str))
+            })
+            .err();
+        let table_sort = supported_dataset_view(&node.data, true)
+            .ok()
+            .and_then(|view| {
+                view.sort_field
+                    .map(|field| (field.to_owned(), view.sort_descending))
+            });
+        let table_aggregation = supported_dataset_view(&node.data, true)
+            .ok()
+            .and_then(|view| {
+                (!view.aggregations.is_empty()).then_some((view.group_fields, view.aggregations))
+            });
+        let table_filter = supported_dataset_view(&node.data, true)
+            .ok()
+            .and_then(|view| view.filter);
+        let declared_rows = source
+            .get("row_count")
+            .and_then(Value::as_u64)
+            .and_then(|count| usize::try_from(count).ok())
+            .unwrap_or_default();
+        let source_rows = if let Some(filter) = &table_filter {
+            match self
+                .dataset_frames
+                .count_rows_filtered(&resource_id, filter)
+            {
+                Ok(Some(count)) => count,
+                Ok(None) => declared_rows,
+                Err(error) => {
+                    self.load_error = Some(format!(
+                        "dataset resource {resource_id:?} filter count failed: {error}"
+                    ));
+                    declared_rows
+                }
+            }
+        } else {
+            declared_rows
+        };
+        let source_rows = if let Some((group_fields, aggregations)) = &table_aggregation {
+            match self.dataset_frames.aggregate_rows_filtered(
+                &resource_id,
+                group_fields,
+                aggregations,
+                table_filter.as_ref(),
+                None,
+                false,
+                0,
+                0,
+            ) {
+                Ok(Some(result)) => result.total_rows,
+                Ok(None) => 0,
+                Err(error) => {
+                    self.load_error = Some(format!(
+                        "dataset resource {resource_id:?} aggregate count failed: {error}"
+                    ));
+                    0
+                }
+            }
+        } else {
+            source_rows
+        };
+        let (view_start, total_rows) = node
+            .data
+            .get("operations")
+            .and_then(Value::as_array)
+            .and_then(|operations| {
+                operations.iter().rev().find_map(|operation| {
+                    (operation.get("op").and_then(Value::as_str) == Some("range")).then(|| {
+                        let start = operation
+                            .get("start")
+                            .and_then(Value::as_u64)
+                            .and_then(|value| usize::try_from(value).ok())
+                            .unwrap_or_default()
+                            .min(source_rows);
+                        let stop = operation
+                            .get("stop")
+                            .and_then(Value::as_u64)
+                            .and_then(|value| usize::try_from(value).ok())
+                            .unwrap_or(source_rows)
+                            .clamp(start, source_rows);
+                        (start, stop.saturating_sub(start))
+                    })
+                })
+            })
+            .unwrap_or((0, source_rows));
+        let requested_rows = (24_usize.saturating_add(node.virtualize.overscan as usize))
+            .min(gpui_python_runtime::dataset_frames::MAX_DATASET_PREVIEW_ROWS);
+        let offset = self
+            .dataset_table_offsets
+            .entry(node.id.clone())
+            .or_default();
+        *offset = (*offset).min(total_rows.saturating_sub(1));
+        let offset = *offset;
+        let row_start = view_start.saturating_add(offset);
+        let preview = if let Some(error) = view_validation_error {
+            Err(gpui_python_runtime::dataset_frames::DatasetFrameError::Decode(error))
+        } else if let Some((group_fields, aggregations)) = &table_aggregation {
+            self.dataset_frames
+                .aggregate_rows_filtered(
+                    &resource_id,
+                    group_fields,
+                    aggregations,
+                    table_filter.as_ref(),
+                    table_sort.as_ref().map(|(field, _)| field.as_str()),
+                    table_sort
+                        .as_ref()
+                        .is_some_and(|(_, descending)| *descending),
+                    row_start,
+                    requested_rows,
+                )
+                .and_then(|result| {
+                    let Some(result) = result else {
+                        return Ok(None);
+                    };
+                    let indexes = preview_fields
+                        .iter()
+                        .map(|field| {
+                            result
+                                .fields
+                                .iter()
+                                .position(|candidate| candidate == field)
+                                .ok_or(gpui_python_runtime::dataset_frames::DatasetFrameError::InvalidMetadata)
+                        })
+                        .collect::<Result<Vec<_>, _>>()?;
+                    Ok(Some(
+                        result
+                            .rows
+                            .into_iter()
+                            .map(|row| indexes.iter().map(|index| row[*index].clone()).collect())
+                            .collect(),
+                    ))
+                })
+        } else if let (Some((sort_field, descending)), Some(filter)) =
+            (table_sort.as_ref(), table_filter.as_ref())
+        {
+            self.dataset_frames.preview_rows_sorted_filtered(
+                &resource_id,
+                &preview_fields,
+                filter,
+                sort_field,
+                *descending,
+                row_start,
+                requested_rows,
+            )
+        } else if let Some((sort_field, descending)) = table_sort {
+            self.dataset_frames.preview_rows_sorted(
+                &resource_id,
+                &preview_fields,
+                truthy_filter_field,
+                &sort_field,
+                descending,
+                row_start,
+                requested_rows,
+            )
+        } else if let Some(filter) = &table_filter {
+            self.dataset_frames.preview_rows_filtered(
+                &resource_id,
+                &preview_fields,
+                filter,
+                row_start,
+                requested_rows,
+            )
+        } else {
+            match truthy_filter_field {
+                Some(field) => self.dataset_frames.preview_rows_where_truthy(
+                    &resource_id,
+                    &preview_fields,
+                    field,
+                    row_start,
+                    requested_rows,
+                ),
+                None => self.dataset_frames.preview_rows(
+                    &resource_id,
+                    &preview_fields,
+                    row_start,
+                    requested_rows,
+                ),
+            }
+        };
+        let rows = match preview {
+            Ok(Some(rows)) => rows,
+            Ok(None) => Vec::new(),
+            Err(error) => {
+                self.load_error = Some(format!(
+                    "dataset resource {resource_id:?} preview failed: {error}"
+                ));
+                Vec::new()
+            }
+        };
+        let primary_key_index = primary_key.as_ref().map(|key| {
+            fields
+                .iter()
+                .position(|field| field == key)
+                .unwrap_or(fields.len())
+        });
+        let rows = rows
+            .into_iter()
+            .map(|mut cells| {
+                let row_key = primary_key_index.and_then(|index| cells.get(index).cloned());
+                if primary_key_index == Some(fields.len()) {
+                    cells.pop();
+                }
+                (cells, row_key)
+            })
+            .collect::<Vec<_>>();
+        let rendered_rows = rows.len();
+        let entity = cx.entity().clone();
+        let next_entity = entity.clone();
+        let previous_table_id = node.id.clone();
+        let next_table_id = node.id.clone();
+        let previous_offset = offset.saturating_sub(requested_rows);
+        let next_offset = offset
+            .saturating_add(requested_rows)
+            .min(total_rows.saturating_sub(1));
+        let selection_action = node.selection_action.clone();
+        let selection_mode = node.selection_mode.clone();
+        let selection_sink = self.session.as_ref().map(|session| session.event_sink());
+        let selection_table_id = node.id.clone();
+        let selected_keys = self
+            .dataset_table_selections
+            .get(&node.id)
+            .cloned()
+            .unwrap_or_default();
+        let window_label = if rendered_rows == 0 {
+            format!("no rows available ({} declared)", total_rows)
+        } else {
+            format!(
+                "rows {}–{} of {}",
+                offset.saturating_add(1),
+                offset.saturating_add(rendered_rows),
+                total_rows
+            )
+        };
+        div()
+            .id(stable_element_id(format_args!(
+                "python-resource-table-{}",
+                node.id
+            )))
+            .flex()
+            .flex_col()
+            .gap(px(ds.spacing.control_gap))
+            .p(px(ds.spacing.card_padding))
+            .rounded(px(ds.corners.md))
+            .border_1()
+            .border_color(theme.border)
+            .child(
+                div()
+                    .font_weight(FontWeight::BOLD)
+                    .text_color(theme.text_primary)
+                    .child(format!("Dataset: {resource_id}")),
+            )
+            .child(
+                div()
+                    .text_size(px(ds.typography.small_size))
+                    .text_color(theme.text_secondary)
+                    .child(format!(
+                        "{} columns · virtual rows {} px · overscan {} · rendering {} rows",
+                        node.columns.len(),
+                        node.virtualize.row_height,
+                        node.virtualize.overscan,
+                        rendered_rows
+                    )),
+            )
+            .child(
+                div()
+                    .flex()
+                    .gap(px(ds.spacing.control_gap))
+                    .children(node.columns.iter().map(|column| {
+                        div()
+                            .text_color(theme.text_primary)
+                            .child(column.field.clone())
+                    })),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(ds.spacing.control_gap))
+                    .children(
+                        rows.into_iter()
+                            .enumerate()
+                            .map(|(row_index, (row, row_key))| {
+                                let selected = row_key
+                                    .as_ref()
+                                    .is_some_and(|key| selected_keys.contains(key));
+                                let row_entity = entity.clone();
+                                let row_action = selection_action.clone();
+                                let row_mode = selection_mode.clone();
+                                let row_sink = selection_sink.clone();
+                                let row_table_id = selection_table_id.clone();
+                                let mut element = div()
+                                    .id(stable_element_id(format_args!(
+                                        "python-resource-table-{}-row-{}",
+                                        node.id, row_index
+                                    )))
+                                    .flex()
+                                    .gap(px(ds.spacing.control_gap))
+                                    .bg(if selected {
+                                        theme.accent
+                                    } else {
+                                        theme.surface
+                                    })
+                                    .text_size(px(ds.typography.small_size))
+                                    .text_color(theme.text_secondary)
+                                    .children(row.into_iter().map(|value| div().child(value)));
+                                if let Some(row_key) = row_key {
+                                    element = element.cursor_pointer().on_click(move |_, _, cx| {
+                                        let selected = row_entity.update(cx, |this, cx| {
+                                            let selected = this
+                                                .dataset_table_selections
+                                                .entry(row_table_id.clone())
+                                                .or_default();
+                                            match row_mode.as_str() {
+                                                "single" => {
+                                                    selected.clear();
+                                                    selected.push(row_key.clone());
+                                                }
+                                                "multiple" => {
+                                                    if let Some(index) = selected
+                                                        .iter()
+                                                        .position(|key| key == &row_key)
+                                                    {
+                                                        selected.remove(index);
+                                                    } else {
+                                                        selected.push(row_key.clone());
+                                                    }
+                                                }
+                                                _ => return Vec::new(),
+                                            }
+                                            let result = selected.clone();
+                                            cx.notify();
+                                            result
+                                        });
+                                        if let (keys, Some(sink), Some(action)) =
+                                            (selected, row_sink.as_ref(), row_action.as_ref())
+                                        {
+                                            let _ = sink.dispatch(
+                                                row_table_id.clone(),
+                                                "selection_change",
+                                                Some(action.clone()),
+                                                serde_json::json!({"keys": keys}),
+                                            );
+                                        }
+                                    });
+                                }
+                                element
+                            }),
+                    ),
+            )
+            .child(
+                div()
+                    .flex()
+                    .gap(px(ds.spacing.control_gap))
+                    .text_size(px(ds.typography.small_size))
+                    .text_color(theme.text_secondary)
+                    .child(window_label)
+                    .child(
+                        div()
+                            .id(stable_element_id(format_args!(
+                                "python-resource-table-{}-previous",
+                                node.id
+                            )))
+                            .cursor_pointer()
+                            .text_color(theme.text_primary)
+                            .child("Previous")
+                            .on_click(move |_, _, cx| {
+                                let _ = next_entity.update(cx, |this, cx| {
+                                    this.dataset_table_offsets
+                                        .insert(previous_table_id.clone(), previous_offset);
+                                    cx.notify();
+                                });
+                            }),
+                    )
+                    .child(
+                        div()
+                            .id(stable_element_id(format_args!(
+                                "python-resource-table-{}-next",
+                                node.id
+                            )))
+                            .cursor_pointer()
+                            .text_color(theme.text_primary)
+                            .child("Next")
+                            .on_click(move |_, _, cx| {
+                                let _ = entity.update(cx, |this, cx| {
+                                    this.dataset_table_offsets
+                                        .insert(next_table_id.clone(), next_offset);
+                                    cx.notify();
+                                });
+                            }),
+                    ),
+            )
+            .into_any_element()
+    }
+
+    fn resource_chart_interaction(
+        &mut self,
+        node: &PxChartV2Node,
+        x: &[f64],
+        y: &[f64],
+        cx: &mut Context<Self>,
+    ) -> Option<InteractiveChartState> {
+        let action = node.viewport_action.clone().unwrap_or_default();
+        if action.is_empty() && node.selection_action.is_none() {
+            return None;
+        }
+        let extent = |values: &[f64]| -> Option<(f64, f64)> {
+            let mut min = f64::INFINITY;
+            let mut max = f64::NEG_INFINITY;
+            for value in values.iter().copied().filter(|value| value.is_finite()) {
+                min = min.min(value);
+                max = max.max(value);
+            }
+            if !min.is_finite() || !max.is_finite() {
+                return None;
+            }
+            if min == max {
+                let padding = min.abs().mul_add(0.05, 0.5);
+                Some((min - padding, max + padding))
+            } else {
+                Some((min, max))
+            }
+        };
+        let (x_min, x_max) = node
+            .x_range
+            .map(|[min, max]| (min, max))
+            .or_else(|| extent(x))?;
+        let (y_min, y_max) = node
+            .y_range
+            .map(|[min, max]| (min, max))
+            .or_else(|| extent(y))?;
+        if let Some(state) = self.chart_interactions.get(&node.id) {
+            return Some(state.clone());
+        }
+        let entity = cx.weak_entity();
+        let sink = self.session.as_ref().map(|session| session.event_sink());
+        let node_id = node.id.clone();
+        let state = InteractiveChartState::new(x_min, x_max, y_min, y_max)
+            .with_size(node.width.unwrap_or(640.0), node.height.unwrap_or(320.0))
+            .on_zoom_change(move |x, y| {
+                if !action.is_empty()
+                    && let Some(sink) = &sink
+                {
+                    let _ = sink.dispatch(
+                        node_id.clone(),
+                        "viewport_change",
+                        Some(action.clone()),
+                        serde_json::json!({"x": [x.0, x.1], "y": [y.0, y.1]}),
+                    );
+                }
+            })
+            .on_interaction_change(move |cx| {
+                let _ = entity.update(cx, |_, cx| cx.notify());
+            });
+        self.chart_interactions
+            .insert(node.id.clone(), state.clone());
+        Some(state)
+    }
+
+    fn resource_chart_svg(
+        &self,
+        node: &PxChartV2Node,
+        options: gpui_px::StaticSvgOptions,
+    ) -> Result<String, String> {
+        self.resource_chart_export_result(node, options)
+            .map(|(svg, _summary)| svg)
+    }
+
+    fn resource_chart_accessibility_summary(&self, node: &PxChartV2Node) -> Result<Value, String> {
+        self.resource_chart_static_result(node, None)
+            .map(|(_svg, results)| results.accessibility)
+    }
+
+    fn resource_chart_metadata(
+        &self,
+        node: &PxChartV2Node,
+    ) -> Result<PxResourceChartResults, String> {
+        self.resource_chart_static_result(node, None)
+            .map(|(_svg, results)| results)
+    }
+
+    fn resource_chart_export_result(
+        &self,
+        node: &PxChartV2Node,
+        options: gpui_px::StaticSvgOptions,
+    ) -> Result<(String, Value), String> {
+        let (svg, results) = self.resource_chart_static_result(node, Some(options))?;
+        Ok((
+            svg.ok_or("resource chart export did not produce SVG")?,
+            results.accessibility,
+        ))
+    }
+
+    fn resource_chart_static_result(
+        &self,
+        node: &PxChartV2Node,
+        options: Option<gpui_px::StaticSvgOptions>,
+    ) -> Result<(Option<String>, PxResourceChartResults), String> {
+        let binding_source = node
+            .data
+            .get("source")
+            .ok_or("resource chart export requires data-binding source")?;
+        let view = supported_dataset_view(binding_source, true)?;
+        if view.sort_field.is_some()
+            && view.aggregations.is_empty()
+            && !matches!(node.chart.as_str(), "scatter" | "line")
+        {
+            return Err(format!(
+                "DatasetView sort is not yet supported by {} export",
+                node.chart
+            ));
+        }
+        if view.sort_field.is_some() && view.row_range.is_some() && view.aggregations.is_empty() {
+            return Err("DatasetView sort plus range is not yet supported by chart export".into());
+        }
+        let source = if binding_source.get("kind").and_then(Value::as_str) == Some("dataset_view") {
+            binding_source
+                .get("dataset")
+                .ok_or("DatasetView export requires dataset")?
+        } else {
+            binding_source
+        };
+        let resource_id = source
+            .get("id")
+            .and_then(Value::as_str)
+            .ok_or("resource chart export requires resource id")?;
+        let point_limit = match node.lod.as_str() {
+            "aggressive" => 128,
+            "auto" => 512,
+            "off" => 4096,
+            _ => return Err("unsupported resource chart LOD policy".into()),
+        };
+        let title = node.title.clone().unwrap_or_else(|| node.chart.clone());
+        let roles = node.data.get("roles").and_then(Value::as_object);
+        if let Some(roles) = roles {
+            view.require_projected_fields(roles.values().filter_map(Value::as_str))?;
+        }
+        let aggregated = if view.aggregations.is_empty() {
+            None
+        } else {
+            Some(
+                aggregate_chart_rows(&self.dataset_frames, resource_id, &view, point_limit)?
+                    .ok_or("awaiting completed aggregate dataset generation")?,
+            )
+        };
+        let filtered = if aggregated.is_none() {
+            filtered_chart_rows(&self.dataset_frames, resource_id, &view, roles, point_limit)?
+        } else {
+            None
+        };
+
+        if node.chart == "treemap" {
+            let roles = roles.ok_or("treemap export requires data-binding roles")?;
+            let field = |name: &str| {
+                roles
+                    .get(name)
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| format!("treemap export requires {name} field"))
+            };
+            let rows = match &aggregated {
+                Some(rows) => rows
+                    .treemap_rows(field("row_id")?, field("parent")?, field("size")?)
+                    .map_err(|error| error.to_string())?,
+                None if filtered.is_some() => filtered
+                    .as_ref()
+                    .expect("checked above")
+                    .treemap_rows(field("row_id")?, field("parent")?, field("size")?)
+                    .map_err(|error| error.to_string())?,
+                None => self
+                    .dataset_frames
+                    .treemap_rows(
+                        resource_id,
+                        field("row_id")?,
+                        field("parent")?,
+                        field("size")?,
+                    )
+                    .map_err(|error| error.to_string())?
+                    .ok_or("awaiting completed dataset generation")?,
+            };
+            let root = resource_treemap_node(&rows)?;
+            let method = match node.tiling_method.as_deref().unwrap_or("squarify") {
+                "binary" => gpui_px::TilingMethod::Binary,
+                "slice" => gpui_px::TilingMethod::Slice,
+                "dice" => gpui_px::TilingMethod::Dice,
+                "slice_dice" => gpui_px::TilingMethod::SliceDice,
+                _ => gpui_px::TilingMethod::Squarify,
+            };
+            let mut chart = treemap(&root)
+                .title(title)
+                .tiling_method(method)
+                .padding(node.padding.unwrap_or(1.0));
+            chart = px_apply_treemap_presentation(chart, node);
+            if let Some(ratio) = node.aspect_ratio {
+                chart = chart.aspect_ratio(ratio);
+            }
+            return chart
+                .resource_static_result(options)
+                .map_err(|error| error.to_string());
+        }
+
+        if matches!(
+            node.chart.as_str(),
+            "heatmap" | "contour" | "isoline" | "surface"
+        ) {
+            let shape = source
+                .get("shape")
+                .and_then(Value::as_array)
+                .ok_or("ArrayData export requires shape")?
+                .iter()
+                .map(|value| value.as_u64().and_then(|size| usize::try_from(size).ok()))
+                .collect::<Option<Vec<_>>>()
+                .ok_or("ArrayData export shape must contain integer dimensions")?;
+            let dtype = source
+                .get("dtype")
+                .and_then(Value::as_str)
+                .ok_or("ArrayData export requires dtype")?;
+            let payload = self
+                .dataset_frames
+                .raw_payload(resource_id)
+                .ok_or("awaiting completed ArrayData generation")?;
+            let (z, grid_width, grid_height) =
+                dense_grid(payload, &shape, dtype).map_err(|error| error.to_string())?;
+            return match node.chart.as_str() {
+                "heatmap" => {
+                    let mut chart = heatmap(&z, grid_width, grid_height)
+                        .color_scale(color_scale(
+                            node.color_scale.as_deref().unwrap_or("viridis"),
+                        ))
+                        .title(title);
+                    chart = px_dense_axes!(chart, node);
+                    if let Some(opacity) = node.opacity {
+                        chart = chart.opacity(opacity);
+                    }
+                    if let Some(ratio) = node.aspect_ratio {
+                        chart = chart.aspect_ratio(ratio);
+                    }
+                    chart.resource_static_result(options)
+                }
+                "contour" => {
+                    let mut chart = contour(&z, grid_width, grid_height)
+                        .color_scale(color_scale(
+                            node.color_scale.as_deref().unwrap_or("viridis"),
+                        ))
+                        .title(title);
+                    chart = px_dense_axes!(chart, node);
+                    if let Some(opacity) = node.opacity {
+                        chart = chart.opacity(opacity);
+                    }
+                    if let Some(ratio) = node.aspect_ratio {
+                        chart = chart.aspect_ratio(ratio);
+                    }
+                    if let Some(factor) = node.contour_upsample_factor {
+                        chart = chart.contour_upsample_factor(factor);
+                    }
+                    if let Some(thresholds) = &node.thresholds {
+                        chart = chart.thresholds(thresholds.clone());
+                    }
+                    chart.resource_static_result(options)
+                }
+                "isoline" => {
+                    let mut chart = isoline(&z, grid_width, grid_height).title(title);
+                    chart = px_apply_isoline_presentation(chart, node);
+                    if let Some(opacity) = node.opacity {
+                        chart = chart.opacity(opacity);
+                    }
+                    if let Some(ratio) = node.aspect_ratio {
+                        chart = chart.aspect_ratio(ratio);
+                    }
+                    if let Some(width) = node.stroke_width {
+                        chart = chart.stroke_width(width);
+                    }
+                    if let Some(factor) = node.contour_upsample_factor {
+                        chart = chart.contour_upsample_factor(factor);
+                    }
+                    if let Some(smooth) = node.smooth_strokes {
+                        chart = chart.smooth_strokes(smooth);
+                    }
+                    if let Some(iterations) = node.smoothing_iterations {
+                        chart = chart.smoothing_iterations(iterations);
+                    }
+                    if let Some(deviation) = node.smoothing_max_deviation_px {
+                        chart = chart.smoothing_max_deviation_px(deviation);
+                    }
+                    if let Some(levels) = &node.levels {
+                        chart = chart.levels(levels.clone());
+                    }
+                    chart.resource_static_result(options)
+                }
+                "surface" => {
+                    let mut chart = surface3d(&z, grid_width, grid_height)
+                        .colormap(px_resource_surface_colormap(node.color_scale.as_deref()))
+                        .title(title);
+                    if let Some(wireframe) = node.wireframe {
+                        chart = chart.wireframe(wireframe);
+                    }
+                    if node.x_log.unwrap_or(false) {
+                        chart = chart.x_log(true);
+                    }
+                    if node.y_log.unwrap_or(false) {
+                        chart = chart.y_log(true);
+                    }
+                    if let Some([min, max]) = node.z_range {
+                        chart = chart.z_range(min, max);
+                    }
+                    if let Some(label) = &node.x_label {
+                        chart = chart.x_label(label.clone());
+                    }
+                    if let Some(label) = &node.y_label {
+                        chart = chart.y_label(label.clone());
+                    }
+                    if let Some(label) = &node.z_label {
+                        chart = chart.z_label(label.clone());
+                    }
+                    if let Some(ratio) = node.aspect_ratio {
+                        chart = chart.aspect_ratio(ratio);
+                    }
+                    chart.resource_static_result(options)
+                }
+                _ => unreachable!("guarded grid chart kind"),
+            }
+            .map_err(|error| error.to_string());
+        }
+
+        let roles = roles.ok_or("resource chart export requires data-binding roles")?;
+        let x_field = roles
+            .get("x")
+            .or_else(|| roles.get("label"))
+            .and_then(Value::as_str)
+            .ok_or("resource chart export requires x or label field")?;
+        let y_field = roles
+            .get("y")
+            .and_then(Value::as_str)
+            .ok_or("resource chart export requires y field")?;
+        if matches!(node.chart.as_str(), "bar" | "pie" | "donut") {
+            let series_field = roles.get("series").and_then(Value::as_str);
+            let color_field = roles.get("color").and_then(Value::as_str);
+            if node.chart == "bar" && (series_field.is_some() || color_field.is_some()) {
+                let grouped = match aggregated.as_ref().or(filtered.as_ref()) {
+                    Some(rows) => rows
+                        .sample_bar_series(x_field, y_field, series_field, color_field)
+                        .map_err(|error| error.to_string())?,
+                    None => self
+                        .dataset_frames
+                        .sample_bar_series(
+                            resource_id,
+                            x_field,
+                            y_field,
+                            series_field,
+                            color_field,
+                            view.truthy_filter_field,
+                            view.row_range,
+                            point_limit,
+                        )
+                        .map_err(|error| error.to_string())?
+                        .ok_or("awaiting completed dataset generation")?,
+                };
+                let first = grouped
+                    .series
+                    .first()
+                    .ok_or("resource bar export has no finite series values")?;
+                let mut chart = bar(&grouped.categories, &first.values)
+                    .title(title)
+                    .label(first.label.clone())
+                    .color(px_resource_series_color(first.color.as_deref(), 0));
+                chart = px_apply_bar_primary(chart, node);
+                if let Some(gap) = node.bar_gap {
+                    chart = chart.bar_gap(gap);
+                }
+                if let Some(radius) = node.border_radius {
+                    chart = chart.border_radius(radius);
+                }
+                if let Some(opacity) = node.opacity {
+                    chart = chart.opacity(opacity);
+                }
+                if let Some(ratio) = node.aspect_ratio {
+                    chart = chart.aspect_ratio(ratio);
+                }
+                if node.y_log.unwrap_or(false) {
+                    chart = chart.y_scale(gpui_px::ScaleType::Log);
+                }
+                if let Some([min, max]) = node.y_range {
+                    chart = chart.y_range(min, max);
+                }
+                for (index, series) in grouped.series.iter().enumerate().skip(1) {
+                    chart = chart.add_series(
+                        &series.values,
+                        Some(series.label.clone()),
+                        px_resource_series_color(series.color.as_deref(), index),
+                        1.0,
+                    );
+                }
+                return chart
+                    .resource_static_result(options)
+                    .map_err(|error| error.to_string());
+            }
+            let (labels, values) = match aggregated.as_ref().or(filtered.as_ref()) {
+                Some(rows) => rows
+                    .sample_label_values(x_field, y_field)
+                    .map_err(|error| error.to_string())?,
+                None => self
+                    .dataset_frames
+                    .sample_label_values(
+                        resource_id,
+                        x_field,
+                        y_field,
+                        view.truthy_filter_field,
+                        view.row_range,
+                        point_limit,
+                    )
+                    .map_err(|error| error.to_string())?
+                    .ok_or("awaiting completed dataset generation")?,
+            };
+            return match node.chart.as_str() {
+                "bar" => {
+                    let mut chart = bar(&labels, &values).title(title);
+                    chart = px_apply_bar_primary(chart, node);
+                    if let Some(gap) = node.bar_gap {
+                        chart = chart.bar_gap(gap);
+                    }
+                    if let Some(radius) = node.border_radius {
+                        chart = chart.border_radius(radius);
+                    }
+                    if let Some(opacity) = node.opacity {
+                        chart = chart.opacity(opacity);
+                    }
+                    if let Some(ratio) = node.aspect_ratio {
+                        chart = chart.aspect_ratio(ratio);
+                    }
+                    if node.y_log.unwrap_or(false) {
+                        chart = chart.y_scale(gpui_px::ScaleType::Log);
+                    }
+                    if let Some([min, max]) = node.y_range {
+                        chart = chart.y_range(min, max);
+                    }
+                    chart.resource_static_result(options)
+                }
+                "pie" => {
+                    let mut chart = pie(&values).labels(&labels).title(title);
+                    chart = px_apply_pie_presentation(chart, node);
+                    if let Some(hole) = node.hole {
+                        chart = chart.hole(hole);
+                    }
+                    if let Some(ratio) = node.aspect_ratio {
+                        chart = chart.aspect_ratio(ratio);
+                    }
+                    chart.resource_static_result(options)
+                }
+                "donut" => {
+                    let mut chart = donut(&values).labels(&labels).title(title);
+                    chart = px_apply_pie_presentation(chart, node);
+                    if let Some(hole) = node.hole {
+                        chart = chart.hole(hole);
+                    }
+                    if let Some(ratio) = node.aspect_ratio {
+                        chart = chart.aspect_ratio(ratio);
+                    }
+                    chart.resource_static_result(options)
+                }
+                _ => unreachable!("guarded categorical chart kind"),
+            }
+            .map_err(|error| error.to_string());
+        }
+
+        let series_field = roles.get("series").and_then(Value::as_str);
+        let color_field = roles.get("color").and_then(Value::as_str);
+        let dash_field = roles.get("dash").and_then(Value::as_str);
+        let y2_field = roles.get("y2").and_then(Value::as_str);
+        if matches!(node.chart.as_str(), "scatter" | "line")
+            && (series_field.is_some()
+                || color_field.is_some()
+                || dash_field.is_some()
+                || y2_field.is_some())
+        {
+            let mut series = match aggregated.as_ref().or(filtered.as_ref()) {
+                Some(rows) => rows
+                    .sample_xy_series(
+                        x_field,
+                        y_field,
+                        series_field,
+                        color_field,
+                        None,
+                        dash_field,
+                        None,
+                    )
+                    .map_err(|error| error.to_string())?,
+                None => self
+                    .dataset_frames
+                    .sample_xy_series(
+                        resource_id,
+                        x_field,
+                        y_field,
+                        series_field,
+                        color_field,
+                        None,
+                        dash_field,
+                        None,
+                        view.truthy_filter_field,
+                        view.row_range,
+                        point_limit,
+                    )
+                    .map_err(|error| error.to_string())?
+                    .ok_or("awaiting completed dataset generation")?,
+            };
+            let mut y2_series = if let Some(y2_field) = y2_field {
+                match aggregated.as_ref().or(filtered.as_ref()) {
+                    Some(rows) => rows
+                        .sample_xy_series(
+                            x_field,
+                            y2_field,
+                            series_field,
+                            color_field,
+                            None,
+                            dash_field,
+                            None,
+                        )
+                        .map_err(|error| error.to_string())?,
+                    None => self
+                        .dataset_frames
+                        .sample_xy_series(
+                            resource_id,
+                            x_field,
+                            y2_field,
+                            series_field,
+                            color_field,
+                            None,
+                            dash_field,
+                            None,
+                            view.truthy_filter_field,
+                            view.row_range,
+                            point_limit,
+                        )
+                        .map_err(|error| error.to_string())?
+                        .ok_or("awaiting completed dataset generation")?,
+                }
+            } else {
+                Vec::new()
+            };
+            if series.is_empty() {
+                return Err("resource chart export has no finite series values".into());
+            }
+            let sort_axis = match view.sort_field {
+                Some(field) if field == x_field => 0,
+                Some(field) if field == y_field => 1,
+                Some(field) => {
+                    return Err(format!(
+                        "DatasetView sort field {field:?} must match chart x or y role"
+                    ));
+                }
+                None => 0,
+            };
+            if node.chart == "line" || view.sort_field.is_some() {
+                for item in series.iter_mut().chain(y2_series.iter_mut()) {
+                    let mut points = item
+                        .x
+                        .iter()
+                        .copied()
+                        .zip(item.y.iter().copied())
+                        .collect::<Vec<_>>();
+                    points.sort_by(|left, right| {
+                        let ordering = if sort_axis == 0 {
+                            left.0.total_cmp(&right.0)
+                        } else {
+                            left.1.total_cmp(&right.1)
+                        };
+                        if view.sort_descending {
+                            ordering.reverse()
+                        } else {
+                            ordering
+                        }
+                    });
+                    (item.x, item.y) = points.into_iter().unzip();
+                }
+            }
+            let first = &series[0];
+            if node.chart == "scatter" {
+                let mut chart = scatter(&first.x, &first.y)
+                    .title(title)
+                    .label(first.label.clone())
+                    .color(px_resource_series_color(first.color.as_deref(), 0))
+                    .point_radius(node.point_radius.unwrap_or(5.0));
+                chart = px_apply_scatter_primary(chart, node);
+                if let Some(opacity) = node.opacity {
+                    chart = chart.opacity(opacity);
+                }
+                if let Some(ratio) = node.aspect_ratio {
+                    chart = chart.aspect_ratio(ratio);
+                }
+                if node.x_log.unwrap_or(false) {
+                    chart = chart.x_scale(gpui_px::ScaleType::Log);
+                }
+                if node.y_log.unwrap_or(false) {
+                    chart = chart.y_scale(gpui_px::ScaleType::Log);
+                }
+                if let Some([min, max]) = node.x_range {
+                    chart = chart.x_range(min, max);
+                }
+                if let Some([min, max]) = node.y_range {
+                    chart = chart.y_range(min, max);
+                }
+                for (index, item) in series.iter().enumerate().skip(1) {
+                    chart = chart.add_series(
+                        &item.x,
+                        &item.y,
+                        Some(item.label.clone()),
+                        px_resource_series_color(item.color.as_deref(), index),
+                        node.point_radius.unwrap_or(5.0),
+                        1.0,
+                    );
+                }
+                return chart
+                    .resource_static_result(options)
+                    .map_err(|error| error.to_string());
+            }
+            let mut chart = line(&first.x, &first.y)
+                .title(title)
+                .label(first.label.clone())
+                .color(px_resource_series_color(first.color.as_deref(), 0));
+            chart = px_apply_line_primary(chart, node);
+            if let Some(curve) = node.curve.as_deref() {
+                chart = chart.curve(px_curve(curve));
+            }
+            if let Some(dash) = node.dash_style.as_deref() {
+                chart = chart.dash_style(dash);
+            }
+            if let Some(show) = node.show_points {
+                chart = chart.show_points(show);
+            }
+            if let Some(dash) = first.dash.as_deref() {
+                chart = chart.dash_style(dash);
+            }
+            if let Some(width) = node.stroke_width {
+                chart = chart.stroke_width(width);
+            }
+            if let Some(opacity) = node.opacity {
+                chart = chart.opacity(opacity);
+            }
+            if let Some(ratio) = node.aspect_ratio {
+                chart = chart.aspect_ratio(ratio);
+            }
+            if node.x_log.unwrap_or(false) {
+                chart = chart.x_scale(gpui_px::ScaleType::Log);
+            }
+            if node.y_log.unwrap_or(false) {
+                chart = chart.y_scale(gpui_px::ScaleType::Log);
+            }
+            if let Some(label) = &node.x_label {
+                chart = chart.x_label(label.clone());
+            }
+            if let Some(label) = &node.y_label {
+                chart = chart.y_label(label.clone());
+            }
+            if let Some(label) = &node.y2_label {
+                chart = chart.y2_label(label.clone());
+            }
+            if let Some([min, max]) = node.x_range {
+                chart = chart.x_range(min, max);
+            }
+            if let Some([min, max]) = node.y_range {
+                chart = chart.y_range(min, max);
+            }
+            if let Some([min, max]) = node.y2_range {
+                chart = chart.y2_range(min, max);
+            }
+            for (index, item) in series.iter().enumerate().skip(1) {
+                chart = chart.add_series_with_x(
+                    &item.x,
+                    &item.y,
+                    Some(item.label.clone()),
+                    px_resource_series_color(item.color.as_deref(), index),
+                    2.0,
+                    1.0,
+                );
+                if let Some(dash) = item.dash.as_deref() {
+                    chart = chart.series_dash_style(dash);
+                }
+            }
+            for (index, item) in y2_series.iter().enumerate() {
+                chart = chart.add_series_y2_with_x(
+                    &item.x,
+                    &item.y,
+                    Some(format!("{} (y2)", item.label)),
+                    px_resource_series_color(item.color.as_deref(), series.len() + index),
+                    2.0,
+                    1.0,
+                );
+                if let Some(dash) = item.dash.as_deref() {
+                    chart = chart.series_dash_style(dash);
+                }
+            }
+            return chart
+                .resource_static_result(options)
+                .map_err(|error| error.to_string());
+        }
+
+        if node.chart == "area" {
+            if let Some(y0_field) = roles.get("y0").and_then(Value::as_str) {
+                let mut series = match aggregated.as_ref().or(filtered.as_ref()) {
+                    Some(rows) => rows
+                        .sample_xy_series(x_field, y_field, None, None, None, None, Some(y0_field))
+                        .map_err(|error| error.to_string())?,
+                    None => self
+                        .dataset_frames
+                        .sample_xy_series(
+                            resource_id,
+                            x_field,
+                            y_field,
+                            None,
+                            None,
+                            None,
+                            None,
+                            Some(y0_field),
+                            view.truthy_filter_field,
+                            view.row_range,
+                            point_limit,
+                        )
+                        .map_err(|error| error.to_string())?
+                        .ok_or("awaiting completed dataset generation")?,
+                };
+                let first = series
+                    .first_mut()
+                    .ok_or("resource area chart has no finite values")?;
+                if first.y0.len() != first.x.len() {
+                    return Err("resource area chart y0 values are not aligned".into());
+                }
+                if view.sort_field.is_some() {
+                    let sort_axis = match view.sort_field {
+                        Some(field) if field == x_field => 0,
+                        Some(field) if field == y_field => 1,
+                        _ => {
+                            return Err(
+                                "DatasetView sort field must match chart x or y role".into()
+                            );
+                        }
+                    };
+                    let mut points = first
+                        .x
+                        .iter()
+                        .copied()
+                        .zip(first.y.iter().copied())
+                        .zip(first.y0.iter().copied())
+                        .map(|((x, y), y0)| (x, y, y0))
+                        .collect::<Vec<_>>();
+                    points.sort_by(|left, right| {
+                        let ordering = if sort_axis == 0 {
+                            left.0.total_cmp(&right.0)
+                        } else {
+                            left.1.total_cmp(&right.1)
+                        };
+                        if view.sort_descending {
+                            ordering.reverse()
+                        } else {
+                            ordering
+                        }
+                    });
+                    (first.x, first.y, first.y0) = points.into_iter().fold(
+                        (Vec::new(), Vec::new(), Vec::new()),
+                        |mut values, (x, y, y0)| {
+                            values.0.push(x);
+                            values.1.push(y);
+                            values.2.push(y0);
+                            values
+                        },
+                    );
+                }
+                let mut chart = area(&first.x, &first.y).y0(&first.y0).title(title);
+                chart = px_apply_area_presentation(chart, node);
+                if let Some(opacity) = node.opacity {
+                    chart = chart.opacity(opacity);
+                }
+                if let Some(ratio) = node.aspect_ratio {
+                    chart = chart.aspect_ratio(ratio);
+                }
+                return chart
+                    .resource_static_result(options)
+                    .map_err(|error| error.to_string());
+            }
+        }
+
+        let (mut x, mut y) = if let Some(rows) = aggregated.as_ref().or(filtered.as_ref()) {
+            let series = rows
+                .sample_xy_series(x_field, y_field, None, None, None, None, None)
+                .map_err(|error| error.to_string())?;
+            let first = series
+                .into_iter()
+                .next()
+                .ok_or("aggregate chart export has no finite values")?;
+            (first.x, first.y)
+        } else if source.get("kind").and_then(Value::as_str) == Some("array_data") {
+            let shape = source
+                .get("shape")
+                .and_then(Value::as_array)
+                .ok_or("ArrayData export requires shape")?
+                .iter()
+                .map(|value| value.as_u64().and_then(|size| usize::try_from(size).ok()))
+                .collect::<Option<Vec<_>>>()
+                .ok_or("ArrayData export shape must contain integer dimensions")?;
+            let dtype = source
+                .get("dtype")
+                .and_then(Value::as_str)
+                .ok_or("ArrayData export requires dtype")?;
+            let payload = self
+                .dataset_frames
+                .raw_payload(resource_id)
+                .ok_or("awaiting completed ArrayData generation")?;
+            sample_dense_xy(payload, &shape, dtype, point_limit)
+                .map_err(|error| error.to_string())?
+        } else {
+            match view.row_range {
+                Some((start, stop)) => self.dataset_frames.sample_xy_window(
+                    resource_id,
+                    x_field,
+                    y_field,
+                    view.truthy_filter_field,
+                    start,
+                    stop,
+                    point_limit,
+                ),
+                None if view.truthy_filter_field.is_some() => {
+                    self.dataset_frames.sample_xy_where_truthy(
+                        resource_id,
+                        x_field,
+                        y_field,
+                        view.truthy_filter_field.expect("checked above"),
+                        point_limit,
+                    )
+                }
+                None => self
+                    .dataset_frames
+                    .sample_xy(resource_id, x_field, y_field, point_limit),
+            }
+            .map_err(|error| error.to_string())?
+            .ok_or("awaiting completed dataset generation")?
+        };
+        let sort_axis = match view.sort_field {
+            Some(field) if field == x_field => 0,
+            Some(field) if field == y_field => 1,
+            Some(field) => {
+                return Err(format!(
+                    "DatasetView sort field {field:?} must match chart x or y role"
+                ));
+            }
+            None => 0,
+        };
+        if matches!(node.chart.as_str(), "line" | "area" | "box_plot") || view.sort_field.is_some()
+        {
+            let mut points = x.into_iter().zip(y).collect::<Vec<_>>();
+            points.sort_by(|left, right| {
+                let ordering = if sort_axis == 0 {
+                    left.0.total_cmp(&right.0)
+                } else {
+                    left.1.total_cmp(&right.1)
+                };
+                if view.sort_descending {
+                    ordering.reverse()
+                } else {
+                    ordering
+                }
+            });
+            (x, y) = points.into_iter().unzip();
+        }
+        match node.chart.as_str() {
+            "scatter" => {
+                let mut chart = scatter(&x, &y).title(title);
+                chart = px_apply_scatter_primary(chart, node);
+                if let Some(radius) = node.point_radius {
+                    chart = chart.point_radius(radius);
+                }
+                if let Some(opacity) = node.opacity {
+                    chart = chart.opacity(opacity);
+                }
+                if let Some(ratio) = node.aspect_ratio {
+                    chart = chart.aspect_ratio(ratio);
+                }
+                if node.x_log.unwrap_or(false) {
+                    chart = chart.x_scale(gpui_px::ScaleType::Log);
+                }
+                if node.y_log.unwrap_or(false) {
+                    chart = chart.y_scale(gpui_px::ScaleType::Log);
+                }
+                if let Some([min, max]) = node.x_range {
+                    chart = chart.x_range(min, max);
+                }
+                if let Some([min, max]) = node.y_range {
+                    chart = chart.y_range(min, max);
+                }
+                chart.resource_static_result(options)
+            }
+            "line" => {
+                let mut chart = line(&x, &y).title(title);
+                chart = px_apply_line_primary(chart, node);
+                if let Some(curve) = node.curve.as_deref() {
+                    chart = chart.curve(px_curve(curve));
+                }
+                if let Some(dash) = node.dash_style.as_deref() {
+                    chart = chart.dash_style(dash);
+                }
+                if let Some(show) = node.show_points {
+                    chart = chart.show_points(show);
+                }
+                if let Some(width) = node.stroke_width {
+                    chart = chart.stroke_width(width);
+                }
+                if let Some(opacity) = node.opacity {
+                    chart = chart.opacity(opacity);
+                }
+                if let Some(ratio) = node.aspect_ratio {
+                    chart = chart.aspect_ratio(ratio);
+                }
+                if node.x_log.unwrap_or(false) {
+                    chart = chart.x_scale(gpui_px::ScaleType::Log);
+                }
+                if node.y_log.unwrap_or(false) {
+                    chart = chart.y_scale(gpui_px::ScaleType::Log);
+                }
+                if let Some(label) = &node.x_label {
+                    chart = chart.x_label(label.clone());
+                }
+                if let Some(label) = &node.y_label {
+                    chart = chart.y_label(label.clone());
+                }
+                if let Some(label) = &node.y2_label {
+                    chart = chart.y2_label(label.clone());
+                }
+                if let Some([min, max]) = node.x_range {
+                    chart = chart.x_range(min, max);
+                }
+                if let Some([min, max]) = node.y_range {
+                    chart = chart.y_range(min, max);
+                }
+                if let Some([min, max]) = node.y2_range {
+                    chart = chart.y2_range(min, max);
+                }
+                chart.resource_static_result(options)
+            }
+            "area" => {
+                let mut chart = area(&x, &y).title(title);
+                chart = px_apply_area_presentation(chart, node);
+                if let Some(opacity) = node.opacity {
+                    chart = chart.opacity(opacity);
+                }
+                if let Some(ratio) = node.aspect_ratio {
+                    chart = chart.aspect_ratio(ratio);
+                }
+                chart.resource_static_result(options)
+            }
+            "box_plot" => {
+                let mut chart = boxplot(&x, &y).title(title);
+                if let Some(color) = node.box_color.as_deref() {
+                    chart = chart.box_color(px_hex_color(color, 0));
+                }
+                if let Some(color) = node.median_color.as_deref() {
+                    chart = chart.median_color(px_hex_color(color, 0));
+                }
+                if let Some(color) = node.whisker_color.as_deref() {
+                    chart = chart.whisker_color(px_hex_color(color, 0));
+                }
+                if let Some(color) = node.outlier_color.as_deref() {
+                    chart = chart.outlier_color(px_hex_color(color, 0));
+                }
+                if let Some(opacity) = node.box_opacity {
+                    chart = chart.box_opacity(opacity);
+                }
+                if let Some(width) = node.box_width {
+                    chart = chart.box_width(width);
+                }
+                if let Some(radius) = node.outlier_radius {
+                    chart = chart.outlier_radius(radius);
+                }
+                if let Some(bins) = node.bins {
+                    chart = chart.bins(bins);
+                }
+                if let Some(width) = node.stroke_width {
+                    chart = chart.stroke_width(width);
+                }
+                if let Some(ratio) = node.aspect_ratio {
+                    chart = chart.aspect_ratio(ratio);
+                }
+                chart.resource_static_result(options)
+            }
+            other => return Err(format!("unsupported resource chart export {other:?}")),
+        }
+        .map_err(|error| error.to_string())
+    }
+
+    fn render_resource_chart(
+        &mut self,
+        node: &PxChartV2Node,
+        theme: &Theme,
+        ds: &DesignSystem,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let source = node.data.get("source").unwrap_or(&node.data);
+        let parsed_view = supported_dataset_view(source, true);
+        let view_validation_error = parsed_view
+            .clone()
+            .and_then(|view| {
+                if view.sort_field.is_some()
+                    && view.aggregations.is_empty()
+                    && !matches!(node.chart.as_str(), "scatter" | "line")
+                {
+                    return Err(format!(
+                        "DatasetView sort is not yet supported by {} charts",
+                        node.chart
+                    ));
+                }
+                if view.sort_field.is_some()
+                    && view.row_range.is_some()
+                    && view.aggregations.is_empty()
+                {
+                    return Err("DatasetView sort plus range is not yet supported by charts".into());
+                }
+                if let Some(roles) = node.data.get("roles").and_then(Value::as_object) {
+                    view.require_projected_fields(roles.values().filter_map(Value::as_str))?;
+                }
+                Ok(())
+            })
+            .err();
+        // Support the deliberately small, serializable predicate used by the
+        // Python d3rs showcase: `view.filter(data.col("enabled"))`. Other
+        // DatasetView operations remain declarations until the host has their
+        // corresponding columnar kernels.
+        let truthy_filter_field =
+            source
+                .get("operations")
+                .and_then(Value::as_array)
+                .and_then(|operations| {
+                    operations.iter().rev().find_map(|operation| {
+                        (operation.get("op").and_then(Value::as_str) == Some("filter"))
+                            .then_some(operation)
+                            .and_then(|operation| operation.get("expression"))
+                            .filter(|expression| {
+                                expression.get("op").and_then(Value::as_str) == Some("field")
+                            })
+                            .and_then(|expression| expression.get("args"))
+                            .and_then(Value::as_array)
+                            .and_then(|args| args.first())
+                            .and_then(Value::as_str)
+                    })
+                });
+        let view_range =
+            source
+                .get("operations")
+                .and_then(Value::as_array)
+                .and_then(|operations| {
+                    operations.iter().find_map(|operation| {
+                        (operation.get("op").and_then(Value::as_str) == Some("range")).then(
+                            || {
+                                let start = operation
+                                    .get("start")
+                                    .and_then(Value::as_u64)
+                                    .and_then(|value| usize::try_from(value).ok())?;
+                                let stop = operation
+                                    .get("stop")
+                                    .and_then(Value::as_u64)
+                                    .and_then(|value| usize::try_from(value).ok())?;
+                                Some((start, stop))
+                            },
+                        )?
+                    })
+                });
+        let source = if source.get("kind").and_then(Value::as_str) == Some("dataset_view") {
+            source.get("dataset").unwrap_or(source)
+        } else {
+            source
+        };
+        let resource_id = source
+            .get("id")
+            .and_then(Value::as_str)
+            .unwrap_or("resource");
+        let chart_element = (|| -> Result<AnyElement, String> {
+            if let Some(error) = view_validation_error {
+                return Err(error);
+            }
+            let point_limit = match node.lod.as_str() {
+                "aggressive" => 128,
+                "auto" => 512,
+                "off" => 4096,
+                _ => return Err("unsupported resource chart LOD policy".into()),
+            };
+            let view = parsed_view.as_ref().map_err(Clone::clone)?;
+            let aggregated = if view.aggregations.is_empty() {
+                None
+            } else {
+                Some(
+                    aggregate_chart_rows(&self.dataset_frames, resource_id, view, point_limit)?
+                        .ok_or("awaiting completed aggregate dataset generation")?,
+                )
+            };
+            let filtered = if aggregated.is_none() {
+                filtered_chart_rows(
+                    &self.dataset_frames,
+                    resource_id,
+                    view,
+                    node.data.get("roles").and_then(Value::as_object),
+                    point_limit,
+                )?
+            } else {
+                None
+            };
+            let grid_chart = matches!(
+                node.chart.as_str(),
+                "heatmap" | "contour" | "isoline" | "surface"
+            );
+            if node.chart == "treemap" {
+                let roles = node
+                    .data
+                    .get("roles")
+                    .and_then(Value::as_object)
+                    .ok_or("treemap resource chart requires data-binding roles")?;
+                let id_field = roles
+                    .get("row_id")
+                    .and_then(Value::as_str)
+                    .ok_or("treemap resource chart requires row_id field")?;
+                let parent_field = roles
+                    .get("parent")
+                    .and_then(Value::as_str)
+                    .ok_or("treemap resource chart requires parent field")?;
+                let value_field = roles
+                    .get("size")
+                    .and_then(Value::as_str)
+                    .ok_or("treemap resource chart requires size field")?;
+                let rows = match aggregated.as_ref().or(filtered.as_ref()) {
+                    Some(rows) => rows
+                        .treemap_rows(id_field, parent_field, value_field)
+                        .map_err(|error| error.to_string())?,
+                    None => self
+                        .dataset_frames
+                        .treemap_rows(resource_id, id_field, parent_field, value_field)
+                        .map_err(|error| error.to_string())?
+                        .ok_or("awaiting completed dataset generation")?,
+                };
+                let root = resource_treemap_node(&rows)?;
+                let method = match node.tiling_method.as_deref().unwrap_or("squarify") {
+                    "binary" => gpui_px::TilingMethod::Binary,
+                    "slice" => gpui_px::TilingMethod::Slice,
+                    "dice" => gpui_px::TilingMethod::Dice,
+                    "slice_dice" => gpui_px::TilingMethod::SliceDice,
+                    _ => gpui_px::TilingMethod::Squarify,
+                };
+                let mut chart = treemap(&root)
+                    .title(node.title.clone().unwrap_or_else(|| node.chart.clone()))
+                    .tiling_method(method)
+                    .padding(node.padding.unwrap_or(1.0))
+                    .size(640.0, 320.0)
+                    .apply_resource_sizing(node)
+                    .apply_resource_renderer(node);
+                chart = px_apply_treemap_presentation(chart, node);
+                if let (Some(action), Some(sink)) = (
+                    node.selection_action.clone(),
+                    self.session.as_ref().map(|session| session.event_sink()),
+                ) {
+                    let node_id = node.id.clone();
+                    chart = chart.on_click(move |row_id, value| {
+                        let _ = sink.dispatch(
+                            node_id.clone(),
+                            "selection_change",
+                            Some(action.clone()),
+                            serde_json::json!({"keys": [row_id], "row_id": row_id, "value": value}),
+                        );
+                    });
+                }
+                return chart
+                    .build()
+                    .map(IntoElement::into_any_element)
+                    .map_err(|error| error.to_string());
+            }
+            if matches!(node.chart.as_str(), "bar" | "pie" | "donut")
+                && source.get("kind").and_then(Value::as_str) != Some("array_data")
+            {
+                let roles = node
+                    .data
+                    .get("roles")
+                    .and_then(Value::as_object)
+                    .ok_or("categorical resource chart requires data-binding roles")?;
+                let label_field = roles
+                    .get("label")
+                    .or_else(|| roles.get("x"))
+                    .and_then(Value::as_str)
+                    .ok_or("categorical resource chart requires a label or x field")?;
+                let value_field = roles
+                    .get("y")
+                    .and_then(Value::as_str)
+                    .ok_or("categorical resource chart requires a y field")?;
+                let series_field = roles.get("series").and_then(Value::as_str);
+                let color_field = roles.get("color").and_then(Value::as_str);
+                if node.chart == "bar" && (series_field.is_some() || color_field.is_some()) {
+                    let grouped = match aggregated.as_ref().or(filtered.as_ref()) {
+                        Some(rows) => rows
+                            .sample_bar_series(label_field, value_field, series_field, color_field)
+                            .map_err(|error| error.to_string())?,
+                        None => self
+                            .dataset_frames
+                            .sample_bar_series(
+                                resource_id,
+                                label_field,
+                                value_field,
+                                series_field,
+                                color_field,
+                                truthy_filter_field,
+                                view_range,
+                                point_limit,
+                            )
+                            .map_err(|error| error.to_string())?
+                            .ok_or("awaiting completed dataset generation")?,
+                    };
+                    let first = grouped
+                        .series
+                        .first()
+                        .ok_or("categorical resource chart has no finite series values")?;
+                    let title = node.title.clone().unwrap_or_else(|| node.chart.clone());
+                    let mut chart = bar(&grouped.categories, &first.values)
+                        .title(title)
+                        .label(first.label.clone())
+                        .color(px_resource_series_color(first.color.as_deref(), 0))
+                        .annotations(px_annotation_nodes(&node.annotations))
+                        .size(640.0, 320.0)
+                        .apply_resource_sizing(node)
+                        .apply_resource_renderer(node);
+                    chart = px_apply_bar_primary(chart, node);
+                    if let Some(gap) = node.bar_gap {
+                        chart = chart.bar_gap(gap);
+                    }
+                    if let Some(radius) = node.border_radius {
+                        chart = chart.border_radius(radius);
+                    }
+                    if let Some(opacity) = node.opacity {
+                        chart = chart.opacity(opacity);
+                    }
+                    if let Some(ratio) = node.aspect_ratio {
+                        chart = chart.aspect_ratio(ratio);
+                    }
+                    if node.y_log.unwrap_or(false) {
+                        chart = chart.y_scale(gpui_px::ScaleType::Log);
+                    }
+                    if let Some([min, max]) = node.y_range {
+                        chart = chart.y_range(min, max);
+                    }
+                    for (index, series) in grouped.series.iter().enumerate().skip(1) {
+                        chart = chart.add_series(
+                            &series.values,
+                            Some(series.label.clone()),
+                            px_resource_series_color(series.color.as_deref(), index),
+                            1.0,
+                        );
+                    }
+                    if let Some(position) = node.legend_position.as_deref() {
+                        chart = chart.legend_position(px_legend_position(position));
+                    }
+                    return chart
+                        .build()
+                        .map(IntoElement::into_any_element)
+                        .map_err(|error| error.to_string());
+                }
+                let (categories, values) = match aggregated.as_ref().or(filtered.as_ref()) {
+                    Some(rows) => rows
+                        .sample_label_values(label_field, value_field)
+                        .map_err(|error| error.to_string())?,
+                    None => self
+                        .dataset_frames
+                        .sample_label_values(
+                            resource_id,
+                            label_field,
+                            value_field,
+                            truthy_filter_field,
+                            view_range,
+                            point_limit,
+                        )
+                        .map_err(|error| error.to_string())?
+                        .ok_or("awaiting completed dataset generation")?,
+                };
+                if categories.is_empty() {
+                    return Err("categorical resource chart has no finite values".into());
+                }
+                let title = node.title.clone().unwrap_or_else(|| node.chart.clone());
+                return match node.chart.as_str() {
+                    "bar" => {
+                        let mut chart = bar(&categories, &values)
+                            .title(title)
+                            .annotations(px_annotation_nodes(&node.annotations))
+                            .size(640.0, 320.0)
+                            .apply_resource_sizing(node)
+                            .apply_resource_renderer(node);
+                        chart = px_apply_bar_primary(chart, node);
+                        if let Some(gap) = node.bar_gap {
+                            chart = chart.bar_gap(gap);
+                        }
+                        if let Some(radius) = node.border_radius {
+                            chart = chart.border_radius(radius);
+                        }
+                        if let Some(opacity) = node.opacity {
+                            chart = chart.opacity(opacity);
+                        }
+                        if let Some(ratio) = node.aspect_ratio {
+                            chart = chart.aspect_ratio(ratio);
+                        }
+                        if node.y_log.unwrap_or(false) {
+                            chart = chart.y_scale(gpui_px::ScaleType::Log);
+                        }
+                        if let Some([min, max]) = node.y_range {
+                            chart = chart.y_range(min, max);
+                        }
+                        if let Some(position) = node.legend_position.as_deref() {
+                            chart = chart.legend_position(px_legend_position(position));
+                        }
+                        chart
+                            .build()
+                            .map(IntoElement::into_any_element)
+                            .map_err(|error| error.to_string())
+                    }
+                    "pie" => {
+                        let mut chart = pie(&values).labels(&categories).title(title);
+                        chart = px_apply_pie_presentation(chart, node);
+                        if let Some(hole) = node.hole {
+                            chart = chart.hole(hole);
+                        }
+                        if let Some(ratio) = node.aspect_ratio {
+                            chart = chart.aspect_ratio(ratio);
+                        }
+                        chart
+                            .build()
+                            .map(IntoElement::into_any_element)
+                            .map_err(|error| error.to_string())
+                    }
+                    "donut" => {
+                        let mut chart = donut(&values).labels(&categories).title(title);
+                        chart = px_apply_pie_presentation(chart, node);
+                        if let Some(hole) = node.hole {
+                            chart = chart.hole(hole);
+                        }
+                        if let Some(ratio) = node.aspect_ratio {
+                            chart = chart.aspect_ratio(ratio);
+                        }
+                        chart
+                            .build()
+                            .map(IntoElement::into_any_element)
+                            .map_err(|error| error.to_string())
+                    }
+                    _ => unreachable!("guarded categorical chart kind"),
+                };
+            }
+            if matches!(node.chart.as_str(), "scatter" | "line")
+                && source.get("kind").and_then(Value::as_str) != Some("array_data")
+            {
+                let roles = node
+                    .data
+                    .get("roles")
+                    .and_then(Value::as_object)
+                    .ok_or("resource chart requires data-binding roles")?;
+                let series_field = roles.get("series").and_then(Value::as_str);
+                let color_field = roles.get("color").and_then(Value::as_str);
+                let dash_field = roles.get("dash").and_then(Value::as_str);
+                let y2_field = roles.get("y2").and_then(Value::as_str);
+                let key_field = node
+                    .selection_action
+                    .as_ref()
+                    .and_then(|_| roles.get("row_id"))
+                    .and_then(Value::as_str);
+                if series_field.is_some()
+                    || color_field.is_some()
+                    || key_field.is_some()
+                    || dash_field.is_some()
+                    || y2_field.is_some()
+                {
+                    let x_field = roles
+                        .get("x")
+                        .and_then(Value::as_str)
+                        .ok_or("resource chart requires an x field")?;
+                    let y_field = roles
+                        .get("y")
+                        .and_then(Value::as_str)
+                        .ok_or("resource chart requires a y field")?;
+                    let mut series = match aggregated.as_ref().or(filtered.as_ref()) {
+                        Some(rows) => rows
+                            .sample_xy_series(
+                                x_field,
+                                y_field,
+                                series_field,
+                                color_field,
+                                key_field,
+                                dash_field,
+                                None,
+                            )
+                            .map_err(|error| error.to_string())?,
+                        None => self
+                            .dataset_frames
+                            .sample_xy_series(
+                                resource_id,
+                                x_field,
+                                y_field,
+                                series_field,
+                                color_field,
+                                key_field,
+                                dash_field,
+                                None,
+                                truthy_filter_field,
+                                view_range,
+                                point_limit,
+                            )
+                            .map_err(|error| error.to_string())?
+                            .ok_or("awaiting completed dataset generation")?,
+                    };
+                    let mut y2_series = if let Some(y2_field) = y2_field {
+                        match aggregated.as_ref().or(filtered.as_ref()) {
+                            Some(rows) => rows
+                                .sample_xy_series(
+                                    x_field,
+                                    y2_field,
+                                    series_field,
+                                    color_field,
+                                    None,
+                                    dash_field,
+                                    None,
+                                )
+                                .map_err(|error| error.to_string())?,
+                            None => self
+                                .dataset_frames
+                                .sample_xy_series(
+                                    resource_id,
+                                    x_field,
+                                    y2_field,
+                                    series_field,
+                                    color_field,
+                                    None,
+                                    dash_field,
+                                    None,
+                                    truthy_filter_field,
+                                    view_range,
+                                    point_limit,
+                                )
+                                .map_err(|error| error.to_string())?
+                                .ok_or("awaiting completed dataset generation")?,
+                        }
+                    } else {
+                        Vec::new()
+                    };
+                    if series.is_empty() {
+                        return Err("resource chart has no finite series values".into());
+                    }
+                    let sort_axis = match view.sort_field {
+                        Some(field) if field == x_field => 0,
+                        Some(field) if field == y_field => 1,
+                        Some(field) => {
+                            return Err(format!(
+                                "DatasetView sort field {field:?} must match chart x or y role"
+                            ));
+                        }
+                        None => 0,
+                    };
+                    if node.chart == "line" || view.sort_field.is_some() {
+                        for item in &mut series {
+                            let mut points = item
+                                .x
+                                .iter()
+                                .copied()
+                                .zip(item.y.iter().copied())
+                                .zip(item.keys.iter().cloned())
+                                .map(|((x, y), key)| (x, y, key))
+                                .collect::<Vec<_>>();
+                            points.sort_by(|left, right| {
+                                let ordering = if sort_axis == 0 {
+                                    left.0.total_cmp(&right.0)
+                                } else {
+                                    left.1.total_cmp(&right.1)
+                                };
+                                if view.sort_descending {
+                                    ordering.reverse()
+                                } else {
+                                    ordering
+                                }
+                            });
+                            item.x = points.iter().map(|point| point.0).collect();
+                            item.y = points.iter().map(|point| point.1).collect();
+                            item.keys = points.into_iter().map(|point| point.2).collect();
+                        }
+                        for item in &mut y2_series {
+                            let mut points = item
+                                .x
+                                .iter()
+                                .copied()
+                                .zip(item.y.iter().copied())
+                                .collect::<Vec<_>>();
+                            points.sort_by(|left, right| {
+                                let ordering = if sort_axis == 0 {
+                                    left.0.total_cmp(&right.0)
+                                } else {
+                                    left.1.total_cmp(&right.1)
+                                };
+                                if view.sort_descending {
+                                    ordering.reverse()
+                                } else {
+                                    ordering
+                                }
+                            });
+                            (item.x, item.y) = points.into_iter().unzip();
+                        }
+                    }
+                    let title = node.title.clone().unwrap_or_else(|| node.chart.clone());
+                    let all_x = series
+                        .iter()
+                        .flat_map(|item| item.x.iter().copied())
+                        .collect::<Vec<_>>();
+                    let all_y = series
+                        .iter()
+                        .flat_map(|item| item.y.iter().copied())
+                        .collect::<Vec<_>>();
+                    let mut interaction = self.resource_chart_interaction(node, &all_x, &all_y, cx);
+                    let active_domains = interaction
+                        .as_ref()
+                        .map(|state| (state.x_domain(), state.y_domain()));
+                    if let (Some(state), Some(action), Some(sink), Some(domains)) = (
+                        interaction.clone(),
+                        node.selection_action.clone(),
+                        self.session.as_ref().map(|session| session.event_sink()),
+                        active_domains,
+                    ) {
+                        let candidates = series
+                            .iter()
+                            .flat_map(|item| {
+                                item.x
+                                    .iter()
+                                    .copied()
+                                    .zip(item.y.iter().copied())
+                                    .zip(item.keys.iter().cloned())
+                                    .map(|((x, y), key)| (x, y, key, item.label.clone()))
+                            })
+                            .filter(|(_, _, key, _)| !key.is_empty())
+                            .collect::<Vec<_>>();
+                        let hit_points = candidates
+                            .iter()
+                            .map(|(x, y, _, _)| (*x, *y))
+                            .collect::<Vec<_>>();
+                        let node_id = node.id.clone();
+                        let interaction_size = (
+                            f64::from(node.width.unwrap_or(640.0)),
+                            f64::from(node.height.unwrap_or(320.0)),
+                        );
+                        let selected_state = state.on_plot_click(move |(click_x, click_y)| {
+                            if let Some(index) = gpui_px::interaction::nearest_point_index(
+                                &hit_points,
+                                (click_x, click_y),
+                                domains.0,
+                                domains.1,
+                                interaction_size,
+                                12.0,
+                            ) {
+                                let (x, y, key, label) = &candidates[index];
+                                let _ = sink.dispatch(
+                                    node_id.clone(),
+                                    "selection_change",
+                                    Some(action.clone()),
+                                    serde_json::json!({
+                                        "keys": [key],
+                                        "row_id": key,
+                                        "x": x,
+                                        "y": y,
+                                        "series": label,
+                                        "point_index": index,
+                                    }),
+                                );
+                            }
+                        });
+                        self.chart_interactions
+                            .insert(node.id.clone(), selected_state.clone());
+                        interaction = Some(selected_state);
+                    }
+                    let first = &series[0];
+                    return if node.chart == "scatter" {
+                        let mut chart = scatter(&first.x, &first.y)
+                            .title(title)
+                            .label(first.label.clone())
+                            .color(px_resource_series_color(first.color.as_deref(), 0))
+                            .annotations(px_annotation_nodes(&node.annotations))
+                            .point_radius(node.point_radius.unwrap_or(5.0))
+                            .size(640.0, 320.0)
+                            .apply_resource_sizing(node)
+                            .apply_resource_renderer(node);
+                        chart = px_apply_scatter_primary(chart, node);
+                        if let Some(opacity) = node.opacity {
+                            chart = chart.opacity(opacity);
+                        }
+                        if let Some(ratio) = node.aspect_ratio {
+                            chart = chart.aspect_ratio(ratio);
+                        }
+                        if node.x_log.unwrap_or(false) {
+                            chart = chart.x_scale(gpui_px::ScaleType::Log);
+                        }
+                        if node.y_log.unwrap_or(false) {
+                            chart = chart.y_scale(gpui_px::ScaleType::Log);
+                        }
+                        if let Some([min, max]) = node.x_range {
+                            chart = chart.x_range(min, max);
+                        }
+                        if let Some([min, max]) = node.y_range {
+                            chart = chart.y_range(min, max);
+                        }
+                        for (index, item) in series.iter().enumerate().skip(1) {
+                            chart = chart.add_series(
+                                &item.x,
+                                &item.y,
+                                Some(item.label.clone()),
+                                px_resource_series_color(item.color.as_deref(), index),
+                                node.point_radius.unwrap_or(5.0),
+                                1.0,
+                            );
+                        }
+                        if let Some(position) = node.legend_position.as_deref() {
+                            chart = chart.legend_position(px_legend_position(position));
+                        }
+                        if let Some((x, y)) = active_domains {
+                            chart = chart.x_range(x.0, x.1).y_range(y.0, y.1);
+                        }
+                        chart
+                            .build()
+                            .map(IntoElement::into_any_element)
+                            .map(|chart| {
+                                wrap_resource_chart_interaction(
+                                    &node.id,
+                                    chart,
+                                    interaction.clone(),
+                                )
+                            })
+                            .map_err(|error| error.to_string())
+                    } else {
+                        let mut chart = line(&first.x, &first.y)
+                            .title(title)
+                            .label(first.label.clone())
+                            .color(px_resource_series_color(first.color.as_deref(), 0))
+                            .annotations(px_annotation_nodes(&node.annotations))
+                            .size(640.0, 320.0)
+                            .apply_resource_sizing(node)
+                            .apply_resource_renderer(node);
+                        chart = px_apply_line_primary(chart, node);
+                        if let (Some(action), Some(sink)) = (
+                            node.legend_action.clone(),
+                            self.session.as_ref().map(|session| session.event_sink()),
+                        ) {
+                            let node_id = node.id.clone();
+                            chart = chart.on_legend_click(move |index, _window, _cx| {
+                                let _ = sink.dispatch(
+                                    node_id.clone(),
+                                    "legend_click",
+                                    Some(action.clone()),
+                                    serde_json::json!({"series_index": index}),
+                                );
+                            });
+                        }
+                        if let Some(curve) = node.curve.as_deref() {
+                            chart = chart.curve(px_curve(curve));
+                        }
+                        if let Some(dash) = node.dash_style.as_deref() {
+                            chart = chart.dash_style(dash);
+                        }
+                        if let Some(show) = node.show_points {
+                            chart = chart.show_points(show);
+                        }
+                        if let Some(dash) = first.dash.as_deref() {
+                            chart = chart.dash_style(dash);
+                        }
+                        if let Some(width) = node.stroke_width {
+                            chart = chart.stroke_width(width);
+                        }
+                        if let Some(opacity) = node.opacity {
+                            chart = chart.opacity(opacity);
+                        }
+                        if let Some(ratio) = node.aspect_ratio {
+                            chart = chart.aspect_ratio(ratio);
+                        }
+                        if node.x_log.unwrap_or(false) {
+                            chart = chart.x_scale(gpui_px::ScaleType::Log);
+                        }
+                        if node.y_log.unwrap_or(false) {
+                            chart = chart.y_scale(gpui_px::ScaleType::Log);
+                        }
+                        if let Some(label) = &node.x_label {
+                            chart = chart.x_label(label.clone());
+                        }
+                        if let Some(label) = &node.y_label {
+                            chart = chart.y_label(label.clone());
+                        }
+                        if let Some([min, max]) = node.x_range {
+                            chart = chart.x_range(min, max);
+                        }
+                        if let Some([min, max]) = node.y_range {
+                            chart = chart.y_range(min, max);
+                        }
+                        for (index, item) in series.iter().enumerate().skip(1) {
+                            chart = chart.add_series_with_x(
+                                &item.x,
+                                &item.y,
+                                Some(item.label.clone()),
+                                px_resource_series_color(item.color.as_deref(), index),
+                                2.0,
+                                1.0,
+                            );
+                            if let Some(dash) = item.dash.as_deref() {
+                                chart = chart.series_dash_style(dash);
+                            }
+                        }
+                        if let Some(label) = &node.y2_label {
+                            chart = chart.y2_label(label.clone());
+                        }
+                        if let Some([min, max]) = node.y2_range {
+                            chart = chart.y2_range(min, max);
+                        }
+                        for (index, item) in y2_series.iter().enumerate() {
+                            chart = chart.add_series_y2_with_x(
+                                &item.x,
+                                &item.y,
+                                Some(format!("{} (y2)", item.label)),
+                                px_resource_series_color(
+                                    item.color.as_deref(),
+                                    series.len() + index,
+                                ),
+                                2.0,
+                                1.0,
+                            );
+                            if let Some(dash) = item.dash.as_deref() {
+                                chart = chart.series_dash_style(dash);
+                            }
+                        }
+                        if let Some(position) = node.legend_position.as_deref() {
+                            chart = chart.legend_position(px_legend_position(position));
+                        }
+                        if let Some((x, y)) = active_domains {
+                            chart = chart.x_range(x.0, x.1).y_range(y.0, y.1);
+                        }
+                        chart
+                            .build()
+                            .map(IntoElement::into_any_element)
+                            .map(|chart| {
+                                wrap_resource_chart_interaction(
+                                    &node.id,
+                                    chart,
+                                    interaction.clone(),
+                                )
+                            })
+                            .map_err(|error| error.to_string())
+                    };
+                }
+            }
+            if node.chart == "area"
+                && source.get("kind").and_then(Value::as_str) != Some("array_data")
+            {
+                let roles = node
+                    .data
+                    .get("roles")
+                    .and_then(Value::as_object)
+                    .ok_or("resource area chart requires data-binding roles")?;
+                if let Some(y0_field) = roles.get("y0").and_then(Value::as_str) {
+                    let x_field = roles
+                        .get("x")
+                        .and_then(Value::as_str)
+                        .ok_or("resource area chart requires an x field")?;
+                    let y_field = roles
+                        .get("y")
+                        .and_then(Value::as_str)
+                        .ok_or("resource area chart requires a y field")?;
+                    let mut series = match aggregated.as_ref().or(filtered.as_ref()) {
+                        Some(rows) => rows
+                            .sample_xy_series(
+                                x_field,
+                                y_field,
+                                None,
+                                None,
+                                None,
+                                None,
+                                Some(y0_field),
+                            )
+                            .map_err(|error| error.to_string())?,
+                        None => self
+                            .dataset_frames
+                            .sample_xy_series(
+                                resource_id,
+                                x_field,
+                                y_field,
+                                None,
+                                None,
+                                None,
+                                None,
+                                Some(y0_field),
+                                truthy_filter_field,
+                                view_range,
+                                point_limit,
+                            )
+                            .map_err(|error| error.to_string())?
+                            .ok_or("awaiting completed dataset generation")?,
+                    };
+                    let first = series
+                        .first_mut()
+                        .ok_or("resource area chart has no finite values")?;
+                    if first.y0.len() != first.x.len() {
+                        return Err("resource area chart y0 values are not aligned".into());
+                    }
+                    if let Some(field) = view.sort_field {
+                        let sort_axis = match field {
+                            field if field == x_field => 0,
+                            field if field == y_field => 1,
+                            _ => {
+                                return Err(
+                                    "DatasetView sort field must match chart x or y role".into()
+                                );
+                            }
+                        };
+                        let mut points = first
+                            .x
+                            .iter()
+                            .copied()
+                            .zip(first.y.iter().copied())
+                            .zip(first.y0.iter().copied())
+                            .map(|((x, y), y0)| (x, y, y0))
+                            .collect::<Vec<_>>();
+                        points.sort_by(|left, right| {
+                            let ordering = if sort_axis == 0 {
+                                left.0.total_cmp(&right.0)
+                            } else {
+                                left.1.total_cmp(&right.1)
+                            };
+                            if view.sort_descending {
+                                ordering.reverse()
+                            } else {
+                                ordering
+                            }
+                        });
+                        (first.x, first.y, first.y0) = points.into_iter().fold(
+                            (Vec::new(), Vec::new(), Vec::new()),
+                            |mut values, (x, y, y0)| {
+                                values.0.push(x);
+                                values.1.push(y);
+                                values.2.push(y0);
+                                values
+                            },
+                        );
+                    }
+                    let mut chart = area(&first.x, &first.y)
+                        .y0(&first.y0)
+                        .title(node.title.clone().unwrap_or_else(|| "Area".into()))
+                        .size(640.0, 320.0)
+                        .apply_resource_sizing(node)
+                        .apply_resource_renderer(node);
+                    chart = px_apply_area_presentation(chart, node);
+                    if let Some(opacity) = node.opacity {
+                        chart = chart.opacity(opacity);
+                    }
+                    if let Some(ratio) = node.aspect_ratio {
+                        chart = chart.aspect_ratio(ratio);
+                    }
+                    return chart
+                        .build()
+                        .map(IntoElement::into_any_element)
+                        .map_err(|error| error.to_string());
+                }
+            }
+
+            let sampled = if grid_chart {
+                Ok(None)
+            } else if let Some(rows) = aggregated.as_ref().or(filtered.as_ref()) {
+                let roles = node
+                    .data
+                    .get("roles")
+                    .and_then(Value::as_object)
+                    .ok_or("aggregate chart requires x/y data-binding roles")?;
+                let x_field = roles
+                    .get("x")
+                    .and_then(Value::as_str)
+                    .ok_or("aggregate chart requires an x field")?;
+                let y_field = roles
+                    .get("y")
+                    .and_then(Value::as_str)
+                    .ok_or("aggregate chart requires a y field")?;
+                rows.sample_xy_series(x_field, y_field, None, None, None, None, None)
+                    .map(|series| series.into_iter().next().map(|series| (series.x, series.y)))
+            } else if source.get("kind").and_then(Value::as_str) == Some("array_data") {
+                let shape = source
+                    .get("shape")
+                    .and_then(Value::as_array)
+                    .ok_or("ArrayData chart requires shape")?
+                    .iter()
+                    .map(|value| value.as_u64().and_then(|size| usize::try_from(size).ok()))
+                    .collect::<Option<Vec<_>>>()
+                    .ok_or("ArrayData shape must contain positive integer dimensions")?;
+                let dtype = source
+                    .get("dtype")
+                    .and_then(Value::as_str)
+                    .ok_or("ArrayData chart requires dtype")?;
+                self.dataset_frames
+                    .raw_payload(resource_id)
+                    .map(|payload| sample_dense_xy(payload, &shape, dtype, point_limit))
+                    .transpose()
+            } else {
+                let roles = node
+                    .data
+                    .get("roles")
+                    .and_then(Value::as_object)
+                    .ok_or("resource chart requires x/y data-binding roles")?;
+                let x_field = roles
+                    .get("x")
+                    .and_then(Value::as_str)
+                    .ok_or("resource chart requires an x field")?;
+                let y_field = roles
+                    .get("y")
+                    .and_then(Value::as_str)
+                    .ok_or("resource chart requires a y field")?;
+                match view_range {
+                    Some((start, stop)) => self.dataset_frames.sample_xy_window(
+                        resource_id,
+                        x_field,
+                        y_field,
+                        truthy_filter_field,
+                        start,
+                        stop,
+                        point_limit,
+                    ),
+                    None => match truthy_filter_field {
+                        Some(field) => self.dataset_frames.sample_xy_where_truthy(
+                            resource_id,
+                            x_field,
+                            y_field,
+                            field,
+                            point_limit,
+                        ),
+                        None => self.dataset_frames.sample_xy(
+                            resource_id,
+                            x_field,
+                            y_field,
+                            point_limit,
+                        ),
+                    },
+                }
+            };
+            if matches!(
+                node.chart.as_str(),
+                "heatmap" | "contour" | "isoline" | "surface"
+            ) {
+                let shape = source
+                    .get("shape")
+                    .and_then(Value::as_array)
+                    .ok_or("ArrayData grid chart requires shape")?
+                    .iter()
+                    .map(|value| value.as_u64().and_then(|size| usize::try_from(size).ok()))
+                    .collect::<Option<Vec<_>>>()
+                    .ok_or("ArrayData grid shape must contain positive integer dimensions")?;
+                let dtype = source
+                    .get("dtype")
+                    .and_then(Value::as_str)
+                    .ok_or("ArrayData grid chart requires dtype")?;
+                let payload = self
+                    .dataset_frames
+                    .raw_payload(resource_id)
+                    .ok_or("awaiting completed ArrayData generation")?;
+                let (z, width, height) =
+                    dense_grid(payload, &shape, dtype).map_err(|error| error.to_string())?;
+                let title = node.title.clone().unwrap_or_else(|| node.chart.clone());
+                return match node.chart.as_str() {
+                    "heatmap" => {
+                        let mut chart = heatmap(&z, width, height).color_scale(color_scale(
+                            node.color_scale.as_deref().unwrap_or("viridis"),
+                        ));
+                        chart = px_dense_axes!(chart, node);
+                        if let Some(opacity) = node.opacity {
+                            chart = chart.opacity(opacity);
+                        }
+                        if let Some(ratio) = node.aspect_ratio {
+                            chart = chart.aspect_ratio(ratio);
+                        }
+                        chart
+                            .title(title)
+                            .size(640.0, 320.0)
+                            .apply_resource_sizing(node)
+                            .apply_resource_renderer(node)
+                            .build()
+                            .map(IntoElement::into_any_element)
+                            .map_err(|error| error.to_string())
+                    }
+                    "contour" => {
+                        let mut chart = contour(&z, width, height).color_scale(color_scale(
+                            node.color_scale.as_deref().unwrap_or("viridis"),
+                        ));
+                        chart = px_dense_axes!(chart, node);
+                        if let Some(opacity) = node.opacity {
+                            chart = chart.opacity(opacity);
+                        }
+                        if let Some(ratio) = node.aspect_ratio {
+                            chart = chart.aspect_ratio(ratio);
+                        }
+                        if let Some(factor) = node.contour_upsample_factor {
+                            chart = chart.contour_upsample_factor(factor);
+                        }
+                        if let Some(thresholds) = &node.thresholds {
+                            chart = chart.thresholds(thresholds.clone());
+                        }
+                        chart
+                            .title(title)
+                            .size(640.0, 320.0)
+                            .apply_resource_sizing(node)
+                            .apply_resource_renderer(node)
+                            .build()
+                            .map(IntoElement::into_any_element)
+                            .map_err(|error| error.to_string())
+                    }
+                    "isoline" => {
+                        let mut chart = isoline(&z, width, height);
+                        chart = px_apply_isoline_presentation(chart, node);
+                        if let Some(opacity) = node.opacity {
+                            chart = chart.opacity(opacity);
+                        }
+                        if let Some(ratio) = node.aspect_ratio {
+                            chart = chart.aspect_ratio(ratio);
+                        }
+                        if let Some(width) = node.stroke_width {
+                            chart = chart.stroke_width(width);
+                        }
+                        if let Some(factor) = node.contour_upsample_factor {
+                            chart = chart.contour_upsample_factor(factor);
+                        }
+                        if let Some(smooth) = node.smooth_strokes {
+                            chart = chart.smooth_strokes(smooth);
+                        }
+                        if let Some(iterations) = node.smoothing_iterations {
+                            chart = chart.smoothing_iterations(iterations);
+                        }
+                        if let Some(deviation) = node.smoothing_max_deviation_px {
+                            chart = chart.smoothing_max_deviation_px(deviation);
+                        }
+                        if let Some(levels) = &node.levels {
+                            chart = chart.levels(levels.clone());
+                        }
+                        chart
+                            .title(title)
+                            .size(640.0, 320.0)
+                            .apply_resource_sizing(node)
+                            .apply_resource_renderer(node)
+                            .build()
+                            .map(IntoElement::into_any_element)
+                            .map_err(|error| error.to_string())
+                    }
+                    "surface" => {
+                        let state = self
+                            .surface_chart_states
+                            .entry(node.id.clone())
+                            .or_insert_with(|| Rc::new(RefCell::new(Surface3DState::default())))
+                            .clone();
+                        let mut chart = surface3d(&z, width, height)
+                            .colormap(px_resource_surface_colormap(node.color_scale.as_deref()))
+                            .title(title)
+                            .size(640.0, 320.0)
+                            .apply_resource_sizing(node)
+                            .apply_resource_renderer(node)
+                            .with_state(state);
+                        if let Some(wireframe) = node.wireframe {
+                            chart = chart.wireframe(wireframe);
+                        }
+                        if node.x_log.unwrap_or(false) {
+                            chart = chart.x_log(true);
+                        }
+                        if node.y_log.unwrap_or(false) {
+                            chart = chart.y_log(true);
+                        }
+                        if let Some([min, max]) = node.z_range {
+                            chart = chart.z_range(min, max);
+                        }
+                        if let Some(label) = &node.x_label {
+                            chart = chart.x_label(label.clone());
+                        }
+                        if let Some(label) = &node.y_label {
+                            chart = chart.y_label(label.clone());
+                        }
+                        if let Some(label) = &node.z_label {
+                            chart = chart.z_label(label.clone());
+                        }
+                        if let Some(ratio) = node.aspect_ratio {
+                            chart = chart.aspect_ratio(ratio);
+                        }
+                        if let (Some(action), Some(sink)) = (
+                            node.viewport_action.clone(),
+                            self.session.as_ref().map(|session| session.event_sink()),
+                        ) {
+                            let node_id = node.id.clone();
+                            chart = chart.on_camera_change(move |camera| {
+                                let _ = sink.dispatch(
+                                    node_id.clone(),
+                                    "viewport_change",
+                                    Some(action.clone()),
+                                    serde_json::json!({
+                                        "camera": {
+                                            "distance": camera.distance,
+                                            "azimuth": camera.azimuth,
+                                            "elevation": camera.elevation,
+                                            "target": camera.target,
+                                        }
+                                    }),
+                                );
+                            });
+                        }
+                        chart
+                            .build()
+                            .map(IntoElement::into_any_element)
+                            .map_err(|error| error.to_string())
+                    }
+                    _ => unreachable!("guarded grid chart kind"),
+                };
+            }
+            let (mut x, mut y) = sampled
+                .map_err(|error| error.to_string())?
+                .ok_or("awaiting completed dataset generation")?;
+            let view = supported_dataset_view(source, true)?;
+            let roles = node
+                .data
+                .get("roles")
+                .and_then(Value::as_object)
+                .ok_or("resource chart requires x/y data-binding roles")?;
+            let x_field = roles.get("x").and_then(Value::as_str).unwrap_or_default();
+            let y_field = roles.get("y").and_then(Value::as_str).unwrap_or_default();
+            let sort_axis = match view.sort_field {
+                Some(field) if field == x_field => 0,
+                Some(field) if field == y_field => 1,
+                Some(field) => {
+                    return Err(format!(
+                        "DatasetView sort field {field:?} must match chart x or y role"
+                    ));
+                }
+                None => 0,
+            };
+            if matches!(node.chart.as_str(), "line" | "area" | "box_plot")
+                || view.sort_field.is_some()
+            {
+                let mut points = x.into_iter().zip(y).collect::<Vec<_>>();
+                points.sort_by(|left, right| {
+                    let ordering = if sort_axis == 0 {
+                        left.0.total_cmp(&right.0)
+                    } else {
+                        left.1.total_cmp(&right.1)
+                    };
+                    if view.sort_descending {
+                        ordering.reverse()
+                    } else {
+                        ordering
+                    }
+                });
+                (x, y) = points.into_iter().unzip();
+            }
+            if x.is_empty() {
+                return Err("resource chart has no finite x/y values".into());
+            }
+            let title = node.title.clone().unwrap_or_else(|| node.chart.clone());
+            let interaction = self.resource_chart_interaction(node, &x, &y, cx);
+            let active_domains = interaction
+                .as_ref()
+                .map(|state| (state.x_domain(), state.y_domain()));
+            match node.chart.as_str() {
+                "scatter" => {
+                    let mut chart = scatter(&x, &y)
+                        .title(title)
+                        .annotations(px_annotation_nodes(&node.annotations))
+                        .size(640.0, 320.0)
+                        .apply_resource_sizing(node)
+                        .apply_resource_renderer(node);
+                    chart = px_apply_scatter_primary(chart, node);
+                    if let Some(radius) = node.point_radius {
+                        chart = chart.point_radius(radius);
+                    }
+                    if let Some(opacity) = node.opacity {
+                        chart = chart.opacity(opacity);
+                    }
+                    if let Some(ratio) = node.aspect_ratio {
+                        chart = chart.aspect_ratio(ratio);
+                    }
+                    if node.x_log.unwrap_or(false) {
+                        chart = chart.x_scale(gpui_px::ScaleType::Log);
+                    }
+                    if node.y_log.unwrap_or(false) {
+                        chart = chart.y_scale(gpui_px::ScaleType::Log);
+                    }
+                    if let Some([min, max]) = node.x_range {
+                        chart = chart.x_range(min, max);
+                    }
+                    if let Some([min, max]) = node.y_range {
+                        chart = chart.y_range(min, max);
+                    }
+                    if let Some(position) = node.legend_position.as_deref() {
+                        chart = chart.legend_position(px_legend_position(position));
+                    }
+                    if let Some((x, y)) = active_domains {
+                        chart = chart.x_range(x.0, x.1).y_range(y.0, y.1);
+                    }
+                    chart
+                        .build()
+                        .map(IntoElement::into_any_element)
+                        .map(|chart| {
+                            wrap_resource_chart_interaction(&node.id, chart, interaction.clone())
+                        })
+                        .map_err(|error| error.to_string())
+                }
+                "line" => {
+                    let mut chart = line(&x, &y)
+                        .title(title)
+                        .annotations(px_annotation_nodes(&node.annotations))
+                        .size(640.0, 320.0)
+                        .apply_resource_sizing(node)
+                        .apply_resource_renderer(node);
+                    chart = px_apply_line_primary(chart, node);
+                    if let (Some(action), Some(sink)) = (
+                        node.legend_action.clone(),
+                        self.session.as_ref().map(|session| session.event_sink()),
+                    ) {
+                        let node_id = node.id.clone();
+                        chart = chart.on_legend_click(move |index, _window, _cx| {
+                            let _ = sink.dispatch(
+                                node_id.clone(),
+                                "legend_click",
+                                Some(action.clone()),
+                                serde_json::json!({"series_index": index}),
+                            );
+                        });
+                    }
+                    if let Some(curve) = node.curve.as_deref() {
+                        chart = chart.curve(px_curve(curve));
+                    }
+                    if let Some(dash) = node.dash_style.as_deref() {
+                        chart = chart.dash_style(dash);
+                    }
+                    if let Some(show) = node.show_points {
+                        chart = chart.show_points(show);
+                    }
+                    if let Some(width) = node.stroke_width {
+                        chart = chart.stroke_width(width);
+                    }
+                    if let Some(opacity) = node.opacity {
+                        chart = chart.opacity(opacity);
+                    }
+                    if let Some(ratio) = node.aspect_ratio {
+                        chart = chart.aspect_ratio(ratio);
+                    }
+                    if node.x_log.unwrap_or(false) {
+                        chart = chart.x_scale(gpui_px::ScaleType::Log);
+                    }
+                    if node.y_log.unwrap_or(false) {
+                        chart = chart.y_scale(gpui_px::ScaleType::Log);
+                    }
+                    if let Some(label) = &node.x_label {
+                        chart = chart.x_label(label.clone());
+                    }
+                    if let Some(label) = &node.y_label {
+                        chart = chart.y_label(label.clone());
+                    }
+                    if let Some([min, max]) = node.x_range {
+                        chart = chart.x_range(min, max);
+                    }
+                    if let Some([min, max]) = node.y_range {
+                        chart = chart.y_range(min, max);
+                    }
+                    if let Some(position) = node.legend_position.as_deref() {
+                        chart = chart.legend_position(px_legend_position(position));
+                    }
+                    if let Some((x, y)) = active_domains {
+                        chart = chart.x_range(x.0, x.1).y_range(y.0, y.1);
+                    }
+                    chart
+                        .build()
+                        .map(IntoElement::into_any_element)
+                        .map(|chart| {
+                            wrap_resource_chart_interaction(&node.id, chart, interaction.clone())
+                        })
+                        .map_err(|error| error.to_string())
+                }
+                "area" => {
+                    let mut chart = area(&x, &y)
+                        .title(title)
+                        .size(640.0, 320.0)
+                        .apply_resource_sizing(node)
+                        .apply_resource_renderer(node);
+                    chart = px_apply_area_presentation(chart, node);
+                    if let Some(opacity) = node.opacity {
+                        chart = chart.opacity(opacity);
+                    }
+                    if let Some(ratio) = node.aspect_ratio {
+                        chart = chart.aspect_ratio(ratio);
+                    }
+                    chart
+                        .build()
+                        .map(IntoElement::into_any_element)
+                        .map_err(|error| error.to_string())
+                }
+                "box_plot" => {
+                    let mut chart = boxplot(&x, &y).title(title);
+                    if let Some(color) = node.box_color.as_deref() {
+                        chart = chart.box_color(px_hex_color(color, 0));
+                    }
+                    if let Some(color) = node.median_color.as_deref() {
+                        chart = chart.median_color(px_hex_color(color, 0));
+                    }
+                    if let Some(color) = node.whisker_color.as_deref() {
+                        chart = chart.whisker_color(px_hex_color(color, 0));
+                    }
+                    if let Some(color) = node.outlier_color.as_deref() {
+                        chart = chart.outlier_color(px_hex_color(color, 0));
+                    }
+                    if let Some(opacity) = node.box_opacity {
+                        chart = chart.box_opacity(opacity);
+                    }
+                    if let Some(width) = node.box_width {
+                        chart = chart.box_width(width);
+                    }
+                    if let Some(radius) = node.outlier_radius {
+                        chart = chart.outlier_radius(radius);
+                    }
+                    if let Some(bins) = node.bins {
+                        chart = chart.bins(bins);
+                    }
+                    if let Some(width) = node.stroke_width {
+                        chart = chart.stroke_width(width);
+                    }
+                    if let Some(ratio) = node.aspect_ratio {
+                        chart = chart.aspect_ratio(ratio);
+                    }
+                    chart
+                        .build()
+                        .map(IntoElement::into_any_element)
+                        .map_err(|error| error.to_string())
+                }
+                "pie" => {
+                    let mut chart = pie(&y).title(title);
+                    chart = px_apply_pie_presentation(chart, node);
+                    if let Some(hole) = node.hole {
+                        chart = chart.hole(hole);
+                    }
+                    if let Some(ratio) = node.aspect_ratio {
+                        chart = chart.aspect_ratio(ratio);
+                    }
+                    chart
+                        .build()
+                        .map(IntoElement::into_any_element)
+                        .map_err(|error| error.to_string())
+                }
+                "donut" => {
+                    let mut chart = donut(&y).title(title);
+                    chart = px_apply_pie_presentation(chart, node);
+                    if let Some(hole) = node.hole {
+                        chart = chart.hole(hole);
+                    }
+                    if let Some(ratio) = node.aspect_ratio {
+                        chart = chart.aspect_ratio(ratio);
+                    }
+                    chart
+                        .build()
+                        .map(IntoElement::into_any_element)
+                        .map_err(|error| error.to_string())
+                }
+                "bar" => {
+                    let categories = x.iter().map(|value| value.to_string()).collect::<Vec<_>>();
+                    let mut chart = bar(&categories, &y)
+                        .title(title)
+                        .annotations(px_annotation_nodes(&node.annotations))
+                        .size(640.0, 320.0)
+                        .apply_resource_sizing(node)
+                        .apply_resource_renderer(node);
+                    chart = px_apply_bar_primary(chart, node);
+                    if let Some(gap) = node.bar_gap {
+                        chart = chart.bar_gap(gap);
+                    }
+                    if let Some(radius) = node.border_radius {
+                        chart = chart.border_radius(radius);
+                    }
+                    if let Some(opacity) = node.opacity {
+                        chart = chart.opacity(opacity);
+                    }
+                    if let Some(ratio) = node.aspect_ratio {
+                        chart = chart.aspect_ratio(ratio);
+                    }
+                    if node.y_log.unwrap_or(false) {
+                        chart = chart.y_scale(gpui_px::ScaleType::Log);
+                    }
+                    if let Some([min, max]) = node.y_range {
+                        chart = chart.y_range(min, max);
+                    }
+                    if let Some(position) = node.legend_position.as_deref() {
+                        chart = chart.legend_position(px_legend_position(position));
+                    }
+                    chart
+                        .build()
+                        .map(IntoElement::into_any_element)
+                        .map_err(|error| error.to_string())
+                }
+                _ => Err(format!("unsupported resource chart {:?}", node.chart)),
+            }
+        })()
+        .unwrap_or_else(|error| {
+            self.load_error = Some(format!("resource chart {resource_id:?} failed: {error}"));
+            div()
+                .text_color(theme.text_secondary)
+                .child(error)
+                .into_any_element()
+        });
+        div()
+            .id(stable_element_id(format_args!(
+                "python-resource-chart-{}",
+                node.id
+            )))
+            .flex()
+            .flex_col()
+            .gap(px(ds.spacing.control_gap))
+            .p(px(ds.spacing.card_padding))
+            .rounded(px(ds.corners.md))
+            .border_1()
+            .border_color(theme.border)
+            .child(
+                div()
+                    .font_weight(FontWeight::BOLD)
+                    .text_color(theme.text_primary)
+                    .child(
+                        node.title
+                            .clone()
+                            .unwrap_or_else(|| format!("{} chart", node.chart)),
+                    ),
+            )
+            .child(
+                div()
+                    .text_size(px(ds.typography.small_size))
+                    .text_color(theme.text_secondary)
+                    .child(format!(
+                        "{} bound to {resource_id} · LOD {} · awaiting resource batches",
+                        node.chart, node.lod
+                    )),
+            )
+            .child(chart_element)
+            .into_any_element()
+    }
+
     pub(super) fn render_table(
         &mut self,
         node: &TableNode,
@@ -10030,669 +13561,6 @@ impl PythonIrShowcase {
         apply_size(div(), node.width.or(Some(1.0)), node.height.or(Some(1.0))).into_any_element()
     }
 
-    pub(super) fn render_chart(
-        &mut self,
-        node: &ChartNode,
-        theme: &Theme,
-        ds: &DesignSystem,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
-        let interaction = match node.chart {
-            ChartKind::Scatter | ChartKind::Line => {
-                let ((x_min, x_max), (y_min, y_max)) = cartesian_chart_domains(node);
-                let entity = cx.weak_entity();
-                Some(
-                    self.chart_interactions
-                        .entry(node.id.clone())
-                        .or_insert_with(|| {
-                            InteractiveChartState::new(x_min, x_max, y_min, y_max)
-                                .with_log_x(node.x_log)
-                                .with_log_y(node.y_log)
-                                .with_size(node.width, node.height)
-                                .on_interaction_change(move |cx| {
-                                    let _ = entity.update(cx, |_, cx| cx.notify());
-                                })
-                        })
-                        .clone(),
-                )
-            }
-            ChartKind::Bar
-            | ChartKind::Heatmap
-            | ChartKind::Area
-            | ChartKind::BoxPlot
-            | ChartKind::Contour
-            | ChartKind::Isoline
-            | ChartKind::Pie
-            | ChartKind::Donut
-            | ChartKind::Treemap => None,
-        };
-        let active_domains = interaction
-            .as_ref()
-            .map(|state| (state.x_domain(), state.y_domain()));
-        let visible_series = node
-            .series
-            .iter()
-            .filter(|series| self.chart_series_is_visible(&node.id, series))
-            .collect::<Vec<_>>();
-        let result = match node.chart {
-            ChartKind::Scatter => {
-                let primary = visible_series.first().copied();
-                let x = primary
-                    .map(|series| series.x.as_slice())
-                    .or(node.x.as_deref())
-                    .unwrap_or_default();
-                let y = primary
-                    .map(|series| series.y.as_slice())
-                    .or(node.y.as_deref())
-                    .unwrap_or_default();
-                let mut chart = scatter(x, y)
-                    .title(node.title.clone())
-                    .color(hex_color(
-                        primary
-                            .and_then(|series| series.color.as_deref())
-                            .or(node.color.as_deref()),
-                        0x1f77b4,
-                    ))
-                    .point_radius(
-                        primary
-                            .and_then(|series| series.point_radius)
-                            .unwrap_or(node.point_radius),
-                    )
-                    .x_scale(scale_type(node.x_log))
-                    .y_scale(scale_type(node.y_log))
-                    .legend_position(px_legend_position(&node.legend_position))
-                    .annotations(px_annotations(node))
-                    .size(node.width, node.height);
-                for series in visible_series.iter().copied().skip(1) {
-                    chart = chart.add_series(
-                        &series.x,
-                        &series.y,
-                        (!series.label.is_empty()).then_some(series.label.clone()),
-                        hex_color(series.color.as_deref(), 0x1f77b4),
-                        series.point_radius.unwrap_or(node.point_radius),
-                        series.opacity,
-                    );
-                }
-                if let Some(((min, max), _)) = active_domains {
-                    chart = chart.x_range(min, max);
-                }
-                if let Some((_, (min, max))) = active_domains {
-                    chart = chart.y_range(min, max);
-                }
-                chart.build().map(IntoElement::into_any_element)
-            }
-            ChartKind::Line => {
-                let primary = visible_series.first().copied();
-                let x = primary
-                    .map(|series| series.x.as_slice())
-                    .or(node.x.as_deref())
-                    .unwrap_or_default();
-                let y = primary
-                    .map(|series| series.y.as_slice())
-                    .or(node.y.as_deref())
-                    .unwrap_or_default();
-                let mut chart = line(x, y)
-                    .title(node.title.clone())
-                    .color(hex_color(
-                        primary
-                            .and_then(|series| series.color.as_deref())
-                            .or(node.color.as_deref()),
-                        0xff7f0e,
-                    ))
-                    .stroke_width(
-                        primary
-                            .and_then(|series| series.stroke_width)
-                            .unwrap_or(node.stroke_width),
-                    )
-                    .x_scale(scale_type(node.x_log))
-                    .y_scale(scale_type(node.y_log))
-                    .size(node.width, node.height);
-                chart = chart
-                    .curve(px_curve(&node.curve))
-                    .legend_position(px_legend_position(&node.legend_position))
-                    .annotations(px_annotations(node));
-                chart = chart.dash_style(&node.dash);
-                if let Some(label) = &node.y2_label {
-                    chart = chart.y2_label(label.clone());
-                }
-                if let Some([min, max]) = node.y2_range {
-                    chart = chart.y2_range(min, max);
-                }
-                if let Some(label) = &node.x_label {
-                    chart = chart.x_label(label.clone());
-                }
-                if let Some(label) = &node.y_label {
-                    chart = chart.y_label(label.clone());
-                }
-                if let Some(series) = primary.filter(|series| !series.label.is_empty()) {
-                    chart = chart.label(series.label.clone());
-                }
-                for series in visible_series.iter().copied().skip(1) {
-                    chart = if series.secondary_y {
-                        chart.add_series_y2_with_x(
-                            &series.x,
-                            &series.y,
-                            (!series.label.is_empty()).then_some(series.label.clone()),
-                            hex_color(series.color.as_deref(), 0xff7f0e),
-                            series.stroke_width.unwrap_or(node.stroke_width),
-                            series.opacity,
-                        )
-                    } else {
-                        chart.add_series_with_x(
-                            &series.x,
-                            &series.y,
-                            (!series.label.is_empty()).then_some(series.label.clone()),
-                            hex_color(series.color.as_deref(), 0xff7f0e),
-                            series.stroke_width.unwrap_or(node.stroke_width),
-                            series.opacity,
-                        )
-                    };
-                    chart = chart.series_dash_style(&series.dash);
-                }
-                if let Some(((min, max), _)) = active_domains {
-                    chart = chart.x_range(min, max);
-                }
-                if let Some((_, (min, max))) = active_domains {
-                    chart = chart.y_range(min, max);
-                }
-                chart.build().map(IntoElement::into_any_element)
-            }
-            ChartKind::Bar => {
-                let categories = node.categories.as_deref().unwrap_or_default();
-                let values = visible_series
-                    .first()
-                    .map(|series| series.y.as_slice())
-                    .or(node.values.as_deref())
-                    .unwrap_or_default();
-                let mut chart = bar(categories, values);
-                for series in visible_series.iter().copied().skip(1) {
-                    chart = chart.add_series(
-                        &series.y,
-                        (!series.label.is_empty()).then_some(series.label.clone()),
-                        px_hex_color(series.color.as_deref().unwrap_or(""), 0x2ca02c),
-                        series.opacity,
-                    );
-                }
-                chart = chart
-                    .title(node.title.clone())
-                    .color(hex_color(node.color.as_deref(), 0x2ca02c))
-                    .legend_position(px_legend_position(&node.legend_position))
-                    .annotations(px_annotations(node))
-                    .size(node.width, node.height);
-                chart.build().map(IntoElement::into_any_element)
-            }
-            ChartKind::Heatmap => {
-                let raw_z = node.z.as_deref().unwrap_or_default();
-                let missing_count = raw_z.iter().filter(|value| value.is_none()).count();
-                let fallback = raw_z
-                    .iter()
-                    .flatten()
-                    .copied()
-                    .fold(f64::INFINITY, f64::min);
-                let z = raw_z
-                    .iter()
-                    .map(|value| value.unwrap_or(fallback))
-                    .collect::<Vec<_>>();
-                let mut chart = heatmap(
-                    &z,
-                    node.width_count.unwrap_or_default(),
-                    node.height_count.unwrap_or_default(),
-                )
-                .title(node.title.clone())
-                .color_scale(color_scale(&node.color_scale))
-                .x_scale(scale_type(node.x_log))
-                .y_scale(scale_type(node.y_log))
-                .size(node.width, node.height);
-                if let Some(x) = &node.x {
-                    chart = chart.x(x);
-                }
-                if let Some(y) = &node.y {
-                    chart = chart.y(y);
-                }
-                if let Some([min, max]) = node.x_range {
-                    chart = chart.x_range(min, max);
-                }
-                if let Some([min, max]) = node.y_range {
-                    chart = chart.y_range(min, max);
-                }
-                if let Some(aspect_ratio) = node.aspect_ratio {
-                    chart = chart.aspect_ratio(aspect_ratio);
-                }
-                chart.build().map(|element| {
-                    let width = node.width_count.unwrap_or_default();
-                    let height = node.height_count.unwrap_or_default();
-                    let mut heatmap_element = div()
-                        .relative()
-                        .w(px(node.width))
-                        .h(px(node.height))
-                        .child(element);
-                    if missing_count > 0 && width > 0 && height > 0 {
-                        // gpui-px correctly rejects NaN cells. Render finite values through
-                        // it, then cover null cells with a neutral overlay at their grid slot.
-                        let left = 50.0;
-                        let top = if node.title.is_empty() { 10.0 } else { 34.0 };
-                        let cell_width = ((node.width - left - 20.0) / width as f32).max(1.0);
-                        let cell_height = ((node.height - top - 30.0) / height as f32).max(1.0);
-                        for (index, _value) in raw_z
-                            .iter()
-                            .enumerate()
-                            .filter(|(_, value)| value.is_none())
-                        {
-                            let column = index % width;
-                            let row = index / width;
-                            heatmap_element = heatmap_element.child(
-                                div()
-                                    .absolute()
-                                    .left(px(left + column as f32 * cell_width))
-                                    .top(px(top + (height - row - 1) as f32 * cell_height))
-                                    .w(px(cell_width))
-                                    .h(px(cell_height))
-                                    .bg(theme.muted),
-                            );
-                        }
-                    }
-                    let mut container = div()
-                        .flex()
-                        .flex_col()
-                        .gap(px(ds.spacing.grid_unit))
-                        .child(heatmap_element);
-                    if let Some(label) = &node.color_label {
-                        let unit = node
-                            .color_unit
-                            .as_deref()
-                            .map(|unit| format!(" ({unit})"))
-                            .unwrap_or_default();
-                        let range = node
-                            .color_range
-                            .map(|[min, max]| format!(": {min:.4}–{max:.4}"))
-                            .unwrap_or_default();
-                        container = container.child(
-                            div()
-                                .text_size(px(ds.typography.small_size))
-                                .text_color(theme.text_muted)
-                                .child(format!("Color: {label}{unit}{range}")),
-                        );
-                    }
-                    if missing_count > 0 {
-                        container = container.child(
-                            div()
-                                .text_size(px(ds.typography.small_size))
-                                .text_color(theme.text_muted)
-                                .child(format!(
-                                    "{missing_count} missing cell{} shown in neutral gray",
-                                    if missing_count == 1 { "" } else { "s" }
-                                )),
-                        );
-                    }
-                    container.into_any_element()
-                })
-            }
-            ChartKind::Area => {
-                let x = node.x.as_deref().unwrap_or_default();
-                let y = node.y.as_deref().unwrap_or_default();
-                let mut chart = area(x, y)
-                    .title(node.title.clone())
-                    .color(hex_color(node.color.as_deref(), 0x1f77b4))
-                    .opacity(node.opacity)
-                    .x_scale(scale_type(node.x_log))
-                    .y_scale(scale_type(node.y_log))
-                    .size(node.width, node.height);
-                if let Some(y0) = &node.y0 {
-                    chart = chart.y0(y0);
-                }
-                if let Some(aspect_ratio) = node.aspect_ratio {
-                    chart = chart.aspect_ratio(aspect_ratio);
-                }
-                chart.build().map(IntoElement::into_any_element)
-            }
-            ChartKind::BoxPlot => {
-                let mut chart = boxplot(
-                    node.x.as_deref().unwrap_or_default(),
-                    node.y.as_deref().unwrap_or_default(),
-                )
-                .title(node.title.clone())
-                .box_color(hex_color(node.color.as_deref(), 0xdddddd))
-                .box_opacity(node.opacity)
-                .stroke_width(node.stroke_width)
-                .outlier_radius(node.point_radius)
-                .x_scale(scale_type(node.x_log))
-                .y_scale(scale_type(node.y_log))
-                .size(node.width, node.height);
-                if let Some(num_bins) = node.num_bins {
-                    chart = chart.bins(num_bins);
-                }
-                if let Some(aspect_ratio) = node.aspect_ratio {
-                    chart = chart.aspect_ratio(aspect_ratio);
-                }
-                chart.build().map(IntoElement::into_any_element)
-            }
-            ChartKind::Contour => {
-                let z = node
-                    .z
-                    .as_deref()
-                    .unwrap_or_default()
-                    .iter()
-                    .map(|value| value.unwrap_or(0.0))
-                    .collect::<Vec<_>>();
-                let mut chart = contour(
-                    &z,
-                    node.width_count.unwrap_or_default(),
-                    node.height_count.unwrap_or_default(),
-                )
-                .title(node.title.clone())
-                .color_scale(color_scale(&node.color_scale))
-                .opacity(node.opacity)
-                .x_scale(scale_type(node.x_log))
-                .y_scale(scale_type(node.y_log))
-                .size(node.width, node.height);
-                if let Some(x) = &node.x {
-                    chart = chart.x(x);
-                }
-                if let Some(y) = &node.y {
-                    chart = chart.y(y);
-                }
-                if let Some(thresholds) = &node.thresholds {
-                    chart = chart.thresholds(thresholds.clone());
-                }
-                if let Some([min, max]) = node.x_range {
-                    chart = chart.x_range(min, max);
-                }
-                if let Some([min, max]) = node.y_range {
-                    chart = chart.y_range(min, max);
-                }
-                chart.build().map(IntoElement::into_any_element)
-            }
-            ChartKind::Isoline => {
-                let z = node
-                    .z
-                    .as_deref()
-                    .unwrap_or_default()
-                    .iter()
-                    .map(|value| value.unwrap_or(0.0))
-                    .collect::<Vec<_>>();
-                let mut chart = isoline(
-                    &z,
-                    node.width_count.unwrap_or_default(),
-                    node.height_count.unwrap_or_default(),
-                )
-                .title(node.title.clone())
-                .color(hex_color(node.color.as_deref(), 0x1f77b4))
-                .stroke_width(node.stroke_width)
-                .opacity(node.opacity)
-                .x_scale(scale_type(node.x_log))
-                .y_scale(scale_type(node.y_log))
-                .size(node.width, node.height);
-                if let Some(x) = &node.x {
-                    chart = chart.x(x);
-                }
-                if let Some(y) = &node.y {
-                    chart = chart.y(y);
-                }
-                if let Some(levels) = &node.levels {
-                    chart = chart.levels(levels.clone());
-                }
-                if let Some([min, max]) = node.x_range {
-                    chart = chart.x_range(min, max);
-                }
-                if let Some([min, max]) = node.y_range {
-                    chart = chart.y_range(min, max);
-                }
-                chart.build().map(IntoElement::into_any_element)
-            }
-            ChartKind::Pie | ChartKind::Donut => {
-                let values = node.values.as_deref().unwrap_or_default();
-                let mut chart = if node.chart == ChartKind::Donut {
-                    donut(values)
-                } else {
-                    pie(values)
-                }
-                .title(node.title.clone())
-                .hole(node.inner_radius)
-                .size(node.width, node.height);
-                if let Some(labels) = &node.categories {
-                    chart = chart.labels(labels);
-                }
-                if let Some(aspect_ratio) = node.aspect_ratio {
-                    chart = chart.aspect_ratio(aspect_ratio);
-                }
-                chart.build().map(IntoElement::into_any_element)
-            }
-            ChartKind::Treemap => {
-                let root = native_treemap_node(node.treemap.as_ref().expect("validated treemap"));
-                let method = match node.tiling_method.as_str() {
-                    "binary" => gpui_px::TilingMethod::Binary,
-                    "slice" => gpui_px::TilingMethod::Slice,
-                    "dice" => gpui_px::TilingMethod::Dice,
-                    "slice_dice" => gpui_px::TilingMethod::SliceDice,
-                    _ => gpui_px::TilingMethod::Squarify,
-                };
-                let mut chart = treemap(&root)
-                    .title(node.title.clone())
-                    .tiling_method(method)
-                    .padding(node.padding)
-                    .size(node.width, node.height);
-                if let Some(aspect_ratio) = node.aspect_ratio {
-                    chart = chart.aspect_ratio(aspect_ratio);
-                }
-                chart.build().map(IntoElement::into_any_element)
-            }
-        };
-
-        let chart = result.unwrap_or_else(|error| {
-            self.render_error(&format!("chart {}: {error}", node.id), theme, ds)
-        });
-        let inspection = interaction.as_ref().and_then(|state| {
-            chart_inspection(node, state, self.chart_hidden_series.get(&node.id))
-        });
-        let chart = match interaction {
-            Some(state) => interactive(
-                stable_element_id(format_args!("python-chart-{}", node.id)),
-                chart,
-                state,
-            )
-            .build()
-            .into_any_element(),
-            None => chart,
-        };
-        let chart = if let Some(inspection) = inspection {
-            let left_margin = 50.0;
-            let top_margin = 30.0;
-            let plot_width = (node.width - left_margin).max(1.0);
-            let plot_height = (node.height - top_margin).max(1.0);
-            let cross_x = left_margin + inspection.x_ratio * plot_width;
-            let cross_y = top_margin + (1.0 - inspection.y_ratio) * plot_height;
-            div()
-                .relative()
-                .w(px(node.width))
-                .h(px(node.height))
-                .child(chart)
-                .child(
-                    div()
-                        .absolute()
-                        .left(px(cross_x))
-                        .top(px(top_margin))
-                        .w(px(1.0))
-                        .h(px(plot_height))
-                        .bg(theme.accent.opacity(0.65)),
-                )
-                .child(
-                    div()
-                        .absolute()
-                        .left(px(left_margin))
-                        .top(px(cross_y))
-                        .w(px(plot_width))
-                        .h(px(1.0))
-                        .bg(theme.accent.opacity(0.65)),
-                )
-                .child(
-                    div()
-                        .absolute()
-                        .right(px(ds.spacing.grid_unit))
-                        .top(px(ds.spacing.grid_unit))
-                        .px(px(ds.spacing.grid_unit))
-                        .py(px(ds.spacing.grid_unit / 2.0))
-                        .rounded(px(ds.corners.sm))
-                        .bg(theme.surface)
-                        .border_1()
-                        .border_color(theme.border)
-                        .text_size(px(ds.typography.small_size))
-                        .text_color(theme.text_primary)
-                        .child(format!(
-                            "{}: x={:.5}, y={:.5}",
-                            inspection.series, inspection.x, inspection.y
-                        )),
-                )
-                .into_any_element()
-        } else {
-            chart
-        };
-        let locally_hidden = self.chart_hidden_series.get(&node.id);
-        let csv = chart_csv(node, locally_hidden);
-        let svg = chart_svg(node, active_domains, locally_hidden);
-        let png = chart_png(node, active_domains, locally_hidden);
-        let legend = matches!(node.chart, ChartKind::Scatter | ChartKind::Line).then(|| {
-            div()
-                .flex()
-                .flex_wrap()
-                .gap(px(ds.spacing.grid_unit))
-                .children(node.series.iter().map(|series| {
-                    let chart_id = node.id.clone();
-                    let series_id = series.id.clone();
-                    let selected = self.chart_series_is_visible(&chart_id, series);
-                    let color = rgb(hex_color(
-                        series.color.as_deref(),
-                        if matches!(node.chart, ChartKind::Line) {
-                            0xff7f0e
-                        } else {
-                            0x1f77b4
-                        },
-                    ));
-                    div()
-                        .id(stable_element_id(format_args!(
-                            "python-chart-legend-{chart_id}-{series_id}"
-                        )))
-                        .flex()
-                        .items_center()
-                        .gap(px(ds.spacing.grid_unit / 2.0))
-                        .px(px(ds.spacing.grid_unit))
-                        .py(px(ds.spacing.grid_unit / 2.0))
-                        .rounded(px(ds.corners.sm))
-                        .cursor_pointer()
-                        .bg(if selected {
-                            theme.surface_hover
-                        } else {
-                            theme.muted
-                        })
-                        .text_color(if selected {
-                            theme.text_primary
-                        } else {
-                            theme.text_muted
-                        })
-                        .child(div().w(px(10.0)).h(px(10.0)).rounded_full().bg(color))
-                        .child(if series.label.is_empty() {
-                            series.id.clone()
-                        } else {
-                            series.label.clone()
-                        })
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.toggle_chart_series(&chart_id, &series_id);
-                            cx.notify();
-                        }))
-                }))
-        });
-        div()
-            .flex()
-            .flex_col()
-            .gap(px(ds.spacing.grid_unit))
-            .child(chart)
-            .children(legend)
-            .child(
-                div()
-                    .id(stable_element_id(format_args!(
-                        "python-chart-export-{}",
-                        node.id
-                    )))
-                    .self_start()
-                    .px(px(ds.spacing.grid_unit))
-                    .py(px(ds.spacing.grid_unit / 2.0))
-                    .rounded(px(ds.corners.sm))
-                    .bg(theme.surface_hover)
-                    .text_color(theme.text_secondary)
-                    .text_size(px(ds.typography.small_size))
-                    .cursor_pointer()
-                    .child("Export CSV…")
-                    .on_click(cx.listener(move |_, _, _, cx| {
-                        let receiver = cx.prompt_for_new_path(Path::new("."), Some("chart.csv"));
-                        let csv = csv.clone();
-                        cx.spawn(async move |_, _| {
-                            if let Ok(Ok(Some(path))) = receiver.await {
-                                std::thread::spawn(move || {
-                                    let _ = std::fs::write(path, csv);
-                                });
-                            }
-                        })
-                        .detach();
-                    })),
-            )
-            .child(
-                div()
-                    .id(stable_element_id(format_args!(
-                        "python-chart-export-svg-{}",
-                        node.id
-                    )))
-                    .self_start()
-                    .px(px(ds.spacing.grid_unit))
-                    .py(px(ds.spacing.grid_unit / 2.0))
-                    .rounded(px(ds.corners.sm))
-                    .bg(theme.surface_hover)
-                    .text_color(theme.text_secondary)
-                    .text_size(px(ds.typography.small_size))
-                    .cursor_pointer()
-                    .child("Export SVG…")
-                    .on_click(cx.listener(move |_, _, _, cx| {
-                        let receiver = cx.prompt_for_new_path(Path::new("."), Some("chart.svg"));
-                        let svg = svg.clone();
-                        cx.spawn(async move |_, _| {
-                            if let Ok(Ok(Some(path))) = receiver.await {
-                                std::thread::spawn(move || {
-                                    let _ = std::fs::write(path, svg);
-                                });
-                            }
-                        })
-                        .detach();
-                    })),
-            )
-            .child(
-                div()
-                    .id(stable_element_id(format_args!(
-                        "python-chart-export-png-{}",
-                        node.id
-                    )))
-                    .self_start()
-                    .px(px(ds.spacing.grid_unit))
-                    .py(px(ds.spacing.grid_unit / 2.0))
-                    .rounded(px(ds.corners.sm))
-                    .bg(theme.surface_hover)
-                    .text_color(theme.text_secondary)
-                    .text_size(px(ds.typography.small_size))
-                    .cursor_pointer()
-                    .child("Export PNG…")
-                    .on_click(cx.listener(move |_, _, _, cx| {
-                        let receiver = cx.prompt_for_new_path(Path::new("."), Some("chart.png"));
-                        let png = png.clone();
-                        cx.spawn(async move |_, _| {
-                            if let Ok(Ok(Some(path))) = receiver.await {
-                                std::thread::spawn(move || {
-                                    let _ = std::fs::write(path, png);
-                                });
-                            }
-                        })
-                        .detach();
-                    })),
-            )
-            .into_any_element()
-    }
-
     pub(super) fn render_scene3d(
         &mut self,
         node: &Scene3dNode,
@@ -10703,15 +13571,27 @@ impl PythonIrShowcase {
         let width = node.width.unwrap_or(560.0);
         let height = node.height.unwrap_or(360.0);
         let element = match node.spec.get("kind").and_then(Value::as_str) {
-            Some("surface") => self.render_surface_spec(&node.id, &node.spec, theme, ds),
-            Some("lines") => self.render_lines_spec(&node.id, &node.spec, theme, ds),
-            Some("mesh") => self.render_mesh_summary(&node.id, &node.spec, theme, ds),
+            Some("surface") => match self.resolve_surface_resource_spec(&node.spec) {
+                Ok(spec) => self.render_surface_spec(&node.id, &spec, theme, ds),
+                Err(error) => self.render_error(&error, theme, ds),
+            },
+            Some("lines") => match self.resolve_lines_resource_spec(&node.spec) {
+                Ok(spec) => self.render_lines_spec(&node.id, &spec, theme, ds),
+                Err(error) => self.render_error(&error, theme, ds),
+            },
+            Some("mesh") => match self.resolve_mesh_resource_spec(&node.spec) {
+                Ok(spec) => self.render_mesh_summary(&node.id, &spec, theme, ds),
+                Err(error) => self.render_error(&error, theme, ds),
+            },
             Some("light") => self.render_error("light nodes render inside scene specs", theme, ds),
             Some(kind) => {
                 self.render_error(&format!("unsupported scene3d kind: {kind}"), theme, ds)
             }
             None if node.spec.get("children").is_some() => {
-                self.render_scene_summary(&node.id, &node.spec, theme, ds)
+                match self.resolve_scene_resources(&node.spec) {
+                    Ok(spec) => self.render_scene_summary(&node.id, &spec, theme, ds),
+                    Err(error) => self.render_error(&error, theme, ds),
+                }
             }
             None => self.render_error("scene3d spec is missing kind or children", theme, ds),
         };
@@ -10726,6 +13606,236 @@ impl PythonIrShowcase {
             .overflow_hidden()
             .child(element);
         container.into_any_element()
+    }
+
+    fn resolve_surface_resource_spec(&self, value: &Value) -> Result<Value, String> {
+        let Some(z) = value.get("z") else {
+            return Err("scene3d surface requires z data".into());
+        };
+        if z.get("kind").and_then(Value::as_str) != Some("array_data") {
+            return Ok(value.clone());
+        }
+        let resource_id = z
+            .get("id")
+            .and_then(Value::as_str)
+            .ok_or("scene3d ArrayData surface requires id")?;
+        let generation = z
+            .get("generation")
+            .and_then(Value::as_u64)
+            .ok_or("scene3d ArrayData surface requires generation")?;
+        let shape = z
+            .get("shape")
+            .and_then(Value::as_array)
+            .ok_or("scene3d ArrayData surface requires shape")?
+            .iter()
+            .map(|value| value.as_u64().and_then(|size| usize::try_from(size).ok()))
+            .collect::<Option<Vec<_>>>()
+            .ok_or("scene3d ArrayData surface shape must contain integer dimensions")?;
+        let dtype = z
+            .get("dtype")
+            .and_then(Value::as_str)
+            .ok_or("scene3d ArrayData surface requires dtype")?;
+        let payload = self
+            .dataset_frames
+            .raw_payload_at(resource_id, generation)
+            .ok_or("awaiting completed scene3d ArrayData generation")?;
+        let (values, width, height) =
+            dense_grid(payload, &shape, dtype).map_err(|error| error.to_string())?;
+        let mut resolved = value.clone();
+        resolved
+            .as_object_mut()
+            .ok_or("scene3d surface spec must be an object")?
+            .insert(
+                "z".into(),
+                serde_json::json!({"values": values, "width": width, "height": height}),
+            );
+        Ok(resolved)
+    }
+
+    fn resolve_scene_f64_array(
+        &self,
+        value: &Value,
+        name: &str,
+    ) -> Result<Option<(Vec<f64>, Vec<usize>)>, String> {
+        if value.get("kind").and_then(Value::as_str) != Some("array_data") {
+            return Ok(None);
+        }
+        let resource_id = value
+            .get("id")
+            .and_then(Value::as_str)
+            .filter(|id| !id.is_empty())
+            .ok_or_else(|| format!("{name} ArrayData requires id"))?;
+        let generation = value
+            .get("generation")
+            .and_then(Value::as_u64)
+            .filter(|generation| *generation > 0)
+            .ok_or_else(|| format!("{name} ArrayData requires generation"))?;
+        let shape = value
+            .get("shape")
+            .and_then(Value::as_array)
+            .ok_or_else(|| format!("{name} ArrayData requires shape"))?
+            .iter()
+            .map(|dimension| {
+                dimension
+                    .as_u64()
+                    .and_then(|size| usize::try_from(size).ok())
+            })
+            .collect::<Option<Vec<_>>>()
+            .ok_or_else(|| format!("{name} ArrayData shape must contain integer dimensions"))?;
+        let dtype = value
+            .get("dtype")
+            .and_then(Value::as_str)
+            .ok_or_else(|| format!("{name} ArrayData requires dtype"))?;
+        let payload = self
+            .dataset_frames
+            .raw_payload_at(resource_id, generation)
+            .ok_or_else(|| format!("awaiting completed {name} ArrayData generation"))?;
+        let values =
+            dense_array_values(payload, &shape, dtype).map_err(|error| error.to_string())?;
+        if values.iter().any(|value| !value.is_finite()) {
+            return Err(format!("{name} ArrayData values must be finite"));
+        }
+        Ok(Some((values, shape)))
+    }
+
+    fn resolve_scene_u64_array(
+        &self,
+        value: &Value,
+        name: &str,
+    ) -> Result<Option<(Vec<u64>, Vec<usize>)>, String> {
+        if value.get("kind").and_then(Value::as_str) != Some("array_data") {
+            return Ok(None);
+        }
+        let resource_id = value
+            .get("id")
+            .and_then(Value::as_str)
+            .filter(|id| !id.is_empty())
+            .ok_or_else(|| format!("{name} ArrayData requires id"))?;
+        let generation = value
+            .get("generation")
+            .and_then(Value::as_u64)
+            .filter(|generation| *generation > 0)
+            .ok_or_else(|| format!("{name} ArrayData requires generation"))?;
+        let shape = value
+            .get("shape")
+            .and_then(Value::as_array)
+            .ok_or_else(|| format!("{name} ArrayData requires shape"))?
+            .iter()
+            .map(|dimension| {
+                dimension
+                    .as_u64()
+                    .and_then(|size| usize::try_from(size).ok())
+            })
+            .collect::<Option<Vec<_>>>()
+            .ok_or_else(|| format!("{name} ArrayData shape must contain integer dimensions"))?;
+        let dtype = value
+            .get("dtype")
+            .and_then(Value::as_str)
+            .ok_or_else(|| format!("{name} ArrayData requires dtype"))?;
+        let payload = self
+            .dataset_frames
+            .raw_payload_at(resource_id, generation)
+            .ok_or_else(|| format!("awaiting completed {name} ArrayData generation"))?;
+        let values =
+            dense_array_unsigned(payload, &shape, dtype).map_err(|error| error.to_string())?;
+        Ok(Some((values, shape)))
+    }
+
+    fn resolve_lines_resource_spec(&self, value: &Value) -> Result<Value, String> {
+        let mut resolved = value.clone();
+        let strips = resolved
+            .get_mut("strips")
+            .and_then(Value::as_array_mut)
+            .ok_or("scene3d lines requires strips")?;
+        for strip in strips {
+            let points = strip
+                .get_mut("points")
+                .ok_or("scene3d line strip requires points")?;
+            if let Some((values, shape)) =
+                self.resolve_scene_f64_array(points, "line_strip.points")?
+            {
+                if shape.len() != 2 || shape[1] != 3 {
+                    return Err("line_strip.points ArrayData shape must be [points, 3]".into());
+                }
+                *points = Value::Array(
+                    values
+                        .chunks_exact(3)
+                        .map(|point| serde_json::json!([point[0], point[1], point[2]]))
+                        .collect(),
+                );
+            }
+        }
+        Ok(resolved)
+    }
+
+    fn resolve_mesh_resource_spec(&self, value: &Value) -> Result<Value, String> {
+        let mut resolved = value.clone();
+        let vertices = resolved
+            .get_mut("vertices")
+            .ok_or("scene3d mesh requires vertices")?;
+        if let Some((values, shape)) = self.resolve_scene_f64_array(vertices, "mesh.vertices")? {
+            if shape.len() != 2 || shape[1] != 3 {
+                return Err("mesh.vertices ArrayData shape must be [vertices, 3]".into());
+            }
+            *vertices = Value::Array(
+                values
+                    .chunks_exact(3)
+                    .map(|point| serde_json::json!([point[0], point[1], point[2]]))
+                    .collect(),
+            );
+        }
+        let indices = resolved
+            .get_mut("indices")
+            .ok_or("scene3d mesh requires indices")?;
+        if let Some((values, shape)) = self.resolve_scene_u64_array(indices, "mesh.indices")? {
+            if !((shape.len() == 1 && shape[0].is_multiple_of(3))
+                || (shape.len() == 2 && shape[1] == 3))
+            {
+                return Err(
+                    "mesh.indices ArrayData shape must be [indices] or [triangles, 3]".into(),
+                );
+            }
+            *indices = Value::Array(
+                values
+                    .into_iter()
+                    .map(|index| {
+                        u32::try_from(index)
+                            .map(Value::from)
+                            .map_err(|_| "mesh.indices ArrayData value exceeds u32".to_string())
+                    })
+                    .collect::<Result<Vec<_>, _>>()?,
+            );
+        }
+        if let Some(scalar_values) = resolved
+            .get_mut("scalar_field")
+            .and_then(Value::as_object_mut)
+            .and_then(|field| field.get_mut("values"))
+            && let Some((values, shape)) =
+                self.resolve_scene_f64_array(scalar_values, "mesh.scalar_field.values")?
+        {
+            if shape.len() != 1 {
+                return Err("mesh.scalar_field.values ArrayData shape must be [values]".into());
+            }
+            *scalar_values = Value::Array(values.into_iter().map(Value::from).collect());
+        }
+        Ok(resolved)
+    }
+
+    fn resolve_scene_resources(&self, value: &Value) -> Result<Value, String> {
+        let mut resolved = value.clone();
+        let children = resolved
+            .get_mut("children")
+            .and_then(Value::as_array_mut)
+            .ok_or("scene3d scene requires children")?;
+        for child in children {
+            *child = match child.get("kind").and_then(Value::as_str) {
+                Some("surface") => self.resolve_surface_resource_spec(child)?,
+                Some("lines") => self.resolve_lines_resource_spec(child)?,
+                Some("mesh") => self.resolve_mesh_resource_spec(child)?,
+                _ => child.clone(),
+            };
+        }
+        Ok(resolved)
     }
 
     fn render_meshplot_error_or_last_valid(
@@ -10799,15 +13909,17 @@ impl PythonIrShowcase {
                     _cx,
                 );
             }
-            let prepared =
-                match gpui_python_runtime::native_mesh_plot::prepare(&spec, &self.mesh_frames) {
-                    Ok(prepared) => prepared,
-                    Err(error) => {
-                        return self.render_meshplot_error_or_last_valid(
-                            node, &spec, &error, theme, ds, _cx,
-                        );
-                    }
-                };
+            let prepared = match gpui_python_runtime::native_mesh_plot::prepare_with_array_data(
+                &spec,
+                &self.mesh_frames,
+                &self.dataset_frames,
+            ) {
+                Ok(prepared) => prepared,
+                Err(error) => {
+                    return self
+                        .render_meshplot_error_or_last_valid(node, &spec, &error, theme, ds, _cx);
+                }
+            };
             self.prepared_mesh_plots.insert(
                 node.id.clone(),
                 CachedNativeMeshPlot {
@@ -10865,11 +13977,30 @@ impl PythonIrShowcase {
             }
             _ => None,
         };
+        let host_export_callback: Option<Rc<dyn Fn(Result<String, gpui_px::ChartError>)>> = match (
+            node.export_action.clone(),
+            self.session.as_ref().map(|session| session.event_sink()),
+        ) {
+            (Some(action), Some(sink)) => {
+                let node_id = node.id.clone();
+                Some(Rc::new(move |result| {
+                    let payload = match result {
+                        Ok(svg) => serde_json::json!({"ok": true, "svg": svg}),
+                        Err(error) => {
+                            serde_json::json!({"ok": false, "error": error.to_string()})
+                        }
+                    };
+                    let _ = sink.dispatch(node_id.clone(), "export", Some(action.clone()), payload);
+                }))
+            }
+            _ => None,
+        };
         let (live_plot, live_state) = match Self::build_native_mesh_plot(
             &spec,
             &prepared,
             retained_state.clone(),
             host_selection_callback,
+            host_export_callback,
         ) {
             Ok((element, state)) => (Some(element), Some(state)),
             Err(error) => {
@@ -11011,12 +14142,14 @@ impl PythonIrShowcase {
         prepared: &gpui_python_runtime::native_mesh_plot::PreparedMeshPlot,
         retained_state: Option<Rc<RefCell<MeshPlotState>>>,
         selection_callback: Option<Rc<dyn Fn(Option<MeshPlotPick>)>>,
+        export_callback: Option<Rc<dyn Fn(Result<String, gpui_px::ChartError>)>>,
     ) -> Result<(gpui::AnyElement, Rc<RefCell<MeshPlotState>>), String> {
         gpui_python_runtime::native_mesh_plot::build_prepared(
             spec,
             prepared,
             retained_state,
             selection_callback,
+            export_callback,
         )
     }
 
@@ -11275,36 +14408,212 @@ impl PythonIrShowcase {
                     ),
                 }
             }
-            "chart.export_svg" => {
+            "px.query_viewport" => {
                 let result = (|| -> Result<Value, String> {
-                    let chart_value = arguments
-                        .get("chart")
-                        .ok_or_else(|| "chart.export_svg requires chart".to_string())?;
-                    let node: ChartNode = serde_json::from_value(chart_value.clone())
-                        .map_err(|error| format!("invalid chart export payload: {error}"))?;
-                    let active_domains = self
+                    let chart_id = arguments
+                        .get("chart_id")
+                        .and_then(Value::as_str)
+                        .filter(|id| !id.trim().is_empty())
+                        .ok_or_else(|| "px.query_viewport requires chart_id".to_string())?;
+                    let state = self
                         .chart_interactions
-                        .get(&node.id)
-                        .map(|state| (state.x_domain(), state.y_domain()));
-                    let hidden = self.chart_hidden_series.get(&node.id);
-                    let svg = native_chart_svg(&node, active_domains, hidden)?;
-                    if svg.len() > 4 * 1024 * 1024 {
-                        return Err("chart SVG exceeds the 4 MiB safety limit".into());
-                    }
+                        .get(chart_id)
+                        .ok_or_else(|| format!("chart {chart_id:?} has no retained viewport"))?;
+                    let x_domain = state.x_domain();
+                    let y_domain = state.y_domain();
                     Ok(serde_json::json!({
                         "ok": true,
-                        "chart_id": node.id,
-                        "format": "svg",
-                        "svg": svg,
+                        "chart_id": chart_id,
+                        "x_domain": [x_domain.0, x_domain.1],
+                        "y_domain": [y_domain.0, y_domain.1],
+                        "zoom_level": state.zoom_level(),
+                        "is_zoomed": state.is_zoomed(),
                     }))
                 })();
+                self.send_command_result(
+                    request_id,
+                    result.unwrap_or_else(
+                        |error| serde_json::json!({"ok": false, "error": error}),
+                    ),
+                );
+            }
+            "px.query_surface_camera" => {
+                let result = (|| -> Result<Value, String> {
+                    let chart_id = arguments
+                        .get("chart_id")
+                        .and_then(Value::as_str)
+                        .filter(|id| !id.trim().is_empty())
+                        .ok_or_else(|| "px.query_surface_camera requires chart_id".to_string())?;
+                    let state = self
+                        .surface_chart_states
+                        .get(chart_id)
+                        .ok_or_else(|| format!("surface chart {chart_id:?} has no retained camera"))?
+                        .borrow();
+                    Ok(px_surface_camera_json(chart_id, &state))
+                })();
+                self.send_command_result(
+                    request_id,
+                    result.unwrap_or_else(
+                        |error| serde_json::json!({"ok": false, "error": error}),
+                    ),
+                );
+            }
+            "px.reset_surface_camera" => {
+                let result = (|| -> Result<Value, String> {
+                    let chart_id = arguments
+                        .get("chart_id")
+                        .and_then(Value::as_str)
+                        .filter(|id| !id.trim().is_empty())
+                        .ok_or_else(|| "px.reset_surface_camera requires chart_id".to_string())?;
+                    let mut state = self
+                        .surface_chart_states
+                        .get(chart_id)
+                        .ok_or_else(|| format!("surface chart {chart_id:?} has no retained camera"))?
+                        .borrow_mut();
+                    state.controls.reset();
+                    state.update_camera();
+                    Ok(px_surface_camera_json(chart_id, &state))
+                })();
                 match result {
-                    Ok(result) => self.send_command_result(request_id, result),
+                    Ok(result) => {
+                        self.send_command_result(request_id, result);
+                        cx.notify();
+                    }
                     Err(error) => self.send_command_result(
                         request_id,
                         serde_json::json!({"ok": false, "error": error}),
                     ),
                 }
+            }
+            "px.chart_accessibility_summary" => {
+                let result = (|| -> Result<Value, String> {
+                    let chart_value = arguments
+                        .get("chart")
+                        .ok_or_else(|| "px.chart_accessibility_summary requires chart".to_string())?;
+                    let node: PxChartV2Node = serde_json::from_value(chart_value.clone())
+                        .map_err(|error| format!("invalid resource chart summary payload: {error}"))?;
+                    node.validate().map_err(|error| error.to_string())?;
+                    let summary = self.resource_chart_accessibility_summary(&node)?;
+                    Ok(serde_json::json!({
+                        "ok": true,
+                        "chart_id": node.id,
+                        "summary": summary,
+                    }))
+                })();
+                self.send_command_result(
+                    request_id,
+                    result.unwrap_or_else(
+                        |error| serde_json::json!({"ok": false, "error": error}),
+                    ),
+                );
+            }
+            "px.chart_metadata" => {
+                let result = (|| -> Result<Value, String> {
+                    let chart_value = arguments
+                        .get("chart")
+                        .ok_or_else(|| "px.chart_metadata requires chart".to_string())?;
+                    let node: PxChartV2Node = serde_json::from_value(chart_value.clone())
+                        .map_err(|error| format!("invalid resource chart metadata payload: {error}"))?;
+                    node.validate().map_err(|error| error.to_string())?;
+                    if !matches!(node.chart.as_str(), "scatter" | "line" | "bar") {
+                        return Err(format!(
+                            "{} charts do not expose native legend and annotation summaries",
+                            node.chart
+                        ));
+                    }
+                    let results = self.resource_chart_metadata(&node)?;
+                    Ok(serde_json::json!({
+                        "ok": true,
+                        "chart_id": node.id,
+                        "accessibility": results.accessibility,
+                        "legend": results.legend.ok_or("native legend summary missing")?,
+                        "annotations": results.annotations.ok_or("native annotation summary missing")?,
+                    }))
+                })();
+                self.send_command_result(
+                    request_id,
+                    result.unwrap_or_else(
+                        |error| serde_json::json!({"ok": false, "error": error}),
+                    ),
+                );
+            }
+            "px.export_svg" => {
+                let result = (|| -> Result<Value, String> {
+                    let chart_value = arguments
+                        .get("chart")
+                        .ok_or_else(|| "px.export_svg requires chart".to_string())?;
+                    let node: PxChartV2Node = serde_json::from_value(chart_value.clone())
+                        .map_err(|error| format!("invalid resource chart export payload: {error}"))?;
+                    node.validate().map_err(|error| error.to_string())?;
+                    let options = px_static_svg_options(&arguments)?;
+                    let svg = self.resource_chart_svg(&node, options)?;
+                    if svg.len() > 4 * 1024 * 1024 {
+                        return Err("resource chart SVG exceeds 4 MiB limit".into());
+                    }
+                    Ok(serde_json::json!({"ok": true, "chart_id": node.id, "svg": svg}))
+                })();
+                self.send_command_result(
+                    request_id,
+                    result.unwrap_or_else(|error| serde_json::json!({"ok": false, "error": error})),
+                );
+            }
+            "px.mesh_accessibility_summary" => {
+                let result = (|| -> Result<Value, String> {
+                    let plot_value = arguments
+                        .get("plot")
+                        .ok_or_else(|| "px.mesh_accessibility_summary requires plot".to_string())?;
+                    let spec = MeshPlotSpec::from_value(plot_value.clone())
+                        .map_err(|error| format!("invalid mesh summary payload: {error}"))?;
+                    let prepared = gpui_python_runtime::native_mesh_plot::prepare_with_array_data(
+                        &spec,
+                        &self.mesh_frames,
+                        &self.dataset_frames,
+                    )?;
+                    let summary =
+                        gpui_python_runtime::native_mesh_plot::accessibility_summary_prepared(
+                            &spec, &prepared,
+                        )?;
+                    Ok(serde_json::json!({
+                        "ok": true,
+                        "chart_id": spec.id,
+                        "summary": px_accessibility_json(&summary),
+                    }))
+                })();
+                self.send_command_result(
+                    request_id,
+                    result.unwrap_or_else(
+                        |error| serde_json::json!({"ok": false, "error": error}),
+                    ),
+                );
+            }
+            "px.export_mesh_svg" => {
+                let result = (|| -> Result<Value, String> {
+                    let plot_value = arguments
+                        .get("plot")
+                        .ok_or_else(|| "px.export_mesh_svg requires plot".to_string())?;
+                    let spec = MeshPlotSpec::from_value(plot_value.clone())
+                        .map_err(|error| format!("invalid mesh export payload: {error}"))?;
+                    let svg_options = px_static_svg_options(&arguments)?;
+                    let prepared = gpui_python_runtime::native_mesh_plot::prepare_with_array_data(
+                        &spec,
+                        &self.mesh_frames,
+                        &self.dataset_frames,
+                    )?;
+                    let svg =
+                        gpui_python_runtime::native_mesh_plot::export_prepared_svg_with_options(
+                            &spec,
+                            &prepared,
+                            svg_options,
+                        )?;
+                    if svg.len() > 4 * 1024 * 1024 {
+                        return Err("resource mesh SVG exceeds 4 MiB limit".into());
+                    }
+                    Ok(serde_json::json!({"ok": true, "chart_id": spec.id, "svg": svg}))
+                })();
+                self.send_command_result(
+                    request_id,
+                    result.unwrap_or_else(|error| serde_json::json!({"ok": false, "error": error})),
+                );
             }
             "d3.zoom" => {
                 let result = (|| -> Result<Value, String> {
@@ -12993,24 +16302,23 @@ impl PythonIrShowcase {
         }
     }
 
-    fn apply_mesh_frame_message(&mut self, frame: MeshFrame) {
+    fn apply_mesh_frame_message(&mut self, frame: MeshFrame) -> Result<bool, String> {
         let resource_id = frame.resource_id.clone();
         let generation = frame.generation;
         match self.mesh_frames.ingest(frame) {
             Ok(MeshFrameOutcome::Assembled(_)) => {
                 self.clear_mesh_resource_error(&resource_id, generation);
+                Ok(true)
             }
-            Ok(MeshFrameOutcome::Incomplete) | Ok(MeshFrameOutcome::DroppedStale) => {}
+            Ok(MeshFrameOutcome::Incomplete) | Ok(MeshFrameOutcome::DroppedStale) => Ok(false),
             Err(error) => {
                 let patch_id = self.last_mesh_patch_id.as_deref().unwrap_or("<stream>");
-                self.record_mesh_resource_error(
-                    &resource_id,
-                    generation,
-                    format!(
-                        "mesh resource {:?} generation {} (patch {}) failed: {}",
-                        resource_id, generation, patch_id, error
-                    ),
+                let error = format!(
+                    "mesh resource {:?} generation {} (patch {}) failed: {}",
+                    resource_id, generation, patch_id, error
                 );
+                self.record_mesh_resource_error(&resource_id, generation, error.clone());
+                Err(error)
             }
         }
     }
@@ -13041,14 +16349,162 @@ impl PythonIrShowcase {
                         self.load_error = Some(error.to_string());
                     }
                 }
+                Ok(PythonMessage::DatasetFrame(frame)) => {
+                    let resource_id = frame.resource_id.clone();
+                    let generation = frame.generation;
+                    let sequence = frame.sequence;
+                    let byte_length = frame.byte_length;
+                    let outcome: Result<bool, String> = match self
+                        .session_state
+                        .resource_generation(&resource_id)
+                    {
+                        Some(generation)
+                            if generation == frame.generation
+                                && self
+                                    .session_state
+                                    .resource_schema_fingerprint(&resource_id)
+                                    .is_some_and(|expected| {
+                                        expected == frame.schema_fingerprint
+                                    }) =>
+                        {
+                            self.dataset_frames
+                                .ingest(frame)
+                                .map_err(|error| error.to_string())
+                        }
+                        Some(declared_generation) if declared_generation == generation => {
+                            Err(format!(
+                                "dataset resource {:?} schema fingerprint does not match its declaration",
+                                resource_id
+                            ))
+                        }
+                        Some(declared_generation) => Err(format!(
+                            "dataset resource {:?} generation {} does not match declared generation {}",
+                            resource_id, generation, declared_generation
+                        )),
+                        None => Err(format!(
+                            "dataset frame references undeclared resource {:?}",
+                            resource_id
+                        )),
+                    };
+                    let (accepted, complete, error) = match outcome {
+                        Ok(complete) => (true, complete, None),
+                        Err(error) => {
+                            self.load_error = Some(error.clone());
+                            (false, false, Some(error))
+                        }
+                    };
+                    if let Some(session) = &self.session
+                        && let Err(send_error) = session.send(&HostMessage::ResourceFrameResult {
+                            resource_id,
+                            generation,
+                            sequence,
+                            byte_length,
+                            complete,
+                            accepted,
+                            error,
+                        })
+                    {
+                        self.load_error = Some(send_error.to_string());
+                    }
+                }
+                Ok(PythonMessage::MappedDatasetFrame(frame)) => {
+                    let resource_id = frame.resource_id.clone();
+                    let generation = frame.generation;
+                    let sequence = frame.sequence;
+                    let byte_length = frame.byte_length;
+                    let outcome: Result<bool, String> = match self
+                        .session_state
+                        .resource_generation(&resource_id)
+                    {
+                        Some(declared_generation)
+                            if declared_generation == generation
+                                && self
+                                    .session_state
+                                    .resource_schema_fingerprint(&resource_id)
+                                    .is_some_and(|expected| {
+                                        expected == frame.schema_fingerprint
+                                    }) =>
+                        {
+                            self.dataset_frames
+                                .ingest_mapped(frame)
+                                .map_err(|error| error.to_string())
+                        }
+                        Some(declared_generation) if declared_generation == generation => {
+                            Err(format!(
+                                "mapped dataset resource {:?} schema fingerprint does not match its declaration",
+                                resource_id
+                            ))
+                        }
+                        Some(declared_generation) => Err(format!(
+                            "mapped dataset resource {:?} generation {} does not match declared generation {}",
+                            resource_id, generation, declared_generation
+                        )),
+                        None => Err(format!(
+                            "mapped dataset frame references undeclared resource {:?}",
+                            resource_id
+                        )),
+                    };
+                    let (accepted, complete, error) = match outcome {
+                        Ok(complete) => (true, complete, None),
+                        Err(error) => {
+                            self.load_error = Some(error.clone());
+                            (false, false, Some(error))
+                        }
+                    };
+                    if let Some(session) = &self.session
+                        && let Err(send_error) = session.send(&HostMessage::ResourceFrameResult {
+                            resource_id,
+                            generation,
+                            sequence,
+                            byte_length,
+                            complete,
+                            accepted,
+                            error,
+                        })
+                    {
+                        self.load_error = Some(send_error.to_string());
+                    }
+                }
                 Ok(PythonMessage::MeshFrame(frame)) => {
-                    self.apply_mesh_frame_message(frame);
+                    let resource_id = frame.resource_id.clone();
+                    let generation = frame.generation;
+                    let sequence = frame.sequence;
+                    let byte_length = frame.payload.len();
+                    let (accepted, complete, error) = match self.apply_mesh_frame_message(frame) {
+                        Ok(complete) => (true, complete, None),
+                        Err(error) => {
+                            self.load_error = Some(error.clone());
+                            (false, false, Some(error))
+                        }
+                    };
+                    if let Some(session) = &self.session
+                        && let Err(send_error) = session.send(&HostMessage::MeshFrameResult {
+                            resource_id,
+                            generation,
+                            sequence,
+                            byte_length,
+                            complete,
+                            accepted,
+                            error,
+                        })
+                    {
+                        self.load_error = Some(send_error.to_string());
+                    }
+                }
+                Ok(PythonMessage::ResourceDescriptor(descriptor)) => {
+                    if let Err(error) = self.session_state.apply_resource_descriptor(&descriptor) {
+                        self.load_error = Some(error.to_string());
+                    }
                 }
                 Ok(PythonMessage::DropResource {
                     resource_id,
                     generation,
                 }) => {
-                    self.release_runtime_resource(&resource_id, generation);
+                    if let Err(error) = self.session_state.drop_resource(&resource_id, generation) {
+                        self.load_error = Some(error.to_string());
+                    } else {
+                        self.release_runtime_resource(&resource_id, generation);
+                    }
                 }
                 Ok(PythonMessage::Effect {
                     request_id,
@@ -13194,6 +16650,7 @@ impl PythonIrShowcase {
         }
         self.profiler_subscriptions.clear();
         self.audio_frames.clear();
+        self.dataset_frames.clear();
         // Shutdown must release both decoded resources and the retained
         // MeshPlot cache/state that can otherwise keep GPU-facing owners
         // alive until the entity is finally dropped. Reuse the session-reset

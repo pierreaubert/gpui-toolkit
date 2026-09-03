@@ -1,4 +1,5 @@
-#![forbid(unsafe_code)]
+#![deny(unsafe_code)]
+#![deny(unsafe_op_in_unsafe_fn)]
 
 //! Retained scene specifications for the GPUI Python wrapper.
 //!
@@ -8,6 +9,7 @@
 
 pub mod audio_stream;
 mod cache;
+pub mod dataset_frames;
 mod error;
 #[cfg(feature = "gpui")]
 pub mod gpui_adapter;
@@ -21,6 +23,11 @@ pub mod session;
 pub mod showcase;
 pub mod spec_cache;
 pub mod ui_ir;
+
+/// The wheel's private abi3 extension. It exposes pure synchronous work only;
+/// GPUI windows and rendering remain host-owned.
+#[cfg(feature = "python-extension")]
+mod python_extension;
 
 pub use cache::{CacheUpdate, DirtyResources, RetainedSceneCache};
 pub use error::Scene3DError;

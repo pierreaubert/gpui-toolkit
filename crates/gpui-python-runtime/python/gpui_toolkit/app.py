@@ -8,6 +8,7 @@ import os
 import asyncio
 import inspect
 import shutil
+import secrets
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
@@ -28,7 +29,10 @@ PYTHON_APP_SESSION_VERSION = 1
 MAX_SESSION_MESSAGE_BYTES = 4 * 1024 * 1024
 PYTHON_SESSION_CAPABILITIES = frozenset({
     "events", "patches", "jobs", "effects", "commands", "profiler_telemetry",
-    "meshplot", "mesh_binary_frames",
+    "meshplot", "mesh_binary_frames", "datasets", "array_resources",
+    "mesh_frame_ack",
+    "px_interactions", "px_static_export", "px_chart_results", "resource_frame_ack",
+    "resource_mmap_frames",
 })
 
 
@@ -81,6 +85,7 @@ class App:
     sidebar_title: str = "Python UI"
     sidebar_subtitle: str = "Python declarations, Rust renderers"
     required_capabilities: Sequence[str] = field(default_factory=tuple)
+    resources: Sequence[Any] = field(default_factory=tuple)
     miniapp: MiniAppConfig | None = None
 
     def to_spec(self) -> dict[str, Any]:
@@ -138,6 +143,17 @@ class App:
         restore host-owned job history or emit a bounded recovery notice
         without delaying the native render thread.
         """
+        for resource in self.resources:
+            spec = resource.to_spec() if hasattr(resource, "to_spec") else None
+            kind = spec.get("kind") if isinstance(spec, Mapping) else None
+            if kind == "dataset":
+                context.bind_dataset(resource)
+            elif kind == "array_data":
+                context.bind_array(resource)
+            else:
+                raise TypeError(
+                    "App.resources accepts only Dataset and ArrayData resources"
+                )
 
     def on_session_shutdown(self, context: "SessionContext") -> Any:
         """Override to persist safe state before the host closes the session."""
@@ -165,7 +181,7 @@ class App:
         negotiated_capabilities = _negotiate_capabilities(
             initialize.get("capabilities", []), self.required_capabilities,
         )
-        context = SessionContext()
+        context = SessionContext(capabilities=negotiated_capabilities)
         context.send({
             "type": "ready",
             "session_version": PYTHON_APP_SESSION_VERSION,
@@ -222,6 +238,26 @@ class App:
                         context,
                     )
                     continue
+                if message_type == "resource_frame_result":
+                    try:
+                        context._acknowledge_resource_frame(message)
+                    except ValueError:
+                        context.error(
+                            str(message.get("resource_id", "")) or None,
+                            "resource_frame_ack_failed",
+                            "Native host sent an invalid resource frame acknowledgement",
+                        )
+                    continue
+                if message_type == "mesh_frame_result":
+                    try:
+                        context._acknowledge_mesh_frame(message)
+                    except ValueError:
+                        context.error(
+                            str(message.get("resource_id", "")) or None,
+                            "mesh_frame_ack_failed",
+                            "Native host sent an invalid mesh frame acknowledgement",
+                        )
+                    continue
                 if message_type == "profiler_sample":
                     executor.submit(self._handle_profiler_sample, message, context)
                     continue
@@ -267,15 +303,195 @@ class App:
             context.error(None, "profiler_sample_failed", "Python profiler-sample handler failed")
 
 
+class ResourceBackpressureError(RuntimeError):
+    """Raised before publication would exceed the session's in-flight byte limit."""
+
+
+@dataclass(frozen=True)
+class ResourceFrameAcknowledgement:
+    """Host acknowledgement for one dataset or array resource frame."""
+
+    resource_id: str
+    generation: int
+    sequence: int
+    byte_length: int
+    complete: bool
+    accepted: bool
+    error: str | None = None
+
+    @classmethod
+    def from_wire(cls, wire: Mapping[str, Any]) -> "ResourceFrameAcknowledgement":
+        resource_id = wire.get("resource_id")
+        generation = wire.get("generation")
+        sequence = wire.get("sequence")
+        byte_length = wire.get("byte_length")
+        complete = wire.get("complete")
+        accepted = wire.get("accepted")
+        error = wire.get("error")
+        if not isinstance(resource_id, str) or not resource_id:
+            raise ValueError("resource frame acknowledgement requires resource_id")
+        if not isinstance(generation, int) or isinstance(generation, bool) or generation <= 0:
+            raise ValueError("resource frame acknowledgement requires positive generation")
+        if not isinstance(sequence, int) or isinstance(sequence, bool) or sequence < 0:
+            raise ValueError("resource frame acknowledgement requires non-negative sequence")
+        if not isinstance(byte_length, int) or isinstance(byte_length, bool) or byte_length < 0:
+            raise ValueError("resource frame acknowledgement requires non-negative byte_length")
+        if not isinstance(complete, bool) or not isinstance(accepted, bool):
+            raise ValueError("resource frame acknowledgement requires boolean complete and accepted")
+        if error is not None and not isinstance(error, str):
+            raise ValueError("resource frame acknowledgement error must be a string or None")
+        if accepted and error is not None:
+            raise ValueError("accepted resource frame acknowledgement cannot contain an error")
+        if not accepted and (error is None or not error):
+            raise ValueError("rejected resource frame acknowledgement requires an error")
+        return cls(
+            resource_id=resource_id,
+            generation=generation,
+            sequence=sequence,
+            byte_length=byte_length,
+            complete=complete,
+            accepted=accepted,
+            error=error,
+        )
+
+
+@dataclass(frozen=True)
+class MeshFrameAcknowledgement(ResourceFrameAcknowledgement):
+    """Host acknowledgement for one binary mesh-resource frame."""
+
+
 class SessionContext:
     """Structured outbound messages for a persistent application session."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        max_outstanding_resource_bytes: int = 1 << 30,
+        capabilities: Sequence[str] = (),
+        resource_directory: str | os.PathLike[str] | None = None,
+        resource_token: str | None = None,
+    ) -> None:
+        if (
+            not isinstance(max_outstanding_resource_bytes, int)
+            or isinstance(max_outstanding_resource_bytes, bool)
+            or max_outstanding_resource_bytes < 0
+        ):
+            raise ValueError("max_outstanding_resource_bytes must be a non-negative integer")
         self._revision = 0
         self._lock = Lock()
         self._jobs: dict[str, CancellationToken] = {}
         self._job_history: dict[str, dict[str, Any]] = {}
         self._resource_limits: dict[str, Semaphore] = {}
+        self._max_outstanding_resource_bytes = max_outstanding_resource_bytes
+        self._outstanding_resource_bytes = 0
+        self._outstanding_resource_frames: dict[tuple[str, int, int], int] = {}
+        self._outstanding_mesh_frames: dict[tuple[str, int, int], int] = {}
+        self._outstanding_resource_paths: dict[tuple[str, int, int], Path] = {}
+        self._resource_frame_rejections: list[ResourceFrameAcknowledgement] = []
+        self._mesh_frame_rejections: list[MeshFrameAcknowledgement] = []
+        negotiated = frozenset(str(capability) for capability in capabilities)
+        directory_value = resource_directory
+        token_value = resource_token
+        mmap_negotiated = "resource_mmap_frames" in negotiated
+        if mmap_negotiated:
+            if directory_value is None:
+                directory_value = os.environ.get("GPUI_TOOLKIT_RESOURCE_DIR")
+            if token_value is None:
+                token_value = os.environ.get("GPUI_TOOLKIT_RESOURCE_TOKEN")
+            if directory_value is None or token_value is None:
+                raise RuntimeError(
+                    "native host negotiated resource_mmap_frames without session credentials"
+                )
+        if directory_value is not None and not mmap_negotiated:
+            raise ValueError("resource_directory requires resource_mmap_frames capability")
+        self._resource_directory = (
+            None if directory_value is None else Path(directory_value).resolve(strict=True)
+        )
+        self._resource_token = token_value
+        if self._resource_directory is not None:
+            if not self._resource_directory.is_dir() or not self._resource_token:
+                raise ValueError("mmap resource transport requires a directory and session token")
+
+    @property
+    def max_outstanding_resource_bytes(self) -> int:
+        return self._max_outstanding_resource_bytes
+
+    @property
+    def outstanding_resource_bytes(self) -> int:
+        with self._lock:
+            return self._outstanding_resource_bytes
+
+    @property
+    def resource_frame_rejections(self) -> tuple[ResourceFrameAcknowledgement, ...]:
+        with self._lock:
+            return tuple(self._resource_frame_rejections)
+
+    @property
+    def mesh_frame_rejections(self) -> tuple[MeshFrameAcknowledgement, ...]:
+        with self._lock:
+            return tuple(self._mesh_frame_rejections)
+
+    def _acknowledge_resource_frame(
+        self, wire: Mapping[str, Any]
+    ) -> ResourceFrameAcknowledgement:
+        acknowledgement = ResourceFrameAcknowledgement.from_wire(wire)
+        key = (
+            acknowledgement.resource_id,
+            acknowledgement.generation,
+            acknowledgement.sequence,
+        )
+        with self._lock:
+            expected_length = self._outstanding_resource_frames.get(key)
+            if expected_length is None:
+                raise ValueError(
+                    "resource frame acknowledgement does not match an outstanding frame: "
+                    f"{acknowledgement.resource_id}@{acknowledgement.generation}"
+                    f"[{acknowledgement.sequence}]"
+                )
+            if acknowledgement.byte_length != expected_length:
+                raise ValueError(
+                    "resource frame acknowledgement byte_length mismatch: "
+                    f"expected {expected_length}, got {acknowledgement.byte_length}"
+                )
+            del self._outstanding_resource_frames[key]
+            path = self._outstanding_resource_paths.pop(key, None)
+            self._outstanding_resource_bytes -= expected_length
+            if not acknowledgement.accepted:
+                self._resource_frame_rejections.append(acknowledgement)
+        if path is not None:
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                pass
+        return acknowledgement
+
+    def _acknowledge_mesh_frame(
+        self, wire: Mapping[str, Any]
+    ) -> MeshFrameAcknowledgement:
+        acknowledgement = MeshFrameAcknowledgement.from_wire(wire)
+        key = (
+            acknowledgement.resource_id,
+            acknowledgement.generation,
+            acknowledgement.sequence,
+        )
+        with self._lock:
+            expected_length = self._outstanding_mesh_frames.get(key)
+            if expected_length is None:
+                raise ValueError(
+                    "mesh frame acknowledgement does not match an outstanding frame: "
+                    f"{acknowledgement.resource_id}@{acknowledgement.generation}"
+                    f"[{acknowledgement.sequence}]"
+                )
+            if acknowledgement.byte_length != expected_length:
+                raise ValueError(
+                    "mesh frame acknowledgement byte_length mismatch: "
+                    f"expected {expected_length}, got {acknowledgement.byte_length}"
+                )
+            del self._outstanding_mesh_frames[key]
+            self._outstanding_resource_bytes -= expected_length
+            if not acknowledgement.accepted:
+                self._mesh_frame_rejections.append(acknowledgement)
+        return acknowledgement
 
     def send(self, message: dict[str, Any]) -> None:
         with self._lock:
@@ -321,6 +537,18 @@ class SessionContext:
         message = {**dict(header), "type": "mesh_frame", "byte_length": len(frame.payload)}
         encoded = self._encode_message(message).encode("utf-8")
         with self._lock:
+            key = (frame.resource_id, frame.generation, frame.sequence)
+            if key in self._outstanding_mesh_frames:
+                raise ValueError(
+                    "mesh frame is already outstanding: "
+                    f"{frame.resource_id}@{frame.generation}[{frame.sequence}]"
+                )
+            projected = self._outstanding_resource_bytes + len(frame.payload)
+            if projected > self._max_outstanding_resource_bytes:
+                raise ResourceBackpressureError(
+                    "mesh frame would exceed max_outstanding_resource_bytes: "
+                    f"{projected} > {self._max_outstanding_resource_bytes}"
+                )
             sys.stdout.flush()
             stream = getattr(sys.stdout, "buffer", None)
             if stream is None:
@@ -330,9 +558,253 @@ class SessionContext:
             stream.write(payload)
             stream.write(b"\n")
             stream.flush()
+            self._outstanding_mesh_frames[key] = len(frame.payload)
+            self._outstanding_resource_bytes = projected
+
+    def dataset_frame(
+        self,
+        *,
+        resource_id: str,
+        generation: int,
+        sequence: int,
+        chunk_count: int,
+        schema_fingerprint: str,
+        payload: bytes,
+    ) -> None:
+        """Write one bounded Arrow-IPC dataset payload outside JSON UI IR."""
+        if not resource_id or generation <= 0 or chunk_count <= 0 or not 0 <= sequence < chunk_count:
+            raise ValueError("invalid dataset frame metadata")
+        if len(payload) > 16 * 1024 * 1024:
+            raise ValueError("dataset frame exceeds 16 MiB")
+        checksum = 0xCBF29CE484222325
+        for byte in payload:
+            checksum = ((checksum ^ byte) * 0x100000001B3) & 0xFFFFFFFFFFFFFFFF
+        message = {
+            "type": "dataset_frame", "resource_id": resource_id, "generation": generation,
+            "sequence": sequence, "chunk_count": chunk_count,
+            "byte_length": len(payload), "schema_fingerprint": schema_fingerprint,
+            "checksum": checksum,
+        }
+        encoded = self._encode_message(message).encode("utf-8")
+        with self._lock:
+            key = (resource_id, generation, sequence)
+            if key in self._outstanding_resource_frames:
+                raise ValueError(
+                    "resource frame is already outstanding: "
+                    f"{resource_id}@{generation}[{sequence}]"
+                )
+            projected = self._outstanding_resource_bytes + len(payload)
+            if projected > self._max_outstanding_resource_bytes:
+                raise ResourceBackpressureError(
+                    "resource frame would exceed max_outstanding_resource_bytes: "
+                    f"{projected} > {self._max_outstanding_resource_bytes}"
+                )
+            sys.stdout.flush()
+            stream = getattr(sys.stdout, "buffer", None)
+            if stream is None:
+                raise RuntimeError("binary dataset frames require binary stdout stream")
+            stream.write(encoded)
+            stream.write(b"\n")
+            stream.write(payload)
+            stream.write(b"\n")
+            stream.flush()
+            self._outstanding_resource_frames[key] = len(payload)
+            self._outstanding_resource_bytes = projected
+
+    def mapped_dataset_frame(
+        self,
+        *,
+        resource_id: str,
+        generation: int,
+        schema_fingerprint: str,
+        payloads: Sequence[bytes],
+    ) -> None:
+        """Publish one complete generation through a session-owned mmap file."""
+        if self._resource_directory is None or self._resource_token is None:
+            raise RuntimeError("resource_mmap_frames was not negotiated")
+        if not resource_id or generation <= 0 or not schema_fingerprint:
+            raise ValueError("invalid mapped dataset frame metadata")
+        chunks = tuple(memoryview(payload).cast("B") for payload in payloads)
+        byte_length = sum(len(payload) for payload in chunks)
+        if byte_length <= 0 or byte_length > 1 << 30:
+            raise ValueError("mapped dataset resource must contain between 1 byte and 1 GiB")
+        checksum = 0xCBF29CE484222325
+        for payload in chunks:
+            for byte in payload:
+                checksum = ((checksum ^ byte) * 0x100000001B3) & 0xFFFFFFFFFFFFFFFF
+        key = (resource_id, generation, 0)
+        filename = f"resource-{secrets.token_hex(24)}.bin"
+        path = self._resource_directory / filename
+        message = {
+            "type": "mapped_dataset_frame",
+            "resource_id": resource_id,
+            "generation": generation,
+            "sequence": 0,
+            "chunk_count": 1,
+            "byte_length": byte_length,
+            "schema_fingerprint": schema_fingerprint,
+            "checksum": checksum,
+            "filename": filename,
+            "session_token": self._resource_token,
+        }
+        with self._lock:
+            if key in self._outstanding_resource_frames:
+                raise ValueError(
+                    "resource frame is already outstanding: "
+                    f"{resource_id}@{generation}[0]"
+                )
+            projected = self._outstanding_resource_bytes + byte_length
+            if projected > self._max_outstanding_resource_bytes:
+                raise ResourceBackpressureError(
+                    "resource frame would exceed max_outstanding_resource_bytes: "
+                    f"{projected} > {self._max_outstanding_resource_bytes}"
+                )
+            descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            try:
+                with os.fdopen(descriptor, "wb") as stream:
+                    for payload in chunks:
+                        stream.write(payload)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                self._write_locked(message)
+            except BaseException:
+                try:
+                    path.unlink(missing_ok=True)
+                except OSError:
+                    pass
+                raise
+            self._outstanding_resource_frames[key] = byte_length
+            self._outstanding_resource_paths[key] = path
+            self._outstanding_resource_bytes = projected
 
     def drop_resource(self, resource_id: str, generation: int) -> None:
         self.send({"type": "drop_resource", "resource_id": resource_id, "generation": generation})
+
+    def publish_resource(self, resource: Any) -> None:
+        """Publish only a v2 resource descriptor, never its values, to the host.
+
+        The negotiated data transport will transfer a corresponding Arrow IPC,
+        shared-memory, or binary payload separately. This small message lets the
+        host reject stale generations before attaching that payload.
+        """
+        if not hasattr(resource, "to_spec"):
+            raise TypeError("publish_resource requires a v2 resource with to_spec()")
+        spec = resource.to_spec()
+        kind = spec.get("kind")
+        if kind == "dataset":
+            message = {
+                "type": "resource_descriptor",
+                "schema_version": 2,
+                "resource_id": spec["id"],
+                "generation": spec["generation"],
+                "resource_kind": "dataset",
+                "schema_fingerprint": spec["schema_fingerprint"],
+                "schema": spec["schema"],
+                "column_types": spec["column_types"],
+            }
+        elif kind == "array_data":
+            message = {
+                "type": "resource_descriptor",
+                "schema_version": 2,
+                "resource_id": spec["id"],
+                "generation": spec["generation"],
+                "resource_kind": "array_data",
+                "schema_fingerprint": spec["schema_fingerprint"],
+                "shape": spec["shape"],
+                "dtype": spec["dtype"],
+                "byte_length": spec["byte_length"],
+            }
+        else:
+            raise ValueError(f"unsupported v2 resource kind {kind!r}")
+        self.send(message)
+
+    def bind_resource(self, resource: Any) -> Callable[[], None]:
+        """Publish a resource and republish only its descriptor after commits."""
+        if not hasattr(resource, "subscribe"):
+            raise TypeError("bind_resource requires a subscribable v2 resource")
+        self.publish_resource(resource)
+        return resource.subscribe(self.publish_resource)
+
+    def publish_dataset(self, dataset: Any, *, max_frame_bytes: int = 16 * 1024 * 1024) -> None:
+        """Publish a Dataset descriptor followed by bounded Arrow IPC frames.
+
+        ``publish_resource`` deliberately remains descriptor-only for negotiated
+        shared-memory transports. This explicit method is the binary fallback;
+        it never serializes a dataset value into a JSON session message.
+        """
+        if not hasattr(dataset, "arrow_ipc_chunks"):
+            raise TypeError("publish_dataset requires a v2 Dataset")
+        self.publish_resource(dataset)
+        chunks = dataset.arrow_ipc_chunks(max_bytes=max_frame_bytes)
+        if self._resource_directory is not None and chunks:
+            self.mapped_dataset_frame(
+                resource_id=dataset.id,
+                generation=dataset.generation,
+                schema_fingerprint=dataset.schema_fingerprint,
+                payloads=chunks,
+            )
+            return
+        for sequence, payload in enumerate(chunks):
+            self.dataset_frame(
+                resource_id=dataset.id,
+                generation=dataset.generation,
+                sequence=sequence,
+                chunk_count=len(chunks),
+                schema_fingerprint=dataset.schema_fingerprint,
+                payload=payload,
+            )
+
+    def bind_dataset(self, dataset: Any, *, max_frame_bytes: int = 16 * 1024 * 1024) -> Callable[[], None]:
+        """Publish a Dataset generation and all later commits through Arrow IPC.
+
+        Unlike transport-neutral ``bind_resource()``, this deliberately selects
+        the binary fallback. A missing optional Arrow adapter therefore raises
+        its typed publication error instead of leaving a live table or chart
+        silently bound to a descriptor with no batches.
+        """
+        if not hasattr(dataset, "subscribe"):
+            raise TypeError("bind_dataset requires a subscribable v2 Dataset")
+
+        def publish(updated: Any) -> None:
+            self.publish_dataset(updated, max_frame_bytes=max_frame_bytes)
+
+        publish(dataset)
+        return dataset.subscribe(publish)
+
+    def publish_array(self, array: Any, *, max_frame_bytes: int = 16 * 1024 * 1024) -> None:
+        """Publish an ArrayData descriptor followed by bounded raw-buffer frames."""
+        if not hasattr(array, "binary_chunks"):
+            raise TypeError("publish_array requires v2 ArrayData")
+        self.publish_resource(array)
+        chunks = array.binary_chunks(max_bytes=max_frame_bytes)
+        if self._resource_directory is not None and chunks and sum(map(len, chunks)) > 0:
+            self.mapped_dataset_frame(
+                resource_id=array.id,
+                generation=array.generation,
+                schema_fingerprint=array.schema_fingerprint,
+                payloads=chunks,
+            )
+            return
+        for sequence, payload in enumerate(chunks):
+            self.dataset_frame(
+                resource_id=array.id,
+                generation=array.generation,
+                sequence=sequence,
+                chunk_count=len(chunks),
+                schema_fingerprint=array.schema_fingerprint,
+                payload=payload,
+            )
+
+    def bind_array(self, array: Any, *, max_frame_bytes: int = 16 * 1024 * 1024) -> Callable[[], None]:
+        """Publish an ArrayData generation and each later replacement."""
+        if not hasattr(array, "subscribe"):
+            raise TypeError("bind_array requires subscribable v2 ArrayData")
+
+        def publish(updated: Any) -> None:
+            self.publish_array(updated, max_frame_bytes=max_frame_bytes)
+
+        publish(array)
+        return array.subscribe(publish)
 
     def snapshot(self, app_ir: dict[str, Any]) -> None:
         self.send({"type": "snapshot", "app_ir": app_ir})
@@ -350,21 +822,6 @@ class SessionContext:
             if request_id is not None:
                 message["request_id"] = request_id
             self._write_locked(message)
-
-    def replace_chart_series(self, chart_id: str, series: Any) -> None:
-        """Replace one chart series by its stable series ID."""
-        self.patch([{"op": "replace_chart_series", "chart_id": chart_id, "series": _spec(series)}])
-
-    def append_chart_series(
-        self, chart_id: str, series_id: str, x: Sequence[float], y: Sequence[float],
-    ) -> None:
-        """Append matched x/y samples without resetting chart interaction state."""
-        if len(x) != len(y):
-            raise ValueError("chart x and y samples must have equal lengths")
-        self.patch([{
-            "op": "append_chart_series", "chart_id": chart_id, "series_id": series_id,
-            "x": list(x), "y": list(y),
-        }])
 
     @staticmethod
     def _mesh_patch_generation(generation: int) -> int:

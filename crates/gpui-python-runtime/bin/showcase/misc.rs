@@ -48,18 +48,3 @@ pub(super) fn badge_colors(tone: &str, theme: &gpui_ui_kit::theme::Theme) -> (Rg
         _ => (theme.muted, theme.text_secondary),
     }
 }
-
-pub(super) fn scale_type(log: bool) -> gpui_px::ScaleType {
-    if log {
-        gpui_px::ScaleType::Log
-    } else {
-        gpui_px::ScaleType::Linear
-    }
-}
-
-pub(super) fn hex_color(value: Option<&str>, fallback: u32) -> u32 {
-    value
-        .and_then(|value| value.trim().strip_prefix('#'))
-        .and_then(|hex| u32::from_str_radix(hex, 16).ok())
-        .unwrap_or(fallback)
-}

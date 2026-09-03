@@ -13,7 +13,7 @@ from pathlib import Path
 from threading import Thread
 from time import sleep
 
-from gpui_toolkit import App, Section, meshplot, ui
+from gpui_toolkit import App, Section, px, ui
 from gpui_toolkit.resources import MeshFrameKind, ResourceStore
 
 
@@ -43,32 +43,31 @@ validity = resources.put_mesh_array(
     "mesh-pressure-valid", [True, True, True, True], shape=(4,), dtype="bool_bytes"
 )
 
-geometry = meshplot.resource_geometry_from_resources(
+geometry = px.mesh_geometry(
     positions,
     triangles,
     id="resource-baffle",
-    vertex_ids_resource=vertex_ids,
-    cell_ids_resource=cell_ids,
+    vertex_ids=vertex_ids,
+    cell_ids=cell_ids,
 )
-field = meshplot.resource_field(
-    field_values.id,
-    field_values.generation,
+field = px.mesh_field(
+    field_values,
     id="resource-pressure",
     label="Sound pressure level",
     unit="dB SPL",
-    valid_resource_id=validity.id,
-    valid_generation=validity.generation,
+    valid=validity,
 )
-plot = meshplot.plot(
-    geometry=geometry,
-    field=field,
-    id="resource-pressure-plot",
-    mode="fill_and_isolines",
-    equal_aspect=True,
-    interactions=("pan", "zoom", "inspect", "select", "reset", "fit"),
-    title="Resource-backed MeshPlot",
+plot = (
+    px.mesh("resource-pressure-plot")
+    .geometry(geometry)
+    .field(field)
+    .mode("fill_and_isolines")
+    .equal_aspect(True)
+    .interactions(("pan", "zoom", "inspect", "select", "reset", "fit"))
+    .title("Resource-backed MeshPlot")
+    .on_selection_change("resource_mesh_selected")
 )
-root = ui.mesh_plot(plot, selection_action="resource_mesh_selected")
+root = ui.mesh_plot(plot)
 
 
 class ResourceMeshApp(App):

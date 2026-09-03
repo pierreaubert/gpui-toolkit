@@ -4,6 +4,7 @@
 //! newline-delimited JSON control plane used after that snapshot is rendered.
 
 use crate::audio_stream::AudioFrame;
+use crate::dataset_frames::{DatasetFrame, MappedDatasetFrame};
 use crate::mesh_frames::MeshFrame;
 use crate::ui_ir::PythonAppIr;
 use serde::{Deserialize, Serialize};
@@ -30,6 +31,14 @@ pub const DEFAULT_HOST_CAPABILITIES: &[&str] = &[
     "audio_binary_frames",
     "meshplot",
     "mesh_binary_frames",
+    "mesh_frame_ack",
+    "datasets",
+    "array_resources",
+    "px_interactions",
+    "px_static_export",
+    "px_chart_results",
+    "resource_frame_ack",
+    "resource_mmap_frames",
 ];
 
 #[derive(Debug, Clone, PartialEq, Error)]
@@ -58,6 +67,14 @@ pub enum SessionError {
         received: u64,
         current: u64,
         patch_id: Option<String>,
+    },
+    #[error(
+        "resource {resource_id:?} generation {received} is stale; current generation is {current}"
+    )]
+    StaleResourceGeneration {
+        resource_id: String,
+        received: u64,
+        current: u64,
     },
     #[error("mesh plot {plot_id:?} has invalid generation 0")]
     InvalidMeshGeneration { plot_id: String },
@@ -118,6 +135,28 @@ pub enum HostMessage {
         request_id: String,
         result: Value,
     },
+    /// Host acceptance or rejection of one binary dataset/ArrayData chunk.
+    ResourceFrameResult {
+        resource_id: String,
+        generation: u64,
+        sequence: u32,
+        byte_length: usize,
+        complete: bool,
+        accepted: bool,
+        #[serde(default)]
+        error: Option<String>,
+    },
+    /// Host acceptance or rejection of one binary mesh-resource chunk.
+    MeshFrameResult {
+        resource_id: String,
+        generation: u64,
+        sequence: u32,
+        byte_length: usize,
+        complete: bool,
+        accepted: bool,
+        #[serde(default)]
+        error: Option<String>,
+    },
     /// A bounded-rate, host-owned allocation sample from a subscription.
     ProfilerSample {
         subscription_id: String,
@@ -168,19 +207,6 @@ pub enum PatchOp {
     Reorder {
         parent_id: String,
         child_ids: Vec<String>,
-    },
-    /// Replace one named Cartesian series without replacing the containing
-    /// chart node or its retained interaction state.
-    ReplaceChartSeries {
-        chart_id: String,
-        series: Value,
-    },
-    /// Append samples to an existing named Cartesian series.
-    AppendChartSeries {
-        chart_id: String,
-        series_id: String,
-        x: Vec<f64>,
-        y: Vec<f64>,
     },
     ReplaceMeshGeometry {
         plot_id: String,
@@ -411,6 +437,63 @@ pub struct ActionSuperseded {
     pub superseded_by: String,
 }
 
+/// Metadata-only announcement for a dataset or dense array. Payload bytes are
+/// deliberately transported out-of-band; accepting a descriptor must never
+/// make the control channel materialize user values.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ResourceDescriptor {
+    #[serde(default = "default_resource_descriptor_version")]
+    pub schema_version: u32,
+    pub resource_id: String,
+    pub generation: u64,
+    pub resource_kind: String,
+    #[serde(default)]
+    pub schema_fingerprint: Option<String>,
+    #[serde(default)]
+    pub schema: Vec<String>,
+    #[serde(default)]
+    pub column_types: HashMap<String, String>,
+    #[serde(default)]
+    pub shape: Vec<usize>,
+    #[serde(default)]
+    pub dtype: Option<String>,
+    #[serde(default)]
+    pub byte_length: Option<u64>,
+}
+
+impl ResourceDescriptor {
+    pub fn validate(&self) -> Result<(), SessionError> {
+        if self.schema_version != 2
+            || self.resource_id.trim().is_empty()
+            || self.generation == 0
+            || self.resource_kind.trim().is_empty()
+        {
+            return Err(SessionError::EmptyId);
+        }
+        if self.shape.contains(&0) {
+            return Err(SessionError::MalformedMessage {
+                message: "resource shape dimensions must be positive".into(),
+            });
+        }
+        if !self.schema.is_empty()
+            && (self.schema.len() != self.column_types.len()
+                || self
+                    .schema
+                    .iter()
+                    .any(|field| field.trim().is_empty() || !self.column_types.contains_key(field)))
+        {
+            return Err(SessionError::MalformedMessage {
+                message: "resource schema and column types disagree".into(),
+            });
+        }
+        Ok(())
+    }
+}
+
+fn default_resource_descriptor_version() -> u32 {
+    2
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum PythonMessage {
@@ -424,9 +507,13 @@ pub enum PythonMessage {
     /// Header for a raw binary frame. The stdout reader fills `payload` from
     /// the exact byte count immediately following the header line.
     ResourceFrame(AudioFrame),
+    DatasetFrame(DatasetFrame),
+    /// Complete Dataset/ArrayData generation in a host-created session mmap.
+    MappedDatasetFrame(MappedDatasetFrame),
     /// Header for a chunked mesh frame. The stdout reader fills the payload
     /// from the exact byte count immediately following the header line.
     MeshFrame(MeshFrame),
+    ResourceDescriptor(ResourceDescriptor),
     DropResource {
         resource_id: String,
         generation: u64,
@@ -461,6 +548,8 @@ pub struct SessionState {
     revision: u64,
     pub capabilities: Vec<String>,
     mesh_generations: HashMap<String, u64>,
+    resource_generations: HashMap<String, u64>,
+    resource_schema_fingerprints: HashMap<String, String>,
 }
 
 impl SessionState {
@@ -469,6 +558,8 @@ impl SessionState {
             revision: 0,
             capabilities,
             mesh_generations: HashMap::new(),
+            resource_generations: HashMap::new(),
+            resource_schema_fingerprints: HashMap::new(),
         }
     }
     pub fn revision(&self) -> u64 {
@@ -589,12 +680,106 @@ impl SessionState {
         self.mesh_generations.get(plot_id).copied()
     }
 
+    /// Accept a descriptor only when it is not older than the resource already
+    /// known to this session. Equal generations are idempotent announcements.
+    pub fn apply_resource_descriptor(
+        &mut self,
+        descriptor: &ResourceDescriptor,
+    ) -> Result<(), SessionError> {
+        descriptor.validate()?;
+        if let Some(current) = self
+            .resource_generations
+            .get(&descriptor.resource_id)
+            .copied()
+            && descriptor.generation < current
+        {
+            return Err(SessionError::StaleResourceGeneration {
+                resource_id: descriptor.resource_id.clone(),
+                received: descriptor.generation,
+                current,
+            });
+        }
+        if self
+            .resource_generations
+            .get(&descriptor.resource_id)
+            .is_some_and(|current| *current == descriptor.generation)
+            && self
+                .resource_schema_fingerprints
+                .get(&descriptor.resource_id)
+                .is_some_and(|current| {
+                    descriptor.schema_fingerprint.as_deref() != Some(current.as_str())
+                })
+        {
+            return Err(SessionError::MalformedMessage {
+                message: format!(
+                    "resource {:?} changed schema fingerprint within generation {}",
+                    descriptor.resource_id, descriptor.generation
+                ),
+            });
+        }
+        self.resource_generations
+            .entry(descriptor.resource_id.clone())
+            .and_modify(|current| *current = (*current).max(descriptor.generation))
+            .or_insert(descriptor.generation);
+        match descriptor.schema_fingerprint.as_ref() {
+            Some(fingerprint) => {
+                self.resource_schema_fingerprints
+                    .insert(descriptor.resource_id.clone(), fingerprint.clone());
+            }
+            None => {
+                self.resource_schema_fingerprints
+                    .remove(&descriptor.resource_id);
+            }
+        }
+        Ok(())
+    }
+
+    #[must_use]
+    pub fn resource_generation(&self, resource_id: &str) -> Option<u64> {
+        self.resource_generations.get(resource_id).copied()
+    }
+
+    pub fn resource_schema_fingerprint(&self, resource_id: &str) -> Option<&str> {
+        self.resource_schema_fingerprints
+            .get(resource_id)
+            .map(String::as_str)
+    }
+
+    /// Release a retained resource only for its currently announced generation.
+    /// A delayed close must not tear down a newer publication sharing the ID.
+    pub fn drop_resource(
+        &mut self,
+        resource_id: &str,
+        generation: u64,
+    ) -> Result<(), SessionError> {
+        if let Some(current) = self.resource_generations.get(resource_id).copied()
+            && generation < current
+        {
+            return Err(SessionError::StaleResourceGeneration {
+                resource_id: resource_id.into(),
+                received: generation,
+                current,
+            });
+        }
+        if self
+            .resource_generations
+            .get(resource_id)
+            .is_some_and(|current| *current == generation)
+        {
+            self.resource_generations.remove(resource_id);
+            self.resource_schema_fingerprints.remove(resource_id);
+        }
+        Ok(())
+    }
+
     /// Reset revision and MeshPlot generation history when a new Python
     /// producer is installed. The negotiated capability set belongs to the
     /// host and remains valid across child-process restarts.
     pub fn reset_for_new_session(&mut self) {
         self.revision = 0;
         self.mesh_generations.clear();
+        self.resource_generations.clear();
+        self.resource_schema_fingerprints.clear();
     }
 
     /// Drop generation history for plots that are no longer present in the
@@ -995,5 +1180,244 @@ mod tests {
         })
         .unwrap();
         assert!(!jobs.has_active_jobs());
+    }
+
+    #[test]
+    fn resource_descriptors_round_trip_without_values() {
+        let message = PythonMessage::ResourceDescriptor(ResourceDescriptor {
+            schema_version: 2,
+            resource_id: "events".into(),
+            generation: 3,
+            resource_kind: "dataset".into(),
+            schema_fingerprint: Some("schema-v1".into()),
+            schema: vec!["frequency".into()],
+            column_types: HashMap::from([("frequency".into(), "float64".into())]),
+            shape: vec![],
+            dtype: None,
+            byte_length: None,
+        });
+        let encoded = serde_json::to_vec(&message).unwrap();
+        assert!(!String::from_utf8_lossy(&encoded).contains("20.0"));
+        assert_eq!(
+            serde_json::from_slice::<PythonMessage>(&encoded).unwrap(),
+            message
+        );
+    }
+
+    #[test]
+    fn resource_descriptor_retains_schema_fingerprint_by_generation() {
+        let mut state = SessionState::new(vec![]);
+        state
+            .apply_resource_descriptor(&ResourceDescriptor {
+                schema_version: 2,
+                resource_id: "events".into(),
+                generation: 4,
+                resource_kind: "dataset".into(),
+                schema_fingerprint: Some("events-v4".into()),
+                schema: vec!["id".into()],
+                column_types: HashMap::from([("id".into(), "int64".into())]),
+                shape: vec![],
+                dtype: None,
+                byte_length: None,
+            })
+            .unwrap();
+        assert_eq!(
+            state.resource_schema_fingerprint("events"),
+            Some("events-v4")
+        );
+        assert!(
+            state
+                .apply_resource_descriptor(&ResourceDescriptor {
+                    schema_version: 2,
+                    resource_id: "events".into(),
+                    generation: 4,
+                    resource_kind: "dataset".into(),
+                    schema_fingerprint: Some("other-schema".into()),
+                    schema: vec!["id".into()],
+                    column_types: HashMap::from([("id".into(), "int64".into())]),
+                    shape: vec![],
+                    dtype: None,
+                    byte_length: None,
+                })
+                .is_err()
+        );
+        state
+            .apply_resource_descriptor(&ResourceDescriptor {
+                schema_version: 2,
+                resource_id: "events".into(),
+                generation: 5,
+                resource_kind: "array_data".into(),
+                schema_fingerprint: None,
+                schema: vec![],
+                column_types: HashMap::new(),
+                shape: vec![1],
+                dtype: Some("f32".into()),
+                byte_length: Some(4),
+            })
+            .unwrap();
+        assert_eq!(state.resource_schema_fingerprint("events"), None);
+        state.drop_resource("events", 5).unwrap();
+        assert_eq!(state.resource_schema_fingerprint("events"), None);
+    }
+
+    #[test]
+    fn resource_descriptor_rejects_empty_ids_and_zero_dimensions() {
+        assert!(
+            ResourceDescriptor {
+                schema_version: 2,
+                resource_id: String::new(),
+                generation: 1,
+                resource_kind: "dataset".into(),
+                schema_fingerprint: None,
+                shape: vec![],
+                dtype: None,
+                byte_length: None,
+                schema: vec![],
+                column_types: HashMap::new(),
+            }
+            .validate()
+            .is_err()
+        );
+        assert!(
+            ResourceDescriptor {
+                schema_version: 2,
+                resource_id: "image".into(),
+                generation: 1,
+                resource_kind: "array_data".into(),
+                schema_fingerprint: None,
+                shape: vec![32, 0],
+                dtype: Some("u8".into()),
+                byte_length: Some(32),
+                schema: vec![],
+                column_types: HashMap::new(),
+            }
+            .validate()
+            .is_err()
+        );
+        assert!(
+            ResourceDescriptor {
+                schema_version: 1,
+                resource_id: "legacy".into(),
+                generation: 1,
+                resource_kind: "dataset".into(),
+                schema_fingerprint: None,
+                schema: vec![],
+                column_types: HashMap::new(),
+                shape: vec![],
+                dtype: None,
+                byte_length: None,
+            }
+            .validate()
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn session_state_rejects_stale_resource_generations() {
+        let mut state = SessionState::new(
+            DEFAULT_HOST_CAPABILITIES
+                .iter()
+                .map(ToString::to_string)
+                .collect(),
+        );
+        let current = ResourceDescriptor {
+            schema_version: 2,
+            resource_id: "events".into(),
+            generation: 2,
+            resource_kind: "dataset".into(),
+            schema_fingerprint: Some("schema".into()),
+            shape: vec![],
+            dtype: None,
+            byte_length: None,
+            schema: vec![],
+            column_types: HashMap::new(),
+        };
+        state.apply_resource_descriptor(&current).unwrap();
+        assert_eq!(state.resource_generation("events"), Some(2));
+        let stale = ResourceDescriptor {
+            generation: 1,
+            ..current
+        };
+        assert!(matches!(
+            state.apply_resource_descriptor(&stale),
+            Err(SessionError::StaleResourceGeneration { .. })
+        ));
+    }
+
+    #[test]
+    fn resource_drop_cannot_release_a_newer_generation() {
+        let mut state = SessionState::new(vec![]);
+        let descriptor = ResourceDescriptor {
+            schema_version: 2,
+            resource_id: "events".into(),
+            generation: 2,
+            resource_kind: "dataset".into(),
+            schema_fingerprint: None,
+            shape: vec![],
+            dtype: None,
+            byte_length: None,
+            schema: vec![],
+            column_types: HashMap::new(),
+        };
+        state.apply_resource_descriptor(&descriptor).unwrap();
+        assert!(matches!(
+            state.drop_resource("events", 1),
+            Err(SessionError::StaleResourceGeneration { .. })
+        ));
+        state.drop_resource("events", 2).unwrap();
+        assert_eq!(state.resource_generation("events"), None);
+    }
+
+    #[test]
+    fn resource_frame_result_round_trips_with_chunk_identity() {
+        let message = HostMessage::ResourceFrameResult {
+            resource_id: "events".into(),
+            generation: 7,
+            sequence: 2,
+            byte_length: 65_536,
+            complete: false,
+            accepted: false,
+            error: Some("checksum mismatch".into()),
+        };
+        let encoded = serde_json::to_vec(&message).unwrap();
+        assert_eq!(
+            serde_json::from_slice::<HostMessage>(&encoded).unwrap(),
+            message
+        );
+        let wire: Value = serde_json::from_slice(&encoded).unwrap();
+        assert_eq!(wire["type"], "resource_frame_result");
+        assert_eq!(wire["resource_id"], "events");
+        assert_eq!(wire["generation"], 7);
+        assert_eq!(wire["sequence"], 2);
+        assert_eq!(wire["byte_length"], 65_536);
+        assert_eq!(wire["accepted"], false);
+        assert_eq!(wire["error"], "checksum mismatch");
+    }
+
+    #[test]
+    fn mesh_frame_result_round_trips_with_chunk_identity() {
+        let message = HostMessage::MeshFrameResult {
+            resource_id: "surface-field".into(),
+            generation: 4,
+            sequence: 1,
+            byte_length: 32_768,
+            complete: true,
+            accepted: true,
+            error: None,
+        };
+        let encoded = serde_json::to_vec(&message).unwrap();
+        assert_eq!(
+            serde_json::from_slice::<HostMessage>(&encoded).unwrap(),
+            message
+        );
+        let wire: Value = serde_json::from_slice(&encoded).unwrap();
+        assert_eq!(wire["type"], "mesh_frame_result");
+        assert_eq!(wire["resource_id"], "surface-field");
+        assert_eq!(wire["generation"], 4);
+        assert_eq!(wire["sequence"], 1);
+        assert_eq!(wire["byte_length"], 32_768);
+        assert_eq!(wire["complete"], true);
+        assert_eq!(wire["accepted"], true);
+        assert_eq!(wire["error"], Value::Null);
     }
 }

@@ -84,6 +84,7 @@ pub struct MeshFrame {
     pub kind: MeshFrameKind,
     pub dtype: MeshDtype,
     pub shape: Vec<u32>,
+    pub checksum: u64,
     /// Filled by the framed stdout reader and omitted from the JSON header.
     #[serde(skip)]
     pub payload: Vec<u8>,
@@ -131,6 +132,8 @@ pub enum MeshFrameError {
     ShapePayloadMismatch { received: usize, expected: usize },
     #[error("mesh frame header has byte_length {declared}, but payload has {received} bytes")]
     HeaderPayloadMismatch { declared: usize, received: usize },
+    #[error("mesh frame checksum does not match payload")]
+    ChecksumMismatch,
     #[error("invalid mesh frame header: {message}")]
     InvalidHeader { message: String },
     #[error("unexpected mesh frame type {received:?}")]
@@ -153,6 +156,7 @@ struct MeshFrameHeader<'a> {
     dtype: MeshDtype,
     shape: &'a [u32],
     byte_length: usize,
+    checksum: u64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -167,6 +171,7 @@ struct DecodedMeshFrameHeader {
     dtype: MeshDtype,
     shape: Vec<u32>,
     byte_length: usize,
+    checksum: u64,
 }
 
 impl DecodedMeshFrameHeader {
@@ -192,12 +197,21 @@ impl DecodedMeshFrameHeader {
             kind: self.kind,
             dtype: self.dtype,
             shape: self.shape,
+            checksum: self.checksum,
             payload,
         })
     }
 }
 
 impl MeshFrame {
+    pub fn checksum(payload: &[u8]) -> u64 {
+        payload
+            .iter()
+            .fold(0xcbf2_9ce4_8422_2325_u64, |hash, byte| {
+                (hash ^ u64::from(*byte)).wrapping_mul(0x100_0000_01b3)
+            })
+    }
+
     /// Encode a JSON header, newline, exact payload, and the framing newline.
     pub fn encode(&self) -> Vec<u8> {
         let header = MeshFrameHeader {
@@ -210,6 +224,7 @@ impl MeshFrame {
             dtype: self.dtype,
             shape: &self.shape,
             byte_length: self.payload.len(),
+            checksum: self.checksum,
         };
         let mut encoded = serde_json::to_vec(&header)
             .expect("MeshFrameHeader contains only infallible serde values");
@@ -256,6 +271,9 @@ impl MeshFrame {
             return Err(MeshFrameError::FrameTooLarge {
                 limit: MAX_MESH_FRAME_BYTES,
             });
+        }
+        if self.checksum != Self::checksum(&self.payload) {
+            return Err(MeshFrameError::ChecksumMismatch);
         }
         let elements = shape_elements(&self.shape)?;
         let expected = self
@@ -1011,7 +1029,8 @@ mod tests {
     fn fixture() -> MeshFrame {
         let payload = (0..300)
             .flat_map(|value| (value as f64).to_le_bytes())
-            .collect();
+            .collect::<Vec<_>>();
+        let checksum = MeshFrame::checksum(&payload);
         MeshFrame {
             resource_id: "geometry".into(),
             generation: 1,
@@ -1021,10 +1040,13 @@ mod tests {
             dtype: MeshDtype::F64LE,
             shape: vec![100, 3],
             payload,
+            checksum,
         }
     }
 
     fn tiny_frame(resource_id: &str, generation: u64, value: u8) -> MeshFrame {
+        let payload = vec![value; 8];
+        let checksum = MeshFrame::checksum(&payload);
         MeshFrame {
             resource_id: resource_id.into(),
             generation,
@@ -1033,7 +1055,8 @@ mod tests {
             kind: MeshFrameKind::Field,
             dtype: MeshDtype::U64LE,
             shape: vec![1],
-            payload: vec![value; 8],
+            payload,
+            checksum,
         }
     }
 
@@ -1056,6 +1079,13 @@ mod tests {
     }
 
     #[test]
+    fn checksum_mismatch_is_rejected() {
+        let mut frame = fixture();
+        frame.payload[0] ^= 0xff;
+        assert_eq!(frame.validate(), Err(MeshFrameError::ChecksumMismatch));
+    }
+
+    #[test]
     fn json_header_deserialization_presizes_mesh_payload_once() {
         let header = serde_json::json!({
             "type": "mesh_frame",
@@ -1067,6 +1097,7 @@ mod tests {
             "dtype": "f64le",
             "shape": [1],
             "byte_length": 8,
+            "checksum": MeshFrame::checksum(&[0; 8]),
         });
 
         let frame: MeshFrame = serde_json::from_value(header).expect("header deserializes");
@@ -1101,7 +1132,8 @@ mod tests {
         let payload = [1.0_f64, f64::NAN]
             .into_iter()
             .flat_map(f64::to_le_bytes)
-            .collect();
+            .collect::<Vec<_>>();
+        let checksum = MeshFrame::checksum(&payload);
         let frame = MeshFrame {
             resource_id: "field".into(),
             generation: 1,
@@ -1111,6 +1143,7 @@ mod tests {
             dtype: MeshDtype::F64LE,
             shape: vec![2],
             payload,
+            checksum,
         };
         let mut store = MeshFrameStore::new();
         store.ingest(frame).expect("field ingests");
@@ -1144,15 +1177,20 @@ mod tests {
             .flat_map(|value| value.to_le_bytes())
             .collect::<Vec<_>>();
         let frames = (0..3)
-            .map(|sequence| MeshFrame {
-                resource_id: "field".into(),
-                generation: 1,
-                sequence,
-                chunk_count: 3,
-                kind: MeshFrameKind::Field,
-                dtype: MeshDtype::U32LE,
-                shape: vec![12],
-                payload: payload[sequence as usize * 16..sequence as usize * 16 + 16].to_vec(),
+            .map(|sequence| {
+                let payload = payload[sequence as usize * 16..sequence as usize * 16 + 16].to_vec();
+                let checksum = MeshFrame::checksum(&payload);
+                MeshFrame {
+                    resource_id: "field".into(),
+                    generation: 1,
+                    sequence,
+                    chunk_count: 3,
+                    kind: MeshFrameKind::Field,
+                    dtype: MeshDtype::U32LE,
+                    shape: vec![12],
+                    payload,
+                    checksum,
+                }
             })
             .collect::<Vec<_>>();
         let mut store = MeshFrameStore::new();
@@ -1217,6 +1255,7 @@ mod tests {
         frame.dtype = MeshDtype::BoolPacked;
         frame.shape = vec![8];
         frame.payload = vec![0x01];
+        frame.checksum = MeshFrame::checksum(&frame.payload);
         assert!(frame.validate().is_ok());
         frame.dtype = MeshDtype::BoolBytes;
         frame.shape = vec![1];
@@ -1257,6 +1296,7 @@ mod tests {
             "dtype": "u64le",
             "shape": [1],
             "byte_length": 8,
+            "checksum": MeshFrame::checksum(&[0; 8]),
         });
         assert!(matches!(
             MeshFrame::decode(&wrong_type.to_string(), &[0; 8]),
@@ -1272,6 +1312,7 @@ mod tests {
             "dtype": "u64le",
             "shape": [1],
             "byte_length": 7,
+            "checksum": MeshFrame::checksum(&[0; 8]),
         });
         assert!(matches!(
             MeshFrame::decode(&short_header.to_string(), &[0; 8]),
@@ -1279,6 +1320,7 @@ mod tests {
         ));
         let mut empty = tiny_frame("field", 1, 1);
         empty.payload.clear();
+        empty.checksum = MeshFrame::checksum(&empty.payload);
         assert!(matches!(
             empty.validate(),
             Err(MeshFrameError::ShapePayloadMismatch { .. })
@@ -1290,6 +1332,7 @@ mod tests {
         let mut first = tiny_frame("assembly", 1, 1);
         first.chunk_count = 2;
         first.payload = vec![1; 4];
+        first.checksum = MeshFrame::checksum(&first.payload);
         let mut store = MeshFrameStore::new();
         assert_eq!(
             store.ingest(first.clone()).unwrap(),
@@ -1323,6 +1366,7 @@ mod tests {
         let mut short = first;
         short.resource_id = "short".into();
         short.payload = vec![1; 3];
+        short.checksum = MeshFrame::checksum(&short.payload);
         let mut short_store = MeshFrameStore::new();
         assert_eq!(
             short_store.ingest(short.clone()).unwrap(),
@@ -1338,6 +1382,7 @@ mod tests {
 
         let mut corrected_first = short.clone();
         corrected_first.payload = vec![1; 4];
+        corrected_first.checksum = MeshFrame::checksum(&corrected_first.payload);
         assert_eq!(
             short_store.ingest(corrected_first).unwrap(),
             MeshFrameOutcome::Incomplete
@@ -1345,6 +1390,7 @@ mod tests {
         let mut corrected_second = short;
         corrected_second.sequence = 1;
         corrected_second.payload = vec![1; 4];
+        corrected_second.checksum = MeshFrame::checksum(&corrected_second.payload);
         let MeshFrameOutcome::Assembled(resource) = short_store
             .ingest(corrected_second)
             .expect("a corrected retransmission must recover the same generation")

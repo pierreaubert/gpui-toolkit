@@ -8,12 +8,13 @@ real measurement data.
 
 from __future__ import annotations
 
+from array import array
 import json
 import math
 import os
 from typing import Sequence
 
-from gpui_toolkit import App, charts, section, ui
+from gpui_toolkit import App, data, px, section, ui
 from gpui_toolkit import scene3d as s3
 
 
@@ -21,6 +22,7 @@ FREQUENCIES = tuple(
     20.0 * (20_000.0 / 20.0) ** (index / 63.0) for index in range(64)
 )
 ANGLES = tuple(-180.0 + 10.0 * index for index in range(37))
+_RESOURCES: list[object] = []
 
 
 def _base_response(frequency: float) -> float:
@@ -83,54 +85,46 @@ def directivity_grid(angles: Sequence[float] = ANGLES) -> list[list[float]]:
     ]
 
 
-def _curve_series(curves: dict[str, list[float]]) -> tuple[charts.Series, ...]:
+def _curve_dataset(curves: dict[str, list[float]], resource_id: str) -> data.Dataset:
     styles = {
-        "on_axis": ("On-axis", "#f97316", 2.6),
-        "listening_window": ("Listening window", "#22c55e", 2.0),
-        "early_reflections": ("Early reflections", "#38bdf8", 1.8),
-        "sound_power": ("Sound power", "#a78bfa", 1.8),
-        "predicted_in_room": ("Predicted in-room", "#facc15", 2.0),
+        "on_axis": ("On-axis", "#f97316"),
+        "listening_window": ("Listening window", "#22c55e"),
+        "early_reflections": ("Early reflections", "#38bdf8"),
+        "sound_power": ("Sound power", "#a78bfa"),
+        "predicted_in_room": ("Predicted in-room", "#facc15"),
     }
-    return tuple(
-        charts.Series(
-            id,
-            FREQUENCIES,
-            values,
-            label=styles[id][0],
-            color=styles[id][1],
-            stroke_width=styles[id][2],
-        )
-        for id, values in curves.items()
+    frequency: list[float] = []
+    level: list[float] = []
+    series: list[str] = []
+    color: list[str] = []
+    for curve_id, values in curves.items():
+        label, curve_color = styles[curve_id]
+        frequency.extend(FREQUENCIES)
+        level.extend(values)
+        series.extend([label] * len(values))
+        color.extend([curve_color] * len(values))
+    resource = data.Dataset.from_mapping(
+        {"frequency": frequency, "level": level, "series": series, "color": color},
+        id=resource_id,
     )
+    _RESOURCES.append(resource)
+    return resource
 
 
-def build_cea2034_chart() -> charts.Chart:
+def build_cea2034_chart() -> px.ChartBuilder:
     curves = frequency_response_curves()
-    return charts.line(
-        "cea2034",
-        FREQUENCIES,
-        curves["on_axis"],
-        title="CEA2034-style response",
-        x_log=True,
-        x_label="Frequency (Hz)",
-        y_label="SPL (dB)",
-        x_range=(20.0, 20_000.0),
-        y_range=(35.0, 95.0),
-        series=_curve_series(curves),
-        legend_position=charts.LegendPosition.BOTTOM,
-        annotations=(
-            charts.ChartAnnotation(
-                "reference-frequency",
-                "1 kHz",
-                charts.AnnotationTarget.X_VALUE,
-                x=1_000.0,
-                color="#94a3b8",
-            ),
-        ),
+    resource = _curve_dataset(curves, "spinorama-cea2034")
+    return (
+        px.line("cea2034").data(resource).x("frequency").y("level")
+        .series("series").color("color").title("CEA2034-style response")
+        .x_log().x_label("Frequency (Hz)").y_label("SPL (dB)")
+        .x_range(20.0, 20_000.0).y_range(35.0, 95.0)
+        .legend_position(px.LegendPosition.BOTTOM)
+        .annotation(px.Annotation.x_value("reference-frequency", "1 kHz", 1_000.0).color("#94a3b8"))
     )
 
 
-def _angle_series(angles: Sequence[float]) -> tuple[charts.Series, ...]:
+def _angle_dataset(angles: Sequence[float], resource_id: str) -> data.Dataset:
     colors = {
         -90.0: "#38bdf8",
         -60.0: "#60a5fa",
@@ -140,81 +134,77 @@ def _angle_series(angles: Sequence[float]) -> tuple[charts.Series, ...]:
         60.0: "#60a5fa",
         90.0: "#38bdf8",
     }
-    return tuple(
-        charts.Series(
-            f"angle-{int(angle):+d}",
-            FREQUENCIES,
-            [_directivity_response(frequency, angle) for frequency in FREQUENCIES],
-            label=f"{angle:+.0f}°",
-            color=colors.get(angle, "#94a3b8"),
-            stroke_width=2.2 if angle == 0.0 else 1.4,
-        )
-        for angle in angles
+    frequency: list[float] = []
+    level: list[float] = []
+    series: list[str] = []
+    color: list[str] = []
+    for angle in angles:
+        frequency.extend(FREQUENCIES)
+        level.extend(_directivity_response(value, angle) for value in FREQUENCIES)
+        series.extend([f"{angle:+.0f}°"] * len(FREQUENCIES))
+        color.extend([colors.get(angle, "#94a3b8")] * len(FREQUENCIES))
+    resource = data.Dataset.from_mapping(
+        {"frequency": frequency, "level": level, "series": series, "color": color},
+        id=resource_id,
     )
+    _RESOURCES.append(resource)
+    return resource
 
 
-def build_horizontal_spl_chart() -> charts.Chart:
+def build_horizontal_spl_chart() -> px.ChartBuilder:
     angles = (-90.0, -60.0, -30.0, 0.0, 30.0, 60.0, 90.0)
-    series = _angle_series(angles)
-    return charts.line(
-        "horizontal-spl",
-        FREQUENCIES,
-        series[3].y,
-        title="Horizontal SPL",
-        x_log=True,
-        x_label="Frequency (Hz)",
-        y_label="SPL (dB)",
-        x_range=(20.0, 20_000.0),
-        y_range=(35.0, 95.0),
-        series=series,
-        legend_position=charts.LegendPosition.BOTTOM,
+    resource = _angle_dataset(angles, "spinorama-horizontal")
+    return (
+        px.line("horizontal-spl").data(resource).x("frequency").y("level")
+        .series("series").color("color").title("Horizontal SPL")
+        .x_log().x_label("Frequency (Hz)").y_label("SPL (dB)")
+        .x_range(20.0, 20_000.0).y_range(35.0, 95.0)
+        .legend_position(px.LegendPosition.BOTTOM)
     )
 
 
-def build_vertical_spl_chart() -> charts.Chart:
+def build_vertical_spl_chart() -> px.ChartBuilder:
     angles = (-90.0, -45.0, 0.0, 45.0, 90.0)
-    series = _angle_series(angles)
-    return charts.line(
-        "vertical-spl",
-        FREQUENCIES,
-        series[2].y,
-        title="Vertical SPL",
-        x_log=True,
-        x_label="Frequency (Hz)",
-        y_label="SPL (dB)",
-        x_range=(20.0, 20_000.0),
-        y_range=(35.0, 95.0),
-        series=series,
-        legend_position=charts.LegendPosition.BOTTOM,
+    resource = _angle_dataset(angles, "spinorama-vertical")
+    return (
+        px.line("vertical-spl").data(resource).x("frequency").y("level")
+        .series("series").color("color").title("Vertical SPL")
+        .x_log().x_label("Frequency (Hz)").y_label("SPL (dB)")
+        .x_range(20.0, 20_000.0).y_range(35.0, 95.0)
+        .legend_position(px.LegendPosition.BOTTOM)
     )
 
 
-def build_contour_chart() -> charts.Chart:
+def build_contour_chart() -> px.ChartBuilder:
     grid = directivity_grid()
-    return charts.contour(
-        "directivity-contour",
-        [value for row in grid for value in row],
-        len(FREQUENCIES),
-        len(ANGLES),
-        title="Horizontal directivity contour",
-        x=FREQUENCIES,
-        y=ANGLES,
-        x_log=True,
-        x_label="Frequency (Hz)",
-        y_label="Angle (deg)",
-        color_scale="turbo",
-        color_label="SPL",
-        color_unit="dB",
-        color_range=(-40.0, 95.0),
-        levels=(40.0, 50.0, 60.0, 70.0, 80.0, 90.0),
-        aspect_ratio=1.45,
+    resource = data.ArrayData.from_buffer(
+        array("d", (value for row in grid for value in row)),
+        shape=(len(ANGLES), len(FREQUENCIES)),
+        dtype="f64",
+        id="spinorama-directivity-grid",
+    )
+    _RESOURCES.append(resource)
+    return (
+        px.contour("directivity-contour").data(resource)
+        .title("Horizontal directivity contour")
+        .color_scale(px.ColorScale.VIRIDIS)
+        .thresholds([40.0, 50.0, 60.0, 70.0, 80.0, 90.0])
+        .aspect_ratio(1.45)
     )
 
 
 def build_surface_spec() -> s3.Surface:
+    grid = directivity_grid()
+    resource = data.ArrayData.from_buffer(
+        array("d", (value for row in grid for value in row)),
+        shape=(len(ANGLES), len(FREQUENCIES)),
+        dtype="f64",
+        id="spinorama-directivity-surface",
+    )
+    _RESOURCES.append(resource)
     return s3.surface(
         "directivity-surface",
-        z=directivity_grid(),
+        z=resource,
         x=FREQUENCIES,
         y=ANGLES,
         colormap="turbo",
@@ -239,8 +229,9 @@ def _plot_section(title: str, description: str, content: object) -> ui.Node:
 
 
 def build_app() -> App:
+    _RESOURCES.clear()
     surface = build_surface_spec()
-    return App(
+    app = App(
         title="Spinorama Viewer (Python)",
         sidebar_title="Python Spinorama",
         sidebar_subtitle="Python declarations, Rust renderers",
@@ -345,6 +336,8 @@ def build_app() -> App:
             ),
         ],
     )
+    app.resources = tuple(_RESOURCES)
+    return app
 
 
 def main() -> None:

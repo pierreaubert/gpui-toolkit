@@ -1,12 +1,13 @@
-"""High-level chart gallery for the Python GPUI Toolkit declarations."""
+"""Resource-backed gpui-px chart gallery for the Python v2 API."""
 
 from __future__ import annotations
 
+from array import array
 import json
 import math
 import os
 
-from gpui_toolkit import App, charts, section, ui
+from gpui_toolkit import App, data, px, section, ui
 
 
 def _frequency_samples(count: int = 48) -> list[float]:
@@ -21,158 +22,136 @@ def _heatmap_values(width: int, height: int) -> list[float]:
     ]
 
 
-def build_line_charts() -> ui.Node:
+def build_line_charts() -> tuple[ui.Node, tuple[object, ...]]:
     frequencies = _frequency_samples()
     measured = [
         2.0 * math.sin(math.log10(frequency) * 3.0)
         + 0.7 * math.sin(math.log10(frequency) * 11.0)
         for frequency in frequencies
     ]
-    target = [0.0 for _ in frequencies]
-    return ui.wrap(
+    line_data = data.Dataset.from_mapping(
+        {
+            "frequency": frequencies + frequencies,
+            "level": measured + [0.0 for _ in frequencies],
+            "series": ["Measured"] * len(frequencies) + ["Target"] * len(frequencies),
+            "color": ["#f97316"] * len(frequencies) + ["#22c55e"] * len(frequencies),
+            "dash": ["solid"] * len(frequencies) + ["dashed"] * len(frequencies),
+        },
+        id="gallery-response",
+    )
+    band_data = data.Dataset.from_mapping(
+        {
+            "band": list(range(1, 13)),
+            "energy": [2.0 + math.sin(index * 0.7) for index in range(1, 13)],
+            "baseline": [0.0] * 12,
+        },
+        id="gallery-band-energy",
+    )
+    scatter_data = data.Dataset.from_mapping(
+        {"frequency": frequencies[::4], "level": measured[::4]},
+        id="gallery-response-points",
+    )
+    charts = ui.wrap(
         [
-            charts.line(
-                "response",
-                frequencies,
-                measured,
-                title="Measured response",
-                x_log=True,
-                x_label="Frequency (Hz)",
-                y_label="Level (dB)",
-                series=(
-                    charts.Series("measured", frequencies, measured, label="Measured", color="#f97316"),
-                    charts.Series("target", frequencies, target, label="Target", color="#22c55e", dash=charts.StrokeDash.DASHED),
-                ),
-                legend_position=charts.LegendPosition.BOTTOM,
-            ),
-            charts.area(
-                "band-energy",
-                list(range(1, 13)),
-                [2.0 + math.sin(index * 0.7) for index in range(1, 13)],
-                y0=[0.0] * 12,
-                title="Band energy",
-                color="#38bdf8",
-                opacity=0.65,
-            ),
-            charts.scatter(
-                "response-points",
-                frequencies[::4],
-                measured[::4],
-                title="Response samples",
-                x_log=True,
-                color="#facc15",
-                point_radius=5.0,
-            ),
+            px.line("response").data(line_data).x("frequency").y("level")
+            .series("series").color("color").dash("dash")
+            .title("Measured response").x_log()
+            .x_label("Frequency (Hz)").y_label("Level (dB)")
+            .legend_position(px.LegendPosition.BOTTOM),
+            px.area("band-energy").data(band_data).x("band").y("energy")
+            .y0("baseline").title("Band energy").opacity(0.65),
+            px.scatter("response-points").data(scatter_data)
+            .x("frequency").y("level").title("Response samples")
+            .x_log().point_radius(5.0),
         ],
         gap=20.0,
     )
+    return charts, (line_data, band_data, scatter_data)
 
 
-def build_grid_charts() -> ui.Node:
-    width = 18
-    height = 12
-    values = _heatmap_values(width, height)
-    axes_x = [float(index) for index in range(width)]
-    axes_y = [float(index) for index in range(height)]
-    return ui.wrap(
+def build_grid_charts() -> tuple[ui.Node, tuple[object, ...]]:
+    width, height = 18, 12
+    grid = data.ArrayData.from_buffer(
+        array("d", _heatmap_values(width, height)),
+        shape=(height, width),
+        dtype="f64",
+        id="gallery-grid",
+    )
+    charts = ui.wrap(
         [
-            charts.heatmap(
-                "heatmap",
-                values,
-                width,
-                height,
-                title="Heatmap",
-                x=axes_x,
-                y=axes_y,
-                color_label="Intensity",
-                color_unit="a.u.",
-                color_range=(0.0, 1.0),
-                aspect_ratio=1.35,
-            ),
-            charts.contour(
-                "contour",
-                values,
-                width,
-                height,
-                title="Contour",
-                x=axes_x,
-                y=axes_y,
-                color_scale="turbo",
-                levels=(0.2, 0.4, 0.6, 0.8),
-                aspect_ratio=1.35,
-            ),
-            charts.isoline(
-                "isoline",
-                values,
-                width,
-                height,
-                title="Isolines",
-                x=axes_x,
-                y=axes_y,
-                levels=(0.25, 0.5, 0.75),
-            ),
+            px.heatmap("field-heatmap").data(grid)
+            .title("Response field").aspect_ratio(1.35),
+            px.contour("field-contour").data(grid)
+            .title("Filled contours").thresholds([0.2, 0.4, 0.6, 0.8])
+            .aspect_ratio(1.35),
+            px.isoline("field-isoline").data(grid)
+            .title("Isolines").levels([0.25, 0.5, 0.75])
+            .stroke_width(1.5).aspect_ratio(1.35),
         ],
         gap=20.0,
     )
+    return charts, (grid,)
 
 
-def build_category_charts() -> ui.Node:
-    labels = ["Woofer", "Midrange", "Tweeter", "Port"]
-    values = [42.0, 28.0, 18.0, 12.0]
-    return ui.wrap(
+def build_category_charts() -> tuple[ui.Node, tuple[object, ...]]:
+    categories = data.Dataset.from_mapping(
+        {
+            "component": ["Woofer", "Midrange", "Tweeter", "Port"],
+            "value": [42.0, 28.0, 18.0, 12.0],
+        },
+        id="gallery-components",
+    )
+    charts = ui.wrap(
         [
-            charts.bar(
-                "components",
-                labels,
-                values,
-                title="Component contribution",
-                color="#a78bfa",
-                y_label="Percent",
-            ),
-            charts.pie("components-pie", labels, values, title="Component mix"),
-            charts.donut("components-donut", labels, values, title="Component mix", inner_radius=0.55),
+            px.bar("components-bar").data(categories)
+            .x("component").y("value").title("Component mix"),
+            px.pie("components-pie").data(categories)
+            .label("component").y("value").title("Component mix"),
+            px.donut("components-donut").data(categories)
+            .label("component").y("value").title("Component mix").hole(0.55),
         ],
         gap=20.0,
     )
+    return charts, (categories,)
 
 
-def build_distribution_charts() -> ui.Node:
-    samples = [
-        0.8,
-        1.1,
-        1.2,
-        1.4,
-        1.5,
-        1.7,
-        1.9,
-        2.0,
-        2.2,
-        2.5,
-        2.7,
-        3.0,
-    ]
-    tree = charts.TreemapNode(
-        "Speaker",
-        children=(
-            charts.TreemapNode("Low frequency", value=42.0),
-            charts.TreemapNode("Mid frequency", value=28.0),
-            charts.TreemapNode("High frequency", value=18.0),
-        ),
+def build_distribution_charts() -> tuple[ui.Node, tuple[object, ...]]:
+    samples = [0.8, 1.1, 1.2, 1.4, 1.5, 1.7, 1.9, 2.0, 2.2, 2.5, 2.7, 3.0]
+    latency = data.Dataset.from_mapping(
+        {"sample": list(range(len(samples))), "latency": samples},
+        id="gallery-latency",
     )
-    return ui.wrap(
+    hierarchy = data.Dataset.from_mapping(
+        {
+            "node": ["Response", "Low frequency", "Mid frequency", "High frequency"],
+            "parent": ["", "Response", "Response", "Response"],
+            "value": [88.0, 42.0, 28.0, 18.0],
+        },
+        key="node",
+        id="gallery-response-tree",
+    )
+    charts = ui.wrap(
         [
-            charts.boxplot("latency-box", list(range(len(samples))), samples, title="Callback latency"),
-            charts.treemap("speaker-tree", tree, title="Response budget"),
+            px.boxplot("latency-box").data(latency)
+            .x("sample").y("latency").title("Callback latency"),
+            px.treemap("speaker-tree").data(hierarchy)
+            .row_id("node").parent("parent").size("value")
+            .title("Response budget"),
         ],
         gap=20.0,
     )
+    return charts, (latency, hierarchy)
 
 
 def build_app() -> App:
-    return App(
-        title="Chart Gallery (Python)",
+    lines, line_resources = build_line_charts()
+    grids, grid_resources = build_grid_charts()
+    categories, category_resources = build_category_charts()
+    distribution, distribution_resources = build_distribution_charts()
+    app = App(
+        title="Chart Gallery (Python v2)",
         sidebar_title="Python Chart Gallery",
-        sidebar_subtitle="gpui-px declarations",
+        sidebar_subtitle="resource-backed gpui-px declarations",
         width=1240.0,
         height=820.0,
         sections=[
@@ -183,12 +162,12 @@ def build_app() -> App:
                     [
                         ui.section_header(
                             "Python Chart Gallery",
-                            "Chart specifications are plain Python values and render natively in GPUI.",
+                            "Strict builders bind revisioned datasets and dense arrays to native GPUI charts.",
                         ),
                         ui.wrap(
                             [
                                 ui.metric("Chart families", 11),
-                                ui.metric("External dependencies", 0),
+                                ui.metric("Inline chart values", 0),
                                 ui.metric("GPU handles in Python", 0),
                             ],
                             gap=16.0,
@@ -197,58 +176,37 @@ def build_app() -> App:
                     gap=20.0,
                 ),
             ),
-            section(
-                "lines",
-                "Lines",
-                ui.vstack(
-                    [
-                        ui.section_header("Lines and areas", "Named series, log axes, styles, and filled ranges."),
-                        build_line_charts(),
-                    ],
-                    gap=20.0,
-                ),
-            ),
-            section(
-                "grids",
-                "Grids",
-                ui.vstack(
-                    [
-                        ui.section_header("Heatmaps and contours", "The same row-major grid can drive several renderers."),
-                        build_grid_charts(),
-                    ],
-                    gap=20.0,
-                ),
-            ),
-            section(
-                "categories",
-                "Categories",
-                ui.vstack(
-                    [
-                        ui.section_header("Categorical charts", "Bars, pies, and donuts share typed labels and values."),
-                        build_category_charts(),
-                    ],
-                    gap=20.0,
-                ),
-            ),
-            section(
-                "distribution",
-                "Distribution",
-                ui.vstack(
-                    [
-                        ui.section_header("Distribution and hierarchy", "Box plots and treemaps cover result-summary layouts."),
-                        build_distribution_charts(),
-                    ],
-                    gap=20.0,
-                ),
-            ),
+            section("lines", "Lines", ui.vstack([
+                ui.section_header("Lines and areas", "Multi-series color and dash roles plus aligned area baselines."),
+                lines,
+            ], gap=20.0)),
+            section("grids", "Grids", ui.vstack([
+                ui.section_header("Heatmaps and contours", "One dense ArrayData grid drives three native renderers."),
+                grids,
+            ], gap=20.0)),
+            section("categories", "Categories", ui.vstack([
+                ui.section_header("Categorical charts", "Bars, pies, and donuts share one Dataset resource."),
+                categories,
+            ], gap=20.0)),
+            section("distribution", "Distribution", ui.vstack([
+                ui.section_header("Distribution and hierarchy", "Box plots and resource-backed treemaps."),
+                distribution,
+            ], gap=20.0)),
         ],
     )
+    app.resources = (
+        *line_resources,
+        *grid_resources,
+        *category_resources,
+        *distribution_resources,
+    )
+    return app
 
 
 def main() -> None:
     app = build_app()
     if (
-        os.environ.get("GPUI_TOOLKIT_DUMP_IR") == "1"
+        os.environ.get("GPUI_TOOLKIT_DUMP_IR") != "1"
         or os.environ.get("GPUI_TOOLKIT_SESSION") == "1"
         or bool(os.environ.get("GPUI_TOOLKIT_HOST"))
     ):

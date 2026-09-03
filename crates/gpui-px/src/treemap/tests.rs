@@ -422,3 +422,92 @@ fn test_treemap_add_rect_to_path() {
     super::add_rect_to_path(&mut builder, 0.0, 0.0, 10.0, 20.0);
     let _ = builder.build();
 }
+
+#[test]
+fn public_layout_is_deterministic_bounded_and_value_proportional() {
+    let root = TreemapNode::new("Root", 0.0)
+        .add_child(TreemapNode::new("A", 20.0))
+        .add_child(TreemapNode::new("B", 30.0))
+        .add_child(TreemapNode::new("C", 50.0));
+
+    for method in [
+        TilingMethod::Squarify,
+        TilingMethod::Binary,
+        TilingMethod::Slice,
+        TilingMethod::Dice,
+        TilingMethod::SliceDice,
+    ] {
+        let chart = treemap(&root).tiling_method(method).padding(0.0);
+        let first = chart.layout(400.0, 200.0).expect("layout succeeds");
+        let second = chart.layout(400.0, 200.0).expect("layout is repeatable");
+
+        assert_eq!(first, second, "{method:?} must be deterministic");
+        assert_eq!(first.len(), 3);
+        for rect in &first {
+            assert!(rect.x0 >= 0.0 && rect.y0 >= 0.0);
+            assert!(rect.x1 <= 400.0 && rect.y1 <= 200.0);
+            assert!(rect.x1 >= rect.x0 && rect.y1 >= rect.y0);
+        }
+
+        let total_area: f64 = first
+            .iter()
+            .map(|rect| (rect.x1 - rect.x0) * (rect.y1 - rect.y0))
+            .sum();
+        assert!((total_area - 80_000.0).abs() < 1e-6);
+        for rect in &first {
+            let area = (rect.x1 - rect.x0) * (rect.y1 - rect.y0);
+            assert!((area / total_area - rect.value / 100.0).abs() < 1e-9);
+        }
+    }
+}
+
+#[test]
+fn public_layout_preserves_depth_and_top_level_category() {
+    let root = TreemapNode::new("Root", 0.0)
+        .add_child(
+            TreemapNode::new("Group A", 0.0)
+                .add_child(TreemapNode::new("A1", 10.0))
+                .add_child(TreemapNode::new("A2", 20.0)),
+        )
+        .add_child(TreemapNode::new("B", 70.0));
+
+    let rects = treemap(&root)
+        .padding(0.0)
+        .layout(300.0, 200.0)
+        .expect("layout succeeds");
+    let a1 = rects.iter().find(|rect| rect.name == "A1").unwrap();
+    let a2 = rects.iter().find(|rect| rect.name == "A2").unwrap();
+    let b = rects.iter().find(|rect| rect.name == "B").unwrap();
+
+    assert_eq!((a1.depth, a1.category_index), (2, 0));
+    assert_eq!((a2.depth, a2.category_index), (2, 0));
+    assert_eq!((b.depth, b.category_index), (1, 1));
+}
+
+#[test]
+fn public_layout_rejects_invalid_viewport_padding_and_values() {
+    let root = TreemapNode::new("Root", 1.0);
+    for (width, height) in [
+        (0.0, 100.0),
+        (100.0, -1.0),
+        (f64::NAN, 100.0),
+        (100.0, f64::INFINITY),
+    ] {
+        assert!(matches!(
+            treemap(&root).layout(width, height),
+            Err(ChartError::InvalidDimension { .. })
+        ));
+    }
+
+    assert!(matches!(
+        treemap(&root).padding(-1.0).layout(100.0, 100.0),
+        Err(ChartError::InvalidData {
+            field: "padding",
+            ..
+        })
+    ));
+    assert!(matches!(
+        treemap(&TreemapNode::new("Bad", -1.0)).layout(100.0, 100.0),
+        Err(ChartError::InvalidData { .. })
+    ));
+}

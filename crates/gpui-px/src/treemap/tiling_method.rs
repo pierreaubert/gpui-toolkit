@@ -80,7 +80,7 @@ pub(super) fn compute_treemap(
             y1: py1,
             name: node.name.clone(),
             value: node.value,
-            _depth: depth,
+            depth,
             category_index,
         });
     } else {

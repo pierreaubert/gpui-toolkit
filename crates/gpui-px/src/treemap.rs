@@ -50,6 +50,7 @@ mod types;
 
 pub use tiling_method::*;
 pub use treemap_node::*;
+pub use treemap_rect::*;
 pub use types::*;
 
 use tiling_method::compute_treemap;
@@ -97,6 +98,49 @@ fn treemap_canvas_handles(
 }
 
 impl Treemap {
+    /// Compute renderer-independent layout rectangles in a zero-based viewport.
+    pub fn layout(&self, width: f64, height: f64) -> Result<Vec<TreemapRect>, ChartError> {
+        if !width.is_finite() || !height.is_finite() || width <= 0.0 || height <= 0.0 {
+            return Err(ChartError::InvalidDimension {
+                field: "width",
+                value: width as f32,
+            });
+        }
+        if !self.padding.is_finite() || self.padding < 0.0 {
+            return Err(ChartError::InvalidData {
+                field: "padding",
+                reason: "Padding must be finite and non-negative",
+            });
+        }
+        let total_value = self.root.total_value();
+        if !total_value.is_finite() || total_value <= 0.0 {
+            return Err(ChartError::InvalidData {
+                field: "root",
+                reason: "Total value must be positive and finite",
+            });
+        }
+        if !Self::validate_values(&self.root) {
+            return Err(ChartError::InvalidData {
+                field: "node",
+                reason: "All node values must be finite and non-negative",
+            });
+        }
+        let mut rects = Vec::new();
+        compute_treemap(
+            &self.root,
+            0.0,
+            0.0,
+            width,
+            height,
+            self.tiling_method,
+            self.padding,
+            0,
+            0,
+            &mut rects,
+        );
+        Ok(rects)
+    }
+
     /// Select the high-level 2D renderer. Vello is the default when enabled.
     pub fn renderer_2d(mut self, renderer: Renderer2D) -> Self {
         self.renderer_2d = renderer;
@@ -122,21 +166,6 @@ impl Treemap {
         validate_dimensions(options.width, options.height)?;
         crate::static_export::validate_plot_area(options)?;
 
-        let total_value = self.root.total_value();
-        if !total_value.is_finite() || total_value <= 0.0 {
-            return Err(ChartError::InvalidData {
-                field: "root",
-                reason: "Total value must be positive and finite",
-            });
-        }
-
-        if !Self::validate_values(&self.root) {
-            return Err(ChartError::InvalidData {
-                field: "node",
-                reason: "All node values must be finite and non-negative",
-            });
-        }
-
         let plot_width = (options.width - options.margin_left - options.margin_right) as f64;
         let plot_height = (options.height - options.margin_top - options.margin_bottom) as f64;
         if plot_width <= 0.0 || plot_height <= 0.0 {
@@ -146,19 +175,7 @@ impl Treemap {
             });
         }
 
-        let mut rects = Vec::new();
-        compute_treemap(
-            &self.root,
-            0.0,
-            0.0,
-            plot_width,
-            plot_height,
-            self.tiling_method,
-            self.padding,
-            0,
-            0,
-            &mut rects,
-        );
+        let rects = self.layout(plot_width, plot_height)?;
 
         let color_scheme = self
             .color_scheme

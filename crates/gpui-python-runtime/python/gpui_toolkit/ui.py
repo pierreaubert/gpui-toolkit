@@ -2,8 +2,115 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
+from enum import Enum
 from typing import TYPE_CHECKING, Any, Iterable, Sequence
+
+
+# V2 strict table declarations. Legacy ``table(..., **props)`` remains for v1.
+class SelectionMode(str, Enum):
+    NONE = "none"
+    SINGLE = "single"
+    MULTIPLE = "multiple"
+
+
+@dataclass(frozen=True)
+class Column:
+    id: str
+    _field: str | None = None
+    _sortable: bool = False
+    _min_width: float | None = None
+    _template: Any = None
+
+    def __post_init__(self) -> None:
+        if not self.id:
+            raise ValueError("column id must be non-empty")
+
+    def field(self, value: str) -> "Column":
+        if not value:
+            raise ValueError("column field must be non-empty")
+        return replace(self, _field=value)
+
+    def sortable(self, value: bool = True) -> "Column":
+        return replace(self, _sortable=bool(value))
+
+    def min_width(self, value: float) -> "Column":
+        if value <= 0:
+            raise ValueError("column minimum width must be positive")
+        return replace(self, _min_width=float(value))
+
+    def template(self, value: Any) -> "Column":
+        from .data import FieldRef
+        if not isinstance(value, FieldRef) and not hasattr(value, "to_spec"):
+            raise TypeError("column template must be a data.FieldRef or typed node")
+        return replace(self, _template=value)
+
+    def to_spec(self) -> dict[str, Any]:
+        if self._field is None:
+            raise ValueError(f"column {self.id!r} requires .field(...)")
+        spec = {"id": self.id, "field": self._field, "sortable": self._sortable, "min_width": self._min_width}
+        if self._template is not None:
+            spec["template"] = self._template.to_spec()
+        return spec
+
+
+@dataclass(frozen=True)
+class Table:
+    id: str
+    _data: Any = None
+    _columns: tuple[Column, ...] = ()
+    _selection_mode: SelectionMode = SelectionMode.NONE
+    _row_height: float = 28.0
+    _overscan: int = 8
+    _selection_action: str | None = None
+
+    def __post_init__(self) -> None:
+        if not self.id:
+            raise ValueError("table id must be non-empty")
+
+    def data(self, source: Any) -> "Table":
+        from .data import Dataset, DatasetView
+        if not isinstance(source, (Dataset, DatasetView)):
+            raise TypeError("Table.data requires a data.Dataset or data.DatasetView")
+        return replace(self, _data=source)
+
+    def column(self, value: Column) -> "Table":
+        if not isinstance(value, Column):
+            raise TypeError("Table.column requires a ui.Column")
+        if any(column.id == value.id for column in self._columns):
+            raise ValueError(f"duplicate table column {value.id!r}")
+        return replace(self, _columns=self._columns + (value,))
+
+    def selection_mode(self, value: SelectionMode) -> "Table":
+        return replace(self, _selection_mode=SelectionMode(value))
+
+    def virtualize(self, *, row_height: float, overscan: int = 8) -> "Table":
+        if row_height <= 0 or overscan < 0:
+            raise ValueError("row_height must be positive and overscan must be non-negative")
+        return replace(self, _row_height=float(row_height), _overscan=int(overscan))
+
+    def on_selection_change(self, action: str) -> "Table":
+        if not action:
+            raise ValueError("selection action must be non-empty")
+        return replace(self, _selection_action=action)
+
+    def to_spec(self) -> dict[str, Any]:
+        if self._data is None:
+            raise ValueError("table requires .data(...) before serialization")
+        if not self._columns:
+            raise ValueError("table requires at least one column")
+        from .data import DatasetView
+        dataset = self._data.dataset if isinstance(self._data, DatasetView) else self._data
+        required = {column._field for column in self._columns if column._field is not None}
+        if self._selection_mode is not SelectionMode.NONE and dataset.key is not None:
+            required.add(dataset.key)
+        if isinstance(self._data, DatasetView):
+            self._data._validate_fields(required)
+        else:
+            dataset._validate_fields(required)
+        if self._selection_mode is not SelectionMode.NONE and dataset.key is None:
+            raise ValueError("table selection requires a dataset primary key")
+        return {"kind": "table_v2", "id": self.id, "data": self._data.to_spec(), "columns": [column.to_spec() for column in self._columns], "selection_mode": self._selection_mode.value, "virtualize": {"row_height": self._row_height, "overscan": self._overscan}, "selection_action": self._selection_action}
 
 from .commands import CommandResult, CommandStatus
 
@@ -615,11 +722,17 @@ def scene3d(
 def mesh_plot(
     plot: Any, *, id: str | None = None, width: float | None = None,
     height: float | None = None, selection_action: str | None = None,
+    export_action: str | None = None,
 ) -> Node:
-    """Render a declarative unstructured mesh plot with selection events."""
+    """Render a declarative mesh plot with selection and toolbar-export events."""
     spec = _spec(plot)
+    if selection_action is None:
+        selection_action = getattr(plot, "selection_action", None)
+    if export_action is None:
+        export_action = getattr(plot, "export_action", None)
     return Node("mesh_plot", {
         "id": id or spec.get("id", spec.get("geometry", {}).get("id", "mesh_plot")),
         "spec": spec, "width": width, "height": height,
         "selection_action": selection_action,
+        "export_action": export_action,
     })

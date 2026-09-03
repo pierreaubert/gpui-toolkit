@@ -13,8 +13,8 @@ use gpui_miniapp::{MiniApp, MiniAppConfig};
 use gpui_px::{ColorScale, ScaleType, bar, heatmap, line, scatter};
 use gpui_python_runtime::gpui_adapter::Gpui3DCache;
 use gpui_python_runtime::ui_ir::{
-    BadgeNode, ButtonNode, CardNode, ChartKind, ChartNode, ProgressNode, PythonAppIr, Scene3dNode,
-    SectionHeaderNode, SimpleNode, SpinnerNode, StackNode, TableNode, TabsNode, TextNode, UiNode,
+    BadgeNode, ButtonNode, CardNode, ProgressNode, PythonAppIr, Scene3dNode, SectionHeaderNode,
+    SimpleNode, SpinnerNode, StackNode, TableNode, TabsNode, TextNode, UiNode,
 };
 use gpui_python_runtime::{LinesSpec, MeshSpec, SceneSpec, SurfaceSpec};
 use gpui_ui_kit::Language;

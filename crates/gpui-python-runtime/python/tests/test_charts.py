@@ -1,121 +1,112 @@
-import unittest
 import contextlib
+import inspect
 import io
 import json
+import unittest
 
-from gpui_toolkit import SessionContext
-from gpui_toolkit.charts import (
-    AnnotationTarget,
-    ChartAnnotation,
-    CurveType,
-    LegendPosition,
-    Series,
-    StrokeDash,
-    TreemapNode,
-    area,
-    bar,
-    boxplot,
-    contour,
-    donut,
-    isoline,
-    line,
-    pie,
-    reports_from_command,
-    request_reports,
-    treemap,
-)
+from gpui_toolkit import SessionContext, data, px
+from gpui_toolkit import charts
 from gpui_toolkit.commands import CommandResult
 
 
-class ExtendedChartTests(unittest.TestCase):
-    def test_line_serializes_full_native_style_and_secondary_axis_surface(self):
-        chart = line(
-            "response",
-            [20.0, 100.0, 1000.0],
-            [0.0, -1.0, 2.0],
-            curve=CurveType.MONOTONE_X,
-            dash=StrokeDash.DASHED,
-            legend_position=LegendPosition.BOTTOM,
-            y2_label="Phase",
-            y2_range=(-180.0, 180.0),
-            series=(
-                Series(
-                    "phase",
-                    [20.0, 100.0, 1000.0],
-                    [10.0, 20.0, 30.0],
-                    opacity=0.5,
-                    secondary_y=True,
-                    dash=StrokeDash.DASH_DOT,
-                ),
-            ),
-            annotations=(
-                ChartAnnotation(
-                    "crossover",
-                    "Crossover",
-                    AnnotationTarget.X_VALUE,
-                    x=1000.0,
-                ),
-            ),
+class StrictChartShimTests(unittest.TestCase):
+    def test_family_names_return_v2_builders_without_var_keywords(self) -> None:
+        families = (
+            charts.scatter,
+            charts.line,
+            charts.area,
+            charts.boxplot,
+            charts.heatmap,
+            charts.contour,
+            charts.isoline,
+            charts.surface,
+            charts.pie,
+            charts.donut,
+            charts.bar,
+            charts.treemap,
         )
+        for family in families:
+            signature = inspect.signature(family)
+            self.assertFalse(
+                any(
+                    parameter.kind is inspect.Parameter.VAR_KEYWORD
+                    for parameter in signature.parameters.values()
+                )
+            )
+            builder = family()
+            self.assertIsInstance(builder, px.ChartBuilder)
+            with self.assertRaisesRegex(ValueError, "requires .data"):
+                builder.to_spec()
 
-        spec = chart.to_spec()
-        self.assertEqual(spec["curve"], "monotone_x")
-        self.assertEqual(spec["dash"], "dashed")
-        self.assertEqual(spec["legend_position"], "bottom")
-        self.assertEqual(spec["y2_range"], [-180.0, 180.0])
-        self.assertTrue(spec["series"][0]["secondary_y"])
-        self.assertEqual(spec["series"][0]["dash"], "dash_dot")
-        self.assertEqual(spec["annotations"][0]["target"], "x_value")
-
-    def test_grouped_bar_serializes_multiple_series(self):
-        chart = bar(
-            "levels",
-            ["L", "R"],
-            [-3.0, -2.0],
-            series=(Series("peak", [0.0, 1.0], [-1.0, -0.5], opacity=0.75),),
-            legend_position=LegendPosition.TOP,
+    def test_shims_emit_only_resource_backed_v2_ir(self) -> None:
+        rows = data.Dataset.from_mapping(
+            {"x": [1.0, 2.0], "y": [3.0, 4.0]},
+            id="shim-rows",
         )
+        line = charts.line("response").data(rows).x("x").y("y")
+        spec = line.to_spec()
 
-        spec = chart.to_spec()
-        self.assertEqual(spec["chart"], "bar")
-        self.assertEqual(spec["series"][0]["id"], "peak")
-        self.assertEqual(spec["series"][0]["opacity"], 0.75)
+        self.assertEqual(spec["kind"], "px_chart_v2")
+        self.assertEqual(spec["data"]["source"]["kind"], "dataset")
+        self.assertNotIn("values", spec["data"]["source"])
+        self.assertIs(charts.Chart, px.ChartBuilder)
+        self.assertIs(charts.Annotation, px.Annotation)
+        self.assertIs(charts.TreemapNode, px.TreemapNode)
 
-    def test_all_native_gpui_px_families_have_typed_specs(self):
-        grid = [0.0, 1.0, 2.0, 3.0]
-        charts = (
-            area("area", [1, 2], [2, 3], y0=[0, 0], opacity=0.4),
-            boxplot("box", [1, 1], [2, 3], num_bins=1),
-            contour("contour", grid, 2, 2, thresholds=[1, 2]),
-            isoline("isoline", grid, 2, 2, levels=[1.5]),
-            pie("pie", ["A", "B"], [1, 2]),
-            donut("donut", ["A", "B"], [1, 2]),
-            treemap(
-                "tree",
-                TreemapNode("root", children=(TreemapNode("A", 1), TreemapNode("B", 2))),
-                tiling_method="binary",
-            ),
-        )
-        self.assertEqual(
-            [chart.to_spec()["chart"] for chart in charts],
-            ["area", "box_plot", "contour", "isoline", "pie", "donut", "treemap"],
-        )
-        self.assertEqual(charts[0].to_spec()["y0"], [0.0, 0.0])
-        self.assertEqual(charts[2].to_spec()["thresholds"], [1.0, 2.0])
-        self.assertEqual(charts[-1].to_spec()["treemap"]["children"][1]["value"], 2.0)
-
-    def test_native_capability_and_visual_reports_are_typed(self):
+    def test_native_capability_and_visual_reports_are_typed(self) -> None:
         output = io.StringIO()
         with contextlib.redirect_stdout(output):
-            request_reports(SessionContext(), "reports")
+            charts.request_reports(SessionContext(), "reports")
         self.assertEqual(json.loads(output.getvalue())["command"], "px.reports")
-        reports = reports_from_command(CommandResult.from_wire("reports", {
-            "ok": True,
-            "capability": {"schema_version": 1, "report_type": "chart-capabilities", "reviewed_on": "2026-08-07", "all_release_ready": False, "entries": [{"id": "line", "capability": "line", "chart_families": ["line"], "story_ids": ["line-basic"], "test_contracts": ["line_test"], "status": "complete", "evidence": "native", "release_requirement": "tests"}], "markdown": "| capability |"},
-            "visual": {"schema_version": 1, "report_type": "chart-visual-regression", "crate_name": "gpui-px", "crate_version": "0.1.0", "capture_count": 3, "expected_capture_count": 3, "unique_capture_ids": True, "chart_families": ["line"], "markdown": "| capture |"},
-        }))
-        self.assertEqual(reports.capability.entries[0].chart_families, ("line",))
+
+        reports = charts.reports_from_command(
+            CommandResult.from_wire(
+                "reports",
+                {
+                    "ok": True,
+                    "capability": {
+                        "schema_version": 1,
+                        "report_type": "chart-capabilities",
+                        "reviewed_on": "2026-08-07",
+                        "all_release_ready": False,
+                        "entries": [
+                            {
+                                "id": "line",
+                                "capability": "line",
+                                "chart_families": ["line"],
+                                "story_ids": ["line-basic"],
+                                "test_contracts": ["line_test"],
+                                "status": "complete",
+                                "evidence": "native",
+                                "release_requirement": "tests",
+                            }
+                        ],
+                        "markdown": "| capability |",
+                    },
+                    "visual": {
+                        "schema_version": 1,
+                        "report_type": "chart-visual-regression",
+                        "crate_name": "gpui-px",
+                        "crate_version": "0.1.0",
+                        "capture_count": 3,
+                        "expected_capture_count": 3,
+                        "unique_capture_ids": True,
+                        "chart_families": ["line"],
+                        "markdown": "| capture |",
+                    },
+                },
+            )
+        )
+        self.assertEqual(reports.capability.entries[0].id, "line")
         self.assertTrue(reports.visual.unique_capture_ids)
+
+    def test_report_request_and_payload_validation_are_strict(self) -> None:
+        with self.assertRaisesRegex(ValueError, "non-empty"):
+            charts.request_reports(SessionContext(), "")
+        with self.assertRaises(RuntimeError):
+            charts.reports_from_command(
+                CommandResult.from_wire("reports", {"ok": False, "error": "failed"})
+            )
 
 
 if __name__ == "__main__":

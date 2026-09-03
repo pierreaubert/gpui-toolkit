@@ -203,6 +203,14 @@ qa-api:
 	RUSTDOCFLAGS="-D warnings" cargo doc {{public_core_packages}} --lib --no-deps --no-default-features
 	cargo test -p gpui-scaffolder scaffolded_project_passes_cargo_check
 
+# Freeze the all-feature public Rust surface that Python v2 must classify.
+# rustdoc JSON currently requires nightly even though normal builds remain stable.
+[group('qa')]
+qa-python-rustdoc-inventory:
+	python3 scripts/generate_python_rustdoc_inventory.py --build --check
+	python3 scripts/check_python_v2_surface.py
+	python3 scripts/generate_python_capabilities.py --check
+
 # Public release contract. Registry wave 1 deliberately contains only the
 # two GPUI-free packages pass a locked package verification.
 [group('qa')]

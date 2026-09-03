@@ -155,11 +155,19 @@ class UiBuilderTests(unittest.TestCase):
         self.assertEqual(spec["kind"], "form")
         self.assertEqual(spec["errors"][0]["control_id"], "frequency")
 
-    def test_heatmap_preserves_missing_cells(self):
-        from gpui_toolkit import charts
+    def test_heatmap_uses_dense_array_resource(self):
+        from array import array
+        from gpui_toolkit import data, px
 
-        spec = charts.heatmap("field", [1.0, None, 3.0, 4.0], 2, 2).to_spec()
-        self.assertEqual(spec["z"], [1.0, None, 3.0, 4.0])
+        field = data.ArrayData.from_buffer(
+            array("d", [1.0, 2.0, 3.0, 4.0]),
+            shape=(2, 2),
+            dtype="f64",
+            id="ui-test-field",
+        )
+        spec = px.heatmap("field").data(field).to_spec()
+        self.assertEqual(spec["data"]["source"]["shape"], [2, 2])
+        self.assertNotIn("values", spec["data"]["source"])
 
     def test_stepper_preserves_active_and_disabled_steps(self):
         spec = ui.stepper(

@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+from array import array
 import math
 import time
 
-from gpui_toolkit import App, Event, SessionContext, charts, scene3d as s3, section, ui
+from gpui_toolkit import App, Event, SessionContext, data, px, scene3d as s3, section, ui
 
 ORB_STATES = (
     "working",
@@ -120,28 +121,52 @@ class RuntimeShowcase(App):
 
 def build_app() -> App:
     """Run the component catalog using only the public PyPI wheel API."""
-    return RuntimeShowcase(
-        title="UI Kit Showcase",
-        sidebar_title="UI Kit Showcase",
-        sidebar_subtitle="Python · gpui-toolkit wheel",
-        sections=native_demo_sections(),
-    )
-
     surface = build_surface_spec()
     lines = build_lines_spec()
     scatter_x, scatter_y = generate_scatter_data()
     line_x, line_y = generate_frequency_response()
     heatmap_size = 24
     heatmap_z = generate_heatmap_data(heatmap_size)
+    scatter_data = data.Dataset.from_mapping(
+        {
+            "x": scatter_x,
+            "y": scatter_y,
+            "color": ["#1f77b4"] * len(scatter_x),
+        },
+        id="latency-data",
+    )
+    line_data = data.Dataset.from_mapping(
+        {
+            "x": [*line_x, *line_x],
+            "y": [*line_y, *(0.0 for _ in line_x)],
+            "series": ["Measured"] * len(line_x) + ["Target"] * len(line_x),
+            "color": ["#ff7f0e"] * len(line_x) + ["#22c55e"] * len(line_x),
+        },
+        id="response-data",
+    )
+    bar_data = data.Dataset.from_mapping(
+        {
+            "category": ["Surface", "Lines", "Mesh", "Light", "Callback"],
+            "value": [42.0, 31.0, 18.0, 8.0, 5.0],
+            "color": ["#2ca02c"] * 5,
+        },
+        id="scene-nodes-data",
+    )
+    heatmap_data = data.ArrayData.from_buffer(
+        array("d", heatmap_z),
+        shape=(heatmap_size, heatmap_size),
+        dtype="f64",
+        id="uploads-data",
+    )
 
-    return RuntimeShowcase(
+    app = RuntimeShowcase(
         title="GPUI Python Runtime Showcase",
         sidebar_title="Python GPUI",
         sidebar_subtitle="Python app, Rust renderers",
         sections=[
-            section("overview", "Overview", overview_section()),
-            *component_sections(),
-            section("thinking-orbs", "Thinking Orbs", thinking_orbs_section()),
+            # Keep the installed catalog in lock-step with gpui-showcase;
+            # rendering-specific Python demonstrations follow it below.
+            *native_demo_sections(),
             section(
                 "charts",
                 "gpui-px Charts",
@@ -153,56 +178,33 @@ def build_app() -> App:
                         ),
                         ui.wrap(
                             [
-                                charts.scatter(
-                                    "latency",
-                                    scatter_x,
-                                    scatter_y,
-                                    title="Callback Latency",
-                                    color="#1f77b4",
-                                    point_radius=4.0,
-                                ),
-                                charts.line(
-                                    "response",
-                                    line_x,
-                                    line_y,
-                                    title="Frequency Response",
-                                    color="#ff7f0e",
-                                    x_log=True,
-                                    stroke_width=2.0,
-                                    x_label="Frequency (Hz)",
-                                    y_label="Level (dB)",
-                                    series=[
-                                        charts.Series("measured", line_x, line_y, label="Measured", color="#ff7f0e"),
-                                        charts.Series(
-                                            "target",
-                                            line_x,
-                                            [0.0 for _ in line_x],
-                                            label="Target",
-                                            color="#22c55e",
-                                        ),
-                                    ],
-                                ),
-                                charts.bar(
-                                    "scene-nodes",
-                                    ["Surface", "Lines", "Mesh", "Light", "Callback"],
-                                    [42.0, 31.0, 18.0, 8.0, 5.0],
-                                    title="Scene Nodes",
-                                    color="#2ca02c",
-                                ),
-                                charts.heatmap(
-                                    "uploads",
-                                    heatmap_z,
-                                    heatmap_size,
-                                    heatmap_size,
-                                    title="Upload Activity",
-                                    color_scale="viridis",
-                                    x=[float(index) for index in range(heatmap_size)],
-                                    y=[float(index) for index in range(heatmap_size)],
-                                    color_label="Upload intensity",
-                                    color_unit="a.u.",
-                                    color_range=(0.0, 1.0),
-                                    aspect_ratio=1.0,
-                                ),
+                                px.scatter("latency")
+                                .data(scatter_data)
+                                .x("x")
+                                .y("y")
+                                .color("color")
+                                .point_radius(4.0)
+                                .title("Callback Latency"),
+                                px.line("response")
+                                .data(line_data)
+                                .x("x")
+                                .y("y")
+                                .series("series")
+                                .color("color")
+                                .x_log()
+                                .x_label("Frequency (Hz)")
+                                .y_label("Level (dB)")
+                                .title("Frequency Response"),
+                                px.bar("scene-nodes")
+                                .data(bar_data)
+                                .x("category")
+                                .y("value")
+                                .color("color")
+                                .title("Scene Nodes"),
+                                px.heatmap("uploads")
+                                .data(heatmap_data)
+                                .color_scale(px.ColorScale.VIRIDIS)
+                                .title("Upload Activity"),
                             ],
                             gap=20.0,
                         ),
@@ -286,6 +288,8 @@ def build_app() -> App:
             ),
         ],
     )
+    app.resources = (scatter_data, line_data, bar_data, heatmap_data)
+    return app
 
 
 def overview_section() -> ui.Node:

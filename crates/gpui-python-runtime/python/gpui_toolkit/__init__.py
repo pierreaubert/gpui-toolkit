@@ -4,12 +4,22 @@ The Rust runtime consumes the dictionaries produced by these helpers and keeps
 GPU resources private.
 """
 
-from . import accessibility, audio, charts, d3, design, effects, events, i18n, keybindings, lab, layout, meshplot, miniapp, platform, profiler, reports, resources, scaffolder, scene3d, text, themes, tooling, ui
-from .app import App, CancellationToken, Event, Section, SessionContext, section
+from . import accessibility, audio, charts, d3, d3rs, data, design, effects, events, i18n, keybindings, lab, layout, meshplot, miniapp, native, platform, profiler, px, reports, resources, scaffolder, scene3d, text, themes, tooling, ui
+from .app import (
+    App,
+    CancellationToken,
+    Event,
+    MeshFrameAcknowledgement,
+    ResourceBackpressureError,
+    ResourceFrameAcknowledgement,
+    Section,
+    SessionContext,
+    section,
+)
 from .capabilities import Capability, capabilities
 from .state import Binding, Computed, State, StateError, StateStore, StoredState, ValidationResult, ValidationSeverity, application_data_dir
 from .platform import UnsupportedCapability
 
 __version__ = "0.9.25"
 
-__all__ = ["App", "Binding", "CancellationToken", "Capability", "Computed", "Event", "Section", "SessionContext", "State", "StateError", "StateStore", "StoredState", "UnsupportedCapability", "ValidationResult", "ValidationSeverity", "__version__", "accessibility", "application_data_dir", "audio", "capabilities", "charts", "d3", "design", "effects", "events", "i18n", "keybindings", "lab", "layout", "meshplot", "miniapp", "platform", "profiler", "reports", "resources", "scaffolder", "scene3d", "section", "text", "themes", "tooling", "ui"]
+__all__ = ["App", "Binding", "CancellationToken", "Capability", "Computed", "Event", "MeshFrameAcknowledgement", "ResourceBackpressureError", "ResourceFrameAcknowledgement", "Section", "SessionContext", "State", "StateError", "StateStore", "StoredState", "UnsupportedCapability", "ValidationResult", "ValidationSeverity", "__version__", "accessibility", "application_data_dir", "audio", "capabilities", "charts", "d3", "d3rs", "data", "design", "effects", "events", "i18n", "keybindings", "lab", "layout", "meshplot", "miniapp", "native", "platform", "profiler", "px", "reports", "resources", "scaffolder", "scene3d", "section", "text", "themes", "tooling", "ui"]

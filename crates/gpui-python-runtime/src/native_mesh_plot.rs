@@ -6,12 +6,13 @@
 //! mutates a retained plot or its last valid frame.
 
 use crate::cache::structural_fingerprint;
+use crate::dataset_frames::{DatasetFrameStore, dense_dtype_width, dense_number};
 use crate::mesh_frames::MeshFrameStore;
 use crate::meshplot::MeshPlotSpec;
 use d3rs::mesh::{ContourLevels, MissingValuePolicy, RevolveSpec};
 use gpui_px::{
-    AutoOrFixed, Axes2d, ColorRange, ColorScale, FieldInterpolation, MeshPlotPick, MeshRenderMode,
-    PlotInteractions,
+    AutoOrFixed, Axes2d, ChartAccessibilitySummary, ColorRange, ColorScale, FieldInterpolation,
+    MeshPlotBackend, MeshPlotPick, MeshRenderMode, PlotInteractions,
 };
 use serde_json::Value;
 use std::cell::RefCell;
@@ -20,7 +21,94 @@ use std::sync::Arc;
 
 use d3rs::mesh::{CoordinateAxis, ScalarAssociation, ScalarField, TriangleMesh, project_2d};
 use gpui::{AnyElement, IntoElement, ParentElement, Styled, div};
-use gpui_px::{Colorbar, MeshPlotState, MeshPlotView, Wireframe, mesh_plot};
+use gpui_px::{
+    Colorbar, ColorbarOrientation, MeshPlotState, MeshPlotView, StaticSvgOptions, Wireframe,
+    mesh_plot,
+};
+use gpui_ui_kit::plot_toolbar::PlotToolbarAction;
+
+fn toolbar_action(value: &str) -> Result<PlotToolbarAction, String> {
+    match value {
+        "fit" => Ok(PlotToolbarAction::Fit),
+        "reset" => Ok(PlotToolbarAction::Reset),
+        "open_mode_menu" => Ok(PlotToolbarAction::OpenModeMenu),
+        "toggle_wireframe" => Ok(PlotToolbarAction::ToggleWireframe),
+        "reset_color_range" => Ok(PlotToolbarAction::ResetColorRange),
+        "open_view_menu" => Ok(PlotToolbarAction::OpenViewMenu),
+        "export" => Ok(PlotToolbarAction::Export),
+        _ => Err(format!("unsupported mesh_plot toolbar action {value:?}")),
+    }
+}
+
+fn renderer_backend(value: &str) -> Result<MeshPlotBackend, String> {
+    match value {
+        "auto" => Ok(MeshPlotBackend::Auto),
+        "wgpu" => Ok(MeshPlotBackend::Wgpu),
+        _ => Err(format!("unsupported mesh_plot renderer backend {value:?}")),
+    }
+}
+
+fn mesh_colorbar(spec: &MeshPlotSpec) -> Result<Option<Colorbar>, String> {
+    let Some(value) = spec.colorbar.as_ref().filter(|value| !value.is_null()) else {
+        let Some(field) = spec.field.as_ref() else {
+            return Ok(None);
+        };
+        let mut colorbar = Colorbar::new(
+            field
+                .get("label")
+                .and_then(Value::as_str)
+                .unwrap_or("Field"),
+        );
+        if let Some(unit) = field.get("unit").and_then(Value::as_str) {
+            colorbar = colorbar.unit(unit);
+        }
+        return Ok(Some(colorbar));
+    };
+    let object = value
+        .as_object()
+        .ok_or("mesh_plot colorbar must be an object")?;
+    let scale = match object
+        .get("scale")
+        .and_then(Value::as_str)
+        .unwrap_or("viridis")
+    {
+        "viridis" => ColorScale::Viridis,
+        "plasma" => ColorScale::Plasma,
+        "inferno" => ColorScale::Inferno,
+        "magma" => ColorScale::Magma,
+        "heat" => ColorScale::Heat,
+        "coolwarm" => ColorScale::Coolwarm,
+        "greys" => ColorScale::Greys,
+        value => return Err(format!("unsupported mesh_plot colorbar scale {value:?}")),
+    };
+    let mut colorbar = Colorbar::new(
+        object
+            .get("label")
+            .and_then(Value::as_str)
+            .unwrap_or("Field"),
+    )
+    .scale(scale);
+    if let Some(unit) = object.get("unit").and_then(Value::as_str) {
+        colorbar = colorbar.unit(unit);
+    }
+    if let Some(range) = object.get("range") {
+        colorbar = colorbar.range(color_range(range)?);
+    }
+    if let Some(ticks) = object.get("ticks").and_then(Value::as_array) {
+        colorbar = colorbar.ticks(ticks.iter().filter_map(Value::as_f64).collect::<Vec<_>>());
+    }
+    colorbar = colorbar.orientation(
+        match object
+            .get("orientation")
+            .and_then(Value::as_str)
+            .unwrap_or("vertical")
+        {
+            "horizontal" => ColorbarOrientation::Horizontal,
+            _ => ColorbarOrientation::Vertical,
+        },
+    );
+    Ok(Some(colorbar))
+}
 
 #[derive(Debug, Clone)]
 pub struct NativeMeshPlotOptions {
@@ -433,6 +521,121 @@ fn resource_ref<'a>(value: &'a Value, name: &str) -> Result<(&'a str, u64), Stri
     Ok((resource_id, generation))
 }
 
+struct ArrayResourceRef<'a> {
+    id: &'a str,
+    generation: u64,
+    shape: Vec<usize>,
+    dtype: &'a str,
+}
+
+fn array_resource_ref<'a>(
+    value: &'a Value,
+    name: &str,
+) -> Result<Option<ArrayResourceRef<'a>>, String> {
+    if value.get("kind").and_then(Value::as_str) != Some("array_data") {
+        return Ok(None);
+    }
+    let (id, generation) = resource_ref(value, name)?;
+    let shape = value
+        .get("shape")
+        .and_then(Value::as_array)
+        .ok_or_else(|| format!("{name} ArrayData requires shape"))?
+        .iter()
+        .map(|dimension| {
+            dimension
+                .as_u64()
+                .and_then(|value| usize::try_from(value).ok())
+                .filter(|value| *value > 0)
+                .ok_or_else(|| format!("{name} ArrayData shape must contain positive integers"))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let dtype = value
+        .get("dtype")
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| format!("{name} ArrayData requires dtype"))?;
+    Ok(Some(ArrayResourceRef {
+        id,
+        generation,
+        shape,
+        dtype,
+    }))
+}
+
+fn array_payload<'a>(
+    reference: &ArrayResourceRef<'_>,
+    arrays: &'a DatasetFrameStore,
+    name: &str,
+) -> Result<&'a [u8], String> {
+    let payload = arrays
+        .raw_payload_at(reference.id, reference.generation)
+        .ok_or_else(|| format!("{name} ArrayData generation is not available"))?;
+    let elements = reference
+        .shape
+        .iter()
+        .try_fold(1_usize, |total, dimension| total.checked_mul(*dimension))
+        .ok_or_else(|| format!("{name} ArrayData shape is too large"))?;
+    let expected = elements
+        .checked_mul(dense_dtype_width(reference.dtype).map_err(|error| error.to_string())?)
+        .ok_or_else(|| format!("{name} ArrayData payload is too large"))?;
+    if payload.len() != expected {
+        return Err(format!(
+            "{name} ArrayData payload has {} bytes, expected {expected}",
+            payload.len()
+        ));
+    }
+    Ok(payload)
+}
+
+fn array_numbers(
+    value: &Value,
+    arrays: &DatasetFrameStore,
+    name: &str,
+) -> Result<Option<(Vec<f64>, Vec<usize>)>, String> {
+    let Some(reference) = array_resource_ref(value, name)? else {
+        return Ok(None);
+    };
+    let payload = array_payload(&reference, arrays, name)?;
+    let elements = reference.shape.iter().product();
+    let values = (0..elements)
+        .map(|index| {
+            dense_number(payload, reference.dtype, index).map_err(|error| error.to_string())
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(Some((values, reference.shape)))
+}
+
+fn array_unsigned(
+    value: &Value,
+    arrays: &DatasetFrameStore,
+    name: &str,
+) -> Result<Option<(Vec<u64>, Vec<usize>)>, String> {
+    let Some(reference) = array_resource_ref(value, name)? else {
+        return Ok(None);
+    };
+    let payload = array_payload(&reference, arrays, name)?;
+    let width = dense_dtype_width(reference.dtype).map_err(|error| error.to_string())?;
+    let elements: usize = reference.shape.iter().product();
+    let values = (0..elements)
+        .map(|index| {
+            let start = index
+                .checked_mul(width)
+                .ok_or_else(|| format!("{name} offset overflow"))?;
+            let bytes = payload
+                .get(start..start + width)
+                .ok_or_else(|| format!("{name} payload is truncated"))?;
+            match reference.dtype.to_ascii_lowercase().as_str() {
+                "u8" | "uint8" => Ok(u64::from(bytes[0])),
+                "u16" | "uint16" => Ok(u64::from(u16::from_le_bytes(bytes.try_into().unwrap()))),
+                "u32" | "uint32" => Ok(u64::from(u32::from_le_bytes(bytes.try_into().unwrap()))),
+                "u64" | "uint64" => Ok(u64::from_le_bytes(bytes.try_into().unwrap())),
+                _ => Err(format!("{name} ArrayData dtype must be unsigned integer")),
+            }
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(Some((values, reference.shape)))
+}
+
 fn inline_float(value: &Value, name: &str, allow_nan: bool) -> Result<f64, String> {
     let value = value
         .as_f64()
@@ -447,6 +650,7 @@ fn inline_float(value: &Value, name: &str, allow_nan: bool) -> Result<f64, Strin
 pub fn decode_geometry(
     geometry: &Value,
     store: &MeshFrameStore,
+    arrays: Option<&DatasetFrameStore>,
 ) -> Result<(Arc<[[f64; 3]]>, Arc<[[u32; 3]]>), String> {
     if geometry.get("resource_id").is_some() {
         return Err(
@@ -457,18 +661,59 @@ pub fn decode_geometry(
     let split_resources = geometry.get("positions").is_some_and(Value::is_object)
         || geometry.get("triangles").is_some_and(Value::is_object);
     if split_resources {
-        let (positions_id, positions_generation) = resource_ref(
-            geometry
-                .get("positions")
-                .ok_or("mesh geometry is missing positions resource")?,
-            "geometry.positions",
-        )?;
-        let (triangles_id, triangles_generation) = resource_ref(
-            geometry
-                .get("triangles")
-                .ok_or("mesh geometry is missing triangles resource")?,
-            "geometry.triangles",
-        )?;
+        let positions_value = geometry
+            .get("positions")
+            .ok_or("mesh geometry is missing positions resource")?;
+        let triangles_value = geometry
+            .get("triangles")
+            .ok_or("mesh geometry is missing triangles resource")?;
+        if let Some(arrays) = arrays
+            && let Some((positions, positions_shape)) =
+                array_numbers(positions_value, arrays, "geometry.positions")?
+        {
+            let Some((triangles, triangles_shape)) =
+                array_unsigned(triangles_value, arrays, "geometry.triangles")?
+            else {
+                return Err("ArrayData mesh positions require ArrayData triangles".into());
+            };
+            if positions_shape.len() != 2 || positions_shape[1] != 3 {
+                return Err("geometry.positions ArrayData shape must be [vertices, 3]".into());
+            }
+            if triangles_shape.len() != 2 || triangles_shape[1] != 3 {
+                return Err("geometry.triangles ArrayData shape must be [triangles, 3]".into());
+            }
+            if positions.iter().any(|value| !value.is_finite()) {
+                return Err("geometry.positions ArrayData values must be finite".into());
+            }
+            let positions: Arc<[[f64; 3]]> = positions
+                .chunks_exact(3)
+                .map(|point| [point[0], point[1], point[2]])
+                .collect::<Vec<_>>()
+                .into();
+            let triangles = triangles
+                .chunks_exact(3)
+                .map(|triangle| {
+                    let a = u32::try_from(triangle[0])
+                        .map_err(|_| "mesh triangle index exceeds u32".to_string())?;
+                    let b = u32::try_from(triangle[1])
+                        .map_err(|_| "mesh triangle index exceeds u32".to_string())?;
+                    let c = u32::try_from(triangle[2])
+                        .map_err(|_| "mesh triangle index exceeds u32".to_string())?;
+                    if [a, b, c]
+                        .iter()
+                        .any(|value| *value as usize >= positions.len())
+                    {
+                        return Err("mesh triangle references an invalid vertex".into());
+                    }
+                    Ok([a, b, c])
+                })
+                .collect::<Result<Vec<_>, String>>()?;
+            return Ok((positions, triangles.into()));
+        }
+        let (positions_id, positions_generation) =
+            resource_ref(positions_value, "geometry.positions")?;
+        let (triangles_id, triangles_generation) =
+            resource_ref(triangles_value, "geometry.triangles")?;
         return Ok((
             store.decoded_positions(positions_id, positions_generation)?,
             store.decoded_triangles(triangles_id, triangles_generation)?,
@@ -520,10 +765,20 @@ pub fn decode_geometry(
 pub fn decode_field(
     field: &Value,
     store: &MeshFrameStore,
+    arrays: Option<&DatasetFrameStore>,
 ) -> Result<(Arc<[f64]>, Option<Arc<[bool]>>), String> {
     let values = if field.get("resource_id").is_some() {
-        let (resource_id, generation) = resource_ref(field, "field")?;
-        store.decoded_field(resource_id, generation)?
+        if let Some(arrays) = arrays
+            && let Some((values, shape)) = array_numbers(field, arrays, "field")?
+        {
+            if shape.len() != 1 {
+                return Err("field ArrayData must be one-dimensional".into());
+            }
+            values.into()
+        } else {
+            let (resource_id, generation) = resource_ref(field, "field")?;
+            store.decoded_field(resource_id, generation)?
+        }
     } else {
         field
             .get("values")
@@ -536,8 +791,25 @@ pub fn decode_field(
     };
     let valid = match field.get("valid") {
         Some(value) if value.is_object() => {
-            let (resource_id, generation) = resource_ref(value, "field.valid")?;
-            Some(store.decoded_mask(resource_id, generation, values.len())?)
+            if let Some(arrays) = arrays
+                && let Some((mask, shape)) = array_numbers(value, arrays, "field.valid")?
+            {
+                if shape.as_slice() != [values.len()] {
+                    return Err("field.valid ArrayData shape must match field values".into());
+                }
+                if mask.iter().any(|value| *value != 0.0 && *value != 1.0) {
+                    return Err("field.valid ArrayData values must be boolean".into());
+                }
+                Some(
+                    mask.into_iter()
+                        .map(|value| value != 0.0)
+                        .collect::<Vec<_>>()
+                        .into(),
+                )
+            } else {
+                let (resource_id, generation) = resource_ref(value, "field.valid")?;
+                Some(store.decoded_mask(resource_id, generation, values.len())?)
+            }
         }
         Some(value) => Some(
             value
@@ -569,12 +841,21 @@ pub fn decode_ids(
     name: &str,
     expected: usize,
     store: &MeshFrameStore,
+    arrays: Option<&DatasetFrameStore>,
 ) -> Result<Option<Arc<[u64]>>, String> {
     let Some(value) = geometry.get(name) else {
         return Ok(None);
     };
     if value.is_object() {
         let label = format!("geometry.{name}");
+        if let Some(arrays) = arrays
+            && let Some((values, shape)) = array_unsigned(value, arrays, &label)?
+        {
+            if shape.as_slice() != [expected] {
+                return Err(format!("{label} ArrayData shape must be [{expected}]"));
+            }
+            return Ok(Some(values.into()));
+        }
         let (resource_id, generation) = resource_ref(value, &label)?;
         return store
             .decoded_ids(resource_id, generation, expected, &label)
@@ -602,6 +883,7 @@ pub fn decode_ids(
 
 /// Callback emitted when the retained native plot changes its selection.
 pub type SelectionCallback = Rc<dyn Fn(Option<MeshPlotPick>)>;
+pub type ExportCallback = Rc<dyn Fn(Result<String, gpui_px::ChartError>)>;
 
 /// Construct a retained native MeshPlot from a versioned Python spec.
 ///
@@ -633,12 +915,29 @@ pub fn prepare(
     spec: &MeshPlotSpec,
     mesh_frames: &MeshFrameStore,
 ) -> Result<PreparedMeshPlot, String> {
+    prepare_inner(spec, mesh_frames, None)
+}
+
+/// Decode a mesh that may reference revisioned `ArrayData` payloads.
+pub fn prepare_with_array_data(
+    spec: &MeshPlotSpec,
+    mesh_frames: &MeshFrameStore,
+    arrays: &DatasetFrameStore,
+) -> Result<PreparedMeshPlot, String> {
+    prepare_inner(spec, mesh_frames, Some(arrays))
+}
+
+fn prepare_inner(
+    spec: &MeshPlotSpec,
+    mesh_frames: &MeshFrameStore,
+    arrays: Option<&DatasetFrameStore>,
+) -> Result<PreparedMeshPlot, String> {
     let geometry = &spec.geometry;
     let mesh_id = geometry.get("id").and_then(Value::as_str).unwrap_or("mesh");
     let mesh = mesh_frames.cached_triangle_mesh(structural_fingerprint(geometry), || {
-        let (positions, triangles) = decode_geometry(geometry, mesh_frames)?;
-        let vertex_ids = decode_ids(geometry, "vertex_ids", positions.len(), mesh_frames)?;
-        let cell_ids = decode_ids(geometry, "cell_ids", triangles.len(), mesh_frames)?;
+        let (positions, triangles) = decode_geometry(geometry, mesh_frames, arrays)?;
+        let vertex_ids = decode_ids(geometry, "vertex_ids", positions.len(), mesh_frames, arrays)?;
+        let cell_ids = decode_ids(geometry, "cell_ids", triangles.len(), mesh_frames, arrays)?;
         Ok(TriangleMesh {
             id: Arc::from(mesh_id),
             positions,
@@ -653,7 +952,7 @@ pub fn prepare(
         .as_ref()
         .map(|field| {
             mesh_frames.cached_scalar_field(structural_fingerprint(field), || {
-                let (values, valid) = decode_field(field, mesh_frames)?;
+                let (values, valid) = decode_field(field, mesh_frames, arrays)?;
                 let association = match field
                     .get("association")
                     .and_then(Value::as_str)
@@ -688,9 +987,16 @@ pub fn build(
     mesh_frames: &MeshFrameStore,
     retained_state: Option<Rc<RefCell<MeshPlotState>>>,
     selection_callback: Option<SelectionCallback>,
+    export_callback: Option<ExportCallback>,
 ) -> Result<(AnyElement, Rc<RefCell<MeshPlotState>>), String> {
     let prepared = prepare(spec, mesh_frames)?;
-    build_prepared(spec, &prepared, retained_state, selection_callback)
+    build_prepared(
+        spec,
+        &prepared,
+        retained_state,
+        selection_callback,
+        export_callback,
+    )
 }
 
 /// Build the live native MeshPlot from already decoded mesh data.
@@ -699,6 +1005,7 @@ pub fn build_prepared(
     prepared: &PreparedMeshPlot,
     retained_state: Option<Rc<RefCell<MeshPlotState>>>,
     selection_callback: Option<SelectionCallback>,
+    export_callback: Option<ExportCallback>,
 ) -> Result<(AnyElement, Rc<RefCell<MeshPlotState>>), String> {
     let mesh = Arc::clone(&prepared.mesh);
     let mesh_id = spec
@@ -789,6 +1096,7 @@ pub fn build_prepared(
         apply_camera(&mut state.borrow_mut(), camera);
     }
     plot = plot
+        .renderer_backend(renderer_backend(&spec.renderer_backend)?)
         .view(view)
         .mode(options.mode)
         .color_scale(options.color_scale)
@@ -807,26 +1115,32 @@ pub fn build_prepared(
             }
         })
         .with_state(state.clone());
+    plot = plot.toolbar(spec.toolbar);
+    if let Some(callback) = export_callback {
+        plot = plot.on_export(move |result| callback(result));
+    }
+    for action in &spec.hidden_toolbar_actions {
+        plot = plot.toolbar_action_hidden(toolbar_action(action)?, true);
+    }
     if let Some(selection) = options.selection {
         plot = plot.selection(selection);
     }
-    if let Some(field) = spec.field.as_ref() {
-        let mut colorbar = Colorbar::new(
-            field
-                .get("label")
-                .and_then(Value::as_str)
-                .unwrap_or("Field"),
-        );
-        if let Some(unit) = field.get("unit").and_then(Value::as_str) {
-            colorbar = colorbar.unit(unit);
-        }
+    if let Some(colorbar) = mesh_colorbar(spec)? {
         plot = plot.colorbar(colorbar);
     }
     if let Some(title) = &spec.title {
         plot = plot.title(title.clone());
     }
-    if let (Some(width), Some(height)) = (spec.width, spec.height) {
+    if spec.fill {
+        plot = plot.fill();
+    } else if let (Some(width), Some(height)) = (spec.width, spec.height) {
         plot = plot.size(width, height);
+    }
+    if let (Some(width), Some(height)) = (spec.min_width, spec.min_height) {
+        plot = plot.min_size(width, height);
+    }
+    if let Some(ratio) = spec.aspect_ratio {
+        plot = plot.aspect_ratio(ratio);
     }
     let element = match plot.build() {
         Ok(element) => element,
@@ -838,6 +1152,131 @@ pub fn build_prepared(
         }
     };
     Ok((div().size_full().child(element).into_any_element(), state))
+}
+
+/// Export an already decoded resource-backed mesh through gpui-px's native
+/// static SVG renderer. The same retained-state construction as live rendering
+/// applies viewport, camera, selection, and style configuration before export.
+pub fn export_prepared_svg(
+    spec: &MeshPlotSpec,
+    prepared: &PreparedMeshPlot,
+    width: f32,
+    height: f32,
+) -> Result<String, String> {
+    export_prepared_svg_with_options(spec, prepared, StaticSvgOptions::new(width, height))
+}
+
+/// Return gpui-px's native accessibility result for an already decoded mesh
+/// resource. No geometry values are copied back into the control channel.
+pub fn accessibility_summary_prepared(
+    spec: &MeshPlotSpec,
+    prepared: &PreparedMeshPlot,
+) -> Result<ChartAccessibilitySummary, String> {
+    let mesh_id = spec
+        .geometry
+        .get("id")
+        .and_then(Value::as_str)
+        .unwrap_or("mesh");
+    let mesh_options = options(spec, mesh_id)?;
+    let view = match spec.view.as_str() {
+        "axisymmetric_section" => MeshPlotView::AxisymmetricSection {
+            radial: CoordinateAxis::X,
+            axial: CoordinateAxis::Z,
+        },
+        "axisymmetric_revolve" => {
+            MeshPlotView::AxisymmetricRevolve(revolve_spec(spec.revolve.as_ref())?)
+        }
+        "surface3d" => MeshPlotView::Surface3d,
+        _ => MeshPlotView::Planar {
+            horizontal: CoordinateAxis::X,
+            vertical: CoordinateAxis::Y,
+        },
+    };
+    let mut plot = mesh_plot((*prepared.mesh).clone())
+        .plot_id(spec.id.clone())
+        .view(view)
+        .axes(mesh_options.axes);
+    if let Some(field) = prepared.field() {
+        plot = plot.field((*field).clone());
+    }
+    if let Some(title) = &spec.title {
+        plot = plot.title(title.clone());
+    }
+    Ok(plot.accessibility_summary())
+}
+
+/// Export a decoded resource mesh with the complete gpui-px SVG option set.
+pub fn export_prepared_svg_with_options(
+    spec: &MeshPlotSpec,
+    prepared: &PreparedMeshPlot,
+    svg_options: StaticSvgOptions,
+) -> Result<String, String> {
+    let (_element, state) = build_prepared(spec, prepared, None, None, None)?;
+    let mesh_id = spec
+        .geometry
+        .get("id")
+        .and_then(Value::as_str)
+        .unwrap_or("mesh");
+    let mesh_options = options(spec, mesh_id)?;
+    let mut plot = mesh_plot((*prepared.mesh).clone()).plot_id(spec.id.clone());
+    if let Some(field) = prepared.field() {
+        plot = plot.field((*field).clone());
+    }
+    let view = match spec.view.as_str() {
+        "axisymmetric_section" => MeshPlotView::AxisymmetricSection {
+            radial: CoordinateAxis::X,
+            axial: CoordinateAxis::Z,
+        },
+        "axisymmetric_revolve" => {
+            MeshPlotView::AxisymmetricRevolve(revolve_spec(spec.revolve.as_ref())?)
+        }
+        "surface3d" => MeshPlotView::Surface3d,
+        _ => MeshPlotView::Planar {
+            horizontal: CoordinateAxis::X,
+            vertical: CoordinateAxis::Y,
+        },
+    };
+    plot = plot
+        .renderer_backend(renderer_backend(&spec.renderer_backend)?)
+        .view(view)
+        .mode(mesh_options.mode)
+        .color_scale(mesh_options.color_scale)
+        .color_range(mesh_options.color_range)
+        .missing_value_policy(mesh_options.missing_value_policy)
+        .axes(mesh_options.axes)
+        .interactions(mesh_options.interactions)
+        .wireframe(if spec.wireframe {
+            Wireframe::Overlay
+        } else {
+            Wireframe::Hidden
+        })
+        .with_state(state);
+    plot = plot.toolbar(spec.toolbar);
+    for action in &spec.hidden_toolbar_actions {
+        plot = plot.toolbar_action_hidden(toolbar_action(action)?, true);
+    }
+    if let Some(selection) = mesh_options.selection {
+        plot = plot.selection(selection);
+    }
+    if let Some(colorbar) = mesh_colorbar(spec)? {
+        plot = plot.colorbar(colorbar);
+    }
+    if let Some(title) = &spec.title {
+        plot = plot.title(title.clone());
+    }
+    if spec.fill {
+        plot = plot.fill();
+    } else if let (Some(width), Some(height)) = (spec.width, spec.height) {
+        plot = plot.size(width, height);
+    }
+    if let (Some(width), Some(height)) = (spec.min_width, spec.min_height) {
+        plot = plot.min_size(width, height);
+    }
+    if let Some(ratio) = spec.aspect_ratio {
+        plot = plot.aspect_ratio(ratio);
+    }
+    plot.to_svg_with_options(svg_options)
+        .map_err(|error| error.to_string())
 }
 
 #[cfg(feature = "gpu-3d")]
@@ -949,6 +1388,50 @@ mod tests {
     }
 
     #[test]
+    fn prepared_mesh_exports_through_native_svg_renderer() {
+        let plot = MeshPlotSpec::from_value(serde_json::json!({
+            "schema_version": 1,
+            "id": "exported-mesh",
+            "geometry": {
+                "id": "mesh",
+                "positions": [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+                "triangles": [[0, 1, 2]]
+            },
+            "field": {
+                "id": "field",
+                "values": [0.0, 1.0, 2.0],
+                "association": "vertex",
+                "label": "Pressure",
+                "unit": "Pa"
+            },
+            "mode": "scalar_fill",
+            "title": "Resource mesh export"
+        }))
+        .unwrap();
+        let prepared = prepare(&plot, &MeshFrameStore::new()).unwrap();
+        let summary = accessibility_summary_prepared(&plot, &prepared).unwrap();
+        assert_eq!(summary.chart_type, "mesh_plot");
+        assert_eq!(summary.title.as_deref(), Some("Resource mesh export"));
+        assert_eq!(summary.datum_count, 3);
+        assert_eq!(summary.value_range, Some([0.0, 2.0]));
+        assert_eq!(summary.series_labels, vec!["Pressure"]);
+        let svg = export_prepared_svg(&plot, &prepared, 480.0, 320.0).unwrap();
+        assert!(svg.starts_with("<svg"));
+        assert!(svg.contains("Resource mesh export"));
+        assert!(svg.contains("gpui-px-mesh-plot"));
+
+        let mut svg_options = StaticSvgOptions::new(500.0, 280.0);
+        svg_options.margin_left = 20.0;
+        svg_options.margin_right = 10.0;
+        svg_options.background = None;
+        svg_options.show_axes = false;
+        let svg = export_prepared_svg_with_options(&plot, &prepared, svg_options).unwrap();
+        assert!(svg.contains("width=\"500\" height=\"280\""));
+        assert!(!svg.contains("<rect width=\"100%\""));
+        assert!(!svg.contains("gpui-px-mesh-axis"));
+    }
+
+    #[test]
     fn options_preserve_native_rendering_configuration() {
         let options = options(
             &spec(serde_json::json!({"symmetric": {"center": 0.0, "extent": 2.0}})),
@@ -1011,6 +1494,7 @@ mod tests {
             &MeshFrameStore::new(),
             Some(state.clone()),
             None,
+            None,
         ) {
             Ok(_) => panic!("an invalid camera must reject the native build"),
             Err(error) => error,
@@ -1061,6 +1545,7 @@ mod tests {
             &plot_spec,
             &MeshFrameStore::new(),
             Some(state.clone()),
+            None,
             None,
         ) {
             Ok(_) => panic!("a field-length mismatch must reject the native build"),
@@ -1161,7 +1646,7 @@ mod tests {
             "positions": [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
             "triangles": [[0, 1, 2]]
         });
-        let (positions, triangles) = decode_geometry(&geometry, &store).unwrap();
+        let (positions, triangles) = decode_geometry(&geometry, &store, None).unwrap();
         assert_eq!(positions.len(), 3);
         assert_eq!(triangles.as_ref(), &[[0, 1, 2]]);
 
@@ -1169,7 +1654,7 @@ mod tests {
             "values": [1.0, 2.0, 3.0],
             "valid": [true, false, true]
         });
-        let (values, valid) = decode_field(&field, &store).unwrap();
+        let (values, valid) = decode_field(&field, &store, None).unwrap();
         assert_eq!(values.as_ref(), &[1.0, 2.0, 3.0]);
         assert_eq!(valid.as_deref(), Some(&[true, false, true][..]));
     }
@@ -1182,14 +1667,14 @@ mod tests {
             "triangles": [[0, 1, 2]]
         });
         assert!(
-            decode_geometry(&geometry, &store)
+            decode_geometry(&geometry, &store, None)
                 .unwrap_err()
                 .contains("mesh y must be numeric")
         );
 
         let field = serde_json::json!({"values": [1.0, "invalid", 3.0]});
         assert!(
-            decode_field(&field, &store)
+            decode_field(&field, &store, None)
                 .unwrap_err()
                 .contains("mesh field value must be numeric")
         );
@@ -1203,9 +1688,98 @@ mod tests {
             "generation": 1
         });
         assert!(
-            decode_geometry(&geometry, &store)
+            decode_geometry(&geometry, &store, None)
                 .unwrap_err()
                 .contains("geometry resource_id is unsupported")
+        );
+    }
+
+    #[test]
+    fn prepares_mesh_directly_from_revisioned_arraydata_frames() {
+        use crate::dataset_frames::DatasetFrame;
+
+        fn ingest(store: &mut DatasetFrameStore, id: &str, payload: Vec<u8>) {
+            let frame = DatasetFrame {
+                resource_id: id.into(),
+                generation: 1,
+                sequence: 0,
+                chunk_count: 1,
+                byte_length: payload.len(),
+                schema_fingerprint: format!("{id}-schema"),
+                checksum: DatasetFrame::checksum(&payload),
+                payload,
+            };
+            assert!(store.ingest(frame).unwrap());
+        }
+
+        let mut arrays = DatasetFrameStore::default();
+        ingest(
+            &mut arrays,
+            "positions",
+            [0.0_f64, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0]
+                .into_iter()
+                .flat_map(f64::to_le_bytes)
+                .collect(),
+        );
+        ingest(
+            &mut arrays,
+            "triangles",
+            [0_u32, 1, 2]
+                .into_iter()
+                .flat_map(u32::to_le_bytes)
+                .collect(),
+        );
+        ingest(
+            &mut arrays,
+            "vertex-ids",
+            [101_u64, 102, 103]
+                .into_iter()
+                .flat_map(u64::to_le_bytes)
+                .collect(),
+        );
+        ingest(
+            &mut arrays,
+            "field",
+            [1.0_f32, 2.0, 3.0]
+                .into_iter()
+                .flat_map(f32::to_le_bytes)
+                .collect(),
+        );
+        ingest(&mut arrays, "valid", vec![1, 0, 1]);
+
+        let plot = MeshPlotSpec::from_value(serde_json::json!({
+            "schema_version": 1,
+            "id": "array-mesh",
+            "geometry": {
+                "id": "mesh",
+                "positions": {"kind": "array_data", "resource_id": "positions", "generation": 1, "shape": [3, 3], "dtype": "f64"},
+                "triangles": {"kind": "array_data", "resource_id": "triangles", "generation": 1, "shape": [1, 3], "dtype": "u32"},
+                "vertex_ids": {"kind": "array_data", "resource_id": "vertex-ids", "generation": 1, "shape": [3], "dtype": "u64"}
+            },
+            "field": {
+                "id": "pressure",
+                "kind": "array_data",
+                "resource_id": "field",
+                "generation": 1,
+                "shape": [3],
+                "dtype": "f32",
+                "association": "vertex",
+                "valid": {"kind": "array_data", "resource_id": "valid", "generation": 1, "shape": [3], "dtype": "bool"}
+            },
+            "mode": "scalar_fill"
+        }))
+        .unwrap();
+        let prepared = prepare_with_array_data(&plot, &MeshFrameStore::new(), &arrays).unwrap();
+        assert_eq!(prepared.mesh().positions.len(), 3);
+        assert_eq!(prepared.mesh().triangles.as_ref(), &[[0, 1, 2]]);
+        assert_eq!(
+            prepared.mesh().vertex_ids.as_deref(),
+            Some([101, 102, 103].as_slice())
+        );
+        assert_eq!(prepared.field().unwrap().values.as_ref(), &[1.0, 2.0, 3.0]);
+        assert_eq!(
+            prepared.field().unwrap().valid.as_deref(),
+            Some([true, false, true].as_slice())
         );
     }
 }

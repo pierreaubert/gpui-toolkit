@@ -10,12 +10,30 @@ use crate::{
 use d3rs::gpu3d::{Colormap, Surface3DConfig, Surface3DElement, Surface3DState, SurfaceData};
 use d3rs::text::{GlyphTextConfig, render_glyph_text};
 use gpui::prelude::*;
-use gpui::{IntoElement, div, hsla, px};
+use gpui::{
+    CursorStyle, IntoElement, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
+    ScrollDelta, ScrollWheelEvent, div, hsla, px,
+};
 use gpui_design::DesignSystem;
 use std::cell::RefCell;
 use std::fmt::Write;
 use std::rc::Rc;
 use std::sync::Arc;
+
+/// Serializable camera snapshot emitted by interactive surface charts.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Surface3DCamera {
+    /// Orbit distance from the camera target.
+    pub distance: f32,
+    /// Horizontal orbit angle in radians.
+    pub azimuth: f32,
+    /// Vertical orbit angle in radians.
+    pub elevation: f32,
+    /// World-space point around which the camera orbits.
+    pub target: [f32; 3],
+}
+
+type OnCameraChange = Rc<dyn Fn(Surface3DCamera)>;
 
 /// Surface 3D chart builder.
 #[derive(Clone)]
@@ -40,11 +58,21 @@ pub struct Surface3DChart {
     z_label: Option<String>,
     /// External state for camera/interaction control
     external_state: Option<Rc<RefCell<Surface3DState>>>,
+    on_camera_change: Option<OnCameraChange>,
     design: Option<Arc<DesignSystem>>,
 }
 
 fn reshape_z_grid(z: &[f64], grid_width: usize) -> Vec<Vec<f64>> {
     z.chunks_exact(grid_width).map(|row| row.to_vec()).collect()
+}
+
+fn surface_camera_snapshot(state: &Surface3DState) -> Surface3DCamera {
+    Surface3DCamera {
+        distance: state.controls.distance,
+        azimuth: state.controls.azimuth,
+        elevation: state.controls.elevation,
+        target: state.controls.target.to_array(),
+    }
 }
 
 impl std::fmt::Debug for Surface3DChart {
@@ -396,6 +424,15 @@ impl Surface3DChart {
         self
     }
 
+    /// Emit camera snapshots after native rotate, zoom, or reset gestures.
+    pub fn on_camera_change<F>(mut self, callback: F) -> Self
+    where
+        F: Fn(Surface3DCamera) + 'static,
+    {
+        self.on_camera_change = Some(Rc::new(callback));
+        self
+    }
+
     fn resolve_static_axis_values(
         &self,
         values: Option<&[f64]>,
@@ -568,9 +605,14 @@ impl Surface3DChart {
         }
 
         // Add surface element with optional external state
+        let interaction_state = self.external_state.or_else(|| {
+            self.on_camera_change
+                .as_ref()
+                .map(|_| Rc::new(RefCell::new(Surface3DState::default())))
+        });
         let element = Surface3DElement::new(data, config);
-        let element = if let Some(state) = self.external_state {
-            element.with_state(state)
+        let element = if let Some(state) = interaction_state.as_ref() {
+            element.with_state(state.clone())
         } else {
             element
         };
@@ -583,6 +625,83 @@ impl Surface3DChart {
                 .child(element),
         );
 
+        if let (Some(state), Some(callback)) = (interaction_state, self.on_camera_change) {
+            let down_state = state.clone();
+            let down_callback = callback.clone();
+            let move_state = state.clone();
+            let move_callback = callback.clone();
+            let up_state = state.clone();
+            let wheel_state = state;
+            let wheel_callback = callback;
+            container = container
+                .cursor(CursorStyle::PointingHand)
+                .on_mouse_down(
+                    MouseButton::Left,
+                    move |event: &MouseDownEvent, window, _cx| {
+                        let snapshot = {
+                            let mut state = down_state.borrow_mut();
+                            if event.click_count == 2 {
+                                state.controls.reset();
+                                state.update_camera();
+                                Some(surface_camera_snapshot(&state))
+                            } else {
+                                state.dragging = true;
+                                state.last_mouse = Some(event.position);
+                                None
+                            }
+                        };
+                        if let Some(snapshot) = snapshot {
+                            down_callback(snapshot);
+                            window.refresh();
+                        }
+                    },
+                )
+                .on_mouse_up(
+                    MouseButton::Left,
+                    move |_event: &MouseUpEvent, _window, _cx| {
+                        up_state.borrow_mut().dragging = false;
+                    },
+                )
+                .on_mouse_move(move |event: &MouseMoveEvent, window, _cx| {
+                    let snapshot = {
+                        let mut state = move_state.borrow_mut();
+                        let snapshot = if state.dragging {
+                            if let Some(last) = state.last_mouse {
+                                let dx: f32 = (event.position.x - last.x).into();
+                                let dy: f32 = (event.position.y - last.y).into();
+                                state.controls.rotate(dx, dy);
+                                state.update_camera();
+                                Some(surface_camera_snapshot(&state))
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        };
+                        state.last_mouse = Some(event.position);
+                        snapshot
+                    };
+                    if let Some(snapshot) = snapshot {
+                        move_callback(snapshot);
+                        window.refresh();
+                    }
+                })
+                .on_scroll_wheel(move |event: &ScrollWheelEvent, window, cx| {
+                    let delta = match event.delta {
+                        ScrollDelta::Lines(lines) => lines.y * 0.5,
+                        ScrollDelta::Pixels(pixels) => f32::from(pixels.y) * 0.01,
+                    };
+                    let snapshot = {
+                        let mut state = wheel_state.borrow_mut();
+                        state.controls.zoom(delta);
+                        state.update_camera();
+                        surface_camera_snapshot(&state)
+                    };
+                    wheel_callback(snapshot);
+                    cx.stop_propagation();
+                    window.refresh();
+                });
+        }
         Ok(container)
     }
 }
@@ -631,6 +750,7 @@ pub fn surface3d(z: &[f64], grid_width: usize, grid_height: usize) -> Surface3DC
         y_label: None,
         z_label: None,
         external_state: None,
+        on_camera_change: None,
         design: None,
     }
 }
@@ -863,6 +983,16 @@ fn static_surface_channel_to_u8(channel: f32) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn camera_snapshot_preserves_orbit_state() {
+        let state = Surface3DState::new(3.5, 60.0, 25.0);
+        let snapshot = surface_camera_snapshot(&state);
+        assert_eq!(snapshot.distance, state.controls.distance);
+        assert_eq!(snapshot.azimuth, state.controls.azimuth);
+        assert_eq!(snapshot.elevation, state.controls.elevation);
+        assert_eq!(snapshot.target, state.controls.target.to_array());
+    }
 
     #[test]
     fn test_surface3d_builds() {

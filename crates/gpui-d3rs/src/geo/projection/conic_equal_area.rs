@@ -1,7 +1,7 @@
-use super::super::{degrees, radians};
+use super::super::radians;
 use super::Projection;
 use super::projection_config::ProjectionConfig;
-use super::projection_config::build_rotation;
+use super::projection_config::{build_rotation, invert_rotation};
 use std::f64::consts::PI;
 
 /// Conic Equal-Area projection.
@@ -145,8 +145,11 @@ impl Projection for ConicEqualArea {
     }
 
     fn invert(&self, x: f64, y: f64) -> Option<(f64, f64)> {
-        let x = (x - self.config.translate.0) / self.config.scale;
-        let y = -(y - self.config.translate.1) / self.config.scale;
+        let cl = radians(self.config.center.0);
+        let cp = radians(self.config.center.1);
+        let (cx, cy) = self.project_raw_conic(cl, cp)?;
+        let x = (x - self.config.translate.0) / self.config.scale + cx;
+        let y = -(y - self.config.translate.1) / self.config.scale + cy;
 
         let r0y = self.r0 - y;
         let l = x.atan2(r0y.abs()) * r0y.signum();
@@ -159,10 +162,7 @@ impl Projection for ConicEqualArea {
 
         let phi = ((self.c - (x * x + r0y * r0y) * self.n * self.n) / (2.0 * self.n)).asin();
 
-        Some((
-            degrees(lambda / self.n) + self.config.center.0 - self.config.rotate.0,
-            degrees(phi),
-        ))
+        Some(invert_rotation(&self.config, lambda / self.n, phi))
     }
 
     fn scale(&self) -> f64 {

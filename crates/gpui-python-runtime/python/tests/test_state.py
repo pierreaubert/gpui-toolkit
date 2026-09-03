@@ -228,26 +228,6 @@ class StateStoreTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             context.credential_store("bad", "", secret="x")
 
-    def test_chart_series_helpers_emit_stable_patch_operations(self):
-        class RecordingContext(SessionContext):
-            def __init__(self):
-                super().__init__()
-                self.operations = []
-
-            def patch(self, ops):
-                self.operations.extend(ops)
-
-        context = RecordingContext()
-        context.append_chart_series("response", "measured", [20.0], [0.0])
-        context.replace_chart_series(
-            "response", {"id": "target", "x": [20.0], "y": [0.0]}
-        )
-        self.assertEqual(context.operations[0]["op"], "append_chart_series")
-        self.assertEqual(context.operations[0]["series_id"], "measured")
-        self.assertEqual(context.operations[1]["op"], "replace_chart_series")
-        with self.assertRaises(ValueError):
-            context.append_chart_series("response", "measured", [20.0], [])
-
     def test_action_outcomes_are_correlated_with_event_ids(self):
         class RecordingContext(SessionContext):
             def __init__(self):

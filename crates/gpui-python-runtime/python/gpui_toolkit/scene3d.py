@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any, Iterable, Mapping, Sequence
+from .data import ArrayData
 
 
 SCENE3D_SPEC_SCHEMA_VERSION = 1
@@ -177,7 +178,13 @@ class Surface:
     height: float | None = None
 
     def to_spec(self) -> dict[str, Any]:
-        values, grid_width, grid_height = _grid(self.z)
+        if isinstance(self.z, ArrayData):
+            if len(self.z.shape) != 2:
+                raise ValueError("resource-backed surface requires ArrayData shape [height, width]")
+            z_spec: dict[str, Any] = self.z.to_spec()
+        else:
+            values, grid_width, grid_height = _grid(self.z)
+            z_spec = {"values": values, "width": grid_width, "height": grid_height}
         labels = {
             "x": self.labels.get("x"),
             "y": self.labels.get("y"),
@@ -191,7 +198,7 @@ class Surface:
             "schema_version": SCENE3D_SPEC_SCHEMA_VERSION,
             "kind": "surface",
             "id": self.id,
-            "z": {"values": values, "width": grid_width, "height": grid_height},
+            "z": z_spec,
             "x": _axis(self.x),
             "y": _axis(self.y),
             "colormap": _colormap(self.colormap),
@@ -210,14 +217,20 @@ class Surface:
 @dataclass(frozen=True)
 class LineStrip:
     id: str
-    points: Sequence[Point3]
+    points: Sequence[Point3] | ArrayData
     color: str | Point3 = "#ffffff"
     width: float = 1.5
 
     def to_spec(self) -> dict[str, Any]:
+        if isinstance(self.points, ArrayData):
+            if len(self.points.shape) != 2 or self.points.shape[1] != 3:
+                raise ValueError("line strip ArrayData points require shape [points, 3]")
+            points: Any = self.points.to_spec()
+        else:
+            points = [_point3(point) for point in self.points]
         return {
             "id": self.id,
-            "points": [_point3(point) for point in self.points],
+            "points": points,
             "color": _color(self.color),
             "width": float(self.width),
         }
@@ -250,10 +263,10 @@ class Lines:
 @dataclass(frozen=True)
 class Mesh:
     id: str
-    vertices: Sequence[Point3]
-    indices: Sequence[int]
+    vertices: Sequence[Point3] | ArrayData
+    indices: Sequence[int] | ArrayData
     material: Material = field(default_factory=Material)
-    scalar_values: Sequence[float] | None = None
+    scalar_values: Sequence[float] | ArrayData | None = None
     scalar_location: str = "vertex"
     colormap: str = "viridis"
     scalar_range: tuple[float, float] | None = None
@@ -262,8 +275,14 @@ class Mesh:
     def to_spec(self) -> dict[str, Any]:
         scalar_field = None
         if self.scalar_values is not None:
+            if isinstance(self.scalar_values, ArrayData):
+                if len(self.scalar_values.shape) != 1:
+                    raise ValueError("mesh scalar ArrayData requires shape [values]")
+                scalar_values: Any = self.scalar_values.to_spec()
+            else:
+                scalar_values = [float(value) for value in self.scalar_values]
             scalar_field = {
-                "values": [float(value) for value in self.scalar_values],
+                "values": scalar_values,
                 "association": self.scalar_location.strip().lower().replace("-", "_"),
                 "colormap": _colormap(self.colormap),
                 "range": None if self.scalar_range is None else {
@@ -271,12 +290,30 @@ class Mesh:
                 },
                 "label": self.scalar_label,
             }
+        if isinstance(self.vertices, ArrayData):
+            if len(self.vertices.shape) != 2 or self.vertices.shape[1] != 3:
+                raise ValueError("mesh vertex ArrayData requires shape [vertices, 3]")
+            vertices: Any = self.vertices.to_spec()
+        else:
+            vertices = [_point3(vertex) for vertex in self.vertices]
+        if isinstance(self.indices, ArrayData):
+            shape = self.indices.shape
+            if not (
+                (len(shape) == 1 and shape[0] % 3 == 0)
+                or (len(shape) == 2 and shape[1] == 3)
+            ):
+                raise ValueError(
+                    "mesh index ArrayData requires shape [indices] or [triangles, 3]"
+                )
+            indices: Any = self.indices.to_spec()
+        else:
+            indices = [int(index) for index in self.indices]
         return {
             "schema_version": SCENE3D_SPEC_SCHEMA_VERSION,
             "kind": "mesh",
             "id": self.id,
-            "vertices": [_point3(vertex) for vertex in self.vertices],
-            "indices": [int(index) for index in self.indices],
+            "vertices": vertices,
+            "indices": indices,
             "material": self.material.to_spec(),
             "scalar_field": scalar_field,
         }
@@ -361,34 +398,129 @@ def perspective(
     )
 
 
-def surface(id: str, z: Any, **kwargs: Any) -> Surface:
-    return Surface(id=id, z=z, **kwargs)
+def surface(
+    id: str,
+    z: Any,
+    *,
+    x: Sequence[float] | None = None,
+    y: Sequence[float] | None = None,
+    colormap: str = "viridis",
+    wireframe: bool = False,
+    x_log: bool = False,
+    y_log: bool = False,
+    z_log: bool = False,
+    z_range: tuple[float, float] | None = None,
+    labels: Mapping[str, str] | None = None,
+    camera: OrbitCamera | PerspectiveCamera | None = None,
+    interactions: Iterable[str] | None = None,
+    width: float | None = None,
+    height: float | None = None,
+) -> Surface:
+    return Surface(
+        id=id,
+        z=z,
+        x=x,
+        y=y,
+        colormap=colormap,
+        wireframe=wireframe,
+        x_log=x_log,
+        y_log=y_log,
+        z_log=z_log,
+        z_range=z_range,
+        labels={} if labels is None else labels,
+        camera=camera,
+        interactions=interactions,
+        width=width,
+        height=height,
+    )
 
 
-def line_strip(id: str, points: Sequence[Point3], **kwargs: Any) -> LineStrip:
-    return LineStrip(id=id, points=points, **kwargs)
+def line_strip(
+    id: str,
+    points: Sequence[Point3] | ArrayData,
+    *,
+    color: str | Point3 = "#ffffff",
+    width: float = 1.5,
+) -> LineStrip:
+    return LineStrip(id=id, points=points, color=color, width=width)
 
 
-def lines(id: str, strips: Sequence[LineStrip], **kwargs: Any) -> Lines:
-    return Lines(id=id, strips=strips, **kwargs)
+def lines(
+    id: str,
+    strips: Sequence[LineStrip],
+    *,
+    background: str | Point3 | None = None,
+    camera: OrbitCamera | PerspectiveCamera | None = None,
+    interactions: Iterable[str] | None = None,
+    width: float | None = None,
+    height: float | None = None,
+) -> Lines:
+    return Lines(
+        id=id,
+        strips=strips,
+        background=background,
+        camera=camera,
+        interactions=interactions,
+        width=width,
+        height=height,
+    )
 
 
 def mesh(
     id: str,
-    vertices: Sequence[Point3],
-    indices: Sequence[int],
-    **kwargs: Any,
+    vertices: Sequence[Point3] | ArrayData,
+    indices: Sequence[int] | ArrayData,
+    *,
+    material: Material | None = None,
+    scalar_values: Sequence[float] | ArrayData | None = None,
+    scalar_location: str = "vertex",
+    colormap: str = "viridis",
+    scalar_range: tuple[float, float] | None = None,
+    scalar_label: str | None = None,
 ) -> Mesh:
-    return Mesh(id=id, vertices=vertices, indices=indices, **kwargs)
+    return Mesh(
+        id=id,
+        vertices=vertices,
+        indices=indices,
+        material=Material() if material is None else material,
+        scalar_values=scalar_values,
+        scalar_location=scalar_location,
+        colormap=colormap,
+        scalar_range=scalar_range,
+        scalar_label=scalar_label,
+    )
 
 
 def material(color: str | Point3 = "#ffffff", opacity: float = 1.0) -> Material:
     return Material(color=color, opacity=opacity)
 
 
-def light(id: str, direction: Point3, **kwargs: Any) -> Light:
-    return Light(id=id, direction=direction, **kwargs)
+def light(
+    id: str,
+    direction: Point3,
+    *,
+    intensity: float = 1.0,
+    color: str | Point3 = "#ffffff",
+) -> Light:
+    return Light(id=id, direction=direction, intensity=intensity, color=color)
 
 
-def scene(id: str, children: Sequence[Surface | Lines | Mesh | Light], **kwargs: Any) -> Scene:
-    return Scene(id=id, children=children, **kwargs)
+def scene(
+    id: str,
+    children: Sequence[Surface | Lines | Mesh | Light],
+    *,
+    camera: OrbitCamera | PerspectiveCamera | None = None,
+    interactions: Iterable[str] | None = None,
+    background: str | Point3 | None = None,
+    width: float | None = None,
+    height: float | None = None,
+) -> Scene:
+    return Scene(
+        id=id,
+        children=children,
+        camera=OrbitCamera() if camera is None else camera,
+        interactions=interactions,
+        background=background,
+        width=width,
+        height=height,
+    )

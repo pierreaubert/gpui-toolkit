@@ -70,7 +70,7 @@ impl Stereographic {
         let cos_c = c.cos();
         let sin_c = c.sin();
 
-        let lambda = x.atan2(z * cos_c);
+        let lambda = (x * sin_c).atan2(z * cos_c);
         let phi = (y * sin_c / z).asin();
 
         (lambda, if phi.is_nan() { 0.0 } else { phi })

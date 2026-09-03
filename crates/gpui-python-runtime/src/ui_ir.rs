@@ -366,86 +366,6 @@ fn apply_patch_op(tree: &mut Value, op: &crate::session::PatchOp) -> Result<(), 
             *children = ordered;
             Ok(())
         }),
-        PatchOp::ReplaceChartSeries { chart_id, series } => {
-            with_node_mut(tree, chart_id, |chart| {
-                if chart.get("kind").and_then(Value::as_str) != Some("chart") {
-                    return Err(UiIrError::InvalidPatch {
-                        message: format!("node {chart_id:?} is not a chart"),
-                    });
-                }
-                let replacement_id = node_id(series).ok_or_else(|| UiIrError::InvalidPatch {
-                    message: "replacement chart series needs an id".into(),
-                })?;
-                let series_values = chart
-                    .get_mut("series")
-                    .and_then(Value::as_array_mut)
-                    .ok_or_else(|| UiIrError::InvalidPatch {
-                        message: format!("chart {chart_id:?} has invalid series data"),
-                    })?;
-                let index = series_values
-                    .iter()
-                    .position(|candidate| node_id(candidate) == Some(replacement_id))
-                    .ok_or_else(|| UiIrError::InvalidPatch {
-                        message: format!("chart {chart_id:?} has no series {replacement_id:?}"),
-                    })?;
-                series_values[index] = series.clone();
-                Ok(())
-            })
-        }
-        PatchOp::AppendChartSeries {
-            chart_id,
-            series_id,
-            x,
-            y,
-        } => {
-            if x.len() != y.len() {
-                return Err(UiIrError::ChartLengthMismatch {
-                    id: format!("{chart_id}:{series_id}"),
-                    left: "x",
-                    left_len: x.len(),
-                    right: "y",
-                    right_len: y.len(),
-                });
-            }
-            with_node_mut(tree, chart_id, |chart| {
-                if chart.get("kind").and_then(Value::as_str) != Some("chart") {
-                    return Err(UiIrError::InvalidPatch {
-                        message: format!("node {chart_id:?} is not a chart"),
-                    });
-                }
-                let series_values = chart
-                    .get_mut("series")
-                    .and_then(Value::as_array_mut)
-                    .ok_or_else(|| UiIrError::InvalidPatch {
-                        message: format!("chart {chart_id:?} has invalid series data"),
-                    })?;
-                let series = series_values
-                    .iter_mut()
-                    .find(|candidate| node_id(candidate) == Some(series_id))
-                    .ok_or_else(|| UiIrError::InvalidPatch {
-                        message: format!("chart {chart_id:?} has no series {series_id:?}"),
-                    })?;
-                let series_x = series
-                    .get_mut("x")
-                    .and_then(Value::as_array_mut)
-                    .ok_or_else(|| UiIrError::InvalidPatch {
-                        message: format!(
-                            "chart {chart_id:?} series {series_id:?} has invalid x data"
-                        ),
-                    })?;
-                series_x.extend(x.iter().map(|value| serde_json::json!(value)));
-                let series_y = series
-                    .get_mut("y")
-                    .and_then(Value::as_array_mut)
-                    .ok_or_else(|| UiIrError::InvalidPatch {
-                        message: format!(
-                            "chart {chart_id:?} series {series_id:?} has invalid y data"
-                        ),
-                    })?;
-                series_y.extend(y.iter().map(|value| serde_json::json!(value)));
-                Ok(())
-            })
-        }
         PatchOp::ReplaceMeshGeometry {
             plot_id, geometry, ..
         } => with_node_mut(tree, plot_id, |node| {
@@ -636,6 +556,8 @@ pub enum UiNode {
     Accordion(AccordionNode),
     ListEditor(ListEditorNode),
     Table(TableNode),
+    /// Resource-backed table declaration; payload values travel separately.
+    TableV2(TableV2Node),
     TextInput(TextInputNode),
     NumberInput(NumberInputNode),
     Slider(SliderNode),
@@ -652,7 +574,9 @@ pub enum UiNode {
     Toggle(BooleanInputNode),
     Divider(SimpleNode),
     Spacer(SimpleNode),
-    Chart(ChartNode),
+    /// Removed v1 chart document. Deserialization is retained only to return a
+    /// Resource-backed gpui-px declaration; payload values travel separately.
+    PxChartV2(PxChartV2Node),
     Scene3d(Scene3dNode),
     MeshPlot(MeshPlotNode),
 }
@@ -689,7 +613,7 @@ impl UiNode {
             Self::Accordion(node) => node.validate(),
             Self::ListEditor(node) => node.validate(),
             Self::Stepper(node) => node.validate(),
-            Self::Chart(node) => node.validate(),
+            Self::PxChartV2(node) => node.validate(),
             Self::Scene3d(node) => node.validate(),
             Self::MeshPlot(node) => node.validate(),
             Self::TextInput(node) => node.validate(),
@@ -702,6 +626,7 @@ impl UiNode {
             Self::AudioHorizontalMeter(node) | Self::AudioLevelMeter(node) => node.validate(),
             Self::AudioSpectrum(node) => node.validate(),
             Self::Table(node) => node.validate(),
+            Self::TableV2(node) => node.validate(),
             Self::Select(node) => node.validate(),
             Self::ColorPicker(node) => node.validate(),
             Self::PathInput(node) => node.validate(),
@@ -2323,6 +2248,113 @@ pub struct TableColumn {
     pub pinned: bool,
 }
 
+/// Table metadata bound to a revisioned dataset or dataset view.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TableV2Node {
+    pub id: String,
+    pub data: Value,
+    pub columns: Vec<TableV2Column>,
+    #[serde(default)]
+    pub selection_mode: String,
+    pub virtualize: TableVirtualize,
+    #[serde(default)]
+    pub selection_action: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TableV2Column {
+    pub id: String,
+    pub field: String,
+    #[serde(default)]
+    pub sortable: bool,
+    #[serde(default)]
+    pub min_width: Option<f32>,
+    #[serde(default)]
+    pub template: Option<Value>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TableVirtualize {
+    pub row_height: f32,
+    pub overscan: usize,
+}
+
+impl TableV2Node {
+    fn validate(&self) -> Result<(), UiIrError> {
+        if self.id.trim().is_empty()
+            || self.columns.is_empty()
+            || !matches!(self.selection_mode.as_str(), "none" | "single" | "multiple")
+            || !self.virtualize.row_height.is_finite()
+            || self.virtualize.row_height <= 0.0
+        {
+            return Err(UiIrError::InvalidPatch {
+                message:
+                    "resource table requires ID, columns, selection mode, and positive row height"
+                        .into(),
+            });
+        }
+        let mut ids = std::collections::HashSet::new();
+        for column in &self.columns {
+            if column.id.trim().is_empty()
+                || column.field.trim().is_empty()
+                || !ids.insert(&column.id)
+                || column
+                    .min_width
+                    .is_some_and(|width| !width.is_finite() || width <= 0.0)
+            {
+                return Err(UiIrError::InvalidPatch {
+                    message:
+                        "resource table columns require unique IDs, fields, and positive widths"
+                            .into(),
+                });
+            }
+        }
+        if self.selection_action.as_deref().is_some_and(str::is_empty) {
+            return Err(UiIrError::InvalidPatch {
+                message: "resource table selection action cannot be empty".into(),
+            });
+        }
+        if self.selection_mode != "none" {
+            let source = match self.data.get("kind").and_then(Value::as_str) {
+                Some("dataset") => &self.data,
+                Some("dataset_view") => {
+                    self.data
+                        .get("dataset")
+                        .ok_or_else(|| UiIrError::InvalidPatch {
+                            message: "dataset view requires dataset descriptor".into(),
+                        })?
+                }
+                _ => {
+                    return Err(UiIrError::InvalidPatch {
+                        message: "resource table selection requires a keyed dataset".into(),
+                    });
+                }
+            };
+            if source
+                .get("key")
+                .and_then(Value::as_str)
+                .is_none_or(str::is_empty)
+            {
+                return Err(UiIrError::InvalidPatch {
+                    message: "resource table selection requires a stable dataset key".into(),
+                });
+            }
+        }
+        if self.data.get("kind").and_then(Value::as_str) == Some("array_data") {
+            return Err(UiIrError::InvalidPatch {
+                message: "resource tables require Dataset or DatasetView; ArrayData is not tabular"
+                    .into(),
+            });
+        }
+        validate_resource_source(&self.data)?;
+        validate_dataset_view_operations(&self.data, true, true)?;
+        validate_dataset_view_projection(
+            &self.data,
+            self.columns.iter().map(|column| column.field.as_str()),
+        )
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TableRow {
     pub id: String,
@@ -2379,194 +2411,610 @@ impl TableNode {
     }
 }
 
+/// Declarative chart metadata bound to a Dataset, DatasetView, or ArrayData.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ChartNode {
+pub struct PxChartV2Node {
+    pub chart: String,
     pub id: String,
-    pub chart: ChartKind,
+    pub data: Value,
+    pub lod: String,
     #[serde(default)]
-    pub title: String,
-    pub x: Option<Vec<f64>>,
-    pub y: Option<Vec<f64>>,
-    pub categories: Option<Vec<String>>,
-    pub values: Option<Vec<f64>>,
-    /// `None` is an intentional missing heatmap cell; present values must be finite.
-    pub z: Option<Vec<Option<f64>>>,
-    pub width_count: Option<usize>,
-    pub height_count: Option<usize>,
-    pub color: Option<String>,
-    #[serde(default = "default_color_scale")]
-    pub color_scale: String,
+    pub title: Option<String>,
     #[serde(default)]
-    pub x_log: bool,
+    pub selection_action: Option<String>,
     #[serde(default)]
-    pub y_log: bool,
-    #[serde(default = "default_chart_width")]
-    pub width: f32,
-    #[serde(default = "default_chart_height")]
-    pub height: f32,
-    #[serde(default = "default_point_radius")]
-    pub point_radius: f32,
-    #[serde(default = "default_stroke_width")]
-    pub stroke_width: f32,
+    pub viewport_action: Option<String>,
     #[serde(default)]
-    pub series: Vec<ChartSeries>,
+    pub accessibility_description: Option<String>,
+    #[serde(default)]
+    pub legend_position: Option<String>,
+    #[serde(default)]
+    pub annotations: Vec<ChartAnnotationNode>,
+    #[serde(default)]
+    pub tiling_method: Option<String>,
+    #[serde(default)]
+    pub padding: Option<f64>,
+    #[serde(default)]
+    pub color_scale: Option<String>,
+    #[serde(default)]
+    pub point_radius: Option<f32>,
+    #[serde(default)]
+    pub x_log: Option<bool>,
+    #[serde(default)]
+    pub y_log: Option<bool>,
+    #[serde(default)]
     pub x_label: Option<String>,
-    pub y_label: Option<String>,
-    pub x_range: Option<[f64; 2]>,
-    pub y_range: Option<[f64; 2]>,
-    pub color_label: Option<String>,
-    pub color_unit: Option<String>,
-    pub color_range: Option<[f64; 2]>,
-    pub aspect_ratio: Option<f32>,
     #[serde(default)]
-    pub y0: Option<Vec<f64>>,
+    pub y_label: Option<String>,
+    #[serde(default)]
+    pub y2_label: Option<String>,
+    #[serde(default)]
+    pub z_label: Option<String>,
+    #[serde(default)]
+    pub x_range: Option<[f64; 2]>,
+    #[serde(default)]
+    pub y_range: Option<[f64; 2]>,
+    #[serde(default)]
+    pub y2_range: Option<[f64; 2]>,
+    #[serde(default)]
+    pub z_range: Option<[f64; 2]>,
+    #[serde(default)]
+    pub stroke_width: Option<f32>,
+    #[serde(default)]
+    pub opacity: Option<f32>,
+    #[serde(default)]
+    pub bar_gap: Option<f32>,
+    #[serde(default)]
+    pub border_radius: Option<f32>,
+    #[serde(default)]
+    pub box_color: Option<String>,
+    #[serde(default)]
+    pub median_color: Option<String>,
+    #[serde(default)]
+    pub whisker_color: Option<String>,
+    #[serde(default)]
+    pub outlier_color: Option<String>,
+    #[serde(default)]
+    pub box_opacity: Option<f32>,
+    #[serde(default)]
+    pub box_width: Option<f32>,
+    #[serde(default)]
+    pub outlier_radius: Option<f32>,
+    #[serde(default)]
+    pub bins: Option<usize>,
+    #[serde(default)]
+    pub wireframe: Option<bool>,
+    #[serde(default)]
+    pub width: Option<f32>,
+    #[serde(default)]
+    pub height: Option<f32>,
+    #[serde(default)]
+    pub fill: Option<bool>,
+    #[serde(default)]
+    pub min_width: Option<f32>,
+    #[serde(default)]
+    pub min_height: Option<f32>,
+    #[serde(default)]
+    pub aspect_ratio: Option<f32>,
     #[serde(default)]
     pub thresholds: Option<Vec<f64>>,
     #[serde(default)]
     pub levels: Option<Vec<f64>>,
-    #[serde(default = "default_chart_opacity")]
-    pub opacity: f32,
     #[serde(default)]
-    pub inner_radius: f64,
+    pub hole: Option<f64>,
     #[serde(default)]
-    pub num_bins: Option<usize>,
+    pub colors: Option<Vec<String>>,
     #[serde(default)]
-    pub treemap: Option<ChartTreemapNode>,
-    #[serde(default = "default_treemap_method")]
-    pub tiling_method: String,
-    #[serde(default = "default_treemap_padding")]
-    pub padding: f64,
-    #[serde(default = "default_chart_curve")]
-    pub curve: String,
-    #[serde(default = "default_chart_dash")]
-    pub dash: String,
-    #[serde(default = "default_legend_position")]
-    pub legend_position: String,
-    pub y2_label: Option<String>,
-    pub y2_range: Option<[f64; 2]>,
+    pub hover: Option<bool>,
     #[serde(default)]
-    pub annotations: Vec<ChartAnnotationNode>,
-}
-
-fn default_chart_curve() -> String {
-    "linear".into()
-}
-fn default_chart_dash() -> String {
-    "solid".into()
-}
-fn default_legend_position() -> String {
-    "auto".into()
-}
-
-fn default_chart_opacity() -> f32 {
-    1.0
-}
-
-fn default_treemap_method() -> String {
-    "squarify".into()
-}
-
-fn default_treemap_padding() -> f64 {
-    1.0
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ChartTreemapNode {
-    pub name: String,
+    pub renderer_2d: Option<String>,
     #[serde(default)]
-    pub value: f64,
+    pub vello_backend: Option<String>,
     #[serde(default)]
-    pub children: Vec<ChartTreemapNode>,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ChartSeries {
-    pub id: String,
+    pub graph_ratio: Option<f32>,
     #[serde(default)]
-    pub label: String,
-    pub x: Vec<f64>,
-    pub y: Vec<f64>,
-    pub color: Option<String>,
-    #[serde(default = "default_series_visible")]
-    pub visible: bool,
-    pub stroke_width: Option<f32>,
-    pub point_radius: Option<f32>,
-    #[serde(default = "default_chart_opacity")]
-    pub opacity: f32,
+    pub hidden_series: Option<Vec<usize>>,
     #[serde(default)]
-    pub secondary_y: bool,
-    #[serde(default = "default_chart_dash")]
-    pub dash: String,
+    pub legend_action: Option<String>,
+    #[serde(default)]
+    pub fill_color: Option<String>,
+    #[serde(default)]
+    pub primary_color: Option<String>,
+    #[serde(default)]
+    pub stroke_color: Option<String>,
+    #[serde(default)]
+    pub pad_angle: Option<f64>,
+    #[serde(default)]
+    pub corner_radius: Option<f64>,
+    #[serde(default)]
+    pub sort: Option<bool>,
+    #[serde(default)]
+    pub curve: Option<String>,
+    #[serde(default)]
+    pub dash_style: Option<String>,
+    #[serde(default)]
+    pub show_points: Option<bool>,
+    #[serde(default)]
+    pub contour_upsample_factor: Option<usize>,
+    #[serde(default)]
+    pub smooth_strokes: Option<bool>,
+    #[serde(default)]
+    pub smoothing_iterations: Option<usize>,
+    #[serde(default)]
+    pub smoothing_max_deviation_px: Option<f32>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ChartAnnotationNode {
-    pub id: String,
-    pub label: String,
-    pub target: String,
-    pub x: Option<f64>,
-    pub y: Option<f64>,
-    pub category: Option<String>,
-    pub color: Option<String>,
-    pub series_index: Option<usize>,
-}
-
-fn default_series_visible() -> bool {
-    true
-}
-
-impl ChartNode {
-    fn validate(&self) -> Result<(), UiIrError> {
-        let finite = |field: &str, values: &[f64]| -> Result<(), UiIrError> {
-            if values.iter().any(|value| !value.is_finite()) {
-                return Err(UiIrError::InvalidPatch {
-                    message: format!("chart {:?} contains NaN or Infinity in {field}", self.id),
-                });
-            }
-            Ok(())
-        };
-        let valid_range = |field: &str, range: Option<[f64; 2]>| -> Result<(), UiIrError> {
-            if let Some([min, max]) = range
-                && (!min.is_finite() || !max.is_finite() || min >= max)
-            {
-                return Err(UiIrError::InvalidPatch {
-                    message: format!("chart {:?} has invalid {field}", self.id),
-                });
-            }
-            Ok(())
-        };
-        valid_range("x_range", self.x_range)?;
-        valid_range("y_range", self.y_range)?;
-        valid_range("color_range", self.color_range)?;
-        valid_range("y2_range", self.y2_range)?;
-        if !supported_chart_color_scale(&self.color_scale) {
+impl PxChartV2Node {
+    pub fn validate(&self) -> Result<(), UiIrError> {
+        if self.id.trim().is_empty()
+            || !matches!(
+                self.chart.as_str(),
+                "scatter"
+                    | "line"
+                    | "area"
+                    | "box_plot"
+                    | "heatmap"
+                    | "contour"
+                    | "isoline"
+                    | "surface"
+                    | "pie"
+                    | "donut"
+                    | "bar"
+                    | "treemap"
+            )
+            || !matches!(self.lod.as_str(), "auto" | "off" | "aggressive")
+        {
             return Err(UiIrError::InvalidPatch {
-                message: format!("chart {:?} invalid color_scale", self.id),
+                message: "resource chart requires ID, supported chart kind, and LOD policy".into(),
             });
         }
-        if !matches!(
-            self.curve.as_str(),
-            "linear"
-                | "step"
-                | "step_before"
-                | "step_after"
-                | "basis"
-                | "cardinal"
-                | "catmull_rom"
-                | "monotone_x"
-                | "natural"
-        ) || !matches!(
-            self.dash.as_str(),
-            "solid" | "dashed" | "dotted" | "dash_dot"
-        ) || !matches!(
-            self.legend_position.as_str(),
-            "auto" | "right" | "bottom" | "top" | "left"
-        ) {
+        if (self.viewport_action.is_some()
+            && !matches!(self.chart.as_str(), "scatter" | "line" | "surface"))
+            || (self.selection_action.is_some()
+                && !matches!(self.chart.as_str(), "treemap" | "scatter" | "line"))
+        {
             return Err(UiIrError::InvalidPatch {
-                message: format!(
-                    "chart {:?} has invalid curve, dash, or legend position",
-                    self.id
-                ),
+                message:
+                    "resource chart selection and viewport actions are unavailable in this host"
+                        .into(),
+            });
+        }
+        let source = self
+            .data
+            .get("source")
+            .ok_or_else(|| UiIrError::InvalidPatch {
+                message: "resource chart requires data binding source".into(),
+            })?;
+        if matches!(
+            self.chart.as_str(),
+            "heatmap" | "contour" | "isoline" | "surface"
+        ) && source.get("kind").and_then(Value::as_str) != Some("array_data")
+        {
+            return Err(UiIrError::InvalidPatch {
+                message: "resource grid charts require ArrayData".into(),
+            });
+        }
+        if source.get("kind").and_then(Value::as_str) != Some("array_data")
+            && !matches!(
+                self.chart.as_str(),
+                "heatmap" | "contour" | "isoline" | "surface"
+            )
+        {
+            let roles = self
+                .data
+                .get("roles")
+                .and_then(Value::as_object)
+                .ok_or_else(|| UiIrError::InvalidPatch {
+                    message: "resource chart requires data-binding roles".into(),
+                })?;
+            let has_role = |name: &str| {
+                roles
+                    .get(name)
+                    .and_then(Value::as_str)
+                    .is_some_and(|field| !field.trim().is_empty())
+            };
+            if (has_role("series") || has_role("color"))
+                && !matches!(self.chart.as_str(), "scatter" | "line" | "bar")
+            {
+                return Err(UiIrError::InvalidPatch {
+                    message: "resource chart kind does not support series or color roles".into(),
+                });
+            }
+            if has_role("dash") && self.chart != "line" {
+                return Err(UiIrError::InvalidPatch {
+                    message: "resource chart dash role is only supported by line charts".into(),
+                });
+            }
+            if has_role("y0") && self.chart != "area" {
+                return Err(UiIrError::InvalidPatch {
+                    message: "resource chart y0 role is only supported by area charts".into(),
+                });
+            }
+            if has_role("y2") && self.chart != "line" {
+                return Err(UiIrError::InvalidPatch {
+                    message: "resource chart y2 role is only supported by line charts".into(),
+                });
+            }
+            if self.chart == "treemap" {
+                if !has_role("row_id") || !has_role("parent") || !has_role("size") {
+                    return Err(UiIrError::InvalidPatch {
+                        message: "treemap resource chart requires row_id, parent, and size fields"
+                            .into(),
+                    });
+                }
+                if source.get("kind").and_then(Value::as_str) != Some("dataset") {
+                    return Err(UiIrError::InvalidPatch {
+                        message: "treemap resource chart currently requires Dataset".into(),
+                    });
+                }
+            } else if matches!(self.chart.as_str(), "bar" | "pie" | "donut") {
+                if !(has_role("label") || has_role("x")) || !has_role("y") {
+                    return Err(UiIrError::InvalidPatch {
+                        message: "categorical resource chart requires label (or x) and y fields"
+                            .into(),
+                    });
+                }
+            } else if !has_role("x") || !has_role("y") {
+                return Err(UiIrError::InvalidPatch {
+                    message: "resource chart requires x and y fields".into(),
+                });
+            }
+        }
+        if self.legend_position.as_deref().is_some_and(|position| {
+            !matches!(position, "right" | "left" | "top" | "bottom" | "hidden")
+        }) {
+            return Err(UiIrError::InvalidPatch {
+                message: "resource chart has invalid legend position".into(),
+            });
+        }
+        if self.tiling_method.as_deref().is_some_and(|method| {
+            !matches!(
+                method,
+                "squarify" | "binary" | "slice" | "dice" | "slice_dice"
+            )
+        }) || self
+            .padding
+            .is_some_and(|padding| !padding.is_finite() || padding < 0.0)
+            || ((self.tiling_method.is_some() || self.padding.is_some()) && self.chart != "treemap")
+        {
+            return Err(UiIrError::InvalidPatch {
+                message: "resource chart has invalid treemap configuration".into(),
+            });
+        }
+        if (self.legend_position.is_some() || !self.annotations.is_empty())
+            && !matches!(self.chart.as_str(), "scatter" | "line" | "bar")
+        {
+            return Err(UiIrError::InvalidPatch {
+                message: "resource chart kind does not support legends or annotations".into(),
+            });
+        }
+        if let Some(scale) = self.color_scale.as_deref() {
+            let supported = matches!(
+                scale,
+                "viridis" | "plasma" | "inferno" | "magma" | "heat" | "coolwarm" | "greys"
+            );
+            let supported_chart = matches!(self.chart.as_str(), "heatmap" | "contour" | "surface");
+            let supported_surface = self.chart != "surface"
+                || matches!(scale, "viridis" | "plasma" | "inferno" | "coolwarm");
+            if !supported || !supported_chart || !supported_surface {
+                return Err(UiIrError::InvalidPatch {
+                    message: "resource chart has unsupported color scale".into(),
+                });
+            }
+        }
+        if self
+            .point_radius
+            .is_some_and(|radius| !radius.is_finite() || radius <= 0.0)
+            || (self.point_radius.is_some() && self.chart != "scatter")
+        {
+            return Err(UiIrError::InvalidPatch {
+                message: "resource chart invalid scatter point radius".into(),
+            });
+        }
+        if self.hidden_series.as_ref().is_some_and(|indices| {
+            let mut unique = std::collections::HashSet::new();
+            indices.iter().any(|index| !unique.insert(*index))
+        }) || ((self.hidden_series.is_some() || self.legend_action.is_some())
+            && self.chart != "line")
+            || self.legend_action.as_deref().is_some_and(str::is_empty)
+        {
+            return Err(UiIrError::InvalidPatch {
+                message: "resource chart has invalid line legend interaction configuration".into(),
+            });
+        }
+        if self
+            .graph_ratio
+            .is_some_and(|ratio| !ratio.is_finite() || ratio <= 0.0)
+            || (self.graph_ratio.is_some()
+                && !matches!(self.chart.as_str(), "scatter" | "line" | "bar"))
+        {
+            return Err(UiIrError::InvalidPatch {
+                message: "resource chart has invalid graph ratio".into(),
+            });
+        }
+        let valid_range =
+            |range: [f64; 2]| range[0].is_finite() && range[1].is_finite() && range[0] < range[1];
+        let valid_dimension = |value: f32| value.is_finite() && value > 0.0;
+        if self.width.is_some() != self.height.is_some()
+            || self.min_width.is_some() != self.min_height.is_some()
+            || self.width.is_some_and(|value| !valid_dimension(value))
+            || self.height.is_some_and(|value| !valid_dimension(value))
+            || self.min_width.is_some_and(|value| !valid_dimension(value))
+            || self.min_height.is_some_and(|value| !valid_dimension(value))
+            || (self.fill.unwrap_or(false) && self.width.is_some())
+        {
+            return Err(UiIrError::InvalidPatch {
+                message: "resource chart sizing must use paired positive dimensions and cannot combine fixed size with fill".into(),
+            });
+        }
+        if self.x_range.is_some_and(|range| !valid_range(range))
+            || self.y_range.is_some_and(|range| !valid_range(range))
+            || self.y2_range.is_some_and(|range| !valid_range(range))
+            || (self.x_log.unwrap_or(false) && self.x_range.is_some_and(|range| range[0] <= 0.0))
+            || (self.y_log.unwrap_or(false) && self.y_range.is_some_and(|range| range[0] <= 0.0))
+        {
+            return Err(UiIrError::InvalidPatch {
+                message: "resource chart axis ranges must be finite, increasing, and positive for log axes"
+                    .into(),
+            });
+        }
+        if (self.y2_label.is_some() || self.y2_range.is_some()) && self.chart != "line" {
+            return Err(UiIrError::InvalidPatch {
+                message: "resource chart y2 presentation requires line chart".into(),
+            });
+        }
+        if (self.x_log.is_some() || self.x_label.is_some() || self.x_range.is_some())
+            && !matches!(
+                self.chart.as_str(),
+                "scatter" | "line" | "area" | "surface" | "heatmap" | "contour" | "isoline"
+            )
+            || (self.y_log.is_some() || self.y_range.is_some())
+                && !matches!(
+                    self.chart.as_str(),
+                    "scatter"
+                        | "line"
+                        | "area"
+                        | "bar"
+                        | "surface"
+                        | "heatmap"
+                        | "contour"
+                        | "isoline"
+                )
+            || (self.x_label.is_some() || self.y_label.is_some())
+                && !matches!(self.chart.as_str(), "line" | "surface")
+        {
+            return Err(UiIrError::InvalidPatch {
+                message: "resource chart kind does not support requested axis configuration".into(),
+            });
+        }
+        if self.z_range.is_some_and(|range| {
+            !range[0].is_finite() || !range[1].is_finite() || range[0] >= range[1]
+        }) || ((self.z_label.is_some() || self.z_range.is_some() || self.wireframe.is_some())
+            && self.chart != "surface")
+        {
+            return Err(UiIrError::InvalidPatch {
+                message: "resource chart has invalid surface axis configuration".into(),
+            });
+        }
+        if self
+            .stroke_width
+            .is_some_and(|width| !width.is_finite() || width <= 0.0)
+            || self
+                .opacity
+                .is_some_and(|opacity| !opacity.is_finite() || !(0.0..=1.0).contains(&opacity))
+            || self
+                .aspect_ratio
+                .is_some_and(|ratio| !ratio.is_finite() || ratio <= 0.0)
+            || self
+                .hole
+                .is_some_and(|hole| !hole.is_finite() || !(0.0..1.0).contains(&hole))
+        {
+            return Err(UiIrError::InvalidPatch {
+                message: "resource chart has invalid style configuration".into(),
+            });
+        }
+        if self
+            .bar_gap
+            .is_some_and(|gap| !gap.is_finite() || gap < 0.0)
+            || self
+                .border_radius
+                .is_some_and(|radius| !radius.is_finite() || radius < 0.0)
+            || ((self.bar_gap.is_some() || self.border_radius.is_some()) && self.chart != "bar")
+        {
+            return Err(UiIrError::InvalidPatch {
+                message: "resource chart has invalid bar layout configuration".into(),
+            });
+        }
+        let invalid_box_color = [
+            self.box_color.as_deref(),
+            self.median_color.as_deref(),
+            self.whisker_color.as_deref(),
+            self.outlier_color.as_deref(),
+        ]
+        .into_iter()
+        .flatten()
+        .any(|color| {
+            let digits = color.strip_prefix('#').unwrap_or(color);
+            digits.len() != 6 || !digits.bytes().all(|byte| byte.is_ascii_hexdigit())
+        });
+        let has_box_configuration = self.box_color.is_some()
+            || self.median_color.is_some()
+            || self.whisker_color.is_some()
+            || self.outlier_color.is_some()
+            || self.box_opacity.is_some()
+            || self.box_width.is_some()
+            || self.outlier_radius.is_some()
+            || self.bins.is_some();
+        if invalid_box_color
+            || self
+                .box_opacity
+                .is_some_and(|opacity| !opacity.is_finite() || !(0.0..=1.0).contains(&opacity))
+            || self
+                .box_width
+                .is_some_and(|width| !width.is_finite() || width <= 0.0)
+            || self
+                .outlier_radius
+                .is_some_and(|radius| !radius.is_finite() || radius <= 0.0)
+            || self.bins == Some(0)
+            || (has_box_configuration && self.chart != "box_plot")
+        {
+            return Err(UiIrError::InvalidPatch {
+                message: "resource chart has invalid box plot configuration".into(),
+            });
+        }
+        if self.stroke_width.is_some()
+            && !matches!(self.chart.as_str(), "line" | "isoline" | "box_plot")
+            || self.opacity.is_some()
+                && !matches!(
+                    self.chart.as_str(),
+                    "scatter" | "line" | "area" | "bar" | "heatmap" | "contour" | "isoline"
+                )
+            || self.thresholds.is_some() && self.chart != "contour"
+            || self.levels.is_some() && self.chart != "isoline"
+            || self.hole.is_some() && !matches!(self.chart.as_str(), "pie" | "donut")
+        {
+            return Err(UiIrError::InvalidPatch {
+                message: "resource chart kind does not support requested style configuration"
+                    .into(),
+            });
+        }
+        let valid_hex = |color: &str| {
+            let digits = color.strip_prefix('#').unwrap_or(color);
+            digits.len() == 6 && digits.bytes().all(|byte| byte.is_ascii_hexdigit())
+        };
+        if self
+            .fill_color
+            .as_deref()
+            .is_some_and(|color| !valid_hex(color))
+            || (self.fill_color.is_some() && self.chart != "area")
+        {
+            return Err(UiIrError::InvalidPatch {
+                message: "resource chart has invalid area fill color".into(),
+            });
+        }
+        if self
+            .primary_color
+            .as_deref()
+            .is_some_and(|color| !valid_hex(color))
+            || (self.primary_color.is_some()
+                && !matches!(self.chart.as_str(), "scatter" | "line" | "bar"))
+        {
+            return Err(UiIrError::InvalidPatch {
+                message: "resource chart has invalid primary series color".into(),
+            });
+        }
+        if self
+            .stroke_color
+            .as_deref()
+            .is_some_and(|color| !valid_hex(color))
+            || (self.stroke_color.is_some() && self.chart != "isoline")
+        {
+            return Err(UiIrError::InvalidPatch {
+                message: "resource chart has invalid isoline stroke color".into(),
+            });
+        }
+        let has_pie_configuration =
+            self.pad_angle.is_some() || self.corner_radius.is_some() || self.sort.is_some();
+        if self
+            .colors
+            .as_ref()
+            .is_some_and(|colors| colors.is_empty() || colors.iter().any(|color| !valid_hex(color)))
+            || (self.colors.is_some()
+                && !matches!(self.chart.as_str(), "pie" | "donut" | "treemap"))
+            || self
+                .pad_angle
+                .is_some_and(|angle| !angle.is_finite() || angle < 0.0)
+            || self
+                .corner_radius
+                .is_some_and(|radius| !radius.is_finite() || radius < 0.0)
+            || (has_pie_configuration && !matches!(self.chart.as_str(), "pie" | "donut"))
+        {
+            return Err(UiIrError::InvalidPatch {
+                message: "resource chart has invalid pie presentation configuration".into(),
+            });
+        }
+        if self.hover.is_some() && self.chart != "treemap" {
+            return Err(UiIrError::InvalidPatch {
+                message: "resource chart hover configuration requires treemap".into(),
+            });
+        }
+        if self
+            .renderer_2d
+            .as_deref()
+            .is_some_and(|renderer| !matches!(renderer, "vello" | "legacy"))
+            || self
+                .vello_backend
+                .as_deref()
+                .is_some_and(|backend| !matches!(backend, "auto" | "wgpu" | "cpu"))
+            || ((self.renderer_2d.is_some() || self.vello_backend.is_some())
+                && self.chart == "surface")
+        {
+            return Err(UiIrError::InvalidPatch {
+                message: "resource chart has invalid 2D renderer configuration".into(),
+            });
+        }
+        if self.curve.as_deref().is_some_and(|curve| {
+            !matches!(
+                curve,
+                "linear"
+                    | "step"
+                    | "step_before"
+                    | "step_after"
+                    | "basis"
+                    | "cardinal"
+                    | "catmull_rom"
+                    | "monotone_x"
+                    | "natural"
+            )
+        }) || self
+            .dash_style
+            .as_deref()
+            .is_some_and(|dash| !matches!(dash, "solid" | "dashed" | "dotted" | "dash_dot"))
+            || (self.curve.is_some() && !matches!(self.chart.as_str(), "line" | "area"))
+            || ((self.dash_style.is_some() || self.show_points.is_some()) && self.chart != "line")
+        {
+            return Err(UiIrError::InvalidPatch {
+                message: "resource chart invalid line style configuration".into(),
+            });
+        }
+        if self
+            .contour_upsample_factor
+            .is_some_and(|factor| !(1..=8).contains(&factor))
+            || (self.contour_upsample_factor.is_some()
+                && !matches!(self.chart.as_str(), "contour" | "isoline"))
+            || ((self.smooth_strokes.is_some()
+                || self.smoothing_iterations.is_some()
+                || self.smoothing_max_deviation_px.is_some())
+                && self.chart != "isoline")
+            || self
+                .smoothing_iterations
+                .is_some_and(|iterations| iterations > 4)
+            || self
+                .smoothing_max_deviation_px
+                .is_some_and(|deviation| !deviation.is_finite() || deviation < 0.0)
+        {
+            return Err(UiIrError::InvalidPatch {
+                message: "resource chart has invalid contour or isoline sampling configuration"
+                    .into(),
+            });
+        }
+        let finite_increasing = |values: &[f64]| {
+            !values.is_empty()
+                && values.iter().all(|value| value.is_finite())
+                && values.windows(2).all(|pair| pair[0] < pair[1])
+        };
+        if self
+            .thresholds
+            .as_deref()
+            .is_some_and(|values| !finite_increasing(values))
+            || self
+                .levels
+                .as_deref()
+                .is_some_and(|values| !finite_increasing(values))
+        {
+            return Err(UiIrError::InvalidPatch {
+                message: "resource chart thresholds and levels must be finite and increasing"
+                    .into(),
             });
         }
         for annotation in &self.annotations {
@@ -2587,314 +3035,435 @@ impl ChartNode {
                 || annotation.y.is_some_and(|value| !value.is_finite())
             {
                 return Err(UiIrError::InvalidPatch {
-                    message: format!("chart {:?} has invalid annotation", self.id),
+                    message: format!("resource chart {:?} has invalid annotation", self.id),
                 });
             }
         }
-        if self
-            .aspect_ratio
-            .is_some_and(|ratio| !ratio.is_finite() || ratio <= 0.0)
-        {
+        if self.selection_action.as_deref().is_some_and(str::is_empty) {
             return Err(UiIrError::InvalidPatch {
-                message: format!("chart {:?} has invalid aspect_ratio", self.id),
+                message: "resource chart selection action cannot be empty".into(),
             });
         }
-        match self.chart {
-            ChartKind::Scatter | ChartKind::Line => {
-                if !self.series.is_empty() {
-                    for series in &self.series {
-                        if series.id.trim().is_empty() {
-                            return Err(UiIrError::InvalidPatch {
-                                message: "chart series id is empty".into(),
-                            });
-                        }
-                        if series.x.len() != series.y.len() {
-                            return Err(UiIrError::ChartLengthMismatch {
-                                id: format!("{}:{}", self.id, series.id),
-                                left: "x",
-                                left_len: series.x.len(),
-                                right: "y",
-                                right_len: series.y.len(),
-                            });
-                        }
-                        finite("series.x", &series.x)?;
-                        finite("series.y", &series.y)?;
-                        if !series.opacity.is_finite()
-                            || !(0.0..=1.0).contains(&series.opacity)
-                            || !matches!(
-                                series.dash.as_str(),
-                                "solid" | "dashed" | "dotted" | "dash_dot"
-                            )
-                        {
-                            return Err(UiIrError::InvalidPatch {
-                                message: format!(
-                                    "chart {:?} series has invalid opacity or dash",
-                                    self.id
-                                ),
-                            });
-                        }
-                    }
-                    return Ok(());
+        if self.viewport_action.as_deref().is_some_and(str::is_empty) {
+            return Err(UiIrError::InvalidPatch {
+                message: "resource chart viewport action cannot be empty".into(),
+            });
+        }
+        if self.selection_action.is_some() {
+            let dataset = match source.get("kind").and_then(Value::as_str) {
+                Some("dataset") => source,
+                Some("dataset_view") => {
+                    source
+                        .get("dataset")
+                        .ok_or_else(|| UiIrError::InvalidPatch {
+                            message: "dataset view requires dataset descriptor".into(),
+                        })?
                 }
-                let x = self.x.as_ref().ok_or_else(|| UiIrError::MissingChartData {
-                    id: self.id.clone(),
-                    field: "x",
-                })?;
-                let y = self.y.as_ref().ok_or_else(|| UiIrError::MissingChartData {
-                    id: self.id.clone(),
-                    field: "y",
-                })?;
-                if x.len() != y.len() {
-                    return Err(UiIrError::ChartLengthMismatch {
-                        id: self.id.clone(),
-                        left: "x",
-                        left_len: x.len(),
-                        right: "y",
-                        right_len: y.len(),
-                    });
-                }
-                finite("x", x)?;
-                finite("y", y)?;
-            }
-            ChartKind::Bar => {
-                let categories =
-                    self.categories
-                        .as_ref()
-                        .ok_or_else(|| UiIrError::MissingChartData {
-                            id: self.id.clone(),
-                            field: "categories",
-                        })?;
-                if self.series.is_empty() {
-                    let values =
-                        self.values
-                            .as_ref()
-                            .ok_or_else(|| UiIrError::MissingChartData {
-                                id: self.id.clone(),
-                                field: "values",
-                            })?;
-                    if categories.len() != values.len() {
-                        return Err(UiIrError::ChartLengthMismatch {
-                            id: self.id.clone(),
-                            left: "categories",
-                            left_len: categories.len(),
-                            right: "values",
-                            right_len: values.len(),
-                        });
-                    }
-                    finite("values", values)?;
-                } else {
-                    for series in &self.series {
-                        if series.id.trim().is_empty() || series.y.len() != categories.len() {
-                            return Err(UiIrError::ChartLengthMismatch {
-                                id: self.id.clone(),
-                                left: "categories",
-                                left_len: categories.len(),
-                                right: "series.values",
-                                right_len: series.y.len(),
-                            });
-                        }
-                        finite("series.values", &series.y)?;
-                    }
-                }
-            }
-            ChartKind::Heatmap | ChartKind::Contour | ChartKind::Isoline => {
-                let z = self.z.as_ref().ok_or_else(|| UiIrError::MissingChartData {
-                    id: self.id.clone(),
-                    field: "z",
-                })?;
-                let width = self
-                    .width_count
-                    .ok_or_else(|| UiIrError::MissingChartData {
-                        id: self.id.clone(),
-                        field: "width_count",
-                    })?;
-                let height = self
-                    .height_count
-                    .ok_or_else(|| UiIrError::MissingChartData {
-                        id: self.id.clone(),
-                        field: "height_count",
-                    })?;
-                let expected = width.saturating_mul(height);
-                if z.len() != expected {
-                    return Err(UiIrError::HeatmapDimensionMismatch {
-                        id: self.id.clone(),
-                        z_len: z.len(),
-                        width,
-                        height,
-                        expected,
-                    });
-                }
-                if z.iter().flatten().any(|value| !value.is_finite()) {
+                _ => {
                     return Err(UiIrError::InvalidPatch {
-                        message: format!("chart {:?} contains NaN or Infinity in z", self.id),
+                        message: "resource chart selection requires a keyed dataset".into(),
                     });
                 }
-                if z.iter().all(Option::is_none) {
+            };
+            if dataset
+                .get("key")
+                .and_then(Value::as_str)
+                .is_none_or(str::is_empty)
+            {
+                return Err(UiIrError::InvalidPatch {
+                    message: "resource chart selection requires a stable dataset key".into(),
+                });
+            }
+            {
+                let key = dataset
+                    .get("key")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                let row_id = self
+                    .data
+                    .get("roles")
+                    .and_then(Value::as_object)
+                    .and_then(|roles| roles.get("row_id"))
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                if key != row_id {
                     return Err(UiIrError::InvalidPatch {
                         message: format!(
-                            "chart {:?} heatmap requires a non-missing z value",
-                            self.id
+                            "{} selection requires row_id to match dataset key",
+                            self.chart
                         ),
                     });
                 }
-                if let Some(x) = &self.x {
-                    if x.len() != width {
-                        return Err(UiIrError::ChartLengthMismatch {
-                            id: self.id.clone(),
-                            left: "x",
-                            left_len: x.len(),
-                            right: "width_count",
-                            right_len: width,
-                        });
-                    }
-                    finite("x", x)?;
-                    if x.windows(2).any(|pair| pair[0] >= pair[1]) {
-                        return Err(UiIrError::InvalidPatch {
-                            message: format!(
-                                "chart {:?} heatmap x coordinates must increase",
-                                self.id
-                            ),
-                        });
-                    }
-                }
-                if let Some(y) = &self.y {
-                    if y.len() != height {
-                        return Err(UiIrError::ChartLengthMismatch {
-                            id: self.id.clone(),
-                            left: "y",
-                            left_len: y.len(),
-                            right: "height_count",
-                            right_len: height,
-                        });
-                    }
-                    finite("y", y)?;
-                    if y.windows(2).any(|pair| pair[0] >= pair[1]) {
-                        return Err(UiIrError::InvalidPatch {
-                            message: format!(
-                                "chart {:?} heatmap y coordinates must increase",
-                                self.id
-                            ),
-                        });
-                    }
-                }
-                if self.chart == ChartKind::Contour {
-                    if let Some(thresholds) = &self.thresholds {
-                        finite("thresholds", thresholds)?;
-                    }
-                } else if self.chart == ChartKind::Isoline
-                    && let Some(levels) = &self.levels
-                {
-                    finite("levels", levels)?;
-                }
-            }
-            ChartKind::Area | ChartKind::BoxPlot => {
-                let x = self.x.as_ref().ok_or_else(|| UiIrError::MissingChartData {
-                    id: self.id.clone(),
-                    field: "x",
-                })?;
-                let y = self.y.as_ref().ok_or_else(|| UiIrError::MissingChartData {
-                    id: self.id.clone(),
-                    field: "y",
-                })?;
-                if x.len() != y.len() {
-                    return Err(UiIrError::ChartLengthMismatch {
-                        id: self.id.clone(),
-                        left: "x",
-                        left_len: x.len(),
-                        right: "y",
-                        right_len: y.len(),
-                    });
-                }
-                finite("x", x)?;
-                finite("y", y)?;
-                if self.chart == ChartKind::Area
-                    && let Some(y0) = &self.y0
-                {
-                    if y0.len() != y.len() {
-                        return Err(UiIrError::ChartLengthMismatch {
-                            id: self.id.clone(),
-                            left: "y0",
-                            left_len: y0.len(),
-                            right: "y",
-                            right_len: y.len(),
-                        });
-                    }
-                    finite("y0", y0)?;
-                }
-            }
-            ChartKind::Pie | ChartKind::Donut => {
-                let values = self
-                    .values
-                    .as_ref()
-                    .ok_or_else(|| UiIrError::MissingChartData {
-                        id: self.id.clone(),
-                        field: "values",
-                    })?;
-                finite("values", values)?;
-                if let Some(categories) = &self.categories
-                    && categories.len() != values.len()
-                {
-                    return Err(UiIrError::ChartLengthMismatch {
-                        id: self.id.clone(),
-                        left: "categories",
-                        left_len: categories.len(),
-                        right: "values",
-                        right_len: values.len(),
-                    });
-                }
-                if !(0.0..1.0).contains(&self.inner_radius) {
-                    return Err(UiIrError::InvalidPatch {
-                        message: format!("chart {:?} has invalid inner_radius", self.id),
-                    });
-                }
-            }
-            ChartKind::Treemap => {
-                fn valid_tree(node: &ChartTreemapNode) -> bool {
-                    !node.name.trim().is_empty()
-                        && node.value.is_finite()
-                        && node.value >= 0.0
-                        && node.children.iter().all(valid_tree)
-                }
-                if !self.treemap.as_ref().is_some_and(valid_tree) {
-                    return Err(UiIrError::InvalidPatch {
-                        message: format!("chart {:?} has invalid treemap data", self.id),
-                    });
-                }
-                if !matches!(
-                    self.tiling_method.as_str(),
-                    "squarify" | "binary" | "slice" | "dice" | "slice_dice"
-                ) || !self.padding.is_finite()
-                    || self.padding < 0.0
-                {
-                    return Err(UiIrError::InvalidPatch {
-                        message: format!("chart {:?} has invalid treemap options", self.id),
-                    });
-                }
             }
         }
-        if !self.opacity.is_finite() || !(0.0..=1.0).contains(&self.opacity) {
-            return Err(UiIrError::InvalidPatch {
-                message: format!("chart {:?} has invalid opacity", self.id),
-            });
+        validate_resource_source(source)?;
+        validate_dataset_view_operations(
+            source,
+            true,
+            matches!(self.chart.as_str(), "scatter" | "line"),
+        )?;
+        if let Some(sort_field) = source
+            .get("operations")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .find(|operation| operation.get("op").and_then(Value::as_str) == Some("sort"))
+            .and_then(|operation| operation.get("field"))
+            .and_then(Value::as_str)
+        {
+            if source
+                .get("operations")
+                .and_then(Value::as_array)
+                .is_some_and(|operations| {
+                    operations.iter().any(|operation| {
+                        operation.get("op").and_then(Value::as_str) == Some("range")
+                    })
+                })
+            {
+                return Err(UiIrError::InvalidPatch {
+                    message: "resource chart DatasetView sort plus range is unavailable".into(),
+                });
+            }
+            let roles = self.data.get("roles").and_then(Value::as_object);
+            if roles.is_none_or(|roles| {
+                roles.get("x").and_then(Value::as_str) != Some(sort_field)
+                    && roles.get("y").and_then(Value::as_str) != Some(sort_field)
+            }) {
+                return Err(UiIrError::InvalidPatch {
+                    message: "resource chart DatasetView sort must match x or y role".into(),
+                });
+            }
         }
-        Ok(())
+        validate_dataset_view_projection(
+            source,
+            self.data
+                .get("roles")
+                .and_then(Value::as_object)
+                .into_iter()
+                .flat_map(|roles| roles.values())
+                .filter_map(Value::as_str),
+        )
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ChartKind {
-    Scatter,
-    Line,
-    Bar,
-    Heatmap,
-    Area,
-    BoxPlot,
-    Contour,
-    Isoline,
-    Pie,
-    Donut,
-    Treemap,
+fn validate_resource_source(value: &Value) -> Result<(), UiIrError> {
+    let source = match value.get("kind").and_then(Value::as_str) {
+        Some("dataset") | Some("array_data") => value,
+        Some("dataset_view") => value
+            .get("dataset")
+            .ok_or_else(|| UiIrError::InvalidPatch {
+                message: "dataset view requires dataset descriptor".into(),
+            })?,
+        _ => {
+            return Err(UiIrError::InvalidPatch {
+                message: "resource binding requires dataset, dataset view, or array descriptor"
+                    .into(),
+            });
+        }
+    };
+    if source.get("values").is_some()
+        || source
+            .get("id")
+            .and_then(Value::as_str)
+            .is_none_or(str::is_empty)
+        || source
+            .get("generation")
+            .and_then(Value::as_u64)
+            .is_none_or(|generation| generation == 0)
+    {
+        return Err(UiIrError::InvalidPatch {
+            message:
+                "resource descriptors require stable ID/generation and cannot contain inline values"
+                    .into(),
+        });
+    }
+    Ok(())
+}
+
+/// Validate the DatasetView subset this generic host can execute today.
+/// Declarations are kept as a serializable AST, but unsupported operations
+/// must fail validation rather than silently rendering the unfiltered source.
+fn validate_dataset_filter_expression(
+    value: &Value,
+    fields: &mut Vec<String>,
+) -> Result<(), UiIrError> {
+    let invalid = |message: &str| UiIrError::InvalidPatch {
+        message: message.to_owned(),
+    };
+    if value.is_null() || value.is_boolean() || value.is_number() || value.is_string() {
+        return Ok(());
+    }
+    let operation = value
+        .get("op")
+        .and_then(Value::as_str)
+        .ok_or_else(|| invalid("dataset view filter expression requires op"))?;
+    let arguments = value
+        .get("args")
+        .and_then(Value::as_array)
+        .ok_or_else(|| invalid("dataset view filter expression requires args"))?;
+    match operation {
+        "field" => {
+            let field = (arguments.len() == 1)
+                .then(|| arguments[0].as_str())
+                .flatten()
+                .filter(|field| !field.is_empty())
+                .ok_or_else(|| invalid("dataset view field filter requires one non-empty field"))?;
+            if !fields.iter().any(|candidate| candidate == field) {
+                fields.push(field.to_owned());
+            }
+        }
+        "eq" | "ne" | "lt" | "le" | "gt" | "ge" | "and" | "or" => {
+            if arguments.len() != 2 {
+                return Err(invalid(
+                    "dataset view binary filter requires exactly two arguments",
+                ));
+            }
+            validate_dataset_filter_expression(&arguments[0], fields)?;
+            validate_dataset_filter_expression(&arguments[1], fields)?;
+        }
+        "not" | "is_null" => {
+            if arguments.len() != 1 {
+                return Err(invalid(
+                    "dataset view unary filter requires exactly one argument",
+                ));
+            }
+            validate_dataset_filter_expression(&arguments[0], fields)?;
+        }
+        "in" => {
+            if arguments.len() != 2 {
+                return Err(invalid(
+                    "dataset view membership filter requires exactly two arguments",
+                ));
+            }
+            validate_dataset_filter_expression(&arguments[0], fields)?;
+            let values = arguments[1]
+                .as_array()
+                .filter(|values| !values.is_empty())
+                .ok_or_else(|| {
+                    invalid("dataset view membership filter requires a non-empty literal array")
+                })?;
+            if values.iter().any(|value| {
+                !(value.is_null() || value.is_boolean() || value.is_number() || value.is_string())
+            }) {
+                return Err(invalid(
+                    "dataset view membership values must be scalar literals",
+                ));
+            }
+        }
+        unsupported => {
+            return Err(UiIrError::InvalidPatch {
+                message: format!(
+                    "dataset view filter operation {unsupported:?} is unavailable for this host"
+                ),
+            });
+        }
+    }
+    Ok(())
+}
+
+fn validate_dataset_view_operations(
+    value: &Value,
+    supports_range: bool,
+    supports_sort: bool,
+) -> Result<(), UiIrError> {
+    if value.get("kind").and_then(Value::as_str) != Some("dataset_view") {
+        return Ok(());
+    }
+    let operations = value
+        .get("operations")
+        .and_then(Value::as_array)
+        .ok_or_else(|| UiIrError::InvalidPatch {
+            message: "dataset view requires an operations array".into(),
+        })?;
+    if operations
+        .iter()
+        .filter(|operation| operation.get("op").and_then(Value::as_str) == Some("filter"))
+        .count()
+        > 1
+    {
+        return Err(UiIrError::InvalidPatch {
+            message: "this host supports at most one DatasetView filter".into(),
+        });
+    }
+    if operations
+        .iter()
+        .filter(|operation| operation.get("op").and_then(Value::as_str) == Some("range"))
+        .count()
+        > 1
+    {
+        return Err(UiIrError::InvalidPatch {
+            message: "this host supports at most one DatasetView range".into(),
+        });
+    }
+    if operations
+        .iter()
+        .filter(|operation| operation.get("op").and_then(Value::as_str) == Some("select"))
+        .count()
+        > 1
+    {
+        return Err(UiIrError::InvalidPatch {
+            message: "this host supports at most one DatasetView projection".into(),
+        });
+    }
+    if operations
+        .iter()
+        .filter(|operation| operation.get("op").and_then(Value::as_str) == Some("sort"))
+        .count()
+        > 1
+    {
+        return Err(UiIrError::InvalidPatch {
+            message: "this host supports at most one DatasetView sort".into(),
+        });
+    }
+    let mut saw_range = false;
+    let mut projected_fields: Option<std::collections::HashSet<&str>> = None;
+    for operation in operations {
+        let kind =
+            operation
+                .get("op")
+                .and_then(Value::as_str)
+                .ok_or_else(|| UiIrError::InvalidPatch {
+                    message: "dataset view operation requires op".into(),
+                })?;
+        match kind {
+            "filter" => {
+                let expression =
+                    operation
+                        .get("expression")
+                        .ok_or_else(|| UiIrError::InvalidPatch {
+                            message: "dataset view filter requires expression".into(),
+                        })?;
+                let mut filter_fields = Vec::new();
+                validate_dataset_filter_expression(expression, &mut filter_fields)?;
+                if projected_fields.as_ref().is_some_and(|projected| {
+                    filter_fields
+                        .iter()
+                        .any(|field| !projected.contains(field.as_str()))
+                }) {
+                    return Err(UiIrError::InvalidPatch {
+                        message: "dataset view filter field unavailable after projection".into(),
+                    });
+                }
+            }
+            "select" => {
+                let fields = operation
+                    .get("fields")
+                    .and_then(Value::as_array)
+                    .ok_or_else(|| UiIrError::InvalidPatch {
+                        message: "dataset view select requires a fields array".into(),
+                    })?;
+                let mut unique = std::collections::HashSet::new();
+                if fields.is_empty()
+                    || fields.iter().any(|field| {
+                        field
+                            .as_str()
+                            .is_none_or(|field| field.is_empty() || !unique.insert(field))
+                    })
+                {
+                    return Err(UiIrError::InvalidPatch {
+                        message: "dataset view select requires unique non-empty fields".into(),
+                    });
+                }
+                projected_fields = Some(unique);
+            }
+            "sort" if supports_sort => {
+                if saw_range {
+                    return Err(UiIrError::InvalidPatch {
+                        message: "dataset view sort must precede range".into(),
+                    });
+                }
+                if operation
+                    .get("field")
+                    .and_then(Value::as_str)
+                    .is_none_or(str::is_empty)
+                    || operation
+                        .get("descending")
+                        .is_some_and(|descending| !descending.is_boolean())
+                {
+                    return Err(UiIrError::InvalidPatch {
+                        message: "dataset view sort requires field and boolean descending".into(),
+                    });
+                }
+                let field = operation
+                    .get("field")
+                    .and_then(Value::as_str)
+                    .expect("validated above");
+                if projected_fields
+                    .as_ref()
+                    .is_some_and(|fields| !fields.contains(field))
+                {
+                    return Err(UiIrError::InvalidPatch {
+                        message: "dataset view sort field unavailable after projection".into(),
+                    });
+                }
+            }
+            "range" if supports_range => {
+                saw_range = true;
+                let start = operation.get("start").and_then(Value::as_u64);
+                let stop = operation.get("stop").and_then(Value::as_u64);
+                if start.zip(stop).is_none_or(|(start, stop)| start > stop) {
+                    return Err(UiIrError::InvalidPatch {
+                        message: "dataset view range requires ordered integer start/stop".into(),
+                    });
+                }
+            }
+            unsupported => {
+                return Err(UiIrError::InvalidPatch {
+                    message: format!(
+                        "DatasetView operation {unsupported:?} is unavailable for this host consumer"
+                    ),
+                });
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_dataset_view_projection<'a>(
+    value: &Value,
+    required_fields: impl IntoIterator<Item = &'a str>,
+) -> Result<(), UiIrError> {
+    if value.get("kind").and_then(Value::as_str) != Some("dataset_view") {
+        return Ok(());
+    }
+    let Some(fields) = value
+        .get("operations")
+        .and_then(Value::as_array)
+        .and_then(|operations| {
+            operations.iter().find_map(|operation| {
+                (operation.get("op").and_then(Value::as_str) == Some("select"))
+                    .then(|| operation.get("fields").and_then(Value::as_array))
+                    .flatten()
+            })
+        })
+    else {
+        return Ok(());
+    };
+    let projected = fields
+        .iter()
+        .filter_map(Value::as_str)
+        .collect::<std::collections::HashSet<_>>();
+    if let Some(field) = required_fields
+        .into_iter()
+        .find(|field| !projected.contains(field))
+    {
+        return Err(UiIrError::InvalidPatch {
+            message: format!("dataset view projection does not contain required field {field:?}"),
+        });
+    }
+    Ok(())
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ChartAnnotationNode {
+    pub id: String,
+    pub label: String,
+    pub target: String,
+    pub x: Option<f64>,
+    pub y: Option<f64>,
+    pub category: Option<String>,
+    pub color: Option<String>,
+    pub series_index: Option<usize>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -2913,6 +3482,8 @@ pub struct MeshPlotNode {
     pub spec: Value,
     #[serde(default)]
     pub selection_action: Option<String>,
+    #[serde(default)]
+    pub export_action: Option<String>,
     pub width: Option<f32>,
     pub height: Option<f32>,
 }
@@ -2927,6 +3498,11 @@ impl MeshPlotNode {
         if self.selection_action.as_deref().is_some_and(str::is_empty) {
             return Err(UiIrError::InvalidPatch {
                 message: "mesh_plot selection action is empty".into(),
+            });
+        }
+        if self.export_action.as_deref().is_some_and(str::is_empty) {
+            return Err(UiIrError::InvalidPatch {
+                message: "mesh_plot export action is empty".into(),
             });
         }
         crate::meshplot::MeshPlotSpec::from_value(self.spec.clone())
@@ -2963,34 +3539,6 @@ fn default_tone() -> String {
     "primary".to_string()
 }
 
-fn default_color_scale() -> String {
-    "viridis".to_string()
-}
-
-fn supported_chart_color_scale(value: &str) -> bool {
-    let normalized = value.trim().replace(['-', '_'], "").to_ascii_lowercase();
-    matches!(
-        normalized.as_str(),
-        "viridis" | "plasma" | "inferno" | "magma" | "heat" | "coolwarm" | "greys" | "grays"
-    )
-}
-
-fn default_chart_width() -> f32 {
-    360.0
-}
-
-fn default_chart_height() -> f32 {
-    260.0
-}
-
-fn default_point_radius() -> f32 {
-    4.0
-}
-
-fn default_stroke_width() -> f32 {
-    2.0
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3006,6 +3554,720 @@ mod tests {
     fn assert_invalid_content(content: Value) {
         assert!(matches!(
             app_with_content(content).validate(),
+            Err(UiIrError::InvalidPatch { .. })
+        ));
+    }
+
+    #[test]
+    fn mesh_plot_export_action_is_typed_and_non_empty() {
+        let mut node = MeshPlotNode {
+            id: "plot".into(),
+            spec: serde_json::json!({
+                "schema_version": 1,
+                "id": "plot",
+                "geometry": {
+                    "positions": [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+                    "triangles": [[0, 1, 2]]
+                }
+            }),
+            selection_action: None,
+            export_action: Some("mesh-exported".into()),
+            width: None,
+            height: None,
+        };
+        assert!(node.validate().is_ok());
+        node.export_action = Some(String::new());
+        assert!(matches!(
+            node.validate(),
+            Err(UiIrError::InvalidPatch { .. })
+        ));
+    }
+
+    #[test]
+    fn resource_surface_and_treemap_sizing_is_strict() {
+        let mut value = serde_json::json!({
+            "chart": "surface",
+            "id": "terrain",
+            "data": {
+                "source": {
+                    "kind": "array_data",
+                    "id": "terrain-values",
+                    "generation": 1,
+                    "dtype": "f32",
+                    "shape": [2, 2]
+                },
+                "roles": {}
+            },
+            "lod": "auto",
+            "fill": true,
+            "min_width": 320.0,
+            "min_height": 240.0,
+            "aspect_ratio": 1.5
+        });
+        let node: PxChartV2Node = serde_json::from_value(value.clone()).unwrap();
+        assert!(node.validate().is_ok());
+
+        value["fill"] = Value::Null;
+        value["width"] = serde_json::json!(640.0);
+        let node: PxChartV2Node = serde_json::from_value(value.clone()).unwrap();
+        assert!(matches!(
+            node.validate(),
+            Err(UiIrError::InvalidPatch { .. })
+        ));
+
+        value["height"] = serde_json::json!(360.0);
+        value["chart"] = serde_json::json!("scatter");
+        value["data"] = serde_json::json!({
+            "source": {"kind": "dataset", "id": "points", "generation": 1},
+            "roles": {"x": "frequency", "y": "level"}
+        });
+        let node: PxChartV2Node = serde_json::from_value(value).unwrap();
+        assert!(node.validate().is_ok());
+    }
+
+    #[test]
+    fn dataset_view_validation_rejects_operations_the_host_cannot_execute() {
+        let filtered = serde_json::json!({
+            "kind": "dataset_view",
+            "dataset": {"kind": "dataset", "id": "events", "generation": 1},
+            "operations": [{
+                "op": "filter",
+                "expression": {"op": "field", "args": ["enabled"]}
+            }]
+        });
+        assert!(validate_dataset_view_operations(&filtered, false, false).is_ok());
+        let composed = serde_json::json!({
+            "kind": "dataset_view",
+            "dataset": {"kind": "dataset", "id": "events", "generation": 1},
+            "operations": [{
+                "op": "filter",
+                "expression": {
+                    "op": "and",
+                    "args": [
+                        {"op": "in", "args": [
+                            {"op": "field", "args": ["channel"]}, ["L", "R"]
+                        ]},
+                        {"op": "gt", "args": [
+                            {"op": "field", "args": ["spl"]}, 0.0
+                        ]}
+                    ]
+                }
+            }]
+        });
+        assert!(validate_dataset_view_operations(&composed, false, false).is_ok());
+        let mut malformed = composed.clone();
+        malformed["operations"][0]["expression"]["args"] = serde_json::json!([]);
+        assert!(matches!(
+            validate_dataset_view_operations(&malformed, false, false),
+            Err(UiIrError::InvalidPatch { .. })
+        ));
+        let mut repeated_filter = filtered.clone();
+        repeated_filter["operations"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::json!({
+                "op": "filter",
+                "expression": {"op": "field", "args": ["enabled"]}
+            }));
+        assert!(matches!(
+            validate_dataset_view_operations(&repeated_filter, false, false),
+            Err(UiIrError::InvalidPatch { .. })
+        ));
+
+        let ranged = serde_json::json!({
+            "kind": "dataset_view",
+            "dataset": {"kind": "dataset", "id": "events", "generation": 1},
+            "operations": [{"op": "range", "start": 1, "stop": 3}]
+        });
+        assert!(validate_dataset_view_operations(&ranged, true, false).is_ok());
+        assert!(matches!(
+            validate_dataset_view_operations(&ranged, false, false),
+            Err(UiIrError::InvalidPatch { .. })
+        ));
+
+        let projected = serde_json::json!({
+            "kind": "dataset_view",
+            "dataset": {"kind": "dataset", "id": "events", "generation": 1},
+            "operations": [{"op": "select", "fields": ["frequency", "spl"]}]
+        });
+        assert!(validate_dataset_view_operations(&projected, true, false).is_ok());
+        assert!(validate_dataset_view_projection(&projected, ["frequency", "spl"]).is_ok());
+        assert!(matches!(
+            validate_dataset_view_projection(&projected, ["channel"]),
+            Err(UiIrError::InvalidPatch { .. })
+        ));
+        let mut invalid_projection = projected.clone();
+        invalid_projection["operations"][0]["fields"] = serde_json::json!(["spl", "spl"]);
+        assert!(matches!(
+            validate_dataset_view_operations(&invalid_projection, true, false),
+            Err(UiIrError::InvalidPatch { .. })
+        ));
+
+        let sorted = serde_json::json!({
+            "kind": "dataset_view",
+            "dataset": {"kind": "dataset", "id": "events", "generation": 1},
+            "operations": [{"op": "sort", "field": "frequency"}]
+        });
+        assert!(validate_dataset_view_operations(&sorted, true, true).is_ok());
+        assert!(matches!(
+            validate_dataset_view_operations(&sorted, true, false),
+            Err(UiIrError::InvalidPatch { .. })
+        ));
+    }
+
+    #[test]
+    fn resource_table_selection_requires_a_keyed_dataset_and_nonempty_action() {
+        let mut value = serde_json::json!({
+            "id": "events",
+            "data": {"kind": "dataset", "id": "events", "generation": 1},
+            "columns": [{"id": "frequency", "field": "frequency"}],
+            "selection_mode": "single",
+            "virtualize": {"row_height": 28.0, "overscan": 8},
+            "selection_action": "selected"
+        });
+        let node: TableV2Node = serde_json::from_value(value.clone()).unwrap();
+        assert!(matches!(
+            node.validate(),
+            Err(UiIrError::InvalidPatch { .. })
+        ));
+
+        value["data"]["key"] = serde_json::json!("event_id");
+        let node: TableV2Node = serde_json::from_value(value.clone()).unwrap();
+        assert!(node.validate().is_ok());
+
+        value["selection_action"] = serde_json::json!("");
+        let node: TableV2Node = serde_json::from_value(value).unwrap();
+        assert!(matches!(
+            node.validate(),
+            Err(UiIrError::InvalidPatch { .. })
+        ));
+    }
+
+    #[test]
+    fn resource_chart_interactions_are_rejected_until_the_host_can_emit_them() {
+        let array_chart: PxChartV2Node = serde_json::from_value(serde_json::json!({
+            "chart": "scatter",
+            "id": "grid",
+            "data": {
+                "source": {"kind": "array_data", "id": "grid", "generation": 1},
+                "roles": {"x": "x", "y": "y"}
+            },
+            "lod": "auto"
+        }))
+        .unwrap();
+        assert!(array_chart.validate().is_ok());
+
+        let surface: PxChartV2Node = serde_json::from_value(serde_json::json!({
+            "chart": "surface",
+            "id": "surface",
+            "data": {"source": {"kind": "array_data", "id": "grid", "generation": 1}},
+            "lod": "auto",
+            "viewport_action": "camera-changed"
+        }))
+        .unwrap();
+        assert!(surface.validate().is_ok());
+
+        for lod in ["auto", "off", "aggressive"] {
+            let value = serde_json::json!({
+                "chart": "heatmap",
+                "id": "grid",
+                "data": {"source": {"kind": "array_data", "id": "grid", "generation": 1}},
+                "lod": lod,
+            });
+            let node: PxChartV2Node = serde_json::from_value(value).unwrap();
+            assert!(node.validate().is_ok(), "LOD {lod} should validate");
+        }
+        let table_grid: PxChartV2Node = serde_json::from_value(serde_json::json!({
+            "chart": "heatmap",
+            "id": "grid",
+            "data": {"source": {"kind": "dataset", "id": "events", "generation": 1}},
+            "lod": "auto",
+        }))
+        .unwrap();
+        assert!(matches!(
+            table_grid.validate(),
+            Err(UiIrError::InvalidPatch { .. })
+        ));
+
+        let mut value = serde_json::json!({
+            "chart": "scatter",
+            "id": "points",
+            "data": {
+                "source": {"kind": "dataset", "id": "events", "generation": 1},
+                "roles": {"x": "frequency", "y": "spl"}
+            },
+            "lod": "auto",
+            "selection_action": "selected"
+        });
+        let node: PxChartV2Node = serde_json::from_value(value.clone()).unwrap();
+        assert!(matches!(
+            node.validate(),
+            Err(UiIrError::InvalidPatch { .. })
+        ));
+
+        value["data"]["source"]["key"] = serde_json::json!("event_id");
+        let node: PxChartV2Node = serde_json::from_value(value.clone()).unwrap();
+        assert!(matches!(
+            node.validate(),
+            Err(UiIrError::InvalidPatch { .. })
+        ));
+
+        value["data"]["roles"]["row_id"] = serde_json::json!("event_id");
+        let node: PxChartV2Node = serde_json::from_value(value.clone()).unwrap();
+        assert!(node.validate().is_ok());
+
+        value["selection_action"] = serde_json::json!("");
+        let node: PxChartV2Node = serde_json::from_value(value).unwrap();
+        assert!(matches!(
+            node.validate(),
+            Err(UiIrError::InvalidPatch { .. })
+        ));
+    }
+
+    #[test]
+    fn categorical_resource_charts_require_label_and_value_roles() {
+        let valid: PxChartV2Node = serde_json::from_value(serde_json::json!({
+            "chart": "bar",
+            "id": "levels",
+            "data": {
+                "source": {"kind": "dataset", "id": "levels", "generation": 1},
+                "roles": {"label": "band", "y": "level"}
+            },
+            "lod": "auto",
+            "legend_position": "hidden",
+            "annotations": [{
+                "id": "mid", "label": "Mid band", "target": "category",
+                "x": null, "y": null, "category": "Mid", "color": "#ff0000",
+                "series_index": null
+            }]
+        }))
+        .unwrap();
+        assert!(valid.validate().is_ok());
+
+        let missing_label: PxChartV2Node = serde_json::from_value(serde_json::json!({
+            "chart": "bar",
+            "id": "levels",
+            "data": {
+                "source": {"kind": "dataset", "id": "levels", "generation": 1},
+                "roles": {"y": "level"}
+            },
+            "lod": "auto"
+        }))
+        .unwrap();
+        assert!(matches!(
+            missing_label.validate(),
+            Err(UiIrError::InvalidPatch { .. })
+        ));
+
+        let unsupported: PxChartV2Node = serde_json::from_value(serde_json::json!({
+            "chart": "pie",
+            "id": "levels",
+            "data": {
+                "source": {"kind": "dataset", "id": "levels", "generation": 1},
+                "roles": {"label": "band", "y": "level"}
+            },
+            "lod": "auto",
+            "legend_position": "right"
+        }))
+        .unwrap();
+        assert!(matches!(
+            unsupported.validate(),
+            Err(UiIrError::InvalidPatch { .. })
+        ));
+    }
+
+    #[test]
+    fn treemap_resource_chart_accepts_keyed_selection_and_rejects_bad_roles() {
+        let value = serde_json::json!({
+            "chart": "treemap",
+            "id": "bands",
+            "data": {
+                "source": {
+                    "kind": "dataset", "id": "bands", "generation": 1, "key": "id"
+                },
+                "roles": {"row_id": "id", "parent": "parent", "size": "value"}
+            },
+            "lod": "auto",
+            "selection_action": "band-selected",
+            "tiling_method": "binary",
+            "padding": 2.0,
+            "colors": ["#112233", "#abcdef"],
+            "hover": false,
+            "renderer_2d": "vello",
+            "vello_backend": "cpu"
+        });
+        let node: PxChartV2Node = serde_json::from_value(value.clone()).unwrap();
+        assert!(node.validate().is_ok());
+
+        let mut bad_color = value.clone();
+        bad_color["colors"] = serde_json::json!(["red"]);
+        let node: PxChartV2Node = serde_json::from_value(bad_color).unwrap();
+        assert!(matches!(
+            node.validate(),
+            Err(UiIrError::InvalidPatch { .. })
+        ));
+
+        let mut bad_key = value.clone();
+        bad_key["data"]["source"]["key"] = serde_json::json!("other");
+        let node: PxChartV2Node = serde_json::from_value(bad_key).unwrap();
+        assert!(matches!(
+            node.validate(),
+            Err(UiIrError::InvalidPatch { .. })
+        ));
+
+        let mut bad_method = value;
+        bad_method["tiling_method"] = serde_json::json!("spiral");
+        let node: PxChartV2Node = serde_json::from_value(bad_method).unwrap();
+        assert!(matches!(
+            node.validate(),
+            Err(UiIrError::InvalidPatch { .. })
+        ));
+    }
+
+    #[test]
+    fn cartesian_resource_chart_accepts_viewport_events_only() {
+        let value = serde_json::json!({
+            "chart": "scatter",
+            "id": "points",
+            "data": {
+                "source": {"kind": "dataset", "id": "points", "generation": 1},
+                "roles": {"x": "frequency", "y": "spl"}
+            },
+            "lod": "auto",
+            "viewport_action": "viewport-changed"
+        });
+        let node: PxChartV2Node = serde_json::from_value(value.clone()).unwrap();
+        assert!(node.validate().is_ok());
+
+        let mut unsupported = value;
+        unsupported["chart"] = serde_json::json!("bar");
+        let node: PxChartV2Node = serde_json::from_value(unsupported).unwrap();
+        assert!(matches!(
+            node.validate(),
+            Err(UiIrError::InvalidPatch { .. })
+        ));
+    }
+
+    #[test]
+    fn line_resource_chart_accepts_secondary_axis_series() {
+        let value = serde_json::json!({
+            "chart": "line",
+            "id": "dual-axis",
+            "data": {
+                "source": {"kind": "dataset", "id": "dual-axis", "generation": 1},
+                "roles": {
+                    "x": "frequency",
+                    "y": "level",
+                    "y2": "phase",
+                    "series": "channel",
+                    "color": "channel",
+                    "dash": "channel"
+                }
+            },
+            "lod": "auto",
+            "y2_label": "Phase (degrees)",
+            "y2_range": [-180.0, 180.0],
+            "renderer_2d": "legacy",
+            "vello_backend": "cpu",
+            "graph_ratio": 0.75,
+            "hidden_series": [1],
+            "legend_action": "series-toggled"
+        });
+        let node: PxChartV2Node = serde_json::from_value(value.clone()).unwrap();
+        assert!(node.validate().is_ok());
+
+        let mut invalid = value;
+        invalid["chart"] = serde_json::json!("scatter");
+        let node: PxChartV2Node = serde_json::from_value(invalid).unwrap();
+        assert!(matches!(
+            node.validate(),
+            Err(UiIrError::InvalidPatch { .. })
+        ));
+    }
+
+    #[test]
+    fn validates_contour_and_isoline_sampling_configuration() {
+        let value = serde_json::json!({
+            "chart": "isoline",
+            "id": "levels",
+            "data": {
+                "source": {"kind": "array_data", "id": "grid", "generation": 1},
+                "roles": {}
+            },
+            "lod": "auto",
+            "contour_upsample_factor": 4,
+            "smooth_strokes": true,
+            "smoothing_iterations": 3,
+            "smoothing_max_deviation_px": 1.25
+        });
+        let node: PxChartV2Node = serde_json::from_value(value.clone()).unwrap();
+        assert!(node.validate().is_ok());
+
+        let mut invalid_factor = value.clone();
+        invalid_factor["contour_upsample_factor"] = serde_json::json!(9);
+        let node: PxChartV2Node = serde_json::from_value(invalid_factor).unwrap();
+        assert!(matches!(
+            node.validate(),
+            Err(UiIrError::InvalidPatch { .. })
+        ));
+
+        let mut wrong_kind = value;
+        wrong_kind["chart"] = serde_json::json!("contour");
+        let node: PxChartV2Node = serde_json::from_value(wrong_kind).unwrap();
+        assert!(matches!(
+            node.validate(),
+            Err(UiIrError::InvalidPatch { .. })
+        ));
+    }
+
+    #[test]
+    fn validates_bar_layout_configuration() {
+        let value = serde_json::json!({
+            "chart": "bar",
+            "id": "bars",
+            "data": {
+                "source": {"kind": "dataset", "id": "bar-data", "generation": 1},
+                "roles": {"x": "category", "y": "value"}
+            },
+            "lod": "auto",
+            "bar_gap": 7.5,
+            "border_radius": 4.0
+        });
+        let node: PxChartV2Node = serde_json::from_value(value.clone()).unwrap();
+        assert!(node.validate().is_ok());
+
+        let mut negative = value.clone();
+        negative["bar_gap"] = serde_json::json!(-1.0);
+        let node: PxChartV2Node = serde_json::from_value(negative).unwrap();
+        assert!(matches!(
+            node.validate(),
+            Err(UiIrError::InvalidPatch { .. })
+        ));
+
+        let mut wrong_kind = value;
+        wrong_kind["chart"] = serde_json::json!("line");
+        let node: PxChartV2Node = serde_json::from_value(wrong_kind).unwrap();
+        assert!(matches!(
+            node.validate(),
+            Err(UiIrError::InvalidPatch { .. })
+        ));
+    }
+
+    #[test]
+    fn validates_box_plot_presentation_configuration() {
+        let value = serde_json::json!({
+            "chart": "box_plot",
+            "id": "distribution",
+            "data": {
+                "source": {"kind": "dataset", "id": "box-data", "generation": 1},
+                "roles": {"x": "x", "y": "y"}
+            },
+            "lod": "auto",
+            "box_color": "#abcdef",
+            "median_color": "#112233",
+            "whisker_color": "#445566",
+            "outlier_color": "#778899",
+            "box_opacity": 0.75,
+            "box_width": 24.0,
+            "outlier_radius": 3.5,
+            "bins": 8
+        });
+        let node: PxChartV2Node = serde_json::from_value(value.clone()).unwrap();
+        assert!(node.validate().is_ok());
+
+        let mut invalid_color = value.clone();
+        invalid_color["median_color"] = serde_json::json!("red");
+        let node: PxChartV2Node = serde_json::from_value(invalid_color).unwrap();
+        assert!(matches!(
+            node.validate(),
+            Err(UiIrError::InvalidPatch { .. })
+        ));
+
+        let mut invalid_bins = value.clone();
+        invalid_bins["bins"] = serde_json::json!(0);
+        let node: PxChartV2Node = serde_json::from_value(invalid_bins).unwrap();
+        assert!(matches!(
+            node.validate(),
+            Err(UiIrError::InvalidPatch { .. })
+        ));
+
+        let mut wrong_kind = value;
+        wrong_kind["chart"] = serde_json::json!("line");
+        let node: PxChartV2Node = serde_json::from_value(wrong_kind).unwrap();
+        assert!(matches!(
+            node.validate(),
+            Err(UiIrError::InvalidPatch { .. })
+        ));
+    }
+
+    #[test]
+    fn validates_surface_axis_and_wireframe_configuration() {
+        let value = serde_json::json!({
+            "chart": "surface",
+            "id": "terrain",
+            "data": {
+                "source": {
+                    "kind": "array_data",
+                    "id": "surface-grid",
+                    "generation": 1,
+                    "shape": [3, 4],
+                    "dtype": "f32"
+                },
+                "roles": {}
+            },
+            "lod": "auto",
+            "wireframe": true,
+            "x_log": true,
+            "y_log": true,
+            "z_range": [0.1, 12.0],
+            "x_label": "Longitude",
+            "y_label": "Latitude",
+            "z_label": "Elevation"
+        });
+        let node: PxChartV2Node = serde_json::from_value(value.clone()).unwrap();
+        assert!(node.validate().is_ok());
+
+        let mut invalid_range = value.clone();
+        invalid_range["z_range"] = serde_json::json!([2.0, 1.0]);
+        let node: PxChartV2Node = serde_json::from_value(invalid_range).unwrap();
+        assert!(matches!(
+            node.validate(),
+            Err(UiIrError::InvalidPatch { .. })
+        ));
+
+        let mut wrong_kind = value;
+        wrong_kind["chart"] = serde_json::json!("line");
+        let node: PxChartV2Node = serde_json::from_value(wrong_kind).unwrap();
+        assert!(matches!(
+            node.validate(),
+            Err(UiIrError::InvalidPatch { .. })
+        ));
+    }
+
+    #[test]
+    fn validates_pie_presentation_configuration() {
+        let value = serde_json::json!({
+            "chart": "pie",
+            "id": "share",
+            "data": {
+                "source": {"kind": "dataset", "id": "pie-data", "generation": 1},
+                "roles": {"label": "label", "y": "value"}
+            },
+            "lod": "auto",
+            "colors": ["#112233", "#445566"],
+            "pad_angle": 0.02,
+            "corner_radius": 3.0,
+            "sort": false
+        });
+        let node: PxChartV2Node = serde_json::from_value(value.clone()).unwrap();
+        assert!(node.validate().is_ok());
+
+        let mut invalid_colors = value.clone();
+        invalid_colors["colors"] = serde_json::json!([]);
+        let node: PxChartV2Node = serde_json::from_value(invalid_colors).unwrap();
+        assert!(matches!(
+            node.validate(),
+            Err(UiIrError::InvalidPatch { .. })
+        ));
+
+        let mut wrong_kind = value;
+        wrong_kind["chart"] = serde_json::json!("bar");
+        let node: PxChartV2Node = serde_json::from_value(wrong_kind).unwrap();
+        assert!(matches!(
+            node.validate(),
+            Err(UiIrError::InvalidPatch { .. })
+        ));
+    }
+
+    #[test]
+    fn validates_area_presentation_configuration() {
+        let value = serde_json::json!({
+            "chart": "area",
+            "id": "filled",
+            "data": {
+                "source": {"kind": "dataset", "id": "area-data", "generation": 1},
+                "roles": {"x": "x", "y": "y"}
+            },
+            "lod": "auto",
+            "fill_color": "#336699",
+            "curve": "natural",
+            "x_log": true,
+            "y_log": true
+        });
+        let node: PxChartV2Node = serde_json::from_value(value.clone()).unwrap();
+        assert!(node.validate().is_ok());
+
+        let mut invalid_color = value.clone();
+        invalid_color["fill_color"] = serde_json::json!("blue");
+        let node: PxChartV2Node = serde_json::from_value(invalid_color).unwrap();
+        assert!(matches!(
+            node.validate(),
+            Err(UiIrError::InvalidPatch { .. })
+        ));
+
+        let mut wrong_kind = value;
+        wrong_kind["chart"] = serde_json::json!("scatter");
+        let node: PxChartV2Node = serde_json::from_value(wrong_kind).unwrap();
+        assert!(matches!(
+            node.validate(),
+            Err(UiIrError::InvalidPatch { .. })
+        ));
+    }
+
+    #[test]
+    fn validates_primary_series_color_configuration() {
+        let value = serde_json::json!({
+            "chart": "scatter",
+            "id": "points",
+            "data": {
+                "source": {"kind": "dataset", "id": "points", "generation": 1},
+                "roles": {"x": "x", "y": "y", "color": "group"}
+            },
+            "lod": "auto",
+            "primary_color": "#abcdef"
+        });
+        let node: PxChartV2Node = serde_json::from_value(value.clone()).unwrap();
+        assert!(node.validate().is_ok());
+
+        let mut wrong_kind = value;
+        wrong_kind["chart"] = serde_json::json!("area");
+        let node: PxChartV2Node = serde_json::from_value(wrong_kind).unwrap();
+        assert!(matches!(
+            node.validate(),
+            Err(UiIrError::InvalidPatch { .. })
+        ));
+    }
+
+    #[test]
+    fn validates_dense_grid_axes_and_isoline_color() {
+        let value = serde_json::json!({
+            "chart": "isoline",
+            "id": "levels",
+            "data": {
+                "source": {
+                    "kind": "array_data",
+                    "id": "grid",
+                    "generation": 1,
+                    "shape": [3, 4],
+                    "dtype": "f32"
+                },
+                "roles": {}
+            },
+            "lod": "auto",
+            "x_log": true,
+            "y_log": true,
+            "x_range": [1.0, 4.0],
+            "y_range": [1.0, 3.0],
+            "stroke_color": "#123456"
+        });
+        let node: PxChartV2Node = serde_json::from_value(value.clone()).unwrap();
+        assert!(node.validate().is_ok());
+
+        let mut wrong_kind = value;
+        wrong_kind["chart"] = serde_json::json!("heatmap");
+        let node: PxChartV2Node = serde_json::from_value(wrong_kind).unwrap();
+        assert!(matches!(
+            node.validate(),
             Err(UiIrError::InvalidPatch { .. })
         ));
     }
@@ -3237,32 +4499,6 @@ mod tests {
     }
 
     #[test]
-    fn allows_missing_heatmap_cells_but_rejects_all_missing_grid() {
-        let app: PythonAppIr = serde_json::from_value(serde_json::json!({
-            "title": "Demo",
-            "sections": [{"id": "main", "label": "Main", "content": {
-                "kind": "chart", "id": "field", "chart": "heatmap",
-                "z": [1.0, null, 3.0, 4.0], "width_count": 2, "height_count": 2
-            }}]
-        }))
-        .unwrap();
-        assert!(app.validate().is_ok());
-
-        let all_missing: PythonAppIr = serde_json::from_value(serde_json::json!({
-            "title": "Demo",
-            "sections": [{"id": "main", "label": "Main", "content": {
-                "kind": "chart", "id": "field", "chart": "heatmap",
-                "z": [null, null, null, null], "width_count": 2, "height_count": 2
-            }}]
-        }))
-        .unwrap();
-        assert!(matches!(
-            all_missing.validate(),
-            Err(UiIrError::InvalidPatch { .. })
-        ));
-    }
-
-    #[test]
     fn validates_stepper_navigation_state() {
         let app: PythonAppIr = serde_json::from_value(serde_json::json!({
             "title": "Demo",
@@ -3329,27 +4565,25 @@ mod tests {
     }
 
     #[test]
-    fn validates_chart_lengths() {
-        let app: PythonAppIr = serde_json::from_value(serde_json::json!({
-            "title": "Demo",
+    fn rejects_removed_v1_chart_protocol_at_deserialization() {
+        let error = serde_json::from_value::<PythonAppIr>(serde_json::json!({
+            "title": "legacy",
             "sections": [{
-                "id": "charts",
-                "label": "Charts",
+                "id": "chart",
+                "label": "Chart",
                 "content": {
                     "kind": "chart",
-                    "id": "bad",
-                    "chart": "scatter",
-                    "x": [1.0, 2.0],
-                    "y": [1.0]
+                    "chart": "line",
+                    "id": "legacy-chart",
+                    "x": [1.0],
+                    "y": [2.0]
                 }
             }]
         }))
-        .expect("app ir");
-
-        assert!(matches!(
-            app.validate(),
-            Err(UiIrError::ChartLengthMismatch { .. })
-        ));
+        .unwrap_err();
+        let message = error.to_string();
+        assert!(message.contains("unknown variant `chart`"));
+        assert!(message.contains("px_chart_v2"));
     }
 
     #[test]
@@ -3370,95 +4604,6 @@ mod tests {
             missing_id.validate(),
             Err(UiIrError::EmptySectionId { .. })
         ));
-    }
-
-    #[test]
-    fn validates_bar_and_heatmap_charts() {
-        let bar_missing_values: PythonAppIr = serde_json::from_value(serde_json::json!({
-            "title": "Demo",
-            "sections": [{
-                "id": "bar",
-                "label": "Bar",
-                "content": {"kind": "chart", "id": "bar", "chart": "bar", "categories": ["a"]}
-            }]
-        }))
-        .unwrap();
-        assert!(matches!(
-            bar_missing_values.validate(),
-            Err(UiIrError::MissingChartData {
-                field: "values",
-                ..
-            })
-        ));
-
-        let bar_mismatch: PythonAppIr = serde_json::from_value(serde_json::json!({
-            "title": "Demo",
-            "sections": [{
-                "id": "bar",
-                "label": "Bar",
-                "content": {"kind": "chart", "id": "bar", "chart": "bar", "categories": ["a","b"], "values": [1.0]}
-            }]
-        }))
-        .unwrap();
-        assert!(matches!(
-            bar_mismatch.validate(),
-            Err(UiIrError::ChartLengthMismatch { .. })
-        ));
-
-        let heatmap_bad_dim: PythonAppIr = serde_json::from_value(serde_json::json!({
-            "title": "Demo",
-            "sections": [{
-                "id": "heatmap",
-                "label": "Heatmap",
-                "content": {"kind": "chart", "id": "h", "chart": "heatmap", "z": [1.0,2.0,3.0], "width_count": 2, "height_count": 2}
-            }]
-        }))
-        .unwrap();
-        assert!(matches!(
-            heatmap_bad_dim.validate(),
-            Err(UiIrError::HeatmapDimensionMismatch { .. })
-        ));
-
-        let heatmap_coordinates: PythonAppIr = serde_json::from_value(serde_json::json!({
-            "title": "Demo",
-            "sections": [{"id": "heatmap", "label": "Heatmap", "content": {
-                "kind": "chart", "id": "h", "chart": "heatmap", "z": [0.0, 1.0, 2.0, 3.0],
-                "width_count": 2, "height_count": 2, "x": [20.0], "y": [0.0, 30.0]
-            }}]
-        }))
-        .unwrap();
-        assert!(matches!(
-            heatmap_coordinates.validate(),
-            Err(UiIrError::ChartLengthMismatch { .. })
-        ));
-
-        let nan_series = serde_json::from_value::<PythonAppIr>(serde_json::json!({
-            "title": "Demo",
-            "sections": [{"id": "line", "label": "Line", "content": {
-                "kind": "chart", "id": "line", "chart": "line", "x": [1.0], "y": [null]
-            }}]
-        }));
-        // JSON cannot carry IEEE NaN; malformed/non-number data is rejected at
-        // deserialization before it can reach the renderer.
-        assert!(nan_series.is_err());
-    }
-
-    #[test]
-    fn validates_extended_gpui_px_chart_families() {
-        let app: PythonAppIr = serde_json::from_value(serde_json::json!({
-            "title": "PX",
-            "sections": [
-                {"id": "area", "label": "Area", "content": {"kind": "chart", "id": "area", "chart": "area", "x": [1.0, 2.0], "y": [2.0, 3.0], "y0": [0.0, 0.0]}},
-                {"id": "box", "label": "Box", "content": {"kind": "chart", "id": "box", "chart": "box_plot", "x": [1.0, 1.0], "y": [2.0, 3.0], "num_bins": 1}},
-                {"id": "contour", "label": "Contour", "content": {"kind": "chart", "id": "contour", "chart": "contour", "z": [0.0, 1.0, 2.0, 3.0], "width_count": 2, "height_count": 2, "thresholds": [1.0, 2.0]}},
-                {"id": "isoline", "label": "Isoline", "content": {"kind": "chart", "id": "isoline", "chart": "isoline", "z": [0.0, 1.0, 2.0, 3.0], "width_count": 2, "height_count": 2, "levels": [1.5]}},
-                {"id": "pie", "label": "Pie", "content": {"kind": "chart", "id": "pie", "chart": "pie", "categories": ["A", "B"], "values": [1.0, 2.0]}},
-                {"id": "donut", "label": "Donut", "content": {"kind": "chart", "id": "donut", "chart": "donut", "categories": ["A", "B"], "values": [1.0, 2.0], "inner_radius": 0.5}},
-                {"id": "treemap", "label": "Treemap", "content": {"kind": "chart", "id": "treemap", "chart": "treemap", "treemap": {"name": "root", "children": [{"name": "A", "value": 1.0}]}}}
-            ]
-        }))
-        .unwrap();
-        assert!(app.validate().is_ok());
     }
 
     #[test]
@@ -3698,66 +4843,6 @@ mod tests {
     }
 
     #[test]
-    fn validates_extended_chart_surface() {
-        let app: PythonAppIr = serde_json::from_value(serde_json::json!({
-            "title": "Charts",
-            "sections": [{
-                "id": "charts",
-                "label": "Charts",
-                "content": {
-                    "kind": "chart",
-                    "chart": "line",
-                    "id": "response",
-                    "x": [20.0, 100.0, 1000.0],
-                    "y": [0.0, -1.0, 2.0],
-                    "curve": "monotone_x",
-                    "dash": "dashed",
-                    "legend_position": "bottom",
-                    "y2_label": "Phase",
-                    "y2_range": [-180.0, 180.0],
-                    "series": [{
-                        "id": "phase",
-                        "x": [20.0, 100.0, 1000.0],
-                        "y": [10.0, 20.0, 30.0],
-                        "opacity": 0.5,
-                        "secondary_y": true,
-                        "dash": "dash_dot"
-                    }],
-                    "annotations": [{
-                        "id": "crossover",
-                        "label": "Crossover",
-                        "target": "x_value",
-                        "x": 1000.0
-                    }]
-                }
-            }]
-        }))
-        .unwrap();
-        assert!(app.validate().is_ok());
-
-        let invalid: PythonAppIr = serde_json::from_value(serde_json::json!({
-            "title": "Charts",
-            "sections": [{
-                "id": "charts",
-                "label": "Charts",
-                "content": {
-                    "kind": "chart",
-                    "chart": "line",
-                    "id": "response",
-                    "x": [0.0, 1.0],
-                    "y": [0.0, 1.0],
-                    "curve": "unsupported"
-                }
-            }]
-        }))
-        .unwrap();
-        assert!(matches!(
-            invalid.validate(),
-            Err(UiIrError::InvalidPatch { .. })
-        ));
-    }
-
-    #[test]
     fn validates_slider_ranges_and_steps() {
         let app: PythonAppIr = serde_json::from_value(serde_json::json!({
             "title": "Demo",
@@ -3822,53 +4907,6 @@ mod tests {
             ])
             .unwrap_err();
         assert!(matches!(error, UiIrError::UnknownNodeId { .. }));
-        assert_eq!(app, before);
-    }
-
-    #[test]
-    fn chart_series_patches_use_stable_series_ids() {
-        let mut app: PythonAppIr = serde_json::from_value(serde_json::json!({
-            "title": "Demo",
-            "sections": [{"id": "charts", "label": "Charts", "content": {
-                "kind": "chart", "id": "response", "chart": "line",
-                "series": [{"id": "measured", "x": [20.0], "y": [0.0]}]
-            }}]
-        }))
-        .unwrap();
-        app.apply_patch_ops(&[crate::session::PatchOp::AppendChartSeries {
-            chart_id: "response".into(),
-            series_id: "measured".into(),
-            x: vec![100.0],
-            y: vec![1.5],
-        }])
-        .unwrap();
-        let json = serde_json::to_value(&app).unwrap();
-        assert_eq!(
-            json["sections"][0]["content"]["series"][0]["x"],
-            serde_json::json!([20.0, 100.0])
-        );
-
-        app.apply_patch_ops(&[crate::session::PatchOp::ReplaceChartSeries {
-            chart_id: "response".into(),
-            series: serde_json::json!({"id": "measured", "x": [50.0], "y": [-1.0], "label": "Latest"}),
-        }])
-        .unwrap();
-        let json = serde_json::to_value(&app).unwrap();
-        assert_eq!(
-            json["sections"][0]["content"]["series"][0]["label"],
-            "Latest"
-        );
-
-        let before = app.clone();
-        assert!(matches!(
-            app.apply_patch_ops(&[crate::session::PatchOp::AppendChartSeries {
-                chart_id: "response".into(),
-                series_id: "measured".into(),
-                x: vec![1.0],
-                y: vec![],
-            }]),
-            Err(UiIrError::ChartLengthMismatch { .. })
-        ));
         assert_eq!(app, before);
     }
 
@@ -4190,69 +5228,6 @@ mod tests {
     }
 
     #[test]
-    fn chart_patch_operations_reject_malformed_targets_and_series() {
-        use crate::session::PatchOp;
-
-        let base = |content: Value| serde_json::json!({"sections": [{"content": content}]});
-        let replacement = |series: Value| PatchOp::ReplaceChartSeries {
-            chart_id: "chart".into(),
-            series,
-        };
-        let append = || PatchOp::AppendChartSeries {
-            chart_id: "chart".into(),
-            series_id: "series".into(),
-            x: vec![1.0],
-            y: vec![2.0],
-        };
-
-        let cases = [
-            (
-                base(serde_json::json!({"kind": "text", "id": "chart", "text": "x"})),
-                replacement(serde_json::json!({"id": "series"})),
-            ),
-            (
-                base(serde_json::json!({"kind": "chart", "id": "chart", "series": []})),
-                replacement(serde_json::json!({"x": [], "y": []})),
-            ),
-            (
-                base(serde_json::json!({"kind": "chart", "id": "chart", "series": "bad"})),
-                replacement(serde_json::json!({"id": "series"})),
-            ),
-            (
-                base(serde_json::json!({"kind": "chart", "id": "chart", "series": []})),
-                replacement(serde_json::json!({"id": "series"})),
-            ),
-            (
-                base(serde_json::json!({"kind": "text", "id": "chart", "text": "x"})),
-                append(),
-            ),
-            (
-                base(serde_json::json!({"kind": "chart", "id": "chart", "series": "bad"})),
-                append(),
-            ),
-            (
-                base(serde_json::json!({"kind": "chart", "id": "chart", "series": []})),
-                append(),
-            ),
-            (
-                base(
-                    serde_json::json!({"kind": "chart", "id": "chart", "series": [{"id": "series", "x": "bad", "y": []}]}),
-                ),
-                append(),
-            ),
-            (
-                base(
-                    serde_json::json!({"kind": "chart", "id": "chart", "series": [{"id": "series", "x": [], "y": "bad"}]}),
-                ),
-                append(),
-            ),
-        ];
-        for (mut tree, operation) in cases {
-            assert!(apply_patch_op(&mut tree, &operation).is_err());
-        }
-    }
-
-    #[test]
     fn nested_form_targets_cover_every_retained_container_and_control() {
         let fixtures = [
             (
@@ -4349,34 +5324,6 @@ mod tests {
         ];
         for content in invalid {
             assert_invalid_content(content);
-        }
-    }
-
-    #[test]
-    fn rejects_invalid_chart_shapes_annotations_and_options() {
-        let invalid = [
-            serde_json::json!({"kind": "chart", "id": "line", "chart": "line", "x": [1.0], "y": [1.0], "aspect_ratio": 0.0}),
-            serde_json::json!({"kind": "chart", "id": "line", "chart": "line", "x": [1.0], "y": [1.0], "color_scale": "turbo"}),
-            serde_json::json!({"kind": "chart", "id": "line", "chart": "line", "x": [1.0], "y": [1.0], "annotations": [{"id": "a", "label": "A", "target": "x_value"}]}),
-            serde_json::json!({"kind": "chart", "id": "line", "chart": "line", "series": [{"id": "", "x": [1.0], "y": [1.0]}]}),
-            serde_json::json!({"kind": "chart", "id": "line", "chart": "line", "series": [{"id": "s", "x": [1.0], "y": []}]}),
-            serde_json::json!({"kind": "chart", "id": "line", "chart": "line", "series": [{"id": "s", "x": [1.0], "y": [1.0], "opacity": 2.0}]}),
-            serde_json::json!({"kind": "chart", "id": "bar", "chart": "bar", "categories": ["A", "B"], "series": [{"id": "s", "x": [], "y": [1.0]}]}),
-            serde_json::json!({"kind": "chart", "id": "heat", "chart": "heatmap", "z": [1.0, 2.0, 3.0, 4.0], "width_count": 2, "height_count": 2, "x": [2.0, 1.0], "y": [1.0, 2.0]}),
-            serde_json::json!({"kind": "chart", "id": "heat", "chart": "heatmap", "z": [1.0, 2.0, 3.0, 4.0], "width_count": 2, "height_count": 2, "x": [1.0, 2.0], "y": [2.0, 1.0]}),
-            serde_json::json!({"kind": "chart", "id": "area", "chart": "area", "x": [1.0, 2.0], "y": [1.0, 2.0], "y0": [0.0]}),
-            serde_json::json!({"kind": "chart", "id": "pie", "chart": "pie", "categories": ["A"], "values": [1.0, 2.0]}),
-            serde_json::json!({"kind": "chart", "id": "donut", "chart": "donut", "categories": ["A"], "values": [1.0], "inner_radius": 1.5}),
-            serde_json::json!({"kind": "chart", "id": "tree", "chart": "treemap", "treemap": {"name": "root", "value": -1.0}}),
-            serde_json::json!({"kind": "chart", "id": "tree", "chart": "treemap", "treemap": {"name": "root", "value": 1.0}, "padding": -1.0}),
-            serde_json::json!({"kind": "chart", "id": "line", "chart": "line", "x": [1.0], "y": [1.0], "opacity": 2.0}),
-        ];
-        for (index, content) in invalid.into_iter().enumerate() {
-            let result = app_with_content(content).validate();
-            assert!(
-                result.is_err(),
-                "chart fixture {index} unexpectedly returned {result:?}"
-            );
         }
     }
 }

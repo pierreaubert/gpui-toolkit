@@ -21,6 +21,7 @@ dist/
 /*.csv
 /*.html
 /*.json
+!/python-rustdoc-inventory.json
 /*.json.bz2
 /todos.md
 /docs

@@ -102,6 +102,13 @@ class MeshFrame:
     shape: tuple[int, ...]
     payload: bytes
 
+    @property
+    def checksum(self) -> int:
+        checksum = 0xCBF29CE484222325
+        for byte in self.payload:
+            checksum = ((checksum ^ byte) * 0x100000001B3) & 0xFFFFFFFFFFFFFFFF
+        return checksum
+
     def header(self) -> dict[str, object]:
         return {
             "type": "mesh_frame",
@@ -113,6 +120,7 @@ class MeshFrame:
             "dtype": self.dtype.value,
             "shape": list(self.shape),
             "byte_length": len(self.payload),
+            "checksum": self.checksum,
         }
 
     def expected_bytes(self) -> int:
@@ -166,6 +174,13 @@ class MeshFrame:
             payload=bytes(payload),
         )
         frame.validate()
+        declared_checksum = decoded.get("checksum")
+        if (
+            not isinstance(declared_checksum, int)
+            or isinstance(declared_checksum, bool)
+            or declared_checksum != frame.checksum
+        ):
+            raise ValueError("mesh frame checksum does not match payload")
         return frame
 
 

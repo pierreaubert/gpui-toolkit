@@ -22,6 +22,12 @@ use std::time::{Duration, Instant};
 
 type SharedResult<T> = Arc<Mutex<Option<Result<T, Box<dyn Error + Send + Sync>>>>>;
 
+#[derive(Clone)]
+struct MmapSessionConfig {
+    directory: PathBuf,
+    token: String,
+}
+
 /// Supervised persistent Python child. Stdout and stderr are drained on helper
 /// threads, so neither a chatty application nor a stalled GPUI frame can block
 /// the child process on a full pipe.
@@ -36,6 +42,8 @@ pub(super) struct PythonSession {
     pub stderr: Arc<Mutex<Vec<String>>>,
     event_sequence: Arc<AtomicU64>,
     wake: PythonSessionWake,
+    /// Owns and crash-cleans all mmap publication files for this session.
+    _resource_directory: tempfile::TempDir,
 }
 
 /// A zero-allocation bridge from the blocking stdout reader to GPUI's async
@@ -239,10 +247,34 @@ pub(super) fn spawn_python_session() -> Result<PythonSession, Box<dyn Error + Se
 fn spawn_python_session_for_script(
     script: PathBuf,
 ) -> Result<PythonSession, Box<dyn Error + Send + Sync>> {
+    let resource_directory = tempfile::Builder::new()
+        .prefix("gpui-toolkit-resource-")
+        .rand_bytes(32)
+        .tempdir()?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(
+            resource_directory.path(),
+            std::fs::Permissions::from_mode(0o700),
+        )?;
+    }
+    let resource_token = resource_directory
+        .path()
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or("resource directory name is not UTF-8")?
+        .to_owned();
+    let mmap_config = MmapSessionConfig {
+        directory: resource_directory.path().to_path_buf(),
+        token: resource_token.clone(),
+    };
     let mut child = Command::new(python_executable())
         .arg(&script)
         .env("GPUI_TOOLKIT_SESSION", "1")
         .env("PYTHONPATH", python_path(&script))
+        .env("GPUI_TOOLKIT_RESOURCE_DIR", resource_directory.path())
+        .env("GPUI_TOOLKIT_RESOURCE_TOKEN", resource_token)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -262,7 +294,7 @@ fn spawn_python_session_for_script(
     let wake = PythonSessionWake::new();
     let reader_wake = wake.clone();
     std::thread::spawn(move || {
-        read_python_messages(BufReader::new(stdout), tx, reader_wake);
+        read_python_messages_with_mmap(BufReader::new(stdout), tx, reader_wake, Some(mmap_config));
     });
     let stderr_lines = Arc::new(Mutex::new(Vec::new()));
     let stderr_sink = stderr_lines.clone();
@@ -283,13 +315,58 @@ fn spawn_python_session_for_script(
         stderr: stderr_lines,
         event_sequence: Arc::new(AtomicU64::new(0)),
         wake,
+        _resource_directory: resource_directory,
     })
 }
 
 fn read_python_messages<R: BufRead>(
+    reader: R,
+    tx: SyncSender<Result<PythonMessage, String>>,
+    reader_wake: PythonSessionWake,
+) {
+    read_python_messages_with_mmap(reader, tx, reader_wake, None);
+}
+
+fn prepare_mapped_frame(
+    frame: &mut gpui_python_runtime::dataset_frames::MappedDatasetFrame,
+    config: Option<&MmapSessionConfig>,
+) -> Result<(), String> {
+    let config = config.ok_or_else(|| {
+        "Python requested mmap transport outside a negotiated session".to_string()
+    })?;
+    if frame.session_token != config.token {
+        return Err("Python mmap session token does not match".into());
+    }
+    frame
+        .validate_header()
+        .map_err(|error| format!("invalid Python mmap frame header: {error}"))?;
+    let relative = Path::new(&frame.filename);
+    let mut components = relative.components();
+    if !matches!(components.next(), Some(std::path::Component::Normal(_)))
+        || components.next().is_some()
+    {
+        return Err("Python mmap frame filename is not local".into());
+    }
+    let path = config.directory.join(relative);
+    let payload = gpui_python_runtime::dataset_frames::MappedDatasetPayload::map_file(
+        &path,
+        frame.byte_length,
+    )
+    .map_err(|error| {
+        let _ = std::fs::remove_file(&path);
+        format!("invalid Python mmap frame: {error}")
+    })?;
+    frame.payload = Some(Arc::new(payload));
+    frame
+        .validate()
+        .map_err(|error| format!("invalid Python mmap frame: {error}"))
+}
+
+fn read_python_messages_with_mmap<R: BufRead>(
     mut reader: R,
     tx: SyncSender<Result<PythonMessage, String>>,
     reader_wake: PythonSessionWake,
+    mmap_config: Option<MmapSessionConfig>,
 ) {
     let mut line = Vec::new();
     loop {
@@ -351,6 +428,33 @@ fn read_python_messages<R: BufRead>(
                 reader_wake.notify();
                 return;
             }
+        } else if let PythonMessage::DatasetFrame(frame) = &mut parsed {
+            if frame.byte_length > gpui_python_runtime::dataset_frames::MAX_DATASET_FRAME_BYTES {
+                let _ = tx.send(Err("Python dataset frame exceeds maximum size".into()));
+                reader_wake.notify();
+                return;
+            }
+            frame.payload.resize(frame.byte_length, 0);
+            if let Err(error) = reader.read_exact(&mut frame.payload) {
+                let _ = tx.send(Err(format!("truncated Python dataset frame: {error}")));
+                reader_wake.notify();
+                return;
+            }
+            let mut delimiter = [0_u8; 1];
+            if reader.read_exact(&mut delimiter).is_err() || delimiter[0] != b'\n' {
+                let _ = tx.send(Err("Python dataset frame missing its delimiter".into()));
+                reader_wake.notify();
+                return;
+            }
+            if let Err(error) = frame.validate() {
+                let _ = tx.send(Err(format!("invalid Python dataset frame: {error}")));
+                reader_wake.notify();
+            }
+        } else if let PythonMessage::MappedDatasetFrame(frame) = &mut parsed {
+            if let Err(error) = prepare_mapped_frame(frame, mmap_config.as_ref()) {
+                let _ = tx.send(Err(error));
+                reader_wake.notify();
+            }
         } else if let PythonMessage::MeshFrame(frame) = &mut parsed {
             let byte_length = frame.payload.len();
             if byte_length > gpui_python_runtime::mesh_frames::MAX_MESH_FRAME_BYTES {
@@ -377,7 +481,6 @@ fn read_python_messages<R: BufRead>(
                 // newline-delimited stream is still synchronized. Keep the
                 // session alive and allow a later generation or heartbeat to
                 // recover after a frame-local validation error.
-                continue;
             }
         }
         if tx.send(Ok(parsed)).is_err() {
@@ -430,6 +533,78 @@ for line in sys.stdin:
         );
         let _ = std::fs::remove_file(script);
         let _ = std::fs::remove_file(marker);
+    }
+
+    #[test]
+    fn spawned_python_session_publishes_through_private_mmap_directory() {
+        let directory = tempfile::tempdir().unwrap();
+        let script = directory.path().join("mmap_probe.py");
+        std::fs::write(
+            &script,
+            r#"import json
+import os
+import sys
+
+for line in sys.stdin:
+    message = json.loads(line)
+    if message.get("type") == "initialize":
+        payload = b"cross-process-mmap"
+        filename = "resource.bin"
+        path = os.path.join(os.environ["GPUI_TOOLKIT_RESOURCE_DIR"], filename)
+        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(payload)
+        checksum = 0xCBF29CE484222325
+        for byte in payload:
+            checksum = ((checksum ^ byte) * 0x100000001B3) & 0xFFFFFFFFFFFFFFFF
+        print(json.dumps({
+            "type": "mapped_dataset_frame",
+            "resource_id": "probe",
+            "generation": 1,
+            "sequence": 0,
+            "chunk_count": 1,
+            "byte_length": len(payload),
+            "schema_fingerprint": "probe-schema",
+            "checksum": checksum,
+            "filename": filename,
+            "session_token": os.environ["GPUI_TOOLKIT_RESOURCE_TOKEN"],
+        }), flush=True)
+    elif message.get("type") == "shutdown":
+        break
+"#,
+        )
+        .unwrap();
+        let session = spawn_python_session_for_script(script).unwrap();
+        let resource_directory = session._resource_directory.path().to_path_buf();
+        session
+            .send(&HostMessage::Initialize(
+                gpui_python_runtime::session::Initialize {
+                    session_version: gpui_python_runtime::session::PYTHON_APP_SESSION_VERSION,
+                    capabilities: DEFAULT_HOST_CAPABILITIES
+                        .iter()
+                        .map(|value| (*value).into())
+                        .collect(),
+                    platform: std::env::consts::OS.into(),
+                    theme: "system".into(),
+                    window: gpui_python_runtime::session::WindowMetadata {
+                        width: 320.0,
+                        height: 200.0,
+                        scale_factor: 1.0,
+                    },
+                },
+            ))
+            .unwrap();
+        let PythonMessage::MappedDatasetFrame(frame) = session.recv().unwrap() else {
+            panic!("expected mmap frame from spawned Python process");
+        };
+        assert_eq!(
+            frame.payload.expect("mapped payload").as_slice(),
+            b"cross-process-mmap"
+        );
+        assert_eq!(std::fs::read_dir(&resource_directory).unwrap().count(), 0);
+        session.shutdown();
+        drop(session);
+        assert!(!resource_directory.exists());
     }
 
     #[test]
@@ -512,6 +687,7 @@ for line in sys.stdin:
             "dtype": "u64le",
             "shape": [2],
             "byte_length": 8,
+            "checksum": 0,
         });
         let mut stream = serde_json::to_vec(&header).unwrap();
         stream.extend_from_slice(b"\n12345678\n");
@@ -523,6 +699,11 @@ for line in sys.stdin:
         assert!(matches!(
             malformed,
             Err(message) if message.contains("invalid Python mesh frame")
+        ));
+        let forwarded = rx.recv().expect("rejected frame forwarding");
+        assert!(matches!(
+            forwarded,
+            Ok(PythonMessage::MeshFrame(frame)) if frame.validate().is_err()
         ));
         assert_eq!(
             rx.recv().expect("message after invalid frame"),
@@ -575,6 +756,91 @@ for line in sys.stdin:
                 generation: 3,
             })
         );
+    }
+
+    #[test]
+    fn reader_maps_session_resource_and_unlinks_publication_file() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("resource.bin");
+        let payload = b"mapped-values";
+        std::fs::write(&path, payload).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        }
+        let config = MmapSessionConfig {
+            directory: directory.path().to_path_buf(),
+            token: "session-token".into(),
+        };
+        let header = serde_json::json!({
+            "type": "mapped_dataset_frame",
+            "resource_id": "events",
+            "generation": 4,
+            "sequence": 0,
+            "chunk_count": 1,
+            "byte_length": payload.len(),
+            "schema_fingerprint": "events-v4",
+            "checksum": gpui_python_runtime::dataset_frames::DatasetFrame::checksum(payload),
+            "filename": "resource.bin",
+            "session_token": "session-token",
+        });
+        let mut stream = serde_json::to_vec(&header).unwrap();
+        stream.push(b'\n');
+        let (tx, rx) = mpsc::sync_channel(4);
+        read_python_messages_with_mmap(
+            Cursor::new(stream),
+            tx,
+            PythonSessionWake::new(),
+            Some(config),
+        );
+
+        let Ok(PythonMessage::MappedDatasetFrame(frame)) = rx.recv().expect("mapped dataset frame")
+        else {
+            panic!("expected mapped dataset frame");
+        };
+        assert_eq!(
+            frame.payload.expect("mapped payload").as_slice(),
+            payload.as_slice()
+        );
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn reader_rejects_mmap_frame_from_another_session() {
+        let directory = tempfile::tempdir().unwrap();
+        let header = serde_json::json!({
+            "type": "mapped_dataset_frame",
+            "resource_id": "events",
+            "generation": 1,
+            "sequence": 0,
+            "chunk_count": 1,
+            "byte_length": 8,
+            "schema_fingerprint": "events-v1",
+            "checksum": 0,
+            "filename": "resource.bin",
+            "session_token": "foreign-token",
+        });
+        let mut stream = serde_json::to_vec(&header).unwrap();
+        stream.push(b'\n');
+        let (tx, rx) = mpsc::sync_channel(4);
+        read_python_messages_with_mmap(
+            Cursor::new(stream),
+            tx,
+            PythonSessionWake::new(),
+            Some(MmapSessionConfig {
+                directory: directory.path().to_path_buf(),
+                token: "local-token".into(),
+            }),
+        );
+        assert!(matches!(
+            rx.recv().expect("session token diagnostic"),
+            Err(message) if message.contains("session token does not match")
+        ));
+        assert!(matches!(
+            rx.recv().expect("rejected frame forwarded for acknowledgement"),
+            Ok(PythonMessage::MappedDatasetFrame(frame)) if frame.payload.is_none()
+        ));
     }
 }
 

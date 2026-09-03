@@ -46,9 +46,19 @@ native-qa = [
     "dep:gpui_macos",
     "gpui_macos/test-support",
 ]
+python-extension = [
+    "dep:pyo3",
+    "dep:gpui-d3rs",
+    "dep:gpui-px",
+    "gpui-px/gpui",
+    "gpui-px/gpu-2d",
+]
 spinorama = ["gpui-px?/spinorama"]
 tokio = ["gpui-px?/tokio"]
 urlencoding = ["gpui-px?/urlencoding"]
+
+[lib]
+crate-type = ["rlib", "cdylib"]
 
 [dependencies]
 gpui = { workspace = true, optional = true }
@@ -69,6 +79,13 @@ glam = { workspace = true, optional = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
+arrow-array = { workspace = true }
+arrow-cast = { workspace = true }
+arrow-ipc = { workspace = true }
+memmap2 = { workspace = true }
+tempfile = { workspace = true }
+libc = { workspace = true }
+pyo3 = { version = "0.25", features = ["abi3-py310", "extension-module"], optional = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 security-framework = { workspace = true }

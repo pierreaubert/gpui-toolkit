@@ -30,6 +30,10 @@ class Click(Event):
 @dataclass(frozen=True)
 class Selection(Event):
     @property
+    def selected_keys(self) -> tuple[str, ...]:
+        return tuple(str(value) for value in (self.payload or {}).get("keys", ()))
+
+    @property
     def selected_id(self) -> str | None:
         return (self.payload or {}).get("row_id") or (self.payload or {}).get("object_id")
 
@@ -67,6 +71,44 @@ class Selection(Event):
     def field_id(self) -> str | None:
         return (self.payload or {}).get("field_id")
 
+
+@dataclass(frozen=True)
+class Viewport(Event):
+    @property
+    def x_range(self) -> tuple[float, float] | None:
+        value = (self.payload or {}).get("x")
+        return None if value is None else (float(value[0]), float(value[1]))
+
+    @property
+    def y_range(self) -> tuple[float, float] | None:
+        value = (self.payload or {}).get("y")
+        return None if value is None else (float(value[0]), float(value[1]))
+
+    @property
+    def camera(self) -> dict[str, Any] | None:
+        value = (self.payload or {}).get("camera")
+        return None if value is None else dict(value)
+
+    @property
+    def camera_distance(self) -> float | None:
+        value = (self.camera or {}).get("distance")
+        return None if value is None else float(value)
+
+    @property
+    def camera_angles(self) -> tuple[float, float] | None:
+        """Return ``(azimuth, elevation)`` in radians when present."""
+        camera = self.camera or {}
+        if "azimuth" not in camera or "elevation" not in camera:
+            return None
+        return (float(camera["azimuth"]), float(camera["elevation"]))
+
+    @property
+    def camera_target(self) -> tuple[float, float, float] | None:
+        value = (self.camera or {}).get("target")
+        if value is None or len(value) != 3:
+            return None
+        return (float(value[0]), float(value[1]), float(value[2]))
+
 @dataclass(frozen=True)
 class ValueChange(Event):
     @property
@@ -75,5 +117,12 @@ class ValueChange(Event):
 
 def specialize(message: dict[str, Any]) -> Event:
     base = Event.from_message(message)
-    event_type = {"click": Click, "select": Selection, "change": ValueChange, "commit": ValueChange}.get(base.event, Event)
+    event_type = {
+        "click": Click,
+        "select": Selection,
+        "selection_change": Selection,
+        "viewport_change": Viewport,
+        "change": ValueChange,
+        "commit": ValueChange,
+    }.get(base.event, Event)
     return event_type(**base.__dict__)
