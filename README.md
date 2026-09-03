@@ -281,6 +281,11 @@ let chart = scatter(&x_data, &y_data)
     .build()?;
 ```
 
+## AI policy
+
+Assisted PRs are welcome and did work very well in the past. In this
+repo, models and harnesses are helpful.
+
 ## License
 
 [ISC License](LICENSE)
